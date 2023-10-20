@@ -1,0 +1,30 @@
+{
+  "name": "devtools",
+  "version": "0.0.0",
+  "description": "Browser devtools extension for debugging WebdriverIO tests.",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "lit": "^2.7.6"
+  },
+  "devDependencies": {
+    "@iconify-json/mdi": "^1.1.54",
+    "@types/node": "^20.8.7",
+    "@vue/compiler-sfc": "^3.3.6",
+    "autoprefixer": "^10.4.16",
+    "postcss": "^8.4.31",
+    "postcss-lit": "^1.1.0",
+    "tailwindcss": "^3.3.3",
+    "typescript": "^5.0.2",
+    "unplugin-icons": "^0.17.1",
+    "vite": "^4.4.5",
+    "vue": "^3.3.6"
+  },
+  "author": "",
+  "license": "MIT"
+}
