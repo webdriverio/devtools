@@ -10,7 +10,8 @@
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "dependencies": {
-    "lit": "^2.7.6"
+    "lit": "^2.7.6",
+    "pointer-tracker": "^2.5.3"
   },
   "devDependencies": {
     "@iconify-json/mdi": "^1.1.54",

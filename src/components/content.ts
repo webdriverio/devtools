@@ -7,8 +7,8 @@ export class DevtoolsContent extends Element {
   static styles = [...Element.styles, css`
     :host {
       display: flex;
+      flex-grow: 1;
       height: 100%;
-      width: 67%;
       color: var(--vscode-foreground);
       background-color: var(--vscode-editor-background);
       justify-content: center;
