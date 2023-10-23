@@ -71,19 +71,19 @@ export class ExplorerTestEntry extends Element {
   }
   get testStateIcon () {
     if (this.isRunning) {
-      return html`<icon-mdi-autorenew class="w-4 animate-spin"></icon-mdi-autorenew>`
+      return html`<icon-mdi-autorenew class="w-4 shrink-0 animate-spin"></icon-mdi-autorenew>`
     }
     if (this.hasPassed) {
-      return html`<icon-mdi-check class="w-4 text-chartsGreen"></icon-mdi-check>`
+      return html`<icon-mdi-check class="w-4 shrink-0 text-chartsGreen"></icon-mdi-check>`
     }
     if (this.hasFailed) {
-      return html`<icon-mdi-window-close class="w-4 text-chartsRed"></icon-mdi-window-close>`
+      return html`<icon-mdi-window-close class="w-4 shrink-0 text-chartsRed"></icon-mdi-window-close>`
     }
     if (this.hasSkipped) {
-      return html`<icon-mdi-debug-step-over class="w-4 text-chartsYellow"></icon-mdi-debug-step-over>`
+      return html`<icon-mdi-debug-step-over class="w-4 shrink-0 text-chartsYellow"></icon-mdi-debug-step-over>`
     }
 
-    return html`<icon-mdi-checkbox-blank-circle-outline class="w-4"></icon-mdi-checkbox-blank-circle-outline>`
+    return html`<icon-mdi-checkbox-blank-circle-outline class="w-4 shrink-0"></icon-mdi-checkbox-blank-circle-outline>`
   }
 
   render() {

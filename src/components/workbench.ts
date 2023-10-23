@@ -3,6 +3,7 @@ import { html, css } from "lit";
 import { customElement } from "lit/decorators.js";
 
 import './tabs.js'
+import './workbench/source.js'
 
 @customElement("wdio-devtools-workbench")
 export class DevtoolsWorkbench extends Element {
@@ -23,7 +24,7 @@ export class DevtoolsWorkbench extends Element {
     return html`
       <section class="flex h-[70%] w-full">
         <section class="min-w-[33%]">
-          <wdio-devtools-tabs class="h-full border-r-[1px] border-r-panelBorder">
+          <wdio-devtools-tabs class="h-full flex flex-col border-r-[1px] border-r-panelBorder">
             <wdio-devtools-tab label="Actions">
               Actions tab not yet implemented!
             </wdio-devtools-tab>
@@ -38,7 +39,7 @@ export class DevtoolsWorkbench extends Element {
       </section>
       <wdio-devtools-tabs class="border-t-[1px] border-t-panelBorder">
         <wdio-devtools-tab label="Source">
-          Source tab not yet implemented!
+          <wdio-devtools-source></wdio-devtools-source>
         </wdio-devtools-tab>
         <wdio-devtools-tab label="Log">
           Log tab not yet implemented!

@@ -10,6 +10,9 @@
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "dependencies": {
+    "@codemirror/lang-javascript": "^6.2.1",
+    "@codemirror/theme-one-dark": "^6.1.2",
+    "codemirror": "^6.0.1",
     "lit": "^2.7.6",
     "pointer-tracker": "^2.5.3"
   },

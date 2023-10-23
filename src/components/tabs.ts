@@ -1,6 +1,6 @@
 import { Element } from '@core/element'
-import { html, css, nothing } from "lit";
-import { customElement } from "lit/decorators.js";
+import { html, css, nothing } from "lit"
+import { customElement } from "lit/decorators.js"
 
 const TABS_COMPONENT = 'wdio-devtools-tabs'
 @customElement(TABS_COMPONENT)
@@ -16,8 +16,6 @@ export class DevtoolsTabs extends Element {
       flex-direction: column;
       color: var(--vscode-foreground);
       background-color: var(--vscode-editor-background);
-      justify-content: center;
-      align-items: center;
     }
   `]
 
@@ -78,7 +76,7 @@ export class DevtoolsTabs extends Element {
   render() {
     return html`
       ${this.#tabList.length
-        ? html`<nav class="flex w-full bg-sideBarBackground shadow-md">
+        ? html`<nav class="flex w-full bg-sideBarBackground shadow-md z-10">
           ${this.#tabList.map((tab) => this.#getTabButton(tab))}
         </nav>`
         : nothing
@@ -94,8 +92,6 @@ export class DevtoolsTab extends Element {
   static styles = [...Element.styles, css`
     :host {
       display: none;
-      justify-items: center;
-      align-items: center;
       flex-grow: 1;
     }
 
