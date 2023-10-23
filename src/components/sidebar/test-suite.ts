@@ -1,5 +1,5 @@
 import { Element } from '@core/element'
-import { html, css } from 'lit'
+import { html, css, nothing } from 'lit'
 import { customElement, property, queryAssignedElements, queryAssignedNodes } from 'lit/decorators.js'
 
 import '~icons/mdi/chevron-right'
@@ -7,6 +7,7 @@ import '~icons/mdi/play'
 import '~icons/mdi/stop'
 import '~icons/mdi/eye'
 import '~icons/mdi/collapse-all'
+import '~icons/mdi/expand-all'
 import '~icons/mdi/autorenew'
 import '~icons/mdi/window-close'
 import '~icons/mdi/debug-step-over'
@@ -94,7 +95,7 @@ export class ExplorerTestEntry extends Element {
     const hasNoChildren = this.querySelectorAll('[slot="children"]').length === 0
 
     return html`
-      <section class="block text-sm flex w-full">
+      <section class="block text-sm flex w-full group/sidebar">
         <button class="flex-none pointer px-2 h-8 ${hasNoChildren ? 'hidden' : ''}" @click="${() => this.#toggleEntry() }">
           <icon-mdi-chevron-right class="text-base transition-transform block ${this.#isCollapsed ? 'block rotate-90' : ''}"></icon-mdi-chevron-right>
         </button>
@@ -102,21 +103,21 @@ export class ExplorerTestEntry extends Element {
           ${this.testStateIcon}
           <slot name="label" class="m-2 block flex-initial truncate shrink"></slot>
         </span>
-        <nav class="flex-none flex ml-auto w-[100px] mr-1">
+        <nav class="flex-none flex ml-auto mr-1 transition-opacity opacity-0 group-hover/sidebar:opacity-100">
           ${!this.isRunning
-            ? html`<button class="p-1 rounded hover:bg-toolbarHoverBackground m-1 group">
-              <icon-mdi-play class="group-hover:text-chartsGreen"></icon-mdi-play>
+            ? html`<button class="p-1 rounded hover:bg-toolbarHoverBackground m-1 group/button">
+              <icon-mdi-play class="group-hover/button:text-chartsGreen"></icon-mdi-play>
             </button>`
-            : html`<button class="p-1 rounded hover:bg-toolbarHoverBackground m-1 group">
-              <icon-mdi-stop class="group-hover:text-chartsRed"></icon-mdi-stop>
+            : html`<button class="p-1 rounded hover:bg-toolbarHoverBackground m-1 group/button">
+              <icon-mdi-stop class="group-hover/button:text-chartsRed"></icon-mdi-stop>
             </button>`
           }
           <button class="p-1 rounded hover:bg-toolbarHoverBackground m-1 group">
             <icon-mdi-eye class="group-hover:text-chartsYellow"></icon-mdi-eye>
           </button>
-          <button class="p-1 rounded hover:bg-toolbarHoverBackground m-1 group">
-            <icon-mdi-collapse-all class="group-hover:text-chartsBlue"></icon-mdi-collapse-all>
-          </button>
+          ${!hasNoChildren ? html`<button class="p-1 rounded hover:bg-toolbarHoverBackground m-1 group">
+            <icon-mdi-expand-all class="group-hover:text-chartsBlue"></icon-mdi-expand-all>
+          </button>`: nothing }
         </nav>
       </section>
       <section class="block ml-4 ${this.#isCollapsed ? '' : 'hidden'}">
