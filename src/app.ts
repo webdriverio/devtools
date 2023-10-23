@@ -8,7 +8,7 @@ import { DragController } from './utils/DragController.js'
 
 import './components/header.js'
 import './components/sidebar.js'
-import './components/content.js'
+import './components/workbench.js'
 
 @customElement('wdio-devtools')
 export class WebdriverIODevtoolsApplication extends Element {
@@ -49,7 +49,7 @@ export class WebdriverIODevtoolsApplication extends Element {
       <wdio-devtools-header></wdio-devtools-header>
       <section class="flex h-full w-full relative">
         <wdio-devtools-sidebar style="width: ${this.#drag.x}px"></wdio-devtools-sidebar>
-        <wdio-devtools-content></wdio-devtools-content>
+        <wdio-devtools-workbench></wdio-devtools-workbench>
         <button
           data-dragging=${this.#drag.state}
           style=${styleMap({ left: `${this.#drag.x - 5}px` })}

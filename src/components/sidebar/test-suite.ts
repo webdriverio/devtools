@@ -1,6 +1,6 @@
 import { Element } from '@core/element'
 import { html, css, nothing } from 'lit'
-import { customElement, property, queryAssignedElements, queryAssignedNodes } from 'lit/decorators.js'
+import { customElement, property } from 'lit/decorators.js'
 
 import '~icons/mdi/chevron-right'
 import '~icons/mdi/play'
@@ -44,11 +44,6 @@ export class ExplorerTestEntry extends Element {
 
   @property({ type: String })
   state?: TestState
-
-  @queryAssignedElements({ slot: 'children' })
-  a?: Node[]
-  @queryAssignedNodes({ slot: 'children' })
-  b?: Node[]
 
   static styles = [...Element.styles, css`
     :host {
