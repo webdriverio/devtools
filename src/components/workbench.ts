@@ -22,10 +22,21 @@ export class DevtoolsWorkbench extends Element {
   render() {
     return html`
       <section class="flex h-[70%] w-full">
-        <div class="w-[50%]">Welcome to the WebdriverIO Devtools</div>
-        <div class="text-gray-500">Select a test file to get started</div>
+        <section class="min-w-[33%]">
+          <wdio-devtools-tabs class="h-full border-r-[1px] border-r-panelBorder">
+            <wdio-devtools-tab label="Actions">
+              Actions tab not yet implemented!
+            </wdio-devtools-tab>
+            <wdio-devtools-tab label="Metadata">
+              Metadata tab not yet implemented!
+            </wdio-devtools-tab>
+          </wdio-devtools-tabs>
+        </section>
+        <section class="text-gray-500 flex items-center justify-center flex-grow">
+          Select a test file to get started
+        </section>
       </section>
-      <wdio-devtools-tabs>
+      <wdio-devtools-tabs class="border-t-[1px] border-t-panelBorder">
         <wdio-devtools-tab label="Source">
           Source tab not yet implemented!
         </wdio-devtools-tab>

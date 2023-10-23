@@ -16,7 +16,6 @@ export class DevtoolsTabs extends Element {
       flex-direction: column;
       color: var(--vscode-foreground);
       background-color: var(--vscode-editor-background);
-      border-top: 1px solid var(--vscode-panel-border)!important;
       justify-content: center;
       align-items: center;
     }
