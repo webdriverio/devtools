@@ -1,17 +1,31 @@
+@import url('./colors.css');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+/**
+ * general styles applied to all elements
+ */
 @layer base {
-  :root {
-    /* For rgb(255 115 179 / <alpha-value>) */
-    --color-primary: 255 115 179;
+  :host {
+    line-height: 1.5;
+    font-weight: 400;
 
-    /* For hsl(198deg 93% 60% / <alpha-value>) */
-    --color-primary: 198deg 93% 60%;
+    color-scheme: light dark;
+    color: var(--vscode-foreground);
+    font-family: var(--vscode-font-family);
 
-    /* For rgba(255, 115, 179, <alpha-value>) */
-    --color-primary: 255, 115, 179;
+    font-synthesis: none;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  :host input {
+    background: var(--vscode-input-background);
+    color: var(--vscode-input-foreground);
   }
 }
 

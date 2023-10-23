@@ -1,0 +1,134 @@
+import { Element } from '@core/element'
+import { html, css } from 'lit'
+import { customElement, property, queryAssignedElements, queryAssignedNodes } from 'lit/decorators.js'
+
+import '~icons/mdi/chevron-right'
+import '~icons/mdi/play'
+import '~icons/mdi/stop'
+import '~icons/mdi/eye'
+import '~icons/mdi/collapse-all'
+import '~icons/mdi/autorenew'
+import '~icons/mdi/window-close'
+import '~icons/mdi/debug-step-over'
+import '~icons/mdi/check'
+import '~icons/mdi/checkbox-blank-circle-outline'
+
+const TEST_SUITE = 'wdio-test-suite'
+@customElement(TEST_SUITE)
+export class ExplorerTestSuite extends Element {
+  static styles = [...Element.styles, css`
+    :host {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+  `]
+
+  render() {
+    return html`<slot></slot>`
+  }
+}
+
+enum TestState {
+  PASSED = 'passed',
+  FAILED = 'failed',
+  RUNNING = 'running',
+  SKIPPED = 'skipped'
+}
+
+const TEST_ENTRY = 'wdio-test-entry'
+@customElement(TEST_ENTRY)
+export class ExplorerTestEntry extends Element {
+  #isCollapsed = false
+
+  @property({ type: String })
+  state?: TestState
+
+  @queryAssignedElements({ slot: 'children' })
+  a?: Node[]
+  @queryAssignedNodes({ slot: 'children' })
+  b?: Node[]
+
+  static styles = [...Element.styles, css`
+    :host {
+      display: block;
+      font-size: 0.8em;
+    }
+  `]
+
+  #toggleEntry() {
+    this.#isCollapsed = !this.#isCollapsed
+    this.requestUpdate()
+  }
+
+  get hasPassed () {
+    return this.state === TestState.PASSED
+  }
+  get hasFailed () {
+    return this.state === TestState.FAILED
+  }
+  get hasSkipped () {
+    return this.state === TestState.SKIPPED
+  }
+  get isRunning () {
+    return this.state === TestState.RUNNING
+  }
+  get testStateIcon () {
+    if (this.isRunning) {
+      return html`<icon-mdi-autorenew class="w-4 animate-spin"></icon-mdi-autorenew>`
+    }
+    if (this.hasPassed) {
+      return html`<icon-mdi-check class="w-4 text-chartsGreen"></icon-mdi-check>`
+    }
+    if (this.hasFailed) {
+      return html`<icon-mdi-window-close class="w-4 text-chartsRed"></icon-mdi-window-close>`
+    }
+    if (this.hasSkipped) {
+      return html`<icon-mdi-debug-step-over class="w-4 text-chartsYellow"></icon-mdi-debug-step-over>`
+    }
+
+    return html`<icon-mdi-checkbox-blank-circle-outline class="w-4"></icon-mdi-checkbox-blank-circle-outline>`
+  }
+
+  render() {
+    const hasNoChildren = this.querySelectorAll('[slot="children"]').length === 0
+
+    return html`
+      <section class="block text-sm flex w-full">
+        <button class="flex-none pointer px-2 h-8 ${hasNoChildren ? 'hidden' : ''}" @click="${() => this.#toggleEntry() }">
+          <icon-mdi-chevron-right class="text-base transition-transform block ${this.#isCollapsed ? 'block rotate-90' : ''}"></icon-mdi-chevron-right>
+        </button>
+        <span class="flex shrink flex-nowrap min-w-0 ${hasNoChildren ? 'pl-9' : ''}">
+          ${this.testStateIcon}
+          <slot name="label" class="m-2 block flex-initial truncate shrink"></slot>
+        </span>
+        <nav class="flex-none flex ml-auto w-[100px] mr-1">
+          ${!this.isRunning
+            ? html`<button class="p-1 rounded hover:bg-toolbarHoverBackground m-1 group">
+              <icon-mdi-play class="group-hover:text-chartsGreen"></icon-mdi-play>
+            </button>`
+            : html`<button class="p-1 rounded hover:bg-toolbarHoverBackground m-1 group">
+              <icon-mdi-stop class="group-hover:text-chartsRed"></icon-mdi-stop>
+            </button>`
+          }
+          <button class="p-1 rounded hover:bg-toolbarHoverBackground m-1 group">
+            <icon-mdi-eye class="group-hover:text-chartsYellow"></icon-mdi-eye>
+          </button>
+          <button class="p-1 rounded hover:bg-toolbarHoverBackground m-1 group">
+            <icon-mdi-collapse-all class="group-hover:text-chartsBlue"></icon-mdi-collapse-all>
+          </button>
+        </nav>
+      </section>
+      <section class="block ml-4 ${this.#isCollapsed ? '' : 'hidden'}">
+        <slot name="children"></slot>
+      </section>
+    `
+  }
+}
+
+declare global {
+  interface HTMLElementTagNameMap {
+    [TEST_SUITE]: ExplorerTestSuite
+    [TEST_ENTRY]: ExplorerTestEntry
+  }
+}

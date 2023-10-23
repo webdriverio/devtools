@@ -1,16 +1,23 @@
-import { LitElement, html } from "lit";
+import { Element } from '@core/element'
+import { html, css } from "lit";
 import { customElement } from "lit/decorators.js";
 
-/**
- * An example element.
- *
- * @slot - This element has a slot
- * @csspart button - The button
- */
 @customElement("wdio-devtools-content")
-export class DevtoolsContent extends LitElement {
+export class DevtoolsContent extends Element {
+  static styles = [...Element.styles, css`
+    :host {
+      display: flex;
+      height: 100%;
+      width: 67%;
+      color: var(--vscode-foreground);
+      background-color: var(--vscode-editor-background);
+      justify-content: center;
+      align-items: center;
+    }
+  `]
+
   render() {
-    return html` I am a content `;
+    return html`I am a content`;
   }
 }
 

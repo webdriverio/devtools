@@ -7,25 +7,21 @@ import './components/header.js'
 import './components/sidebar.js'
 import './components/content.js'
 
-/**
- * An example element.
- *
- * @slot - This element has a slot
- * @csspart button - The button
- */
 @customElement('wdio-devtools')
 export class WebdriverIODevtoolsApplication extends Element {
   static styles = [...Element.styles, css`
     :host {
+      display: flex;
       width: 100%;
-      height: 100%;
+      height: 100vh;
+      flex-wrap: wrap;
     }
   `]
 
   render() {
     return html`
       <wdio-devtools-header></wdio-devtools-header>
-      <section class="flex">
+      <section class="flex h-full w-full">
         <wdio-devtools-sidebar></wdio-devtools-sidebar>
         <wdio-devtools-content></wdio-devtools-content>
       </section>

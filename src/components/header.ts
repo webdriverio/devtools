@@ -6,12 +6,6 @@ import '~icons/custom/logo.svg'
 import '~icons/mdi/white-balance-sunny'
 import '~icons/mdi/moon-waning-crescent'
 
-/**
- * An example element.
- *
- * @slot - This element has a slot
- * @csspart button - The button
- */
 @customElement('wdio-devtools-header')
 export class DevtoolsHeader extends Element {
   #darkMode = window.matchMedia('(prefers-color-scheme: dark)').matches
@@ -29,19 +23,18 @@ export class DevtoolsHeader extends Element {
       align-items: center;
       background: black;
       height: 40px;
+      width: 100%;
     }
   `]
 
   render() {
     return html`
       <icon-custom-logo class="p-2 dark:p-2 h-full"></icon-custom-logo>
-      <h1 class="font-bold">WebdriverIO Devtools</h1>
+      <h1 class="font-bold text-white">WebdriverIO Devtools</h1>
       <nav class="ml-auto mr-2">
         <button class="p-2" @click="${this.#switchMode}">
-          ${this.#darkMode
-            ? html`<icon-mdi-moon-waning-crescent></icon-mdi-moon-waning-crescent>`
-            : html`<icon-mdi-white-balance-sunny></icon-mdi-white-balance-sunny>`
-          }
+          <icon-mdi-moon-waning-crescent class="${this.#darkMode ? 'hidden' : 'show'}"></icon-mdi-moon-waning-crescent>
+          <icon-mdi-white-balance-sunny class="${this.#darkMode ? 'show' : 'hidden'}"></icon-mdi-white-balance-sunny>
         </button>
       </nav>
     `
