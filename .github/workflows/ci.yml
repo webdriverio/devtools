@@ -34,6 +34,8 @@ jobs:
         with:
           version: 8.8.0
           run_install: false
+      - name: 📦 Bundle
+        run: pnpm test
       - name: 🧪 Run Tests
         run: pnpm test
       - name: 🐛 Debug Build
