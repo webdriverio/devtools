@@ -21,10 +21,9 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
     "paths": {
-      "@/*": ["src/*"],
-      "@components/*": ["src/components/*"],
-      "@core/*": ["src/core/*"],
+      "@/*": ["packages/app/src/*"],
+      "@components/*": ["packages/app/src/components/*"],
+      "@core/*": ["packages/app/src/core/*"],
     }
-  },
-  "include": ["src"]
+  }
 }

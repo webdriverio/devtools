@@ -1,0 +1,22 @@
+{
+  "name": "devtools",
+  "version": "0.0.0",
+  "description": "Browser devtools extension for debugging WebdriverIO tests.",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "test": "eslint ."
+  },
+  "dependencies": {
+    "@iconify-json/mdi": "^1.1.54",
+    "@codemirror/lang-javascript": "^6.2.1",
+    "@codemirror/theme-one-dark": "^6.1.2",
+    "codemirror": "^6.0.1",
+    "lit": "^2.7.6",
+    "pointer-tracker": "^2.5.3"
+  },
+  "author": "Christian Bromann <mail@bromann.dev>",
+  "license": "MIT"
+}

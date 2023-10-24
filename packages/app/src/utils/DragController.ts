@@ -1,8 +1,7 @@
 import type { ReactiveController, ReactiveControllerHost } from 'lit'
-import type {
-  Pointer,
-  InputEvent as PtInputEvent,
-} from 'pointer-tracker'
+// @ts-expect-error see https://github.com/GoogleChromeLabs/pointer-tracker/pull/17
+import type { Pointer, InputEvent } from 'pointer-tracker'
+// @ts-expect-error see https://github.com/GoogleChromeLabs/pointer-tracker/pull/17
 import PointerTracker from 'pointer-tracker'
 import type { StyleInfo } from 'lit/directives/style-map.js'
 
@@ -107,16 +106,16 @@ export class DragController implements ReactiveController {
     const updateState = (state: State) => (this.state = state)
 
     this.pointerTracker = new PointerTracker(this.draggableEl, {
-      start(pointer) {
+      start(pointer: any) {
         onDragStart(pointer)
         updateState('dragging')
         host.requestUpdate()
         return true
       },
-      move(previousPointers, changedPointers) {
+      move(previousPointers: any, changedPointers: any) {
         onDrag(previousPointers, changedPointers)
       },
-      end(pointer, ev) {
+      end(pointer: any, ev: Event) {
         onDragEnd(pointer, ev)
         updateState('idle')
         host.requestUpdate()
@@ -194,7 +193,7 @@ export class DragController implements ReactiveController {
     this.handleWindowMove(pointer)
   }
 
-  #onDragEnd = (_pointer: Pointer, ev: PtInputEvent) => {
+  #onDragEnd = (_pointer: Pointer, ev: InputEvent) => {
     const el = ev.target! as HTMLDivElement
     el.removeAttribute('data-state')
   }
