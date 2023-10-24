@@ -10,6 +10,8 @@ import './components/header.js'
 import './components/sidebar.js'
 import './components/workbench.js'
 
+const SIDEBAR_MIN_WIDTH = 200
+
 @customElement('wdio-devtools')
 export class WebdriverIODevtoolsApplication extends Element {
   static styles = [...Element.styles, css`
@@ -18,14 +20,15 @@ export class WebdriverIODevtoolsApplication extends Element {
       width: 100%;
       height: 100vh;
       flex-wrap: wrap;
+      overflow: hidden;
     }
   `]
 
   #drag = new DragController(this, {
     initialPosition: {
-      x: window.innerHeight * .2 // initial width of sidebase is 20% of window
+      x: window.innerWidth * .2 // initial width of sidebase is 20% of window
     },
-    getContainerEl: () => this.window as Element,
+    getContainerEl: () => this.#getWindow(),
     getDraggableEl: () => this.#getDraggableEl(),
     getIsDraggable: () => true,
   })
@@ -44,15 +47,22 @@ export class WebdriverIODevtoolsApplication extends Element {
   @query('section')
   window?: HTMLElement
 
+  async #getWindow() {
+    await this.updateComplete;
+    return this.window as Element
+  }
+
   render() {
     return html`
       <wdio-devtools-header></wdio-devtools-header>
       <section class="flex h-full w-full relative">
-        <wdio-devtools-sidebar style="width: ${this.#drag.x}px"></wdio-devtools-sidebar>
+        <wdio-devtools-sidebar style="width: ${this.#drag.x}px; min-width: ${SIDEBAR_MIN_WIDTH}px"></wdio-devtools-sidebar>
         <wdio-devtools-workbench></wdio-devtools-workbench>
         <button
           data-dragging=${this.#drag.state}
-          style=${styleMap({ left: `${this.#drag.x - 5}px` })}
+          style=${styleMap({
+            left: `${Math.max(this.#drag.x, SIDEBAR_MIN_WIDTH) - 5}px`
+          })}
           class="cursor-col-resize absolute top-0 h-full w-[10px]"></button>
       </section>
     `

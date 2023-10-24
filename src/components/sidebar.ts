@@ -9,7 +9,6 @@ import './sidebar/explorer.js'
 export class DevtoolsSidebar extends Element {
   static styles = [...Element.styles, css`
     :host {
-      width: 33%;
       height: 100%;
       color: var(--vscode-foreground);
       background-color: var(--vscode-sideBar-background);

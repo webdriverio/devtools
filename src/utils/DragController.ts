@@ -1,23 +1,22 @@
-import { ReactiveController, ReactiveControllerHost } from 'lit';
+import { ReactiveController, ReactiveControllerHost } from 'lit'
 import PointerTracker, {
   Pointer,
   InputEvent as PtInputEvent,
-} from 'pointer-tracker';
-import { StyleInfo } from 'lit/directives/style-map.js';
+} from 'pointer-tracker'
+import { StyleInfo } from 'lit/directives/style-map.js'
 
 interface InitialPosition {
-  x?: number;
-  y?: number;
+  x?: number
+  y?: number
 }
 
-type DragControllerHost = HTMLElement & ReactiveControllerHost;
+type DragControllerHost = HTMLElement & ReactiveControllerHost
 
-type GetElFn = () => Element | null;
-type AsyncGetElFn = () => Promise<Element | null>;
+type AsyncGetElFn = () => Element | Promise<Element | null>
 
 interface DragControllerOptions {
   initialPosition: InitialPosition
-  getContainerEl: GetElFn
+  getContainerEl: AsyncGetElFn
   getDraggableEl: AsyncGetElFn
   getIsDraggable?: () => boolean
   horizontal?: boolean
@@ -28,7 +27,7 @@ type State = 'dragging' | 'idle'
 
 const defaultOptions: Required<DragControllerOptions> = {
   initialPosition: {},
-  getContainerEl: () => null,
+  getContainerEl: () => Promise.resolve(null),
   getDraggableEl: () => Promise.resolve(null),
   getIsDraggable: () => true,
   horizontal: true,
@@ -45,7 +44,7 @@ export class DragController implements ReactiveController {
   cursorPositionX = 0
   cursorPositionY = 0
 
-  getContainerEl: GetElFn
+  containerEl: HTMLElement = null!
   getIsDraggable: () => boolean
   draggableEl: HTMLElement = null!
 
@@ -68,17 +67,26 @@ export class DragController implements ReactiveController {
     this.#host.addController(this)
     this.#options = Object.assign({}, defaultOptions, options)
 
-    this.getContainerEl = options.getContainerEl
     this.getIsDraggable = options.getIsDraggable ?? defaultOptions.getIsDraggable
 
-    options.getDraggableEl().then((el) => {
-      if (!el) {
+    Promise.all([
+      options.getDraggableEl(),
+      options.getContainerEl()
+    ]).then(([draggableEl, containerEl]) => {
+      if (!draggableEl) {
         console.warn('getDraggableEl() did not return an element HTMLElement')
+      }
+      if (!containerEl) {
+        console.warn('getContainerEl() did not return an element HTMLElement')
+      }
+
+      if (!draggableEl || !containerEl) {
         return
       }
 
       // TODO Add typeguard to check if HTMLElement
-      this.draggableEl = el as HTMLElement
+      this.draggableEl = draggableEl as HTMLElement
+      this.containerEl = containerEl as HTMLElement
       this.init()
     })
 
@@ -112,7 +120,7 @@ export class DragController implements ReactiveController {
         updateState('idle')
         host.requestUpdate()
       },
-    });
+    })
   }
 
   hostDisconnected(): void {
@@ -122,14 +130,16 @@ export class DragController implements ReactiveController {
   }
 
   handleWindowMove(pointer: Pointer) {
-    const el = this.draggableEl
-    const containerEl = this.getContainerEl()
+    console.log(1, this.draggableEl, this.containerEl)
 
-    if (!el || !containerEl) return
+    if (!this.draggableEl || !this.containerEl) {
+      return
+    }
 
     const isDraggable = this.getIsDraggable()
-
-    if (!isDraggable) return
+    if (!isDraggable) {
+      return
+    }
 
     const oldX = this.x
     const oldY = this.y
@@ -149,6 +159,8 @@ export class DragController implements ReactiveController {
 
       if (this.#options.horizontal) {
         this.x = oldX + xDelta
+        console.log(this.x, oldX, xDelta);
+
       }
       if (this.#options.vertical) {
         this.y = oldY + yDelta
@@ -156,37 +168,33 @@ export class DragController implements ReactiveController {
 
       this.cursorPositionX = cursorPositionX
       this.cursorPositionY = cursorPositionY
-      this.#host.requestUpdate();
+      this.#host.requestUpdate()
     }
   }
 
   #onDragStart = (pointer: Pointer) => {
-    this.cursorPositionX = Math.floor(pointer.pageX);
-    this.cursorPositionY = Math.floor(pointer.pageY);
+    this.cursorPositionX = Math.floor(pointer.pageX)
+    this.cursorPositionY = Math.floor(pointer.pageY)
 
-    return true;
-  };
+    return true
+  }
 
   #onDrag = (_previousPointers: Pointer[], pointers: Pointer[]) => {
-    const [pointer] = pointers;
-    const el = this.draggableEl;
-
-    const event = new CustomEvent('window-drag', {
+    const [pointer] = pointers
+    this.#host.dispatchEvent(new CustomEvent('window-drag', {
       bubbles: true,
       composed: true,
       detail: {
         pointer,
-        containerEl: this.getContainerEl(),
-        draggableEl: el,
-      },
-    });
-
-    this.#host.dispatchEvent(event);
-    this.handleWindowMove(pointer);
-  };
+        containerEl: this.containerEl,
+        draggableEl: this.draggableEl
+      }
+    }))
+    this.handleWindowMove(pointer)
+  }
 
   #onDragEnd = (_pointer: Pointer, ev: PtInputEvent) => {
-    const el = ev.target! as HTMLDivElement;
-    el.removeAttribute('data-state');
-  };
+    const el = ev.target! as HTMLDivElement
+    el.removeAttribute('data-state')
+  }
 }
