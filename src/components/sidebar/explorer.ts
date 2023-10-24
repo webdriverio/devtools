@@ -2,10 +2,10 @@ import { Element } from '@core/element'
 import { html, css } from 'lit'
 import { customElement } from 'lit/decorators.js'
 
-import '~icons/mdi/play'
-import '~icons/mdi/stop'
-import '~icons/mdi/eye'
-import '~icons/mdi/collapse-all'
+import '~icons/mdi/play.js'
+import '~icons/mdi/stop.js'
+import '~icons/mdi/eye.js'
+import '~icons/mdi/collapse-all.js'
 
 import './test-suite.js'
 

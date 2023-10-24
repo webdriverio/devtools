@@ -2,7 +2,7 @@ import { Element } from '@core/element'
 import { html, css } from 'lit'
 import { customElement } from 'lit/decorators.js'
 
-import '~icons/mdi/chevron-right'
+import '~icons/mdi/chevron-right.js'
 
 enum FilterState {
   PASSED = 1,

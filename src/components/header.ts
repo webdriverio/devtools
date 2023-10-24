@@ -3,8 +3,8 @@ import { html, css } from 'lit'
 import { customElement } from 'lit/decorators.js'
 
 import '~icons/custom/logo.svg'
-import '~icons/mdi/white-balance-sunny'
-import '~icons/mdi/moon-waning-crescent'
+import '~icons/mdi/white-balance-sunny.js'
+import '~icons/mdi/moon-waning-crescent.js'
 
 @customElement('wdio-devtools-header')
 export class DevtoolsHeader extends Element {

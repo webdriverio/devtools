@@ -34,21 +34,21 @@ export class WebdriverIODevtoolsApplication extends Element {
   })
 
   async #getDraggableEl() {
-    await this.updateComplete;
+    await this.updateComplete
     return this.resizer as Element
   }
 
   @query('wdio-devtools-sidebar')
-  sidebar?: HTMLElement
+    sidebar?: HTMLElement
 
   @query('button')
-  resizer?: HTMLElement
+    resizer?: HTMLElement
 
   @query('section')
-  window?: HTMLElement
+    window?: HTMLElement
 
   async #getWindow() {
-    await this.updateComplete;
+    await this.updateComplete
     return this.window as Element
   }
 
@@ -60,9 +60,7 @@ export class WebdriverIODevtoolsApplication extends Element {
         <wdio-devtools-workbench></wdio-devtools-workbench>
         <button
           data-dragging=${this.#drag.state}
-          style=${styleMap({
-            left: `${Math.max(this.#drag.x, SIDEBAR_MIN_WIDTH) - 5}px`
-          })}
+          style=${styleMap({ left: `${Math.max(this.#drag.x, SIDEBAR_MIN_WIDTH) - 5}px` })}
           class="cursor-col-resize absolute top-0 h-full w-[10px]"></button>
       </section>
     `

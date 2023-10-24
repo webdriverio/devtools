@@ -20,8 +20,8 @@ const cssVars = cssContent.match(/--vscode-[^:]+/g)
 export default {
   darkMode: ['class', ':host-context(.dark)'],
   content: [
-    "./index.html",
-    "./src/**/*.{js,ts,jsx,tsx}",
+    './index.html',
+    './src/**/*.{js,ts,jsx,tsx}',
   ],
   theme: {
     extend: {},

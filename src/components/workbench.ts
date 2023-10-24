@@ -9,7 +9,7 @@ import './tabs.js'
 import './workbench/source.js'
 
 const MIN_WORKBENCH_HEIGHT = 600
-const MIN_METATAB_WIDTH = 400
+const MIN_METATAB_WIDTH = 250
 
 const COMPONENT = 'wdio-devtools-workbench'
 @customElement(COMPONENT)
@@ -49,28 +49,28 @@ export class DevtoolsWorkbench extends Element {
   })
 
   async #getVerticalDraggableEl() {
-    await this.updateComplete;
+    await this.updateComplete
     return this.verticalResizer as Element
   }
 
   @query('button[data-vertical-resizer]')
-  verticalResizer?: HTMLElement
+    verticalResizer?: HTMLElement
 
   async #getHorizontalDraggableEl() {
-    await this.updateComplete;
+    await this.updateComplete
     return this.horizontalResizer as Element
   }
 
   @query('button[data-horizontal-resizer]')
-  horizontalResizer?: HTMLElement
+    horizontalResizer?: HTMLElement
 
   async #getHorizontalWindow() {
-    await this.updateComplete;
+    await this.updateComplete
     return this.horizontalResizerWindow as Element
   }
 
   @query('section[data-horizontal-resizer-window]')
-  horizontalResizerWindow?: HTMLElement
+    horizontalResizerWindow?: HTMLElement
 
   render() {
     return html`
@@ -91,9 +91,7 @@ export class DevtoolsWorkbench extends Element {
         <button
           data-horizontal-resizer
           data-dragging=${this.#dragHorizontal.state}
-          style=${styleMap({
-            left: `${Math.max(this.#dragHorizontal.x, MIN_METATAB_WIDTH) - 5}px`
-          })}
+          style=${styleMap({ left: `${Math.max(this.#dragHorizontal.x, MIN_METATAB_WIDTH) - 5}px` })}
           class="cursor-col-resize bg-red absolute bg-red top-0 h-full w-[10px] z-10"></button>
       </section>
       <wdio-devtools-tabs class="border-t-[1px] border-t-panelBorder">
@@ -113,11 +111,9 @@ export class DevtoolsWorkbench extends Element {
       <button
         data-vertical-resizer
         data-dragging=${this.#dragVertical.state}
-        style=${styleMap({
-          top: `${Math.max(this.#dragVertical.y, MIN_WORKBENCH_HEIGHT) - 5}px`
-        })}
+        style=${styleMap({ top: `${Math.max(this.#dragVertical.y, MIN_WORKBENCH_HEIGHT) - 5}px` })}
         class="cursor-row-resize absolute bg-red top-0 w-full h-[10px] z-10"></button>
-    `;
+    `
   }
 }
 

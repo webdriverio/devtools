@@ -46,7 +46,7 @@ export class DevtoolsSource extends Element {
   }
 
   render() {
-    return html`<section class="p-2">loading...</section>`;
+    return html`<section class="p-2">loading...</section>`
   }
 }
 

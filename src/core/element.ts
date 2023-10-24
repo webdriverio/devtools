@@ -10,7 +10,7 @@ export class Element extends LitElement {
    * is connected to the DOM
    */
   async getShadowRootAsync () {
-    await this.updateComplete;
+    await this.updateComplete
     return this.shadowRoot
   }
 }

@@ -1,9 +1,10 @@
-import { ReactiveController, ReactiveControllerHost } from 'lit'
-import PointerTracker, {
+import type { ReactiveController, ReactiveControllerHost } from 'lit'
+import type {
   Pointer,
   InputEvent as PtInputEvent,
 } from 'pointer-tracker'
-import { StyleInfo } from 'lit/directives/style-map.js'
+import PointerTracker from 'pointer-tracker'
+import type { StyleInfo } from 'lit/directives/style-map.js'
 
 interface InitialPosition {
   x?: number
@@ -159,7 +160,7 @@ export class DragController implements ReactiveController {
 
       if (this.#options.horizontal) {
         this.x = oldX + xDelta
-        console.log(this.x, oldX, xDelta);
+        console.log(this.x, oldX, xDelta)
 
       }
       if (this.#options.vertical) {
