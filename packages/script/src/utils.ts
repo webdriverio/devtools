@@ -1,11 +1,19 @@
 import { parseFragment, type DefaultTreeAdapterMap } from 'parse5'
 import { h } from 'htm/preact'
+import type { VNode } from 'preact'
 
+type vFragment = DefaultTreeAdapterMap['documentFragment']
 type vComment = DefaultTreeAdapterMap['commentNode']
 type vElement = DefaultTreeAdapterMap['element']
 type vText = DefaultTreeAdapterMap['textNode']
+type vChildNode = DefaultTreeAdapterMap['childNode']
 
-export function parseNode (fragment: DefaultTreeAdapterMap['childNode']): any {
+function createVNode (elem: VNode<any>) {
+  const { type, props } = elem
+  return { type, props }
+}
+
+export function parseNode (fragment: vFragment | vComment | vText | vChildNode): any {
   if (fragment.nodeName === '#comment') {
     return (fragment as vComment).data
   }
@@ -20,9 +28,9 @@ export function parseNode (fragment: DefaultTreeAdapterMap['childNode']): any {
   }
 
   try {
-    return h(tagName, props, ...(childNodes || []).map(parseNode))
+    return createVNode(h(tagName, props, ...(childNodes || []).map((cn) => parseNode(cn))) as any)
   } catch (err: any) {
-    return h('div', {}, err.stack)
+    return createVNode(h('div', { class: 'parseNode' }, err.stack))
   }
 }
 
@@ -31,12 +39,12 @@ export function log (...args: any[]) {
   window.logs.push(args.map((a) => JSON.stringify(a)).join(' '))
 }
 
-export function parseFragmentWrapper (node: Node) {
+export function parseFragmentWrapper (node: Element) {
   try {
-    const fragment = parseFragment((node as Element).outerHTML)
-    return parseNode(fragment.childNodes[0])
+    const fragment = parseFragment(node.outerHTML)
+    return parseNode(fragment)
   } catch (err: any) {
-    return h('div', {}, err.stack)
+    return createVNode(h('div', { class: 'parseFragmentWrapper' }, err.stack))
   }
 }
 
@@ -66,4 +74,29 @@ export async function waitForBody () {
   await waitForPromise
   cancelAnimationFrame(raf)
   clearTimeout(waitForTimeout)
+}
+
+let refId = 0
+ /**
+  * assign a uid to each element so we can reference it later in the vdom
+  */
+export function assignRef (elem: Element) {
+  if (typeof elem.querySelectorAll !== 'function') {
+    log('assignRef: elem has no querySelectorAll', elem.nodeType || elem.nodeName || elem.textContent || Object.keys(elem))
+    return
+  }
+
+  if (!elem.hasAttribute('data-wdio-ref')) {
+    elem.setAttribute('data-wdio-ref', `${++refId}`)
+  }
+
+  Array.from(elem.querySelectorAll('*')).forEach(
+    (el) => { el.setAttribute('data-wdio-ref', `${++refId}`) })
+}
+
+export function getRef (elem: Node) {
+  if (!elem || !(elem as Element).getAttribute) {
+    return null
+  }
+  return (elem as Element).getAttribute('data-wdio-ref')
 }

@@ -13,6 +13,7 @@
     "@typescript-eslint/eslint-plugin": "^6.9.0",
     "@typescript-eslint/parser": "^6.9.0",
     "@typescript-eslint/utils": "^6.9.0",
+    "@vitest/browser": "^0.34.6",
     "autoprefixer": "^10.4.16",
     "eslint": "^8.52.0",
     "eslint-plugin-import": "^2.29.0",
@@ -24,10 +25,7 @@
     "typescript": "^5.0.2",
     "unplugin-icons": "^0.17.1",
     "vite": "^4.4.5",
+    "vitest": "^0.34.6",
     "webdriverio": "^8.20.3"
-  },
-  "dependencies": {
-    "@devtools/hook": "workspace:^",
-    "htm": "^3.1.1"
   }
 }
