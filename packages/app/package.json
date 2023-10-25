@@ -14,7 +14,7 @@
     "@codemirror/theme-one-dark": "^6.1.2",
     "@iconify-json/mdi": "^1.1.54",
     "codemirror": "^6.0.1",
-    "lit": "^2.7.6",
+    "lit": "^3.0.0",
     "pointer-tracker": "^2.5.3",
     "preact": "^10.18.1"
   },
