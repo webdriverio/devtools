@@ -130,8 +130,6 @@ export class DragController implements ReactiveController {
   }
 
   handleWindowMove(pointer: Pointer) {
-    console.log(1, this.draggableEl, this.containerEl)
-
     if (!this.draggableEl || !this.containerEl) {
       return
     }
@@ -159,8 +157,6 @@ export class DragController implements ReactiveController {
 
       if (this.#options.horizontal) {
         this.x = oldX + xDelta
-        console.log(this.x, oldX, xDelta)
-
       }
       if (this.#options.vertical) {
         this.y = oldY + yDelta

@@ -7,6 +7,7 @@ import { DragController } from '../utils/DragController.js'
 
 import './tabs.js'
 import './workbench/source.js'
+import './browser/snapshot.js'
 
 const MIN_WORKBENCH_HEIGHT = 600
 const MIN_METATAB_WIDTH = 250
@@ -54,7 +55,7 @@ export class DevtoolsWorkbench extends Element {
   }
 
   @query('button[data-vertical-resizer]')
-    verticalResizer?: HTMLElement
+  verticalResizer?: HTMLElement
 
   async #getHorizontalDraggableEl() {
     await this.updateComplete
@@ -62,7 +63,7 @@ export class DevtoolsWorkbench extends Element {
   }
 
   @query('button[data-horizontal-resizer]')
-    horizontalResizer?: HTMLElement
+  horizontalResizer?: HTMLElement
 
   async #getHorizontalWindow() {
     await this.updateComplete
@@ -70,12 +71,26 @@ export class DevtoolsWorkbench extends Element {
   }
 
   @query('section[data-horizontal-resizer-window]')
-    horizontalResizerWindow?: HTMLElement
+  horizontalResizerWindow?: HTMLElement
+
+  @query('wdio-devtools-browser')
+  browser?: HTMLElement
+
+  async firstUpdated() {
+    // Give the browser a chance to paint
+    await new Promise((r) => setTimeout(r, 0))
+    this.addEventListener('window-drag', () => {
+      if (!this.browser) {
+        return
+      }
+      this.browser.dispatchEvent(new Event('window-drag', { bubbles: false }))
+    }, true)
+  }
 
   render() {
     return html`
-      <section data-horizontal-resizer-window class="flex h-[70%] w-full" style="height: ${this.#dragVertical.y}px; min-height: ${MIN_WORKBENCH_HEIGHT}px">
-        <section style="width: ${this.#dragHorizontal.x}px; min-width: ${MIN_METATAB_WIDTH}px">
+      <section data-horizontal-resizer-window class="flex h-[70%] w-full" style="flex-basis: ${Math.max(this.#dragVertical.y, MIN_WORKBENCH_HEIGHT)}px">
+        <section style="flex-basis: ${Math.max(this.#dragHorizontal.x, MIN_METATAB_WIDTH)}px">
           <wdio-devtools-tabs class="h-full flex flex-col border-r-[1px] border-r-panelBorder">
             <wdio-devtools-tab label="Actions">
               Actions tab not yet implemented!
@@ -85,8 +100,8 @@ export class DevtoolsWorkbench extends Element {
             </wdio-devtools-tab>
           </wdio-devtools-tabs>
         </section>
-        <section class="text-gray-500 flex items-center justify-center flex-grow">
-          Select a test file to get started
+        <section class="basis-auto text-gray-500 flex items-center justify-center flex-grow">
+          <wdio-devtools-browser></wdio-devtools-browser>
         </section>
         <button
           data-horizontal-resizer

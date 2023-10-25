@@ -56,8 +56,8 @@ export class WebdriverIODevtoolsApplication extends Element {
     return html`
       <wdio-devtools-header></wdio-devtools-header>
       <section class="flex h-full w-full relative">
-        <wdio-devtools-sidebar style="width: ${this.#drag.x}px; min-width: ${SIDEBAR_MIN_WIDTH}px"></wdio-devtools-sidebar>
-        <wdio-devtools-workbench></wdio-devtools-workbench>
+        <wdio-devtools-sidebar style="flex-basis: ${Math.max(this.#drag.x, SIDEBAR_MIN_WIDTH)}px"></wdio-devtools-sidebar>
+        <wdio-devtools-workbench class="basis-auto"></wdio-devtools-workbench>
         <button
           data-dragging=${this.#drag.state}
           style=${styleMap({ left: `${Math.max(this.#drag.x, SIDEBAR_MIN_WIDTH) - 5}px` })}

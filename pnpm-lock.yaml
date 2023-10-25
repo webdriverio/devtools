@@ -83,6 +83,9 @@ importers:
       pointer-tracker:
         specifier: ^2.5.3
         version: 2.5.3
+      preact:
+        specifier: ^10.18.1
+        version: 10.18.1
 
   packages/script:
     dependencies:

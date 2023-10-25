@@ -50,5 +50,5 @@ test('should be able to properly serialize changes', async () => {
   const [, vChange] = window.changes
   const stage = document.createDocumentFragment()
   render(transform(vChange.addedNodes[0].props.children), stage)
-  expect(stage.childNodes[0].outerHTML).toMatchSnapshot()
+  expect((stage.childNodes[0] as HTMLElement).outerHTML).toMatchSnapshot()
 })
