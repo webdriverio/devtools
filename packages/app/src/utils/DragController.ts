@@ -16,6 +16,7 @@ type AsyncGetElFn = () => Element | Promise<Element | null>
 
 interface DragControllerOptions {
   initialPosition: InitialPosition
+  localStorageKey?: string
   getContainerEl: AsyncGetElFn
   getDraggableEl: AsyncGetElFn
   getIsDraggable?: () => boolean
@@ -25,7 +26,7 @@ interface DragControllerOptions {
 
 type State = 'dragging' | 'idle'
 
-const defaultOptions: Required<DragControllerOptions> = {
+const defaultOptions: Required<Omit<DragControllerOptions, 'localStorageKey'>> = {
   initialPosition: {},
   getContainerEl: () => Promise.resolve(null),
   getDraggableEl: () => Promise.resolve(null),
@@ -36,7 +37,8 @@ const defaultOptions: Required<DragControllerOptions> = {
 
 export class DragController implements ReactiveController {
   #host: DragControllerHost
-  #options: Required<DragControllerOptions>
+  #options: DragControllerOptions
+  #localStorageKey?: string
 
   x
   y
@@ -66,6 +68,7 @@ export class DragController implements ReactiveController {
     this.#host = host
     this.#host.addController(this)
     this.#options = Object.assign({}, defaultOptions, options)
+    this.#localStorageKey = options.localStorageKey
 
     this.getIsDraggable = options.getIsDraggable ?? defaultOptions.getIsDraggable
 
@@ -91,7 +94,10 @@ export class DragController implements ReactiveController {
     })
 
     const { initialPosition } = options
-    const { x = 0, y = 0 } = initialPosition
+    const storageValues = this.#localStorageKey
+      ? JSON.parse(localStorage.getItem(this.#localStorageKey) || '{}')
+      : null
+    const { x = 0, y = 0 } = storageValues || initialPosition
 
     this.x = x
     this.y = y
@@ -160,6 +166,13 @@ export class DragController implements ReactiveController {
       }
       if (this.#options.vertical) {
         this.y = oldY + yDelta
+      }
+
+      if (this.#localStorageKey) {
+        localStorage.setItem(
+          this.#localStorageKey,
+          JSON.stringify({ x: this.x, y: this.y })
+        )
       }
 
       this.cursorPositionX = cursorPositionX

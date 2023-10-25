@@ -30,6 +30,7 @@ export class DevtoolsWorkbench extends Element {
   `]
 
   #dragVertical = new DragController(this, {
+    localStorageKey: 'toolbarHeight',
     initialPosition: {
       y: window.innerHeight * .7 // initial height of sidebase is 20% of window
     },
@@ -40,6 +41,7 @@ export class DevtoolsWorkbench extends Element {
   })
 
   #dragHorizontal = new DragController(this, {
+    localStorageKey: 'workbenchSidebarWidth',
     initialPosition: {
       x: MIN_METATAB_WIDTH // initial height of sidebase is 20% of window
     },
@@ -88,9 +90,12 @@ export class DevtoolsWorkbench extends Element {
   }
 
   render() {
+    const sidebarWidth = Math.max(this.#dragHorizontal.x, MIN_METATAB_WIDTH)
+    const toolbarHeight = Math.max(this.#dragVertical.y, MIN_WORKBENCH_HEIGHT)
+
     return html`
-      <section data-horizontal-resizer-window class="flex h-[70%] w-full" style="flex-basis: ${Math.max(this.#dragVertical.y, MIN_WORKBENCH_HEIGHT)}px">
-        <section style="flex-basis: ${Math.max(this.#dragHorizontal.x, MIN_METATAB_WIDTH)}px">
+      <section data-horizontal-resizer-window class="flex h-[70%] w-full" style="flex-basis: ${toolbarHeight}px">
+        <section style="flex-basis: ${sidebarWidth}px">
           <wdio-devtools-tabs class="h-full flex flex-col border-r-[1px] border-r-panelBorder">
             <wdio-devtools-tab label="Actions">
               Actions tab not yet implemented!
@@ -106,7 +111,7 @@ export class DevtoolsWorkbench extends Element {
         <button
           data-horizontal-resizer
           data-dragging=${this.#dragHorizontal.state}
-          style=${styleMap({ left: `${Math.max(this.#dragHorizontal.x, MIN_METATAB_WIDTH) - 5}px` })}
+          style=${styleMap({ left: `${sidebarWidth - 5}px` })}
           class="cursor-col-resize bg-red absolute bg-red top-0 h-full w-[10px] z-10"></button>
       </section>
       <wdio-devtools-tabs class="border-t-[1px] border-t-panelBorder">
@@ -126,7 +131,7 @@ export class DevtoolsWorkbench extends Element {
       <button
         data-vertical-resizer
         data-dragging=${this.#dragVertical.state}
-        style=${styleMap({ top: `${Math.max(this.#dragVertical.y, MIN_WORKBENCH_HEIGHT) - 5}px` })}
+        style=${styleMap({ top: `${toolbarHeight - 5}px` })}
         class="cursor-row-resize absolute bg-red top-0 w-full h-[10px] z-10"></button>
     `
   }

@@ -25,6 +25,7 @@ export class WebdriverIODevtoolsApplication extends Element {
   `]
 
   #drag = new DragController(this, {
+    localStorageKey: 'sidebarWidth',
     initialPosition: {
       x: window.innerWidth * .2 // initial width of sidebase is 20% of window
     },
