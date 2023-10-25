@@ -1,4 +1,4 @@
-import { waitForBody, parseFragmentWrapper, log, getRef, assignRef } from './utils.js'
+import { waitForBody, parseFragment, parseDocument, log, getRef, assignRef } from './utils.js'
 
 declare global {
   interface Element {
@@ -23,7 +23,7 @@ try {
 
   window.changes.push({
     type: 'childList',
-    addedNodes: parseFragmentWrapper(document.documentElement as Element),
+    addedNodes: [parseDocument(document.documentElement)],
     removedNodes: []
   })
   log('added initial page structure')
@@ -37,7 +37,7 @@ try {
       window.changes.push(...mutationList.map(({ target: t, addedNodes: an, removedNodes: rn, type, attributeName, attributeNamespace, previousSibling: ps, nextSibling: ns, oldValue }) => {
         const addedNodes = Array.from(an).map((node) => {
           assignRef(node as Element)
-          return parseFragmentWrapper(node as Element)
+          return parseFragment(node as Element)
         })
 
         const removedNodes = Array.from(rn).map((node) => getRef(node))

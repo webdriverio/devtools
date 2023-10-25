@@ -1,4 +1,4 @@
-import { parseFragment, type DefaultTreeAdapterMap } from 'parse5'
+import { parse, parseFragment as parseFragmentImport, type DefaultTreeAdapterMap } from 'parse5'
 import { h } from 'htm/preact'
 import type { VNode } from 'preact'
 
@@ -14,6 +14,8 @@ function createVNode (elem: VNode<any>) {
 }
 
 export function parseNode (fragment: vFragment | vComment | vText | vChildNode): any {
+  const props: Record<string, any> = {}
+
   if (fragment.nodeName === '#comment') {
     return (fragment as vComment).data
   }
@@ -22,7 +24,6 @@ export function parseNode (fragment: vFragment | vComment | vText | vChildNode):
   }
 
   const { childNodes, attrs, tagName } = fragment as vElement
-  const props: Record<string, any> = {}
   for (const p of (attrs || [])) {
       props[p.name] = p.value
   }
@@ -39,9 +40,18 @@ export function log (...args: any[]) {
   window.logs.push(args.map((a) => JSON.stringify(a)).join(' '))
 }
 
-export function parseFragmentWrapper (node: Element) {
+export function parseDocument (node: HTMLElement) {
   try {
-    const fragment = parseFragment(node.outerHTML)
+    const fragment = parse(node.outerHTML)
+    return parseNode(fragment.childNodes[0])
+  } catch (err: any) {
+    return createVNode(h('div', { class: 'parseDocument' }, err.stack))
+  }
+}
+
+export function parseFragment (node: Element) {
+  try {
+    const fragment = parseFragmentImport(node.outerHTML)
     return parseNode(fragment)
   } catch (err: any) {
     return createVNode(h('div', { class: 'parseFragmentWrapper' }, err.stack))

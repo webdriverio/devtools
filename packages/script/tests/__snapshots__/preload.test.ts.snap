@@ -1,55 +1,59 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
-exports[`should be able to render vdom 1`] = `
+exports[`should be able serialize DOM 1`] = `
 [
   {
-    "addedNodes": {
-      "props": {
-        "children": [
-          "
+    "addedNodes": [
+      {
+        "props": {
+          "children": [
+            {
+              "props": {
+                "children": [
+                  "
     ",
-          {
-            "props": {
-              "charset": "UTF-8",
-              "data-wdio-ref": "3",
-            },
-            "type": "meta",
-          },
-          "
+                  {
+                    "props": {
+                      "charset": "UTF-8",
+                      "data-wdio-ref": "3",
+                    },
+                    "type": "meta",
+                  },
+                  "
     ",
-          {
-            "props": {
-              "data-wdio-ref": "4",
-              "href": "/favicon.svg",
-              "rel": "icon",
-              "type": "image/svg+xml",
-            },
-            "type": "link",
-          },
-          "
+                  {
+                    "props": {
+                      "data-wdio-ref": "4",
+                      "href": "/favicon.svg",
+                      "rel": "icon",
+                      "type": "image/svg+xml",
+                    },
+                    "type": "link",
+                  },
+                  "
     ",
-          {
-            "props": {
-              "content": "width=device-width, initial-scale=1.0",
-              "data-wdio-ref": "5",
-              "name": "viewport",
-            },
-            "type": "meta",
-          },
-          "
+                  {
+                    "props": {
+                      "content": "width=device-width, initial-scale=1.0",
+                      "data-wdio-ref": "5",
+                      "name": "viewport",
+                    },
+                    "type": "meta",
+                  },
+                  "
     ",
-          {
-            "props": {
-              "children": "Vitest Browser Runner",
-              "data-wdio-ref": "6",
-            },
-            "type": "title",
-          },
-          "
+                  {
+                    "props": {
+                      "children": "Vitest Browser Runner",
+                      "data-wdio-ref": "6",
+                    },
+                    "type": "title",
+                  },
+                  "
     ",
-          {
-            "props": {
-              "children": "
+                  {
+                    "props": {
+                      "children": "
       html {
         overflow: hidden;
         padding: 0;
@@ -65,38 +69,48 @@ exports[`should be able to render vdom 1`] = `
         border: none;
       }
     ",
-              "data-wdio-ref": "7",
-            },
-            "type": "style",
-          },
-          "
+                      "data-wdio-ref": "7",
+                    },
+                    "type": "style",
+                  },
+                  "
     ",
-          {
-            "props": {
-              "crossorigin": "",
-              "data-wdio-ref": "8",
-              "src": "/__vitest_browser__/index-7107c1a2.js",
-              "type": "module",
+                  {
+                    "props": {
+                      "crossorigin": "",
+                      "data-wdio-ref": "8",
+                      "src": "/__vitest_browser__/index-7107c1a2.js",
+                      "type": "module",
+                    },
+                    "type": "script",
+                  },
+                  "
+  ",
+                ],
+                "data-wdio-ref": "2",
+              },
+              "type": "head",
             },
-            "type": "script",
-          },
-          "
-  
-  
+            "
+  ",
+            {
+              "props": {
+                "children": [
+                  "
     ",
-          {
-            "props": {
-              "data-wdio-ref": "10",
-              "id": "vitest-ui",
-              "src": "/__vitest__/",
-            },
-            "type": "iframe",
-          },
-          "
+                  {
+                    "props": {
+                      "data-wdio-ref": "10",
+                      "id": "vitest-ui",
+                      "src": "/__vitest__/",
+                    },
+                    "type": "iframe",
+                  },
+                  "
     ",
-          {
-            "props": {
-              "children": "
+                  {
+                    "props": {
+                      "children": "
       const moduleCache = new Map()
 
       // this method receives a module object or \\"import\\" promise that it resolves and keeps track of
@@ -146,21 +160,31 @@ exports[`should be able to render vdom 1`] = `
       window.__vi_module_cache__ = moduleCache
       window.__vi_wrap_module__ = wrapModule
     ",
-              "data-wdio-ref": "11",
-            },
-            "type": "script",
-          },
-          "
+                      "data-wdio-ref": "11",
+                    },
+                    "type": "script",
+                  },
+                  "
     
   
 
 ",
-        ],
+                ],
+                "data-wdio-ref": "9",
+              },
+              "type": "body",
+            },
+          ],
+          "data-wdio-ref": "1",
+          "lang": "en",
+        },
+        "type": "html",
       },
-      "type": undefined,
-    },
+    ],
     "removedNodes": [],
     "type": "childList",
   },
 ]
 `;
+
+exports[`should be able to properly serialize changes 1`] = `"<div id=\\"change\\" data-wdio-ref=\\"12\\">some <i data-wdio-ref=\\"13\\">real</i> change</div>"`;
