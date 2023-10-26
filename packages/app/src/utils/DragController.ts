@@ -168,7 +168,7 @@ export class DragController implements ReactiveController {
       if (this.#localStorageKey) {
         localStorage.setItem(
           this.#localStorageKey,
-          JSON.stringify(this.getPosition())
+          JSON.stringify(this.#getPosition())
         )
       }
 
@@ -231,14 +231,14 @@ export class DragController implements ReactiveController {
       return
     }
 
-    const slidingElem = draggableEl.parentElement?.querySelector(`*[style="${this.getPosition()}"]`)
+    const slidingElem = (draggableEl.parentElement || this.#host.shadowRoot)?.querySelector(`*[style="${this.getPosition()}"]`)
     if (!slidingElem) {
-      return
+      return console.log(`Could not find element to adjust position with style "${this.getPosition()}"`)
     }
     const rect = slidingElem.getBoundingClientRect()
     if (
       (this.#options.direction === Direction.horizontal && this.#x && rect.width < this.#x) ||
-      (this.#options.direction === Direction.vertical && this.#y && rect.height < this.#y)
+      (this.#options.direction === Direction.vertical && this.#y && rect.height > this.#y)
     ) {
       this.#setPosition(rect.width, rect.height)
       this.#host.requestUpdate()
