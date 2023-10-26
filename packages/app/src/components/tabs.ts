@@ -95,6 +95,7 @@ export class DevtoolsTab extends Element {
     :host {
       display: none;
       flex-grow: 1;
+      overflow-y: scroll;
     }
 
     :host([active]) {

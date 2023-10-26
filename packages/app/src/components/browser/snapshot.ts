@@ -5,9 +5,12 @@ import { customElement, query } from 'lit/decorators.js'
 
 import '~icons/mdi/world.js'
 
+const MUTATION_SELECTOR = '__mutation-highlight__'
+
 declare global {
   interface GlobalEventHandlersEventMap {
     'app-mutation': CustomEvent<MutationRecord>
+    'app-mutation-highlight': CustomEvent<MutationRecord>
   }
 }
 
@@ -56,6 +59,7 @@ export class DevtoolsBrowser extends Element {
     super.connectedCallback()
     window.addEventListener('app-mutation', this.#handleMutation.bind(this))
     window.addEventListener('window-drag', this.#setIframeSize.bind(this))
+    window.addEventListener('app-mutation-highlight', this.#highlightMutation.bind(this))
     await this.updateComplete
     this.#setIframeSize()
   }
@@ -119,6 +123,28 @@ export class DevtoolsBrowser extends Element {
     }
 
     // TODO: handle mutations
+  }
+
+  #highlightMutation (ev: CustomEvent<MutationRecord>) {
+    const mutation = ev.detail
+    const docEl = this.iframe?.contentDocument
+    if (!docEl) {
+      return
+    }
+    const el = docEl.querySelector(`*[data-wdio-ref="${mutation.target}"]`) as HTMLElement
+    if (!el) {
+      return
+    }
+
+    const rect = el.getBoundingClientRect()
+    const scrollY = this.iframe?.contentWindow?.scrollY || 0
+    const scrollX = this.iframe?.contentWindow?.scrollX || 0
+
+    const highlight = document.createElement('div')
+    highlight.setAttribute('class', MUTATION_SELECTOR)
+    highlight.setAttribute('style', `position: absolute; background: #38bdf8; outline: 2px dotted red; opacity: .2; top: ${scrollY + rect.top}px; left: ${scrollX + rect.left}px; width: ${rect.width}px; height: ${rect.height}px; z-index: 10000;`)
+    docEl.querySelector(`.${MUTATION_SELECTOR}`)?.remove()
+    docEl.body.appendChild(highlight)
   }
 
   render() {

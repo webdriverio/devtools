@@ -6,6 +6,7 @@ import { DragController, Direction } from '../utils/DragController.js'
 
 import './tabs.js'
 import './workbench/source.js'
+import './workbench/actions.js'
 import './browser/snapshot.js'
 
 const MIN_WORKBENCH_HEIGHT = 600
@@ -58,7 +59,7 @@ export class DevtoolsWorkbench extends Element {
         <section style="${this.#dragHorizontal.getPosition()}">
           <wdio-devtools-tabs class="h-full flex flex-col border-r-[1px] border-r-panelBorder">
             <wdio-devtools-tab label="Actions">
-              Actions tab not yet implemented!
+              <wdio-devtools-actions></wdio-devtools-actions>
             </wdio-devtools-tab>
             <wdio-devtools-tab label="Metadata">
               Metadata tab not yet implemented!
