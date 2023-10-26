@@ -1,10 +1,9 @@
 import { css, html } from 'lit'
-import { styleMap } from 'lit/directives/style-map.js'
 import { customElement, query } from 'lit/decorators.js'
 
 import { Element } from '@core/element'
 
-import { DragController } from './utils/DragController.js'
+import { DragController, Direction } from './utils/DragController.js'
 
 import './components/header.js'
 import './components/sidebar.js'
@@ -26,27 +25,14 @@ export class WebdriverIODevtoolsApplication extends Element {
 
   #drag = new DragController(this, {
     localStorageKey: 'sidebarWidth',
-    initialPosition: {
-      x: window.innerWidth * .2 // initial width of sidebase is 20% of window
-    },
+    minPosition: SIDEBAR_MIN_WIDTH,
+    initialPosition: window.innerWidth * .2,
     getContainerEl: () => this.#getWindow(),
-    getDraggableEl: () => this.#getDraggableEl(),
-    getIsDraggable: () => true,
+    direction: Direction.horizontal
   })
 
-  async #getDraggableEl() {
-    await this.updateComplete
-    return this.resizer as Element
-  }
-
-  @query('wdio-devtools-sidebar')
-    sidebar?: HTMLElement
-
-  @query('button')
-    resizer?: HTMLElement
-
   @query('section')
-    window?: HTMLElement
+  window?: HTMLElement
 
   async #getWindow() {
     await this.updateComplete
@@ -57,12 +43,9 @@ export class WebdriverIODevtoolsApplication extends Element {
     return html`
       <wdio-devtools-header></wdio-devtools-header>
       <section class="flex h-full w-full relative">
-        <wdio-devtools-sidebar style="flex-basis: ${Math.max(this.#drag.x, SIDEBAR_MIN_WIDTH)}px"></wdio-devtools-sidebar>
+        <wdio-devtools-sidebar style="${this.#drag.getPosition()}"></wdio-devtools-sidebar>
         <wdio-devtools-workbench class="basis-auto"></wdio-devtools-workbench>
-        <button
-          data-dragging=${this.#drag.state}
-          style=${styleMap({ left: `${Math.max(this.#drag.x, SIDEBAR_MIN_WIDTH) - 5}px` })}
-          class="cursor-col-resize absolute top-0 h-full w-[10px]"></button>
+        ${this.#drag.getSlider()}
       </section>
     `
   }

@@ -1,9 +1,8 @@
 import { Element } from '@core/element'
 import { html, css } from 'lit'
-import { styleMap } from 'lit/directives/style-map.js'
 import { customElement, query } from 'lit/decorators.js'
 
-import { DragController } from '../utils/DragController.js'
+import { DragController, Direction } from '../utils/DragController.js'
 
 import './tabs.js'
 import './workbench/source.js'
@@ -31,41 +30,19 @@ export class DevtoolsWorkbench extends Element {
 
   #dragVertical = new DragController(this, {
     localStorageKey: 'toolbarHeight',
-    initialPosition: {
-      y: window.innerHeight * .7 // initial height of sidebase is 20% of window
-    },
+    minPosition: MIN_WORKBENCH_HEIGHT,
+    initialPosition: window.innerHeight * .7, // initial height of sidebase is 20% of window
     getContainerEl: () => this.getShadowRootAsync() as any as Element,
-    getDraggableEl: () => this.#getVerticalDraggableEl(),
-    getIsDraggable: () => true,
-    horizontal: false
+    direction: Direction.vertical
   })
 
   #dragHorizontal = new DragController(this, {
     localStorageKey: 'workbenchSidebarWidth',
-    initialPosition: {
-      x: MIN_METATAB_WIDTH // initial height of sidebase is 20% of window
-    },
+    minPosition: MIN_METATAB_WIDTH,
+    initialPosition: MIN_METATAB_WIDTH, // initial height of sidebase is 20% of window
     getContainerEl: () => this.#getHorizontalWindow(),
-    getDraggableEl: () => this.#getHorizontalDraggableEl(),
-    getIsDraggable: () => true,
-    vertical: false
+    direction: Direction.horizontal
   })
-
-  async #getVerticalDraggableEl() {
-    await this.updateComplete
-    return this.verticalResizer as Element
-  }
-
-  @query('button[data-vertical-resizer]')
-  verticalResizer?: HTMLElement
-
-  async #getHorizontalDraggableEl() {
-    await this.updateComplete
-    return this.horizontalResizer as Element
-  }
-
-  @query('button[data-horizontal-resizer]')
-  horizontalResizer?: HTMLElement
 
   async #getHorizontalWindow() {
     await this.updateComplete
@@ -75,27 +52,10 @@ export class DevtoolsWorkbench extends Element {
   @query('section[data-horizontal-resizer-window]')
   horizontalResizerWindow?: HTMLElement
 
-  @query('wdio-devtools-browser')
-  browser?: HTMLElement
-
-  async firstUpdated() {
-    // Give the browser a chance to paint
-    await new Promise((r) => setTimeout(r, 0))
-    this.addEventListener('window-drag', () => {
-      if (!this.browser) {
-        return
-      }
-      this.browser.dispatchEvent(new Event('window-drag', { bubbles: false }))
-    }, true)
-  }
-
   render() {
-    const sidebarWidth = Math.max(this.#dragHorizontal.x, MIN_METATAB_WIDTH)
-    const toolbarHeight = Math.max(this.#dragVertical.y, MIN_WORKBENCH_HEIGHT)
-
     return html`
-      <section data-horizontal-resizer-window class="flex h-[70%] w-full" style="flex-basis: ${toolbarHeight}px">
-        <section style="flex-basis: ${sidebarWidth}px">
+      <section data-horizontal-resizer-window class="flex h-[70%] w-full" style="${this.#dragVertical.getPosition()}">
+        <section style="${this.#dragHorizontal.getPosition()}">
           <wdio-devtools-tabs class="h-full flex flex-col border-r-[1px] border-r-panelBorder">
             <wdio-devtools-tab label="Actions">
               Actions tab not yet implemented!
@@ -108,11 +68,7 @@ export class DevtoolsWorkbench extends Element {
         <section class="basis-auto text-gray-500 flex items-center justify-center flex-grow">
           <wdio-devtools-browser></wdio-devtools-browser>
         </section>
-        <button
-          data-horizontal-resizer
-          data-dragging=${this.#dragHorizontal.state}
-          style=${styleMap({ left: `${sidebarWidth - 5}px` })}
-          class="cursor-col-resize bg-red absolute bg-red top-0 h-full w-[10px] z-10"></button>
+        ${this.#dragHorizontal.getSlider()}
       </section>
       <wdio-devtools-tabs class="border-t-[1px] border-t-panelBorder">
         <wdio-devtools-tab label="Source">
@@ -128,11 +84,7 @@ export class DevtoolsWorkbench extends Element {
           Network tab not yet implemented!
         </wdio-devtools-tab>
       </wdio-devtools-tabs>
-      <button
-        data-vertical-resizer
-        data-dragging=${this.#dragVertical.state}
-        style=${styleMap({ top: `${toolbarHeight - 5}px` })}
-        class="cursor-row-resize absolute bg-red top-0 w-full h-[10px] z-10"></button>
+      ${this.#dragVertical.getSlider()}
     `
   }
 }

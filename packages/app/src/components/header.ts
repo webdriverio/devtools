@@ -6,12 +6,20 @@ import '~icons/custom/logo.svg'
 import '~icons/mdi/white-balance-sunny.js'
 import '~icons/mdi/moon-waning-crescent.js'
 
+const DARK_MODE_KEY = 'darkMode'
+const darkModeInitValue = localStorage.getItem(DARK_MODE_KEY)
+
 @customElement('wdio-devtools-header')
 export class DevtoolsHeader extends Element {
-  #darkMode = window.matchMedia('(prefers-color-scheme: dark)').matches
+  #darkMode = (
+    typeof darkModeInitValue === 'string'
+      ? darkModeInitValue === 'true'
+      : window.matchMedia('(prefers-color-scheme: dark)').matches
+  )
 
   constructor() {
     super()
+    console.log('is dark mode', this.#darkMode)
     if (this.#darkMode) {
       document.querySelector('body')?.classList.add('dark')
     }
@@ -44,6 +52,7 @@ export class DevtoolsHeader extends Element {
     const body = document.querySelector('body')
     body?.classList.toggle('dark')
     this.#darkMode = !this.#darkMode
+    localStorage.setItem(DARK_MODE_KEY, this.#darkMode ? 'true' : 'false')
     this.requestUpdate()
   }
 }

@@ -39,6 +39,7 @@ export class DevtoolsBrowser extends Element {
       height: 12px;
       width: 12px;
       margin: 1em .25em;
+      flex-shrink: 0;
     }
   `]
 
@@ -54,6 +55,7 @@ export class DevtoolsBrowser extends Element {
   async connectedCallback() {
     super.connectedCallback()
     window.addEventListener('app-mutation', this.#handleMutation.bind(this))
+    window.addEventListener('window-drag', this.#setIframeSize.bind(this))
     await this.updateComplete
     this.#setIframeSize()
   }
@@ -68,8 +70,6 @@ export class DevtoolsBrowser extends Element {
     const headerSize = this.header.getBoundingClientRect()
     this.iframe.style.width = `${frameSize.width}px`
     this.iframe.style.height = `${frameSize.height - headerSize.height}px`
-    console.log(`width: ${frameSize.width}px`, `height: ${frameSize.height - headerSize.height}px`)
-
   }
 
   disconnectedCallback() {
@@ -121,15 +121,9 @@ export class DevtoolsBrowser extends Element {
     // TODO: handle mutations
   }
 
-  async firstUpdated() {
-    // Give the browser a chance to paint
-    await new Promise((r) => setTimeout(r, 0))
-    this.addEventListener('window-drag', this.#setIframeSize.bind(this))
-  }
-
   render() {
     return html`
-      <section class="w-full bg-sideBarBackground rounded-t-md m-8">
+      <section class="w-full bg-sideBarBackground rounded-t-md m-8 shadow-md">
         <header class="flex block mx-2">
           <div class="frame-dot bg-notificationsErrorIconForeground"></div>
           <div class="frame-dot bg-notificationsWarningIconForeground"></div>
