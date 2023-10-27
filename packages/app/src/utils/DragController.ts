@@ -71,6 +71,8 @@ export class DragController implements ReactiveController {
         return
       }
 
+      window.onresize = () => this.#adjustPosition()
+
       // TODO Add typeguard to check if HTMLElement
       this.#draggableEl = draggableEl as HTMLElement
       this.#containerEl = containerEl as HTMLElement
@@ -134,6 +136,8 @@ export class DragController implements ReactiveController {
         adjustPosition()
       },
     })
+
+    this.#adjustPosition()
   }
 
   hostDisconnected(): void {
@@ -236,10 +240,13 @@ export class DragController implements ReactiveController {
       return console.log(`Could not find element to adjust position with style "${this.getPosition()}"`)
     }
     const rect = slidingElem.getBoundingClientRect()
-    if (
-      (this.#options.direction === Direction.horizontal && this.#x && rect.width < this.#x) ||
-      (this.#options.direction === Direction.vertical && this.#y && rect.height > this.#y)
-    ) {
+    const direction = this.#options.direction === Direction.horizontal
+      ? 'width'
+      : 'height'
+    const compareVal = rect[direction]
+    console.log(this.#localStorageKey, this.#getPosition(), compareVal)
+    if (this.#getPosition() !== compareVal) {
+      console.log('set for ', this.#localStorageKey, this.#getPosition(), compareVal)
       this.#setPosition(rect.width, rect.height)
       this.#host.requestUpdate()
     }
