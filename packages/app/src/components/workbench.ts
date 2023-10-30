@@ -21,8 +21,8 @@ const RERENDER_TIMEOUT = 10
 const COMPONENT = 'wdio-devtools-workbench'
 @customElement(COMPONENT)
 export class DevtoolsWorkbench extends Element {
-  #toolbarCollapsed = localStorage.getItem('toolbarCollapsed') === 'true'
-  #workbenchSidebarCollapsed = localStorage.getItem('workbenchSidebarCollapsed') === 'true'
+  #toolbarCollapsed = localStorage.getItem('toolbar') === 'true'
+  #workbenchSidebarCollapsed = localStorage.getItem('workbenchSidebar') === 'true'
 
   static styles = [...Element.styles, css`
     :host {
@@ -87,29 +87,28 @@ export class DevtoolsWorkbench extends Element {
     return html`
       <section data-horizontal-resizer-window class="flex w-full ${heightWorkbench} flex-1" style="${styleWorkbench}">
         <section style="${!this.#workbenchSidebarCollapsed ? this.#dragHorizontal.getPosition() : ''}">
-          ${!this.#workbenchSidebarCollapsed ?
-            html`
-              <wdio-devtools-tabs class="h-full flex flex-col border-r-[1px] border-r-panelBorder">
-                <wdio-devtools-tab label="Actions">
-                  <wdio-devtools-actions></wdio-devtools-actions>
-                </wdio-devtools-tab>
-                <wdio-devtools-tab label="Metadata">
-                  Metadata tab not yet implemented!
-                </wdio-devtools-tab>
-                <nav class="ml-auto" slot="actions">
-                  <button @click="${() => this.#toggle('workbenchSidebar')}" class="flex h-10 w-10 items-center justify-center pointer ml-auto hover:bg-toolbarHoverBackground">
-                    <icon-mdi-arrow-collapse-left></icon-mdi-arrow-collapse-left>
-                  </button>
-                </nav>
-              </wdio-devtools-tabs>
-            ` :
+          <wdio-devtools-tabs class="h-full flex flex-col border-r-[1px] border-r-panelBorder ${this.#workbenchSidebarCollapsed ? 'hidden' : ''}">
+            <wdio-devtools-tab label="Actions">
+              <wdio-devtools-actions></wdio-devtools-actions>
+            </wdio-devtools-tab>
+            <wdio-devtools-tab label="Metadata">
+              Metadata tab not yet implemented!
+            </wdio-devtools-tab>
+            <nav class="ml-auto" slot="actions">
+              <button @click="${() => this.#toggle('workbenchSidebar')}" class="flex h-10 w-10 items-center justify-center pointer ml-auto hover:bg-toolbarHoverBackground">
+                <icon-mdi-arrow-collapse-left></icon-mdi-arrow-collapse-left>
+              </button>
+            </nav>
+          </wdio-devtools-tabs>
+          ${this.#workbenchSidebarCollapsed ?
             html`
               <button
                 @click="${() => this.#toggle('workbenchSidebar')}"
-                class="absolute top-0 left-0 bg-sideBarBackground flex h-10 w-10 items-center justify-center cursor-pointer rounded-br-md hover:bg-toolbarHoverBackground">
+                class="absolute top-0 left-0 bg-sideBarBackground flex h-10 w-10 items-center justify-center cursor-pointer rounded-br-md hover:bg-toolbarHoverBackground border-r-[1px] border-r-panelBorder border-b-[1px] border-b-panelBorder">
                 <icon-mdi-arrow-collapse-right></icon-mdi-arrow-collapse-right>
               </button>
             `
+            : nothing
           }
         </section>
         <section class="basis-auto text-gray-500 flex items-center justify-center flex-grow">
@@ -117,35 +116,34 @@ export class DevtoolsWorkbench extends Element {
         </section>
         ${!this.#workbenchSidebarCollapsed ? this.#dragHorizontal.getSlider() : nothing}
       </section>
-      ${!this.#toolbarCollapsed ?
-        html`
-          <wdio-devtools-tabs class="border-t-[1px] border-t-panelBorder">
-            <wdio-devtools-tab label="Source">
-              <wdio-devtools-source></wdio-devtools-source>
-            </wdio-devtools-tab>
-            <wdio-devtools-tab label="Log">
-              Log tab not yet implemented!
-            </wdio-devtools-tab>
-            <wdio-devtools-tab label="Console">
-              Console tab not yet implemented!
-            </wdio-devtools-tab>
-            <wdio-devtools-tab label="Network">
-              Network tab not yet implemented!
-            </wdio-devtools-tab>
-            <nav class="ml-auto" slot="actions">
-              <button @click="${() => this.#toggle('toolbar')}" class="flex h-10 w-10 items-center justify-center pointer ml-auto hover:bg-toolbarHoverBackground">
-                <icon-mdi-arrow-collapse-down></icon-mdi-arrow-collapse-down>
-              </button>
-            </nav>
-          </wdio-devtools-tabs>
-        ` :
+      <wdio-devtools-tabs class="border-t-[1px] border-t-panelBorder ${this.#toolbarCollapsed ? 'hidden' : ''}">
+        <wdio-devtools-tab label="Source">
+          <wdio-devtools-source></wdio-devtools-source>
+        </wdio-devtools-tab>
+        <wdio-devtools-tab label="Log">
+          Log tab not yet implemented!
+        </wdio-devtools-tab>
+        <wdio-devtools-tab label="Console">
+          Console tab not yet implemented!
+        </wdio-devtools-tab>
+        <wdio-devtools-tab label="Network">
+          Network tab not yet implemented!
+        </wdio-devtools-tab>
+        <nav class="ml-auto" slot="actions">
+          <button @click="${() => this.#toggle('toolbar')}" class="flex h-10 w-10 items-center justify-center pointer ml-auto hover:bg-toolbarHoverBackground">
+            <icon-mdi-arrow-collapse-down></icon-mdi-arrow-collapse-down>
+          </button>
+        </nav>
+      </wdio-devtools-tabs>
+      ${this.#toolbarCollapsed ?
         html`
           <button
             @click="${() => this.#toggle('toolbar')}"
-            class="absolute right-0 bottom-0 bg-sideBarBackground flex h-10 w-10 items-center justify-center cursor-pointer rounded-tl-md hover:bg-toolbarHoverBackground">
+            class="absolute right-0 bottom-0 bg-sideBarBackground flex h-10 w-10 items-center justify-center cursor-pointer rounded-tl-md hover:bg-toolbarHoverBackground border-t-[1px] border-t-panelBorder border-l-[1px] border-l-panelBorder">
             <icon-mdi-arrow-collapse-up></icon-mdi-arrow-collapse-up>
           </button>
         `
+        : nothing
       }
       ${!this.#toolbarCollapsed ? this.#dragVertical.getSlider() : nothing}
     `

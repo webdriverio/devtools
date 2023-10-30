@@ -7,7 +7,6 @@ const TABS_COMPONENT = 'wdio-devtools-tabs'
 export class DevtoolsTabs extends Element {
   #activeTab: string | undefined
   #tabList: string[] = []
-  #collased = false
 
   static styles = [...Element.styles, css`
     :host {
@@ -41,7 +40,8 @@ export class DevtoolsTabs extends Element {
     if (!this.shadowRoot) {
       return []
     }
-    const slot = this.shadowRoot.querySelector('slot')
+    const slot = [...Array.from(this.shadowRoot.querySelectorAll('slot'))]
+      .find((s) => !s.hasAttribute('name'))
     if (!slot) {
       return []
     }
@@ -75,10 +75,6 @@ export class DevtoolsTabs extends Element {
   }
 
   render() {
-    if (this.#collased) {
-      return nothing
-    }
-
     return html`
       ${this.#tabList.length
         ? html`
