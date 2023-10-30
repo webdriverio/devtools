@@ -10,10 +10,11 @@ export class DevtoolsSidebar extends Element {
   static styles = [...Element.styles, css`
     :host {
       flex-shrink: 0;
-      height: 100%;
       color: var(--vscode-foreground);
       background-color: var(--vscode-sideBar-background);
       border-right: 1px solid var(--vscode-panel-border)!important;
+      display: flex;
+      flex-direction: column;
     }
   `]
 

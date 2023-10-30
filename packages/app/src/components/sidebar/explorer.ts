@@ -16,7 +16,6 @@ export class DevtoolsSidebarExplorer extends Element {
   static styles = [...Element.styles, css`
     :host {
       width: 100%;
-      height: 100%;
       display: block;
     }
   `]

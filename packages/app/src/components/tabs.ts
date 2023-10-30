@@ -7,6 +7,7 @@ const TABS_COMPONENT = 'wdio-devtools-tabs'
 export class DevtoolsTabs extends Element {
   #activeTab: string | undefined
   #tabList: string[] = []
+  #collased = false
 
   static styles = [...Element.styles, css`
     :host {
@@ -74,11 +75,16 @@ export class DevtoolsTabs extends Element {
   }
 
   render() {
+    if (this.#collased) {
+      return nothing
+    }
+
     return html`
       ${this.#tabList.length
         ? html`
           <nav class="flex w-full bg-sideBarBackground shadow-md z-10">
             ${this.#tabList.map((tab) => this.#getTabButton(tab))}
+            <slot name="actions"></slot>
           </nav>
         `
         : nothing

@@ -35,6 +35,7 @@ export class DevtoolsBrowser extends Element {
       width: 100%;
       height: 100%;
       display: flex;
+      padding: 2rem;
     }
 
     .frame-dot {
@@ -149,7 +150,7 @@ export class DevtoolsBrowser extends Element {
 
   render() {
     return html`
-      <section class="w-full bg-sideBarBackground rounded-t-md m-8 shadow-md">
+      <section class="w-full bg-sideBarBackground rounded-t-md shadow-md">
         <header class="flex block mx-2">
           <div class="frame-dot bg-notificationsErrorIconForeground"></div>
           <div class="frame-dot bg-notificationsWarningIconForeground"></div>

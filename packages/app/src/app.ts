@@ -41,8 +41,8 @@ export class WebdriverIODevtoolsApplication extends Element {
 
   render() {
     return html`
-      <wdio-devtools-header></wdio-devtools-header>
-      <section class="flex h-full w-full relative">
+      <wdio-devtools-header class="h-[5%]"></wdio-devtools-header>
+      <section class="flex h-[95%] w-full relative">
         <wdio-devtools-sidebar style="${this.#drag.getPosition()}"></wdio-devtools-sidebar>
         <wdio-devtools-workbench class="basis-auto"></wdio-devtools-workbench>
         ${this.#drag.getSlider()}
