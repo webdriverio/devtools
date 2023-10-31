@@ -245,7 +245,6 @@ export class DragController implements ReactiveController {
       : 'height'
     const compareVal = rect[direction]
     if (this.#getPosition() !== compareVal) {
-      console.log('set for ', this.#localStorageKey, this.#getPosition(), compareVal)
       this.#setPosition(rect.width, rect.height)
       this.#host.requestUpdate()
     }

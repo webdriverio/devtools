@@ -1,5 +1,5 @@
 import { Element } from '@core/element'
-import { html, css } from 'lit'
+import { html, css, nothing, type TemplateResult } from 'lit'
 import { customElement } from 'lit/decorators.js'
 
 import '~icons/mdi/play.js'
@@ -8,8 +8,62 @@ import '~icons/mdi/eye.js'
 import '~icons/mdi/collapse-all.js'
 
 import './test-suite.js'
+import type { DevtoolsSidebarFilter } from './filter.js'
 
 const EXPLORER = 'wdio-devtools-sidebar-explorer'
+
+interface TestEntry {
+  state?: string
+  label: string
+  children: TestEntry[]
+}
+
+const BOILERPLATE_LIST: TestEntry[] = [{
+  state: 'failed',
+  label: 'example.e2e.ts',
+  children: [{
+    label: 'should have done this',
+    children: [{
+      label: 'should have done this',
+      children: [{
+        label: 'should have done this',
+        children: [{
+          label: 'should have done this',
+          children: [{
+            label: 'should have done this',
+            children: []
+          }]
+        }]
+      }]
+    }]
+  }, {
+    label: 'should have done this',
+    children: []
+  }, {
+    label: 'should have done this',
+    children: []
+  }, {
+    label: 'should have done this',
+    children: []
+  }]
+}, {
+  state: 'passed',
+  label: 'example.e2e.ts',
+  children: []
+}, {
+  state: 'failed',
+  label: 'example.e2e.ts',
+  children: []
+}, {
+  state: 'skipped',
+  label: 'example.e2e.ts',
+  children: []
+}, {
+  state: 'running',
+  label: 'example.e2e.ts',
+  children: []
+,
+}]
 
 @customElement(EXPLORER)
 export class DevtoolsSidebarExplorer extends Element {
@@ -19,6 +73,29 @@ export class DevtoolsSidebarExplorer extends Element {
       display: block;
     }
   `]
+
+  connectedCallback(): void {
+    super.connectedCallback()
+    window.addEventListener('app-test-filter', this.#filterTests.bind(this))
+  }
+
+  #filterTests ({ detail }: { detail: DevtoolsSidebarFilter }) {
+    console.log(detail.filterStatus)
+  }
+
+  #renderEntry (entry: TestEntry): TemplateResult {
+    return html`
+      <wdio-test-entry state="${entry.state as any}">
+        <label slot="label">${entry.label}</label>
+        ${entry.children && entry.children.length ?
+          html`
+            <wdio-test-suite slot="children">${entry.children.map(this.#renderEntry.bind(this))}</wdio-test-suite>
+          `
+          : nothing
+        }
+      </wdio-test-entry>
+    `
+  }
 
   render() {
     return html`
@@ -32,66 +109,7 @@ export class DevtoolsSidebarExplorer extends Element {
         </nav>
       </header>
       <wdio-test-suite>
-        <wdio-test-entry state="failed">
-          <label slot="label">example.e2e.ts</label>
-        </wdio-test-entry>
-        <wdio-test-entry>
-          <label slot="label">example.e2e.ts</label>
-          <wdio-test-suite slot="children">
-            <wdio-test-entry>
-              <label slot="label">should have done this</label>
-              <wdio-test-suite slot="children">
-                <wdio-test-entry>
-                  <label slot="label">should have done this</label>
-                  <wdio-test-suite slot="children">
-                    <wdio-test-entry>
-                      <label slot="label">should have done this</label>
-                      <wdio-test-suite slot="children">
-                        <wdio-test-entry>
-                          <label slot="label">should have done this</label>
-                            <wdio-test-suite slot="children">
-                              <wdio-test-entry>
-                                <label slot="label">should have done this</label>
-                                  <wdio-test-suite slot="children">
-                                    <wdio-test-entry>
-                                      <label slot="label">should have done this</label>
-                                    </wdio-test-entry>
-                                  </wdio-test-suite>
-                              </wdio-test-entry>
-                            </wdio-test-suite>
-                        </wdio-test-entry>
-                      </wdio-test-suite>
-                    </wdio-test-entry>
-                  </wdio-test-suite>
-                </wdio-test-entry>
-              </wdio-test-suite>
-            </wdio-test-entry>
-            <wdio-test-entry>
-              <label slot="label">should have done this</label>
-            </wdio-test-entry>
-            <wdio-test-entry>
-              <label slot="label">should have done this</label>
-            </wdio-test-entry>
-            <wdio-test-entry>
-              <label slot="label">should have done this</label>
-            </wdio-test-entry>
-            <wdio-test-entry>
-              <label slot="label">should have done this</label>
-            </wdio-test-entry>
-          </wdio-test-suite>
-        </wdio-test-entry>
-        <wdio-test-entry state="passed">
-          <label slot="label">example.e2e.ts</label>
-        </wdio-test-entry>
-        <wdio-test-entry state="failed">
-          <label slot="label">example.e2e.ts</label>
-        </wdio-test-entry>
-        <wdio-test-entry state="skipped">
-          <label slot="label">example.e2e.ts</label>
-        </wdio-test-entry>
-        <wdio-test-entry state="running">
-          <label slot="label">example.e2e.ts</label>
-        </wdio-test-entry>
+        ${BOILERPLATE_LIST.map(this.#renderEntry.bind(this))}
       </wdio-test-suite>
     `
   }

@@ -7,13 +7,6 @@ import '~icons/mdi/world.js'
 
 const MUTATION_SELECTOR = '__mutation-highlight__'
 
-declare global {
-  interface GlobalEventHandlersEventMap {
-    'app-mutation': CustomEvent<MutationRecord>
-    'app-mutation-highlight': CustomEvent<MutationRecord>
-  }
-}
-
 function transform (node: any): VNode<{}> {
   if (typeof node !== 'object') {
     return node as VNode<{}>

@@ -1,6 +1,6 @@
 import { Element } from '@core/element'
 import { html, css } from 'lit'
-import { customElement } from 'lit/decorators.js'
+import { customElement, query } from 'lit/decorators.js'
 
 import '~icons/mdi/chevron-right.js'
 
@@ -13,6 +13,7 @@ enum FilterState {
 @customElement('wdio-devtools-sidebar-filter')
 export class DevtoolsSidebarFilter extends Element {
   #filterState = 0
+  #filterQuery = ''
   #isStateFilterOpen = false
 
   static styles = [...Element.styles, css`
@@ -29,6 +30,9 @@ export class DevtoolsSidebarFilter extends Element {
     }
   `]
 
+  @query('input[name="filter"]')
+  queryInput?: HTMLInputElement
+
   #updateState(change: any) {
     if (!change.target) {
       return
@@ -37,11 +41,28 @@ export class DevtoolsSidebarFilter extends Element {
       ? this.#filterState + Number(change.target.value)
       : this.#filterState - Number(change.target.value)
     this.requestUpdate()
+    this.#emitState()
+  }
+
+  #updateQuery () {
+    if (!this.queryInput) {
+      return
+    }
+    this.#filterQuery = this.queryInput.value
+    this.#emitState()
   }
 
   #toggleStateFilter() {
     this.#isStateFilterOpen = !this.#isStateFilterOpen
     this.requestUpdate()
+  }
+
+  #emitState () {
+    window.dispatchEvent(new CustomEvent('app-test-filter', {
+      bubbles: true,
+      composed: true,
+      detail: this
+    }))
   }
 
   get filtersPassed () {
@@ -62,6 +83,9 @@ export class DevtoolsSidebarFilter extends Element {
       .filter((filter) => this[`filters${filter.charAt(0).toUpperCase() + filter.slice(1)}` as keyof typeof this])
       .join(', ') || 'none'
   }
+  get filterQuery () {
+    return this.#filterQuery
+  }
 
   render() {
     return html`
@@ -74,6 +98,7 @@ export class DevtoolsSidebarFilter extends Element {
           name="filter"
           placeholder="Filter (e.g. text, @tag)"
           class="h-6 w-full my-2 px-2"
+          @keyup="${this.#updateQuery.bind(this)}"
         />
         <div class="mb-2">
           <em class="text-disabledForeground not-italic font-bold">Status:</em> ${this.filterStatus}
