@@ -22,14 +22,14 @@ function transform (node: SanitizedVNode): VNode<{}> {
 
 test('should be able serialize DOM', async () => {
   await import('../src/index.ts')
-  expect(window.errors).toEqual([])
-  expect(window.changes.length).toBe(1)
-  expect(window.changes).toMatchSnapshot()
+  expect(window.wdioCaptureErrors).toEqual([])
+  expect(window.wdioDOMChanges.length).toBe(1)
+  expect(window.wdioDOMChanges).toMatchSnapshot()
 })
 
 test('should be able to parse serialized DOM and render it', () => {
   const stage = document.createDocumentFragment()
-  const [initial] = window.changes
+  const [initial] = window.wdioDOMChanges
   render(transform(initial.addedNodes[0]), stage)
   expect(document.documentElement.outerHTML)
     .toBe((stage.childNodes[0] as HTMLElement).outerHTML)
@@ -46,8 +46,8 @@ test('should be able to properly serialize changes', async () => {
   document.body.appendChild(change)
 
   await new Promise((resolve) => setTimeout(resolve, 10))
-  expect(window.changes.length).toBe(2)
-  const [, vChange] = window.changes
+  expect(window.wdioDOMChanges.length).toBe(2)
+  const [, vChange] = window.wdioDOMChanges
   const stage = document.createDocumentFragment()
   render(transform(vChange.addedNodes[0].props.children), stage)
   expect((stage.childNodes[0] as HTMLElement).outerHTML).toMatchSnapshot()

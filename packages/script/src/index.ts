@@ -1,18 +1,12 @@
 import { waitForBody, parseFragment, parseDocument, log, getRef, assignRef } from './utils.js'
 
-declare global {
-  interface Element {
-    'wdio-ref': string
-  }
-  interface Window {
-    changes: any[]
-    logs: any[]
-    errors: string[]
-  }
+window.wdioCaptureErrors = []
+window.wdioDOMChanges = []
+window.wdioMetadata = {
+  url: window.location.href,
+  id: `wdio-trace-${Math.random().toString().slice(2)}`
 }
 
-window.errors = []
-window.changes = []
 try {
   log('waiting for body to render')
   await waitForBody()
@@ -21,7 +15,7 @@ try {
   assignRef(document.documentElement)
   log('applied wdio ref ids')
 
-  window.changes.push({
+  window.wdioDOMChanges.push({
     type: 'childList',
     addedNodes: [parseDocument(document.documentElement)],
     removedNodes: []
@@ -34,7 +28,7 @@ try {
 
     log(`observed ${mutationList.length} mutations`)
     try {
-      window.changes.push(...mutationList.map(({ target: t, addedNodes: an, removedNodes: rn, type, attributeName, attributeNamespace, previousSibling: ps, nextSibling: ns, oldValue }) => {
+      window.wdioDOMChanges.push(...mutationList.map(({ target: t, addedNodes: an, removedNodes: rn, type, attributeName, attributeNamespace, previousSibling: ps, nextSibling: ns, oldValue }) => {
         const addedNodes = Array.from(an).map((node) => {
           assignRef(node as Element)
           return parseFragment(node as Element)
@@ -49,12 +43,12 @@ try {
         return { type, attributeName, attributeNamespace, oldValue, addedNodes, target, removedNodes, previousSibling, nextSibling }
       }))
     } catch (err: any) {
-      window.errors.push(err.stack)
+      window.wdioCaptureErrors.push(err.stack)
     }
   })
   observer.observe(document.body, config)
 } catch (err: any) {
-    window.errors.push(err.stack)
+    window.wdioCaptureErrors.push(err.stack)
 }
 
 log('Finished program')

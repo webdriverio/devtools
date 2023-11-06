@@ -1,9 +1,12 @@
 {
-  "name": "@devtools/hook",
+  "name": "@devtools/script",
   "version": "0.0.0",
   "description": "Script to be injected into a page to trace the page",
   "author": "Christian Bromann <mail@bromann.dev>",
   "type": "module",
+  "types": "./types.d.ts",
+  "exports": "./dist/script.js",
+  "typeScriptVersion": "^5.0.0",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",

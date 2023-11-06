@@ -1,0 +1,9 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "moduleResolution": "Node16",
+    "module": "NodeNext",
+    "types": ["@wdio/globals/types"]
+  },
+  "include": ["src"]
+}

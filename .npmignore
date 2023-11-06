@@ -1,0 +1,7 @@
+src
+node_modules
+tests
+index.html
+tsconfig.json
+vite.config.ts
+*.tgz

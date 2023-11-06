@@ -35,9 +35,9 @@ export function parseNode (fragment: vFragment | vComment | vText | vChildNode):
   }
 }
 
-window.logs = []
+window.wdioTraceLogs = []
 export function log (...args: any[]) {
-  window.logs.push(args.map((a) => JSON.stringify(a)).join(' '))
+  window.wdioTraceLogs.push(args.map((a) => JSON.stringify(a)).join(' '))
 }
 
 export function parseDocument (node: HTMLElement) {
