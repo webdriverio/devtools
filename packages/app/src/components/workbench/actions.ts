@@ -45,7 +45,7 @@ export class DevtoolsActions extends Element {
     return this.#entries.map((entry, i) => {
       if ('command' in entry) {
         return html`
-          <button>${entry.command}</button>
+          <button @click="${() => this.#highlightLine(entry.callSource)}">${entry.command}</button>
         `
       }
 
@@ -88,6 +88,13 @@ export class DevtoolsActions extends Element {
       <icon-mdi-family-tree class="${ICON_CLASS}"></icon-mdi-family-tree>
       <span class="flex-grow">${mutation.target} child list changed</span>
     `
+  }
+
+  #highlightLine(callSource: string) {
+    const event = new CustomEvent('app-source-highlight', {
+      detail: callSource
+    })
+    window.dispatchEvent(event)
   }
 
   #selectMutation(i: number) {

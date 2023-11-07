@@ -109,3 +109,18 @@ export function getRef (elem: Node) {
   }
   return (elem as Element).getAttribute('data-wdio-ref')
 }
+
+const consoleMethods = ['log', 'info', 'warn', 'error'] as const
+export function patchConsoleObject () {
+  consoleMethods.forEach((type: (typeof consoleMethods)[number]) => {
+    const orig = console[type]
+    console[type] = (...args) => {
+      window.wdioConsoleLogs.push({
+        timestamp: Date.now(),
+        type,
+        args
+      })
+      return orig(...args)
+    }
+  })
+}

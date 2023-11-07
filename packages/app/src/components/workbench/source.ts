@@ -1,14 +1,14 @@
 import { Element } from '@core/element'
 import { html, css } from 'lit'
 import { customElement } from 'lit/decorators.js'
+import { consume } from '@lit/context'
 
 import { EditorView, basicSetup } from 'codemirror'
+import type { EditorViewConfig } from '@codemirror/view'
 import { javascript } from '@codemirror/lang-javascript'
 import { oneDark } from '@codemirror/theme-one-dark'
 
-const doc = `function greet(who) {
-  return "Hello, " + who;
-}`
+import { context, type TraceLog } from '../../context.js'
 
 const SOURCE_COMPONENT = 'wdio-devtools-source'
 @customElement(SOURCE_COMPONENT)
@@ -29,20 +29,49 @@ export class DevtoolsSource extends Element {
     }
   `]
 
+  @consume({ context })
+  data: TraceLog = {} as TraceLog
+
   connectedCallback(): void {
     super.connectedCallback()
-    setTimeout(() => {
-      const container = this.shadowRoot?.querySelector('section')
-      if (!container) {
-        return
-      }
-      const editorView = new EditorView({
-        root: this.shadowRoot!,
-        extensions: [basicSetup, javascript(), oneDark],
-        doc
-      })
-      container.replaceWith(editorView.dom)
-    })
+    window.addEventListener('app-source-highlight', this.#highlightCallSource.bind(this))
+    setTimeout(() => this.#renderEditor(Object.keys(this.data.sources)[0]))
+  }
+
+  #renderEditor (filePath: string, highlightLine?: number) {
+    const source = this.data.sources[filePath]
+    if (!source) {
+      return
+    }
+
+    const container = this.shadowRoot?.querySelector('section') || this.shadowRoot?.querySelector('.cm-editor')
+    if (!container) {
+      return
+    }
+
+    const opts: EditorViewConfig = {
+      root: this.shadowRoot!,
+      extensions: [basicSetup, javascript(), oneDark],
+      doc: source,
+      selection: { anchor: 4 }
+    }
+    const editorView = new EditorView(opts)
+    container.replaceWith(editorView.dom)
+
+    /**
+     * highlight line of call source
+     */
+    const lines = [...(this.shadowRoot?.querySelectorAll('.cm-line') || [])]
+    if (highlightLine && lines.length && highlightLine < lines.length) {
+      setTimeout(() => {
+        lines[highlightLine].classList.add('cm-activeLine')
+      }, 100)
+    }
+  }
+
+  #highlightCallSource (ev: CustomEvent<string>) {
+    const [filePath, line] = ev.detail.split(':')
+    this.#renderEditor(filePath, parseInt(line, 10) + 1)
   }
 
   render() {

@@ -14,6 +14,12 @@ import { type CommandLog, type TraceLog, TraceType } from './types.js'
 
 let commandsLog: CommandLog[] = []
 let currentTraceId: string | undefined
+let sources = new Map<string, string>()
+
+function getBrowserObject (elem: WebdriverIO.Element | WebdriverIO.Browser): WebdriverIO.Browser {
+  const elemObject = elem as WebdriverIO.Element
+  return (elemObject as WebdriverIO.Element).parent ? getBrowserObject(elemObject.parent) : elem as WebdriverIO.Browser
+}
 
 export function setupForDevtools (opts: Options.WebdriverIO) {
   /**
@@ -39,7 +45,8 @@ export function setupForDevtools (opts: Options.WebdriverIO) {
      */
     if (command === 'deleteSession') {
       await this.pause(1000)
-      await captureTrace(this, command as keyof WebDriverCommands, [])
+      const browser = getBrowserObject(this)
+      await captureTrace(browser)
     }
   })
 
@@ -47,8 +54,21 @@ export function setupForDevtools (opts: Options.WebdriverIO) {
     ? opts.afterCommand
     : opts.afterCommand ? [opts.afterCommand] : []
   opts.afterCommand.push(async function(this: WebdriverIO.Browser, command: keyof WebDriverCommands, args, result, error) {
+    const timestamp = Date.now()
+    const callSource = (new Error('')).stack?.split('\n').pop()?.split(' ').pop()!
+    const sourceFile = callSource.split(':').slice(0, -2).join(':')
+    const absPath = sourceFile.startsWith('file://')
+        ? url.fileURLToPath(sourceFile)
+        : sourceFile
+    if (sourceFile && !sources.has(sourceFile)) {
+      const sourceCode = await fs.readFile(absPath, 'utf-8')
+      sources.set(absPath, sourceCode.toString())
+    }
+    commandsLog.push({ command, args, result, error, timestamp, callSource: absPath })
+
     if (PAGE_TRANSITION_COMMANDS.includes(command)) {
-      await captureTrace(this, command as keyof WebDriverCommands, args, result, error)
+      const browser = getBrowserObject(this)
+      await captureTrace(browser)
     }
   })
 
@@ -75,9 +95,7 @@ async function injectScript (browser: WebdriverIO.Browser) {
   })
 }
 
-async function captureTrace (browser: WebdriverIO.Browser, command: (keyof WebDriverCommands), args: any, result?: any, error?: Error) {
-  const timestamp = Date.now()
-
+async function captureTrace (browser: WebdriverIO.Browser) {
   /**
    * only capture trace if script was injected and command is a page transition command
    */
@@ -85,29 +103,36 @@ async function captureTrace (browser: WebdriverIO.Browser, command: (keyof WebDr
     return
   }
 
-  const [mutations, logs, pageMetadata] = await browser.execute(() => [
+  const [mutations, logs, pageMetadata, consoleLogs] = await browser.execute(() => [
     window.wdioDOMChanges,
     window.wdioTraceLogs,
-    window.wdioMetadata
+    window.wdioMetadata,
+    window.wdioConsoleLogs
   ])
+
+  if (!currentTraceId) {
+    currentTraceId = pageMetadata.id
+  }
 
   if (currentTraceId !== pageMetadata.id) {
     commandsLog = []
+    sources = new Map()
   }
 
-  commandsLog.push({ command, args, result, error, timestamp })
   const outputDir = browser.options.outputDir || process.cwd()
   const { capabilities, ...options } = browser.options as Options.WebdriverIO
   const traceLog: TraceLog = {
     mutations,
     logs,
+    consoleLogs,
     metadata: {
       type: TraceType.Standalone,
       ...pageMetadata,
       options,
       capabilities
     },
-    commands: commandsLog
+    commands: commandsLog,
+    sources: Object.fromEntries(sources)
   }
   await fs.writeFile(path.join(outputDir, `${pageMetadata.id}.json`), JSON.stringify(traceLog))
 }

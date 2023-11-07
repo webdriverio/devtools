@@ -9,11 +9,18 @@ declare global {
     'wdio-ref': string
   }
 
+  interface ConsoleLogs {
+    type: 'log' | 'info' | 'warn' | 'error'
+    args: any[]
+    timestamp: number
+  }
+
   interface Window {
     wdioDOMChanges: TraceMutation[]
     wdioTraceLogs: string[]
     wdioCaptureErrors: string[]
     wdioMetadata: TraceMetadata
+    wdioConsoleLogs: ConsoleLogs[]
   }
 
   interface SimplifiedVNode {

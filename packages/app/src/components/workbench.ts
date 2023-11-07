@@ -13,6 +13,7 @@ import './tabs.js'
 import './workbench/source.js'
 import './workbench/actions.js'
 import './workbench/logs.js'
+import './workbench/console.js'
 import './workbench/metadata.js'
 import './browser/snapshot.js'
 
@@ -125,8 +126,8 @@ export class DevtoolsWorkbench extends Element {
         <wdio-devtools-tab label="Log">
           <wdio-devtools-logs></wdio-devtools-logs>
         </wdio-devtools-tab>
-        <wdio-devtools-tab label="Console">
-          Console tab not yet implemented!
+        <wdio-devtools-tab label="Console" active>
+          <wdio-devtools-console-logs></wdio-devtools-console-logs>
         </wdio-devtools-tab>
         <wdio-devtools-tab label="Network">
           Network tab not yet implemented!

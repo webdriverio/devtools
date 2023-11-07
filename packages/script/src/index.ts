@@ -1,7 +1,8 @@
-import { waitForBody, parseFragment, parseDocument, log, getRef, assignRef } from './utils.js'
+import { waitForBody, parseFragment, parseDocument, log, getRef, assignRef, patchConsoleObject } from './utils.js'
 
 window.wdioCaptureErrors = []
 window.wdioDOMChanges = []
+window.wdioConsoleLogs = []
 window.wdioMetadata = {
   url: window.location.href,
   id: `wdio-trace-${Math.random().toString().slice(2)}`,
@@ -12,6 +13,8 @@ try {
   log('waiting for body to render')
   await waitForBody()
   log('body rendered')
+
+  patchConsoleObject()
 
   assignRef(document.documentElement)
   log('applied wdio ref ids')

@@ -7,6 +7,7 @@ export interface CommandLog {
   result: any
   error?: Error
   timestamp: number
+  callSource: string
 }
 
 export enum TraceType {
@@ -17,6 +18,7 @@ export enum TraceType {
 export interface TraceLog {
   mutations: TraceMutation[]
   logs: string[]
+  consoleLogs: ConsoleLogs[]
   metadata: {
     type: TraceType
     id: string
@@ -25,5 +27,6 @@ export interface TraceLog {
     capabilities: Capabilities.RemoteCapability
     viewport: VisualViewport
   }
-  commands: CommandLog[]
+  commands: CommandLog[],
+  sources: Record<string, string>
 }
