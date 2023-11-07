@@ -51,7 +51,14 @@ export class DevtoolsList extends Element {
         ${this.#renderSectionHeader(this.label)}
         <dl class="flex flex-wrap transition-all ${this.isCollapsed ? 'mt-0' : 'mt-2'}">
           ${entries.map(([key, val], i) => {
-            const className = `transition-[max-height] border-b-panelBorder overflow-y-hidden ${i === (entries.length - 1) && !this.isCollapsed ? 'border-b-[1px]' : ''} ${this.isCollapsed ? 'max-h-0' : 'max-h-[100px]'} basis-2/4`
+            let className = 'basis-2/4 transition-all border-b-panelBorder overflow-y-hidden'
+            if (i === (entries.length - 1)) {
+              className += this.isCollapsed ? ' pb-0' : ' pb-2'
+              if (!this.isCollapsed) {
+                className += ' border-b-[1px]'
+              }
+            }
+            className += this.isCollapsed ? ' max-h-0' : ' max-h-[500px]'
             return html`
               <dt class="${className} font-bold px-2">${key}</dt>
               <dd class="${className}">${this.#renderMetadataProp(val)}</dd>

@@ -2,6 +2,7 @@ import { Element } from '@core/element'
 import { html, css } from 'lit'
 import { customElement } from 'lit/decorators.js'
 import { consume } from '@lit/context'
+import type { CommandLog } from '@devtools/hook/types'
 
 import { context, type TraceLog } from '../../context.js'
 
@@ -15,8 +16,8 @@ const ICON_CLASS = 'w-[20px] h-[20px] m-1 mr-2 shrink-0'
 const SOURCE_COMPONENT = 'wdio-devtools-actions'
 @customElement(SOURCE_COMPONENT)
 export class DevtoolsActions extends Element {
-  #mutations: MutationRecord[] = []
-  #activeMutation?: number
+  #entries: (TraceMutation | CommandLog)[] = []
+  #activeEntry?: number
   #highlightedMutation?: number
 
   static styles = [...Element.styles, css`
@@ -32,28 +33,35 @@ export class DevtoolsActions extends Element {
 
   connectedCallback(): void {
     super.connectedCallback()
-    this.#mutations = this.data.mutations
+    this.#entries = [...this.data.mutations, ...this.data.commands]
+      .sort((a, b) => a.timestamp - b.timestamp)
   }
 
   render() {
-    if (!this.#mutations.length) {
+    if (!this.#entries.length) {
       return html`<section class="flex items-center justify-center text-sm w-full h-full">No events logged!</section>`
     }
 
-    return this.#mutations.map((mutation, i) => {
+    return this.#entries.map((entry, i) => {
+      if ('command' in entry) {
+        return html`
+          <button>${entry.command}</button>
+        `
+      }
+
       return html`
         <button
           @mousemove="${() => this.#showMutationTarget(i)}"
           @click="${() => this.#selectMutation(i)}"
-          class="flex items-center justify-center text-sm w-full px-4 hover:bg-toolbarHoverBackground ${this.#activeMutation === i ? 'bg-toolbarHoverBackground' : ''}"
+          class="flex items-center justify-center text-sm w-full px-4 hover:bg-toolbarHoverBackground ${this.#activeEntry === i ? 'bg-toolbarHoverBackground' : ''}"
         >
-          ${this.#getMutationLabel(mutation)}
+          ${this.#getMutationLabel(entry)}
         </button>
       `
     })
   }
 
-  #getMutationLabel(mutation: MutationRecord) {
+  #getMutationLabel(mutation: TraceMutation) {
     if (mutation.type === 'attributes') {
       return this.#getAttributeMutationLabel(mutation)
     } else if (mutation.type === 'childList') {
@@ -62,14 +70,14 @@ export class DevtoolsActions extends Element {
     return 'Unknown mutation'
   }
 
-  #getAttributeMutationLabel(mutation: MutationRecord) {
+  #getAttributeMutationLabel(mutation: TraceMutation) {
     return html`
       <icon-mdi-pencil class="${ICON_CLASS}"></icon-mdi-pencil>
       <span class="flex-grow">${mutation.target} attribute "<code>${mutation.attributeName}</code>" changed</span>
     `
   }
 
-  #getChildListMutationLabel(mutation: MutationRecord) {
+  #getChildListMutationLabel(mutation: TraceMutation) {
     if (mutation.addedNodes.length === 1 && (mutation.addedNodes[0] as any).type === 'html') {
       return html`
         <icon-mdi-document class="${ICON_CLASS}"></icon-mdi-document>
@@ -83,9 +91,9 @@ export class DevtoolsActions extends Element {
   }
 
   #selectMutation(i: number) {
-    this.#activeMutation = i
+    this.#activeEntry = i
     const event = new CustomEvent('app-mutation-select', {
-      detail: this.#mutations[this.#activeMutation]
+      detail: this.#entries[this.#activeEntry]
     })
     window.dispatchEvent(event)
     this.requestUpdate()
@@ -97,7 +105,7 @@ export class DevtoolsActions extends Element {
     }
     this.#highlightedMutation = i
     const event = new CustomEvent('app-mutation-highlight', {
-      detail: this.#mutations[i]
+      detail: this.#entries[i]
     })
     window.dispatchEvent(event)
   }

@@ -6,6 +6,7 @@ export interface CommandLog {
   args: any[]
   result: any
   error?: Error
+  timestamp: number
 }
 
 export enum TraceType {
@@ -14,7 +15,7 @@ export enum TraceType {
 }
 
 export interface TraceLog {
-  mutations: MutationRecord[]
+  mutations: TraceMutation[]
   logs: string[]
   metadata: {
     type: TraceType
@@ -22,6 +23,7 @@ export interface TraceLog {
     url: string
     options: Omit<Options.WebdriverIO, 'capabilities'>
     capabilities: Capabilities.RemoteCapability
+    viewport: VisualViewport
   }
   commands: CommandLog[]
 }

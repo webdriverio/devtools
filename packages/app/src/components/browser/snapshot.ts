@@ -35,7 +35,9 @@ export class DevtoolsBrowser extends Element {
       width: 100%;
       height: 100%;
       display: flex;
-      padding: 2rem;
+      margin: 2rem;
+      align-items: center;
+      justify-content: center;
     }
 
     .frame-dot {
@@ -58,6 +60,7 @@ export class DevtoolsBrowser extends Element {
 
   async connectedCallback() {
     super.connectedCallback()
+    window.addEventListener('resize', this.#setIframeSize.bind(this))
     window.addEventListener('window-drag', this.#setIframeSize.bind(this))
     window.addEventListener('app-mutation-highlight', this.#highlightMutation.bind(this))
     await this.updateComplete
@@ -70,16 +73,36 @@ export class DevtoolsBrowser extends Element {
       return
     }
 
+    this.section.style.width = 'auto'
+    this.section.style.height = 'auto'
+
     this.iframe.removeAttribute('style')
-    const frameSize = this.section.getBoundingClientRect()
+    const viewportWidth = this.data.metadata.viewport.width
+    const viewportHeight = this.data.metadata.viewport.height
+    const frameSize = this.getBoundingClientRect()
     const headerSize = this.header.getBoundingClientRect()
-    this.iframe.style.width = `${frameSize.width}px`
-    this.iframe.style.height = `${frameSize.height - headerSize.height}px`
+
+    let scale = frameSize.width / viewportWidth
+    if (scale > 0.85) {
+      /**
+       * Make sure we stop scaling at 85% of the viewport width to ensure
+       * we keep the aspect ratio. We substract 0.05 to have a bit of a
+       * padding
+       */
+      scale = (frameSize.height / viewportHeight) - 0.05
+    }
+
+    this.section.style.width = `${viewportWidth * scale}px`
+    this.section.style.height = `${Math.min(frameSize.height, viewportHeight * scale)}px`
+    this.iframe.style.width = `${viewportWidth}px`
+    // this.iframe.style.height = `${(Math.min(frameSize.height, viewportHeight * scale) - headerSize.height)}px`
+    this.iframe.style.height = `${viewportHeight - (headerSize.height / scale)}px`
+    this.iframe.style.transform = `scale(${scale})`
   }
 
-  async #renderNewDocument (doc: Document) {
+  async #renderNewDocument (doc: SimplifiedVNode) {
     const root = transform(doc)
-    const baseTag = h('base', { href: 'https://selenium.dev' })
+    const baseTag = h('base', { href: this.data.metadata.url })
     const head: VNode<{}> | undefined = (root.props.children as VNode[])
       .filter(Boolean)
       .find((node) => node!.type === 'head')
@@ -102,24 +125,32 @@ export class DevtoolsBrowser extends Element {
     if (!docEl) {
       return
     }
+
+    /**
+     * remove script tags from application as we are only interested in the static
+     * representation of the page
+     */
+    [...this.#vdom.querySelectorAll('script')].forEach((el) => el.remove())
+
     docEl.ownerDocument.replaceChild(this.#vdom, docEl)
   }
 
-  async #handleMutation (mutation: MutationRecord) {
+  async #handleMutation (mutation: TraceMutation) {
     if (!this.iframe) {
       await this.updateComplete
     }
 
     const hasRenderedFrame = this.iframe?.contentDocument?.documentElement
       .querySelectorAll('*').length === 2 // only body and head are in an empty iframe
-    if (hasRenderedFrame) {
-      return this.#renderNewDocument(mutation.addedNodes[0] as Document)
+    const doc = mutation.addedNodes[0]
+    if (hasRenderedFrame && typeof doc !== 'string') {
+      return this.#renderNewDocument(doc)
     }
 
     // TODO: handle mutations
   }
 
-  #highlightMutation (ev: CustomEvent<MutationRecord>) {
+  #highlightMutation (ev: CustomEvent<TraceMutation>) {
     const mutation = ev.detail
     const docEl = this.iframe?.contentDocument
     if (!docEl) {
@@ -153,7 +184,7 @@ export class DevtoolsBrowser extends Element {
             ${this.data.metadata.url}
           </div>
         </header>
-        <iframe></iframe>
+        <iframe class="origin-top-left"></iframe>
       </section>
     `
   }

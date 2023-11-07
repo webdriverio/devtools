@@ -4,7 +4,8 @@ window.wdioCaptureErrors = []
 window.wdioDOMChanges = []
 window.wdioMetadata = {
   url: window.location.href,
-  id: `wdio-trace-${Math.random().toString().slice(2)}`
+  id: `wdio-trace-${Math.random().toString().slice(2)}`,
+  viewport: window.visualViewport!
 }
 
 try {
@@ -15,8 +16,10 @@ try {
   assignRef(document.documentElement)
   log('applied wdio ref ids')
 
+  const timestamp = Date.now()
   window.wdioDOMChanges.push({
     type: 'childList',
+    timestamp,
     addedNodes: [parseDocument(document.documentElement)],
     removedNodes: []
   })
@@ -24,6 +27,7 @@ try {
 
   const config = { attributes: true, childList: true, subtree: true }
   const observer = new MutationObserver((ml) => {
+    const timestamp = Date.now()
     const mutationList = ml.filter((m) => m.attributeName !== 'data-wdio-ref')
 
     log(`observed ${mutationList.length} mutations`)
@@ -40,7 +44,10 @@ try {
         const nextSibling = ns ? getRef(ns) : null
 
         log(`added mutation: ${type}`)
-        return { type, attributeName, attributeNamespace, oldValue, addedNodes, target, removedNodes, previousSibling, nextSibling }
+        return {
+          type, attributeName, attributeNamespace, oldValue, addedNodes, target,
+          removedNodes, previousSibling, nextSibling, timestamp
+        } as TraceMutation
       }))
     } catch (err: any) {
       window.wdioCaptureErrors.push(err.stack)

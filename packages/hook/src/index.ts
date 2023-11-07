@@ -76,6 +76,8 @@ async function injectScript (browser: WebdriverIO.Browser) {
 }
 
 async function captureTrace (browser: WebdriverIO.Browser, command: (keyof WebDriverCommands), args: any, result?: any, error?: Error) {
+  const timestamp = Date.now()
+
   /**
    * only capture trace if script was injected and command is a page transition command
    */
@@ -93,7 +95,7 @@ async function captureTrace (browser: WebdriverIO.Browser, command: (keyof WebDr
     commandsLog = []
   }
 
-  commandsLog.push({ command, args, result, error })
+  commandsLog.push({ command, args, result, error, timestamp })
   const outputDir = browser.options.outputDir || process.cwd()
   const { capabilities, ...options } = browser.options as Options.WebdriverIO
   const traceLog: TraceLog = {

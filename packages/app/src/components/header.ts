@@ -39,6 +39,7 @@ export class DevtoolsHeader extends Element {
       <icon-custom-logo class="p-2 dark:p-2 h-full"></icon-custom-logo>
       <h1 class="font-bold text-white">WebdriverIO Devtools</h1>
       <nav class="ml-auto mr-2">
+        <button>Docs</button>
         <button class="p-2" @click="${this.#switchMode}">
           <icon-mdi-moon-waning-crescent class="${this.#darkMode ? 'hidden' : 'show'}"></icon-mdi-moon-waning-crescent>
           <icon-mdi-white-balance-sunny class="${this.#darkMode ? 'show' : 'hidden'}"></icon-mdi-white-balance-sunny>

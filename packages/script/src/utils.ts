@@ -1,19 +1,18 @@
 import { parse, parseFragment as parseFragmentImport, type DefaultTreeAdapterMap } from 'parse5'
 import { h } from 'htm/preact'
-import type { VNode } from 'preact'
 
-type vFragment = DefaultTreeAdapterMap['documentFragment']
-type vComment = DefaultTreeAdapterMap['commentNode']
-type vElement = DefaultTreeAdapterMap['element']
-type vText = DefaultTreeAdapterMap['textNode']
-type vChildNode = DefaultTreeAdapterMap['childNode']
+export type vFragment = DefaultTreeAdapterMap['documentFragment']
+export type vComment = DefaultTreeAdapterMap['commentNode']
+export type vElement = DefaultTreeAdapterMap['element']
+export type vText = DefaultTreeAdapterMap['textNode']
+export type vChildNode = DefaultTreeAdapterMap['childNode']
 
-function createVNode (elem: VNode<any>) {
+function createVNode (elem: any) {
   const { type, props } = elem
-  return { type, props }
+  return { type, props } as SimplifiedVNode
 }
 
-export function parseNode (fragment: vFragment | vComment | vText | vChildNode): any {
+export function parseNode (fragment: vFragment | vComment | vText | vChildNode): SimplifiedVNode | string {
   const props: Record<string, any> = {}
 
   if (fragment.nodeName === '#comment') {

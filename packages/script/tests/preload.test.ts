@@ -1,23 +1,16 @@
 import { test, expect } from 'vitest'
 import { h, render } from 'preact'
-import type { VNode } from 'preact'
+import type { VNode as PreactVNode } from 'preact'
 
-interface SanitizedVNode {
-  type: string
-  props: Record<string, any> & {
-    children?: SanitizedVNode | SanitizedVNode[]
-  }
-}
-
-function transform (node: SanitizedVNode): VNode<{}> {
+function transform (node: SimplifiedVNode | string): PreactVNode<{}> | string {
   if (typeof node !== 'object') {
-    return node as VNode<{}>
+    return node
   }
 
   const { children, ...props } = node.props
   const childrenRequired = children || []
   const c = Array.isArray(childrenRequired) ? childrenRequired : [childrenRequired]
-  return h(node.type as string, props, ...c.map(transform)) as VNode<{}>
+  return h(node.type as string, props, ...c.map(transform)) as PreactVNode<{}>
 }
 
 test('should be able serialize DOM', async () => {
@@ -49,6 +42,6 @@ test('should be able to properly serialize changes', async () => {
   expect(window.wdioDOMChanges.length).toBe(2)
   const [, vChange] = window.wdioDOMChanges
   const stage = document.createDocumentFragment()
-  render(transform(vChange.addedNodes[0].props.children), stage)
+  render(transform((vChange.addedNodes[0] as SimplifiedVNode).props.children as SimplifiedVNode), stage)
   expect((stage.childNodes[0] as HTMLElement).outerHTML).toMatchSnapshot()
 })
