@@ -11,11 +11,19 @@ export default defineConfig({
     lib: {
       entry: path.resolve(__dirname, 'src', 'index.ts'),
       name: 'hook',
-      fileName: 'index',
       formats: ['es'],
     },
     target: 'node20',
+    outDir: 'dist',
+    emptyOutDir: false,
     rollupOptions: {
+      input: {
+        index: path.resolve(__dirname, 'src', 'index.ts'),
+        types: path.resolve(__dirname, 'src', 'types.ts')
+      },
+      output: {
+        entryFileNames: '[name].js',
+      },
       external: (id) => !id.startsWith(path.resolve(__dirname, 'src')) && !id.startsWith('./')
     }
   },

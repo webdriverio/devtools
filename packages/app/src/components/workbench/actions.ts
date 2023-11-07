@@ -1,6 +1,9 @@
 import { Element } from '@core/element'
 import { html, css } from 'lit'
 import { customElement } from 'lit/decorators.js'
+import { consume } from '@lit/context'
+
+import { context, type TraceLog } from '../../context.js'
 
 import '~icons/mdi/pencil.js'
 import '~icons/mdi/family-tree.js'
@@ -24,14 +27,12 @@ export class DevtoolsActions extends Element {
     }
   `]
 
-  connectedCallback() {
-    super.connectedCallback()
-    window.addEventListener('app-mutation', this.#handleMutation.bind(this))
-  }
+  @consume({ context })
+  data: TraceLog = {} as TraceLog
 
-  #handleMutation (e: CustomEvent<MutationRecord>) {
-    this.#mutations.push(e.detail)
-    this.requestUpdate()
+  connectedCallback(): void {
+    super.connectedCallback()
+    this.#mutations = this.data.mutations
   }
 
   render() {

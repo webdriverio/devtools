@@ -19,7 +19,6 @@ export class DevtoolsHeader extends Element {
 
   constructor() {
     super()
-    console.log('is dark mode', this.#darkMode)
     if (this.#darkMode) {
       document.querySelector('body')?.classList.add('dark')
     }

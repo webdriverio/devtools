@@ -12,6 +12,8 @@ import '~icons/mdi/arrow-collapse-right.js'
 import './tabs.js'
 import './workbench/source.js'
 import './workbench/actions.js'
+import './workbench/logs.js'
+import './workbench/metadata.js'
 import './browser/snapshot.js'
 
 const MIN_WORKBENCH_HEIGHT = 600
@@ -91,8 +93,8 @@ export class DevtoolsWorkbench extends Element {
             <wdio-devtools-tab label="Actions">
               <wdio-devtools-actions></wdio-devtools-actions>
             </wdio-devtools-tab>
-            <wdio-devtools-tab label="Metadata">
-              Metadata tab not yet implemented!
+            <wdio-devtools-tab label="Metadata" active>
+              <wdio-devtools-metadata></wdio-devtools-metadata>
             </wdio-devtools-tab>
             <nav class="ml-auto" slot="actions">
               <button @click="${() => this.#toggle('workbenchSidebar')}" class="flex h-10 w-10 items-center justify-center pointer ml-auto hover:bg-toolbarHoverBackground">
@@ -121,7 +123,7 @@ export class DevtoolsWorkbench extends Element {
           <wdio-devtools-source></wdio-devtools-source>
         </wdio-devtools-tab>
         <wdio-devtools-tab label="Log">
-          Log tab not yet implemented!
+          <wdio-devtools-logs></wdio-devtools-logs>
         </wdio-devtools-tab>
         <wdio-devtools-tab label="Console">
           Console tab not yet implemented!

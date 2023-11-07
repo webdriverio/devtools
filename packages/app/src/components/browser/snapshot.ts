@@ -1,7 +1,11 @@
 import { Element } from '@core/element'
 import { html, css } from 'lit'
+import { consume } from '@lit/context'
+
 import { type ComponentChildren, h, render, type VNode } from 'preact'
 import { customElement, query } from 'lit/decorators.js'
+
+import { context, type TraceLog } from '../../context.js'
 
 import '~icons/mdi/world.js'
 
@@ -22,6 +26,9 @@ const COMPONENT = 'wdio-devtools-browser'
 @customElement(COMPONENT)
 export class DevtoolsBrowser extends Element {
   #vdom = document.createDocumentFragment()
+
+  @consume({ context })
+  data: TraceLog = {} as TraceLog
 
   static styles = [...Element.styles, css`
     :host {
@@ -51,11 +58,11 @@ export class DevtoolsBrowser extends Element {
 
   async connectedCallback() {
     super.connectedCallback()
-    window.addEventListener('app-mutation', this.#handleMutation.bind(this))
     window.addEventListener('window-drag', this.#setIframeSize.bind(this))
     window.addEventListener('app-mutation-highlight', this.#highlightMutation.bind(this))
     await this.updateComplete
     this.#setIframeSize()
+    this.#handleMutation(this.data.mutations[0])
   }
 
   #setIframeSize () {
@@ -68,11 +75,6 @@ export class DevtoolsBrowser extends Element {
     const headerSize = this.header.getBoundingClientRect()
     this.iframe.style.width = `${frameSize.width}px`
     this.iframe.style.height = `${frameSize.height - headerSize.height}px`
-  }
-
-  disconnectedCallback() {
-    window.removeEventListener('app-mutation', this.#handleMutation.bind(this))
-    super.disconnectedCallback()
   }
 
   async #renderNewDocument (doc: Document) {
@@ -103,9 +105,7 @@ export class DevtoolsBrowser extends Element {
     docEl.ownerDocument.replaceChild(this.#vdom, docEl)
   }
 
-  async #handleMutation (ev: CustomEvent<MutationRecord>) {
-    const mutation = ev.detail
-
+  async #handleMutation (mutation: MutationRecord) {
     if (!this.iframe) {
       await this.updateComplete
     }

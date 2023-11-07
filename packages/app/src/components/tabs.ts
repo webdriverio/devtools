@@ -64,6 +64,9 @@ export class DevtoolsTabs extends Element {
       this.#tabList = this.tabs
         .map((el) => el.getAttribute('label') as string)
         .filter(Boolean) || []
+      this.#activeTab = this.tabs.find(
+        (el) => el.hasAttribute('active')
+      )?.getAttribute('label') || undefined
 
       if (!this.#activeTab) {
         this.#activeTab = this.#tabList[0]

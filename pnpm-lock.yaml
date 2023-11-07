@@ -71,9 +71,15 @@ importers:
       '@codemirror/theme-one-dark':
         specifier: ^6.1.2
         version: 6.1.2
+      '@devtools/hook':
+        specifier: workspace:^
+        version: link:../hook
       '@iconify-json/mdi':
         specifier: ^1.1.54
         version: 1.1.55
+      '@lit/context':
+        specifier: ^1.0.1
+        version: 1.0.1
       codemirror:
         specifier: ^6.0.1
         version: 6.0.1(@lezer/common@1.1.0)
@@ -711,6 +717,12 @@ packages:
 
   /@lit-labs/ssr-dom-shim@1.1.2:
     resolution: {integrity: sha512-jnOD+/+dSrfTWYfSXBXlo5l5f0q1UuJo3tkbMDCYA2lKUYq79jaxqtGEvnRoh049nt1vdo1+45RinipU6FGY2g==}
+    dev: false
+
+  /@lit/context@1.0.1:
+    resolution: {integrity: sha512-ujQEV42vRjhNzCu/YNc+dy8eq48cEYO2SvEl7iCmMzt8X7ixUYcDt8DPV1UBr58FJ7EUe9vTLPv/0soAi9bfRw==}
+    dependencies:
+      '@lit/reactive-element': 1.6.3
     dev: false
 
   /@lit/reactive-element@1.6.3:

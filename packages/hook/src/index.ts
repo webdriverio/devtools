@@ -1,4 +1,4 @@
-/// <reference types="../node_modules/@devtools/script/types.d.ts" />
+/// <reference types="../../script/types.d.ts" />
 
 import fs from 'node:fs/promises'
 import url from 'node:url'
@@ -10,32 +10,14 @@ import type { Capabilities, Options } from '@wdio/types'
 import type { WebDriverCommands } from '@wdio/protocols'
 
 import { PAGE_TRANSITION_COMMANDS } from './constants.js'
-
-interface CommandLog {
-  command: keyof WebDriverCommands
-  args: any[]
-  result: any
-  error?: Error
-}
-
-interface TraceLog {
-  mutations: any[]
-  logs: string[]
-  metadata: {
-    id: string,
-    url: string
-    options: Omit<Options.WebdriverIO, 'capabilities'>
-    capabilities: Capabilities.RemoteCapability
-  }
-  commands: CommandLog[]
-}
+import { type CommandLog, type TraceLog, TraceType } from './types.js'
 
 let commandsLog: CommandLog[] = []
 let currentTraceId: string | undefined
 
 export function setupForDevtools (opts: Options.WebdriverIO) {
   /**
-   * make sure to run with Bidi enabled
+   * make sure to run with Bidi enabled by setting `webSocketUrl` to `true`
    */
   const w3cCaps = opts.capabilities as Capabilities.W3CCapabilities
   const multiRemoteCaps = opts.capabilities as Capabilities.MultiRemoteCapabilities
@@ -101,8 +83,7 @@ async function captureTrace (browser: WebdriverIO.Browser, command: (keyof WebDr
     return
   }
 
-  const [, mutations, logs, pageMetadata] = await browser.execute(() => [
-    window.wdioCaptureErrors,
+  const [mutations, logs, pageMetadata] = await browser.execute(() => [
     window.wdioDOMChanges,
     window.wdioTraceLogs,
     window.wdioMetadata
@@ -119,6 +100,7 @@ async function captureTrace (browser: WebdriverIO.Browser, command: (keyof WebDr
     mutations,
     logs,
     metadata: {
+      type: TraceType.Standalone,
       ...pageMetadata,
       options,
       capabilities
