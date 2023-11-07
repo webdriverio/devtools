@@ -150,7 +150,7 @@ export class DevtoolsBrowser extends Element {
           <div class="frame-dot bg-portsIconRunningProcessForeground"></div>
           <div class="flex mx-4 my-2 pr-2 bg-inputBackground text-inputForeground border border-transparent rounded leading-7 w-full">
             <icon-mdi-world class="w-[20px] h-[20px] m-1 mr-2"></icon-mdi-world>
-            about:blank
+            ${this.data.metadata.url}
           </div>
         </header>
         <iframe></iframe>
