@@ -5,7 +5,7 @@ window.wdioDOMChanges = []
 window.wdioConsoleLogs = []
 window.wdioMetadata = {
   url: window.location.href,
-  id: `wdio-trace-${Math.random().toString().slice(2)}`,
+  pageLoadId: Math.random().toString().slice(2),
   viewport: window.visualViewport!
 }
 

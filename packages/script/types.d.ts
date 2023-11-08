@@ -1,5 +1,5 @@
 export interface TraceMetadata {
-  id: string
+  pageLoadId: string
   url: string
   viewport: VisualViewport
 }
