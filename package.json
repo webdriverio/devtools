@@ -23,7 +23,7 @@
     "tailwindcss": "^3.3.3",
     "ts-node": "^10.9.1",
     "typescript": "^5.0.2",
-    "unplugin-icons": "^0.17.1",
+    "unplugin-icons": "^0.17.4",
     "vite": "^4.4.5",
     "vitest": "^0.34.6",
     "webdriverio": "^8.20.3"
