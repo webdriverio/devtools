@@ -19,7 +19,7 @@
     "codemirror": "^6.0.1",
     "lit": "^2.7.6",
     "pointer-tracker": "^2.5.3",
-    "preact": "^10.18.1"
+    "preact": "^10.19.1"
   },
   "author": "Christian Bromann <mail@bromann.dev>",
   "license": "MIT"
