@@ -17,8 +17,17 @@ function transform (node: any): VNode<{}> {
   }
 
   const { children, ...props } = node.props
+  /**
+   * ToDo(Christian): fix way we collect data on added nodes in script
+   */
+  if (!node.type && children.type) {
+    return transform(children)
+  }
+
   const childrenRequired = children || []
-  const c = Array.isArray(childrenRequired) ? childrenRequired : [childrenRequired]
+  const c = Array.isArray(childrenRequired)
+    ? childrenRequired
+    : [childrenRequired]
   return h(node.type as string, props, ...c.map(transform)) as VNode<{}>
 }
 
@@ -63,9 +72,14 @@ export class DevtoolsBrowser extends Element {
     window.addEventListener('resize', this.#setIframeSize.bind(this))
     window.addEventListener('window-drag', this.#setIframeSize.bind(this))
     window.addEventListener('app-mutation-highlight', this.#highlightMutation.bind(this))
+    window.addEventListener('app-mutation-select', (ev) => this.#renderBrowserState(ev.detail))
     await this.updateComplete
     this.#setIframeSize()
-    this.#handleMutation(this.data.mutations[0])
+
+    /**
+     * Render initial document
+     */
+    this.#renderBrowserState(0)
   }
 
   #setIframeSize () {
@@ -117,7 +131,6 @@ export class DevtoolsBrowser extends Element {
       docChildren.unshift(head)
     }
     render(root, this.#vdom)
-    this.#renderVdom()
   }
 
   #renderVdom () {
@@ -131,7 +144,6 @@ export class DevtoolsBrowser extends Element {
      * representation of the page
      */
     [...this.#vdom.querySelectorAll('script')].forEach((el) => el.remove())
-
     docEl.ownerDocument.replaceChild(this.#vdom, docEl)
   }
 
@@ -140,27 +152,87 @@ export class DevtoolsBrowser extends Element {
       await this.updateComplete
     }
 
-    const hasRenderedFrame = this.iframe?.contentDocument?.documentElement
-      .querySelectorAll('*').length === 2 // only body and head are in an empty iframe
-    const doc = mutation.addedNodes[0]
-    if (hasRenderedFrame && typeof doc !== 'string') {
-      return this.#renderNewDocument(doc)
+    if (mutation.type === 'attributes') {
+      return this.#handleAttributeMutation(mutation)
+    }
+    if (mutation.type === 'childList') {
+      return this.#handleChildListMutation(mutation)
+    }
+    if (mutation.type === 'characterData') {
+      return this.#handleCharacterDataMutation(mutation)
+    }
+  }
+
+  #handleCharacterDataMutation (mutation: TraceMutation) {
+    const el = this.#queryElement(mutation.target!)
+    if (!el) {
+      return
     }
 
-    // TODO: handle mutations
+    el.textContent = mutation.newTextContent || ''
+  }
+
+  #handleAttributeMutation (mutation: TraceMutation) {
+    if (!mutation.attributeName || !mutation.attributeValue) {
+      return
+    }
+
+    const el = this.#queryElement(mutation.target!)
+    if (!el) {
+      return
+    }
+
+    el.setAttribute(mutation.attributeName, mutation.attributeValue || '')
+  }
+
+  #handleChildListMutation (mutation: TraceMutation) {
+    if (mutation.addedNodes.length === 1 && !mutation.target) {
+      this.#renderNewDocument(mutation.addedNodes[0] as SimplifiedVNode)
+      return this.#renderVdom()
+    }
+
+    const el = this.#queryElement(mutation.target!)
+    if (!el) {
+      return
+    }
+
+    mutation.addedNodes.forEach((node) => {
+      if (typeof node === 'string') {
+        el.appendChild(document.createTextNode(node))
+      } else {
+        const root = transform(node)
+        render(root, el)
+      }
+    })
+
+    mutation.removedNodes.forEach((ref) => {
+      const child = this.#queryElement(ref, el)
+      if (child) {
+        child.remove()
+      }
+    })
+  }
+
+  #queryElement (ref: string, el?: HTMLElement) {
+    const rootElement = el || this.iframe?.contentDocument
+    if (!rootElement) {
+      return
+    }
+    return rootElement.querySelector(`*[data-wdio-ref="${ref}"]`) as HTMLElement
   }
 
   #highlightMutation (ev: CustomEvent<TraceMutation>) {
     const mutation = ev.detail
     const docEl = this.iframe?.contentDocument
-    if (!docEl) {
+    if (!docEl || !mutation.target) {
       return
     }
-    const el = docEl.querySelector(`*[data-wdio-ref="${mutation.target}"]`) as HTMLElement
+    const el = this.#queryElement(mutation.target)
     if (!el) {
       return
     }
 
+    el.scrollIntoView({ block: 'center', inline: 'center' })
     const rect = el.getBoundingClientRect()
     const scrollY = this.iframe?.contentWindow?.scrollY || 0
     const scrollX = this.iframe?.contentWindow?.scrollX || 0
@@ -170,6 +242,24 @@ export class DevtoolsBrowser extends Element {
     highlight.setAttribute('style', `position: absolute; background: #38bdf8; outline: 2px dotted red; opacity: .2; top: ${scrollY + rect.top}px; left: ${scrollX + rect.left}px; width: ${rect.width}px; height: ${rect.height}px; z-index: 10000;`)
     docEl.querySelector(`.${MUTATION_SELECTOR}`)?.remove()
     docEl.body.appendChild(highlight)
+  }
+
+  async #renderBrowserState (mutationIndex: number) {
+    this.#vdom = document.createDocumentFragment()
+    for (let i = 0; i <= mutationIndex; i++) {
+      await this.#handleMutation(this.data.mutations[i])
+    }
+
+    /**
+     * scroll changed element into view
+     */
+    const mutation = this.data.mutations[mutationIndex]
+    if (mutation.target) {
+      const el = this.#queryElement(mutation.target)
+      if (el) {
+        el.scrollIntoView({ block: 'center', inline: 'center' })
+      }
+    }
   }
 
   render() {

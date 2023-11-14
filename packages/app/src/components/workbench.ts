@@ -41,7 +41,7 @@ export class DevtoolsWorkbench extends Element {
   #dragVertical = new DragController(this, {
     localStorageKey: 'toolbarHeight',
     minPosition: MIN_WORKBENCH_HEIGHT,
-    initialPosition: window.innerHeight * .7, // initial height of sidebase is 20% of window
+    initialPosition: window.innerHeight * .7, // initial height of browser window is 70% of window
     getContainerEl: () => this.getShadowRootAsync() as any as Element,
     direction: Direction.vertical
   })
@@ -49,7 +49,7 @@ export class DevtoolsWorkbench extends Element {
   #dragHorizontal = new DragController(this, {
     localStorageKey: 'workbenchSidebarWidth',
     minPosition: MIN_METATAB_WIDTH,
-    initialPosition: MIN_METATAB_WIDTH, // initial height of sidebase is 20% of window
+    initialPosition: MIN_METATAB_WIDTH,
     getContainerEl: () => this.#getHorizontalWindow(),
     direction: Direction.horizontal
   })
@@ -94,7 +94,7 @@ export class DevtoolsWorkbench extends Element {
             <wdio-devtools-tab label="Actions">
               <wdio-devtools-actions></wdio-devtools-actions>
             </wdio-devtools-tab>
-            <wdio-devtools-tab label="Metadata" active>
+            <wdio-devtools-tab label="Metadata">
               <wdio-devtools-metadata></wdio-devtools-metadata>
             </wdio-devtools-tab>
             <nav class="ml-auto" slot="actions">

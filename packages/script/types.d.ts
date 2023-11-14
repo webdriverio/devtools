@@ -32,6 +32,8 @@ declare global {
     type: MutationRecordType
     attributeName?: string
     attributeNamespace?: string
+    attributeValue?: string
+    newTextContent?: string
     oldValue?: string
     addedNodes: (string | SimplifiedVNode)[]
     target?: string

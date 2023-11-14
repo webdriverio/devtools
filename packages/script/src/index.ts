@@ -46,10 +46,20 @@ try {
         const previousSibling = ps ? getRef(ps) : null
         const nextSibling = ns ? getRef(ns) : null
 
+        let attributeValue: string | undefined
+        if (type === 'attributes') {
+          attributeValue = (t as Element).getAttribute(attributeName!) || ''
+        }
+        let newTextContent: string | undefined
+        if (type === 'characterData') {
+          newTextContent = (t as Element).textContent || ''
+        }
+
         log(`added mutation: ${type}`)
         return {
           type, attributeName, attributeNamespace, oldValue, addedNodes, target,
-          removedNodes, previousSibling, nextSibling, timestamp
+          removedNodes, previousSibling, nextSibling, timestamp, attributeValue,
+          newTextContent
         } as TraceMutation
       }))
     } catch (err: any) {
