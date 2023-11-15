@@ -25,3 +25,4 @@ dist-ssr
 /*.ts
 /*.json
 *.tgz
+example/wdio-*.json

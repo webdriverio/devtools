@@ -21,7 +21,6 @@ export interface TraceLog {
   consoleLogs: ConsoleLogs[]
   metadata: {
     type: TraceType
-    pageLoadId: string
     url: string
     options: Omit<Options.WebdriverIO, 'capabilities'>
     capabilities: Capabilities.RemoteCapability

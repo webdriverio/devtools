@@ -1,5 +1,6 @@
+import type { DataCollectorType } from './src/collector.ts'
+
 export interface TraceMetadata {
-  pageLoadId: string
   url: string
   viewport: VisualViewport
 }
@@ -16,11 +17,7 @@ declare global {
   }
 
   interface Window {
-    wdioDOMChanges: TraceMutation[]
-    wdioTraceLogs: string[]
-    wdioCaptureErrors: string[]
-    wdioMetadata: TraceMetadata
-    wdioConsoleLogs: ConsoleLogs[]
+    wdioTraceCollector: DataCollectorType
   }
 
   interface SimplifiedVNode {

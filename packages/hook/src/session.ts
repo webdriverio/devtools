@@ -16,6 +16,11 @@ export class SessionCapturer {
   #commandsLog: CommandLog[] = []
   #sources = new Map<string, string>()
   #browser: WebdriverIO.Browser | undefined
+  #traceLog: Pick<TraceLog, 'mutations' | 'logs' | 'consoleLogs'> = {
+    mutations: [],
+    logs: [],
+    consoleLogs: []
+  }
 
   /**
    * before command hook
@@ -62,9 +67,10 @@ export class SessionCapturer {
     const callSource = (new Error('')).stack?.split('\n').pop()?.split(' ').pop()!
     const sourceFile = callSource.split(':').slice(0, -2).join(':')
     const absPath = sourceFile.startsWith('file://')
-        ? url.fileURLToPath(sourceFile)
-        : sourceFile
-    if (sourceFile && !this.#sources.has(sourceFile)) {
+      ? url.fileURLToPath(sourceFile)
+      : sourceFile
+    const fileExist = await fs.access(absPath).then(() => true, () => false)
+    if (sourceFile && !this.#sources.has(sourceFile) && fileExist) {
       const sourceCode = await fs.readFile(absPath, 'utf-8')
       this.#sources.set(absPath, sourceCode.toString())
     }
@@ -92,7 +98,7 @@ export class SessionCapturer {
     const source = (await fs.readFile(url.fileURLToPath(script))).toString()
     const functionDeclaration = `async () => { ${source} }`
 
-    await this.#browser.scriptAddPreloadScriptCommand({
+    await this.#browser.scriptAddPreloadScript({
         functionDeclaration
     })
   }
@@ -105,22 +111,27 @@ export class SessionCapturer {
       return
     }
 
-    const [mutations, logs, pageMetadata, consoleLogs] = await this.#browser.execute(() => [
-      window.wdioDOMChanges,
-      window.wdioTraceLogs,
-      window.wdioMetadata,
-      window.wdioConsoleLogs
-    ])
+    const { mutations, traceLogs, metadata, consoleLogs } = await this.#browser.execute(() => window.wdioTraceCollector.getTraceData())
+
+    if (Array.isArray(mutations)) {
+      this.#traceLog.mutations.push(...mutations as TraceMutation[])
+    }
+    if (Array.isArray(traceLogs)) {
+      this.#traceLog.logs.push(...traceLogs)
+    }
+    if (Array.isArray(consoleLogs)) {
+      this.#traceLog.consoleLogs.push(...consoleLogs as ConsoleLogs[])
+    }
 
     const outputDir = this.#browser.options.outputDir || process.cwd()
     const { capabilities, ...options } = this.#browser.options as Options.WebdriverIO
     const traceLog: TraceLog = {
-      mutations,
-      logs,
-      consoleLogs,
+      mutations: this.#traceLog.mutations,
+      logs: this.#traceLog.logs,
+      consoleLogs: this.#traceLog.consoleLogs,
       metadata: {
         type: TraceType.Standalone,
-        ...pageMetadata,
+        ...metadata,
         options,
         capabilities
       },

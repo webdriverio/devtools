@@ -8,6 +8,7 @@ export default defineConfig({
     lib: {
       entry: 'src/index.ts',
       formats: ['es'],
+      fileName: 'script'
     },
     target: 'esnext'
   }

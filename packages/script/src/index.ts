@@ -1,31 +1,22 @@
-import { waitForBody, parseFragment, parseDocument, log, getRef, assignRef, patchConsoleObject } from './utils.js'
-
-window.wdioCaptureErrors = []
-window.wdioDOMChanges = []
-window.wdioConsoleLogs = []
-window.wdioMetadata = {
-  url: window.location.href,
-  pageLoadId: Math.random().toString().slice(2),
-  viewport: window.visualViewport!
-}
+import { waitForBody, parseFragment, parseDocument, getRef, assignRef } from './utils.js'
+import { log } from './logger.js'
+import { collector } from './collector.js'
 
 try {
   log('waiting for body to render')
   await waitForBody()
   log('body rendered')
 
-  patchConsoleObject()
-
   assignRef(document.documentElement)
   log('applied wdio ref ids')
 
   const timestamp = Date.now()
-  window.wdioDOMChanges.push({
+  collector.captureMutation([{
     type: 'childList',
     timestamp,
     addedNodes: [parseDocument(document.documentElement)],
     removedNodes: []
-  })
+  }])
   log('added initial page structure')
 
   const config = { attributes: true, childList: true, subtree: true }
@@ -35,7 +26,7 @@ try {
 
     log(`observed ${mutationList.length} mutations`)
     try {
-      window.wdioDOMChanges.push(...mutationList.map(({ target: t, addedNodes: an, removedNodes: rn, type, attributeName, attributeNamespace, previousSibling: ps, nextSibling: ns, oldValue }) => {
+      collector.captureMutation(mutationList.map(({ target: t, addedNodes: an, removedNodes: rn, type, attributeName, attributeNamespace, previousSibling: ps, nextSibling: ns, oldValue }) => {
         const addedNodes = Array.from(an).map((node) => {
           assignRef(node as Element)
           return parseFragment(node as Element)
@@ -63,12 +54,12 @@ try {
         } as TraceMutation
       }))
     } catch (err: any) {
-      window.wdioCaptureErrors.push(err.stack)
+      collector.captureError(err)
     }
   })
   observer.observe(document.body, config)
 } catch (err: any) {
-    window.wdioCaptureErrors.push(err.stack)
+  collector.captureError(err)
 }
 
 log('Finished program')

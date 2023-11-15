@@ -1,6 +1,8 @@
 import { parse, parseFragment as parseFragmentImport, type DefaultTreeAdapterMap } from 'parse5'
 import { h } from 'htm/preact'
 
+import { log } from './logger.js'
+
 export type vFragment = DefaultTreeAdapterMap['documentFragment']
 export type vComment = DefaultTreeAdapterMap['commentNode']
 export type vElement = DefaultTreeAdapterMap['element']
@@ -32,11 +34,6 @@ export function parseNode (fragment: vFragment | vComment | vText | vChildNode):
   } catch (err: any) {
     return createVNode(h('div', { class: 'parseNode' }, err.stack))
   }
-}
-
-window.wdioTraceLogs = []
-export function log (...args: any[]) {
-  window.wdioTraceLogs.push(args.map((a) => JSON.stringify(a)).join(' '))
 }
 
 export function parseDocument (node: HTMLElement) {
@@ -110,17 +107,3 @@ export function getRef (elem: Node) {
   return (elem as Element).getAttribute('data-wdio-ref')
 }
 
-const consoleMethods = ['log', 'info', 'warn', 'error'] as const
-export function patchConsoleObject () {
-  consoleMethods.forEach((type: (typeof consoleMethods)[number]) => {
-    const orig = console[type]
-    console[type] = (...args) => {
-      window.wdioConsoleLogs.push({
-        timestamp: Date.now(),
-        type,
-        args
-      })
-      return orig(...args)
-    }
-  })
-}
