@@ -25,11 +25,11 @@ export class DevtoolsMetadata extends Element {
   `]
 
   render() {
-    const { id, url } = this.data.metadata
+    const { url } = this.data.metadata
     return html`
       <wdio-devtools-list
         label="Metadata"
-        list="${JSON.stringify({ id, url })}"></wdio-devtools-list>
+        list="${JSON.stringify({ url })}"></wdio-devtools-list>
       <wdio-devtools-list
         label="Capabilities"
         list="${JSON.stringify(this.data.metadata.capabilities)}"></wdio-devtools-list>

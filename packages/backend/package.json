@@ -1,0 +1,30 @@
+{
+  "name": "@wdio/devtools-backend",
+  "version": "0.0.0",
+  "description": "Backend service to spin up WebdriverIO Devtools",
+  "author": "Christian Bromann <mail@bromann.dev>",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "types": "./dist/index.d.ts",
+  "typeScriptVersion": "^5.0.0",
+  "scripts": {
+    "dev": "run-p dev:*",
+    "dev:ts": "tsc --watch",
+    "dev:app": "nodemon --watch ./dist ./dist/index.js",
+    "build": "tsc -p ./tsconfig.json",
+    "test": "eslint ."
+  },
+  "dependencies": {
+    "@fastify/static": "^6.12.0",
+    "@wdio/devtools-app": "workspace:^",
+    "fastify": "^4.24.3",
+    "get-port": "^7.0.0",
+    "import-meta-resolve": "^4.0.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  }
+}

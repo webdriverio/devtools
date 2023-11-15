@@ -1,7 +1,7 @@
 import { Element } from '@core/element'
 import { html, css } from 'lit'
 import { customElement, property } from 'lit/decorators.js'
-import type { TraceLog } from '@devtools/hook/types'
+import type { TraceLog } from '@wdio/devtools-hook/types'
 
 const CONFIG_CODE_EXAMPLE = `export const config = {
   // ...

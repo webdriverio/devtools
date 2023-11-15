@@ -16,7 +16,7 @@ When initiating a standalone WebdriverIO session, just wrap the `remote` call wi
 
 ```ts
 import { remote } from 'webdriverio'
-import { setupForDevtools } from '@devtools/hook'
+import { setupForDevtools } from '@wdio/devtools-hook'
 
 const browser = await remote(setupForDevtools({
     capabilities: {

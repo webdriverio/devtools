@@ -88,7 +88,7 @@ export class SessionCapturer {
     }
 
     this.#isInjected = true
-    const script = await resolve('@devtools/script', import.meta.url)
+    const script = await resolve('@wdio/devtools-script', import.meta.url)
     const source = (await fs.readFile(url.fileURLToPath(script))).toString()
     const functionDeclaration = `async () => { ${source} }`
 

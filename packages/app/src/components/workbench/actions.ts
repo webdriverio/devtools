@@ -2,7 +2,7 @@ import { Element } from '@core/element'
 import { html, css, nothing } from 'lit'
 import { customElement } from 'lit/decorators.js'
 import { consume } from '@lit/context'
-import type { CommandLog } from '@devtools/hook/types'
+import type { CommandLog } from '@wdio/devtools-hook/types'
 
 import { context, type TraceLog } from '../../context.js'
 

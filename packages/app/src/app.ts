@@ -1,7 +1,7 @@
 import { css, html, nothing } from 'lit'
 import { provide } from '@lit/context'
 import { customElement, query, property } from 'lit/decorators.js'
-import { type TraceLog } from '@devtools/hook/types'
+import { type TraceLog } from '@wdio/devtools-hook/types'
 
 import { Element } from '@core/element'
 import { context } from './context.js'

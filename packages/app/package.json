@@ -1,8 +1,9 @@
 {
-  "name": "@devtools/app",
+  "name": "@wdio/devtools-app",
   "version": "0.0.0",
   "description": "Browser devtools extension for debugging WebdriverIO tests.",
   "type": "module",
+  "exports": "./src/index.ts",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
@@ -13,7 +14,7 @@
     "@codemirror/lang-javascript": "^6.2.1",
     "@codemirror/theme-one-dark": "^6.1.2",
     "@codemirror/view": "^6.22.0",
-    "@devtools/hook": "workspace:^",
+    "@wdio/devtools-hook": "workspace:^",
     "@iconify-json/mdi": "^1.1.54",
     "@lit/context": "^1.0.1",
     "codemirror": "^6.0.1",
