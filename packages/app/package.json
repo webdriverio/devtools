@@ -18,7 +18,7 @@
     "@iconify-json/mdi": "^1.1.54",
     "@lit/context": "^1.0.1",
     "codemirror": "^6.0.1",
-    "lit": "^2.7.6",
+    "lit": "^3.0.2",
     "pointer-tracker": "^2.5.3",
     "preact": "^10.18.1"
   },
