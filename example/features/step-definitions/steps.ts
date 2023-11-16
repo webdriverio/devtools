@@ -6,9 +6,9 @@ import SecurePage from '../pageobjects/secure.page.js'
 
 const pages = {
     login: LoginPage
-}
+} as const
 
-Given(/^I am on the (\w+) page$/, async (page) => {
+Given(/^I am on the (\w+) page$/, async (page: keyof typeof pages) => {
     await pages[page].open()
 })
 

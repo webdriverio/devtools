@@ -7,15 +7,23 @@ const __dirname = url.fileURLToPath(new URL('.', import.meta.url))
 
 // https://vitejs.dev/config/
 export default defineConfig({
+  optimizeDeps: {
+    esbuildOptions: {
+      target: 'esnext',
+    },
+  },
   build: {
     lib: {
       entry: path.resolve(__dirname, 'src', 'index.ts'),
       name: 'hook',
       formats: ['es'],
     },
-    target: 'node20',
+    target: 'esnext',
     outDir: 'dist',
     emptyOutDir: false,
+    /**
+     * ensure we can import types from the package in the app (a web environment)
+     */
     rollupOptions: {
       input: {
         index: path.resolve(__dirname, 'src', 'index.ts'),
@@ -27,5 +35,8 @@ export default defineConfig({
       external: (id) => !id.startsWith(path.resolve(__dirname, 'src')) && !id.startsWith('./')
     }
   },
-  plugins: [dts()]
+  plugins: [dts({
+    root: __dirname,
+    entryRoot: 'src'
+  })]
 })

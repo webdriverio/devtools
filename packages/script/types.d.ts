@@ -1,4 +1,5 @@
 import type { DataCollectorType } from './src/collector.ts'
+import type { ConsoleLog as ConsoleLogImport } from './src/collectors/consoleLogs.ts'
 
 export interface TraceMetadata {
   url: string
@@ -6,14 +7,10 @@ export interface TraceMetadata {
 }
 
 declare global {
+  type ConsoleLogs = ConsoleLogImport
+
   interface Element {
     'wdio-ref': string
-  }
-
-  interface ConsoleLogs {
-    type: 'log' | 'info' | 'warn' | 'error'
-    args: any[]
-    timestamp: number
   }
 
   interface Window {

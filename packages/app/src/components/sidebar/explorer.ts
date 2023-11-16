@@ -1,6 +1,10 @@
 import { Element } from '@core/element'
 import { html, css, nothing, type TemplateResult } from 'lit'
 import { customElement } from 'lit/decorators.js'
+import { consume } from '@lit/context'
+
+import { TestState } from './test-suite.js'
+import { context, type TraceLog } from '../../context.js'
 
 import '~icons/mdi/play.js'
 import '~icons/mdi/stop.js'
@@ -18,55 +22,10 @@ interface TestEntry {
   children: TestEntry[]
 }
 
-const BOILERPLATE_LIST: TestEntry[] = [{
-  state: 'failed',
-  label: 'example.e2e.ts',
-  children: [{
-    label: 'should have done this',
-    children: [{
-      label: 'should have done this',
-      children: [{
-        label: 'should have done this',
-        children: [{
-          label: 'should have done this',
-          children: [{
-            label: 'should have done this',
-            children: []
-          }]
-        }]
-      }]
-    }]
-  }, {
-    label: 'should have done this',
-    children: []
-  }, {
-    label: 'should have done this',
-    children: []
-  }, {
-    label: 'should have done this',
-    children: []
-  }]
-}, {
-  state: 'passed',
-  label: 'example.e2e.ts',
-  children: []
-}, {
-  state: 'failed',
-  label: 'example.e2e.ts',
-  children: []
-}, {
-  state: 'skipped',
-  label: 'example.e2e.ts',
-  children: []
-}, {
-  state: 'running',
-  label: 'example.e2e.ts',
-  children: []
-,
-}]
-
 @customElement(EXPLORER)
 export class DevtoolsSidebarExplorer extends Element {
+  #testFilter: DevtoolsSidebarFilter | undefined
+
   static styles = [...Element.styles, css`
     :host {
       width: 100%;
@@ -74,13 +33,17 @@ export class DevtoolsSidebarExplorer extends Element {
     }
   `]
 
+  @consume({ context })
+  data: TraceLog = {} as TraceLog
+
   connectedCallback(): void {
     super.connectedCallback()
     window.addEventListener('app-test-filter', this.#filterTests.bind(this))
   }
 
   #filterTests ({ detail }: { detail: DevtoolsSidebarFilter }) {
-    console.log(detail.filterStatus)
+    this.#testFilter = detail
+    this.requestUpdate()
   }
 
   #renderEntry (entry: TestEntry): TemplateResult {
@@ -97,7 +60,52 @@ export class DevtoolsSidebarExplorer extends Element {
     `
   }
 
+  #filterEntry (entry: TestEntry): boolean {
+    if (!this.#testFilter) {
+      return true
+    }
+
+    return (
+      Boolean(
+        ['all', 'none'].includes(this.#testFilter.filterStatus) ||
+        (entry.state === TestState.PASSED && this.#testFilter.filtersPassed) ||
+        (entry.state === TestState.FAILED && this.#testFilter.filtersFailed) ||
+        (entry.state === TestState.SKIPPED && this.#testFilter.filtersSkipped)
+      )
+      &&
+      (
+        !this.#testFilter.filterQuery ||
+        entry.label.toLowerCase().includes(this.#testFilter.filterQuery.toLowerCase())
+      )
+    )
+  }
+
   render() {
+    if (typeof this.data.suites !== 'object') {
+      return
+    }
+    const suites = Object.values(this.data.suites[0]).map((suite) => {
+      const state = !suite.tests.find((t) => t.end)
+        ? TestState.RUNNING
+        : suite.tests.find((t) => t.state === 'failed')
+          ? TestState.FAILED
+          : TestState.PASSED
+
+      return {
+        label: suite.title,
+        state,
+        children: Object.values(suite.tests).map((test) => ({
+          label: test.title,
+          state: !test.end
+            ? TestState.RUNNING
+            : test.state === 'failed'
+              ? TestState.FAILED
+              : TestState.PASSED,
+          children: []
+        }))
+      }
+    }).filter(this.#filterEntry.bind(this))
+
     return html`
       <header class="pl-4 py-2 flex shadow-md pr-2">
         <h3 class="flex content-center flex-wrap uppercase font-bold text-sm">Tests</h3>
@@ -109,7 +117,7 @@ export class DevtoolsSidebarExplorer extends Element {
         </nav>
       </header>
       <wdio-test-suite>
-        ${BOILERPLATE_LIST.map(this.#renderEntry.bind(this))}
+        ${suites.map(this.#renderEntry.bind(this))}
       </wdio-test-suite>
     `
   }

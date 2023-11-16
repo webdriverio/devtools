@@ -1,5 +1,5 @@
 import type { Options } from '@wdio/types'
-import { setupForDevtools } from '../packages/hook/dist/index.js'
+import { DevToolsHookService } from '../packages/hook/dist/index.js'
 
 export const config: Options.Testrunner = {
     //
@@ -65,11 +65,11 @@ export const config: Options.Testrunner = {
         'goog:chromeOptions': {
           args: ['--headless', '--disable-gpu', '--window-size=1280,800']
         }
-    }, {
-        browserName: 'firefox',
-        'moz:firefoxOptions': {
-          args: ['-headless']
-        }
+    // }, {
+    //     browserName: 'firefox',
+    //     'moz:firefoxOptions': {
+    //       args: ['-headless']
+    //     }
     }],
 
     //
@@ -119,7 +119,7 @@ export const config: Options.Testrunner = {
     // Services take over a specific job you don't want to take care of. They enhance
     // your test setup with almost no effort. Unlike plugins, they don't add new
     // commands. Instead, they hook themselves up into the test process.
-    // services: [],
+    services: [[DevToolsHookService, {}]],
     //
     // Framework you want to run your specs with.
     // The following are supported: Mocha, Jasmine, and Cucumber
@@ -213,9 +213,8 @@ export const config: Options.Testrunner = {
      * @param {Array.<String>} specs List of spec file paths that are to be run
      * @param {string} cid worker id (e.g. 0-0)
      */
-    beforeSession: function (config, capabilities) {
-      Object.assign(config, setupForDevtools({ ...config, capabilities } as any))
-    },
+    // beforeSession: function (config, capabilities) {
+    // },
     /**
      * Gets executed before test execution begins. At this point you can access to all global
      * variables like `browser`. It is the perfect place to define custom commands.

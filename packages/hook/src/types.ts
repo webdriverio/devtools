@@ -1,5 +1,6 @@
 import type { WebDriverCommands } from '@wdio/protocols'
 import type { Capabilities, Options } from '@wdio/types'
+import type { SuiteStats } from '@wdio/reporter'
 
 export interface CommandLog {
   command: keyof WebDriverCommands
@@ -28,4 +29,5 @@ export interface TraceLog {
   }
   commands: CommandLog[],
   sources: Record<string, string>
+  suites?: Record<string, SuiteStats>[]
 }

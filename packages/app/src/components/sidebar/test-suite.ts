@@ -30,7 +30,7 @@ export class ExplorerTestSuite extends Element {
   }
 }
 
-enum TestState {
+export enum TestState {
   PASSED = 'passed',
   FAILED = 'failed',
   RUNNING = 'running',

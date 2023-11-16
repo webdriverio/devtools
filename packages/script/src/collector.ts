@@ -1,6 +1,5 @@
 import { getLogs, clearLogs } from './logger.js'
-
-const consoleMethods = ['log', 'info', 'warn', 'error'] as const
+import { ConsoleLogCollector } from './collectors/consoleLogs.js'
 
 class DataCollector {
   #metadata = {
@@ -9,11 +8,7 @@ class DataCollector {
   }
   #errors: string[] = []
   #mutations: TraceMutation[] = []
-  #consoleLogs: ConsoleLogs[] = []
-
-  constructor () {
-    consoleMethods.forEach(this.#consolePatch.bind(this))
-  }
+  #consoleLogs = new ConsoleLogCollector()
 
   captureError (err: Error) {
     const error = err.stack || err.message
@@ -27,7 +22,7 @@ class DataCollector {
   reset () {
     this.#errors = []
     this.#mutations = []
-    this.#consoleLogs = []
+    this.#consoleLogs.clear()
     clearLogs()
   }
 
@@ -35,24 +30,12 @@ class DataCollector {
     const data = {
       errors: this.#errors,
       mutations: this.#mutations,
-      consoleLogs: this.#consoleLogs,
+      consoleLogs: this.#consoleLogs.getArtifacts(),
       traceLogs: getLogs(),
       metadata: this.#metadata
     } as const
     this.reset()
     return data
-  }
-
-  #consolePatch (type: (typeof consoleMethods)[number]) {
-    const orig = console[type]
-    console[type] = (...args) => {
-      this.#consoleLogs.push({
-        timestamp: Date.now(),
-        type,
-        args
-      })
-      return orig(...args)
-    }
   }
 }
 

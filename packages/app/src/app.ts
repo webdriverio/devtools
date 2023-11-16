@@ -82,7 +82,7 @@ export class WebdriverIODevtoolsApplication extends Element {
       <section class="flex h-[calc(100%-40px)] w-full relative">
         ${
           // only render sidebar if trace file is captured using testrunner
-          this.data?.metadata.type !== 'standalone'
+          this.data?.suites
             ? html`<wdio-devtools-sidebar style="${this.#drag.getPosition()}"></wdio-devtools-sidebar>`
             : nothing
         }
