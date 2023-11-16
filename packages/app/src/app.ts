@@ -55,6 +55,11 @@ export class WebdriverIODevtoolsApplication extends Element {
     return this.window as Element
   }
 
+  connectedCallback(): void {
+    super.connectedCallback()
+    window.addEventListener('load-trace', this.#loadTrace.bind(this))
+  }
+
   render() {
     return html`
       <wdio-devtools-header></wdio-devtools-header>
@@ -62,13 +67,15 @@ export class WebdriverIODevtoolsApplication extends Element {
     `
   }
 
+  #loadTrace ({ detail }: { detail: TraceLog }) {
+    this.data = detail
+    localStorage.setItem(CACHE_ID, JSON.stringify(detail))
+    this.requestUpdate()
+  }
+
   #mainContent () {
     if (!this.data) {
-      return html`<wdio-devtools-start .onLoad=${(data: TraceLog) => {
-        this.data = data
-        localStorage.setItem(CACHE_ID, JSON.stringify(data))
-        this.requestUpdate()
-      }}></wdio-devtools-start>`
+      return html`<wdio-devtools-start></wdio-devtools-start>`
     }
 
     return html`

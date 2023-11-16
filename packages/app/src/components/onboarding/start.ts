@@ -1,7 +1,8 @@
 import { Element } from '@core/element'
 import { html, css } from 'lit'
 import { customElement, property } from 'lit/decorators.js'
-import type { TraceLog } from '@wdio/devtools-hook/types'
+
+import '../inputs/traceLoader.js'
 
 const CONFIG_CODE_EXAMPLE = `export const config = {
   // ...
@@ -32,7 +33,7 @@ export class DevtoolsStart extends Element {
           <h2 class="text-4xl font-bold">WebdriverIO Devtools</h2>
           <p class="py-4">
             <h3 class="font-bold text-xl">Load Trace File</h3>
-            <input type="file" @change="${this.#loadTraceFile.bind(this)}" />
+            <wdio-devtools-trace-loader></wdio-devtools-trace-loader>
           </p>
           <p class="py-4">
             <h3 class="font-bold text-xl">Embed into Project</h3>
@@ -46,41 +47,5 @@ export class DevtoolsStart extends Element {
         </section>
       </div>
     `
-  }
-
-  /**
-   * Event handler for when a user submits a trace file
-   * @param e input file change event
-   */
-  async #loadTraceFile (e: Event) {
-    const files = (e.target as HTMLInputElement).files
-    if (!files || files.length === 0) {
-      return console.log('no file selected')
-    }
-    const content = await this.#loadFileContent(files[0])
-    this.onLoad(content)
-  }
-
-  /**
-   * Read trace file and parse it
-   * @param file file object from input element
-   * @returns parsed TraceLog object
-   */
-  #loadFileContent (file: File) {
-    const reader = new FileReader()
-    reader.readAsText(file)
-    return new Promise<any | Error>((resolve, reject) => {
-      reader.onload = () => {
-        try {
-          const content: TraceLog = JSON.parse(reader.result as string)
-          if (!content.mutations) {
-            throw new Error('Invalid trace file format!')
-          }
-          return resolve(content)
-        } catch (err) {
-          return reject(err)
-        }
-      }
-    })
   }
 }
