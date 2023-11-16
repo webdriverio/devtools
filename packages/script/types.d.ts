@@ -35,5 +35,6 @@ declare global {
     previousSibling?: string
     nextSibling?: string
     timestamp: number
+    url?: string
   }
 }

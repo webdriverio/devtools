@@ -53,11 +53,11 @@ export class DevtoolsActions extends Element {
     return this.#entries.map((entry, i) => {
       if ('command' in entry) {
         return html`
-          <button class="flex px-2 items-center" @click="${() => this.#highlightLine(entry.callSource)}">
+          <div class="flex px-2 items-center" @click="${() => this.#highlightLine(entry.callSource)}">
             <icon-mdi-arrow-right class="${ICON_CLASS}"></icon-mdi-arrow-right>
             ${this.#renderTime(entry)}
             <code class="text-sm flex-wrap text-left break-all">${entry.command}(${entry.args.map((arg) => JSON.stringify(arg, null, 2)).join(', ')})</code>
-          </button>
+          </div>
         `
       }
 
@@ -107,7 +107,7 @@ export class DevtoolsActions extends Element {
   }
 
   #getChildListMutationLabel(mutation: TraceMutation) {
-    if (mutation.addedNodes.length === 1 && (mutation.addedNodes[0] as any).type === 'html') {
+    if (mutation.addedNodes.length === 1 && Boolean(mutation.url)) {
       return html`
         <icon-mdi-document class="${ICON_CLASS}"></icon-mdi-document>
         ${this.#renderTime(mutation)}

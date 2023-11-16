@@ -1,6 +1,5 @@
-import type { WebDriverCommands } from '@wdio/protocols'
-
-export const PAGE_TRANSITION_COMMANDS: (keyof WebDriverCommands)[] = [
+export const PAGE_TRANSITION_COMMANDS: string[] = [
+  'url',
   'navigateTo',
   'elementClick'
 ]

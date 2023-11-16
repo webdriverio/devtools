@@ -13,6 +13,7 @@ try {
   const timestamp = Date.now()
   collector.captureMutation([{
     type: 'childList',
+    url: document.location.href,
     timestamp,
     addedNodes: [parseDocument(document.documentElement)],
     removedNodes: []

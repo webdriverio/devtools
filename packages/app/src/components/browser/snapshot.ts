@@ -35,6 +35,7 @@ const COMPONENT = 'wdio-devtools-browser'
 @customElement(COMPONENT)
 export class DevtoolsBrowser extends Element {
   #vdom = document.createDocumentFragment()
+  #activeUrl = ''
 
   @consume({ context })
   data: TraceLog = {} as TraceLog
@@ -246,8 +247,21 @@ export class DevtoolsBrowser extends Element {
 
   async #renderBrowserState (mutationIndex: number) {
     this.#vdom = document.createDocumentFragment()
-    for (let i = 0; i <= mutationIndex; i++) {
-      await this.#handleMutation(this.data.mutations[i])
+    const rootIndex = this.data.mutations
+      .map((m, i) => [
+        // is document loaded
+        m.addedNodes.length === 1 && Boolean(m.url),
+        // index
+        i
+      ] as const)
+      .filter(([isDocLoaded, docLoadedIndex]) => isDocLoaded && docLoadedIndex <= mutationIndex)
+      .map(([, i]) => i)
+      .pop() || 0
+
+    this.#activeUrl = this.data.mutations[rootIndex].url || this.data.metadata.url
+    for (let i = rootIndex; i <= mutationIndex; i++) {
+      await this.#handleMutation(this.data.mutations[i]).catch(
+        (err) => console.warn(`Failed to render mutation: ${err.message}`))
     }
 
     /**
@@ -260,6 +274,8 @@ export class DevtoolsBrowser extends Element {
         el.scrollIntoView({ block: 'center', inline: 'center' })
       }
     }
+
+    this.requestUpdate()
   }
 
   render() {
@@ -271,7 +287,7 @@ export class DevtoolsBrowser extends Element {
           <div class="frame-dot bg-portsIconRunningProcessForeground"></div>
           <div class="flex mx-4 my-2 pr-2 bg-inputBackground text-inputForeground border border-transparent rounded leading-7 w-full">
             <icon-mdi-world class="w-[20px] h-[20px] m-1 mr-2"></icon-mdi-world>
-            ${this.data.metadata.url}
+            ${this.#activeUrl}
           </div>
         </header>
         <iframe class="origin-top-left"></iframe>
