@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises'
 import url from 'node:url'
 
+import { parse } from 'stack-trace'
 import { resolve } from 'import-meta-resolve'
 import { SevereServiceError } from 'webdriverio'
 import type { WebDriverCommands } from '@wdio/protocols'
@@ -34,8 +35,16 @@ export class SessionCapturer {
    */
   async afterCommand (browser: WebdriverIO.Browser, command: keyof WebDriverCommands, args: any[], result: any, error: Error) {
     const timestamp = Date.now()
-    const callSource = (new Error('')).stack?.split('\n').pop()?.split(' ').pop()!
-    const sourceFile = callSource.split(':').slice(0, -2).join(':')
+    const sourceFile = parse(new Error(''))
+      .map((frame) => frame.getFileName())
+      .filter(Boolean)
+      .filter((fileName) => (
+        !fileName.includes('/node_modules/') &&
+        !fileName.includes('<anonymous>)') &&
+        !fileName.includes('node:internal') &&
+        !fileName.includes('/dist/')
+      ))
+      .pop() || ''
     const absPath = sourceFile.startsWith('file://')
       ? url.fileURLToPath(sourceFile)
       : sourceFile
