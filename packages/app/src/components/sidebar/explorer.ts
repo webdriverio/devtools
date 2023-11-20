@@ -10,8 +10,10 @@ import '~icons/mdi/play.js'
 import '~icons/mdi/stop.js'
 import '~icons/mdi/eye.js'
 import '~icons/mdi/collapse-all.js'
+import '~icons/mdi/expand-all.js'
 
 import './test-suite.js'
+import { CollapseableEntry } from './collapseableEntry.js'
 import type { DevtoolsSidebarFilter } from './filter.js'
 
 const EXPLORER = 'wdio-devtools-sidebar-explorer'
@@ -23,7 +25,7 @@ interface TestEntry {
 }
 
 @customElement(EXPLORER)
-export class DevtoolsSidebarExplorer extends Element {
+export class DevtoolsSidebarExplorer extends CollapseableEntry {
   #testFilter: DevtoolsSidebarFilter | undefined
 
   static styles = [...Element.styles, css`
@@ -113,11 +115,16 @@ export class DevtoolsSidebarExplorer extends Element {
           <button class="p-1 rounded hover:bg-toolbarHoverBackground text-sm group"><icon-mdi-play class="group-hover:text-chartsGreen"></icon-mdi-play></button>
           <button class="p-1 rounded hover:bg-toolbarHoverBackground text-sm group"><icon-mdi-stop class="group-hover:text-chartsRed"></icon-mdi-stop></button>
           <button class="p-1 rounded hover:bg-toolbarHoverBackground text-sm group"><icon-mdi-eye class="group-hover:text-chartsYellow"></icon-mdi-eye></button>
-          <button class="p-1 rounded hover:bg-toolbarHoverBackground text-sm group"><icon-mdi-collapse-all class="group-hover:text-chartsBlue"></icon-mdi-collapse-all></button>
+          <button class="p-1 rounded hover:bg-toolbarHoverBackground text-sm group">
+            ${this.renderCollapseOrExpandIcon('group-hover:text-chartsBlue')}
+          </button>
         </nav>
       </header>
       <wdio-test-suite>
-        ${suites.map(this.#renderEntry.bind(this))}
+        ${suites.length
+          ? suites.map(this.#renderEntry.bind(this))
+          : html`<p class="text-disabledForeground text-sm px-4 py-2">No tests found</p>`
+        }
       </wdio-test-suite>
     `
   }

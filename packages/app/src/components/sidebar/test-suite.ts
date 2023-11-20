@@ -2,6 +2,8 @@ import { Element } from '@core/element'
 import { html, css, nothing } from 'lit'
 import { customElement, property } from 'lit/decorators.js'
 
+import { CollapseableEntry } from './collapseableEntry.js'
+
 import '~icons/mdi/chevron-right.js'
 import '~icons/mdi/play.js'
 import '~icons/mdi/stop.js'
@@ -39,8 +41,9 @@ export enum TestState {
 
 const TEST_ENTRY = 'wdio-test-entry'
 @customElement(TEST_ENTRY)
-export class ExplorerTestEntry extends Element {
-  #isCollapsed = false
+export class ExplorerTestEntry extends CollapseableEntry {
+  @property({ attribute: 'is-collapsed' })
+  isCollapsed = 'true'
 
   @property({ type: String })
   state?: TestState
@@ -53,7 +56,18 @@ export class ExplorerTestEntry extends Element {
   `]
 
   #toggleEntry() {
-    this.#isCollapsed = !this.#isCollapsed
+    this.setAttribute('is-collapsed', `${!(this.isCollapsed === 'true')}`)
+    const isCollapsed = this.isCollapsed === 'true'
+    this.dispatchEvent(new CustomEvent('entry-collapse-change', {
+      detail: {
+        isCollapsed: isCollapsed,
+        entry: this
+      },
+      bubbles: true
+    }))
+    if (isCollapsed) {
+      this.allowCollapseAll = false
+    }
     this.requestUpdate()
   }
 
@@ -71,57 +85,58 @@ export class ExplorerTestEntry extends Element {
   }
   get testStateIcon () {
     if (this.isRunning) {
-      return html`<icon-mdi-autorenew class="w-4 shrink-0 animate-spin"></icon-mdi-autorenew>`
+      return html`<icon-mdi-autorenew class="w-4 mt-2 shrink-0 animate-spin"></icon-mdi-autorenew>`
     }
     if (this.hasPassed) {
-      return html`<icon-mdi-check class="w-4 shrink-0 text-chartsGreen"></icon-mdi-check>`
+      return html`<icon-mdi-check class="w-4 mt-2 shrink-0 text-chartsGreen"></icon-mdi-check>`
     }
     if (this.hasFailed) {
-      return html`<icon-mdi-window-close class="w-4 shrink-0 text-chartsRed"></icon-mdi-window-close>`
+      return html`<icon-mdi-window-close class="w-4 mt-2 shrink-0 text-chartsRed"></icon-mdi-window-close>`
     }
     if (this.hasSkipped) {
-      return html`<icon-mdi-debug-step-over class="w-4 shrink-0 text-chartsYellow"></icon-mdi-debug-step-over>`
+      return html`<icon-mdi-debug-step-over class="w-4 mt-2 shrink-0 text-chartsYellow"></icon-mdi-debug-step-over>`
     }
 
-    return html`<icon-mdi-checkbox-blank-circle-outline class="w-4 shrink-0"></icon-mdi-checkbox-blank-circle-outline>`
+    return html`<icon-mdi-checkbox-blank-circle-outline class="w-4 mt-2 shrink-0"></icon-mdi-checkbox-blank-circle-outline>`
   }
 
   render() {
     const hasNoChildren = this.querySelectorAll('[slot="children"]').length === 0
+    const isCollapsed = this.isCollapsed === 'true'
 
     return html`
-      <section class="block text-sm flex w-full group/sidebar">
-        <button class="flex-none pointer px-2 h-8 ${hasNoChildren ? 'hidden' : ''}" @click="${() => this.#toggleEntry() }">
-          <icon-mdi-chevron-right class="text-base transition-transform block ${this.#isCollapsed ? 'block rotate-90' : ''}"></icon-mdi-chevron-right>
+      <section class="block mt-2 text-sm flex w-full group/sidebar">
+        <button class="flex-none pointer px-2 h-8 ${hasNoChildren ? 'hidden' : ''}" @click="${() => this.#toggleEntry()}">
+          <icon-mdi-chevron-right class="text-base transition-transform block ${!isCollapsed ? 'block rotate-90' : ''}"></icon-mdi-chevron-right>
         </button>
-        <span class="flex shrink flex-nowrap min-w-0 ${hasNoChildren ? 'pl-9' : ''}">
+        <span class="flex items-start shrink flex-nowrap min-w-0 ${hasNoChildren ? 'pl-9' : ''}">
           ${this.testStateIcon}
-          <slot name="label" class="m-2 block flex-initial truncate shrink"></slot>
+          <slot name="label" class="mx-2 mt-1 block flex-initial shrink"></slot>
         </span>
-        <nav class="flex-none flex ml-auto mr-1 transition-opacity opacity-0 group-hover/sidebar:opacity-100">
+        <nav class="flex-none ml-auto mr-1 transition-opacity opacity-0 group-hover/sidebar:opacity-100">
           ${!this.isRunning
             ? html`
-              <button class="p-1 rounded hover:bg-toolbarHoverBackground m-1 group/button">
+              <button class="p-1 rounded hover:bg-toolbarHoverBackground my-1 group/button">
                 <icon-mdi-play class="group-hover/button:text-chartsGreen"></icon-mdi-play>
               </button>
             `
             : html`
-              <button class="p-1 rounded hover:bg-toolbarHoverBackground m-1 group/button">
+              <button class="p-1 rounded hover:bg-toolbarHoverBackground my-1 group/button">
                 <icon-mdi-stop class="group-hover/button:text-chartsRed"></icon-mdi-stop>
               </button>
             `
           }
-          <button class="p-1 rounded hover:bg-toolbarHoverBackground m-1 group">
+          <button class="p-1 rounded hover:bg-toolbarHoverBackground my-1 group">
             <icon-mdi-eye class="group-hover:text-chartsYellow"></icon-mdi-eye>
           </button>
           ${!hasNoChildren ? html`
-            <button class="p-1 rounded hover:bg-toolbarHoverBackground m-1 group">
-              <icon-mdi-expand-all class="group-hover:text-chartsBlue"></icon-mdi-expand-all>
+            <button class="p-1 rounded hover:bg-toolbarHoverBackground my-1 group" @click="${() => this.#toggleEntry()}">
+              ${this.renderCollapseOrExpandIcon('group-hover:text-chartsBlue')}
             </button>
           `: nothing }
         </nav>
       </section>
-      <section class="block ml-4 ${this.#isCollapsed ? '' : 'hidden'}">
+      <section class="block ml-4 ${!isCollapsed ? '' : 'hidden'}">
         <slot name="children"></slot>
       </section>
     `

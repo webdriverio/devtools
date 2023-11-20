@@ -36,22 +36,23 @@ export class SessionCapturer {
   async afterCommand (browser: WebdriverIO.Browser, command: keyof WebDriverCommands, args: any[], result: any, error: Error) {
     const timestamp = Date.now()
     const sourceFile = parse(new Error(''))
-      .map((frame) => frame.getFileName())
-      .filter(Boolean)
+      .filter((frame) => Boolean(frame.getFileName()))
+      .map((frame) => [frame.getFileName(), frame.getLineNumber(), frame.getColumnNumber()].join(':'))
       .filter((fileName) => (
         !fileName.includes('/node_modules/') &&
         !fileName.includes('<anonymous>)') &&
         !fileName.includes('node:internal') &&
         !fileName.includes('/dist/')
       ))
-      .pop() || ''
+      .shift() || ''
     const absPath = sourceFile.startsWith('file://')
       ? url.fileURLToPath(sourceFile)
       : sourceFile
-    const fileExist = await fs.access(absPath).then(() => true, () => false)
+    const sourceFilePath = absPath.split(':')[0]
+    const fileExist = await fs.access(sourceFilePath).then(() => true, () => false)
     if (sourceFile && !this.sources.has(sourceFile) && fileExist) {
-      const sourceCode = await fs.readFile(absPath, 'utf-8')
-      this.sources.set(absPath, sourceCode.toString())
+      const sourceCode = await fs.readFile(sourceFilePath, 'utf-8')
+      this.sources.set(sourceFilePath, sourceCode.toString())
     }
     this.commandsLog.push({ command, args, result, error, timestamp, callSource: absPath })
 
