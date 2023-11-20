@@ -67,6 +67,7 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
       return true
     }
 
+    const entryLabelIncludingChildren = getSearchableLabel(entry).flat(Infinity).join(' ')
     return (
       Boolean(
         ['all', 'none'].includes(this.#testFilter.filterStatus) ||
@@ -77,7 +78,7 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
       &&
       (
         !this.#testFilter.filterQuery ||
-        entry.label.toLowerCase().includes(this.#testFilter.filterQuery.toLowerCase())
+        entryLabelIncludingChildren.toLowerCase().includes(this.#testFilter.filterQuery.toLowerCase())
       )
     )
   }
@@ -104,7 +105,7 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
               ? TestState.FAILED
               : TestState.PASSED,
           children: []
-        }))
+        })).filter(this.#filterEntry.bind(this))
       }
     }).filter(this.#filterEntry.bind(this))
 
@@ -134,4 +135,11 @@ declare global {
   interface HTMLElementTagNameMap {
     [EXPLORER]: DevtoolsSidebarExplorer
   }
+}
+
+function getSearchableLabel (entry: TestEntry): string[] {
+  if (entry.children.length === 0) {
+    return [entry.label]
+  }
+  return entry.children.map(getSearchableLabel) as any as string[]
 }
