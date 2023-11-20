@@ -32,7 +32,7 @@
     "@wdio/globals": "^8.23.0",
     "@wdio/protocols": "^8.23.0",
     "vite-plugin-dts": "^3.6.3",
-    "webdriverio": "^8.23.0"
+    "webdriverio": "^8.23.1"
   },
   "peerDependencies": {
     "@wdio/protocols": "^8.20.4",
