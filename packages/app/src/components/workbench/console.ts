@@ -31,6 +31,10 @@ export class DevtoolsConsoleLogs extends Element {
   data: TraceLog = {} as TraceLog
 
   render() {
+    if (this.data.consoleLogs.length === 0) {
+      return html`<section class="flex items-center justify-center text-sm w-full h-full">No events logged!</section>`
+    }
+
     return html`
       ${Object.values(this.data.consoleLogs).map((log) => html`
         <dl class="w-full flex grow-0">

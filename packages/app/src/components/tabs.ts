@@ -1,12 +1,15 @@
 import { Element } from '@core/element'
 import { html, css, nothing } from 'lit'
-import { customElement } from 'lit/decorators.js'
+import { customElement, property } from 'lit/decorators.js'
 
 const TABS_COMPONENT = 'wdio-devtools-tabs'
 @customElement(TABS_COMPONENT)
 export class DevtoolsTabs extends Element {
   #activeTab: string | undefined
   #tabList: string[] = []
+
+  @property({ type: String })
+  cacheId?: string
 
   static styles = [...Element.styles, css`
     :host {
@@ -22,13 +25,7 @@ export class DevtoolsTabs extends Element {
   #getTabButton (tabId: string) {
     return html`
       <button
-        @click="${() => {
-          this.#activeTab = tabId
-          const activeTab = this.tabs.find((el) => el.getAttribute('label') === tabId)
-          this.tabs.forEach((el) => el.removeAttribute('active'))
-          activeTab?.setAttribute('active', '')
-          this.requestUpdate()
-        }}"
+        @click="${() => this.activateTab(tabId)}"
         class="transition-colors px-4 py-2 hover:bg-toolbarHoverBackground ${this.#activeTab === tabId ? 'bg-toolbarHoverBackground' : ''}"
       >
         ${tabId}
@@ -58,22 +55,53 @@ export class DevtoolsTabs extends Element {
     })
   }
 
+  activateTab (tabId: string) {
+    const activeTab = this.tabs.find((el) => el.getAttribute('label') === tabId)
+    if (!activeTab) {
+      return
+    }
+    this.#activeTab = tabId
+    this.tabs.forEach((el) => el.removeAttribute('active'))
+    activeTab?.setAttribute('active', '')
+    this.requestUpdate()
+
+    /**
+     * cache tab id in local storage
+     */
+    if (this.cacheId) {
+      localStorage.setItem(this.cacheId, tabId)
+    }
+  }
+
   connectedCallback() {
     super.connectedCallback()
     setTimeout(() => { // wait till innerHTML is parsed
       this.#tabList = this.tabs
         .map((el) => el.getAttribute('label') as string)
         .filter(Boolean) || []
-      this.#activeTab = this.tabs.find(
-        (el) => el.hasAttribute('active')
-      )?.getAttribute('label') || undefined
 
+      /**
+       * get tab id either from local storage or a tab element that
+       * has an "active" attribute
+       */
+      this.#activeTab = (
+        (
+          this.cacheId && localStorage.getItem(this.cacheId)
+        ) ||
+        this.tabs.find(
+          (el) => el.hasAttribute('active')
+        )?.getAttribute('label') || undefined
+      )
+
+      /**
+       * set active tab or first tab as active
+       */
       if (!this.#activeTab) {
         this.#activeTab = this.#tabList[0]
         this.tabs[0].setAttribute('active', '')
+      } else {
+        this.activateTab(this.#activeTab)
       }
-
-      this.requestUpdate()
     })
   }
 

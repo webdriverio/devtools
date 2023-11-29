@@ -90,7 +90,7 @@ export class DevtoolsWorkbench extends Element {
     return html`
       <section data-horizontal-resizer-window class="flex w-full ${heightWorkbench} flex-1" style="${styleWorkbench}">
         <section style="${!this.#workbenchSidebarCollapsed ? this.#dragHorizontal.getPosition() : ''}">
-          <wdio-devtools-tabs class="h-full flex flex-col border-r-[1px] border-r-panelBorder ${this.#workbenchSidebarCollapsed ? 'hidden' : ''}">
+          <wdio-devtools-tabs cacheId="activeActionsTab" class="h-full flex flex-col border-r-[1px] border-r-panelBorder ${this.#workbenchSidebarCollapsed ? 'hidden' : ''}">
             <wdio-devtools-tab label="Actions">
               <wdio-devtools-actions></wdio-devtools-actions>
             </wdio-devtools-tab>
@@ -119,18 +119,18 @@ export class DevtoolsWorkbench extends Element {
         </section>
         ${!this.#workbenchSidebarCollapsed ? this.#dragHorizontal.getSlider() : nothing}
       </section>
-      <wdio-devtools-tabs class="border-t-[1px] border-t-panelBorder ${this.#toolbarCollapsed ? 'hidden' : ''}">
+      <wdio-devtools-tabs cacheId="activeWorkbenchTab" class="border-t-[1px] border-t-panelBorder ${this.#toolbarCollapsed ? 'hidden' : ''}">
         <wdio-devtools-tab label="Source">
           <wdio-devtools-source></wdio-devtools-source>
         </wdio-devtools-tab>
         <wdio-devtools-tab label="Log">
           <wdio-devtools-logs></wdio-devtools-logs>
         </wdio-devtools-tab>
-        <wdio-devtools-tab label="Console" active>
+        <wdio-devtools-tab label="Console">
           <wdio-devtools-console-logs></wdio-devtools-console-logs>
         </wdio-devtools-tab>
         <wdio-devtools-tab label="Network">
-          Network tab not yet implemented!
+          <section class="flex items-center justify-center text-sm w-full h-full">Network tab not yet implemented!</section>
         </wdio-devtools-tab>
         <nav class="ml-auto" slot="actions">
           <button @click="${() => this.#toggle('toolbar')}" class="flex h-10 w-10 items-center justify-center pointer ml-auto hover:bg-toolbarHoverBackground">

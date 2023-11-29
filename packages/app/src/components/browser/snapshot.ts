@@ -80,7 +80,7 @@ export class DevtoolsBrowser extends Element {
     /**
      * Render initial document
      */
-    this.#renderBrowserState(0)
+    this.#renderBrowserState()
   }
 
   #setIframeSize () {
@@ -222,7 +222,12 @@ export class DevtoolsBrowser extends Element {
     return rootElement.querySelector(`*[data-wdio-ref="${ref}"]`) as HTMLElement
   }
 
-  #highlightMutation (ev: CustomEvent<TraceMutation>) {
+  #highlightMutation (ev: CustomEvent<TraceMutation | null>) {
+    if (!ev.detail) {
+      this.iframe?.contentDocument?.querySelector(`.${MUTATION_SELECTOR}`)?.remove()
+      return
+    }
+
     const mutation = ev.detail
     const docEl = this.iframe?.contentDocument
     if (!docEl || !mutation.target) {
@@ -245,7 +250,10 @@ export class DevtoolsBrowser extends Element {
     docEl.body.appendChild(highlight)
   }
 
-  async #renderBrowserState (mutationIndex: number) {
+  async #renderBrowserState (mutationEntry?: TraceMutation) {
+    const mutationIndex = mutationEntry
+      ? this.data.mutations.indexOf(mutationEntry)
+      : 0
     this.#vdom = document.createDocumentFragment()
     const rootIndex = this.data.mutations
       .map((m, i) => [
