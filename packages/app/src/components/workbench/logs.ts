@@ -46,8 +46,6 @@ export class DevtoolsSource extends Element {
         }
         return acc
       }, {} as Record<string, CommandEndpoint>)
-      console.log(endpoints, command, endpoints[command.command])
-
       this.#commandDefinition = endpoints[command.command]
       this.command = command
     })
@@ -57,8 +55,6 @@ export class DevtoolsSource extends Element {
     if (!this.command) {
       return html`<section class="flex items-center justify-center text-sm w-full h-full">Please select a command to view details!</section>`
     }
-
-    console.log('HA', this.#commandDefinition)
 
     return html`
       <section class="flex flex-column border-b-[1px] border-b-panelBorder px-2 py-1">

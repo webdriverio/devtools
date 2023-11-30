@@ -108,8 +108,6 @@ export class DevtoolsTabs extends Element {
   }
 
   render() {
-    console.log('UUU', this.#tabList);
-
     return html`
       ${this.#tabList.length
         ? html`

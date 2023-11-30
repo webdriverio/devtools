@@ -13,8 +13,6 @@ export class CommandItem extends ActionItem {
   entry?: CommandLog
 
   #highlightLine() {
-    console.log(this.entry)
-
     const event = new CustomEvent('show-command', {
       detail: {
         command: this.entry,
