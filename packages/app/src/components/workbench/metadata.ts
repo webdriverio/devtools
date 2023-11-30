@@ -29,13 +29,13 @@ export class DevtoolsMetadata extends Element {
     return html`
       <wdio-devtools-list
         label="Metadata"
-        list="${JSON.stringify({ url })}"></wdio-devtools-list>
+        .list="${({ url })}"></wdio-devtools-list>
       <wdio-devtools-list
         label="Capabilities"
-        list="${JSON.stringify(this.data.metadata.capabilities)}"></wdio-devtools-list>
+        .list="${this.data.metadata.capabilities}"></wdio-devtools-list>
       <wdio-devtools-list
         label="Options"
-        list="${JSON.stringify(this.data.metadata.options)}"></wdio-devtools-list>
+        .list="${this.data.metadata.options}"></wdio-devtools-list>
     `
   }
 }

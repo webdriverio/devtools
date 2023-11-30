@@ -14,7 +14,7 @@ export class DevtoolsList extends Element {
   label = ''
 
   @property({ type: Object })
-  list: Record<string, any> = {}
+  list: Record<string, any> | string[] = {}
 
   #renderMetadataProp(prop: any) {
     if (typeof prop === 'object') {
@@ -45,20 +45,32 @@ export class DevtoolsList extends Element {
       return null
     }
 
-    const entries = Object.entries(this.list)
+    const entries = Array.isArray(this.list)
+      ? this.list as string[]
+      : Object.entries(this.list)
+
     return html`
       <section class="block">
         ${this.#renderSectionHeader(this.label)}
         <dl class="flex flex-wrap transition-all ${this.isCollapsed ? 'mt-0' : 'mt-2'}">
-          ${entries.map(([key, val], i) => {
+          ${entries.map((entry, i) => {
             let className = 'basis-2/4 transition-all border-b-panelBorder overflow-y-hidden'
+            className += this.isCollapsed ? ' max-h-0' : ' max-h-[500px]'
+
+            const [key, val] = entry as [string, any]
             if (i === (entries.length - 1)) {
               className += this.isCollapsed ? ' pb-0' : ' pb-2'
               if (!this.isCollapsed) {
                 className += ' border-b-[1px]'
               }
             }
-            className += this.isCollapsed ? ' max-h-0' : ' max-h-[500px]'
+
+            if (typeof entry === 'string') {
+              return html`
+                <dd class="${className} basis-full px-2">${this.#renderMetadataProp(entry)}</dd>
+              `
+            }
+
             return html`
               <dt class="${className} font-bold px-2">${key}</dt>
               <dd class="${className}">${this.#renderMetadataProp(val)}</dd>

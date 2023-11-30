@@ -86,6 +86,9 @@ importers:
       '@wdio/devtools-hook':
         specifier: workspace:^
         version: link:../hook
+      '@wdio/protocols':
+        specifier: ^8.23.0
+        version: 8.23.0
       codemirror:
         specifier: ^6.0.1
         version: 6.0.1(@lezer/common@1.1.0)
@@ -1532,7 +1535,6 @@ packages:
 
   /@wdio/protocols@8.23.0:
     resolution: {integrity: sha512-2XTzD+lqQP3g8BWn+Bn5BTFzjHqzZNwq7DjlYrb27Bq8nOA+1DEcj3WzQ6V6CktTnKI/LAYKA1IFAF//Azrp/Q==}
-    dev: true
 
   /@wdio/repl@8.10.1:
     resolution: {integrity: sha512-VZ1WFHTNKjR8Ga97TtV2SZM6fvRjWbYI2i/f4pJB4PtusorKvONAMJf2LQcUBIyzbVobqr7KSrcjmSwRolI+yw==}
