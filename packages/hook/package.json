@@ -10,6 +10,11 @@
       "import": "./dist/types.ts",
       "types": "./dist/types.d.ts",
       "node": "./dist/types.js"
+    },
+    "./launcher": {
+      "import": "./dist/launcher.ts",
+      "types": "./dist/launcher.d.ts",
+      "node": "./dist/launcher.js"
     }
   },
   "types": "./dist/index.d.ts",
@@ -20,19 +25,20 @@
     "test": "eslint ."
   },
   "dependencies": {
+    "@wdio/devtools-backend": "workspace:^",
     "@wdio/devtools-script": "workspace:^",
     "@wdio/reporter": "^8.23.0",
     "@wdio/types": "^8.23.0",
     "import-meta-resolve": "^4.0.0",
-    "stack-trace": "1.0.0-pre2"
+    "stack-trace": "1.0.0-pre2",
+    "webdriverio": "^8.23.0"
   },
   "license": "MIT",
   "devDependencies": {
     "@types/stack-trace": "^0.0.33",
     "@wdio/globals": "^8.23.0",
     "@wdio/protocols": "^8.23.0",
-    "vite-plugin-dts": "^3.6.3",
-    "webdriverio": "^8.23.0"
+    "vite-plugin-dts": "^3.6.3"
   },
   "peerDependencies": {
     "@wdio/protocols": "^8.20.4",

@@ -27,6 +27,7 @@ export default defineConfig({
     rollupOptions: {
       input: {
         index: path.resolve(__dirname, 'src', 'index.ts'),
+        launcher: path.resolve(__dirname, 'src', 'launcher.ts'),
         types: path.resolve(__dirname, 'src', 'types.ts')
       },
       output: {

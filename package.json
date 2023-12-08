@@ -2,8 +2,9 @@
   "name": "devtools-monorepo",
   "type": "module",
   "scripts": {
-    "dev": "pnpm --parallel dev",
     "build": "pnpm --parallel build",
+    "demo": "wdio run ./example/wdio.conf.ts",
+    "dev": "pnpm --parallel dev",
     "preview": "pnpm --parallel preview",
     "test": "pnpm --parallel test",
     "watch": "pnpm build --watch"

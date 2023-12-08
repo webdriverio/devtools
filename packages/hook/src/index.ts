@@ -9,8 +9,11 @@ import type { Services, Reporters } from '@wdio/types'
 
 import { SessionCapturer } from './session.js'
 import { TestReporter } from './reporter.js'
+import { DevToolsAppLauncher } from './launcher.js'
 import { getBrowserObject } from './utils.ts'
 import { type TraceLog, TraceType } from './types.ts'
+
+export const launcher = DevToolsAppLauncher
 
 /**
  * Setup WebdriverIO Devtools hook for standalone instances

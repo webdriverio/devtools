@@ -2,12 +2,12 @@
   "name": "examples",
   "type": "module",
   "devDependencies": {
-    "@wdio/cli": "8.23.0",
-    "@wdio/cucumber-framework": "^8.23.0",
-    "@wdio/local-runner": "^8.23.0",
-    "@wdio/spec-reporter": "^8.23.0",
+    "@wdio/cli": "8.24.16",
+    "@wdio/cucumber-framework": "^8.24.13",
+    "@wdio/local-runner": "^8.24.12",
+    "@wdio/spec-reporter": "^8.24.12",
     "ts-node": "^10.9.1",
-    "typescript": "^5.2.2"
+    "typescript": "^5.3.3"
   },
   "scripts": {
     "wdio": "wdio run ./wdio.conf.ts"

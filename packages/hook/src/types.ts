@@ -31,3 +31,22 @@ export interface TraceLog {
   sources: Record<string, string>
   suites?: Record<string, SuiteStats>[]
 }
+
+export interface ServiceOptions {
+  /**
+   * port to launch the application on (default: random)
+   */
+  port?: number
+  /**
+   * capabilities used to launch the devtools application
+   * @default
+   * ```ts
+   * {
+   *   browserName: 'chrome',
+   *   'goog:chromeOptions': {
+   *     args: ['--window-size=1200,800']
+   *   }
+   * }
+   */
+  devtoolsCapabilities?: WebdriverIO.Capabilities
+}
