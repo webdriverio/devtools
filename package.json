@@ -28,6 +28,6 @@
     "unplugin-icons": "^0.17.1",
     "vite": "^4.4.5",
     "vitest": "^0.34.6",
-    "webdriverio": "^8.20.3"
+    "webdriverio": "^8.24.12"
   }
 }
