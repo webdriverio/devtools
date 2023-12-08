@@ -4,6 +4,7 @@
   "devDependencies": {
     "@wdio/cli": "8.24.16",
     "@wdio/cucumber-framework": "^8.24.13",
+    "@wdio/devtools-service": "workspace:^",
     "@wdio/local-runner": "^8.24.12",
     "@wdio/spec-reporter": "^8.24.12",
     "ts-node": "^10.9.1",

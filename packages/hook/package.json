@@ -1,5 +1,5 @@
 {
-  "name": "@wdio/devtools-hook",
+  "name": "@wdio/devtools-service",
   "version": "0.0.0",
   "description": "Hook up WebdriverIO with DevTools",
   "author": "Christian Bromann <mail@bromann.dev>",
