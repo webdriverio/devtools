@@ -1,7 +1,7 @@
 import { Element } from '@core/element'
 import { html, css } from 'lit'
 import { property } from 'lit/decorators.js'
-import type { CommandLog } from '@wdio/devtools-hook/types'
+import type { CommandLog } from '@wdio/devtools-service/types'
 
 export type ActionEntry = TraceMutation | CommandLog
 

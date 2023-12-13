@@ -2,6 +2,7 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
 
+import logger from '@wdio/logger'
 import { SevereServiceError } from 'webdriverio'
 import type { Capabilities, Options } from '@wdio/types'
 import type { WebDriverCommands } from '@wdio/protocols'
@@ -14,6 +15,8 @@ import { getBrowserObject } from './utils.ts'
 import { type TraceLog, TraceType } from './types.ts'
 
 export const launcher = DevToolsAppLauncher
+
+const log = logger('@wdio/devtools-service')
 
 /**
  * Setup WebdriverIO Devtools hook for standalone instances
@@ -61,7 +64,7 @@ export function setupForDevtools (opts: Options.WebdriverIO) {
   return opts
 }
 
-export class DevToolsHookService implements Services.ServiceInstance {
+export default class DevToolsHookService implements Services.ServiceInstance {
   #testReporters: TestReporter[] = []
   #sessionCapturer = new SessionCapturer()
   #browser: WebdriverIO.Browser | undefined
@@ -146,5 +149,6 @@ export class DevToolsHookService implements Services.ServiceInstance {
 
     const traceFilePath = path.join(outputDir, `wdio-trace-${this.#browser.sessionId}.json`)
     await fs.writeFile(traceFilePath, JSON.stringify(traceLog))
+    log.info(`DevTools trace saved to ${traceFilePath}`)
   }
 }

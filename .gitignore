@@ -26,3 +26,6 @@ dist-ssr
 /*.json
 *.tgz
 example/wdio-*.json
+
+# pnpm state, cache, logs, and debug files
+/packages/**/*.mjs

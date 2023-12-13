@@ -2,7 +2,7 @@
 
 interface CommandEventProps {
   // eslint-disable-next-line @typescript-eslint/consistent-type-imports
-  command: import('@wdio/devtools-hook/types').CommandLog
+  command: import('@wdio/devtools-service/types').CommandLog
   elapsedTime: number
 }
 

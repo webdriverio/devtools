@@ -156,6 +156,9 @@ importers:
       '@wdio/devtools-script':
         specifier: workspace:^
         version: link:../script
+      '@wdio/logger':
+        specifier: ^8.23.0
+        version: 8.24.12
       '@wdio/reporter':
         specifier: ^8.23.0
         version: 8.23.0
