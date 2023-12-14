@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises'
 import url from 'node:url'
 
+import { WebSocket } from 'ws'
 import { parse } from 'stack-trace'
 import { resolve } from 'import-meta-resolve'
 import { SevereServiceError } from 'webdriverio'
@@ -8,8 +9,10 @@ import type { WebDriverCommands } from '@wdio/protocols'
 
 import { PAGE_TRANSITION_COMMANDS } from './constants.js'
 import { type CommandLog } from './types.js'
+import { type TraceLog } from './types.ts'
 
 export class SessionCapturer {
+  #ws: WebSocket | undefined
   #isInjected = false
   commandsLog: CommandLog[] = []
   sources = new Map<string, string>()
@@ -19,6 +22,17 @@ export class SessionCapturer {
   metadata?: {
     url: string;
     viewport: VisualViewport;
+  }
+
+  constructor (devtoolsOptions: { hostname?: string, port?: number } = {}) {
+    const { port, hostname } = devtoolsOptions
+    if (hostname && port) {
+      this.#ws = new WebSocket(`ws://${hostname}:${port}/worker`)
+    }
+  }
+
+  get isReportingUpstream () {
+    return Boolean(this.#ws) && this.#ws?.readyState === WebSocket.OPEN
   }
 
   /**
@@ -53,8 +67,10 @@ export class SessionCapturer {
     if (sourceFile && !this.sources.has(sourceFile) && fileExist) {
       const sourceCode = await fs.readFile(sourceFilePath, 'utf-8')
       this.sources.set(sourceFilePath, sourceCode.toString())
+      this.sendUpstream('sources', { [sourceFilePath]: sourceCode.toString() })
     }
     this.commandsLog.push({ command, args, result, error, timestamp, callSource: absPath })
+    this.sendUpstream('commands', this.commandsLog)
 
     /**
      * capture trace and write to file on commands that could trigger a page transition
@@ -96,12 +112,22 @@ export class SessionCapturer {
 
     if (Array.isArray(mutations)) {
       this.mutations.push(...mutations as TraceMutation[])
+      this.sendUpstream('mutations', mutations)
     }
     if (Array.isArray(traceLogs)) {
       this.traceLogs.push(...traceLogs)
+      this.sendUpstream('logs', traceLogs)
     }
     if (Array.isArray(consoleLogs)) {
       this.consoleLogs.push(...consoleLogs as ConsoleLogs[])
+      this.sendUpstream('consoleLogs', consoleLogs)
     }
+  }
+
+  sendUpstream <Scope extends keyof TraceLog>(scope: Scope, data: TraceLog[Scope]) {
+    if (!this.#ws || this.#ws.readyState !== WebSocket.OPEN) {
+      return
+    }
+    this.#ws.send(JSON.stringify({ scope, data }))
   }
 }

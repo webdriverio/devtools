@@ -26,13 +26,17 @@ class DataCollector {
     clearLogs()
   }
 
+  getMetadata () {
+    return this.#metadata
+  }
+
   getTraceData () {
     const data = {
       errors: this.#errors,
       mutations: this.#mutations,
       consoleLogs: this.#consoleLogs.getArtifacts(),
       traceLogs: getLogs(),
-      metadata: this.#metadata
+      metadata: this.getMetadata(),
     } as const
     this.reset()
     return data

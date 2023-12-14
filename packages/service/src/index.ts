@@ -4,15 +4,14 @@ import path from 'node:path'
 
 import logger from '@wdio/logger'
 import { SevereServiceError } from 'webdriverio'
-import type { Capabilities, Options } from '@wdio/types'
+import type { Services, Reporters, Capabilities, Options } from '@wdio/types'
 import type { WebDriverCommands } from '@wdio/protocols'
-import type { Services, Reporters } from '@wdio/types'
 
 import { SessionCapturer } from './session.js'
 import { TestReporter } from './reporter.js'
 import { DevToolsAppLauncher } from './launcher.js'
 import { getBrowserObject } from './utils.ts'
-import { type TraceLog, TraceType } from './types.ts'
+import { type TraceLog, type ExtendedCapabilities, TraceType } from './types.ts'
 
 export const launcher = DevToolsAppLauncher
 
@@ -24,6 +23,7 @@ const log = logger('@wdio/devtools-service')
 export function setupForDevtools (opts: Options.WebdriverIO) {
   let browserCaptured = false
   const service = new DevToolsHookService()
+  service.captureType = TraceType.Standalone
   service.beforeSession(null as never, opts.capabilities as Capabilities.RemoteCapability)
 
   /**
@@ -69,8 +69,21 @@ export default class DevToolsHookService implements Services.ServiceInstance {
   #sessionCapturer = new SessionCapturer()
   #browser: WebdriverIO.Browser | undefined
 
-  before (_: never, __: never, browser: WebdriverIO.Browser) {
+  /**
+   * allows to define the type of data being captured to hint the
+   * devtools app which data to expect
+   */
+  captureType = TraceType.Testrunner
+
+  before (caps: Capabilities.RemoteCapability, __: never, browser: WebdriverIO.Browser) {
     this.#browser = browser
+
+    console.log('\n\n\nWUTTT', caps)
+    const w3cCaps = caps as Capabilities.W3CCapabilities
+    const c = w3cCaps.alwaysMatch
+      ? w3cCaps.alwaysMatch as ExtendedCapabilities
+      : caps as ExtendedCapabilities
+    this.#sessionCapturer = new SessionCapturer(c['wdio:devtoolsOptions'])
   }
 
   beforeSession (config: Options.WebdriverIO | Options.Testrunner, capabilities: Capabilities.RemoteCapability) {
@@ -103,7 +116,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
          */
         class DevToolsReporter extends TestReporter {
           constructor (options: Reporters.Options) {
-            super(options)
+            super(options, self.#sessionCapturer)
             self.#testReporters.push(this)
           }
         }
@@ -119,6 +132,20 @@ export default class DevToolsHookService implements Services.ServiceInstance {
   }
 
   afterCommand(command: keyof WebDriverCommands, args: any[], result: any, error: Error) {
+    if (this.#browser && command === 'navigateTo') {
+      /**
+       * propagate session metadata at the beginning of the session
+       */
+      browser.execute(() => window.wdioTraceCollector.getMetadata())
+        .then((metadata) => this.#sessionCapturer.sendUpstream('metadata', {
+          ...metadata,
+          type: this.captureType,
+          options: browser.options,
+          capabilities: browser.capabilities
+        })
+      )
+    }
+
     return this.#sessionCapturer.afterCommand(browser, command, args, result, error)
   }
 
@@ -127,7 +154,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
    * we can use it to write all trace information to a file
    */
   async after () {
-    if (!this.#browser) {
+    if (!this.#browser || this.#sessionCapturer.isReportingUpstream) {
       return
     }
     const outputDir = this.#browser.options.outputDir || process.cwd()
@@ -137,7 +164,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
       logs: this.#sessionCapturer.traceLogs,
       consoleLogs: this.#sessionCapturer.consoleLogs,
       metadata: {
-        type: TraceType.Standalone,
+        type: this.captureType,
         ...this.#sessionCapturer.metadata!,
         options,
         capabilities

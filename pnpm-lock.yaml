@@ -135,6 +135,9 @@ importers:
       '@fastify/static':
         specifier: ^6.12.0
         version: 6.12.0
+      '@fastify/websocket':
+        specifier: ^8.2.0
+        version: 8.2.0
       '@wdio/devtools-app':
         specifier: workspace:^
         version: link:../app
@@ -196,6 +199,9 @@ importers:
       webdriverio:
         specifier: ^8.23.0
         version: 8.24.12(typescript@5.3.3)
+      ws:
+        specifier: ^8.15.1
+        version: 8.15.1
     devDependencies:
       '@types/stack-trace':
         specifier: ^0.0.33
@@ -845,6 +851,16 @@ packages:
       fastify-plugin: 4.5.1
       glob: 8.1.0
       p-limit: 3.1.0
+    dev: false
+
+  /@fastify/websocket@8.2.0:
+    resolution: {integrity: sha512-B4tlHFBKCX7tenEG9aUcQEpksW2e0+dgRTaH/05+cro1Xsq1+kSj+9IB9Gep7a0KbHZGrat+zBsOas6lRs5dFQ==}
+    dependencies:
+      fastify-plugin: 4.5.1
+      ws: 8.14.2
+    transitivePeerDependencies:
+      - bufferutil
+      - utf-8-validate
     dev: false
 
   /@humanwhocodes/config-array@0.11.13:
@@ -7067,7 +7083,7 @@ packages:
       deepmerge-ts: 5.1.0
       got: 12.6.1
       ky: 0.33.3
-      ws: 8.14.2
+      ws: 8.15.1
     transitivePeerDependencies:
       - bufferutil
       - supports-color
@@ -7308,6 +7324,18 @@ packages:
 
   /ws@8.14.2:
     resolution: {integrity: sha512-wEBG1ftX4jcglPxgFCMJmZ2PLtSbJ2Peg6TmpJFTbe9GZYOQCDPdMYu/Tm0/bGZkw8paZnJY45J4K2PZrLYq8g==}
+    engines: {node: '>=10.0.0'}
+    peerDependencies:
+      bufferutil: ^4.0.1
+      utf-8-validate: '>=5.0.2'
+    peerDependenciesMeta:
+      bufferutil:
+        optional: true
+      utf-8-validate:
+        optional: true
+
+  /ws@8.15.1:
+    resolution: {integrity: sha512-W5OZiCjXEmk0yZ66ZN82beM5Sz7l7coYxpRkzS+p9PP+ToQry8szKh+61eNktr7EA9DOwvFGhfC605jDHbP6QQ==}
     engines: {node: '>=10.0.0'}
     peerDependencies:
       bufferutil: ^4.0.1

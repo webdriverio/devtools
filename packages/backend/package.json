@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "@fastify/static": "^6.12.0",
+    "@fastify/websocket": "^8.2.0",
     "@wdio/devtools-app": "workspace:^",
     "@wdio/logger": "^8.24.12",
     "fastify": "^4.24.3",

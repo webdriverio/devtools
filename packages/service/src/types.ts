@@ -34,11 +34,20 @@ export interface TraceLog {
   suites?: Record<string, SuiteStats>[]
 }
 
+export interface ExtendedCapabilities extends WebdriverIO.Capabilities {
+  'wdio:devtoolsOptions'?: ServiceOptions
+}
+
 export interface ServiceOptions {
   /**
    * port to launch the application on (default: random)
    */
   port?: number
+  /**
+   * hostname to launch the application on
+   * @default localhost
+   */
+  hostname?: string
   /**
    * capabilities used to launch the devtools application
    * @default
@@ -51,4 +60,9 @@ export interface ServiceOptions {
    * }
    */
   devtoolsCapabilities?: WebdriverIO.Capabilities
+}
+
+declare module WebdriverIO {
+  interface ServiceOption extends ServiceOptions {}
+  interface Capabilities {}
 }

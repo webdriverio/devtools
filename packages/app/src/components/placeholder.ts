@@ -16,6 +16,7 @@ export class DevtoolsPlaceholder extends Element {
     .ph-item {
       border: 0;
       height: 100%;
+      background-color: transparent;
     }
 
     .ph-item div {
