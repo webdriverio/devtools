@@ -43,7 +43,7 @@ const TEST_ENTRY = 'wdio-test-entry'
 @customElement(TEST_ENTRY)
 export class ExplorerTestEntry extends CollapseableEntry {
   @property({ attribute: 'is-collapsed' })
-  isCollapsed = 'true'
+  isCollapsed = 'false'
 
   @property({ type: String })
   state?: TestState

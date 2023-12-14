@@ -2,7 +2,7 @@ import { Element } from '@core/element'
 import { html, css, nothing, type TemplateResult } from 'lit'
 import { customElement } from 'lit/decorators.js'
 import { consume } from '@lit/context'
-import { type SuiteStats } from '@wdio/reporter'
+import type { TestStats, SuiteStats } from '@wdio/reporter'
 
 import { TestState } from './test-suite.js'
 import { suiteContext } from '../../controller/DataManager.js'
@@ -36,8 +36,8 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
     }
   `]
 
-  @consume({ context: suiteContext })
-  suites: Record<string, SuiteStats> = {}
+  @consume({ context: suiteContext, subscribe: true })
+  suites: Record<string, SuiteStats>[] | undefined = undefined
 
   connectedCallback(): void {
     super.connectedCallback()
@@ -84,31 +84,39 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
     )
   }
 
+  #getTestEntry (entry: TestStats | SuiteStats): TestEntry {
+    if ('tests' in entry) {
+      const entries = [...entry.tests, ...entry.suites]
+      return {
+        label: entry.title,
+        state: entry.tests.some((t) => !t.end)
+          ? TestState.RUNNING
+          : entry.tests.find((t) => t.state === 'failed')
+            ? TestState.FAILED
+            : TestState.PASSED,
+        children: Object.values(entries)
+          .map(this.#getTestEntry.bind(this))
+          .filter(this.#filterEntry.bind(this))
+      }
+    }
+    return {
+      label: entry.title,
+      state: !entry.end
+        ? TestState.RUNNING
+        : entry.state === 'failed'
+          ? TestState.FAILED
+          : TestState.PASSED,
+      children: []
+    }
+  }
+
   render() {
-    if (typeof this.suites !== 'object') {
+    if (!this.suites) {
       return
     }
-    const suites = Object.values(this.suites[0]).map((suite: SuiteStats) => {
-      const state = !suite.tests.find((t) => t.end)
-        ? TestState.RUNNING
-        : suite.tests.find((t) => t.state === 'failed')
-          ? TestState.FAILED
-          : TestState.PASSED
-
-      return {
-        label: suite.title,
-        state,
-        children: Object.values(suite.tests).map((test) => ({
-          label: test.title,
-          state: !test.end
-            ? TestState.RUNNING
-            : test.state === 'failed'
-              ? TestState.FAILED
-              : TestState.PASSED,
-          children: []
-        })).filter(this.#filterEntry.bind(this))
-      }
-    }).filter(this.#filterEntry.bind(this))
+    const suites = Object.values(this.suites[0])
+      .map(this.#getTestEntry.bind(this))
+      .filter(this.#filterEntry.bind(this))
 
     return html`
       <header class="pl-4 py-2 flex shadow-md pr-2">

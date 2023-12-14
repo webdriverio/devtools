@@ -12,8 +12,8 @@ import '~icons/mdi/chevron-right.js'
 const SOURCE_COMPONENT = 'wdio-devtools-metadata'
 @customElement(SOURCE_COMPONENT)
 export class DevtoolsMetadata extends Element {
-  @consume({ context: metadataContext })
-  metadata: Partial<Metadata> = {}
+  @consume({ context: metadataContext, subscribe: true })
+  metadata: Partial<Metadata> | undefined = undefined
 
   static styles = [...Element.styles, css`
     :host {

@@ -31,13 +31,12 @@ export class DevtoolsSource extends Element {
     }
   `]
 
-  @consume({ context: sourceContext })
+  @consume({ context: sourceContext, subscribe: true })
   sources: Record<string, string> = {}
 
   connectedCallback(): void {
     super.connectedCallback()
     window.addEventListener('app-source-highlight', this.#highlightCallSource.bind(this))
-    setTimeout(() => this.#renderEditor(Object.keys(this.sources || {})[0]))
   }
 
   #renderEditor (filePath: string, highlightLine?: number) {
@@ -81,8 +80,14 @@ export class DevtoolsSource extends Element {
   }
 
   render() {
+    const sourceFileNames = Object.keys(this.sources || {})
+    if (sourceFileNames.length === 0) {
+      return html`<wdio-devtools-placeholder></wdio-devtools-placeholder>`
+    }
+
+    this.#renderEditor(sourceFileNames[0])
     return html`
-      <wdio-devtools-placeholder></wdio-devtools-placeholder>
+      <section class="p-2">loading...</section>
     `
   }
 }

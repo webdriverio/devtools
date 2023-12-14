@@ -23,6 +23,7 @@ export class DevtoolsSource extends Element {
       display: block;
       width: 100%;
       height: 100%;
+      min-height: 200px;
     }
   `]
 
@@ -53,7 +54,11 @@ export class DevtoolsSource extends Element {
 
   render() {
     if (!this.command) {
-      return html`<section class="flex items-center justify-center text-sm w-full h-full">Please select a command to view details!</section>`
+      return html`
+        <section class="flex items-center justify-center text-sm w-full h-full">
+          Please select a command to view details!
+        </section>
+      `
     }
 
     return html`

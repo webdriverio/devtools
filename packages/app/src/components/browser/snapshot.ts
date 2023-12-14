@@ -36,12 +36,12 @@ const COMPONENT = 'wdio-devtools-browser'
 @customElement(COMPONENT)
 export class DevtoolsBrowser extends Element {
   #vdom = document.createDocumentFragment()
-  #activeUrl = ''
+  #activeUrl?: string
 
-  @consume({ context: metadataContext })
+  @consume({ context: metadataContext, subscribe: true })
   metadata: Metadata | undefined = undefined
 
-  @consume({ context: mutationContext })
+  @consume({ context: mutationContext, subscribe: true })
   mutations: TraceMutation[] = []
 
   static styles = [...Element.styles, css`
@@ -79,12 +79,6 @@ export class DevtoolsBrowser extends Element {
     window.addEventListener('app-mutation-highlight', this.#highlightMutation.bind(this))
     window.addEventListener('app-mutation-select', (ev) => this.#renderBrowserState(ev.detail))
     await this.updateComplete
-    this.#setIframeSize()
-
-    /**
-     * Render initial document
-     */
-    this.#renderBrowserState()
   }
 
   #setIframeSize () {
@@ -258,7 +252,7 @@ export class DevtoolsBrowser extends Element {
 
   async #renderBrowserState (mutationEntry?: TraceMutation) {
     const mutations = this.mutations
-    if (!mutations) {
+    if (!mutations || !mutations.length) {
       return
     }
 
@@ -298,6 +292,14 @@ export class DevtoolsBrowser extends Element {
   }
 
   render() {
+    /**
+     * render a browser state if it hasn't before
+     */
+    if (this.mutations && this.mutations.length && !this.#activeUrl) {
+      this.#setIframeSize()
+      this.#renderBrowserState()
+    }
+
     return html`
       <section class="w-full bg-sideBarBackground rounded-t-md shadow-md">
         <header class="flex block mx-2">
@@ -309,7 +311,7 @@ export class DevtoolsBrowser extends Element {
             ${this.#activeUrl}
           </div>
         </header>
-        ${this.mutations
+        ${this.mutations && this.mutations.length
           ? html`<iframe class="origin-top-left"></iframe>`
           : html`<wdio-devtools-placeholder style="height: 100%"></wdio-devtools-placeholder>`
         }

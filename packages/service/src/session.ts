@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises'
 import url from 'node:url'
 
+import logger from '@wdio/logger'
 import { WebSocket } from 'ws'
 import { parse } from 'stack-trace'
 import { resolve } from 'import-meta-resolve'
@@ -10,6 +11,8 @@ import type { WebDriverCommands } from '@wdio/protocols'
 import { PAGE_TRANSITION_COMMANDS } from './constants.js'
 import { type CommandLog } from './types.js'
 import { type TraceLog } from './types.ts'
+
+const log = logger('@wdio/devtools-service:SessionCapturer')
 
 export class SessionCapturer {
   #ws: WebSocket | undefined
@@ -28,6 +31,7 @@ export class SessionCapturer {
     const { port, hostname } = devtoolsOptions
     if (hostname && port) {
       this.#ws = new WebSocket(`ws://${hostname}:${port}/worker`)
+      this.#ws.on('error', (err) => log.error(`Couldn't connect to devtools backend: ${err.message}`))
     }
   }
 
@@ -69,8 +73,9 @@ export class SessionCapturer {
       this.sources.set(sourceFilePath, sourceCode.toString())
       this.sendUpstream('sources', { [sourceFilePath]: sourceCode.toString() })
     }
-    this.commandsLog.push({ command, args, result, error, timestamp, callSource: absPath })
-    this.sendUpstream('commands', this.commandsLog)
+    const newCommand: CommandLog = { command, args, result, error, timestamp, callSource: absPath }
+    this.commandsLog.push(newCommand)
+    this.sendUpstream('commands', [newCommand])
 
     /**
      * capture trace and write to file on commands that could trigger a page transition
@@ -124,7 +129,7 @@ export class SessionCapturer {
     }
   }
 
-  sendUpstream <Scope extends keyof TraceLog>(scope: Scope, data: TraceLog[Scope]) {
+  sendUpstream <Scope extends keyof TraceLog>(scope: Scope, data: Partial<TraceLog[Scope]>) {
     if (!this.#ws || this.#ws.readyState !== WebSocket.OPEN) {
       return
     }

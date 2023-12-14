@@ -40,7 +40,7 @@ export async function start (opts: DevtoolsBackendOptions = {}) {
        * forward messages to all connected clients
        */
       connection.socket.on('message', (message) => {
-        log.info(`received ${message.toLocaleString().length} byte message from worker to ${clients.size} clients`, )
+        log.info(`received ${message.toLocaleString().length} byte message from worker to ${clients.size} client${clients.size > 1 ? 's' : ''}`, )
         clients.forEach((client) => client.socket.send(message.toString()))
       })
     })

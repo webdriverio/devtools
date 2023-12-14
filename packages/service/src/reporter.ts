@@ -1,32 +1,38 @@
 import WebdriverIOReporter, { type SuiteStats, type TestStats } from '@wdio/reporter'
-import type { SessionCapturer } from './session.ts'
 
 export class TestReporter extends WebdriverIOReporter {
-  #sessionCapturer: SessionCapturer
+  #report: (data: any) => void
 
-  constructor (options: any, sessionCapturer: SessionCapturer) {
+  constructor (options: any, report: (data: any) => void) {
     super(options)
-    this.#sessionCapturer = sessionCapturer
+    this.#report = report
   }
 
   onSuiteStart(suiteStats: SuiteStats): void {
     super.onSuiteStart(suiteStats)
-    this.#sessionCapturer.sendUpstream('suites', [this.suites])
+    this.#sendUpstream()
   }
 
   onTestStart(testStats: TestStats): void {
     super.onTestStart(testStats)
-    this.#sessionCapturer.sendUpstream('suites', [this.suites])
+    this.#sendUpstream()
   }
 
   onTestEnd(testStats: TestStats): void {
     super.onTestEnd(testStats)
-    this.#sessionCapturer.sendUpstream('suites', [this.suites])
+    this.#sendUpstream()
   }
 
   onSuiteEnd(suiteStats: SuiteStats): void {
     super.onSuiteEnd(suiteStats)
-    this.#sessionCapturer.sendUpstream('suites', [this.suites])
+    this.#sendUpstream()
+  }
+
+  #sendUpstream () {
+    const [uid, suite] = Object.entries(this.suites).find(([uid]) => isNaN(parseInt(uid))) || []
+    if (uid && suite) {
+      this.#report([{ [uid]: suite }])
+    }
   }
 
   get report () {

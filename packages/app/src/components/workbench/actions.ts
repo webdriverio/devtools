@@ -4,7 +4,6 @@ import { customElement } from 'lit/decorators.js'
 import { consume } from '@lit/context'
 
 import { mutationContext, type TraceMutation, commandContext, type CommandLog } from '../../controller/DataManager.js'
-import { type ActionEntry } from './actionItems/item.js'
 
 import '~icons/mdi/pencil.js'
 import '~icons/mdi/family-tree.js'
@@ -20,8 +19,6 @@ const SOURCE_COMPONENT = 'wdio-devtools-actions'
 
 @customElement(SOURCE_COMPONENT)
 export class DevtoolsActions extends Element {
-  #entries: ActionEntry[] = []
-
   static styles = [...Element.styles, css`
     :host {
       display: flex;
@@ -30,25 +27,23 @@ export class DevtoolsActions extends Element {
     }
   `]
 
-  @consume({ context: mutationContext })
+  @consume({ context: mutationContext, subscribe: true })
   mutations: TraceMutation[] = []
 
-  @consume({ context: commandContext })
+  @consume({ context: commandContext, subscribe: true })
   commands: CommandLog[] = []
-
-  connectedCallback(): void {
-    super.connectedCallback()
-    this.#entries = [...this.mutations || [], ...this.commands || []]
-      .sort((a, b) => a.timestamp - b.timestamp)
-  }
 
   render() {
     const mutations = this.mutations || []
-    if (!this.#entries.length || !mutations.length) {
+    const commands = this.commands || []
+    const entries = [...mutations, ...commands]
+      .sort((a, b) => a.timestamp - b.timestamp)
+
+    if (!entries.length || !mutations.length) {
       return html`<wdio-devtools-placeholder></wdio-devtools-placeholder>`
     }
 
-    return this.#entries.map((entry) => {
+    return entries.map((entry) => {
       const elapsedTime = entry.timestamp - mutations[0].timestamp
 
       if ('command' in entry) {

@@ -10,7 +10,9 @@ export const consoleLogContext = createContext<ConsoleLogs[]>(Symbol('consoleLog
 export const metadataContext = createContext<Metadata>(Symbol('metadataContext'))
 export const commandContext = createContext<CommandLog[]>(Symbol('commandContext'))
 export const sourceContext = createContext<Record<string, string>>(Symbol('sourceContext'))
-export const suiteContext = createContext<Record<string, any>>(Symbol('suiteContext'))
+export const suiteContext = createContext<Record<string, any>[]>(Symbol('suiteContext'))
+
+const hasConnection = createContext<boolean>(Symbol('hasConnection'))
 
 interface SocketMessage<T extends keyof TraceLog = keyof TraceLog> {
   scope: T
@@ -28,6 +30,8 @@ export class DataManagerController implements ReactiveController {
   commandsContextProvider: ContextProvider<typeof commandContext>
   sourcesContextProvider: ContextProvider<typeof sourceContext>
   suitesContextProvider: ContextProvider<typeof suiteContext>
+
+  hasConnectionProvider: ContextProvider<typeof hasConnection>
 
   constructor(host: ReactiveControllerHost & HTMLElement) {
     (this.#host = host).addController(this)
@@ -56,10 +60,14 @@ export class DataManagerController implements ReactiveController {
     this.suitesContextProvider = new ContextProvider(this.#host, {
       context: suiteContext
     })
+    this.hasConnectionProvider = new ContextProvider(this.#host, {
+      context: hasConnection,
+      initialValue: false
+    })
   }
 
   get hasConnection () {
-    return Boolean(this.#ws?.readyState === WebSocket.OPEN)
+    return this.hasConnectionProvider.value
   }
 
   get traceType () {
@@ -75,26 +83,29 @@ export class DataManagerController implements ReactiveController {
      */
     const wsUrl = `ws://${window.location.host}/client`
     console.log(`Connecting to ${wsUrl}`)
-    const ws = new WebSocket(wsUrl)
+    const ws = this.#ws = new WebSocket(wsUrl)
 
     /**
      * if a connection to the backend is established we can
      * start fetching data
      */
-    if (ws.readyState === WebSocket.OPEN) {
+    ws.addEventListener('open', () => {
+      this.hasConnectionProvider.setValue(true)
       ws.addEventListener('message', this.#handleSocketMessage.bind(this))
-      return
-    }
+      return this.#host.requestUpdate()
+    })
 
     /**
      * otherwise attempt to load cached trace file
      */
-    try {
-      const localStorageValue = JSON.parse(localStorage.getItem(CACHE_ID) || '') as TraceLog
-      this.loadTraceFile(localStorageValue)
-    } catch (e: unknown) {
-      console.warn(`Failed to parse cached trace file: ${(e as Error).message}`)
-    }
+    ws.addEventListener('error', () => {
+      try {
+        const localStorageValue = JSON.parse(localStorage.getItem(CACHE_ID) || '') as TraceLog
+        this.loadTraceFile(localStorageValue)
+      } catch (e: unknown) {
+        console.warn(`Failed to parse cached trace file: ${(e as Error).message}`)
+      }
+    })
   }
 
   hostDisconnected() {
@@ -110,8 +121,32 @@ export class DataManagerController implements ReactiveController {
         return
       }
 
-      const provider = this[`${scope}ContextProvider`]
-      provider.setValue(data as any)
+      if (scope === 'mutations') {
+        this.mutationsContextProvider.setValue([
+          ...this.mutationsContextProvider.value,
+          ...data as TraceMutation[]
+        ])
+      } else if (scope === 'commands') {
+        this.commandsContextProvider.setValue([
+          ...this.commandsContextProvider.value,
+          ...data as CommandLog[]
+        ])
+      } else if (scope === 'metadata') {
+        this.metadataContextProvider.setValue({
+          ...this.metadataContextProvider.value,
+          ...data as Metadata
+        })
+      } else if (scope === 'consoleLogs') {
+        this.consoleLogsContextProvider.setValue([
+          ...this.consoleLogsContextProvider.value,
+          ...data as string[]
+        ])
+      } else {
+        const provider = this[`${scope}ContextProvider`]
+        provider.setValue(data as any)
+      }
+
+      this.#host.requestUpdate()
     } catch (e: unknown) {
       console.warn(`Failed to parse socket message: ${(e as Error).message}`)
     }
@@ -125,7 +160,7 @@ export class DataManagerController implements ReactiveController {
     this.metadataContextProvider.setValue(traceFile.metadata)
     this.commandsContextProvider.setValue(traceFile.commands)
     this.sourcesContextProvider.setValue(traceFile.sources)
-    this.suitesContextProvider.setValue(traceFile.suites || {})
+    this.suitesContextProvider.setValue(traceFile.suites || [])
   }
 }
 

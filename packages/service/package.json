@@ -7,12 +7,12 @@
   "exports": {
     ".": "./dist/index.js",
     "./types": {
-      "import": "./dist/types.ts",
+      "import": "./dist/types.js",
       "types": "./dist/types.d.ts",
       "node": "./dist/types.js"
     },
     "./launcher": {
-      "import": "./dist/launcher.ts",
+      "import": "./dist/launcher.js",
       "types": "./dist/launcher.d.ts",
       "node": "./dist/launcher.js"
     }

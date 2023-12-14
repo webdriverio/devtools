@@ -1,7 +1,7 @@
 /// <reference types="../../../script" />
 
 import { Element } from '@core/element'
-import { html, css } from 'lit'
+import { html, css, nothing } from 'lit'
 import { customElement } from 'lit/decorators.js'
 import { consume } from '@lit/context'
 
@@ -27,23 +27,28 @@ export class DevtoolsConsoleLogs extends Element {
       height: 100%;
       flex-direction: column;
       padding: 5px;
+      min-height: 200px;
     }
   `]
 
-  @consume({ context: consoleLogContext })
-  logs: Partial<ConsoleLogs> = {}
+  @consume({ context: consoleLogContext, subscribe: true })
+  logs: ConsoleLogs[] | undefined = undefined
 
   render() {
-    if (!this.logs || this.logs.length === 0) {
+    if (!this.logs) {
       return html`<wdio-devtools-placeholder></wdio-devtools-placeholder>`
     }
 
+    const logs = this.logs.length === 0
+      ? [{ args: '' }]
+      : this.logs
+
     return html`
-      ${Object.values(this.logs).map((log: any) => html`
+      ${Object.values(logs).map((log: any) => html`
         <dl class="w-full flex grow-0">
           <dt class="flex">
             <icon-mdi-chevron-right class="text-base transition-transform block"></icon-mdi-chevron-right>
-            <span class="block bg-${BG[log.type]} rounded text-sm py-[1px] px-[5px] my-1">${log.type}</span>
+            ${log.type ? html`<span class="block bg-${BG[log.type]} rounded text-sm py-[1px] px-[5px] my-1">${log.type}</span>` : nothing}
           </dt>
           <dd class="flex justify-center items-center mx-2">${log.args}</dd>
         </dl>

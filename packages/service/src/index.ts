@@ -78,7 +78,18 @@ export default class DevToolsHookService implements Services.ServiceInstance {
   before (caps: Capabilities.RemoteCapability, __: never, browser: WebdriverIO.Browser) {
     this.#browser = browser
 
-    console.log('\n\n\nWUTTT', caps)
+    /**
+     * propagate session metadata at the beginning of the session
+     */
+    browser.execute(() => window.visualViewport)
+      .then((viewport) => this.#sessionCapturer.sendUpstream('metadata', {
+        viewport: viewport || undefined,
+        type: this.captureType,
+        options: browser.options,
+        capabilities: browser.capabilities
+      })
+    )
+
     const w3cCaps = caps as Capabilities.W3CCapabilities
     const c = w3cCaps.alwaysMatch
       ? w3cCaps.alwaysMatch as ExtendedCapabilities
@@ -116,7 +127,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
          */
         class DevToolsReporter extends TestReporter {
           constructor (options: Reporters.Options) {
-            super(options, self.#sessionCapturer)
+            super(options, (upstreamData: any) => self.#sessionCapturer.sendUpstream('suites', upstreamData))
             self.#testReporters.push(this)
           }
         }
@@ -124,28 +135,22 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     }
   }
 
-  async beforeCommand() {
+  async beforeCommand(command: string, args: string[]) {
     if (!this.#browser) {
       return
     }
+
+    /**
+     * propagate url change to devtools app
+     */
+    if (this.#browser && command === 'url') {
+      this.#sessionCapturer.sendUpstream('metadata', { url: args[0] })
+    }
+
     await this.#sessionCapturer.injectScript(getBrowserObject(this.#browser))
   }
 
   afterCommand(command: keyof WebDriverCommands, args: any[], result: any, error: Error) {
-    if (this.#browser && command === 'navigateTo') {
-      /**
-       * propagate session metadata at the beginning of the session
-       */
-      browser.execute(() => window.wdioTraceCollector.getMetadata())
-        .then((metadata) => this.#sessionCapturer.sendUpstream('metadata', {
-          ...metadata,
-          type: this.captureType,
-          options: browser.options,
-          capabilities: browser.capabilities
-        })
-      )
-    }
-
     return this.#sessionCapturer.afterCommand(browser, command, args, result, error)
   }
 
