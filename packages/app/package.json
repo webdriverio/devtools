@@ -23,5 +23,8 @@
     "preact": "^10.18.1"
   },
   "author": "Christian Bromann <mail@bromann.dev>",
-  "license": "MIT"
+  "license": "MIT",
+  "devDependencies": {
+    "@wdio/devtools-service": "workspace:^"
+  }
 }
