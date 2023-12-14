@@ -16,18 +16,20 @@ export enum TraceType {
   Testrunner = 'testrunner'
 }
 
+export interface Metadata {
+  type: TraceType
+  url: string
+  options: Omit<Options.WebdriverIO, 'capabilities'>
+  capabilities: Capabilities.RemoteCapability
+  viewport: VisualViewport
+}
+
 export interface TraceLog {
   mutations: TraceMutation[]
   logs: string[]
   consoleLogs: ConsoleLogs[]
-  metadata: {
-    type: TraceType
-    url: string
-    options: Omit<Options.WebdriverIO, 'capabilities'>
-    capabilities: Capabilities.RemoteCapability
-    viewport: VisualViewport
-  }
-  commands: CommandLog[],
+  metadata: Metadata
+  commands: CommandLog[]
   sources: Record<string, string>
   suites?: Record<string, SuiteStats>[]
 }

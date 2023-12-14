@@ -12,6 +12,7 @@ import '~icons/mdi/alert.js'
 import '~icons/mdi/document.js'
 import '~icons/mdi/arrow-right.js'
 
+import '../placeholder.js'
 import './actionItems/command.js'
 import './actionItems/mutation.js'
 
@@ -30,21 +31,22 @@ export class DevtoolsActions extends Element {
   `]
 
   @consume({ context })
-  data: TraceLog = {} as TraceLog
+  data: Partial<TraceLog> = {}
 
   connectedCallback(): void {
     super.connectedCallback()
-    this.#entries = [...this.data.mutations, ...this.data.commands]
+    this.#entries = [...this.data.mutations || [], ...this.data.commands || []]
       .sort((a, b) => a.timestamp - b.timestamp)
   }
 
   render() {
-    if (!this.#entries.length) {
-      return html`<section class="flex items-center justify-center text-sm w-full h-full">No events logged!</section>`
+    const mutations = this.data.mutations || []
+    if (!this.#entries.length || !mutations.length) {
+      return html`<wdio-devtools-placeholder></wdio-devtools-placeholder>`
     }
 
     return this.#entries.map((entry) => {
-      const elapsedTime = entry.timestamp - this.data.mutations[0].timestamp
+      const elapsedTime = entry.timestamp - mutations[0].timestamp
 
       if ('command' in entry) {
         return html`

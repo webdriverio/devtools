@@ -6,13 +6,14 @@ import { consume } from '@lit/context'
 import { context, type TraceLog } from '../../context.js'
 
 import './list.js'
+import '../placeholder.js'
 import '~icons/mdi/chevron-right.js'
 
 const SOURCE_COMPONENT = 'wdio-devtools-metadata'
 @customElement(SOURCE_COMPONENT)
 export class DevtoolsMetadata extends Element {
   @consume({ context })
-  data: TraceLog = {} as TraceLog
+  data: Partial<TraceLog> = {}
 
   static styles = [...Element.styles, css`
     :host {
@@ -25,6 +26,10 @@ export class DevtoolsMetadata extends Element {
   `]
 
   render() {
+    if (!this.data.metadata) {
+      return html`<wdio-devtools-placeholder style="height: 500px"></wdio-devtools-placeholder>`
+    }
+
     const { url } = this.data.metadata
     return html`
       <wdio-devtools-list

@@ -4,7 +4,7 @@ import { customElement, query, property } from 'lit/decorators.js'
 import { type TraceLog } from '@wdio/devtools-service/types'
 
 import { Element } from '@core/element'
-import { context } from './context.js'
+import { context, cacheTraceData } from './context.js'
 import { DragController, Direction } from './utils/DragController.js'
 
 import './components/header.js'
@@ -13,21 +13,12 @@ import './components/workbench.js'
 import './components/onboarding/start.js'
 
 const SIDEBAR_MIN_WIDTH = 200
-const CACHE_ID = 'wdio-trace-cache'
-
-let cachedTraceFile: TraceLog | undefined
-  try {
-  const localStorageValue = localStorage.getItem(CACHE_ID)
-  cachedTraceFile = localStorageValue ? JSON.parse(localStorageValue) : undefined
-} catch (e: unknown) {
-  console.warn(`Failed to parse cached trace file: ${(e as Error).message}`)
-}
 
 @customElement('wdio-devtools')
 export class WebdriverIODevtoolsApplication extends Element {
   @provide({ context })
   @property({ type: Object })
-  data: TraceLog = cachedTraceFile!
+  data: Partial<TraceLog> = {}
 
   static styles = [...Element.styles, css`
     :host {
@@ -69,7 +60,7 @@ export class WebdriverIODevtoolsApplication extends Element {
 
   #loadTrace ({ detail }: { detail: TraceLog }) {
     this.data = detail
-    localStorage.setItem(CACHE_ID, JSON.stringify(detail))
+    cacheTraceData(detail)
     this.requestUpdate()
   }
 

@@ -1,3 +1,5 @@
+/// <reference types="../../../script" />
+
 import { Element } from '@core/element'
 import { html, css } from 'lit'
 import { customElement } from 'lit/decorators.js'
@@ -6,6 +8,7 @@ import { consume } from '@lit/context'
 import { context, type TraceLog } from '../../context.js'
 
 import '~icons/mdi/chevron-right.js'
+import '../placeholder.js'
 
 const BG: Record<ConsoleLogs['type'], string> = {
   'warn': 'editorOverviewRulerWarningForeground',
@@ -28,11 +31,11 @@ export class DevtoolsConsoleLogs extends Element {
   `]
 
   @consume({ context })
-  data: TraceLog = {} as TraceLog
+  data: Partial<TraceLog> = {}
 
   render() {
-    if (this.data.consoleLogs.length === 0) {
-      return html`<section class="flex items-center justify-center text-sm w-full h-full">No events logged!</section>`
+    if (!this.data.consoleLogs || this.data.consoleLogs.length === 0) {
+      return html`<wdio-devtools-placeholder></wdio-devtools-placeholder>`
     }
 
     return html`

@@ -10,6 +10,8 @@ import { oneDark } from '@codemirror/theme-one-dark'
 
 import { context, type TraceLog } from '../../context.js'
 
+import '../placeholder.js'
+
 const SOURCE_COMPONENT = 'wdio-devtools-source'
 @customElement(SOURCE_COMPONENT)
 export class DevtoolsSource extends Element {
@@ -30,15 +32,19 @@ export class DevtoolsSource extends Element {
   `]
 
   @consume({ context })
-  data: TraceLog = {} as TraceLog
+  data: Partial<TraceLog> = {}
 
   connectedCallback(): void {
     super.connectedCallback()
     window.addEventListener('app-source-highlight', this.#highlightCallSource.bind(this))
-    setTimeout(() => this.#renderEditor(Object.keys(this.data.sources)[0]))
+    setTimeout(() => this.#renderEditor(Object.keys(this.data.sources || {})[0]))
   }
 
   #renderEditor (filePath: string, highlightLine?: number) {
+    if (!this.data.sources) {
+      return
+    }
+
     const source = this.data.sources[filePath]
     if (!source) {
       return
@@ -75,7 +81,9 @@ export class DevtoolsSource extends Element {
   }
 
   render() {
-    return html`<section class="p-2">loading...</section>`
+    return html`
+      <wdio-devtools-placeholder></wdio-devtools-placeholder>
+    `
   }
 }
 

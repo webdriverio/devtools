@@ -8,6 +8,7 @@ import { customElement, query } from 'lit/decorators.js'
 import { context, type TraceLog } from '../../context.js'
 
 import '~icons/mdi/world.js'
+import '../placeholder.js'
 
 const MUTATION_SELECTOR = '__mutation-highlight__'
 
@@ -38,7 +39,7 @@ export class DevtoolsBrowser extends Element {
   #activeUrl = ''
 
   @consume({ context })
-  data: TraceLog = {} as TraceLog
+  data: Partial<TraceLog> = {}
 
   static styles = [...Element.styles, css`
     :host {
@@ -84,7 +85,8 @@ export class DevtoolsBrowser extends Element {
   }
 
   #setIframeSize () {
-    if (!this.section || !this.iframe || !this.header) {
+    const metadata = this.data.metadata
+    if (!this.section || !this.iframe || !this.header || !metadata) {
       return
     }
 
@@ -92,8 +94,8 @@ export class DevtoolsBrowser extends Element {
     this.section.style.height = 'auto'
 
     this.iframe.removeAttribute('style')
-    const viewportWidth = this.data.metadata.viewport.width
-    const viewportHeight = this.data.metadata.viewport.height
+    const viewportWidth = metadata.viewport.width
+    const viewportHeight = metadata.viewport.height
     const frameSize = this.getBoundingClientRect()
     const headerSize = this.header.getBoundingClientRect()
 
@@ -115,9 +117,9 @@ export class DevtoolsBrowser extends Element {
     this.iframe.style.transform = `scale(${scale})`
   }
 
-  async #renderNewDocument (doc: SimplifiedVNode) {
+  async #renderNewDocument (doc: SimplifiedVNode, baseUrl: string) {
     const root = transform(doc)
-    const baseTag = h('base', { href: this.data.metadata.url })
+    const baseTag = h('base', { href: baseUrl })
     const head: VNode<{}> | undefined = (root.props.children as VNode[])
       .filter(Boolean)
       .find((node) => node!.type === 'head')
@@ -188,7 +190,8 @@ export class DevtoolsBrowser extends Element {
 
   #handleChildListMutation (mutation: TraceMutation) {
     if (mutation.addedNodes.length === 1 && !mutation.target) {
-      this.#renderNewDocument(mutation.addedNodes[0] as SimplifiedVNode)
+      const baseUrl = this.data.metadata?.url || 'unknown'
+      this.#renderNewDocument(mutation.addedNodes[0] as SimplifiedVNode, baseUrl)
       return this.#renderVdom()
     }
 
@@ -251,11 +254,16 @@ export class DevtoolsBrowser extends Element {
   }
 
   async #renderBrowserState (mutationEntry?: TraceMutation) {
+    const mutations = this.data.mutations
+    if (!mutations) {
+      return
+    }
+
     const mutationIndex = mutationEntry
-      ? this.data.mutations.indexOf(mutationEntry)
+      ? mutations.indexOf(mutationEntry)
       : 0
     this.#vdom = document.createDocumentFragment()
-    const rootIndex = this.data.mutations
+    const rootIndex = mutations
       .map((m, i) => [
         // is document loaded
         m.addedNodes.length === 1 && Boolean(m.url),
@@ -266,16 +274,16 @@ export class DevtoolsBrowser extends Element {
       .map(([, i]) => i)
       .pop() || 0
 
-    this.#activeUrl = this.data.mutations[rootIndex].url || this.data.metadata.url
+    this.#activeUrl = mutations[rootIndex].url || this.data.metadata?.url || 'unknown'
     for (let i = rootIndex; i <= mutationIndex; i++) {
-      await this.#handleMutation(this.data.mutations[i]).catch(
+      await this.#handleMutation(mutations[i]).catch(
         (err) => console.warn(`Failed to render mutation: ${err.message}`))
     }
 
     /**
      * scroll changed element into view
      */
-    const mutation = this.data.mutations[mutationIndex]
+    const mutation = mutations[mutationIndex]
     if (mutation.target) {
       const el = this.#queryElement(mutation.target)
       if (el) {
@@ -298,7 +306,10 @@ export class DevtoolsBrowser extends Element {
             ${this.#activeUrl}
           </div>
         </header>
-        <iframe class="origin-top-left"></iframe>
+        ${this.data.mutations
+          ? html`<iframe class="origin-top-left"></iframe>`
+          : html`<wdio-devtools-placeholder style="height: 500px"></wdio-devtools-placeholder>`
+        }
       </section>
     `
   }

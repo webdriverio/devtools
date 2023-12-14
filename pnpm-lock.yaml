@@ -116,6 +116,9 @@ importers:
       lit:
         specifier: ^2.7.6
         version: 2.8.0
+      placeholder-loading:
+        specifier: ^0.6.0
+        version: 0.6.0
       pointer-tracker:
         specifier: ^2.5.3
         version: 2.5.3
@@ -5342,6 +5345,10 @@ packages:
       mlly: 1.4.2
       pathe: 1.1.1
     dev: true
+
+  /placeholder-loading@0.6.0:
+    resolution: {integrity: sha512-KdUnwa3AEuXlem7QeSi4qtny+QfiACUh0P0iYskJBwfg3LtAUMQFyd9L21ysdBQ65KbK6tZ4VsKPkcF3mULwMQ==}
+    dev: false
 
   /pluralize@8.0.0:
     resolution: {integrity: sha512-Nc3IT5yHzflTfbjgqWcCPpo7DaKy4FnpB0l/zCAW0Tc7jxAiuqSxHasntB3D7887LSrA93kDJ9IXovxJYxyLCA==}
