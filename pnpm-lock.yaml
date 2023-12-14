@@ -123,8 +123,8 @@ importers:
         specifier: ^2.5.3
         version: 2.5.3
       preact:
-        specifier: ^10.18.1
-        version: 10.18.2
+        specifier: ^10.19.3
+        version: 10.19.3
     devDependencies:
       '@wdio/devtools-service':
         specifier: workspace:^
@@ -164,8 +164,8 @@ importers:
         specifier: ^7.1.2
         version: 7.1.2
       preact:
-        specifier: ^10.19.2
-        version: 10.19.2
+        specifier: ^10.19.3
+        version: 10.19.3
       vite-plugin-singlefile:
         specifier: ^0.13.5
         version: 0.13.5(rollup@4.3.0)(vite@4.5.0)
@@ -5443,12 +5443,8 @@ packages:
       picocolors: 1.0.0
       source-map-js: 1.0.2
 
-  /preact@10.18.2:
-    resolution: {integrity: sha512-X/K43vocUHDg0XhWVmTTMbec4LT/iBMh+csCEqJk+pJqegaXsvjdqN80ZZ3L+93azWCnWCZ+WGwYb8SplxeNjA==}
-    dev: false
-
-  /preact@10.19.2:
-    resolution: {integrity: sha512-UA9DX/OJwv6YwP9Vn7Ti/vF80XL+YA5H2l7BpCtUr3ya8LWHFzpiO5R+N7dN16ujpIxhekRFuOOF82bXX7K/lg==}
+  /preact@10.19.3:
+    resolution: {integrity: sha512-nHHTeFVBTHRGxJXKkKu5hT8C/YWBkPso4/Gad6xuj5dbptt9iF9NZr9pHbPhBrnT2klheu7mHTxTZ/LjwJiEiQ==}
     dev: false
 
   /prelude-ls@1.2.1:
