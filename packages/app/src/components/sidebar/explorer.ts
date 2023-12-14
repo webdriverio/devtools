@@ -2,9 +2,10 @@ import { Element } from '@core/element'
 import { html, css, nothing, type TemplateResult } from 'lit'
 import { customElement } from 'lit/decorators.js'
 import { consume } from '@lit/context'
+import { type SuiteStats } from '@wdio/reporter'
 
 import { TestState } from './test-suite.js'
-import { context, type TraceLog } from '../../context.js'
+import { suiteContext } from '../../controller/DataManager.js'
 
 import '~icons/mdi/play.js'
 import '~icons/mdi/stop.js'
@@ -35,8 +36,8 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
     }
   `]
 
-  @consume({ context })
-  data: TraceLog = {} as TraceLog
+  @consume({ context: suiteContext })
+  suites: Record<string, SuiteStats> = {}
 
   connectedCallback(): void {
     super.connectedCallback()
@@ -84,10 +85,10 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
   }
 
   render() {
-    if (typeof this.data.suites !== 'object') {
+    if (typeof this.suites !== 'object') {
       return
     }
-    const suites = Object.values(this.data.suites[0]).map((suite) => {
+    const suites = Object.values(this.suites[0]).map((suite: SuiteStats) => {
       const state = !suite.tests.find((t) => t.end)
         ? TestState.RUNNING
         : suite.tests.find((t) => t.state === 'failed')

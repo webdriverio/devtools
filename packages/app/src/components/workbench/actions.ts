@@ -3,7 +3,7 @@ import { html, css } from 'lit'
 import { customElement } from 'lit/decorators.js'
 import { consume } from '@lit/context'
 
-import { context, type TraceLog } from '../../context.js'
+import { mutationContext, type TraceMutation, commandContext, type CommandLog } from '../../controller/DataManager.js'
 import { type ActionEntry } from './actionItems/item.js'
 
 import '~icons/mdi/pencil.js'
@@ -30,17 +30,20 @@ export class DevtoolsActions extends Element {
     }
   `]
 
-  @consume({ context })
-  data: Partial<TraceLog> = {}
+  @consume({ context: mutationContext })
+  mutations: TraceMutation[] = []
+
+  @consume({ context: commandContext })
+  commands: CommandLog[] = []
 
   connectedCallback(): void {
     super.connectedCallback()
-    this.#entries = [...this.data.mutations || [], ...this.data.commands || []]
+    this.#entries = [...this.mutations || [], ...this.commands || []]
       .sort((a, b) => a.timestamp - b.timestamp)
   }
 
   render() {
-    const mutations = this.data.mutations || []
+    const mutations = this.mutations || []
     if (!this.#entries.length || !mutations.length) {
       return html`<wdio-devtools-placeholder></wdio-devtools-placeholder>`
     }

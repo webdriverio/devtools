@@ -5,7 +5,7 @@ import { html, css } from 'lit'
 import { customElement } from 'lit/decorators.js'
 import { consume } from '@lit/context'
 
-import { context, type TraceLog } from '../../context.js'
+import { consoleLogContext } from '../../controller/DataManager.js'
 
 import '~icons/mdi/chevron-right.js'
 import '../placeholder.js'
@@ -30,16 +30,16 @@ export class DevtoolsConsoleLogs extends Element {
     }
   `]
 
-  @consume({ context })
-  data: Partial<TraceLog> = {}
+  @consume({ context: consoleLogContext })
+  logs: Partial<ConsoleLogs> = {}
 
   render() {
-    if (!this.data.consoleLogs || this.data.consoleLogs.length === 0) {
+    if (!this.logs || this.logs.length === 0) {
       return html`<wdio-devtools-placeholder></wdio-devtools-placeholder>`
     }
 
     return html`
-      ${Object.values(this.data.consoleLogs).map((log) => html`
+      ${Object.values(this.logs).map((log: any) => html`
         <dl class="w-full flex grow-0">
           <dt class="flex">
             <icon-mdi-chevron-right class="text-base transition-transform block"></icon-mdi-chevron-right>

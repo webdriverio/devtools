@@ -8,7 +8,7 @@ import type { EditorViewConfig } from '@codemirror/view'
 import { javascript } from '@codemirror/lang-javascript'
 import { oneDark } from '@codemirror/theme-one-dark'
 
-import { context, type TraceLog } from '../../context.js'
+import { sourceContext } from '../../controller/DataManager.js'
 
 import '../placeholder.js'
 
@@ -31,21 +31,21 @@ export class DevtoolsSource extends Element {
     }
   `]
 
-  @consume({ context })
-  data: Partial<TraceLog> = {}
+  @consume({ context: sourceContext })
+  sources: Record<string, string> = {}
 
   connectedCallback(): void {
     super.connectedCallback()
     window.addEventListener('app-source-highlight', this.#highlightCallSource.bind(this))
-    setTimeout(() => this.#renderEditor(Object.keys(this.data.sources || {})[0]))
+    setTimeout(() => this.#renderEditor(Object.keys(this.sources || {})[0]))
   }
 
   #renderEditor (filePath: string, highlightLine?: number) {
-    if (!this.data.sources) {
+    if (!this.sources) {
       return
     }
 
-    const source = this.data.sources[filePath]
+    const source = this.sources[filePath]
     if (!source) {
       return
     }

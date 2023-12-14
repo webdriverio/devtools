@@ -129,6 +129,9 @@ importers:
       '@wdio/devtools-service':
         specifier: workspace:^
         version: link:../service
+      '@wdio/reporter':
+        specifier: ^8.23.0
+        version: 8.24.12
 
   packages/backend:
     dependencies:

@@ -5,7 +5,7 @@ import { consume } from '@lit/context'
 import { type ComponentChildren, h, render, type VNode } from 'preact'
 import { customElement, query } from 'lit/decorators.js'
 
-import { context, type TraceLog } from '../../context.js'
+import { mutationContext, type TraceMutation, metadataContext, type Metadata } from '../../controller/DataManager.js'
 
 import '~icons/mdi/world.js'
 import '../placeholder.js'
@@ -38,8 +38,11 @@ export class DevtoolsBrowser extends Element {
   #vdom = document.createDocumentFragment()
   #activeUrl = ''
 
-  @consume({ context })
-  data: Partial<TraceLog> = {}
+  @consume({ context: metadataContext })
+  metadata: Metadata | undefined = undefined
+
+  @consume({ context: mutationContext })
+  mutations: TraceMutation[] = []
 
   static styles = [...Element.styles, css`
     :host {
@@ -85,7 +88,7 @@ export class DevtoolsBrowser extends Element {
   }
 
   #setIframeSize () {
-    const metadata = this.data.metadata
+    const metadata = this.metadata
     if (!this.section || !this.iframe || !this.header || !metadata) {
       return
     }
@@ -190,7 +193,7 @@ export class DevtoolsBrowser extends Element {
 
   #handleChildListMutation (mutation: TraceMutation) {
     if (mutation.addedNodes.length === 1 && !mutation.target) {
-      const baseUrl = this.data.metadata?.url || 'unknown'
+      const baseUrl = this.metadata?.url || 'unknown'
       this.#renderNewDocument(mutation.addedNodes[0] as SimplifiedVNode, baseUrl)
       return this.#renderVdom()
     }
@@ -254,7 +257,7 @@ export class DevtoolsBrowser extends Element {
   }
 
   async #renderBrowserState (mutationEntry?: TraceMutation) {
-    const mutations = this.data.mutations
+    const mutations = this.mutations
     if (!mutations) {
       return
     }
@@ -274,7 +277,7 @@ export class DevtoolsBrowser extends Element {
       .map(([, i]) => i)
       .pop() || 0
 
-    this.#activeUrl = mutations[rootIndex].url || this.data.metadata?.url || 'unknown'
+    this.#activeUrl = mutations[rootIndex].url || this.metadata?.url || 'unknown'
     for (let i = rootIndex; i <= mutationIndex; i++) {
       await this.#handleMutation(mutations[i]).catch(
         (err) => console.warn(`Failed to render mutation: ${err.message}`))
@@ -306,9 +309,9 @@ export class DevtoolsBrowser extends Element {
             ${this.#activeUrl}
           </div>
         </header>
-        ${this.data.mutations
+        ${this.mutations
           ? html`<iframe class="origin-top-left"></iframe>`
-          : html`<wdio-devtools-placeholder style="height: 500px"></wdio-devtools-placeholder>`
+          : html`<wdio-devtools-placeholder style="height: 100%"></wdio-devtools-placeholder>`
         }
       </section>
     `

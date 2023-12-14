@@ -26,6 +26,7 @@
   "author": "Christian Bromann <mail@bromann.dev>",
   "license": "MIT",
   "devDependencies": {
-    "@wdio/devtools-service": "workspace:^"
+    "@wdio/devtools-service": "workspace:^",
+    "@wdio/reporter": "^8.23.0"
   }
 }

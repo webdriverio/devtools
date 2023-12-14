@@ -3,7 +3,7 @@ import { html, css } from 'lit'
 import { customElement } from 'lit/decorators.js'
 import { consume } from '@lit/context'
 
-import { context, type TraceLog } from '../../context.js'
+import { metadataContext, type Metadata } from '../../controller/DataManager.js'
 
 import './list.js'
 import '../placeholder.js'
@@ -12,8 +12,8 @@ import '~icons/mdi/chevron-right.js'
 const SOURCE_COMPONENT = 'wdio-devtools-metadata'
 @customElement(SOURCE_COMPONENT)
 export class DevtoolsMetadata extends Element {
-  @consume({ context })
-  data: Partial<TraceLog> = {}
+  @consume({ context: metadataContext })
+  metadata: Partial<Metadata> = {}
 
   static styles = [...Element.styles, css`
     :host {
@@ -26,21 +26,21 @@ export class DevtoolsMetadata extends Element {
   `]
 
   render() {
-    if (!this.data.metadata) {
-      return html`<wdio-devtools-placeholder style="height: 500px"></wdio-devtools-placeholder>`
+    if (!this.metadata) {
+      return html`<wdio-devtools-placeholder></wdio-devtools-placeholder>`
     }
 
-    const { url } = this.data.metadata
+    const { url } = this.metadata
     return html`
       <wdio-devtools-list
         label="Metadata"
         .list="${({ url })}"></wdio-devtools-list>
       <wdio-devtools-list
         label="Capabilities"
-        .list="${this.data.metadata.capabilities}"></wdio-devtools-list>
+        .list="${this.metadata.capabilities}"></wdio-devtools-list>
       <wdio-devtools-list
         label="Options"
-        .list="${this.data.metadata.options}"></wdio-devtools-list>
+        .list="${this.metadata.options}"></wdio-devtools-list>
     `
   }
 }

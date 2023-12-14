@@ -1,10 +1,9 @@
 import { css, html, nothing } from 'lit'
-import { provide } from '@lit/context'
-import { customElement, query, property } from 'lit/decorators.js'
-import { type TraceLog } from '@wdio/devtools-service/types'
+import { customElement, query } from 'lit/decorators.js'
+import { TraceType, type TraceLog } from '@wdio/devtools-service/types'
 
 import { Element } from '@core/element'
-import { context, cacheTraceData } from './context.js'
+import { DataManagerController } from './controller/DataManager.js'
 import { DragController, Direction } from './utils/DragController.js'
 
 import './components/header.js'
@@ -16,9 +15,7 @@ const SIDEBAR_MIN_WIDTH = 200
 
 @customElement('wdio-devtools')
 export class WebdriverIODevtoolsApplication extends Element {
-  @provide({ context })
-  @property({ type: Object })
-  data: Partial<TraceLog> = {}
+  dataManager = new DataManagerController(this)
 
   static styles = [...Element.styles, css`
     :host {
@@ -59,13 +56,12 @@ export class WebdriverIODevtoolsApplication extends Element {
   }
 
   #loadTrace ({ detail }: { detail: TraceLog }) {
-    this.data = detail
-    cacheTraceData(detail)
+    this.dataManager.loadTraceFile(detail)
     this.requestUpdate()
   }
 
   #mainContent () {
-    if (!this.data) {
+    if (!this.dataManager.hasConnection) {
       return html`<wdio-devtools-start></wdio-devtools-start>`
     }
 
@@ -73,7 +69,7 @@ export class WebdriverIODevtoolsApplication extends Element {
       <section class="flex h-[calc(100%-40px)] w-full relative">
         ${
           // only render sidebar if trace file is captured using testrunner
-          this.data?.suites
+          this.dataManager.traceType === TraceType.Testrunner
             ? html`<wdio-devtools-sidebar style="${this.#drag.getPosition()}"></wdio-devtools-sidebar>`
             : nothing
         }
