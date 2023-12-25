@@ -38,7 +38,7 @@
   "license": "MIT",
   "devDependencies": {
     "@types/stack-trace": "^0.0.33",
-    "@wdio/globals": "^8.23.0",
+    "@wdio/globals": "^8.27.0",
     "@wdio/protocols": "^8.23.0",
     "vite-plugin-dts": "^3.6.3"
   },
