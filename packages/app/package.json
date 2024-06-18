@@ -21,7 +21,7 @@
     "lit": "^2.7.6",
     "placeholder-loading": "^0.6.0",
     "pointer-tracker": "^2.5.3",
-    "preact": "^10.18.1"
+    "preact": "^10.22.0"
   },
   "author": "Christian Bromann <mail@bromann.dev>",
   "license": "MIT",
