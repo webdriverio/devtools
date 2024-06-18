@@ -31,7 +31,7 @@ export class SessionCapturer {
     const { port, hostname } = devtoolsOptions
     if (hostname && port) {
       this.#ws = new WebSocket(`ws://${hostname}:${port}/worker`)
-      this.#ws.on('error', (err) => log.error(`Couldn't connect to devtools backend: ${err.message}`))
+      this.#ws.on('error', (err: unknown) => log.error(`Couldn't connect to devtools backend: ${(err as Error).message}`))
     }
   }
 

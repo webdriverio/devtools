@@ -1,4 +1,7 @@
+import path from 'node:path'
 import type { Options } from '@wdio/types'
+
+const __dirname = path.resolve(path.dirname(new URL(import.meta.url).pathname))
 
 export const config: Options.Testrunner = {
     //
@@ -146,7 +149,7 @@ export const config: Options.Testrunner = {
     // If you are using Cucumber you need to specify the location of your step definitions.
     cucumberOpts: {
         // <string[]> (file/dir) require files before executing features
-        require: ['./features/step-definitions/steps.ts'],
+        require: [path.resolve(__dirname, 'features', 'step-definitions', 'steps.ts')],
         // <boolean> show full backtrace for errors
         backtrace: false,
         // <string[]> ("extension:module") require files with the given EXTENSION after requiring MODULE (repeatable)
