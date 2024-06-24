@@ -33,7 +33,7 @@
     "import-meta-resolve": "^4.0.0",
     "stack-trace": "1.0.0-pre2",
     "webdriverio": "^8.23.0",
-    "ws": "^8.15.1"
+    "ws": "^8.17.1"
   },
   "license": "MIT",
   "devDependencies": {
