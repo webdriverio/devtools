@@ -82,8 +82,8 @@ importers:
         specifier: workspace:^
         version: link:../packages/service
       '@wdio/globals':
-        specifier: ^8.39.0
-        version: 8.39.0(typescript@5.4.5)
+        specifier: ^8.39.1
+        version: 8.39.1(typescript@5.4.5)
       '@wdio/local-runner':
         specifier: ^8.39.0
         version: 8.39.0(typescript@5.4.5)
@@ -226,8 +226,8 @@ importers:
         specifier: ^8.5.10
         version: 8.5.10
       '@wdio/globals':
-        specifier: ^8.23.0
-        version: 8.24.12(typescript@5.4.5)
+        specifier: ^8.39.1
+        version: 8.39.1(typescript@5.4.5)
       '@wdio/protocols':
         specifier: ^8.23.0
         version: 8.24.12
@@ -582,6 +582,7 @@ packages:
   '@humanwhocodes/config-array@0.11.13':
     resolution: {integrity: sha512-JSBDMiDKSzQVngfRjOdFXgFfklaXI4K9nLF49Auh21lmBWRLIK3+xTErTWD4KU54pb6coM6ESE7Awz/FNU3zgQ==}
     engines: {node: '>=10.10.0'}
+    deprecated: Use @eslint/config-array instead
 
   '@humanwhocodes/module-importer@1.0.1':
     resolution: {integrity: sha512-bxveV4V8v5Yb4ncFTT3rPSgZBOpCkjfK0y4oVVVJwIuDVBRMDXrPyXRL988i5ap9m9bnyEEjWfm5WkBmtffLfA==}
@@ -589,6 +590,7 @@ packages:
 
   '@humanwhocodes/object-schema@2.0.1':
     resolution: {integrity: sha512-dvuCeX5fC9dXgJn9t+X5atfmgQAzUOWqS1254Gh0m6i8wKd10ebXkfNKiRK+1GWi/yTvvLDHpoxLr0xxxeslWw==}
+    deprecated: Use @eslint/object-schema instead
 
   '@iconify-json/mdi@1.1.55':
     resolution: {integrity: sha512-ycnFub+EQx+3D/aDCg6iC7sjexOUa5GzxUNIZFFl0Pq7aDxbmhIludoyYnguEO3REyWf9FcOOmvVcQkdtwKHTw==}
@@ -1034,12 +1036,12 @@ packages:
     resolution: {integrity: sha512-E9akHbbEoMkPH920j8Pepj/Zyab1otbW9wanlwSaHtiW5VaEySqqNxs7p9rUREvzTXGdR6fjgl6G8sQ8b5fWmw==}
     engines: {node: ^16.13 || >=18}
 
-  '@wdio/globals@8.24.12':
-    resolution: {integrity: sha512-uF26a89Q+6DdqzSfK9suXJNdWYJnsazjzPuq4Xtz6nKdjgmBufSeX1JHV4LxErEu5b/IdzVcMCUKKEvsZPc9vA==}
-    engines: {node: ^16.13 || >=18}
-
   '@wdio/globals@8.39.0':
     resolution: {integrity: sha512-qZo6JjRCIOtdvba6fdSqj6b91TnWXD6rmamyud93FTqbcspnhBvr8lmgOs5wnslTKeeTTigCjpsT310b4/AyHA==}
+    engines: {node: ^16.13 || >=18}
+
+  '@wdio/globals@8.39.1':
+    resolution: {integrity: sha512-kNb1TlxI8Le/tsOiw7CMQcG0+ZGyxk9ZDO/PQLxkJvjo/q2QmiBcgaNMPuf+j1ABETcQK4bI7QtiT5uZ+f2AGA==}
     engines: {node: ^16.13 || >=18}
 
   '@wdio/local-runner@8.39.0':
@@ -2069,6 +2071,7 @@ packages:
   fstream@1.0.12:
     resolution: {integrity: sha512-WvJ193OHa0GHPEL+AycEJgxvBEwyfRkN1vhjca23OaPVMCaLCXTd5qAu82AjTcgP1UJmytkOKb63Ypde7raDIg==}
     engines: {node: '>=0.6'}
+    deprecated: This package is no longer supported.
 
   function-bind@1.1.2:
     resolution: {integrity: sha512-7XHNxH7qX9xG5mIwxkhumTox/MIRNcOgDrxWsMt2pAr23WHp6MrRlN7FBSFpCpr+oVO0F744iUgR82nJMfG2SA==}
@@ -2147,10 +2150,12 @@ packages:
 
   glob@7.2.3:
     resolution: {integrity: sha512-nFR0zLpU2YCaRxwoCJvL6UvCH2JFyFVIvwTLsIf21AuHlMskA1hhTdk+LlYJtOlYt9v6dvszD2BGRqBL+iQK9Q==}
+    deprecated: Glob versions prior to v9 are no longer supported
 
   glob@8.1.0:
     resolution: {integrity: sha512-r8hpEjiQEYlF2QU0df3dS+nxxSIreXQS1qRhMJM0Q5NDdR386C7jb7Hwwod8Fgiuex+k0GFjgft18yvxm5XoCQ==}
     engines: {node: '>=12'}
+    deprecated: Glob versions prior to v9 are no longer supported
 
   global-dirs@3.0.1:
     resolution: {integrity: sha512-NBcGGFbBA9s1VzD41QXDG+3++t9Mn5t1FpLdhESY6oKY4gYTFpX4wO3sqGUa0Srjtbfj3szX0RnemmrVRUdULA==}
@@ -2313,6 +2318,7 @@ packages:
 
   inflight@1.0.6:
     resolution: {integrity: sha512-k92I/b08q4wvFscXCLvqfsHCrjrF7yiXsQuIVvVE7N82W3+aqpzuUdBbfhWcy/FZR3/4IgflMgKLOsvPDrGCJA==}
+    deprecated: This module is not supported, and leaks memory. Do not use it. Check out lru-cache if you want a good and tested way to coalesce async requests by a key value, which is much more comprehensive and powerful.
 
   inherits@2.0.4:
     resolution: {integrity: sha512-k/vGaX4/Yla3WzyMCvTQOXYeIHvqOKtnqBduzTHpzpQZzAskKMhZ2K+EnBiSM9zGSoIFeMpXKxa4dYeZIQqewQ==}
@@ -3397,10 +3403,12 @@ packages:
 
   rimraf@2.7.1:
     resolution: {integrity: sha512-uWjbaKIK3T1OSVptzX7Nl6PvQ3qAGtKEtVRjRuazjfL3Bx5eI409VZSqgND+4UNnmzLVdPj9FqFJNPqBZFve4w==}
+    deprecated: Rimraf versions prior to v4 are no longer supported
     hasBin: true
 
   rimraf@3.0.2:
     resolution: {integrity: sha512-JZkJMZkAGFFPP2YqXZXPbMlMBgsxzE8ILs4lMIX/2o0L9UBw9O/Y3o6wFw/i9YLapcUJWwqbi3kdxIPdC62TIA==}
+    deprecated: Rimraf versions prior to v4 are no longer supported
     hasBin: true
 
   rollup@3.29.4:
@@ -4109,6 +4117,15 @@ packages:
 
   webdriverio@8.39.0:
     resolution: {integrity: sha512-pDpGu0V+TL1LkXPode67m3s+IPto4TcmcOzMpzFgu2oeLMBornoLN3yQSFR1fjZd1gK4UfnG3lJ4poTGOfbWfw==}
+    engines: {node: ^16.13 || >=18}
+    peerDependencies:
+      devtools: ^8.14.0
+    peerDependenciesMeta:
+      devtools:
+        optional: true
+
+  webdriverio@8.39.1:
+    resolution: {integrity: sha512-dPwLgLNtP+l4vnybz+YFxxH8nBKOP7j6VVzKtfDyTLDQg9rz3U8OA4xMMQCBucnrVXy3KcKxGqlnMa+c4IfWCQ==}
     engines: {node: ^16.13 || >=18}
     peerDependencies:
       devtools: ^8.14.0
@@ -5302,18 +5319,6 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@wdio/globals@8.24.12(typescript@5.4.5)':
-    optionalDependencies:
-      expect-webdriverio: 4.15.1(typescript@5.4.5)
-      webdriverio: 8.24.12(typescript@5.4.5)
-    transitivePeerDependencies:
-      - bufferutil
-      - devtools
-      - encoding
-      - supports-color
-      - typescript
-      - utf-8-validate
-
   '@wdio/globals@8.39.0(typescript@5.2.2)':
     optionalDependencies:
       expect-webdriverio: 4.15.1(typescript@5.2.2)
@@ -5330,6 +5335,31 @@ snapshots:
     optionalDependencies:
       expect-webdriverio: 4.15.1(typescript@5.4.5)
       webdriverio: 8.39.0(typescript@5.4.5)
+    transitivePeerDependencies:
+      - bufferutil
+      - devtools
+      - encoding
+      - supports-color
+      - typescript
+      - utf-8-validate
+
+  '@wdio/globals@8.39.1(typescript@5.2.2)':
+    optionalDependencies:
+      expect-webdriverio: 4.15.1(typescript@5.2.2)
+      webdriverio: 8.39.1(typescript@5.2.2)
+    transitivePeerDependencies:
+      - bufferutil
+      - devtools
+      - encoding
+      - supports-color
+      - typescript
+      - utf-8-validate
+    optional: true
+
+  '@wdio/globals@8.39.1(typescript@5.4.5)':
+    optionalDependencies:
+      expect-webdriverio: 4.15.1(typescript@5.4.5)
+      webdriverio: 8.39.1(typescript@5.4.5)
     transitivePeerDependencies:
       - bufferutil
       - devtools
@@ -6118,7 +6148,7 @@ snapshots:
 
   edgedriver@5.3.8:
     dependencies:
-      '@wdio/logger': 8.24.12
+      '@wdio/logger': 8.38.0
       decamelize: 6.0.0
       edge-paths: 3.0.5
       node-fetch: 3.3.2
@@ -6438,7 +6468,7 @@ snapshots:
       jest-matcher-utils: 29.7.0
       lodash.isequal: 4.5.0
     optionalDependencies:
-      '@wdio/globals': 8.39.0(typescript@5.2.2)
+      '@wdio/globals': 8.39.1(typescript@5.2.2)
       '@wdio/logger': 8.38.0
       webdriverio: 8.39.0(typescript@5.2.2)
     transitivePeerDependencies:
@@ -6457,7 +6487,7 @@ snapshots:
       jest-matcher-utils: 29.7.0
       lodash.isequal: 4.5.0
     optionalDependencies:
-      '@wdio/globals': 8.39.0(typescript@5.4.5)
+      '@wdio/globals': 8.39.1(typescript@5.4.5)
       '@wdio/logger': 8.38.0
       webdriverio: 8.39.0(typescript@5.4.5)
     transitivePeerDependencies:
@@ -6680,7 +6710,7 @@ snapshots:
 
   geckodriver@4.2.1:
     dependencies:
-      '@wdio/logger': 8.24.12
+      '@wdio/logger': 8.38.0
       decamelize: 6.0.0
       http-proxy-agent: 7.0.0
       https-proxy-agent: 7.0.2
@@ -8503,7 +8533,7 @@ snapshots:
       '@tsconfig/node14': 1.0.3
       '@tsconfig/node16': 1.0.4
       '@types/node': 20.14.5
-      acorn: 8.12.0
+      acorn: 8.11.2
       acorn-walk: 8.3.0
       arg: 4.1.3
       create-require: 1.1.1
@@ -8924,6 +8954,76 @@ snapshots:
       - supports-color
       - typescript
       - utf-8-validate
+
+  webdriverio@8.39.1(typescript@5.2.2):
+    dependencies:
+      '@types/node': 20.14.5
+      '@wdio/config': 8.39.0
+      '@wdio/logger': 8.38.0
+      '@wdio/protocols': 8.38.0
+      '@wdio/repl': 8.24.12
+      '@wdio/types': 8.39.0
+      '@wdio/utils': 8.39.0
+      archiver: 7.0.1
+      aria-query: 5.3.0
+      css-shorthand-properties: 1.1.1
+      css-value: 0.0.1
+      devtools-protocol: 0.0.1302984
+      grapheme-splitter: 1.0.4
+      import-meta-resolve: 4.0.0
+      is-plain-obj: 4.1.0
+      jszip: 3.10.1
+      lodash.clonedeep: 4.5.0
+      lodash.zip: 4.2.0
+      minimatch: 9.0.3
+      puppeteer-core: 20.9.0(typescript@5.2.2)
+      query-selector-shadow-dom: 1.0.1
+      resq: 1.11.0
+      rgb2hex: 0.2.5
+      serialize-error: 11.0.2
+      webdriver: 8.39.0
+    transitivePeerDependencies:
+      - bufferutil
+      - encoding
+      - supports-color
+      - typescript
+      - utf-8-validate
+    optional: true
+
+  webdriverio@8.39.1(typescript@5.4.5):
+    dependencies:
+      '@types/node': 20.14.5
+      '@wdio/config': 8.39.0
+      '@wdio/logger': 8.38.0
+      '@wdio/protocols': 8.38.0
+      '@wdio/repl': 8.24.12
+      '@wdio/types': 8.39.0
+      '@wdio/utils': 8.39.0
+      archiver: 7.0.1
+      aria-query: 5.3.0
+      css-shorthand-properties: 1.1.1
+      css-value: 0.0.1
+      devtools-protocol: 0.0.1302984
+      grapheme-splitter: 1.0.4
+      import-meta-resolve: 4.0.0
+      is-plain-obj: 4.1.0
+      jszip: 3.10.1
+      lodash.clonedeep: 4.5.0
+      lodash.zip: 4.2.0
+      minimatch: 9.0.3
+      puppeteer-core: 20.9.0(typescript@5.4.5)
+      query-selector-shadow-dom: 1.0.1
+      resq: 1.11.0
+      rgb2hex: 0.2.5
+      serialize-error: 11.0.2
+      webdriver: 8.39.0
+    transitivePeerDependencies:
+      - bufferutil
+      - encoding
+      - supports-color
+      - typescript
+      - utf-8-validate
+    optional: true
 
   webidl-conversions@3.0.1: {}
 
