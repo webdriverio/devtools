@@ -6,6 +6,11 @@ export interface TraceMetadata {
   viewport: VisualViewport
 }
 
+export interface SimplifiedVNode {
+  type: string
+  props: Record<string, string> & { children?: SimplifiedVNode | SimplifiedVNode[] }
+}
+
 declare global {
   type ConsoleLogs = ConsoleLogImport
 
@@ -15,11 +20,6 @@ declare global {
 
   interface Window {
     wdioTraceCollector: DataCollectorType
-  }
-
-  interface SimplifiedVNode {
-    type: string
-    props: Record<string, string> & { children?: SimplifiedVNode | SimplifiedVNode[] }
   }
 
   interface TraceMutation {
