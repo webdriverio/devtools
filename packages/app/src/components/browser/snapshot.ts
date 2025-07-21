@@ -4,6 +4,7 @@ import { consume } from '@lit/context'
 
 import { type ComponentChildren, h, render, type VNode } from 'preact'
 import { customElement, query } from 'lit/decorators.js'
+import type { SimplifiedVNode } from '../../../../script/types'
 
 import { mutationContext, type TraceMutation, metadataContext, type Metadata } from '../../controller/DataManager.js'
 

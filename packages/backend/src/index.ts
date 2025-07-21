@@ -1,10 +1,11 @@
 import url from 'node:url'
 
-import Fastify, { type FastifyInstance } from 'fastify'
+import Fastify, { type FastifyInstance, type FastifyRequest } from 'fastify'
 import staticServer from '@fastify/static'
 import websocket from '@fastify/websocket'
 import getPort from 'get-port'
 import logger from '@wdio/logger'
+import { WebSocket } from 'ws'
 
 import { getDevtoolsApp } from './utils.js'
 import { DEFAULT_PORT } from './constants.js'
@@ -17,7 +18,7 @@ interface DevtoolsBackendOptions {
 }
 
 const log = logger('@wdio/devtools-backend')
-const clients = new Set<websocket.SocketStream>()
+const clients = new Set<WebSocket>()
 
 export async function start (opts: DevtoolsBackendOptions = {}) {
   const host = opts.hostname || 'localhost'
@@ -25,25 +26,26 @@ export async function start (opts: DevtoolsBackendOptions = {}) {
   const appPath = await getDevtoolsApp()
 
   server = Fastify({ logger: true })
-  server.register(websocket)
-  server.register(staticServer, {
+  await server.register(websocket)
+  await server.register(staticServer, {
     root: appPath
   })
 
-  server.register(async function (f) {
-    f.get('/client', { websocket: true }, (connection) => {
+  server.get('/client', { websocket: true }, (socket: WebSocket, _req: FastifyRequest) => {
       log.info('client connected')
-      clients.add(connection)
-    })
-    f.get('/worker', { websocket: true }, (connection) => {
-      /**
-       * forward messages to all connected clients
-       */
-      connection.socket.on('message', (message) => {
-        log.info(`received ${message.toLocaleString().length} byte message from worker to ${clients.size} client${clients.size > 1 ? 's' : ''}`, )
-        clients.forEach((client) => client.socket.send(message.toString()))
+      clients.add(socket)
+      socket.on('close', () => clients.delete(socket))
+  })
+
+  server.get('/worker', { websocket: true }, (socket: WebSocket, _req: FastifyRequest) => {
+      socket.on('message', (message: Buffer) => {
+          log.info(`received ${message.length} byte message from worker to ${clients.size} client${clients.size > 1 ? 's' : ''}`)
+          clients.forEach((client) => {
+              if (client.readyState === WebSocket.OPEN) {
+                  client.send(message.toString())
+              }
+          })
       })
-    })
   })
 
   log.info(`Starting WebdriverIO Devtools application on port ${port}`)

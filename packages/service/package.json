@@ -27,21 +27,21 @@
   "dependencies": {
     "@wdio/devtools-backend": "workspace:^",
     "@wdio/devtools-script": "workspace:^",
-    "@wdio/logger": "^8.23.0",
-    "@wdio/reporter": "^8.23.0",
-    "@wdio/types": "^8.23.0",
-    "import-meta-resolve": "^4.0.0",
+    "@wdio/logger": "9.18.0",
+    "@wdio/reporter": "9.18.0",
+    "@wdio/types": "9.16.2",
+    "import-meta-resolve": "^4.1.0",
     "stack-trace": "1.0.0-pre2",
-    "webdriverio": "^8.23.0",
-    "ws": "^8.15.1"
+    "webdriverio": "^9.18.0",
+    "ws": "^8.18.3"
   },
   "license": "MIT",
   "devDependencies": {
     "@types/stack-trace": "^0.0.33",
-    "@types/ws": "^8.5.10",
-    "@wdio/globals": "^8.23.0",
-    "@wdio/protocols": "^8.23.0",
-    "vite-plugin-dts": "^3.6.3"
+    "@types/ws": "^8.18.1",
+    "@wdio/globals": "9.17.0",
+    "@wdio/protocols": "9.16.2",
+    "vite-plugin-dts": "^4.5.4"
   },
   "peerDependencies": {
     "@wdio/protocols": "^8.20.4",

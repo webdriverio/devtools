@@ -20,7 +20,7 @@ export interface Metadata {
   type: TraceType
   url: string
   options: Omit<Options.WebdriverIO, 'capabilities'>
-  capabilities: Capabilities.RemoteCapability
+  capabilities: Capabilities.W3CCapabilities
   viewport: VisualViewport
 }
 
