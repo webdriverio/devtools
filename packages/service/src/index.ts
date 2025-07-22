@@ -136,7 +136,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     }
 
     afterCommand(command: keyof WebDriverCommands, args: any[], result: any, error?: Error) {
-        if (this.#browser && error) {
+        if (this.#browser) {
             return this.#sessionCapturer.afterCommand(this.#browser, command, args, result, error)
         }
     }
