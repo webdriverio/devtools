@@ -41,6 +41,7 @@
     "@types/ws": "^8.18.1",
     "@wdio/globals": "9.17.0",
     "@wdio/protocols": "9.16.2",
+    "devtools": "^8.42.0",
     "vite-plugin-dts": "^4.5.4"
   },
   "peerDependencies": {
