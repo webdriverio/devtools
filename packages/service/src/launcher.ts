@@ -29,6 +29,7 @@ export class DevToolsAppLauncher {
 
       this.#updateCapabilities(caps, { port })
       this.#browser = await remote({
+        automationProtocol: 'devtools',
         capabilities: {
           ...DEFAULT_LAUNCH_CAPS,
           ...this.#options.devtoolsCapabilities

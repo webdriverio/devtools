@@ -11,6 +11,7 @@ import { SessionCapturer } from './session.js'
 import { TestReporter } from './reporter.js'
 import { DevToolsAppLauncher } from './launcher.js'
 import { getBrowserObject } from './utils.ts'
+import { parse } from 'stack-trace'
 import { type TraceLog, TraceType } from './types.ts'
 
 export const launcher = DevToolsAppLauncher
@@ -70,6 +71,12 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     #browser?: WebdriverIO.Browser
 
     /**
+     * This is used to capture the command stack to ensure that we only capture
+     * commands that are top-level user commands.
+     */
+    #commandStack: string[] = []
+
+    /**
      * allows to define the type of data being captured to hint the
      * devtools app which data to expect
      */
@@ -102,6 +109,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
         if (isMultiRemote) {
             throw new SevereServiceError('The DevTools hook does not support multiremote yet')
         }
+        // this.#sessionCapturer.readStepDefinitions(config)
 
         if ('reporters' in config) {
             const self = this
@@ -121,23 +129,42 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     }
 
     async beforeCommand(command: string, args: string[]) {
-        if (!this.#browser) {
-          return
-        }
+        if (!this.#browser) { return }
 
-        /**
-         * propagate url change to devtools app
-         */
-        if (this.#browser && command === 'url') {
+        // Always inject the script to support iframe detection etc.
+        await this.#sessionCapturer.injectScript(getBrowserObject(this.#browser))
+
+       /**
+        * propagate url change to devtools app
+        */
+        if (command === 'url') {
             this.#sessionCapturer.sendUpstream('metadata', { url: args[0] })
         }
 
-        await this.#sessionCapturer.injectScript(getBrowserObject(this.#browser))
+        /**
+         * Smart stack filtering to detect top-level user commands
+         */
+        const stack = parse(new Error(''))
+        const source = stack.find((frame) =>
+            Boolean(frame.getFileName()) &&
+            !frame.getFileName()?.includes('node_modules')
+        )
+
+        if (source && this.#commandStack.length === 0) {
+            this.#commandStack.push(command)
+        }
     }
 
+
     afterCommand(command: keyof WebDriverCommands, args: any[], result: any, error?: Error) {
-        if (this.#browser) {
-            return this.#sessionCapturer.afterCommand(this.#browser, command, args, result, error)
+        /* THE FIX: Ensure that the command is captured only if it matches the last command in the stack.
+        * This prevents capturing commands that are not top-level user commands.
+        */
+        if (this.#commandStack[this.#commandStack.length - 1] === command) {
+            this.#commandStack.pop()
+            if (this.#browser) {
+                return this.#sessionCapturer.afterCommand(this.#browser, command, args, result, error)
+            }
         }
     }
 
@@ -146,7 +173,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
      * we can use it to write all trace information to a file
      */
     async after () {
-        if (!this.#browser || this.#sessionCapturer.isReportingUpstream) {
+        if (!this.#browser) {
           return
         }
         const outputDir = this.#browser.options.outputDir || process.cwd()
@@ -169,6 +196,6 @@ export default class DevToolsHookService implements Services.ServiceInstance {
         const traceFilePath = path.join(outputDir, `wdio-trace-${this.#browser.sessionId}.json`)
         await fs.writeFile(traceFilePath, JSON.stringify(traceLog))
         log.info(`DevTools trace saved to ${traceFilePath}`)
-        await browser.pause(1000 * 60 * 5)
+        await this.#browser.pause(1000 * 60 * 5)
     }
 }
