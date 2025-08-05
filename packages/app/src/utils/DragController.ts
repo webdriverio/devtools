@@ -225,7 +225,7 @@ export class DragController implements ReactiveController {
         data-draggable-id=${this.#id}
         data-dragging=${this.#state}
         style=${styleMap({ [anchor]: `${this.#getPosition() - 3}px` })}
-        class="absolute z-10 ${className}"></button>
+        class="absolute ${className}"></button>
     `
   }
 
