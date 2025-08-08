@@ -2,17 +2,15 @@ import { Element } from '@core/element'
 import { html, css, type TemplateResult } from 'lit'
 import { customElement, state } from 'lit/decorators.js'
 import { consume } from '@lit/context'
-import type { SuiteStats, TestStats, HookStats } from '@wdio/reporter'
+import type { SuiteStats, TestStats } from '@wdio/reporter'
 import { suiteContext, commandContext, type CommandLog } from '../../controller/DataManager.js'
 
 import '../placeholder.js'
 import './actionItems/command.js'
 import '../../components/sidebar/collapseableEntry.js'
-import '~icons/mdi/sync.js'
 import '~icons/mdi/play-box-outline.js'
 
-// A type to represent any high-level item in our action list
-type ActionItem = TestStats | HookStats;
+type ActionItem = TestStats;
 
 @customElement('wdio-devtools-actions')
 export class DevtoolsActions extends Element {
@@ -25,17 +23,14 @@ export class DevtoolsActions extends Element {
   @state()
   private _expandedItemId: string | null = null
 
-  // Helper to get a flat, chronological list of all hooks and test steps
   private _getActionItems(suites: SuiteStats[]): ActionItem[] {
     let items: ActionItem[] = []
     for (const suite of suites) {
-      items = items.concat(suite.hooks)
       items = items.concat(suite.tests)
       if (suite.suites) {
         items = items.concat(this._getActionItems(suite.suites))
       }
     }
-    // Correctly sort by converting date strings to Date objects first
     return items.sort((a, b) => {
         const startTimeA = a.start ? new Date(a.start).getTime() : 0;
         const startTimeB = b.start ? new Date(b.start).getTime() : 0;
@@ -43,27 +38,19 @@ export class DevtoolsActions extends Element {
     });
   }
 
-  // Renders a "before" or "after" hook
-  private _renderHook(hook: HookStats): TemplateResult {
-    return html`
-      <div class="hook-item">
-        <icon-mdi-sync class="icon"></icon-mdi-sync>
-        <span class="title">Hook: "${hook.title}"</span>
-        <span class="duration">${hook.duration}ms</span>
-      </div>
-    `
-  }
-
-  // Renders a test step (e.g., "Given..." or an "it" block) as a collapsible entry
+  // Renders a test step as a collapsible entry
   private _renderStep(step: TestStats): TemplateResult {
     if (!this.commands) return html``
 
-    // Find all low-level commands that were executed during this specific step
     const stepCommands = this.commands.filter(cmd => {
         const startTime = step.start ? new Date(step.start).getTime() : 0;
         const endTime = step.end ? new Date(step.end).getTime() : Infinity;
         return cmd.timestamp >= startTime && cmd.timestamp <= endTime;
     });
+
+    const startTime = step.start ? new Date(step.start).getTime() : 0;
+    const endTime = step.end ? new Date(step.end).getTime() : 0;
+    const duration = endTime > 0 ? endTime - startTime : 0;
 
     return html`
       <wdio-collapsable-entry
@@ -73,7 +60,7 @@ export class DevtoolsActions extends Element {
         <div slot="summary" class="step-summary">
           <icon-mdi-play-box-outline class="icon"></icon-mdi-play-box-outline>
           <span class="title">${step.title}</span>
-          <span class="duration">${step.duration}ms</span>
+          <span class="duration">${duration}ms</span>
         </div>
         <div class="commands">
           ${stepCommands.length > 0
@@ -95,10 +82,7 @@ export class DevtoolsActions extends Element {
 
     return html`
       <div class="action-list">
-        ${allItems.map(item => 'type' in item && item.type === 'hook'
-          ? this._renderHook(item as HookStats)
-          : this._renderStep(item as TestStats)
-        )}
+        ${allItems.map(item => this._renderStep(item as TestStats))}
       </div>
     `
   }
@@ -109,15 +93,14 @@ export class DevtoolsActions extends Element {
       height: 100%;
       overflow-y: auto;
     }
-    .hook-item, .step-summary {
+
+    .step-summary {
       display: flex;
       align-items: center;
       padding: 0.6rem 1rem;
       border-bottom: 1px solid var(--vscode-panel-border);
       gap: 0.5rem;
       font-size: 0.9em;
-    }
-    .step-summary {
       cursor: pointer;
     }
     .step-summary:hover {
