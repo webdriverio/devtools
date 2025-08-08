@@ -196,6 +196,5 @@ export default class DevToolsHookService implements Services.ServiceInstance {
         const traceFilePath = path.join(outputDir, `wdio-trace-${this.#browser.sessionId}.json`)
         await fs.writeFile(traceFilePath, JSON.stringify(traceLog))
         log.info(`DevTools trace saved to ${traceFilePath}`)
-        await this.#browser.pause(1000 * 60 * 5)
-    }
+      }
 }
