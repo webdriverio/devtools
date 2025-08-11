@@ -85,7 +85,7 @@ export class DevtoolsWorkbench extends Element {
   horizontalResizerWindow?: HTMLElement
 
   render() {
-    const heightWorkbench = this.#toolbarCollapsed ? '' : 'h-[70%]'
+    const heightWorkbench = this.#toolbarCollapsed ? 'h-full' : 'h-[70%]'
     const styleWorkbench = this.#toolbarCollapsed ? '' : this.#dragVertical.getPosition()
     return html`
       <section data-horizontal-resizer-window class="flex w-full ${heightWorkbench} flex-1" style="${styleWorkbench}">
@@ -117,7 +117,7 @@ export class DevtoolsWorkbench extends Element {
         <section class="basis-auto text-gray-500 flex items-center justify-center flex-grow">
           <wdio-devtools-browser></wdio-devtools-browser>
         </section>
-        ${!this.#workbenchSidebarCollapsed ? this.#dragHorizontal.getSlider() : nothing}
+      ${this.#dragHorizontal.getSlider(this.#workbenchSidebarCollapsed ? 'hidden' : this.#toolbarCollapsed ? 'h-full' : 'h-[70%]')}
       </section>
       <wdio-devtools-tabs cacheId="activeWorkbenchTab" class="border-t-[1px] border-t-panelBorder ${this.#toolbarCollapsed ? 'hidden' : ''}">
         <wdio-devtools-tab label="Source">
@@ -148,7 +148,7 @@ export class DevtoolsWorkbench extends Element {
         `
         : nothing
       }
-      ${!this.#toolbarCollapsed ? this.#dragVertical.getSlider() : nothing}
+      ${this.#dragVertical.getSlider(this.#toolbarCollapsed ? 'hidden' : '')}
     `
   }
 }
