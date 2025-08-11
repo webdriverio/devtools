@@ -88,9 +88,6 @@ export class DevtoolsBrowser extends Element {
       return
     }
 
-    this.section.style.width = 'auto'
-    this.section.style.height = 'auto'
-
     this.iframe.removeAttribute('style')
     const viewportWidth = metadata.viewport.width
     const viewportHeight = metadata.viewport.height
@@ -302,7 +299,7 @@ export class DevtoolsBrowser extends Element {
     }
 
     return html`
-      <section class="w-full bg-sideBarBackground rounded-t-md shadow-md">
+      <section class="w-full h-full bg-sideBarBackground rounded-t-md shadow-md">
         <header class="flex block mx-2">
           <div class="frame-dot bg-notificationsErrorIconForeground"></div>
           <div class="frame-dot bg-notificationsWarningIconForeground"></div>
@@ -313,7 +310,7 @@ export class DevtoolsBrowser extends Element {
           </div>
         </header>
         ${this.mutations && this.mutations.length
-          ? html`<iframe class="origin-top-left"></iframe>`
+          ? html`<iframe class="origin-top-left h-full w-full"></iframe>`
           : html`<wdio-devtools-placeholder style="height: 100%"></wdio-devtools-placeholder>`
         }
       </section>
