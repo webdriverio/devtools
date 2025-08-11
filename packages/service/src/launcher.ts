@@ -44,6 +44,7 @@ export class DevToolsAppLauncher {
 
   async onComplete () {
     if (this.#browser) {
+      logger.setLevel('devtools', 'warn')
       log.info('Please close the browser window to finish...');
       while (true) {
         try {
