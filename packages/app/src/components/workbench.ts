@@ -18,7 +18,7 @@ import './workbench/metadata.js'
 import './browser/snapshot.js'
 
 const MIN_WORKBENCH_HEIGHT = 600
-const MIN_METATAB_WIDTH = 250
+const MIN_METATAB_WIDTH = 260
 const RERENDER_TIMEOUT = 10
 
 const COMPONENT = 'wdio-devtools-workbench'
@@ -35,6 +35,7 @@ export class DevtoolsWorkbench extends Element {
       color: var(--vscode-foreground);
       background-color: var(--vscode-editor-background);
       position: relative;
+      margin-left: 10px;
     }
   `]
 
