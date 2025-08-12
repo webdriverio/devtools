@@ -91,7 +91,6 @@ export class DevtoolsActions extends Element {
     :host, .action-list {
       width: 100%;
       height: 100%;
-      overflow-y: auto;
     }
 
     .step-summary {

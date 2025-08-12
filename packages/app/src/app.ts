@@ -38,9 +38,12 @@ export class WebdriverIODevtoolsApplication extends Element {
   @query('section')
   window?: HTMLElement
 
+  @query('section[data-resizer-window]')
+  resizerWindow?: HTMLElement
+
   async #getWindow() {
     await this.updateComplete
-    return this.window as Element
+    return this.resizerWindow as Element
   }
 
   connectedCallback(): void {
@@ -66,16 +69,15 @@ export class WebdriverIODevtoolsApplication extends Element {
     }
 
     return html`
-      <section class="flex h-[calc(100%-40px)] w-full relative">
+      <section data-resizer-window class="flex h-[calc(100%-40px)] w-full relative">
         ${
           // only render sidebar if trace file is captured using testrunner
           this.dataManager.traceType === TraceType.Testrunner
-            ? html`<wdio-devtools-sidebar style="${this.#drag.getPosition()}"></wdio-devtools-sidebar>`
+            ? html`<wdio-devtools-sidebar style="${this.#drag?.getPosition()}"></wdio-devtools-sidebar>`
             : nothing
         }
-
+        ${this.#drag.getSlider('h-full')}
         <wdio-devtools-workbench class="basis-auto"></wdio-devtools-workbench>
-        ${this.#drag.getSlider()}
       </section>
     `
   }

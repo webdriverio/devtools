@@ -60,14 +60,25 @@ export class DragController implements ReactiveController {
       this.#getDraggableEl(),
       options.getContainerEl()
     ]).then(([draggableEl, containerEl]) => {
-      if (!draggableEl) {
-        console.warn('getDraggableEl() did not return an element HTMLElement')
-      }
-      if (!containerEl) {
-        console.warn('getContainerEl() did not return an element HTMLElement')
-      }
-
       if (!draggableEl || !containerEl) {
+        // Retry after a short delay
+        setTimeout(async () => {
+          const [retryDraggableEl, retryContainerEl] = await Promise.all([
+            this.#getDraggableEl(),
+            options.getContainerEl()
+          ])
+          if (!retryDraggableEl) {
+            console.warn('getDraggableEl() did not return an element HTMLElement')
+          }
+          if (!retryContainerEl) {
+            console.warn('getContainerEl() did not return an element HTMLElement')
+          }
+          if (retryDraggableEl && retryContainerEl) {
+            this.#draggableEl = retryDraggableEl as HTMLElement
+            this.#containerEl = retryContainerEl as HTMLElement
+            this.#init()
+          }
+        }, 50)
         return
       }
 
