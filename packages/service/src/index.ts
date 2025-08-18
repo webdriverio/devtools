@@ -76,6 +76,9 @@ export default class DevToolsHookService implements Services.ServiceInstance {
      */
     #commandStack: string[] = []
 
+    // This is used to capture the last command signature to avoid duplicate captures
+    #lastCommandSig: string | null = null;
+
     /**
      * allows to define the type of data being captured to hint the
      * devtools app which data to expect
@@ -128,13 +131,22 @@ export default class DevToolsHookService implements Services.ServiceInstance {
         }
     }
 
+    /**
+     * beforeScenario is triggered at the beginning of every worker session, therefore
+     * we can use it to reset the command stack and last command signature
+     */
+    beforeScenario() {
+        this.#lastCommandSig = null;
+        this.#commandStack = []
+    }
+
     async beforeCommand(command: string, args: string[]) {
         if (!this.#browser) { return }
 
         // Always inject the script to support iframe detection etc.
         await this.#sessionCapturer.injectScript(getBrowserObject(this.#browser))
 
-       /**
+        /**
         * propagate url change to devtools app
         */
         if (command === 'url') {
@@ -150,11 +162,23 @@ export default class DevToolsHookService implements Services.ServiceInstance {
             !frame.getFileName()?.includes('node_modules')
         )
 
-        if (source && this.#commandStack.length === 0) {
-            this.#commandStack.push(command)
+        // If the command is a selector command, we don't want to capture it
+        // as it is not a top-level user command.
+        const isSelectorCommand = command.startsWith('$') || command.includes('LocateNodes')
+
+        if (source && this.#commandStack.length === 0 && !isSelectorCommand) {
+            const cmdSig = JSON.stringify({
+              command,
+              args,
+              src: source.getFileName() + ':' + source.getLineNumber()
+            });
+
+            if (this.#lastCommandSig !== cmdSig) {
+                this.#commandStack.push(command);
+                this.#lastCommandSig = cmdSig;
+            }
         }
     }
-
 
     afterCommand(command: keyof WebDriverCommands, args: any[], result: any, error?: Error) {
         /* THE FIX: Ensure that the command is captured only if it matches the last command in the stack.
@@ -196,5 +220,5 @@ export default class DevToolsHookService implements Services.ServiceInstance {
         const traceFilePath = path.join(outputDir, `wdio-trace-${this.#browser.sessionId}.json`)
         await fs.writeFile(traceFilePath, JSON.stringify(traceLog))
         log.info(`DevTools trace saved to ${traceFilePath}`)
-      }
+    }
 }
