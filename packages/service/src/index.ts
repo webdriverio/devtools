@@ -26,7 +26,7 @@ export function setupForDevtools(opts: Options.WebdriverIO) {
     const service = new DevToolsHookService()
     service.captureType = TraceType.Standalone
 
-    // THE FIX: In v9, the `opts` object itself contains the capabilities.
+    // In v9, the `opts` object itself contains the capabilities.
     // The `beforeSession` hook expects the config and the capabilities.
     service.beforeSession(opts, opts as Capabilities.W3CCapabilities)
 
@@ -106,7 +106,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
         this.#sessionCapturer = new SessionCapturer(wdioCaps['wdio:devtoolsOptions'])
     }
 
-    // THE FIX: The method signature is corrected to use W3CCapabilities
+    // The method signature is corrected to use W3CCapabilities
     beforeSession(config: Options.Testrunner, capabilities: Capabilities.W3CCapabilities) {
         const isMultiRemote = !('browserName' in capabilities) && !('platformName' in capabilities)
         if (isMultiRemote) {
@@ -181,7 +181,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     }
 
     afterCommand(command: keyof WebDriverCommands, args: any[], result: any, error?: Error) {
-        /* THE FIX: Ensure that the command is captured only if it matches the last command in the stack.
+        /* Ensure that the command is captured only if it matches the last command in the stack.
         * This prevents capturing commands that are not top-level user commands.
         */
         if (this.#commandStack[this.#commandStack.length - 1] === command) {
