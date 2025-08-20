@@ -76,13 +76,17 @@ export class DevtoolsActions extends Element {
     const allSuites = this.suites ? Object.values(this.suites).flatMap(s => Object.values(s)) : []
     const allItems = this._getActionItems(allSuites)
 
-    if (allItems.length === 0) {
+    // Remove duplicates based on uid
+    // Assuming each TestStats has a unique 'uid' property
+    const uniqueItems = Array.from(new Map(allItems.map(item => [item.uid, item])).values())
+
+    if (uniqueItems.length === 0) {
       return html`<wdio-devtools-placeholder>No actions recorded.</wdio-devtools-placeholder>`
     }
 
     return html`
       <div class="action-list">
-        ${allItems.map(item => this._renderStep(item as TestStats))}
+        ${uniqueItems.map(item => this._renderStep(item as TestStats))}
       </div>
     `
   }

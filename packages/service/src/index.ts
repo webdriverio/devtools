@@ -112,7 +112,6 @@ export default class DevToolsHookService implements Services.ServiceInstance {
         if (isMultiRemote) {
             throw new SevereServiceError('The DevTools hook does not support multiremote yet')
         }
-        // this.#sessionCapturer.readStepDefinitions(config)
 
         if ('reporters' in config) {
             const self = this
