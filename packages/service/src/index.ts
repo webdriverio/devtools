@@ -10,7 +10,7 @@ import type { WebDriverCommands } from '@wdio/protocols'
 import { SessionCapturer } from './session.js'
 import { TestReporter } from './reporter.js'
 import { DevToolsAppLauncher } from './launcher.js'
-import { getBrowserObject } from './utils.ts'
+import { getBrowserObject, isUserCommand } from './utils.ts'
 import { parse } from 'stack-trace'
 import { type TraceLog, TraceType } from './types.ts'
 
@@ -156,25 +156,20 @@ export default class DevToolsHookService implements Services.ServiceInstance {
          * Smart stack filtering to detect top-level user commands
          */
         const stack = parse(new Error(''))
-        const source = stack.find((frame) =>
-            Boolean(frame.getFileName()) &&
-            !frame.getFileName()?.includes('node_modules')
-        )
 
-        // If the command is a selector command, we don't want to capture it
-        // as it is not a top-level user command.
-        const isSelectorCommand = command.startsWith('$') || command.includes('LocateNodes')
-
-        if (source && this.#commandStack.length === 0 && !isSelectorCommand) {
+        if (isUserCommand(command, stack) && this.#commandStack.length === 0) {
+            const topFrame = stack.find(f =>
+                f.getFileName() && !f.getFileName()!.includes('node_modules')
+            )
             const cmdSig = JSON.stringify({
-              command,
-              args,
-              src: source.getFileName() + ':' + source.getLineNumber()
-            });
+                command,
+                args,
+                src: topFrame?.getFileName() + ':' + topFrame?.getLineNumber()
+            })
 
             if (this.#lastCommandSig !== cmdSig) {
-                this.#commandStack.push(command);
-                this.#lastCommandSig = cmdSig;
+                this.#commandStack.push(command)
+                this.#lastCommandSig = cmdSig
             }
         }
     }
