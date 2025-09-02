@@ -29,9 +29,20 @@ export class TestReporter extends WebdriverIOReporter {
   }
 
   #sendUpstream () {
-    const [uid, suite] = Object.entries(this.suites).find(([uid]) => isNaN(parseInt(uid))) || []
-    if (uid && suite) {
-      this.#report([{ [uid]: suite }])
+    if (!this.suites) {
+      return
+    }
+
+    const payload: Record<string, SuiteStats>[] = []
+
+    for (const [uid, suite] of Object.entries(this.suites)) {
+      if (suite) {
+        payload.push({ [uid]: suite })
+      }
+    }
+
+    if (payload.length > 0) {
+      this.#report(payload)
     }
   }
 

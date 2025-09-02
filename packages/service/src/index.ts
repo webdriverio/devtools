@@ -139,6 +139,15 @@ export default class DevToolsHookService implements Services.ServiceInstance {
         this.#commandStack = []
     }
 
+    /**
+     * Hook for Mocha/Jasmine.
+     * It does the exact same thing as beforeScenario.
+     */
+    beforeTest() {
+      this.#lastCommandSig = null
+      this.#commandStack = []
+    }
+
     async beforeCommand(command: string, args: string[]) {
         if (!this.#browser) { return }
 
