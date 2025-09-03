@@ -13,3 +13,12 @@ export const DEFAULT_LAUNCH_CAPS: WebdriverIO.Capabilities = {
     args: ['--window-size=1600,1200', '--auto-open-devtools-for-tabs']
   }
 }
+
+export const INTERNAL_COMMANDS = [
+    '$', '$$', 'emit', 'browsingContextLocateNodes', 'browsingContextNavigate',
+    'waitUntil', 'getTitle', 'getUrl', 'getWindowSize', 'setWindowSize', 'deleteSession',
+    'findElementFromShadowRoot', 'findElementsFromShadowRoot', 'waitForExist', 'browsingContextGetTree',
+    'scriptCallFunction', 'getElement', 'execute'
+]
+
+export const SPEC_FILE_PATTERN = /(test|spec|features)[\\/].*\.(js|ts)$/i

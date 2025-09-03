@@ -13,6 +13,7 @@ import { DevToolsAppLauncher } from './launcher.js'
 import { getBrowserObject } from './utils.ts'
 import { parse } from 'stack-trace'
 import { type TraceLog, TraceType } from './types.ts'
+import { INTERNAL_COMMANDS, SPEC_FILE_PATTERN } from './constants.ts'
 
 export const launcher = DevToolsAppLauncher
 
@@ -131,19 +132,23 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     }
 
     /**
+     * Hook for Cucumber framework.
      * beforeScenario is triggered at the beginning of every worker session, therefore
      * we can use it to reset the command stack and last command signature
      */
     beforeScenario() {
-        this.#lastCommandSig = null;
-        this.#commandStack = []
+      this.resetStack()
     }
 
     /**
-     * Hook for Mocha/Jasmine.
+     * Hook for Mocha/Jasmine frameworks.
      * It does the exact same thing as beforeScenario.
      */
     beforeTest() {
+      this.resetStack()
+    }
+
+    private resetStack() {
       this.#lastCommandSig = null
       this.#commandStack = []
     }
@@ -164,17 +169,15 @@ export default class DevToolsHookService implements Services.ServiceInstance {
         /**
          * Smart stack filtering to detect top-level user commands
          */
-        const stack = parse(new Error(''))
-        const source = stack.find((frame) =>
-            Boolean(frame.getFileName()) &&
-            !frame.getFileName()?.includes('node_modules')
-        )
+        Error.stackTraceLimit = 20
+        const stack = parse(new Error('')).reverse()
+        const source = stack.find((frame) => {
+            const file = frame.getFileName()
+            // Only consider frames from user spec/test files
+            return file && SPEC_FILE_PATTERN.test(file)
+        })
 
-        // If the command is a selector command, we don't want to capture it
-        // as it is not a top-level user command.
-        const isSelectorCommand = command.startsWith('$') || command.includes('LocateNodes')
-
-        if (source && this.#commandStack.length === 0 && !isSelectorCommand) {
+        if (source && this.#commandStack.length === 0 && !INTERNAL_COMMANDS.includes(command)) {
             const cmdSig = JSON.stringify({
               command,
               args,
