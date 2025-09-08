@@ -15,10 +15,14 @@ export const DEFAULT_LAUNCH_CAPS: WebdriverIO.Capabilities = {
 }
 
 export const INTERNAL_COMMANDS = [
-    '$', '$$', 'emit', 'browsingContextLocateNodes', 'browsingContextNavigate',
+    'emit', 'browsingContextLocateNodes', 'browsingContextNavigate',
     'waitUntil', 'getTitle', 'getUrl', 'getWindowSize', 'setWindowSize', 'deleteSession',
     'findElementFromShadowRoot', 'findElementsFromShadowRoot', 'waitForExist', 'browsingContextGetTree',
-    'scriptCallFunction', 'getElement', 'execute'
+    'scriptCallFunction', 'getElement', 'execute', 'findElement'
+]
+
+export const CONTEXT_CHANGE_COMMANDS = [
+  'url', 'back', 'forward', 'refresh', 'switchFrame', 'newWindow', 'createWindow', 'closeWindow'
 ]
 
 export const SPEC_FILE_PATTERN = /(test|spec|features)[\\/].*\.(js|ts)$/i
