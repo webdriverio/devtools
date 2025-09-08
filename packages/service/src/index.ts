@@ -13,7 +13,7 @@ import { DevToolsAppLauncher } from './launcher.js'
 import { getBrowserObject } from './utils.ts'
 import { parse } from 'stack-trace'
 import { type TraceLog, TraceType } from './types.ts'
-import { INTERNAL_COMMANDS, SPEC_FILE_PATTERN } from './constants.ts'
+import { INTERNAL_COMMANDS, SPEC_FILE_PATTERN, CONTEXT_CHANGE_COMMANDS } from './constants.ts'
 
 export const launcher = DevToolsAppLauncher
 
@@ -86,6 +86,9 @@ export default class DevToolsHookService implements Services.ServiceInstance {
      */
     captureType = TraceType.Testrunner
 
+    // This is used to track if the injection script is currently being injected
+    #injecting = false
+
     before(caps: Capabilities.W3CCapabilities, __: string[], browser: WebdriverIO.Browser) {
         this.#browser = browser
 
@@ -99,6 +102,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
                 options: browser.options,
                 capabilities: browser.capabilities as Capabilities.W3CCapabilities,
             }))
+        this.#ensureInjected('session-start')
 
         /**
          * create a new session capturer instance with the devtools options
@@ -156,9 +160,6 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     async beforeCommand(command: string, args: string[]) {
         if (!this.#browser) { return }
 
-        // Always inject the script to support iframe detection etc.
-        await this.#sessionCapturer.injectScript(getBrowserObject(this.#browser))
-
         /**
         * propagate url change to devtools app
         */
@@ -173,9 +174,12 @@ export default class DevToolsHookService implements Services.ServiceInstance {
         const stack = parse(new Error('')).reverse()
         const source = stack.find((frame) => {
             const file = frame.getFileName()
-            // Only consider frames from user spec/test files
+            // Only consider command frames from user spec/test files
             return file && SPEC_FILE_PATTERN.test(file)
         })
+        log.debug('Command: ', command)
+        log.debug('Source: ', JSON.stringify(source))
+        log.debug('Stack: ', JSON.stringify(stack))
 
         if (source && this.#commandStack.length === 0 && !INTERNAL_COMMANDS.includes(command)) {
             const cmdSig = JSON.stringify({
@@ -192,6 +196,9 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     }
 
     afterCommand(command: keyof WebDriverCommands, args: any[], result: any, error?: Error) {
+        // Skip bookkeeping for internal injection calls
+        if (this.#injecting) return
+
         /* Ensure that the command is captured only if it matches the last command in the stack.
         * This prevents capturing commands that are not top-level user commands.
         */
@@ -200,6 +207,11 @@ export default class DevToolsHookService implements Services.ServiceInstance {
             if (this.#browser) {
                 return this.#sessionCapturer.afterCommand(this.#browser, command, args, result, error)
             }
+        }
+
+        // Re-inject AFTER context-changing commands complete so new documents/frames are instrumented
+        if (CONTEXT_CHANGE_COMMANDS.includes(command)) {
+            void this.#ensureInjected(`context-change:${command}`)
         }
     }
 
@@ -231,5 +243,25 @@ export default class DevToolsHookService implements Services.ServiceInstance {
         const traceFilePath = path.join(outputDir, `wdio-trace-${this.#browser.sessionId}.json`)
         await fs.writeFile(traceFilePath, JSON.stringify(traceLog))
         log.info(`DevTools trace saved to ${traceFilePath}`)
+    }
+
+    async #ensureInjected(reason: string) {
+        if (!this.#browser) return
+        if (this.#injecting) return
+        try {
+            this.#injecting = true
+            // Cheap marker check (no heavy stack work)
+            const markerPresent = await this.#browser.execute(() => {
+                return Boolean((window as any).__WDIO_DEVTOOLS_MARK)
+            })
+            if (markerPresent) {
+                return
+            }
+            await this.#sessionCapturer.injectScript(getBrowserObject(this.#browser))
+        } catch (err) {
+            log.warn(`[inject] failed (reason=${reason}): ${(err as Error).message}`)
+        } finally {
+            this.#injecting = false
+        }
     }
 }
