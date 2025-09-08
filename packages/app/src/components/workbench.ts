@@ -17,7 +17,7 @@ import './workbench/console.js'
 import './workbench/metadata.js'
 import './browser/snapshot.js'
 
-const MIN_WORKBENCH_HEIGHT = 600
+const MIN_WORKBENCH_HEIGHT = Math.min(300, window.innerHeight * 0.3)
 const MIN_METATAB_WIDTH = 260
 const RERENDER_TIMEOUT = 10
 
@@ -88,15 +88,26 @@ export class DevtoolsWorkbench extends Element {
   render() {
     const heightWorkbench = this.#toolbarCollapsed ? 'h-full' : 'h-[70%]'
     const styleWorkbench = this.#toolbarCollapsed ? '' : this.#dragVertical.getPosition()
+    const sidebarStyle = !this.#workbenchSidebarCollapsed
+      ? (() => {
+          const pos = this.#dragHorizontal.getPosition() // e.g. "flex-basis: 300px;"
+          const m = pos.match(/flex-basis:\s*([\d.]+)px/)
+          const w = m ? m[1] : '260'
+          // Keep drag-resize (flex-basis) but stop auto-expansion
+          return `${pos}; flex:0 0 auto; min-width:${w}px; max-width:${w}px;`
+        })()
+      : ''
     return html`
       <section data-horizontal-resizer-window class="flex w-full ${heightWorkbench} flex-1" style="${styleWorkbench}">
-        <section style="${!this.#workbenchSidebarCollapsed ? this.#dragHorizontal.getPosition() : ''}">
+        <section data-sidebar class="flex-none" style="${sidebarStyle}">
           <wdio-devtools-tabs cacheId="activeActionsTab" class="h-full flex flex-col border-r-[1px] border-r-panelBorder ${this.#workbenchSidebarCollapsed ? 'hidden' : ''}">
             <wdio-devtools-tab label="Actions">
               <wdio-devtools-actions></wdio-devtools-actions>
             </wdio-devtools-tab>
             <wdio-devtools-tab label="Metadata">
-              <wdio-devtools-metadata></wdio-devtools-metadata>
+               <div class="pl-[3px]">
+                <wdio-devtools-metadata></wdio-devtools-metadata>
+              </div>
             </wdio-devtools-tab>
             <nav class="ml-auto" slot="actions">
               <button @click="${() => this.#toggle('workbenchSidebar')}" class="flex h-10 w-10 items-center justify-center pointer ml-auto hover:bg-toolbarHoverBackground">

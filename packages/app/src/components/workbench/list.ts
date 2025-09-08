@@ -1,5 +1,5 @@
 import { Element } from '@core/element'
-import { html } from 'lit'
+import { html, css } from 'lit'
 import { customElement, property } from 'lit/decorators.js'
 
 import '~icons/mdi/chevron-right.js'
@@ -16,12 +16,56 @@ export class DevtoolsList extends Element {
   @property({ type: Object })
   list: Record<string, any> | string[] = {}
 
-  #renderMetadataProp(prop: any) {
-    if (typeof prop === 'object') {
-      return html`<pre class="w-[100px]">${JSON.stringify(prop, null, 2)}</pre>`
+  static styles = [...Element.styles, css`
+    :host {
+      display:block;
+      width:100%;
     }
+    dl {
+      width:100%;
+    }
+    dt {
+      font-weight:600;
+      font-size:11px;
+      letter-spacing:.5px;
+      text-transform:uppercase;
+      opacity:.75;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+    pre {
+      margin:0;
+      font-family: var(--vscode-editor-font-family, monospace);
+      font-size:11px;
+      line-height:1.25;
+      white-space:pre-wrap;
+      word-break:break-word;
+      overflow-wrap:anywhere;
+      background: var(--vscode-editorInlayHint-background, transparent);
+      padding:2px 4px;
+      border-radius:3px;
+      max-height:16rem;
+      overflow:auto;
+    }
+    .row {
+      transition: max-height .18s ease;
+      box-sizing:border-box;
+    }
+    .collapse {
+      max-height:0 !important;
+      overflow:hidden !important;
+      padding-top:0 !important;
+      padding-bottom:0 !important;
+      border-bottom-width:0 !important;
+    }
+  `]
 
-    return html`<span class="break-all">${prop}</span>`
+  #renderMetadataProp(prop: any) {
+    if (typeof prop === 'object' && prop !== null) {
+      return html`<pre>${JSON.stringify(prop, null, 2)}</pre>`
+    }
+    return html`<span class="break-words whitespace-pre-wrap">${String(prop)}</span>`
   }
 
   #toggleCollapseState () {
@@ -52,28 +96,37 @@ export class DevtoolsList extends Element {
     return html`
       <section class="block">
         ${this.#renderSectionHeader(this.label)}
-        <dl class="flex flex-wrap transition-all ${this.isCollapsed ? 'mt-0' : 'mt-2'}">
+        <dl class="flex flex-wrap ${this.isCollapsed ? '' : 'mt-2'}">
           ${entries.map((entry, i) => {
-            let className = 'basis-2/4 transition-all border-b-panelBorder overflow-y-hidden'
-            className += this.isCollapsed ? ' max-h-0' : ' max-h-[500px]'
+            const isStringEntry = typeof entry === 'string'
+            const key = isStringEntry ? undefined : (entry as [string, any])[0]
+            const val = isStringEntry ? entry : (entry as [string, any])[1]
 
-            const [key, val] = entry as [string, any]
-            if (i === (entries.length - 1)) {
-              className += this.isCollapsed ? ' pb-0' : ' pb-2'
-              if (!this.isCollapsed) {
-                className += ' border-b-[1px]'
-              }
-            }
+            const stringForMeasure = typeof val === 'object' && val !== null
+              ? JSON.stringify(val, null, 2)
+              : String(val)
 
-            if (typeof entry === 'string') {
+            const isMultiline = /\n/.test(stringForMeasure) || stringForMeasure.length > 40 || typeof val === 'object'
+            const baseCls = 'row px-2 py-1 border-b-[1px] border-b-panelBorder'
+            const colCls = isMultiline ? 'basis-full w-full' : 'basis-1/2'
+            const lastBorderFix = i === entries.length - 1 ? '' : ''
+            const collapsedCls = this.isCollapsed ? 'collapse' : 'max-h-[500px]'
+
+            if (isStringEntry) {
               return html`
-                <dd class="${className} basis-full px-2">${this.#renderMetadataProp(entry)}</dd>
+                <dd class="${baseCls} ${colCls} ${collapsedCls} ${lastBorderFix}">
+                  ${this.#renderMetadataProp(val)}
+                </dd>
               `
             }
 
             return html`
-              <dt class="${className} font-bold px-2">${key}</dt>
-              <dd class="${className}">${this.#renderMetadataProp(val)}</dd>
+              <dt class="${baseCls} ${colCls} ${collapsedCls} ${lastBorderFix}">
+                ${key}
+              </dt>
+              <dd class="${baseCls} ${colCls} ${collapsedCls} ${lastBorderFix}">
+                ${this.#renderMetadataProp(val)}
+              </dd>
             `
           })}
         </dl>
