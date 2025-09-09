@@ -33,7 +33,21 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
   static styles = [...Element.styles, css`
     :host {
       width: 100%;
-      display: block;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+
+    header {
+      flex: 0 0 auto;
+    }
+
+    wdio-test-suite {
+      flex: 1 1 auto;
+      overflow-y: auto;
+      overflow-x: hidden;
+      min-height: 0;
+      -webkit-overflow-scrolling: touch;
     }
   `]
 
