@@ -35,7 +35,6 @@ export class DevtoolsWorkbench extends Element {
       color: var(--vscode-foreground);
       background-color: var(--vscode-editor-background);
       position: relative;
-      margin-left: 10px;
     }
   `]
 
@@ -92,7 +91,7 @@ export class DevtoolsWorkbench extends Element {
       ? (() => {
           const pos = this.#dragHorizontal.getPosition() // e.g. "flex-basis: 300px;"
           const m = pos.match(/flex-basis:\s*([\d.]+)px/)
-          const w = m ? m[1] : '260'
+          const w = m ? m[1] : MIN_METATAB_WIDTH
           // Keep drag-resize (flex-basis) but stop auto-expansion
           return `${pos}; flex:0 0 auto; min-width:${w}px; max-width:${w}px;`
         })()
@@ -105,9 +104,7 @@ export class DevtoolsWorkbench extends Element {
               <wdio-devtools-actions></wdio-devtools-actions>
             </wdio-devtools-tab>
             <wdio-devtools-tab label="Metadata">
-               <div class="pl-[3px]">
-                <wdio-devtools-metadata></wdio-devtools-metadata>
-              </div>
+              <wdio-devtools-metadata></wdio-devtools-metadata>
             </wdio-devtools-tab>
             <nav class="ml-auto" slot="actions">
               <button @click="${() => this.#toggle('workbenchSidebar')}" class="flex h-10 w-10 items-center justify-center pointer ml-auto hover:bg-toolbarHoverBackground">
@@ -129,7 +126,7 @@ export class DevtoolsWorkbench extends Element {
         <section class="basis-auto text-gray-500 flex items-center justify-center flex-grow">
           <wdio-devtools-browser></wdio-devtools-browser>
         </section>
-      ${this.#dragHorizontal.getSlider(this.#workbenchSidebarCollapsed ? 'hidden' : this.#toolbarCollapsed ? 'h-full' : 'h-[70%]')}
+      ${!this.#workbenchSidebarCollapsed ? this.#dragHorizontal.getSlider() : nothing}
       </section>
       <wdio-devtools-tabs cacheId="activeWorkbenchTab" class="border-t-[1px] border-t-panelBorder ${this.#toolbarCollapsed ? 'hidden' : ''}">
         <wdio-devtools-tab label="Source">
@@ -160,7 +157,7 @@ export class DevtoolsWorkbench extends Element {
         `
         : nothing
       }
-      ${this.#dragVertical.getSlider(this.#toolbarCollapsed ? 'hidden' : '')}
+      ${!this.#toolbarCollapsed ? this.#dragVertical.getSlider() : nothing}
     `
   }
 }

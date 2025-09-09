@@ -29,6 +29,12 @@
     "@tailwindcss/postcss": "^4.1.12",
     "@wdio/devtools-service": "workspace:*",
     "@wdio/reporter": "9.18.0",
-    "postcss": "^8.5.6"
+    "autoprefixer": "^10.4.21",
+    "postcss": "^8.5.6",
+    "rollup": "^4.47.0",
+    "stylelint": "^16.24.0",
+    "stylelint-config-recommended": "^17.0.0",
+    "stylelint-config-tailwindcss": "^1.0.0",
+    "tailwindcss": "~3.4.17"
   }
 }

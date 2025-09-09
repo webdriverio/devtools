@@ -226,7 +226,7 @@ export class DragController implements ReactiveController {
         ? 'top'
         : ''
     className += this.#options.direction === Direction.horizontal
-      ? ' cursor-col-resize left-0 w-[10px]'
+      ? ' cursor-col-resize left-0 h-full w-[10px]'
       : this.#options.direction === Direction.vertical
         ? ' cursor-row-resize top-0 w-full h-[10px]'
         : ''
