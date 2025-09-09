@@ -89,7 +89,7 @@ export class DevtoolsWorkbench extends Element {
     const styleWorkbench = this.#toolbarCollapsed ? '' : this.#dragVertical.getPosition()
     const sidebarStyle = !this.#workbenchSidebarCollapsed
       ? (() => {
-          const pos = this.#dragHorizontal.getPosition() // e.g. "flex-basis: 300px;"
+          const pos = this.#dragHorizontal.getPosition()
           const m = pos.match(/flex-basis:\s*([\d.]+)px/)
           const w = m ? m[1] : MIN_METATAB_WIDTH
           // Keep drag-resize (flex-basis) but stop auto-expansion

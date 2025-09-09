@@ -177,9 +177,6 @@ export default class DevToolsHookService implements Services.ServiceInstance {
             // Only consider command frames from user spec/test files
             return file && SPEC_FILE_PATTERN.test(file)
         })
-        log.debug('Command: ', command)
-        log.debug('Source: ', JSON.stringify(source))
-        log.debug('Stack: ', JSON.stringify(stack))
 
         if (source && this.#commandStack.length === 0 && !INTERNAL_COMMANDS.includes(command)) {
             const cmdSig = JSON.stringify({
