@@ -50,9 +50,18 @@ export class DevtoolsBrowser extends Element {
       width: 100%;
       height: 100%;
       display: flex;
-      margin: 2rem;
+      padding: 2rem;
       align-items: center;
       justify-content: center;
+    }
+
+    section {
+      box-sizing: border-box;
+      width: calc(100% - 0px); /* host padding already applied */
+      height: calc(100% - 0px);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
     }
 
     .frame-dot {
