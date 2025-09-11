@@ -131,6 +131,7 @@ export class DevtoolsTab extends Element {
       display: none;
       flex-grow: 1;
       overflow-y: scroll;
+      scrollbar-width: none;
     }
 
     :host([active]) {
