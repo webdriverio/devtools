@@ -32,6 +32,9 @@ export class DevtoolsWorkbench extends Element {
       display: flex;
       flex-direction: column;
       flex-grow: 1;
+      height: 100vh;
+      min-height: 0;
+      overflow: hidden;
       color: var(--vscode-foreground);
       background-color: var(--vscode-editor-background);
       position: relative;
@@ -85,19 +88,30 @@ export class DevtoolsWorkbench extends Element {
   horizontalResizerWindow?: HTMLElement
 
   render() {
-    const heightWorkbench = this.#toolbarCollapsed ? 'h-full' : 'h-[70%]'
-    const styleWorkbench = this.#toolbarCollapsed ? '' : this.#dragVertical.getPosition()
+     // When collapsed keep previous full behavior; when expanded no fixed height class
+    const heightWorkbench = this.#toolbarCollapsed ? 'h-full flex-1' : ''
+
+    // Convert the drag position (e.g. "top: 334px") into a concrete height
+    const styleWorkbench = this.#toolbarCollapsed ? '' : (() => {
+      const HANDLE_HEIGHT = 10
+      const m = this.#dragVertical.getPosition().match(/(\d+(?:\.\d+)?)px/)
+      const raw = m ? parseFloat(m[1]) : window.innerHeight * 0.7
+      const paneHeight = raw + HANDLE_HEIGHT
+      const capped = Math.min(paneHeight, window.innerHeight * 0.7)
+      return `flex:0 0 auto; flex-basis:${capped}px; height:${capped}px; max-height:70vh; min-height:0;`
+    })()
+
     const sidebarStyle = !this.#workbenchSidebarCollapsed
       ? (() => {
           const pos = this.#dragHorizontal.getPosition()
           const m = pos.match(/flex-basis:\s*([\d.]+)px/)
           const w = m ? m[1] : MIN_METATAB_WIDTH
-          // Keep drag-resize (flex-basis) but stop auto-expansion
           return `${pos}; flex:0 0 auto; min-width:${w}px; max-width:${w}px;`
         })()
       : ''
+
     return html`
-      <section data-horizontal-resizer-window class="flex w-full ${heightWorkbench} flex-1" style="${styleWorkbench}">
+      <section data-horizontal-resizer-window class="flex w-full ${heightWorkbench} min-h-0 overflow-hidden" style="${styleWorkbench}">
         <section data-sidebar class="flex-none" style="${sidebarStyle}">
           <wdio-devtools-tabs cacheId="activeActionsTab" class="h-full flex flex-col border-r-[1px] border-r-panelBorder ${this.#workbenchSidebarCollapsed ? 'hidden' : ''}">
             <wdio-devtools-tab label="Actions">
@@ -128,7 +142,8 @@ export class DevtoolsWorkbench extends Element {
         </section>
       ${!this.#workbenchSidebarCollapsed ? this.#dragHorizontal.getSlider() : nothing}
       </section>
-      <wdio-devtools-tabs cacheId="activeWorkbenchTab" class="border-t-[1px] border-t-panelBorder ${this.#toolbarCollapsed ? 'hidden' : ''}">
+      ${!this.#toolbarCollapsed ? this.#dragVertical.getSlider() : nothing}
+      <wdio-devtools-tabs cacheId="activeWorkbenchTab" class="border-t-[1px] border-t-panelBorder ${this.#toolbarCollapsed ? 'hidden' : ''} flex-1 min-h-0">
         <wdio-devtools-tab label="Source">
           <wdio-devtools-source></wdio-devtools-source>
         </wdio-devtools-tab>
@@ -157,7 +172,6 @@ export class DevtoolsWorkbench extends Element {
         `
         : nothing
       }
-      ${!this.#toolbarCollapsed ? this.#dragVertical.getSlider() : nothing}
     `
   }
 }
