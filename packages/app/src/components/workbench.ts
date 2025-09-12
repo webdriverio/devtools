@@ -44,6 +44,7 @@ export class DevtoolsWorkbench extends Element {
   #dragVertical = new DragController(this, {
     localStorageKey: 'toolbarHeight',
     minPosition: MIN_WORKBENCH_HEIGHT,
+    maxPosition: (window.innerHeight * 0.7),
     initialPosition: window.innerHeight * .7, // initial height of browser window is 70% of window
     getContainerEl: () => this.getShadowRootAsync() as any as Element,
     direction: Direction.vertical
@@ -91,14 +92,13 @@ export class DevtoolsWorkbench extends Element {
      // When collapsed keep previous full behavior; when expanded no fixed height class
     const heightWorkbench = this.#toolbarCollapsed ? 'h-full flex-1' : ''
 
-    // Convert the drag position (e.g. "top: 334px") into a concrete height
     const styleWorkbench = this.#toolbarCollapsed ? '' : (() => {
       const HANDLE_HEIGHT = 10
       const m = this.#dragVertical.getPosition().match(/(\d+(?:\.\d+)?)px/)
       const raw = m ? parseFloat(m[1]) : window.innerHeight * 0.7
-      const paneHeight = raw + HANDLE_HEIGHT
-      const capped = Math.min(paneHeight, window.innerHeight * 0.7)
-      return `flex:0 0 auto; flex-basis:${capped}px; height:${capped}px; max-height:70vh; min-height:0;`
+      const capped = Math.min(raw, window.innerHeight * 0.7)
+      const paneHeight = Math.max(MIN_WORKBENCH_HEIGHT, capped - HANDLE_HEIGHT)
+      return `flex:0 0 ${paneHeight}px; height:${paneHeight}px; max-height:calc(70vh - ${HANDLE_HEIGHT}px); min-height:0;`
     })()
 
     const sidebarStyle = !this.#workbenchSidebarCollapsed
@@ -137,10 +137,10 @@ export class DevtoolsWorkbench extends Element {
             : nothing
           }
         </section>
+        ${!this.#workbenchSidebarCollapsed ? this.#dragHorizontal.getSlider() : nothing}
         <section class="basis-auto text-gray-500 flex items-center justify-center flex-grow">
           <wdio-devtools-browser></wdio-devtools-browser>
         </section>
-      ${!this.#workbenchSidebarCollapsed ? this.#dragHorizontal.getSlider() : nothing}
       </section>
       ${!this.#toolbarCollapsed ? this.#dragVertical.getSlider() : nothing}
       <wdio-devtools-tabs cacheId="activeWorkbenchTab" class="border-t-[1px] border-t-panelBorder ${this.#toolbarCollapsed ? 'hidden' : ''} flex-1 min-h-0">

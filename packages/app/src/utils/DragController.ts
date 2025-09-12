@@ -19,6 +19,7 @@ interface DragControllerOptions {
   direction: Direction
   localStorageKey?: string
   minPosition?: number
+  maxPosition?: number
   getContainerEl: AsyncGetElFn
 }
 
@@ -104,11 +105,15 @@ export class DragController implements ReactiveController {
     return this.#host.shadowRoot!.querySelector(`button[data-draggable-id="${this.#id}"]`)
   }
 
-  #setPosition(x: number, y: number) {
+  #setPosition(x: number, y: number) {        // <<< MODIFY to clamp max
     if (this.#options.direction === Direction.horizontal) {
-      this.#x = Math.max(x, this.#options.minPosition || 0)
-    } else if (this.#options.direction === Direction.vertical) {
-      this.#y = Math.max(y, this.#options.minPosition || 0)
+      let nx = Math.max(x, this.#options.minPosition || 0)
+      if (this.#options.maxPosition !== undefined) nx = Math.min(nx, this.#options.maxPosition)
+      this.#x = nx
+    } else {
+      let ny = Math.max(y, this.#options.minPosition || 0)
+      if (this.#options.maxPosition !== undefined) ny = Math.min(ny, this.#options.maxPosition)
+      this.#y = ny
     }
   }
 
