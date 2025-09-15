@@ -15,7 +15,6 @@ export class DevtoolsTabs extends Element {
     :host {
       width: 100%;
       flex-grow: 1;
-      min-height: 0;
       display: flex;
       flex-direction: column;
       color: var(--vscode-foreground);
@@ -131,9 +130,7 @@ export class DevtoolsTab extends Element {
     :host {
       display: none;
       flex-grow: 1;
-      min-height: 0;
-      overflow-y: auto;
-      scrollbar-width: none;
+      overflow-y: scroll;
     }
 
     :host([active]) {

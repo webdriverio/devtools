@@ -17,8 +17,8 @@ import './workbench/console.js'
 import './workbench/metadata.js'
 import './browser/snapshot.js'
 
-const MIN_WORKBENCH_HEIGHT = Math.min(300, window.innerHeight * 0.3)
-const MIN_METATAB_WIDTH = 260
+const MIN_WORKBENCH_HEIGHT = 600
+const MIN_METATAB_WIDTH = 250
 const RERENDER_TIMEOUT = 10
 
 const COMPONENT = 'wdio-devtools-workbench'
@@ -32,9 +32,6 @@ export class DevtoolsWorkbench extends Element {
       display: flex;
       flex-direction: column;
       flex-grow: 1;
-      height: 100vh;
-      min-height: 0;
-      overflow: hidden;
       color: var(--vscode-foreground);
       background-color: var(--vscode-editor-background);
       position: relative;
@@ -44,7 +41,6 @@ export class DevtoolsWorkbench extends Element {
   #dragVertical = new DragController(this, {
     localStorageKey: 'toolbarHeight',
     minPosition: MIN_WORKBENCH_HEIGHT,
-    maxPosition: (window.innerHeight * 0.7),
     initialPosition: window.innerHeight * .7, // initial height of browser window is 70% of window
     getContainerEl: () => this.getShadowRootAsync() as any as Element,
     direction: Direction.vertical
@@ -89,29 +85,11 @@ export class DevtoolsWorkbench extends Element {
   horizontalResizerWindow?: HTMLElement
 
   render() {
-     // When collapsed keep previous full behavior; when expanded no fixed height class
-    const heightWorkbench = this.#toolbarCollapsed ? 'h-full flex-1' : ''
-
-    const styleWorkbench = this.#toolbarCollapsed ? '' : (() => {
-      const m = this.#dragVertical.getPosition().match(/(\d+(?:\.\d+)?)px/)
-      const raw = m ? parseFloat(m[1]) : window.innerHeight * 0.7
-      const capped = Math.min(raw, window.innerHeight * 0.7)
-      const paneHeight = Math.max(MIN_WORKBENCH_HEIGHT, capped)
-      return `flex:0 0 ${paneHeight}px; height:${paneHeight}px; max-height:70vh; min-height:0;`
-    })()
-
-    const sidebarStyle = !this.#workbenchSidebarCollapsed
-      ? (() => {
-          const pos = this.#dragHorizontal.getPosition()
-          const m = pos.match(/flex-basis:\s*([\d.]+)px/)
-          const w = m ? m[1] : MIN_METATAB_WIDTH
-          return `${pos}; flex:0 0 auto; min-width:${w}px; max-width:${w}px;`
-        })()
-      : ''
-
+    const heightWorkbench = this.#toolbarCollapsed ? '' : 'h-[70%]'
+    const styleWorkbench = this.#toolbarCollapsed ? '' : this.#dragVertical.getPosition()
     return html`
-      <section data-horizontal-resizer-window class="flex relative w-full ${heightWorkbench} min-h-0 overflow-hidden" style="${styleWorkbench}">
-        <section data-sidebar class="flex-none" style="${sidebarStyle}">
+      <section data-horizontal-resizer-window class="flex w-full ${heightWorkbench} flex-1" style="${styleWorkbench}">
+        <section style="${!this.#workbenchSidebarCollapsed ? this.#dragHorizontal.getPosition() : ''}">
           <wdio-devtools-tabs cacheId="activeActionsTab" class="h-full flex flex-col border-r-[1px] border-r-panelBorder ${this.#workbenchSidebarCollapsed ? 'hidden' : ''}">
             <wdio-devtools-tab label="Actions">
               <wdio-devtools-actions></wdio-devtools-actions>
@@ -136,13 +114,12 @@ export class DevtoolsWorkbench extends Element {
             : nothing
           }
         </section>
-        ${!this.#workbenchSidebarCollapsed ? this.#dragHorizontal.getSlider('z-30') : nothing}
         <section class="basis-auto text-gray-500 flex items-center justify-center flex-grow">
           <wdio-devtools-browser></wdio-devtools-browser>
         </section>
+        ${!this.#workbenchSidebarCollapsed ? this.#dragHorizontal.getSlider() : nothing}
       </section>
-      ${!this.#toolbarCollapsed ? this.#dragVertical.getSlider('z-20') : nothing}
-      <wdio-devtools-tabs cacheId="activeWorkbenchTab" class="border-t-[1px] border-t-panelBorder ${this.#toolbarCollapsed ? 'hidden' : ''} flex-1 min-h-0">
+      <wdio-devtools-tabs cacheId="activeWorkbenchTab" class="border-t-[1px] border-t-panelBorder ${this.#toolbarCollapsed ? 'hidden' : ''}">
         <wdio-devtools-tab label="Source">
           <wdio-devtools-source></wdio-devtools-source>
         </wdio-devtools-tab>
@@ -171,6 +148,7 @@ export class DevtoolsWorkbench extends Element {
         `
         : nothing
       }
+      ${!this.#toolbarCollapsed ? this.#dragVertical.getSlider() : nothing}
     `
   }
 }

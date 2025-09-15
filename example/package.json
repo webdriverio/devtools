@@ -2,18 +2,16 @@
   "name": "examples",
   "type": "module",
   "devDependencies": {
-    "@wdio/cli": "9.18.0",
-    "@wdio/cucumber-framework": "9.18.0",
-    "@wdio/devtools-service": "workspace:*",
-    "@wdio/globals": "9.17.0",
-    "@wdio/local-runner": "9.18.0",
-    "@wdio/spec-reporter": "9.18.0",
-    "@wdio/types": "9.16.2",
-    "expect-webdriverio": "^5.4.0",
+    "@wdio/cli": "8.39.0",
+    "@wdio/cucumber-framework": "^8.39.0",
+    "@wdio/devtools-service": "workspace:^",
+    "@wdio/globals": "^8.39.0",
+    "@wdio/local-runner": "^8.39.0",
+    "@wdio/spec-reporter": "^8.39.0",
+    "@wdio/types": "^8.39.0",
+    "expect-webdriverio": "^4.15.1",
     "ts-node": "^10.9.2",
-    "tsconfig-paths": "^4.2.0",
-    "tsx": "^4.20.3",
-    "typescript": "^5.8.3"
+    "typescript": "^5.4.5"
   },
   "scripts": {
     "wdio": "wdio run ./wdio.conf.ts"

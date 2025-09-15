@@ -4,7 +4,6 @@ import { consume } from '@lit/context'
 
 import { type ComponentChildren, h, render, type VNode } from 'preact'
 import { customElement, query } from 'lit/decorators.js'
-import type { SimplifiedVNode } from '../../../../script/types'
 
 import { mutationContext, type TraceMutation, metadataContext, type Metadata } from '../../controller/DataManager.js'
 
@@ -50,18 +49,9 @@ export class DevtoolsBrowser extends Element {
       width: 100%;
       height: 100%;
       display: flex;
-      padding: 2rem;
+      margin: 2rem;
       align-items: center;
       justify-content: center;
-    }
-
-    section {
-      box-sizing: border-box;
-      width: calc(100% - 0px); /* host padding already applied */
-      height: calc(100% - 0px);
-      display: flex;
-      flex-direction: column;
-      overflow: hidden;
     }
 
     .frame-dot {
@@ -96,6 +86,9 @@ export class DevtoolsBrowser extends Element {
     if (!this.section || !this.iframe || !this.header || !metadata) {
       return
     }
+
+    this.section.style.width = 'auto'
+    this.section.style.height = 'auto'
 
     this.iframe.removeAttribute('style')
     const viewportWidth = metadata.viewport.width
@@ -308,7 +301,7 @@ export class DevtoolsBrowser extends Element {
     }
 
     return html`
-      <section class="w-full h-full bg-sideBarBackground rounded-t-md shadow-md">
+      <section class="w-full bg-sideBarBackground rounded-t-md shadow-md">
         <header class="flex block mx-2">
           <div class="frame-dot bg-notificationsErrorIconForeground"></div>
           <div class="frame-dot bg-notificationsWarningIconForeground"></div>
@@ -319,7 +312,7 @@ export class DevtoolsBrowser extends Element {
           </div>
         </header>
         ${this.mutations && this.mutations.length
-          ? html`<iframe class="origin-top-left h-full w-full"></iframe>`
+          ? html`<iframe class="origin-top-left"></iframe>`
           : html`<wdio-devtools-placeholder style="height: 100%"></wdio-devtools-placeholder>`
         }
       </section>
