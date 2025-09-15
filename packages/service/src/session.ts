@@ -51,7 +51,7 @@ export class SessionCapturer {
    * @param {object} result command result
    * @param {Error} error command error
    */
-  async afterCommand (browser: WebdriverIO.Browser, command: keyof WebDriverCommands, args: any[], result: any, error: Error | undefined) {
+  async afterCommand (browser: WebdriverIO.Browser, command: keyof WebDriverCommands, args: any[], result: any, error: Error) {
     const timestamp = Date.now()
     const sourceFile = parse(new Error(''))
       .filter((frame) => Boolean(frame.getFileName()))

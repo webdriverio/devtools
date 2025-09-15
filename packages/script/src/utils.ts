@@ -1,6 +1,5 @@
 import { parse, parseFragment as parseFragmentImport, type DefaultTreeAdapterMap } from 'parse5'
 import { h } from 'htm/preact'
-import type { SimplifiedVNode } from '../types.ts'
 
 import { log } from './logger.js'
 
