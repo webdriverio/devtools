@@ -93,12 +93,11 @@ export class DevtoolsWorkbench extends Element {
     const heightWorkbench = this.#toolbarCollapsed ? 'h-full flex-1' : ''
 
     const styleWorkbench = this.#toolbarCollapsed ? '' : (() => {
-      const HANDLE_HEIGHT = 10
       const m = this.#dragVertical.getPosition().match(/(\d+(?:\.\d+)?)px/)
       const raw = m ? parseFloat(m[1]) : window.innerHeight * 0.7
       const capped = Math.min(raw, window.innerHeight * 0.7)
-      const paneHeight = Math.max(MIN_WORKBENCH_HEIGHT, capped - HANDLE_HEIGHT)
-      return `flex:0 0 ${paneHeight}px; height:${paneHeight}px; max-height:calc(70vh - ${HANDLE_HEIGHT}px); min-height:0;`
+      const paneHeight = Math.max(MIN_WORKBENCH_HEIGHT, capped)
+      return `flex:0 0 ${paneHeight}px; height:${paneHeight}px; max-height:70vh; min-height:0;`
     })()
 
     const sidebarStyle = !this.#workbenchSidebarCollapsed
@@ -111,7 +110,7 @@ export class DevtoolsWorkbench extends Element {
       : ''
 
     return html`
-      <section data-horizontal-resizer-window class="flex w-full ${heightWorkbench} min-h-0 overflow-hidden" style="${styleWorkbench}">
+      <section data-horizontal-resizer-window class="flex relative w-full ${heightWorkbench} min-h-0 overflow-hidden" style="${styleWorkbench}">
         <section data-sidebar class="flex-none" style="${sidebarStyle}">
           <wdio-devtools-tabs cacheId="activeActionsTab" class="h-full flex flex-col border-r-[1px] border-r-panelBorder ${this.#workbenchSidebarCollapsed ? 'hidden' : ''}">
             <wdio-devtools-tab label="Actions">
@@ -137,12 +136,12 @@ export class DevtoolsWorkbench extends Element {
             : nothing
           }
         </section>
-        ${!this.#workbenchSidebarCollapsed ? this.#dragHorizontal.getSlider() : nothing}
+        ${!this.#workbenchSidebarCollapsed ? this.#dragHorizontal.getSlider('z-30') : nothing}
         <section class="basis-auto text-gray-500 flex items-center justify-center flex-grow">
           <wdio-devtools-browser></wdio-devtools-browser>
         </section>
       </section>
-      ${!this.#toolbarCollapsed ? this.#dragVertical.getSlider() : nothing}
+      ${!this.#toolbarCollapsed ? this.#dragVertical.getSlider('z-20') : nothing}
       <wdio-devtools-tabs cacheId="activeWorkbenchTab" class="border-t-[1px] border-t-panelBorder ${this.#toolbarCollapsed ? 'hidden' : ''} flex-1 min-h-0">
         <wdio-devtools-tab label="Source">
           <wdio-devtools-source></wdio-devtools-source>

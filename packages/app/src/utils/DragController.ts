@@ -105,7 +105,7 @@ export class DragController implements ReactiveController {
     return this.#host.shadowRoot!.querySelector(`button[data-draggable-id="${this.#id}"]`)
   }
 
-  #setPosition(x: number, y: number) {        // <<< MODIFY to clamp max
+  #setPosition(x: number, y: number) {
     if (this.#options.direction === Direction.horizontal) {
       let nx = Math.max(x, this.#options.minPosition || 0)
       if (this.#options.maxPosition !== undefined) nx = Math.min(nx, this.#options.maxPosition)
@@ -241,7 +241,7 @@ export class DragController implements ReactiveController {
         data-draggable-id=${this.#id}
         data-dragging=${this.#state}
         style=${styleMap({ [anchor]: `${this.#getPosition() - 3}px` })}
-        class="absolute z-10 ${className}"></button>
+        class="absolute ${className}"></button>
     `
   }
 
@@ -253,7 +253,7 @@ export class DragController implements ReactiveController {
 
     const slidingElem = (draggableEl.parentElement || this.#host.shadowRoot)?.querySelector(`*[style="${this.getPosition()}"]`)
     if (!slidingElem) {
-      return console.log(`Could not find element to adjust position with style "${this.getPosition()}"`)
+      return
     }
     const rect = slidingElem.getBoundingClientRect()
     const direction = this.#options.direction === Direction.horizontal

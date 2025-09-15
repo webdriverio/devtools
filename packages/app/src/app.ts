@@ -76,7 +76,7 @@ export class WebdriverIODevtoolsApplication extends Element {
             ? html`<wdio-devtools-sidebar style="${this.#drag?.getPosition()}"></wdio-devtools-sidebar>`
             : nothing
         }
-        ${this.#drag.getSlider('h-full')}
+        ${this.#drag.getSlider('z-10 h-full')}
         <wdio-devtools-workbench class="basis-auto"></wdio-devtools-workbench>
       </section>
     `
