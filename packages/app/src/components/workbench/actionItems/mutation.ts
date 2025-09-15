@@ -2,6 +2,7 @@ import { html, nothing } from 'lit'
 import { customElement, property } from 'lit/decorators.js'
 
 import { ActionItem, ICON_CLASS } from './item.js'
+import type { SimplifiedVNode } from '../../../../../script/types'
 
 const SOURCE_COMPONENT = 'wdio-devtools-mutation-item'
 

@@ -3,7 +3,7 @@ import { html, css, nothing, type TemplateResult } from 'lit'
 import { customElement } from 'lit/decorators.js'
 import { consume } from '@lit/context'
 import type { TestStats, SuiteStats } from '@wdio/reporter'
-
+import { repeat } from 'lit/directives/repeat.js'
 import { TestState } from './test-suite.js'
 import { suiteContext } from '../../controller/DataManager.js'
 
@@ -20,6 +20,7 @@ import type { DevtoolsSidebarFilter } from './filter.js'
 const EXPLORER = 'wdio-devtools-sidebar-explorer'
 
 interface TestEntry {
+  uid: string
   state?: string
   label: string
   children: TestEntry[]
@@ -32,7 +33,21 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
   static styles = [...Element.styles, css`
     :host {
       width: 100%;
-      display: block;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+
+    header {
+      flex: 0 0 auto;
+    }
+
+    wdio-test-suite {
+      flex: 1 1 auto;
+      overflow-y: auto;
+      overflow-x: hidden;
+      min-height: 0;
+      scrollbar-width: none;
     }
   `]
 
@@ -53,10 +68,16 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
     return html`
       <wdio-test-entry state="${entry.state as any}">
         <label slot="label">${entry.label}</label>
-        ${entry.children && entry.children.length ?
-          html`
-            <wdio-test-suite slot="children">${entry.children.map(this.#renderEntry.bind(this))}</wdio-test-suite>
-          `
+        ${entry.children && entry.children.length
+          ? html`
+              <wdio-test-suite slot="children">
+                ${repeat(
+                  entry.children,
+                  child => child.uid,
+                  child => this.#renderEntry(child)
+                )}
+              </wdio-test-suite>
+            `
           : nothing
         }
       </wdio-test-entry>
@@ -88,6 +109,7 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
     if ('tests' in entry) {
       const entries = [...entry.tests, ...entry.suites]
       return {
+        uid: entry.uid,
         label: entry.title,
         state: entry.tests.some((t) => !t.end)
           ? TestState.RUNNING
@@ -100,6 +122,7 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
       }
     }
     return {
+      uid: entry.uid,
       label: entry.title,
       state: !entry.end
         ? TestState.RUNNING
@@ -114,7 +137,18 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
     if (!this.suites) {
       return
     }
-    const suites = Object.values(this.suites[0])
+
+    // ✅ Only root suites (no parent = true top-level suite)
+    const rootSuites = this.suites
+      .flatMap(s => Object.values(s))
+      .filter(suite => !suite.parent)
+
+    // Deduplicate by uid (in case some frameworks still push duplicates)
+    const uniqueSuites = Array.from(
+      new Map(rootSuites.map(suite => [suite.uid, suite])).values()
+    )
+
+    const suites = uniqueSuites
       .map(this.#getTestEntry.bind(this))
       .filter(this.#filterEntry.bind(this))
 
@@ -132,7 +166,11 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
       </header>
       <wdio-test-suite>
         ${suites.length
-          ? suites.map(this.#renderEntry.bind(this))
+          ? repeat(
+              suites,
+              suite => suite.uid,
+              suite => this.#renderEntry(suite)
+            )
           : html`<p class="text-disabledForeground text-sm px-4 py-2">No tests found</p>`
         }
       </wdio-test-suite>

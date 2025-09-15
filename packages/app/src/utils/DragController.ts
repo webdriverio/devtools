@@ -19,6 +19,7 @@ interface DragControllerOptions {
   direction: Direction
   localStorageKey?: string
   minPosition?: number
+  maxPosition?: number
   getContainerEl: AsyncGetElFn
 }
 
@@ -60,14 +61,25 @@ export class DragController implements ReactiveController {
       this.#getDraggableEl(),
       options.getContainerEl()
     ]).then(([draggableEl, containerEl]) => {
-      if (!draggableEl) {
-        console.warn('getDraggableEl() did not return an element HTMLElement')
-      }
-      if (!containerEl) {
-        console.warn('getContainerEl() did not return an element HTMLElement')
-      }
-
       if (!draggableEl || !containerEl) {
+        // Retry after a short delay
+        setTimeout(async () => {
+          const [retryDraggableEl, retryContainerEl] = await Promise.all([
+            this.#getDraggableEl(),
+            options.getContainerEl()
+          ])
+          if (!retryDraggableEl) {
+            console.warn('getDraggableEl() did not return an element HTMLElement')
+          }
+          if (!retryContainerEl) {
+            console.warn('getContainerEl() did not return an element HTMLElement')
+          }
+          if (retryDraggableEl && retryContainerEl) {
+            this.#draggableEl = retryDraggableEl as HTMLElement
+            this.#containerEl = retryContainerEl as HTMLElement
+            this.#init()
+          }
+        }, 50)
         return
       }
 
@@ -95,9 +107,13 @@ export class DragController implements ReactiveController {
 
   #setPosition(x: number, y: number) {
     if (this.#options.direction === Direction.horizontal) {
-      this.#x = Math.max(x, this.#options.minPosition || 0)
-    } else if (this.#options.direction === Direction.vertical) {
-      this.#y = Math.max(y, this.#options.minPosition || 0)
+      let nx = Math.max(x, this.#options.minPosition || 0)
+      if (this.#options.maxPosition !== undefined) nx = Math.min(nx, this.#options.maxPosition)
+      this.#x = nx
+    } else {
+      let ny = Math.max(y, this.#options.minPosition || 0)
+      if (this.#options.maxPosition !== undefined) ny = Math.min(ny, this.#options.maxPosition)
+      this.#y = ny
     }
   }
 
@@ -225,7 +241,7 @@ export class DragController implements ReactiveController {
         data-draggable-id=${this.#id}
         data-dragging=${this.#state}
         style=${styleMap({ [anchor]: `${this.#getPosition() - 3}px` })}
-        class="absolute z-10 ${className}"></button>
+        class="absolute ${className}"></button>
     `
   }
 
@@ -237,7 +253,7 @@ export class DragController implements ReactiveController {
 
     const slidingElem = (draggableEl.parentElement || this.#host.shadowRoot)?.querySelector(`*[style="${this.getPosition()}"]`)
     if (!slidingElem) {
-      return console.log(`Could not find element to adjust position with style "${this.getPosition()}"`)
+      return
     }
     const rect = slidingElem.getBoundingClientRect()
     const direction = this.#options.direction === Direction.horizontal
