@@ -100,14 +100,14 @@ export class DevtoolsWorkbench extends Element {
       return `flex:0 0 ${paneHeight}px; height:${paneHeight}px; max-height:70vh; min-height:0;`
     })()
 
-    const sidebarStyle = !this.#workbenchSidebarCollapsed
-      ? (() => {
+   const sidebarStyle = this.#workbenchSidebarCollapsed
+      ? 'width:0; flex:0 0 0; overflow:hidden;'
+      : (() => {
           const pos = this.#dragHorizontal.getPosition()
           const m = pos.match(/flex-basis:\s*([\d.]+)px/)
           const w = m ? m[1] : MIN_METATAB_WIDTH
           return `${pos}; flex:0 0 auto; min-width:${w}px; max-width:${w}px;`
         })()
-      : ''
 
     return html`
       <section data-horizontal-resizer-window class="flex relative w-full ${heightWorkbench} min-h-0 overflow-hidden" style="${styleWorkbench}">
@@ -129,7 +129,7 @@ export class DevtoolsWorkbench extends Element {
             html`
               <button
                 @click="${() => this.#toggle('workbenchSidebar')}"
-                class="absolute top-0 left-0 bg-sideBarBackground flex h-10 w-10 items-center justify-center cursor-pointer rounded-br-md hover:bg-toolbarHoverBackground border-r-[1px] border-r-panelBorder border-b-[1px] border-b-panelBorder">
+                class="absolute top-2 left-2 bg-sideBarBackground flex h-10 w-10 items-center justify-center cursor-pointer rounded-md shadow hover:bg-toolbarHoverBackground border border-panelBorder">
                 <icon-mdi-arrow-collapse-right></icon-mdi-arrow-collapse-right>
               </button>
             `
@@ -141,8 +141,8 @@ export class DevtoolsWorkbench extends Element {
           <wdio-devtools-browser></wdio-devtools-browser>
         </section>
       </section>
-      ${!this.#toolbarCollapsed ? this.#dragVertical.getSlider('z-20') : nothing}
-      <wdio-devtools-tabs cacheId="activeWorkbenchTab" class="border-t-[1px] border-t-panelBorder ${this.#toolbarCollapsed ? 'hidden' : ''} flex-1 min-h-0">
+      ${!this.#toolbarCollapsed ? this.#dragVertical.getSlider('z-[999] -mt-[5px] pointer-events-auto') : nothing}
+      <wdio-devtools-tabs cacheId="activeWorkbenchTab" class="relative z-10 border-t-[1px] border-t-panelBorder ${this.#toolbarCollapsed ? 'hidden' : ''} flex-1 min-h-0">
         <wdio-devtools-tab label="Source">
           <wdio-devtools-source></wdio-devtools-source>
         </wdio-devtools-tab>
@@ -165,7 +165,8 @@ export class DevtoolsWorkbench extends Element {
         html`
           <button
             @click="${() => this.#toggle('toolbar')}"
-            class="absolute right-0 bottom-0 bg-sideBarBackground flex h-10 w-10 items-center justify-center cursor-pointer rounded-tl-md hover:bg-toolbarHoverBackground border-t-[1px] border-t-panelBorder border-l-[1px] border-l-panelBorder">
+            class="fixed z-[9999] right-2 bottom-2 bg-sideBarBackground flex h-10 w-10 items-center justify-center cursor-pointer rounded-md shadow
+                   hover:bg-toolbarHoverBackground border border-panelBorder">
             <icon-mdi-arrow-collapse-up></icon-mdi-arrow-collapse-up>
           </button>
         `

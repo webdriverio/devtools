@@ -76,14 +76,12 @@ export class DevtoolsSource extends Element {
       <wdio-devtools-list
         label="Parameters"
         class="text-xs"
-        .list="${this.command.args.reduce((prev, val, i) => {
-          if (this.#commandDefinition) {
-            prev[this.#commandDefinition.parameters[i].name] = val
-          } else {
-            prev[i] = val
-          }
-          return prev
-        }, {})}"></wdio-devtools-list>
+        .list="${(this.command.args || []).reduce((acc, val, i) => {
+          const def = this.#commandDefinition
+          const paramName = def?.parameters?.[i]?.name ?? i
+          acc[paramName] = val
+          return acc
+        }, {} as Record<string, unknown>)}"></wdio-devtools-list>
       <wdio-devtools-list
         label="Result"
         class="text-xs"
