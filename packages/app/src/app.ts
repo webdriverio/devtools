@@ -11,7 +11,7 @@ import './components/sidebar.js'
 import './components/workbench.js'
 import './components/onboarding/start.js'
 
-const SIDEBAR_MIN_WIDTH = 200
+const SIDEBAR_MIN_WIDTH = 250
 
 @customElement('wdio-devtools')
 export class WebdriverIODevtoolsApplication extends Element {

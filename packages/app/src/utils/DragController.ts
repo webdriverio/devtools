@@ -128,6 +128,12 @@ export class DragController implements ReactiveController {
   }
 
   #init() {
+    // stop previous tracker if element was re-created
+    if (this.#pointerTracker) {
+      this.#pointerTracker.stop()
+      this.#pointerTracker = null
+    }
+
     const onDrag = this.#onDrag
     const onDragStart = this.#onDragStart
     const onDragEnd = this.#onDragEnd
@@ -154,6 +160,10 @@ export class DragController implements ReactiveController {
     })
 
     this.#adjustPosition()
+  }
+
+  hostUpdated() {
+    this.#maybeReinit()
   }
 
   hostDisconnected(): void {
@@ -224,6 +234,16 @@ export class DragController implements ReactiveController {
     el.removeAttribute('data-state')
   }
 
+  async #maybeReinit() {
+    const draggableEl = await this.#getDraggableEl()
+    if (!draggableEl) return
+    // if slider was removed (collapsed) and re-added, re-init pointer tracker
+    if (this.#draggableEl !== draggableEl) {
+      this.#draggableEl = draggableEl as HTMLElement
+      this.#init()
+    }
+  }
+
   getSlider(className = '') {
     const anchor = this.#options.direction === Direction.horizontal
       ? 'left'
@@ -251,11 +271,13 @@ export class DragController implements ReactiveController {
       return
     }
 
-    const slidingElem = (draggableEl.parentElement || this.#host.shadowRoot)?.querySelector(`*[style="${this.getPosition()}"]`)
+    // allow matching when additional inline styles are present
+    const slidingElem = (draggableEl.parentElement || this.#host.shadowRoot)
+      ?.querySelector(`*[style*="flex-basis: ${this.#getPosition()}px"]`)
     if (!slidingElem) {
       return
     }
-    const rect = slidingElem.getBoundingClientRect()
+    const rect = (slidingElem as HTMLElement).getBoundingClientRect()
     const direction = this.#options.direction === Direction.horizontal
       ? 'width'
       : 'height'
