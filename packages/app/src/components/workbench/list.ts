@@ -14,7 +14,7 @@ export class DevtoolsList extends Element {
   label = ''
 
   @property({ type: Object })
-  list: Record<string, any> | string[] = {}
+  list: Record<string, unknown> | unknown[] = {}
 
   static styles = [...Element.styles, css`
     :host {
@@ -85,34 +85,53 @@ export class DevtoolsList extends Element {
   }
 
   render () {
-    if (!this.list || Object.keys(this.list).length === 0) {
-      return null
-    }
+    const isArrayList = Array.isArray(this.list)
 
-    const entries = Array.isArray(this.list)
-      ? this.list as string[]
-      : Object.entries(this.list)
+    if (this.list == null) return null
+    if (isArrayList && (this.list as unknown[]).length === 0) return null
+    if (!isArrayList && Object.keys(this.list as Record<string, unknown>).length === 0) return null
+
+    const entries: unknown[] | [string, unknown][] = isArrayList
+      ? (this.list as unknown[])
+      : Object.entries(this.list as Record<string, unknown>)
+
+    const isKeyValueTuple = (val: unknown): val is [string, unknown] =>
+      Array.isArray(val) && val.length === 2 && typeof val[0] === 'string'
 
     return html`
       <section class="block">
         ${this.#renderSectionHeader(this.label)}
         <dl class="flex flex-wrap ${this.isCollapsed ? '' : 'mt-2'}">
-          ${entries.map((entry, i) => {
-            const isStringEntry = typeof entry === 'string'
-            const key = isStringEntry ? undefined : (entry as [string, any])[0]
-            const val = isStringEntry ? entry : (entry as [string, any])[1]
+          ${(entries as any[]).map((entry, i) => {
+            let key: string | undefined
+            let val: unknown
 
-            const stringForMeasure = typeof val === 'object' && val !== null
+            if (isArrayList) {
+              if (isKeyValueTuple(entry)) {
+                key = entry[0]
+                val = entry[1]
+              } else {
+                val = entry
+              }
+            } else {
+              key = (entry as [string, unknown])[0]
+              val = (entry as [string, unknown])[1]
+            }
+
+            const stringForMeasure = (val && typeof val === 'object')
               ? JSON.stringify(val, null, 2)
               : String(val)
 
-            const isMultiline = /\n/.test(stringForMeasure) || stringForMeasure.length > 40 || typeof val === 'object'
+            const isMultiline = /\n/.test(stringForMeasure) ||
+              stringForMeasure.length > 40 ||
+              (val && typeof val === 'object')
+
             const baseCls = 'row px-2 py-1 border-b-[1px] border-b-panelBorder'
             const colCls = isMultiline ? 'basis-full w-full' : 'basis-1/2'
             const lastBorderFix = i === entries.length - 1 ? '' : ''
             const collapsedCls = this.isCollapsed ? 'collapse' : 'max-h-[500px]'
 
-            if (isStringEntry) {
+            if (key === undefined) {
               return html`
                 <dd class="${baseCls} ${colCls} ${collapsedCls} ${lastBorderFix}">
                   ${this.#renderMetadataProp(val)}
