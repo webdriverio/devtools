@@ -23,6 +23,7 @@ interface TestEntry {
   uid: string
   state?: string
   label: string
+  callSource?: string
   children: TestEntry[]
 }
 
@@ -66,7 +67,7 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
 
   #renderEntry (entry: TestEntry): TemplateResult {
     return html`
-      <wdio-test-entry state="${entry.state as any}">
+      <wdio-test-entry state="${entry.state as any}" call-source="${entry.callSource || ''}">
         <label slot="label">${entry.label}</label>
         ${entry.children && entry.children.length
           ? html`
@@ -116,6 +117,7 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
           : entry.tests.find((t) => t.state === 'failed')
             ? TestState.FAILED
             : TestState.PASSED,
+        callSource: (entry as any).callSource,
         children: Object.values(entries)
           .map(this.#getTestEntry.bind(this))
           .filter(this.#filterEntry.bind(this))
@@ -129,6 +131,7 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
         : entry.state === 'failed'
           ? TestState.FAILED
           : TestState.PASSED,
+      callSource: (entry as any).callSource,
       children: []
     }
   }

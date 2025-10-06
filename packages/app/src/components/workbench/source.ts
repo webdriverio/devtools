@@ -24,6 +24,7 @@ export class DevtoolsSource extends Element {
 
     .cm-editor {
       width: 100%;
+      height: 100%;
       padding: 10px 0px;
     }
     .cm-content {
@@ -63,20 +64,23 @@ export class DevtoolsSource extends Element {
     const editorView = new EditorView(opts)
     container.replaceWith(editorView.dom)
 
-    /**
-     * highlight line of call source
-     */
-    const lines = [...(this.shadowRoot?.querySelectorAll('.cm-line') || [])]
-    if (highlightLine && lines.length && highlightLine < lines.length) {
-      setTimeout(() => {
-        lines[highlightLine].classList.add('cm-activeLine')
-      }, 100)
+   // Use CodeMirror API to select and scroll to the target line (1-based index)
+    if (highlightLine && highlightLine > 0) {
+      try {
+        const lineInfo = editorView.state.doc.line(highlightLine) // 1-based
+        requestAnimationFrame(() => {
+          editorView.dispatch({
+            selection: { anchor: lineInfo.from },
+            effects: EditorView.scrollIntoView(lineInfo.from, { y: 'center' }) // center the line
+          })
+        })
+      } catch { /* ignore */ }
     }
   }
 
   #highlightCallSource (ev: CustomEvent<string>) {
     const [filePath, line] = ev.detail.split(':')
-    this.#renderEditor(filePath, parseInt(line, 10) + 1)
+    this.#renderEditor(filePath, parseInt(line, 10))
   }
 
   render() {

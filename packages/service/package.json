@@ -25,21 +25,26 @@
     "test": "eslint ."
   },
   "dependencies": {
+    "@babel/types": "^7.28.4",
     "@wdio/devtools-backend": "workspace:^",
     "@wdio/devtools-script": "workspace:^",
     "@wdio/logger": "9.18.0",
     "@wdio/reporter": "9.18.0",
     "@wdio/types": "9.16.2",
     "import-meta-resolve": "^4.1.0",
-    "stack-trace": "1.0.0-pre2",
     "ws": "^8.18.3"
   },
   "license": "MIT",
   "devDependencies": {
+    "@babel/parser": "^7.28.4",
+    "@babel/traverse": "^7.28.4",
+    "@types/babel__core": "^7.20.5",
+    "@types/babel__traverse": "^7.28.0",
     "@types/stack-trace": "^0.0.33",
     "@types/ws": "^8.18.1",
     "@wdio/globals": "9.17.0",
     "@wdio/protocols": "9.16.2",
+    "stack-trace": "1.0.0-pre2",
     "vite-plugin-dts": "^4.5.4"
   },
   "peerDependencies": {

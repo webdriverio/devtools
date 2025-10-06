@@ -1,7 +1,9 @@
 import WebdriverIOReporter, { type SuiteStats, type TestStats } from '@wdio/reporter'
+import { enrichTestStats, setCurrentSpecFile } from './utils.js'
 
 export class TestReporter extends WebdriverIOReporter {
   #report: (data: any) => void
+  #currentSpecFile?: string
 
   constructor (options: any, report: (data: any) => void) {
     super(options)
@@ -10,10 +12,17 @@ export class TestReporter extends WebdriverIOReporter {
 
   onSuiteStart(suiteStats: SuiteStats): void {
     super.onSuiteStart(suiteStats)
+    this.#currentSpecFile = suiteStats.file
+    setCurrentSpecFile(suiteStats.file)
     this.#sendUpstream()
   }
 
   onTestStart(testStats: TestStats): void {
+    //Enrich testStats with file + line info
+    enrichTestStats(testStats, this.#currentSpecFile)
+    if ((testStats as any).file && (testStats as any).line != null) {
+      ;(testStats as any).callSource = `${(testStats as any).file}:${(testStats as any).line}`
+    }
     super.onTestStart(testStats)
     this.#sendUpstream()
   }
@@ -25,6 +34,8 @@ export class TestReporter extends WebdriverIOReporter {
 
   onSuiteEnd(suiteStats: SuiteStats): void {
     super.onSuiteEnd(suiteStats)
+    this.#currentSpecFile = undefined
+    setCurrentSpecFile(undefined)
     this.#sendUpstream()
   }
 
