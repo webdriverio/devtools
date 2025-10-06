@@ -66,3 +66,11 @@ declare module WebdriverIO {
   interface ServiceOption extends ServiceOptions {}
   interface Capabilities {}
 }
+
+declare module '@wdio/reporter' {
+  interface TestStats {
+    file?: string
+    line?: number
+    column?: number
+  }
+}

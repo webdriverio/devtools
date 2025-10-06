@@ -48,6 +48,9 @@ export class ExplorerTestEntry extends CollapseableEntry {
   @property({ type: String })
   state?: TestState
 
+  @property({ type: String, attribute: 'call-source' })
+  callSource?: string
+
   static styles = [...Element.styles, css`
     :host {
       display: block;
@@ -69,6 +72,13 @@ export class ExplorerTestEntry extends CollapseableEntry {
       this.allowCollapseAll = false
     }
     this.requestUpdate()
+  }
+
+  #viewSource() {
+    if (!this.callSource) return
+    window.dispatchEvent(new CustomEvent('app-source-highlight', {
+      detail: this.callSource
+    }))
   }
 
   get hasPassed () {
@@ -126,7 +136,7 @@ export class ExplorerTestEntry extends CollapseableEntry {
               </button>
             `
           }
-          <button class="p-1 rounded hover:bg-toolbarHoverBackground my-1 group">
+          <button class="p-1 rounded hover:bg-toolbarHoverBackground my-1 group" @click="${() => this.#viewSource()}">
             <icon-mdi-eye class="group-hover:text-chartsYellow"></icon-mdi-eye>
           </button>
           ${!hasNoChildren ? html`
