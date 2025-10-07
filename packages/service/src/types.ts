@@ -73,4 +73,8 @@ declare module '@wdio/reporter' {
     line?: number
     column?: number
   }
+
+  interface SuiteStats {
+    line?: string
+  }
 }

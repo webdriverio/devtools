@@ -1,9 +1,10 @@
 import WebdriverIOReporter, { type SuiteStats, type TestStats } from '@wdio/reporter'
-import { enrichTestStats, setCurrentSpecFile } from './utils.js'
+import { enrichTestStats, setCurrentSpecFile, enrichSuiteStats } from './utils.js'
 
 export class TestReporter extends WebdriverIOReporter {
   #report: (data: any) => void
   #currentSpecFile?: string
+  #suitePath: string[] = []
 
   constructor (options: any, report: (data: any) => void) {
     super(options)
@@ -14,11 +15,21 @@ export class TestReporter extends WebdriverIOReporter {
     super.onSuiteStart(suiteStats)
     this.#currentSpecFile = suiteStats.file
     setCurrentSpecFile(suiteStats.file)
+
+    // Push title if non-empty
+    if (suiteStats.title) this.#suitePath.push(suiteStats.title)
+
+    // Enrich and set callSource for suites
+    enrichSuiteStats(suiteStats as any, this.#currentSpecFile, this.#suitePath)
+    if ((suiteStats as any).file && (suiteStats as any).line != null) {
+      ;(suiteStats as any).callSource = `${(suiteStats as any).file}:${(suiteStats as any).line}`
+    }
+
     this.#sendUpstream()
   }
 
   onTestStart(testStats: TestStats): void {
-    //Enrich testStats with file + line info
+    // Enrich testStats with callSource info
     enrichTestStats(testStats, this.#currentSpecFile)
     if ((testStats as any).file && (testStats as any).line != null) {
       ;(testStats as any).callSource = `${(testStats as any).file}:${(testStats as any).line}`
@@ -34,8 +45,15 @@ export class TestReporter extends WebdriverIOReporter {
 
   onSuiteEnd(suiteStats: SuiteStats): void {
     super.onSuiteEnd(suiteStats)
-    this.#currentSpecFile = undefined
-    setCurrentSpecFile(undefined)
+    // Pop the suite we pushed on start
+    if (suiteStats.title && this.#suitePath[this.#suitePath.length - 1] === suiteStats.title) {
+      this.#suitePath.pop()
+    }
+    // Only clear when the last suite ends
+    if (this.#suitePath.length === 0) {
+      this.#currentSpecFile = undefined
+      setCurrentSpecFile(undefined)
+    }
     this.#sendUpstream()
   }
 
