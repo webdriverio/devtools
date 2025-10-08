@@ -81,6 +81,7 @@ export class DevtoolsSource extends Element {
   #highlightCallSource (ev: CustomEvent<string>) {
     const [filePath, line] = ev.detail.split(':')
     this.#renderEditor(filePath, parseInt(line, 10))
+    this.closest('wdio-devtools-tabs')?.activateTab('Source')
   }
 
   render() {

@@ -1,5 +1,5 @@
 import WebdriverIOReporter, { type SuiteStats, type TestStats } from '@wdio/reporter'
-import { enrichTestStats, setCurrentSpecFile, enrichSuiteStats } from './utils.js'
+import { mapTestToSource, setCurrentSpecFile, mapSuiteToSource } from './utils.js'
 
 export class TestReporter extends WebdriverIOReporter {
   #report: (data: any) => void
@@ -20,7 +20,7 @@ export class TestReporter extends WebdriverIOReporter {
     if (suiteStats.title) this.#suitePath.push(suiteStats.title)
 
     // Enrich and set callSource for suites
-    enrichSuiteStats(suiteStats as any, this.#currentSpecFile, this.#suitePath)
+    mapSuiteToSource(suiteStats as any, this.#currentSpecFile, this.#suitePath)
     if ((suiteStats as any).file && (suiteStats as any).line != null) {
       ;(suiteStats as any).callSource = `${(suiteStats as any).file}:${(suiteStats as any).line}`
     }
@@ -30,7 +30,7 @@ export class TestReporter extends WebdriverIOReporter {
 
   onTestStart(testStats: TestStats): void {
     // Enrich testStats with callSource info
-    enrichTestStats(testStats, this.#currentSpecFile)
+    mapTestToSource(testStats, this.#currentSpecFile)
     if ((testStats as any).file && (testStats as any).line != null) {
       ;(testStats as any).callSource = `${(testStats as any).file}:${(testStats as any).line}`
     }

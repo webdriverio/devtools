@@ -480,7 +480,7 @@ function findSuiteLocationByText(file: string, title: string) {
  * - Cucumber: prefer step-definition file/line
  * - Mocha/Jasmine: AST with suite path; fallback to runtime stack
  */
-export function enrichTestStats(testStats: any, hintFile?: string) {
+export function mapTestToSource(testStats: any, hintFile?: string) {
   const title = String(testStats?.title ?? '').trim()
   const fullTitle = normalizeFullTitle(testStats?.fullTitle)
 
@@ -549,7 +549,7 @@ export function enrichTestStats(testStats: any, hintFile?: string) {
  * - Mocha/Jasmine: map "describe/context" by title path using AST
  * - Cucumber: find Feature/Scenario line in .feature file
  */
-export function enrichSuiteStats(
+export function mapSuiteToSource(
   suiteStats: any,
   hintFile?: string,
   suitePath: string[] = []
