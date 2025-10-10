@@ -30,7 +30,6 @@ export class DevtoolsSource extends Element {
   connectedCallback(): void {
     super.connectedCallback()
     window.addEventListener('show-command', async (ev: CustomEvent) => {
-      this.closest('wdio-devtools-tabs')?.activateTab('Log')
       const command = ev.detail.command
       this.elapsedTime = ev.detail.elapsedTime
 
@@ -49,6 +48,11 @@ export class DevtoolsSource extends Element {
       }, {} as Record<string, CommandEndpoint>)
       this.#commandDefinition = endpoints[command.command]
       this.command = command
+      console.log('show-command', command, this.#commandDefinition)
+      window.dispatchEvent(new CustomEvent('app-source-highlight', {
+        detail: this.command?.callSource
+      }))
+      this.closest('wdio-devtools-tabs')?.activateTab('Log')
     })
   }
 
