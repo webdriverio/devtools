@@ -48,7 +48,7 @@ export class DevtoolsSource extends Element {
       }, {} as Record<string, CommandEndpoint>)
       this.#commandDefinition = endpoints[command.command]
       this.command = command
-      console.log('show-command', command, this.#commandDefinition)
+
       window.dispatchEvent(new CustomEvent('app-source-highlight', {
         detail: this.command?.callSource
       }))
