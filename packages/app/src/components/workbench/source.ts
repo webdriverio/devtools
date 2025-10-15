@@ -41,19 +41,12 @@ export class DevtoolsSource extends Element {
   }
 
   #renderEditor (filePath: string, highlightLine?: number) {
-    if (!this.sources) {
-      return
-    }
-
+    if (!this.sources) return
     const source = this.sources[filePath]
-    if (!source) {
-      return
-    }
+    if (!source) return
 
     const container = this.shadowRoot?.querySelector('section') || this.shadowRoot?.querySelector('.cm-editor')
-    if (!container) {
-      return
-    }
+    if (!container) return
 
     const opts: EditorViewConfig = {
       root: this.shadowRoot!,
@@ -64,14 +57,13 @@ export class DevtoolsSource extends Element {
     const editorView = new EditorView(opts)
     container.replaceWith(editorView.dom)
 
-   // Use CodeMirror API to select and scroll to the target line (1-based index)
     if (highlightLine && highlightLine > 0) {
       try {
-        const lineInfo = editorView.state.doc.line(highlightLine) // 1-based
+        const lineInfo = editorView.state.doc.line(highlightLine)
         requestAnimationFrame(() => {
           editorView.dispatch({
             selection: { anchor: lineInfo.from },
-            effects: EditorView.scrollIntoView(lineInfo.from, { y: 'center' }) // center the line
+            effects: EditorView.scrollIntoView(lineInfo.from, { y: 'center' })
           })
         })
       } catch { /* ignore */ }
