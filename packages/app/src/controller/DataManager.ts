@@ -141,6 +141,14 @@ export class DataManagerController implements ReactiveController {
           ...this.consoleLogsContextProvider.value,
           ...data as string[]
         ])
+      }
+      else if (scope === 'sources') {
+        const merged = {
+          ...(this.sourcesContextProvider.value || {}),
+          ...(data as Record<string, string>)
+        }
+        this.sourcesContextProvider.setValue(merged)
+        console.debug('Merged sources keys', Object.keys(merged))
       } else {
         const provider = this[`${scope}ContextProvider`]
         provider.setValue(data as any)
