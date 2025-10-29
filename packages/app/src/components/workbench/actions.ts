@@ -3,7 +3,12 @@ import { html, css } from 'lit'
 import { customElement } from 'lit/decorators.js'
 import { consume } from '@lit/context'
 
-import { mutationContext, type TraceMutation, commandContext, type CommandLog } from '../../controller/DataManager.js'
+import {
+  mutationContext,
+  type TraceMutation,
+  commandContext,
+  type CommandLog
+} from '../../controller/DataManager.js'
 
 import '~icons/mdi/pencil.js'
 import '~icons/mdi/family-tree.js'
@@ -19,13 +24,16 @@ const SOURCE_COMPONENT = 'wdio-devtools-actions'
 
 @customElement(SOURCE_COMPONENT)
 export class DevtoolsActions extends Element {
-  static styles = [...Element.styles, css`
-    :host {
-      display: flex;
-      flex-direction: column;
-      width: 100%;
-    }
-  `]
+  static styles = [
+    ...Element.styles,
+    css`
+      :host {
+        display: flex;
+        flex-direction: column;
+        width: 100%;
+      }
+    `
+  ]
 
   @consume({ context: mutationContext, subscribe: true })
   mutations: TraceMutation[] = []
@@ -36,8 +44,9 @@ export class DevtoolsActions extends Element {
   render() {
     const mutations = this.mutations || []
     const commands = this.commands || []
-    const entries = [...mutations, ...commands]
-      .sort((a, b) => a.timestamp - b.timestamp)
+    const entries = [...mutations, ...commands].sort(
+      (a, b) => a.timestamp - b.timestamp
+    )
 
     if (!entries.length || !mutations.length) {
       return html`<wdio-devtools-placeholder></wdio-devtools-placeholder>`

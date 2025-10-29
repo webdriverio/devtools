@@ -10,7 +10,7 @@ import type { WebDriverCommands } from '@wdio/protocols'
 
 import { PAGE_TRANSITION_COMMANDS } from './constants.js'
 import { type CommandLog } from './types.js'
-import { type TraceLog } from './types.ts'
+import { type TraceLog } from './types.js'
 
 const log = logger('@wdio/devtools-service:SessionCapturer')
 
@@ -23,19 +23,23 @@ export class SessionCapturer {
   traceLogs: string[] = []
   consoleLogs: ConsoleLogs[] = []
   metadata?: {
-    url: string;
-    viewport: VisualViewport;
+    url: string
+    viewport: VisualViewport
   }
 
-  constructor (devtoolsOptions: { hostname?: string, port?: number } = {}) {
+  constructor(devtoolsOptions: { hostname?: string; port?: number } = {}) {
     const { port, hostname } = devtoolsOptions
     if (hostname && port) {
       this.#ws = new WebSocket(`ws://${hostname}:${port}/worker`)
-      this.#ws.on('error', (err: unknown) => log.error(`Couldn't connect to devtools backend: ${(err as Error).message}`))
+      this.#ws.on('error', (err: unknown) =>
+        log.error(
+          `Couldn't connect to devtools backend: ${(err as Error).message}`
+        )
+      )
     }
   }
 
-  get isReportingUpstream () {
+  get isReportingUpstream() {
     return Boolean(this.#ws) && this.#ws?.readyState === WebSocket.OPEN
   }
 
@@ -51,29 +55,53 @@ export class SessionCapturer {
    * @param {object} result command result
    * @param {Error} error command error
    */
-  async afterCommand (browser: WebdriverIO.Browser, command: keyof WebDriverCommands, args: any[], result: any, error: Error | undefined) {
+  async afterCommand(
+    browser: WebdriverIO.Browser,
+    command: keyof WebDriverCommands,
+    args: any[],
+    result: any,
+    error: Error | undefined
+  ) {
     const timestamp = Date.now()
-    const sourceFile = parse(new Error(''))
-      .filter((frame) => Boolean(frame.getFileName()))
-      .map((frame) => [frame.getFileName(), frame.getLineNumber(), frame.getColumnNumber()].join(':'))
-      .filter((fileName) => (
-        !fileName.includes('/node_modules/') &&
-        !fileName.includes('<anonymous>)') &&
-        !fileName.includes('node:internal') &&
-        !fileName.includes('/dist/')
-      ))
-      .shift() || ''
+    const sourceFile =
+      parse(new Error(''))
+        .filter((frame) => Boolean(frame.getFileName()))
+        .map((frame) =>
+          [
+            frame.getFileName(),
+            frame.getLineNumber(),
+            frame.getColumnNumber()
+          ].join(':')
+        )
+        .filter(
+          (fileName) =>
+            !fileName.includes('/node_modules/') &&
+            !fileName.includes('<anonymous>)') &&
+            !fileName.includes('node:internal') &&
+            !fileName.includes('/dist/')
+        )
+        .shift() || ''
     const absPath = sourceFile.startsWith('file://')
       ? url.fileURLToPath(sourceFile)
       : sourceFile
     const sourceFilePath = absPath.split(':')[0]
-    const fileExist = await fs.access(sourceFilePath).then(() => true, () => false)
+    const fileExist = await fs.access(sourceFilePath).then(
+      () => true,
+      () => false
+    )
     if (sourceFile && !this.sources.has(sourceFile) && fileExist) {
       const sourceCode = await fs.readFile(sourceFilePath, 'utf-8')
       this.sources.set(sourceFilePath, sourceCode.toString())
       this.sendUpstream('sources', { [sourceFilePath]: sourceCode.toString() })
     }
-    const newCommand: CommandLog = { command, args, result, error, timestamp, callSource: absPath }
+    const newCommand: CommandLog = {
+      command,
+      args,
+      result,
+      error,
+      timestamp,
+      callSource: absPath
+    }
     this.commandsLog.push(newCommand)
     this.sendUpstream('commands', [newCommand])
 
@@ -85,13 +113,15 @@ export class SessionCapturer {
     }
   }
 
-  async injectScript (browser: WebdriverIO.Browser) {
+  async injectScript(browser: WebdriverIO.Browser) {
     if (this.#isInjected) {
       return
     }
 
     if (!browser.isBidi) {
-      throw new SevereServiceError(`Can not set up devtools for session with id "${browser.sessionId}" because it doesn't support WebDriver Bidi`)
+      throw new SevereServiceError(
+        `Can not set up devtools for session with id "${browser.sessionId}" because it doesn't support WebDriver Bidi`
+      )
     }
 
     this.#isInjected = true
@@ -100,11 +130,11 @@ export class SessionCapturer {
     const functionDeclaration = `async () => { ${source} }`
 
     await browser.scriptAddPreloadScript({
-        functionDeclaration
+      functionDeclaration
     })
   }
 
-  async #captureTrace (browser: WebdriverIO.Browser) {
+  async #captureTrace(browser: WebdriverIO.Browser) {
     /**
      * only capture trace if script was injected
      */
@@ -112,11 +142,12 @@ export class SessionCapturer {
       return
     }
 
-    const { mutations, traceLogs, consoleLogs, metadata } = await browser.execute(() => window.wdioTraceCollector.getTraceData())
+    const { mutations, traceLogs, consoleLogs, metadata } =
+      await browser.execute(() => window.wdioTraceCollector.getTraceData())
     this.metadata = metadata
 
     if (Array.isArray(mutations)) {
-      this.mutations.push(...mutations as TraceMutation[])
+      this.mutations.push(...(mutations as TraceMutation[]))
       this.sendUpstream('mutations', mutations)
     }
     if (Array.isArray(traceLogs)) {
@@ -124,12 +155,15 @@ export class SessionCapturer {
       this.sendUpstream('logs', traceLogs)
     }
     if (Array.isArray(consoleLogs)) {
-      this.consoleLogs.push(...consoleLogs as ConsoleLogs[])
+      this.consoleLogs.push(...(consoleLogs as ConsoleLogs[]))
       this.sendUpstream('consoleLogs', consoleLogs)
     }
   }
 
-  sendUpstream <Scope extends keyof TraceLog>(scope: Scope, data: Partial<TraceLog[Scope]>) {
+  sendUpstream<Scope extends keyof TraceLog>(
+    scope: Scope,
+    data: Partial<TraceLog[Scope]>
+  ) {
     if (!this.#ws || this.#ws.readyState !== WebSocket.OPEN) {
       return
     }

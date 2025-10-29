@@ -1,16 +1,32 @@
 import { createContext, ContextProvider } from '@lit/context'
 import type { ReactiveController, ReactiveControllerHost } from 'lit'
-import type { Metadata, CommandLog, TraceLog } from '@wdio/devtools-service/types'
+import type {
+  Metadata,
+  CommandLog,
+  TraceLog
+} from '@wdio/devtools-service/types'
 
 const CACHE_ID = 'wdio-trace-cache'
 
-export const mutationContext = createContext<TraceMutation[]>(Symbol('mutationContext'))
+export const mutationContext = createContext<TraceMutation[]>(
+  Symbol('mutationContext')
+)
 export const logContext = createContext<string[]>(Symbol('logContext'))
-export const consoleLogContext = createContext<ConsoleLogs[]>(Symbol('consoleLogContext'))
-export const metadataContext = createContext<Metadata>(Symbol('metadataContext'))
-export const commandContext = createContext<CommandLog[]>(Symbol('commandContext'))
-export const sourceContext = createContext<Record<string, string>>(Symbol('sourceContext'))
-export const suiteContext = createContext<Record<string, any>[]>(Symbol('suiteContext'))
+export const consoleLogContext = createContext<ConsoleLogs[]>(
+  Symbol('consoleLogContext')
+)
+export const metadataContext = createContext<Metadata>(
+  Symbol('metadataContext')
+)
+export const commandContext = createContext<CommandLog[]>(
+  Symbol('commandContext')
+)
+export const sourceContext = createContext<Record<string, string>>(
+  Symbol('sourceContext')
+)
+export const suiteContext = createContext<Record<string, any>[]>(
+  Symbol('suiteContext')
+)
 
 const hasConnection = createContext<boolean>(Symbol('hasConnection'))
 
@@ -34,7 +50,7 @@ export class DataManagerController implements ReactiveController {
   hasConnectionProvider: ContextProvider<typeof hasConnection>
 
   constructor(host: ReactiveControllerHost & HTMLElement) {
-    (this.#host = host).addController(this)
+    ;(this.#host = host).addController(this)
     this.mutationsContextProvider = new ContextProvider(this.#host, {
       context: mutationContext,
       initialValue: []
@@ -66,11 +82,11 @@ export class DataManagerController implements ReactiveController {
     })
   }
 
-  get hasConnection () {
+  get hasConnection() {
     return this.hasConnectionProvider.value
   }
 
-  get traceType () {
+  get traceType() {
     return this.metadataContextProvider.value?.type
   }
 
@@ -83,7 +99,7 @@ export class DataManagerController implements ReactiveController {
      */
     const wsUrl = `ws://${window.location.host}/client`
     console.log(`Connecting to ${wsUrl}`)
-    const ws = this.#ws = new WebSocket(wsUrl)
+    const ws = (this.#ws = new WebSocket(wsUrl))
 
     /**
      * if a connection to the backend is established we can
@@ -100,10 +116,14 @@ export class DataManagerController implements ReactiveController {
      */
     ws.addEventListener('error', () => {
       try {
-        const localStorageValue = JSON.parse(localStorage.getItem(CACHE_ID) || '') as TraceLog
+        const localStorageValue = JSON.parse(
+          localStorage.getItem(CACHE_ID) || ''
+        ) as TraceLog
         this.loadTraceFile(localStorageValue)
       } catch (e: unknown) {
-        console.warn(`Failed to parse cached trace file: ${(e as Error).message}`)
+        console.warn(
+          `Failed to parse cached trace file: ${(e as Error).message}`
+        )
       }
     })
   }
@@ -114,7 +134,7 @@ export class DataManagerController implements ReactiveController {
     }
   }
 
-  #handleSocketMessage (event: MessageEvent) {
+  #handleSocketMessage(event: MessageEvent) {
     try {
       const { scope, data } = JSON.parse(event.data) as SocketMessage
       if (!data) {
@@ -124,25 +144,24 @@ export class DataManagerController implements ReactiveController {
       if (scope === 'mutations') {
         this.mutationsContextProvider.setValue([
           ...this.mutationsContextProvider.value,
-          ...data as TraceMutation[]
+          ...(data as TraceMutation[])
         ])
       } else if (scope === 'commands') {
         this.commandsContextProvider.setValue([
           ...this.commandsContextProvider.value,
-          ...data as CommandLog[]
+          ...(data as CommandLog[])
         ])
       } else if (scope === 'metadata') {
         this.metadataContextProvider.setValue({
           ...this.metadataContextProvider.value,
-          ...data as Metadata
+          ...(data as Metadata)
         })
       } else if (scope === 'consoleLogs') {
         this.consoleLogsContextProvider.setValue([
           ...this.consoleLogsContextProvider.value,
-          ...data as string[]
+          ...(data as string[])
         ])
-      }
-      else if (scope === 'sources') {
+      } else if (scope === 'sources') {
         const merged = {
           ...(this.sourcesContextProvider.value || {}),
           ...(data as Record<string, string>)
@@ -150,8 +169,19 @@ export class DataManagerController implements ReactiveController {
         this.sourcesContextProvider.setValue(merged)
         console.debug('Merged sources keys', Object.keys(merged))
       } else {
-        const provider = this[`${scope}ContextProvider`]
-        provider.setValue(data as any)
+        const providerMap = {
+          mutations: this.mutationsContextProvider,
+          logs: this.logsContextProvider,
+          consoleLogs: this.consoleLogsContextProvider,
+          metadata: this.metadataContextProvider,
+          commands: this.commandsContextProvider,
+          sources: this.sourcesContextProvider,
+          suites: this.suitesContextProvider
+        } as const
+        const provider = providerMap[scope as keyof typeof providerMap]
+        if (provider) {
+          provider.setValue(data as any)
+        }
       }
 
       this.#host.requestUpdate()
@@ -160,7 +190,7 @@ export class DataManagerController implements ReactiveController {
     }
   }
 
-  loadTraceFile (traceFile: TraceLog) {
+  loadTraceFile(traceFile: TraceLog) {
     localStorage.setItem(CACHE_ID, JSON.stringify(traceFile))
     this.mutationsContextProvider.setValue(traceFile.mutations)
     this.logsContextProvider.setValue(traceFile.logs)

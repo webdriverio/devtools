@@ -13,15 +13,18 @@ export class ActionItem extends Element {
   @property({ type: Number })
   elapsedTime?: number
 
-  static styles = [...Element.styles, css`
-    :host {
-      display: flex;
-      flex-grow: 0;
-      width: 100%;
-    }
-  `]
+  static styles = [
+    ...Element.styles,
+    css`
+      :host {
+        display: flex;
+        flex-grow: 0;
+        width: 100%;
+      }
+    `
+  ]
 
-  protected renderTime () {
+  protected renderTime() {
     if (!this.elapsedTime) {
       return
     }
@@ -36,7 +39,10 @@ export class ActionItem extends Element {
     }
 
     return html`
-      <span class="text-[10px] grow-0 shrink border border-editorSuggestWidgetBorder rounded-xl ml-auto text-gray-500 px-1 text-debugTokenExpressionName">${diffLabel}</span>
+      <span
+        class="text-[10px] grow-0 shrink border border-editorSuggestWidgetBorder rounded-xl ml-auto text-gray-500 px-1 text-debugTokenExpressionName"
+        >${diffLabel}</span
+      >
     `
   }
 }

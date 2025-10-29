@@ -21,13 +21,13 @@
     "lit": "^3.3.1",
     "placeholder-loading": "^0.7.0",
     "pointer-tracker": "^2.5.3",
-    "preact": "^10.27.1"
+    "preact": "^10.27.1",
+    "@wdio/devtools-service": "workspace:*"
   },
   "author": "Christian Bromann <mail@bromann.dev>",
   "license": "MIT",
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.12",
-    "@wdio/devtools-service": "workspace:*",
     "@wdio/reporter": "9.18.0",
     "autoprefixer": "^10.4.21",
     "postcss": "^8.5.6",

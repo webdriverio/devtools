@@ -12,13 +12,16 @@ const CONFIG_CODE_EXAMPLE = `export const config = {
 
 @customElement('wdio-devtools-start')
 export class DevtoolsStart extends Element {
-  static styles = [...Element.styles, css`
-    :host {
-      display: flex;
-      width: 100%;
-      height: 100%;
-    }
-  `]
+  static styles = [
+    ...Element.styles,
+    css`
+      :host {
+        display: flex;
+        width: 100%;
+        height: 100%;
+      }
+    `
+  ]
 
   @property()
   onLoad = (content: any) => content

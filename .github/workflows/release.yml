@@ -50,9 +50,13 @@ jobs:
       - name: Install Dependencies
         run: pnpm install
       - name: Build
-        run: pnpm -r --workspace-concurrency=1 build
+        run: |
+          pnpm --filter "@wdio/devtools-backend" build
+          pnpm --filter "@wdio/devtools-script" build
+          pnpm --filter "@wdio/devtools-service" build
+          pnpm --filter "@wdio/devtools-app" build
       - name: Release
-        run: pnpm run release:ci -- ${{github.event.inputs.releaseType}}
+        run: pnpm -r publish --access public --no-git-checks
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

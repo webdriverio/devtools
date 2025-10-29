@@ -5,25 +5,24 @@ import LoginPage from '../pageobjects/login.page.js'
 import SecurePage from '../pageobjects/secure.page.js'
 
 const pages = {
-    login: LoginPage
+  login: LoginPage
 } as const
 
 After(async () => {
-    await browser.reloadSession()
+  await browser.reloadSession()
 })
 
 Given(/^I am on the (\w+) page$/, async (page: keyof typeof pages) => {
-    await pages[page].open()
+  await pages[page].open()
 })
 
 When(/^I login with (\w+) and (.+)$/, async (username, password) => {
-    await LoginPage.login(username, password)
+  await LoginPage.login(username, password)
 })
 
 Then(/^I should see a flash message saying (.*)$/, async (message) => {
-    const el = await SecurePage.flashAlert
-    await expect(el).toBeExisting()
-    await expect(el).toHaveText(expect.stringContaining(message))
-    await browser.pause(15000)
+  const el = await SecurePage.flashAlert
+  await expect(el).toBeExisting()
+  await expect(el).toHaveText(expect.stringContaining(message))
+  // await browser.pause(15000)
 })
-
