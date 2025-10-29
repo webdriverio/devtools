@@ -25,16 +25,22 @@ import {
 } from './constants.js'
 
 const require = createRequire(import.meta.url)
+// eslint-disable-next-line @typescript-eslint/consistent-type-imports
 const stackTrace = require('stack-trace') as typeof import('stack-trace')
 const _astCache = new Map<string, any[]>()
 
-let CE: { CucumberExpression: any, ParameterTypeRegistry: any } | undefined
+let CE: { CucumberExpression: any; ParameterTypeRegistry: any } | undefined
 try {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
   const ce = require('@cucumber/cucumber-expressions')
-  CE = { CucumberExpression: ce.CucumberExpression, ParameterTypeRegistry: ce.ParameterTypeRegistry }
-} catch { /* optional */ }
+  CE = {
+    CucumberExpression: ce.CucumberExpression,
+    ParameterTypeRegistry: ce.ParameterTypeRegistry
+  }
+} catch {
+  /* optional */
+}
 
+// eslint-disable-next-line @typescript-eslint/consistent-type-imports
 const traverse: (typeof import('@babel/traverse'))['default'] =
   (babelTraverse as any).default ?? (babelTraverse as any)
 
@@ -49,7 +55,9 @@ export function setCurrentSpecFile(file?: string) {
 /**
  * Get the top-level browser object from an element/browser
  */
-export function getBrowserObject (elem: WebdriverIO.Element | WebdriverIO.Browser): WebdriverIO.Browser {
+export function getBrowserObject(
+  elem: WebdriverIO.Element | WebdriverIO.Browser
+): WebdriverIO.Browser {
   const elemObject = elem as WebdriverIO.Element
   return (elemObject as WebdriverIO.Element).parent
     ? getBrowserObject(elemObject.parent)
@@ -60,8 +68,12 @@ export function getBrowserObject (elem: WebdriverIO.Element | WebdriverIO.Browse
  * Get root callee name (handles Identifier and MemberExpression like it.only)
  */
 function rootCalleeName(callee: any): string | undefined {
-  if (!callee) return
-  if (callee.type === 'Identifier') return callee.name
+  if (!callee) {
+    return
+  }
+  if (callee.type === 'Identifier') {
+    return callee.name
+  }
   if (callee.type === 'MemberExpression') {
     const obj: any = callee.object
     return obj && obj.type === 'Identifier' ? obj.name : undefined
@@ -73,14 +85,16 @@ function rootCalleeName(callee: any): string | undefined {
  * Parse a JS/TS test/spec file to collect suite/test calls (Mocha/Jasmine) with full title path
  */
 export function findTestLocations(filePath: string) {
-  if (!fs.existsSync(filePath)) return []
+  if (!fs.existsSync(filePath)) {
+    return []
+  }
 
   const src = fs.readFileSync(filePath, 'utf-8')
   const ast = parse(src, {
     sourceType: 'module',
     plugins: PARSE_PLUGINS as any,
     errorRecovery: true,
-    allowReturnOutsideFunction: true,
+    allowReturnOutsideFunction: true
   })
 
   type Loc = {
@@ -94,12 +108,19 @@ export function findTestLocations(filePath: string) {
   const out: Loc[] = []
   const suiteStack: string[] = []
 
-  const isSuite = (n?: string) => !!n && (SUITE_FN_NAMES as readonly string[]).includes(n) || n === 'Feature'
-  const isTest = (n?: string) => !!n && (TEST_FN_NAMES as readonly string[]).includes(n)
+  const isSuite = (n?: string) =>
+    (!!n && (SUITE_FN_NAMES as readonly string[]).includes(n)) ||
+    n === 'Feature'
+  const isTest = (n?: string) =>
+    !!n && (TEST_FN_NAMES as readonly string[]).includes(n)
 
   const staticTitle = (node: any): string | undefined => {
-    if (!node) return
-    if (node.type === 'StringLiteral') return node.value
+    if (!node) {
+      return
+    }
+    if (node.type === 'StringLiteral') {
+      return node.value
+    }
     if (node.type === 'TemplateLiteral' && node.expressions.length === 0) {
       return node.quasis.map((q: any) => q.value.cooked).join('')
     }
@@ -108,10 +129,14 @@ export function findTestLocations(filePath: string) {
 
   traverse(ast, {
     enter(p) {
-      if (!p.isCallExpression()) return
+      if (!p.isCallExpression()) {
+        return
+      }
       const callee: any = p.node.callee
       const root = rootCalleeName(callee)
-      if (!root) return
+      if (!root) {
+        return
+      }
 
       if (isSuite(root)) {
         const ttl = staticTitle(p.node.arguments?.[0] as any)
@@ -139,13 +164,19 @@ export function findTestLocations(filePath: string) {
       }
     },
     exit(p) {
-      if (!p.isCallExpression()) return
+      if (!p.isCallExpression()) {
+        return
+      }
       const callee: any = p.node.callee
       const root = rootCalleeName(callee)
-      if (!root || !isSuite(root)) return
+      if (!root || !isSuite(root)) {
+        return
+      }
       const ttl = ((): string | undefined => {
         const a0: any = p.node.arguments?.[0]
-        if (a0?.type === 'StringLiteral') return a0.value
+        if (a0?.type === 'StringLiteral') {
+          return a0.value
+        }
         if (a0?.type === 'TemplateLiteral' && a0.expressions.length === 0) {
           return a0.quasis.map((q: any) => q.value.cooked).join('')
         }
@@ -185,13 +216,19 @@ export function getCurrentTestLocation() {
     const fn = fr.getFileName() as string
     return STEP_FILE_RE.test(fn) || STEP_DIR_RE.test(fn)
   })
-  if (step) return step
+  if (step) {
+    return step
+  }
 
   const spec = pick((fr) => SPEC_FILE_RE.test(fr.getFileName() as string))
-  if (spec) return spec
+  if (spec) {
+    return spec
+  }
 
   const feature = pick((fr) => FEATURE_FILE_RE.test(fr.getFileName() as string))
-  if (feature) return feature
+  if (feature) {
+    return feature
+  }
 
   return null
 }
@@ -216,10 +253,14 @@ function _findStepsDir(startDir: string): string | undefined {
   for (let i = 0; i < STEPS_DIR_ASCENT_MAX; i++) {
     for (const c of STEPS_DIR_CANDIDATES) {
       const p = path.join(dir, c)
-      if (fs.existsSync(p) && fs.statSync(p).isDirectory()) return p
+      if (fs.existsSync(p) && fs.statSync(p).isDirectory()) {
+        return p
+      }
     }
     const up = path.dirname(dir)
-    if (up === dir) break
+    if (up === dir) {
+      break
+    }
     dir = up
   }
   return undefined
@@ -228,14 +269,18 @@ function _findStepsDir(startDir: string): string | undefined {
 // Global fallback (find a features/*/(step-definitions|steps) directory under cwd)
 let _globalStepsDir: string | undefined
 function _findStepsDirGlobal(): string | undefined {
-  if (_globalStepsDir && fs.existsSync(_globalStepsDir)) return _globalStepsDir
+  if (_globalStepsDir && fs.existsSync(_globalStepsDir)) {
+    return _globalStepsDir
+  }
 
   const root = process.cwd()
   const queue: { dir: string; depth: number }[] = [{ dir: root, depth: 0 }]
   const maxDepth = STEPS_GLOBAL_SEARCH_MAX_DEPTH
   while (queue.length) {
     const { dir, depth } = queue.shift()!
-    if (depth > maxDepth) continue
+    if (depth > maxDepth) {
+      continue
+    }
 
     // Look for a features folder here
     const featuresDir = path.join(dir, 'features')
@@ -251,10 +296,16 @@ function _findStepsDirGlobal(): string | undefined {
 
     // BFS into subdirs
     for (const entry of fs.readdirSync(dir)) {
-      if (entry.startsWith('.')) continue
+      if (entry.startsWith('.')) {
+        continue
+      }
       const full = path.join(dir, entry)
       let st: fs.Stats
-      try { st = fs.statSync(full) } catch { continue }
+      try {
+        st = fs.statSync(full)
+      } catch {
+        continue
+      }
       if (st.isDirectory() && !full.includes('node_modules')) {
         queue.push({ dir: full, depth: depth + 1 })
       }
@@ -269,8 +320,11 @@ function _listFiles(dir: string): string[] {
   for (const entry of fs.readdirSync(dir)) {
     const full = path.join(dir, entry)
     const st = fs.statSync(full)
-    if (st.isDirectory()) out.push(..._listFiles(full))
-    else if (SOURCE_FILE_EXT_RE.test(entry)) out.push(full)
+    if (st.isDirectory()) {
+      out.push(..._listFiles(full))
+    } else if (SOURCE_FILE_EXT_RE.test(entry)) {
+      out.push(full)
+    }
   }
   return out
 }
@@ -323,7 +377,9 @@ function _collectStepDefsFromText(file: string): StepDef[] {
 const _stepsCache = new Map<string, StepDef[]>()
 function _collectStepDefs(stepsDir: string): StepDef[] {
   const cached = _stepsCache.get(stepsDir)
-  if (cached) return cached
+  if (cached) {
+    return cached
+  }
 
   const files = _listFiles(stepsDir)
   const defs: StepDef[] = []
@@ -332,7 +388,11 @@ function _collectStepDefs(stepsDir: string): StepDef[] {
     let pushed = 0
     try {
       const src = fs.readFileSync(file, 'utf-8')
-      const ast = parse(src, { sourceType: 'module', plugins: PARSE_PLUGINS as any, errorRecovery: true })
+      const ast = parse(src, {
+        sourceType: 'module',
+        plugins: PARSE_PLUGINS as any,
+        errorRecovery: true
+      })
 
       traverse(ast, {
         CallExpression(p: NodePath<CallExpression>) {
@@ -343,23 +403,43 @@ function _collectStepDefs(stepsDir: string): StepDef[] {
             name = callee.name
           } else if (callee?.type === 'MemberExpression') {
             const prop = (callee as any).property
-            if (prop?.type === 'Identifier') name = prop.name
+            if (prop?.type === 'Identifier') {
+              name = prop.name
+            }
           }
-          if (!name || !(STEP_FN_NAMES as readonly string[]).includes(name)) return
+          if (!name || !(STEP_FN_NAMES as readonly string[]).includes(name)) {
+            return
+          }
 
           const arg = p.node.arguments?.[0] as any
-          const loc = { file, line: p.node.loc?.start.line ?? 1, column: p.node.loc?.start.column ?? 0 }
+          const loc = {
+            file,
+            line: p.node.loc?.start.line ?? 1,
+            column: p.node.loc?.start.column ?? 0
+          }
 
           if (arg?.type === 'RegExpLiteral') {
-            defs.push({ kind: 'regex', regex: new RegExp(arg.pattern, arg.flags ?? ''), ...loc })
+            defs.push({
+              kind: 'regex',
+              regex: new RegExp(arg.pattern, arg.flags ?? ''),
+              ...loc
+            })
             pushed++
           } else if (arg?.type === 'StringLiteral') {
             // If Cucumber Expressions is available and pattern contains {...}, treat as expression
             if (CE && arg.value.includes('{')) {
-              const expr = new CE!.CucumberExpression(arg.value, new CE!.ParameterTypeRegistry())
+              const expr = new CE!.CucumberExpression(
+                arg.value,
+                new CE!.ParameterTypeRegistry()
+              )
               defs.push({ kind: 'expression', expr, ...loc })
             } else {
-              defs.push({ kind: 'string', keyword: name, text: arg.value, ...loc })
+              defs.push({
+                kind: 'string',
+                keyword: name,
+                text: arg.value,
+                ...loc
+              })
             }
             pushed++
           }
@@ -383,12 +463,18 @@ function _collectStepDefs(stepsDir: string): StepDef[] {
 
 function findStepDefinitionLocation(stepTitle: string, hintPath?: string) {
   const baseDir = hintPath
-    ? (path.extname(hintPath) ? path.dirname(hintPath) : hintPath)
+    ? path.extname(hintPath)
+      ? path.dirname(hintPath)
+      : hintPath
     : undefined
 
   let stepsDir = baseDir ? _findStepsDir(baseDir) : undefined
-  if (!stepsDir) stepsDir = _findStepsDirGlobal()
-  if (!stepsDir) return
+  if (!stepsDir) {
+    stepsDir = _findStepsDirGlobal()
+  }
+  if (!stepsDir) {
+    return
+  }
 
   const defs = _collectStepDefs(stepsDir)
 
@@ -396,24 +482,42 @@ function findStepDefinitionLocation(stepTitle: string, hintPath?: string) {
   const titleNoKw = title.replace(/^(Given|When|Then|And|But)\s+/i, '').trim()
 
   // String match
-  const s = defs.find(d =>
-    d.kind === 'string' &&
-    (titleNoKw.localeCompare(d.text!, 'en', { sensitivity: 'base' }) === 0 ||
-     title.localeCompare(`${d.keyword} ${d.text}`, 'en', { sensitivity: 'base' }) === 0)
+  const s = defs.find(
+    (d) =>
+      d.kind === 'string' &&
+      (titleNoKw.localeCompare(d.text!, 'en', { sensitivity: 'base' }) === 0 ||
+        title.localeCompare(`${d.keyword} ${d.text}`, 'en', {
+          sensitivity: 'base'
+        }) === 0)
   )
-  if (s) return { file: s.file, line: s.line, column: s.column }
+  if (s) {
+    return { file: s.file, line: s.line, column: s.column }
+  }
 
   // Cucumber expression match
-  const e = defs.find(d => d.kind === 'expression' && (() => {
-    try { return !!d.expr!.match(titleNoKw) || !!d.expr!.match(title) } catch { return false }
-  })())
-  if (e) return { file: e.file, line: e.line, column: e.column }
+  const e = defs.find(
+    (d) =>
+      d.kind === 'expression' &&
+      (() => {
+        try {
+          return !!d.expr!.match(titleNoKw) || !!d.expr!.match(title)
+        } catch {
+          return false
+        }
+      })()
+  )
+  if (e) {
+    return { file: e.file, line: e.line, column: e.column }
+  }
 
   // Regex match
-  const r = defs.find(d =>
-    d.kind === 'regex' && (d.regex!.test(titleNoKw) || d.regex!.test(title))
+  const r = defs.find(
+    (d) =>
+      d.kind === 'regex' && (d.regex!.test(titleNoKw) || d.regex!.test(title))
   )
-  if (r) return { file: r.file, line: r.line, column: r.column }
+  if (r) {
+    return { file: r.file, line: r.line, column: r.column }
+  }
 
   return
 }
@@ -433,9 +537,15 @@ function escapeRegExp(s: string) {
 }
 
 function offsetToLineCol(src: string, offset: number) {
-  let line = 1, col = 1
+  let line = 1,
+    col = 1
   for (let i = 0; i < offset && i < src.length; i++) {
-    if (src.charCodeAt(i) === 10) { line++; col = 1 } else { col++ }
+    if (src.charCodeAt(i) === 10) {
+      line++
+      col = 1
+    } else {
+      col++
+    }
   }
   return { line, column: col }
 }
@@ -486,7 +596,9 @@ export function mapTestToSource(testStats: any, hintFile?: string) {
 
   // Hint for locating related files
   const hint =
-    (Array.isArray((testStats as any).specs) ? (testStats as any).specs[0] : undefined) ||
+    (Array.isArray((testStats as any).specs)
+      ? (testStats as any).specs[0]
+      : undefined) ||
     (testStats as any).file ||
     (testStats as any).specFile ||
     hintFile ||
@@ -494,7 +606,10 @@ export function mapTestToSource(testStats: any, hintFile?: string) {
 
   // Cucumber-like step: resolve step-definition location
   if (/^(Given|When|Then|And|But)\b/i.test(title)) {
-    const stepLoc = findStepDefinitionLocation(title, FEATURE_FILE_RE.test(String(hint)) ? hint : undefined)
+    const stepLoc = findStepDefinitionLocation(
+      title,
+      FEATURE_FILE_RE.test(String(hint)) ? hint : undefined
+    )
     if (stepLoc) {
       Object.assign(testStats, stepLoc)
       return
@@ -504,7 +619,9 @@ export function mapTestToSource(testStats: any, hintFile?: string) {
   // Mocha/Jasmine static mapping via AST
   const file =
     (testStats as any).file ||
-    (Array.isArray((testStats as any).specs) ? (testStats as any).specs[0] : undefined) ||
+    (Array.isArray((testStats as any).specs)
+      ? (testStats as any).specs[0]
+      : undefined) ||
     (testStats as any).specFile ||
     hintFile ||
     CURRENT_SPEC_FILE
@@ -519,12 +636,20 @@ export function mapTestToSource(testStats: any, hintFile?: string) {
     }
     const locs = _astCache.get(file) as any[] | undefined
     if (locs?.length) {
-      let match =
-        locs.find(l => l.type === 'test' && l.name === title && fullTitle.includes(l.titlePath.join(' '))) ||
-        locs.find(l => l.type === 'test' && l.name === title)
+      const match =
+        locs.find(
+          (l) =>
+            l.type === 'test' &&
+            l.name === title &&
+            fullTitle.includes(l.titlePath.join(' '))
+        ) || locs.find((l) => l.type === 'test' && l.name === title)
 
       if (match) {
-        Object.assign(testStats, { file, line: match.line, column: match.column })
+        Object.assign(testStats, {
+          file,
+          line: match.line,
+          column: match.column
+        })
         return
       }
     }
@@ -556,7 +681,9 @@ export function mapSuiteToSource(
 ) {
   const title = String(suiteStats?.title ?? '').trim()
   const file = (suiteStats as any).file || hintFile || CURRENT_SPEC_FILE
-  if (!title || !file) return
+  if (!title || !file) {
+    return
+  }
 
   // Cucumber: feature/scenario line
   if (FEATURE_FILE_RE.test(file)) {
@@ -577,18 +704,27 @@ export function mapSuiteToSource(
 
   // Mocha/Jasmine: AST first
   try {
-    if (!_astCache.has(file)) _astCache.set(file, findTestLocations(file))
+    if (!_astCache.has(file)) {
+      _astCache.set(file, findTestLocations(file))
+    }
     const locs = _astCache.get(file) as any[] | undefined
     if (locs?.length) {
       const match =
-        locs.find(l => l.type === 'suite'
-          && Array.isArray(l.titlePath)
-          && l.titlePath.length === suitePath.length
-          && l.titlePath.every((t: string, i: number) => t === suitePath[i])) ||
-        locs.find(l => l.type === 'suite' && l.titlePath.at(-1) === title)
+        locs.find(
+          (l) =>
+            l.type === 'suite' &&
+            Array.isArray(l.titlePath) &&
+            l.titlePath.length === suitePath.length &&
+            l.titlePath.every((t: string, i: number) => t === suitePath[i])
+        ) ||
+        locs.find((l) => l.type === 'suite' && l.titlePath.at(-1) === title)
 
       if (match?.line) {
-        Object.assign(suiteStats, { file, line: match.line, column: match.column })
+        Object.assign(suiteStats, {
+          file,
+          line: match.line,
+          column: match.column
+        })
         return
       }
     }

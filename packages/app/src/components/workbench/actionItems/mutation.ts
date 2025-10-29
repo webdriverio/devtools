@@ -23,7 +23,10 @@ export class MutationItem extends ActionItem {
   #getAttributeMutationLabel(mutation: TraceMutation) {
     return html`
       <icon-mdi-pencil class="${ICON_CLASS}"></icon-mdi-pencil>
-      <span class="flex-grow text-left">element attribute "<code>${mutation.attributeName}</code>" changed</span>
+      <span class="flex-grow text-left"
+        >element attribute "<code>${mutation.attributeName}</code>"
+        changed</span
+      >
       ${this.renderTime()}
     `
   }
@@ -49,7 +52,10 @@ export class MutationItem extends ActionItem {
     `
   }
 
-  #renderNodeAmount (nodes: (string | SimplifiedVNode)[], operationType: 'added' | 'removed') {
+  #renderNodeAmount(
+    nodes: (string | SimplifiedVNode)[],
+    operationType: 'added' | 'removed'
+  ) {
     if (!nodes.length) {
       return nothing
     }
@@ -73,7 +79,7 @@ export class MutationItem extends ActionItem {
     window.dispatchEvent(event)
   }
 
-  render () {
+  render() {
     if (!this.entry) {
       return
     }

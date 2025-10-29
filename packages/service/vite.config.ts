@@ -9,14 +9,14 @@ const __dirname = url.fileURLToPath(new URL('.', import.meta.url))
 export default defineConfig({
   optimizeDeps: {
     esbuildOptions: {
-      target: 'esnext',
-    },
+      target: 'esnext'
+    }
   },
   build: {
     lib: {
       entry: path.resolve(__dirname, 'src', 'index.ts'),
       name: 'hook',
-      formats: ['es'],
+      formats: ['es']
     },
     target: 'esnext',
     outDir: 'dist',
@@ -31,13 +31,16 @@ export default defineConfig({
         types: path.resolve(__dirname, 'src', 'types.ts')
       },
       output: {
-        entryFileNames: '[name].js',
+        entryFileNames: '[name].js'
       },
-      external: (id) => !id.startsWith(path.resolve(__dirname, 'src')) && !id.startsWith('./')
+      external: (id) =>
+        !id.startsWith(path.resolve(__dirname, 'src')) && !id.startsWith('./')
     }
   },
-  plugins: [dts({
-    root: __dirname,
-    entryRoot: 'src'
-  })]
+  plugins: [
+    dts({
+      root: __dirname,
+      entryRoot: 'src'
+    })
+  ]
 })

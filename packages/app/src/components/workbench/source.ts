@@ -15,38 +15,52 @@ import '../placeholder.js'
 const SOURCE_COMPONENT = 'wdio-devtools-source'
 @customElement(SOURCE_COMPONENT)
 export class DevtoolsSource extends Element {
-  static styles = [...Element.styles, css`
-    :host {
-      display: flex;
-      width: 100%;
-      height: 100%;
-    }
+  static styles = [
+    ...Element.styles,
+    css`
+      :host {
+        display: flex;
+        width: 100%;
+        height: 100%;
+      }
 
-    .cm-editor {
-      width: 100%;
-      height: 100%;
-      padding: 10px 0px;
-    }
-    .cm-content {
-      padding: 0!important;
-    }
-  `]
+      .cm-editor {
+        width: 100%;
+        height: 100%;
+        padding: 10px 0px;
+      }
+      .cm-content {
+        padding: 0 !important;
+      }
+    `
+  ]
 
   @consume({ context: sourceContext, subscribe: true })
   sources: Record<string, string> = {}
 
   connectedCallback(): void {
     super.connectedCallback()
-    window.addEventListener('app-source-highlight', this.#highlightCallSource.bind(this))
+    window.addEventListener(
+      'app-source-highlight',
+      this.#highlightCallSource.bind(this)
+    )
   }
 
-  #renderEditor (filePath: string, highlightLine?: number) {
-    if (!this.sources) return
+  #renderEditor(filePath: string, highlightLine?: number) {
+    if (!this.sources) {
+      return
+    }
     const source = this.sources[filePath]
-    if (!source) return
+    if (!source) {
+      return
+    }
 
-    const container = this.shadowRoot?.querySelector('section') || this.shadowRoot?.querySelector('.cm-editor')
-    if (!container) return
+    const container =
+      this.shadowRoot?.querySelector('section') ||
+      this.shadowRoot?.querySelector('.cm-editor')
+    if (!container) {
+      return
+    }
 
     const opts: EditorViewConfig = {
       root: this.shadowRoot!,
@@ -66,11 +80,13 @@ export class DevtoolsSource extends Element {
             effects: EditorView.scrollIntoView(lineInfo.from, { y: 'center' })
           })
         })
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
     }
   }
 
-  #highlightCallSource (ev: CustomEvent<string>) {
+  #highlightCallSource(ev: CustomEvent<string>) {
     const [filePath, line] = ev.detail.split(':')
     this.#renderEditor(filePath, parseInt(line, 10))
     this.closest('wdio-devtools-tabs')?.activateTab('Source')
@@ -83,9 +99,7 @@ export class DevtoolsSource extends Element {
     }
 
     this.#renderEditor(sourceFileNames[0])
-    return html`
-      <section class="p-2">loading...</section>
-    `
+    return html` <section class="p-2">loading...</section> `
   }
 }
 

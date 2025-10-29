@@ -12,17 +12,24 @@ export default defineConfig({
     alias: {
       '@': path.resolve(__dirname, './src'),
       '@core': path.resolve(__dirname, './src/core'),
-      '@components': path.resolve(__dirname, './src/components'),
-    },
-  },
-  plugins: [Icons({
-    compiler: 'web-components',
-    webComponents: {
-      autoDefine: true,
-      shadow: false
-    },
-    customCollections: {
-      custom: FileSystemIconLoader('./src/assets/icons')
+      '@components': path.resolve(__dirname, './src/components')
     }
-  })]
+  },
+  plugins: [
+    Icons({
+      compiler: 'web-components',
+      webComponents: {
+        autoDefine: true,
+        shadow: false
+      },
+      customCollections: {
+        custom: FileSystemIconLoader('./src/assets/icons')
+      }
+    })
+  ],
+  build: {
+    rollupOptions: {
+      external: ['@wdio/devtools-service/types']
+    }
+  }
 })

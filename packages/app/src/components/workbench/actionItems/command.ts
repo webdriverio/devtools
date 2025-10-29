@@ -22,16 +22,21 @@ export class CommandItem extends ActionItem {
     window.dispatchEvent(event)
   }
 
-  render () {
+  render() {
     if (!this.entry) {
       return
     }
 
     const entry = this.entry
     return html`
-      <button class="flex px-1 w-full items-center hover:bg-toolbarHoverBackground" @click="${() => this.#highlightLine()}">
+      <button
+        class="flex px-1 w-full items-center hover:bg-toolbarHoverBackground"
+        @click="${() => this.#highlightLine()}"
+      >
         <icon-mdi-arrow-right class="${ICON_CLASS}"></icon-mdi-arrow-right>
-        <code class="text-sm flex-wrap text-left break-all">${entry.command}</code>
+        <code class="text-sm flex-wrap text-left break-all"
+          >${entry.command}</code
+        >
         ${this.renderTime()}
       </button>
     `
