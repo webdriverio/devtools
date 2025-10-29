@@ -14,20 +14,20 @@ export default defineConfig({
       '@components': path.resolve(__dirname, './src/components'),
       '@wdio/devtools-service/types': path.resolve(
         __dirname,
-        '../service/dist/types.js'
-      ),
-    },
+        '../service/src/types.js'
+      )
+    }
   },
   plugins: [
     Icons({
       compiler: 'web-components',
       webComponents: {
         autoDefine: true,
-        shadow: false,
+        shadow: false
       },
       customCollections: {
-        custom: FileSystemIconLoader('./src/assets/icons'),
-      },
-    }),
-  ],
+        custom: FileSystemIconLoader('./src/assets/icons')
+      }
+    })
+  ]
 })
