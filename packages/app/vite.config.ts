@@ -6,30 +6,28 @@ import { FileSystemIconLoader } from 'unplugin-icons/loaders'
 
 const __dirname = url.fileURLToPath(new URL('.', import.meta.url))
 
-// https://vitejs.dev/config/
 export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
       '@core': path.resolve(__dirname, './src/core'),
-      '@components': path.resolve(__dirname, './src/components')
-    }
+      '@components': path.resolve(__dirname, './src/components'),
+      '@wdio/devtools-service/types': path.resolve(
+        __dirname,
+        '../service/dist/types.js'
+      ),
+    },
   },
   plugins: [
     Icons({
       compiler: 'web-components',
       webComponents: {
         autoDefine: true,
-        shadow: false
+        shadow: false,
       },
       customCollections: {
-        custom: FileSystemIconLoader('./src/assets/icons')
-      }
-    })
+        custom: FileSystemIconLoader('./src/assets/icons'),
+      },
+    }),
   ],
-  build: {
-    rollupOptions: {
-      external: ['@wdio/devtools-service/types']
-    }
-  }
 })
