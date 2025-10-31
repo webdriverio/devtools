@@ -98,8 +98,13 @@ export class DevtoolsBrowser extends Element {
     super.connectedCallback()
     window.addEventListener('resize', this.#boundResize)
     window.addEventListener('window-drag', this.#boundResize)
-    window.addEventListener('app-mutation-highlight', this.#highlightMutation.bind(this))
-    window.addEventListener('app-mutation-select', (ev) => this.#renderBrowserState(ev.detail))
+    window.addEventListener(
+      'app-mutation-highlight',
+      this.#highlightMutation.bind(this)
+    )
+    window.addEventListener('app-mutation-select', (ev) =>
+      this.#renderBrowserState(ev.detail)
+    )
     await this.updateComplete
   }
 
@@ -110,7 +115,7 @@ export class DevtoolsBrowser extends Element {
     this.#resizeTimer = window.setTimeout(() => this.#setIframeSize(), 80)
   }
 
-  #setIframeSize () {
+  #setIframeSize() {
     const metadata = this.metadata
     if (!this.section || !this.iframe || !this.header || !metadata) {
       return
@@ -173,11 +178,19 @@ export class DevtoolsBrowser extends Element {
     docEl.ownerDocument.replaceChild(this.#vdom, docEl)
   }
 
-  async #handleMutation (mutation: TraceMutation) {
-    if (!this.iframe) await this.updateComplete
-    if (mutation.type === 'attributes') return this.#handleAttributeMutation(mutation)
-    if (mutation.type === 'childList') return this.#handleChildListMutation(mutation)
-    if (mutation.type === 'characterData') return this.#handleCharacterDataMutation(mutation)
+  async #handleMutation(mutation: TraceMutation) {
+    if (!this.iframe) {
+      await this.updateComplete
+    }
+    if (mutation.type === 'attributes') {
+      return this.#handleAttributeMutation(mutation)
+    }
+    if (mutation.type === 'childList') {
+      return this.#handleChildListMutation(mutation)
+    }
+    if (mutation.type === 'characterData') {
+      return this.#handleCharacterDataMutation(mutation)
+    }
   }
 
   #handleCharacterDataMutation(mutation: TraceMutation) {
@@ -189,14 +202,19 @@ export class DevtoolsBrowser extends Element {
     el.textContent = mutation.newTextContent || ''
   }
 
-  #handleAttributeMutation (mutation: TraceMutation) {
+  #handleAttributeMutation(mutation: TraceMutation) {
     if (!mutation.attributeName) {
       return
     }
     const el = this.#queryElement(mutation.target!)
-    if (!el) return
+    if (!el) {
+      return
+    }
 
-    if (mutation.attributeValue === undefined || mutation.attributeValue === null) {
+    if (
+      mutation.attributeValue === undefined ||
+      mutation.attributeValue === null
+    ) {
       el.removeAttribute(mutation.attributeName)
     } else {
       el.setAttribute(mutation.attributeName, mutation.attributeValue)
@@ -278,18 +296,26 @@ export class DevtoolsBrowser extends Element {
 
   async #renderBrowserState(mutationEntry?: TraceMutation) {
     const mutations = this.mutations
-    if (!mutations?.length) return
+    if (!mutations?.length) {
+      return
+    }
 
     const targetIndex = mutationEntry ? mutations.indexOf(mutationEntry) : 0
-    if (targetIndex < 0) return
+    if (targetIndex < 0) {
+      return
+    }
 
     // locate nearest checkpoint (<= targetIndex)
-    const checkpointIndices = [...this.#checkpoints.keys()].sort((a,b) => a - b)
-    const nearest = checkpointIndices.filter(i => i <= targetIndex).pop()
+    const checkpointIndices = [...this.#checkpoints.keys()].sort(
+      (a, b) => a - b
+    )
+    const nearest = checkpointIndices.filter((i) => i <= targetIndex).pop()
 
     if (nearest !== undefined) {
       // start from checkpoint clone
-      this.#vdom = this.#checkpoints.get(nearest)!.cloneNode(true) as DocumentFragment
+      this.#vdom = this.#checkpoints
+        .get(nearest)!
+        .cloneNode(true) as DocumentFragment
     } else {
       this.#vdom = document.createDocumentFragment()
     }
@@ -299,20 +325,26 @@ export class DevtoolsBrowser extends Element {
     let rootIndex = startIndex
     for (let i = startIndex; i <= targetIndex; i++) {
       const m = mutations[i]
-      if (m.addedNodes.length === 1 && Boolean(m.url)) rootIndex = i
+      if (m.addedNodes.length === 1 && Boolean(m.url)) {
+        rootIndex = i
+      }
     }
     if (rootIndex !== startIndex) {
       this.#vdom = document.createDocumentFragment()
     }
 
-    this.#activeUrl = mutations[rootIndex].url || this.metadata?.url || 'unknown'
+    this.#activeUrl =
+      mutations[rootIndex].url || this.metadata?.url || 'unknown'
 
     for (let i = rootIndex; i <= targetIndex; i++) {
       try {
         await this.#handleMutation(mutations[i])
         // create checkpoint
         if (i % this.#checkpointStride === 0 && !this.#checkpoints.has(i)) {
-          this.#checkpoints.set(i, this.#vdom.cloneNode(true) as DocumentFragment)
+          this.#checkpoints.set(
+            i,
+            this.#vdom.cloneNode(true) as DocumentFragment
+          )
         }
       } catch (err: any) {
         console.warn(`Failed to render mutation ${i}: ${err?.message}`)
@@ -333,7 +365,9 @@ export class DevtoolsBrowser extends Element {
    */
   goToMutation(index: number) {
     const m = this.mutations[index]
-    if (m) this.#renderBrowserState(m)
+    if (m) {
+      this.#renderBrowserState(m)
+    }
   }
 
   render() {
