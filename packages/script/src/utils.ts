@@ -1,4 +1,8 @@
-import { parse, parseFragment as parseFragmentImport, type DefaultTreeAdapterMap } from 'parse5'
+import {
+  parse,
+  parseFragment as parseFragmentImport,
+  type DefaultTreeAdapterMap
+} from 'parse5'
 import { h } from 'htm/preact'
 import type { SimplifiedVNode } from '../types.ts'
 
@@ -10,12 +14,14 @@ export type vElement = DefaultTreeAdapterMap['element']
 export type vText = DefaultTreeAdapterMap['textNode']
 export type vChildNode = DefaultTreeAdapterMap['childNode']
 
-function createVNode (elem: any) {
+function createVNode(elem: any) {
   const { type, props } = elem
   return { type, props } as SimplifiedVNode
 }
 
-export function parseNode (fragment: vFragment | vComment | vText | vChildNode): SimplifiedVNode | string {
+export function parseNode(
+  fragment: vFragment | vComment | vText | vChildNode
+): SimplifiedVNode | string {
   const props: Record<string, any> = {}
 
   if (fragment.nodeName === '#comment') {
@@ -26,18 +32,20 @@ export function parseNode (fragment: vFragment | vComment | vText | vChildNode):
   }
 
   const { childNodes, attrs, tagName } = fragment as vElement
-  for (const p of (attrs || [])) {
-      props[p.name] = p.value
+  for (const p of attrs || []) {
+    props[p.name] = p.value
   }
 
   try {
-    return createVNode(h(tagName, props, ...(childNodes || []).map((cn) => parseNode(cn))) as any)
+    return createVNode(
+      h(tagName, props, ...(childNodes || []).map((cn) => parseNode(cn))) as any
+    )
   } catch (err: any) {
     return createVNode(h('div', { class: 'parseNode' }, err.stack))
   }
 }
 
-export function parseDocument (node: HTMLElement) {
+export function parseDocument(node: HTMLElement) {
   try {
     const fragment = parse(node.outerHTML)
     return parseNode(fragment.childNodes[0])
@@ -46,7 +54,7 @@ export function parseDocument (node: HTMLElement) {
   }
 }
 
-export function parseFragment (node: Element) {
+export function parseFragment(node: Element) {
   try {
     const fragment = parseFragmentImport(node.outerHTML)
     return parseNode(fragment)
@@ -55,7 +63,7 @@ export function parseFragment (node: Element) {
   }
 }
 
-export async function waitForBody () {
+export async function waitForBody() {
   let raf = 0
   let resolve: () => void
   let reject: (err: Error) => void
@@ -69,7 +77,7 @@ export async function waitForBody () {
     10000
   )
 
-  function run () {
+  function run() {
     if (!document.body) {
       return
     }
@@ -84,12 +92,15 @@ export async function waitForBody () {
 }
 
 let refId = 0
- /**
-  * assign a uid to each element so we can reference it later in the vdom
-  */
-export function assignRef (elem: Element) {
+/**
+ * assign a uid to each element so we can reference it later in the vdom
+ */
+export function assignRef(elem: Element) {
   if (typeof elem.querySelectorAll !== 'function') {
-    log('assignRef: elem has no querySelectorAll', elem.nodeType || elem.nodeName || elem.textContent || Object.keys(elem))
+    log(
+      'assignRef: elem has no querySelectorAll',
+      elem.nodeType || elem.nodeName || elem.textContent || Object.keys(elem)
+    )
     return
   }
 
@@ -97,14 +108,14 @@ export function assignRef (elem: Element) {
     elem.setAttribute('data-wdio-ref', `${++refId}`)
   }
 
-  Array.from(elem.querySelectorAll('*')).forEach(
-    (el) => { el.setAttribute('data-wdio-ref', `${++refId}`) })
+  Array.from(elem.querySelectorAll('*')).forEach((el) => {
+    el.setAttribute('data-wdio-ref', `${++refId}`)
+  })
 }
 
-export function getRef (elem: Node) {
+export function getRef(elem: Node) {
   if (!elem || !(elem as Element).getAttribute) {
     return null
   }
   return (elem as Element).getAttribute('data-wdio-ref')
 }
-

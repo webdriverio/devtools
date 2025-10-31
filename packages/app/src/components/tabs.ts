@@ -11,35 +11,42 @@ export class DevtoolsTabs extends Element {
   @property({ type: String })
   cacheId?: string
 
-  static styles = [...Element.styles, css`
-    :host {
-      width: 100%;
-      flex-grow: 1;
-      min-height: 0;
-      display: flex;
-      flex-direction: column;
-      color: var(--vscode-foreground);
-      background-color: var(--vscode-editor-background);
-    }
-  `]
+  static styles = [
+    ...Element.styles,
+    css`
+      :host {
+        width: 100%;
+        flex-grow: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        color: var(--vscode-foreground);
+        background-color: var(--vscode-editor-background);
+      }
+    `
+  ]
 
-  #getTabButton (tabId: string) {
+  #getTabButton(tabId: string) {
     return html`
       <button
         @click="${() => this.activateTab(tabId)}"
-        class="transition-colors px-4 py-2 hover:bg-toolbarHoverBackground ${this.#activeTab === tabId ? 'bg-toolbarHoverBackground' : ''}"
+        class="transition-colors px-4 py-2 hover:bg-toolbarHoverBackground ${this
+          .#activeTab === tabId
+          ? 'bg-toolbarHoverBackground'
+          : ''}"
       >
         ${tabId}
       </button>
     `
   }
 
-  get tabs () {
+  get tabs() {
     if (!this.shadowRoot) {
       return []
     }
-    const slot = [...Array.from(this.shadowRoot.querySelectorAll('slot'))]
-      .find((s) => !s.hasAttribute('name'))
+    const slot = [...Array.from(this.shadowRoot.querySelectorAll('slot'))].find(
+      (s) => !s.hasAttribute('name')
+    )
     if (!slot) {
       return []
     }
@@ -56,7 +63,7 @@ export class DevtoolsTabs extends Element {
     })
   }
 
-  activateTab (tabId: string) {
+  activateTab(tabId: string) {
     const activeTab = this.tabs.find((el) => el.getAttribute('label') === tabId)
     if (!activeTab) {
       return
@@ -76,23 +83,23 @@ export class DevtoolsTabs extends Element {
 
   connectedCallback() {
     super.connectedCallback()
-    setTimeout(() => { // wait till innerHTML is parsed
-      this.#tabList = this.tabs
-        .map((el) => el.getAttribute('label') as string)
-        .filter(Boolean) || []
+    setTimeout(() => {
+      // wait till innerHTML is parsed
+      this.#tabList =
+        this.tabs
+          .map((el) => el.getAttribute('label') as string)
+          .filter(Boolean) || []
 
       /**
        * get tab id either from local storage or a tab element that
        * has an "active" attribute
        */
-      this.#activeTab = (
-        (
-          this.cacheId && localStorage.getItem(this.cacheId)
-        ) ||
-        this.tabs.find(
-          (el) => el.hasAttribute('active')
-        )?.getAttribute('label') || undefined
-      )
+      this.#activeTab =
+        (this.cacheId && localStorage.getItem(this.cacheId)) ||
+        this.tabs
+          .find((el) => el.hasAttribute('active'))
+          ?.getAttribute('label') ||
+        undefined
 
       /**
        * set active tab or first tab as active
@@ -112,13 +119,12 @@ export class DevtoolsTabs extends Element {
     return html`
       ${this.#tabList.length
         ? html`
-          <nav class="flex w-full bg-sideBarBackground shadow-md z-10">
-            ${this.#tabList.map((tab) => this.#getTabButton(tab))}
-            <slot name="actions"></slot>
-          </nav>
-        `
-        : nothing
-      }
+            <nav class="flex w-full bg-sideBarBackground shadow-md z-10">
+              ${this.#tabList.map((tab) => this.#getTabButton(tab))}
+              <slot name="actions"></slot>
+            </nav>
+          `
+        : nothing}
       <slot></slot>
     `
   }
@@ -127,24 +133,25 @@ export class DevtoolsTabs extends Element {
 const TAB_COMPONENT = 'wdio-devtools-tab'
 @customElement(TAB_COMPONENT)
 export class DevtoolsTab extends Element {
-  static styles = [...Element.styles, css`
-    :host {
-      display: none;
-      flex-grow: 1;
-      min-height: 0;
-      overflow-y: auto;
-      scrollbar-width: none;
-    }
+  static styles = [
+    ...Element.styles,
+    css`
+      :host {
+        display: none;
+        flex-grow: 1;
+        min-height: 0;
+        overflow-y: auto;
+        scrollbar-width: none;
+      }
 
-    :host([active]) {
-      display: flex;
-    }
-  `]
+      :host([active]) {
+        display: flex;
+      }
+    `
+  ]
 
   render() {
-    return html`
-      <slot></slot>
-    `
+    return html` <slot></slot> `
   }
 }
 

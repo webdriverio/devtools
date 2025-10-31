@@ -20,9 +20,9 @@ interface DevtoolsBackendOptions {
 const log = logger('@wdio/devtools-backend')
 const clients = new Set<WebSocket>()
 
-export async function start (opts: DevtoolsBackendOptions = {}) {
+export async function start(opts: DevtoolsBackendOptions = {}) {
   const host = opts.hostname || 'localhost'
-  const port = opts.port || await getPort({ port: DEFAULT_PORT })
+  const port = opts.port || (await getPort({ port: DEFAULT_PORT }))
   const appPath = await getDevtoolsApp()
 
   server = Fastify({ logger: true })
@@ -31,29 +31,39 @@ export async function start (opts: DevtoolsBackendOptions = {}) {
     root: appPath
   })
 
-  server.get('/client', { websocket: true }, (socket: WebSocket, _req: FastifyRequest) => {
+  server.get(
+    '/client',
+    { websocket: true },
+    (socket: WebSocket, _req: FastifyRequest) => {
       log.info('client connected')
       clients.add(socket)
       socket.on('close', () => clients.delete(socket))
-  })
+    }
+  )
 
-  server.get('/worker', { websocket: true }, (socket: WebSocket, _req: FastifyRequest) => {
+  server.get(
+    '/worker',
+    { websocket: true },
+    (socket: WebSocket, _req: FastifyRequest) => {
       socket.on('message', (message: Buffer) => {
-          log.info(`received ${message.length} byte message from worker to ${clients.size} client${clients.size > 1 ? 's' : ''}`)
-          clients.forEach((client) => {
-              if (client.readyState === WebSocket.OPEN) {
-                  client.send(message.toString())
-              }
-          })
+        log.info(
+          `received ${message.length} byte message from worker to ${clients.size} client${clients.size > 1 ? 's' : ''}`
+        )
+        clients.forEach((client) => {
+          if (client.readyState === WebSocket.OPEN) {
+            client.send(message.toString())
+          }
+        })
       })
-  })
+    }
+  )
 
   log.info(`Starting WebdriverIO Devtools application on port ${port}`)
   await server.listen({ port, host })
   return server
 }
 
-export async function stop () {
+export async function stop() {
   if (!server) {
     return
   }

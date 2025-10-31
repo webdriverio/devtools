@@ -6,7 +6,9 @@ import placeholderLoadingCSS from 'placeholder-loading/dist/css/placeholder-load
 
 @customElement('wdio-devtools-placeholder')
 export class DevtoolsPlaceholder extends Element {
-  static styles = [unsafeCSS(placeholderLoadingCSS), unsafeCSS(`
+  static styles = [
+    unsafeCSS(placeholderLoadingCSS),
+    unsafeCSS(`
     :host {
       display: block;
       width: 100%;
@@ -22,7 +24,8 @@ export class DevtoolsPlaceholder extends Element {
     .ph-item div {
       opacity: .6;
     }
-  `)]
+  `)
+  ]
 
   render() {
     return html`

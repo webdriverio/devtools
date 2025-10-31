@@ -9,7 +9,7 @@ export class Element extends LitElement {
    * get shadow root of element as promise which gets resolved once the element
    * is connected to the DOM
    */
-  async getShadowRootAsync () {
+  async getShadowRootAsync() {
     await this.updateComplete
     return this.shadowRoot
   }

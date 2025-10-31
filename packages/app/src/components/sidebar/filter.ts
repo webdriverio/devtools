@@ -16,19 +16,22 @@ export class DevtoolsSidebarFilter extends Element {
   #filterQuery = ''
   #isStateFilterOpen = false
 
-  static styles = [...Element.styles, css`
-    :host {
-      width: 100%;
-      display: flex;
-      align-items: top;
-      font-size: 0.8em;
-      padding-right: 1em;
-    }
+  static styles = [
+    ...Element.styles,
+    css`
+      :host {
+        width: 100%;
+        display: flex;
+        align-items: top;
+        font-size: 0.8em;
+        padding-right: 1em;
+      }
 
-    label {
-      cursor: pointer;
-    }
-  `]
+      label {
+        cursor: pointer;
+      }
+    `
+  ]
 
   @query('input[name="filter"]')
   queryInput?: HTMLInputElement
@@ -44,7 +47,7 @@ export class DevtoolsSidebarFilter extends Element {
     this.#emitState()
   }
 
-  #updateQuery () {
+  #updateQuery() {
     if (!this.queryInput) {
       return
     }
@@ -57,40 +60,56 @@ export class DevtoolsSidebarFilter extends Element {
     this.requestUpdate()
   }
 
-  #emitState () {
-    window.dispatchEvent(new CustomEvent('app-test-filter', {
-      bubbles: true,
-      composed: true,
-      detail: this
-    }))
+  #emitState() {
+    window.dispatchEvent(
+      new CustomEvent('app-test-filter', {
+        bubbles: true,
+        composed: true,
+        detail: this
+      })
+    )
   }
 
-  get filtersPassed () {
+  get filtersPassed() {
     return this.#filterState & FilterState.PASSED
   }
-  get filtersFailed () {
+  get filtersFailed() {
     return this.#filterState & FilterState.FAILED
   }
-  get filtersSkipped () {
+  get filtersSkipped() {
     return this.#filterState & FilterState.SKIPPED
   }
-  get filterStatus () {
+  get filterStatus() {
     if (this.filtersPassed && this.filtersFailed && this.filtersSkipped) {
       return 'all'
     }
 
-    return ['passed', 'failed', 'skipped']
-      .filter((filter) => this[`filters${filter.charAt(0).toUpperCase() + filter.slice(1)}` as keyof typeof this])
-      .join(', ') || 'none'
+    return (
+      ['passed', 'failed', 'skipped']
+        .filter(
+          (filter) =>
+            this[
+              `filters${filter.charAt(0).toUpperCase() + filter.slice(1)}` as keyof typeof this
+            ]
+        )
+        .join(', ') || 'none'
+    )
   }
-  get filterQuery () {
+  get filterQuery() {
     return this.#filterQuery
   }
 
   render() {
     return html`
-      <button class="pointer p-2 h-10" @click="${() => this.#toggleStateFilter() }">
-        <icon-mdi-chevron-right class="transition-transform text-base block ${this.#isStateFilterOpen ? 'block rotate-90' : ''}"></icon-mdi-chevron-right>
+      <button
+        class="pointer p-2 h-10"
+        @click="${() => this.#toggleStateFilter()}"
+      >
+        <icon-mdi-chevron-right
+          class="transition-transform text-base block ${this.#isStateFilterOpen
+            ? 'block rotate-90'
+            : ''}"
+        ></icon-mdi-chevron-right>
       </button>
       <div class="flex flex-col w-full">
         <input
@@ -101,20 +120,39 @@ export class DevtoolsSidebarFilter extends Element {
           @keyup="${this.#updateQuery.bind(this)}"
         />
         <div class="mb-2">
-          <em class="text-disabledForeground not-italic font-bold">Status:</em> ${this.filterStatus}
+          <em class="text-disabledForeground not-italic font-bold">Status:</em>
+          ${this.filterStatus}
         </div>
-        <form @change="${this.#updateState}" class="${this.#isStateFilterOpen ? 'show' : 'hidden'}">
+        <form
+          @change="${this.#updateState}"
+          class="${this.#isStateFilterOpen ? 'show' : 'hidden'}"
+        >
           <ul class="block w-full">
             <li>
-              <input type="checkbox" value="${FilterState.PASSED}" name="passed" id="passed" />
+              <input
+                type="checkbox"
+                value="${FilterState.PASSED}"
+                name="passed"
+                id="passed"
+              />
               <label for="passed">Passed</label>
             </li>
             <li>
-              <input type="checkbox" value="${FilterState.FAILED}" name="failed" id="failed" />
+              <input
+                type="checkbox"
+                value="${FilterState.FAILED}"
+                name="failed"
+                id="failed"
+              />
               <label for="failed">Failed</label>
             </li>
             <li>
-              <input type="checkbox" value="${FilterState.SKIPPED}" name="skipped" id="skipped" />
+              <input
+                type="checkbox"
+                value="${FilterState.SKIPPED}"
+                name="skipped"
+                id="skipped"
+              />
               <label for="skipped">Skipped</label>
             </li>
           </ul>

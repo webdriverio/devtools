@@ -14,11 +14,10 @@ const darkModeInitValue = localStorage.getItem(DARK_MODE_KEY)
 
 @customElement('wdio-devtools-header')
 export class DevtoolsHeader extends Element {
-  #darkMode = (
+  #darkMode =
     typeof darkModeInitValue === 'string'
       ? darkModeInitValue === 'true'
       : window.matchMedia('(prefers-color-scheme: dark)').matches
-  )
 
   constructor() {
     super()
@@ -27,15 +26,18 @@ export class DevtoolsHeader extends Element {
     }
   }
 
-  static styles = [...Element.styles, css`
-    :host {
-      display: flex;
-      align-items: center;
-      background: black;
-      height: 40px;
-      width: 100%;
-    }
-  `]
+  static styles = [
+    ...Element.styles,
+    css`
+      :host {
+        display: flex;
+        align-items: center;
+        background: black;
+        height: 40px;
+        width: 100%;
+      }
+    `
+  ]
 
   render() {
     return html`
@@ -44,8 +46,12 @@ export class DevtoolsHeader extends Element {
       <nav class="ml-auto mr-2">
         <wdio-devtools-trace-loader as="button"></wdio-devtools-trace-loader>
         <button class="p-2" @click="${this.#switchMode}">
-          <icon-mdi-moon-waning-crescent class="${this.#darkMode ? 'hidden' : 'show'}"></icon-mdi-moon-waning-crescent>
-          <icon-mdi-white-balance-sunny class="${this.#darkMode ? 'show' : 'hidden'}"></icon-mdi-white-balance-sunny>
+          <icon-mdi-moon-waning-crescent
+            class="${this.#darkMode ? 'hidden' : 'show'}"
+          ></icon-mdi-moon-waning-crescent>
+          <icon-mdi-white-balance-sunny
+            class="${this.#darkMode ? 'show' : 'hidden'}"
+          ></icon-mdi-white-balance-sunny>
         </button>
       </nav>
     `

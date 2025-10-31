@@ -8,7 +8,9 @@ export interface TraceMetadata {
 
 export interface SimplifiedVNode {
   type: string
-  props: Record<string, string> & { children?: SimplifiedVNode | SimplifiedVNode[] }
+  props: Record<string, string> & {
+    children?: SimplifiedVNode | SimplifiedVNode[]
+  }
 }
 
 declare global {
