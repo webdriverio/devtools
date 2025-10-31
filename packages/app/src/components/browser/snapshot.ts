@@ -43,6 +43,10 @@ const COMPONENT = 'wdio-devtools-browser'
 export class DevtoolsBrowser extends Element {
   #vdom = document.createDocumentFragment()
   #activeUrl?: string
+  #resizeTimer?: number
+  #boundResize = () => this.#debouncedResize()
+  #checkpoints = new Map<number, DocumentFragment>()
+  #checkpointStride = 50
 
   @consume({ context: metadataContext, subscribe: true })
   metadata: Metadata | undefined = undefined
@@ -92,8 +96,8 @@ export class DevtoolsBrowser extends Element {
 
   async connectedCallback() {
     super.connectedCallback()
-    window.addEventListener('resize', this.#setIframeSize.bind(this))
-    window.addEventListener('window-drag', this.#setIframeSize.bind(this))
+    window.addEventListener('resize', this.#boundResize)
+    window.addEventListener('window-drag', this.#boundResize)
     window.addEventListener(
       'app-mutation-highlight',
       this.#highlightMutation.bind(this)
@@ -102,6 +106,13 @@ export class DevtoolsBrowser extends Element {
       this.#renderBrowserState(ev.detail)
     )
     await this.updateComplete
+  }
+
+  #debouncedResize() {
+    if (this.#resizeTimer) {
+      window.clearTimeout(this.#resizeTimer)
+    }
+    this.#resizeTimer = window.setTimeout(() => this.#setIframeSize(), 80)
   }
 
   #setIframeSize() {
@@ -171,7 +182,6 @@ export class DevtoolsBrowser extends Element {
     if (!this.iframe) {
       await this.updateComplete
     }
-
     if (mutation.type === 'attributes') {
       return this.#handleAttributeMutation(mutation)
     }
@@ -193,16 +203,22 @@ export class DevtoolsBrowser extends Element {
   }
 
   #handleAttributeMutation(mutation: TraceMutation) {
-    if (!mutation.attributeName || !mutation.attributeValue) {
+    if (!mutation.attributeName) {
       return
     }
-
     const el = this.#queryElement(mutation.target!)
     if (!el) {
       return
     }
 
-    el.setAttribute(mutation.attributeName, mutation.attributeValue || '')
+    if (
+      mutation.attributeValue === undefined ||
+      mutation.attributeValue === null
+    ) {
+      el.removeAttribute(mutation.attributeName)
+    } else {
+      el.setAttribute(mutation.attributeName, mutation.attributeValue)
+    }
   }
 
   #handleChildListMutation(mutation: TraceMutation) {
@@ -280,50 +296,78 @@ export class DevtoolsBrowser extends Element {
 
   async #renderBrowserState(mutationEntry?: TraceMutation) {
     const mutations = this.mutations
-    if (!mutations || !mutations.length) {
+    if (!mutations?.length) {
       return
     }
 
-    const mutationIndex = mutationEntry ? mutations.indexOf(mutationEntry) : 0
-    this.#vdom = document.createDocumentFragment()
-    const rootIndex =
-      mutations
-        .map(
-          (m, i) =>
-            [
-              // is document loaded
-              m.addedNodes.length === 1 && Boolean(m.url),
-              // index
-              i
-            ] as const
-        )
-        .filter(
-          ([isDocLoaded, docLoadedIndex]) =>
-            isDocLoaded && docLoadedIndex <= mutationIndex
-        )
-        .map(([, i]) => i)
-        .pop() || 0
+    const targetIndex = mutationEntry ? mutations.indexOf(mutationEntry) : 0
+    if (targetIndex < 0) {
+      return
+    }
+
+    // locate nearest checkpoint (<= targetIndex)
+    const checkpointIndices = [...this.#checkpoints.keys()].sort(
+      (a, b) => a - b
+    )
+    const nearest = checkpointIndices.filter((i) => i <= targetIndex).pop()
+
+    if (nearest !== undefined) {
+      // start from checkpoint clone
+      this.#vdom = this.#checkpoints
+        .get(nearest)!
+        .cloneNode(true) as DocumentFragment
+    } else {
+      this.#vdom = document.createDocumentFragment()
+    }
+
+    // find root after checkpoint (initial full doc mutation)
+    const startIndex = nearest !== undefined ? nearest + 1 : 0
+    let rootIndex = startIndex
+    for (let i = startIndex; i <= targetIndex; i++) {
+      const m = mutations[i]
+      if (m.addedNodes.length === 1 && Boolean(m.url)) {
+        rootIndex = i
+      }
+    }
+    if (rootIndex !== startIndex) {
+      this.#vdom = document.createDocumentFragment()
+    }
 
     this.#activeUrl =
       mutations[rootIndex].url || this.metadata?.url || 'unknown'
-    for (let i = rootIndex; i <= mutationIndex; i++) {
-      await this.#handleMutation(mutations[i]).catch((err) =>
-        console.warn(`Failed to render mutation: ${err.message}`)
-      )
-    }
 
-    /**
-     * scroll changed element into view
-     */
-    const mutation = mutations[mutationIndex]
-    if (mutation.target) {
-      const el = this.#queryElement(mutation.target)
-      if (el) {
-        el.scrollIntoView({ block: 'center', inline: 'center' })
+    for (let i = rootIndex; i <= targetIndex; i++) {
+      try {
+        await this.#handleMutation(mutations[i])
+        // create checkpoint
+        if (i % this.#checkpointStride === 0 && !this.#checkpoints.has(i)) {
+          this.#checkpoints.set(
+            i,
+            this.#vdom.cloneNode(true) as DocumentFragment
+          )
+        }
+      } catch (err: any) {
+        console.warn(`Failed to render mutation ${i}: ${err?.message}`)
       }
     }
 
+    const mutation = mutations[targetIndex]
+    if (mutation.target) {
+      const el = this.#queryElement(mutation.target)
+      el?.scrollIntoView({ block: 'center', inline: 'center' })
+    }
+
     this.requestUpdate()
+  }
+
+  /**
+   * Public API: jump to mutation index
+   */
+  goToMutation(index: number) {
+    const m = this.mutations[index]
+    if (m) {
+      this.#renderBrowserState(m)
+    }
   }
 
   render() {
