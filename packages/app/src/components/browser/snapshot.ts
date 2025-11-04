@@ -5,6 +5,7 @@ import { consume } from '@lit/context'
 import { type ComponentChildren, h, render, type VNode } from 'preact'
 import { customElement, query } from 'lit/decorators.js'
 import type { SimplifiedVNode } from '../../../../script/types'
+import type { CommandLog } from '@wdio/devtools-service/types'
 
 import {
   mutationContext,
@@ -101,6 +102,10 @@ export class DevtoolsBrowser extends Element {
     window.addEventListener('app-mutation-select', (ev) =>
       this.#renderBrowserState(ev.detail)
     )
+    window.addEventListener(
+      'show-command',
+      this.#handleShowCommand as EventListener
+    )
     await this.updateComplete
   }
 
@@ -132,6 +137,31 @@ export class DevtoolsBrowser extends Element {
     // this.iframe.style.height = `${(Math.min(frameSize.height, viewportHeight * scale) - headerSize.height)}px`
     this.iframe.style.height = `${viewportHeight - headerSize.height / scale}px`
     this.iframe.style.transform = `scale(${scale})`
+  }
+
+  #handleShowCommand = (event: Event) =>
+    this.#renderCommandScreenshot(
+      (event as CustomEvent<{ command?: CommandLog }>).detail?.command
+    )
+
+  async #renderCommandScreenshot(command?: CommandLog) {
+    const screenshot = command?.screenshot
+    if (!screenshot) {
+      return
+    }
+
+    if (!this.iframe) {
+      await this.updateComplete
+    }
+    if (!this.iframe) {
+      return
+    }
+
+    this.iframe.srcdoc = `
+      <body style="margin:0;background:#111;display:flex;justify-content:center;align-items:flex-start;">
+        <img src="data:image/png;base64,${screenshot}" style="max-width:100%;height:auto;display:block;" />
+      </body>
+    `
   }
 
   async #renderNewDocument(doc: SimplifiedVNode, baseUrl: string) {

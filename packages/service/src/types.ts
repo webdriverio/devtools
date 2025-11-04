@@ -9,6 +9,7 @@ export interface CommandLog {
   error?: Error
   timestamp: number
   callSource: string
+  screenshot?: string
 }
 
 export enum TraceType {
