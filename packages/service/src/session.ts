@@ -102,6 +102,11 @@ export class SessionCapturer {
       timestamp,
       callSource: absPath
     }
+    try {
+      newCommand.screenshot = await browser.takeScreenshot()
+    } catch (shotErr) {
+      log.warn(`failed to capture screenshot: ${(shotErr as Error).message}`)
+    }
     this.commandsLog.push(newCommand)
     this.sendUpstream('commands', [newCommand])
 
