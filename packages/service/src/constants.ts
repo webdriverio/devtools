@@ -31,7 +31,9 @@ export const INTERNAL_COMMANDS = [
   'scriptCallFunction',
   'getElement',
   'execute',
-  'findElement'
+  'findElement',
+  'getElementText',
+  'getElementShadowRoot'
 ]
 
 export const CONTEXT_CHANGE_COMMANDS = [
