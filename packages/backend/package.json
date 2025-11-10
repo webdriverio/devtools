@@ -1,6 +1,6 @@
 {
   "name": "@wdio/devtools-backend",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "description": "Backend service to spin up WebdriverIO Devtools",
   "author": "Christian Bromann <mail@bromann.dev>",
   "license": "MIT",
