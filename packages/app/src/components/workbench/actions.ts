@@ -48,12 +48,13 @@ export class DevtoolsActions extends Element {
       (a, b) => a.timestamp - b.timestamp
     )
 
-    if (!entries.length || !mutations.length) {
+    if (!entries.length) {
       return html`<wdio-devtools-placeholder></wdio-devtools-placeholder>`
     }
+    const baselineTimestamp = entries[0]?.timestamp ?? 0
 
     return entries.map((entry) => {
-      const elapsedTime = entry.timestamp - mutations[0].timestamp
+      const elapsedTime = entry.timestamp - baselineTimestamp
 
       if ('command' in entry) {
         return html`
