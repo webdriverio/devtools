@@ -23,6 +23,11 @@ export const launcher = DevToolsAppLauncher
 
 const log = logger('@wdio/devtools-service')
 
+type CommandFrame = {
+  command: string
+  callSource?: string
+}
+
 /**
  * Setup WebdriverIO Devtools hook for standalone instances
  */
@@ -87,7 +92,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
    * This is used to capture the command stack to ensure that we only capture
    * commands that are top-level user commands.
    */
-  #commandStack: string[] = []
+  #commandStack: CommandFrame[] = []
 
   // This is used to capture the last command signature to avoid duplicate captures
   #lastCommandSig: string | null = null
@@ -101,12 +106,33 @@ export default class DevToolsHookService implements Services.ServiceInstance {
   // This is used to track if the injection script is currently being injected
   #injecting = false
 
-  before(
+  async before(
     caps: Capabilities.W3CCapabilities,
     __: string[],
     browser: WebdriverIO.Browser
   ) {
     this.#browser = browser
+
+    /**
+     * create a new session capturer instance with the devtools options
+     */
+    const wdioCaps = caps as Capabilities.W3CCapabilities & {
+      'wdio:devtoolsOptions'?: any
+    }
+    this.#sessionCapturer = new SessionCapturer(
+      wdioCaps['wdio:devtoolsOptions']
+    )
+
+    /**
+     * Block until injection completes BEFORE any test commands
+     */
+    try {
+      await this.#injectScriptSync(browser)
+    } catch (err) {
+      log.error(
+        `Failed to inject script at session start: ${(err as Error).message}`
+      )
+    }
 
     /**
      * propagate session metadata at the beginning of the session
@@ -121,17 +147,6 @@ export default class DevToolsHookService implements Services.ServiceInstance {
           capabilities: browser.capabilities as Capabilities.W3CCapabilities
         })
       )
-    this.#ensureInjected('session-start')
-
-    /**
-     * create a new session capturer instance with the devtools options
-     */
-    const wdioCaps = caps as Capabilities.W3CCapabilities & {
-      'wdio:devtoolsOptions'?: any
-    }
-    this.#sessionCapturer = new SessionCapturer(
-      wdioCaps['wdio:devtoolsOptions']
-    )
   }
 
   // The method signature is corrected to use W3CCapabilities
@@ -216,14 +231,37 @@ export default class DevToolsHookService implements Services.ServiceInstance {
       this.#commandStack.length === 0 &&
       !INTERNAL_COMMANDS.includes(command)
     ) {
+      const rawFile = source.getFileName() ?? undefined
+      let absPath = rawFile
+
+      if (rawFile?.startsWith('file://')) {
+        try {
+          const url = new URL(rawFile)
+          absPath = decodeURIComponent(url.pathname)
+        } catch {
+          absPath = rawFile
+        }
+      }
+
+      if (absPath?.includes('?')) {
+        absPath = absPath.split('?')[0]
+      }
+
+      const line = source.getLineNumber() ?? undefined
+      const column = source.getColumnNumber() ?? undefined
+      const callSource =
+        absPath !== undefined
+          ? `${absPath}:${line ?? 0}:${column ?? 0}`
+          : undefined
+
       const cmdSig = JSON.stringify({
         command,
         args,
-        src: source.getFileName() + ':' + source.getLineNumber()
+        src: callSource
       })
 
       if (this.#lastCommandSig !== cmdSig) {
-        this.#commandStack.push(command)
+        this.#commandStack.push({ command, callSource })
         this.#lastCommandSig = cmdSig
       }
     }
@@ -243,7 +281,8 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     /* Ensure that the command is captured only if it matches the last command in the stack.
      * This prevents capturing commands that are not top-level user commands.
      */
-    if (this.#commandStack[this.#commandStack.length - 1] === command) {
+    const frame = this.#commandStack[this.#commandStack.length - 1]
+    if (frame?.command === command) {
       this.#commandStack.pop()
       if (this.#browser) {
         return this.#sessionCapturer.afterCommand(
@@ -251,7 +290,8 @@ export default class DevToolsHookService implements Services.ServiceInstance {
           command,
           args,
           result,
-          error
+          error,
+          frame.callSource
         )
       }
     }
@@ -295,16 +335,27 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     log.info(`DevTools trace saved to ${traceFilePath}`)
   }
 
-  async #ensureInjected(reason: string) {
-    if (!this.#browser) {
-      return
+  /**
+   * Synchronous injection that blocks until complete
+   */
+  async #injectScriptSync(browser: WebdriverIO.Browser) {
+    if (!browser.isBidi) {
+      throw new SevereServiceError(
+        `Can not set up devtools for session with id "${browser.sessionId}" because it doesn't support WebDriver Bidi`
+      )
     }
-    if (this.#injecting) {
+
+    await this.#sessionCapturer.injectScript(getBrowserObject(browser))
+    log.info('✓ Devtools preload script active')
+  }
+
+  async #ensureInjected(reason: string) {
+    // Keep this for re-injection after context changes
+    if (!this.#browser || this.#injecting) {
       return
     }
     try {
       this.#injecting = true
-      // Cheap marker check (no heavy stack work)
       const markerPresent = await this.#browser.execute(() => {
         return Boolean((window as any).__WDIO_DEVTOOLS_MARK)
       })

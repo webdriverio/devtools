@@ -60,9 +60,9 @@ export class SessionCapturer {
     command: keyof WebDriverCommands,
     args: any[],
     result: any,
-    error: Error | undefined
+    error: Error | undefined,
+    callSource?: string
   ) {
-    const timestamp = Date.now()
     const sourceFile =
       parse(new Error(''))
         .filter((frame) => Boolean(frame.getFileName()))
@@ -99,8 +99,8 @@ export class SessionCapturer {
       args,
       result,
       error,
-      timestamp,
-      callSource: absPath
+      timestamp: Date.now(),
+      callSource: callSource ?? absPath
     }
     try {
       newCommand.screenshot = await browser.takeScreenshot()
@@ -120,6 +120,7 @@ export class SessionCapturer {
 
   async injectScript(browser: WebdriverIO.Browser) {
     if (this.#isInjected) {
+      log.info('Script already injected, skipping')
       return
     }
 
@@ -130,6 +131,7 @@ export class SessionCapturer {
     }
 
     this.#isInjected = true
+    log.info('Injecting devtools script...')
     const script = await resolve('@wdio/devtools-script', import.meta.url)
     const source = (await fs.readFile(url.fileURLToPath(script))).toString()
     const functionDeclaration = `async () => { ${source} }`
@@ -137,31 +139,48 @@ export class SessionCapturer {
     await browser.scriptAddPreloadScript({
       functionDeclaration
     })
+    log.info('✓ Script injected successfully')
   }
 
   async #captureTrace(browser: WebdriverIO.Browser) {
-    /**
-     * only capture trace if script was injected
-     */
     if (!this.#isInjected) {
+      log.warn('Script not injected, skipping trace capture')
       return
     }
 
-    const { mutations, traceLogs, consoleLogs, metadata } =
-      await browser.execute(() => window.wdioTraceCollector.getTraceData())
-    this.metadata = metadata
+    try {
+      const collectorExists = await browser.execute(
+        () => typeof window.wdioTraceCollector !== 'undefined'
+      )
 
-    if (Array.isArray(mutations)) {
-      this.mutations.push(...(mutations as TraceMutation[]))
-      this.sendUpstream('mutations', mutations)
-    }
-    if (Array.isArray(traceLogs)) {
-      this.traceLogs.push(...traceLogs)
-      this.sendUpstream('logs', traceLogs)
-    }
-    if (Array.isArray(consoleLogs)) {
-      this.consoleLogs.push(...(consoleLogs as ConsoleLogs[]))
-      this.sendUpstream('consoleLogs', consoleLogs)
+      if (!collectorExists) {
+        log.warn(
+          'wdioTraceCollector not loaded yet - page loaded before preload script took effect'
+        )
+        return
+      }
+
+      const { mutations, traceLogs, consoleLogs, metadata } =
+        await browser.execute(() => window.wdioTraceCollector.getTraceData())
+      this.metadata = metadata
+
+      if (Array.isArray(mutations)) {
+        this.mutations.push(...(mutations as TraceMutation[]))
+        this.sendUpstream('mutations', mutations)
+      }
+      if (Array.isArray(traceLogs)) {
+        this.traceLogs.push(...traceLogs)
+        this.sendUpstream('logs', traceLogs)
+      }
+      if (Array.isArray(consoleLogs)) {
+        this.consoleLogs.push(...(consoleLogs as ConsoleLogs[]))
+        this.sendUpstream('consoleLogs', consoleLogs)
+      }
+
+      this.sendUpstream('metadata', metadata)
+      log.info(`✓ Sent metadata upstream, WS state: ${this.#ws?.readyState}`)
+    } catch (err) {
+      log.error(`Failed to capture trace: ${(err as Error).message}`)
     }
   }
 

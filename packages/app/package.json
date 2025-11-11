@@ -1,6 +1,6 @@
 {
   "name": "@wdio/devtools-app",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Browser devtools extension for debugging WebdriverIO tests.",
   "type": "module",
   "exports": "./src/index.ts",

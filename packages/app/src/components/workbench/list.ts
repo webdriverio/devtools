@@ -95,17 +95,18 @@ export class DevtoolsList extends Element {
   }
 
   render() {
-    const isArrayList = Array.isArray(this.list)
+    const list = this.list ?? {}
+    const isArrayList = Array.isArray(list)
 
-    if (this.list === null) {
+    if (list === null) {
       return null
     }
-    if (isArrayList && (this.list as unknown[]).length === 0) {
+    if (isArrayList && (list as unknown[]).length === 0) {
       return null
     }
     if (
       !isArrayList &&
-      Object.keys(this.list as Record<string, unknown>).length === 0
+      Object.keys(list as Record<string, unknown>).length === 0
     ) {
       return null
     }
