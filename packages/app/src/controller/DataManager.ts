@@ -167,15 +167,9 @@ export class DataManagerController implements ReactiveController {
           ...(data as Record<string, string>)
         }
         this.sourcesContextProvider.setValue(merged)
-        console.debug('Merged sources keys', Object.keys(merged))
       } else {
         const providerMap = {
-          mutations: this.mutationsContextProvider,
           logs: this.logsContextProvider,
-          consoleLogs: this.consoleLogsContextProvider,
-          metadata: this.metadataContextProvider,
-          commands: this.commandsContextProvider,
-          sources: this.sourcesContextProvider,
           suites: this.suitesContextProvider
         } as const
         const provider = providerMap[scope as keyof typeof providerMap]
