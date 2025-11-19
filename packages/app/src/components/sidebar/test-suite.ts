@@ -1,6 +1,7 @@
 import { Element } from '@core/element'
 import { html, css, nothing } from 'lit'
 import { customElement, property } from 'lit/decorators.js'
+import { viewSource } from '../../utils/TestRunner.js'
 
 import { CollapseableEntry } from './collapseableEntry.js'
 
@@ -80,17 +81,6 @@ export class ExplorerTestEntry extends CollapseableEntry {
       this.allowCollapseAll = false
     }
     this.requestUpdate()
-  }
-
-  #viewSource() {
-    if (!this.callSource) {
-      return
-    }
-    window.dispatchEvent(
-      new CustomEvent('app-source-highlight', {
-        detail: this.callSource
-      })
-    )
   }
 
   get hasPassed() {
@@ -181,7 +171,7 @@ export class ExplorerTestEntry extends CollapseableEntry {
               `}
           <button
             class="p-1 rounded hover:bg-toolbarHoverBackground my-1 group"
-            @click="${() => this.#viewSource()}"
+            @click="${() => viewSource(this.callSource)}"
           >
             <icon-mdi-eye class="group-hover:text-chartsYellow"></icon-mdi-eye>
           </button>
