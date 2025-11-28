@@ -3,9 +3,10 @@ import { html, css, nothing, type TemplateResult } from 'lit'
 import { customElement } from 'lit/decorators.js'
 import { consume } from '@lit/context'
 import type { TestStats, SuiteStats } from '@wdio/reporter'
+import type { Metadata } from '@wdio/devtools-service/types'
 import { repeat } from 'lit/directives/repeat.js'
 import { TestState } from './test-suite.js'
-import { suiteContext } from '../../controller/DataManager.js'
+import { suiteContext, metadataContext } from '../../controller/DataManager.js'
 
 import '~icons/mdi/play.js'
 import '~icons/mdi/stop.js'
@@ -16,6 +17,7 @@ import '~icons/mdi/expand-all.js'
 import './test-suite.js'
 import { CollapseableEntry } from './collapseableEntry.js'
 import type { DevtoolsSidebarFilter } from './filter.js'
+import type { TestRunDetail } from './test-suite.js'
 
 const EXPLORER = 'wdio-devtools-sidebar-explorer'
 
@@ -25,11 +27,17 @@ interface TestEntry {
   label: string
   callSource?: string
   children: TestEntry[]
+  type: 'suite' | 'test'
+  specFile?: string
+  fullTitle?: string
 }
 
 @customElement(EXPLORER)
 export class DevtoolsSidebarExplorer extends CollapseableEntry {
   #testFilter: DevtoolsSidebarFilter | undefined
+  #filterListener = this.#filterTests.bind(this)
+  #runListener = this.#handleTestRun.bind(this)
+  #stopListener = this.#handleTestStop.bind(this)
 
   static styles = [
     ...Element.styles,
@@ -58,9 +66,24 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
   @consume({ context: suiteContext, subscribe: true })
   suites: Record<string, SuiteStats>[] | undefined = undefined
 
+  @consume({ context: metadataContext, subscribe: true })
+  metadata: Metadata | undefined = undefined
+
   connectedCallback(): void {
     super.connectedCallback()
-    window.addEventListener('app-test-filter', this.#filterTests.bind(this))
+    window.addEventListener('app-test-filter', this.#filterListener)
+    this.addEventListener('app-test-run', this.#runListener as EventListener)
+    this.addEventListener('app-test-stop', this.#stopListener as EventListener)
+  }
+
+  disconnectedCallback(): void {
+    super.disconnectedCallback()
+    window.removeEventListener('app-test-filter', this.#filterListener)
+    this.removeEventListener('app-test-run', this.#runListener as EventListener)
+    this.removeEventListener(
+      'app-test-stop',
+      this.#stopListener as EventListener
+    )
   }
 
   #filterTests({ detail }: { detail: DevtoolsSidebarFilter }) {
@@ -68,11 +91,114 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
     this.requestUpdate()
   }
 
+  async #handleTestRun(event: Event) {
+    console.log('handleTestRun', event)
+    event.stopPropagation()
+    const detail = (event as CustomEvent<TestRunDetail>).detail
+    await this.#postToBackend('/api/tests/run', {
+      ...detail,
+      runAll: detail.uid === '*',
+      framework: this.#getFramework(),
+      specFile: detail.specFile || this.#deriveSpecFile(detail),
+      configFile: this.#getConfigPath()
+    })
+  }
+
+  async #handleTestStop(event: Event) {
+    event.stopPropagation()
+    const detail = (event as CustomEvent<TestRunDetail>).detail
+    await this.#postToBackend('/api/tests/stop', { ...detail })
+  }
+
+  async #postToBackend(path: string, body: Record<string, unknown>) {
+    try {
+      const response = await fetch(path, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify(body)
+      })
+      if (!response.ok) {
+        const errorText = await response.text()
+        throw new Error(errorText || 'Unknown error')
+      }
+    } catch (error) {
+      console.error('Failed to communicate with backend', error)
+      window.dispatchEvent(
+        new CustomEvent('app-logs', {
+          detail: `Test runner error: ${(error as Error).message}`
+        })
+      )
+    }
+  }
+
+  #deriveSpecFile(detail: TestRunDetail) {
+    if (detail.specFile) {
+      return detail.specFile
+    }
+    const source = detail.callSource
+    if (source?.startsWith('file://')) {
+      try {
+        return new URL(source).pathname
+      } catch {
+        return source
+      }
+    }
+    if (source) {
+      const match = source.match(/^(.*?):\d+:\d+$/)
+      if (match?.[1]) {
+        return match[1]
+      }
+      return source
+    }
+
+    return undefined
+  }
+
+  #runAllSuites() {
+    console.log('runAllSuites')
+    void this.#postToBackend('/api/tests/run', {
+      uid: '*',
+      entryType: 'suite',
+      runAll: true,
+      framework: this.#getFramework(),
+      configFile: this.#getConfigPath()
+    })
+  }
+
+  #stopActiveRun() {
+    void this.#postToBackend('/api/tests/stop', {
+      uid: '*'
+    })
+  }
+
+  #getFramework(): string | undefined {
+    const options = this.metadata?.options as { framework?: string } | undefined
+    return options?.framework
+  }
+
+  #getConfigPath(): string | undefined {
+    const options = this.metadata?.options as
+      | {
+          configFile?: string
+          configFilePath?: string
+        }
+      | undefined
+    console.log('getConfigPath', options?.configFilePath, options?.configFile)
+    return options?.configFilePath || options?.configFile
+  }
+
   #renderEntry(entry: TestEntry): TemplateResult {
     return html`
       <wdio-test-entry
+        uid="${entry.uid}"
         state="${entry.state as any}"
         call-source="${entry.callSource || ''}"
+        entry-type="${entry.type}"
+        spec-file="${entry.specFile || ''}"
+        full-title="${entry.fullTitle || ''}"
+        label-text="${entry.label}"
       >
         <label slot="label">${entry.label}</label>
         ${entry.children && entry.children.length
@@ -120,12 +246,15 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
       return {
         uid: entry.uid,
         label: entry.title,
+        type: 'suite',
         state: entry.tests.some((t) => !t.end)
           ? TestState.RUNNING
           : entry.tests.find((t) => t.state === 'failed')
             ? TestState.FAILED
             : TestState.PASSED,
         callSource: (entry as any).callSource,
+        specFile: (entry as any).file,
+        fullTitle: entry.title,
         children: Object.values(entries)
           .map(this.#getTestEntry.bind(this))
           .filter(this.#filterEntry.bind(this))
@@ -134,12 +263,15 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
     return {
       uid: entry.uid,
       label: entry.title,
+      type: 'test',
       state: !entry.end
         ? TestState.RUNNING
         : entry.state === 'failed'
           ? TestState.FAILED
           : TestState.PASSED,
       callSource: (entry as any).callSource,
+      specFile: (entry as any).file,
+      fullTitle: (entry as any).fullTitle || entry.title,
       children: []
     }
   }
@@ -171,11 +303,13 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
         <nav class="flex ml-auto">
           <button
             class="p-1 rounded hover:bg-toolbarHoverBackground text-sm group"
+            @click="${() => this.#runAllSuites()}"
           >
             <icon-mdi-play class="group-hover:text-chartsGreen"></icon-mdi-play>
           </button>
           <button
             class="p-1 rounded hover:bg-toolbarHoverBackground text-sm group"
+            @click="${() => this.#stopActiveRun()}"
           >
             <icon-mdi-stop class="group-hover:text-chartsRed"></icon-mdi-stop>
           </button>

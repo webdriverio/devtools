@@ -14,6 +14,12 @@ interface GlobalEventHandlersEventMap {
   'app-test-filter': CustomEvent<
     import('./components/sidebar/filter').DevtoolsSidebarFilter
   >
+  'app-test-run': CustomEvent<
+    import('./components/sidebar/test-suite').TestRunDetail
+  >
+  'app-test-stop': CustomEvent<
+    import('./components/sidebar/test-suite').TestRunDetail
+  >
   'app-logs': CustomEvent<string>
   'load-trace': CustomEvent<TraceLog>
   'show-command': CustomEvent<CommandEventProps>

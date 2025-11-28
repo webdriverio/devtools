@@ -17,6 +17,17 @@ import '~icons/mdi/check.js'
 import '~icons/mdi/checkbox-blank-circle-outline.js'
 
 const TEST_SUITE = 'wdio-test-suite'
+
+export interface TestRunDetail {
+  uid: string
+  entryType: 'suite' | 'test'
+  specFile?: string
+  fullTitle?: string
+  label?: string
+  callSource?: string
+  configFile?: string
+}
+
 @customElement(TEST_SUITE)
 export class ExplorerTestSuite extends Element {
   static styles = [
@@ -49,10 +60,25 @@ export class ExplorerTestEntry extends CollapseableEntry {
   isCollapsed = 'false'
 
   @property({ type: String })
+  uid?: string
+
+  @property({ type: String })
   state?: TestState
 
   @property({ type: String, attribute: 'call-source' })
   callSource?: string
+
+  @property({ type: String, attribute: 'entry-type' })
+  entryType: 'suite' | 'test' = 'suite'
+
+  @property({ type: String, attribute: 'spec-file' })
+  specFile?: string
+
+  @property({ type: String, attribute: 'full-title' })
+  fullTitle?: string
+
+  @property({ type: String, attribute: 'label-text' })
+  labelText?: string
 
   static styles = [
     ...Element.styles,
@@ -89,6 +115,51 @@ export class ExplorerTestEntry extends CollapseableEntry {
     window.dispatchEvent(
       new CustomEvent('app-source-highlight', {
         detail: this.callSource
+      })
+    )
+  }
+
+  #runEntry(event: Event) {
+    console.log('runEntry', this.uid)
+    event.stopPropagation()
+    if (!this.uid) {
+      return
+    }
+    const detail: TestRunDetail = {
+      uid: this.uid,
+      entryType: this.entryType,
+      specFile: this.specFile,
+      fullTitle: this.fullTitle,
+      label: this.labelText,
+      callSource: this.callSource
+    }
+    this.dispatchEvent(
+      new CustomEvent<TestRunDetail>('app-test-run', {
+        detail,
+        bubbles: true,
+        composed: true
+      })
+    )
+  }
+
+  #stopEntry(event: Event) {
+    event.stopPropagation()
+    if (!this.uid) {
+      return
+    }
+    const detail: TestRunDetail = {
+      uid: this.uid,
+      entryType: this.entryType,
+      specFile: this.specFile,
+      fullTitle: this.fullTitle,
+      label: this.labelText,
+      callSource: this.callSource
+    }
+    this.dispatchEvent(
+      new CustomEvent<TestRunDetail>('app-test-stop', {
+        detail,
+        bubbles: true,
+        composed: true
       })
     )
   }
@@ -164,6 +235,7 @@ export class ExplorerTestEntry extends CollapseableEntry {
             ? html`
                 <button
                   class="p-1 rounded hover:bg-toolbarHoverBackground my-1 group/button"
+                  @click="${(event: Event) => this.#runEntry(event)}"
                 >
                   <icon-mdi-play
                     class="group-hover/button:text-chartsGreen"
@@ -173,6 +245,7 @@ export class ExplorerTestEntry extends CollapseableEntry {
             : html`
                 <button
                   class="p-1 rounded hover:bg-toolbarHoverBackground my-1 group/button"
+                  @click="${(event: Event) => this.#stopEntry(event)}"
                 >
                   <icon-mdi-stop
                     class="group-hover/button:text-chartsRed"
