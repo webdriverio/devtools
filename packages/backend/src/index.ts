@@ -9,6 +9,7 @@ import { WebSocket } from 'ws'
 
 import { getDevtoolsApp } from './utils.js'
 import { DEFAULT_PORT } from './constants.js'
+import { testRunner, type RunnerRequestBody } from './runner.js'
 
 let server: FastifyInstance | undefined
 
@@ -29,6 +30,29 @@ export async function start(opts: DevtoolsBackendOptions = {}) {
   await server.register(websocket)
   await server.register(staticServer, {
     root: appPath
+  })
+
+  server.post(
+    '/api/tests/run',
+    async (request: FastifyRequest<{ Body: RunnerRequestBody }>, reply) => {
+      console.log('request', request.body)
+      const body = request.body
+      if (!body?.uid || !body.entryType) {
+        return reply.code(400).send({ error: 'Invalid run payload' })
+      }
+      try {
+        await testRunner.run(body)
+        return reply.send({ ok: true })
+      } catch (error) {
+        log.error(`Failed to start test run: ${(error as Error).message}`)
+        return reply.code(500).send({ error: (error as Error).message })
+      }
+    }
+  )
+
+  server.post('/api/tests/stop', async (_request, reply) => {
+    testRunner.stop()
+    reply.send({ ok: true })
   })
 
   server.get(
