@@ -35,7 +35,6 @@ export async function start(opts: DevtoolsBackendOptions = {}) {
   server.post(
     '/api/tests/run',
     async (request: FastifyRequest<{ Body: RunnerRequestBody }>, reply) => {
-      console.log('request', request.body)
       const body = request.body
       if (!body?.uid || !body.entryType) {
         return reply.code(400).send({ error: 'Invalid run payload' })

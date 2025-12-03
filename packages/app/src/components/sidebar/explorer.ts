@@ -32,6 +32,27 @@ interface TestEntry {
   fullTitle?: string
 }
 
+interface RunCapabilities {
+  canRunSuites: boolean
+  canRunTests: boolean
+}
+
+type RunnerOptions = {
+  framework?: string
+  configFile?: string
+  configFilePath?: string
+  runCapabilities?: Partial<RunCapabilities>
+}
+
+const DEFAULT_CAPABILITIES: RunCapabilities = {
+  canRunSuites: true,
+  canRunTests: true
+}
+
+const FRAMEWORK_CAPABILITIES: Record<string, RunCapabilities> = {
+  cucumber: { canRunSuites: true, canRunTests: false }
+}
+
 @customElement(EXPLORER)
 export class DevtoolsSidebarExplorer extends CollapseableEntry {
   #testFilter: DevtoolsSidebarFilter | undefined
@@ -92,9 +113,13 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
   }
 
   async #handleTestRun(event: Event) {
-    console.log('handleTestRun', event)
     event.stopPropagation()
     const detail = (event as CustomEvent<TestRunDetail>).detail
+    if (this.#isRunDisabledDetail(detail)) {
+      this.#surfaceCapabilityWarning(detail)
+      return
+    }
+
     await this.#postToBackend('/api/tests/run', {
       ...detail,
       runAll: detail.uid === '*',
@@ -157,7 +182,14 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
   }
 
   #runAllSuites() {
-    console.log('runAllSuites')
+    if (!this.#getRunCapabilities().canRunSuites) {
+      this.#surfaceCapabilityWarning({
+        entryType: 'suite',
+        uid: '*'
+      } as TestRunDetail)
+      return
+    }
+
     void this.#postToBackend('/api/tests/run', {
       uid: '*',
       entryType: 'suite',
@@ -174,18 +206,70 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
   }
 
   #getFramework(): string | undefined {
-    const options = this.metadata?.options as { framework?: string } | undefined
-    return options?.framework
+    return this.#getRunnerOptions()?.framework
+  }
+
+  #getRunnerOptions(): RunnerOptions | undefined {
+    return this.metadata?.options as RunnerOptions | undefined
+  }
+
+  #getRunCapabilities(): RunCapabilities {
+    const options = this.#getRunnerOptions()
+    if (options?.runCapabilities) {
+      return {
+        ...DEFAULT_CAPABILITIES,
+        ...options.runCapabilities
+      }
+    }
+    const framework = options?.framework?.toLowerCase() ?? ''
+    return FRAMEWORK_CAPABILITIES[framework] || DEFAULT_CAPABILITIES
+  }
+
+  #isRunDisabled(entry: TestEntry) {
+    const caps = this.#getRunCapabilities()
+    if (entry.type === 'test' && !caps.canRunTests) {
+      return true
+    }
+    if (entry.type === 'suite' && !caps.canRunSuites) {
+      return true
+    }
+    return false
+  }
+
+  #isRunDisabledDetail(detail: TestRunDetail) {
+    const caps = this.#getRunCapabilities()
+    if (detail.entryType === 'test' && !caps.canRunTests) {
+      return true
+    }
+    if (detail.entryType === 'suite' && !caps.canRunSuites) {
+      return true
+    }
+    return false
+  }
+
+  #surfaceCapabilityWarning(detail: TestRunDetail) {
+    const message =
+      detail.entryType === 'test'
+        ? 'Single-test execution is not supported by this framework.'
+        : 'Suite execution is disabled by this framework.'
+    window.dispatchEvent(
+      new CustomEvent('app-logs', {
+        detail: message
+      })
+    )
+  }
+
+  #getRunDisabledReason(entry: TestEntry) {
+    if (!this.#isRunDisabled(entry)) {
+      return undefined
+    }
+    return entry.type === 'test'
+      ? 'Single-test execution is not supported by this framework.'
+      : 'Suite execution is not supported by this framework.'
   }
 
   #getConfigPath(): string | undefined {
-    const options = this.metadata?.options as
-      | {
-          configFile?: string
-          configFilePath?: string
-        }
-      | undefined
-    console.log('getConfigPath', options?.configFilePath, options?.configFile)
+    const options = this.#getRunnerOptions()
     return options?.configFilePath || options?.configFile
   }
 
@@ -199,6 +283,8 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
         spec-file="${entry.specFile || ''}"
         full-title="${entry.fullTitle || ''}"
         label-text="${entry.label}"
+        .runDisabled=${this.#isRunDisabled(entry)}
+        .runDisabledReason=${this.#getRunDisabledReason(entry)}
       >
         <label slot="label">${entry.label}</label>
         ${entry.children && entry.children.length
@@ -281,12 +367,10 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
       return
     }
 
-    // ✅ Only root suites (no parent = true top-level suite)
     const rootSuites = this.suites
       .flatMap((s) => Object.values(s))
       .filter((suite) => !suite.parent)
 
-    // Deduplicate by uid (in case some frameworks still push duplicates)
     const uniqueSuites = Array.from(
       new Map(rootSuites.map((suite) => [suite.uid, suite])).values()
     )
