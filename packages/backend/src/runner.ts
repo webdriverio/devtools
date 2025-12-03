@@ -29,10 +29,7 @@ export interface RunnerRequestBody {
 
 const FRAMEWORK_FILTERS: Record<
   string,
-  (ctx: {
-    specArg?: string
-    payload: RunnerRequestBody
-  }) => string[]
+  (ctx: { specArg?: string; payload: RunnerRequestBody }) => string[]
 > = {
   cucumber: ({ specArg, payload }) => {
     const filters: string[] = []
@@ -130,7 +127,9 @@ class TestRunner {
 
   #buildFilters(payload: RunnerRequestBody) {
     const framework = (payload.framework || '').toLowerCase()
-    const specFile = payload.runAll ? undefined : this.#normaliseSpecFile(payload)
+    const specFile = payload.runAll
+      ? undefined
+      : this.#normaliseSpecFile(payload)
     const specArg = specFile
       ? this.#buildSpecArgument(specFile, payload)
       : undefined
@@ -178,7 +177,7 @@ class TestRunner {
   }
 
   #toFsPath(candidate: string) {
-    let filePath = candidate.startsWith('file://')
+    const filePath = candidate.startsWith('file://')
       ? url.fileURLToPath(candidate)
       : candidate
     return path.isAbsolute(filePath)

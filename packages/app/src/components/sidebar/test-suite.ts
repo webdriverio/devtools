@@ -243,7 +243,8 @@ export class ExplorerTestEntry extends CollapseableEntry {
           ${!this.isRunning
             ? html`
                 <button
-                  class="p-1 rounded hover:bg-toolbarHoverBackground my-1 group/button ${this.runDisabled
+                  class="p-1 rounded hover:bg-toolbarHoverBackground my-1 group/button ${this
+                    .runDisabled
                     ? 'opacity-60 cursor-not-allowed hover:bg-transparent'
                     : ''}"
                   title="${runTooltip}"
