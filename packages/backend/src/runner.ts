@@ -5,8 +5,14 @@ import url from 'node:url'
 import { createRequire } from 'node:module'
 
 const require = createRequire(import.meta.url)
-
 const wdioBin = resolveWdioBin()
+
+const WDIO_CONFIG_FILENAMES = [
+  'wdio.conf.ts',
+  'wdio.conf.js',
+  'wdio.conf.cjs',
+  'wdio.conf.mjs'
+]
 
 export interface RunnerRequestBody {
   uid: string
@@ -18,34 +24,77 @@ export interface RunnerRequestBody {
   runAll?: boolean
   framework?: string
   configFile?: string
+  lineNumber?: number
 }
+
+const FRAMEWORK_FILTERS: Record<
+  string,
+  (ctx: {
+    specArg?: string
+    payload: RunnerRequestBody
+  }) => string[]
+> = {
+  cucumber: ({ specArg, payload }) => {
+    const filters: string[] = []
+    if (specArg) {
+      filters.push('--spec', specArg)
+    }
+    const scenarioName = payload.fullTitle
+      ? payload.fullTitle.replace(/^\s*\d+:\s*/, '').trim()
+      : undefined
+    if (payload.entryType === 'test' && scenarioName) {
+      filters.push('--cucumberOpts.name', scenarioName)
+    }
+    return filters
+  },
+  mocha: ({ specArg, payload }) => {
+    const filters: string[] = []
+    if (specArg) {
+      filters.push('--spec', specArg)
+    }
+    if (payload.entryType === 'test' && payload.fullTitle) {
+      filters.push('--mochaOpts.grep', payload.fullTitle)
+    }
+    return filters
+  },
+  jasmine: ({ specArg, payload }) => {
+    const filters: string[] = []
+    if (specArg) {
+      filters.push('--spec', specArg)
+    }
+    if (payload.entryType === 'test' && payload.fullTitle) {
+      filters.push('--jasmineOpts.grep', payload.fullTitle)
+    }
+    return filters
+  }
+}
+
+const DEFAULT_FILTERS = ({ specArg }: { specArg?: string }) =>
+  specArg ? ['--spec', specArg] : []
 
 class TestRunner {
   #child?: ChildProcess
   #lastPayload?: RunnerRequestBody
+  #baseDir = process.cwd()
 
   async run(payload: RunnerRequestBody) {
-    console.log('run', payload)
     if (this.#child) {
       throw new Error('A test run is already in progress')
     }
 
     const configPath = this.#resolveConfigPath(payload)
+    this.#baseDir = process.env.DEVTOOLS_RUNNER_CWD || path.dirname(configPath)
+
     const args = [
       wdioBin,
       'run',
       configPath,
       ...this.#buildFilters(payload)
-    ].filter(Boolean) as string[]
+    ].filter(Boolean)
 
-    const cwd = process.env.DEVTOOLS_RUNNER_CWD || process.cwd()
     const child = spawn(process.execPath, args, {
-      cwd,
-      env: {
-        ...process.env,
-        WDIO_DEVTOOLS_TARGET_UID: payload.uid,
-        WDIO_DEVTOOLS_TARGET_LABEL: payload.label || ''
-      },
+      cwd: this.#baseDir,
+      env: { ...process.env },
       stdio: 'inherit'
     })
 
@@ -55,6 +104,7 @@ class TestRunner {
     child.once('close', () => {
       this.#child = undefined
       this.#lastPayload = undefined
+      this.#baseDir = process.cwd()
     })
 
     await new Promise<void>((resolve, reject) => {
@@ -62,6 +112,7 @@ class TestRunner {
       child.once('error', (error) => {
         this.#child = undefined
         this.#lastPayload = undefined
+        this.#baseDir = process.cwd()
         reject(error)
       })
     })
@@ -74,80 +125,94 @@ class TestRunner {
     this.#child.kill('SIGINT')
     this.#child = undefined
     this.#lastPayload = undefined
+    this.#baseDir = process.cwd()
   }
 
   #buildFilters(payload: RunnerRequestBody) {
-    const filters: string[] = []
     const framework = (payload.framework || '').toLowerCase()
-    const isCucumber = framework === 'cucumber'
+    const specFile = payload.runAll ? undefined : this.#normaliseSpecFile(payload)
+    const specArg = specFile
+      ? this.#buildSpecArgument(specFile, payload)
+      : undefined
 
-    if (!payload.runAll && !isCucumber) {
-      const specFile = this.#normaliseSpecFile(payload)
-      if (!specFile) {
-        throw new Error('Unable to determine spec file for run')
-      }
-      filters.push('--spec', specFile)
+    const builder = FRAMEWORK_FILTERS[framework] || DEFAULT_FILTERS
+    return builder({ specArg, payload })
+  }
+
+  #buildSpecArgument(specFile: string, payload: RunnerRequestBody) {
+    const line = this.#resolveLineNumber(payload)
+    return line ? `${specFile}:${line}` : specFile
+  }
+
+  #resolveLineNumber(payload: RunnerRequestBody) {
+    if (payload.lineNumber && payload.lineNumber > 0) {
+      return payload.lineNumber
     }
-
-    if (payload.entryType === 'test' && payload.fullTitle) {
-      if (framework === 'mocha') {
-        filters.push('--mochaOpts.grep', payload.fullTitle)
-      } else if (framework === 'jasmine') {
-        filters.push('--jasmineOpts.grep', payload.fullTitle)
-      } else if (framework === 'cucumber') {
-        filters.push('--cucumberOpts.name', payload.fullTitle)
-      }
+    const source = payload.callSource?.trim() || this.#lastPayload?.callSource
+    if (!source) {
+      return this.#lastPayload?.lineNumber
     }
-
-    return filters
+    const match = /:(\d+)(?::\d+)?$/.exec(source)
+    return match ? Number(match[1]) : this.#lastPayload?.lineNumber
   }
 
   #normaliseSpecFile(payload: RunnerRequestBody) {
-    if (payload.specFile) {
-      return this.#toFsPath(payload.specFile)
+    const candidate = this.#getSpecCandidate(payload)
+    return candidate ? this.#toFsPath(candidate) : undefined
+  }
+
+  #getSpecCandidate(payload?: RunnerRequestBody) {
+    return (
+      payload?.specFile ||
+      this.#extractSpecFromCallSource(payload?.callSource) ||
+      this.#lastPayload?.specFile
+    )
+  }
+
+  #extractSpecFromCallSource(source?: string) {
+    if (!source) {
+      return undefined
     }
-    if (payload.callSource) {
-      const match = payload.callSource.match(/^(.*?):\d+:\d+$/)
-      if (match?.[1]) {
-        return this.#toFsPath(match[1])
-      }
-      return this.#toFsPath(payload.callSource)
-    }
-    if (this.#lastPayload?.specFile) {
-      return this.#toFsPath(this.#lastPayload.specFile)
-    }
-    return undefined
+    const match = /^(.*?):\d+:\d+$/.exec(source.trim())
+    return match?.[1] ?? source
   }
 
   #toFsPath(candidate: string) {
-    let filePath = candidate
-    if (filePath.startsWith('file://')) {
-      filePath = url.fileURLToPath(filePath)
-    }
-    if (!path.isAbsolute(filePath)) {
-      filePath = path.resolve(process.cwd(), filePath)
-    }
-    if (!fs.existsSync(filePath)) {
-      throw new Error(`Spec file "${filePath}" does not exist`)
-    }
-    return filePath
+    let filePath = candidate.startsWith('file://')
+      ? url.fileURLToPath(candidate)
+      : candidate
+    return path.isAbsolute(filePath)
+      ? filePath
+      : path.resolve(this.#baseDir, filePath)
   }
 
   #resolveConfigPath(payload?: RunnerRequestBody) {
-    const provided =
-      payload?.configFile ||
-      process.env.DEVTOOLS_WDIO_CONFIG ||
-      this.#findConfigFromSpec(payload?.specFile) ||
-      path.resolve(process.cwd(), 'wdio.conf.ts')
-    if (fs.existsSync(provided)) {
-      return provided
+    const specCandidate = this.#getSpecCandidate(payload)
+    const specDir = specCandidate
+      ? path.dirname(this.#toFsPath(specCandidate))
+      : undefined
+
+    const candidates = this.#dedupeCandidates([
+      payload?.configFile,
+      this.#lastPayload?.configFile,
+      process.env.DEVTOOLS_WDIO_CONFIG,
+      this.#findConfigFromSpec(specCandidate),
+      ...this.#expandDefaultConfigsFor(this.#baseDir),
+      ...this.#expandDefaultConfigsFor(path.resolve(this.#baseDir, 'example')),
+      ...this.#expandDefaultConfigsFor(specDir)
+    ])
+
+    for (const candidate of candidates) {
+      const resolved = this.#toFsPath(candidate)
+      if (fs.existsSync(resolved)) {
+        return resolved
+      }
     }
-    const exampleConfig = path.resolve(process.cwd(), 'example', 'wdio.conf.ts')
-    if (fs.existsSync(exampleConfig)) {
-      return exampleConfig
-    }
+
     throw new Error(
-      'Unable to resolve WDIO config. Set DEVTOOLS_WDIO_CONFIG environment variable.'
+      `Cannot locate WDIO config. Tried:\n${candidates
+        .map((c) => ` • ${this.#toFsPath(c)}`)
+        .join('\n')}`
     )
   }
 
@@ -156,18 +221,12 @@ class TestRunner {
       return undefined
     }
 
-    const candidates = [
-      'wdio.conf.ts',
-      'wdio.conf.js',
-      'wdio.conf.cjs',
-      'wdio.conf.mjs'
-    ]
-
-    let dir = path.dirname(specFile)
+    const fsSpec = this.#toFsPath(specFile)
+    let dir = path.dirname(fsSpec)
     const root = path.parse(dir).root
 
     while (dir && dir !== root) {
-      for (const file of candidates) {
+      for (const file of WDIO_CONFIG_FILENAMES) {
         const candidate = path.join(dir, file)
         if (fs.existsSync(candidate)) {
           return candidate
@@ -181,6 +240,24 @@ class TestRunner {
     }
 
     return undefined
+  }
+
+  #expandDefaultConfigsFor(baseDir?: string) {
+    if (!baseDir) {
+      return []
+    }
+    return WDIO_CONFIG_FILENAMES.map((file) => path.resolve(baseDir, file))
+  }
+
+  #dedupeCandidates(values: Array<string | undefined>) {
+    return Array.from(
+      new Set(
+        values.filter(
+          (value): value is string =>
+            typeof value === 'string' && value.length > 0
+        )
+      )
+    )
   }
 }
 

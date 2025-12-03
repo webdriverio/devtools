@@ -80,6 +80,12 @@ export class ExplorerTestEntry extends CollapseableEntry {
   @property({ type: String, attribute: 'label-text' })
   labelText?: string
 
+  @property({ type: Boolean, attribute: 'run-disabled' })
+  runDisabled = false
+
+  @property({ type: String, attribute: 'run-disabled-reason' })
+  runDisabledReason?: string
+
   static styles = [
     ...Element.styles,
     css`
@@ -96,7 +102,7 @@ export class ExplorerTestEntry extends CollapseableEntry {
     this.dispatchEvent(
       new CustomEvent('entry-collapse-change', {
         detail: {
-          isCollapsed: isCollapsed,
+          isCollapsed,
           entry: this
         },
         bubbles: true
@@ -120,9 +126,8 @@ export class ExplorerTestEntry extends CollapseableEntry {
   }
 
   #runEntry(event: Event) {
-    console.log('runEntry', this.uid)
     event.stopPropagation()
-    if (!this.uid) {
+    if (!this.uid || this.runDisabled) {
       return
     }
     const detail: TestRunDetail = {
@@ -144,7 +149,7 @@ export class ExplorerTestEntry extends CollapseableEntry {
 
   #stopEntry(event: Event) {
     event.stopPropagation()
-    if (!this.uid) {
+    if (!this.uid || this.runDisabled) {
       return
     }
     const detail: TestRunDetail = {
@@ -207,6 +212,10 @@ export class ExplorerTestEntry extends CollapseableEntry {
     const hasNoChildren =
       this.querySelectorAll('[slot="children"]').length === 0
     const isCollapsed = this.isCollapsed === 'true'
+    const runTooltip = this.runDisabled
+      ? this.runDisabledReason ||
+        'Single-step execution is controlled by its scenario.'
+      : 'Run this entry'
 
     return html`
       <section class="block mt-2 text-sm flex w-full group/sidebar">
@@ -234,24 +243,33 @@ export class ExplorerTestEntry extends CollapseableEntry {
           ${!this.isRunning
             ? html`
                 <button
-                  class="p-1 rounded hover:bg-toolbarHoverBackground my-1 group/button"
+                  class="p-1 rounded hover:bg-toolbarHoverBackground my-1 group/button ${this.runDisabled
+                    ? 'opacity-60 cursor-not-allowed hover:bg-transparent'
+                    : ''}"
+                  title="${runTooltip}"
+                  ?disabled=${this.runDisabled}
                   @click="${(event: Event) => this.#runEntry(event)}"
                 >
                   <icon-mdi-play
-                    class="group-hover/button:text-chartsGreen"
+                    class="${this.runDisabled
+                      ? ''
+                      : 'group-hover/button:text-chartsGreen'}"
                   ></icon-mdi-play>
                 </button>
               `
-            : html`
-                <button
-                  class="p-1 rounded hover:bg-toolbarHoverBackground my-1 group/button"
-                  @click="${(event: Event) => this.#stopEntry(event)}"
-                >
-                  <icon-mdi-stop
-                    class="group-hover/button:text-chartsRed"
-                  ></icon-mdi-stop>
-                </button>
-              `}
+            : !this.runDisabled
+              ? html`
+                  <button
+                    class="p-1 rounded hover:bg-toolbarHoverBackground my-1 group/button"
+                    title="Stop run"
+                    @click="${(event: Event) => this.#stopEntry(event)}"
+                  >
+                    <icon-mdi-stop
+                      class="group-hover/button:text-chartsRed"
+                    ></icon-mdi-stop>
+                  </button>
+                `
+              : nothing}
           <button
             class="p-1 rounded hover:bg-toolbarHoverBackground my-1 group"
             @click="${() => this.#viewSource()}"
