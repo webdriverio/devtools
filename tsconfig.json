@@ -25,6 +25,10 @@
       "@components/*": ["packages/app/src/components/*"],
       "@core/*": ["packages/app/src/core/*"],
 
+      "@wdio/devtools-backend": ["packages/backend/src/index.ts"],
+      "@wdio/devtools-backend/*": ["packages/backend/src/*"],
+      "@wdio/devtools-script": ["packages/script/src/index.ts"],
+      "@wdio/devtools-script/*": ["packages/script/src/*"],
       "@wdio/devtools-service": ["packages/service/src/index.ts"],
       "@wdio/devtools-service/*": ["packages/service/src/*"]
     }
