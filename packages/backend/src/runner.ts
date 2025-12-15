@@ -25,6 +25,8 @@ export interface RunnerRequestBody {
   framework?: string
   configFile?: string
   lineNumber?: number
+  devtoolsHost?: string
+  devtoolsPort?: number
 }
 
 const FRAMEWORK_FILTERS: Record<
@@ -89,9 +91,16 @@ class TestRunner {
       ...this.#buildFilters(payload)
     ].filter(Boolean)
 
+    const childEnv = { ...process.env }
+    if (payload.devtoolsHost && payload.devtoolsPort) {
+      childEnv.DEVTOOLS_APP_HOST = payload.devtoolsHost
+      childEnv.DEVTOOLS_APP_PORT = String(payload.devtoolsPort)
+      childEnv.DEVTOOLS_APP_REUSE = '1'
+    }
+
     const child = spawn(process.execPath, args, {
       cwd: this.#baseDir,
-      env: { ...process.env },
+      env: childEnv,
       stdio: 'inherit'
     })
 

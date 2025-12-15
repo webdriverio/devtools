@@ -15,6 +15,19 @@ export class DevToolsAppLauncher {
 
   async onPrepare(_: never, caps: ExtendedCapabilities[]) {
     try {
+      const reusePort = process.env.DEVTOOLS_APP_PORT
+      const reuseHost =
+        process.env.DEVTOOLS_APP_HOST || this.#options.hostname || 'localhost'
+      if (process.env.DEVTOOLS_APP_REUSE === '1' && reusePort) {
+        log.info(
+          `Reusing existing DevTools app at http://${reuseHost}:${reusePort}`
+        )
+        this.#updateCapabilities(caps, {
+          port: Number(reusePort),
+          hostname: reuseHost
+        })
+        return
+      }
       const { server } = await start({
         port: this.#options.port,
         hostname: this.#options.hostname
@@ -27,7 +40,10 @@ export class DevToolsAppLauncher {
         return console.log(`Failed to start server on port ${port}`)
       }
 
-      this.#updateCapabilities(caps, { port })
+      this.#updateCapabilities(caps, {
+        port,
+        hostname: this.#options.hostname || 'localhost'
+     })
       this.#browser = await remote({
         automationProtocol: 'devtools',
         capabilities: {
@@ -64,7 +80,7 @@ export class DevToolsAppLauncher {
 
   #updateCapabilities(
     caps: ExtendedCapabilities[],
-    devtoolsApp: { port: number }
+    devtoolsApp: { port: number; hostname?: string }
   ) {
     /**
      * we don't support multiremote yet
@@ -76,7 +92,7 @@ export class DevToolsAppLauncher {
     for (const cap of caps) {
       cap['wdio:devtoolsOptions'] = {
         port: devtoolsApp.port,
-        hostname: 'localhost'
+        hostname: devtoolsApp.hostname || 'localhost'
       }
     }
   }

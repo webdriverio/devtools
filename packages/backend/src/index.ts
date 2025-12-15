@@ -40,7 +40,11 @@ export async function start(opts: DevtoolsBackendOptions = {}) {
         return reply.code(400).send({ error: 'Invalid run payload' })
       }
       try {
-        await testRunner.run(body)
+        await testRunner.run({
+          ...body,
+          devtoolsHost: host,
+          devtoolsPort: port
+        })
         return reply.send({ ok: true })
       } catch (error) {
         log.error(`Failed to start test run: ${(error as Error).message}`)
