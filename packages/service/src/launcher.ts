@@ -43,7 +43,7 @@ export class DevToolsAppLauncher {
       this.#updateCapabilities(caps, {
         port,
         hostname: this.#options.hostname || 'localhost'
-     })
+      })
       this.#browser = await remote({
         automationProtocol: 'devtools',
         capabilities: {
