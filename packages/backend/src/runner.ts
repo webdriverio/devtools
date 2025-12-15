@@ -14,6 +14,13 @@ const WDIO_CONFIG_FILENAMES = [
   'wdio.conf.mjs'
 ]
 
+/**
+ * Escape special regex characters in a string
+ */
+function escapeRegex(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
 export interface RunnerRequestBody {
   uid: string
   entryType: 'suite' | 'test'
@@ -27,6 +34,9 @@ export interface RunnerRequestBody {
   lineNumber?: number
   devtoolsHost?: string
   devtoolsPort?: number
+  featureFile?: string
+  featureLine?: number
+  suiteType?: string
 }
 
 const FRAMEWORK_FILTERS: Record<
@@ -35,14 +45,59 @@ const FRAMEWORK_FILTERS: Record<
 > = {
   cucumber: ({ specArg, payload }) => {
     const filters: string[] = []
+    console.log('[Runner] Cucumber filter - payload:', {
+      entryType: payload.entryType,
+      suiteType: payload.suiteType,
+      featureFile: payload.featureFile,
+      featureLine: payload.featureLine,
+      fullTitle: payload.fullTitle,
+      specArg
+    })
+
+    // For feature-level suites, run the entire feature file
+    if (payload.suiteType === 'feature' && specArg) {
+      // Remove any line number from specArg for feature-level execution
+      const featureFile = specArg.split(':')[0]
+      filters.push('--spec', featureFile)
+      console.log('[Runner] Feature-level execution - running entire file:', featureFile)
+      return filters
+    }
+
+    // Priority 1: Use feature file with line number for exact scenario targeting (works for examples)
+    // Note: Cucumber scenarios are type 'suite', not 'test'
+    if (payload.featureFile && payload.featureLine) {
+      filters.push('--spec', `${payload.featureFile}:${payload.featureLine}`)
+      console.log('[Runner] Using feature file:line filter:', filters)
+      return filters
+    }
+
+    // Priority 2: For specific test reruns with example row number, use exact regex match
+    if (payload.entryType === 'test' && payload.fullTitle) {
+      // Cucumber fullTitle format: "1: Scenario name" or "2: Scenario name"
+      // Extract the row number and scenario name
+      const rowMatch = payload.fullTitle.match(/^(\d+):\s*(.+)$/)
+      if (rowMatch) {
+        const [, rowNumber, scenarioName] = rowMatch
+        // Use spec file filter
+        if (specArg) {
+          filters.push('--spec', specArg)
+        }
+        // Use regex to match the exact "rowNumber: scenarioName" pattern
+        // This ensures we only run that specific example row
+        filters.push('--cucumberOpts.name', `^${rowNumber}:\\s*${escapeRegex(scenarioName.trim())}$`)
+        return filters
+      }
+      // No row number - use plain name filter
+      if (specArg) {
+        filters.push('--spec', specArg)
+      }
+      filters.push('--cucumberOpts.name', payload.fullTitle.trim())
+      return filters
+    }
+
+    // Suite-level rerun
     if (specArg) {
       filters.push('--spec', specArg)
-    }
-    const scenarioName = payload.fullTitle
-      ? payload.fullTitle.replace(/^\s*\d+:\s*/, '').trim()
-      : undefined
-    if (payload.entryType === 'test' && scenarioName) {
-      filters.push('--cucumberOpts.name', scenarioName)
     }
     return filters
   },
@@ -51,7 +106,8 @@ const FRAMEWORK_FILTERS: Record<
     if (specArg) {
       filters.push('--spec', specArg)
     }
-    if (payload.entryType === 'test' && payload.fullTitle) {
+    // For both tests and suites, use grep to filter
+    if (payload.fullTitle) {
       filters.push('--mochaOpts.grep', payload.fullTitle)
     }
     return filters
@@ -61,7 +117,8 @@ const FRAMEWORK_FILTERS: Record<
     if (specArg) {
       filters.push('--spec', specArg)
     }
-    if (payload.entryType === 'test' && payload.fullTitle) {
+    // For both tests and suites, use grep to filter
+    if (payload.fullTitle) {
       filters.push('--jasmineOpts.grep', payload.fullTitle)
     }
     return filters

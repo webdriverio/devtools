@@ -264,16 +264,21 @@ export class DataManagerController implements ReactiveController {
 
     const suiteMap = new Map<string, SuiteStatsFragment>()
 
+    console.log('[DataManager] Suites update - existing suites:', this.suitesContextProvider.value?.length || 0)
+
     // Populate with existing suites (keeps test list visible)
     ;(this.suitesContextProvider.value || []).forEach((chunk) => {
       Object.entries(chunk as Record<string, SuiteStatsFragment>).forEach(
         ([uid, suite]) => {
           if (suite?.uid) {
             suiteMap.set(uid, suite)
+            console.log('[DataManager] Added existing suite to map:', uid, suite.title)
           }
         }
       )
     })
+
+    console.log('[DataManager] Incoming payloads:', payloads.length)
 
     // Process incoming payloads
     payloads.forEach((chunk) => {
@@ -282,12 +287,15 @@ export class DataManagerController implements ReactiveController {
       Object.entries(chunk).forEach(([uid, suite]) => {
         if (!suite?.uid) return
 
+        console.log('[DataManager] Processing incoming suite:', uid, suite.title)
         const existing = suiteMap.get(uid)
 
         // Always merge to preserve all tests in the suite
         suiteMap.set(uid, existing ? this.#mergeSuite(existing, suite) : suite)
       })
     })
+
+    console.log('[DataManager] Final suite map size:', suiteMap.size)
 
     this.suitesContextProvider.setValue(
       Array.from(suiteMap.entries()).map(([uid, suite]) => ({ [uid]: suite }))

@@ -30,6 +30,9 @@ interface TestEntry {
   type: 'suite' | 'test'
   specFile?: string
   fullTitle?: string
+  featureFile?: string
+  featureLine?: number
+  suiteType?: string
 }
 
 interface RunCapabilities {
@@ -123,13 +126,15 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
     // Clear execution data before triggering rerun
     this.dispatchEvent(new CustomEvent('clear-execution-data', { bubbles: true, composed: true }))
 
-    await this.#postToBackend('/api/tests/run', {
+    const payload = {
       ...detail,
       runAll: detail.uid === '*',
       framework: this.#getFramework(),
       specFile: detail.specFile || this.#deriveSpecFile(detail),
       configFile: this.#getConfigPath()
-    })
+    }
+    console.log('[Explorer] Sending test run request:', payload)
+    await this.#postToBackend('/api/tests/run', payload)
   }
 
   async #handleTestStop(event: Event) {
@@ -289,6 +294,9 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
         spec-file="${entry.specFile || ''}"
         full-title="${entry.fullTitle || ''}"
         label-text="${entry.label}"
+        feature-file="${entry.featureFile || ''}"
+        feature-line="${entry.featureLine ?? ''}"
+        suite-type="${entry.suiteType || ''}"
         .runDisabled=${this.#isRunDisabled(entry)}
         .runDisabledReason=${this.#getRunDisabledReason(entry)}
       >
@@ -345,6 +353,9 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
         callSource: (entry as any).callSource,
         specFile: (entry as any).file,
         fullTitle: entry.title,
+        featureFile: (entry as any).featureFile,
+        featureLine: (entry as any).featureLine,
+        suiteType: (entry as any).type,
         children: Object.values(entries)
           .map(this.#getTestEntry.bind(this))
           .filter(this.#filterEntry.bind(this))
@@ -362,6 +373,8 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
       callSource: (entry as any).callSource,
       specFile: (entry as any).file,
       fullTitle: (entry as any).fullTitle || entry.title,
+      featureFile: (entry as any).featureFile,
+      featureLine: (entry as any).featureLine,
       children: []
     }
   }

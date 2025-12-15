@@ -26,6 +26,9 @@ export interface TestRunDetail {
   label?: string
   callSource?: string
   configFile?: string
+  featureFile?: string
+  featureLine?: number
+  suiteType?: string
 }
 
 @customElement(TEST_SUITE)
@@ -86,6 +89,15 @@ export class ExplorerTestEntry extends CollapseableEntry {
   @property({ type: String, attribute: 'run-disabled-reason' })
   runDisabledReason?: string
 
+  @property({ type: String, attribute: 'feature-file' })
+  featureFile?: string
+
+  @property({ type: Number, attribute: 'feature-line' })
+  featureLine?: number
+
+  @property({ type: String, attribute: 'suite-type' })
+  suiteType?: string
+
   static styles = [
     ...Element.styles,
     css`
@@ -136,7 +148,10 @@ export class ExplorerTestEntry extends CollapseableEntry {
       specFile: this.specFile,
       fullTitle: this.fullTitle,
       label: this.labelText,
-      callSource: this.callSource
+      callSource: this.callSource,
+      featureFile: this.featureFile,
+      featureLine: this.featureLine,
+      suiteType: this.suiteType
     }
     this.dispatchEvent(
       new CustomEvent<TestRunDetail>('app-test-run', {
