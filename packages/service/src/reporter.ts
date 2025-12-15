@@ -13,7 +13,11 @@ import { readFileSync, existsSync } from 'node:fs'
 // Key format: "cid:title" or "cid:uid"
 const cucumberScenarioLines = new Map<string, { uri: string; line: number }>()
 
-export function setCucumberScenarioLine(key: string, uri: string, line: number) {
+export function setCucumberScenarioLine(
+  key: string,
+  uri: string,
+  line: number
+) {
   cucumberScenarioLines.set(key, { uri, line })
 }
 
@@ -44,19 +48,19 @@ function generateStableUid(item: SuiteStats | TestStats): string {
       // Use original UID (example index) to ensure stable identification
       `example-${rawItem.uid}`
     ]
-    const hash = parts.join('::').split('').reduce((acc, char) => {
-      return ((acc << 5) - acc + char.charCodeAt(0)) | 0
-    }, 0)
+    const hash = parts
+      .join('::')
+      .split('')
+      .reduce((acc, char) => {
+        return ((acc << 5) - acc + char.charCodeAt(0)) | 0
+      }, 0)
     return `stable-${Math.abs(hash).toString(36)}`
   }
 
   // For Mocha/Jasmine tests and suites, use only stable identifiers
   // that don't change between full and partial runs
   // DO NOT use cid or parent as they can vary based on run context
-  const parts = [
-    rawItem.file || '',
-    String(rawItem.fullTitle || item.title)
-  ]
+  const parts = [rawItem.file || '', String(rawItem.fullTitle || item.title)]
 
   const signature = parts.join('::')
   const count = signatureCounters.get(signature) || 0
@@ -66,9 +70,12 @@ function generateStableUid(item: SuiteStats | TestStats): string {
     parts.push(String(count))
   }
 
-  const hash = parts.join('::').split('').reduce((acc, char) => {
-    return ((acc << 5) - acc + char.charCodeAt(0)) | 0
-  }, 0)
+  const hash = parts
+    .join('::')
+    .split('')
+    .reduce((acc, char) => {
+      return ((acc << 5) - acc + char.charCodeAt(0)) | 0
+    }, 0)
 
   return `stable-${Math.abs(hash).toString(36)}`
 }
@@ -82,9 +89,14 @@ function resetSignatureCounters() {
  * Parse a Cucumber feature file to extract line numbers for scenario outline examples
  * Returns a map of example index -> line number
  */
-function parseFeatureFileForExampleLines(filePath: string, scenarioTitle: string): Map<number, number> | null {
+function parseFeatureFileForExampleLines(
+  filePath: string,
+  scenarioTitle: string
+): Map<number, number> | null {
   try {
-    if (!existsSync(filePath)) return null
+    if (!existsSync(filePath)) {
+      return null
+    }
 
     const content = readFileSync(filePath, 'utf-8')
     const lines = content.split('\n')
@@ -93,14 +105,19 @@ function parseFeatureFileForExampleLines(filePath: string, scenarioTitle: string
     let scenarioLineIndex = -1
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i].trim()
-      if ((line.startsWith('Scenario Outline:') || line.startsWith('Scenario:')) &&
-          line.includes(scenarioTitle)) {
+      if (
+        (line.startsWith('Scenario Outline:') ||
+          line.startsWith('Scenario:')) &&
+        line.includes(scenarioTitle)
+      ) {
         scenarioLineIndex = i
         break
       }
     }
 
-    if (scenarioLineIndex === -1) return null
+    if (scenarioLineIndex === -1) {
+      return null
+    }
 
     // Find the Examples section
     let examplesStartIndex = -1
@@ -111,7 +128,9 @@ function parseFeatureFileForExampleLines(filePath: string, scenarioTitle: string
       }
     }
 
-    if (examplesStartIndex === -1) return null
+    if (examplesStartIndex === -1) {
+      return null
+    }
 
     // Find the data rows (skip header row with |)
     const exampleLines = new Map<number, number>()
@@ -122,8 +141,11 @@ function parseFeatureFileForExampleLines(filePath: string, scenarioTitle: string
       const line = lines[i].trim()
 
       // Stop at next scenario or feature end
-      if (line.startsWith('Scenario') || line.startsWith('Feature:') ||
-          (!line && exampleIndex > 0)) {
+      if (
+        line.startsWith('Scenario') ||
+        line.startsWith('Feature:') ||
+        (!line && exampleIndex > 0)
+      ) {
         break
       }
 
@@ -162,30 +184,19 @@ export class TestReporter extends WebdriverIOReporter {
     super.onSuiteStart(suiteStats)
 
     const rawSuite = suiteStats as any
-    console.log('[Reporter] Suite started:', {
-      title: suiteStats.title,
-      type: suiteStats.type,
-      file: suiteStats.file,
-      uid: suiteStats.uid,
-      fullTitle: rawSuite.fullTitle,
-      parent: rawSuite.parent
-    })
 
     // For Cucumber scenario outlines: extract feature file line number from example index
     if (rawSuite.type === 'scenario' && suiteStats.file?.endsWith('.feature')) {
       const exampleIndex = parseInt(rawSuite.uid, 10)
       if (!isNaN(exampleIndex)) {
-        const exampleLines = parseFeatureFileForExampleLines(suiteStats.file, suiteStats.title)
+        const exampleLines = parseFeatureFileForExampleLines(
+          suiteStats.file,
+          suiteStats.title
+        )
         if (exampleLines?.has(exampleIndex)) {
           const lineNumber = exampleLines.get(exampleIndex)!
           rawSuite.featureFile = suiteStats.file
           rawSuite.featureLine = lineNumber
-          console.log('[Reporter] Captured Cucumber example line:', {
-            title: suiteStats.title,
-            exampleIndex,
-            featureFile: rawSuite.featureFile,
-            featureLine: rawSuite.featureLine
-          })
         }
       }
     }
@@ -193,7 +204,6 @@ export class TestReporter extends WebdriverIOReporter {
     // Override with stable UID
     const stableUid = generateStableUid(suiteStats)
     ;(suiteStats as any).uid = stableUid
-    console.log('[Reporter] Generated stable suite UID:', stableUid)
 
     this.#currentSpecFile = suiteStats.file
     setCurrentSpecFile(suiteStats.file)
@@ -218,23 +228,10 @@ export class TestReporter extends WebdriverIOReporter {
 
     // For Cucumber: capture feature file URI and line from pickle
     const rawTest = testStats as any
-    console.log('[Reporter] Test started:', {
-      title: testStats.title,
-      fullTitle: rawTest.fullTitle,
-      argument: rawTest.argument,
-      file: rawTest.file,
-      line: rawTest.line
-    })
     if (rawTest.argument?.uri && typeof rawTest.argument?.line === 'number') {
       // Store feature file location for Cucumber scenarios
       rawTest.featureFile = rawTest.argument.uri
       rawTest.featureLine = rawTest.argument.line
-      console.log('[Reporter] Captured Cucumber feature location:', {
-        featureFile: rawTest.featureFile,
-        featureLine: rawTest.featureLine
-      })
-    } else {
-      console.log('[Reporter] No Cucumber argument data found')
     }
 
     // Enrich testStats with callSource info FIRST
@@ -247,7 +244,6 @@ export class TestReporter extends WebdriverIOReporter {
     // Override with stable UID AFTER all metadata is enriched
     const stableUid = generateStableUid(testStats)
     ;(testStats as any).uid = stableUid
-    console.log('[Reporter] Generated stable test UID:', stableUid)
 
     this.#sendUpstream()
   }

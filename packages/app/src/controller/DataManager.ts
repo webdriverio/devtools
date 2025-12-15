@@ -187,14 +187,21 @@ export class DataManagerController implements ReactiveController {
       : ([data] as Record<string, SuiteStatsFragment>[])
 
     for (const chunk of payloads) {
-      if (!chunk) continue
+      if (!chunk) {
+        continue
+      }
 
       for (const suite of Object.values(chunk)) {
-        if (!suite?.start) continue
+        if (!suite?.start) {
+          continue
+        }
 
-        const suiteStartTime = suite.start instanceof Date
-          ? suite.start.getTime()
-          : (typeof suite.start === 'number' ? suite.start : 0)
+        const suiteStartTime =
+          suite.start instanceof Date
+            ? suite.start.getTime()
+            : typeof suite.start === 'number'
+              ? suite.start
+              : 0
 
         // New run detected if we see a newer start timestamp
         if (suiteStartTime > this.#lastSeenRunTimestamp) {
@@ -264,30 +271,28 @@ export class DataManagerController implements ReactiveController {
 
     const suiteMap = new Map<string, SuiteStatsFragment>()
 
-    console.log('[DataManager] Suites update - existing suites:', this.suitesContextProvider.value?.length || 0)
-
     // Populate with existing suites (keeps test list visible)
     ;(this.suitesContextProvider.value || []).forEach((chunk) => {
       Object.entries(chunk as Record<string, SuiteStatsFragment>).forEach(
         ([uid, suite]) => {
           if (suite?.uid) {
             suiteMap.set(uid, suite)
-            console.log('[DataManager] Added existing suite to map:', uid, suite.title)
           }
         }
       )
     })
 
-    console.log('[DataManager] Incoming payloads:', payloads.length)
-
     // Process incoming payloads
     payloads.forEach((chunk) => {
-      if (!chunk) return
+      if (!chunk) {
+        return
+      }
 
       Object.entries(chunk).forEach(([uid, suite]) => {
-        if (!suite?.uid) return
+        if (!suite?.uid) {
+          return
+        }
 
-        console.log('[DataManager] Processing incoming suite:', uid, suite.title)
         const existing = suiteMap.get(uid)
 
         // Always merge to preserve all tests in the suite
@@ -295,15 +300,15 @@ export class DataManagerController implements ReactiveController {
       })
     })
 
-    console.log('[DataManager] Final suite map size:', suiteMap.size)
-
     this.suitesContextProvider.setValue(
       Array.from(suiteMap.entries()).map(([uid, suite]) => ({ [uid]: suite }))
     )
   }
 
   #getTimestamp(date: Date | number | undefined): number {
-    if (!date) return 0
+    if (!date) {
+      return 0
+    }
     return date instanceof Date ? date.getTime() : date
   }
 
@@ -330,10 +335,14 @@ export class DataManagerController implements ReactiveController {
 
     // First merge tests and suites properly
     const mergedTests = this.#mergeTests(existing.tests, incoming.tests)
-    const mergedSuites = this.#mergeChildSuites(existing.suites, incoming.suites)
+    const mergedSuites = this.#mergeChildSuites(
+      existing.suites,
+      incoming.suites
+    )
 
     // Then merge suite properties, ensuring merged tests/suites are preserved
-    const { tests: _incomingTests, suites: _incomingSuites, ...incomingProps } = incoming
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { tests, suites, ...incomingProps } = incoming
 
     return {
       ...existing,
@@ -351,7 +360,9 @@ export class DataManagerController implements ReactiveController {
     prev?.forEach((suite) => suite && map.set(suite.uid, suite))
 
     next?.forEach((suite) => {
-      if (!suite) return
+      if (!suite) {
+        return
+      }
       const existing = map.get(suite.uid)
       map.set(suite.uid, existing ? this.#mergeSuite(existing, suite) : suite)
     })
@@ -359,15 +370,14 @@ export class DataManagerController implements ReactiveController {
     return Array.from(map.values())
   }
 
-  #mergeTests(
-    prev: TestStatsFragment[] = [],
-    next: TestStatsFragment[] = []
-  ) {
+  #mergeTests(prev: TestStatsFragment[] = [], next: TestStatsFragment[] = []) {
     const map = new Map<string, TestStatsFragment>()
     prev?.forEach((test) => test && map.set(test.uid, test))
 
     next?.forEach((test) => {
-      if (!test) return
+      if (!test) {
+        return
+      }
       const existing = map.get(test.uid)
 
       // Check if this test is a rerun (different start time)
@@ -378,7 +388,10 @@ export class DataManagerController implements ReactiveController {
         this.#getTimestamp(test.start) !== this.#getTimestamp(existing.start)
 
       // Replace on rerun, merge on normal update
-      map.set(test.uid, isRerun ? test : existing ? { ...existing, ...test } : test)
+      map.set(
+        test.uid,
+        isRerun ? test : existing ? { ...existing, ...test } : test
+      )
     })
 
     return Array.from(map.values())

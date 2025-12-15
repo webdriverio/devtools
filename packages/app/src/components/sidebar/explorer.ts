@@ -124,7 +124,9 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
     }
 
     // Clear execution data before triggering rerun
-    this.dispatchEvent(new CustomEvent('clear-execution-data', { bubbles: true, composed: true }))
+    this.dispatchEvent(
+      new CustomEvent('clear-execution-data', { bubbles: true, composed: true })
+    )
 
     const payload = {
       ...detail,
@@ -133,7 +135,6 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
       specFile: detail.specFile || this.#deriveSpecFile(detail),
       configFile: this.#getConfigPath()
     }
-    console.log('[Explorer] Sending test run request:', payload)
     await this.#postToBackend('/api/tests/run', payload)
   }
 
@@ -199,7 +200,9 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
     }
 
     // Clear execution data before triggering rerun
-    this.dispatchEvent(new CustomEvent('clear-execution-data', { bubbles: true, composed: true }))
+    this.dispatchEvent(
+      new CustomEvent('clear-execution-data', { bubbles: true, composed: true })
+    )
 
     void this.#postToBackend('/api/tests/run', {
       uid: '*',
@@ -327,9 +330,11 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
     return (
       Boolean(
         ['all', 'none'].includes(this.#testFilter.filterStatus) ||
-        (entry.state === TestState.PASSED && this.#testFilter.filtersPassed) ||
-        (entry.state === TestState.FAILED && this.#testFilter.filtersFailed) ||
-        (entry.state === TestState.SKIPPED && this.#testFilter.filtersSkipped)
+          (entry.state === TestState.PASSED &&
+            this.#testFilter.filtersPassed) ||
+          (entry.state === TestState.FAILED &&
+            this.#testFilter.filtersFailed) ||
+          (entry.state === TestState.SKIPPED && this.#testFilter.filtersSkipped)
       ) &&
       (!this.#testFilter.filterQuery ||
         entryLabelIncludingChildren

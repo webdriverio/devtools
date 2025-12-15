@@ -45,21 +45,12 @@ const FRAMEWORK_FILTERS: Record<
 > = {
   cucumber: ({ specArg, payload }) => {
     const filters: string[] = []
-    console.log('[Runner] Cucumber filter - payload:', {
-      entryType: payload.entryType,
-      suiteType: payload.suiteType,
-      featureFile: payload.featureFile,
-      featureLine: payload.featureLine,
-      fullTitle: payload.fullTitle,
-      specArg
-    })
 
     // For feature-level suites, run the entire feature file
     if (payload.suiteType === 'feature' && specArg) {
       // Remove any line number from specArg for feature-level execution
       const featureFile = specArg.split(':')[0]
       filters.push('--spec', featureFile)
-      console.log('[Runner] Feature-level execution - running entire file:', featureFile)
       return filters
     }
 
@@ -84,7 +75,10 @@ const FRAMEWORK_FILTERS: Record<
         }
         // Use regex to match the exact "rowNumber: scenarioName" pattern
         // This ensures we only run that specific example row
-        filters.push('--cucumberOpts.name', `^${rowNumber}:\\s*${escapeRegex(scenarioName.trim())}$`)
+        filters.push(
+          '--cucumberOpts.name',
+          `^${rowNumber}:\\s*${escapeRegex(scenarioName.trim())}$`
+        )
         return filters
       }
       // No row number - use plain name filter
