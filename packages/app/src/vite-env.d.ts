@@ -23,4 +23,5 @@ interface GlobalEventHandlersEventMap {
   'app-logs': CustomEvent<string>
   'load-trace': CustomEvent<TraceLog>
   'show-command': CustomEvent<CommandEventProps>
+  'clear-execution-data': CustomEvent<void>
 }

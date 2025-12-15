@@ -52,6 +52,7 @@ export class WebdriverIODevtoolsApplication extends Element {
   connectedCallback(): void {
     super.connectedCallback()
     window.addEventListener('load-trace', this.#loadTrace.bind(this))
+    this.addEventListener('clear-execution-data', this.#clearExecutionData.bind(this))
   }
 
   render() {
@@ -64,6 +65,10 @@ export class WebdriverIODevtoolsApplication extends Element {
   #loadTrace({ detail }: { detail: TraceLog }) {
     this.dataManager.loadTraceFile(detail)
     this.requestUpdate()
+  }
+
+  #clearExecutionData() {
+    this.dataManager.clearExecutionData()
   }
 
   #mainContent() {

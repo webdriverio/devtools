@@ -8,6 +8,47 @@ import {
   mapSuiteToSource
 } from './utils.js'
 
+// Track test/suite occurrences within current run to handle duplicate signatures
+// (e.g., Cucumber Scenario Outline example rows)
+const signatureCounters = new Map<string, number>()
+
+// Generate stable UID based on test/suite metadata
+function generateStableUid(item: SuiteStats | TestStats): string {
+  const parts = [
+    item.title,
+    (item as any).file || '',
+    String((item as any).fullTitle || item.title),
+    // Include cid to differentiate parallel runs
+    (item as any).cid || '',
+    // Include parent to differentiate nested structures
+    (item as any).parent || ''
+  ]
+
+  // Create a signature for this test/suite
+  const signature = parts.join('::')
+
+  // Track occurrences to handle Cucumber example rows or other duplicate scenarios
+  const count = signatureCounters.get(signature) || 0
+  signatureCounters.set(signature, count + 1)
+
+  // Include counter only if this signature has appeared multiple times
+  if (count > 0) {
+    parts.push(String(count))
+  }
+
+  // Simple hash function
+  const hash = parts.join('::').split('').reduce((acc, char) => {
+    return ((acc << 5) - acc + char.charCodeAt(0)) | 0
+  }, 0)
+
+  return `stable-${Math.abs(hash).toString(36)}`
+}
+
+// Reset counters at the start of each test run
+function resetSignatureCounters() {
+  signatureCounters.clear()
+}
+
 export class TestReporter extends WebdriverIOReporter {
   #report: (data: any) => void
   #currentSpecFile?: string
@@ -16,10 +57,17 @@ export class TestReporter extends WebdriverIOReporter {
   constructor(options: any, report: (data: any) => void) {
     super(options)
     this.#report = report
+    // Reset signature counters for each new reporter instance (new test run)
+    resetSignatureCounters()
   }
 
   onSuiteStart(suiteStats: SuiteStats): void {
     super.onSuiteStart(suiteStats)
+
+    // Override with stable UID
+    const stableUid = generateStableUid(suiteStats)
+    ;(suiteStats as any).uid = stableUid
+
     this.#currentSpecFile = suiteStats.file
     setCurrentSpecFile(suiteStats.file)
 
@@ -39,13 +87,19 @@ export class TestReporter extends WebdriverIOReporter {
   }
 
   onTestStart(testStats: TestStats): void {
-    // Enrich testStats with callSource info
+    super.onTestStart(testStats)
+
+    // Enrich testStats with callSource info FIRST
     mapTestToSource(testStats, this.#currentSpecFile)
     if ((testStats as any).file && (testStats as any).line !== null) {
       ;(testStats as any).callSource =
         `${(testStats as any).file}:${(testStats as any).line}`
     }
-    super.onTestStart(testStats)
+
+    // Override with stable UID AFTER all metadata is enriched
+    const stableUid = generateStableUid(testStats)
+    ;(testStats as any).uid = stableUid
+
     this.#sendUpstream()
   }
 

@@ -120,6 +120,9 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
       return
     }
 
+    // Clear execution data before triggering rerun
+    this.dispatchEvent(new CustomEvent('clear-execution-data', { bubbles: true, composed: true }))
+
     await this.#postToBackend('/api/tests/run', {
       ...detail,
       runAll: detail.uid === '*',
@@ -189,6 +192,9 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
       } as TestRunDetail)
       return
     }
+
+    // Clear execution data before triggering rerun
+    this.dispatchEvent(new CustomEvent('clear-execution-data', { bubbles: true, composed: true }))
 
     void this.#postToBackend('/api/tests/run', {
       uid: '*',
