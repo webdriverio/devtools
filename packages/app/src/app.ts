@@ -70,8 +70,8 @@ export class WebdriverIODevtoolsApplication extends Element {
     this.requestUpdate()
   }
 
-  #clearExecutionData() {
-    this.dataManager.clearExecutionData()
+  #clearExecutionData({ detail }: { detail?: { uid?: string } }) {
+    this.dataManager.clearExecutionData(detail?.uid)
   }
 
   #mainContent() {

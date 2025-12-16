@@ -21,6 +21,14 @@ interface DevtoolsBackendOptions {
 const log = logger('@wdio/devtools-backend')
 const clients = new Set<WebSocket>()
 
+export function broadcastToClients(message: string) {
+  clients.forEach((client) => {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(message)
+    }
+  })
+}
+
 export async function start(opts: DevtoolsBackendOptions = {}) {
   const host = opts.hostname || 'localhost'
   const port = opts.port || (await getPort({ port: DEFAULT_PORT }))
@@ -55,6 +63,10 @@ export async function start(opts: DevtoolsBackendOptions = {}) {
 
   server.post('/api/tests/stop', async (_request, reply) => {
     testRunner.stop()
+    broadcastToClients(JSON.stringify({
+      scope: 'testStopped',
+      data: { stopped: true, timestamp: Date.now() }
+    }))
     reply.send({ ok: true })
   })
 

@@ -42,9 +42,9 @@ export const suiteContext = createContext<Record<string, any>[]>(
 
 const hasConnection = createContext<boolean>(Symbol('hasConnection'))
 
-interface SocketMessage<T extends keyof TraceLog = keyof TraceLog> {
+interface SocketMessage<T extends keyof TraceLog | 'testStopped' = keyof TraceLog | 'testStopped'> {
   scope: T
-  data: TraceLog[T]
+  data: T extends keyof TraceLog ? TraceLog[T] : unknown
 }
 
 export class DataManagerController implements ReactiveController {
@@ -103,17 +103,113 @@ export class DataManagerController implements ReactiveController {
   }
 
   // Public method to clear execution data when rerun is triggered
-  clearExecutionData() {
-    this.mutationsContextProvider.setValue([])
-    this.commandsContextProvider.setValue([])
-    this.logsContextProvider.setValue([])
-    this.consoleLogsContextProvider.setValue([])
+  clearExecutionData(uid?: string) {
+    this.#resetExecutionData()
+    if (uid) {
+      this.#markTestAsRunning(uid)
+    }
+  }
+
+  // Private method to mark a test/suite as running immediately for UI feedback
+  #markTestAsRunning(uid: string) {
+    const suites = this.suitesContextProvider.value || []
+
+    // If uid is '*', mark ALL tests/suites as running
+    if (uid === '*') {
+      const updatedSuites = suites.map((chunk) => {
+        const updatedChunk: Record<string, SuiteStatsFragment> = {}
+        Object.entries(chunk as Record<string, SuiteStatsFragment>).forEach(
+          ([suiteUid, suite]) => {
+            if (!suite) {
+              updatedChunk[suiteUid] = suite
+              return
+            }
+
+            const markAllAsRunning = (s: SuiteStatsFragment): SuiteStatsFragment => {
+              return {
+                ...s,
+                start: new Date(),
+                end: undefined,
+                tests: s.tests?.map((test) => ({
+                  ...test,
+                  start: new Date(),
+                  end: undefined
+                })) || [],
+                suites: s.suites?.map(markAllAsRunning) || []
+              }
+            }
+
+            updatedChunk[suiteUid] = markAllAsRunning(suite)
+          }
+        )
+        return updatedChunk
+      })
+      this.suitesContextProvider.setValue(updatedSuites)
+      this.#host.requestUpdate()
+      return
+    }
+
+    // Otherwise, mark specific test/suite as running
+    const updatedSuites = suites.map((chunk) => {
+      const updatedChunk: Record<string, SuiteStatsFragment> = {}
+      Object.entries(chunk as Record<string, SuiteStatsFragment>).forEach(
+        ([suiteUid, suite]) => {
+          if (!suite) {
+            updatedChunk[suiteUid] = suite
+            return
+          }
+
+          // Recursive helper to mark tests/suites as running
+          const markAsRunning = (s: SuiteStatsFragment): SuiteStatsFragment => {
+            // If this is the target suite/test, mark it as running
+            if (s.uid === uid) {
+              return {
+                ...s,
+                start: new Date(),
+                end: undefined, // Clear end to mark as running
+                tests: s.tests?.map((test) => ({
+                  ...test,
+                  start: new Date(),
+                  end: undefined
+                })) || [],
+                suites: s.suites?.map(markAsRunning) || []
+              }
+            }
+
+            // Check if any child test matches
+            const updatedTests = s.tests?.map((test) => {
+              if (test.uid === uid) {
+                return {
+                  ...test,
+                  start: new Date(),
+                  end: undefined
+                }
+              }
+              return test
+            })
+
+            // Recursively check nested suites
+            const updatedNestedSuites = s.suites?.map(markAsRunning)
+
+            return {
+              ...s,
+              tests: updatedTests || [],
+              suites: updatedNestedSuites || []
+            }
+          }
+
+          updatedChunk[suiteUid] = markAsRunning(suite)
+        }
+      )
+      return updatedChunk
+    })
+
+    this.suitesContextProvider.setValue(updatedSuites)
     this.#host.requestUpdate()
   }
 
   hostConnected() {
     const wsUrl = `ws://${window.location.host}/client`
-    console.log(`Connecting to ${wsUrl}`)
     const ws = (this.#ws = new WebSocket(wsUrl))
 
     ws.addEventListener('open', () => {
@@ -147,6 +243,13 @@ export class DataManagerController implements ReactiveController {
     try {
       const { scope, data } = JSON.parse(event.data) as SocketMessage
       if (!data) {
+        return
+      }
+
+      // Handle test stopped event
+      if (scope === 'testStopped') {
+        this.#handleTestStopped()
+        this.#host.requestUpdate()
         return
       }
 
@@ -225,6 +328,55 @@ export class DataManagerController implements ReactiveController {
 
     // Force synchronous re-render
     this.#host.requestUpdate()
+  }
+
+  #handleTestStopped() {
+    // Mark all running tests as failed when test execution is stopped
+    const suites = this.suitesContextProvider.value || []
+    const updatedSuites = suites.map((chunk) => {
+      const updatedChunk: Record<string, SuiteStatsFragment> = {}
+      Object.entries(chunk as Record<string, SuiteStatsFragment>).forEach(
+        ([uid, suite]) => {
+          if (!suite) {
+            updatedChunk[uid] = suite
+            return
+          }
+
+          // Recursive helper to update tests and nested suites
+          const updateSuite = (s: SuiteStatsFragment): SuiteStatsFragment => {
+            const updatedTests = s.tests?.map((test): TestStatsFragment => {
+              // If test is running (no end time), mark it as failed
+              if (test && !test.end) {
+                return {
+                  ...test,
+                  end: new Date(),
+                  state: 'failed' as 'failed',
+                  error: {
+                    message: 'Test execution stopped',
+                    name: 'TestStoppedError'
+                  }
+                }
+              }
+              return test
+            })
+
+            // Recursively update nested suites (for Cucumber scenarios)
+            const updatedNestedSuites = s.suites?.map(updateSuite)
+
+            return {
+              ...s,
+              tests: updatedTests || [],
+              suites: updatedNestedSuites || []
+            }
+          }
+
+          updatedChunk[uid] = updateSuite(suite)
+        }
+      )
+      return updatedChunk
+    })
+
+    this.suitesContextProvider.setValue(updatedSuites)
   }
 
   #handleMutationsUpdate(data: TraceMutation[]) {

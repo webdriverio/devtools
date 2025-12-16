@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import url from 'node:url'
 import { createRequire } from 'node:module'
+import kill from 'tree-kill'
 
 const require = createRequire(import.meta.url)
 const wdioBin = resolveWdioBin()
@@ -151,7 +152,8 @@ class TestRunner {
     const child = spawn(process.execPath, args, {
       cwd: this.#baseDir,
       env: childEnv,
-      stdio: 'inherit'
+      stdio: 'inherit',
+      detached: false
     })
 
     this.#child = child
@@ -175,10 +177,22 @@ class TestRunner {
   }
 
   stop() {
-    if (!this.#child) {
+    if (!this.#child || !this.#child.pid) {
       return
     }
-    this.#child.kill('SIGINT')
+
+    const pid = this.#child.pid
+
+    // Kill the entire process tree
+    kill(pid, 'SIGTERM', (err) => {
+      if (err) {
+        console.error('Error stopping test run:', err)
+        // Try force kill if graceful termination fails
+        kill(pid, 'SIGKILL')
+      }
+    })
+
+    // Clean up immediately
     this.#child = undefined
     this.#lastPayload = undefined
     this.#baseDir = process.cwd()
