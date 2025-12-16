@@ -125,7 +125,11 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
 
     // Clear execution data before triggering rerun
     this.dispatchEvent(
-      new CustomEvent('clear-execution-data', { bubbles: true, composed: true })
+      new CustomEvent('clear-execution-data', {
+        detail: { uid: detail.uid },
+        bubbles: true,
+        composed: true
+      })
     )
 
     const payload = {
@@ -140,8 +144,7 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
 
   async #handleTestStop(event: Event) {
     event.stopPropagation()
-    const detail = (event as CustomEvent<TestRunDetail>).detail
-    await this.#postToBackend('/api/tests/stop', { ...detail })
+    await this.#postToBackend('/api/tests/stop', {})
   }
 
   async #postToBackend(path: string, body: Record<string, unknown>) {
@@ -199,9 +202,13 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
       return
     }
 
-    // Clear execution data before triggering rerun
+    // Clear execution data and mark all tests as running
     this.dispatchEvent(
-      new CustomEvent('clear-execution-data', { bubbles: true, composed: true })
+      new CustomEvent('clear-execution-data', {
+        detail: { uid: '*' },
+        bubbles: true,
+        composed: true
+      })
     )
 
     void this.#postToBackend('/api/tests/run', {
