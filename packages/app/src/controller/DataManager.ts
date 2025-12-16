@@ -42,7 +42,9 @@ export const suiteContext = createContext<Record<string, any>[]>(
 
 const hasConnection = createContext<boolean>(Symbol('hasConnection'))
 
-interface SocketMessage<T extends keyof TraceLog | 'testStopped' = keyof TraceLog | 'testStopped'> {
+interface SocketMessage<
+  T extends keyof TraceLog | 'testStopped' = keyof TraceLog | 'testStopped'
+> {
   scope: T
   data: T extends keyof TraceLog ? TraceLog[T] : unknown
 }
@@ -125,16 +127,19 @@ export class DataManagerController implements ReactiveController {
               return
             }
 
-            const markAllAsRunning = (s: SuiteStatsFragment): SuiteStatsFragment => {
+            const markAllAsRunning = (
+              s: SuiteStatsFragment
+            ): SuiteStatsFragment => {
               return {
                 ...s,
                 start: new Date(),
                 end: undefined,
-                tests: s.tests?.map((test) => ({
-                  ...test,
-                  start: new Date(),
-                  end: undefined
-                })) || [],
+                tests:
+                  s.tests?.map((test) => ({
+                    ...test,
+                    start: new Date(),
+                    end: undefined
+                  })) || [],
                 suites: s.suites?.map(markAllAsRunning) || []
               }
             }
@@ -167,11 +172,12 @@ export class DataManagerController implements ReactiveController {
                 ...s,
                 start: new Date(),
                 end: undefined, // Clear end to mark as running
-                tests: s.tests?.map((test) => ({
-                  ...test,
-                  start: new Date(),
-                  end: undefined
-                })) || [],
+                tests:
+                  s.tests?.map((test) => ({
+                    ...test,
+                    start: new Date(),
+                    end: undefined
+                  })) || [],
                 suites: s.suites?.map(markAsRunning) || []
               }
             }
