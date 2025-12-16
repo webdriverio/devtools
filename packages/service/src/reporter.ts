@@ -9,28 +9,7 @@ import {
 } from './utils.js'
 import { readFileSync, existsSync } from 'node:fs'
 
-// Store Cucumber pickle/scenario line numbers captured from hooks
-// Key format: "cid:title" or "cid:uid"
-const cucumberScenarioLines = new Map<string, { uri: string; line: number }>()
-
-export function setCucumberScenarioLine(
-  key: string,
-  uri: string,
-  line: number
-) {
-  cucumberScenarioLines.set(key, { uri, line })
-}
-
-export function getCucumberScenarioLine(key: string) {
-  return cucumberScenarioLines.get(key)
-}
-
-export function clearCucumberScenarioLines() {
-  cucumberScenarioLines.clear()
-}
-
 // Track test/suite occurrences within current run to handle duplicate signatures
-// (e.g., Cucumber Scenario Outline example rows)
 const signatureCounters = new Map<string, number>()
 
 // Generate stable UID based on test/suite metadata
@@ -201,7 +180,7 @@ export class TestReporter extends WebdriverIOReporter {
       }
     }
 
-    // Override with stable UID
+    // Generate stable UID for consistent identification across reruns
     const stableUid = generateStableUid(suiteStats)
     ;(suiteStats as any).uid = stableUid
 
@@ -241,7 +220,7 @@ export class TestReporter extends WebdriverIOReporter {
         `${(testStats as any).file}:${(testStats as any).line}`
     }
 
-    // Override with stable UID AFTER all metadata is enriched
+    // Generate stable UID after enriching metadata for consistent test identification
     const stableUid = generateStableUid(testStats)
     ;(testStats as any).uid = stableUid
 

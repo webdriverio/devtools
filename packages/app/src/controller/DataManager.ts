@@ -261,7 +261,6 @@ export class DataManagerController implements ReactiveController {
       ...data
     }
     this.sourcesContextProvider.setValue(merged)
-    console.debug('Merged sources keys', Object.keys(merged))
   }
 
   #handleSuitesUpdate(data: unknown) {

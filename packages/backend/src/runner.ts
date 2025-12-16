@@ -58,7 +58,6 @@ const FRAMEWORK_FILTERS: Record<
     // Note: Cucumber scenarios are type 'suite', not 'test'
     if (payload.featureFile && payload.featureLine) {
       filters.push('--spec', `${payload.featureFile}:${payload.featureLine}`)
-      console.log('[Runner] Using feature file:line filter:', filters)
       return filters
     }
 
