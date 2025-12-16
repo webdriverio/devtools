@@ -63,10 +63,12 @@ export async function start(opts: DevtoolsBackendOptions = {}) {
 
   server.post('/api/tests/stop', async (_request, reply) => {
     testRunner.stop()
-    broadcastToClients(JSON.stringify({
-      scope: 'testStopped',
-      data: { stopped: true, timestamp: Date.now() }
-    }))
+    broadcastToClients(
+      JSON.stringify({
+        scope: 'testStopped',
+        data: { stopped: true, timestamp: Date.now() }
+      })
+    )
     reply.send({ ok: true })
   })
 
