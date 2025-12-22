@@ -43,21 +43,25 @@ const FRAMEWORK_FILTERS: Record<
     if (payload.entryType === 'test' && payload.fullTitle) {
       // Cucumber fullTitle format: "1: Scenario name" or "2: Scenario name"
       // Extract the row number and scenario name
-      // Use non-greedy match and avoid catastrophic backtracking
-      const rowMatch = payload.fullTitle.match(/^(\d+):\s*(.*)$/)
-      if (rowMatch) {
-        const [, rowNumber, scenarioName] = rowMatch
-        // Use spec file filter
-        if (specArg) {
-          filters.push('--spec', specArg)
+      // Avoid ReDoS by removing ambiguous \s* before .* - use string operations instead
+      const colonIndex = payload.fullTitle.indexOf(':')
+      if (colonIndex > 0) {
+        const rowNumber = payload.fullTitle.substring(0, colonIndex)
+        const scenarioName = payload.fullTitle.substring(colonIndex + 1).trim()
+        // Validate row number is digits only
+        if (/^\d+$/.test(rowNumber)) {
+          // Use spec file filter
+          if (specArg) {
+            filters.push('--spec', specArg)
+          }
+          // Use regex to match the exact "rowNumber: scenarioName" pattern
+          // This ensures we only run that specific example row
+          filters.push(
+            '--cucumberOpts.name',
+            `^${rowNumber}:\\s*${escapeRegex(scenarioName)}$`
+          )
+          return filters
         }
-        // Use regex to match the exact "rowNumber: scenarioName" pattern
-        // This ensures we only run that specific example row
-        filters.push(
-          '--cucumberOpts.name',
-          `^${rowNumber}:\\s*${escapeRegex(scenarioName.trim())}$`
-        )
-        return filters
       }
       // No row number - use plain name filter
       if (specArg) {
