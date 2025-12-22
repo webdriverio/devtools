@@ -43,7 +43,8 @@ const FRAMEWORK_FILTERS: Record<
     if (payload.entryType === 'test' && payload.fullTitle) {
       // Cucumber fullTitle format: "1: Scenario name" or "2: Scenario name"
       // Extract the row number and scenario name
-      const rowMatch = payload.fullTitle.match(/^(\d+):\s*(.+)$/)
+      // Use non-greedy match and avoid catastrophic backtracking
+      const rowMatch = payload.fullTitle.match(/^(\d+):\s*(.*)$/)
       if (rowMatch) {
         const [, rowNumber, scenarioName] = rowMatch
         // Use spec file filter
@@ -184,7 +185,11 @@ class TestRunner {
       ? this.#buildSpecArgument(specFile, payload)
       : undefined
 
-    const builder = FRAMEWORK_FILTERS[framework] || DEFAULT_FILTERS
+    const builderCandidate = FRAMEWORK_FILTERS[framework]
+    const builder =
+      typeof builderCandidate === 'function'
+        ? builderCandidate
+        : DEFAULT_FILTERS
     return builder({ specArg, payload })
   }
 
