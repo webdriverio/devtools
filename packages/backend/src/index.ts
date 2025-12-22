@@ -9,7 +9,8 @@ import { WebSocket } from 'ws'
 
 import { getDevtoolsApp } from './utils.js'
 import { DEFAULT_PORT } from './constants.js'
-import { testRunner, type RunnerRequestBody } from './runner.js'
+import { testRunner } from './runner.js'
+import type { RunnerRequestBody } from './types.js'
 
 let server: FastifyInstance | undefined
 

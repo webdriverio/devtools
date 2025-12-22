@@ -3,6 +3,8 @@ import { html, css, nothing } from 'lit'
 import { customElement, property } from 'lit/decorators.js'
 
 import { CollapseableEntry } from './collapseableEntry.js'
+import type { TestRunDetail } from './types.js'
+import { TestState } from './types.js'
 
 import '~icons/mdi/chevron-right.js'
 import '~icons/mdi/play.js'
@@ -17,19 +19,6 @@ import '~icons/mdi/check.js'
 import '~icons/mdi/checkbox-blank-circle-outline.js'
 
 const TEST_SUITE = 'wdio-test-suite'
-
-export interface TestRunDetail {
-  uid: string
-  entryType: 'suite' | 'test'
-  specFile?: string
-  fullTitle?: string
-  label?: string
-  callSource?: string
-  configFile?: string
-  featureFile?: string
-  featureLine?: number
-  suiteType?: string
-}
 
 @customElement(TEST_SUITE)
 export class ExplorerTestSuite extends Element {
@@ -47,13 +36,6 @@ export class ExplorerTestSuite extends Element {
   render() {
     return html`<slot></slot>`
   }
-}
-
-export enum TestState {
-  PASSED = 'passed',
-  FAILED = 'failed',
-  RUNNING = 'running',
-  SKIPPED = 'skipped'
 }
 
 const TEST_ENTRY = 'wdio-test-entry'

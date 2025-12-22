@@ -4,40 +4,17 @@ import path from 'node:path'
 import url from 'node:url'
 import { createRequire } from 'node:module'
 import kill from 'tree-kill'
+import type { RunnerRequestBody } from './types.js'
+import { WDIO_CONFIG_FILENAMES } from './types.js'
 
 const require = createRequire(import.meta.url)
 const wdioBin = resolveWdioBin()
-
-const WDIO_CONFIG_FILENAMES = [
-  'wdio.conf.ts',
-  'wdio.conf.js',
-  'wdio.conf.cjs',
-  'wdio.conf.mjs'
-]
 
 /**
  * Escape special regex characters in a string
  */
 function escapeRegex(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-}
-
-export interface RunnerRequestBody {
-  uid: string
-  entryType: 'suite' | 'test'
-  specFile?: string
-  fullTitle?: string
-  label?: string
-  callSource?: string
-  runAll?: boolean
-  framework?: string
-  configFile?: string
-  lineNumber?: number
-  devtoolsHost?: string
-  devtoolsPort?: number
-  featureFile?: string
-  featureLine?: number
-  suiteType?: string
 }
 
 const FRAMEWORK_FILTERS: Record<
