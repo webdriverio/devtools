@@ -5,8 +5,19 @@ import { consume } from '@lit/context'
 import type { TestStats, SuiteStats } from '@wdio/reporter'
 import type { Metadata } from '@wdio/devtools-service/types'
 import { repeat } from 'lit/directives/repeat.js'
-import { TestState } from './test-suite.js'
-import { suiteContext, metadataContext } from '../../controller/DataManager.js'
+import {
+  suiteContext,
+  metadataContext,
+  isTestRunningContext
+} from '../../controller/DataManager.js'
+import type {
+  TestEntry,
+  RunCapabilities,
+  RunnerOptions,
+  TestRunDetail
+} from './types.js'
+import { TestState } from './types.js'
+import { DEFAULT_CAPABILITIES, FRAMEWORK_CAPABILITIES } from './constants.js'
 
 import '~icons/mdi/play.js'
 import '~icons/mdi/stop.js'
@@ -17,44 +28,8 @@ import '~icons/mdi/expand-all.js'
 import './test-suite.js'
 import { CollapseableEntry } from './collapseableEntry.js'
 import type { DevtoolsSidebarFilter } from './filter.js'
-import type { TestRunDetail } from './test-suite.js'
 
 const EXPLORER = 'wdio-devtools-sidebar-explorer'
-
-interface TestEntry {
-  uid: string
-  state?: string
-  label: string
-  callSource?: string
-  children: TestEntry[]
-  type: 'suite' | 'test'
-  specFile?: string
-  fullTitle?: string
-  featureFile?: string
-  featureLine?: number
-  suiteType?: string
-}
-
-interface RunCapabilities {
-  canRunSuites: boolean
-  canRunTests: boolean
-}
-
-type RunnerOptions = {
-  framework?: string
-  configFile?: string
-  configFilePath?: string
-  runCapabilities?: Partial<RunCapabilities>
-}
-
-const DEFAULT_CAPABILITIES: RunCapabilities = {
-  canRunSuites: true,
-  canRunTests: true
-}
-
-const FRAMEWORK_CAPABILITIES: Record<string, RunCapabilities> = {
-  cucumber: { canRunSuites: true, canRunTests: false }
-}
 
 @customElement(EXPLORER)
 export class DevtoolsSidebarExplorer extends CollapseableEntry {
@@ -92,6 +67,9 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
 
   @consume({ context: metadataContext, subscribe: true })
   metadata: Metadata | undefined = undefined
+
+  @consume({ context: isTestRunningContext, subscribe: true })
+  isTestRunning = false
 
   connectedCallback(): void {
     super.connectedCallback()

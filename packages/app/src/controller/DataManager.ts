@@ -41,6 +41,9 @@ export const suiteContext = createContext<Record<string, any>[]>(
 )
 
 const hasConnection = createContext<boolean>(Symbol('hasConnection'))
+export const isTestRunningContext = createContext<boolean>(
+  Symbol('isTestRunning')
+)
 
 interface SocketMessage<
   T extends keyof TraceLog | 'testStopped' = keyof TraceLog | 'testStopped'
