@@ -94,6 +94,6 @@ packages/
 
 Contributions are welcome! Please feel free to submit a Pull Request.
 
-## License
+## :page_facing_up: License
 
-MIT
+[MIT](/LICENSE)
