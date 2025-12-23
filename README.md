@@ -59,12 +59,13 @@ export const config = {
 
 ## Usage
 
-1. Run your WebdriverIO tests with the devtools service enabled
-2. Open `http://localhost:3000` in your browser
-3. View real-time test execution with live browser preview
-4. Click play buttons on any test or suite to rerun selectively
-5. Click stop button to terminate running tests
-6. Explore actions, metadata, and console logs in the workbench tabs
+1. Run your WebdriverIO tests
+2. The devtools UI automatically opens in an external browser window at `http://localhost:3000`
+3. Tests begin executing immediately with real-time visualization
+4. View live browser preview, test progress, and command execution
+5. After initial run completes, use play buttons to rerun individual tests or suites
+6. Click stop button anytime to terminate running tests
+7. Explore actions, metadata, console logs, and source code in the workbench tabs
 
 ## Development
 
