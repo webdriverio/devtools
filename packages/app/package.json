@@ -3,6 +3,11 @@
   "version": "1.1.0",
   "description": "Browser devtools extension for debugging WebdriverIO tests.",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/webdriverio/devtools.git",
+    "directory": "packages/devtools-app"
+  },
   "exports": "./src/index.ts",
   "scripts": {
     "dev": "vite build --watch",

@@ -1,8 +1,13 @@
 {
   "name": "@wdio/devtools-script",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Script to be injected into a page to trace the page",
   "author": "Christian Bromann <mail@bromann.dev>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/webdriverio/devtools.git",
+    "directory": "packages/devtools-script"
+  },
   "type": "module",
   "types": "./types.d.ts",
   "exports": "./dist/script.js",
