@@ -3,6 +3,11 @@
   "version": "10.1.0",
   "description": "Hook up WebdriverIO with DevTools",
   "author": "Christian Bromann <mail@bromann.dev>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/webdriverio/devtools.git",
+    "directory": "packages/devtools-service"
+  },
   "type": "module",
   "exports": {
     ".": {

@@ -4,6 +4,11 @@
   "description": "Backend service to spin up WebdriverIO Devtools",
   "author": "Christian Bromann <mail@bromann.dev>",
   "license": "MIT",
+ "repository": {
+    "type": "git",
+    "url": "git+https://github.com/webdriverio/devtools.git",
+    "directory": "packages/devtools-backend"
+  },
   "type": "module",
   "exports": {
     ".": "./dist/index.js"
