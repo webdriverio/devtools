@@ -10,6 +10,16 @@ A powerful browser devtools extension for debugging, visualizing, and controllin
 - **Stop Test Execution**: Terminate running tests with proper process cleanup using the stop button
 - **Test List Preservation**: All tests remain visible in the sidebar during reruns, maintaining full context
 
+#### 🛠️ Test Rerunner & Snapshot Demo
+<p align="center">
+    <img src="assets/rerunner-snapshot-demo.gif" alt="Test Rerunner and Snapshot Feature Demo" width="600" />
+</p>
+
+#### 🛑 Stop Test Runner Demo
+<p align="center">
+    <img src="assets/stop-runner-demo.gif" alt="Stop Test Runner Feature Demo" width="600" />
+</p>
+
 ### 🎭 Multi-Framework Support
 - **Mocha**: Full support with grep-based filtering for test/suite execution
 - **Jasmine**: Complete integration with grep-based filtering
@@ -20,6 +30,11 @@ A powerful browser devtools extension for debugging, visualizing, and controllin
 - **Actions Timeline**: Command-by-command execution log with timestamps and parameters
 - **Test Hierarchy**: Nested test suite and test case tree view with status indicators
 - **Live Status Updates**: Immediate spinner icons and visual feedback when tests start/stop
+
+#### 🛠️ TestLens Demo
+<p align="center">
+    <img src="assets/testlens-demo.gif" alt="TestLens Feature Demo" width="600" />
+</p>
 
 ### 🔍 Debugging Capabilities
 - **Command Logging**: Detailed capture of all WebDriver commands with arguments and results
