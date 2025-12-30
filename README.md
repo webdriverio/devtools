@@ -40,6 +40,15 @@ A powerful browser devtools extension for debugging, visualizing, and controllin
 - **Service**: WebdriverIO reporter integration with stable UID generation
 - **Process Management**: Tree-kill for proper cleanup of spawned processes
 
+### 🛠️ Test Rerunner & Snapshot Demo
+<img src="https://github.com/user-attachments/assets/c3804559-c0ec-441a-80dc-e4048385f3b2" alt="Test Rerunner & Snapshot Demo" width="400" />
+
+### 🛑 Stop Test Runner Demo
+<img src="https://github.com/user-attachments/assets/f42e43ed-bfac-4280-be5f-87895fb232d3" alt="Stop Test Runner Demo" width="400" />
+
+### 🛠️ TestLens Demo
+<img src="https://github.com/user-attachments/assets/72c576a1-330a-49c4-affe-df260e7c70df" alt="TestLens Demo" width="400" />
+
 ## Installation
 
 ```bash
