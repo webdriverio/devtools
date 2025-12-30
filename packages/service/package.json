@@ -38,8 +38,8 @@
     "@wdio/devtools-backend": "workspace:^",
     "@wdio/devtools-script": "workspace:^",
     "@wdio/logger": "9.18.0",
-    "@wdio/reporter": "9.18.0",
-    "@wdio/types": "9.16.2",
+    "@wdio/reporter": "9.20.0",
+    "@wdio/types": "9.20.0",
     "import-meta-resolve": "^4.1.0",
     "ws": "^8.18.3"
   },
