@@ -50,7 +50,7 @@ export class DevtoolsWorkbench extends Element {
     minPosition: MIN_WORKBENCH_HEIGHT,
     maxPosition: window.innerHeight * 0.7,
     initialPosition: window.innerHeight * 0.7, // initial height of browser window is 70% of window
-    getContainerEl: () => this.getShadowRootAsync() as any as Element,
+    getContainerEl: () => this as unknown as Element,
     direction: Direction.vertical
   })
 
@@ -199,9 +199,11 @@ export class DevtoolsWorkbench extends Element {
         <nav class="ml-auto" slot="actions">
           <button
             @click="${() => this.#toggle('toolbar')}"
-            class="flex h-10 w-10 items-center justify-center pointer ml-auto hover:bg-toolbarHoverBackground"
+            class="flex h-10 w-10 items-center justify-center pointer ml-auto hover:bg-toolbarHoverBackground group"
           >
-            <icon-mdi-arrow-collapse-down></icon-mdi-arrow-collapse-down>
+            <icon-mdi-arrow-collapse-down
+              class="group-hover:text-chartsBlue"
+            ></icon-mdi-arrow-collapse-down>
           </button>
         </nav>
       </wdio-devtools-tabs>
@@ -210,9 +212,11 @@ export class DevtoolsWorkbench extends Element {
             <button
               @click="${() => this.#toggle('toolbar')}"
               class="fixed z-[9999] right-2 bottom-2 bg-sideBarBackground flex h-10 w-10 items-center justify-center cursor-pointer rounded-md shadow
-                   hover:bg-toolbarHoverBackground border border-panelBorder"
+                   hover:bg-toolbarHoverBackground border border-panelBorder group"
             >
-              <icon-mdi-arrow-collapse-up></icon-mdi-arrow-collapse-up>
+              <icon-mdi-arrow-collapse-up
+                class="group-hover:text-chartsBlue"
+              ></icon-mdi-arrow-collapse-up>
             </button>
           `
         : nothing}

@@ -18,6 +18,9 @@ export default defineConfig({
       )
     }
   },
+  css: {
+    postcss: './postcss.config.cjs'
+  },
   plugins: [
     Icons({
       compiler: 'web-components',

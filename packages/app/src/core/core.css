@@ -1,12 +1,5 @@
-@import url('./colors.css');
+@import url('./shadow-styles.css');
 
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
-
-/**
- * general styles applied to all elements
- */
 @layer base {
   :host {
     line-height: 1.5;
@@ -20,6 +13,15 @@
     text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+:host {
+  --spacing: 0.25rem;
+}
+
+@layer base {
+  :host {
     -webkit-text-size-adjust: 100%;
   }
 

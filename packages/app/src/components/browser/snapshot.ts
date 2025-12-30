@@ -58,9 +58,10 @@ export class DevtoolsBrowser extends Element {
         width: 100%;
         height: 100%;
         display: flex;
-        padding: 2rem;
+        padding: 2rem !important;
         align-items: center;
         justify-content: center;
+        box-sizing: border-box !important;
       }
 
       section {
@@ -70,6 +71,9 @@ export class DevtoolsBrowser extends Element {
         display: flex;
         flex-direction: column;
         overflow: hidden;
+        background: var(--vscode-sideBar-background);
+        padding: 0.5rem;
+        gap: 0;
       }
 
       .frame-dot {
@@ -78,6 +82,35 @@ export class DevtoolsBrowser extends Element {
         width: 12px;
         margin: 1em 0.25em;
         flex-shrink: 0;
+      }
+
+      .frame-dot:nth-child(1) {
+        background-color: var(
+          --vscode-notificationsErrorIcon-foreground,
+          #e51400
+        );
+      }
+
+      .frame-dot:nth-child(2) {
+        background-color: var(
+          --vscode-notificationsWarningIcon-foreground,
+          #bf8803
+        );
+      }
+
+      .frame-dot:nth-child(3) {
+        background-color: var(
+          --vscode-ports-iconRunningProcessForeground,
+          #369432
+        );
+      }
+
+      iframe {
+        background-color: white;
+        flex: 1;
+        border: none;
+        border-radius: 0 0 0.5rem 0.5rem;
+        min-height: 0;
       }
     `
   ]
@@ -367,21 +400,25 @@ export class DevtoolsBrowser extends Element {
 
     return html`
       <section
-        class="w-full h-full bg-sideBarBackground rounded-t-md shadow-md"
+        class="w-full h-full bg-sideBarBackground rounded-lg border-2 border-panelBorder shadow-xl"
       >
-        <header class="flex block mx-2">
+        <header
+          class="flex items-center mx-2 bg-sideBarBackground rounded-t-lg"
+        >
           <div class="frame-dot bg-notificationsErrorIconForeground"></div>
           <div class="frame-dot bg-notificationsWarningIconForeground"></div>
           <div class="frame-dot bg-portsIconRunningProcessForeground"></div>
           <div
-            class="flex mx-4 my-2 pr-2 bg-inputBackground text-inputForeground border border-transparent rounded leading-7 w-full"
+            class="flex items-center mx-4 my-2 pr-2 bg-input-background text-inputForeground border border-editorSuggestWidgetBorder rounded leading-7 flex-1 min-w-0 overflow-hidden"
           >
-            <icon-mdi-world class="w-[20px] h-[20px] m-1 mr-2"></icon-mdi-world>
-            ${this.#activeUrl}
+            <icon-mdi-world
+              class="w-[20px] h-[20px] m-1 mr-2 flex-shrink-0"
+            ></icon-mdi-world>
+            <span class="truncate">${this.#activeUrl}</span>
           </div>
         </header>
         ${this.mutations && this.mutations.length
-          ? html`<iframe class="origin-top-left h-full w-full"></iframe>`
+          ? html`<iframe class="origin-top-left"></iframe>`
           : html`<wdio-devtools-placeholder
               style="height: 100%"
             ></wdio-devtools-placeholder>`}
