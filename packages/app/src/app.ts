@@ -1,3 +1,4 @@
+import './tailwind.css'
 import { css, html, nothing } from 'lit'
 import { customElement, query } from 'lit/decorators.js'
 import { TraceType, type TraceLog } from '@wdio/devtools-service/types'

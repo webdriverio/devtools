@@ -63,8 +63,14 @@ export const config: Options.Testrunner = {
   capabilities: [
     {
       browserName: 'chrome',
+      browserVersion: '143.0.7499.169', // specify chromium browser version for testing
       'goog:chromeOptions': {
-        args: ['--headless', '--disable-gpu', '--window-size=1280,800']
+        args: [
+          '--headless',
+          '--disable-gpu',
+          '--remote-allow-origins=*',
+          '--window-size=1280,800'
+        ]
       }
       // }, {
       //     browserName: 'firefox',

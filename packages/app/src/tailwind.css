@@ -1,0 +1,18 @@
+@import "tailwindcss";
+
+/* Tailwind v4 CSS-first configuration */
+/* @source directive scans files for utility classes */
+@source "../src/**/*.{html,js,ts,jsx,tsx}";
+@source "../index.html";
+
+/* @theme directive defines custom design tokens */
+@theme {
+  --color-panelBorder: var(--vscode-panel-border);
+  --color-editorSuggestWidgetBorder: var(--vscode-editorSuggestWidget-border);
+  --color-toolbarHoverBackground: var(--vscode-toolbar-hoverBackground);
+  --color-chartsGreen: var(--vscode-charts-green);
+  --color-chartsRed: var(--vscode-charts-red);
+  --color-chartsYellow: var(--vscode-charts-yellow);
+  --color-chartsBlue: var(--vscode-charts-blue);
+  --color-input-background: var(--vscode-input-background);
+}

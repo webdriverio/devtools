@@ -24,7 +24,7 @@ export class DevtoolsSidebarFilter extends Element {
         display: flex;
         align-items: top;
         font-size: 0.8em;
-        padding-right: 1em;
+        padding-right: 1em !important;
       }
 
       label {
