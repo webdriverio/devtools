@@ -38,8 +38,8 @@
     "@wdio/devtools-backend": "workspace:^",
     "@wdio/devtools-script": "workspace:^",
     "@wdio/logger": "9.18.0",
-    "@wdio/reporter": "9.18.0",
-    "@wdio/types": "9.16.2",
+    "@wdio/reporter": "9.20.0",
+    "@wdio/types": "9.20.0",
     "import-meta-resolve": "^4.1.0",
     "ws": "^8.18.3"
   },
@@ -51,7 +51,7 @@
     "@types/babel__traverse": "^7.28.0",
     "@types/stack-trace": "^0.0.33",
     "@types/ws": "^8.18.1",
-    "@wdio/globals": "9.17.0",
+    "@wdio/globals": "9.23.0",
     "@wdio/protocols": "9.16.2",
     "stack-trace": "1.0.0-pre2",
     "vite-plugin-dts": "^4.5.4"
