@@ -31,7 +31,7 @@
   "scripts": {
     "dev": "vite build --watch",
     "build": "tsc && vite build",
-    "test": "eslint ."
+    "lint": "eslint ."
   },
   "dependencies": {
     "@babel/types": "^7.28.4",

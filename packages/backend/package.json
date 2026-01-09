@@ -20,7 +20,7 @@
     "dev:ts": "tsc --watch",
     "dev:app": "nodemon --watch ./dist ./dist/index.js",
     "build": "tsc -p ./tsconfig.json",
-    "test": "eslint ."
+    "lint": "eslint ."
   },
   "dependencies": {
     "@fastify/static": "^9.0.0",
