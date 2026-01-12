@@ -65,9 +65,15 @@ export class SessionCapturer {
         const logEntry: ConsoleLogs = {
           timestamp: Date.now(),
           type: method,
-          args: args.map(arg =>
+          args: args.map((arg) =>
             typeof arg === 'object' && arg !== null
-              ? ((() => { try { return JSON.stringify(arg) } catch { return String(arg) } })())
+              ? (() => {
+                  try {
+                    return JSON.stringify(arg)
+                  } catch {
+                    return String(arg)
+                  }
+                })()
               : String(arg)
           ),
           source: 'test'
@@ -228,7 +234,7 @@ export class SessionCapturer {
       }
       if (Array.isArray(consoleLogs)) {
         const browserLogs = consoleLogs as ConsoleLogs[]
-        browserLogs.forEach(log => log.source = 'browser')
+        browserLogs.forEach((log) => (log.source = 'browser'))
         this.consoleLogs.push(...browserLogs)
         this.sendUpstream('consoleLogs', browserLogs)
       }

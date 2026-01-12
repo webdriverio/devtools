@@ -30,7 +30,9 @@ export class DevtoolsConsoleLogs extends Element {
       .console-container {
         flex: 1;
         overflow-y: auto;
-        font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
+        font-family:
+          'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas,
+          'Courier New', monospace;
         font-size: 13px;
         line-height: 1.6;
       }
@@ -157,14 +159,18 @@ export class DevtoolsConsoleLogs extends Element {
 
   #formatArgs(args: any[]): string {
     if (Array.isArray(args)) {
-      return args.map(arg => {
-        if (typeof arg === 'string') return arg
-        try {
-          return JSON.stringify(arg, null, 2)
-        } catch {
-          return String(arg)
-        }
-      }).join(' ')
+      return args
+        .map((arg) => {
+          if (typeof arg === 'string') {
+            return arg
+          }
+          try {
+            return JSON.stringify(arg, null, 2)
+          } catch {
+            return String(arg)
+          }
+        })
+        .join(' ')
     }
     return String(args)
   }
@@ -195,11 +201,15 @@ export class DevtoolsConsoleLogs extends Element {
           return html`
             <div class="log-entry log-type-${log.type || 'log'}">
               ${log.timestamp
-                ? html`<div class="log-time">${this.#formatElapsedTime(log.timestamp)}</div>`
+                ? html`<div class="log-time">
+                    ${this.#formatElapsedTime(log.timestamp)}
+                  </div>`
                 : nothing}
               <div class="log-icon">${icon}</div>
               <div class="log-content">
-                ${log.source === 'test' ? html`<span class="log-prefix">>>></span>` : nothing}
+                ${log.source === 'test'
+                  ? html`<span class="log-prefix">>>></span>`
+                  : nothing}
                 <span class="log-message">${this.#formatArgs(log.args)}</span>
               </div>
             </div>
