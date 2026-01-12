@@ -17,6 +17,12 @@ const log = logger('@wdio/devtools-service:SessionCapturer')
 export class SessionCapturer {
   #ws: WebSocket | undefined
   #isInjected = false
+  #originalConsoleMethods: {
+    log: typeof console.log
+    info: typeof console.info
+    warn: typeof console.warn
+    error: typeof console.error
+  }
   commandsLog: CommandLog[] = []
   sources = new Map<string, string>()
   mutations: TraceMutation[] = []
@@ -36,6 +42,54 @@ export class SessionCapturer {
           `Couldn't connect to devtools backend: ${(err as Error).message}`
         )
       )
+    }
+
+    // Store original console methods
+    this.#originalConsoleMethods = {
+      log: console.log,
+      info: console.info,
+      warn: console.warn,
+      error: console.error
+    }
+
+    // Patch console methods to capture test logs
+    this.#patchConsole()
+  }
+
+  #patchConsole() {
+    const consoleMethods = ['log', 'info', 'warn', 'error'] as const
+
+    consoleMethods.forEach((method) => {
+      const originalMethod = this.#originalConsoleMethods[method]
+      console[method] = (...args: any[]) => {
+        const logEntry: ConsoleLogs = {
+          timestamp: Date.now(),
+          type: method,
+          args: args.map(arg =>
+            typeof arg === 'object' && arg !== null
+              ? ((() => { try { return JSON.stringify(arg) } catch { return String(arg) } })())
+              : String(arg)
+          ),
+          source: 'test'
+        }
+        this.consoleLogs.push(logEntry)
+        this.sendUpstream('consoleLogs', [logEntry])
+        return originalMethod.apply(console, args)
+      }
+    })
+  }
+
+  #restoreConsole() {
+    console.log = this.#originalConsoleMethods.log
+    console.info = this.#originalConsoleMethods.info
+    console.warn = this.#originalConsoleMethods.warn
+    console.error = this.#originalConsoleMethods.error
+  }
+
+  cleanup() {
+    this.#restoreConsole()
+    if (this.#ws) {
+      this.#ws.close()
     }
   }
 
@@ -173,8 +227,10 @@ export class SessionCapturer {
         this.sendUpstream('logs', traceLogs)
       }
       if (Array.isArray(consoleLogs)) {
-        this.consoleLogs.push(...(consoleLogs as ConsoleLogs[]))
-        this.sendUpstream('consoleLogs', consoleLogs)
+        const browserLogs = consoleLogs as ConsoleLogs[]
+        browserLogs.forEach(log => log.source = 'browser')
+        this.consoleLogs.push(...browserLogs)
+        this.sendUpstream('consoleLogs', browserLogs)
       }
 
       this.sendUpstream('metadata', metadata)

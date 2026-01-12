@@ -333,6 +333,9 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     )
     await fs.writeFile(traceFilePath, JSON.stringify(traceLog))
     log.info(`DevTools trace saved to ${traceFilePath}`)
+
+    // Clean up console patching
+    this.#sessionCapturer.cleanup()
   }
 
   /**

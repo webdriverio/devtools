@@ -1,7 +1,8 @@
 export const PAGE_TRANSITION_COMMANDS: string[] = [
   'url',
   'navigateTo',
-  'elementClick'
+  'elementClick',
+  'click'
 ]
 
 export const DEFAULT_LAUNCH_CAPS: WebdriverIO.Capabilities = {

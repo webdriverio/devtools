@@ -1,8 +1,10 @@
 import { Element } from '@core/element'
 import { html, css, nothing } from 'lit'
-import { customElement, query } from 'lit/decorators.js'
+import { customElement, query, state } from 'lit/decorators.js'
+import { consume } from '@lit/context'
 
 import { DragController, Direction } from '../utils/DragController.js'
+import { consoleLogContext } from '../controller/DataManager.js'
 
 import '~icons/mdi/arrow-collapse-down.js'
 import '~icons/mdi/arrow-collapse-up.js'
@@ -27,6 +29,10 @@ export class DevtoolsWorkbench extends Element {
   #toolbarCollapsed = localStorage.getItem('toolbar') === 'true'
   #workbenchSidebarCollapsed =
     localStorage.getItem('workbenchSidebar') === 'true'
+
+  @consume({ context: consoleLogContext, subscribe: true })
+  @state()
+  consoleLogs: ConsoleLogs[] | undefined = undefined
 
   static styles = [
     ...Element.styles,
@@ -186,8 +192,8 @@ export class DevtoolsWorkbench extends Element {
         <wdio-devtools-tab label="Log">
           <wdio-devtools-logs></wdio-devtools-logs>
         </wdio-devtools-tab>
-        <wdio-devtools-tab label="Console">
-          <wdio-devtools-console-logs></wdio-devtools-console-logs>
+        <wdio-devtools-tab label="Console" .badge="${this.consoleLogs?.length || 0}">
+          <wdio-devtools-console-logs id="console-logs-tab"></wdio-devtools-console-logs>
         </wdio-devtools-tab>
         <wdio-devtools-tab label="Network">
           <section

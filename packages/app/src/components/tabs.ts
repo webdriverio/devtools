@@ -7,6 +7,7 @@ const TABS_COMPONENT = 'wdio-devtools-tabs'
 export class DevtoolsTabs extends Element {
   #activeTab: string | undefined
   #tabList: string[] = []
+  #badgeCheckInterval?: number
 
   @property({ type: String })
   cacheId?: string
@@ -27,15 +28,20 @@ export class DevtoolsTabs extends Element {
   ]
 
   #getTabButton(tabId: string) {
+    const tabElement = this.tabs.find((el) => el.getAttribute('label') === tabId)
+    const badge = (tabElement as any)?.badge
+    const showBadge = badge && badge > 0
+
     return html`
       <button
         @click="${() => this.activateTab(tabId)}"
         class="transition-colors px-4 py-2 hover:bg-toolbarHoverBackground ${this
           .#activeTab === tabId
           ? 'bg-toolbarHoverBackground'
-          : ''}"
+          : ''} flex items-center gap-2"
       >
-        ${tabId}
+        <span>${tabId}</span>
+        ${showBadge ? html`<span class="inline-flex items-center justify-center min-w-[20px] px-1.5 py-0.5 text-xs font-semibold rounded-full" style="background-color: #5a5a5a; color: #ffffff;">${badge}</span>` : nothing}
       </button>
     `
   }
@@ -112,7 +118,19 @@ export class DevtoolsTabs extends Element {
       }
 
       this.requestUpdate()
+
+      // Check for badge changes periodically
+      this.#badgeCheckInterval = window.setInterval(() => {
+        this.requestUpdate()
+      }, 250)
     })
+  }
+
+  disconnectedCallback() {
+    super.disconnectedCallback()
+    if (this.#badgeCheckInterval) {
+      clearInterval(this.#badgeCheckInterval)
+    }
   }
 
   render() {
@@ -133,6 +151,9 @@ export class DevtoolsTabs extends Element {
 const TAB_COMPONENT = 'wdio-devtools-tab'
 @customElement(TAB_COMPONENT)
 export class DevtoolsTab extends Element {
+  @property({ type: Number })
+  badge?: number
+
   static styles = [
     ...Element.styles,
     css`
