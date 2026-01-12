@@ -189,6 +189,181 @@ describe('SessionCapturer', () => {
     })
   })
 
+  describe('console log capture', () => {
+    /**
+     * Test: All console methods (log, info, warn, error) are properly captured
+     * Validates: method type, arguments, source attribution, and timestamp
+     */
+    it('should capture all console methods from test code', () => {
+      const capturer = new SessionCapturer()
+      const initialLength = capturer.consoleLogs.length
+
+      // Execute all console methods with different argument patterns
+      console.log('Log message')
+      console.info('Info message', 'with multiple', 'arguments')
+      console.warn('Warning message')
+      console.error('Error message')
+
+      // Verify all 4 logs were captured
+      expect(capturer.consoleLogs).toHaveLength(initialLength + 4)
+
+      // Validate console.log capture
+      const logEntry = capturer.consoleLogs[initialLength]
+      expect(logEntry.type).toBe('log')
+      expect(logEntry.args).toEqual(['Log message'])
+      expect(logEntry.source).toBe('test')
+      expect(logEntry.timestamp).toBeDefined()
+
+      // Validate console.info capture with multiple arguments
+      const infoEntry = capturer.consoleLogs[initialLength + 1]
+      expect(infoEntry.type).toBe('info')
+      expect(infoEntry.args).toEqual([
+        'Info message',
+        'with multiple',
+        'arguments'
+      ])
+      expect(infoEntry.source).toBe('test')
+
+      // Validate console.warn capture
+      const warnEntry = capturer.consoleLogs[initialLength + 2]
+      expect(warnEntry.type).toBe('warn')
+      expect(warnEntry.args).toEqual(['Warning message'])
+      expect(warnEntry.source).toBe('test')
+
+      // Validate console.error capture
+      const errorEntry = capturer.consoleLogs[initialLength + 3]
+      expect(errorEntry.type).toBe('error')
+      expect(errorEntry.args).toEqual(['Error message'])
+      expect(errorEntry.source).toBe('test')
+    })
+
+    /**
+     * Test: Complex argument types are handled correctly
+     * Validates: object serialization, circular reference handling, null/undefined conversion
+     */
+    it('should handle various argument types', () => {
+      const capturer = new SessionCapturer()
+      const initialLength = capturer.consoleLogs.length
+
+      // Create test data: object, circular reference
+      const testObject = { foo: 'bar', nested: { value: 42 } }
+      const circular: any = { a: 1 }
+      circular.self = circular
+
+      // Log various argument types in sequence
+      console.log('Object:', testObject)
+      console.log('Circular:', circular)
+      console.log('Values:', null, undefined)
+
+      expect(capturer.consoleLogs).toHaveLength(initialLength + 3)
+
+      // Verify object is stringified to JSON
+      const objLog = capturer.consoleLogs[initialLength]
+      expect(objLog.args[0]).toBe('Object:')
+      expect(objLog.args[1]).toBe(JSON.stringify(testObject))
+
+      // Verify circular references don't crash and fallback to [object Object]
+      const circularLog = capturer.consoleLogs[initialLength + 1]
+      expect(circularLog.args[1]).toBe('[object Object]')
+
+      // Verify null and undefined are converted to strings
+      const nullLog = capturer.consoleLogs[initialLength + 2]
+      expect(nullLog.args).toEqual(['Values:', 'null', 'undefined'])
+    })
+
+    /**
+     * Test: Integration scenarios - cleanup, WebSocket transmission, browser source attribution
+     * Validates: console restoration on cleanup, upstream WebSocket communication, source distinction
+     */
+    it('should handle cleanup, upstream transmission, and browser source attribution', async () => {
+      // Part 1: Test console restoration on cleanup
+      const originalLog = console.log
+      const originalInfo = console.info
+      const originalWarn = console.warn
+      const originalError = console.error
+
+      let capturer = new SessionCapturer()
+      expect(console.log).not.toBe(originalLog)
+
+      capturer.cleanup()
+      expect(console.log).toBe(originalLog)
+      expect(console.info).toBe(originalInfo)
+      expect(console.warn).toBe(originalWarn)
+      expect(console.error).toBe(originalError)
+
+      // Part 2: Test WebSocket upstream transmission
+      const mockWs = {
+        readyState: WebSocket.OPEN,
+        send: vi.fn(),
+        on: vi.fn(),
+        close: vi.fn()
+      }
+
+      vi.mocked(WebSocket).mockImplementation(function (this: any) {
+        return mockWs
+      } as any)
+
+      capturer = new SessionCapturer({
+        hostname: 'localhost',
+        port: 3000
+      })
+
+      console.log('Test message')
+
+      expect(mockWs.send).toHaveBeenCalled()
+      const sentData = JSON.parse(
+        mockWs.send.mock.calls[mockWs.send.mock.calls.length - 1][0]
+      )
+      expect(sentData.scope).toBe('consoleLogs')
+      expect(sentData.data).toHaveLength(1)
+      expect(sentData.data[0].args).toEqual(['Test message'])
+      expect(sentData.data[0].source).toBe('test')
+
+      capturer.cleanup()
+
+      // Part 3: Test browser console logs source attribution
+      capturer = new SessionCapturer()
+      const mockBrowserLogs = [
+        {
+          timestamp: Date.now(),
+          type: 'log' as const,
+          args: ['Browser log 1']
+        },
+        {
+          timestamp: Date.now(),
+          type: 'warn' as const,
+          args: ['Browser warning']
+        }
+      ]
+
+      const mockExecuteResult = {
+        mutations: [],
+        traceLogs: [],
+        consoleLogs: mockBrowserLogs,
+        metadata: { url: 'http://test.com', viewport: {} as VisualViewport }
+      }
+
+      mockBrowser.execute = vi.fn().mockResolvedValue(mockExecuteResult)
+      mockBrowser.scriptAddPreloadScript = vi.fn().mockResolvedValue(undefined)
+      mockBrowser.isBidi = true
+      await capturer.injectScript(mockBrowser)
+      await capturer.afterCommand(
+        mockBrowser,
+        'url' as any,
+        ['http://test.com'],
+        undefined,
+        undefined
+      )
+
+      const browserLogs = capturer.consoleLogs.filter(
+        (log) => log.source === 'browser'
+      )
+      expect(browserLogs).toHaveLength(2)
+      expect(browserLogs[0].source).toBe('browser')
+      expect(browserLogs[1].source).toBe('browser')
+    })
+  })
+
   describe('integration', () => {
     it('should handle complete session capture workflow', async () => {
       const capturer = new SessionCapturer()
