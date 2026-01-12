@@ -315,9 +315,11 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
     return (
       Boolean(
         ['all', 'none'].includes(this.#testFilter.filterStatus) ||
-        (entry.state === TestState.PASSED && this.#testFilter.filtersPassed) ||
-        (entry.state === TestState.FAILED && this.#testFilter.filtersFailed) ||
-        (entry.state === TestState.SKIPPED && this.#testFilter.filtersSkipped)
+          (entry.state === TestState.PASSED &&
+            this.#testFilter.filtersPassed) ||
+          (entry.state === TestState.FAILED &&
+            this.#testFilter.filtersFailed) ||
+          (entry.state === TestState.SKIPPED && this.#testFilter.filtersSkipped)
       ) &&
       (!this.#testFilter.filterQuery ||
         entryLabelIncludingChildren

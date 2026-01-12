@@ -28,7 +28,9 @@ export class DevtoolsTabs extends Element {
   ]
 
   #getTabButton(tabId: string) {
-    const tabElement = this.tabs.find((el) => el.getAttribute('label') === tabId)
+    const tabElement = this.tabs.find(
+      (el) => el.getAttribute('label') === tabId
+    )
     const badge = (tabElement as any)?.badge
     const showBadge = badge && badge > 0
 
@@ -41,7 +43,13 @@ export class DevtoolsTabs extends Element {
           : ''} flex items-center gap-2"
       >
         <span>${tabId}</span>
-        ${showBadge ? html`<span class="inline-flex items-center justify-center min-w-[20px] px-1.5 py-0.5 text-xs font-semibold rounded-full" style="background-color: #5a5a5a; color: #ffffff;">${badge}</span>` : nothing}
+        ${showBadge
+          ? html`<span
+              class="inline-flex items-center justify-center min-w-[20px] px-1.5 py-0.5 text-xs font-semibold rounded-full"
+              style="background-color: #5a5a5a; color: #ffffff;"
+              >${badge}</span
+            >`
+          : nothing}
       </button>
     `
   }

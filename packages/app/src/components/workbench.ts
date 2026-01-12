@@ -192,8 +192,13 @@ export class DevtoolsWorkbench extends Element {
         <wdio-devtools-tab label="Log">
           <wdio-devtools-logs></wdio-devtools-logs>
         </wdio-devtools-tab>
-        <wdio-devtools-tab label="Console" .badge="${this.consoleLogs?.length || 0}">
-          <wdio-devtools-console-logs id="console-logs-tab"></wdio-devtools-console-logs>
+        <wdio-devtools-tab
+          label="Console"
+          .badge="${this.consoleLogs?.length || 0}"
+        >
+          <wdio-devtools-console-logs
+            id="console-logs-tab"
+          ></wdio-devtools-console-logs>
         </wdio-devtools-tab>
         <wdio-devtools-tab label="Network">
           <section

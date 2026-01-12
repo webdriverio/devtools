@@ -29,6 +29,6 @@ Then(/^I should see a flash message saying (.*)$/, async (message) => {
   const el = await SecurePage.flashAlert
   await expect(el).toBeExisting()
   await expect(el).toHaveText(expect.stringContaining(message))
-  console.log(`[TEST] Flash message verified successfully`)
+  console.log('[TEST] Flash message verified successfully')
   // await browser.pause(15000)
 })
