@@ -40,7 +40,7 @@ export class ActionItem extends Element {
 
     return html`
       <span
-        class="text-[10px] grow-0 shrink border border-editorSuggestWidgetBorder rounded-xl ml-auto text-gray-500 px-1 text-debugTokenExpressionName"
+        class="text-[10px] grow-0 shrink border border-editorSuggestWidgetBorder rounded-xl ml-auto px-1 bg-badgeBackground text-debugTokenExpressionName"
         >${diffLabel}</span
       >
     `

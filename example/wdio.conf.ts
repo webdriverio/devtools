@@ -63,7 +63,7 @@ export const config: Options.Testrunner = {
   capabilities: [
     {
       browserName: 'chrome',
-      browserVersion: '143.0.7499.169', // specify chromium browser version for testing
+      browserVersion: '143.0.7499.193', // specify chromium browser version for testing
       'goog:chromeOptions': {
         args: [
           '--headless',
