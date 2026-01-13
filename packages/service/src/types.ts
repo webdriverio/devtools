@@ -29,6 +29,7 @@ export interface TraceLog {
   mutations: TraceMutation[]
   logs: string[]
   consoleLogs: ConsoleLogs[]
+  networkRequests: NetworkRequest[]
   metadata: Metadata
   commands: CommandLog[]
   sources: Record<string, string>

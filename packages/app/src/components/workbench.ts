@@ -4,7 +4,7 @@ import { customElement, query, state } from 'lit/decorators.js'
 import { consume } from '@lit/context'
 
 import { DragController, Direction } from '../utils/DragController.js'
-import { consoleLogContext } from '../controller/DataManager.js'
+import { consoleLogContext, networkRequestContext } from '../controller/DataManager.js'
 
 import '~icons/mdi/arrow-collapse-down.js'
 import '~icons/mdi/arrow-collapse-up.js'
@@ -17,6 +17,7 @@ import './workbench/actions.js'
 import './workbench/logs.js'
 import './workbench/console.js'
 import './workbench/metadata.js'
+import './workbench/network.js'
 import './browser/snapshot.js'
 
 const MIN_WORKBENCH_HEIGHT = Math.min(300, window.innerHeight * 0.3)
@@ -33,6 +34,10 @@ export class DevtoolsWorkbench extends Element {
   @consume({ context: consoleLogContext, subscribe: true })
   @state()
   consoleLogs: ConsoleLogs[] | undefined = undefined
+
+  @consume({ context: networkRequestContext, subscribe: true })
+  @state()
+  networkRequests: NetworkRequest[] | undefined = undefined
 
   static styles = [
     ...Element.styles,
@@ -200,12 +205,11 @@ export class DevtoolsWorkbench extends Element {
             id="console-logs-tab"
           ></wdio-devtools-console-logs>
         </wdio-devtools-tab>
-        <wdio-devtools-tab label="Network">
-          <section
-            class="flex items-center justify-center text-sm w-full h-full"
-          >
-            Network tab not yet implemented!
-          </section>
+        <wdio-devtools-tab
+          label="Network"
+          .badge="${this.networkRequests?.length || 0}"
+        >
+          <wdio-devtools-network></wdio-devtools-network>
         </wdio-devtools-tab>
         <nav class="ml-auto" slot="actions">
           <button

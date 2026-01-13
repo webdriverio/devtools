@@ -18,6 +18,7 @@ import {
   SPEC_FILE_PATTERN,
   CONTEXT_CHANGE_COMMANDS
 } from './constants.js'
+
 export * from './types.js'
 export const launcher = DevToolsAppLauncher
 
@@ -87,6 +88,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
   #testReporters: TestReporter[] = []
   #sessionCapturer = new SessionCapturer()
   #browser?: WebdriverIO.Browser
+  #bidiListenersSetup = false
 
   /**
    * This is used to capture the command stack to ensure that we only capture
@@ -208,6 +210,30 @@ export default class DevToolsHookService implements Services.ServiceInstance {
       return
     }
 
+    // Set up BiDi listeners on first command (before any actual commands are executed)
+    if (!this.#bidiListenersSetup && this.#browser.isBidi) {
+      this.#bidiListenersSetup = true
+      log.info('Setting up BiDi network event listeners...')
+
+      // Listen for network events
+      this.#browser.on('network.beforeRequestSent', (event: any) => {
+        log.info(`>>> BiDi beforeRequestSent - keys: ${Object.keys(event).join(', ')}`)
+        this.#sessionCapturer.handleNetworkRequestStarted(event)
+      })
+
+      this.#browser.on('network.responseCompleted', (event: any) => {
+        log.info(`>>> BiDi responseCompleted - keys: ${Object.keys(event).join(', ')}`)
+        this.#sessionCapturer.handleNetworkResponseCompleted(event)
+      })
+
+      this.#browser.on('network.fetchError', (event: any) => {
+        log.info(`>>> BiDi fetchError - keys: ${Object.keys(event).join(', ')}`)
+        this.#sessionCapturer.handleNetworkFetchError(event)
+      })
+
+      log.info('✓ BiDi network event listeners registered')
+    }
+
     /**
      * propagate url change to devtools app
      */
@@ -316,6 +342,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
       mutations: this.#sessionCapturer.mutations,
       logs: this.#sessionCapturer.traceLogs,
       consoleLogs: this.#sessionCapturer.consoleLogs,
+      networkRequests: this.#sessionCapturer.networkRequests,
       metadata: {
         type: this.captureType,
         ...this.#sessionCapturer.metadata!,
