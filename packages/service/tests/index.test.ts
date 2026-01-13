@@ -40,7 +40,9 @@ describe('DevtoolsService - Internal Command Filtering', () => {
       height: 800,
       offsetLeft: 0,
       offsetTop: 0
-    })
+    }),
+    on: vi.fn(), // Add event listener mock
+    emit: vi.fn() // Add emit mock
   } as any
 
   // Helper to execute a command (before + after)

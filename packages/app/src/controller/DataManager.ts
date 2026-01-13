@@ -27,6 +27,9 @@ export const logContext = createContext<string[]>(Symbol('logContext'))
 export const consoleLogContext = createContext<ConsoleLogs[]>(
   Symbol('consoleLogContext')
 )
+export const networkRequestContext = createContext<NetworkRequest[]>(
+  Symbol('networkRequestContext')
+)
 export const metadataContext = createContext<Metadata>(
   Symbol('metadataContext')
 )
@@ -60,6 +63,7 @@ export class DataManagerController implements ReactiveController {
   mutationsContextProvider: ContextProvider<typeof mutationContext>
   logsContextProvider: ContextProvider<typeof logContext>
   consoleLogsContextProvider: ContextProvider<typeof consoleLogContext>
+  networkRequestsContextProvider: ContextProvider<typeof networkRequestContext>
   metadataContextProvider: ContextProvider<typeof metadataContext>
   commandsContextProvider: ContextProvider<typeof commandContext>
   sourcesContextProvider: ContextProvider<typeof sourceContext>
@@ -78,6 +82,10 @@ export class DataManagerController implements ReactiveController {
     })
     this.consoleLogsContextProvider = new ContextProvider(this.#host, {
       context: consoleLogContext,
+      initialValue: []
+    })
+    this.networkRequestsContextProvider = new ContextProvider(this.#host, {
+      context: networkRequestContext,
       initialValue: []
     })
     this.metadataContextProvider = new ContextProvider(this.#host, {
@@ -279,6 +287,8 @@ export class DataManagerController implements ReactiveController {
         this.#handleMetadataUpdate(data as Metadata)
       } else if (scope === 'consoleLogs') {
         this.#handleConsoleLogsUpdate(data as string[])
+      } else if (scope === 'networkRequests') {
+        this.#handleNetworkRequestsUpdate(data as NetworkRequest[])
       } else if (scope === 'sources') {
         this.#handleSourcesUpdate(data as Record<string, string>)
       } else if (scope === 'suites') {
@@ -331,6 +341,7 @@ export class DataManagerController implements ReactiveController {
     this.commandsContextProvider.setValue([])
     this.logsContextProvider.setValue([])
     this.consoleLogsContextProvider.setValue([])
+    this.networkRequestsContextProvider.setValue([])
 
     // Keep suitesContextProvider intact - test list stays visible
     // Keep metadata and sources - they're environment-level
@@ -405,6 +416,13 @@ export class DataManagerController implements ReactiveController {
   #handleConsoleLogsUpdate(data: string[]) {
     this.consoleLogsContextProvider.setValue([
       ...(this.consoleLogsContextProvider.value || []),
+      ...data
+    ])
+  }
+
+  #handleNetworkRequestsUpdate(data: NetworkRequest[]) {
+    this.networkRequestsContextProvider.setValue([
+      ...(this.networkRequestsContextProvider.value || []),
       ...data
     ])
   }
@@ -562,6 +580,7 @@ export class DataManagerController implements ReactiveController {
     this.mutationsContextProvider.setValue(traceFile.mutations)
     this.logsContextProvider.setValue(traceFile.logs)
     this.consoleLogsContextProvider.setValue(traceFile.consoleLogs)
+    this.networkRequestsContextProvider.setValue(traceFile.networkRequests || [])
     this.metadataContextProvider.setValue(traceFile.metadata)
     this.commandsContextProvider.setValue(traceFile.commands)
     this.sourcesContextProvider.setValue(traceFile.sources)
