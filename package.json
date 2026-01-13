@@ -46,6 +46,7 @@
     "webdriverio": "^9.19.1"
   },
   "dependencies": {
-    "@wdio/cli": "9.18.0"
+    "@wdio/cli": "9.18.0",
+    "stack-trace": "^1.0.0-pre2"
   }
 }
