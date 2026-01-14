@@ -29,7 +29,16 @@ export class SessionCapturer {
   traceLogs: string[] = []
   consoleLogs: ConsoleLogs[] = []
   networkRequests: NetworkRequest[] = []
-  #pendingNetworkRequests = new Map<string, { url: string; method: string; timestamp: number; startTime: number; requestHeaders?: Record<string, string> }>()
+  #pendingNetworkRequests = new Map<
+    string,
+    {
+      url: string
+      method: string
+      timestamp: number
+      startTime: number
+      requestHeaders?: Record<string, string>
+    }
+  >()
   metadata?: {
     url: string
     viewport: VisualViewport
@@ -253,20 +262,40 @@ export class SessionCapturer {
     }
   }
 
-  handleNetworkRequestStarted(event: { request: { request: string; url: string; method: string; headers?: { name: string; value: { type?: string; value?: string } | string }[] }; timestamp: number }) {
+  handleNetworkRequestStarted(event: {
+    request: {
+      request: string
+      url: string
+      method: string
+      headers?: {
+        name: string
+        value: { type?: string; value?: string } | string
+      }[]
+    }
+    timestamp: number
+  }) {
     try {
       const { request, timestamp } = event
       const requestId = request.request
       const requestHeaders: Record<string, string> = {}
       if (request.headers) {
-        request.headers.forEach((h: { name: string; value: { type?: string; value?: string } | string }) => {
-          const name = typeof h.name === 'string' ? h.name.toLowerCase() : ''
-          const value = typeof h.value === 'string' ? h.value :
-                       (typeof h.value === 'object' && h.value?.value) ? h.value.value : ''
-          if (name) {
-            requestHeaders[name] = value
+        request.headers.forEach(
+          (h: {
+            name: string
+            value: { type?: string; value?: string } | string
+          }) => {
+            const name = typeof h.name === 'string' ? h.name.toLowerCase() : ''
+            const value =
+              typeof h.value === 'string'
+                ? h.value
+                : typeof h.value === 'object' && h.value?.value
+                  ? h.value.value
+                  : ''
+            if (name) {
+              requestHeaders[name] = value
+            }
           }
-        })
+        )
       }
 
       this.#pendingNetworkRequests.set(requestId, {
@@ -281,7 +310,19 @@ export class SessionCapturer {
     }
   }
 
-handleNetworkResponseCompleted(event: { request: { request: string }; response: { status?: number; statusText?: string; headers?: { name: string; value: { type?: string; value?: string } | string }[]; bytesReceived?: number }; timestamp: number }) {
+  handleNetworkResponseCompleted(event: {
+    request: { request: string }
+    response: {
+      status?: number
+      statusText?: string
+      headers?: {
+        name: string
+        value: { type?: string; value?: string } | string
+      }[]
+      bytesReceived?: number
+    }
+    timestamp: number
+  }) {
     try {
       const { request, response, timestamp } = event
       const requestId = request.request
@@ -294,14 +335,23 @@ handleNetworkResponseCompleted(event: { request: { request: string }; response: 
 
       const responseHeaders: Record<string, string> = {}
       if (response.headers) {
-        response.headers.forEach((h: { name: string; value: { type?: string; value?: string } | string }) => {
-          const name = typeof h.name === 'string' ? h.name.toLowerCase() : ''
-          const value = typeof h.value === 'string' ? h.value :
-                       (typeof h.value === 'object' && h.value?.value) ? h.value.value : ''
-          if (name) {
-            responseHeaders[name] = value
+        response.headers.forEach(
+          (h: {
+            name: string
+            value: { type?: string; value?: string } | string
+          }) => {
+            const name = typeof h.name === 'string' ? h.name.toLowerCase() : ''
+            const value =
+              typeof h.value === 'string'
+                ? h.value
+                : typeof h.value === 'object' && h.value?.value
+                  ? h.value.value
+                  : ''
+            if (name) {
+              responseHeaders[name] = value
+            }
           }
-        })
+        )
       }
 
       const contentType = responseHeaders['content-type']?.trim()
@@ -342,18 +392,40 @@ handleNetworkResponseCompleted(event: { request: { request: string }; response: 
     const urlLower = url.toLowerCase()
     const ct = contentType?.toLowerCase() || ''
 
-    if (ct.includes('text/html')) return 'document'
-    if (ct.includes('text/css')) return 'stylesheet'
-    if (ct.includes('javascript') || ct.includes('ecmascript')) return 'script'
-    if (ct.includes('image/')) return 'image'
-    if (ct.includes('font/') || ct.includes('woff')) return 'font'
-    if (ct.includes('application/json')) return 'fetch'
+    if (ct.includes('text/html')) {
+      return 'document'
+    }
+    if (ct.includes('text/css')) {
+      return 'stylesheet'
+    }
+    if (ct.includes('javascript') || ct.includes('ecmascript')) {
+      return 'script'
+    }
+    if (ct.includes('image/')) {
+      return 'image'
+    }
+    if (ct.includes('font/') || ct.includes('woff')) {
+      return 'font'
+    }
+    if (ct.includes('application/json')) {
+      return 'fetch'
+    }
 
-    if (urlLower.endsWith('.html') || urlLower.endsWith('.htm')) return 'document'
-    if (urlLower.endsWith('.css')) return 'stylesheet'
-    if (urlLower.endsWith('.js') || urlLower.endsWith('.mjs')) return 'script'
-    if (urlLower.match(/\.(png|jpg|jpeg|gif|svg|webp|ico)$/)) return 'image'
-    if (urlLower.match(/\.(woff|woff2|ttf|eot|otf)$/)) return 'font'
+    if (urlLower.endsWith('.html') || urlLower.endsWith('.htm')) {
+      return 'document'
+    }
+    if (urlLower.endsWith('.css')) {
+      return 'stylesheet'
+    }
+    if (urlLower.endsWith('.js') || urlLower.endsWith('.mjs')) {
+      return 'script'
+    }
+    if (urlLower.match(/\.(png|jpg|jpeg|gif|svg|webp|ico)$/)) {
+      return 'image'
+    }
+    if (urlLower.match(/\.(woff|woff2|ttf|eot|otf)$/)) {
+      return 'font'
+    }
 
     return 'xhr'
   }

@@ -9,50 +9,96 @@ import '../placeholder.js'
 const COMPONENT = 'wdio-devtools-network'
 
 function formatBytes(bytes?: number): string {
-  if (!bytes || bytes === 0) return '-'
+  if (!bytes || bytes === 0) {
+    return '-'
+  }
   const k = 1024
   const sizes = ['B', 'KB', 'MB', 'GB']
   const i = Math.floor(Math.log(bytes) / Math.log(k))
   const size = bytes / Math.pow(k, i)
-  return size >= 10 ? `${size.toFixed(0)}${sizes[i]}` : `${size.toFixed(1)}${sizes[i]}`
+  return size >= 10
+    ? `${size.toFixed(0)}${sizes[i]}`
+    : `${size.toFixed(1)}${sizes[i]}`
 }
 
 function formatTime(ms?: number): string {
-  if (!ms) return '-'
-  if (ms < 1) return `${(ms * 1000).toFixed(0)}μs`
-  if (ms < 1000) return `${ms.toFixed(0)}ms`
+  if (ms === undefined || ms === null) {
+    return '-'
+  }
+  if (ms < 1) {
+    return `${ms.toFixed(2)}ms`
+  }
+  if (ms < 1000) {
+    return `${ms.toFixed(0)}ms`
+  }
   return `${(ms / 1000).toFixed(1)}s`
 }
 
 function getStatusClass(status?: number): string {
-  if (!status) return 'text-gray-500'
-  if (status >= 200 && status < 300) return 'text-green-500'
-  if (status >= 300 && status < 400) return 'text-yellow-500'
-  if (status >= 400) return 'text-red-500'
+  if (!status) {
+    return 'text-gray-500'
+  }
+  if (status >= 200 && status < 300) {
+    return 'text-green-500'
+  }
+  if (status >= 300 && status < 400) {
+    return 'text-yellow-500'
+  }
+  if (status >= 400) {
+    return 'text-red-500'
+  }
   return 'text-gray-500'
 }
 
 function getResourceType(request: NetworkRequest): string {
   const url = request.url.toLowerCase()
-  const contentType = request.responseHeaders?.['content-type']?.toLowerCase() || ''
+  const contentType =
+    request.responseHeaders?.['content-type']?.toLowerCase() || ''
 
   // Check by content-type first
-  if (contentType.includes('text/html')) return 'HTML'
-  if (contentType.includes('text/css')) return 'CSS'
-  if (contentType.includes('javascript') || contentType.includes('ecmascript')) return 'JS'
-  if (contentType.includes('image/')) return 'Image'
-  if (contentType.includes('font/') || contentType.includes('woff')) return 'Font'
-  if (contentType.includes('application/json')) return 'Fetch'
+  if (contentType.includes('text/html')) {
+    return 'HTML'
+  }
+  if (contentType.includes('text/css')) {
+    return 'CSS'
+  }
+  if (
+    contentType.includes('javascript') ||
+    contentType.includes('ecmascript')
+  ) {
+    return 'JS'
+  }
+  if (contentType.includes('image/')) {
+    return 'Image'
+  }
+  if (contentType.includes('font/') || contentType.includes('woff')) {
+    return 'Font'
+  }
+  if (contentType.includes('application/json')) {
+    return 'Fetch'
+  }
 
   // Fallback to URL extension
-  if (url.endsWith('.html') || url.endsWith('.htm')) return 'HTML'
-  if (url.endsWith('.css')) return 'CSS'
-  if (url.endsWith('.js') || url.endsWith('.mjs')) return 'JS'
-  if (url.match(/\.(png|jpg|jpeg|gif|svg|webp|ico)$/)) return 'Image'
-  if (url.match(/\.(woff|woff2|ttf|eot|otf)$/)) return 'Font'
+  if (url.endsWith('.html') || url.endsWith('.htm')) {
+    return 'HTML'
+  }
+  if (url.endsWith('.css')) {
+    return 'CSS'
+  }
+  if (url.endsWith('.js') || url.endsWith('.mjs')) {
+    return 'JS'
+  }
+  if (url.match(/\.(png|jpg|jpeg|gif|svg|webp|ico)$/)) {
+    return 'Image'
+  }
+  if (url.match(/\.(woff|woff2|ttf|eot|otf)$/)) {
+    return 'Font'
+  }
 
   // Check by request type
-  if (request.type === 'fetch' || request.method !== 'GET') return 'Fetch'
+  if (request.type === 'fetch' || request.method !== 'GET') {
+    return 'Fetch'
+  }
 
   return 'Other'
 }
@@ -105,7 +151,10 @@ export class DevtoolsNetwork extends Element {
     if (parentTab) {
       const observer = new MutationObserver((mutations) => {
         mutations.forEach((mutation) => {
-          if (mutation.type === 'attributes' && mutation.attributeName === 'active') {
+          if (
+            mutation.type === 'attributes' &&
+            mutation.attributeName === 'active'
+          ) {
             // Tab became inactive, clear selection
             if (!parentTab.hasAttribute('active')) {
               this.selectedRequest = undefined
@@ -332,7 +381,9 @@ export class DevtoolsNetwork extends Element {
 
     // Filter by resource type
     if (this.filterType !== 'All') {
-      filtered = filtered.filter((req) => getResourceType(req) === this.filterType)
+      filtered = filtered.filter(
+        (req) => getResourceType(req) === this.filterType
+      )
     }
 
     // Filter by search query
@@ -424,12 +475,16 @@ export class DevtoolsNetwork extends Element {
                       >${request.status || (request.error ? 'ERR' : '-')}</span
                     >
                     <span class="truncate text-muted"
-                      >${request.responseHeaders?.['content-type']?.split(';')[0] || '-'}</span
+                      >${request.responseHeaders?.['content-type']?.split(
+                        ';'
+                      )[0] || '-'}</span
                     >
                     <span>${formatTime(request.time)}</span>
                     <span>${formatBytes(request.size)}</span>
                     <span class="text-muted"
-                      >${request.startTime ? `${request.startTime.toFixed(1)}s` : '-'}</span
+                      >${request.startTime
+                        ? `${request.startTime.toFixed(1)}s`
+                        : '-'}</span
                     >
                   </div>
                 `
@@ -486,17 +541,14 @@ export class DevtoolsNetwork extends Element {
               ? html`
                   <div class="header-row">
                     <span class="header-key">Error:</span>
-                    <span class="header-value text-red-500"
-                      >${req.error}</span
-                    >
+                    <span class="header-value text-red-500">${req.error}</span>
                   </div>
                 `
               : nothing}
           </div>
         </div>
 
-        ${req.requestHeaders &&
-        Object.keys(req.requestHeaders).length > 0
+        ${req.requestHeaders && Object.keys(req.requestHeaders).length > 0
           ? html`
               <div class="detail-section">
                 <div class="detail-title">Request Headers</div>
@@ -523,8 +575,7 @@ export class DevtoolsNetwork extends Element {
               </div>
             `
           : nothing}
-        ${req.responseHeaders &&
-        Object.keys(req.responseHeaders).length > 0
+        ${req.responseHeaders && Object.keys(req.responseHeaders).length > 0
           ? html`
               <div class="detail-section">
                 <div class="detail-title">Response Headers</div>

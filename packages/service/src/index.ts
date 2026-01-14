@@ -217,12 +217,10 @@ export default class DevToolsHookService implements Services.ServiceInstance {
 
       // Listen for network events
       this.#browser.on('network.beforeRequestSent', (event: any) => {
-        log.info(`>>> BiDi beforeRequestSent - keys: ${Object.keys(event).join(', ')}`)
         this.#sessionCapturer.handleNetworkRequestStarted(event)
       })
 
       this.#browser.on('network.responseCompleted', (event: any) => {
-        log.info(`>>> BiDi responseCompleted - keys: ${Object.keys(event).join(', ')}`)
         this.#sessionCapturer.handleNetworkResponseCompleted(event)
       })
 

@@ -4,7 +4,10 @@ import { customElement, query, state } from 'lit/decorators.js'
 import { consume } from '@lit/context'
 
 import { DragController, Direction } from '../utils/DragController.js'
-import { consoleLogContext, networkRequestContext } from '../controller/DataManager.js'
+import {
+  consoleLogContext,
+  networkRequestContext
+} from '../controller/DataManager.js'
 
 import '~icons/mdi/arrow-collapse-down.js'
 import '~icons/mdi/arrow-collapse-up.js'
