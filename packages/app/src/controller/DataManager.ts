@@ -580,7 +580,9 @@ export class DataManagerController implements ReactiveController {
     this.mutationsContextProvider.setValue(traceFile.mutations)
     this.logsContextProvider.setValue(traceFile.logs)
     this.consoleLogsContextProvider.setValue(traceFile.consoleLogs)
-    this.networkRequestsContextProvider.setValue(traceFile.networkRequests || [])
+    this.networkRequestsContextProvider.setValue(
+      traceFile.networkRequests || []
+    )
     this.metadataContextProvider.setValue(traceFile.metadata)
     this.commandsContextProvider.setValue(traceFile.commands)
     this.sourcesContextProvider.setValue(traceFile.sources)

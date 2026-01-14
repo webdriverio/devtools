@@ -47,23 +47,41 @@ export class NetworkRequestCollector implements Collector<NetworkRequest> {
 
   #shouldIgnoreRequest(url: string): boolean {
     // Filter out internal URLs, data URLs, blob URLs, chrome extensions, etc.
-    if (!url) return true
+    if (!url) {
+      return true
+    }
 
     const urlLower = url.toLowerCase()
 
     // Ignore non-HTTP protocols
-    if (urlLower.startsWith('data:')) return true
-    if (urlLower.startsWith('blob:')) return true
-    if (urlLower.startsWith('chrome:')) return true
-    if (urlLower.startsWith('chrome-extension:')) return true
-    if (urlLower.startsWith('about:')) return true
+    if (urlLower.startsWith('data:')) {
+      return true
+    }
+    if (urlLower.startsWith('blob:')) {
+      return true
+    }
+    if (urlLower.startsWith('chrome:')) {
+      return true
+    }
+    if (urlLower.startsWith('chrome-extension:')) {
+      return true
+    }
+    if (urlLower.startsWith('about:')) {
+      return true
+    }
 
     // Ignore WebSocket connections
-    if (urlLower.startsWith('ws:') || urlLower.startsWith('wss:')) return true
+    if (urlLower.startsWith('ws:') || urlLower.startsWith('wss:')) {
+      return true
+    }
 
     // Ignore browser internal requests
-    if (urlLower.includes('/.well-known/')) return true
-    if (urlLower.includes('/favicon.ico')) return true
+    if (urlLower.includes('/.well-known/')) {
+      return true
+    }
+    if (urlLower.includes('/favicon.ico')) {
+      return true
+    }
 
     return false
   }
@@ -81,7 +99,12 @@ export class NetworkRequestCollector implements Collector<NetworkRequest> {
       init?: RequestInit
     ): Promise<Response> {
       const id = self.#generateId()
-      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+      const url =
+        typeof input === 'string'
+          ? input
+          : input instanceof URL
+            ? input.href
+            : input.url
       const method = init?.method?.toUpperCase() || 'GET'
 
       // Skip internal/non-HTTP requests
@@ -120,10 +143,13 @@ export class NetworkRequestCollector implements Collector<NetworkRequest> {
 
         let responseBody: string | undefined
         try {
-          if (contentType.includes('application/json') || contentType.includes('text/')) {
+          if (
+            contentType.includes('application/json') ||
+            contentType.includes('text/')
+          ) {
             responseBody = await response.clone().text()
           }
-        } catch (e) {
+        } catch {
           // Ignore body read errors
         }
 
@@ -208,8 +234,11 @@ export class NetworkRequestCollector implements Collector<NetworkRequest> {
       )
     }
 
-    XMLHttpRequest.prototype.send = function (body?: Document | XMLHttpRequestBodyInit | null) {
-      const requestData = (this as any)._networkRequestData as Partial<NetworkRequest>
+    XMLHttpRequest.prototype.send = function (
+      body?: Document | XMLHttpRequestBodyInit | null
+    ) {
+      const requestData = (this as any)
+        ._networkRequestData as Partial<NetworkRequest>
 
       // If no request data, this request was filtered out - just send it
       if (!requestData) {
@@ -235,10 +264,13 @@ export class NetworkRequestCollector implements Collector<NetworkRequest> {
 
         let responseBody: string | undefined
         try {
-          if (contentType.includes('application/json') || contentType.includes('text/')) {
+          if (
+            contentType.includes('application/json') ||
+            contentType.includes('text/')
+          ) {
             responseBody = this.responseText
           }
-        } catch (e) {
+        } catch {
           // Ignore
         }
 
@@ -314,7 +346,9 @@ export class NetworkRequestCollector implements Collector<NetworkRequest> {
   }
 
   #estimateSize(body?: string): number {
-    if (!body) return 0
+    if (!body) {
+      return 0
+    }
     return new Blob([body]).size
   }
 }
