@@ -3,131 +3,18 @@ import { html, css, nothing } from 'lit'
 import { customElement, state } from 'lit/decorators.js'
 import { consume } from '@lit/context'
 import { networkRequestContext } from '../../controller/DataManager.js'
+import { RESOURCE_TYPES } from '../../utils/network-constants.js'
+import {
+  formatBytes,
+  formatTime,
+  getStatusClass,
+  getResourceType,
+  getFileName
+} from '../../utils/network-helpers.js'
 
 import '../placeholder.js'
 
 const COMPONENT = 'wdio-devtools-network'
-
-function formatBytes(bytes?: number): string {
-  if (!bytes || bytes === 0) {
-    return '-'
-  }
-  const k = 1024
-  const sizes = ['B', 'KB', 'MB', 'GB']
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  const size = bytes / Math.pow(k, i)
-  return size >= 10
-    ? `${size.toFixed(0)}${sizes[i]}`
-    : `${size.toFixed(1)}${sizes[i]}`
-}
-
-function formatTime(ms?: number): string {
-  if (ms === undefined || ms === null) {
-    return '-'
-  }
-  if (ms < 1) {
-    return `${ms.toFixed(2)}ms`
-  }
-  if (ms < 1000) {
-    return `${ms.toFixed(0)}ms`
-  }
-  return `${(ms / 1000).toFixed(1)}s`
-}
-
-function getStatusClass(status?: number): string {
-  if (!status) {
-    return 'text-gray-500'
-  }
-  if (status >= 200 && status < 300) {
-    return 'text-green-500'
-  }
-  if (status >= 300 && status < 400) {
-    return 'text-yellow-500'
-  }
-  if (status >= 400) {
-    return 'text-red-500'
-  }
-  return 'text-gray-500'
-}
-
-function getResourceType(request: NetworkRequest): string {
-  const url = request.url.toLowerCase()
-  const contentType =
-    request.responseHeaders?.['content-type']?.toLowerCase() || ''
-
-  // Check by content-type first
-  if (contentType.includes('text/html')) {
-    return 'HTML'
-  }
-  if (contentType.includes('text/css')) {
-    return 'CSS'
-  }
-  if (
-    contentType.includes('javascript') ||
-    contentType.includes('ecmascript')
-  ) {
-    return 'JS'
-  }
-  if (contentType.includes('image/')) {
-    return 'Image'
-  }
-  if (contentType.includes('font/') || contentType.includes('woff')) {
-    return 'Font'
-  }
-  if (contentType.includes('application/json')) {
-    return 'Fetch'
-  }
-
-  // Fallback to URL extension
-  if (url.endsWith('.html') || url.endsWith('.htm')) {
-    return 'HTML'
-  }
-  if (url.endsWith('.css')) {
-    return 'CSS'
-  }
-  if (url.endsWith('.js') || url.endsWith('.mjs')) {
-    return 'JS'
-  }
-  if (url.match(/\.(png|jpg|jpeg|gif|svg|webp|ico)$/)) {
-    return 'Image'
-  }
-  if (url.match(/\.(woff|woff2|ttf|eot|otf)$/)) {
-    return 'Font'
-  }
-
-  // Check by request type
-  if (request.type === 'fetch' || request.method !== 'GET') {
-    return 'Fetch'
-  }
-
-  return 'Other'
-}
-
-function getFileName(url: string): string {
-  if (!url || url === '' || url === 'event') {
-    return '-'
-  }
-
-  try {
-    const urlObj = new URL(url)
-    const pathname = urlObj.pathname
-    const parts = pathname.split('/').filter(Boolean)
-    const fileName = parts[parts.length - 1]
-
-    // If there's a query string and no filename, show the host + path
-    if (!fileName || fileName === '' || pathname === '/') {
-      if (urlObj.search) {
-        return `${urlObj.hostname}${pathname.length > 1 ? pathname : ''}`
-      }
-      return urlObj.hostname
-    }
-
-    return fileName
-  } catch {
-    // If URL parsing fails, return a cleaned version
-    return url.slice(0, 50)
-  }
-}
 
 @customElement(COMPONENT)
 export class DevtoolsNetwork extends Element {
@@ -407,7 +294,6 @@ export class DevtoolsNetwork extends Element {
 
   render() {
     const filteredRequests = this.#filterRequests()
-    const resourceTypes = ['All', 'Fetch', 'HTML', 'JS', 'CSS', 'Font', 'Image']
 
     if (!this.networkRequests || this.networkRequests.length === 0) {
       return html`
@@ -430,7 +316,7 @@ export class DevtoolsNetwork extends Element {
             (this.searchQuery = (e.target as HTMLInputElement).value)}"
         />
         <div class="filter-tabs">
-          ${resourceTypes.map(
+          ${RESOURCE_TYPES.map(
             (type) => html`
               <button
                 class="filter-tab ${this.filterType === type ? 'active' : ''}"
