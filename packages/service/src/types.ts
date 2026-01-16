@@ -25,6 +25,26 @@ export interface Metadata {
   viewport: VisualViewport
 }
 
+export interface NetworkRequest {
+  id: string
+  url: string
+  method: string
+  status?: number
+  statusText?: string
+  type: string
+  initiator?: string
+  size?: number
+  time?: number
+  requestHeaders?: Record<string, string>
+  responseHeaders?: Record<string, string>
+  requestBody?: string
+  responseBody?: string
+  timestamp: number
+  startTime: number
+  endTime?: number
+  error?: string
+}
+
 export interface TraceLog {
   mutations: TraceMutation[]
   logs: string[]
@@ -64,7 +84,7 @@ export interface ServiceOptions {
   devtoolsCapabilities?: WebdriverIO.Capabilities
 }
 
-declare module WebdriverIO {
+declare namespace WebdriverIO {
   interface ServiceOption extends ServiceOptions {}
   interface Capabilities {}
 }
