@@ -1,24 +1,5 @@
 import type { Collector } from './collector.js'
-
-export interface NetworkRequest {
-  id: string
-  url: string
-  method: string
-  status?: number
-  statusText?: string
-  type: string
-  initiator?: string
-  size?: number
-  time?: number
-  requestHeaders?: Record<string, string>
-  responseHeaders?: Record<string, string>
-  requestBody?: string
-  responseBody?: string
-  timestamp: number
-  startTime: number
-  endTime?: number
-  error?: string
-}
+import type { NetworkRequest } from '../../types.js'
 
 export class NetworkRequestCollector implements Collector<NetworkRequest> {
   #requests: NetworkRequest[] = []
