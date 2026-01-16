@@ -1,6 +1,25 @@
 import type { DataCollectorType } from './src/collector.ts'
 import type { ConsoleLog as ConsoleLogImport } from './src/collectors/consoleLogs.ts'
-import type { NetworkRequest as NetworkRequestImport } from './src/collectors/networkRequests.ts'
+
+export interface NetworkRequest {
+  id: string
+  url: string
+  method: string
+  status?: number
+  statusText?: string
+  type: string
+  initiator?: string
+  size?: number
+  time?: number
+  requestHeaders?: Record<string, string>
+  responseHeaders?: Record<string, string>
+  requestBody?: string
+  responseBody?: string
+  timestamp: number
+  startTime: number
+  endTime?: number
+  error?: string
+}
 
 export interface TraceMetadata {
   url: string
@@ -16,7 +35,7 @@ export interface SimplifiedVNode {
 
 declare global {
   type ConsoleLogs = ConsoleLogImport
-  type NetworkRequest = NetworkRequestImport
+  type NetworkRequest = NetworkRequest
 
   interface Element {
     'wdio-ref': string
