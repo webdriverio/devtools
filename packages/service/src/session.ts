@@ -8,21 +8,54 @@ import { resolve } from 'import-meta-resolve'
 import { SevereServiceError } from 'webdriverio'
 import type { WebDriverCommands } from '@wdio/protocols'
 
-import { PAGE_TRANSITION_COMMANDS } from './constants.js'
-import { type CommandLog } from './types.js'
-import { type TraceLog } from './types.js'
+import { PAGE_TRANSITION_COMMANDS, ANSI_REGEX, CONSOLE_METHODS, LOG_LEVEL_PATTERNS, ERROR_INDICATORS, LOG_SOURCES } from './constants.js'
+import { type CommandLog, type TraceLog, type LogLevel } from './types.js'
 
 const log = logger('@wdio/devtools-service:SessionCapturer')
+
+/**
+ * Generic helper to strip ANSI escape codes from text
+ */
+const stripAnsi = (text: string): string => text.replace(ANSI_REGEX, '')
+
+/**
+ * Generic helper to detect log level from text content
+ */
+const detectLogLevel = (text: string): LogLevel => {
+  const cleanText = stripAnsi(text).toLowerCase()
+
+  // Check log level patterns in priority order
+  for (const { level, pattern } of LOG_LEVEL_PATTERNS) {
+    if (pattern.test(cleanText)) return level
+  }
+
+  // Check for error indicators
+  if (ERROR_INDICATORS.some(indicator => cleanText.includes(indicator.toLowerCase()))) {
+    return 'error'
+  }
+
+  return 'log'
+}
+
+/**
+ * Generic helper to create a console log entry
+ */
+const createLogEntry = (type: LogLevel, args: any[], source: typeof LOG_SOURCES[keyof typeof LOG_SOURCES]): ConsoleLogs => ({
+  timestamp: Date.now(),
+  type,
+  args,
+  source
+})
 
 export class SessionCapturer {
   #ws: WebSocket | undefined
   #isInjected = false
-  #originalConsoleMethods: {
-    log: typeof console.log
-    info: typeof console.info
-    warn: typeof console.warn
-    error: typeof console.error
+  #originalConsoleMethods: Record<typeof CONSOLE_METHODS[number], typeof console.log>
+  #originalProcessMethods: {
+    stdoutWrite: typeof process.stdout.write
+    stderrWrite: typeof process.stderr.write
   }
+  #isCapturingConsole = false
   commandsLog: CommandLog[] = []
   sources = new Map<string, string>()
   mutations: TraceMutation[] = []
@@ -55,7 +88,6 @@ export class SessionCapturer {
       )
     }
 
-    // Store original console methods
     this.#originalConsoleMethods = {
       log: console.log,
       info: console.info,
@@ -63,69 +95,78 @@ export class SessionCapturer {
       error: console.error
     }
 
-    // Patch console methods to capture test logs
+    this.#originalProcessMethods = {
+      stdoutWrite: process.stdout.write.bind(process.stdout),
+      stderrWrite: process.stderr.write.bind(process.stderr)
+    }
+
     this.#patchConsole()
+    this.#patchProcessOutput()
   }
 
   #patchConsole() {
-    const consoleMethods = ['log', 'info', 'warn', 'error'] as const
-
-    consoleMethods.forEach((method) => {
+    CONSOLE_METHODS.forEach((method) => {
       const originalMethod = this.#originalConsoleMethods[method]
       console[method] = (...args: any[]) => {
-        const logEntry: ConsoleLogs = {
-          timestamp: Date.now(),
-          type: method,
-          args: args.map((arg) =>
-            typeof arg === 'object' && arg !== null
-              ? (() => {
-                  try {
-                    return JSON.stringify(arg)
-                  } catch {
-                    return String(arg)
-                  }
-                })()
-              : String(arg)
-          ),
-          source: 'test'
-        }
+        const serializedArgs = args.map(arg =>
+          typeof arg === 'object' && arg !== null
+            ? (() => { try { return JSON.stringify(arg) } catch { return String(arg) } })()
+            : String(arg)
+        )
+
+        const logEntry = createLogEntry(method, serializedArgs, LOG_SOURCES.TEST)
         this.consoleLogs.push(logEntry)
         this.sendUpstream('consoleLogs', [logEntry])
-        return originalMethod.apply(console, args)
+
+        this.#isCapturingConsole = true
+        const result = originalMethod.apply(console, args)
+        this.#isCapturingConsole = false
+        return result
       }
     })
   }
 
+  #patchProcessOutput() {
+    const captureOutput = (data: string | Uint8Array) => {
+      const text = typeof data === 'string' ? data : data.toString()
+      if (!text?.trim()) return
+
+      text.split('\n')
+        .filter(line => line.trim())
+        .forEach(line => {
+          const logEntry = createLogEntry(detectLogLevel(line), [stripAnsi(line)], LOG_SOURCES.TERMINAL)
+          this.consoleLogs.push(logEntry)
+          this.sendUpstream('consoleLogs', [logEntry])
+        })
+    }
+
+    const patchStream = (stream: NodeJS.WriteStream, originalWrite: (...args: any[]) => boolean) => {
+      const self = this
+      stream.write = function(data: any, ...rest: any[]): boolean {
+        const result = originalWrite.call(stream, data, ...rest)
+        if (data && !self.#isCapturingConsole) captureOutput(data)
+        return result
+      } as any
+    }
+
+    patchStream(process.stdout, this.#originalProcessMethods.stdoutWrite)
+    patchStream(process.stderr, this.#originalProcessMethods.stderrWrite)
+  }
+
   #restoreConsole() {
-    console.log = this.#originalConsoleMethods.log
-    console.info = this.#originalConsoleMethods.info
-    console.warn = this.#originalConsoleMethods.warn
-    console.error = this.#originalConsoleMethods.error
+    CONSOLE_METHODS.forEach(method => {
+      console[method] = this.#originalConsoleMethods[method]
+    })
   }
 
   cleanup() {
     this.#restoreConsole()
-    if (this.#ws) {
-      this.#ws.close()
-    }
   }
 
   get isReportingUpstream() {
     return Boolean(this.#ws) && this.#ws?.readyState === WebSocket.OPEN
   }
 
-  /**
-   * after command hook
-   *
-   * Used to
-   *  - capture command logs
-   *  - capture trace data from the application under test
-   *
-   * @param {string} command command name
-   * @param {Array} args command arguments
-   * @param {object} result command result
-   * @param {Error} error command error
-   */
   async afterCommand(
     browser: WebdriverIO.Browser,
     command: keyof WebDriverCommands,
@@ -245,7 +286,7 @@ export class SessionCapturer {
       }
       if (Array.isArray(consoleLogs)) {
         const browserLogs = consoleLogs as ConsoleLogs[]
-        browserLogs.forEach((log) => (log.source = 'browser'))
+        browserLogs.forEach((log) => (log.source = LOG_SOURCES.BROWSER))
         this.consoleLogs.push(...browserLogs)
         this.sendUpstream('consoleLogs', browserLogs)
       }

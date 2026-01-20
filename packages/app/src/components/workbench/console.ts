@@ -88,6 +88,19 @@ export class DevtoolsConsoleLogs extends Element {
         color: var(--vscode-foreground);
         opacity: 0.8;
         margin-right: 4px;
+        font-weight: 600;
+      }
+
+      .log-prefix.source-test {
+        color: #4ec9b0;
+      }
+
+      .log-prefix.source-terminal {
+        color: #ce9178;
+      }
+
+      .log-prefix.source-browser {
+        color: #569cd6;
       }
 
       .log-content {
@@ -198,6 +211,15 @@ export class DevtoolsConsoleLogs extends Element {
       <div class="console-container">
         ${this.logs.map((log: any) => {
           const icon = LOG_ICONS[log.type] || LOG_ICONS.log
+          const sourceLabel = log.source === 'test'
+            ? '[TEST]'
+            : log.source === 'terminal'
+            ? '[WDIO]'
+            : log.source === 'browser'
+            ? '[BROWSER]'
+            : ''
+          const sourceClass = log.source ? `source-${log.source}` : ''
+
           return html`
             <div class="log-entry log-type-${log.type || 'log'}">
               ${log.timestamp
@@ -207,8 +229,8 @@ export class DevtoolsConsoleLogs extends Element {
                 : nothing}
               <div class="log-icon">${icon}</div>
               <div class="log-content">
-                ${log.source === 'test'
-                  ? html`<span class="log-prefix">>>></span>`
+                ${sourceLabel
+                  ? html`<span class="log-prefix ${sourceClass}">${sourceLabel}</span>`
                   : nothing}
                 <span class="log-message">${this.#formatArgs(log.args)}</span>
               </div>

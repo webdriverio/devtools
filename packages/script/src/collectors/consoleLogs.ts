@@ -5,7 +5,7 @@ export interface ConsoleLogs {
   type: 'log' | 'info' | 'warn' | 'error'
   args: any[]
   timestamp: number
-  source?: 'browser' | 'test'
+  source?: 'browser' | 'test' | 'terminal'
 }
 
 export class ConsoleLogCollector implements Collector<ConsoleLogs> {
