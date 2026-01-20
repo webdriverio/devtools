@@ -8,7 +8,14 @@ import { resolve } from 'import-meta-resolve'
 import { SevereServiceError } from 'webdriverio'
 import type { WebDriverCommands } from '@wdio/protocols'
 
-import { PAGE_TRANSITION_COMMANDS, ANSI_REGEX, CONSOLE_METHODS, LOG_LEVEL_PATTERNS, ERROR_INDICATORS, LOG_SOURCES } from './constants.js'
+import {
+  PAGE_TRANSITION_COMMANDS,
+  ANSI_REGEX,
+  CONSOLE_METHODS,
+  LOG_LEVEL_PATTERNS,
+  ERROR_INDICATORS,
+  LOG_SOURCES
+} from './constants.js'
 import { type CommandLog, type TraceLog, type LogLevel } from './types.js'
 
 const log = logger('@wdio/devtools-service:SessionCapturer')
@@ -26,11 +33,17 @@ const detectLogLevel = (text: string): LogLevel => {
 
   // Check log level patterns in priority order
   for (const { level, pattern } of LOG_LEVEL_PATTERNS) {
-    if (pattern.test(cleanText)) return level
+    if (pattern.test(cleanText)) {
+      return level
+    }
   }
 
   // Check for error indicators
-  if (ERROR_INDICATORS.some(indicator => cleanText.includes(indicator.toLowerCase()))) {
+  if (
+    ERROR_INDICATORS.some((indicator) =>
+      cleanText.includes(indicator.toLowerCase())
+    )
+  ) {
     return 'error'
   }
 
@@ -40,7 +53,11 @@ const detectLogLevel = (text: string): LogLevel => {
 /**
  * Generic helper to create a console log entry
  */
-const createLogEntry = (type: LogLevel, args: any[], source: typeof LOG_SOURCES[keyof typeof LOG_SOURCES]): ConsoleLogs => ({
+const createLogEntry = (
+  type: LogLevel,
+  args: any[],
+  source: (typeof LOG_SOURCES)[keyof typeof LOG_SOURCES]
+): ConsoleLogs => ({
   timestamp: Date.now(),
   type,
   args,
@@ -50,7 +67,10 @@ const createLogEntry = (type: LogLevel, args: any[], source: typeof LOG_SOURCES[
 export class SessionCapturer {
   #ws: WebSocket | undefined
   #isInjected = false
-  #originalConsoleMethods: Record<typeof CONSOLE_METHODS[number], typeof console.log>
+  #originalConsoleMethods: Record<
+    (typeof CONSOLE_METHODS)[number],
+    typeof console.log
+  >
   #originalProcessMethods: {
     stdoutWrite: typeof process.stdout.write
     stderrWrite: typeof process.stderr.write
@@ -108,13 +128,23 @@ export class SessionCapturer {
     CONSOLE_METHODS.forEach((method) => {
       const originalMethod = this.#originalConsoleMethods[method]
       console[method] = (...args: any[]) => {
-        const serializedArgs = args.map(arg =>
+        const serializedArgs = args.map((arg) =>
           typeof arg === 'object' && arg !== null
-            ? (() => { try { return JSON.stringify(arg) } catch { return String(arg) } })()
+            ? (() => {
+                try {
+                  return JSON.stringify(arg)
+                } catch {
+                  return String(arg)
+                }
+              })()
             : String(arg)
         )
 
-        const logEntry = createLogEntry(method, serializedArgs, LOG_SOURCES.TEST)
+        const logEntry = createLogEntry(
+          method,
+          serializedArgs,
+          LOG_SOURCES.TEST
+        )
         this.consoleLogs.push(logEntry)
         this.sendUpstream('consoleLogs', [logEntry])
 
@@ -129,22 +159,34 @@ export class SessionCapturer {
   #patchProcessOutput() {
     const captureOutput = (data: string | Uint8Array) => {
       const text = typeof data === 'string' ? data : data.toString()
-      if (!text?.trim()) return
+      if (!text?.trim()) {
+        return
+      }
 
-      text.split('\n')
-        .filter(line => line.trim())
-        .forEach(line => {
-          const logEntry = createLogEntry(detectLogLevel(line), [stripAnsi(line)], LOG_SOURCES.TERMINAL)
+      text
+        .split('\n')
+        .filter((line) => line.trim())
+        .forEach((line) => {
+          const logEntry = createLogEntry(
+            detectLogLevel(line),
+            [stripAnsi(line)],
+            LOG_SOURCES.TERMINAL
+          )
           this.consoleLogs.push(logEntry)
           this.sendUpstream('consoleLogs', [logEntry])
         })
     }
 
-    const patchStream = (stream: NodeJS.WriteStream, originalWrite: (...args: any[]) => boolean) => {
+    const patchStream = (
+      stream: NodeJS.WriteStream,
+      originalWrite: (...args: any[]) => boolean
+    ) => {
       const self = this
-      stream.write = function(data: any, ...rest: any[]): boolean {
+      stream.write = function (data: any, ...rest: any[]): boolean {
         const result = originalWrite.call(stream, data, ...rest)
-        if (data && !self.#isCapturingConsole) captureOutput(data)
+        if (data && !self.#isCapturingConsole) {
+          captureOutput(data)
+        }
         return result
       } as any
     }
@@ -154,7 +196,7 @@ export class SessionCapturer {
   }
 
   #restoreConsole() {
-    CONSOLE_METHODS.forEach(method => {
+    CONSOLE_METHODS.forEach((method) => {
       console[method] = this.#originalConsoleMethods[method]
     })
   }

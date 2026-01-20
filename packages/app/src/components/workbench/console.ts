@@ -211,13 +211,14 @@ export class DevtoolsConsoleLogs extends Element {
       <div class="console-container">
         ${this.logs.map((log: any) => {
           const icon = LOG_ICONS[log.type] || LOG_ICONS.log
-          const sourceLabel = log.source === 'test'
-            ? '[TEST]'
-            : log.source === 'terminal'
-            ? '[WDIO]'
-            : log.source === 'browser'
-            ? '[BROWSER]'
-            : ''
+          const sourceLabel =
+            log.source === 'test'
+              ? '[TEST]'
+              : log.source === 'terminal'
+                ? '[WDIO]'
+                : log.source === 'browser'
+                  ? '[BROWSER]'
+                  : ''
           const sourceClass = log.source ? `source-${log.source}` : ''
 
           return html`
@@ -230,7 +231,9 @@ export class DevtoolsConsoleLogs extends Element {
               <div class="log-icon">${icon}</div>
               <div class="log-content">
                 ${sourceLabel
-                  ? html`<span class="log-prefix ${sourceClass}">${sourceLabel}</span>`
+                  ? html`<span class="log-prefix ${sourceClass}"
+                      >${sourceLabel}</span
+                    >`
                   : nothing}
                 <span class="log-message">${this.#formatArgs(log.args)}</span>
               </div>
