@@ -18,7 +18,10 @@ export const CONSOLE_METHODS = ['log', 'info', 'warn', 'error'] as const
 /**
  * Log level detection patterns with priority order (highest to lowest)
  */
-export const LOG_LEVEL_PATTERNS: ReadonlyArray<{ level: 'trace' | 'debug' | 'info' | 'warn' | 'error'; pattern: RegExp }> = [
+export const LOG_LEVEL_PATTERNS: ReadonlyArray<{
+  level: 'trace' | 'debug' | 'info' | 'warn' | 'error'
+  pattern: RegExp
+}> = [
   { level: 'trace', pattern: /\btrace\b/i },
   { level: 'debug', pattern: /\bdebug\b/i },
   { level: 'info', pattern: /\binfo\b/i },
