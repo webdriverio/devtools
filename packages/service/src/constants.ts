@@ -5,6 +5,41 @@ export const PAGE_TRANSITION_COMMANDS: string[] = [
   'click'
 ]
 
+/**
+ * Regular expression to strip ANSI escape codes from terminal output
+ */
+export const ANSI_REGEX = /\x1b\[[0-9;]*m/g
+
+/**
+ * Console method types for log capturing
+ */
+export const CONSOLE_METHODS = ['log', 'info', 'warn', 'error'] as const
+
+/**
+ * Log level detection patterns with priority order (highest to lowest)
+ */
+export const LOG_LEVEL_PATTERNS: ReadonlyArray<{ level: 'trace' | 'debug' | 'info' | 'warn' | 'error'; pattern: RegExp }> = [
+  { level: 'trace', pattern: /\btrace\b/i },
+  { level: 'debug', pattern: /\bdebug\b/i },
+  { level: 'info', pattern: /\binfo\b/i },
+  { level: 'warn', pattern: /\bwarn(ing)?\b/i },
+  { level: 'error', pattern: /\berror\b/i }
+] as const
+
+/**
+ * Visual indicators that suggest error-level logs
+ */
+export const ERROR_INDICATORS = ['✗', '✓', 'failed', 'failure'] as const
+
+/**
+ * Console log source types
+ */
+export const LOG_SOURCES = {
+  BROWSER: 'browser',
+  TEST: 'test',
+  TERMINAL: 'terminal'
+} as const
+
 export const DEFAULT_LAUNCH_CAPS: WebdriverIO.Capabilities = {
   browserName: 'chrome',
   'goog:chromeOptions': {

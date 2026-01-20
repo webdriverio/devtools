@@ -40,6 +40,8 @@ export interface ExtendedCapabilities extends WebdriverIO.Capabilities {
   'wdio:devtoolsOptions'?: ServiceOptions
 }
 
+export type LogLevel = 'trace' | 'debug' | 'log' | 'info' | 'warn' | 'error'
+
 export interface ServiceOptions {
   /**
    * port to launch the application on (default: random)
