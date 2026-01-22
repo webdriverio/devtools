@@ -254,6 +254,12 @@ importers:
 
   packages/service:
     dependencies:
+      '@babel/parser':
+        specifier: ^7.28.4
+        version: 7.28.5
+      '@babel/traverse':
+        specifier: ^7.28.4
+        version: 7.28.5
       '@babel/types':
         specifier: ^7.28.4
         version: 7.28.5
@@ -288,12 +294,6 @@ importers:
         specifier: ^8.18.3
         version: 8.18.3
     devDependencies:
-      '@babel/parser':
-        specifier: ^7.28.4
-        version: 7.28.5
-      '@babel/traverse':
-        specifier: ^7.28.4
-        version: 7.28.5
       '@types/babel__core':
         specifier: ^7.20.5
         version: 7.20.5
