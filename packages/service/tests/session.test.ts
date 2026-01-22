@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { SessionCapturer } from '../src/session.js'
 import { WebSocket } from 'ws'
 import fs from 'node:fs/promises'
+import { LOG_SOURCES } from '../src/constants.js'
 
 vi.mock('ws')
 vi.mock('node:fs/promises')
@@ -211,7 +212,7 @@ describe('SessionCapturer', () => {
       const logEntry = capturer.consoleLogs[initialLength]
       expect(logEntry.type).toBe('log')
       expect(logEntry.args).toEqual(['Log message'])
-      expect(logEntry.source).toBe('test')
+      expect(logEntry.source).toBe(LOG_SOURCES.TEST)
       expect(logEntry.timestamp).toBeDefined()
 
       // Validate console.info capture with multiple arguments
@@ -222,19 +223,19 @@ describe('SessionCapturer', () => {
         'with multiple',
         'arguments'
       ])
-      expect(infoEntry.source).toBe('test')
+      expect(infoEntry.source).toBe(LOG_SOURCES.TEST)
 
       // Validate console.warn capture
       const warnEntry = capturer.consoleLogs[initialLength + 2]
       expect(warnEntry.type).toBe('warn')
       expect(warnEntry.args).toEqual(['Warning message'])
-      expect(warnEntry.source).toBe('test')
+      expect(warnEntry.source).toBe(LOG_SOURCES.TEST)
 
       // Validate console.error capture
       const errorEntry = capturer.consoleLogs[initialLength + 3]
       expect(errorEntry.type).toBe('error')
       expect(errorEntry.args).toEqual(['Error message'])
-      expect(errorEntry.source).toBe('test')
+      expect(errorEntry.source).toBe(LOG_SOURCES.TEST)
     })
 
     /**
@@ -317,7 +318,7 @@ describe('SessionCapturer', () => {
       expect(sentData.scope).toBe('consoleLogs')
       expect(sentData.data).toHaveLength(1)
       expect(sentData.data[0].args).toEqual(['Test message'])
-      expect(sentData.data[0].source).toBe('test')
+      expect(sentData.data[0].source).toBe(LOG_SOURCES.TEST)
 
       capturer.cleanup()
 
@@ -356,11 +357,33 @@ describe('SessionCapturer', () => {
       )
 
       const browserLogs = capturer.consoleLogs.filter(
-        (log) => log.source === 'browser'
+        (log) => log.source === LOG_SOURCES.BROWSER
       )
       expect(browserLogs).toHaveLength(2)
-      expect(browserLogs[0].source).toBe('browser')
-      expect(browserLogs[1].source).toBe('browser')
+      expect(browserLogs[0].source).toBe(LOG_SOURCES.BROWSER)
+      expect(browserLogs[1].source).toBe(LOG_SOURCES.BROWSER)
+    })
+
+    /**
+     * Test: Terminal logs are captured with proper log level detection
+     */
+    it('should capture terminal logs with correct log levels and source', () => {
+      const capturer = new SessionCapturer()
+      const initialLength = capturer.consoleLogs.length
+
+      process.stdout.write('INFO: Test message\n')
+      process.stderr.write('ERROR: Test error\n')
+
+      const terminalLogs = capturer.consoleLogs.slice(initialLength)
+      expect(terminalLogs.length).toBeGreaterThanOrEqual(2)
+
+      const infoLog = terminalLogs.find((log) => log.type === 'info')
+      const errorLog = terminalLogs.find((log) => log.type === 'error')
+
+      expect(infoLog?.source).toBe(LOG_SOURCES.TERMINAL)
+      expect(errorLog?.source).toBe(LOG_SOURCES.TERMINAL)
+
+      capturer.cleanup()
     })
   })
 
