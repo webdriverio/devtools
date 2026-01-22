@@ -23,13 +23,13 @@ const log = logger('@wdio/devtools-service:SessionCapturer')
 /**
  * Generic helper to strip ANSI escape codes from text
  */
-const stripAnsi = (text: string): string => text.replace(ANSI_REGEX, '')
+const stripAnsiCodes = (text: string): string => text.replace(ANSI_REGEX, '')
 
 /**
  * Generic helper to detect log level from text content
  */
 const detectLogLevel = (text: string): LogLevel => {
-  const cleanText = stripAnsi(text).toLowerCase()
+  const cleanText = stripAnsiCodes(text).toLowerCase()
 
   // Check log level patterns in priority order
   for (const { level, pattern } of LOG_LEVEL_PATTERNS) {
@@ -53,7 +53,7 @@ const detectLogLevel = (text: string): LogLevel => {
 /**
  * Generic helper to create a console log entry
  */
-const createLogEntry = (
+const createConsoleLogEntry = (
   type: LogLevel,
   args: any[],
   source: (typeof LOG_SOURCES)[keyof typeof LOG_SOURCES]
@@ -66,7 +66,7 @@ const createLogEntry = (
 
 export class SessionCapturer {
   #ws: WebSocket | undefined
-  #isInjected = false
+  #isScriptInjected = false
   #originalConsoleMethods: Record<
     (typeof CONSOLE_METHODS)[number],
     typeof console.log
@@ -121,14 +121,14 @@ export class SessionCapturer {
     }
 
     this.#patchConsole()
-    this.#patchProcessOutput()
+    this.#interceptProcessStreams()
   }
 
   #patchConsole() {
     CONSOLE_METHODS.forEach((method) => {
       const originalMethod = this.#originalConsoleMethods[method]
-      console[method] = (...args: any[]) => {
-        const serializedArgs = args.map((arg) =>
+      console[method] = (...consoleArgs: any[]) => {
+        const serializedArgs = consoleArgs.map((arg) =>
           typeof arg === 'object' && arg !== null
             ? (() => {
                 try {
@@ -140,7 +140,7 @@ export class SessionCapturer {
             : String(arg)
         )
 
-        const logEntry = createLogEntry(
+        const logEntry = createConsoleLogEntry(
           method,
           serializedArgs,
           LOG_SOURCES.TEST
@@ -149,27 +149,28 @@ export class SessionCapturer {
         this.sendUpstream('consoleLogs', [logEntry])
 
         this.#isCapturingConsole = true
-        const result = originalMethod.apply(console, args)
+        const result = originalMethod.apply(console, consoleArgs)
         this.#isCapturingConsole = false
         return result
       }
     })
   }
 
-  #patchProcessOutput() {
-    const captureOutput = (data: string | Uint8Array) => {
-      const text = typeof data === 'string' ? data : data.toString()
-      if (!text?.trim()) {
+  #interceptProcessStreams() {
+    const captureTerminalOutput = (outputData: string | Uint8Array) => {
+      const outputText =
+        typeof outputData === 'string' ? outputData : outputData.toString()
+      if (!outputText?.trim()) {
         return
       }
 
-      text
+      outputText
         .split('\n')
         .filter((line) => line.trim())
         .forEach((line) => {
-          const logEntry = createLogEntry(
+          const logEntry = createConsoleLogEntry(
             detectLogLevel(line),
-            [stripAnsi(line)],
+            [stripAnsiCodes(line)],
             LOG_SOURCES.TERMINAL
           )
           this.consoleLogs.push(logEntry)
@@ -177,22 +178,32 @@ export class SessionCapturer {
         })
     }
 
-    const patchStream = (
+    const interceptStreamWrite = (
       stream: NodeJS.WriteStream,
-      originalWrite: (...args: any[]) => boolean
+      originalWriteMethod: (...args: any[]) => boolean
     ) => {
-      const self = this
-      stream.write = function (data: any, ...rest: any[]): boolean {
-        const result = originalWrite.call(stream, data, ...rest)
-        if (data && !self.#isCapturingConsole) {
-          captureOutput(data)
+      const capturer = this
+      stream.write = function (chunk: any, ...additionalArgs: any[]): boolean {
+        const writeResult = originalWriteMethod.call(
+          stream,
+          chunk,
+          ...additionalArgs
+        )
+        if (chunk && !capturer.#isCapturingConsole) {
+          captureTerminalOutput(chunk)
         }
-        return result
+        return writeResult
       } as any
     }
 
-    patchStream(process.stdout, this.#originalProcessMethods.stdoutWrite)
-    patchStream(process.stderr, this.#originalProcessMethods.stderrWrite)
+    interceptStreamWrite(
+      process.stdout,
+      this.#originalProcessMethods.stdoutWrite
+    )
+    interceptStreamWrite(
+      process.stderr,
+      this.#originalProcessMethods.stderrWrite
+    )
   }
 
   #restoreConsole() {
@@ -217,7 +228,7 @@ export class SessionCapturer {
     error: Error | undefined,
     callSource?: string
   ) {
-    const sourceFile =
+    const sourceFileLocation =
       parse(new Error(''))
         .filter((frame) => Boolean(frame.getFileName()))
         .map((frame) =>
@@ -235,34 +246,40 @@ export class SessionCapturer {
             !fileName.includes('/dist/')
         )
         .shift() || ''
-    const absPath = sourceFile.startsWith('file://')
-      ? url.fileURLToPath(sourceFile)
-      : sourceFile
-    const sourceFilePath = absPath.split(':')[0]
-    const fileExist = await fs.access(sourceFilePath).then(
+    const absolutePath = sourceFileLocation.startsWith('file://')
+      ? url.fileURLToPath(sourceFileLocation)
+      : sourceFileLocation
+    const sourceFilePath = absolutePath.split(':')[0]
+    const doesFileExist = await fs.access(sourceFilePath).then(
       () => true,
       () => false
     )
-    if (sourceFile && !this.sources.has(sourceFile) && fileExist) {
+    if (
+      sourceFileLocation &&
+      !this.sources.has(sourceFileLocation) &&
+      doesFileExist
+    ) {
       const sourceCode = await fs.readFile(sourceFilePath, 'utf-8')
       this.sources.set(sourceFilePath, sourceCode.toString())
       this.sendUpstream('sources', { [sourceFilePath]: sourceCode.toString() })
     }
-    const newCommand: CommandLog = {
+    const commandLogEntry: CommandLog = {
       command,
       args,
       result,
       error,
       timestamp: Date.now(),
-      callSource: callSource ?? absPath
+      callSource: callSource ?? absolutePath
     }
     try {
-      newCommand.screenshot = await browser.takeScreenshot()
-    } catch (shotErr) {
-      log.warn(`failed to capture screenshot: ${(shotErr as Error).message}`)
+      commandLogEntry.screenshot = await browser.takeScreenshot()
+    } catch (screenshotError) {
+      log.warn(
+        `failed to capture screenshot: ${(screenshotError as Error).message}`
+      )
     }
-    this.commandsLog.push(newCommand)
-    this.sendUpstream('commands', [newCommand])
+    this.commandsLog.push(commandLogEntry)
+    this.sendUpstream('commands', [commandLogEntry])
 
     /**
      * capture trace and write to file on commands that could trigger a page transition
@@ -273,7 +290,7 @@ export class SessionCapturer {
   }
 
   async injectScript(browser: WebdriverIO.Browser) {
-    if (this.#isInjected) {
+    if (this.#isScriptInjected) {
       log.info('Script already injected, skipping')
       return
     }
@@ -284,7 +301,7 @@ export class SessionCapturer {
       )
     }
 
-    this.#isInjected = true
+    this.#isScriptInjected = true
     log.info('Injecting devtools script...')
     const script = await resolve('@wdio/devtools-script', import.meta.url)
     const source = (await fs.readFile(url.fileURLToPath(script))).toString()
@@ -297,7 +314,7 @@ export class SessionCapturer {
   }
 
   async #captureTrace(browser: WebdriverIO.Browser) {
-    if (!this.#isInjected) {
+    if (!this.#isScriptInjected) {
       log.warn('Script not injected, skipping trace capture')
       return
     }
