@@ -21,11 +21,12 @@ A powerful browser devtools extension for debugging, visualizing, and controllin
 - **Test Hierarchy**: Nested test suite and test case tree view with status indicators
 - **Live Status Updates**: Immediate spinner icons and visual feedback when tests start/stop
 
-### 🔍 Debugging Capabilities
+### 🧐 Debugging Capabilities
 - **Command Logging**: Detailed capture of all WebDriver commands with arguments and results
 - **Screenshot Capture**: Automatic screenshots after each command for visual debugging
 - **Source Code Mapping**: View the exact line of code that triggered each command
-- **Console Logs**: Capture and display application console output
+- **Console Logs**: Capture and display application console output with timestamps and log levels
+- **Network Logs**: Monitor and inspect HTTP requests/responses including headers, payloads, timing, and status codes
 - **Error Tracking**: Full error messages and stack traces for failed tests
 
 ### 🎮 Execution Controls
@@ -34,20 +35,36 @@ A powerful browser devtools extension for debugging, visualizing, and controllin
 - **Actions Tab Auto-Clear**: Execution data automatically clears and refreshes on reruns
 - **Metadata Tracking**: Test duration, status, and execution timestamps
 
+### 🔍︎ TestLens
+- **Code Intelligence**: View test definitions directly in your editor
+- **Run/Debug Actions**: Execute individual tests or suites with inline CodeLens actions
+- **Quick Navigation**: Jump between test code and execution results seamlessly
+- **Status Indicators**: Visual feedback for test pass/fail states in the editor
+
 ### 🏗️ Architecture
 - **Frontend**: Lit web components with reactive state management (@lit/context)
 - **Backend**: Fastify server with WebSocket streaming for real-time updates
 - **Service**: WebdriverIO reporter integration with stable UID generation
 - **Process Management**: Tree-kill for proper cleanup of spawned processes
 
-### 🛠️ Test Rerunner & Snapshot Demo
+## Demo
+
+### 🛠️ Test Rerunner & Snapshot
 <img src="https://github.com/user-attachments/assets/c3804559-c0ec-441a-80dc-e4048385f3b2" alt="Test Rerunner & Snapshot Demo" width="400" />
 
-### 🛑 Stop Test Runner Demo
+### 🛑 Stop Test Runner
 <img src="https://github.com/user-attachments/assets/f42e43ed-bfac-4280-be5f-87895fb232d3" alt="Stop Test Runner Demo" width="400" />
 
-### 🛠️ TestLens Demo
+### 🔍︎ TestLens
 <img src="https://github.com/user-attachments/assets/72c576a1-330a-49c4-affe-df260e7c70df" alt="TestLens Demo" width="400" />
+
+### >_ Console Logs
+<img src="https://github.com/user-attachments/assets/aff14f15-a298-4a12-bc3d-8e4deefddae6" alt="Console Logs" width="400" />
+
+### 🌐 Network Logs
+<img src="https://github.com/user-attachments/assets/2cca4885-f989-4d07-b7ce-a4fa476c3c1c" alt="Network Logs 1" width="400" />
+
+<img src="https://github.com/user-attachments/assets/0f81e0af-75b5-454f-bffb-e40654c89908" alt="Network Logs 2" width="400" />
 
 ## Installation
 
