@@ -80,6 +80,9 @@ export class ExplorerTestEntry extends CollapseableEntry {
   @property({ type: String, attribute: 'suite-type' })
   suiteType?: string
 
+  @property({ type: Boolean, attribute: 'has-children' })
+  hasChildren = false
+
   static styles = [
     ...Element.styles,
     css`
@@ -206,8 +209,7 @@ export class ExplorerTestEntry extends CollapseableEntry {
   }
 
   render() {
-    const hasNoChildren =
-      this.querySelectorAll('[slot="children"]').length === 0
+    const hasNoChildren = !this.hasChildren
     const isCollapsed = this.isCollapsed === 'true'
     const runTooltip = this.runDisabled
       ? this.runDisabledReason ||

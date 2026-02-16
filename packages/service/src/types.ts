@@ -10,6 +10,7 @@ export interface CommandLog {
   timestamp: number
   callSource: string
   screenshot?: string
+  testUid?: string
 }
 
 export enum TraceType {

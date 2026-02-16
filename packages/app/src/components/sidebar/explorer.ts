@@ -1,6 +1,6 @@
 import { Element } from '@core/element'
 import { html, css, nothing, type TemplateResult } from 'lit'
-import { customElement } from 'lit/decorators.js'
+import { customElement, property } from 'lit/decorators.js'
 import { consume } from '@lit/context'
 import type { TestStats, SuiteStats } from '@wdio/reporter'
 import type { Metadata } from '@wdio/devtools-service/types'
@@ -63,6 +63,7 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
   ]
 
   @consume({ context: suiteContext, subscribe: true })
+  @property({ type: Array })
   suites: Record<string, SuiteStats>[] | undefined = undefined
 
   @consume({ context: metadataContext, subscribe: true })
@@ -70,6 +71,10 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
 
   @consume({ context: isTestRunningContext, subscribe: true })
   isTestRunning = false
+
+  updated(changedProperties: Map<string | number | symbol, unknown>) {
+    super.updated(changedProperties)
+  }
 
   connectedCallback(): void {
     super.connectedCallback()
@@ -285,6 +290,7 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
         feature-file="${entry.featureFile || ''}"
         feature-line="${entry.featureLine ?? ''}"
         suite-type="${entry.suiteType || ''}"
+        ?has-children="${entry.children && entry.children.length > 0}"
         .runDisabled=${this.#isRunDisabled(entry)}
         .runDisabledReason=${this.#getRunDisabledReason(entry)}
       >
@@ -326,6 +332,38 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
     )
   }
 
+  #isRunning(entry: TestStats | SuiteStats): boolean {
+    if ('tests' in entry) {
+      // Check if any immediate test is running
+      if (entry.tests.some((t) => !t.end)) {
+        return true
+      }
+      // Check if any nested suite is running
+      if (entry.suites.some((s) => this.#isRunning(s))) {
+        return true
+      }
+      return false
+    }
+    // For individual tests, check if end is not set
+    return !entry.end
+  }
+
+  #hasFailed(entry: TestStats | SuiteStats): boolean {
+    if ('tests' in entry) {
+      // Check if any immediate test failed
+      if (entry.tests.find((t) => t.state === 'failed')) {
+        return true
+      }
+      // Check if any nested suite has failures
+      if (entry.suites.some((s) => this.#hasFailed(s))) {
+        return true
+      }
+      return false
+    }
+    // For individual tests
+    return entry.state === 'failed'
+  }
+
   #getTestEntry(entry: TestStats | SuiteStats): TestEntry {
     if ('tests' in entry) {
       const entries = [...entry.tests, ...entry.suites]
@@ -333,9 +371,9 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
         uid: entry.uid,
         label: entry.title,
         type: 'suite',
-        state: entry.tests.some((t) => !t.end)
+        state: this.#isRunning(entry)
           ? TestState.RUNNING
-          : entry.tests.find((t) => t.state === 'failed')
+          : this.#hasFailed(entry)
             ? TestState.FAILED
             : TestState.PASSED,
         callSource: (entry as any).callSource,
@@ -421,9 +459,14 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
               (suite) => suite.uid,
               (suite) => this.#renderEntry(suite)
             )
-          : html`<p class="text-disabledForeground text-sm px-4 py-2">
-              No tests found
-            </p>`}
+          : html`<div class="text-sm px-4 py-2">
+              <p class="text-disabledForeground">No tests to display</p>
+              <p class="text-xs text-disabledForeground mt-2">
+                Debug: suites=${this.suites?.length || 0},
+                rootSuites=${uniqueSuites.length},
+                filtered=${suites.length}
+              </p>
+            </div>`}
       </wdio-test-suite>
     `
   }
