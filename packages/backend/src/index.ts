@@ -32,7 +32,15 @@ export function broadcastToClients(message: string) {
 
 export async function start(opts: DevtoolsBackendOptions = {}) {
   const host = opts.hostname || 'localhost'
-  const port = opts.port || (await getPort({ port: DEFAULT_PORT }))
+  // Use getPort to find an available port, starting with the preferred port
+  const preferredPort = opts.port || DEFAULT_PORT
+  const port = await getPort({ port: preferredPort })
+  
+  // Log if we had to use a different port
+  if (opts.port && port !== opts.port) {
+    log.warn(`Port ${opts.port} is already in use, using port ${port} instead`)
+  }
+  
   const appPath = await getDevtoolsApp()
 
   server = Fastify({ logger: true })
@@ -91,6 +99,34 @@ export async function start(opts: DevtoolsBackendOptions = {}) {
         log.info(
           `received ${message.length} byte message from worker to ${clients.size} client${clients.size > 1 ? 's' : ''}`
         )
+        
+        // Parse message to check if it's a clearCommands message
+        try {
+          const parsed = JSON.parse(message.toString())
+          
+          // If this is a clearCommands message, transform it to clear-execution-data format
+          if (parsed.scope === 'clearCommands') {
+            const testUid = parsed.data?.testUid
+            log.info(`Clearing commands for test: ${testUid || 'all'}`)
+            
+            // Create a synthetic message that DataManager will understand
+            const clearMessage = JSON.stringify({
+              scope: 'clearExecutionData',
+              data: { uid: testUid }
+            })
+            
+            clients.forEach((client) => {
+              if (client.readyState === WebSocket.OPEN) {
+                client.send(clearMessage)
+              }
+            })
+            return
+          }
+        } catch (e) {
+          // Not JSON or parsing failed, forward as-is
+        }
+        
+        // Forward all other messages as-is
         clients.forEach((client) => {
           if (client.readyState === WebSocket.OPEN) {
             client.send(message.toString())
@@ -111,8 +147,16 @@ export async function stop() {
   }
 
   log.info('Shutting down WebdriverIO Devtools application')
-  await server.close()
+  
+  // Close all WebSocket connections first
+  clients.forEach((client) => {
+    if (client.readyState === WebSocket.OPEN || client.readyState === WebSocket.CONNECTING) {
+      client.terminate()
+    }
+  })
   clients.clear()
+  
+  await server.close()
 }
 
 /**
