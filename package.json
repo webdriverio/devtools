@@ -4,6 +4,7 @@
   "scripts": {
     "build": "pnpm --parallel build",
     "demo": "wdio run ./example/wdio.conf.ts",
+    "demo:nightwatch": "pnpm --filter @wdio/nightwatch-devtools example",
     "dev": "pnpm --parallel dev",
     "preview": "pnpm --parallel preview",
     "test": "vitest run",
@@ -17,7 +18,10 @@
   "pnpm": {
     "overrides": {
       "vite": "^7.3.0"
-    }
+    },
+    "ignoredBuiltDependencies": [
+      "chromedriver"
+    ]
   },
   "devDependencies": {
     "@types/node": "^25.0.3",

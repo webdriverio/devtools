@@ -49,10 +49,10 @@ export const isTestRunningContext = createContext<boolean>(
 )
 
 interface SocketMessage<
-  T extends keyof TraceLog | 'testStopped' = keyof TraceLog | 'testStopped'
+  T extends keyof TraceLog | 'testStopped' | 'clearExecutionData' = keyof TraceLog | 'testStopped' | 'clearExecutionData'
 > {
   scope: T
-  data: T extends keyof TraceLog ? TraceLog[T] : unknown
+  data: T extends keyof TraceLog ? TraceLog[T] : T extends 'clearExecutionData' ? { uid?: string } : unknown
 }
 
 export class DataManagerController implements ReactiveController {
@@ -266,6 +266,14 @@ export class DataManagerController implements ReactiveController {
       // Handle test stopped event
       if (scope === 'testStopped') {
         this.#handleTestStopped()
+        this.#host.requestUpdate()
+        return
+      }
+
+      // Handle clear execution data event (when tests change)
+      if (scope === 'clearExecutionData') {
+        const clearData = data as { uid?: string }
+        this.clearExecutionData(clearData.uid)
         this.#host.requestUpdate()
         return
       }
