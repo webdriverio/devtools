@@ -1,4 +1,4 @@
-// Simple import - just require the package  
+// Simple import - just require the package
 const nightwatchDevtools = require('@wdio/nightwatch-devtools').default;
 
 module.exports = {
@@ -16,6 +16,9 @@ module.exports = {
 
   test_settings: {
     default: {
+      // Ensure all tests run even if one fails
+      skip_testcases_on_fail: false,
+
       desiredCapabilities: {
         browserName: 'chrome',
         'goog:chromeOptions': {

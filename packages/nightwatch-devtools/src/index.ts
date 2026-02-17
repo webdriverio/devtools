@@ -1,6 +1,6 @@
 /**
  * Nightwatch DevTools Plugin
- * 
+ *
  * Integrates Nightwatch with WebdriverIO DevTools following the WDIO service pattern.
  * Captures commands, network requests, and console logs during test execution in real-time.
  */
@@ -32,6 +32,10 @@ class NightwatchDevToolsPlugin {
   #lastSessionId: string | null = null // Track browser session changes
   #devtoolsBrowser?: WebdriverIO.Browser
 
+  // Command stack pattern (from WDIO DevTools)
+  #commandStack: Array<{ command: string; callSource?: string; signature: string }> = []
+  #lastCommandSig: string | null = null
+
   constructor(options: DevToolsOptions = {}) {
     this.options = {
       port: options.port ?? 3000,
@@ -47,9 +51,9 @@ class NightwatchDevToolsPlugin {
     try {
       log.info('🚀 Starting DevTools backend...')
       const server = await start(this.options)
-      
+
       // Fastify's server doesn't have addresses() until after listen()
-      // The port is already set in options after start() completes  
+      // The port is already set in options after start() completes
       const url = `http://${this.options.hostname}:${this.options.port}`
       log.info(`✓ Backend started on port ${this.options.port}`)
       log.info(``)
@@ -61,7 +65,7 @@ class NightwatchDevToolsPlugin {
       log.info(`  ⏳ Waiting for UI to connect...`)
       log.info(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`)
       log.info(``)
-      
+
       // Open DevTools UI in a separate browser window using WDIO's method
       try {
         this.#devtoolsBrowser = await remote({
@@ -74,21 +78,21 @@ class NightwatchDevToolsPlugin {
             }
           }
         })
-        
+
         await this.#devtoolsBrowser.url(url)
         log.info('✓ DevTools UI opened in separate browser window')
       } catch (err) {
         log.error(`Failed to open DevTools UI: ${(err as Error).message}`)
         log.info(`Please manually open: ${url}`)
       }
-      
+
       // Wait for UI to connect
       log.info('Waiting 10 seconds for UI to connect...')
       await new Promise(resolve => setTimeout(resolve, 10000))
-      
+
       log.info('Starting tests...')
 
-      
+
     } catch (err) {
       log.error(`Failed to start backend: ${(err as Error).message}`)
       throw err
@@ -100,23 +104,27 @@ class NightwatchDevToolsPlugin {
    * Initialize session and inject script before each test
    */
   async beforeEach(browser: NightwatchBrowser) {
+    // Reset command stack and signature at the start of each test (like WDIO)
+    this.#commandStack = []
+    this.#lastCommandSig = null
+
     // Check if browser session changed (new session = new test file)
     const currentSessionId = (browser as any).sessionId
     if (currentSessionId && this.#lastSessionId && currentSessionId !== this.#lastSessionId) {
       this.#browserProxied = false
     }
     this.#lastSessionId = currentSessionId
-    
+
     // Initialize on first test
     if (!this.sessionCapturer) {
       // Wait a bit more for WebSocket to be ready on first test
       await new Promise(resolve => setTimeout(resolve, 500))
-      
+
       this.sessionCapturer = new SessionCapturer({
         port: this.options.port,
         hostname: this.options.hostname
       }, browser)
-      
+
       // Wait for WebSocket to connect before proceeding
       const connected = await this.sessionCapturer.waitForConnection(3000)
       if (!connected) {
@@ -124,7 +132,7 @@ class NightwatchDevToolsPlugin {
       } else {
         log.info('✓ Worker WebSocket connected')
       }
-      
+
       // TestReporter callback sends suites data upstream in WDIO format
       this.testReporter = new TestReporter((suitesData: any) => {
         if (this.sessionCapturer) {
@@ -133,7 +141,7 @@ class NightwatchDevToolsPlugin {
         }
       })
       log.info('✓ Session initialized')
-      
+
       // Send initial metadata
       const capabilities = browser.capabilities || {}
       this.sessionCapturer.sendUpstream('metadata', {
@@ -148,15 +156,15 @@ class NightwatchDevToolsPlugin {
     const currentTest = (browser as any).currentTest
     if (currentTest) {
       const testFile = (currentTest.module || '').split('/').pop() || currentTest.module || 'unknown'
-      
+
       // Reset #currentTestFullPath if we're starting a new test file
       if (this.#currentTestFile !== testFile) {
         this.#currentTestFullPath = null
       }
-      
+
       // Find test file: try stack trace first, then search workspace
       let fullPath = findTestFileFromStack() || this.#currentTestFullPath
-      
+
       if (!fullPath && testFile) {
         // Try searching common test directories
         const workspaceRoot = process.cwd()
@@ -167,7 +175,7 @@ class NightwatchDevToolsPlugin {
           path.join(workspaceRoot, 'test', testFile + '.js'),
           path.join(workspaceRoot, testFile + '.js'),
         ]
-        
+
         for (const possiblePath of possiblePaths) {
           if (fs.existsSync(possiblePath)) {
             fullPath = possiblePath
@@ -175,7 +183,7 @@ class NightwatchDevToolsPlugin {
           }
         }
       }
-      
+
       // Extract suite title and test metadata
       let suiteTitle = testFile
       let testNames: string[] = []
@@ -185,11 +193,11 @@ class NightwatchDevToolsPlugin {
           suiteTitle = metadata.suiteTitle
         }
         testNames = metadata.testNames
-        
+
         // Log extracted metadata for debugging
         console.log(`[METADATA] Suite: "${suiteTitle}", Tests: [${testNames.map(t => `"${t}"`).join(', ')}]`)
       }
-      
+
       // Create/update suite for this test file
       if (!this.#currentSuiteByFile.has(testFile)) {
         const suiteStats = {
@@ -206,17 +214,17 @@ class NightwatchDevToolsPlugin {
           hooks: [],
           _duration: 0
         }
-        
+
         this.testReporter.onSuiteStart(suiteStats)
         this.#currentSuiteByFile.set(testFile, suiteStats)
-        
+
         // Capture source file for display in Source tab
         if (fullPath && fullPath.includes('/')) {
           this.sessionCapturer.captureSource(fullPath).catch(() => {
             // Silently ignore source capture errors
           })
         }
-        
+
         // Add all tests with pending state (like WDIO does)
         if (testNames.length > 0) {
           for (const testName of testNames) {
@@ -241,17 +249,17 @@ class NightwatchDevToolsPlugin {
           this.testReporter.updateSuites()
         }
       }
-      
+
       // Find which test is about to run (first unprocessed test)
       const currentSuite = this.#currentSuiteByFile.get(testFile)!
       if (!this.#processedTests.has(testFile)) {
         this.#processedTests.set(testFile, new Set())
       }
       const processedForSuite = this.#processedTests.get(testFile)!
-      
+
       // Find first test that hasn't been processed yet and mark it as running
       let currentTestName = testNames.find(name => !processedForSuite.has(name))
-      
+
       if (currentTestName) {
         const testIndex = currentSuite.tests.findIndex(
           (t: any) => typeof t !== 'string' && t.title === currentTestName
@@ -267,10 +275,10 @@ class NightwatchDevToolsPlugin {
           await new Promise(resolve => setTimeout(resolve, 100))
         }
       }
-      
+
       // Create temporary test for command tracking
       const uniqueTempUid = `${currentSuite.uid}::temp-${Date.now()}-${Math.random().toString(36).substring(7)}`
-      
+
       this.#currentTest = {
         uid: uniqueTempUid,
         cid: '0-0',
@@ -286,16 +294,16 @@ class NightwatchDevToolsPlugin {
         _duration: 0,
         hooks: []
       }
-      
+
       // Store reference to current suite for command tracking
       this.#currentTestFile = testFile
-      
+
       const originalUrl = browser.url.bind(browser)
       const sessionCapturer = this.sessionCapturer
-      
+
       browser.url = function(url: string) {
         const result = originalUrl(url) as any
-        
+
         if (result && typeof result.perform === 'function') {
           result.perform(async function(this: any) {
             try {
@@ -306,141 +314,101 @@ class NightwatchDevToolsPlugin {
             }
           })
         }
-        
+
         return result
       } as any
-      
+
       this.isScriptInjected = true
       log.info('✓ Script injection wrapped')
     }
-    
+
     // Use Proxy to intercept ALL browser commands
     if (browser && !this.#browserProxied) {
       const self = this
       const sessionCapturer = this.sessionCapturer
       const browserAny = browser as any
-      
+
       // Get ALL methods - both own properties and prototype
       const allMethods = new Set([
         ...Object.keys(browser),
         ...Object.getOwnPropertyNames(Object.getPrototypeOf(browser))
       ])
       const wrappedMethods: string[] = []
-      
+
       allMethods.forEach(methodName => {
         if (methodName === 'constructor' || typeof browserAny[methodName] !== 'function') {
           return
         }
-        
+
         // Skip internal Nightwatch commands
         if (INTERNAL_COMMANDS_TO_IGNORE.includes(methodName as any)) {
           return
         }
-        
+
         // Skip methods starting with __ (internal methods)
         if (methodName.startsWith('__')) {
           return
         }
-        
+
         const originalMethod = browserAny[methodName].bind(browser)
-        
+
         browserAny[methodName] = function(...args: any[]) {
           // Get call stack using WDIO DevTools approach
           const callInfo = getCallSourceFromStack()
           const callSource = callInfo.callSource
-          
+
           // Update #currentTestFullPath if we found a valid file
           if (callInfo.filePath && !self.#currentTestFullPath) {
             self.#currentTestFullPath = callInfo.filePath
           }
-          
+
+          // BEFORE command execution (like WDIO beforeCommand):
+          // Check for duplicate using signature, push to stack if unique
+          const cmdSig = JSON.stringify({ command: methodName, args, src: callSource })
+          const isDuplicate = self.#lastCommandSig === cmdSig
+
+          if (!isDuplicate && self.#currentTest) {
+            // Push to command stack
+            self.#commandStack.push({ command: methodName, callSource, signature: cmdSig })
+            self.#lastCommandSig = cmdSig
+          }
+
           try {
             // Execute the command
             const result = originalMethod(...args)
-            
-            // For commands that return promises, handle result when it resolves
-            if (result && typeof result.then === 'function') {
-              result.then(async (actualResult: any) => {
-                if (!self.#currentTest || !sessionCapturer) {
-                  return
-                }
-                
-                // Extract the actual value from the resolved result
-                let extractedValue: any = undefined
-                if (actualResult && typeof actualResult === 'object' && 'value' in actualResult) {
-                  extractedValue = actualResult.value
-                } else if (actualResult !== undefined && actualResult !== result && actualResult !== browser && actualResult !== browserAny) {
-                  extractedValue = actualResult
-                }
-                
-                // Check if this command was already captured in the immediate capture path
-                const lastCommand = sessionCapturer.commandsLog[sessionCapturer.commandsLog.length - 1]
-                const recentlyCaptured = lastCommand && 
-                  lastCommand.command === methodName && 
-                  lastCommand.timestamp > Date.now() - 2000 &&
-                  JSON.stringify(lastCommand.args) === JSON.stringify(args)
-                
-                if (recentlyCaptured) {
-                  // Command was already captured, just update result if needed and it doesn't have performance data
-                  const hasPerformanceData = lastCommand.result && typeof lastCommand.result === 'object' && 'resources' in lastCommand.result
-                  if (extractedValue !== undefined && !hasPerformanceData && lastCommand.result === undefined) {
-                    lastCommand.result = extractedValue
-                    sessionCapturer.sendUpstream('commands', [lastCommand])
-                  }
+
+            // AFTER command execution (like WDIO afterCommand):
+            // Pop from stack and capture only if it matches
+            const stackFrame = self.#commandStack[self.#commandStack.length - 1]
+            if (stackFrame?.command === methodName && stackFrame.signature === cmdSig) {
+              self.#commandStack.pop()
+
+              // Serialize result safely
+              let serializedResult: any = undefined
+              const isBrowserObject = result === browser || result === browserAny
+              const isChainableAPI = result && typeof result === 'object' && ('queue' in result || 'sessionId' in result || 'capabilities' in result)
+
+              if (isBrowserObject || isChainableAPI) {
+                const isWaitCommand = methodName.startsWith('waitFor')
+                serializedResult = isWaitCommand ? true : undefined
+              } else if (result && typeof result === 'object') {
+                if ('value' in result) {
+                  serializedResult = result.value
                 } else {
-                  // Command wasn't captured yet (was stored as pending), capture it now
-                  const pending = (sessionCapturer as any)._pendingCommand
-                  if (pending && pending.methodName === methodName) {
-                    await sessionCapturer.captureCommand(
-                      methodName,
-                      pending.args,
-                      extractedValue,
-                      undefined,
-                      pending.testUid,
-                      pending.callSource,
-                      pending.timestamp
-                    ).catch(() => {})
-                    delete (sessionCapturer as any)._pendingCommand
+                  try {
+                    serializedResult = JSON.parse(JSON.stringify(result))
+                  } catch {
+                    serializedResult = String(result)
                   }
                 }
-              }).catch(() => {
-                // Ignore promise rejection - error will be captured by original handler
-              })
-            }
-            
-            // Serialize result safely (avoid circular references and Nightwatch API objects)
-            let serializedResult: any = undefined
-            const isBrowserObject = result === browser || result === browserAny
-            const isChainableAPI = result && typeof result === 'object' && ('queue' in result || 'sessionId' in result || 'capabilities' in result)
-            
-            if (isBrowserObject || isChainableAPI) {
-              // For commands that return browser object, check if they should be tracked
-              const isWaitCommand = methodName.startsWith('waitFor')
-              // Capture waitFor commands immediately with success marker, others as undefined (will get updated by promise)
-              serializedResult = isWaitCommand ? true : undefined
-            } else if (result && typeof result === 'object') {
-              if ('value' in result) {
-                serializedResult = result.value
-              } else {
-                try {
-                  serializedResult = JSON.parse(JSON.stringify(result))
-                } catch {
-                  serializedResult = String(result)
-                }
+              } else if (result !== undefined) {
+                serializedResult = result
               }
-            } else if (result !== undefined) {
-              serializedResult = result
-            }
-            
-            // Capture command immediately if we have a result, OR if it's a special command that should be tracked
-            const isSpecialCommand = ['pause', 'url', 'navigate', 'navigateTo', 'click', 'setValue'].some(cmd => 
-              methodName.toLowerCase().includes(cmd.toLowerCase())
-            )
-            const shouldCaptureNow = serializedResult !== undefined || isSpecialCommand
-            
-            if (self.#currentTest && sessionCapturer) {
-              if (shouldCaptureNow) {
-                // Capture immediately (result may be undefined and will be updated by promise)
+
+              // Capture command
+              if (self.#currentTest && sessionCapturer) {
+                // captureCommand pushes to log immediately (synchronous)
+                // then does async performance capture in background
                 sessionCapturer.captureCommand(
                   methodName,
                   args,
@@ -449,39 +417,52 @@ class NightwatchDevToolsPlugin {
                   self.#currentTest.uid,
                   callSource
                 ).catch((err: any) => log.error(`Failed to capture ${methodName}: ${err.message}`))
-              } else {
-                // Store as pending - will be captured when promise resolves
-                (sessionCapturer as any)._pendingCommand = {
-                  methodName,
-                  args,
-                  callSource,
-                  timestamp: Date.now(),
-                  testUid: self.#currentTest.uid
+
+                // In Nightwatch's chainable API, ALL commands return the browser object
+                // and share the same promise chain. Individual promises don't resolve separately.
+                // Therefore, we send ALL commands immediately after capture.
+                const lastCommand = sessionCapturer.commandsLog[sessionCapturer.commandsLog.length - 1] as any
+                if (lastCommand) {
+                  sessionCapturer.sendCommand(lastCommand)
                 }
               }
             }
-            
+
             return result
           } catch (error) {
-            // Capture command with error
-            if (self.#currentTest && sessionCapturer) {
-              sessionCapturer.captureCommand(
-                methodName,
-                args,
-                undefined, // no result
-                error instanceof Error ? error : new Error(String(error)), // ensure it's an Error object
-                self.#currentTest.uid,
-                callSource
-              ).catch((err: any) => log.error(`Failed to capture ${methodName}: ${err.message}`))
+            // Pop from stack on error
+            const stackFrame = self.#commandStack[self.#commandStack.length - 1]
+            if (stackFrame?.command === methodName && stackFrame.signature === cmdSig) {
+              self.#commandStack.pop()
+
+              // Capture command with error
+              if (self.#currentTest && sessionCapturer) {
+                sessionCapturer.captureCommand(
+                  methodName,
+                  args,
+                  undefined,
+                  error instanceof Error ? error : new Error(String(error)),
+                  self.#currentTest.uid,
+                  callSource
+                ).catch((err: any) => log.error(`Failed to capture ${methodName}: ${err.message}`))
+
+                // Send error command immediately
+                const lastCommand = sessionCapturer.commandsLog[sessionCapturer.commandsLog.length - 1] as any
+                if (lastCommand) {
+                  sessionCapturer.sendCommand(lastCommand)
+                }
+              }
+
+              // DON'T reset signature - keep it for duplicate detection
             }
-            
+
             throw error
           }
         }
-        
+
         wrappedMethods.push(methodName)
       })
-      
+
       // Keep proxy active for all tests
       if (!this.#browserProxied) {
         this.#browserProxied = true
@@ -503,13 +484,13 @@ class NightwatchDevToolsPlugin {
           const currentTest = (browser as any).currentTest
           const results = currentTest?.results || {}
           const testFile = (currentTest.module || '').split('/').pop() || 'unknown'
-          
+
           // Extract actual test name from results.testcases
           // BUT: results.testcases contains ALL tests in the suite, not just the current one
           // We need to find which test just finished
           const testcases = results.testcases || {}
           const testcaseNames = Object.keys(testcases)
-          
+
           // Find the test that matches the current temp UID's commands
           // or just process the last test if we can't determine
           const currentSuite = this.#currentSuiteByFile.get(testFile)
@@ -519,16 +500,20 @@ class NightwatchDevToolsPlugin {
               this.#processedTests.set(testFile, new Set())
             }
             const processedForSuite = this.#processedTests.get(testFile)!
-            
+
             // Process ALL unprocessed tests
             const unprocessedTests = testcaseNames.filter(name => !processedForSuite.has(name))
-            
+
             // Process completed tests one at a time with delays
             for (const currentTestName of unprocessedTests) {
               const testcase = testcases[currentTestName]
-              const testState: 'passed' | 'failed' = (testcase.passed > 0 && testcase.failed === 0) ? 'passed' : 'failed'
+              // Determine test state: skipped (0/0), passed (>0/0), or failed
+              const testState: 'passed' | 'failed' | 'skipped' =
+                (testcase.passed === 0 && testcase.failed === 0)
+                  ? 'skipped'
+                  : (testcase.passed > 0 && testcase.failed === 0) ? 'passed' : 'failed'
               const finalTestUid = `${currentSuite.uid}::${currentTestName}`
-              
+
               // Map all commands from temp UID to final UID
               const tempUid = this.#currentTest.uid
               if (tempUid && tempUid !== finalTestUid) {
@@ -540,21 +525,21 @@ class NightwatchDevToolsPlugin {
                   }
                 })
               }
-              
+
               // Find existing test and update it
               const testIndex = currentSuite.tests.findIndex(
                 (t: any) => typeof t !== 'string' && t.title === currentTestName
               )
-              
+
               if (testIndex !== -1) {
                 // Update existing test with final state
                 currentSuite.tests[testIndex].state = testState
                 currentSuite.tests[testIndex].end = new Date()
                 currentSuite.tests[testIndex]._duration = parseFloat(testcase.time || '0') * 1000
                 currentSuite.tests[testIndex].uid = finalTestUid
-                
+
                 console.log(`[STATE] Test "${currentTestName}" → ${testState.toUpperCase()}`)
-                
+
                 // Report final state
                 this.testReporter.onTestEnd(currentSuite.tests[testIndex])
               } else {
@@ -576,11 +561,11 @@ class NightwatchDevToolsPlugin {
                 }
                 currentSuite.tests.push(testStats)
               }
-              
+
               // Mark as processed
               processedForSuite.add(currentTestName)
             }
-            
+
             // After processing all tests, check if suite is complete
             if (processedForSuite.size === testcaseNames.length) {
               // All tests in this suite are complete
@@ -590,7 +575,7 @@ class NightwatchDevToolsPlugin {
               currentSuite.state = allPassed ? 'passed' : 'failed'
               console.log(`[STATE] Suite "${currentSuite.title}" → ${currentSuite.state.toUpperCase()} (${currentSuite.tests.length} tests)`)
               this.testReporter.onSuiteEnd(currentSuite)
-              
+
               // Give UI time to process suite completion before next suite starts
               await new Promise(resolve => setTimeout(resolve, 200))
             } else {
@@ -612,7 +597,7 @@ class NightwatchDevToolsPlugin {
             }
           }
         }
-        
+
         // Capture trace data from browser
         await this.sessionCapturer.captureTrace(browser)
       } catch (err) {
@@ -630,14 +615,14 @@ class NightwatchDevToolsPlugin {
       // Process any remaining incomplete suites
       for (const [testFile, suite] of this.#currentSuiteByFile.entries()) {
         const processedTests = this.#processedTests.get(testFile) || new Set()
-        
+
         // Mark any tests still in "running" state as passed (they completed successfully if we're here)
         // For pending tests, check if they actually ran by looking at Nightwatch results
         const currentTest = (browser as any)?.currentTest
         const results = currentTest?.results || {}
         const testcases = results.testcases || {}
         const actualTestNames = Object.keys(testcases)
-        
+
         suite.tests.forEach((test: any) => {
           if (test.state === 'running' && test.start) {
             // Test was started but never finished - assume passed
@@ -651,7 +636,11 @@ class NightwatchDevToolsPlugin {
             const testcase = testcases[test.title]
             if (testcase) {
               // Test ran but we didn't track it properly - update it now
-              const testState: 'passed' | 'failed' = (testcase.passed > 0 && testcase.failed === 0) ? 'passed' : 'failed'
+              // Determine test state: skipped (0/0), passed (>0/0), or failed
+              const testState: 'passed' | 'failed' | 'skipped' =
+                (testcase.passed === 0 && testcase.failed === 0)
+                  ? 'skipped'
+                  : (testcase.passed > 0 && testcase.failed === 0) ? 'passed' : 'failed'
               test.state = testState
               test.start = test.start || new Date()
               test.end = new Date()
@@ -668,35 +657,51 @@ class NightwatchDevToolsPlugin {
             }
           }
         })
-        
+
         // Give UI time to process test completions
         await new Promise(resolve => setTimeout(resolve, 200))
-        
+
         // Now mark suite as complete
         if (!suite.end) {
           // Mark suite as complete
           suite.end = new Date()
           suite._duration = suite.end.getTime() - (suite.start?.getTime() || 0)
+
+          // Determine suite state based on test states
+          const hasFailures = suite.tests.some((t: any) => t.state === 'failed')
           const allPassed = suite.tests.every((t: any) => t.state === 'passed')
-          suite.state = allPassed ? 'passed' : 'failed'
+          const hasSkipped = suite.tests.some((t: any) => t.state === 'skipped')
+
+          if (hasFailures) {
+            suite.state = 'failed'
+          } else if (allPassed) {
+            suite.state = 'passed'
+          } else if (hasSkipped) {
+            // If there are skipped tests but no failures, mark as passed
+            // (this matches WebDriverIO behavior)
+            suite.state = 'passed'
+          } else {
+            suite.state = 'failed'
+          }
+
           console.log(`[STATE] Suite "${suite.title}" → ${suite.state.toUpperCase()} (${suite.tests.length} tests)`)
           this.testReporter.onSuiteEnd(suite)
         }
       }
-      
+
       // Give UI time to process all final updates before showing completion message
       await new Promise(resolve => setTimeout(resolve, 200))
-      
+
       log.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
       log.info('✅ Tests complete!')
       log.info('💡 Please close the DevTools browser window to exit')
       log.info('   Or press Ctrl+C to force exit')
       log.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
-      
+
       // Keep polling until the WebSocket connection is closed
       // This indicates the browser window was closed
       await this.#waitForBrowserClose()
-      
+
       // Close devtools browser if still open
       if (this.#devtoolsBrowser) {
         try {
@@ -705,7 +710,7 @@ class NightwatchDevToolsPlugin {
           // Already closed
         }
       }
-      
+
       log.info('🛑 Stopping DevTools backend...')
       await stop()
       log.info('✓ Backend stopped')
@@ -742,7 +747,7 @@ class NightwatchDevToolsPlugin {
         log.info('\n✓ Received exit signal (Ctrl+C)')
         resolve()
       }
-      
+
       process.once('SIGINT', sigintHandler)
       process.once('SIGTERM', sigintHandler)
     })
@@ -760,7 +765,7 @@ export default function createNightwatchDevTools(options?: DevToolsOptions) {
     // Set long timeout to allow user to review DevTools UI
     // The after() hook will wait for browser window to close
     asyncHookTimeout: 3600000, // 1 hour
-    
+
     before: async function(this: any) {
       await plugin.before()
     },
