@@ -56,7 +56,8 @@ export class SessionCapturer {
   }
   #isCapturingConsole = false
   #browser: NightwatchBrowser | undefined
-  #lastCommandSig: string | null = null
+  #commandCounter = 0 // Sequential ID for commands
+  #sentCommandIds = new Set<number>() // Track which commands have been sent
 
   commandsLog: CommandLog[] = []
   sources = new Map<string, string>()
@@ -71,17 +72,17 @@ export class SessionCapturer {
     this.#browser = browser
     if (hostname && port) {
       this.#ws = new WebSocket(`ws://${hostname}:${port}/worker`)
-      
+
       this.#ws.on('open', () => {
         log.info('✓ Worker WebSocket connected to backend')
       })
-      
+
       this.#ws.on('error', (err: unknown) =>
         log.error(
           `Couldn't connect to devtools backend: ${(err as Error).message}`
         )
       )
-      
+
       this.#ws.on('close', () => {
         log.info('Worker WebSocket disconnected')
       })
@@ -107,7 +108,7 @@ export class SessionCapturer {
     // Temporarily disable console patching to prevent infinite loops
     // We can re-enable this later with better filtering
     return
-    
+
     CONSOLE_METHODS.forEach((method) => {
       const originalMethod = this.#originalConsoleMethods[method]
       console[method] = (...consoleArgs: any[]) => {
@@ -136,7 +137,7 @@ export class SessionCapturer {
 
         // Set flag before capturing to prevent recursion
         this.#isCapturingConsole = true
-        
+
         const logEntry = createConsoleLogEntry(
           method,
           serializedArgs,
@@ -146,7 +147,7 @@ export class SessionCapturer {
         this.sendUpstream('consoleLogs', [logEntry])
 
         const result = originalMethod.apply(console, consoleArgs)
-        
+
         // Reset flag after everything is done
         this.#isCapturingConsole = false
         return result
@@ -155,13 +156,13 @@ export class SessionCapturer {
   }
 
   #interceptProcessStreams() {
-    // Temporarily disable stream interception to prevent infinite loops  
+    // Temporarily disable stream interception to prevent infinite loops
     // We can re-enable this later with better filtering
     return
-    
+
     // Regex to detect spinner/progress characters
     const spinnerRegex = /[\u280b\u2819\u2839\u2838\u283c\u2834\u2826\u2827\u2807\u280f]/
-    
+
     const captureTerminalOutput = (outputData: string | Uint8Array) => {
       const outputText =
         typeof outputData === 'string' ? outputData : outputData.toString()
@@ -177,13 +178,13 @@ export class SessionCapturer {
           if (spinnerRegex.test(line)) {
             return
           }
-          
+
           // Strip ANSI codes and check if there's actual content
           const cleanedLine = stripAnsiCodes(line).trim()
           if (!cleanedLine) {
             return
           }
-          
+
           const logEntry = createConsoleLogEntry(
             detectLogLevel(cleanedLine),
             [cleanedLine],
@@ -279,21 +280,6 @@ export class SessionCapturer {
     callSource?: string,
     timestamp?: number
   ): Promise<boolean> {
-    // Create command signature to detect duplicate captures (e.g., on retries)
-    const cmdSig = JSON.stringify({
-      command,
-      args,
-      src: callSource
-    })
-
-    // Skip if this is the same command as the last one (retry scenario)
-    if (this.#lastCommandSig === cmdSig) {
-      return false
-    }
-
-    // Update last command signature
-    this.#lastCommandSig = cmdSig
-
     // Serialize error properly (Error objects don't JSON.stringify well)
     const serializedError = error ? {
       name: error.name,
@@ -301,7 +287,9 @@ export class SessionCapturer {
       stack: error.stack
     } : undefined
 
-    const commandLogEntry: CommandLog = {
+    const commandId = this.#commandCounter++
+    const commandLogEntry: CommandLog & { _id?: number } = {
+      _id: commandId, // Internal ID for tracking
       command,
       args,
       result,
@@ -311,95 +299,113 @@ export class SessionCapturer {
       testUid
     }
 
-    // Capture performance data for navigation commands (url, navigate, etc.)
-    const isNavigationCommand = ['url', 'navigate', 'navigateTo'].some(cmd => 
+    // IMPORTANT: Push to commandsLog FIRST (synchronously)
+    // so it's available immediately for sending
+    this.commandsLog.push(commandLogEntry)
+
+    // THEN do async performance capture for navigation commands
+    const isNavigationCommand = ['url', 'navigate', 'navigateTo'].some(cmd =>
       command.toLowerCase().includes(cmd.toLowerCase())
     )
-    
-    if (isNavigationCommand && this.#browser && !error) {
-      try {
-        // Wait a bit for page to load
-        await new Promise(resolve => setTimeout(resolve, 500))
-        
-        // Execute script to capture performance data
-        // Nightwatch's execute() requires a function, not a string
-        const performanceData = await this.#browser.execute(function() {
-          // @ts-ignore - executed in browser context
-          const performance = window.performance;
-          // @ts-ignore
-          const navigation = performance.getEntriesByType?.('navigation')?.[0];
-          // @ts-ignore
-          const resources = performance.getEntriesByType?.('resource') || [];
 
-          return {
-            navigation: navigation ? {
-              // @ts-ignore
-              url: window.location.href,
-              timing: {
-                loadTime: navigation.loadEventEnd - navigation.fetchStart,
-                domContentLoaded: navigation.domContentLoadedEventEnd - navigation.fetchStart,
-                firstPaint: performance.getEntriesByType?.('paint')?.[0]?.startTime || 0
-              }
-            } : null,
-            resources: resources.map((r: any) => ({
-              name: r.name,
-              type: r.initiatorType,
-              size: r.transferSize || r.decodedBodySize || 0,
-              duration: r.duration
-            })),
-            // @ts-ignore
-            cookies: document.cookie,
-            documentInfo: {
-              // @ts-ignore
-              title: document.title,
-              // @ts-ignore
-              url: window.location.href,
-              // @ts-ignore
-              referrer: document.referrer
-            }
-          };
-        })
-        
-        // Nightwatch returns{value: result} or just the result directly
-        let data: any
-        if (performanceData && typeof performanceData === 'object') {
-          // Check if it has a 'value' property (WebDriver format)
-          if ('value' in performanceData) {
-            data = (performanceData as any).value
-          } else {
-            // It might be the data directly
-            data = performanceData
-          }
-        }
-        
-        if (data && data.navigation) {
-          commandLogEntry.performance = {
-            navigation: data.navigation,
-            resources: data.resources
-          }
-          commandLogEntry.cookies = data.cookies
-          commandLogEntry.documentInfo = data.documentInfo
-          
-          // Always set result with performance data for consistency
-          commandLogEntry.result = {
-            url: args[0],
-            loadTime: data.navigation?.timing?.loadTime,
-            resources: data.resources,
-            resourceCount: data.resources?.length,
-            cookies: data.cookies,
-            title: data.documentInfo?.title
-          }
-          
-          console.log(`✓ Captured performance data: ${data.resources?.length || 0} resources, load time: ${data.navigation?.timing?.loadTime || 0}ms`)
-        }
-      } catch (err) {
+    if (isNavigationCommand && this.#browser && !error) {
+      // Do this async work in the background without blocking
+      // Update the commandLogEntry that's already in the array
+      this.#capturePerformanceData(commandLogEntry, args).catch((err) => {
         console.log(`⚠️ Failed to capture performance data: ${(err as Error).message}`)
+      })
+    }
+
+    return true
+  }
+
+  async #capturePerformanceData(commandLogEntry: CommandLog & { _id?: number }, args: any[]) {
+    // Wait a bit for page to load
+    await new Promise(resolve => setTimeout(resolve, 500))
+
+    // Execute script to capture performance data
+    // Nightwatch's execute() requires a function, not a string
+    const performanceData = await this.#browser!.execute(function() {
+      // @ts-ignore - executed in browser context
+      const performance = window.performance;
+      // @ts-ignore
+      const navigation = performance.getEntriesByType?.('navigation')?.[0];
+      // @ts-ignore
+      const resources = performance.getEntriesByType?.('resource') || [];
+
+      return {
+        navigation: navigation ? {
+          // @ts-ignore
+          url: window.location.href,
+          timing: {
+            loadTime: navigation.loadEventEnd - navigation.fetchStart,
+            domContentLoaded: navigation.domContentLoadedEventEnd - navigation.fetchStart,
+            firstPaint: performance.getEntriesByType?.('paint')?.[0]?.startTime || 0
+          }
+        } : null,
+        resources: resources.map((r: any) => ({
+          name: r.name,
+          type: r.initiatorType,
+          size: r.transferSize || r.decodedBodySize || 0,
+          duration: r.duration
+        })),
+        // @ts-ignore
+        cookies: document.cookie,
+        documentInfo: {
+          // @ts-ignore
+          title: document.title,
+          // @ts-ignore
+          url: window.location.href,
+          // @ts-ignore
+          referrer: document.referrer
+        }
+      };
+    })
+
+    // Nightwatch returns {value: result} or just the result directly
+    let data: any
+    if (performanceData && typeof performanceData === 'object') {
+      // Check if it has a 'value' property (WebDriver format)
+      if ('value' in performanceData) {
+        data = (performanceData as any).value
+      } else {
+        // It might be the data directly
+        data = performanceData
       }
     }
 
-    this.commandsLog.push(commandLogEntry)
-    this.sendUpstream('commands', [commandLogEntry])
-    return true
+    if (data && data.navigation) {
+      commandLogEntry.performance = {
+        navigation: data.navigation,
+        resources: data.resources
+      }
+      commandLogEntry.cookies = data.cookies
+      commandLogEntry.documentInfo = data.documentInfo
+
+      // Always set result with performance data for consistency
+      commandLogEntry.result = {
+        url: args[0],
+        loadTime: data.navigation?.timing?.loadTime,
+        resources: data.resources,
+        resourceCount: data.resources?.length,
+        cookies: data.cookies,
+        title: data.documentInfo?.title
+      }
+
+      console.log(`✓ Captured performance data: ${data.resources?.length || 0} resources, load time: ${data.navigation?.timing?.loadTime || 0}ms`)
+    }
+  }
+
+  /**
+   * Send a command to the UI (only if not already sent)
+   */
+  sendCommand(command: CommandLog & { _id?: number }) {
+    if (command._id !== undefined && !this.#sentCommandIds.has(command._id)) {
+      this.#sentCommandIds.add(command._id)
+      // Remove internal ID before sending
+      const { _id, ...commandToSend } = command
+      this.sendUpstream('commands', [commandToSend])
+    }
   }
 
   /**
@@ -474,14 +480,14 @@ export class SessionCapturer {
 
       const injectResult = await browser.execute(injectionScript, [scriptContent])
       log.info(`Injection command executed: ${JSON.stringify(injectResult)}`)
-      
+
       // Wait for script to execute
       await browser.pause(300)
-      
+
       // Check if collector exists using string-based execute
       const checkScript = 'return typeof window.wdioTraceCollector !== "undefined"'
       const checkResult = await browser.execute(checkScript)
-      
+
       // Nightwatch wraps results in { value: ... }
       const hasCollector = (checkResult as any)?.value === true
 
@@ -519,7 +525,7 @@ export class SessionCapturer {
         }
         return window.wdioTraceCollector.getTraceData();
       `)
-      
+
       const traceData = (result as any)?.value
 
       if (!traceData) {
