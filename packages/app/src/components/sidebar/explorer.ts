@@ -31,6 +31,13 @@ import type { DevtoolsSidebarFilter } from './filter.js'
 
 const EXPLORER = 'wdio-devtools-sidebar-explorer'
 
+const STATE_MAP: Record<string, TestState> = {
+  'running': TestState.RUNNING,
+  'failed': TestState.FAILED,
+  'passed': TestState.PASSED,
+  'skipped': TestState.SKIPPED
+}
+
 @customElement(EXPLORER)
 export class DevtoolsSidebarExplorer extends CollapseableEntry {
   #testFilter: DevtoolsSidebarFilter | undefined
@@ -364,6 +371,24 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
     return entry.state === 'failed'
   }
 
+  #computeEntryState(entry: TestStats | SuiteStats): TestState {
+    const state = (entry as any).state
+
+    // Check explicit state first
+    const mappedState = STATE_MAP[state]
+    if (mappedState) return mappedState
+
+    // For suites, compute state from children
+    if ('tests' in entry) {
+      if (this.#isRunning(entry)) return TestState.RUNNING
+      if (this.#hasFailed(entry)) return TestState.FAILED
+      return TestState.PASSED
+    }
+
+    // For individual tests, check if still running
+    return !entry.end ? TestState.RUNNING : TestState.PASSED
+  }
+
   #getTestEntry(entry: TestStats | SuiteStats): TestEntry {
     if ('tests' in entry) {
       const entries = [...entry.tests, ...entry.suites]
@@ -371,11 +396,7 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
         uid: entry.uid,
         label: entry.title,
         type: 'suite',
-        state: this.#isRunning(entry)
-          ? TestState.RUNNING
-          : this.#hasFailed(entry)
-            ? TestState.FAILED
-            : TestState.PASSED,
+        state: this.#computeEntryState(entry),
         callSource: (entry as any).callSource,
         specFile: (entry as any).file,
         fullTitle: entry.title,
@@ -391,11 +412,7 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
       uid: entry.uid,
       label: entry.title,
       type: 'test',
-      state: !entry.end
-        ? TestState.RUNNING
-        : entry.state === 'failed'
-          ? TestState.FAILED
-          : TestState.PASSED,
+      state: this.#computeEntryState(entry),
       callSource: (entry as any).callSource,
       specFile: (entry as any).file,
       fullTitle: (entry as any).fullTitle || entry.title,

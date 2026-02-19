@@ -30,10 +30,10 @@ export const INTERNAL_COMMANDS_TO_IGNORE = [
   'currentContext',
   'setChromeOptions',
   'setDeviceName',
-  'perform',  // Internal command queue executor
-  'execute',  // We'll filter our own performance capture scripts
+  'perform',
+  'execute',
   'executeAsync',
-  'executeScript'  // Used internally for performance data capture
+  'executeScript'
 ] as const
 
 /**
@@ -73,3 +73,45 @@ export const LOG_SOURCES = {
  * Pattern: ESC [ (optional ?)(digits/semicolons)(letter)
  */
 export const ANSI_REGEX = /\x1b\[[?]?[0-9;]*[A-Za-z]/g
+
+/**
+ * Default values
+ */
+export const DEFAULTS = {
+  CID: '0-0',
+  TEST_NAME: 'unknown',
+  FILE_NAME: 'unknown',
+  RETRIES: 0,
+  DURATION: 0
+} as const
+
+/**
+ * Timing constants (in milliseconds)
+ */
+export const TIMING = {
+  UI_RENDER_DELAY: 150,
+  TEST_START_DELAY: 100,
+  SUITE_COMPLETE_DELAY: 200,
+  UI_CONNECTION_WAIT: 10000,
+  BROWSER_CLOSE_WAIT: 2000,
+  INITIAL_CONNECTION_WAIT: 500,
+  BROWSER_POLL_INTERVAL: 1000
+} as const
+
+/**
+ * Test states
+ */
+export const TEST_STATE = {
+  PENDING: 'pending',
+  RUNNING: 'running',
+  PASSED: 'passed',
+  FAILED: 'failed',
+  SKIPPED: 'skipped'
+} as const
+
+export type TestState = typeof TEST_STATE[keyof typeof TEST_STATE]
+
+/**
+ * Temporary UID generation pattern
+ */
+export const TEMP_UID_PREFIX = 'temp'
