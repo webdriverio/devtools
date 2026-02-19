@@ -1,5 +1,5 @@
 import logger from '@wdio/logger'
-import { extractTestMetadata } from './utils.js'
+import { extractTestMetadata } from './helpers/utils.js'
 import type { SuiteStats, TestStats } from './types.js'
 
 const log = logger('@wdio/nightwatch-devtools:Reporter')
@@ -8,16 +8,33 @@ const log = logger('@wdio/nightwatch-devtools:Reporter')
 const signatureCounters = new Map<string, number>()
 
 /**
- * Generate stable UID based on test/suite metadata
+ * Generate stable UID based on test/suite metadata (WDIO approach)
+ * Use only stable identifiers (file + fullTitle) that don't change between runs
  */
 function generateStableUid(item: SuiteStats | TestStats): string {
-  const signature = `${item.file}::${item.fullTitle}`
-  const currentCount = signatureCounters.get(signature) || 0
-  signatureCounters.set(signature, currentCount + 1)
-  
-  return currentCount > 0
-    ? `${signature}::${currentCount}`
-    : signature
+  const rawItem = item as any
+
+  // Use file and fullTitle as stable identifiers
+  // DO NOT use cid or parent as they can vary based on run context
+  const parts = [rawItem.file || '', String(rawItem.fullTitle || item.title)]
+
+  const signature = parts.join('::')
+  const count = signatureCounters.get(signature) || 0
+  signatureCounters.set(signature, count + 1)
+
+  if (count > 0) {
+    parts.push(String(count))
+  }
+
+  // Generate hash for stable, short UIDs
+  const hash = parts
+    .join('::')
+    .split('')
+    .reduce((acc, char) => {
+      return ((acc << 5) - acc + char.charCodeAt(0)) | 0
+    }, 0)
+
+  return `stable-${Math.abs(hash).toString(36)}`
 }
 
 /**
@@ -40,16 +57,27 @@ export class TestReporter {
   }
 
   /**
-   * Generate stable UID for test/suite - public method
+   * Generate stable UID for test/suite - public method (WDIO approach)
    */
   generateStableUid(filePath: string, name: string): string {
-    const signature = `${filePath}::${name}`
-    const currentCount = signatureCounters.get(signature) || 0
-    signatureCounters.set(signature, currentCount + 1)
-    
-    return currentCount > 0
-      ? `${signature}::${currentCount}`
-      : signature
+    const parts = [filePath, name]
+    const signature = parts.join('::')
+    const count = signatureCounters.get(signature) || 0
+    signatureCounters.set(signature, count + 1)
+
+    if (count > 0) {
+      parts.push(String(count))
+    }
+
+    // Generate hash for stable, short UIDs
+    const hash = parts
+      .join('::')
+      .split('')
+      .reduce((acc, char) => {
+        return ((acc << 5) - acc + char.charCodeAt(0)) | 0
+      }, 0)
+
+    return `stable-${Math.abs(hash).toString(36)}`
   }
 
   /**
@@ -59,8 +87,10 @@ export class TestReporter {
     this.#currentSpecFile = suiteStats.file
     this.#currentSuite = suiteStats
 
-    // Generate stable UID
-    suiteStats.uid = generateStableUid(suiteStats)
+    // Generate stable UID only if not already set
+    if (!suiteStats.uid) {
+      suiteStats.uid = generateStableUid(suiteStats)
+    }
 
     // Extract test names from source file
     if (suiteStats.file && !this.#testNamesCache.has(suiteStats.file)) {
@@ -84,26 +114,41 @@ export class TestReporter {
   }
 
   /**
+   * Get the current suite
+   */
+  getCurrentSuite(): SuiteStats | undefined {
+    return this.#currentSuite
+  }
+
+  /**
    * Called when a test starts
    */
   onTestStart(testStats: TestStats) {
-    // Generate stable UID if not already set
+    // Generate stable UID (hashed, so consistent even if called multiple times)
     if (!testStats.uid || testStats.uid.includes('temp-')) {
       testStats.uid = generateStableUid(testStats)
     }
 
-    // Update existing test in current suite (don't add duplicates)
-    if (this.#currentSuite) {
-      const testIndex = this.#currentSuite.tests.findIndex(
-        (t) => typeof t !== 'string' && t.title === testStats.title
+    // Search for test by title within parent suite
+    for (const suite of this.#allSuites) {
+      const testIndex = suite.tests.findIndex(
+        (t) => {
+          if (typeof t === 'string') return false
+          // Match by title and parent suite
+          return t.title === testStats.title && t.parent === suite.uid
+        }
       )
       if (testIndex !== -1) {
         // Update existing test
-        this.#currentSuite.tests[testIndex] = testStats
-      } else {
-        // Test not found, add it (legacy behavior)
-        this.#currentSuite.tests.push(testStats)
+        suite.tests[testIndex] = testStats
+        this.#sendUpstream()
+        return
       }
+    }
+
+    // Test not found in any suite, add it to current suite (legacy behavior)
+    if (this.#currentSuite) {
+      this.#currentSuite.tests.push(testStats)
     }
 
     this.#sendUpstream()
@@ -113,13 +158,14 @@ export class TestReporter {
    * Called when a test ends
    */
   onTestEnd(testStats: TestStats) {
-    // Update the test in current suite
-    if (this.#currentSuite) {
-      const testIndex = this.#currentSuite.tests.findIndex(
+    // Search all suites for this test (not just current suite)
+    for (const suite of this.#allSuites) {
+      const testIndex = suite.tests.findIndex(
         (t) => (typeof t === 'string' ? t : t.uid) === testStats.uid
       )
       if (testIndex !== -1) {
-        this.#currentSuite.tests[testIndex] = testStats
+        suite.tests[testIndex] = testStats
+        break
       }
     }
 
@@ -130,13 +176,14 @@ export class TestReporter {
    * Called when a test passes
    */
   onTestPass(testStats: TestStats) {
-    // Update the test in current suite
-    if (this.#currentSuite) {
-      const testIndex = this.#currentSuite.tests.findIndex(
+    // Search all suites for this test (not just current suite)
+    for (const suite of this.#allSuites) {
+      const testIndex = suite.tests.findIndex(
         (t) => (typeof t === 'string' ? t : t.uid) === testStats.uid
       )
       if (testIndex !== -1) {
-        this.#currentSuite.tests[testIndex] = testStats
+        suite.tests[testIndex] = testStats
+        break
       }
     }
 
@@ -147,13 +194,14 @@ export class TestReporter {
    * Called when a test fails
    */
   onTestFail(testStats: TestStats) {
-    // Update the test in current suite
-    if (this.#currentSuite) {
-      const testIndex = this.#currentSuite.tests.findIndex(
+    // Search all suites for this test (not just current suite)
+    for (const suite of this.#allSuites) {
+      const testIndex = suite.tests.findIndex(
         (t) => (typeof t === 'string' ? t : t.uid) === testStats.uid
       )
       if (testIndex !== -1) {
-        this.#currentSuite.tests[testIndex] = testStats
+        suite.tests[testIndex] = testStats
+        break
       }
     }
 
@@ -222,7 +270,7 @@ export class TestReporter {
   #sendUpstream() {
     // Convert suites to WDIO format: array of objects with UID as key
     const payload: Record<string, SuiteStats>[] = []
-    
+
     for (const suite of this.#allSuites) {
       if (suite && suite.uid) {
         // Each suite becomes an object with its UID as the key

@@ -35,7 +35,9 @@ export const getCapturePerformanceScript = (): string => {
             responseEnd: resource.responseEnd
           };
         }),
-        cookies: document.cookie,
+        cookies: (function() {
+          try { return document.cookie; } catch (e) { return ''; }
+        })(),
         documentInfo: {
           url: window.location.href,
           title: document.title,

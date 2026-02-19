@@ -12,7 +12,6 @@
     "build": "tsc",
     "watch": "tsc --watch",
     "clean": "rm -rf dist",
-    "validate": "node example/validate.cjs",
     "example": "nightwatch -c example/nightwatch.conf.cjs"
   },
   "keywords": [
