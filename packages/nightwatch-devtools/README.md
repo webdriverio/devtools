@@ -8,7 +8,7 @@ Brings the powerful WebdriverIO DevTools visual debugging interface to Nightwatc
 
 See everything in real-time:
 - 📋 **Commands** - Every action executed
-- 🖥️ **Console** - Browser console logs  
+- 🖥️ **Console** - Browser console logs
 - 🌐 **Network** - HTTP requests/responses
 - ✅ **Tests** - Suite structure and results
 - 📁 **Sources** - Test file contents
@@ -28,16 +28,18 @@ Add to your Nightwatch config:
 
 ```javascript
 // nightwatch.conf.js
+const nightwatchDevtools = require('@wdio/nightwatch-devtools').default;
+
 module.exports = {
   src_folders: ['tests'],
-  
-  plugins: ['@wdio/nightwatch-devtools'],
-  
+
   test_settings: {
     default: {
       desiredCapabilities: {
         browserName: 'chrome'
-      }
+      },
+      // Add DevTools globals with lifecycle hooks
+      globals: nightwatchDevtools()
     }
   }
 }
@@ -51,7 +53,7 @@ nightwatch
 
 The DevTools UI will automatically:
 1. Start backend server on port 3000
-2. Open in a new browser window  
+2. Open in a new browser window
 3. Stream test data in real-time
 4. Stay open after tests finish (close manually to exit)
 
@@ -66,7 +68,6 @@ Run it:
 ```bash
 cd packages/nightwatch-devtools
 pnpm build
-pnpm validate  # Quick check
 pnpm example   # Run tests with DevTools UI
 ```
 
@@ -81,43 +82,31 @@ This is a **thin adapter** (~210 lines) that:
 
 Same backend, same UI, same capture as WDIO - just different framework hooks!
 
-## Validation
-
-Verify the plugin is working:
-
-```bash
-pnpm validate
-```
-
-Output:
-```
-✅ Plugin compiled (dist/ exists)
-✅ Plugin module loaded
-✅ Plugin exports default class
-✅ Plugin can be instantiated
-✅ All required lifecycle methods present
-✨ Plugin validation successful!
-```
-
 ## Options
 
 ```javascript
-plugins: [
-  ['@wdio/nightwatch-devtools', {
-    port: 3000,           // DevTools server port
-    hostname: 'localhost' // DevTools server hostname
-  }]
-]
+const nightwatchDevtools = require('@wdio/nightwatch-devtools').default;
+
+module.exports = {
+  test_settings: {
+    default: {
+      globals: nightwatchDevtools({
+        port: 3000,           // DevTools server port (default: 3000)
+        hostname: 'localhost' // DevTools server hostname (default: 'localhost')
+      })
+    }
+  }
+}
 ```
 
 ## What Gets Captured
 
-✅ Test suites and hierarchy  
-✅ Test pass/fail status  
-✅ Execution timing  
-✅ Error messages and stack traces  
-✅ Browser console logs (automatic)  
-✅ Network requests (automatic)  
+✅ Test suites and hierarchy
+✅ Test pass/fail status
+✅ Execution timing
+✅ Error messages and stack traces
+✅ Browser console logs (automatic)
+✅ Network requests (automatic)
 ✅ DOM mutations (automatic)
 
 Browser-side capture works automatically via `@wdio/devtools-script`.

@@ -68,15 +68,37 @@ export interface TestStats {
   title: string
   fullTitle: string
   parent: string
-  state: 'passed' | 'failed' | 'skipped' | 'pending'
+  state: 'passed' | 'failed' | 'skipped' | 'pending' | 'running'
   start: Date
-  end: Date
+  end: Date | null
   type: 'test'
   file: string
   retries: number
   _duration: number
   error?: Error
   hooks?: any[]
+}
+
+/**
+ * Nightwatch test case result from results.testcases
+ */
+export interface NightwatchTestCase {
+  passed: number
+  failed: number
+  errors: number
+  skipped: number
+  time: string
+  assertions: any[]
+}
+
+/**
+ * Determine test state from Nightwatch testcase results
+ */
+export function determineTestState(testcase: NightwatchTestCase): 'passed' | 'failed' | 'skipped' {
+  if (testcase.passed === 0 && testcase.failed === 0) {
+    return 'skipped'
+  }
+  return testcase.passed > 0 && testcase.failed === 0 ? 'passed' : 'failed'
 }
 
 export interface SuiteStats {
@@ -87,6 +109,8 @@ export interface SuiteStats {
   type: 'suite'
   file: string
   start: Date
+  state?: 'pending' | 'running' | 'passed' | 'failed' | 'skipped'
+  end?: Date | null
   tests: (string | TestStats)[]
   suites: SuiteStats[]
   hooks: any[]

@@ -5,7 +5,7 @@ import logger from '@wdio/logger'
 import { WebSocket } from 'ws'
 import { CONSOLE_METHODS, LOG_SOURCES, ANSI_REGEX, LOG_LEVEL_PATTERNS } from './constants.js'
 import type { CommandLog, ConsoleLog, LogLevel, NightwatchBrowser } from './types.js'
-import { getCapturePerformanceScript } from './capturePerformance.js'
+import { getCapturePerformanceScript } from './helpers/capturePerformance.js'
 
 const require = createRequire(import.meta.url)
 const log = logger('@wdio/nightwatch-devtools:SessionCapturer')
@@ -350,7 +350,10 @@ export class SessionCapturer {
           duration: r.duration
         })),
         // @ts-ignore
-        cookies: document.cookie,
+        cookies: (function() {
+          // @ts-ignore - executed in browser context
+          try { return document.cookie; } catch (e) { return ''; }
+        })(),
         documentInfo: {
           // @ts-ignore
           title: document.title,
