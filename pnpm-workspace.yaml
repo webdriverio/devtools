@@ -1,4 +1,7 @@
 # pnpm-workspace.yaml
 packages:
-  - 'packages/*'
+  - 'packages/backend'
+  - 'packages/script'
+  - 'packages/service'
+  - 'packages/app'
   - 'example'

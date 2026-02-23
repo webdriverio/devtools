@@ -1,20 +1,29 @@
 {
   "name": "@wdio/devtools-service",
-  "version": "0.0.0",
+  "version": "10.2.0",
   "description": "Hook up WebdriverIO with DevTools",
   "author": "Christian Bromann <mail@bromann.dev>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/webdriverio/devtools.git",
+    "directory": "packages/devtools-service"
+  },
   "type": "module",
   "exports": {
-    ".": "./dist/index.js",
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.js"
+    },
     "./types": {
-      "import": "./dist/types.js",
       "types": "./dist/types.d.ts",
-      "node": "./dist/types.js"
+      "import": "./dist/types.js",
+      "require": "./dist/types.js"
     },
     "./launcher": {
-      "import": "./dist/launcher.js",
       "types": "./dist/launcher.d.ts",
-      "node": "./dist/launcher.js"
+      "import": "./dist/launcher.js",
+      "require": "./dist/launcher.js"
     }
   },
   "types": "./dist/index.d.ts",
@@ -22,29 +31,35 @@
   "scripts": {
     "dev": "vite build --watch",
     "build": "tsc && vite build",
-    "test": "eslint ."
+    "lint": "eslint ."
   },
   "dependencies": {
+    "@babel/types": "^7.28.4",
     "@wdio/devtools-backend": "workspace:^",
     "@wdio/devtools-script": "workspace:^",
-    "@wdio/logger": "^8.23.0",
-    "@wdio/reporter": "^8.23.0",
-    "@wdio/types": "^8.23.0",
-    "import-meta-resolve": "^4.0.0",
+    "@wdio/logger": "9.18.0",
+    "@wdio/reporter": "9.24.0",
+    "@wdio/types": "9.24.0",
+    "import-meta-resolve": "^4.1.0",
     "stack-trace": "1.0.0-pre2",
-    "webdriverio": "^8.23.0",
-    "ws": "^8.15.1"
+    "@babel/parser": "^7.28.4",
+    "@babel/traverse": "^7.28.4",
+    "ws": "^8.18.3"
   },
   "license": "MIT",
   "devDependencies": {
+    "@types/babel__core": "^7.20.5",
+    "@types/babel__traverse": "^7.28.0",
     "@types/stack-trace": "^0.0.33",
-    "@types/ws": "^8.5.10",
-    "@wdio/globals": "^8.23.0",
-    "@wdio/protocols": "^8.23.0",
-    "vite-plugin-dts": "^3.6.3"
+    "@types/ws": "^8.18.1",
+    "@wdio/globals": "9.23.0",
+    "@wdio/protocols": "9.24.0",
+    "vite-plugin-dts": "^4.5.4"
+    ,"vite": "7.3.1"
   },
   "peerDependencies": {
-    "@wdio/protocols": "^8.20.4",
-    "webdriverio": "^8.20.3"
+    "@wdio/protocols": "9.24.0",
+    "devtools": "^8.42.0",
+    "webdriverio": "^9.19.1"
   }
 }

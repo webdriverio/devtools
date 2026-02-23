@@ -11,7 +11,12 @@ export class DevtoolsTraceLoader extends Element {
   render() {
     if (this.as === 'button') {
       return html`
-        <input type="file" class="hidden" id="loadTraceFile" @change="${this.#loadTraceFile.bind(this)}" />
+        <input
+          type="file"
+          class="hidden"
+          id="loadTraceFile"
+          @change="${this.#loadTraceFile.bind(this)}"
+        />
         <button class="p-2">
           <label for="loadTraceFile" class="cursor-pointer">
             <icon-mdi-file-upload-outline></icon-mdi-file-upload-outline>
@@ -29,7 +34,7 @@ export class DevtoolsTraceLoader extends Element {
    * Event handler for when a user submits a trace file
    * @param e input file change event
    */
-  async #loadTraceFile (e: Event) {
+  async #loadTraceFile(e: Event) {
     const files = (e.target as HTMLInputElement).files
     if (!files || files.length === 0) {
       return console.log('no file selected')
@@ -46,7 +51,7 @@ export class DevtoolsTraceLoader extends Element {
    * @param file file object from input element
    * @returns parsed TraceLog object
    */
-  #loadFileContent (file: File) {
+  #loadFileContent(file: File) {
     const reader = new FileReader()
     reader.readAsText(file)
     return new Promise<TraceLog>((resolve, reject) => {

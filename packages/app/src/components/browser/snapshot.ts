@@ -4,15 +4,22 @@ import { consume } from '@lit/context'
 
 import { type ComponentChildren, h, render, type VNode } from 'preact'
 import { customElement, query } from 'lit/decorators.js'
+import type { SimplifiedVNode } from '../../../../script/types'
+import type { CommandLog } from '@wdio/devtools-service/types'
 
-import { mutationContext, type TraceMutation, metadataContext, type Metadata } from '../../controller/DataManager.js'
+import {
+  mutationContext,
+  type TraceMutation,
+  metadataContext,
+  type Metadata
+} from '../../controller/DataManager.js'
 
 import '~icons/mdi/world.js'
 import '../placeholder.js'
 
 const MUTATION_SELECTOR = '__mutation-highlight__'
 
-function transform (node: any): VNode<{}> {
+function transform(node: any): VNode<{}> {
   if (typeof node !== 'object') {
     return node as VNode<{}>
   }
@@ -44,24 +51,69 @@ export class DevtoolsBrowser extends Element {
   @consume({ context: mutationContext, subscribe: true })
   mutations: TraceMutation[] = []
 
-  static styles = [...Element.styles, css`
-    :host {
-      width: 100%;
-      height: 100%;
-      display: flex;
-      margin: 2rem;
-      align-items: center;
-      justify-content: center;
-    }
+  static styles = [
+    ...Element.styles,
+    css`
+      :host {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        padding: 2rem !important;
+        align-items: center;
+        justify-content: center;
+        box-sizing: border-box !important;
+      }
 
-    .frame-dot {
-      border-radius: 50%;
-      height: 12px;
-      width: 12px;
-      margin: 1em .25em;
-      flex-shrink: 0;
-    }
-  `]
+      section {
+        box-sizing: border-box;
+        width: calc(100% - 0px); /* host padding already applied */
+        height: calc(100% - 0px);
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        background: var(--vscode-sideBar-background);
+        padding: 0.5rem;
+        gap: 0;
+      }
+
+      .frame-dot {
+        border-radius: 50%;
+        height: 12px;
+        width: 12px;
+        margin: 1em 0.25em;
+        flex-shrink: 0;
+      }
+
+      .frame-dot:nth-child(1) {
+        background-color: var(
+          --vscode-notificationsErrorIcon-foreground,
+          #e51400
+        );
+      }
+
+      .frame-dot:nth-child(2) {
+        background-color: var(
+          --vscode-notificationsWarningIcon-foreground,
+          #bf8803
+        );
+      }
+
+      .frame-dot:nth-child(3) {
+        background-color: var(
+          --vscode-ports-iconRunningProcessForeground,
+          #369432
+        );
+      }
+
+      iframe {
+        background-color: white;
+        flex: 1;
+        border: none;
+        border-radius: 0 0 0.5rem 0.5rem;
+        min-height: 0;
+      }
+    `
+  ]
 
   @query('iframe')
   iframe?: HTMLIFrameElement
@@ -76,19 +128,25 @@ export class DevtoolsBrowser extends Element {
     super.connectedCallback()
     window.addEventListener('resize', this.#setIframeSize.bind(this))
     window.addEventListener('window-drag', this.#setIframeSize.bind(this))
-    window.addEventListener('app-mutation-highlight', this.#highlightMutation.bind(this))
-    window.addEventListener('app-mutation-select', (ev) => this.#renderBrowserState(ev.detail))
+    window.addEventListener(
+      'app-mutation-highlight',
+      this.#highlightMutation.bind(this)
+    )
+    window.addEventListener('app-mutation-select', (ev) =>
+      this.#renderBrowserState(ev.detail)
+    )
+    window.addEventListener(
+      'show-command',
+      this.#handleShowCommand as EventListener
+    )
     await this.updateComplete
   }
 
-  #setIframeSize () {
+  #setIframeSize() {
     const metadata = this.metadata
     if (!this.section || !this.iframe || !this.header || !metadata) {
       return
     }
-
-    this.section.style.width = 'auto'
-    this.section.style.height = 'auto'
 
     this.iframe.removeAttribute('style')
     const viewportWidth = metadata.viewport.width
@@ -103,18 +161,43 @@ export class DevtoolsBrowser extends Element {
        * we keep the aspect ratio. We substract 0.05 to have a bit of a
        * padding
        */
-      scale = (frameSize.height / viewportHeight) - 0.05
+      scale = frameSize.height / viewportHeight - 0.05
     }
 
     this.section.style.width = `${viewportWidth * scale}px`
     this.section.style.height = `${Math.min(frameSize.height, viewportHeight * scale)}px`
     this.iframe.style.width = `${viewportWidth}px`
     // this.iframe.style.height = `${(Math.min(frameSize.height, viewportHeight * scale) - headerSize.height)}px`
-    this.iframe.style.height = `${viewportHeight - (headerSize.height / scale)}px`
+    this.iframe.style.height = `${viewportHeight - headerSize.height / scale}px`
     this.iframe.style.transform = `scale(${scale})`
   }
 
-  async #renderNewDocument (doc: SimplifiedVNode, baseUrl: string) {
+  #handleShowCommand = (event: Event) =>
+    this.#renderCommandScreenshot(
+      (event as CustomEvent<{ command?: CommandLog }>).detail?.command
+    )
+
+  async #renderCommandScreenshot(command?: CommandLog) {
+    const screenshot = command?.screenshot
+    if (!screenshot) {
+      return
+    }
+
+    if (!this.iframe) {
+      await this.updateComplete
+    }
+    if (!this.iframe) {
+      return
+    }
+
+    this.iframe.srcdoc = `
+      <body style="margin:0;background:#111;display:flex;justify-content:center;align-items:flex-start;">
+        <img src="data:image/png;base64,${screenshot}" style="max-width:100%;height:auto;display:block;" />
+      </body>
+    `
+  }
+
+  async #renderNewDocument(doc: SimplifiedVNode, baseUrl: string) {
     const root = transform(doc)
     const baseTag = h('base', { href: baseUrl })
     const head: VNode<{}> | undefined = (root.props.children as VNode[])
@@ -123,17 +206,17 @@ export class DevtoolsBrowser extends Element {
     if (head) {
       head.props.children = [
         baseTag,
-        ...head.props.children as ComponentChildren[]
+        ...(head.props.children as ComponentChildren[])
       ]
     } else {
       const head = h('head', {}, baseTag)
-      const docChildren = root.props.children as ComponentChildren[] || []
+      const docChildren = (root.props.children as ComponentChildren[]) || []
       docChildren.unshift(head)
     }
     render(root, this.#vdom)
   }
 
-  #renderVdom () {
+  #renderVdom() {
     const docEl = this.iframe?.contentDocument?.documentElement
     if (!docEl) {
       return
@@ -143,11 +226,11 @@ export class DevtoolsBrowser extends Element {
      * remove script tags from application as we are only interested in the static
      * representation of the page
      */
-    [...this.#vdom.querySelectorAll('script')].forEach((el) => el.remove())
+    ;[...this.#vdom.querySelectorAll('script')].forEach((el) => el.remove())
     docEl.ownerDocument.replaceChild(this.#vdom, docEl)
   }
 
-  async #handleMutation (mutation: TraceMutation) {
+  async #handleMutation(mutation: TraceMutation) {
     if (!this.iframe) {
       await this.updateComplete
     }
@@ -163,7 +246,7 @@ export class DevtoolsBrowser extends Element {
     }
   }
 
-  #handleCharacterDataMutation (mutation: TraceMutation) {
+  #handleCharacterDataMutation(mutation: TraceMutation) {
     const el = this.#queryElement(mutation.target!)
     if (!el) {
       return
@@ -172,7 +255,7 @@ export class DevtoolsBrowser extends Element {
     el.textContent = mutation.newTextContent || ''
   }
 
-  #handleAttributeMutation (mutation: TraceMutation) {
+  #handleAttributeMutation(mutation: TraceMutation) {
     if (!mutation.attributeName || !mutation.attributeValue) {
       return
     }
@@ -185,10 +268,13 @@ export class DevtoolsBrowser extends Element {
     el.setAttribute(mutation.attributeName, mutation.attributeValue || '')
   }
 
-  #handleChildListMutation (mutation: TraceMutation) {
+  #handleChildListMutation(mutation: TraceMutation) {
     if (mutation.addedNodes.length === 1 && !mutation.target) {
       const baseUrl = this.metadata?.url || 'unknown'
-      this.#renderNewDocument(mutation.addedNodes[0] as SimplifiedVNode, baseUrl)
+      this.#renderNewDocument(
+        mutation.addedNodes[0] as SimplifiedVNode,
+        baseUrl
+      )
       return this.#renderVdom()
     }
 
@@ -214,7 +300,7 @@ export class DevtoolsBrowser extends Element {
     })
   }
 
-  #queryElement (ref: string, el?: HTMLElement) {
+  #queryElement(ref: string, el?: HTMLElement) {
     const rootElement = el || this.iframe?.contentDocument
     if (!rootElement) {
       return
@@ -222,9 +308,11 @@ export class DevtoolsBrowser extends Element {
     return rootElement.querySelector(`*[data-wdio-ref="${ref}"]`) as HTMLElement
   }
 
-  #highlightMutation (ev: CustomEvent<TraceMutation | null>) {
+  #highlightMutation(ev: CustomEvent<TraceMutation | null>) {
     if (!ev.detail) {
-      this.iframe?.contentDocument?.querySelector(`.${MUTATION_SELECTOR}`)?.remove()
+      this.iframe?.contentDocument
+        ?.querySelector(`.${MUTATION_SELECTOR}`)
+        ?.remove()
       return
     }
 
@@ -245,36 +333,46 @@ export class DevtoolsBrowser extends Element {
 
     const highlight = document.createElement('div')
     highlight.setAttribute('class', MUTATION_SELECTOR)
-    highlight.setAttribute('style', `position: absolute; background: #38bdf8; outline: 2px dotted red; opacity: .2; top: ${scrollY + rect.top}px; left: ${scrollX + rect.left}px; width: ${rect.width}px; height: ${rect.height}px; z-index: 10000;`)
+    highlight.setAttribute(
+      'style',
+      `position: absolute; background: #38bdf8; outline: 2px dotted red; opacity: .2; top: ${scrollY + rect.top}px; left: ${scrollX + rect.left}px; width: ${rect.width}px; height: ${rect.height}px; z-index: 10000;`
+    )
     docEl.querySelector(`.${MUTATION_SELECTOR}`)?.remove()
     docEl.body.appendChild(highlight)
   }
 
-  async #renderBrowserState (mutationEntry?: TraceMutation) {
+  async #renderBrowserState(mutationEntry?: TraceMutation) {
     const mutations = this.mutations
     if (!mutations || !mutations.length) {
       return
     }
 
-    const mutationIndex = mutationEntry
-      ? mutations.indexOf(mutationEntry)
-      : 0
+    const mutationIndex = mutationEntry ? mutations.indexOf(mutationEntry) : 0
     this.#vdom = document.createDocumentFragment()
-    const rootIndex = mutations
-      .map((m, i) => [
-        // is document loaded
-        m.addedNodes.length === 1 && Boolean(m.url),
-        // index
-        i
-      ] as const)
-      .filter(([isDocLoaded, docLoadedIndex]) => isDocLoaded && docLoadedIndex <= mutationIndex)
-      .map(([, i]) => i)
-      .pop() || 0
+    const rootIndex =
+      mutations
+        .map(
+          (m, i) =>
+            [
+              // is document loaded
+              m.addedNodes.length === 1 && Boolean(m.url),
+              // index
+              i
+            ] as const
+        )
+        .filter(
+          ([isDocLoaded, docLoadedIndex]) =>
+            isDocLoaded && docLoadedIndex <= mutationIndex
+        )
+        .map(([, i]) => i)
+        .pop() || 0
 
-    this.#activeUrl = mutations[rootIndex].url || this.metadata?.url || 'unknown'
+    this.#activeUrl =
+      mutations[rootIndex].url || this.metadata?.url || 'unknown'
     for (let i = rootIndex; i <= mutationIndex; i++) {
-      await this.#handleMutation(mutations[i]).catch(
-        (err) => console.warn(`Failed to render mutation: ${err.message}`))
+      await this.#handleMutation(mutations[i]).catch((err) =>
+        console.warn(`Failed to render mutation: ${err.message}`)
+      )
     }
 
     /**
@@ -301,20 +399,29 @@ export class DevtoolsBrowser extends Element {
     }
 
     return html`
-      <section class="w-full bg-sideBarBackground rounded-t-md shadow-md">
-        <header class="flex block mx-2">
+      <section
+        class="w-full h-full bg-sideBarBackground rounded-lg border-2 border-panelBorder shadow-xl"
+      >
+        <header
+          class="flex items-center mx-2 bg-sideBarBackground rounded-t-lg"
+        >
           <div class="frame-dot bg-notificationsErrorIconForeground"></div>
           <div class="frame-dot bg-notificationsWarningIconForeground"></div>
           <div class="frame-dot bg-portsIconRunningProcessForeground"></div>
-          <div class="flex mx-4 my-2 pr-2 bg-inputBackground text-inputForeground border border-transparent rounded leading-7 w-full">
-            <icon-mdi-world class="w-[20px] h-[20px] m-1 mr-2"></icon-mdi-world>
-            ${this.#activeUrl}
+          <div
+            class="flex items-center mx-4 my-2 pr-2 bg-input-background text-inputForeground border border-editorSuggestWidgetBorder rounded leading-7 flex-1 min-w-0 overflow-hidden"
+          >
+            <icon-mdi-world
+              class="w-[20px] h-[20px] m-1 mr-2 flex-shrink-0"
+            ></icon-mdi-world>
+            <span class="truncate">${this.#activeUrl}</span>
           </div>
         </header>
         ${this.mutations && this.mutations.length
           ? html`<iframe class="origin-top-left"></iframe>`
-          : html`<wdio-devtools-placeholder style="height: 100%"></wdio-devtools-placeholder>`
-        }
+          : html`<wdio-devtools-placeholder
+              style="height: 100%"
+            ></wdio-devtools-placeholder>`}
       </section>
     `
   }

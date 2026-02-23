@@ -1,13 +1,41 @@
 import type { DataCollectorType } from './src/collector.ts'
 import type { ConsoleLog as ConsoleLogImport } from './src/collectors/consoleLogs.ts'
 
+export interface NetworkRequest {
+  id: string
+  url: string
+  method: string
+  status?: number
+  statusText?: string
+  type: string
+  initiator?: string
+  size?: number
+  time?: number
+  requestHeaders?: Record<string, string>
+  responseHeaders?: Record<string, string>
+  requestBody?: string
+  responseBody?: string
+  timestamp: number
+  startTime: number
+  endTime?: number
+  error?: string
+}
+
 export interface TraceMetadata {
   url: string
   viewport: VisualViewport
 }
 
+export interface SimplifiedVNode {
+  type: string
+  props: Record<string, string> & {
+    children?: SimplifiedVNode | SimplifiedVNode[]
+  }
+}
+
 declare global {
   type ConsoleLogs = ConsoleLogImport
+  type NetworkRequest = NetworkRequest
 
   interface Element {
     'wdio-ref': string
@@ -15,11 +43,6 @@ declare global {
 
   interface Window {
     wdioTraceCollector: DataCollectorType
-  }
-
-  interface SimplifiedVNode {
-    type: string
-    props: Record<string, string> & { children?: SimplifiedVNode | SimplifiedVNode[] }
   }
 
   interface TraceMutation {

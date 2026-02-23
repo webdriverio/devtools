@@ -1,0 +1,32 @@
+/* Shadow DOM Styles - includes everything needed */
+@import url('./colors.css');
+
+/* Tailwind directives - these will be processed when imported with ?inline */
+@import "tailwindcss";
+
+@source "../src/**/*.{html,js,ts,jsx,tsx}";
+@source "../index.html";
+
+@theme {
+  --color-panelBorder: var(--vscode-panel-border);
+  --color-editorSuggestWidgetBorder: var(--vscode-editorSuggestWidget-border);
+}
+
+/**
+ * general styles applied to all elements
+ */
+@layer base {
+  :host {
+    line-height: 1.5;
+    font-weight: 400;
+
+    color-scheme: light dark;
+    color: var(--vscode-foreground);
+    font-family: var(--vscode-font-family);
+
+    font-synthesis: none;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}

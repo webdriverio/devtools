@@ -1,5 +1,6 @@
 import { getLogs, clearLogs } from './logger.js'
 import { ConsoleLogCollector } from './collectors/consoleLogs.js'
+import { NetworkRequestCollector } from './collectors/networkRequests.js'
 
 class DataCollector {
   #metadata = {
@@ -9,34 +10,37 @@ class DataCollector {
   #errors: string[] = []
   #mutations: TraceMutation[] = []
   #consoleLogs = new ConsoleLogCollector()
+  #networkRequests = new NetworkRequestCollector()
 
-  captureError (err: Error) {
+  captureError(err: Error) {
     const error = err.stack || err.message
     this.#errors.push(error)
   }
 
-  captureMutation (mutations: TraceMutation[]) {
+  captureMutation(mutations: TraceMutation[]) {
     this.#mutations.push(...mutations)
   }
 
-  reset () {
+  reset() {
     this.#errors = []
     this.#mutations = []
     this.#consoleLogs.clear()
+    this.#networkRequests.clear()
     clearLogs()
   }
 
-  getMetadata () {
+  getMetadata() {
     return this.#metadata
   }
 
-  getTraceData () {
+  getTraceData() {
     const data = {
       errors: this.#errors,
       mutations: this.#mutations,
       consoleLogs: this.#consoleLogs.getArtifacts(),
+      networkRequests: this.#networkRequests.getArtifacts(),
       traceLogs: getLogs(),
-      metadata: this.getMetadata(),
+      metadata: this.getMetadata()
     } as const
     this.reset()
     return data
@@ -44,4 +48,4 @@ class DataCollector {
 }
 
 export type DataCollectorType = DataCollector
-export const collector = window.wdioTraceCollector = new DataCollector()
+export const collector = (window.wdioTraceCollector = new DataCollector())
