@@ -5,15 +5,16 @@ export interface ConsoleLogs {
   type: 'log' | 'info' | 'warn' | 'error'
   args: any[]
   timestamp: number
+  source?: 'browser' | 'test' | 'terminal'
 }
 
 export class ConsoleLogCollector implements Collector<ConsoleLogs> {
   #logs: ConsoleLogs[] = []
-  constructor () {
+  constructor() {
     consoleMethods.forEach(this.#consolePatch.bind(this))
   }
 
-  getArtifacts () {
+  getArtifacts() {
     return this.#logs
   }
 
@@ -21,7 +22,7 @@ export class ConsoleLogCollector implements Collector<ConsoleLogs> {
     this.#logs = []
   }
 
-  #consolePatch (type: (typeof consoleMethods)[number]) {
+  #consolePatch(type: (typeof consoleMethods)[number]) {
     const orig = console[type]
     console[type] = (...args) => {
       this.#logs.push({

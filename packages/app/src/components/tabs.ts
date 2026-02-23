@@ -7,38 +7,60 @@ const TABS_COMPONENT = 'wdio-devtools-tabs'
 export class DevtoolsTabs extends Element {
   #activeTab: string | undefined
   #tabList: string[] = []
+  #badgeCheckInterval?: number
 
   @property({ type: String })
   cacheId?: string
 
-  static styles = [...Element.styles, css`
-    :host {
-      width: 100%;
-      flex-grow: 1;
-      display: flex;
-      flex-direction: column;
-      color: var(--vscode-foreground);
-      background-color: var(--vscode-editor-background);
-    }
-  `]
+  static styles = [
+    ...Element.styles,
+    css`
+      :host {
+        width: 100%;
+        flex-grow: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        color: var(--vscode-foreground);
+        background-color: var(--vscode-editor-background);
+      }
+    `
+  ]
 
-  #getTabButton (tabId: string) {
+  #getTabButton(tabId: string) {
+    const tabElement = this.tabs.find(
+      (el) => el.getAttribute('label') === tabId
+    )
+    const badge = (tabElement as any)?.badge
+    const showBadge = badge && badge > 0
+
     return html`
       <button
         @click="${() => this.activateTab(tabId)}"
-        class="transition-colors px-4 py-2 hover:bg-toolbarHoverBackground ${this.#activeTab === tabId ? 'bg-toolbarHoverBackground' : ''}"
+        class="transition-colors px-4 py-2 hover:bg-toolbarHoverBackground ${this
+          .#activeTab === tabId
+          ? 'bg-toolbarHoverBackground'
+          : ''} flex items-center gap-2"
       >
-        ${tabId}
+        <span>${tabId}</span>
+        ${showBadge
+          ? html`<span
+              class="inline-flex items-center justify-center min-w-[20px] px-1.5 py-0.5 text-xs font-semibold rounded-full"
+              style="background-color: #5a5a5a; color: #ffffff;"
+              >${badge}</span
+            >`
+          : nothing}
       </button>
     `
   }
 
-  get tabs () {
+  get tabs() {
     if (!this.shadowRoot) {
       return []
     }
-    const slot = [...Array.from(this.shadowRoot.querySelectorAll('slot'))]
-      .find((s) => !s.hasAttribute('name'))
+    const slot = [...Array.from(this.shadowRoot.querySelectorAll('slot'))].find(
+      (s) => !s.hasAttribute('name')
+    )
     if (!slot) {
       return []
     }
@@ -55,7 +77,7 @@ export class DevtoolsTabs extends Element {
     })
   }
 
-  activateTab (tabId: string) {
+  activateTab(tabId: string) {
     const activeTab = this.tabs.find((el) => el.getAttribute('label') === tabId)
     if (!activeTab) {
       return
@@ -75,23 +97,23 @@ export class DevtoolsTabs extends Element {
 
   connectedCallback() {
     super.connectedCallback()
-    setTimeout(() => { // wait till innerHTML is parsed
-      this.#tabList = this.tabs
-        .map((el) => el.getAttribute('label') as string)
-        .filter(Boolean) || []
+    setTimeout(() => {
+      // wait till innerHTML is parsed
+      this.#tabList =
+        this.tabs
+          .map((el) => el.getAttribute('label') as string)
+          .filter(Boolean) || []
 
       /**
        * get tab id either from local storage or a tab element that
        * has an "active" attribute
        */
-      this.#activeTab = (
-        (
-          this.cacheId && localStorage.getItem(this.cacheId)
-        ) ||
-        this.tabs.find(
-          (el) => el.hasAttribute('active')
-        )?.getAttribute('label') || undefined
-      )
+      this.#activeTab =
+        (this.cacheId && localStorage.getItem(this.cacheId)) ||
+        this.tabs
+          .find((el) => el.hasAttribute('active'))
+          ?.getAttribute('label') ||
+        undefined
 
       /**
        * set active tab or first tab as active
@@ -104,20 +126,31 @@ export class DevtoolsTabs extends Element {
       }
 
       this.requestUpdate()
+
+      // Check for badge changes periodically
+      this.#badgeCheckInterval = window.setInterval(() => {
+        this.requestUpdate()
+      }, 250)
     })
+  }
+
+  disconnectedCallback() {
+    super.disconnectedCallback()
+    if (this.#badgeCheckInterval) {
+      clearInterval(this.#badgeCheckInterval)
+    }
   }
 
   render() {
     return html`
       ${this.#tabList.length
         ? html`
-          <nav class="flex w-full bg-sideBarBackground shadow-md z-10">
-            ${this.#tabList.map((tab) => this.#getTabButton(tab))}
-            <slot name="actions"></slot>
-          </nav>
-        `
-        : nothing
-      }
+            <nav class="flex w-full bg-sideBarBackground shadow-md z-10">
+              ${this.#tabList.map((tab) => this.#getTabButton(tab))}
+              <slot name="actions"></slot>
+            </nav>
+          `
+        : nothing}
       <slot></slot>
     `
   }
@@ -126,22 +159,28 @@ export class DevtoolsTabs extends Element {
 const TAB_COMPONENT = 'wdio-devtools-tab'
 @customElement(TAB_COMPONENT)
 export class DevtoolsTab extends Element {
-  static styles = [...Element.styles, css`
-    :host {
-      display: none;
-      flex-grow: 1;
-      overflow-y: scroll;
-    }
+  @property({ type: Number })
+  badge?: number
 
-    :host([active]) {
-      display: flex;
-    }
-  `]
+  static styles = [
+    ...Element.styles,
+    css`
+      :host {
+        display: none;
+        flex-grow: 1;
+        min-height: 0;
+        overflow-y: auto;
+        scrollbar-width: none;
+      }
+
+      :host([active]) {
+        display: flex;
+      }
+    `
+  ]
 
   render() {
-    return html`
-      <slot></slot>
-    `
+    return html` <slot></slot> `
   }
 }
 

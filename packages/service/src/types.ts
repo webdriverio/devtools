@@ -9,6 +9,7 @@ export interface CommandLog {
   error?: Error
   timestamp: number
   callSource: string
+  screenshot?: string
 }
 
 export enum TraceType {
@@ -20,7 +21,7 @@ export interface Metadata {
   type: TraceType
   url: string
   options: Omit<Options.WebdriverIO, 'capabilities'>
-  capabilities: Capabilities.RemoteCapability
+  capabilities: Capabilities.W3CCapabilities
   viewport: VisualViewport
 }
 
@@ -28,6 +29,7 @@ export interface TraceLog {
   mutations: TraceMutation[]
   logs: string[]
   consoleLogs: ConsoleLogs[]
+  networkRequests: NetworkRequest[]
   metadata: Metadata
   commands: CommandLog[]
   sources: Record<string, string>
@@ -37,6 +39,8 @@ export interface TraceLog {
 export interface ExtendedCapabilities extends WebdriverIO.Capabilities {
   'wdio:devtoolsOptions'?: ServiceOptions
 }
+
+export type LogLevel = 'trace' | 'debug' | 'log' | 'info' | 'warn' | 'error'
 
 export interface ServiceOptions {
   /**
@@ -62,7 +66,19 @@ export interface ServiceOptions {
   devtoolsCapabilities?: WebdriverIO.Capabilities
 }
 
-declare module WebdriverIO {
+declare namespace WebdriverIO {
   interface ServiceOption extends ServiceOptions {}
   interface Capabilities {}
+}
+
+declare module '@wdio/reporter' {
+  interface TestStats {
+    file?: string
+    line?: number
+    column?: number
+  }
+
+  interface SuiteStats {
+    line?: string
+  }
 }
