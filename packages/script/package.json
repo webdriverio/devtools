@@ -1,6 +1,6 @@
 {
   "name": "@wdio/devtools-script",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Script to be injected into a page to trace the page",
   "author": "Christian Bromann <mail@bromann.dev>",
   "repository": {
