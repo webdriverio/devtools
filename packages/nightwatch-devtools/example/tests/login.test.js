@@ -1,6 +1,5 @@
-describe('The Internet Guinea Pig Website', function() {
-
-  it('should log into the secure area with valid credentials', async function(browser) {
+describe('The Internet Guinea Pig Website', function () {
+  it('should log into the secure area with valid credentials', async function (browser) {
     console.log('[TEST] Navigating to login page')
     browser
       .url('https://the-internet.herokuapp.com/login')
@@ -12,7 +11,9 @@ describe('The Internet Guinea Pig Website', function() {
       .setValue('#password', 'SuperSecretPassword!')
       .click('button[type="submit"]')
 
-    console.log('[TEST] Verifying flash message: You logged into a secure area!')
+    console.log(
+      '[TEST] Verifying flash message: You logged into a secure area!'
+    )
     await browser
       .waitForElementVisible('#flash')
       .assert.textContains('#flash', 'You logged into a secure area!')
@@ -20,7 +21,7 @@ describe('The Internet Guinea Pig Website', function() {
     console.log('[TEST] Flash message verified successfully')
   })
 
-  it('should show error with invalid credentials', async function(browser) {
+  it('should show error with invalid credentials', async function (browser) {
     console.log('[TEST] Navigating to login page')
     await browser
       .url('https://the-internet.herokuapp.com/login')
@@ -39,5 +40,4 @@ describe('The Internet Guinea Pig Website', function() {
 
     console.log('[TEST] Flash message verified successfully')
   })
-
 })

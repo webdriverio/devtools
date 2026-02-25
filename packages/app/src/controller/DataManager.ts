@@ -49,10 +49,17 @@ export const isTestRunningContext = createContext<boolean>(
 )
 
 interface SocketMessage<
-  T extends keyof TraceLog | 'testStopped' | 'clearExecutionData' = keyof TraceLog | 'testStopped' | 'clearExecutionData'
+  T extends keyof TraceLog | 'testStopped' | 'clearExecutionData' =
+    | keyof TraceLog
+    | 'testStopped'
+    | 'clearExecutionData'
 > {
   scope: T
-  data: T extends keyof TraceLog ? TraceLog[T] : T extends 'clearExecutionData' ? { uid?: string } : unknown
+  data: T extends keyof TraceLog
+    ? TraceLog[T]
+    : T extends 'clearExecutionData'
+      ? { uid?: string }
+      : unknown
 }
 
 export class DataManagerController implements ReactiveController {

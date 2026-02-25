@@ -30,7 +30,9 @@ export function broadcastToClients(message: string) {
   })
 }
 
-export async function start(opts: DevtoolsBackendOptions = {}): Promise<{ server: FastifyInstance; port: number }> {
+export async function start(
+  opts: DevtoolsBackendOptions = {}
+): Promise<{ server: FastifyInstance; port: number }> {
   const host = opts.hostname || 'localhost'
   // Use getPort to find an available port, starting with the preferred port
   const preferredPort = opts.port || DEFAULT_PORT
@@ -122,7 +124,7 @@ export async function start(opts: DevtoolsBackendOptions = {}): Promise<{ server
             })
             return
           }
-        } catch (e) {
+        } catch {
           // Not JSON or parsing failed, forward as-is
         }
 
@@ -150,7 +152,10 @@ export async function stop() {
 
   // Close all WebSocket connections first
   clients.forEach((client) => {
-    if (client.readyState === WebSocket.OPEN || client.readyState === WebSocket.CONNECTING) {
+    if (
+      client.readyState === WebSocket.OPEN ||
+      client.readyState === WebSocket.CONNECTING
+    ) {
       client.terminate()
     }
   })
