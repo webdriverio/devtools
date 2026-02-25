@@ -109,7 +109,7 @@ export const TEST_STATE = {
   SKIPPED: 'skipped'
 } as const
 
-export type TestState = typeof TEST_STATE[keyof typeof TEST_STATE]
+export type TestState = (typeof TEST_STATE)[keyof typeof TEST_STATE]
 
 /**
  * Temporary UID generation pattern
