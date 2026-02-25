@@ -17,7 +17,7 @@ import type {
   TestRunDetail
 } from './types.js'
 import { TestState } from './types.js'
-import { DEFAULT_CAPABILITIES, FRAMEWORK_CAPABILITIES } from './constants.js'
+import { DEFAULT_CAPABILITIES, FRAMEWORK_CAPABILITIES, STATE_MAP } from './constants.js'
 
 import '~icons/mdi/play.js'
 import '~icons/mdi/stop.js'
@@ -30,13 +30,6 @@ import { CollapseableEntry } from './collapseableEntry.js'
 import type { DevtoolsSidebarFilter } from './filter.js'
 
 const EXPLORER = 'wdio-devtools-sidebar-explorer'
-
-const STATE_MAP: Record<string, TestState> = {
-  'running': TestState.RUNNING,
-  'failed': TestState.FAILED,
-  'passed': TestState.PASSED,
-  'skipped': TestState.SKIPPED
-}
 
 @customElement(EXPLORER)
 export class DevtoolsSidebarExplorer extends CollapseableEntry {
@@ -376,12 +369,18 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
 
     // Check explicit state first
     const mappedState = STATE_MAP[state]
-    if (mappedState) return mappedState
+    if (mappedState) {
+      return mappedState
+    }
 
     // For suites, compute state from children
     if ('tests' in entry) {
-      if (this.#isRunning(entry)) return TestState.RUNNING
-      if (this.#hasFailed(entry)) return TestState.FAILED
+      if (this.#isRunning(entry)) {
+        return TestState.RUNNING
+      }
+      if (this.#hasFailed(entry)) {
+        return TestState.FAILED
+      }
       return TestState.PASSED
     }
 
@@ -480,8 +479,7 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
               <p class="text-disabledForeground">No tests to display</p>
               <p class="text-xs text-disabledForeground mt-2">
                 Debug: suites=${this.suites?.length || 0},
-                rootSuites=${uniqueSuites.length},
-                filtered=${suites.length}
+                rootSuites=${uniqueSuites.length}, filtered=${suites.length}
               </p>
             </div>`}
       </wdio-test-suite>

@@ -1,3 +1,11 @@
+import { TestState } from './types.js'
+
+export const STATE_MAP: Record<string, TestState> = {
+  running: TestState.RUNNING,
+  failed: TestState.FAILED,
+  passed: TestState.PASSED,
+  skipped: TestState.SKIPPED
+}
 import type { RunCapabilities } from './types.js'
 
 export const DEFAULT_CAPABILITIES: RunCapabilities = {
