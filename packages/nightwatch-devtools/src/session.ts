@@ -3,9 +3,19 @@ import path from 'node:path'
 import { createRequire } from 'node:module'
 import logger from '@wdio/logger'
 import { WebSocket } from 'ws'
-import { CONSOLE_METHODS, LOG_SOURCES, ANSI_REGEX, LOG_LEVEL_PATTERNS } from './constants.js'
-import type { CommandLog, ConsoleLog, LogLevel, NightwatchBrowser } from './types.js'
-import { getCapturePerformanceScript } from './helpers/capturePerformance.js'
+import {
+  CONSOLE_METHODS,
+  LOG_SOURCES,
+  ANSI_REGEX,
+  LOG_LEVEL_PATTERNS
+} from './constants.js'
+import type {
+  CommandLog,
+  ConsoleLog,
+  LogLevel,
+  NightwatchBrowser
+} from './types.js'
+// import { getCapturePerformanceScript } from './helpers/capturePerformance.js'
 
 const require = createRequire(import.meta.url)
 const log = logger('@wdio/nightwatch-devtools:SessionCapturer')
@@ -67,7 +77,10 @@ export class SessionCapturer {
   networkRequests: any[] = []
   metadata?: any
 
-  constructor(devtoolsOptions: { hostname?: string; port?: number } = {}, browser?: NightwatchBrowser) {
+  constructor(
+    devtoolsOptions: { hostname?: string; port?: number } = {},
+    browser?: NightwatchBrowser
+  ) {
     const { port, hostname } = devtoolsOptions
     this.#browser = browser
     if (hostname && port) {
@@ -99,128 +112,6 @@ export class SessionCapturer {
       stdoutWrite: process.stdout.write.bind(process.stdout),
       stderrWrite: process.stderr.write.bind(process.stderr)
     }
-
-    this.#patchConsole()
-    this.#interceptProcessStreams()
-  }
-
-  #patchConsole() {
-    // Temporarily disable console patching to prevent infinite loops
-    // We can re-enable this later with better filtering
-    return
-
-    CONSOLE_METHODS.forEach((method) => {
-      const originalMethod = this.#originalConsoleMethods[method]
-      console[method] = (...consoleArgs: any[]) => {
-        // Skip capturing if we're already in a capture operation (prevent infinite recursion)
-        if (this.#isCapturingConsole) {
-          return originalMethod.apply(console, consoleArgs)
-        }
-
-        // Skip capturing internal framework logs (logger messages)
-        const firstArg = String(consoleArgs[0] || '')
-        if (firstArg.includes('@wdio/') || firstArg.includes('INFO') || firstArg.includes('WARN') || firstArg.includes('ERROR')) {
-          return originalMethod.apply(console, consoleArgs)
-        }
-
-        const serializedArgs = consoleArgs.map((arg) =>
-          typeof arg === 'object' && arg !== null
-            ? (() => {
-                try {
-                  return JSON.stringify(arg)
-                } catch {
-                  return String(arg)
-                }
-              })()
-            : String(arg)
-        )
-
-        // Set flag before capturing to prevent recursion
-        this.#isCapturingConsole = true
-
-        const logEntry = createConsoleLogEntry(
-          method,
-          serializedArgs,
-          LOG_SOURCES.TEST
-        )
-        this.consoleLogs.push(logEntry)
-        this.sendUpstream('consoleLogs', [logEntry])
-
-        const result = originalMethod.apply(console, consoleArgs)
-
-        // Reset flag after everything is done
-        this.#isCapturingConsole = false
-        return result
-      }
-    })
-  }
-
-  #interceptProcessStreams() {
-    // Temporarily disable stream interception to prevent infinite loops
-    // We can re-enable this later with better filtering
-    return
-
-    // Regex to detect spinner/progress characters
-    const spinnerRegex = /[\u280b\u2819\u2839\u2838\u283c\u2834\u2826\u2827\u2807\u280f]/
-
-    const captureTerminalOutput = (outputData: string | Uint8Array) => {
-      const outputText =
-        typeof outputData === 'string' ? outputData : outputData.toString()
-      if (!outputText?.trim()) {
-        return
-      }
-
-      outputText
-        .split('\n')
-        .filter((line) => line.trim())
-        .forEach((line) => {
-          // Skip lines with spinner characters to avoid flooding logs
-          if (spinnerRegex.test(line)) {
-            return
-          }
-
-          // Strip ANSI codes and check if there's actual content
-          const cleanedLine = stripAnsiCodes(line).trim()
-          if (!cleanedLine) {
-            return
-          }
-
-          const logEntry = createConsoleLogEntry(
-            detectLogLevel(cleanedLine),
-            [cleanedLine],
-            LOG_SOURCES.TERMINAL
-          )
-          this.consoleLogs.push(logEntry)
-          this.sendUpstream('consoleLogs', [logEntry])
-        })
-    }
-
-    const interceptStreamWrite = (
-      stream: NodeJS.WriteStream,
-      originalWriteMethod: (...args: any[]) => boolean
-    ) => {
-      const capturer = this
-      stream.write = function (chunk: any, ...additionalArgs: any[]): boolean {
-        const writeResult = originalWriteMethod.call(
-          stream,
-          chunk,
-          ...additionalArgs
-        )
-        if (chunk && !capturer.#isCapturingConsole) {
-          captureTerminalOutput(chunk)
-        }
-        return writeResult
-      } as any
-    }
-
-    interceptStreamWrite(
-      process.stdout,
-      this.#originalProcessMethods.stdoutWrite
-    )
-    interceptStreamWrite(
-      process.stderr,
-      this.#originalProcessMethods.stderrWrite
-    )
   }
 
   #restoreConsole() {
@@ -281,11 +172,13 @@ export class SessionCapturer {
     timestamp?: number
   ): Promise<boolean> {
     // Serialize error properly (Error objects don't JSON.stringify well)
-    const serializedError = error ? {
-      name: error.name,
-      message: error.message,
-      stack: error.stack
-    } : undefined
+    const serializedError = error
+      ? {
+          name: error.name,
+          message: error.message,
+          stack: error.stack
+        }
+      : undefined
 
     const commandId = this.#commandCounter++
     const commandLogEntry: CommandLog & { _id?: number } = {
@@ -304,7 +197,7 @@ export class SessionCapturer {
     this.commandsLog.push(commandLogEntry)
 
     // THEN do async performance capture for navigation commands
-    const isNavigationCommand = ['url', 'navigate', 'navigateTo'].some(cmd =>
+    const isNavigationCommand = ['url', 'navigate', 'navigateTo'].some((cmd) =>
       command.toLowerCase().includes(cmd.toLowerCase())
     )
 
@@ -312,37 +205,46 @@ export class SessionCapturer {
       // Do this async work in the background without blocking
       // Update the commandLogEntry that's already in the array
       this.#capturePerformanceData(commandLogEntry, args).catch((err) => {
-        console.log(`⚠️ Failed to capture performance data: ${(err as Error).message}`)
+        console.log(
+          `⚠️ Failed to capture performance data: ${(err as Error).message}`
+        )
       })
     }
 
     return true
   }
 
-  async #capturePerformanceData(commandLogEntry: CommandLog & { _id?: number }, args: any[]) {
+  async #capturePerformanceData(
+    commandLogEntry: CommandLog & { _id?: number },
+    args: any[]
+  ) {
     // Wait a bit for page to load
-    await new Promise(resolve => setTimeout(resolve, 500))
+    await new Promise((resolve) => setTimeout(resolve, 500))
 
     // Execute script to capture performance data
     // Nightwatch's execute() requires a function, not a string
-    const performanceData = await this.#browser!.execute(function() {
+    const performanceData = await this.#browser!.execute(function () {
       // @ts-ignore - executed in browser context
-      const performance = window.performance;
+      const performance = window.performance
       // @ts-ignore
-      const navigation = performance.getEntriesByType?.('navigation')?.[0];
+      const navigation = performance.getEntriesByType?.('navigation')?.[0]
       // @ts-ignore
-      const resources = performance.getEntriesByType?.('resource') || [];
+      const resources = performance.getEntriesByType?.('resource') || []
 
       return {
-        navigation: navigation ? {
-          // @ts-ignore
-          url: window.location.href,
-          timing: {
-            loadTime: navigation.loadEventEnd - navigation.fetchStart,
-            domContentLoaded: navigation.domContentLoadedEventEnd - navigation.fetchStart,
-            firstPaint: performance.getEntriesByType?.('paint')?.[0]?.startTime || 0
-          }
-        } : null,
+        navigation: navigation
+          ? {
+              // @ts-ignore
+              url: window.location.href,
+              timing: {
+                loadTime: navigation.loadEventEnd - navigation.fetchStart,
+                domContentLoaded:
+                  navigation.domContentLoadedEventEnd - navigation.fetchStart,
+                firstPaint:
+                  performance.getEntriesByType?.('paint')?.[0]?.startTime || 0
+              }
+            }
+          : null,
         resources: resources.map((r: any) => ({
           name: r.name,
           type: r.initiatorType,
@@ -350,9 +252,13 @@ export class SessionCapturer {
           duration: r.duration
         })),
         // @ts-ignore
-        cookies: (function() {
-          // @ts-ignore - executed in browser context
-          try { return document.cookie; } catch (e) { return ''; }
+        cookies: (function () {
+          try {
+            // @ts-ignore
+            return document.cookie;
+          } catch {
+            return '';
+          }
         })(),
         documentInfo: {
           // @ts-ignore
@@ -362,7 +268,7 @@ export class SessionCapturer {
           // @ts-ignore
           referrer: document.referrer
         }
-      };
+      }
     })
 
     // Nightwatch returns {value: result} or just the result directly
@@ -395,7 +301,9 @@ export class SessionCapturer {
         title: data.documentInfo?.title
       }
 
-      console.log(`✓ Captured performance data: ${data.resources?.length || 0} resources, load time: ${data.navigation?.timing?.loadTime || 0}ms`)
+      console.log(
+        `✓ Captured performance data: ${data.resources?.length || 0} resources, load time: ${data.navigation?.timing?.loadTime || 0}ms`
+      )
     }
   }
 
@@ -406,7 +314,8 @@ export class SessionCapturer {
     if (command._id !== undefined && !this.#sentCommandIds.has(command._id)) {
       this.#sentCommandIds.add(command._id)
       // Remove internal ID before sending
-      const { _id, ...commandToSend } = command
+      const commandToSend = { ...command }
+      delete commandToSend._id
       this.sendUpstream('commands', [commandToSend])
     }
   }
@@ -421,7 +330,9 @@ export class SessionCapturer {
         this.sources.set(filePath, sourceCode.toString())
         this.sendUpstream('sources', { [filePath]: sourceCode.toString() })
       } catch (err) {
-        log.warn(`Failed to read source file ${filePath}: ${(err as Error).message}`)
+        log.warn(
+          `Failed to read source file ${filePath}: ${(err as Error).message}`
+        )
       }
     }
   }
@@ -433,18 +344,22 @@ export class SessionCapturer {
     // Check if WebSocket is open and ready
     if (!this.#ws || this.#ws.readyState !== WebSocket.OPEN) {
       // Use ORIGINAL process methods to avoid infinite recursion from console patching
-      this.#originalProcessMethods.stderrWrite(`[SESSION] WebSocket not ready (state: ${this.#ws?.readyState}), cannot send ${event}\n`)
+      this.#originalProcessMethods.stderrWrite(
+        `[SESSION] WebSocket not ready (state: ${this.#ws?.readyState}), cannot send ${event}\n`
+      )
       return
     }
 
     try {
-      // IMPORTANT: WDIO backend expects {scope, data} format, NOT {event, data}
       const payload = JSON.stringify({ scope: event, data })
-      // Use ORIGINAL process methods instead of console.log to avoid recursion
-      this.#originalProcessMethods.stdoutWrite(`[SESSION] Sending ${event} upstream, data size: ${payload.length} bytes\n`)
+      this.#originalProcessMethods.stdoutWrite(
+        `[SESSION] Sending ${event} upstream, data size: ${payload.length} bytes\n`
+      )
       this.#ws.send(payload)
     } catch (err) {
-      this.#originalProcessMethods.stderrWrite(`[SESSION] Failed to send ${event}: ${(err as Error).message}\n`)
+      this.#originalProcessMethods.stderrWrite(
+        `[SESSION] Failed to send ${event}: ${(err as Error).message}\n`
+      )
     }
   }
 
@@ -481,25 +396,30 @@ export class SessionCapturer {
         return true;
       `
 
-      const injectResult = await browser.execute(injectionScript, [scriptContent])
+      const injectResult = await browser.execute(injectionScript, [
+        scriptContent
+      ])
       log.info(`Injection command executed: ${JSON.stringify(injectResult)}`)
 
       // Wait for script to execute
       await browser.pause(300)
 
       // Check if collector exists using string-based execute
-      const checkScript = 'return typeof window.wdioTraceCollector !== "undefined"'
+      const checkScript =
+        'return typeof window.wdioTraceCollector !== "undefined"'
       const checkResult = await browser.execute(checkScript)
 
       // Nightwatch wraps results in { value: ... }
       const hasCollector = (checkResult as any)?.value === true
 
-      log.info(`Collector check result: ${JSON.stringify(checkResult)}, hasCollector: ${hasCollector}`)
+      log.info(
+        `Collector check result: ${JSON.stringify(checkResult)}, hasCollector: ${hasCollector}`
+      )
 
       if (hasCollector) {
         log.info('✓ Devtools script injected successfully')
       } else {
-        log.warn(`Script injection may have failed - collector not found`)
+        log.warn('Script injection may have failed - collector not found')
       }
     } catch (err) {
       log.error(`Failed to inject script: ${(err as Error).message}`)
@@ -513,11 +433,15 @@ export class SessionCapturer {
   async captureTrace(browser: NightwatchBrowser) {
     try {
       // Check if the collector exists in the browser - access .value
-      const checkResult = await browser.execute('return typeof window.wdioTraceCollector !== "undefined"')
+      const checkResult = await browser.execute(
+        'return typeof window.wdioTraceCollector !== "undefined"'
+      )
       const collectorExists = (checkResult as any)?.value === true
 
       if (!collectorExists) {
-        log.warn('wdioTraceCollector not found - script may not have been injected')
+        log.warn(
+          'wdioTraceCollector not found - script may not have been injected'
+        )
         return
       }
 
@@ -535,7 +459,8 @@ export class SessionCapturer {
         return
       }
 
-      const { mutations, traceLogs, consoleLogs, networkRequests, metadata } = traceData
+      const { mutations, traceLogs, consoleLogs, networkRequests, metadata } =
+        traceData
 
       // Send network requests
       if (Array.isArray(networkRequests) && networkRequests.length > 0) {

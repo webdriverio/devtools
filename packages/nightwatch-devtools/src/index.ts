@@ -24,7 +24,7 @@ import {
   type TestStats
 } from './types.js'
 import { DEFAULTS, TIMING, TEST_STATE } from './constants.js'
-import { findTestFileFromStack, findTestFileByName, extractTestMetadata } from './helpers/utils.js'
+import { findTestFileFromStack } from './helpers/utils.js'
 
 const log = logger('@wdio/nightwatch-devtools')
 
@@ -56,26 +56,25 @@ class NightwatchDevToolsPlugin {
   async before() {
     try {
       log.info('🚀 Starting DevTools backend...')
-      const { server, port } = await start(this.options)
-
-      // Update options with the actual port used (may differ if preferred port was busy)
-      this.options.port = port
-      const url = `http://${this.options.hostname}:${port}`
-      log.info(`✓ Backend started on port ${port}`)
-      log.info(``)
-      log.info(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`)
-      log.info(`  🌐 Opening DevTools UI in browser...`)
-      log.info(``)
+      await start(this.options)
+      const url = `http://${this.options.hostname}:${this.options.port}`
+      log.info(`✓ Backend started on port ${this.options.port}`)
+      log.info('')
+      log.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
+      log.info('  🌐 Opening DevTools UI in browser...')
+      log.info('')
       log.info(`     ${url}`)
-      log.info(``)
-      log.info(`  ⏳ Waiting for UI to connect...`)
-      log.info(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`)
-      log.info(``)
+      log.info('')
+      log.info('  ⏳ Waiting for UI to connect...')
+      log.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
+      log.info('')
 
-      // Open DevTools UI in a separate browser window using WDIO's method
       try {
         // Create unique user data directory for this instance to prevent conflicts
-        this.#userDataDir = path.join(os.tmpdir(), `nightwatch-devtools-${port}-${Date.now()}`)
+        this.#userDataDir = path.join(
+          os.tmpdir(),
+          `nightwatch-devtools-${this.options.port}-${Date.now()}`
+        )
 
         // Create the directory if it doesn't exist
         if (!fs.existsSync(this.#userDataDir)) {
@@ -83,7 +82,7 @@ class NightwatchDevToolsPlugin {
         }
 
         this.#devtoolsBrowser = await remote({
-          logLevel: 'error', // Show errors if browser fails to start
+          logLevel: 'info',
           automationProtocol: 'devtools',
           capabilities: {
             browserName: 'chrome',
@@ -107,12 +106,14 @@ class NightwatchDevToolsPlugin {
       }
 
       // Wait for UI to connect
-      log.info(`Waiting ${TIMING.UI_CONNECTION_WAIT / 1000} seconds for UI to connect...`)
-      await new Promise(resolve => setTimeout(resolve, TIMING.UI_CONNECTION_WAIT))
+      log.info(
+        `Waiting ${TIMING.UI_CONNECTION_WAIT / 1000} seconds for UI to connect...`
+      )
+      await new Promise((resolve) =>
+        setTimeout(resolve, TIMING.UI_CONNECTION_WAIT)
+      )
 
       log.info('Starting tests...')
-
-
     } catch (err) {
       log.error(`Failed to start backend: ${(err as Error).message}`)
       throw err
@@ -125,12 +126,16 @@ class NightwatchDevToolsPlugin {
    */
   async beforeEach(browser: NightwatchBrowser) {
     const currentTest = (browser as any).currentTest
-    const testFile = (currentTest?.module || '').split('/').pop() || 'unknown'
+    // const testFile = (currentTest?.module || '').split('/').pop() || 'unknown'
     const currentSessionId = (browser as any).sessionId
 
     // Check if browser session changed (happens with parallel workers)
-    if (currentSessionId && this.#lastSessionId && currentSessionId !== this.#lastSessionId) {
-      log.info(`Browser session changed - reinitializing for new worker`)
+    if (
+      currentSessionId &&
+      this.#lastSessionId &&
+      currentSessionId !== this.#lastSessionId
+    ) {
+      log.info('Browser session changed - reinitializing for new worker')
       this.isScriptInjected = false
       // Reset session capturer for new browser session
       this.sessionCapturer = null as any
@@ -139,12 +144,17 @@ class NightwatchDevToolsPlugin {
 
     // Initialize on first test OR when browser session changes
     if (!this.sessionCapturer) {
-      await new Promise(resolve => setTimeout(resolve, TIMING.INITIAL_CONNECTION_WAIT))
+      await new Promise((resolve) =>
+        setTimeout(resolve, TIMING.INITIAL_CONNECTION_WAIT)
+      )
 
-      this.sessionCapturer = new SessionCapturer({
-        port: this.options.port,
-        hostname: this.options.hostname
-      }, browser)
+      this.sessionCapturer = new SessionCapturer(
+        {
+          port: this.options.port,
+          hostname: this.options.hostname
+        },
+        browser
+      )
 
       const connected = await this.sessionCapturer.waitForConnection(3000)
       if (!connected) {
@@ -169,7 +179,7 @@ class NightwatchDevToolsPlugin {
       )
 
       log.info('✓ Session initialized')
-
+      log.info('Injecting DevTools script into browser session...', browser)
       // Send initial metadata
       const capabilities = browser.capabilities || {}
       this.sessionCapturer.sendUpstream('metadata', {
@@ -182,7 +192,10 @@ class NightwatchDevToolsPlugin {
 
     // Get current test info and find test file
     if (currentTest) {
-      const testFile = (currentTest.module || '').split('/').pop() || currentTest.module || DEFAULTS.FILE_NAME
+      const testFile =
+        (currentTest.module || '').split('/').pop() ||
+        currentTest.module ||
+        DEFAULTS.FILE_NAME
 
       // Find test file: try stack trace first, then search workspace
       let fullPath: string | null = findTestFileFromStack() || null
@@ -200,7 +213,7 @@ class NightwatchDevToolsPlugin {
           path.join(workspaceRoot, 'example/tests', testFile),
           path.join(workspaceRoot, 'tests', testFile + '.js'),
           path.join(workspaceRoot, 'test', testFile + '.js'),
-          path.join(workspaceRoot, testFile + '.js'),
+          path.join(workspaceRoot, testFile + '.js')
         ]
 
         for (const possiblePath of possiblePaths) {
@@ -215,15 +228,36 @@ class NightwatchDevToolsPlugin {
       let suiteTitle = testFile
       let testNames: string[] = []
       if (fullPath) {
-        const metadata = extractTestMetadata(fullPath)
-        if (metadata.suiteTitle) {
-          suiteTitle = metadata.suiteTitle
+        // Inline implementation of extractTestMetadata
+        let suite = null
+        const names: string[] = []
+        try {
+          const source = fs.readFileSync(fullPath, 'utf-8')
+          const suiteMatch = source.match(
+            /(?:describe|suite|context)\s*\(\s*['\"]([^'\"]+)['\"]/
+          )
+          if (suiteMatch && suiteMatch[1]) {
+            suite = suiteMatch[1]
+          }
+          const testRegex = /(?:it|test|specify)\s*\(\s*['\"]([^'\"]+)['\"]/g
+          let match
+          while ((match = testRegex.exec(source)) !== null) {
+            names.push(match[1])
+          }
+        } catch {}
+        if (suite) {
+          suiteTitle = suite
         }
-        testNames = metadata.testNames
+        testNames = names
       }
 
       // Get or create suite for this test file
-      const currentSuite = this.suiteManager.getOrCreateSuite(testFile, suiteTitle, fullPath, testNames)
+      const currentSuite = this.suiteManager.getOrCreateSuite(
+        testFile,
+        suiteTitle,
+        fullPath,
+        testNames
+      )
 
       // Capture source file for display
       if (fullPath && fullPath.includes('/')) {
@@ -249,21 +283,33 @@ class NightwatchDevToolsPlugin {
           this.testManager.updateTestState(runningTest, testState)
           this.testManager.markTestAsProcessed(testFile, runningTest.title)
 
-          await new Promise(resolve => setTimeout(resolve, TIMING.UI_RENDER_DELAY))
+          await new Promise((resolve) =>
+            setTimeout(resolve, TIMING.UI_RENDER_DELAY)
+          )
         } else {
           const endTime = new Date()
-          const duration = endTime.getTime() - (runningTest.start?.getTime() || 0)
+          const duration =
+            endTime.getTime() - (runningTest.start?.getTime() || 0)
 
-          this.testManager.updateTestState(runningTest, TEST_STATE.PASSED as TestStats['state'], endTime, duration)
+          this.testManager.updateTestState(
+            runningTest,
+            TEST_STATE.PASSED as TestStats['state'],
+            endTime,
+            duration
+          )
           this.testManager.markTestAsProcessed(testFile, runningTest.title)
 
-          await new Promise(resolve => setTimeout(resolve, TIMING.UI_RENDER_DELAY))
+          await new Promise((resolve) =>
+            setTimeout(resolve, TIMING.UI_RENDER_DELAY)
+          )
         }
       }
 
       // Find and start next test
       const processedTests = this.testManager.getProcessedTests(testFile)
-      const currentTestName = testNames.find(name => !processedTests.has(name))
+      const currentTestName = testNames.find(
+        (name) => !processedTests.has(name)
+      )
 
       if (currentTestName) {
         // Mark suite as running on first test
@@ -271,7 +317,10 @@ class NightwatchDevToolsPlugin {
           this.suiteManager.markSuiteAsRunning(currentSuite)
         }
 
-        const test = this.testManager.findTestInSuite(currentSuite, currentTestName)
+        const test = this.testManager.findTestInSuite(
+          currentSuite,
+          currentTestName
+        )
         if (test) {
           test.state = TEST_STATE.RUNNING as TestStats['state']
           test.start = new Date()
@@ -281,10 +330,14 @@ class NightwatchDevToolsPlugin {
           // Use the real test UID for command tracking (no temporary UIDs!)
           this.#currentTest = test
 
-          await new Promise(resolve => setTimeout(resolve, TIMING.TEST_START_DELAY))
+          await new Promise((resolve) =>
+            setTimeout(resolve, TIMING.TEST_START_DELAY)
+          )
         } else {
           // This should never happen if suite was properly initialized
-          log.warn(`Test "${currentTestName}" not found in suite "${currentSuite.title}" - skipping command tracking`)
+          log.warn(
+            `Test "${currentTestName}" not found in suite "${currentSuite.title}" - skipping command tracking`
+          )
           this.#currentTest = null
         }
       }
@@ -314,7 +367,8 @@ class NightwatchDevToolsPlugin {
       try {
         const currentTest = (browser as any).currentTest
         const results = currentTest?.results || {}
-        const testFile = (currentTest.module || '').split('/').pop() || DEFAULTS.FILE_NAME
+        const testFile =
+          (currentTest.module || '').split('/').pop() || DEFAULTS.FILE_NAME
         const testcases = results.testcases || {}
         const testcaseNames = Object.keys(testcases)
 
@@ -325,29 +379,48 @@ class NightwatchDevToolsPlugin {
           // Handle case with no results yet
           if (testcaseNames.length === 0) {
             const runningTest = currentSuite.tests.find(
-              (t: any) => typeof t !== 'string' && t.state === TEST_STATE.RUNNING
+              (t: any) =>
+                typeof t !== 'string' && t.state === TEST_STATE.RUNNING
             ) as TestStats | undefined
 
             if (runningTest && !processedTests.has(runningTest.title)) {
-              const testState: TestStats['state'] = (results.errors > 0 || results.failed > 0) ?
-                TEST_STATE.FAILED : TEST_STATE.PASSED
+              const testState: TestStats['state'] =
+                results.errors > 0 || results.failed > 0
+                  ? TEST_STATE.FAILED
+                  : TEST_STATE.PASSED
               const endTime = new Date()
-              const duration = endTime.getTime() - (runningTest.start?.getTime() || 0)
+              const duration =
+                endTime.getTime() - (runningTest.start?.getTime() || 0)
 
-              this.testManager.updateTestState(runningTest, testState, endTime, duration)
+              this.testManager.updateTestState(
+                runningTest,
+                testState,
+                endTime,
+                duration
+              )
               this.testManager.markTestAsProcessed(testFile, runningTest.title)
             }
           } else {
             // Process tests with results
-            const unprocessedTests = testcaseNames.filter(name => !processedTests.has(name))
+            const unprocessedTests = testcaseNames.filter(
+              (name) => !processedTests.has(name)
+            )
 
             for (const currentTestName of unprocessedTests) {
               const testcase = testcases[currentTestName]
               const testState = determineTestState(testcase)
 
-              const test = this.testManager.findTestInSuite(currentSuite, currentTestName)
+              const test = this.testManager.findTestInSuite(
+                currentSuite,
+                currentTestName
+              )
               if (test) {
-                this.testManager.updateTestState(test, testState, new Date(), parseFloat(testcase.time || '0') * 1000)
+                this.testManager.updateTestState(
+                  test,
+                  testState,
+                  new Date(),
+                  parseFloat(testcase.time || '0') * 1000
+                )
               }
 
               this.testManager.markTestAsProcessed(testFile, currentTestName)
@@ -356,7 +429,9 @@ class NightwatchDevToolsPlugin {
             // Check if suite is complete
             if (processedTests.size === testcaseNames.length) {
               this.suiteManager.finalizeSuite(currentSuite)
-              await new Promise(resolve => setTimeout(resolve, TIMING.SUITE_COMPLETE_DELAY))
+              await new Promise((resolve) =>
+                setTimeout(resolve, TIMING.SUITE_COMPLETE_DELAY)
+              )
             }
           }
         }
@@ -378,18 +453,24 @@ class NightwatchDevToolsPlugin {
       const currentTest = (browser as any)?.currentTest
       const testcases = currentTest?.results?.testcases || {}
 
-      for (const [testFile, suite] of this.suiteManager.getAllSuites().entries()) {
+      for (const [, suite] of this.suiteManager.getAllSuites().entries()) {
         this.testManager.finalizeSuiteTests(suite, testcases)
-        await new Promise(resolve => setTimeout(resolve, TIMING.SUITE_COMPLETE_DELAY))
+        await new Promise((resolve) =>
+          setTimeout(resolve, TIMING.SUITE_COMPLETE_DELAY)
+        )
         this.suiteManager.finalizeSuite(suite)
       }
 
-      await new Promise(resolve => setTimeout(resolve, TIMING.SUITE_COMPLETE_DELAY))
+      await new Promise((resolve) =>
+        setTimeout(resolve, TIMING.SUITE_COMPLETE_DELAY)
+      )
 
       log.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
       log.info('✅ Tests complete!')
       log.info('')
-      log.info(`   DevTools UI: http://${this.options.hostname}:${this.options.port}`)
+      log.info(
+        `   DevTools UI: http://${this.options.hostname}:${this.options.port}`
+      )
       log.info('')
       log.info('💡 Please close the DevTools browser window to finish...')
       log.info('   (or press Ctrl+C to exit and keep browser open)')
@@ -415,7 +496,9 @@ class NightwatchDevToolsPlugin {
         while (true) {
           try {
             await this.#devtoolsBrowser.getTitle()
-            await new Promise((res) => setTimeout(res, TIMING.BROWSER_POLL_INTERVAL))
+            await new Promise((res) =>
+              setTimeout(res, TIMING.BROWSER_POLL_INTERVAL)
+            )
           } catch {
             if (!exitBySignal) {
               log.info('Browser window closed, stopping DevTools app')
@@ -429,7 +512,10 @@ class NightwatchDevToolsPlugin {
           try {
             await this.#devtoolsBrowser.deleteSession()
           } catch (err: any) {
-            log.warn('Session already closed or could not be deleted:', err.message)
+            log.warn(
+              'Session already closed or could not be deleted:',
+              err.message
+            )
           }
 
           // Stop the backend
@@ -456,16 +542,16 @@ export default function createNightwatchDevTools(options?: DevToolsOptions) {
     // The after() hook waits for the browser window to be closed
     asyncHookTimeout: 3600000, // 1 hour
 
-    before: async function(this: any) {
+    before: async function (this: any) {
       await plugin.before()
     },
-    beforeEach: async function(this: any, browser: NightwatchBrowser) {
+    beforeEach: async function (this: any, browser: NightwatchBrowser) {
       await plugin.beforeEach(browser)
     },
-    afterEach: async function(this: any, browser: NightwatchBrowser) {
+    afterEach: async function (this: any, browser: NightwatchBrowser) {
       await plugin.afterEach(browser)
     },
-    after: async function(this: any) {
+    after: async function (this: any) {
       await plugin.after()
     }
   }
@@ -473,4 +559,3 @@ export default function createNightwatchDevTools(options?: DevToolsOptions) {
 
 // Also export the class for advanced usage
 export { NightwatchDevToolsPlugin }
-

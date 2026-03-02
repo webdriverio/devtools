@@ -3,12 +3,12 @@
  * Handles test suite creation and management
  */
 
-import logger from '@wdio/logger'
-import { DEFAULTS, TIMING, TEST_STATE } from '../constants.js'
-import { determineTestState, type SuiteStats, type TestStats, type NightwatchTestCase } from '../types.js'
+import { DEFAULTS, TEST_STATE } from '../constants.js'
+import type { SuiteStats, TestStats } from '../types.js'
 import type { TestReporter } from '../reporter.js'
+import { generateStableUid } from './utils.js'
 
-const log = logger('@wdio/nightwatch-devtools:suiteManager')
+// const log = logger('@wdio/nightwatch-devtools:suiteManager')
 
 export class SuiteManager {
   private currentSuiteByFile = new Map<string, SuiteStats>()
@@ -41,14 +41,14 @@ export class SuiteManager {
         _duration: DEFAULTS.DURATION
       }
 
-      suiteStats.uid = this.testReporter.generateStableUid(suiteStats.file, suiteStats.title)
+      suiteStats.uid = generateStableUid(suiteStats.file, suiteStats.title)
 
       // Create test entries with pending state
       if (testNames.length > 0) {
         for (const testName of testNames) {
           const fullTitle = `${suiteTitle} ${testName}`
           // Generate stable UID using same method as onTestStart
-          const testUid = this.testReporter.generateStableUid(fullPath || testFile, fullTitle)
+          const testUid = generateStableUid(fullPath || testFile, fullTitle)
           const testEntry: TestStats = {
             uid: testUid,
             cid: DEFAULTS.CID,
@@ -95,14 +95,22 @@ export class SuiteManager {
    * Finalize suite with test results
    */
   finalizeSuite(suite: SuiteStats): void {
-    if (suite.end) return // Already finalized
+    if (suite.end) {
+      return
+    } // Already finalized
 
     suite.end = new Date()
     suite._duration = suite.end.getTime() - (suite.start?.getTime() || 0)
 
-    const hasFailures = suite.tests.some((t: any) => t.state === TEST_STATE.FAILED)
-    const allPassed = suite.tests.every((t: any) => t.state === TEST_STATE.PASSED)
-    const hasSkipped = suite.tests.some((t: any) => t.state === TEST_STATE.SKIPPED)
+    const hasFailures = suite.tests.some(
+      (t: any) => t.state === TEST_STATE.FAILED
+    )
+    const allPassed = suite.tests.every(
+      (t: any) => t.state === TEST_STATE.PASSED
+    )
+    const hasSkipped = suite.tests.some(
+      (t: any) => t.state === TEST_STATE.SKIPPED
+    )
 
     if (hasFailures) {
       suite.state = TEST_STATE.FAILED
