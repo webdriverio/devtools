@@ -59,11 +59,11 @@ export class BrowserProxy {
     const originalUrl = browser.url.bind(browser)
     const sessionCapturer = this.sessionCapturer
 
-    browser.url = function(url: string) {
+    browser.url = function (url: string) {
       const result = originalUrl(url) as any
 
       if (result && typeof result.perform === 'function') {
-        result.perform(async function(this: any) {
+        result.perform(async function (this: any) {
           try {
             log.info(`Injecting script after navigation to: ${url}`)
             await sessionCapturer.injectScript(this)
@@ -83,7 +83,9 @@ export class BrowserProxy {
    * Wrap all browser commands to capture them
    */
   wrapBrowserCommands(browser: NightwatchBrowser): void {
-    if (this.browserProxied) return
+    if (this.browserProxied) {
+      return
+    }
 
     const browserAny = browser as any
     const allMethods = new Set([
@@ -92,19 +94,31 @@ export class BrowserProxy {
     ])
     const wrappedMethods: string[] = []
 
-    allMethods.forEach(methodName => {
-      if (methodName === 'constructor' || typeof browserAny[methodName] !== 'function') {
+    allMethods.forEach((methodName) => {
+      if (
+        methodName === 'constructor' ||
+        typeof browserAny[methodName] !== 'function'
+      ) {
         return
       }
 
-      if (INTERNAL_COMMANDS_TO_IGNORE.includes(methodName as any) || methodName.startsWith('__')) {
+      if (
+        INTERNAL_COMMANDS_TO_IGNORE.includes(methodName as any) ||
+        methodName.startsWith('__')
+      ) {
         return
       }
 
       const originalMethod = browserAny[methodName].bind(browser)
 
       browserAny[methodName] = (...args: any[]) => {
-        return this.handleCommandExecution(browser, browserAny, methodName, originalMethod, args)
+        return this.handleCommandExecution(
+          browser,
+          browserAny,
+          methodName,
+          originalMethod,
+          args
+        )
       }
 
       wrappedMethods.push(methodName)
@@ -126,7 +140,9 @@ export class BrowserProxy {
   ): any {
     // Detect test boundaries
     const currentNightwatchTest = browserAny.currentTest
-    const currentTestName = this.testManager.detectTestBoundary(currentNightwatchTest)
+    const currentTestName = this.testManager.detectTestBoundary(
+      currentNightwatchTest
+    )
 
     // Start test if this is its first command
     this.testManager.startTestIfPending(currentTestName)
@@ -138,7 +154,11 @@ export class BrowserProxy {
     }
 
     // Check for duplicate commands
-    const cmdSig = JSON.stringify({ command: methodName, args, src: callInfo.callSource })
+    const cmdSig = JSON.stringify({
+      command: methodName,
+      args,
+      src: callInfo.callSource
+    })
     const isDuplicate = this.lastCommandSig === cmdSig
 
     if (!isDuplicate) {
@@ -155,16 +175,29 @@ export class BrowserProxy {
 
       // Capture command after execution
       const stackFrame = this.commandStack[this.commandStack.length - 1]
-      if (stackFrame?.command === methodName && stackFrame.signature === cmdSig) {
+      if (
+        stackFrame?.command === methodName &&
+        stackFrame.signature === cmdSig
+      ) {
         this.commandStack.pop()
-        this.captureCommandResult(methodName, args, result, callInfo.callSource, browser, browserAny)
+        this.captureCommandResult(
+          methodName,
+          args,
+          result,
+          callInfo.callSource,
+          browser,
+          browserAny
+        )
       }
 
       return result
     } catch (error) {
       // Capture command error
       const stackFrame = this.commandStack[this.commandStack.length - 1]
-      if (stackFrame?.command === methodName && stackFrame.signature === cmdSig) {
+      if (
+        stackFrame?.command === methodName &&
+        stackFrame.signature === cmdSig
+      ) {
         this.commandStack.pop()
         this.captureCommandError(methodName, args, error, callInfo.callSource)
       }
@@ -185,12 +218,16 @@ export class BrowserProxy {
     browserAny: any
   ): void {
     const currentTest = this.getCurrentTest()
-    if (!currentTest) return
+    if (!currentTest) {
+      return
+    }
 
     // Serialize result
     let serializedResult: any = undefined
     const isBrowserObject = result === browser || result === browserAny
-    const isChainableAPI = result && typeof result === 'object' &&
+    const isChainableAPI =
+      result &&
+      typeof result === 'object' &&
       ('queue' in result || 'sessionId' in result || 'capabilities' in result)
 
     if (isBrowserObject || isChainableAPI) {
@@ -211,16 +248,23 @@ export class BrowserProxy {
     }
 
     // Capture and send command immediately
-    this.sessionCapturer.captureCommand(
-      methodName,
-      args,
-      serializedResult,
-      undefined,
-      currentTest.uid,
-      callSource
-    ).catch((err: any) => log.error(`Failed to capture ${methodName}: ${err.message}`))
+    this.sessionCapturer
+      .captureCommand(
+        methodName,
+        args,
+        serializedResult,
+        undefined,
+        currentTest.uid,
+        callSource
+      )
+      .catch((err: any) =>
+        log.error(`Failed to capture ${methodName}: ${err.message}`)
+      )
 
-    const lastCommand = this.sessionCapturer.commandsLog[this.sessionCapturer.commandsLog.length - 1]
+    const lastCommand =
+      this.sessionCapturer.commandsLog[
+        this.sessionCapturer.commandsLog.length - 1
+      ]
     if (lastCommand) {
       this.sessionCapturer.sendCommand(lastCommand)
     }
@@ -236,18 +280,27 @@ export class BrowserProxy {
     callSource: string | undefined
   ): void {
     const currentTest = this.getCurrentTest()
-    if (!currentTest) return
+    if (!currentTest) {
+      return
+    }
 
-    this.sessionCapturer.captureCommand(
-      methodName,
-      args,
-      undefined,
-      error instanceof Error ? error : new Error(String(error)),
-      currentTest.uid,
-      callSource
-    ).catch((err: any) => log.error(`Failed to capture ${methodName}: ${err.message}`))
+    this.sessionCapturer
+      .captureCommand(
+        methodName,
+        args,
+        undefined,
+        error instanceof Error ? error : new Error(String(error)),
+        currentTest.uid,
+        callSource
+      )
+      .catch((err: any) =>
+        log.error(`Failed to capture ${methodName}: ${err.message}`)
+      )
 
-    const lastCommand = this.sessionCapturer.commandsLog[this.sessionCapturer.commandsLog.length - 1]
+    const lastCommand =
+      this.sessionCapturer.commandsLog[
+        this.sessionCapturer.commandsLog.length - 1
+      ]
     if (lastCommand) {
       this.sessionCapturer.sendCommand(lastCommand)
     }

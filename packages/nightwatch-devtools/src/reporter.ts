@@ -1,48 +1,9 @@
 import logger from '@wdio/logger'
-import { extractTestMetadata } from './helpers/utils.js'
+import { extractTestMetadata, generateStableUid, resetSignatureCounters } from './helpers/utils.js'
 import type { SuiteStats, TestStats } from './types.js'
 
 const log = logger('@wdio/nightwatch-devtools:Reporter')
 
-// Track test occurrences to generate stable UIDs
-const signatureCounters = new Map<string, number>()
-
-/**
- * Generate stable UID based on test/suite metadata (WDIO approach)
- * Use only stable identifiers (file + fullTitle) that don't change between runs
- */
-function generateStableUid(item: SuiteStats | TestStats): string {
-  const rawItem = item as any
-
-  // Use file and fullTitle as stable identifiers
-  // DO NOT use cid or parent as they can vary based on run context
-  const parts = [rawItem.file || '', String(rawItem.fullTitle || item.title)]
-
-  const signature = parts.join('::')
-  const count = signatureCounters.get(signature) || 0
-  signatureCounters.set(signature, count + 1)
-
-  if (count > 0) {
-    parts.push(String(count))
-  }
-
-  // Generate hash for stable, short UIDs
-  const hash = parts
-    .join('::')
-    .split('')
-    .reduce((acc, char) => {
-      return ((acc << 5) - acc + char.charCodeAt(0)) | 0
-    }, 0)
-
-  return `stable-${Math.abs(hash).toString(36)}`
-}
-
-/**
- * Reset counters at the start of each test run
- */
-function resetSignatureCounters() {
-  signatureCounters.clear()
-}
 
 export class TestReporter {
   #report: (data: any) => void
@@ -56,29 +17,6 @@ export class TestReporter {
     resetSignatureCounters()
   }
 
-  /**
-   * Generate stable UID for test/suite - public method (WDIO approach)
-   */
-  generateStableUid(filePath: string, name: string): string {
-    const parts = [filePath, name]
-    const signature = parts.join('::')
-    const count = signatureCounters.get(signature) || 0
-    signatureCounters.set(signature, count + 1)
-
-    if (count > 0) {
-      parts.push(String(count))
-    }
-
-    // Generate hash for stable, short UIDs
-    const hash = parts
-      .join('::')
-      .split('')
-      .reduce((acc, char) => {
-        return ((acc << 5) - acc + char.charCodeAt(0)) | 0
-      }, 0)
-
-    return `stable-${Math.abs(hash).toString(36)}`
-  }
 
   /**
    * Called when a suite starts
@@ -93,12 +31,14 @@ export class TestReporter {
     }
 
     // Extract test names from source file
-    if (suiteStats.file && !this.#testNamesCache.has(suiteStats.file)) {
-      const metadata = extractTestMetadata(suiteStats.file)
+    if (this.#currentSpecFile && !this.#testNamesCache.has(this.#currentSpecFile)) {
+      const metadata = extractTestMetadata(this.#currentSpecFile)
       const testNames = metadata.testNames
       if (testNames.length > 0) {
-        this.#testNamesCache.set(suiteStats.file, testNames)
-        log.info(`📝 Extracted ${testNames.length} test names from ${suiteStats.file}`)
+        this.#testNamesCache.set(this.#currentSpecFile, testNames)
+        log.info(
+          `📝 Extracted ${testNames.length} test names from ${this.#currentSpecFile}`
+        )
       }
     }
 
@@ -131,13 +71,13 @@ export class TestReporter {
 
     // Search for test by title within parent suite
     for (const suite of this.#allSuites) {
-      const testIndex = suite.tests.findIndex(
-        (t) => {
-          if (typeof t === 'string') return false
-          // Match by title and parent suite
-          return t.title === testStats.title && t.parent === suite.uid
+      const testIndex = suite.tests.findIndex((t) => {
+        if (typeof t === 'string') {
+          return false
         }
-      )
+        // Match by title and parent suite
+        return t.title === testStats.title && t.parent === suite.uid
+      })
       if (testIndex !== -1) {
         // Update existing test
         suite.tests[testIndex] = testStats
@@ -255,7 +195,7 @@ export class TestReporter {
    */
   updateSuite(suiteStats: SuiteStats) {
     // Find and remove the old suite by file
-    const index = this.#allSuites.findIndex(s => s.file === suiteStats.file)
+    const index = this.#allSuites.findIndex((s) => s.file === suiteStats.file)
     if (index !== -1) {
       // Remove the old suite entry (with old UID)
       this.#allSuites.splice(index, 1)
@@ -268,7 +208,6 @@ export class TestReporter {
   }
 
   #sendUpstream() {
-    // Convert suites to WDIO format: array of objects with UID as key
     const payload: Record<string, SuiteStats>[] = []
 
     for (const suite of this.#allSuites) {

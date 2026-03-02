@@ -1,9 +1,9 @@
 // Simple import - just require the package
-const nightwatchDevtools = require('@wdio/nightwatch-devtools').default;
+const nightwatchDevtools = require('@wdio/nightwatch-devtools').default
 
 module.exports = {
   src_folders: ['example/tests'],
-
+  output_folder: false, // Skip generating nightwatch reports for this example
   // Add custom reporter to capture commands
   custom_commands_path: [],
   custom_assertions_path: [],
@@ -29,4 +29,4 @@ module.exports = {
       globals: nightwatchDevtools({ port: 3000 })
     }
   }
-};
+}
