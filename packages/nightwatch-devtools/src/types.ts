@@ -94,7 +94,9 @@ export interface NightwatchTestCase {
 /**
  * Determine test state from Nightwatch testcase results
  */
-export function determineTestState(testcase: NightwatchTestCase): 'passed' | 'failed' | 'skipped' {
+export function determineTestState(
+  testcase: NightwatchTestCase
+): 'passed' | 'failed' | 'skipped' {
   if (testcase.passed === 0 && testcase.failed === 0) {
     return 'skipped'
   }
