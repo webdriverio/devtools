@@ -8,6 +8,7 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import * as os from 'node:os'
+import { fileURLToPath } from 'node:url'
 import { start, stop } from '@wdio/devtools-backend'
 import logger from '@wdio/logger'
 import { remote } from 'webdriverio'
@@ -18,13 +19,13 @@ import { SuiteManager } from './helpers/suiteManager.js'
 import { BrowserProxy } from './helpers/browserProxy.js'
 import {
   TraceType,
-  determineTestState,
   type DevToolsOptions,
   type NightwatchBrowser,
   type TestStats
 } from './types.js'
+import { determineTestState, findTestFileFromStack } from './helpers/utils.js'
 import { DEFAULTS, TIMING, TEST_STATE } from './constants.js'
-import { findTestFileFromStack } from './helpers/utils.js'
+
 
 const log = logger('@wdio/nightwatch-devtools')
 
@@ -37,10 +38,13 @@ class NightwatchDevToolsPlugin {
   private browserProxy!: BrowserProxy
   private isScriptInjected = false
   #currentTest: any = null
-  #currentTestFile: string | null = null
   #lastSessionId: string | null = null
   #devtoolsBrowser?: WebdriverIO.Browser
   #userDataDir?: string
+  #isCucumberRunner = false
+  #passCount = 0
+  #failCount = 0
+  #skipCount = 0
 
   constructor(options: DevToolsOptions = {}) {
     this.options = {
@@ -49,10 +53,6 @@ class NightwatchDevToolsPlugin {
     }
   }
 
-  /**
-   * Nightwatch Hook: before (global)
-   * Start the DevTools backend server
-   */
   async before() {
     try {
       log.info('🚀 Starting DevTools backend...')
@@ -101,7 +101,6 @@ class NightwatchDevToolsPlugin {
         log.info('✓ DevTools UI opened in separate browser window')
       } catch (err) {
         log.error(`Failed to open DevTools UI: ${(err as Error).message}`)
-        log.error(`Error stack: ${(err as Error).stack}`)
         log.info(`Please manually open: ${url}`)
       }
 
@@ -114,95 +113,210 @@ class NightwatchDevToolsPlugin {
       )
 
       log.info('Starting tests...')
+      // Expose this plugin instance so cucumberHooks.cjs can call back into it
+      ;(globalThis as any).__nightwatchDevtoolsPlugin = this
     } catch (err) {
       log.error(`Failed to start backend: ${(err as Error).message}`)
       throw err
     }
   }
 
-  /**
-   * Nightwatch Hook: beforeEach
-   * Initialize session and inject script before each test
-   */
-  async beforeEach(browser: NightwatchBrowser) {
-    const currentTest = (browser as any).currentTest
-    // const testFile = (currentTest?.module || '').split('/').pop() || 'unknown'
+  async #ensureSessionInitialized(browser: NightwatchBrowser) {
     const currentSessionId = (browser as any).sessionId
 
-    // Check if browser session changed (happens with parallel workers)
     if (
       currentSessionId &&
       this.#lastSessionId &&
       currentSessionId !== this.#lastSessionId
     ) {
-      log.info('Browser session changed - reinitializing for new worker')
+      log.info('Browser session changed — reinitializing')
       this.isScriptInjected = false
-      // Reset session capturer for new browser session
+      this.sessionCapturer?.cleanup()
       this.sessionCapturer = null as any
     }
     this.#lastSessionId = currentSessionId
 
-    // Initialize on first test OR when browser session changes
-    if (!this.sessionCapturer) {
-      await new Promise((resolve) =>
-        setTimeout(resolve, TIMING.INITIAL_CONNECTION_WAIT)
-      )
+    if (this.sessionCapturer) return
 
-      this.sessionCapturer = new SessionCapturer(
-        {
-          port: this.options.port,
-          hostname: this.options.hostname
-        },
-        browser
-      )
+    await new Promise((resolve) => setTimeout(resolve, TIMING.INITIAL_CONNECTION_WAIT))
 
-      const connected = await this.sessionCapturer.waitForConnection(3000)
-      if (!connected) {
-        log.error('❌ Worker WebSocket failed to connect!')
-      } else {
-        log.info('✓ Worker WebSocket connected')
-      }
+    this.sessionCapturer = new SessionCapturer(
+      { port: this.options.port, hostname: this.options.hostname },
+      browser
+    )
 
-      // Initialize managers
-      this.testReporter = new TestReporter((suitesData: any) => {
-        if (this.sessionCapturer) {
-          this.sessionCapturer.sendUpstream('suites', suitesData)
-        }
-      })
-
-      this.testManager = new TestManager(this.testReporter)
-      this.suiteManager = new SuiteManager(this.testReporter)
-      this.browserProxy = new BrowserProxy(
-        this.sessionCapturer,
-        this.testManager,
-        () => this.#currentTest
-      )
-
-      log.info('✓ Session initialized')
-      log.info('Injecting DevTools script into browser session...', browser)
-      // Send initial metadata
-      const capabilities = browser.capabilities || {}
-      this.sessionCapturer.sendUpstream('metadata', {
-        type: TraceType.Testrunner,
-        capabilities,
-        options: {},
-        url: ''
-      })
+    const connected = await this.sessionCapturer.waitForConnection(3000)
+    if (!connected) {
+      log.error('❌ Worker WebSocket failed to connect!')
+    } else {
+      log.info('✓ Worker WebSocket connected')
     }
 
-    // Get current test info and find test file
-    if (currentTest) {
-      const testFile =
+    this.testReporter = new TestReporter((suitesData: any) => {
+      if (this.sessionCapturer) this.sessionCapturer.sendUpstream('suites', suitesData)
+    })
+    this.testManager = new TestManager(this.testReporter)
+    this.suiteManager = new SuiteManager(this.testReporter)
+    this.browserProxy = new BrowserProxy(
+      this.sessionCapturer,
+      this.testManager,
+      () => this.#currentTest
+    )
+
+    log.info('✓ Session initialized')
+
+    const capabilities = (browser as any).capabilities || {}
+    const desiredCapabilities = (browser as any).desiredCapabilities || {}
+    const sessionId = (browser as any).sessionId
+    const opts = (browser as any).options || {}
+    this.sessionCapturer.sendUpstream('metadata', {
+      type: TraceType.Testrunner,
+      capabilities,
+      desiredCapabilities,
+      sessionId,
+      testEnv: opts.testEnv,
+      host: opts.webdriver?.host,
+      options: {},
+      url: ''
+    })
+
+    const browserName = capabilities.browserName || desiredCapabilities.browserName || 'unknown'
+    const browserVersion = capabilities.browserVersion || (capabilities as any).version || ''
+    log.info(`✓ Browser: ${browserName}${browserVersion ? ' ' + browserVersion : ''} (session: ${sessionId})`)
+
+    const chromeOptions = (capabilities as any)['goog:chromeOptions'] || (desiredCapabilities as any)['goog:chromeOptions'] || {}
+    const mobileEmulation = chromeOptions.mobileEmulation
+    if (mobileEmulation) {
+      const device = mobileEmulation.deviceName
+        ? `device: ${mobileEmulation.deviceName}`
+        : `${mobileEmulation.deviceMetrics?.width}x${mobileEmulation.deviceMetrics?.height} @${mobileEmulation.deviceMetrics?.pixelRatio}x`
+      log.info(`📱 Mobile emulation active — ${device}`)
+    }
+
+    const loggingPrefs = (capabilities as any)['goog:loggingPrefs'] || (desiredCapabilities as any)['goog:loggingPrefs'] || {}
+    if (!loggingPrefs.performance) {
+      log.warn('⚠  Network tab will be empty — add \'goog:loggingPrefs\': { performance: \'ALL\' } to your capabilities')
+    }
+  }
+
+
+
+  async cucumberBefore(browser: NightwatchBrowser, pickle: any) {
+    await this.#initCucumberScenario(browser, pickle)
+  }
+
+  async cucumberAfter(browser: NightwatchBrowser, result: any, pickle: any) {
+    await this.#finalizeCucumberScenario(browser, result, pickle)
+  }
+
+  /** Called from Cucumber Before hook (order:1000) — one call per scenario. */
+  async #initCucumberScenario(browser: NightwatchBrowser, pickle: any) {
+    await this.#ensureSessionInitialized(browser)
+
+    const featureUri: string = pickle.uri ?? 'unknown.feature'
+    const scenarioName: string = pickle.name ?? 'Unknown Scenario'
+
+    // Derive the feature name from the "Feature: <name>" header in the file,
+    // falling back to the filename (e.g. "login") only if the file can't be read.
+    let featureName: string = path.basename(featureUri, '.feature')
+    const featureAbsPath = path.resolve(process.cwd(), featureUri)
+    if (featureUri !== 'unknown.feature' && fs.existsSync(featureAbsPath)) {
+      const content = fs.readFileSync(featureAbsPath, 'utf-8')
+      const match = content.match(/^\s*Feature:\s*(.+)/m)
+      if (match) featureName = match[1].trim()
+
+      this.sessionCapturer.captureSource(featureAbsPath).catch(() => {})
+
+      // Capture step definitions from sibling directories
+      const featureDir = path.dirname(featureAbsPath)
+      const stepDirCandidates = ['step_definitions', 'steps', 'support']
+      for (const candidate of stepDirCandidates) {
+        const stepDir = path.join(featureDir, candidate)
+        if (fs.existsSync(stepDir) && fs.statSync(stepDir).isDirectory()) {
+          for (const entry of fs.readdirSync(stepDir)) {
+            if (/\.(js|ts|mjs|cjs)$/.test(entry)) {
+              this.sessionCapturer.captureSource(path.join(stepDir, entry)).catch(() => {})
+            }
+          }
+        }
+      }
+    }
+
+    const suite = this.suiteManager.getOrCreateSuite(
+      featureUri, featureName, featureUri, [scenarioName]
+    )
+    this.suiteManager.markSuiteAsRunning(suite)
+
+    const test = this.testManager.findTestInSuite(suite, scenarioName)
+    if (test) {
+      test.state = TEST_STATE.RUNNING as TestStats['state']
+      test.start = new Date()
+      test.end = null
+      this.testReporter.onTestStart(test)
+      this.#currentTest = test
+    }
+
+    if (!this.isScriptInjected) {
+      this.browserProxy.wrapUrlMethod(browser)
+      this.isScriptInjected = true
+    }
+    this.browserProxy.wrapBrowserCommands(browser)
+    this.browserProxy.resetCommandTracking()
+
+    log.info(`🥒 Scenario: ${scenarioName}`)
+  }
+
+  /** Called from Cucumber After hook (order:1000) — one call per scenario. */
+  async #finalizeCucumberScenario(browser: NightwatchBrowser, result: any, pickle: any) {
+    try {
+      const status = String(result?.status ?? 'UNKNOWN').toUpperCase()
+      const testState: TestStats['state'] =
+        status === 'PASSED'  ? TEST_STATE.PASSED  :
+        status === 'SKIPPED' ? TEST_STATE.SKIPPED :
+        TEST_STATE.FAILED
+
+      if (this.#currentTest) {
+        const duration = Date.now() - (this.#currentTest.start?.getTime() ?? Date.now())
+        this.testManager.updateTestState(this.#currentTest, testState, new Date(), duration)
+
+        const featureUri: string = pickle?.uri ?? 'unknown.feature'
+        this.testManager.markTestAsProcessed(featureUri, this.#currentTest.title)
+
+        const suite = this.suiteManager.getSuite(featureUri)
+        if (suite) this.suiteManager.finalizeSuite(suite)
+
+        if (testState === TEST_STATE.PASSED) this.#passCount++
+        else if (testState === TEST_STATE.SKIPPED) this.#skipCount++
+        else this.#failCount++
+        const icon = testState === TEST_STATE.PASSED ? '✅' : testState === TEST_STATE.SKIPPED ? '⏭' : '❌'
+        const durationSec = (duration / 1000).toFixed(2)
+        log.info(`  ${icon} ${pickle?.name ?? 'Unknown'} (${durationSec}s)`)
+
+        this.#currentTest = null
+      }
+
+      await this.sessionCapturer.captureTrace(browser)
+    } catch (err) {
+      log.error(`Failed to finalize Cucumber scenario: ${(err as Error).message}`)
+    }
+  }
+
+  async beforeEach(browser: NightwatchBrowser) {
+    if (this.#isCucumberRunner) return
+
+    await this.#ensureSessionInitialized(browser)
+
+    const currentTest = (browser as any).currentTest
+    if (!currentTest) return
+
+    const testFile =
         (currentTest.module || '').split('/').pop() ||
         currentTest.module ||
         DEFAULTS.FILE_NAME
 
-      // Find test file: try stack trace first, then search workspace
-      let fullPath: string | null = findTestFileFromStack() || null
-      const cachedPath = this.browserProxy.getCurrentTestFullPath()
-
-      // Only use cached path if it matches the current testFile
-      if (!fullPath && cachedPath && cachedPath.includes(testFile)) {
+    let fullPath: string | null = findTestFileFromStack() || null
+    const cachedPath = this.browserProxy.getCurrentTestFullPath()
+    if (!fullPath && cachedPath && cachedPath.includes(testFile)) {
         fullPath = cachedPath
       }
 
@@ -264,105 +378,72 @@ class NightwatchDevToolsPlugin {
         this.sessionCapturer.captureSource(fullPath).catch(() => {})
       }
 
-      // Handle running test from previous beforeEach
-      const runningTest = currentSuite.tests.find(
-        (t: any) => typeof t !== 'string' && t.state === TEST_STATE.RUNNING
-      ) as TestStats | undefined
+    const runningTest = currentSuite.tests.find(
+      (t: any) => typeof t !== 'string' && t.state === TEST_STATE.RUNNING
+    ) as TestStats | undefined
 
-      if (runningTest) {
-        const currentTest = (browser as any).currentTest
-        const testcases = currentTest?.results?.testcases || {}
+    if (runningTest) {
+      const testcases = currentTest?.results?.testcases || {}
 
-        if (testcases[runningTest.title]) {
-          const testcase = testcases[runningTest.title]
-          const testState = determineTestState(testcase)
-          runningTest.state = testState
-          runningTest.end = new Date()
-          runningTest._duration = parseFloat(testcase.time || '0') * 1000
-
-          this.testManager.updateTestState(runningTest, testState)
-          this.testManager.markTestAsProcessed(testFile, runningTest.title)
-
-          await new Promise((resolve) =>
-            setTimeout(resolve, TIMING.UI_RENDER_DELAY)
-          )
-        } else {
-          const endTime = new Date()
-          const duration =
-            endTime.getTime() - (runningTest.start?.getTime() || 0)
-
-          this.testManager.updateTestState(
-            runningTest,
-            TEST_STATE.PASSED as TestStats['state'],
-            endTime,
-            duration
-          )
-          this.testManager.markTestAsProcessed(testFile, runningTest.title)
-
-          await new Promise((resolve) =>
-            setTimeout(resolve, TIMING.UI_RENDER_DELAY)
-          )
-        }
-      }
-
-      // Find and start next test
-      const processedTests = this.testManager.getProcessedTests(testFile)
-      const currentTestName = testNames.find(
-        (name) => !processedTests.has(name)
-      )
-
-      if (currentTestName) {
-        // Mark suite as running on first test
-        if (processedTests.size === 0) {
-          this.suiteManager.markSuiteAsRunning(currentSuite)
-        }
-
-        const test = this.testManager.findTestInSuite(
-          currentSuite,
-          currentTestName
+      if (testcases[runningTest.title]) {
+        const testcase = testcases[runningTest.title]
+        const testState = determineTestState(testcase)
+        runningTest.state = testState
+        runningTest.end = new Date()
+        runningTest._duration = parseFloat(testcase.time || '0') * 1000
+        this.testManager.updateTestState(runningTest, testState)
+        this.testManager.markTestAsProcessed(testFile, runningTest.title)
+        if (testState === TEST_STATE.PASSED) this.#passCount++
+        else if (testState === TEST_STATE.SKIPPED) this.#skipCount++
+        else this.#failCount++
+        const prevIcon = testState === TEST_STATE.PASSED ? '✅' : testState === TEST_STATE.SKIPPED ? '⏭' : '❌'
+        log.info(`  ${prevIcon} ${runningTest.title} (${(runningTest._duration / 1000).toFixed(2)}s)`)
+      } else {
+        const endTime = new Date()
+        const duration = endTime.getTime() - (runningTest.start?.getTime() || 0)
+        this.testManager.updateTestState(
+          runningTest, TEST_STATE.PASSED as TestStats['state'], endTime, duration
         )
-        if (test) {
-          test.state = TEST_STATE.RUNNING as TestStats['state']
-          test.start = new Date()
-          test.end = null
-          this.testReporter.onTestStart(test)
-
-          // Use the real test UID for command tracking (no temporary UIDs!)
-          this.#currentTest = test
-
-          await new Promise((resolve) =>
-            setTimeout(resolve, TIMING.TEST_START_DELAY)
-          )
-        } else {
-          // This should never happen if suite was properly initialized
-          log.warn(
-            `Test "${currentTestName}" not found in suite "${currentSuite.title}" - skipping command tracking`
-          )
-          this.#currentTest = null
-        }
+        this.testManager.markTestAsProcessed(testFile, runningTest.title)
+        this.#passCount++
+        log.info(`  ✅ ${runningTest.title} (${(duration / 1000).toFixed(2)}s)`)
       }
-
-      this.#currentTestFile = testFile
-
-      // Wrap browser.url for script injection
-      if (!this.isScriptInjected) {
-        this.browserProxy.wrapUrlMethod(browser)
-        this.isScriptInjected = true
-      }
-
-      // Reset command tracking
-      this.browserProxy.resetCommandTracking()
+      await new Promise((resolve) => setTimeout(resolve, TIMING.UI_RENDER_DELAY))
     }
 
-    // Wrap browser commands
+    const processedTests = this.testManager.getProcessedTests(testFile)
+    const currentTestName = testNames.find((name) => !processedTests.has(name))
+
+    if (currentTestName) {
+      if (processedTests.size === 0) this.suiteManager.markSuiteAsRunning(currentSuite)
+
+      const test = this.testManager.findTestInSuite(currentSuite, currentTestName)
+      if (test) {
+        test.state = TEST_STATE.RUNNING as TestStats['state']
+        test.start = new Date()
+        test.end = null
+        this.testReporter.onTestStart(test)
+        this.#currentTest = test
+        log.info(`  ▶ ${currentTestName}`)
+        await new Promise((resolve) => setTimeout(resolve, TIMING.TEST_START_DELAY))
+      } else {
+        log.warn(`Test "${currentTestName}" not found in suite "${currentSuite.title}"`)
+        this.#currentTest = null
+      }
+    }
+
+    if (!this.isScriptInjected) {
+      this.browserProxy.wrapUrlMethod(browser)
+      this.isScriptInjected = true
+    }
+    this.browserProxy.resetCommandTracking()
     this.browserProxy.wrapBrowserCommands(browser)
   }
 
-  /**
-   * Nightwatch Hook: afterEach
-   * Capture trace data after each test
-   */
   async afterEach(browser: NightwatchBrowser) {
+    // Cucumber runner manages its own lifecycle via cucumberHooks.cjs
+    if (this.#isCucumberRunner) return
+
     if (browser && this.sessionCapturer) {
       try {
         const currentTest = (browser as any).currentTest
@@ -376,7 +457,6 @@ class NightwatchDevToolsPlugin {
         if (currentSuite) {
           const processedTests = this.testManager.getProcessedTests(testFile)
 
-          // Handle case with no results yet
           if (testcaseNames.length === 0) {
             const runningTest = currentSuite.tests.find(
               (t: any) =>
@@ -399,12 +479,16 @@ class NightwatchDevToolsPlugin {
                 duration
               )
               this.testManager.markTestAsProcessed(testFile, runningTest.title)
+              if (testState === TEST_STATE.PASSED) this.#passCount++
+              else this.#failCount++
+              const icon = testState === TEST_STATE.PASSED ? '✅' : '❌'
+              log.info(`  ${icon} ${runningTest.title} (${(duration / 1000).toFixed(2)}s)`)
             }
           } else {
-            // Process tests with results
             const unprocessedTests = testcaseNames.filter(
               (name) => !processedTests.has(name)
             )
+
 
             for (const currentTestName of unprocessedTests) {
               const testcase = testcases[currentTestName]
@@ -415,18 +499,23 @@ class NightwatchDevToolsPlugin {
                 currentTestName
               )
               if (test) {
+                const dur = parseFloat(testcase.time || '0') * 1000
                 this.testManager.updateTestState(
                   test,
                   testState,
                   new Date(),
-                  parseFloat(testcase.time || '0') * 1000
+                  dur
                 )
+                if (testState === TEST_STATE.PASSED) this.#passCount++
+                else if (testState === TEST_STATE.SKIPPED) this.#skipCount++
+                else this.#failCount++
+                const icon = testState === TEST_STATE.PASSED ? '✅' : testState === TEST_STATE.SKIPPED ? '⏭' : '❌'
+                log.info(`  ${icon} ${currentTestName} (${(dur / 1000).toFixed(2)}s)`)
               }
 
               this.testManager.markTestAsProcessed(testFile, currentTestName)
             }
 
-            // Check if suite is complete
             if (processedTests.size === testcaseNames.length) {
               this.suiteManager.finalizeSuite(currentSuite)
               await new Promise((resolve) =>
@@ -443,17 +532,12 @@ class NightwatchDevToolsPlugin {
     }
   }
 
-  /**
-   * Nightwatch Hook: after (global)
-   * Keep the application alive until the browser window is closed
-   */
   async after(browser?: NightwatchBrowser) {
     try {
-      // Process any remaining incomplete suites
       const currentTest = (browser as any)?.currentTest
       const testcases = currentTest?.results?.testcases || {}
 
-      for (const [, suite] of this.suiteManager.getAllSuites().entries()) {
+      for (const [, suite] of (this.suiteManager?.getAllSuites() ?? new Map()).entries()) {
         this.testManager.finalizeSuiteTests(suite, testcases)
         await new Promise((resolve) =>
           setTimeout(resolve, TIMING.SUITE_COMPLETE_DELAY)
@@ -465,8 +549,15 @@ class NightwatchDevToolsPlugin {
         setTimeout(resolve, TIMING.SUITE_COMPLETE_DELAY)
       )
 
+      const summary = [
+        this.#passCount > 0 ? `${this.#passCount} passed` : null,
+        this.#failCount > 0 ? `${this.#failCount} failed` : null,
+        this.#skipCount > 0 ? `${this.#skipCount} skipped` : null
+      ].filter(Boolean).join('  ')
+      const totalFailed = this.#failCount
+
       log.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
-      log.info('✅ Tests complete!')
+      log.info(`${totalFailed > 0 ? '❌' : '✅'} Tests complete!  ${summary}`)
       log.info('')
       log.info(
         `   DevTools UI: http://${this.options.hostname}:${this.options.port}`
@@ -476,14 +567,10 @@ class NightwatchDevToolsPlugin {
       log.info('   (or press Ctrl+C to exit and keep browser open)')
       log.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
 
-      // Keep the process alive by polling the devtools browser (WDIO pattern)
-      // When browser closes naturally, we clean up.
-      // When Ctrl+C happens, browser survives and we skip cleanup.
       if (this.#devtoolsBrowser) {
-        logger.setLevel('devtools', 'warn')
+        ;(logger as any).setLevel('devtools', 'warn')
         let exitBySignal = false
 
-        // Handle Ctrl+C: exit process but let browser survive
         const signalHandler = () => {
           exitBySignal = true
           log.info('\n✓ Exiting... Browser window will remain open')
@@ -492,7 +579,6 @@ class NightwatchDevToolsPlugin {
         process.once('SIGINT', signalHandler)
         process.once('SIGTERM', signalHandler)
 
-        // Poll browser until it closes
         while (true) {
           try {
             await this.#devtoolsBrowser.getTitle()
@@ -507,8 +593,8 @@ class NightwatchDevToolsPlugin {
           }
         }
 
-        // Only clean up if browser was closed (not Ctrl+C)
         if (!exitBySignal) {
+          ;(logger as any).setLevel('devtools', 'info')
           try {
             await this.#devtoolsBrowser.deleteSession()
           } catch (err: any) {
@@ -518,7 +604,6 @@ class NightwatchDevToolsPlugin {
             )
           }
 
-          // Stop the backend
           log.info('🛑 Stopping DevTools backend...')
           await stop()
           log.info('✓ Backend stopped')
@@ -528,19 +613,84 @@ class NightwatchDevToolsPlugin {
       log.error(`Failed to stop backend: ${(err as Error).message}`)
     }
   }
+
+  registerEventHandlers(eventHub: any): void {
+    this.#isCucumberRunner = eventHub.runner === 'cucumber'
+    if (this.#isCucumberRunner) {
+      log.info('✓ Cucumber runner detected via NightwatchEventHub')
+    }
+    log.info('✓ NightwatchEventHub registered — enriched metadata enabled')
+
+    eventHub.on('TestSuiteStarted', (data: any) => {
+      try {
+        const { sessionCapabilities, sessionId, testEnv, host, modulePath } =
+          data?.metadata ?? {}
+
+        if (this.sessionCapturer && (sessionCapabilities || sessionId)) {
+          log.info(`TestSuiteStarted: env=${testEnv}, session=${sessionId}`)
+          this.sessionCapturer.sendUpstream('metadata', {
+            type: TraceType.Testrunner,
+            capabilities: sessionCapabilities ?? {},
+            sessionId,
+            testEnv,
+            host,
+            modulePath,
+            options: {}
+          })
+        }
+      } catch (err) {
+        log.error(
+          `Error in TestSuiteStarted handler: ${(err as Error).message}`
+        )
+      }
+    })
+
+    eventHub.on('TestRunStarted', (data: any) => {
+      try {
+        const { sessionCapabilities, sessionId, testEnv, host, modulePath } =
+          data?.metadata ?? {}
+
+        if (this.sessionCapturer && (sessionCapabilities || sessionId)) {
+          this.sessionCapturer.sendUpstream('metadata', {
+            type: TraceType.Testrunner,
+            capabilities: sessionCapabilities ?? {},
+            sessionId,
+            testEnv,
+            host,
+            modulePath,
+            options: {}
+          })
+        }
+      } catch (err) {
+        log.error(`Error in TestRunStarted handler: ${(err as Error).message}`)
+      }
+    })
+
+    eventHub.on('ScreenshotCreated', (data: any) => {
+      try {
+        log.info(`Screenshot created: ${data?.path ?? 'unknown path'}`)
+      } catch {
+        // ignore
+      }
+    })
+  }
 }
 
 /**
- * Factory function to create the plugin instance
- * This allows simple usage: require('@wdio/nightwatch-devtools').default
+ * The absolute path to the compiled Cucumber hooks file.
+ * Kept for backwards compatibility — prefer using `withCucumber()` instead.
  */
+export const cucumberHooksPath = fileURLToPath(
+  new URL('./helpers/cucumberHooks.cjs', import.meta.url)
+)
+
 export default function createNightwatchDevTools(options?: DevToolsOptions) {
   const plugin = new NightwatchDevToolsPlugin(options)
 
   return {
     // Set long timeout to allow user to review DevTools UI
     // The after() hook waits for the browser window to be closed
-    asyncHookTimeout: 3600000, // 1 hour
+    asyncHookTimeout: 3600000,
 
     before: async function (this: any) {
       await plugin.before()
@@ -553,9 +703,12 @@ export default function createNightwatchDevTools(options?: DevToolsOptions) {
     },
     after: async function (this: any) {
       await plugin.after()
+    },
+
+    registerEventHandlers: function (eventHub: any) {
+      plugin.registerEventHandlers(eventHub)
     }
   }
 }
 
-// Also export the class for advanced usage
 export { NightwatchDevToolsPlugin }

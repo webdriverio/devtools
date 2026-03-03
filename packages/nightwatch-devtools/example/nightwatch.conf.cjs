@@ -23,7 +23,8 @@ module.exports = {
         browserName: 'chrome',
         'goog:chromeOptions': {
           args: ['--headless', '--no-sandbox', '--disable-dev-shm-usage']
-        }
+        },
+        'goog:loggingPrefs': { performance: 'ALL' }
       },
       // Simple configuration - just call the function to get globals
       globals: nightwatchDevtools({ port: 3000 })

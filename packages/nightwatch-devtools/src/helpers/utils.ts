@@ -1,3 +1,16 @@
+import * as fs from 'node:fs'
+import * as path from 'node:path'
+import { parse as parseStackTrace } from 'stacktrace-parser'
+import { ANSI_REGEX, LOG_LEVEL_PATTERNS } from '../constants.js'
+import type { ConsoleLog, LogLevel, NightwatchTestCase } from '../types.js'
+
+export function determineTestState(
+  testcase: NightwatchTestCase
+): 'passed' | 'failed' | 'skipped' {
+  if (testcase.passed === 0 && testcase.failed === 0) return 'skipped'
+  return testcase.passed > 0 && testcase.failed === 0 ? 'passed' : 'failed'
+}
+
 // Track test occurrences to generate stable UIDs
 const signatureCounters = new Map<string, number>()
 
@@ -35,14 +48,6 @@ export function generateStableUid(itemOrFile: any, name?: string): string {
 export function resetSignatureCounters() {
   signatureCounters.clear()
 }
-/**
- * Utility functions for test file discovery and metadata extraction
- * Based on WDIO DevTools approach
- */
-
-import * as fs from 'node:fs'
-import * as path from 'node:path'
-import { parse as parseStackTrace } from 'stacktrace-parser'
 
 // File patterns for test file identification
 const SPEC_FILE_PATTERN = /\/(test|spec|tests)\//i
@@ -116,10 +121,8 @@ export function extractTestMetadata(filePath: string): {
     while ((match = testRegex.exec(source)) !== null) {
       result.testNames.push(match[1])
     }
-  } catch (err) {
-    console.log(
-      `[DEBUG] Failed to parse test file ${filePath}: ${(err as Error).message}`
-    )
+  } catch {
+    // Silently skip unparseable test files
   }
   return result
 }
@@ -208,4 +211,71 @@ export function findTestFileByName(
     return undefined
   }
   return searchDir(workspaceRoot)
+}
+
+// ---------------------------------------------------------------------------
+// Console / log helpers (used by SessionCapturer)
+// ---------------------------------------------------------------------------
+
+/**
+ * Strip ANSI escape codes from a string.
+ */
+export const stripAnsiCodes = (text: string): string => text.replace(ANSI_REGEX, '')
+
+/**
+ * Infer a log level from the text content of a line.
+ */
+export function detectLogLevel(text: string): LogLevel {
+  const low = stripAnsiCodes(text).toLowerCase()
+  for (const { level, pattern } of LOG_LEVEL_PATTERNS) {
+    if (pattern.test(low)) return level
+  }
+  return 'log'
+}
+
+/**
+ * Build a ConsoleLog entry.
+ */
+export function createConsoleLogEntry(
+  type: LogLevel,
+  args: any[],
+  source: string
+): ConsoleLog {
+  return { timestamp: Date.now(), type, args, source }
+}
+
+/**
+ * Map a Chrome DevTools log level string to our LogLevel union.
+ */
+export function chromeLogLevelToLogLevel(
+  level: string | { value?: number; name?: string }
+): LogLevel {
+  const s = typeof level === 'object' ? (level?.name ?? '') : (level ?? '')
+  switch (s.toUpperCase()) {
+    case 'SEVERE': return 'error'
+    case 'WARNING': return 'warn'
+    case 'INFO': return 'info'
+    case 'DEBUG': return 'debug'
+    default: return 'log'
+  }
+}
+
+/**
+ * Derive a human-readable request type from URL and MIME type.
+ */
+export function getRequestType(url: string, mimeType?: string): string {
+  const ct = mimeType?.toLowerCase() ?? ''
+  const u = url.toLowerCase()
+  if (ct.includes('text/html')) return 'document'
+  if (ct.includes('text/css')) return 'stylesheet'
+  if (ct.includes('javascript') || ct.includes('ecmascript')) return 'script'
+  if (ct.includes('image/')) return 'image'
+  if (ct.includes('font/') || ct.includes('woff')) return 'font'
+  if (ct.includes('application/json')) return 'fetch'
+  if (u.endsWith('.html') || u.endsWith('.htm')) return 'document'
+  if (u.endsWith('.css')) return 'stylesheet'
+  if (u.endsWith('.js') || u.endsWith('.mjs')) return 'script'
+  if (u.match(/\.(png|jpg|jpeg|gif|svg|webp|ico)$/)) return 'image'
+  if (u.match(/\.(woff|woff2|ttf|eot|otf)$/)) return 'font'
+  return 'xhr'
 }

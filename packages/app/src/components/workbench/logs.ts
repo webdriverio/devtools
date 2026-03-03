@@ -120,13 +120,15 @@ export class DevtoolsSource extends Element {
           {} as Record<string, unknown>
         )}"
       ></wdio-devtools-list>
-      <wdio-devtools-list
-        label="Result"
-        class="text-xs"
-        .list="${typeof this.command.result === 'object'
-          ? this.command.result
-          : [this.command.result]}"
-      ></wdio-devtools-list>
+      ${this.command.result !== null && this.command.result !== undefined
+        ? html`<wdio-devtools-list
+            label="Result"
+            class="text-xs"
+            .list="${typeof this.command.result === 'object'
+              ? this.command.result
+              : [this.command.result]}"
+          ></wdio-devtools-list>`
+        : ''}
     `
   }
 }
