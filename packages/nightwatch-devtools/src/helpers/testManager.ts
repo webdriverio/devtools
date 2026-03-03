@@ -1,19 +1,11 @@
-/**
- * Test Manager
- * Handles test lifecycle, state management, and boundary detection
- */
-
-// import logger from '@wdio/logger'
 import { TEST_STATE, DEFAULTS } from '../constants.js'
 import {
-  determineTestState,
   type TestStats,
   type SuiteStats,
   type NightwatchTestCase
 } from '../types.js'
+import { determineTestState } from './utils.js'
 import type { TestReporter } from '../reporter.js'
-
-// const log = logger('@wdio/nightwatch-devtools:testManager')
 
 export class TestManager {
   private processedTests = new Map<string, Set<string>>()

@@ -1,3 +1,9 @@
+export interface CommandStackFrame {
+  command: string
+  callSource?: string
+  signature: string
+}
+
 export interface PerformanceData {
   navigation?: {
     url: string
@@ -79,9 +85,6 @@ export interface TestStats {
   hooks?: any[]
 }
 
-/**
- * Nightwatch test case result from results.testcases
- */
 export interface NightwatchTestCase {
   passed: number
   failed: number
@@ -89,18 +92,6 @@ export interface NightwatchTestCase {
   skipped: number
   time: string
   assertions: any[]
-}
-
-/**
- * Determine test state from Nightwatch testcase results
- */
-export function determineTestState(
-  testcase: NightwatchTestCase
-): 'passed' | 'failed' | 'skipped' {
-  if (testcase.passed === 0 && testcase.failed === 0) {
-    return 'skipped'
-  }
-  return testcase.passed > 0 && testcase.failed === 0 ? 'passed' : 'failed'
 }
 
 export interface SuiteStats {

@@ -6,53 +6,25 @@ import { WebSocket } from 'ws'
 import {
   CONSOLE_METHODS,
   LOG_SOURCES,
-  ANSI_REGEX,
-  LOG_LEVEL_PATTERNS
+  NAVIGATION_COMMANDS,
+  SPINNER_RE
 } from './constants.js'
+import {
+  stripAnsiCodes,
+  detectLogLevel,
+  createConsoleLogEntry,
+  chromeLogLevelToLogLevel,
+  getRequestType
+} from './helpers/utils.js'
 import type {
   CommandLog,
   ConsoleLog,
   LogLevel,
   NightwatchBrowser
 } from './types.js'
-// import { getCapturePerformanceScript } from './helpers/capturePerformance.js'
 
 const require = createRequire(import.meta.url)
 const log = logger('@wdio/nightwatch-devtools:SessionCapturer')
-
-/**
- * Strip ANSI escape codes from text
- */
-const stripAnsiCodes = (text: string): string => text.replace(ANSI_REGEX, '')
-
-/**
- * Detect log level from text content
- */
-const detectLogLevel = (text: string): LogLevel => {
-  const cleanText = stripAnsiCodes(text).toLowerCase()
-
-  for (const { level, pattern } of LOG_LEVEL_PATTERNS) {
-    if (pattern.test(cleanText)) {
-      return level
-    }
-  }
-
-  return 'log'
-}
-
-/**
- * Create a console log entry
- */
-const createConsoleLogEntry = (
-  type: LogLevel,
-  args: any[],
-  source: string
-): ConsoleLog => ({
-  timestamp: Date.now(),
-  type,
-  args,
-  source
-})
 
 export class SessionCapturer {
   #ws: WebSocket | undefined
@@ -66,8 +38,8 @@ export class SessionCapturer {
   }
   #isCapturingConsole = false
   #browser: NightwatchBrowser | undefined
-  #commandCounter = 0 // Sequential ID for commands
-  #sentCommandIds = new Set<number>() // Track which commands have been sent
+#commandCounter = 0
+  #sentCommandIds = new Set<number>()
 
   commandsLog: CommandLog[] = []
   sources = new Map<string, string>()
@@ -112,6 +84,109 @@ export class SessionCapturer {
       stdoutWrite: process.stdout.write.bind(process.stdout),
       stderrWrite: process.stderr.write.bind(process.stderr)
     }
+
+    this.#patchConsole()
+    this.#interceptProcessStreams()
+  }
+
+  #patchConsole() {
+    CONSOLE_METHODS.forEach((method) => {
+      const originalMethod = this.#originalConsoleMethods[method]
+      console[method] = (...consoleArgs: any[]) => {
+        this.#isCapturingConsole = true
+        const result = originalMethod.apply(console, consoleArgs)
+        this.#isCapturingConsole = false
+
+        // Capture all console output; strip ANSI codes for clean display in UI
+        const rawText = consoleArgs
+          .map((a) => (typeof a === 'object' && a !== null ? JSON.stringify(a) : String(a)))
+          .join(' ')
+        const cleanText = stripAnsiCodes(rawText).trim()
+        if (!cleanText) {
+          return result
+        }
+
+        const logEntry = createConsoleLogEntry(
+          method as LogLevel,
+          [cleanText],
+          LOG_SOURCES.TEST
+        )
+        this.consoleLogs.push(logEntry)
+        this.sendUpstream('consoleLogs', [logEntry])
+
+        return result
+      }
+    })
+  }
+
+  #isInternalStreamLine(line: string): boolean {
+    const t = line.trim()
+    return t.startsWith('{"') || t.includes('@wdio/devtools-backend') || t.startsWith('[SESSION]')
+  }
+
+  #isCapturingStream = false
+
+  #interceptProcessStreams() {
+    const captureTerminalOutput = (outputData: string | Uint8Array) => {
+      if (this.#isCapturingStream) return
+      const outputText =
+        typeof outputData === 'string' ? outputData : outputData.toString()
+      if (!outputText?.trim()) {
+        return
+      }
+
+      this.#isCapturingStream = true
+      try {
+        const linesToCapture: string[] = []
+
+        for (const rawLine of outputText.split('\n')) {
+          const segments = rawLine.split('\r').filter((s) => s.trim())
+          const lastSegment = segments[segments.length - 1] ?? rawLine
+          const clean = stripAnsiCodes(lastSegment).trim()
+          if (!clean || this.#isInternalStreamLine(clean) || SPINNER_RE.test(clean)) continue
+          linesToCapture.push(clean)
+        }
+
+        for (const clean of linesToCapture) {
+          const logEntry = createConsoleLogEntry(
+            detectLogLevel(clean),
+            [clean],
+            LOG_SOURCES.TERMINAL
+          )
+          this.consoleLogs.push(logEntry)
+          this.sendUpstream('consoleLogs', [logEntry])
+        }
+      } finally {
+        this.#isCapturingStream = false
+      }
+    }
+
+    const interceptStreamWrite = (
+      stream: NodeJS.WriteStream,
+      originalWriteMethod: (...args: any[]) => boolean
+    ) => {
+      const capturer = this
+      stream.write = function (chunk: any, ...additionalArgs: any[]): boolean {
+        const writeResult = originalWriteMethod.call(
+          stream,
+          chunk,
+          ...additionalArgs
+        )
+        if (chunk && !capturer.#isCapturingConsole) {
+          captureTerminalOutput(chunk)
+        }
+        return writeResult
+      } as any
+    }
+
+    interceptStreamWrite(
+      process.stdout,
+      this.#originalProcessMethods.stdoutWrite
+    )
+    interceptStreamWrite(
+      process.stderr,
+      this.#originalProcessMethods.stderrWrite
+    )
   }
 
   #restoreConsole() {
@@ -120,8 +195,14 @@ export class SessionCapturer {
     })
   }
 
+  #restoreProcessStreams() {
+    process.stdout.write = this.#originalProcessMethods.stdoutWrite as any
+    process.stderr.write = this.#originalProcessMethods.stderrWrite as any
+  }
+
   cleanup() {
     this.#restoreConsole()
+    this.#restoreProcessStreams()
   }
 
   get isReportingUpstream() {
@@ -182,7 +263,7 @@ export class SessionCapturer {
 
     const commandId = this.#commandCounter++
     const commandLogEntry: CommandLog & { _id?: number } = {
-      _id: commandId, // Internal ID for tracking
+      _id: commandId,
       command,
       args,
       result,
@@ -192,12 +273,10 @@ export class SessionCapturer {
       testUid
     }
 
-    // IMPORTANT: Push to commandsLog FIRST (synchronously)
-    // so it's available immediately for sending
     this.commandsLog.push(commandLogEntry)
 
-    // THEN do async performance capture for navigation commands
-    const isNavigationCommand = ['url', 'navigate', 'navigateTo'].some((cmd) =>
+    // Async performance capture for navigation commands
+    const isNavigationCommand = NAVIGATION_COMMANDS.some((cmd) =>
       command.toLowerCase().includes(cmd.toLowerCase())
     )
 
@@ -274,13 +353,7 @@ export class SessionCapturer {
     // Nightwatch returns {value: result} or just the result directly
     let data: any
     if (performanceData && typeof performanceData === 'object') {
-      // Check if it has a 'value' property (WebDriver format)
-      if ('value' in performanceData) {
-        data = (performanceData as any).value
-      } else {
-        // It might be the data directly
-        data = performanceData
-      }
+      data = 'value' in performanceData ? (performanceData as any).value : performanceData
     }
 
     if (data && data.navigation) {
@@ -301,15 +374,11 @@ export class SessionCapturer {
         title: data.documentInfo?.title
       }
 
-      console.log(
-        `✓ Captured performance data: ${data.resources?.length || 0} resources, load time: ${data.navigation?.timing?.loadTime || 0}ms`
-      )
+      log.info(`✓ Captured performance data: ${data.resources?.length || 0} resources, load time: ${data.navigation?.timing?.loadTime || 0}ms`)
     }
   }
 
-  /**
-   * Send a command to the UI (only if not already sent)
-   */
+  /** Send a command to the UI (only if not already sent) */
   sendCommand(command: CommandLog & { _id?: number }) {
     if (command._id !== undefined && !this.#sentCommandIds.has(command._id)) {
       this.#sentCommandIds.add(command._id)
@@ -320,9 +389,7 @@ export class SessionCapturer {
     }
   }
 
-  /**
-   * Capture test source code
-   */
+  /** Capture test source code */
   async captureSource(filePath: string) {
     if (!this.sources.has(filePath)) {
       try {
@@ -337,36 +404,20 @@ export class SessionCapturer {
     }
   }
 
-  /**
-   * Send data upstream to backend
-   */
+  /** Send data upstream to backend */
   sendUpstream(event: string, data: any) {
-    // Check if WebSocket is open and ready
     if (!this.#ws || this.#ws.readyState !== WebSocket.OPEN) {
-      // Use ORIGINAL process methods to avoid infinite recursion from console patching
-      this.#originalProcessMethods.stderrWrite(
-        `[SESSION] WebSocket not ready (state: ${this.#ws?.readyState}), cannot send ${event}\n`
-      )
       return
     }
 
     try {
-      const payload = JSON.stringify({ scope: event, data })
-      this.#originalProcessMethods.stdoutWrite(
-        `[SESSION] Sending ${event} upstream, data size: ${payload.length} bytes\n`
-      )
-      this.#ws.send(payload)
-    } catch (err) {
-      this.#originalProcessMethods.stderrWrite(
-        `[SESSION] Failed to send ${event}: ${(err as Error).message}\n`
-      )
+      this.#ws.send(JSON.stringify({ scope: event, data }))
+    } catch {
+      // ignore: WebSocket may close mid-flight
     }
   }
 
-  /**
-   * Check if WebSocket connection is still open
-   * Used by the after() hook to wait for browser window close
-   */
+  /** Returns true when the WebSocket is open. */
   isConnected(): boolean {
     return this.#ws?.readyState === WebSocket.OPEN
   }
@@ -382,9 +433,6 @@ export class SessionCapturer {
       const preloadScriptPath = path.join(scriptDir, 'script.js')
       let scriptContent = await fs.readFile(preloadScriptPath, 'utf-8')
 
-      log.info(`Script path: ${preloadScriptPath}`)
-      log.info(`Script size: ${scriptContent.length} bytes`)
-
       // The script contains top-level await - wrap the entire script in async IIFE before injection
       scriptContent = `(async function() { ${scriptContent} })()`
 
@@ -399,6 +447,7 @@ export class SessionCapturer {
       const injectResult = await browser.execute(injectionScript, [
         scriptContent
       ])
+
       log.info(`Injection command executed: ${JSON.stringify(injectResult)}`)
 
       // Wait for script to execute
@@ -412,13 +461,7 @@ export class SessionCapturer {
       // Nightwatch wraps results in { value: ... }
       const hasCollector = (checkResult as any)?.value === true
 
-      log.info(
-        `Collector check result: ${JSON.stringify(checkResult)}, hasCollector: ${hasCollector}`
-      )
-
-      if (hasCollector) {
-        log.info('✓ Devtools script injected successfully')
-      } else {
+      if (!hasCollector) {
         log.warn('Script injection may have failed - collector not found')
       }
     } catch (err) {
@@ -428,24 +471,187 @@ export class SessionCapturer {
   }
 
   /**
+   * Capture Chrome DevTools browser console logs via WebDriver log API.
+   * Requires loggingPrefs: { browser: 'ALL' } in Chrome capabilities.
+   */
+  async captureBrowserLogs(browser: NightwatchBrowser) {
+    try {
+      const rawLogs = await (browser as any).getLog('browser')
+      const logs = ((rawLogs as any)?.value ?? rawLogs) as Array<{
+        level: string
+        message: string
+        source: string
+        timestamp: number
+      }>
+
+      if (!Array.isArray(logs) || logs.length === 0) {
+        return
+      }
+
+      const entries: ConsoleLog[] = logs.map((entry) => ({
+        timestamp: entry.timestamp,
+        type: chromeLogLevelToLogLevel(entry.level),
+        args: [entry.message],
+        source: LOG_SOURCES.BROWSER
+      }))
+
+      this.consoleLogs.push(...entries)
+      this.sendUpstream('consoleLogs', entries)
+      log.info(`✓ Captured ${entries.length} browser console log entries`)
+    } catch (err) {
+      // Browser log capture not available (loggingPrefs not set or not supported)
+    }
+  }
+
+  /**
+   * Parse Chrome performance logs to extract network request entries.
+   * Requires loggingPrefs: { performance: 'ALL' } in Chrome capabilities.
+   */
+  async captureNetworkFromPerformanceLogs(browser: NightwatchBrowser) {
+    try {
+      const rawLogs = await (browser as any).getLog('performance')
+      const logs = ((rawLogs as any)?.value ?? rawLogs) as Array<{
+        level: string
+        message: string
+        timestamp: number
+      }>
+
+      if (!Array.isArray(logs) || logs.length === 0) {
+        return
+      }
+
+      // Parse CDP Network.* events from the performance log
+      const pendingRequests = new Map<string, any>()
+      const networkEntries: any[] = []
+
+      for (const entry of logs) {
+        try {
+          const msg = JSON.parse(entry.message)
+          const { method, params } = msg.message
+
+          if (method === 'Network.requestWillBeSent') {
+            const { requestId, request: req, timestamp } = params
+            pendingRequests.set(requestId, {
+              id: `${entry.timestamp}-${requestId}`,
+              url: req.url,
+              method: req.method,
+              requestHeaders: req.headers,
+              timestamp: Math.round(timestamp * 1000),
+              startTime: entry.timestamp
+            })
+          } else if (method === 'Network.responseReceived') {
+            const { requestId, response } = params
+            const pending = pendingRequests.get(requestId)
+            if (pending) {
+              const responseHeaders: Record<string, string> = {}
+              for (const [k, v] of Object.entries(response.headers || {})) {
+                responseHeaders[k.toLowerCase()] = String(v)
+              }
+              pending.status = response.status
+              pending.statusText = response.statusText
+              pending.responseHeaders = responseHeaders
+              pending.mimeType = response.mimeType
+              pending.type = getRequestType(pending.url, response.mimeType)
+            }
+          } else if (method === 'Network.loadingFinished') {
+            const { requestId, encodedDataLength } = params
+            const pending = pendingRequests.get(requestId)
+            if (pending && pending.status !== undefined) {
+              pending.size = encodedDataLength
+              pending.endTime = entry.timestamp
+              pending.time = entry.timestamp - pending.startTime
+              networkEntries.push({ ...pending })
+              pendingRequests.delete(requestId)
+            }
+          } else if (method === 'Network.loadingFailed') {
+            const { requestId, errorText } = params
+            const pending = pendingRequests.get(requestId)
+            if (pending) {
+              pending.error = errorText
+              pending.endTime = entry.timestamp
+              pending.time = entry.timestamp - pending.startTime
+              networkEntries.push({ ...pending })
+              pendingRequests.delete(requestId)
+            }
+          }
+        } catch {
+          // skip malformed entries
+        }
+      }
+
+      if (networkEntries.length > 0) {
+        // Helper: for failed requests strip query string so that parallel
+        // autocomplete/prefetch requests to the same path (e.g. /search?q=W,
+        // /search?q=We, /search?q=Web…) collapse to a single entry.
+        const failedKey = (entry: any): string => {
+          try {
+            const u = new URL(entry.url)
+            return `err:${entry.method}:${u.origin}${u.pathname}`
+          } catch {
+            return `err:${entry.method}:${entry.url}`
+          }
+        }
+
+        const alreadySeen = new Set(
+          this.networkRequests.map((r: any) =>
+            r.error !== undefined
+              ? failedKey(r)
+              : `ok:${r.method}:${r.url}:${r.timestamp}`
+          )
+        )
+
+        const deduped: any[] = []
+        const seenFailedInBatch = new Map<string, number>()
+
+        for (const entry of networkEntries) {
+          if (entry.error !== undefined) {
+            const key = failedKey(entry)
+            if (alreadySeen.has(key)) continue
+            const existing = seenFailedInBatch.get(key)
+            if (existing !== undefined) {
+              deduped[existing] = entry  // replace with latest failure
+            } else {
+              seenFailedInBatch.set(key, deduped.length)
+              deduped.push(entry)
+            }
+          } else {
+            const key = `ok:${entry.method}:${entry.url}:${entry.timestamp}`
+            if (!alreadySeen.has(key)) {
+              deduped.push(entry)
+            }
+          }
+        }
+
+        this.networkRequests.push(...deduped)
+        this.sendUpstream('networkRequests', deduped)
+      }
+    } catch (err) {
+      const msg = (err as Error).message ?? ''
+      // Silently skip when performance logging was not enabled in capabilities
+      if (!msg.includes('log type') && !msg.includes('performance')) {
+        log.warn(`Performance log capture failed: ${msg}`)
+      }
+    }
+  }
+
+  /**
    * Capture trace data from the browser (network requests, console logs, etc.)
    */
   async captureTrace(browser: NightwatchBrowser) {
+    // Capture network requests from Chrome performance logs
+    await this.captureNetworkFromPerformanceLogs(browser)
+
+    // Also try the injected wdioTraceCollector script for XHR/fetch and mutations
     try {
-      // Check if the collector exists in the browser - access .value
       const checkResult = await browser.execute(
         'return typeof window.wdioTraceCollector !== "undefined"'
       )
       const collectorExists = (checkResult as any)?.value === true
 
       if (!collectorExists) {
-        log.warn(
-          'wdioTraceCollector not found - script may not have been injected'
-        )
         return
       }
 
-      // Get trace data from the collector - access .value
       const result = await browser.execute(`
         if (typeof window.wdioTraceCollector === 'undefined') {
           return null;
@@ -454,7 +660,6 @@ export class SessionCapturer {
       `)
 
       const traceData = (result as any)?.value
-
       if (!traceData) {
         return
       }
@@ -462,37 +667,36 @@ export class SessionCapturer {
       const { mutations, traceLogs, consoleLogs, networkRequests, metadata } =
         traceData
 
-      // Send network requests
+      if (Array.isArray(consoleLogs) && consoleLogs.length > 0) {
+        // Tag as browser source
+        const tagged = consoleLogs.map((e: any) => ({
+          ...e,
+          source: LOG_SOURCES.BROWSER
+        }))
+        this.consoleLogs.push(...tagged)
+        this.sendUpstream('consoleLogs', tagged)
+      }
+
       if (Array.isArray(networkRequests) && networkRequests.length > 0) {
         this.networkRequests.push(...networkRequests)
         this.sendUpstream('networkRequests', networkRequests)
-        log.info(`✓ Captured ${networkRequests.length} network requests`)
       }
 
-      // Send console logs from browser
-      if (Array.isArray(consoleLogs) && consoleLogs.length > 0) {
-        this.consoleLogs.push(...consoleLogs)
-        this.sendUpstream('consoleLogs', consoleLogs)
-      }
-
-      // Send mutations
       if (Array.isArray(mutations) && mutations.length > 0) {
         this.mutations.push(...mutations)
         this.sendUpstream('mutations', mutations)
       }
 
-      // Send trace logs
       if (Array.isArray(traceLogs) && traceLogs.length > 0) {
         this.traceLogs.push(...traceLogs)
         this.sendUpstream('logs', traceLogs)
       }
 
-      // Update metadata
       if (metadata) {
         this.metadata = { ...this.metadata, ...metadata }
       }
     } catch (err) {
-      log.error(`Failed to capture trace: ${(err as Error).message}`)
+      log.error(`Failed to capture trace from injected script: ${(err as Error).message}`)
     }
   }
 }
