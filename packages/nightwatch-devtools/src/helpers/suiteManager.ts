@@ -92,6 +92,18 @@ export class SuiteManager {
   }
 
   /**
+   * Update suite state from current children without marking it as ended.
+   * Used during Cucumber runs to keep the feature-level suite state fresh.
+   */
+  finalizeSuiteState(suite: SuiteStats): void {
+    const hasFailures =
+      suite.tests.some((t: any) => t.state === TEST_STATE.FAILED) ||
+      suite.suites.some((s) => s.state === TEST_STATE.FAILED)
+    suite.state = hasFailures ? TEST_STATE.FAILED : TEST_STATE.RUNNING
+    this.testReporter.updateSuites()
+  }
+
+  /**
    * Finalize suite with test results
    */
   finalizeSuite(suite: SuiteStats): void {
@@ -102,19 +114,19 @@ export class SuiteManager {
     suite.end = new Date()
     suite._duration = suite.end.getTime() - (suite.start?.getTime() || 0)
 
-    const hasFailures = suite.tests.some(
-      (t: any) => t.state === TEST_STATE.FAILED
-    )
-    const allPassed = suite.tests.every(
-      (t: any) => t.state === TEST_STATE.PASSED
-    )
-    const hasSkipped = suite.tests.some(
-      (t: any) => t.state === TEST_STATE.SKIPPED
-    )
+    // Check direct tests
+    const hasFailures =
+      suite.tests.some((t: any) => t.state === TEST_STATE.FAILED) ||
+      suite.suites.some((s) => s.state === TEST_STATE.FAILED)
+    const allPassed =
+      suite.tests.every((t: any) => t.state === TEST_STATE.PASSED || t.state === TEST_STATE.SKIPPED) &&
+      suite.suites.every((s) => s.state === TEST_STATE.PASSED || s.state === TEST_STATE.SKIPPED)
+    const hasSkipped = suite.tests.some((t: any) => t.state === TEST_STATE.SKIPPED)
+    const hasItems = suite.tests.length > 0 || suite.suites.length > 0
 
     if (hasFailures) {
       suite.state = TEST_STATE.FAILED
-    } else if (allPassed) {
+    } else if (!hasItems || allPassed) {
       suite.state = TEST_STATE.PASSED
     } else if (hasSkipped) {
       suite.state = TEST_STATE.PASSED
