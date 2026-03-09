@@ -108,6 +108,7 @@ export interface SuiteStats {
   suites: SuiteStats[]
   hooks: any[]
   _duration: number
+  parent?: string
 }
 
 export interface Metadata {

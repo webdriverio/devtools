@@ -23,7 +23,7 @@ import {
   type NightwatchBrowser,
   type TestStats
 } from './types.js'
-import { determineTestState, findTestFileFromStack } from './helpers/utils.js'
+import { determineTestState, findTestFileFromStack, generateStableUid } from './helpers/utils.js'
 import { DEFAULTS, TIMING, TEST_STATE } from './constants.js'
 
 
@@ -38,6 +38,8 @@ class NightwatchDevToolsPlugin {
   private browserProxy!: BrowserProxy
   private isScriptInjected = false
   #currentTest: any = null
+  #currentScenarioSuite: any = null
+  #currentStep: any = null
   #lastSessionId: string | null = null
   #devtoolsBrowser?: WebdriverIO.Browser
   #userDataDir?: string
@@ -160,7 +162,7 @@ class NightwatchDevToolsPlugin {
     this.browserProxy = new BrowserProxy(
       this.sessionCapturer,
       this.testManager,
-      () => this.#currentTest
+      () => this.#currentTest ?? this.#currentScenarioSuite
     )
 
     log.info('✓ Session initialized')
@@ -183,15 +185,6 @@ class NightwatchDevToolsPlugin {
     const browserName = capabilities.browserName || desiredCapabilities.browserName || 'unknown'
     const browserVersion = capabilities.browserVersion || (capabilities as any).version || ''
     log.info(`✓ Browser: ${browserName}${browserVersion ? ' ' + browserVersion : ''} (session: ${sessionId})`)
-
-    const chromeOptions = (capabilities as any)['goog:chromeOptions'] || (desiredCapabilities as any)['goog:chromeOptions'] || {}
-    const mobileEmulation = chromeOptions.mobileEmulation
-    if (mobileEmulation) {
-      const device = mobileEmulation.deviceName
-        ? `device: ${mobileEmulation.deviceName}`
-        : `${mobileEmulation.deviceMetrics?.width}x${mobileEmulation.deviceMetrics?.height} @${mobileEmulation.deviceMetrics?.pixelRatio}x`
-      log.info(`📱 Mobile emulation active — ${device}`)
-    }
 
     const loggingPrefs = (capabilities as any)['goog:loggingPrefs'] || (desiredCapabilities as any)['goog:loggingPrefs'] || {}
     if (!loggingPrefs.performance) {
@@ -219,10 +212,11 @@ class NightwatchDevToolsPlugin {
     // Derive the feature name from the "Feature: <name>" header in the file,
     // falling back to the filename (e.g. "login") only if the file can't be read.
     let featureName: string = path.basename(featureUri, '.feature')
+    let featureContent = ''
     const featureAbsPath = path.resolve(process.cwd(), featureUri)
     if (featureUri !== 'unknown.feature' && fs.existsSync(featureAbsPath)) {
-      const content = fs.readFileSync(featureAbsPath, 'utf-8')
-      const match = content.match(/^\s*Feature:\s*(.+)/m)
+      featureContent = fs.readFileSync(featureAbsPath, 'utf-8')
+      const match = featureContent.match(/^\s*Feature:\s*(.+)/m)
       if (match) featureName = match[1].trim()
 
       this.sessionCapturer.captureSource(featureAbsPath).catch(() => {})
@@ -242,19 +236,72 @@ class NightwatchDevToolsPlugin {
       }
     }
 
-    const suite = this.suiteManager.getOrCreateSuite(
-      featureUri, featureName, featureUri, [scenarioName]
+    // Get or create the feature-level suite (no individual test names — scenarios go into suites[])
+    const featureSuite = this.suiteManager.getOrCreateSuite(
+      featureUri, featureName, featureUri, []
     )
-    this.suiteManager.markSuiteAsRunning(suite)
+    this.suiteManager.markSuiteAsRunning(featureSuite)
 
-    const test = this.testManager.findTestInSuite(suite, scenarioName)
-    if (test) {
-      test.state = TEST_STATE.RUNNING as TestStats['state']
-      test.start = new Date()
-      test.end = null
-      this.testReporter.onTestStart(test)
-      this.#currentTest = test
+    // Parse step keywords from the feature file
+    const steps: Array<{ text: string }> = pickle.steps ?? []
+    const stepKeywords = parseStepKeywords(featureContent, scenarioName, steps.length)
+
+    // Create a scenario sub-suite (child of feature suite)
+    const scenarioUid = generateStableUid(featureUri, `scenario:${scenarioName}`)
+
+    const scenarioSuite: any = {
+      uid: scenarioUid,
+      cid: DEFAULTS.CID,
+      title: scenarioName,
+      fullTitle: `${featureName} ${scenarioName}`,
+      parent: featureSuite.uid,
+      type: 'suite' as const,
+      file: featureUri,
+      start: new Date(),
+      state: 'running',
+      end: null,
+      tests: [],
+      suites: [],
+      hooks: [],
+      _duration: 0
     }
+
+    // Create a TestStats entry for each step
+    steps.forEach((step, i) => {
+      const keyword = stepKeywords[i] || ''
+      const stepLabel = keyword ? `${keyword} ${step.text}` : step.text
+      const stepUid = generateStableUid(featureUri, `step:${scenarioName}:${step.text}`)
+      scenarioSuite.tests.push({
+        uid: stepUid,
+        cid: DEFAULTS.CID,
+        title: stepLabel,
+        fullTitle: `${scenarioName} ${stepLabel}`,
+        parent: scenarioUid,
+        state: 'pending',
+        start: new Date(),
+        end: null,
+        type: 'test' as const,
+        file: featureUri,
+        retries: 0,
+        _duration: 0,
+        hooks: []
+      })
+    })
+
+    // Add scenario sub-suite to the feature suite
+    // (replace if already exists from a previous run)
+    const existingIdx = featureSuite.suites.findIndex((s: any) => s.uid === scenarioUid)
+    if (existingIdx !== -1) {
+      featureSuite.suites[existingIdx] = scenarioSuite
+    } else {
+      featureSuite.suites.push(scenarioSuite)
+    }
+
+    this.#currentScenarioSuite = scenarioSuite
+    this.#currentStep = null
+    this.#currentTest = null
+
+    this.testReporter.updateSuites()
 
     if (!this.isScriptInjected) {
       this.browserProxy.wrapUrlMethod(browser)
@@ -270,28 +317,44 @@ class NightwatchDevToolsPlugin {
   async #finalizeCucumberScenario(browser: NightwatchBrowser, result: any, pickle: any) {
     try {
       const status = String(result?.status ?? 'UNKNOWN').toUpperCase()
-      const testState: TestStats['state'] =
+      const scenarioState: TestStats['state'] =
         status === 'PASSED'  ? TEST_STATE.PASSED  :
         status === 'SKIPPED' ? TEST_STATE.SKIPPED :
         TEST_STATE.FAILED
 
-      if (this.#currentTest) {
-        const duration = Date.now() - (this.#currentTest.start?.getTime() ?? Date.now())
-        this.testManager.updateTestState(this.#currentTest, testState, new Date(), duration)
+      if (this.#currentScenarioSuite) {
+        const duration = Date.now() - (this.#currentScenarioSuite.start?.getTime() ?? Date.now())
+        this.#currentScenarioSuite.state = scenarioState
+        this.#currentScenarioSuite.end = new Date()
+        this.#currentScenarioSuite._duration = duration
+
+        // Ensure any still-running or pending steps are marked appropriately
+        for (const step of this.#currentScenarioSuite.tests) {
+          if (typeof step !== 'string' && (step.state === 'running' || step.state === 'pending')) {
+            step.state = scenarioState === TEST_STATE.PASSED ? TEST_STATE.PASSED : TEST_STATE.FAILED
+            step.end = new Date()
+          }
+        }
 
         const featureUri: string = pickle?.uri ?? 'unknown.feature'
-        this.testManager.markTestAsProcessed(featureUri, this.#currentTest.title)
+        this.testManager.markTestAsProcessed(featureUri, pickle?.name ?? '')
 
-        const suite = this.suiteManager.getSuite(featureUri)
-        if (suite) this.suiteManager.finalizeSuite(suite)
+        const featureSuite = this.suiteManager.getSuite(featureUri)
+        if (featureSuite) {
+          // Finalize is not called until all scenarios are done — just update state
+          this.suiteManager.finalizeSuiteState(featureSuite)
+        }
 
-        if (testState === TEST_STATE.PASSED) this.#passCount++
-        else if (testState === TEST_STATE.SKIPPED) this.#skipCount++
+        if (scenarioState === TEST_STATE.PASSED) this.#passCount++
+        else if (scenarioState === TEST_STATE.SKIPPED) this.#skipCount++
         else this.#failCount++
-        const icon = testState === TEST_STATE.PASSED ? '✅' : testState === TEST_STATE.SKIPPED ? '⏭' : '❌'
+        const icon = scenarioState === TEST_STATE.PASSED ? '✅' : scenarioState === TEST_STATE.SKIPPED ? '⏭' : '❌'
         const durationSec = (duration / 1000).toFixed(2)
         log.info(`  ${icon} ${pickle?.name ?? 'Unknown'} (${durationSec}s)`)
 
+        this.testReporter.updateSuites()
+        this.#currentScenarioSuite = null
+        this.#currentStep = null
         this.#currentTest = null
       }
 
@@ -299,6 +362,39 @@ class NightwatchDevToolsPlugin {
     } catch (err) {
       log.error(`Failed to finalize Cucumber scenario: ${(err as Error).message}`)
     }
+  }
+
+  /** Called from Cucumber BeforeStep hook — marks the step as running. */
+  async cucumberBeforeStep(browser: NightwatchBrowser, pickleStep: any, _pickle: any) {
+    if (!this.#currentScenarioSuite) return
+    const stepText: string = pickleStep?.text ?? ''
+    const step = (this.#currentScenarioSuite.tests as any[]).find(
+      (t: any) => typeof t !== 'string' && (t.title.endsWith(stepText) || t.title === stepText)
+    )
+    if (step) {
+      step.state = TEST_STATE.RUNNING
+      step.start = new Date()
+      step.end = null
+      this.#currentStep = step
+      this.testReporter.updateSuites()
+    }
+  }
+
+  /** Called from Cucumber AfterStep hook — records the step result. */
+  async cucumberAfterStep(_browser: NightwatchBrowser, result: any, pickleStep: any, _pickle: any) {
+    const step = this.#currentStep
+    if (!step) return
+    const status = String(result?.status ?? 'UNKNOWN').toUpperCase()
+    const stepState: TestStats['state'] =
+      status === 'PASSED'  ? TEST_STATE.PASSED  :
+      status === 'SKIPPED' ? TEST_STATE.SKIPPED :
+      TEST_STATE.FAILED
+    step.state = stepState
+    step.end = new Date()
+    step._duration = Date.now() - (step.start?.getTime() ?? Date.now())
+    this.#currentStep = null
+    this.testReporter.updateSuites()
+    void pickleStep // used by BeforeStep to find the step
   }
 
   async beforeEach(browser: NightwatchBrowser) {
@@ -674,6 +770,42 @@ class NightwatchDevToolsPlugin {
       }
     })
   }
+}
+
+/**
+ * Extract BDD step keywords (Given/When/Then/And/But) from a feature file
+ * for the steps belonging to the named scenario.  The order of keywords
+ * in the file matches the order of pickle.steps, so we just walk line-by-line.
+ */
+function parseStepKeywords(
+  featureContent: string,
+  scenarioName: string,
+  stepCount: number
+): string[] {
+  if (!featureContent || stepCount === 0) return Array(stepCount).fill('')
+
+  const lines = featureContent.split('\n')
+  const stepRe = /^\s*(Given|When|Then|And|But)\s+/i
+
+  // Find the Scenario block that contains this scenario name
+  const scenarioLineIdx = lines.findIndex(
+    (l) => /^\s*Scenario:/i.test(l) && l.includes(scenarioName)
+  )
+  if (scenarioLineIdx === -1) return Array(stepCount).fill('')
+
+  const keywords: string[] = []
+  for (let i = scenarioLineIdx + 1; i < lines.length && keywords.length < stepCount; i++) {
+    // Stop at next Scenario or Feature header
+    if (i > scenarioLineIdx && (/^\s*Scenario:/i.test(lines[i]) || /^\s*Feature:/i.test(lines[i]))) {
+      break
+    }
+    const m = stepRe.exec(lines[i])
+    if (m) keywords.push(m[1])
+  }
+
+  // Pad with empty strings if fewer keywords were found than steps
+  while (keywords.length < stepCount) keywords.push('')
+  return keywords
 }
 
 /**
