@@ -13,10 +13,18 @@ import type { NightwatchBrowser, CommandStackFrame } from '../types.js'
 const log = logger('@wdio/nightwatch-devtools:browserProxy')
 
 export class BrowserProxy {
-  private browserProxied = false
+  /** Tracks which browser *instances* have already been proxied to avoid double-wrapping. */
+  private proxiedBrowsers = new WeakSet<object>()
   private commandStack: CommandStackFrame[] = []
   private lastCommandSig: string | null = null
   private currentTestFullPath: string | null = null
+  /**
+   * Tracks the last captured command so that consecutive retries of the same
+   * command (e.g. getText inside a waitFor loop) overwrite the previous entry
+   * rather than appending, showing only the final execution result.
+   */
+  private lastCapturedSig: string | null = null
+  private lastCapturedId: number | null = null
 
   constructor(
     private sessionCapturer: SessionCapturer,
@@ -25,11 +33,21 @@ export class BrowserProxy {
   ) {}
 
   /**
+   * Update the session capturer reference after a WebDriver session change.
+   * Does NOT re-wrap browser methods — wrapping is permanent per browser object.
+   */
+  updateSessionCapturer(capturer: SessionCapturer): void {
+    this.sessionCapturer = capturer
+  }
+
+  /**
    * Reset command tracking for new test
    */
   resetCommandTracking(): void {
     this.commandStack = []
     this.lastCommandSig = null
+    this.lastCapturedSig = null
+    this.lastCapturedId = null
   }
 
   /**
@@ -82,7 +100,7 @@ export class BrowserProxy {
    * Wrap all browser commands to capture them
    */
   wrapBrowserCommands(browser: NightwatchBrowser): void {
-    if (this.browserProxied) {
+    if (this.proxiedBrowsers.has(browser as object)) {
       return
     }
 
@@ -123,7 +141,7 @@ export class BrowserProxy {
       wrappedMethods.push(methodName)
     })
 
-    this.browserProxied = true
+    this.proxiedBrowsers.add(browser as object)
     log.info(`✓ Wrapped ${wrappedMethods.length} browser methods`)
   }
 
@@ -243,8 +261,14 @@ export class BrowserProxy {
       const effectiveUid = currentTest?.uid ?? testUid
 
       if (effectiveUid) {
-        this.sessionCapturer
-          .captureCommand(
+        const isRetry =
+          cmdSig === this.lastCapturedSig && this.lastCapturedId !== null
+
+        if (isRetry) {
+          // Same command fired again (internal retry) — replace the previous
+          // entry so only the final result appears in the UI.
+          const { entry, oldTimestamp } = this.sessionCapturer.replaceCommand(
+            this.lastCapturedId!,
             methodName,
             logArgs,
             serializedResult,
@@ -253,18 +277,40 @@ export class BrowserProxy {
             callSource,
             commandTimestamp
           )
-          .then(() => {
-            const lastCommand =
-              this.sessionCapturer.commandsLog[
-                this.sessionCapturer.commandsLog.length - 1
-              ]
-            if (lastCommand) {
-              this.sessionCapturer.sendCommand(lastCommand)
-            }
-          })
-          .catch((err: any) =>
-            log.error(`Failed to capture ${methodName}: ${err.message}`)
-          )
+          this.lastCapturedId = entry._id ?? null
+          this.sessionCapturer.sendReplaceCommand(oldTimestamp, entry)
+        } else {
+          // New command — capture and track.
+          // captureCommand() pushes the entry to commandsLog synchronously
+          // before any async work (navigation perf capture), so we can grab
+          // the ID immediately after the call — before any microtask fires.
+          // This avoids the race where a Nightwatch retry callback executes
+          // before .then() sets lastCapturedId, causing missed dedup.
+          this.lastCapturedSig = cmdSig
+          this.lastCapturedId = null
+          this.sessionCapturer
+            .captureCommand(
+              methodName,
+              logArgs,
+              serializedResult,
+              undefined,
+              effectiveUid,
+              callSource,
+              commandTimestamp
+            )
+            .catch((err: any) =>
+              log.error(`Failed to capture ${methodName}: ${err.message}`)
+            )
+          // Read the entry synchronously — it was already pushed above.
+          const lastCommand =
+            this.sessionCapturer.commandsLog[
+              this.sessionCapturer.commandsLog.length - 1
+            ]
+          if (lastCommand) {
+            this.lastCapturedId = (lastCommand as any)._id ?? null
+            this.sessionCapturer.sendCommand(lastCommand)
+          }
+        }
       }
 
       // Forward to the user's original callback (if any)
@@ -330,9 +376,9 @@ export class BrowserProxy {
   }
 
   /**
-   * Check if browser is already proxied
+   * Check if a specific browser instance is already proxied
    */
-  isProxied(): boolean {
-    return this.browserProxied
+  isProxied(browser: NightwatchBrowser): boolean {
+    return this.proxiedBrowsers.has(browser as object)
   }
 }

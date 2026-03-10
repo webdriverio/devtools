@@ -389,6 +389,55 @@ export class SessionCapturer {
     }
   }
 
+  /**
+   * Replace an already-captured command entry (used for retried commands so
+   * only the final execution result is shown in the UI).
+   * Removes the old entry from commandsLog, revokes its sent-status so the
+   * replacement can be sent, and returns the new entry together with the
+   * old entry's timestamp (so the UI can locate and replace it in-place).
+   */
+  replaceCommand(
+    oldId: number,
+    command: string,
+    args: any[],
+    result: any,
+    error: Error | undefined,
+    testUid?: string,
+    callSource?: string,
+    timestamp?: number
+  ): { entry: CommandLog & { _id?: number }; oldTimestamp: number } {
+    // Remove the superseded entry and capture its timestamp for the UI
+    const idx = this.commandsLog.findIndex((c: any) => c._id === oldId)
+    const oldTimestamp: number = idx !== -1 ? (this.commandsLog[idx] as any).timestamp ?? 0 : 0
+    if (idx !== -1) this.commandsLog.splice(idx, 1)
+    // Allow the slot to be re-used by a new entry
+    this.#sentCommandIds.delete(oldId)
+
+    const serializedError = error
+      ? { name: error.name, message: error.message, stack: error.stack }
+      : undefined
+    const commandId = this.#commandCounter++
+    const entry: CommandLog & { _id?: number } = {
+      _id: commandId,
+      command,
+      args,
+      result,
+      error: serializedError as any,
+      timestamp: timestamp || Date.now(),
+      callSource,
+      testUid
+    }
+    this.commandsLog.push(entry)
+    return { entry, oldTimestamp }
+  }
+
+  /** Send a replace-command event to the UI (swaps old entry in-place) */
+  sendReplaceCommand(oldTimestamp: number, command: CommandLog & { _id?: number }) {
+    const commandToSend = { ...command }
+    delete commandToSend._id
+    this.sendUpstream('replaceCommand', { oldTimestamp, command: commandToSend })
+  }
+
   /** Capture test source code */
   async captureSource(filePath: string) {
     if (!this.sources.has(filePath)) {

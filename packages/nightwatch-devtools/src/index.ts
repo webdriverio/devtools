@@ -23,7 +23,7 @@ import {
   type NightwatchBrowser,
   type TestStats
 } from './types.js'
-import { determineTestState, findTestFileFromStack, generateStableUid } from './helpers/utils.js'
+import { determineTestState, findTestFileFromStack, generateStableUid, deterministicUid } from './helpers/utils.js'
 import { DEFAULTS, TIMING, TEST_STATE } from './constants.js'
 
 
@@ -125,13 +125,13 @@ class NightwatchDevToolsPlugin {
 
   async #ensureSessionInitialized(browser: NightwatchBrowser) {
     const currentSessionId = (browser as any).sessionId
-
-    if (
+    const isSessionChange =
       currentSessionId &&
       this.#lastSessionId &&
       currentSessionId !== this.#lastSessionId
-    ) {
-      log.info('Browser session changed — reinitializing')
+
+    if (isSessionChange) {
+      log.info('Browser session changed — reconnecting WebSocket only')
       this.isScriptInjected = false
       this.sessionCapturer?.cleanup()
       this.sessionCapturer = null as any
@@ -154,16 +154,32 @@ class NightwatchDevToolsPlugin {
       log.info('✓ Worker WebSocket connected')
     }
 
-    this.testReporter = new TestReporter((suitesData: any) => {
-      if (this.sessionCapturer) this.sessionCapturer.sendUpstream('suites', suitesData)
-    })
-    this.testManager = new TestManager(this.testReporter)
-    this.suiteManager = new SuiteManager(this.testReporter)
-    this.browserProxy = new BrowserProxy(
-      this.sessionCapturer,
-      this.testManager,
-      () => this.#currentTest ?? this.#currentScenarioSuite
-    )
+    if (!this.testReporter) {
+      // First-time setup: create reporter chain once for the entire run.
+      // These must NOT be recreated on session change — doing so generates a
+      // new feature suite with a fresh start timestamp, which DataManager sees
+      // as a new run and wipes all accumulated commands.
+      this.testReporter = new TestReporter((suitesData: any) => {
+        if (this.sessionCapturer) this.sessionCapturer.sendUpstream('suites', suitesData)
+      })
+      this.testManager = new TestManager(this.testReporter)
+      this.suiteManager = new SuiteManager(this.testReporter)
+      this.browserProxy = new BrowserProxy(
+        this.sessionCapturer,
+        this.testManager,
+        () => this.#currentTest ?? this.#currentScenarioSuite
+      )
+    } else {
+      // Session change: update the reporter's upstream callback to use the new
+      // WebSocket, update the proxy's capturer reference (avoids re-wrapping
+      // already-wrapped browser methods which would double-capture commands),
+      // then replay current suite state to the newly-connected UI.
+      this.testReporter.updateUpstream((suitesData: any) => {
+        if (this.sessionCapturer) this.sessionCapturer.sendUpstream('suites', suitesData)
+      })
+      this.browserProxy.updateSessionCapturer(this.sessionCapturer)
+      this.testReporter.updateSuites()
+    }
 
     log.info('✓ Session initialized')
 
@@ -195,6 +211,9 @@ class NightwatchDevToolsPlugin {
 
 
   async cucumberBefore(browser: NightwatchBrowser, pickle: any) {
+    // Eagerly mark as Cucumber so beforeEach (which checks this flag) does not
+    // also run the non-Cucumber initialisation path for the same scenario.
+    this.#isCucumberRunner = true
     await this.#initCucumberScenario(browser, pickle)
   }
 
@@ -246,8 +265,10 @@ class NightwatchDevToolsPlugin {
     const steps: Array<{ text: string }> = pickle.steps ?? []
     const stepKeywords = parseStepKeywords(featureContent, scenarioName, steps.length)
 
-    // Create a scenario sub-suite (child of feature suite)
-    const scenarioUid = generateStableUid(featureUri, `scenario:${scenarioName}`)
+    // Create a scenario sub-suite (child of feature suite).
+    // Use deterministicUid (no counter) so the SAME scenario always maps to the
+    // SAME uid across retries, enabling correct retry detection below.
+    const scenarioUid = deterministicUid(featureUri, `scenario:${scenarioName}`)
 
     const scenarioSuite: any = {
       uid: scenarioUid,
@@ -270,7 +291,7 @@ class NightwatchDevToolsPlugin {
     steps.forEach((step, i) => {
       const keyword = stepKeywords[i] || ''
       const stepLabel = keyword ? `${keyword} ${step.text}` : step.text
-      const stepUid = generateStableUid(featureUri, `step:${scenarioName}:${step.text}`)
+      const stepUid = deterministicUid(featureUri, `step:${scenarioName}:${step.text}`)
       scenarioSuite.tests.push({
         uid: stepUid,
         cid: DEFAULTS.CID,
@@ -288,13 +309,19 @@ class NightwatchDevToolsPlugin {
       })
     })
 
-    // Add scenario sub-suite to the feature suite
-    // (replace if already exists from a previous run)
+    // Add scenario sub-suite to the feature suite.
+    // If a suite with this uid already exists it means this is a RETRY of the same
+    // scenario — clear execution data so only the latest attempt's commands are shown.
     const existingIdx = featureSuite.suites.findIndex((s: any) => s.uid === scenarioUid)
-    if (existingIdx !== -1) {
+    const isRetry = existingIdx !== -1
+    if (isRetry) {
       featureSuite.suites[existingIdx] = scenarioSuite
+      // Clear all captured commands/console/network from the previous failed attempt.
+      this.sessionCapturer.sendUpstream('clearExecutionData', {})
     } else {
       featureSuite.suites.push(scenarioSuite)
+      // First execution of this scenario — commands accumulate alongside previous
+      // scenarios in the run (same as WDIO devtools behaviour).
     }
 
     this.#currentScenarioSuite = scenarioSuite
@@ -367,6 +394,11 @@ class NightwatchDevToolsPlugin {
   /** Called from Cucumber BeforeStep hook — marks the step as running. */
   async cucumberBeforeStep(browser: NightwatchBrowser, pickleStep: any, _pickle: any) {
     if (!this.#currentScenarioSuite) return
+
+    // Reset per-step dedup tracking so commands in step N are never
+    // mistaken for retries of identically-signatured commands from step N-1.
+    this.browserProxy?.resetCommandTracking()
+
     const stepText: string = pickleStep?.text ?? ''
     const step = (this.#currentScenarioSuite.tests as any[]).find(
       (t: any) => typeof t !== 'string' && (t.title.endsWith(stepText) || t.title === stepText)
