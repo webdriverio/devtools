@@ -47,6 +47,14 @@ export class TestReporter {
   }
 
   /**
+   * Update the upstream reporter callback (used after a WebDriver session change
+   * so suite data is sent over the new WebSocket without rebuilding the reporter).
+   */
+  updateUpstream(report: (data: any) => void) {
+    this.#report = report
+  }
+
+  /**
    * Update the suites data (send to UI)
    */
   updateSuites() {
