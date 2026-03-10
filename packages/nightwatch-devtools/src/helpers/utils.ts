@@ -49,6 +49,21 @@ export function resetSignatureCounters() {
   signatureCounters.clear()
 }
 
+/**
+ * Compute a purely deterministic UID from arbitrary string parts.
+ * Unlike generateStableUid this NEVER uses the signature counter, so calling
+ * it multiple times with the same inputs always returns the same value.
+ * Use this wherever the same entity (e.g. a Cucumber scenario) must map to
+ * the same UID across retries.
+ */
+export function deterministicUid(...parts: string[]): string {
+  const hash = parts
+    .join('::')
+    .split('')
+    .reduce((acc, char) => ((acc << 5) - acc + char.charCodeAt(0)) | 0, 0)
+  return `stable-${Math.abs(hash).toString(36)}`
+}
+
 // File patterns for test file identification
 const SPEC_FILE_PATTERN = /\/(test|spec|tests)\//i
 const SPEC_FILE_RE = /\.(?:test|spec)\.[cm]?[jt]sx?$/i
