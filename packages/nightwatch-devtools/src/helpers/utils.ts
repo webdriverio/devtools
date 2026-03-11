@@ -7,7 +7,9 @@ import type { ConsoleLog, LogLevel, NightwatchTestCase } from '../types.js'
 export function determineTestState(
   testcase: NightwatchTestCase
 ): 'passed' | 'failed' | 'skipped' {
-  if (testcase.passed === 0 && testcase.failed === 0) return 'skipped'
+  if (testcase.passed === 0 && testcase.failed === 0) {
+    return 'skipped'
+  }
   return testcase.passed > 0 && testcase.failed === 0 ? 'passed' : 'failed'
 }
 
@@ -20,7 +22,11 @@ const signatureCounters = new Map<string, number>()
  */
 export function generateStableUid(itemOrFile: any, name?: string): string {
   let file: string, testName: string
-  if (typeof itemOrFile === 'object' && itemOrFile !== null && name === undefined) {
+  if (
+    typeof itemOrFile === 'object' &&
+    itemOrFile !== null &&
+    name === undefined
+  ) {
     file = itemOrFile.file || ''
     testName = String(itemOrFile.fullTitle || itemOrFile.title)
   } else {
@@ -235,7 +241,8 @@ export function findTestFileByName(
 /**
  * Strip ANSI escape codes from a string.
  */
-export const stripAnsiCodes = (text: string): string => text.replace(ANSI_REGEX, '')
+export const stripAnsiCodes = (text: string): string =>
+  text.replace(ANSI_REGEX, '')
 
 /**
  * Infer a log level from the text content of a line.
@@ -243,7 +250,9 @@ export const stripAnsiCodes = (text: string): string => text.replace(ANSI_REGEX,
 export function detectLogLevel(text: string): LogLevel {
   const low = stripAnsiCodes(text).toLowerCase()
   for (const { level, pattern } of LOG_LEVEL_PATTERNS) {
-    if (pattern.test(low)) return level
+    if (pattern.test(low)) {
+      return level
+    }
   }
   return 'log'
 }
@@ -267,11 +276,16 @@ export function chromeLogLevelToLogLevel(
 ): LogLevel {
   const s = typeof level === 'object' ? (level?.name ?? '') : (level ?? '')
   switch (s.toUpperCase()) {
-    case 'SEVERE': return 'error'
-    case 'WARNING': return 'warn'
-    case 'INFO': return 'info'
-    case 'DEBUG': return 'debug'
-    default: return 'log'
+    case 'SEVERE':
+      return 'error'
+    case 'WARNING':
+      return 'warn'
+    case 'INFO':
+      return 'info'
+    case 'DEBUG':
+      return 'debug'
+    default:
+      return 'log'
   }
 }
 
@@ -281,16 +295,38 @@ export function chromeLogLevelToLogLevel(
 export function getRequestType(url: string, mimeType?: string): string {
   const ct = mimeType?.toLowerCase() ?? ''
   const u = url.toLowerCase()
-  if (ct.includes('text/html')) return 'document'
-  if (ct.includes('text/css')) return 'stylesheet'
-  if (ct.includes('javascript') || ct.includes('ecmascript')) return 'script'
-  if (ct.includes('image/')) return 'image'
-  if (ct.includes('font/') || ct.includes('woff')) return 'font'
-  if (ct.includes('application/json')) return 'fetch'
-  if (u.endsWith('.html') || u.endsWith('.htm')) return 'document'
-  if (u.endsWith('.css')) return 'stylesheet'
-  if (u.endsWith('.js') || u.endsWith('.mjs')) return 'script'
-  if (u.match(/\.(png|jpg|jpeg|gif|svg|webp|ico)$/)) return 'image'
-  if (u.match(/\.(woff|woff2|ttf|eot|otf)$/)) return 'font'
+  if (ct.includes('text/html')) {
+    return 'document'
+  }
+  if (ct.includes('text/css')) {
+    return 'stylesheet'
+  }
+  if (ct.includes('javascript') || ct.includes('ecmascript')) {
+    return 'script'
+  }
+  if (ct.includes('image/')) {
+    return 'image'
+  }
+  if (ct.includes('font/') || ct.includes('woff')) {
+    return 'font'
+  }
+  if (ct.includes('application/json')) {
+    return 'fetch'
+  }
+  if (u.endsWith('.html') || u.endsWith('.htm')) {
+    return 'document'
+  }
+  if (u.endsWith('.css')) {
+    return 'stylesheet'
+  }
+  if (u.endsWith('.js') || u.endsWith('.mjs')) {
+    return 'script'
+  }
+  if (u.match(/\.(png|jpg|jpeg|gif|svg|webp|ico)$/)) {
+    return 'image'
+  }
+  if (u.match(/\.(woff|woff2|ttf|eot|otf)$/)) {
+    return 'font'
+  }
   return 'xhr'
 }

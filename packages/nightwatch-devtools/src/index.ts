@@ -23,9 +23,12 @@ import {
   type NightwatchBrowser,
   type TestStats
 } from './types.js'
-import { determineTestState, findTestFileFromStack, generateStableUid, deterministicUid } from './helpers/utils.js'
+import {
+  determineTestState,
+  findTestFileFromStack,
+  deterministicUid
+} from './helpers/utils.js'
 import { DEFAULTS, TIMING, TEST_STATE } from './constants.js'
-
 
 const log = logger('@wdio/nightwatch-devtools')
 
@@ -138,9 +141,13 @@ class NightwatchDevToolsPlugin {
     }
     this.#lastSessionId = currentSessionId
 
-    if (this.sessionCapturer) return
+    if (this.sessionCapturer) {
+      return
+    }
 
-    await new Promise((resolve) => setTimeout(resolve, TIMING.INITIAL_CONNECTION_WAIT))
+    await new Promise((resolve) =>
+      setTimeout(resolve, TIMING.INITIAL_CONNECTION_WAIT)
+    )
 
     this.sessionCapturer = new SessionCapturer(
       { port: this.options.port, hostname: this.options.hostname },
@@ -160,7 +167,9 @@ class NightwatchDevToolsPlugin {
       // new feature suite with a fresh start timestamp, which DataManager sees
       // as a new run and wipes all accumulated commands.
       this.testReporter = new TestReporter((suitesData: any) => {
-        if (this.sessionCapturer) this.sessionCapturer.sendUpstream('suites', suitesData)
+        if (this.sessionCapturer) {
+          this.sessionCapturer.sendUpstream('suites', suitesData)
+        }
       })
       this.testManager = new TestManager(this.testReporter)
       this.suiteManager = new SuiteManager(this.testReporter)
@@ -175,7 +184,9 @@ class NightwatchDevToolsPlugin {
       // already-wrapped browser methods which would double-capture commands),
       // then replay current suite state to the newly-connected UI.
       this.testReporter.updateUpstream((suitesData: any) => {
-        if (this.sessionCapturer) this.sessionCapturer.sendUpstream('suites', suitesData)
+        if (this.sessionCapturer) {
+          this.sessionCapturer.sendUpstream('suites', suitesData)
+        }
       })
       this.browserProxy.updateSessionCapturer(this.sessionCapturer)
       this.testReporter.updateSuites()
@@ -198,17 +209,24 @@ class NightwatchDevToolsPlugin {
       url: ''
     })
 
-    const browserName = capabilities.browserName || desiredCapabilities.browserName || 'unknown'
-    const browserVersion = capabilities.browserVersion || (capabilities as any).version || ''
-    log.info(`✓ Browser: ${browserName}${browserVersion ? ' ' + browserVersion : ''} (session: ${sessionId})`)
+    const browserName =
+      capabilities.browserName || desiredCapabilities.browserName || 'unknown'
+    const browserVersion =
+      capabilities.browserVersion || (capabilities as any).version || ''
+    log.info(
+      `✓ Browser: ${browserName}${browserVersion ? ' ' + browserVersion : ''} (session: ${sessionId})`
+    )
 
-    const loggingPrefs = (capabilities as any)['goog:loggingPrefs'] || (desiredCapabilities as any)['goog:loggingPrefs'] || {}
+    const loggingPrefs =
+      (capabilities as any)['goog:loggingPrefs'] ||
+      (desiredCapabilities as any)['goog:loggingPrefs'] ||
+      {}
     if (!loggingPrefs.performance) {
-      log.warn('⚠  Network tab will be empty — add \'goog:loggingPrefs\': { performance: \'ALL\' } to your capabilities')
+      log.warn(
+        "⚠  Network tab will be empty — add 'goog:loggingPrefs': { performance: 'ALL' } to your capabilities"
+      )
     }
   }
-
-
 
   async cucumberBefore(browser: NightwatchBrowser, pickle: any) {
     // Eagerly mark as Cucumber so beforeEach (which checks this flag) does not
@@ -236,7 +254,9 @@ class NightwatchDevToolsPlugin {
     if (featureUri !== 'unknown.feature' && fs.existsSync(featureAbsPath)) {
       featureContent = fs.readFileSync(featureAbsPath, 'utf-8')
       const match = featureContent.match(/^\s*Feature:\s*(.+)/m)
-      if (match) featureName = match[1].trim()
+      if (match) {
+        featureName = match[1].trim()
+      }
 
       this.sessionCapturer.captureSource(featureAbsPath).catch(() => {})
 
@@ -248,7 +268,9 @@ class NightwatchDevToolsPlugin {
         if (fs.existsSync(stepDir) && fs.statSync(stepDir).isDirectory()) {
           for (const entry of fs.readdirSync(stepDir)) {
             if (/\.(js|ts|mjs|cjs)$/.test(entry)) {
-              this.sessionCapturer.captureSource(path.join(stepDir, entry)).catch(() => {})
+              this.sessionCapturer
+                .captureSource(path.join(stepDir, entry))
+                .catch(() => {})
             }
           }
         }
@@ -257,13 +279,20 @@ class NightwatchDevToolsPlugin {
 
     // Get or create the feature-level suite (no individual test names — scenarios go into suites[])
     const featureSuite = this.suiteManager.getOrCreateSuite(
-      featureUri, featureName, featureUri, []
+      featureUri,
+      featureName,
+      featureUri,
+      []
     )
     this.suiteManager.markSuiteAsRunning(featureSuite)
 
     // Parse step keywords from the feature file
     const steps: Array<{ text: string }> = pickle.steps ?? []
-    const stepKeywords = parseStepKeywords(featureContent, scenarioName, steps.length)
+    const stepKeywords = parseStepKeywords(
+      featureContent,
+      scenarioName,
+      steps.length
+    )
 
     // Create a scenario sub-suite (child of feature suite).
     // Use deterministicUid (no counter) so the SAME scenario always maps to the
@@ -291,7 +320,10 @@ class NightwatchDevToolsPlugin {
     steps.forEach((step, i) => {
       const keyword = stepKeywords[i] || ''
       const stepLabel = keyword ? `${keyword} ${step.text}` : step.text
-      const stepUid = deterministicUid(featureUri, `step:${scenarioName}:${step.text}`)
+      const stepUid = deterministicUid(
+        featureUri,
+        `step:${scenarioName}:${step.text}`
+      )
       scenarioSuite.tests.push({
         uid: stepUid,
         cid: DEFAULTS.CID,
@@ -312,7 +344,9 @@ class NightwatchDevToolsPlugin {
     // Add scenario sub-suite to the feature suite.
     // If a suite with this uid already exists it means this is a RETRY of the same
     // scenario — clear execution data so only the latest attempt's commands are shown.
-    const existingIdx = featureSuite.suites.findIndex((s: any) => s.uid === scenarioUid)
+    const existingIdx = featureSuite.suites.findIndex(
+      (s: any) => s.uid === scenarioUid
+    )
     const isRetry = existingIdx !== -1
     if (isRetry) {
       featureSuite.suites[existingIdx] = scenarioSuite
@@ -341,24 +375,38 @@ class NightwatchDevToolsPlugin {
   }
 
   /** Called from Cucumber After hook (order:1000) — one call per scenario. */
-  async #finalizeCucumberScenario(browser: NightwatchBrowser, result: any, pickle: any) {
+  async #finalizeCucumberScenario(
+    browser: NightwatchBrowser,
+    result: any,
+    pickle: any
+  ) {
     try {
       const status = String(result?.status ?? 'UNKNOWN').toUpperCase()
       const scenarioState: TestStats['state'] =
-        status === 'PASSED'  ? TEST_STATE.PASSED  :
-        status === 'SKIPPED' ? TEST_STATE.SKIPPED :
-        TEST_STATE.FAILED
+        status === 'PASSED'
+          ? TEST_STATE.PASSED
+          : status === 'SKIPPED'
+            ? TEST_STATE.SKIPPED
+            : TEST_STATE.FAILED
 
       if (this.#currentScenarioSuite) {
-        const duration = Date.now() - (this.#currentScenarioSuite.start?.getTime() ?? Date.now())
+        const duration =
+          Date.now() -
+          (this.#currentScenarioSuite.start?.getTime() ?? Date.now())
         this.#currentScenarioSuite.state = scenarioState
         this.#currentScenarioSuite.end = new Date()
         this.#currentScenarioSuite._duration = duration
 
         // Ensure any still-running or pending steps are marked appropriately
         for (const step of this.#currentScenarioSuite.tests) {
-          if (typeof step !== 'string' && (step.state === 'running' || step.state === 'pending')) {
-            step.state = scenarioState === TEST_STATE.PASSED ? TEST_STATE.PASSED : TEST_STATE.FAILED
+          if (
+            typeof step !== 'string' &&
+            (step.state === 'running' || step.state === 'pending')
+          ) {
+            step.state =
+              scenarioState === TEST_STATE.PASSED
+                ? TEST_STATE.PASSED
+                : TEST_STATE.FAILED
             step.end = new Date()
           }
         }
@@ -372,10 +420,19 @@ class NightwatchDevToolsPlugin {
           this.suiteManager.finalizeSuiteState(featureSuite)
         }
 
-        if (scenarioState === TEST_STATE.PASSED) this.#passCount++
-        else if (scenarioState === TEST_STATE.SKIPPED) this.#skipCount++
-        else this.#failCount++
-        const icon = scenarioState === TEST_STATE.PASSED ? '✅' : scenarioState === TEST_STATE.SKIPPED ? '⏭' : '❌'
+        if (scenarioState === TEST_STATE.PASSED) {
+          this.#passCount++
+        } else if (scenarioState === TEST_STATE.SKIPPED) {
+          this.#skipCount++
+        } else {
+          this.#failCount++
+        }
+        const icon =
+          scenarioState === TEST_STATE.PASSED
+            ? '✅'
+            : scenarioState === TEST_STATE.SKIPPED
+              ? '⏭'
+              : '❌'
         const durationSec = (duration / 1000).toFixed(2)
         log.info(`  ${icon} ${pickle?.name ?? 'Unknown'} (${durationSec}s)`)
 
@@ -387,13 +444,21 @@ class NightwatchDevToolsPlugin {
 
       await this.sessionCapturer.captureTrace(browser)
     } catch (err) {
-      log.error(`Failed to finalize Cucumber scenario: ${(err as Error).message}`)
+      log.error(
+        `Failed to finalize Cucumber scenario: ${(err as Error).message}`
+      )
     }
   }
 
   /** Called from Cucumber BeforeStep hook — marks the step as running. */
-  async cucumberBeforeStep(browser: NightwatchBrowser, pickleStep: any, _pickle: any) {
-    if (!this.#currentScenarioSuite) return
+  async cucumberBeforeStep(
+    browser: NightwatchBrowser,
+    pickleStep: any,
+    _pickle: any
+  ) {
+    if (!this.#currentScenarioSuite) {
+      return
+    }
 
     // Reset per-step dedup tracking so commands in step N are never
     // mistaken for retries of identically-signatured commands from step N-1.
@@ -401,7 +466,9 @@ class NightwatchDevToolsPlugin {
 
     const stepText: string = pickleStep?.text ?? ''
     const step = (this.#currentScenarioSuite.tests as any[]).find(
-      (t: any) => typeof t !== 'string' && (t.title.endsWith(stepText) || t.title === stepText)
+      (t: any) =>
+        typeof t !== 'string' &&
+        (t.title.endsWith(stepText) || t.title === stepText)
     )
     if (step) {
       step.state = TEST_STATE.RUNNING
@@ -413,14 +480,23 @@ class NightwatchDevToolsPlugin {
   }
 
   /** Called from Cucumber AfterStep hook — records the step result. */
-  async cucumberAfterStep(_browser: NightwatchBrowser, result: any, pickleStep: any, _pickle: any) {
+  async cucumberAfterStep(
+    _browser: NightwatchBrowser,
+    result: any,
+    pickleStep: any,
+    _pickle: any
+  ) {
     const step = this.#currentStep
-    if (!step) return
+    if (!step) {
+      return
+    }
     const status = String(result?.status ?? 'UNKNOWN').toUpperCase()
     const stepState: TestStats['state'] =
-      status === 'PASSED'  ? TEST_STATE.PASSED  :
-      status === 'SKIPPED' ? TEST_STATE.SKIPPED :
-      TEST_STATE.FAILED
+      status === 'PASSED'
+        ? TEST_STATE.PASSED
+        : status === 'SKIPPED'
+          ? TEST_STATE.SKIPPED
+          : TEST_STATE.FAILED
     step.state = stepState
     step.end = new Date()
     step._duration = Date.now() - (step.start?.getTime() ?? Date.now())
@@ -430,81 +506,85 @@ class NightwatchDevToolsPlugin {
   }
 
   async beforeEach(browser: NightwatchBrowser) {
-    if (this.#isCucumberRunner) return
+    if (this.#isCucumberRunner) {
+      return
+    }
 
     await this.#ensureSessionInitialized(browser)
 
     const currentTest = (browser as any).currentTest
-    if (!currentTest) return
+    if (!currentTest) {
+      return
+    }
 
     const testFile =
-        (currentTest.module || '').split('/').pop() ||
-        currentTest.module ||
-        DEFAULTS.FILE_NAME
+      (currentTest.module || '').split('/').pop() ||
+      currentTest.module ||
+      DEFAULTS.FILE_NAME
 
     let fullPath: string | null = findTestFileFromStack() || null
     const cachedPath = this.browserProxy.getCurrentTestFullPath()
     if (!fullPath && cachedPath && cachedPath.includes(testFile)) {
-        fullPath = cachedPath
-      }
+      fullPath = cachedPath
+    }
 
-      if (!fullPath && testFile) {
-        const workspaceRoot = process.cwd()
-        const possiblePaths = [
-          path.join(workspaceRoot, 'example/tests', testFile + '.js'),
-          path.join(workspaceRoot, 'example/tests', testFile),
-          path.join(workspaceRoot, 'tests', testFile + '.js'),
-          path.join(workspaceRoot, 'test', testFile + '.js'),
-          path.join(workspaceRoot, testFile + '.js')
-        ]
+    if (!fullPath && testFile) {
+      const workspaceRoot = process.cwd()
+      const possiblePaths = [
+        path.join(workspaceRoot, 'example/tests', testFile + '.js'),
+        path.join(workspaceRoot, 'example/tests', testFile),
+        path.join(workspaceRoot, 'tests', testFile + '.js'),
+        path.join(workspaceRoot, 'test', testFile + '.js'),
+        path.join(workspaceRoot, testFile + '.js')
+      ]
 
-        for (const possiblePath of possiblePaths) {
-          if (fs.existsSync(possiblePath)) {
-            fullPath = possiblePath
-            break
-          }
+      for (const possiblePath of possiblePaths) {
+        if (fs.existsSync(possiblePath)) {
+          fullPath = possiblePath
+          break
         }
       }
+    }
 
-      // Extract suite title and test metadata
-      let suiteTitle = testFile
-      let testNames: string[] = []
-      if (fullPath) {
-        // Inline implementation of extractTestMetadata
-        let suite = null
-        const names: string[] = []
-        try {
-          const source = fs.readFileSync(fullPath, 'utf-8')
-          const suiteMatch = source.match(
-            /(?:describe|suite|context)\s*\(\s*['\"]([^'\"]+)['\"]/
-          )
-          if (suiteMatch && suiteMatch[1]) {
-            suite = suiteMatch[1]
-          }
-          const testRegex = /(?:it|test|specify)\s*\(\s*['\"]([^'\"]+)['\"]/g
-          let match
-          while ((match = testRegex.exec(source)) !== null) {
-            names.push(match[1])
-          }
-        } catch {}
-        if (suite) {
-          suiteTitle = suite
+    // Extract suite title and test metadata
+    let suiteTitle = testFile
+    let testNames: string[] = []
+    if (fullPath) {
+      // Inline implementation of extractTestMetadata
+      let suite = null
+      const names: string[] = []
+      try {
+        const source = fs.readFileSync(fullPath, 'utf-8')
+        const suiteMatch = source.match(
+          /(?:describe|suite|context)\s*\(\s*['\"]([^'\"]+)['\"]/
+        )
+        if (suiteMatch && suiteMatch[1]) {
+          suite = suiteMatch[1]
         }
-        testNames = names
+        const testRegex = /(?:it|test|specify)\s*\(\s*['\"]([^'\"]+)['\"]/g
+        let match
+        while ((match = testRegex.exec(source)) !== null) {
+          names.push(match[1])
+        }
+      } catch {}
+      if (suite) {
+        suiteTitle = suite
       }
+      testNames = names
+    }
 
-      // Get or create suite for this test file
-      const currentSuite = this.suiteManager.getOrCreateSuite(
-        testFile,
-        suiteTitle,
-        fullPath,
-        testNames
-      )
+    // Get or create suite for this test file
+    const currentSuite = this.suiteManager.getOrCreateSuite(
+      testFile,
+      suiteTitle,
+      fullPath,
+      testNames
+    )
 
-      // Capture source file for display
-      if (fullPath && fullPath.includes('/')) {
-        this.sessionCapturer.captureSource(fullPath).catch(() => {})
-      }
+    // Capture source file for display
+    if (fullPath && fullPath.includes('/')) {
+      this.sessionCapturer.captureSource(fullPath).catch(() => {})
+    }
 
     const runningTest = currentSuite.tests.find(
       (t: any) => typeof t !== 'string' && t.state === TEST_STATE.RUNNING
@@ -521,31 +601,52 @@ class NightwatchDevToolsPlugin {
         runningTest._duration = parseFloat(testcase.time || '0') * 1000
         this.testManager.updateTestState(runningTest, testState)
         this.testManager.markTestAsProcessed(testFile, runningTest.title)
-        if (testState === TEST_STATE.PASSED) this.#passCount++
-        else if (testState === TEST_STATE.SKIPPED) this.#skipCount++
-        else this.#failCount++
-        const prevIcon = testState === TEST_STATE.PASSED ? '✅' : testState === TEST_STATE.SKIPPED ? '⏭' : '❌'
-        log.info(`  ${prevIcon} ${runningTest.title} (${(runningTest._duration / 1000).toFixed(2)}s)`)
+        if (testState === TEST_STATE.PASSED) {
+          this.#passCount++
+        } else if (testState === TEST_STATE.SKIPPED) {
+          this.#skipCount++
+        } else {
+          this.#failCount++
+        }
+        const prevIcon =
+          testState === TEST_STATE.PASSED
+            ? '✅'
+            : testState === TEST_STATE.SKIPPED
+              ? '⏭'
+              : '❌'
+        log.info(
+          `  ${prevIcon} ${runningTest.title} (${(runningTest._duration / 1000).toFixed(2)}s)`
+        )
       } else {
         const endTime = new Date()
         const duration = endTime.getTime() - (runningTest.start?.getTime() || 0)
         this.testManager.updateTestState(
-          runningTest, TEST_STATE.PASSED as TestStats['state'], endTime, duration
+          runningTest,
+          TEST_STATE.PASSED as TestStats['state'],
+          endTime,
+          duration
         )
         this.testManager.markTestAsProcessed(testFile, runningTest.title)
         this.#passCount++
         log.info(`  ✅ ${runningTest.title} (${(duration / 1000).toFixed(2)}s)`)
       }
-      await new Promise((resolve) => setTimeout(resolve, TIMING.UI_RENDER_DELAY))
+      await new Promise((resolve) =>
+        setTimeout(resolve, TIMING.UI_RENDER_DELAY)
+      )
     }
 
     const processedTests = this.testManager.getProcessedTests(testFile)
     const currentTestName = testNames.find((name) => !processedTests.has(name))
 
     if (currentTestName) {
-      if (processedTests.size === 0) this.suiteManager.markSuiteAsRunning(currentSuite)
+      if (processedTests.size === 0) {
+        this.suiteManager.markSuiteAsRunning(currentSuite)
+      }
 
-      const test = this.testManager.findTestInSuite(currentSuite, currentTestName)
+      const test = this.testManager.findTestInSuite(
+        currentSuite,
+        currentTestName
+      )
       if (test) {
         test.state = TEST_STATE.RUNNING as TestStats['state']
         test.start = new Date()
@@ -553,9 +654,13 @@ class NightwatchDevToolsPlugin {
         this.testReporter.onTestStart(test)
         this.#currentTest = test
         log.info(`  ▶ ${currentTestName}`)
-        await new Promise((resolve) => setTimeout(resolve, TIMING.TEST_START_DELAY))
+        await new Promise((resolve) =>
+          setTimeout(resolve, TIMING.TEST_START_DELAY)
+        )
       } else {
-        log.warn(`Test "${currentTestName}" not found in suite "${currentSuite.title}"`)
+        log.warn(
+          `Test "${currentTestName}" not found in suite "${currentSuite.title}"`
+        )
         this.#currentTest = null
       }
     }
@@ -570,7 +675,9 @@ class NightwatchDevToolsPlugin {
 
   async afterEach(browser: NightwatchBrowser) {
     // Cucumber runner manages its own lifecycle via cucumberHooks.cjs
-    if (this.#isCucumberRunner) return
+    if (this.#isCucumberRunner) {
+      return
+    }
 
     if (browser && this.sessionCapturer) {
       try {
@@ -607,16 +714,20 @@ class NightwatchDevToolsPlugin {
                 duration
               )
               this.testManager.markTestAsProcessed(testFile, runningTest.title)
-              if (testState === TEST_STATE.PASSED) this.#passCount++
-              else this.#failCount++
+              if (testState === TEST_STATE.PASSED) {
+                this.#passCount++
+              } else {
+                this.#failCount++
+              }
               const icon = testState === TEST_STATE.PASSED ? '✅' : '❌'
-              log.info(`  ${icon} ${runningTest.title} (${(duration / 1000).toFixed(2)}s)`)
+              log.info(
+                `  ${icon} ${runningTest.title} (${(duration / 1000).toFixed(2)}s)`
+              )
             }
           } else {
             const unprocessedTests = testcaseNames.filter(
               (name) => !processedTests.has(name)
             )
-
 
             for (const currentTestName of unprocessedTests) {
               const testcase = testcases[currentTestName]
@@ -634,11 +745,22 @@ class NightwatchDevToolsPlugin {
                   new Date(),
                   dur
                 )
-                if (testState === TEST_STATE.PASSED) this.#passCount++
-                else if (testState === TEST_STATE.SKIPPED) this.#skipCount++
-                else this.#failCount++
-                const icon = testState === TEST_STATE.PASSED ? '✅' : testState === TEST_STATE.SKIPPED ? '⏭' : '❌'
-                log.info(`  ${icon} ${currentTestName} (${(dur / 1000).toFixed(2)}s)`)
+                if (testState === TEST_STATE.PASSED) {
+                  this.#passCount++
+                } else if (testState === TEST_STATE.SKIPPED) {
+                  this.#skipCount++
+                } else {
+                  this.#failCount++
+                }
+                const icon =
+                  testState === TEST_STATE.PASSED
+                    ? '✅'
+                    : testState === TEST_STATE.SKIPPED
+                      ? '⏭'
+                      : '❌'
+                log.info(
+                  `  ${icon} ${currentTestName} (${(dur / 1000).toFixed(2)}s)`
+                )
               }
 
               this.testManager.markTestAsProcessed(testFile, currentTestName)
@@ -665,7 +787,9 @@ class NightwatchDevToolsPlugin {
       const currentTest = (browser as any)?.currentTest
       const testcases = currentTest?.results?.testcases || {}
 
-      for (const [, suite] of (this.suiteManager?.getAllSuites() ?? new Map()).entries()) {
+      for (const [, suite] of (
+        this.suiteManager?.getAllSuites() ?? new Map()
+      ).entries()) {
         this.testManager.finalizeSuiteTests(suite, testcases)
         await new Promise((resolve) =>
           setTimeout(resolve, TIMING.SUITE_COMPLETE_DELAY)
@@ -681,7 +805,9 @@ class NightwatchDevToolsPlugin {
         this.#passCount > 0 ? `${this.#passCount} passed` : null,
         this.#failCount > 0 ? `${this.#failCount} failed` : null,
         this.#skipCount > 0 ? `${this.#skipCount} skipped` : null
-      ].filter(Boolean).join('  ')
+      ]
+        .filter(Boolean)
+        .join('  ')
       const totalFailed = this.#failCount
 
       log.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
@@ -814,7 +940,9 @@ function parseStepKeywords(
   scenarioName: string,
   stepCount: number
 ): string[] {
-  if (!featureContent || stepCount === 0) return Array(stepCount).fill('')
+  if (!featureContent || stepCount === 0) {
+    return Array(stepCount).fill('')
+  }
 
   const lines = featureContent.split('\n')
   const stepRe = /^\s*(Given|When|Then|And|But)\s+/i
@@ -823,20 +951,33 @@ function parseStepKeywords(
   const scenarioLineIdx = lines.findIndex(
     (l) => /^\s*Scenario:/i.test(l) && l.includes(scenarioName)
   )
-  if (scenarioLineIdx === -1) return Array(stepCount).fill('')
+  if (scenarioLineIdx === -1) {
+    return Array(stepCount).fill('')
+  }
 
   const keywords: string[] = []
-  for (let i = scenarioLineIdx + 1; i < lines.length && keywords.length < stepCount; i++) {
+  for (
+    let i = scenarioLineIdx + 1;
+    i < lines.length && keywords.length < stepCount;
+    i++
+  ) {
     // Stop at next Scenario or Feature header
-    if (i > scenarioLineIdx && (/^\s*Scenario:/i.test(lines[i]) || /^\s*Feature:/i.test(lines[i]))) {
+    if (
+      i > scenarioLineIdx &&
+      (/^\s*Scenario:/i.test(lines[i]) || /^\s*Feature:/i.test(lines[i]))
+    ) {
       break
     }
     const m = stepRe.exec(lines[i])
-    if (m) keywords.push(m[1])
+    if (m) {
+      keywords.push(m[1])
+    }
   }
 
   // Pad with empty strings if fewer keywords were found than steps
-  while (keywords.length < stepCount) keywords.push('')
+  while (keywords.length < stepCount) {
+    keywords.push('')
+  }
   return keywords
 }
 

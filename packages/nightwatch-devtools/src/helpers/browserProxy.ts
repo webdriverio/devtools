@@ -4,7 +4,10 @@
  */
 
 import logger from '@wdio/logger'
-import { INTERNAL_COMMANDS_TO_IGNORE, BOOLEAN_COMMAND_PATTERN } from '../constants.js'
+import {
+  INTERNAL_COMMANDS_TO_IGNORE,
+  BOOLEAN_COMMAND_PATTERN
+} from '../constants.js'
 import { getCallSourceFromStack } from './utils.js'
 import type { SessionCapturer } from '../session.js'
 import type { TestManager } from './testManager.js'
@@ -239,9 +242,12 @@ export class BrowserProxy {
                 passed: false,
                 actual: callbackResult.actual,
                 expected: callbackResult.expected,
-                message: callbackResult.message,
+                message: callbackResult.message
               }
-        } else if (typeof callbackResult === 'object' && 'value' in callbackResult) {
+        } else if (
+          typeof callbackResult === 'object' &&
+          'value' in callbackResult
+        ) {
           const raw = callbackResult.value
           // Boolean-semantic command returning null → timed out / not found → false
           serializedResult = raw === null && isBooleanCommand ? false : raw
