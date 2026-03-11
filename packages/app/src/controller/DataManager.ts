@@ -49,7 +49,11 @@ export const isTestRunningContext = createContext<boolean>(
 )
 
 interface SocketMessage<
-  T extends keyof TraceLog | 'testStopped' | 'clearExecutionData' | 'replaceCommand' =
+  T extends
+    | keyof TraceLog
+    | 'testStopped'
+    | 'clearExecutionData'
+    | 'replaceCommand' =
     | keyof TraceLog
     | 'testStopped'
     | 'clearExecutionData'
@@ -290,7 +294,10 @@ export class DataManagerController implements ReactiveController {
 
       // Handle in-place command replacement (retry deduplication)
       if (scope === 'replaceCommand') {
-        const { oldTimestamp, command } = data as { oldTimestamp: number; command: CommandLog }
+        const { oldTimestamp, command } = data as {
+          oldTimestamp: number
+          command: CommandLog
+        }
         this.#handleReplaceCommand(oldTimestamp, command)
         this.#host.requestUpdate()
         return

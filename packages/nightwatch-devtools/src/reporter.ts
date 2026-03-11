@@ -1,9 +1,12 @@
 import logger from '@wdio/logger'
-import { extractTestMetadata, generateStableUid, resetSignatureCounters } from './helpers/utils.js'
+import {
+  extractTestMetadata,
+  generateStableUid,
+  resetSignatureCounters
+} from './helpers/utils.js'
 import type { SuiteStats, TestStats } from './types.js'
 
 const log = logger('@wdio/nightwatch-devtools:Reporter')
-
 
 export class TestReporter {
   #report: (data: any) => void
@@ -16,7 +19,6 @@ export class TestReporter {
     this.#report = report
     resetSignatureCounters()
   }
-
 
   /**
    * Called when a suite starts
@@ -31,7 +33,10 @@ export class TestReporter {
     }
 
     // Extract test names from source file
-    if (this.#currentSpecFile && !this.#testNamesCache.has(this.#currentSpecFile)) {
+    if (
+      this.#currentSpecFile &&
+      !this.#testNamesCache.has(this.#currentSpecFile)
+    ) {
       const metadata = extractTestMetadata(this.#currentSpecFile)
       const testNames = metadata.testNames
       if (testNames.length > 0) {

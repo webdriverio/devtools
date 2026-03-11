@@ -119,9 +119,16 @@ export class SuiteManager {
       suite.tests.some((t: any) => t.state === TEST_STATE.FAILED) ||
       suite.suites.some((s) => s.state === TEST_STATE.FAILED)
     const allPassed =
-      suite.tests.every((t: any) => t.state === TEST_STATE.PASSED || t.state === TEST_STATE.SKIPPED) &&
-      suite.suites.every((s) => s.state === TEST_STATE.PASSED || s.state === TEST_STATE.SKIPPED)
-    const hasSkipped = suite.tests.some((t: any) => t.state === TEST_STATE.SKIPPED)
+      suite.tests.every(
+        (t: any) =>
+          t.state === TEST_STATE.PASSED || t.state === TEST_STATE.SKIPPED
+      ) &&
+      suite.suites.every(
+        (s) => s.state === TEST_STATE.PASSED || s.state === TEST_STATE.SKIPPED
+      )
+    const hasSkipped = suite.tests.some(
+      (t: any) => t.state === TEST_STATE.SKIPPED
+    )
     const hasItems = suite.tests.length > 0 || suite.suites.length > 0
 
     if (hasFailures) {

@@ -35,11 +35,21 @@ export class DevtoolsMetadata extends Element {
 
     const m = this.metadata as any
     const sessionInfo: Record<string, unknown> = {}
-    if (m.sessionId) sessionInfo['Session ID'] = m.sessionId
-    if (m.testEnv) sessionInfo['Environment'] = m.testEnv
-    if (m.host) sessionInfo['WebDriver Host'] = m.host
-    if (m.modulePath) sessionInfo['Test File'] = m.modulePath
-    if (m.url) sessionInfo['URL'] = m.url
+    if (m.sessionId) {
+      sessionInfo['Session ID'] = m.sessionId
+    }
+    if (m.testEnv) {
+      sessionInfo.Environment = m.testEnv
+    }
+    if (m.host) {
+      sessionInfo['WebDriver Host'] = m.host
+    }
+    if (m.modulePath) {
+      sessionInfo['Test File'] = m.modulePath
+    }
+    if (m.url) {
+      sessionInfo.URL = m.url
+    }
 
     const caps = m.capabilities || {}
     const desiredCaps = m.desiredCapabilities || {}
