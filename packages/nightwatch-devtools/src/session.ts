@@ -38,7 +38,7 @@ export class SessionCapturer {
   }
   #isCapturingConsole = false
   #browser: NightwatchBrowser | undefined
-#commandCounter = 0
+  #commandCounter = 0
   #sentCommandIds = new Set<number>()
 
   commandsLog: CommandLog[] = []
@@ -99,7 +99,9 @@ export class SessionCapturer {
 
         // Capture all console output; strip ANSI codes for clean display in UI
         const rawText = consoleArgs
-          .map((a) => (typeof a === 'object' && a !== null ? JSON.stringify(a) : String(a)))
+          .map((a) =>
+            typeof a === 'object' && a !== null ? JSON.stringify(a) : String(a)
+          )
           .join(' ')
         const cleanText = stripAnsiCodes(rawText).trim()
         if (!cleanText) {
@@ -121,14 +123,20 @@ export class SessionCapturer {
 
   #isInternalStreamLine(line: string): boolean {
     const t = line.trim()
-    return t.startsWith('{"') || t.includes('@wdio/devtools-backend') || t.startsWith('[SESSION]')
+    return (
+      t.startsWith('{"') ||
+      t.includes('@wdio/devtools-backend') ||
+      t.startsWith('[SESSION]')
+    )
   }
 
   #isCapturingStream = false
 
   #interceptProcessStreams() {
     const captureTerminalOutput = (outputData: string | Uint8Array) => {
-      if (this.#isCapturingStream) return
+      if (this.#isCapturingStream) {
+        return
+      }
       const outputText =
         typeof outputData === 'string' ? outputData : outputData.toString()
       if (!outputText?.trim()) {
@@ -143,7 +151,13 @@ export class SessionCapturer {
           const segments = rawLine.split('\r').filter((s) => s.trim())
           const lastSegment = segments[segments.length - 1] ?? rawLine
           const clean = stripAnsiCodes(lastSegment).trim()
-          if (!clean || this.#isInternalStreamLine(clean) || SPINNER_RE.test(clean)) continue
+          if (
+            !clean ||
+            this.#isInternalStreamLine(clean) ||
+            SPINNER_RE.test(clean)
+          ) {
+            continue
+          }
           linesToCapture.push(clean)
         }
 
@@ -334,9 +348,9 @@ export class SessionCapturer {
         cookies: (function () {
           try {
             // @ts-ignore
-            return document.cookie;
+            return document.cookie
           } catch {
-            return '';
+            return ''
           }
         })(),
         documentInfo: {
@@ -353,7 +367,10 @@ export class SessionCapturer {
     // Nightwatch returns {value: result} or just the result directly
     let data: any
     if (performanceData && typeof performanceData === 'object') {
-      data = 'value' in performanceData ? (performanceData as any).value : performanceData
+      data =
+        'value' in performanceData
+          ? (performanceData as any).value
+          : performanceData
     }
 
     if (data && data.navigation) {
@@ -374,7 +391,9 @@ export class SessionCapturer {
         title: data.documentInfo?.title
       }
 
-      log.info(`✓ Captured performance data: ${data.resources?.length || 0} resources, load time: ${data.navigation?.timing?.loadTime || 0}ms`)
+      log.info(
+        `✓ Captured performance data: ${data.resources?.length || 0} resources, load time: ${data.navigation?.timing?.loadTime || 0}ms`
+      )
     }
   }
 
@@ -408,8 +427,11 @@ export class SessionCapturer {
   ): { entry: CommandLog & { _id?: number }; oldTimestamp: number } {
     // Remove the superseded entry and capture its timestamp for the UI
     const idx = this.commandsLog.findIndex((c: any) => c._id === oldId)
-    const oldTimestamp: number = idx !== -1 ? (this.commandsLog[idx] as any).timestamp ?? 0 : 0
-    if (idx !== -1) this.commandsLog.splice(idx, 1)
+    const oldTimestamp: number =
+      idx !== -1 ? ((this.commandsLog[idx] as any).timestamp ?? 0) : 0
+    if (idx !== -1) {
+      this.commandsLog.splice(idx, 1)
+    }
     // Allow the slot to be re-used by a new entry
     this.#sentCommandIds.delete(oldId)
 
@@ -432,10 +454,16 @@ export class SessionCapturer {
   }
 
   /** Send a replace-command event to the UI (swaps old entry in-place) */
-  sendReplaceCommand(oldTimestamp: number, command: CommandLog & { _id?: number }) {
+  sendReplaceCommand(
+    oldTimestamp: number,
+    command: CommandLog & { _id?: number }
+  ) {
     const commandToSend = { ...command }
     delete commandToSend._id
-    this.sendUpstream('replaceCommand', { oldTimestamp, command: commandToSend })
+    this.sendUpstream('replaceCommand', {
+      oldTimestamp,
+      command: commandToSend
+    })
   }
 
   /** Capture test source code */
@@ -547,7 +575,7 @@ export class SessionCapturer {
       this.consoleLogs.push(...entries)
       this.sendUpstream('consoleLogs', entries)
       log.info(`✓ Captured ${entries.length} browser console log entries`)
-    } catch (err) {
+    } catch {
       // Browser log capture not available (loggingPrefs not set or not supported)
     }
   }
@@ -655,10 +683,12 @@ export class SessionCapturer {
         for (const entry of networkEntries) {
           if (entry.error !== undefined) {
             const key = failedKey(entry)
-            if (alreadySeen.has(key)) continue
+            if (alreadySeen.has(key)) {
+              continue
+            }
             const existing = seenFailedInBatch.get(key)
             if (existing !== undefined) {
-              deduped[existing] = entry  // replace with latest failure
+              deduped[existing] = entry // replace with latest failure
             } else {
               seenFailedInBatch.set(key, deduped.length)
               deduped.push(entry)
@@ -745,7 +775,9 @@ export class SessionCapturer {
         this.metadata = { ...this.metadata, ...metadata }
       }
     } catch (err) {
-      log.error(`Failed to capture trace from injected script: ${(err as Error).message}`)
+      log.error(
+        `Failed to capture trace from injected script: ${(err as Error).message}`
+      )
     }
   }
 }

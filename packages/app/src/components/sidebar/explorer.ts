@@ -17,7 +17,11 @@ import type {
   TestRunDetail
 } from './types.js'
 import { TestState } from './types.js'
-import { DEFAULT_CAPABILITIES, FRAMEWORK_CAPABILITIES, STATE_MAP } from './constants.js'
+import {
+  DEFAULT_CAPABILITIES,
+  FRAMEWORK_CAPABILITIES,
+  STATE_MAP
+} from './constants.js'
 
 import '~icons/mdi/play.js'
 import '~icons/mdi/stop.js'
