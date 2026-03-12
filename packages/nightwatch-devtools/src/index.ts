@@ -26,7 +26,9 @@ import {
 import {
   determineTestState,
   findTestFileFromStack,
-  deterministicUid
+  deterministicUid,
+  extractTestMetadata,
+  parseStepKeywords
 } from './helpers/utils.js'
 import { DEFAULTS, TIMING, TEST_STATE } from './constants.js'
 
@@ -550,27 +552,12 @@ class NightwatchDevToolsPlugin {
     let suiteTitle = testFile
     let testNames: string[] = []
     if (fullPath) {
-      // Inline implementation of extractTestMetadata
-      let suite = null
-      const names: string[] = []
-      try {
-        const source = fs.readFileSync(fullPath, 'utf-8')
-        const suiteMatch = source.match(
-          /(?:describe|suite|context)\s*\(\s*['\"]([^'\"]+)['\"]/
-        )
-        if (suiteMatch && suiteMatch[1]) {
-          suite = suiteMatch[1]
-        }
-        const testRegex = /(?:it|test|specify)\s*\(\s*['\"]([^'\"]+)['\"]/g
-        let match
-        while ((match = testRegex.exec(source)) !== null) {
-          names.push(match[1])
-        }
-      } catch {}
-      if (suite) {
-        suiteTitle = suite
+      const { suiteTitle: parsedTitle, testNames: parsedNames } =
+        extractTestMetadata(fullPath)
+      if (parsedTitle) {
+        suiteTitle = parsedTitle
       }
-      testNames = names
+      testNames = parsedNames
     }
 
     // Get or create suite for this test file
@@ -928,57 +915,6 @@ class NightwatchDevToolsPlugin {
       }
     })
   }
-}
-
-/**
- * Extract BDD step keywords (Given/When/Then/And/But) from a feature file
- * for the steps belonging to the named scenario.  The order of keywords
- * in the file matches the order of pickle.steps, so we just walk line-by-line.
- */
-function parseStepKeywords(
-  featureContent: string,
-  scenarioName: string,
-  stepCount: number
-): string[] {
-  if (!featureContent || stepCount === 0) {
-    return Array(stepCount).fill('')
-  }
-
-  const lines = featureContent.split('\n')
-  const stepRe = /^\s*(Given|When|Then|And|But)\s+/i
-
-  // Find the Scenario block that contains this scenario name
-  const scenarioLineIdx = lines.findIndex(
-    (l) => /^\s*Scenario:/i.test(l) && l.includes(scenarioName)
-  )
-  if (scenarioLineIdx === -1) {
-    return Array(stepCount).fill('')
-  }
-
-  const keywords: string[] = []
-  for (
-    let i = scenarioLineIdx + 1;
-    i < lines.length && keywords.length < stepCount;
-    i++
-  ) {
-    // Stop at next Scenario or Feature header
-    if (
-      i > scenarioLineIdx &&
-      (/^\s*Scenario:/i.test(lines[i]) || /^\s*Feature:/i.test(lines[i]))
-    ) {
-      break
-    }
-    const m = stepRe.exec(lines[i])
-    if (m) {
-      keywords.push(m[1])
-    }
-  }
-
-  // Pad with empty strings if fewer keywords were found than steps
-  while (keywords.length < stepCount) {
-    keywords.push('')
-  }
-  return keywords
 }
 
 /**
