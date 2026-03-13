@@ -253,6 +253,12 @@ export class SessionCapturer {
     })
   }
 
+  #serializeError(error: Error | undefined) {
+    return error
+      ? { name: error.name, message: error.message, stack: error.stack }
+      : undefined
+  }
+
   /**
    * Capture a command execution
    * @returns true if command was captured, false if it was skipped as a duplicate
@@ -267,13 +273,7 @@ export class SessionCapturer {
     timestamp?: number
   ): Promise<boolean> {
     // Serialize error properly (Error objects don't JSON.stringify well)
-    const serializedError = error
-      ? {
-          name: error.name,
-          message: error.message,
-          stack: error.stack
-        }
-      : undefined
+    const serializedError = this.#serializeError(error)
 
     const commandId = this.#commandCounter++
     const commandLogEntry: CommandLog & { _id?: number } = {
@@ -435,9 +435,7 @@ export class SessionCapturer {
     // Allow the slot to be re-used by a new entry
     this.#sentCommandIds.delete(oldId)
 
-    const serializedError = error
-      ? { name: error.name, message: error.message, stack: error.stack }
-      : undefined
+    const serializedError = this.#serializeError(error)
     const commandId = this.#commandCounter++
     const entry: CommandLog & { _id?: number } = {
       _id: commandId,
