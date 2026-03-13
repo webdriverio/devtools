@@ -44,7 +44,10 @@ describe('DevToolsAppLauncher', () => {
 
   describe('onPrepare', () => {
     it('should start devtools backend and update capabilities', async () => {
-      vi.mocked(backend.start).mockResolvedValue({ server: mockServer } as any)
+      vi.mocked(backend.start).mockResolvedValue({
+        server: mockServer,
+        port: 3000
+      } as any)
       vi.mocked(remote).mockResolvedValue(mockBrowser as any)
 
       const launcher = new DevToolsAppLauncher({ port: 3000 })
@@ -67,7 +70,8 @@ describe('DevToolsAppLauncher', () => {
     it('should use custom hostname', async () => {
       const customServer = { address: () => ({ port: 4000 }) }
       vi.mocked(backend.start).mockResolvedValue({
-        server: customServer
+        server: customServer,
+        port: 4000
       } as any)
       vi.mocked(remote).mockResolvedValue(mockBrowser as any)
 
@@ -122,7 +126,10 @@ describe('DevToolsAppLauncher', () => {
         address: () => null
       }
 
-      vi.mocked(backend.start).mockResolvedValue({ server: mockServer } as any)
+      vi.mocked(backend.start).mockResolvedValue({
+        server: mockServer,
+        port: 0
+      } as any)
 
       const launcher = new DevToolsAppLauncher({ port: 3000 })
       const caps = [{ browserName: 'chrome' }] as any
@@ -138,7 +145,10 @@ describe('DevToolsAppLauncher', () => {
         address: () => ({ port: 3000 })
       }
 
-      vi.mocked(backend.start).mockResolvedValue({ server: mockServer } as any)
+      vi.mocked(backend.start).mockResolvedValue({
+        server: mockServer,
+        port: 3000
+      } as any)
 
       const launcher = new DevToolsAppLauncher({ port: 3000 })
       const caps: any = {
@@ -152,7 +162,10 @@ describe('DevToolsAppLauncher', () => {
     })
 
     it('should update multiple capabilities', async () => {
-      vi.mocked(backend.start).mockResolvedValue({ server: mockServer } as any)
+      vi.mocked(backend.start).mockResolvedValue({
+        server: mockServer,
+        port: 3000
+      } as any)
       vi.mocked(remote).mockResolvedValue(mockBrowser as any)
 
       const launcher = new DevToolsAppLauncher({ port: 3000 })
@@ -173,7 +186,10 @@ describe('DevToolsAppLauncher', () => {
     })
 
     it('should pass devtoolsCapabilities to remote', async () => {
-      vi.mocked(backend.start).mockResolvedValue({ server: mockServer } as any)
+      vi.mocked(backend.start).mockResolvedValue({
+        server: mockServer,
+        port: 3000
+      } as any)
       vi.mocked(remote).mockResolvedValue(mockBrowser as any)
 
       const customCaps = {
@@ -208,7 +224,10 @@ describe('DevToolsAppLauncher', () => {
           : Promise.reject(new Error('Browser closed'))
       })
 
-      vi.mocked(backend.start).mockResolvedValue({ server: mockServer } as any)
+      vi.mocked(backend.start).mockResolvedValue({
+        server: mockServer,
+        port: 3000
+      } as any)
       vi.mocked(remote).mockResolvedValue(mockBrowser as any)
 
       const launcher = new DevToolsAppLauncher({ port: 3000 })
@@ -235,7 +254,10 @@ describe('DevToolsAppLauncher', () => {
         new Error('Session already closed')
       )
 
-      vi.mocked(backend.start).mockResolvedValue({ server: mockServer } as any)
+      vi.mocked(backend.start).mockResolvedValue({
+        server: mockServer,
+        port: 3000
+      } as any)
       vi.mocked(remote).mockResolvedValue(mockBrowser as any)
 
       const launcher = new DevToolsAppLauncher({ port: 3000 })
@@ -250,7 +272,10 @@ describe('DevToolsAppLauncher', () => {
     it('should handle full lifecycle', async () => {
       mockBrowser.getTitle.mockRejectedValue(new Error('Browser closed'))
 
-      vi.mocked(backend.start).mockResolvedValue({ server: mockServer } as any)
+      vi.mocked(backend.start).mockResolvedValue({
+        server: mockServer,
+        port: 3000
+      } as any)
       vi.mocked(remote).mockResolvedValue(mockBrowser as any)
 
       const launcher = new DevToolsAppLauncher({

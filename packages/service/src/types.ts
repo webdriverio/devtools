@@ -10,6 +10,7 @@ export interface CommandLog {
   timestamp: number
   callSource: string
   screenshot?: string
+  testUid?: string
 }
 
 export enum TraceType {
@@ -23,6 +24,12 @@ export interface Metadata {
   options: Omit<Options.WebdriverIO, 'capabilities'>
   capabilities: Capabilities.W3CCapabilities
   viewport: VisualViewport
+  /** Nightwatch / extended fields */
+  sessionId?: string
+  testEnv?: string
+  host?: string
+  modulePath?: string
+  desiredCapabilities?: Record<string, unknown>
 }
 
 export interface TraceLog {

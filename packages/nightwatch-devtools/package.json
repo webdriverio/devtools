@@ -1,0 +1,43 @@
+{
+  "name": "@wdio/nightwatch-devtools",
+  "version": "0.1.0",
+  "description": "Nightwatch adapter for WebdriverIO DevTools - reuses existing backend, UI, and capture infrastructure",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "nightwatch": {
+    "plugin": true
+  },
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch",
+    "clean": "rm -rf dist",
+    "example": "nightwatch -c example/nightwatch.conf.cjs"
+  },
+  "keywords": [
+    "nightwatch",
+    "devtools",
+    "debugging",
+    "testing"
+  ],
+  "author": "WebdriverIO Team",
+  "license": "MIT",
+  "dependencies": {
+    "@wdio/devtools-backend": "workspace:*",
+    "@wdio/logger": "^9.6.0",
+    "import-meta-resolve": "^4.2.0",
+    "stacktrace-parser": "^0.1.10",
+    "webdriverio": "^9.18.0",
+    "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "@types/ws": "^8.18.1",
+    "chromedriver": "^133.0.0",
+    "nightwatch": "^3.0.0",
+    "typescript": "^5.9.2"
+  },
+  "peerDependencies": {
+    "nightwatch": ">=3.0.0"
+  }
+}

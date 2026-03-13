@@ -33,20 +33,50 @@ export class DevtoolsMetadata extends Element {
       return html`<wdio-devtools-placeholder></wdio-devtools-placeholder>`
     }
 
-    const { url } = this.metadata
+    const m = this.metadata as any
+    const sessionInfo: Record<string, unknown> = {}
+    if (m.sessionId) {
+      sessionInfo['Session ID'] = m.sessionId
+    }
+    if (m.testEnv) {
+      sessionInfo.Environment = m.testEnv
+    }
+    if (m.host) {
+      sessionInfo['WebDriver Host'] = m.host
+    }
+    if (m.modulePath) {
+      sessionInfo['Test File'] = m.modulePath
+    }
+    if (m.url) {
+      sessionInfo.URL = m.url
+    }
+
+    const caps = m.capabilities || {}
+    const desiredCaps = m.desiredCapabilities || {}
+
     return html`
-      <wdio-devtools-list
-        label="Metadata"
-        .list="${{ url }}"
-      ></wdio-devtools-list>
+      ${Object.keys(sessionInfo).length
+        ? html`<wdio-devtools-list
+            label="Session"
+            .list="${sessionInfo}"
+          ></wdio-devtools-list>`
+        : ''}
       <wdio-devtools-list
         label="Capabilities"
-        .list="${this.metadata.capabilities}"
+        .list="${caps}"
       ></wdio-devtools-list>
-      <wdio-devtools-list
-        label="Options"
-        .list="${this.metadata.options}"
-      ></wdio-devtools-list>
+      ${Object.keys(desiredCaps).length
+        ? html`<wdio-devtools-list
+            label="Desired Capabilities"
+            .list="${desiredCaps}"
+          ></wdio-devtools-list>`
+        : ''}
+      ${m.options && Object.keys(m.options).length
+        ? html`<wdio-devtools-list
+            label="Options"
+            .list="${m.options}"
+          ></wdio-devtools-list>`
+        : ''}
     `
   }
 }

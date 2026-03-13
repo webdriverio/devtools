@@ -28,13 +28,10 @@ export class DevToolsAppLauncher {
         })
         return
       }
-      const { server } = await start({
+      const { port } = await start({
         port: this.#options.port,
         hostname: this.#options.hostname
       })
-      const address = server.address()
-      const port =
-        address && typeof address === 'object' ? address.port : undefined
 
       if (!port) {
         return console.log(`Failed to start server on port ${port}`)

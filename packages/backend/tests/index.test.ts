@@ -29,7 +29,7 @@ describe('backend index', () => {
   describe('API endpoints', () => {
     it('should handle test run and stop requests with validation', async () => {
       vi.mocked(utils.getDevtoolsApp).mockResolvedValue('/mock/app/path')
-      const server = await start({ port: 0 })
+      const { server } = await start({ port: 0 })
       const { testRunner } = await import('../src/runner.js')
       const runSpy = vi.spyOn(testRunner, 'run').mockResolvedValue()
       const stopSpy = vi.spyOn(testRunner, 'stop')
@@ -83,7 +83,7 @@ describe('backend index', () => {
 
     it('should handle test run errors gracefully', async () => {
       vi.mocked(utils.getDevtoolsApp).mockResolvedValue('/mock/app/path')
-      const server = await start({ port: 0 })
+      const { server } = await start({ port: 0 })
       const { testRunner } = await import('../src/runner.js')
       vi.spyOn(testRunner, 'run').mockRejectedValue(
         new Error('Test execution failed')

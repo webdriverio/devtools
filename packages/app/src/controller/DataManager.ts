@@ -49,10 +49,24 @@ export const isTestRunningContext = createContext<boolean>(
 )
 
 interface SocketMessage<
-  T extends keyof TraceLog | 'testStopped' = keyof TraceLog | 'testStopped'
+  T extends
+    | keyof TraceLog
+    | 'testStopped'
+    | 'clearExecutionData'
+    | 'replaceCommand' =
+    | keyof TraceLog
+    | 'testStopped'
+    | 'clearExecutionData'
+    | 'replaceCommand'
 > {
   scope: T
-  data: T extends keyof TraceLog ? TraceLog[T] : unknown
+  data: T extends keyof TraceLog
+    ? TraceLog[T]
+    : T extends 'clearExecutionData'
+      ? { uid?: string }
+      : T extends 'replaceCommand'
+        ? { oldTimestamp: number; command: CommandLog }
+        : unknown
 }
 
 export class DataManagerController implements ReactiveController {
@@ -270,6 +284,25 @@ export class DataManagerController implements ReactiveController {
         return
       }
 
+      // Handle clear execution data event (when tests change)
+      if (scope === 'clearExecutionData') {
+        const clearData = data as { uid?: string }
+        this.clearExecutionData(clearData.uid)
+        this.#host.requestUpdate()
+        return
+      }
+
+      // Handle in-place command replacement (retry deduplication)
+      if (scope === 'replaceCommand') {
+        const { oldTimestamp, command } = data as {
+          oldTimestamp: number
+          command: CommandLog
+        }
+        this.#handleReplaceCommand(oldTimestamp, command)
+        this.#host.requestUpdate()
+        return
+      }
+
       // Check for new run BEFORE processing suites data
       if (scope === 'suites') {
         const shouldReset = this.#shouldResetForNewRun(data)
@@ -323,12 +356,41 @@ export class DataManagerController implements ReactiveController {
             ? suite.start.getTime()
             : typeof suite.start === 'number'
               ? suite.start
-              : 0
+              : typeof suite.start === 'string'
+                ? new Date(suite.start as string).getTime() || 0
+                : 0
 
-        // New run detected if we see a newer start timestamp
+        if (suiteStartTime <= 0) {
+          continue
+        }
+
+        // New run detected if we see a newer start timestamp.
+        // Exception: if the existing suite for this uid has no end time, it is
+        // still an ongoing run (e.g. a Cucumber feature spanning multiple
+        // scenarios) — treat it as a continuation, not a new run.
         if (suiteStartTime > this.#lastSeenRunTimestamp) {
+          const existingChunks = this.suitesContextProvider.value || []
+          let existingEnd: unknown = undefined
+          outer: for (const ec of existingChunks) {
+            for (const [uid, existing] of Object.entries(
+              ec as Record<string, SuiteStatsFragment>
+            )) {
+              if (uid === Object.keys(chunk)[0]) {
+                existingEnd = (existing as any)?.end
+                break outer
+              }
+            }
+          }
+          // Only reset if the previous run was already finished (had an end time).
+          // An ongoing run (end == null / undefined) is just a continuation.
+          const previousRunFinished =
+            existingEnd !== null && existingEnd !== undefined
+          if (previousRunFinished) {
+            this.#lastSeenRunTimestamp = suiteStartTime
+            return true
+          }
+          // Continuation — update tracking timestamp but do NOT reset
           this.#lastSeenRunTimestamp = suiteStartTime
-          return true
         }
       }
     }
@@ -411,6 +473,20 @@ export class DataManagerController implements ReactiveController {
       ...(this.commandsContextProvider.value || []),
       ...data
     ])
+  }
+
+  #handleReplaceCommand(oldTimestamp: number, newCommand: CommandLog) {
+    const current = this.commandsContextProvider.value || []
+    // Find the last entry with the matching timestamp (most recent retry)
+    const idx = current.map((c) => c.timestamp).lastIndexOf(oldTimestamp)
+    if (idx !== -1) {
+      const updated = [...current]
+      updated[idx] = newCommand
+      this.commandsContextProvider.setValue(updated)
+    } else {
+      // No matching entry found — just append
+      this.commandsContextProvider.setValue([...current, newCommand])
+    }
   }
 
   #handleConsoleLogsUpdate(data: string[]) {
