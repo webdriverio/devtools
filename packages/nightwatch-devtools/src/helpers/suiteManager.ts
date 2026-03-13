@@ -8,8 +8,6 @@ import type { SuiteStats, TestStats } from '../types.js'
 import type { TestReporter } from '../reporter.js'
 import { generateStableUid } from './utils.js'
 
-// const log = logger('@wdio/nightwatch-devtools:suiteManager')
-
 export class SuiteManager {
   private currentSuiteByFile = new Map<string, SuiteStats>()
 
