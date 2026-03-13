@@ -1,4 +1,5 @@
 import logger from '@wdio/logger'
+import { DEFAULTS } from './constants.js'
 import {
   extractTestMetadata,
   generateStableUid,
@@ -129,36 +130,14 @@ export class TestReporter {
    * Called when a test passes
    */
   onTestPass(testStats: TestStats) {
-    // Search all suites for this test (not just current suite)
-    for (const suite of this.#allSuites) {
-      const testIndex = suite.tests.findIndex(
-        (t) => (typeof t === 'string' ? t : t.uid) === testStats.uid
-      )
-      if (testIndex !== -1) {
-        suite.tests[testIndex] = testStats
-        break
-      }
-    }
-
-    this.#sendUpstream()
+    this.onTestEnd(testStats)
   }
 
   /**
    * Called when a test fails
    */
   onTestFail(testStats: TestStats) {
-    // Search all suites for this test (not just current suite)
-    for (const suite of this.#allSuites) {
-      const testIndex = suite.tests.findIndex(
-        (t) => (typeof t === 'string' ? t : t.uid) === testStats.uid
-      )
-      if (testIndex !== -1) {
-        suite.tests[testIndex] = testStats
-        break
-      }
-    }
-
-    this.#sendUpstream()
+    this.onTestEnd(testStats)
   }
 
   /**
@@ -181,7 +160,7 @@ export class TestReporter {
             file: suiteStats.file,
             fullTitle: `${suiteStats.title} ${testName}`
           } as TestStats),
-          cid: '0-0',
+          cid: DEFAULTS.CID,
           title: testName,
           fullTitle: `${suiteStats.title} ${testName}`,
           parent: suiteStats.uid,
@@ -190,8 +169,8 @@ export class TestReporter {
           end: new Date(),
           type: 'test',
           file: suiteStats.file,
-          retries: 0,
-          _duration: 0,
+          retries: DEFAULTS.RETRIES,
+          _duration: DEFAULTS.DURATION,
           hooks: []
         }
 

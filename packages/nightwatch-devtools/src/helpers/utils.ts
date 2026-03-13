@@ -179,9 +179,9 @@ export function getCallSourceFromStack(): {
       filePath = filePath.replace('file://', '')
     }
     // Remove line:col from filePath
-    const cleanFilePath: string = filePath.split(':')[0]
+    const cleanFilePath = filePath.split(':')[0]
     // Use full path with line number for callSource so Source tab can match it
-    const callSource: string = `${cleanFilePath}:${userFrame.lineNumber || 0}`
+    const callSource = `${cleanFilePath}:${userFrame.lineNumber || 0}`
     return { filePath: cleanFilePath, callSource }
   }
   return { filePath: undefined, callSource: 'unknown:0' }
@@ -199,7 +199,7 @@ export function findTestFileByName(
     return undefined
   }
   // Clean up filename - remove extensions and normalize
-  const baseFilename: string = filename.replace(/\.[cm]?[jt]sx?$/, '')
+  const baseFilename = filename.replace(/\.[cm]?[jt]sx?$/, '')
   // Recursively search directories
   function searchDir(dir: string, depth = 0): string | undefined {
     if (depth > 5) {

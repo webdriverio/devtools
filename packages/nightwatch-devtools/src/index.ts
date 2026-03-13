@@ -422,19 +422,8 @@ class NightwatchDevToolsPlugin {
           this.suiteManager.finalizeSuiteState(featureSuite)
         }
 
-        if (scenarioState === TEST_STATE.PASSED) {
-          this.#passCount++
-        } else if (scenarioState === TEST_STATE.SKIPPED) {
-          this.#skipCount++
-        } else {
-          this.#failCount++
-        }
-        const icon =
-          scenarioState === TEST_STATE.PASSED
-            ? '✅'
-            : scenarioState === TEST_STATE.SKIPPED
-              ? '⏭'
-              : '❌'
+        this.#incrementCount(scenarioState)
+        const icon = this.#testIcon(scenarioState)
         const durationSec = (duration / 1000).toFixed(2)
         log.info(`  ${icon} ${pickle?.name ?? 'Unknown'} (${durationSec}s)`)
 
@@ -588,19 +577,8 @@ class NightwatchDevToolsPlugin {
         runningTest._duration = parseFloat(testcase.time || '0') * 1000
         this.testManager.updateTestState(runningTest, testState)
         this.testManager.markTestAsProcessed(testFile, runningTest.title)
-        if (testState === TEST_STATE.PASSED) {
-          this.#passCount++
-        } else if (testState === TEST_STATE.SKIPPED) {
-          this.#skipCount++
-        } else {
-          this.#failCount++
-        }
-        const prevIcon =
-          testState === TEST_STATE.PASSED
-            ? '✅'
-            : testState === TEST_STATE.SKIPPED
-              ? '⏭'
-              : '❌'
+        this.#incrementCount(testState)
+        const prevIcon = this.#testIcon(testState)
         log.info(
           `  ${prevIcon} ${runningTest.title} (${(runningTest._duration / 1000).toFixed(2)}s)`
         )
@@ -701,12 +679,8 @@ class NightwatchDevToolsPlugin {
                 duration
               )
               this.testManager.markTestAsProcessed(testFile, runningTest.title)
-              if (testState === TEST_STATE.PASSED) {
-                this.#passCount++
-              } else {
-                this.#failCount++
-              }
-              const icon = testState === TEST_STATE.PASSED ? '✅' : '❌'
+              this.#incrementCount(testState)
+              const icon = this.#testIcon(testState)
               log.info(
                 `  ${icon} ${runningTest.title} (${(duration / 1000).toFixed(2)}s)`
               )
@@ -732,19 +706,8 @@ class NightwatchDevToolsPlugin {
                   new Date(),
                   dur
                 )
-                if (testState === TEST_STATE.PASSED) {
-                  this.#passCount++
-                } else if (testState === TEST_STATE.SKIPPED) {
-                  this.#skipCount++
-                } else {
-                  this.#failCount++
-                }
-                const icon =
-                  testState === TEST_STATE.PASSED
-                    ? '✅'
-                    : testState === TEST_STATE.SKIPPED
-                      ? '⏭'
-                      : '❌'
+                this.#incrementCount(testState)
+                const icon = this.#testIcon(testState)
                 log.info(
                   `  ${icon} ${currentTestName} (${(dur / 1000).toFixed(2)}s)`
                 )
@@ -853,6 +816,24 @@ class NightwatchDevToolsPlugin {
     } catch (err) {
       log.error(`Failed to stop backend: ${(err as Error).message}`)
     }
+  }
+
+  #incrementCount(state: TestStats['state']): void {
+    if (state === TEST_STATE.PASSED) {
+      this.#passCount++
+    } else if (state === TEST_STATE.SKIPPED) {
+      this.#skipCount++
+    } else {
+      this.#failCount++
+    }
+  }
+
+  #testIcon(state: TestStats['state']): string {
+    return state === TEST_STATE.PASSED
+      ? '✅'
+      : state === TEST_STATE.SKIPPED
+        ? '⏭'
+        : '❌'
   }
 
   registerEventHandlers(eventHub: any): void {
