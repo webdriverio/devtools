@@ -1,8 +1,19 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { parse as parseStackTrace } from 'stacktrace-parser'
-import { ANSI_REGEX, LOG_LEVEL_PATTERNS } from '../constants.js'
-import type { ConsoleLog, LogLevel, NightwatchTestCase } from '../types.js'
+import {
+  ANSI_REGEX,
+  LOG_LEVEL_PATTERNS,
+  TEST_PATH_PATTERN,
+  TEST_FILE_PATTERN
+} from '../constants.js'
+import type {
+  ConsoleLog,
+  LogLevel,
+  NightwatchTestCase,
+  TestFileMetadata,
+  StepLocation
+} from '../types.js'
 
 export function determineTestState(
   testcase: NightwatchTestCase
@@ -17,8 +28,8 @@ export function determineTestState(
 const signatureCounters = new Map<string, number>()
 
 /**
- * Generate stable UID for test/suite
- * Accepts either (item: SuiteStats | TestStats) or (file: string, name: string)
+ * Generate stable UID for test/suite.
+ * Accepts either (item: SuiteStats | TestStats) or (file: string, name: string).
  */
 export function generateStableUid(itemOrFile: any, name?: string): string {
   let file: string, testName: string
@@ -33,24 +44,17 @@ export function generateStableUid(itemOrFile: any, name?: string): string {
     file = itemOrFile || ''
     testName = String(name || '')
   }
-  const parts = [file, testName]
-  const signature = parts.join('::')
+  const signature = `${file}::${testName}`
   const count = signatureCounters.get(signature) || 0
   signatureCounters.set(signature, count + 1)
-  if (count > 0) {
-    parts.push(String(count))
-  }
-  // Generate hash for stable, short UIDs
-  const hash = parts
-    .join('::')
+  const hashInput = count > 0 ? `${signature}::${count}` : signature
+  const hash = hashInput
     .split('')
     .reduce((acc, char) => ((acc << 5) - acc + char.charCodeAt(0)) | 0, 0)
   return `stable-${Math.abs(hash).toString(36)}`
 }
 
-/**
- * Reset counters at the start of each test run
- */
+/** Reset counters at the start of each test run. */
 export function resetSignatureCounters() {
   signatureCounters.clear()
 }
@@ -70,167 +74,125 @@ export function deterministicUid(...parts: string[]): string {
   return `stable-${Math.abs(hash).toString(36)}`
 }
 
-// File patterns for test file identification
-const SPEC_FILE_PATTERN = /\/(test|spec|tests)\//i
-const SPEC_FILE_RE = /\.(?:test|spec)\.[cm]?[jt]sx?$/i
+/** Returns true if a stack frame belongs to user code (not dependencies, internals, or build output). */
+function isUserCodeFrame(frame: { file?: string | null }): frame is { file: string } {
+  const { file } = frame
+  return !!(
+    file &&
+    !file.includes('/node_modules/') &&
+    !file.includes('<anonymous>') &&
+    !file.includes('node:internal') &&
+    !file.includes('/dist/') &&
+    !file.includes('/index.js')
+  )
+}
 
-/**
- * Find test file from stack trace (WDIO DevTools approach)
- * Parses call stack to find the first frame that looks like a test file
- */
-export function findTestFileFromStack(): string | undefined {
-  const stack = new Error().stack
-  if (!stack) {
-    return undefined
-  }
-  const frames = parseStackTrace(stack)
-  const testFrame = frames.find((frame: any) => {
-    const file = frame.file
-    return (
-      file &&
-      !file.includes('/node_modules/') &&
-      !file.includes('<anonymous>') &&
-      !file.includes('node:internal') &&
-      !file.includes('/dist/') &&
-      !file.includes('/index.js') &&
-      (SPEC_FILE_PATTERN.test(file) || SPEC_FILE_RE.test(file))
-    )
-  })
-  if (testFrame && testFrame.file) {
-    let filePath: string = testFrame.file
-    // Strip file:// protocol if present
-    if (filePath.startsWith('file://')) {
-      filePath = filePath.replace('file://', '')
-    }
-    // Remove line:col suffix
-    filePath = filePath.split(':')[0]
-    // Verify file exists
-    if (fs.existsSync(filePath)) {
-      return filePath
-    }
-  }
-  return undefined
+/** Strips the file:// protocol and any trailing :line:col suffix from a file path. */
+function normalizeFilePath(filePath: string): string {
+  return filePath.replace(/^file:\/\//, '').split(':')[0]
 }
 
 /**
- * Extract suite and test names from test file using simple regex (lightweight approach)
- * Falls back to simple regex matching instead of full AST parsing for performance
+ * Find test file from stack trace.
+ * Parses call stack to find the first frame that looks like a test file.
  */
-export function extractTestMetadata(filePath: string): {
-  suiteTitle: string | null
-  testNames: string[]
-} {
-  const result: { suiteTitle: string | null; testNames: string[] } = {
-    suiteTitle: null,
-    testNames: []
-  }
-  if (!fs.existsSync(filePath)) {
-    return result
-  }
+export function findTestFileFromStack(): string | undefined {
+  const stack = new Error().stack
+  if (!stack) return undefined
+
+  const frame = parseStackTrace(stack).find(
+    (f) => isUserCodeFrame(f) && (TEST_PATH_PATTERN.test(f.file) || TEST_FILE_PATTERN.test(f.file))
+  )
+  if (!frame?.file) return undefined
+
+  const filePath = normalizeFilePath(frame.file)
+  return fs.existsSync(filePath) ? filePath : undefined
+}
+
+/**
+ * Extract suite and test names — and their line numbers — from a test file.
+ * Returns a TestFileMetadata object used to build `callSource` strings for
+ * the TestLens eye-icon navigation.
+ */
+export function extractTestMetadata(filePath: string): TestFileMetadata {
+  const result: TestFileMetadata = { suiteTitle: null, suiteLine: null, testNames: [], testLines: [] }
+  if (!fs.existsSync(filePath)) return result
+
   try {
-    const source = fs.readFileSync(filePath, 'utf-8')
-    // Extract first describe() or suite() call
-    const suiteMatch = source.match(
-      /(?:describe|suite|context)\s*\(\s*['"']([^'"']+)['"']/
-    )
-    if (suiteMatch && suiteMatch[1]) {
-      result.suiteTitle = suiteMatch[1]
-    }
-    // Extract all it() or test() calls
-    const testRegex = /(?:it|test|specify)\s*\(\s*['"']([^'"']+)['"']/g
-    let match: RegExpExecArray | null
-    while ((match = testRegex.exec(source)) !== null) {
-      result.testNames.push(match[1])
+    const lines = fs.readFileSync(filePath, 'utf-8').split('\n')
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]
+      const lineNum = i + 1
+      if (result.suiteTitle === null) {
+        const m = line.match(/(?:describe|suite|context)\s*\(\s*['"`]([^'"`]+)['"`]/)
+        if (m) {
+          result.suiteTitle = m[1]
+          result.suiteLine = lineNum
+        }
+      }
+      const m = line.match(/(?:it|test|specify)\s*\(\s*['"`]([^'"`]+)['"`]/)
+      if (m) {
+        result.testNames.push(m[1])
+        result.testLines.push(lineNum)
+      }
     }
   } catch {
-    // Silently skip unparseable test files
+    // skip unparseable files
   }
   return result
 }
 
 /**
- * Get call source info from stack trace (WDIO approach)
- * Returns filename:line format for display
+ * Get call source info from stack trace.
+ * Returns { filePath, callSource } where callSource has the filename:line format.
  */
 export function getCallSourceFromStack(): {
   filePath: string | undefined
   callSource: string
 } {
   const stack = new Error().stack
-  if (!stack) {
-    return { filePath: undefined, callSource: 'unknown:0' }
-  }
-  const frames = parseStackTrace(stack)
-  const userFrame = frames.find((frame: any) => {
-    const file = frame.file
-    return (
-      file &&
-      !file.includes('/node_modules/') &&
-      !file.includes('<anonymous>') &&
-      !file.includes('node:internal') &&
-      !file.includes('/dist/') &&
-      !file.includes('/index.js')
-    )
-  })
-  if (userFrame && userFrame.file) {
-    let filePath: string = userFrame.file
-    // Strip file:// protocol
-    if (filePath.startsWith('file://')) {
-      filePath = filePath.replace('file://', '')
-    }
-    // Remove line:col from filePath
-    const cleanFilePath = filePath.split(':')[0]
-    // Use full path with line number for callSource so Source tab can match it
-    const callSource = `${cleanFilePath}:${userFrame.lineNumber || 0}`
-    return { filePath: cleanFilePath, callSource }
-  }
-  return { filePath: undefined, callSource: 'unknown:0' }
+  if (!stack) return { filePath: undefined, callSource: 'unknown:0' }
+
+  const frame = parseStackTrace(stack).find(isUserCodeFrame)
+  if (!frame?.file) return { filePath: undefined, callSource: 'unknown:0' }
+
+  const filePath = normalizeFilePath(frame.file)
+  return { filePath, callSource: `${filePath}:${frame.lineNumber ?? 0}` }
 }
 
 /**
- * Find test file by searching workspace for matching filename
- * Used when stack trace doesn't have the file yet (in beforeEach)
+ * Find test file by searching the workspace for a matching filename.
+ * Used when the stack trace doesn't have the file yet (e.g. in beforeEach).
  */
 export function findTestFileByName(
   filename: string,
   workspaceRoot?: string
 ): string | undefined {
-  if (!filename || !workspaceRoot) {
-    return undefined
-  }
-  // Clean up filename - remove extensions and normalize
+  if (!filename || !workspaceRoot) return undefined
+
   const baseFilename = filename.replace(/\.[cm]?[jt]sx?$/, '')
-  // Recursively search directories
+
   function searchDir(dir: string, depth = 0): string | undefined {
-    if (depth > 5) {
-      return undefined
-    } // Limit recursion depth
+    if (depth > 5) return undefined
     try {
-      const entries = fs.readdirSync(dir, { withFileTypes: true })
-      for (const entry of entries) {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
         const fullPath = path.join(dir, entry.name)
         if (entry.isDirectory()) {
           const found = searchDir(fullPath, depth + 1)
-          if (found) {
-            return found
-          }
-        } else {
-          // Match test/spec files
-          const nameMatch =
-            entry.name === `${baseFilename}.test.js` ||
-            entry.name === `${baseFilename}.spec.js` ||
-            entry.name === `${baseFilename}.test.ts` ||
-            entry.name === `${baseFilename}.spec.ts`
-          if (nameMatch) {
-            return fullPath
-          }
+          if (found) return found
+        } else if (
+          TEST_FILE_PATTERN.test(entry.name) &&
+          entry.name.replace(TEST_FILE_PATTERN, '') === baseFilename
+        ) {
+          return fullPath
         }
       }
     } catch {
-      // Permission denied or other error, skip this directory
+      // Permission denied or other error — skip
     }
     return undefined
   }
+
   return searchDir(workspaceRoot)
 }
 
@@ -244,15 +206,11 @@ export function findTestFileByName(
 export const stripAnsiCodes = (text: string): string =>
   text.replace(ANSI_REGEX, '')
 
-/**
- * Infer a log level from the text content of a line.
- */
+/** Infer a log level from the text content of a line. */
 export function detectLogLevel(text: string): LogLevel {
-  const low = stripAnsiCodes(text).toLowerCase()
+  const normalised = stripAnsiCodes(text).toLowerCase()
   for (const { level, pattern } of LOG_LEVEL_PATTERNS) {
-    if (pattern.test(low)) {
-      return level
-    }
+    if (pattern.test(normalised)) return level
   }
   return 'log'
 }
@@ -268,116 +226,166 @@ export function createConsoleLogEntry(
   return { timestamp: Date.now(), type, args, source }
 }
 
-/**
- * Map a Chrome DevTools log level string to our LogLevel union.
- */
+/** Map a Chrome DevTools log level string to our LogLevel union. */
 export function chromeLogLevelToLogLevel(
   level: string | { value?: number; name?: string }
 ): LogLevel {
-  const s = typeof level === 'object' ? (level?.name ?? '') : (level ?? '')
-  switch (s.toUpperCase()) {
-    case 'SEVERE':
-      return 'error'
-    case 'WARNING':
-      return 'warn'
-    case 'INFO':
-      return 'info'
-    case 'DEBUG':
-      return 'debug'
-    default:
-      return 'log'
+  const levelName = (typeof level === 'object' ? (level?.name ?? '') : (level ?? '')).toUpperCase()
+  switch (levelName) {
+    case 'SEVERE':  return 'error'
+    case 'WARNING': return 'warn'
+    case 'INFO':    return 'info'
+    case 'DEBUG':   return 'debug'
+    default:        return 'log'
   }
 }
 
-/**
- * Derive a human-readable request type from URL and MIME type.
- */
+/** Derive a human-readable request type from URL and MIME type. */
 export function getRequestType(url: string, mimeType?: string): string {
-  const ct = mimeType?.toLowerCase() ?? ''
-  const u = url.toLowerCase()
-  if (ct.includes('text/html')) {
-    return 'document'
-  }
-  if (ct.includes('text/css')) {
-    return 'stylesheet'
-  }
-  if (ct.includes('javascript') || ct.includes('ecmascript')) {
-    return 'script'
-  }
-  if (ct.includes('image/')) {
-    return 'image'
-  }
-  if (ct.includes('font/') || ct.includes('woff')) {
-    return 'font'
-  }
-  if (ct.includes('application/json')) {
-    return 'fetch'
-  }
-  if (u.endsWith('.html') || u.endsWith('.htm')) {
-    return 'document'
-  }
-  if (u.endsWith('.css')) {
-    return 'stylesheet'
-  }
-  if (u.endsWith('.js') || u.endsWith('.mjs')) {
-    return 'script'
-  }
-  if (u.match(/\.(png|jpg|jpeg|gif|svg|webp|ico)$/)) {
-    return 'image'
-  }
-  if (u.match(/\.(woff|woff2|ttf|eot|otf)$/)) {
-    return 'font'
-  }
+  const contentType = mimeType?.toLowerCase() ?? ''
+  const urlLower = url.toLowerCase()
+
+  if (contentType.includes('text/html'))                                        return 'document'
+  if (contentType.includes('text/css'))                                         return 'stylesheet'
+  if (contentType.includes('javascript') || contentType.includes('ecmascript')) return 'script'
+  if (contentType.includes('image/'))                                           return 'image'
+  if (contentType.includes('font/') || contentType.includes('woff'))            return 'font'
+  if (contentType.includes('application/json'))                                 return 'fetch'
+
+  if (urlLower.endsWith('.html') || urlLower.endsWith('.htm')) return 'document'
+  if (urlLower.endsWith('.css'))                                return 'stylesheet'
+  if (urlLower.endsWith('.js') || urlLower.endsWith('.mjs'))   return 'script'
+  if (/\.(png|jpg|jpeg|gif|svg|webp|ico)$/.test(urlLower))    return 'image'
+  if (/\.(woff|woff2|ttf|eot|otf)$/.test(urlLower))           return 'font'
+
   return 'xhr'
 }
 
+// ---------------------------------------------------------------------------
+// Cucumber helpers
+// ---------------------------------------------------------------------------
+
 /**
- * Extract BDD step keywords (Given/When/Then/And/But) from a feature file
- * for the steps belonging to the named scenario.  The order of keywords
- * in the file matches the order of pickle.steps, so we just walk line-by-line.
+ * Parse a feature file for a given scenario in a single pass, returning:
+ *  - `featureLine`  — 1-based line of the `Feature:` declaration
+ *  - `scenarioLine` — 1-based line of the matching `Scenario:` block
+ *  - `stepLines`    — 1-based line numbers for each step (for TestLens navigation)
+ *  - `stepKeywords` — BDD keyword (Given/When/Then/And/But) for each step (for labels)
  */
-export function parseStepKeywords(
+export function parseCucumberScenario(
   featureContent: string,
   scenarioName: string,
-  stepCount: number
-): string[] {
-  if (!featureContent || stepCount === 0) {
-    return Array(stepCount).fill('')
+  stepTexts: string[]
+): { featureLine: number; scenarioLine: number; stepLines: number[]; stepKeywords: string[] } {
+  const stepCount = stepTexts.length
+  if (!featureContent) {
+    return { featureLine: 1, scenarioLine: 1, stepLines: [], stepKeywords: Array<string>(stepCount).fill('') }
   }
 
   const lines = featureContent.split('\n')
   const stepRe = /^\s*(Given|When|Then|And|But)\s+/i
+  let featureLine = 1
+  let scenarioLine = 1
+  const stepLines: number[] = []
+  const stepKeywords: string[] = []
 
-  // Find the Scenario block that contains this scenario name
-  const scenarioLineIdx = lines.findIndex(
-    (l) => /^\s*Scenario:/i.test(l) && l.includes(scenarioName)
-  )
-  if (scenarioLineIdx === -1) {
-    return Array(stepCount).fill('')
-  }
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
+    const lineNum = i + 1
 
-  const keywords: string[] = []
-  for (
-    let i = scenarioLineIdx + 1;
-    i < lines.length && keywords.length < stepCount;
-    i++
-  ) {
-    // Stop at next Scenario or Feature header
-    if (
-      i > scenarioLineIdx &&
-      (/^\s*Scenario:/i.test(lines[i]) || /^\s*Feature:/i.test(lines[i]))
-    ) {
+    if (featureLine === 1 && /^\s*Feature:/i.test(line)) {
+      featureLine = lineNum
+      continue
+    }
+
+    if (/^\s*Scenario:/i.test(line) && line.includes(scenarioName)) {
+      scenarioLine = lineNum
+      for (let j = i + 1; j < lines.length && stepLines.length < stepCount; j++) {
+        if (/^\s*(?:Scenario:|Feature:)/i.test(lines[j])) break
+        const m = stepRe.exec(lines[j])
+        if (m) {
+          stepLines.push(j + 1)
+          stepKeywords.push(m[1])
+        }
+      }
       break
     }
-    const m = stepRe.exec(lines[i])
-    if (m) {
-      keywords.push(m[1])
-    }
   }
 
-  // Pad with empty strings if fewer keywords were found than steps
-  while (keywords.length < stepCount) {
-    keywords.push('')
+  while (stepKeywords.length < stepCount) stepKeywords.push('')
+  return { featureLine, scenarioLine, stepLines, stepKeywords }
+}
+
+/** Maps Cucumber parameter type placeholder names to their regex equivalents. */
+const CUCUMBER_TYPE_PATTERNS: Record<string, string> = {
+  int:    '-?\\d+',
+  float:  '-?\\d+(?:\\.\\d+)?',
+  string: '(?:"[^"]*"|\'[^\']*\')',
+  word:   '\\S+'
+}
+
+/**
+ * Convert a Cucumber expression pattern to a regular expression and test it
+ * against the given step text. Handles {int}, {float}, {string}, {word}, and
+ * arbitrary {type} placeholders.
+ */
+function matchesCucumberExpression(pattern: string, text: string): boolean {
+  if (pattern === text) return true
+  const regexSource = pattern
+    .split(/(\{[^}]*\})/)
+    .map((part, idx) => {
+      if (idx % 2 === 1) {
+        const type = part.slice(1, -1)
+        return CUCUMBER_TYPE_PATTERNS[type] ?? '[\\s\\S]+'
+      }
+      return part.replace(/[|\\{}()[\]^$+*?.]/g, '\\$&')
+    })
+    .join('')
+  try {
+    return new RegExp(`^${regexSource}$`).test(text)
+  } catch {
+    return false
   }
-  return keywords
+}
+
+/**
+ * Find the file and 1-based line number of the step definition that matches
+ * the given step text. Searches the provided step definition files in order.
+ * Handles both string/Cucumber-expression patterns and regex literals.
+ */
+export function findStepDefinitionLine(
+  stepDefFiles: Array<{ filePath: string; content: string }>,
+  stepText: string
+): StepLocation | null {
+  const stepDefRe = /(?:Given|When|Then|And|But)\s*\(/i
+
+  for (const { filePath, content } of stepDefFiles) {
+    const lines = content.split('\n')
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]
+      if (!stepDefRe.test(line)) continue
+
+      // String / Cucumber-expression: Given('pattern', ...) or Given("pattern", ...)
+      const literalMatch = line.match(/(?:Given|When|Then|And|But)\s*\(\s*(['"`])(.*?)\1/i)
+      if (literalMatch) {
+        if (matchesCucumberExpression(literalMatch[2], stepText)) {
+          return { filePath, line: i + 1 }
+        }
+        continue
+      }
+
+      // Regex literal: Given(/pattern/flags, ...)
+      const regexMatch = line.match(/(?:Given|When|Then|And|But)\s*\(\s*\/(.+?)\/([gimy]*)/i)
+      if (regexMatch) {
+        try {
+          if (new RegExp(regexMatch[1], regexMatch[2]).test(stepText)) {
+            return { filePath, line: i + 1 }
+          }
+        } catch {
+          // invalid regex — skip
+        }
+      }
+    }
+  }
+  return null
 }

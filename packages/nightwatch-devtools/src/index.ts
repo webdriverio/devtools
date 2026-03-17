@@ -28,7 +28,8 @@ import {
   findTestFileFromStack,
   deterministicUid,
   extractTestMetadata,
-  parseStepKeywords
+  parseCucumberScenario,
+  findStepDefinitionLine
 } from './helpers/utils.js'
 import { DEFAULTS, TIMING, TEST_STATE } from './constants.js'
 
@@ -253,6 +254,7 @@ class NightwatchDevToolsPlugin {
     let featureName: string = path.basename(featureUri, '.feature')
     let featureContent = ''
     const featureAbsPath = path.resolve(process.cwd(), featureUri)
+    const stepDefFiles: Array<{ filePath: string; content: string }> = []
     if (featureUri !== 'unknown.feature' && fs.existsSync(featureAbsPath)) {
       featureContent = fs.readFileSync(featureAbsPath, 'utf-8')
       const match = featureContent.match(/^\s*Feature:\s*(.+)/m)
@@ -270,9 +272,16 @@ class NightwatchDevToolsPlugin {
         if (fs.existsSync(stepDir) && fs.statSync(stepDir).isDirectory()) {
           for (const entry of fs.readdirSync(stepDir)) {
             if (/\.(js|ts|mjs|cjs)$/.test(entry)) {
-              this.sessionCapturer
-                .captureSource(path.join(stepDir, entry))
-                .catch(() => {})
+              const stepFilePath = path.join(stepDir, entry)
+              this.sessionCapturer.captureSource(stepFilePath).catch(() => {})
+              try {
+                stepDefFiles.push({
+                  filePath: stepFilePath,
+                  content: fs.readFileSync(stepFilePath, 'utf-8')
+                })
+              } catch {
+                // skip unreadable files
+              }
             }
           }
         }
@@ -290,11 +299,16 @@ class NightwatchDevToolsPlugin {
 
     // Parse step keywords from the feature file
     const steps: Array<{ text: string }> = pickle.steps ?? []
-    const stepKeywords = parseStepKeywords(
+
+    // Parse line numbers and keywords for TestLens navigation and step labels
+    const { featureLine, scenarioLine, stepLines, stepKeywords } = parseCucumberScenario(
       featureContent,
       scenarioName,
-      steps.length
+      steps.map((s) => s.text)
     )
+    if (featureAbsPath && featureLine > 0) {
+      featureSuite.callSource = `${featureAbsPath}:${featureLine}`
+    }
 
     // Create a scenario sub-suite (child of feature suite).
     // Use deterministicUid (no counter) so the SAME scenario always maps to the
@@ -315,7 +329,11 @@ class NightwatchDevToolsPlugin {
       tests: [],
       suites: [],
       hooks: [],
-      _duration: 0
+      _duration: 0,
+      callSource:
+        featureAbsPath && scenarioLine > 0
+          ? `${featureAbsPath}:${scenarioLine}`
+          : undefined
     }
 
     // Create a TestStats entry for each step
@@ -339,7 +357,13 @@ class NightwatchDevToolsPlugin {
         file: featureUri,
         retries: 0,
         _duration: 0,
-        hooks: []
+        hooks: [],
+        callSource: (() => {
+          const loc = findStepDefinitionLine(stepDefFiles, step.text)
+          if (loc) return `${loc.filePath}:${loc.line}`
+          if (featureAbsPath && stepLines[i] > 0) return `${featureAbsPath}:${stepLines[i]}`
+          return undefined
+        })()
       })
     })
 
@@ -540,13 +564,21 @@ class NightwatchDevToolsPlugin {
     // Extract suite title and test metadata
     let suiteTitle = testFile
     let testNames: string[] = []
+    let suiteLine: number | null = null
+    let testLines: number[] = []
     if (fullPath) {
-      const { suiteTitle: parsedTitle, testNames: parsedNames } =
-        extractTestMetadata(fullPath)
+      const {
+        suiteTitle: parsedTitle,
+        testNames: parsedNames,
+        suiteLine: parsedSuiteLine,
+        testLines: parsedTestLines
+      } = extractTestMetadata(fullPath)
       if (parsedTitle) {
         suiteTitle = parsedTitle
       }
       testNames = parsedNames
+      suiteLine = parsedSuiteLine
+      testLines = parsedTestLines
     }
 
     // Get or create suite for this test file
@@ -554,7 +586,9 @@ class NightwatchDevToolsPlugin {
       testFile,
       suiteTitle,
       fullPath,
-      testNames
+      testNames,
+      suiteLine,
+      testLines
     )
 
     // Capture source file for display

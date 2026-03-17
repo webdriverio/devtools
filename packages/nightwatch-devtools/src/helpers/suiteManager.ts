@@ -20,7 +20,9 @@ export class SuiteManager {
     testFile: string,
     suiteTitle: string,
     fullPath: string | null,
-    testNames: string[]
+    testNames: string[],
+    suiteLine?: number | null,
+    testLines?: number[]
   ): SuiteStats {
     if (!this.currentSuiteByFile.has(testFile)) {
       const suiteStats: SuiteStats = {
@@ -36,16 +38,19 @@ export class SuiteManager {
         tests: [],
         suites: [],
         hooks: [],
-        _duration: DEFAULTS.DURATION
+        _duration: DEFAULTS.DURATION,
+        callSource:
+          suiteLine && fullPath ? `${fullPath}:${suiteLine}` : undefined
       }
 
       suiteStats.uid = generateStableUid(suiteStats.file, suiteStats.title)
 
       // Create test entries with pending state
       if (testNames.length > 0) {
-        for (const testName of testNames) {
+        for (let idx = 0; idx < testNames.length; idx++) {
+          const testName = testNames[idx]
+          const testLine = testLines?.[idx]
           const fullTitle = `${suiteTitle} ${testName}`
-          // Generate stable UID using same method as onTestStart
           const testUid = generateStableUid(fullPath || testFile, fullTitle)
           const testEntry: TestStats = {
             uid: testUid,
@@ -60,7 +65,9 @@ export class SuiteManager {
             file: fullPath || testFile,
             retries: DEFAULTS.RETRIES,
             _duration: DEFAULTS.DURATION,
-            hooks: []
+            hooks: [],
+            callSource:
+              testLine && fullPath ? `${fullPath}:${testLine}` : undefined
           }
           suiteStats.tests.push(testEntry)
         }
