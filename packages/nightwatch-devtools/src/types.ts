@@ -83,6 +83,7 @@ export interface TestStats {
   _duration: number
   error?: Error
   hooks?: any[]
+  callSource?: string
 }
 
 export interface NightwatchTestCase {
@@ -92,6 +93,18 @@ export interface NightwatchTestCase {
   skipped: number
   time: string
   assertions: any[]
+}
+
+export interface TestFileMetadata {
+  suiteTitle: string | null
+  suiteLine: number | null
+  testNames: string[]
+  testLines: number[]
+}
+
+export interface StepLocation {
+  filePath: string
+  line: number
 }
 
 export interface SuiteStats {
@@ -109,6 +122,7 @@ export interface SuiteStats {
   hooks: any[]
   _duration: number
   parent?: string
+  callSource?: string
 }
 
 export interface Metadata {

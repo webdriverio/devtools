@@ -86,3 +86,9 @@ export const NAVIGATION_COMMANDS = ['url', 'navigate', 'navigateTo'] as const
 
 /** Spinner progress frames — suppress from UI Console output. */
 export const SPINNER_RE = /^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/u
+
+/** Matches a path segment that indicates a test/spec directory (e.g. /tests/ or /spec/). */
+export const TEST_PATH_PATTERN = /\/(test|spec|tests)\//i
+
+/** Matches file names that follow the *.test.ts / *.spec.js naming convention. */
+export const TEST_FILE_PATTERN = /\.(?:test|spec)\.[cm]?[jt]sx?$/i
