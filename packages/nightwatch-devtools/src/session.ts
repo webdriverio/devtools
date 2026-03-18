@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises'
+import http from 'node:http'
 import path from 'node:path'
 import { createRequire } from 'node:module'
 import logger from '@wdio/logger'
@@ -464,6 +465,70 @@ export class SessionCapturer {
     })
   }
 
+  /**
+   * Take a screenshot by calling the WebDriver HTTP endpoint directly.
+   * This completely bypasses Nightwatch's command queue so there is no risk
+   * of the request being appended after `end()` / `quit()`.
+   */
+  takeScreenshotViaHttp(browser: NightwatchBrowser): Promise<string | null> {
+    const browserAny = browser as any
+    const sessionId = browserAny.sessionId
+    if (!sessionId) {
+      return Promise.resolve(null)
+    }
+
+    const pick = (obj: any, ...keys: string[]): any => {
+      if (!obj || typeof obj !== 'object') return undefined
+      for (const k of keys) {
+        const val = obj[k]
+        if (val !== undefined && val !== null) return val
+      }
+      return undefined
+    }
+
+    const transportSettings =
+      browserAny.transport?.settings?.webdriver ||
+      browserAny.queue?.transport?.settings?.webdriver ||
+      browserAny.nightwatchInstance?.transport?.settings?.webdriver ||
+      {}
+
+    const opts = browserAny.options || {}
+    const nightwatchSettings =
+      browserAny.nightwatchInstance?.settings ||
+      browserAny.globals?.nightwatchInstance?.settings ||
+      {}
+
+    const driverHost: string =
+      pick(transportSettings, 'host', 'server_address') ||
+      pick(opts.webdriver, 'host') ||
+      pick(nightwatchSettings.webdriver, 'host') ||
+      'localhost'
+
+    const driverPort: number =
+      pick(transportSettings, 'port') ||
+      pick(opts.webdriver, 'port') ||
+      pick(nightwatchSettings.webdriver, 'port') ||
+      9515
+
+    const endpoint = `http://${driverHost}:${driverPort}/session/${sessionId}/screenshot`
+
+    return new Promise((resolve) => {
+      const req = http.get(endpoint, (res) => {
+        let body = ''
+        res.on('data', (chunk: string | Buffer) => { body += chunk })
+        res.on('end', () => {
+          try {
+            resolve(JSON.parse(body).value || null)
+          } catch {
+            resolve(null)
+          }
+        })
+      })
+      req.on('error', () => resolve(null))
+      req.setTimeout(5000, () => { req.destroy(); resolve(null) })
+    })
+  }
+
   /** Capture test source code */
   async captureSource(filePath: string) {
     if (!this.sources.has(filePath)) {
@@ -533,8 +598,9 @@ export class SessionCapturer {
         'return typeof window.wdioTraceCollector !== "undefined"'
       const checkResult = await browser.execute(checkScript)
 
-      // Nightwatch wraps results in { value: ... }
-      const hasCollector = (checkResult as any)?.value === true
+      // Nightwatch 2.x returns the value directly; older/callback builds wrap in { value: ... }
+      const hasCollector =
+        ((checkResult as any)?.value ?? checkResult) === true
 
       if (!hasCollector) {
         log.warn('Script injection may have failed - collector not found')
@@ -723,7 +789,10 @@ export class SessionCapturer {
       const checkResult = await browser.execute(
         'return typeof window.wdioTraceCollector !== "undefined"'
       )
-      const collectorExists = (checkResult as any)?.value === true
+      // Nightwatch 2.x returns the value directly when using async/await;
+      // older builds or callback-based paths wrap it in { value: ... }.
+      const collectorExists =
+        ((checkResult as any)?.value ?? checkResult) === true
 
       if (!collectorExists) {
         return
@@ -736,13 +805,21 @@ export class SessionCapturer {
         return window.wdioTraceCollector.getTraceData();
       `)
 
-      const traceData = (result as any)?.value
+      // Unwrap { value: ... } wrapper if present (callback-style Nightwatch).
+      const traceData = (result as any)?.value ?? result
       if (!traceData) {
         return
       }
 
       const { mutations, traceLogs, consoleLogs, networkRequests, metadata } =
         traceData
+
+      // Send metadata FIRST so the page URL is available in the UI before
+      // mutations arrive and #renderNewDocument fires with the <base> tag.
+      if (metadata) {
+        this.metadata = { ...this.metadata, ...metadata }
+        this.sendUpstream('metadata', this.metadata)
+      }
 
       if (Array.isArray(consoleLogs) && consoleLogs.length > 0) {
         // Tag as browser source
@@ -767,10 +844,6 @@ export class SessionCapturer {
       if (Array.isArray(traceLogs) && traceLogs.length > 0) {
         this.traceLogs.push(...traceLogs)
         this.sendUpstream('logs', traceLogs)
-      }
-
-      if (metadata) {
-        this.metadata = { ...this.metadata, ...metadata }
       }
     } catch (err) {
       log.error(

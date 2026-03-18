@@ -18,12 +18,20 @@ export enum TraceType {
   Testrunner = 'testrunner'
 }
 
+export interface Viewport {
+  width: number
+  height: number
+  offsetLeft: number
+  offsetTop: number
+  scale: number
+}
+
 export interface Metadata {
   type: TraceType
   url: string
   options: Omit<Options.WebdriverIO, 'capabilities'>
   capabilities: Capabilities.W3CCapabilities
-  viewport: VisualViewport
+  viewport: Viewport
   /** Nightwatch / extended fields */
   sessionId?: string
   testEnv?: string

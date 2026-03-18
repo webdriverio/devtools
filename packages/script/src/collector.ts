@@ -5,7 +5,15 @@ import { NetworkRequestCollector } from './collectors/networkRequests.js'
 class DataCollector {
   #metadata = {
     url: window.location.href,
-    viewport: window.visualViewport!
+    // Serialize viewport values explicitly — VisualViewport properties are
+    // prototype getters and won't survive JSON.stringify otherwise.
+    viewport: {
+      width: window.visualViewport?.width ?? window.innerWidth,
+      height: window.visualViewport?.height ?? window.innerHeight,
+      offsetLeft: window.visualViewport?.offsetLeft ?? 0,
+      offsetTop: window.visualViewport?.offsetTop ?? 0,
+      scale: window.visualViewport?.scale ?? 1,
+    }
   }
   #errors: string[] = []
   #mutations: TraceMutation[] = []

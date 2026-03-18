@@ -94,7 +94,13 @@ export class SessionCapturer {
   >()
   metadata?: {
     url: string
-    viewport: VisualViewport
+    viewport: {
+      width: number
+      height: number
+      offsetLeft: number
+      offsetTop: number
+      scale: number
+    }
   }
 
   constructor(devtoolsOptions: { hostname?: string; port?: number } = {}) {
