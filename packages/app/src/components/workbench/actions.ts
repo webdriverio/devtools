@@ -44,7 +44,12 @@ export class DevtoolsActions extends Element {
   render() {
     const mutations = this.mutations || []
     const commands = this.commands || []
-    const entries = [...mutations, ...commands].sort(
+    // Only show document-load mutations (childList with a url) in the actions
+    // list — individual node add/remove mutations are too noisy.
+    const visibleMutations = mutations.filter(
+      (m) => m.type === 'childList' && Boolean(m.url)
+    )
+    const entries = [...visibleMutations, ...commands].sort(
       (a, b) => a.timestamp - b.timestamp
     )
 

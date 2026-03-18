@@ -11,7 +11,8 @@ import {
   mutationContext,
   type TraceMutation,
   metadataContext,
-  type Metadata
+  type Metadata,
+  commandContext
 } from '../../controller/DataManager.js'
 
 import '~icons/mdi/world.js'
@@ -20,15 +21,16 @@ import '../placeholder.js'
 const MUTATION_SELECTOR = '__mutation-highlight__'
 
 function transform(node: any): VNode<{}> {
-  if (typeof node !== 'object') {
+  if (typeof node !== 'object' || node === null) {
+    // Plain string/number text node — return as-is for Preact to render as text.
     return node as VNode<{}>
   }
 
-  const { children, ...props } = node.props
+  const { children, ...props } = node.props ?? {}
   /**
    * ToDo(Christian): fix way we collect data on added nodes in script
    */
-  if (!node.type && children.type) {
+  if (!node.type && children?.type) {
     return transform(children)
   }
 
@@ -44,12 +46,17 @@ const COMPONENT = 'wdio-devtools-browser'
 export class DevtoolsBrowser extends Element {
   #vdom = document.createDocumentFragment()
   #activeUrl?: string
+  /** Base64 PNG of the screenshot for the currently selected command, or null. */
+  #screenshotData: string | null = null
 
   @consume({ context: metadataContext, subscribe: true })
   metadata: Metadata | undefined = undefined
 
   @consume({ context: mutationContext, subscribe: true })
   mutations: TraceMutation[] = []
+
+  @consume({ context: commandContext, subscribe: true })
+  commands: CommandLog[] = []
 
   static styles = [
     ...Element.styles,
@@ -112,6 +119,31 @@ export class DevtoolsBrowser extends Element {
         border-radius: 0 0 0.5rem 0.5rem;
         min-height: 0;
       }
+
+      .screenshot-overlay {
+        position: absolute;
+        inset: 0;
+        background: #111;
+        display: flex;
+        align-items: flex-start;
+        justify-content: center;
+        border-radius: 0 0 0.5rem 0.5rem;
+        overflow: hidden;
+      }
+
+      .screenshot-overlay img {
+        max-width: 100%;
+        height: auto;
+        display: block;
+      }
+
+      .iframe-wrapper {
+        position: relative;
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+      }
     `
   ]
 
@@ -148,9 +180,16 @@ export class DevtoolsBrowser extends Element {
       return
     }
 
+    // viewport may not be serialized yet (race between metadata message and
+    // first resize event), or may arrive without dimensions — fall back to
+    // sensible defaults so we never throw.
+    const viewportWidth = (metadata.viewport as any)?.width || 1280
+    const viewportHeight = (metadata.viewport as any)?.height || 800
+    if (!viewportWidth || !viewportHeight) {
+      return
+    }
+
     this.iframe.removeAttribute('style')
-    const viewportWidth = metadata.viewport.width
-    const viewportHeight = metadata.viewport.height
     const frameSize = this.getBoundingClientRect()
     const headerSize = this.header.getBoundingClientRect()
 
@@ -180,21 +219,13 @@ export class DevtoolsBrowser extends Element {
   async #renderCommandScreenshot(command?: CommandLog) {
     const screenshot = command?.screenshot
     if (!screenshot) {
+      // Clicking a command that has no screenshot clears any previous overlay.
+      this.#screenshotData = null
+      this.requestUpdate()
       return
     }
-
-    if (!this.iframe) {
-      await this.updateComplete
-    }
-    if (!this.iframe) {
-      return
-    }
-
-    this.iframe.srcdoc = `
-      <body style="margin:0;background:#111;display:flex;justify-content:center;align-items:flex-start;">
-        <img src="data:image/png;base64,${screenshot}" style="max-width:100%;height:auto;display:block;" />
-      </body>
-    `
+    this.#screenshotData = screenshot
+    this.requestUpdate()
   }
 
   async #renderNewDocument(doc: SimplifiedVNode, baseUrl: string) {
@@ -270,7 +301,11 @@ export class DevtoolsBrowser extends Element {
 
   #handleChildListMutation(mutation: TraceMutation) {
     if (mutation.addedNodes.length === 1 && !mutation.target) {
-      const baseUrl = this.metadata?.url || 'unknown'
+      // Prefer the URL embedded in the mutation itself (set by the injected script
+      // at capture time), then fall back to the already-resolved active URL, and
+      // finally to the context metadata URL.  This avoids a race where metadata
+      // arrives after the first childList mutation fires #renderNewDocument.
+      const baseUrl = mutation.url || this.#activeUrl || this.metadata?.url || 'unknown'
       this.#renderNewDocument(
         mutation.addedNodes[0] as SimplifiedVNode,
         baseUrl
@@ -389,6 +424,15 @@ export class DevtoolsBrowser extends Element {
     this.requestUpdate()
   }
 
+  /** Latest screenshot from any command — auto-updates the preview as tests run. */
+  get #latestAutoScreenshot(): string | null {
+    if (!this.commands?.length) return null
+    for (let i = this.commands.length - 1; i >= 0; i--) {
+      if (this.commands[i].screenshot) return this.commands[i].screenshot!
+    }
+    return null
+  }
+
   render() {
     /**
      * render a browser state if it hasn't before
@@ -397,6 +441,12 @@ export class DevtoolsBrowser extends Element {
       this.#setIframeSize()
       this.#renderBrowserState()
     }
+
+    const hasMutations = this.mutations && this.mutations.length
+    // Explicit user selection takes priority; fall back to latest auto-screenshot
+    // so the preview always shows the most recently executed command's state
+    // (important for Nightwatch mode where there are no DOM mutations).
+    const displayScreenshot = this.#screenshotData ?? this.#latestAutoScreenshot
 
     return html`
       <section
@@ -417,11 +467,26 @@ export class DevtoolsBrowser extends Element {
             <span class="truncate">${this.#activeUrl}</span>
           </div>
         </header>
-        ${this.mutations && this.mutations.length
-          ? html`<iframe class="origin-top-left"></iframe>`
-          : html`<wdio-devtools-placeholder
-              style="height: 100%"
-            ></wdio-devtools-placeholder>`}
+        ${hasMutations
+          ? html`
+            <div class="iframe-wrapper">
+              <iframe class="origin-top-left"></iframe>
+              ${displayScreenshot
+                ? html`<div class="screenshot-overlay">
+                    <img src="data:image/png;base64,${displayScreenshot}" />
+                  </div>`
+                : ''}
+            </div>`
+          : displayScreenshot
+            ? html`
+              <div class="iframe-wrapper">
+                <div class="screenshot-overlay" style="position:relative;flex:1;min-height:0;">
+                  <img src="data:image/png;base64,${displayScreenshot}" />
+                </div>
+              </div>`
+            : html`<wdio-devtools-placeholder
+                style="height: 100%"
+              ></wdio-devtools-placeholder>`}
       </section>
     `
   }

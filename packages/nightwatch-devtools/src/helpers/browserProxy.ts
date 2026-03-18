@@ -6,7 +6,8 @@
 import logger from '@wdio/logger'
 import {
   INTERNAL_COMMANDS_TO_IGNORE,
-  BOOLEAN_COMMAND_PATTERN
+  BOOLEAN_COMMAND_PATTERN,
+  NAVIGATION_COMMANDS
 } from '../constants.js'
 import { getCallSourceFromStack } from './utils.js'
 import type { SessionCapturer } from '../session.js'
@@ -68,33 +69,50 @@ export class BrowserProxy {
   }
 
   /**
-   * Wrap browser.url to inject the DevTools script after every navigation.
+   * Wrap browser navigation methods (url / navigate / navigateTo) to inject
+   * the DevTools script after every navigation.
    *
-   * NOTE: This wraps the raw `browser.url` before `wrapBrowserCommands` runs.
-   * When `wrapBrowserCommands` subsequently wraps this function it will inject
-   * our result-capturing callback as the last argument.  We must forward *all*
-   * arguments (including that callback) through to the real `originalUrl` so
-   * that Nightwatch's command queue fires it and we receive the actual result.
+   * Uses `browser` from the closure (not `this` inside perform) so it works
+   * for both standard Nightwatch (chainable API) and Cucumber async/await mode
+   * where `this` inside a perform callback is not the browser.
    */
   wrapUrlMethod(browser: NightwatchBrowser): void {
-    const originalUrl = browser.url.bind(browser)
     const sessionCapturer = this.sessionCapturer
 
-    browser.url = function (...urlArgs: any[]) {
-      const result = (originalUrl as any)(...urlArgs) as any
+    const wrapNav = (methodName: string) => {
+      if (typeof (browser as any)[methodName] !== 'function') return
+      const original = (browser as any)[methodName].bind(browser)
 
-      if (result && typeof result.perform === 'function') {
-        result.perform(async function (this: any) {
-          try {
-            await sessionCapturer.injectScript(this)
-          } catch (err) {
-            log.error(`Failed to inject script: ${(err as Error).message}`)
-          }
-        })
+      ;(browser as any)[methodName] = function (...args: any[]) {
+        const result = original(...args)
+
+        const injectAndCapture = () =>
+          sessionCapturer
+            .injectScript(browser)
+            .then(() => sessionCapturer.captureTrace(browser))
+            .catch((err: Error) =>
+              log.error(`Failed to inject script: ${err.message}`)
+            )
+
+        if (result && typeof result.perform === 'function') {
+          // Standard Nightwatch (chained API): queue inside perform so it
+          // runs after navigation completes.  Always pass `done` so the
+          // command queue is unblocked even if injection fails.
+          result.perform((done: Function) => {
+            injectAndCapture().finally(() => done && done())
+          })
+        } else {
+          // Cucumber async/await: result is a Promise (or thenable).
+          Promise.resolve(result).then(injectAndCapture).catch(() => {})
+        }
+
+        return result
       }
+    }
 
-      return result
-    } as any
+    wrapNav('url')
+    wrapNav('navigate')
+    wrapNav('navigateTo')
 
     log.info('✓ Script injection wrapped')
   }
@@ -156,7 +174,7 @@ export class BrowserProxy {
    * the command finishes rather than being `undefined`.
    */
   private handleCommandExecution(
-    _browser: NightwatchBrowser,
+    browser: NightwatchBrowser,
     browserAny: any,
     methodName: string,
     originalMethod: Function,
@@ -285,6 +303,24 @@ export class BrowserProxy {
           )
           this.lastCapturedId = entry._id ?? null
           this.sessionCapturer.sendReplaceCommand(oldTimestamp, entry)
+
+          // Snapshot this entry for the screenshot perform below.
+          const entryToScreenshot = entry
+          if (typeof (browser as any).perform === 'function') {
+            const ts = (entryToScreenshot as any).timestamp
+            ;(browser as any).perform((done: Function) => {
+              this.sessionCapturer
+                .takeScreenshotViaHttp(browser)
+                .then((screenshot) => {
+                  if (screenshot) {
+                    ;(entryToScreenshot as any).screenshot = screenshot
+                    this.sessionCapturer.sendReplaceCommand(ts, entryToScreenshot)
+                  }
+                  done()
+                })
+                .catch(() => done())
+            })
+          }
         } else {
           // New command — capture and track.
           // captureCommand() pushes the entry to commandsLog synchronously
@@ -315,6 +351,40 @@ export class BrowserProxy {
           if (lastCommand) {
             this.lastCapturedId = (lastCommand as any)._id ?? null
             this.sessionCapturer.sendCommand(lastCommand)
+          }
+
+          // Queue a perform RIGHT HERE (inside captureCallback, where the entry
+          // is already known) so it inserts immediately after the current command
+          // — before the next test command and before end().
+          // We snapshot `lastCommand` into a local const so it can never be
+          // overwritten by a later captureCallback for a different command.
+          const entryToScreenshot = lastCommand
+          if (entryToScreenshot && typeof (browser as any).perform === 'function') {
+            const ts = (entryToScreenshot as any).timestamp
+            ;(browser as any).perform((done: Function) => {
+              this.sessionCapturer
+                .takeScreenshotViaHttp(browser)
+                .then((screenshot) => {
+                  if (screenshot) {
+                    ;(entryToScreenshot as any).screenshot = screenshot
+                    this.sessionCapturer.sendReplaceCommand(ts, entryToScreenshot)
+                  }
+                  done()
+                })
+                .catch(() => done())
+            })
+          }
+
+          // After DOM-mutating commands, re-poll mutations from the injected
+          // script so the browser preview stays in sync. Use setTimeout to
+          // run OUTSIDE Nightwatch's current callback stack (safer queue-wise).
+          const isDomMutating = (NAVIGATION_COMMANDS as readonly string[]).includes(methodName) ||
+            ['click', 'doubleClick', 'rightClick', 'setValue', 'clearValue',
+             'sendKeys', 'submitForm', 'back', 'forward', 'refresh'].includes(methodName)
+          if (isDomMutating) {
+            setTimeout(() => {
+              this.sessionCapturer.captureTrace(browser).catch(() => {})
+            }, 200)
           }
         }
       }

@@ -25,7 +25,12 @@ export const INTERNAL_COMMANDS_TO_IGNORE = [
   'perform',
   'execute',
   'executeAsync',
-  'executeScript'
+  'executeScript',
+  // Internal Nightwatch transport commands (used for log capture, not user actions)
+  'sessionLog',
+  'sessionLogTypes',
+  'isLogAvailable',
+  'end'
 ] as const
 
 export const CONSOLE_METHODS = ['log', 'info', 'warn', 'error'] as const
