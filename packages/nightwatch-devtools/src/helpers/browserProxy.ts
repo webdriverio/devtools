@@ -44,9 +44,6 @@ export class BrowserProxy {
     this.sessionCapturer = capturer
   }
 
-  /**
-   * Reset command tracking for new test
-   */
   resetCommandTracking(): void {
     this.commandStack = []
     this.lastCommandSig = null
@@ -54,16 +51,10 @@ export class BrowserProxy {
     this.lastCapturedId = null
   }
 
-  /**
-   * Get current test file path
-   */
   getCurrentTestFullPath(): string | null {
     return this.currentTestFullPath
   }
 
-  /**
-   * Set current test file path
-   */
   setCurrentTestFullPath(path: string | null): void {
     this.currentTestFullPath = path
   }
@@ -117,9 +108,6 @@ export class BrowserProxy {
     log.info('✓ Script injection wrapped')
   }
 
-  /**
-   * Wrap all browser commands to capture them
-   */
   wrapBrowserCommands(browser: NightwatchBrowser): void {
     if (this.proxiedBrowsers.has(browser as object)) {
       return
@@ -166,13 +154,6 @@ export class BrowserProxy {
     log.info(`✓ Wrapped ${wrappedMethods.length} browser methods`)
   }
 
-  /**
-   * Handle command execution with tracking.
-   *
-   * Injects a result-capturing callback as the last argument so that the actual
-   * WebDriver result value (from Nightwatch's command queue) is available when
-   * the command finishes rather than being `undefined`.
-   */
   private handleCommandExecution(
     browser: NightwatchBrowser,
     browserAny: any,
@@ -180,27 +161,18 @@ export class BrowserProxy {
     originalMethod: Function,
     args: any[]
   ): any {
-    // Detect test boundaries
     const currentNightwatchTest = browserAny.currentTest
-    const currentTestName = this.testManager.detectTestBoundary(
-      currentNightwatchTest
-    )
-
-    // Start test if this is its first command
+    const currentTestName = this.testManager.detectTestBoundary(currentNightwatchTest)
     this.testManager.startTestIfPending(currentTestName)
 
-    // Get call source
     const callInfo = getCallSourceFromStack()
     if (callInfo.filePath && !this.currentTestFullPath) {
       this.currentTestFullPath = callInfo.filePath
     }
 
-    // Separate any user-supplied callback from the positional args so we can
-    // inject our own result-capturing wrapper without losing the user's cb.
     const lastArg = args[args.length - 1]
     const hasUserCallback = typeof lastArg === 'function'
     const userCallback: Function | null = hasUserCallback ? lastArg : null
-    // The "logical" args that we will log (without callback)
     const logArgs = hasUserCallback ? args.slice(0, -1) : args
 
     // Check for duplicate commands (based on method + logical args)
@@ -220,7 +192,6 @@ export class BrowserProxy {
       this.lastCommandSig = cmdSig
     }
 
-    // Snapshot test context at call time (may change by callback time)
     const testAtCallTime = this.getCurrentTest()
     const testUid = testAtCallTime?.uid
     const callSource = callInfo.callSource
@@ -231,7 +202,6 @@ export class BrowserProxy {
      * command completes.  This is where we get the *actual* result value.
      */
     const captureCallback = (callbackResult: any) => {
-      // Pop stack frame (if not already done for duplicates)
       const stackFrame = this.commandStack[this.commandStack.length - 1]
       if (
         stackFrame?.command === methodName &&
@@ -240,14 +210,6 @@ export class BrowserProxy {
         this.commandStack.pop()
       }
 
-      // ── Step 1: extract / normalise the result ───────────────────────────
-      // All Nightwatch commands return {value: V, status: 0} to the callback.
-      //
-      // Commands that semantically return a boolean (waitFor*, is*, has*,
-      // anything ending in Visible/Present/Enabled/Selected/NotVisible/
-      // NotPresent) return {value: true} on success and {value: null} on
-      // failure/timeout.  Detected generically via BOOLEAN_COMMAND_PATTERN
-      // (defined in constants.ts) — no hardcoded list needed.
       const isBooleanCommand = BOOLEAN_COMMAND_PATTERN.test(methodName)
 
       let serializedResult: any = undefined
@@ -278,9 +240,6 @@ export class BrowserProxy {
         }
       }
 
-      // ── Step 2: capture & send ───────────────────────────────────────────
-      // Use the test context that is current *now* (at completion time), but
-      // fall back to the snapshot taken at call time.
       const currentTest = this.getCurrentTest()
       const effectiveUid = currentTest?.uid ?? testUid
 
@@ -304,7 +263,6 @@ export class BrowserProxy {
           this.lastCapturedId = entry._id ?? null
           this.sessionCapturer.sendReplaceCommand(oldTimestamp, entry)
 
-          // Snapshot this entry for the screenshot perform below.
           const entryToScreenshot = entry
           if (typeof (browser as any).perform === 'function') {
             const ts = (entryToScreenshot as any).timestamp
@@ -343,7 +301,6 @@ export class BrowserProxy {
             .catch((err: any) =>
               log.error(`Failed to capture ${methodName}: ${err.message}`)
             )
-          // Read the entry synchronously — it was already pushed above.
           const lastCommand =
             this.sessionCapturer.commandsLog[
               this.sessionCapturer.commandsLog.length - 1
@@ -353,11 +310,6 @@ export class BrowserProxy {
             this.sessionCapturer.sendCommand(lastCommand)
           }
 
-          // Queue a perform RIGHT HERE (inside captureCallback, where the entry
-          // is already known) so it inserts immediately after the current command
-          // — before the next test command and before end().
-          // We snapshot `lastCommand` into a local const so it can never be
-          // overwritten by a later captureCallback for a different command.
           const entryToScreenshot = lastCommand
           if (entryToScreenshot && typeof (browser as any).perform === 'function') {
             const ts = (entryToScreenshot as any).timestamp
@@ -389,20 +341,17 @@ export class BrowserProxy {
         }
       }
 
-      // Forward to the user's original callback (if any)
       if (userCallback) {
         return userCallback(callbackResult)
       }
     }
 
-    // Build modified args: logical args + our capturing callback
     const modifiedArgs = [...logArgs, captureCallback]
 
     try {
       const result = originalMethod(...modifiedArgs)
       return result
     } catch (error) {
-      // Handle synchronous queue-level errors (rare)
       const stackFrame = this.commandStack[this.commandStack.length - 1]
       if (
         stackFrame?.command === methodName &&
@@ -415,9 +364,6 @@ export class BrowserProxy {
     }
   }
 
-  /**
-   * Capture command error
-   */
   private captureCommandError(
     methodName: string,
     args: any[],
@@ -451,9 +397,6 @@ export class BrowserProxy {
     }
   }
 
-  /**
-   * Check if a specific browser instance is already proxied
-   */
   isProxied(browser: NightwatchBrowser): boolean {
     return this.proxiedBrowsers.has(browser as object)
   }

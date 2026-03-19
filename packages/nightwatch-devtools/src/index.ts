@@ -6,6 +6,7 @@
  */
 
 import * as fs from 'node:fs'
+import * as net from 'node:net'
 import * as path from 'node:path'
 import * as os from 'node:os'
 import { fileURLToPath } from 'node:url'
@@ -35,6 +36,24 @@ import { DEFAULTS, TIMING, TEST_STATE } from './constants.js'
 
 const log = logger('@wdio/nightwatch-devtools')
 
+function isPortInUse(port: number, hostname: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const server = net.createServer()
+    server.once('error', () => resolve(true))
+    server.once('listening', () => server.close(() => resolve(false)))
+    server.listen(port, hostname)
+  })
+}
+
+async function findFreePort(startPort: number, hostname: string): Promise<number> {
+  let port = startPort
+  while (await isPortInUse(port, hostname)) {
+    log.warn(`Port ${port} is in use, trying ${port + 1}...`)
+    port++
+  }
+  return port
+}
+
 class NightwatchDevToolsPlugin {
   private options: Required<DevToolsOptions>
   private sessionCapturer!: SessionCapturer
@@ -63,19 +82,12 @@ class NightwatchDevToolsPlugin {
 
   async before() {
     try {
+      this.options.port = await findFreePort(this.options.port, this.options.hostname)
       log.info('🚀 Starting DevTools backend...')
       await start(this.options)
       const url = `http://${this.options.hostname}:${this.options.port}`
       log.info(`✓ Backend started on port ${this.options.port}`)
-      log.info('')
-      log.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
-      log.info('  🌐 Opening DevTools UI in browser...')
-      log.info('')
-      log.info(`     ${url}`)
-      log.info('')
-      log.info('  ⏳ Waiting for UI to connect...')
-      log.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
-      log.info('')
+      log.info(`  DevTools UI: ${url}`)
 
       try {
         // Create unique user data directory for this instance to prevent conflicts
@@ -84,7 +96,6 @@ class NightwatchDevToolsPlugin {
           `nightwatch-devtools-${this.options.port}-${Date.now()}`
         )
 
-        // Create the directory if it doesn't exist
         if (!fs.existsSync(this.#userDataDir)) {
           fs.mkdirSync(this.#userDataDir, { recursive: true })
         }
@@ -106,22 +117,15 @@ class NightwatchDevToolsPlugin {
         })
 
         await this.#devtoolsBrowser.url(url)
-        log.info('✓ DevTools UI opened in separate browser window')
       } catch (err) {
         log.error(`Failed to open DevTools UI: ${(err as Error).message}`)
         log.info(`Please manually open: ${url}`)
       }
 
-      // Wait for UI to connect
-      log.info(
-        `Waiting ${TIMING.UI_CONNECTION_WAIT / 1000} seconds for UI to connect...`
-      )
       await new Promise((resolve) =>
         setTimeout(resolve, TIMING.UI_CONNECTION_WAIT)
       )
 
-      log.info('Starting tests...')
-      // Expose this plugin instance so cucumberHooks.cjs can call back into it
       ;(globalThis as any).__nightwatchDevtoolsPlugin = this
     } catch (err) {
       log.error(`Failed to start backend: ${(err as Error).message}`)
@@ -160,8 +164,6 @@ class NightwatchDevToolsPlugin {
     const connected = await this.sessionCapturer.waitForConnection(3000)
     if (!connected) {
       log.error('❌ Worker WebSocket failed to connect!')
-    } else {
-      log.info('✓ Worker WebSocket connected')
     }
 
     if (!this.testReporter) {
@@ -194,8 +196,6 @@ class NightwatchDevToolsPlugin {
       this.browserProxy.updateSessionCapturer(this.sessionCapturer)
       this.testReporter.updateSuites()
     }
-
-    log.info('✓ Session initialized')
 
     const capabilities = (browser as any).capabilities || {}
     const desiredCapabilities = (browser as any).desiredCapabilities || {}
@@ -232,8 +232,6 @@ class NightwatchDevToolsPlugin {
   }
 
   async cucumberBefore(browser: NightwatchBrowser, pickle: any) {
-    // Eagerly mark as Cucumber so beforeEach (which checks this flag) does not
-    // also run the non-Cucumber initialisation path for the same scenario.
     this.#isCucumberRunner = true
     await this.#initCucumberScenario(browser, pickle)
   }
@@ -376,12 +374,9 @@ class NightwatchDevToolsPlugin {
     const isRetry = existingIdx !== -1
     if (isRetry) {
       featureSuite.suites[existingIdx] = scenarioSuite
-      // Clear all captured commands/console/network from the previous failed attempt.
       this.sessionCapturer.sendUpstream('clearExecutionData', {})
     } else {
       featureSuite.suites.push(scenarioSuite)
-      // First execution of this scenario — commands accumulate alongside previous
-      // scenarios in the run (same as WDIO devtools behaviour).
     }
 
     this.#currentScenarioSuite = scenarioSuite
@@ -794,16 +789,9 @@ class NightwatchDevToolsPlugin {
         .join('  ')
       const totalFailed = this.#failCount
 
-      log.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
       log.info(`${totalFailed > 0 ? '❌' : '✅'} Tests complete!  ${summary}`)
-      log.info('')
-      log.info(
-        `   DevTools UI: http://${this.options.hostname}:${this.options.port}`
-      )
-      log.info('')
+      log.info(`   DevTools UI: http://${this.options.hostname}:${this.options.port}`)
       log.info('💡 Please close the DevTools browser window to finish...')
-      log.info('   (or press Ctrl+C to exit and keep browser open)')
-      log.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
 
       if (this.#devtoolsBrowser) {
         ;(logger as any).setLevel('devtools', 'warn')
@@ -835,16 +823,10 @@ class NightwatchDevToolsPlugin {
           ;(logger as any).setLevel('devtools', 'info')
           try {
             await this.#devtoolsBrowser.deleteSession()
-          } catch (err: any) {
-            log.warn(
-              'Session already closed or could not be deleted:',
-              err.message
-            )
+          } catch {
+            // session already closed
           }
-
-          log.info('🛑 Stopping DevTools backend...')
           await stop()
-          log.info('✓ Backend stopped')
         }
       }
     } catch (err) {
@@ -883,7 +865,6 @@ class NightwatchDevToolsPlugin {
           data?.metadata ?? {}
 
         if (this.sessionCapturer && (sessionCapabilities || sessionId)) {
-          log.info(`TestSuiteStarted: env=${testEnv}, session=${sessionId}`)
           this.sessionCapturer.sendUpstream('metadata', {
             type: TraceType.Testrunner,
             capabilities: sessionCapabilities ?? {},
@@ -922,13 +903,7 @@ class NightwatchDevToolsPlugin {
       }
     })
 
-    eventHub.on('ScreenshotCreated', (data: any) => {
-      try {
-        log.info(`Screenshot created: ${data?.path ?? 'unknown path'}`)
-      } catch {
-        // ignore
-      }
-    })
+
   }
 }
 

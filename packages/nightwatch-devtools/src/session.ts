@@ -260,10 +260,6 @@ export class SessionCapturer {
       : undefined
   }
 
-  /**
-   * Capture a command execution
-   * @returns true if command was captured, false if it was skipped as a duplicate
-   */
   async captureCommand(
     command: string,
     args: any[],
@@ -290,18 +286,12 @@ export class SessionCapturer {
 
     this.commandsLog.push(commandLogEntry)
 
-    // Async performance capture for navigation commands
     const isNavigationCommand = NAVIGATION_COMMANDS.some((cmd) =>
       command.toLowerCase().includes(cmd.toLowerCase())
     )
-
     if (isNavigationCommand && this.#browser && !error) {
-      // Do this async work in the background without blocking
-      // Update the commandLogEntry that's already in the array
       this.#capturePerformanceData(commandLogEntry, args).catch((err) => {
-        console.log(
-          `⚠️ Failed to capture performance data: ${(err as Error).message}`
-        )
+        log.warn(`Failed to capture performance data: ${(err as Error).message}`)
       })
     }
 
@@ -312,11 +302,8 @@ export class SessionCapturer {
     commandLogEntry: CommandLog & { _id?: number },
     args: any[]
   ) {
-    // Wait a bit for page to load
     await new Promise((resolve) => setTimeout(resolve, 500))
 
-    // Execute script to capture performance data
-    // Nightwatch's execute() requires a function, not a string
     const performanceData = await this.#browser!.execute(function () {
       // @ts-ignore - executed in browser context
       const performance = window.performance
@@ -365,7 +352,6 @@ export class SessionCapturer {
       }
     })
 
-    // Nightwatch returns {value: result} or just the result directly
     let data: any
     if (performanceData && typeof performanceData === 'object') {
       data =
@@ -381,8 +367,6 @@ export class SessionCapturer {
       }
       commandLogEntry.cookies = data.cookies
       commandLogEntry.documentInfo = data.documentInfo
-
-      // Always set result with performance data for consistency
       commandLogEntry.result = {
         url: args[0],
         loadTime: data.navigation?.timing?.loadTime,
@@ -391,10 +375,6 @@ export class SessionCapturer {
         cookies: data.cookies,
         title: data.documentInfo?.title
       }
-
-      log.info(
-        `✓ Captured performance data: ${data.resources?.length || 0} resources, load time: ${data.navigation?.timing?.loadTime || 0}ms`
-      )
     }
   }
 
@@ -584,21 +564,12 @@ export class SessionCapturer {
         return true;
       `
 
-      const injectResult = await browser.execute(injectionScript, [
-        scriptContent
-      ])
-
-      log.info(`Injection command executed: ${JSON.stringify(injectResult)}`)
-
-      // Wait for script to execute
+      await browser.execute(injectionScript, [scriptContent])
       await browser.pause(300)
 
-      // Check if collector exists using string-based execute
-      const checkScript =
+      const checkResult = await browser.execute(
         'return typeof window.wdioTraceCollector !== "undefined"'
-      const checkResult = await browser.execute(checkScript)
-
-      // Nightwatch 2.x returns the value directly; older/callback builds wrap in { value: ... }
+      )
       const hasCollector =
         ((checkResult as any)?.value ?? checkResult) === true
 
@@ -638,7 +609,6 @@ export class SessionCapturer {
 
       this.consoleLogs.push(...entries)
       this.sendUpstream('consoleLogs', entries)
-      log.info(`✓ Captured ${entries.length} browser console log entries`)
     } catch {
       // Browser log capture not available (loggingPrefs not set or not supported)
     }
@@ -789,8 +759,6 @@ export class SessionCapturer {
       const checkResult = await browser.execute(
         'return typeof window.wdioTraceCollector !== "undefined"'
       )
-      // Nightwatch 2.x returns the value directly when using async/await;
-      // older builds or callback-based paths wrap it in { value: ... }.
       const collectorExists =
         ((checkResult as any)?.value ?? checkResult) === true
 
@@ -805,7 +773,6 @@ export class SessionCapturer {
         return window.wdioTraceCollector.getTraceData();
       `)
 
-      // Unwrap { value: ... } wrapper if present (callback-style Nightwatch).
       const traceData = (result as any)?.value ?? result
       if (!traceData) {
         return
@@ -814,15 +781,12 @@ export class SessionCapturer {
       const { mutations, traceLogs, consoleLogs, networkRequests, metadata } =
         traceData
 
-      // Send metadata FIRST so the page URL is available in the UI before
-      // mutations arrive and #renderNewDocument fires with the <base> tag.
       if (metadata) {
         this.metadata = { ...this.metadata, ...metadata }
         this.sendUpstream('metadata', this.metadata)
       }
 
       if (Array.isArray(consoleLogs) && consoleLogs.length > 0) {
-        // Tag as browser source
         const tagged = consoleLogs.map((e: any) => ({
           ...e,
           source: LOG_SOURCES.BROWSER
