@@ -69,7 +69,7 @@ export const config: Options.Testrunner = {
           '--headless',
           '--disable-gpu',
           '--remote-allow-origins=*',
-          '--window-size=1280,800'
+          '--window-size=1600,1200'
         ]
       }
       // }, {

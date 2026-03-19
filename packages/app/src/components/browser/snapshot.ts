@@ -217,14 +217,7 @@ export class DevtoolsBrowser extends Element {
     )
 
   async #renderCommandScreenshot(command?: CommandLog) {
-    const screenshot = command?.screenshot
-    if (!screenshot) {
-      // Clicking a command that has no screenshot clears any previous overlay.
-      this.#screenshotData = null
-      this.requestUpdate()
-      return
-    }
-    this.#screenshotData = screenshot
+    this.#screenshotData = command?.screenshot ?? null
     this.requestUpdate()
   }
 
@@ -443,10 +436,8 @@ export class DevtoolsBrowser extends Element {
     }
 
     const hasMutations = this.mutations && this.mutations.length
-    // Explicit user selection takes priority; fall back to latest auto-screenshot
-    // so the preview always shows the most recently executed command's state
-    // (important for Nightwatch mode where there are no DOM mutations).
-    const displayScreenshot = this.#screenshotData ?? this.#latestAutoScreenshot
+    const autoScreenshot = hasMutations ? null : this.#latestAutoScreenshot
+    const displayScreenshot = this.#screenshotData ?? autoScreenshot
 
     return html`
       <section
@@ -467,26 +458,28 @@ export class DevtoolsBrowser extends Element {
             <span class="truncate">${this.#activeUrl}</span>
           </div>
         </header>
-        ${hasMutations
+        ${this.#screenshotData
           ? html`
             <div class="iframe-wrapper">
-              <iframe class="origin-top-left"></iframe>
-              ${displayScreenshot
-                ? html`<div class="screenshot-overlay">
-                    <img src="data:image/png;base64,${displayScreenshot}" />
-                  </div>`
-                : ''}
+              <div class="screenshot-overlay" style="position:relative;flex:1;min-height:0;">
+                <img src="data:image/png;base64,${this.#screenshotData}" />
+              </div>
             </div>`
-          : displayScreenshot
+          : hasMutations
             ? html`
               <div class="iframe-wrapper">
-                <div class="screenshot-overlay" style="position:relative;flex:1;min-height:0;">
-                  <img src="data:image/png;base64,${displayScreenshot}" />
-                </div>
+                <iframe class="origin-top-left"></iframe>
               </div>`
-            : html`<wdio-devtools-placeholder
-                style="height: 100%"
-              ></wdio-devtools-placeholder>`}
+            : displayScreenshot
+              ? html`
+                <div class="iframe-wrapper">
+                  <div class="screenshot-overlay" style="position:relative;flex:1;min-height:0;">
+                    <img src="data:image/png;base64,${displayScreenshot}" />
+                  </div>
+                </div>`
+              : html`<wdio-devtools-placeholder
+                  style="height: 100%"
+                ></wdio-devtools-placeholder>`}
       </section>
     `
   }
