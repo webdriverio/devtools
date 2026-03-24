@@ -298,7 +298,8 @@ export class DevtoolsBrowser extends Element {
       // at capture time), then fall back to the already-resolved active URL, and
       // finally to the context metadata URL.  This avoids a race where metadata
       // arrives after the first childList mutation fires #renderNewDocument.
-      const baseUrl = mutation.url || this.#activeUrl || this.metadata?.url || 'unknown'
+      const baseUrl =
+        mutation.url || this.#activeUrl || this.metadata?.url || 'unknown'
       this.#renderNewDocument(
         mutation.addedNodes[0] as SimplifiedVNode,
         baseUrl
@@ -419,9 +420,13 @@ export class DevtoolsBrowser extends Element {
 
   /** Latest screenshot from any command — auto-updates the preview as tests run. */
   get #latestAutoScreenshot(): string | null {
-    if (!this.commands?.length) return null
+    if (!this.commands?.length) {
+      return null
+    }
     for (let i = this.commands.length - 1; i >= 0; i--) {
-      if (this.commands[i].screenshot) return this.commands[i].screenshot!
+      if (this.commands[i].screenshot) {
+        return this.commands[i].screenshot!
+      }
     }
     return null
   }
@@ -459,21 +464,24 @@ export class DevtoolsBrowser extends Element {
           </div>
         </header>
         ${this.#screenshotData
-          ? html`
-            <div class="iframe-wrapper">
-              <div class="screenshot-overlay" style="position:relative;flex:1;min-height:0;">
+          ? html` <div class="iframe-wrapper">
+              <div
+                class="screenshot-overlay"
+                style="position:relative;flex:1;min-height:0;"
+              >
                 <img src="data:image/png;base64,${this.#screenshotData}" />
               </div>
             </div>`
           : hasMutations
-            ? html`
-              <div class="iframe-wrapper">
+            ? html` <div class="iframe-wrapper">
                 <iframe class="origin-top-left"></iframe>
               </div>`
             : displayScreenshot
-              ? html`
-                <div class="iframe-wrapper">
-                  <div class="screenshot-overlay" style="position:relative;flex:1;min-height:0;">
+              ? html` <div class="iframe-wrapper">
+                  <div
+                    class="screenshot-overlay"
+                    style="position:relative;flex:1;min-height:0;"
+                  >
                     <img src="data:image/png;base64,${displayScreenshot}" />
                   </div>
                 </div>`
