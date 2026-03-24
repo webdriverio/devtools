@@ -60,6 +60,7 @@ export class SessionCapturer {
       this.#ws = new WebSocket(`ws://${hostname}:${port}/worker`)
 
       this.#ws.on('open', () => {
+        this.#hasConnected = true
         log.info('✓ Worker WebSocket connected to backend')
       })
 
@@ -131,6 +132,7 @@ export class SessionCapturer {
     )
   }
 
+  #hasConnected = false
   #isCapturingStream = false
 
   #interceptProcessStreams() {
@@ -291,7 +293,9 @@ export class SessionCapturer {
     )
     if (isNavigationCommand && this.#browser && !error) {
       this.#capturePerformanceData(commandLogEntry, args).catch((err) => {
-        log.warn(`Failed to capture performance data: ${(err as Error).message}`)
+        log.warn(
+          `Failed to capture performance data: ${(err as Error).message}`
+        )
       })
     }
 
@@ -458,10 +462,14 @@ export class SessionCapturer {
     }
 
     const pick = (obj: any, ...keys: string[]): any => {
-      if (!obj || typeof obj !== 'object') return undefined
+      if (!obj || typeof obj !== 'object') {
+        return undefined
+      }
       for (const k of keys) {
         const val = obj[k]
-        if (val !== undefined && val !== null) return val
+        if (val !== undefined && val !== null) {
+          return val
+        }
       }
       return undefined
     }
@@ -495,17 +503,33 @@ export class SessionCapturer {
     return new Promise((resolve) => {
       const req = http.get(endpoint, (res) => {
         let body = ''
-        res.on('data', (chunk: string | Buffer) => { body += chunk })
+        res.on('data', (chunk: string | Buffer) => {
+          body += chunk
+        })
         res.on('end', () => {
           try {
-            resolve(JSON.parse(body).value || null)
+            const value = JSON.parse(body).value || null
+            if (!value) {
+              log.warn(`[screenshot] Empty response from ${endpoint}`)
+            }
+            resolve(value)
           } catch {
+            log.warn(`[screenshot] Failed to parse response from ${endpoint}`)
             resolve(null)
           }
         })
       })
-      req.on('error', () => resolve(null))
-      req.setTimeout(5000, () => { req.destroy(); resolve(null) })
+      req.on('error', (err) => {
+        log.warn(
+          `[screenshot] HTTP request failed (${endpoint}): ${(err as Error).message}`
+        )
+        resolve(null)
+      })
+      req.setTimeout(5000, () => {
+        log.warn(`[screenshot] Request timed out (${endpoint})`)
+        req.destroy()
+        resolve(null)
+      })
     })
   }
 
@@ -527,13 +551,18 @@ export class SessionCapturer {
   /** Send data upstream to backend */
   sendUpstream(event: string, data: any) {
     if (!this.#ws || this.#ws.readyState !== WebSocket.OPEN) {
+      if (this.#hasConnected) {
+        log.warn(`[upstream] WebSocket not open — dropping "${event}" event`)
+      }
       return
     }
 
     try {
       this.#ws.send(JSON.stringify({ scope: event, data }))
-    } catch {
-      // ignore: WebSocket may close mid-flight
+    } catch (err) {
+      log.warn(
+        `[upstream] Failed to send "${event}": ${(err as Error).message}`
+      )
     }
   }
 
@@ -570,11 +599,12 @@ export class SessionCapturer {
       const checkResult = await browser.execute(
         'return typeof window.wdioTraceCollector !== "undefined"'
       )
-      const hasCollector =
-        ((checkResult as any)?.value ?? checkResult) === true
+      const hasCollector = ((checkResult as any)?.value ?? checkResult) === true
 
-      if (!hasCollector) {
-        log.warn('Script injection may have failed - collector not found')
+      if (hasCollector) {
+        log.info('✓ Script injected and collector ready')
+      } else {
+        log.warn('Script injection may have failed — collector not found')
       }
     } catch (err) {
       log.error(`Failed to inject script: ${(err as Error).message}`)
@@ -803,11 +833,18 @@ export class SessionCapturer {
       if (Array.isArray(mutations) && mutations.length > 0) {
         this.mutations.push(...mutations)
         this.sendUpstream('mutations', mutations)
+        log.info(`[trace] Captured ${mutations.length} DOM mutation(s)`)
       }
 
       if (Array.isArray(traceLogs) && traceLogs.length > 0) {
         this.traceLogs.push(...traceLogs)
         this.sendUpstream('logs', traceLogs)
+      }
+
+      if (Array.isArray(networkRequests) && networkRequests.length > 0) {
+        log.info(
+          `[trace] Captured ${networkRequests.length} network request(s)`
+        )
       }
     } catch (err) {
       log.error(

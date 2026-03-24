@@ -45,7 +45,10 @@ function isPortInUse(port: number, hostname: string): Promise<boolean> {
   })
 }
 
-async function findFreePort(startPort: number, hostname: string): Promise<number> {
+async function findFreePort(
+  startPort: number,
+  hostname: string
+): Promise<number> {
   let port = startPort
   while (await isPortInUse(port, hostname)) {
     log.warn(`Port ${port} is in use, trying ${port + 1}...`)
@@ -82,7 +85,10 @@ class NightwatchDevToolsPlugin {
 
   async before() {
     try {
-      this.options.port = await findFreePort(this.options.port, this.options.hostname)
+      this.options.port = await findFreePort(
+        this.options.port,
+        this.options.hostname
+      )
       log.info('🚀 Starting DevTools backend...')
       await start(this.options)
       const url = `http://${this.options.hostname}:${this.options.port}`
@@ -125,7 +131,6 @@ class NightwatchDevToolsPlugin {
       await new Promise((resolve) =>
         setTimeout(resolve, TIMING.UI_CONNECTION_WAIT)
       )
-
       ;(globalThis as any).__nightwatchDevtoolsPlugin = this
     } catch (err) {
       log.error(`Failed to start backend: ${(err as Error).message}`)
@@ -299,11 +304,12 @@ class NightwatchDevToolsPlugin {
     const steps: Array<{ text: string }> = pickle.steps ?? []
 
     // Parse line numbers and keywords for TestLens navigation and step labels
-    const { featureLine, scenarioLine, stepLines, stepKeywords } = parseCucumberScenario(
-      featureContent,
-      scenarioName,
-      steps.map((s) => s.text)
-    )
+    const { featureLine, scenarioLine, stepLines, stepKeywords } =
+      parseCucumberScenario(
+        featureContent,
+        scenarioName,
+        steps.map((s) => s.text)
+      )
     if (featureAbsPath && featureLine > 0) {
       featureSuite.callSource = `${featureAbsPath}:${featureLine}`
     }
@@ -358,8 +364,12 @@ class NightwatchDevToolsPlugin {
         hooks: [],
         callSource: (() => {
           const loc = findStepDefinitionLine(stepDefFiles, step.text)
-          if (loc) return `${loc.filePath}:${loc.line}`
-          if (featureAbsPath && stepLines[i] > 0) return `${featureAbsPath}:${stepLines[i]}`
+          if (loc) {
+            return `${loc.filePath}:${loc.line}`
+          }
+          if (featureAbsPath && stepLines[i] > 0) {
+            return `${featureAbsPath}:${stepLines[i]}`
+          }
           return undefined
         })()
       })
@@ -558,6 +568,11 @@ class NightwatchDevToolsPlugin {
 
     // Extract suite title and test metadata
     let suiteTitle = testFile
+    if (!fullPath) {
+      log.warn(
+        `[beforeEach] Could not resolve file path for "${testFile}" — source view will be unavailable`
+      )
+    }
     let testNames: string[] = []
     let suiteLine: number | null = null
     let testLines: number[] = []
@@ -790,7 +805,9 @@ class NightwatchDevToolsPlugin {
       const totalFailed = this.#failCount
 
       log.info(`${totalFailed > 0 ? '❌' : '✅'} Tests complete!  ${summary}`)
-      log.info(`   DevTools UI: http://${this.options.hostname}:${this.options.port}`)
+      log.info(
+        `   DevTools UI: http://${this.options.hostname}:${this.options.port}`
+      )
       log.info('💡 Please close the DevTools browser window to finish...')
 
       if (this.#devtoolsBrowser) {
@@ -902,8 +919,6 @@ class NightwatchDevToolsPlugin {
         log.error(`Error in TestRunStarted handler: ${(err as Error).message}`)
       }
     })
-
-
   }
 }
 

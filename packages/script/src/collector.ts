@@ -12,7 +12,7 @@ class DataCollector {
       height: window.visualViewport?.height ?? window.innerHeight,
       offsetLeft: window.visualViewport?.offsetLeft ?? 0,
       offsetTop: window.visualViewport?.offsetTop ?? 0,
-      scale: window.visualViewport?.scale ?? 1,
+      scale: window.visualViewport?.scale ?? 1
     }
   }
   #errors: string[] = []
