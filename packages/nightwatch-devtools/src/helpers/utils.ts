@@ -75,7 +75,9 @@ export function deterministicUid(...parts: string[]): string {
 }
 
 /** Returns true if a stack frame belongs to user code (not dependencies, internals, or build output). */
-function isUserCodeFrame(frame: { file?: string | null }): frame is { file: string } {
+function isUserCodeFrame(frame: {
+  file?: string | null
+}): frame is { file: string } {
   const { file } = frame
   return !!(
     file &&
@@ -98,12 +100,18 @@ function normalizeFilePath(filePath: string): string {
  */
 export function findTestFileFromStack(): string | undefined {
   const stack = new Error().stack
-  if (!stack) return undefined
+  if (!stack) {
+    return undefined
+  }
 
   const frame = parseStackTrace(stack).find(
-    (f) => isUserCodeFrame(f) && (TEST_PATH_PATTERN.test(f.file) || TEST_FILE_PATTERN.test(f.file))
+    (f) =>
+      isUserCodeFrame(f) &&
+      (TEST_PATH_PATTERN.test(f.file) || TEST_FILE_PATTERN.test(f.file))
   )
-  if (!frame?.file) return undefined
+  if (!frame?.file) {
+    return undefined
+  }
 
   const filePath = normalizeFilePath(frame.file)
   return fs.existsSync(filePath) ? filePath : undefined
@@ -115,8 +123,15 @@ export function findTestFileFromStack(): string | undefined {
  * the TestLens eye-icon navigation.
  */
 export function extractTestMetadata(filePath: string): TestFileMetadata {
-  const result: TestFileMetadata = { suiteTitle: null, suiteLine: null, testNames: [], testLines: [] }
-  if (!fs.existsSync(filePath)) return result
+  const result: TestFileMetadata = {
+    suiteTitle: null,
+    suiteLine: null,
+    testNames: [],
+    testLines: []
+  }
+  if (!fs.existsSync(filePath)) {
+    return result
+  }
 
   try {
     const lines = fs.readFileSync(filePath, 'utf-8').split('\n')
@@ -124,7 +139,9 @@ export function extractTestMetadata(filePath: string): TestFileMetadata {
       const line = lines[i]
       const lineNum = i + 1
       if (result.suiteTitle === null) {
-        const m = line.match(/(?:describe|suite|context)\s*\(\s*['"`]([^'"`]+)['"`]/)
+        const m = line.match(
+          /(?:describe|suite|context)\s*\(\s*['"`]([^'"`]+)['"`]/
+        )
         if (m) {
           result.suiteTitle = m[1]
           result.suiteLine = lineNum
@@ -151,10 +168,14 @@ export function getCallSourceFromStack(): {
   callSource: string
 } {
   const stack = new Error().stack
-  if (!stack) return { filePath: undefined, callSource: 'unknown:0' }
+  if (!stack) {
+    return { filePath: undefined, callSource: 'unknown:0' }
+  }
 
   const frame = parseStackTrace(stack).find(isUserCodeFrame)
-  if (!frame?.file) return { filePath: undefined, callSource: 'unknown:0' }
+  if (!frame?.file) {
+    return { filePath: undefined, callSource: 'unknown:0' }
+  }
 
   const filePath = normalizeFilePath(frame.file)
   return { filePath, callSource: `${filePath}:${frame.lineNumber ?? 0}` }
@@ -168,18 +189,24 @@ export function findTestFileByName(
   filename: string,
   workspaceRoot?: string
 ): string | undefined {
-  if (!filename || !workspaceRoot) return undefined
+  if (!filename || !workspaceRoot) {
+    return undefined
+  }
 
   const baseFilename = filename.replace(/\.[cm]?[jt]sx?$/, '')
 
   function searchDir(dir: string, depth = 0): string | undefined {
-    if (depth > 5) return undefined
+    if (depth > 5) {
+      return undefined
+    }
     try {
       for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
         const fullPath = path.join(dir, entry.name)
         if (entry.isDirectory()) {
           const found = searchDir(fullPath, depth + 1)
-          if (found) return found
+          if (found) {
+            return found
+          }
         } else if (
           TEST_FILE_PATTERN.test(entry.name) &&
           entry.name.replace(TEST_FILE_PATTERN, '') === baseFilename
@@ -210,7 +237,9 @@ export const stripAnsiCodes = (text: string): string =>
 export function detectLogLevel(text: string): LogLevel {
   const normalised = stripAnsiCodes(text).toLowerCase()
   for (const { level, pattern } of LOG_LEVEL_PATTERNS) {
-    if (pattern.test(normalised)) return level
+    if (pattern.test(normalised)) {
+      return level
+    }
   }
   return 'log'
 }
@@ -230,13 +259,20 @@ export function createConsoleLogEntry(
 export function chromeLogLevelToLogLevel(
   level: string | { value?: number; name?: string }
 ): LogLevel {
-  const levelName = (typeof level === 'object' ? (level?.name ?? '') : (level ?? '')).toUpperCase()
+  const levelName = (
+    typeof level === 'object' ? (level?.name ?? '') : (level ?? '')
+  ).toUpperCase()
   switch (levelName) {
-    case 'SEVERE':  return 'error'
-    case 'WARNING': return 'warn'
-    case 'INFO':    return 'info'
-    case 'DEBUG':   return 'debug'
-    default:        return 'log'
+    case 'SEVERE':
+      return 'error'
+    case 'WARNING':
+      return 'warn'
+    case 'INFO':
+      return 'info'
+    case 'DEBUG':
+      return 'debug'
+    default:
+      return 'log'
   }
 }
 
@@ -245,18 +281,43 @@ export function getRequestType(url: string, mimeType?: string): string {
   const contentType = mimeType?.toLowerCase() ?? ''
   const urlLower = url.toLowerCase()
 
-  if (contentType.includes('text/html'))                                        return 'document'
-  if (contentType.includes('text/css'))                                         return 'stylesheet'
-  if (contentType.includes('javascript') || contentType.includes('ecmascript')) return 'script'
-  if (contentType.includes('image/'))                                           return 'image'
-  if (contentType.includes('font/') || contentType.includes('woff'))            return 'font'
-  if (contentType.includes('application/json'))                                 return 'fetch'
+  if (contentType.includes('text/html')) {
+    return 'document'
+  }
+  if (contentType.includes('text/css')) {
+    return 'stylesheet'
+  }
+  if (
+    contentType.includes('javascript') ||
+    contentType.includes('ecmascript')
+  ) {
+    return 'script'
+  }
+  if (contentType.includes('image/')) {
+    return 'image'
+  }
+  if (contentType.includes('font/') || contentType.includes('woff')) {
+    return 'font'
+  }
+  if (contentType.includes('application/json')) {
+    return 'fetch'
+  }
 
-  if (urlLower.endsWith('.html') || urlLower.endsWith('.htm')) return 'document'
-  if (urlLower.endsWith('.css'))                                return 'stylesheet'
-  if (urlLower.endsWith('.js') || urlLower.endsWith('.mjs'))   return 'script'
-  if (/\.(png|jpg|jpeg|gif|svg|webp|ico)$/.test(urlLower))    return 'image'
-  if (/\.(woff|woff2|ttf|eot|otf)$/.test(urlLower))           return 'font'
+  if (urlLower.endsWith('.html') || urlLower.endsWith('.htm')) {
+    return 'document'
+  }
+  if (urlLower.endsWith('.css')) {
+    return 'stylesheet'
+  }
+  if (urlLower.endsWith('.js') || urlLower.endsWith('.mjs')) {
+    return 'script'
+  }
+  if (/\.(png|jpg|jpeg|gif|svg|webp|ico)$/.test(urlLower)) {
+    return 'image'
+  }
+  if (/\.(woff|woff2|ttf|eot|otf)$/.test(urlLower)) {
+    return 'font'
+  }
 
   return 'xhr'
 }
@@ -276,10 +337,20 @@ export function parseCucumberScenario(
   featureContent: string,
   scenarioName: string,
   stepTexts: string[]
-): { featureLine: number; scenarioLine: number; stepLines: number[]; stepKeywords: string[] } {
+): {
+  featureLine: number
+  scenarioLine: number
+  stepLines: number[]
+  stepKeywords: string[]
+} {
   const stepCount = stepTexts.length
   if (!featureContent) {
-    return { featureLine: 1, scenarioLine: 1, stepLines: [], stepKeywords: Array<string>(stepCount).fill('') }
+    return {
+      featureLine: 1,
+      scenarioLine: 1,
+      stepLines: [],
+      stepKeywords: Array<string>(stepCount).fill('')
+    }
   }
 
   const lines = featureContent.split('\n')
@@ -300,8 +371,14 @@ export function parseCucumberScenario(
 
     if (/^\s*Scenario:/i.test(line) && line.includes(scenarioName)) {
       scenarioLine = lineNum
-      for (let j = i + 1; j < lines.length && stepLines.length < stepCount; j++) {
-        if (/^\s*(?:Scenario:|Feature:)/i.test(lines[j])) break
+      for (
+        let j = i + 1;
+        j < lines.length && stepLines.length < stepCount;
+        j++
+      ) {
+        if (/^\s*(?:Scenario:|Feature:)/i.test(lines[j])) {
+          break
+        }
         const m = stepRe.exec(lines[j])
         if (m) {
           stepLines.push(j + 1)
@@ -312,16 +389,18 @@ export function parseCucumberScenario(
     }
   }
 
-  while (stepKeywords.length < stepCount) stepKeywords.push('')
+  while (stepKeywords.length < stepCount) {
+    stepKeywords.push('')
+  }
   return { featureLine, scenarioLine, stepLines, stepKeywords }
 }
 
 /** Maps Cucumber parameter type placeholder names to their regex equivalents. */
 const CUCUMBER_TYPE_PATTERNS: Record<string, string> = {
-  int:    '-?\\d+',
-  float:  '-?\\d+(?:\\.\\d+)?',
+  int: '-?\\d+',
+  float: '-?\\d+(?:\\.\\d+)?',
   string: '(?:"[^"]*"|\'[^\']*\')',
-  word:   '\\S+'
+  word: '\\S+'
 }
 
 /**
@@ -330,7 +409,9 @@ const CUCUMBER_TYPE_PATTERNS: Record<string, string> = {
  * arbitrary {type} placeholders.
  */
 function matchesCucumberExpression(pattern: string, text: string): boolean {
-  if (pattern === text) return true
+  if (pattern === text) {
+    return true
+  }
   const regexSource = pattern
     .split(/(\{[^}]*\})/)
     .map((part, idx) => {
@@ -363,10 +444,14 @@ export function findStepDefinitionLine(
     const lines = content.split('\n')
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i]
-      if (!stepDefRe.test(line)) continue
+      if (!stepDefRe.test(line)) {
+        continue
+      }
 
       // String / Cucumber-expression: Given('pattern', ...) or Given("pattern", ...)
-      const literalMatch = line.match(/(?:Given|When|Then|And|But)\s*\(\s*(['"`])(.*?)\1/i)
+      const literalMatch = line.match(
+        /(?:Given|When|Then|And|But)\s*\(\s*(['"`])(.*?)\1/i
+      )
       if (literalMatch) {
         if (matchesCucumberExpression(literalMatch[2], stepText)) {
           return { filePath, line: i + 1 }
@@ -375,7 +460,9 @@ export function findStepDefinitionLine(
       }
 
       // Regex literal: Given(/pattern/flags, ...)
-      const regexMatch = line.match(/(?:Given|When|Then|And|But)\s*\(\s*\/(.+?)\/([gimy]*)/i)
+      const regexMatch = line.match(
+        /(?:Given|When|Then|And|But)\s*\(\s*\/(.+?)\/([gimy]*)/i
+      )
       if (regexMatch) {
         try {
           if (new RegExp(regexMatch[1], regexMatch[2]).test(stepText)) {

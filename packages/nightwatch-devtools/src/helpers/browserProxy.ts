@@ -71,19 +71,23 @@ export class BrowserProxy {
     const sessionCapturer = this.sessionCapturer
 
     const wrapNav = (methodName: string) => {
-      if (typeof (browser as any)[methodName] !== 'function') return
+      if (typeof (browser as any)[methodName] !== 'function') {
+        return
+      }
       const original = (browser as any)[methodName].bind(browser)
 
       ;(browser as any)[methodName] = function (...args: any[]) {
         const result = original(...args)
 
-        const injectAndCapture = () =>
-          sessionCapturer
+        const injectAndCapture = () => {
+          log.info(`[nav] ${methodName}(${args[0] ?? ''}) — injecting script`)
+          return sessionCapturer
             .injectScript(browser)
             .then(() => sessionCapturer.captureTrace(browser))
             .catch((err: Error) =>
               log.error(`Failed to inject script: ${err.message}`)
             )
+        }
 
         if (result && typeof result.perform === 'function') {
           // Standard Nightwatch (chained API): queue inside perform so it
@@ -94,7 +98,9 @@ export class BrowserProxy {
           })
         } else {
           // Cucumber async/await: result is a Promise (or thenable).
-          Promise.resolve(result).then(injectAndCapture).catch(() => {})
+          Promise.resolve(result)
+            .then(injectAndCapture)
+            .catch(() => {})
         }
 
         return result
@@ -162,7 +168,9 @@ export class BrowserProxy {
     args: any[]
   ): any {
     const currentNightwatchTest = browserAny.currentTest
-    const currentTestName = this.testManager.detectTestBoundary(currentNightwatchTest)
+    const currentTestName = this.testManager.detectTestBoundary(
+      currentNightwatchTest
+    )
     this.testManager.startTestIfPending(currentTestName)
 
     const callInfo = getCallSourceFromStack()
@@ -272,7 +280,11 @@ export class BrowserProxy {
                 .then((screenshot) => {
                   if (screenshot) {
                     ;(entryToScreenshot as any).screenshot = screenshot
-                    this.sessionCapturer.sendReplaceCommand(ts, entryToScreenshot)
+                    this.sessionCapturer.sendReplaceCommand(
+                      ts,
+                      entryToScreenshot
+                    )
+                    log.info(`[screenshot] Attached to ${methodName} (retry)`)
                   }
                   done()
                 })
@@ -308,10 +320,14 @@ export class BrowserProxy {
           if (lastCommand) {
             this.lastCapturedId = (lastCommand as any)._id ?? null
             this.sessionCapturer.sendCommand(lastCommand)
+            log.info(`[command] ${methodName}`)
           }
 
           const entryToScreenshot = lastCommand
-          if (entryToScreenshot && typeof (browser as any).perform === 'function') {
+          if (
+            entryToScreenshot &&
+            typeof (browser as any).perform === 'function'
+          ) {
             const ts = (entryToScreenshot as any).timestamp
             ;(browser as any).perform((done: Function) => {
               this.sessionCapturer
@@ -319,7 +335,11 @@ export class BrowserProxy {
                 .then((screenshot) => {
                   if (screenshot) {
                     ;(entryToScreenshot as any).screenshot = screenshot
-                    this.sessionCapturer.sendReplaceCommand(ts, entryToScreenshot)
+                    this.sessionCapturer.sendReplaceCommand(
+                      ts,
+                      entryToScreenshot
+                    )
+                    log.info(`[screenshot] Attached to ${methodName}`)
                   }
                   done()
                 })
@@ -330,9 +350,20 @@ export class BrowserProxy {
           // After DOM-mutating commands, re-poll mutations from the injected
           // script so the browser preview stays in sync. Use setTimeout to
           // run OUTSIDE Nightwatch's current callback stack (safer queue-wise).
-          const isDomMutating = (NAVIGATION_COMMANDS as readonly string[]).includes(methodName) ||
-            ['click', 'doubleClick', 'rightClick', 'setValue', 'clearValue',
-             'sendKeys', 'submitForm', 'back', 'forward', 'refresh'].includes(methodName)
+          const isDomMutating =
+            (NAVIGATION_COMMANDS as readonly string[]).includes(methodName) ||
+            [
+              'click',
+              'doubleClick',
+              'rightClick',
+              'setValue',
+              'clearValue',
+              'sendKeys',
+              'submitForm',
+              'back',
+              'forward',
+              'refresh'
+            ].includes(methodName)
           if (isDomMutating) {
             setTimeout(() => {
               this.sessionCapturer.captureTrace(browser).catch(() => {})
@@ -374,6 +405,9 @@ export class BrowserProxy {
     if (!currentTest) {
       return
     }
+
+    const errMsg = error instanceof Error ? error.message : String(error)
+    log.error(`[command error] ${methodName}: ${errMsg}`)
 
     this.sessionCapturer
       .captureCommand(
