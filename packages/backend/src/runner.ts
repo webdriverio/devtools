@@ -5,7 +5,7 @@ import url from 'node:url'
 import { createRequire } from 'node:module'
 import kill from 'tree-kill'
 import type { RunnerRequestBody } from './types.js'
-import { WDIO_CONFIG_FILENAMES } from './types.js'
+import { WDIO_CONFIG_FILENAMES, NIGHTWATCH_CONFIG_FILENAMES } from './types.js'
 
 const require = createRequire(import.meta.url)
 const wdioBin = resolveWdioBin()
@@ -104,6 +104,37 @@ const FRAMEWORK_FILTERS: Record<
 const DEFAULT_FILTERS = ({ specArg }: { specArg?: string }) =>
   specArg ? ['--spec', specArg] : []
 
+// Nightwatch CLI: positional spec file + optional --testcase filter
+FRAMEWORK_FILTERS.nightwatch = ({ specArg, payload }: { specArg?: string; payload: RunnerRequestBody }) => {
+  const filters: string[] = []
+  if (specArg) {
+    // Nightwatch doesn't support file:line — strip any trailing line number
+    filters.push(specArg.split(':')[0])
+  }
+  if (payload.entryType === 'test' && payload.fullTitle) {
+    filters.push('--testcase', payload.fullTitle)
+  }
+  return filters
+}
+
+// Nightwatch + Cucumber: feature files are resolved via the config's feature_path.
+// Never pass .feature files as positional args — Nightwatch rejects them.
+// Nightwatch forwards --name and --tags to the underlying Cucumber runner.
+FRAMEWORK_FILTERS['nightwatch-cucumber'] = ({ payload }: { specArg?: string; payload: RunnerRequestBody }) => {
+  const filters: string[] = []
+
+  // Only pass --name for scenario-level reruns. Feature/file-level suites
+  // (suiteType === 'feature') run all their scenarios, so no --name filter.
+  const isFeatureLevel = payload.suiteType === 'feature' || payload.runAll
+  if (!isFeatureLevel && payload.fullTitle) {
+    // Wrap as an anchored exact regex so "Scenario A" never also matches
+    // "Scenario A-1" (Cucumber treats --name as a regex).
+    const escaped = payload.fullTitle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    filters.push('--name', `^${escaped}$`)
+  }
+  return filters
+}
+
 class TestRunner {
   #child?: ChildProcess
   #lastPayload?: RunnerRequestBody
@@ -111,18 +142,32 @@ class TestRunner {
 
   async run(payload: RunnerRequestBody) {
     if (this.#child) {
-      throw new Error('A test run is already in progress')
+      // A run is already in progress — stop it first so the new one can start.
+      this.stop()
+      // Give the killed process a moment to release resources before spawning.
+      await new Promise<void>((resolve) => setTimeout(resolve, 500))
     }
 
+    const isNightwatch = (payload.framework || '').toLowerCase().startsWith('nightwatch')
     const configPath = this.#resolveConfigPath(payload)
     this.#baseDir = process.env.DEVTOOLS_RUNNER_CWD || path.dirname(configPath)
 
-    const args = [
-      wdioBin,
-      'run',
-      configPath,
-      ...this.#buildFilters(payload)
-    ].filter(Boolean)
+    let args: string[]
+    if (isNightwatch) {
+      const nightwatchBin = resolveNightwatchBin(this.#baseDir)
+      args = [
+        nightwatchBin,
+        '--config', configPath,
+        ...this.#buildFilters(payload)
+      ].filter(Boolean)
+    } else {
+      args = [
+        wdioBin,
+        'run',
+        configPath,
+        ...this.#buildFilters(payload)
+      ].filter(Boolean)
+    }
 
     const childEnv = { ...process.env }
     if (payload.devtoolsHost && payload.devtoolsPort) {
@@ -250,14 +295,16 @@ class TestRunner {
       ? path.dirname(this.#toFsPath(specCandidate))
       : undefined
 
+    const isNightwatch = (payload?.framework || '').toLowerCase().startsWith('nightwatch')
     const candidates = this.#dedupeCandidates([
       payload?.configFile,
       this.#lastPayload?.configFile,
       process.env.DEVTOOLS_WDIO_CONFIG,
-      this.#findConfigFromSpec(specCandidate),
-      ...this.#expandDefaultConfigsFor(this.#baseDir),
-      ...this.#expandDefaultConfigsFor(path.resolve(this.#baseDir, 'example')),
-      ...this.#expandDefaultConfigsFor(specDir)
+      process.env.DEVTOOLS_NIGHTWATCH_CONFIG,
+      this.#findConfigFromSpec(specCandidate, isNightwatch),
+      ...this.#expandDefaultConfigsFor(this.#baseDir, isNightwatch),
+      ...this.#expandDefaultConfigsFor(path.resolve(this.#baseDir, 'example'), isNightwatch),
+      ...this.#expandDefaultConfigsFor(specDir, isNightwatch)
     ])
 
     for (const candidate of candidates) {
@@ -267,24 +314,28 @@ class TestRunner {
       }
     }
 
+    const runner = isNightwatch ? 'Nightwatch' : 'WDIO'
     throw new Error(
-      `Cannot locate WDIO config. Tried:\n${candidates
+      `Cannot locate ${runner} config. Tried:\n${candidates
         .map((c) => ` • ${this.#toFsPath(c)}`)
         .join('\n')}`
     )
   }
 
-  #findConfigFromSpec(specFile?: string) {
+  #findConfigFromSpec(specFile?: string, nightwatch = false) {
     if (!specFile) {
       return undefined
     }
 
+    const filenames = nightwatch
+      ? [...NIGHTWATCH_CONFIG_FILENAMES, ...WDIO_CONFIG_FILENAMES]
+      : WDIO_CONFIG_FILENAMES
     const fsSpec = this.#toFsPath(specFile)
     let dir = path.dirname(fsSpec)
     const root = path.parse(dir).root
 
     while (dir && dir !== root) {
-      for (const file of WDIO_CONFIG_FILENAMES) {
+      for (const file of filenames) {
         const candidate = path.join(dir, file)
         if (fs.existsSync(candidate)) {
           return candidate
@@ -300,11 +351,14 @@ class TestRunner {
     return undefined
   }
 
-  #expandDefaultConfigsFor(baseDir?: string) {
+  #expandDefaultConfigsFor(baseDir?: string, nightwatch = false) {
     if (!baseDir) {
       return []
     }
-    return WDIO_CONFIG_FILENAMES.map((file) => path.resolve(baseDir, file))
+    const filenames = nightwatch
+      ? [...NIGHTWATCH_CONFIG_FILENAMES, ...WDIO_CONFIG_FILENAMES]
+      : WDIO_CONFIG_FILENAMES
+    return filenames.map((file) => path.resolve(baseDir, file))
   }
 
   #dedupeCandidates(values: Array<string | undefined>) {
@@ -317,6 +371,57 @@ class TestRunner {
       )
     )
   }
+}
+
+function resolveNightwatchBin(baseDir: string): string {
+  const envOverride = process.env.DEVTOOLS_NIGHTWATCH_BIN
+  if (envOverride) {
+    const resolved = path.isAbsolute(envOverride)
+      ? envOverride
+      : path.resolve(process.cwd(), envOverride)
+    if (fs.existsSync(resolved)) {
+      return resolved
+    }
+  }
+
+  // Walk up from baseDir looking for node_modules/nightwatch/package.json
+  // and resolve the actual JS entry (avoids running the shell-script wrapper
+  // at node_modules/.bin/nightwatch directly via node).
+  let dir = baseDir
+  const root = path.parse(dir).root
+  while (dir !== root) {
+    const nightwatchPkgPath = path.join(
+      dir,
+      'node_modules',
+      'nightwatch',
+      'package.json'
+    )
+    if (fs.existsSync(nightwatchPkgPath)) {
+      try {
+        const pkg = JSON.parse(fs.readFileSync(nightwatchPkgPath, 'utf8'))
+        const nightwatchDir = path.join(dir, 'node_modules', 'nightwatch')
+        const binEntry =
+          typeof pkg.bin === 'string'
+            ? pkg.bin
+            : (pkg.bin?.nightwatch ?? pkg.bin?.nw)
+        if (binEntry) {
+          const jsPath = path.resolve(nightwatchDir, binEntry)
+          if (fs.existsSync(jsPath)) {
+            return jsPath
+          }
+        }
+      } catch {
+        // malformed package.json — continue walking
+      }
+    }
+    const parent = path.dirname(dir)
+    if (parent === dir) break
+    dir = parent
+  }
+
+  throw new Error(
+    'Cannot find nightwatch binary. Install nightwatch locally or set DEVTOOLS_NIGHTWATCH_BIN env var.'
+  )
 }
 
 function resolveWdioBin() {
