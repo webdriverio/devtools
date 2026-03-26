@@ -572,6 +572,24 @@ export class SessionCapturer {
   }
 
   /**
+   * Gracefully close the WebSocket, waiting for any buffered messages to flush.
+   * Call this before process exit in reuse mode to prevent data loss.
+   */
+  async closeWebSocket(): Promise<void> {
+    if (!this.#ws || this.#ws.readyState === WebSocket.CLOSED) {
+      return
+    }
+    return new Promise<void>((resolve) => {
+      const timeout = setTimeout(resolve, 2000)
+      this.#ws!.once('close', () => {
+        clearTimeout(timeout)
+        resolve()
+      })
+      this.#ws!.close()
+    })
+  }
+
+  /**
    * Inject the WDIO devtools script into the browser page
    */
   async injectScript(browser: NightwatchBrowser) {

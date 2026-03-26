@@ -75,6 +75,15 @@ class NightwatchDevToolsPlugin {
   #passCount = 0
   #failCount = 0
   #skipCount = 0
+  #configPath: string | undefined
+
+  static readonly #CONFIG_FILENAMES = [
+    'nightwatch.conf.cjs',
+    'nightwatch.conf.js',
+    'nightwatch.conf.ts',
+    'nightwatch.conf.mjs',
+    'nightwatch.json'
+  ]
 
   constructor(options: DevToolsOptions = {}) {
     this.options = {
@@ -84,6 +93,36 @@ class NightwatchDevToolsPlugin {
   }
 
   async before() {
+    // When relaunched by the DevTools UI rerun button the backend is already
+    // running — skip startup and just connect the WebSocket worker.
+    const isReuse =
+      process.env.DEVTOOLS_APP_REUSE === '1' &&
+      process.env.DEVTOOLS_APP_HOST &&
+      process.env.DEVTOOLS_APP_PORT
+
+    if (isReuse) {
+      this.options.hostname = process.env.DEVTOOLS_APP_HOST!
+      this.options.port = Number(process.env.DEVTOOLS_APP_PORT)
+      log.info(
+        `♻  Reusing DevTools backend at ${this.options.hostname}:${this.options.port}`
+      )
+    }
+
+    this.#configPath = this.#resolveNightwatchConfig()
+    if (this.#configPath) {
+      log.info(`✓ Config: ${this.#configPath}`)
+    } else {
+      log.warn(
+        'Could not find nightwatch config — test rerun will be unavailable'
+      )
+    }
+
+    if (isReuse) {
+      // Register the plugin instance so Cucumber hooks can call back into it.
+      ;(globalThis as any).__nightwatchDevtoolsPlugin = this
+      return
+    }
+
     try {
       this.options.port = await findFreePort(
         this.options.port,
@@ -213,7 +252,15 @@ class NightwatchDevToolsPlugin {
       sessionId,
       testEnv: opts.testEnv,
       host: opts.webdriver?.host,
-      options: {},
+      options: {
+        framework: this.#isCucumberRunner ? 'nightwatch-cucumber' : 'nightwatch',
+        configFile: this.#configPath,
+        baseDir: process.cwd(),
+        runCapabilities: {
+          canRunSuites: true,
+          canRunTests: !this.#isCucumberRunner
+        }
+      },
       url: ''
     })
 
@@ -808,6 +855,15 @@ class NightwatchDevToolsPlugin {
       log.info(
         `   DevTools UI: http://${this.options.hostname}:${this.options.port}`
       )
+
+      if (!this.#devtoolsBrowser) {
+        // Reuse mode: close WebSocket gracefully so all buffered messages
+        // are flushed to the backend before the process exits.
+        log.info('♻  Rerun complete — flushing WebSocket...')
+        await this.sessionCapturer?.closeWebSocket()
+        return
+      }
+
       log.info('💡 Please close the DevTools browser window to finish...')
 
       if (this.#devtoolsBrowser) {
@@ -851,6 +907,41 @@ class NightwatchDevToolsPlugin {
     }
   }
 
+  #resolveNightwatchConfig(): string | undefined {
+    // Prefer the config explicitly passed via -c / --config to avoid picking up
+    // an unrelated config file that happens to sit higher in the directory tree.
+    const configFlagIdx = process.argv.findIndex(
+      (arg) => arg === '--config' || arg === '-c'
+    )
+    if (configFlagIdx !== -1 && process.argv[configFlagIdx + 1]) {
+      const argvConfig = process.argv[configFlagIdx + 1]
+      const resolved = path.isAbsolute(argvConfig)
+        ? argvConfig
+        : path.resolve(process.cwd(), argvConfig)
+      if (fs.existsSync(resolved)) {
+        return resolved
+      }
+    }
+
+    // Fallback: walk up the directory tree
+    let dir = process.cwd()
+    const root = path.parse(dir).root
+    while (dir && dir !== root) {
+      for (const file of NightwatchDevToolsPlugin.#CONFIG_FILENAMES) {
+        const candidate = path.join(dir, file)
+        if (fs.existsSync(candidate)) {
+          return candidate
+        }
+      }
+      const parent = path.dirname(dir)
+      if (parent === dir) {
+        break
+      }
+      dir = parent
+    }
+    return undefined
+  }
+
   #incrementCount(state: TestStats['state']): void {
     if (state === TEST_STATE.PASSED) {
       this.#passCount++
@@ -889,7 +980,15 @@ class NightwatchDevToolsPlugin {
             testEnv,
             host,
             modulePath,
-            options: {}
+            options: {
+              framework: this.#isCucumberRunner ? 'nightwatch-cucumber' : 'nightwatch',
+              configFile: this.#configPath,
+              baseDir: process.cwd(),
+              runCapabilities: {
+                canRunSuites: true,
+                canRunTests: !this.#isCucumberRunner
+              }
+            }
           })
         }
       } catch (err) {
@@ -912,7 +1011,15 @@ class NightwatchDevToolsPlugin {
             testEnv,
             host,
             modulePath,
-            options: {}
+            options: {
+              framework: this.#isCucumberRunner ? 'nightwatch-cucumber' : 'nightwatch',
+              configFile: this.#configPath,
+              baseDir: process.cwd(),
+              runCapabilities: {
+                canRunSuites: true,
+                canRunTests: !this.#isCucumberRunner
+              }
+            }
           })
         }
       } catch (err) {

@@ -369,9 +369,16 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
   }
 
   #computeEntryState(entry: TestStats | SuiteStats): TestState {
+    // For suites, check running state from children FIRST — this ensures that
+    // a rerun (which clears end times) shows the spinner immediately, even if
+    // the suite still has a cached 'passed'/'failed' state from the previous run.
+    if ('tests' in entry && this.#isRunning(entry)) {
+      return TestState.RUNNING
+    }
+
     const state = (entry as any).state
 
-    // Check explicit state first
+    // Check explicit state
     const mappedState = STATE_MAP[state]
     if (mappedState) {
       return mappedState
@@ -379,9 +386,6 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
 
     // For suites, compute state from children
     if ('tests' in entry) {
-      if (this.#isRunning(entry)) {
-        return TestState.RUNNING
-      }
       if (this.#hasFailed(entry)) {
         return TestState.FAILED
       }
@@ -395,6 +399,12 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
   #getTestEntry(entry: TestStats | SuiteStats): TestEntry {
     if ('tests' in entry) {
       const entries = [...entry.tests, ...entry.suites]
+      // A suite whose children are themselves suites is a feature/file-level
+      // container (Cucumber feature or test file). Tag it as 'feature' so the
+      // backend runner can distinguish it from a scenario/spec-level suite and
+      // avoid applying a --name filter that would match no scenarios.
+      const hasChildSuites = entry.suites && entry.suites.length > 0
+      const derivedType = hasChildSuites ? 'feature' : ((entry as any).type || 'suite')
       return {
         uid: entry.uid,
         label: entry.title,
@@ -405,7 +415,7 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
         fullTitle: entry.title,
         featureFile: (entry as any).featureFile,
         featureLine: (entry as any).featureLine,
-        suiteType: (entry as any).type,
+        suiteType: derivedType,
         children: Object.values(entries)
           .map(this.#getTestEntry.bind(this))
           .filter(this.#filterEntry.bind(this))

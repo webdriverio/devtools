@@ -160,11 +160,11 @@ export class DataManagerController implements ReactiveController {
                 start: new Date(),
                 end: undefined,
                 tests:
-                  s.tests?.map((test) => ({
+                  (s.tests?.map((test) => ({
                     ...test,
                     start: new Date(),
                     end: undefined
-                  })) || [],
+                  })) ?? []) as TestStatsFragment[],
                 suites: s.suites?.map(markAllAsRunning) || []
               }
             }
@@ -198,17 +198,17 @@ export class DataManagerController implements ReactiveController {
                 start: new Date(),
                 end: undefined, // Clear end to mark as running
                 tests:
-                  s.tests?.map((test) => ({
+                  (s.tests?.map((test) => ({
                     ...test,
                     start: new Date(),
                     end: undefined
-                  })) || [],
+                  })) ?? []) as TestStatsFragment[],
                 suites: s.suites?.map(markAsRunning) || []
               }
             }
 
             // Check if any child test matches
-            const updatedTests = s.tests?.map((test) => {
+            const updatedTests = (s.tests?.map((test) => {
               if (test.uid === uid) {
                 return {
                   ...test,
@@ -217,7 +217,7 @@ export class DataManagerController implements ReactiveController {
                 }
               }
               return test
-            })
+            }) ?? []) as TestStatsFragment[]
 
             // Recursively check nested suites
             const updatedNestedSuites = s.suites?.map(markAsRunning)
@@ -641,7 +641,17 @@ export class DataManagerController implements ReactiveController {
         existing.start &&
         this.#getTimestamp(test.start) !== this.#getTimestamp(existing.start)
 
-      // Replace on rerun, merge on normal update
+      if (isRerun && test.state === 'pending' && existing) {
+        // The incoming suite structure marks all tests as "pending" at start.
+        // Preserve the existing state (running/passed/failed) so that tests
+        // not part of the current rerun keep their previous results visible.
+        // When a test actually starts executing, its state changes to "running"
+        // and that update correctly replaces the preserved state.
+        map.set(test.uid, { ...test, state: existing.state, end: existing.end })
+        return
+      }
+
+      // Replace on rerun (non-pending incoming), merge on normal update
       map.set(
         test.uid,
         isRerun ? test : existing ? { ...existing, ...test } : test
