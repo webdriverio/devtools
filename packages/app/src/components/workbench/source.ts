@@ -8,7 +8,7 @@ import type { EditorViewConfig } from '@codemirror/view'
 import { javascript } from '@codemirror/lang-javascript'
 import { oneDark } from '@codemirror/theme-one-dark'
 
-import { sourceContext } from '../../controller/DataManager.js'
+import { sourceContext } from '../../controller/context.js'
 
 import '../placeholder.js'
 

@@ -7,7 +7,7 @@ import { DragController, Direction } from '../utils/DragController.js'
 import {
   consoleLogContext,
   networkRequestContext
-} from '../controller/DataManager.js'
+} from '../controller/context.js'
 
 import '~icons/mdi/arrow-collapse-down.js'
 import '~icons/mdi/arrow-collapse-up.js'

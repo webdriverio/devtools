@@ -9,11 +9,10 @@ import type { CommandLog } from '@wdio/devtools-service/types'
 
 import {
   mutationContext,
-  type TraceMutation,
   metadataContext,
-  type Metadata,
   commandContext
-} from '../../controller/DataManager.js'
+} from '../../controller/context.js'
+import type { Metadata } from '@wdio/devtools-service/types'
 
 import '~icons/mdi/world.js'
 import '../placeholder.js'
