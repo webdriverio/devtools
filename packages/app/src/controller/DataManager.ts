@@ -1,73 +1,22 @@
 import { createContext, ContextProvider } from '@lit/context'
 import type { ReactiveController, ReactiveControllerHost } from 'lit'
-import type {
-  Metadata,
-  CommandLog,
-  TraceLog
-} from '@wdio/devtools-service/types'
-import type { SuiteStats, TestStats } from '@wdio/reporter'
+import type { Metadata, CommandLog, TraceLog } from '@wdio/devtools-service/types'
+
+import {
+  mutationContext,
+  logContext,
+  consoleLogContext,
+  networkRequestContext,
+  metadataContext,
+  commandContext,
+  sourceContext,
+  suiteContext
+} from './context.js'
+import type { TestStatsFragment, SuiteStatsFragment, SocketMessage } from './types.js'
 
 const CACHE_ID = 'wdio-trace-cache'
 
-type TestStatsFragment = Omit<Partial<TestStats>, 'uid'> & { uid: string }
-
-type SuiteStatsFragment = Omit<
-  Partial<SuiteStats>,
-  'uid' | 'tests' | 'suites'
-> & {
-  uid: string
-  tests?: TestStatsFragment[]
-  suites?: SuiteStatsFragment[]
-}
-
-export const mutationContext = createContext<TraceMutation[]>(
-  Symbol('mutationContext')
-)
-export const logContext = createContext<string[]>(Symbol('logContext'))
-export const consoleLogContext = createContext<ConsoleLogs[]>(
-  Symbol('consoleLogContext')
-)
-export const networkRequestContext = createContext<NetworkRequest[]>(
-  Symbol('networkRequestContext')
-)
-export const metadataContext = createContext<Metadata>(
-  Symbol('metadataContext')
-)
-export const commandContext = createContext<CommandLog[]>(
-  Symbol('commandContext')
-)
-export const sourceContext = createContext<Record<string, string>>(
-  Symbol('sourceContext')
-)
-export const suiteContext = createContext<Record<string, any>[]>(
-  Symbol('suiteContext')
-)
-
 const hasConnection = createContext<boolean>(Symbol('hasConnection'))
-export const isTestRunningContext = createContext<boolean>(
-  Symbol('isTestRunning')
-)
-
-interface SocketMessage<
-  T extends
-    | keyof TraceLog
-    | 'testStopped'
-    | 'clearExecutionData'
-    | 'replaceCommand' =
-    | keyof TraceLog
-    | 'testStopped'
-    | 'clearExecutionData'
-    | 'replaceCommand'
-> {
-  scope: T
-  data: T extends keyof TraceLog
-    ? TraceLog[T]
-    : T extends 'clearExecutionData'
-      ? { uid?: string }
-      : T extends 'replaceCommand'
-        ? { oldTimestamp: number; command: CommandLog }
-        : unknown
-}
 
 export class DataManagerController implements ReactiveController {
   #ws?: WebSocket
@@ -129,7 +78,6 @@ export class DataManagerController implements ReactiveController {
     return this.metadataContextProvider.value?.type
   }
 
-  // Public method to clear execution data when rerun is triggered
   clearExecutionData(uid?: string) {
     this.#resetExecutionData()
     if (uid) {
@@ -137,7 +85,6 @@ export class DataManagerController implements ReactiveController {
     }
   }
 
-  // Private method to mark a test/suite as running immediately for UI feedback
   #markTestAsRunning(uid: string) {
     const suites = this.suitesContextProvider.value || []
 
@@ -191,12 +138,11 @@ export class DataManagerController implements ReactiveController {
 
           // Recursive helper to mark tests/suites as running
           const markAsRunning = (s: SuiteStatsFragment): SuiteStatsFragment => {
-            // If this is the target suite/test, mark it as running
             if (s.uid === uid) {
               return {
                 ...s,
                 start: new Date(),
-                end: undefined, // Clear end to mark as running
+                end: undefined,
                 tests:
                   (s.tests?.map((test) => ({
                     ...test,
@@ -207,7 +153,6 @@ export class DataManagerController implements ReactiveController {
               }
             }
 
-            // Check if any child test matches
             const updatedTests = (s.tests?.map((test) => {
               if (test.uid === uid) {
                 return {
@@ -219,7 +164,6 @@ export class DataManagerController implements ReactiveController {
               return test
             }) ?? []) as TestStatsFragment[]
 
-            // Recursively check nested suites
             const updatedNestedSuites = s.suites?.map(markAsRunning)
 
             return {
@@ -277,14 +221,12 @@ export class DataManagerController implements ReactiveController {
         return
       }
 
-      // Handle test stopped event
       if (scope === 'testStopped') {
         this.#handleTestStopped()
         this.#host.requestUpdate()
         return
       }
 
-      // Handle clear execution data event (when tests change)
       if (scope === 'clearExecutionData') {
         const clearData = data as { uid?: string }
         this.clearExecutionData(clearData.uid)
@@ -292,7 +234,6 @@ export class DataManagerController implements ReactiveController {
         return
       }
 
-      // Handle in-place command replacement (retry deduplication)
       if (scope === 'replaceCommand') {
         const { oldTimestamp, command } = data as {
           oldTimestamp: number
@@ -303,7 +244,6 @@ export class DataManagerController implements ReactiveController {
         return
       }
 
-      // Check for new run BEFORE processing suites data
       if (scope === 'suites') {
         const shouldReset = this.#shouldResetForNewRun(data)
         if (shouldReset) {
@@ -311,9 +251,10 @@ export class DataManagerController implements ReactiveController {
         }
       }
 
-      // Route data to appropriate handler
       if (scope === 'mutations') {
         this.#handleMutationsUpdate(data as TraceMutation[])
+      } else if (scope === 'logs') {
+        this.#handleLogsUpdate(data as string[])
       } else if (scope === 'commands') {
         this.#handleCommandsUpdate(data as CommandLog[])
       } else if (scope === 'metadata') {
@@ -326,8 +267,6 @@ export class DataManagerController implements ReactiveController {
         this.#handleSourcesUpdate(data as Record<string, string>)
       } else if (scope === 'suites') {
         this.#handleSuitesUpdate(data)
-      } else {
-        this.#handleGenericUpdate(scope, data)
       }
 
       this.#host.requestUpdate()
@@ -376,7 +315,7 @@ export class DataManagerController implements ReactiveController {
               ec as Record<string, SuiteStatsFragment>
             )) {
               if (uid === Object.keys(chunk)[0]) {
-                existingEnd = (existing as any)?.end
+                existingEnd = existing?.end
                 break outer
               }
             }
@@ -432,7 +371,7 @@ export class DataManagerController implements ReactiveController {
                 return {
                   ...test,
                   end: new Date(),
-                  state: 'failed' as 'failed',
+                  state: 'failed',
                   error: {
                     message: 'Test execution stopped',
                     name: 'TestStoppedError'
@@ -445,8 +384,24 @@ export class DataManagerController implements ReactiveController {
             // Recursively update nested suites (for Cucumber scenarios)
             const updatedNestedSuites = s.suites?.map(updateSuite)
 
+            // Derive the suite's own state from its updated children so that
+            // STATE_MAP['running'] no longer produces a spinner after stop.
+            const allTests = [...(updatedTests || []), ...(updatedNestedSuites || [])]
+            const hasFailed = allTests.some((t) => t?.state === 'failed')
+            const hasRunning = allTests.some((t) => !t?.end)
+            const derivedState: SuiteStatsFragment['state'] = hasRunning
+              ? s.state
+              : hasFailed
+                ? 'failed'
+                : s.state === 'running'
+                  ? 'failed'
+                  : s.state
+
             return {
               ...s,
+              state: derivedState,
+              ...(!hasRunning && !s.end ? { end: new Date() } : {}),
+
               tests: updatedTests || [],
               suites: updatedNestedSuites || []
             }
@@ -566,27 +521,11 @@ export class DataManagerController implements ReactiveController {
     return date instanceof Date ? date.getTime() : date
   }
 
-  #handleGenericUpdate(scope: keyof TraceLog, data: any) {
-    const providerMap = {
-      mutations: this.mutationsContextProvider,
-      logs: this.logsContextProvider,
-      consoleLogs: this.consoleLogsContextProvider,
-      metadata: this.metadataContextProvider,
-      commands: this.commandsContextProvider,
-      sources: this.sourcesContextProvider,
-      suites: this.suitesContextProvider
-    } as const
-
-    const provider = providerMap[scope as keyof typeof providerMap]
-    if (provider) {
-      provider.setValue(data)
-    }
+  #handleLogsUpdate(data: string[]) {
+    this.logsContextProvider.setValue(data)
   }
 
   #mergeSuite(existing: SuiteStatsFragment, incoming: SuiteStatsFragment) {
-    // Note: Rerun detection and clearing is now handled in #handleSuitesUpdate
-    // before any merges happen, so data is cleared proactively
-
     // First merge tests and suites properly
     const mergedTests = this.#mergeTests(existing.tests, incoming.tests)
     const mergedSuites = this.#mergeChildSuites(
@@ -676,7 +615,4 @@ export class DataManagerController implements ReactiveController {
   }
 }
 
-/**
- * re-export types used for context
- */
-export { type Metadata, type CommandLog, type TraceLog, type TraceMutation }
+

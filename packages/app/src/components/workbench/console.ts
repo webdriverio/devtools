@@ -3,7 +3,7 @@ import { html, css, nothing } from 'lit'
 import { customElement } from 'lit/decorators.js'
 import { consume } from '@lit/context'
 
-import { consoleLogContext } from '../../controller/DataManager.js'
+import { consoleLogContext } from '../../controller/context.js'
 
 const LOG_ICONS: Record<ConsoleLogs['type'], string> = {
   log: '📄',

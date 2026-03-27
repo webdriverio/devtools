@@ -7,9 +7,8 @@ import type { Metadata } from '@wdio/devtools-service/types'
 import { repeat } from 'lit/directives/repeat.js'
 import {
   suiteContext,
-  metadataContext,
-  isTestRunningContext
-} from '../../controller/DataManager.js'
+  metadataContext
+} from '../../controller/context.js'
 import type {
   TestEntry,
   RunCapabilities,
@@ -72,9 +71,6 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
 
   @consume({ context: metadataContext, subscribe: true })
   metadata: Metadata | undefined = undefined
-
-  @consume({ context: isTestRunningContext, subscribe: true })
-  isTestRunning = false
 
   updated(changedProperties: Map<string | number | symbol, unknown>) {
     super.updated(changedProperties)
@@ -491,10 +487,6 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
             )
           : html`<div class="text-sm px-4 py-2">
               <p class="text-disabledForeground">No tests to display</p>
-              <p class="text-xs text-disabledForeground mt-2">
-                Debug: suites=${this.suites?.length || 0},
-                rootSuites=${uniqueSuites.length}, filtered=${suites.length}
-              </p>
             </div>`}
       </wdio-test-suite>
     `

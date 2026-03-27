@@ -2,7 +2,7 @@ import { Element } from '@core/element'
 import { html, css, nothing } from 'lit'
 import { customElement, state } from 'lit/decorators.js'
 import { consume } from '@lit/context'
-import { networkRequestContext } from '../../controller/DataManager.js'
+import { networkRequestContext } from '../../controller/context.js'
 import { RESOURCE_TYPES } from '../../utils/network-constants.js'
 import {
   formatBytes,
