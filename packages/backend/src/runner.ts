@@ -111,8 +111,8 @@ FRAMEWORK_FILTERS.nightwatch = ({ specArg, payload }: { specArg?: string; payloa
     // Nightwatch doesn't support file:line — strip any trailing line number
     filters.push(specArg.split(':')[0])
   }
-  if (payload.entryType === 'test' && payload.fullTitle) {
-    filters.push('--testcase', payload.fullTitle)
+  if (payload.entryType === 'test' && payload.label) {
+    filters.push('--testcase', payload.label)
   }
   return filters
 }
@@ -174,6 +174,15 @@ class TestRunner {
       childEnv.DEVTOOLS_APP_HOST = payload.devtoolsHost
       childEnv.DEVTOOLS_APP_PORT = String(payload.devtoolsPort)
       childEnv.DEVTOOLS_APP_REUSE = '1'
+    }
+    if (isNightwatch) {
+      if (payload.entryType === 'test' && payload.label) {
+        childEnv.DEVTOOLS_RERUN_ENTRY_TYPE = 'test'
+        childEnv.DEVTOOLS_RERUN_LABEL = payload.label
+      } else {
+        delete childEnv.DEVTOOLS_RERUN_ENTRY_TYPE
+        delete childEnv.DEVTOOLS_RERUN_LABEL
+      }
     }
 
     const child = spawn(process.execPath, args, {

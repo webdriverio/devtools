@@ -14,6 +14,14 @@ export class SuiteManager {
   constructor(private testReporter: TestReporter) {}
 
   /**
+   * Clear execution data when a rerun starts.
+   * Resets all cached suites so they're recreated fresh during the new run.
+   */
+  clearExecutionData() {
+    this.currentSuiteByFile.clear()
+  }
+
+  /**
    * Get or create suite for a test file
    */
   getOrCreateSuite(
@@ -89,10 +97,13 @@ export class SuiteManager {
   }
 
   /**
-   * Mark suite as running
+   * Mark suite as running.
+   * Clears `end` so that the `finalizeSuite` guard (`if (suite.end) return`)
+   * does not skip re-finalization during a rerun.
    */
   markSuiteAsRunning(suite: SuiteStats): void {
     suite.state = TEST_STATE.RUNNING
+    suite.end = null
     this.testReporter.updateSuites()
   }
 
@@ -104,7 +115,14 @@ export class SuiteManager {
     const hasFailures =
       suite.tests.some((t: any) => t.state === TEST_STATE.FAILED) ||
       suite.suites.some((s) => s.state === TEST_STATE.FAILED)
-    suite.state = hasFailures ? TEST_STATE.FAILED : TEST_STATE.RUNNING
+    const hasRunning =
+      suite.tests.some((t: any) => t.state === TEST_STATE.RUNNING) ||
+      suite.suites.some((s) => s.state === TEST_STATE.RUNNING || !s.end)
+    suite.state = hasFailures
+      ? TEST_STATE.FAILED
+      : hasRunning
+        ? TEST_STATE.RUNNING
+        : TEST_STATE.PASSED
     this.testReporter.updateSuites()
   }
 

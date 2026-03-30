@@ -109,7 +109,7 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
     // Clear execution data before triggering rerun
     this.dispatchEvent(
       new CustomEvent('clear-execution-data', {
-        detail: { uid: detail.uid },
+        detail: { uid: detail.uid, entryType: detail.entryType },
         bubbles: true,
         composed: true
       })
@@ -188,7 +188,7 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
     // Clear execution data and mark all tests as running
     this.dispatchEvent(
       new CustomEvent('clear-execution-data', {
-        detail: { uid: '*' },
+        detail: { uid: '*', entryType: 'suite' },
         bubbles: true,
         composed: true
       })
@@ -334,18 +334,60 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
 
   #isRunning(entry: TestStats | SuiteStats): boolean {
     if ('tests' in entry) {
-      // Check if any immediate test is running
-      if (entry.tests.some((t) => !t.end)) {
+      // Fastest path: any explicitly running descendant
+      if (
+        entry.tests.some((t) => (t as any).state === 'running') ||
+        entry.suites.some((s) => this.#isRunning(s))
+      ) {
         return true
       }
-      // Check if any nested suite is running
-      if (entry.suites.some((s) => this.#isRunning(s))) {
+
+      const hasPendingTests = entry.tests.some(
+        (t) => (t as any).state === 'pending'
+      )
+      const hasPendingSuites = entry.suites.some((s) => this.#hasPending(s))
+      const suiteState = (entry as any).state
+
+      // If the suite was explicitly marked 'running' (e.g. by markTestAsRunning)
+      // and still has pending children, it's actively executing.
+      if (suiteState === 'running' && (hasPendingTests || hasPendingSuites)) {
+        return true
+      }
+
+      // Mixed terminal + pending children = run is in progress regardless of
+      // explicit suite state (handles Nightwatch Cucumber where the feature
+      // suite state may be undefined in the JSON payload).
+      const allDescendants = [...entry.tests, ...entry.suites]
+      const hasSomeTerminal = allDescendants.some(
+        (t) =>
+          (t as any).state === 'passed' ||
+          (t as any).state === 'failed' ||
+          (t as any).state === 'skipped'
+      )
+      if ((hasPendingTests || hasPendingSuites) && hasSomeTerminal) {
+        return true
+      }
+
+      return false
+    }
+    // For individual tests rely on explicit state only.
+    return (entry as any).state === 'running'
+  }
+
+  #hasPending(entry: TestStats | SuiteStats): boolean {
+    if ('tests' in entry) {
+      if ((entry as any).state === 'pending') {
+        return true
+      }
+      if (entry.tests.some((t) => (t as any).state === 'pending')) {
+        return true
+      }
+      if (entry.suites.some((s) => this.#hasPending(s))) {
         return true
       }
       return false
     }
-    // For individual tests, check if end is not set
-    return !entry.end
+    return (entry as any).state === 'pending'
   }
 
   #hasFailed(entry: TestStats | SuiteStats): boolean {
@@ -364,7 +406,7 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
     return entry.state === 'failed'
   }
 
-  #computeEntryState(entry: TestStats | SuiteStats): TestState {
+  #computeEntryState(entry: TestStats | SuiteStats): TestState | 'pending' {
     // For suites, check running state from children FIRST — this ensures that
     // a rerun (which clears end times) shows the spinner immediately, even if
     // the suite still has a cached 'passed'/'failed' state from the previous run.
@@ -374,7 +416,26 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
 
     const state = (entry as any).state
 
-    // Check explicit state
+    // For suites with no explicit terminal state, derive from children.
+    // A suite with state=undefined or state=pending that has no terminal
+    // children yet is still in-progress — don't show PASSED prematurely.
+    if ('tests' in entry && (state == null || state === 'pending' || state === 'running')) {
+      const allDescendants = [...entry.tests, ...entry.suites]
+      if (allDescendants.length > 0) {
+        const allTerminal = allDescendants.every(
+          (t) =>
+            (t as any).state === 'passed' ||
+            (t as any).state === 'failed' ||
+            (t as any).state === 'skipped'
+        )
+        if (!allTerminal) {
+          // Still has non-terminal children — treat as running/loading
+          return TestState.RUNNING
+        }
+      }
+    }
+
+    // Check explicit terminal state
     const mappedState = STATE_MAP[state]
     if (mappedState) {
       return mappedState
@@ -388,8 +449,13 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
       return TestState.PASSED
     }
 
-    // For individual tests, check if still running
-    return !entry.end ? TestState.RUNNING : TestState.PASSED
+    // For individual leaf tests: pending = spinner (run is in progress),
+    // not circle (which implies "never run").
+    if (state === 'pending') {
+      return TestState.RUNNING
+    }
+
+    return entry.end ? TestState.PASSED : 'pending'
   }
 
   #getTestEntry(entry: TestStats | SuiteStats): TestEntry {
