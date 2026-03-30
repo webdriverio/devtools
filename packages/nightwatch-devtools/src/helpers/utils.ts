@@ -1,6 +1,8 @@
 import * as fs from 'node:fs'
+import * as net from 'node:net'
 import * as path from 'node:path'
 import { parse as parseStackTrace } from 'stacktrace-parser'
+import logger from '@wdio/logger'
 import {
   ANSI_REGEX,
   LOG_LEVEL_PATTERNS,
@@ -475,4 +477,31 @@ export function findStepDefinitionLine(
     }
   }
   return null
+}
+
+// ---------------------------------------------------------------------------
+// Port / network helpers (used by the plugin startup)
+// ---------------------------------------------------------------------------
+
+const log = logger('@wdio/nightwatch-devtools')
+
+export function isPortInUse(port: number, hostname: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const server = net.createServer()
+    server.once('error', () => resolve(true))
+    server.once('listening', () => server.close(() => resolve(false)))
+    server.listen(port, hostname)
+  })
+}
+
+export async function findFreePort(
+  startPort: number,
+  hostname: string
+): Promise<number> {
+  let port = startPort
+  while (await isPortInUse(port, hostname)) {
+    log.warn(`Port ${port} is in use, trying ${port + 1}...`)
+    port++
+  }
+  return port
 }

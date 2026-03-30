@@ -6,7 +6,6 @@
  */
 
 import * as fs from 'node:fs'
-import * as net from 'node:net'
 import * as path from 'node:path'
 import * as os from 'node:os'
 import { fileURLToPath } from 'node:url'
@@ -30,32 +29,12 @@ import {
   deterministicUid,
   extractTestMetadata,
   parseCucumberScenario,
-  findStepDefinitionLine
+  findStepDefinitionLine,
+  findFreePort
 } from './helpers/utils.js'
-import { DEFAULTS, TIMING, TEST_STATE } from './constants.js'
+import { DEFAULTS, TIMING, TEST_STATE, CONFIG_FILENAMES, PLUGIN_GLOBAL_KEY } from './constants.js'
 
 const log = logger('@wdio/nightwatch-devtools')
-
-function isPortInUse(port: number, hostname: string): Promise<boolean> {
-  return new Promise((resolve) => {
-    const server = net.createServer()
-    server.once('error', () => resolve(true))
-    server.once('listening', () => server.close(() => resolve(false)))
-    server.listen(port, hostname)
-  })
-}
-
-async function findFreePort(
-  startPort: number,
-  hostname: string
-): Promise<number> {
-  let port = startPort
-  while (await isPortInUse(port, hostname)) {
-    log.warn(`Port ${port} is in use, trying ${port + 1}...`)
-    port++
-  }
-  return port
-}
 
 class NightwatchDevToolsPlugin {
   private options: Required<DevToolsOptions>
@@ -77,13 +56,11 @@ class NightwatchDevToolsPlugin {
   #skipCount = 0
   #configPath: string | undefined
 
-  static readonly #CONFIG_FILENAMES = [
-    'nightwatch.conf.cjs',
-    'nightwatch.conf.js',
-    'nightwatch.conf.ts',
-    'nightwatch.conf.mjs',
-    'nightwatch.json'
-  ]
+  #getRerunLabel() {
+    return process.env.DEVTOOLS_RERUN_ENTRY_TYPE === 'test'
+      ? process.env.DEVTOOLS_RERUN_LABEL?.trim()
+      : undefined
+  }
 
   constructor(options: DevToolsOptions = {}) {
     this.options = {
@@ -106,6 +83,17 @@ class NightwatchDevToolsPlugin {
       log.info(
         `♻  Reusing DevTools backend at ${this.options.hostname}:${this.options.port}`
       )
+      // Clear execution data from the previous run when rerunning
+      // This ensures test names cache and suites are fresh for the new run
+      if (this.testReporter) {
+        this.testReporter.clearExecutionData()
+        this.suiteManager.clearExecutionData()
+        // Reset counters for fresh run
+        this.#passCount = 0
+        this.#failCount = 0
+        this.#skipCount = 0
+        log.info('Cleared execution data for rerun')
+      }
     }
 
     this.#configPath = this.#resolveNightwatchConfig()
@@ -119,7 +107,7 @@ class NightwatchDevToolsPlugin {
 
     if (isReuse) {
       // Register the plugin instance so Cucumber hooks can call back into it.
-      ;(globalThis as any).__nightwatchDevtoolsPlugin = this
+      ;(globalThis as any)[PLUGIN_GLOBAL_KEY] = this
       return
     }
 
@@ -170,7 +158,7 @@ class NightwatchDevToolsPlugin {
       await new Promise((resolve) =>
         setTimeout(resolve, TIMING.UI_CONNECTION_WAIT)
       )
-      ;(globalThis as any).__nightwatchDevtoolsPlugin = this
+      ;(globalThis as any)[PLUGIN_GLOBAL_KEY] = this
     } catch (err) {
       log.error(`Failed to start backend: ${(err as Error).message}`)
       throw err
@@ -252,15 +240,7 @@ class NightwatchDevToolsPlugin {
       sessionId,
       testEnv: opts.testEnv,
       host: opts.webdriver?.host,
-      options: {
-        framework: this.#isCucumberRunner ? 'nightwatch-cucumber' : 'nightwatch',
-        configFile: this.#configPath,
-        baseDir: process.cwd(),
-        runCapabilities: {
-          canRunSuites: true,
-          canRunTests: !this.#isCucumberRunner
-        }
-      },
+      options: this.#buildMetadataOptions(),
       url: ''
     })
 
@@ -638,6 +618,15 @@ class NightwatchDevToolsPlugin {
       testLines = parsedTestLines
     }
 
+    const rerunLabel = this.#getRerunLabel()
+    if (rerunLabel) {
+      const targetIndex = testNames.findIndex((name) => name === rerunLabel)
+      if (targetIndex !== -1) {
+        testNames = [testNames[targetIndex]]
+        testLines = testLines[targetIndex] ? [testLines[targetIndex]] : []
+      }
+    }
+
     // Get or create suite for this test file
     const currentSuite = this.suiteManager.getOrCreateSuite(
       testFile,
@@ -692,7 +681,17 @@ class NightwatchDevToolsPlugin {
     }
 
     const processedTests = this.testManager.getProcessedTests(testFile)
-    const currentTestName = testNames.find((name) => !processedTests.has(name))
+    const runtimeTestName =
+      typeof currentTest?.name === 'string' ? currentTest.name.trim() : undefined
+    const matchedRuntimeTestName = runtimeTestName
+      ? testNames.find(
+          (name) =>
+            runtimeTestName === name || runtimeTestName.endsWith(` ${name}`)
+        )
+      : undefined
+    const currentTestName =
+      matchedRuntimeTestName ||
+      testNames.find((name) => !processedTests.has(name))
 
     if (currentTestName) {
       if (processedTests.size === 0) {
@@ -857,8 +856,9 @@ class NightwatchDevToolsPlugin {
       )
 
       if (!this.#devtoolsBrowser) {
-        // Reuse mode: close WebSocket gracefully so all buffered messages
-        // are flushed to the backend before the process exits.
+        // Reuse mode: force one final suites broadcast so the UI reflects the
+        // actual outcome before the process exits.
+        this.testReporter?.updateSuites()
         log.info('♻  Rerun complete — flushing WebSocket...')
         await this.sessionCapturer?.closeWebSocket()
         return
@@ -893,6 +893,8 @@ class NightwatchDevToolsPlugin {
         }
 
         if (!exitBySignal) {
+          process.removeListener('SIGINT', signalHandler)
+          process.removeListener('SIGTERM', signalHandler)
           ;(logger as any).setLevel('devtools', 'info')
           try {
             await this.#devtoolsBrowser.deleteSession()
@@ -900,10 +902,23 @@ class NightwatchDevToolsPlugin {
             // session already closed
           }
           await stop()
+          process.exit(0)
         }
       }
     } catch (err) {
       log.error(`Failed to stop backend: ${(err as Error).message}`)
+    }
+  }
+
+  #buildMetadataOptions() {
+    return {
+      framework: this.#isCucumberRunner ? 'nightwatch-cucumber' : 'nightwatch',
+      configFile: this.#configPath,
+      baseDir: process.cwd(),
+      runCapabilities: {
+        canRunSuites: true,
+        canRunTests: !this.#isCucumberRunner
+      }
     }
   }
 
@@ -927,7 +942,7 @@ class NightwatchDevToolsPlugin {
     let dir = process.cwd()
     const root = path.parse(dir).root
     while (dir && dir !== root) {
-      for (const file of NightwatchDevToolsPlugin.#CONFIG_FILENAMES) {
+      for (const file of CONFIG_FILENAMES) {
         const candidate = path.join(dir, file)
         if (fs.existsSync(candidate)) {
           return candidate
@@ -967,7 +982,7 @@ class NightwatchDevToolsPlugin {
     }
     log.info('✓ NightwatchEventHub registered — enriched metadata enabled')
 
-    eventHub.on('TestSuiteStarted', (data: any) => {
+    const handleSessionMetadata = (data: any) => {
       try {
         const { sessionCapabilities, sessionId, testEnv, host, modulePath } =
           data?.metadata ?? {}
@@ -980,59 +995,19 @@ class NightwatchDevToolsPlugin {
             testEnv,
             host,
             modulePath,
-            options: {
-              framework: this.#isCucumberRunner ? 'nightwatch-cucumber' : 'nightwatch',
-              configFile: this.#configPath,
-              baseDir: process.cwd(),
-              runCapabilities: {
-                canRunSuites: true,
-                canRunTests: !this.#isCucumberRunner
-              }
-            }
+            options: this.#buildMetadataOptions()
           })
         }
       } catch (err) {
-        log.error(
-          `Error in TestSuiteStarted handler: ${(err as Error).message}`
-        )
+        log.error(`Error in event handler: ${(err as Error).message}`)
       }
-    })
+    }
 
-    eventHub.on('TestRunStarted', (data: any) => {
-      try {
-        const { sessionCapabilities, sessionId, testEnv, host, modulePath } =
-          data?.metadata ?? {}
-
-        if (this.sessionCapturer && (sessionCapabilities || sessionId)) {
-          this.sessionCapturer.sendUpstream('metadata', {
-            type: TraceType.Testrunner,
-            capabilities: sessionCapabilities ?? {},
-            sessionId,
-            testEnv,
-            host,
-            modulePath,
-            options: {
-              framework: this.#isCucumberRunner ? 'nightwatch-cucumber' : 'nightwatch',
-              configFile: this.#configPath,
-              baseDir: process.cwd(),
-              runCapabilities: {
-                canRunSuites: true,
-                canRunTests: !this.#isCucumberRunner
-              }
-            }
-          })
-        }
-      } catch (err) {
-        log.error(`Error in TestRunStarted handler: ${(err as Error).message}`)
-      }
-    })
+    eventHub.on('TestSuiteStarted', handleSessionMetadata)
+    eventHub.on('TestRunStarted', handleSessionMetadata)
   }
 }
 
-/**
- * The absolute path to the compiled Cucumber hooks file.
- * Kept for backwards compatibility — prefer using `withCucumber()` instead.
- */
 export const cucumberHooksPath = fileURLToPath(
   new URL('./helpers/cucumberHooks.cjs', import.meta.url)
 )

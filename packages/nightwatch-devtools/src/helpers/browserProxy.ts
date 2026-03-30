@@ -272,25 +272,20 @@ export class BrowserProxy {
           this.sessionCapturer.sendReplaceCommand(oldTimestamp, entry)
 
           const entryToScreenshot = entry
-          if (typeof (browser as any).perform === 'function') {
-            const ts = (entryToScreenshot as any).timestamp
-            ;(browser as any).perform((done: Function) => {
-              this.sessionCapturer
-                .takeScreenshotViaHttp(browser)
-                .then((screenshot) => {
-                  if (screenshot) {
-                    ;(entryToScreenshot as any).screenshot = screenshot
-                    this.sessionCapturer.sendReplaceCommand(
-                      ts,
-                      entryToScreenshot
-                    )
-                    log.info(`[screenshot] Attached to ${methodName} (retry)`)
-                  }
-                  done()
-                })
-                .catch(() => done())
+          const ts = (entryToScreenshot as any).timestamp
+          this.sessionCapturer
+            .takeScreenshotViaHttp(browser)
+            .then((screenshot) => {
+              if (screenshot) {
+                ;(entryToScreenshot as any).screenshot = screenshot
+                this.sessionCapturer.sendReplaceCommand(
+                  ts,
+                  entryToScreenshot
+                )
+                log.info(`[screenshot] Attached to ${methodName} (retry)`)
+              }
             })
-          }
+            .catch(() => {})
         } else {
           // New command — capture and track.
           // captureCommand() pushes the entry to commandsLog synchronously
@@ -324,27 +319,21 @@ export class BrowserProxy {
           }
 
           const entryToScreenshot = lastCommand
-          if (
-            entryToScreenshot &&
-            typeof (browser as any).perform === 'function'
-          ) {
+          if (entryToScreenshot) {
             const ts = (entryToScreenshot as any).timestamp
-            ;(browser as any).perform((done: Function) => {
-              this.sessionCapturer
-                .takeScreenshotViaHttp(browser)
-                .then((screenshot) => {
-                  if (screenshot) {
-                    ;(entryToScreenshot as any).screenshot = screenshot
-                    this.sessionCapturer.sendReplaceCommand(
-                      ts,
-                      entryToScreenshot
-                    )
-                    log.info(`[screenshot] Attached to ${methodName}`)
-                  }
-                  done()
-                })
-                .catch(() => done())
-            })
+            this.sessionCapturer
+              .takeScreenshotViaHttp(browser)
+              .then((screenshot) => {
+                if (screenshot) {
+                  ;(entryToScreenshot as any).screenshot = screenshot
+                  this.sessionCapturer.sendReplaceCommand(
+                    ts,
+                    entryToScreenshot
+                  )
+                  log.info(`[screenshot] Attached to ${methodName}`)
+                }
+              })
+              .catch(() => {})
           }
 
           // After DOM-mutating commands, re-poll mutations from the injected

@@ -27,6 +27,10 @@ export class TestReporter {
   onSuiteStart(suiteStats: SuiteStats) {
     this.#currentSpecFile = suiteStats.file
     this.#currentSuite = suiteStats
+    const rerunLabel =
+      process.env.DEVTOOLS_RERUN_ENTRY_TYPE === 'test'
+        ? process.env.DEVTOOLS_RERUN_LABEL?.trim()
+        : undefined
 
     // Generate stable UID only if not already set
     if (!suiteStats.uid) {
@@ -39,7 +43,9 @@ export class TestReporter {
       !this.#testNamesCache.has(this.#currentSpecFile)
     ) {
       const metadata = extractTestMetadata(this.#currentSpecFile)
-      const testNames = metadata.testNames
+      const testNames = rerunLabel
+        ? metadata.testNames.filter((name) => name === rerunLabel)
+        : metadata.testNames
       if (testNames.length > 0) {
         this.#testNamesCache.set(this.#currentSpecFile, testNames)
         log.info(
@@ -50,6 +56,18 @@ export class TestReporter {
 
     this.#allSuites.push(suiteStats)
     this.#sendUpstream()
+  }
+
+  /**
+   * Clear execution data when a rerun starts.
+   * Resets test name cache and suites so they're repopulated fresh during the new run.
+   */
+  clearExecutionData() {
+    this.#testNamesCache.clear()
+    this.#allSuites = []
+    this.#currentSuite = undefined
+    this.#currentSpecFile = undefined
+    resetSignatureCounters()
   }
 
   /**

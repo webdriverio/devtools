@@ -71,8 +71,8 @@ export class WebdriverIODevtoolsApplication extends Element {
     this.requestUpdate()
   }
 
-  #clearExecutionData({ detail }: { detail?: { uid?: string } }) {
-    this.dataManager.clearExecutionData(detail?.uid)
+  #clearExecutionData({ detail }: { detail?: { uid?: string; entryType?: 'suite' | 'test' } }) {
+    this.dataManager.clearExecutionData(detail?.uid, detail?.entryType)
   }
 
   #mainContent() {

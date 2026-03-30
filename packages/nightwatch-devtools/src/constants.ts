@@ -97,3 +97,18 @@ export const TEST_PATH_PATTERN = /\/(test|spec|tests)\//i
 
 /** Matches file names that follow the *.test.ts / *.spec.js naming convention. */
 export const TEST_FILE_PATTERN = /\.(?:test|spec)\.[cm]?[jt]sx?$/i
+
+/** Nightwatch config file names to search for, in priority order. */
+export const CONFIG_FILENAMES = [
+  'nightwatch.conf.cjs',
+  'nightwatch.conf.js',
+  'nightwatch.conf.ts',
+  'nightwatch.conf.mjs',
+  'nightwatch.json'
+] as const
+
+/**
+ * Global key used to share the plugin instance with Cucumber hooks.
+ * Must match across index.ts and cucumberHooks.cts.
+ */
+export const PLUGIN_GLOBAL_KEY = '__nightwatchDevtoolsPlugin'

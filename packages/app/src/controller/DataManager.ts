@@ -22,6 +22,7 @@ export class DataManagerController implements ReactiveController {
   #ws?: WebSocket
   #host: ReactiveControllerHost & HTMLElement
   #lastSeenRunTimestamp = 0
+  #activeRerunTestUid?: string
 
   mutationsContextProvider: ContextProvider<typeof mutationContext>
   logsContextProvider: ContextProvider<typeof logContext>
@@ -78,14 +79,23 @@ export class DataManagerController implements ReactiveController {
     return this.metadataContextProvider.value?.type
   }
 
-  clearExecutionData(uid?: string) {
+  clearExecutionData(uid?: string, entryType?: 'suite' | 'test') {
     this.#resetExecutionData()
+
+    // Track explicit single-test reruns so merge logic can keep sibling tests
+    // stable while the backend emits suite-level "pending" snapshots.
+    if (entryType === 'test' && uid && uid !== '*') {
+      this.#activeRerunTestUid = uid
+    } else if (entryType === 'suite' || uid === '*') {
+      this.#activeRerunTestUid = undefined
+    }
+
     if (uid) {
-      this.#markTestAsRunning(uid)
+      this.#markTestAsRunning(uid, entryType)
     }
   }
 
-  #markTestAsRunning(uid: string) {
+  #markTestAsRunning(uid: string, entryType?: 'suite' | 'test') {
     const suites = this.suitesContextProvider.value || []
 
     // If uid is '*', mark ALL tests/suites as running
@@ -104,11 +114,13 @@ export class DataManagerController implements ReactiveController {
             ): SuiteStatsFragment => {
               return {
                 ...s,
+                state: 'running',
                 start: new Date(),
                 end: undefined,
                 tests:
                   (s.tests?.map((test) => ({
                     ...test,
+                    state: 'pending',
                     start: new Date(),
                     end: undefined
                   })) ?? []) as TestStatsFragment[],
@@ -136,27 +148,44 @@ export class DataManagerController implements ReactiveController {
             return
           }
 
-          // Recursive helper to mark tests/suites as running
-          const markAsRunning = (s: SuiteStatsFragment): SuiteStatsFragment => {
-            if (s.uid === uid) {
-              return {
-                ...s,
-                start: new Date(),
+          // Recursive helper to mark only the targeted branch as running
+          const markAsRunning = (
+            s: SuiteStatsFragment
+          ): { suite: SuiteStatsFragment; matched: boolean } => {
+            const runStart = new Date()
+
+            if (entryType !== 'test' && s.uid === uid) {
+              const markSuiteTreeAsRunning = (
+                suiteNode: SuiteStatsFragment
+              ): SuiteStatsFragment => ({
+                ...suiteNode,
+                state: 'running',
+                start: runStart,
                 end: undefined,
                 tests:
-                  (s.tests?.map((test) => ({
+                  (suiteNode.tests?.map((test) => ({
                     ...test,
-                    start: new Date(),
+                    state: 'pending',
+                    start: runStart,
                     end: undefined
                   })) ?? []) as TestStatsFragment[],
-                suites: s.suites?.map(markAsRunning) || []
+                suites:
+                  suiteNode.suites?.map(markSuiteTreeAsRunning) || []
+              })
+
+              return {
+                matched: true,
+                suite: markSuiteTreeAsRunning(s)
               }
             }
 
+            let matched = false
             const updatedTests = (s.tests?.map((test) => {
               if (test.uid === uid) {
+                matched = true
                 return {
                   ...test,
+                  state: 'pending',
                   start: new Date(),
                   end: undefined
                 }
@@ -164,16 +193,33 @@ export class DataManagerController implements ReactiveController {
               return test
             }) ?? []) as TestStatsFragment[]
 
-            const updatedNestedSuites = s.suites?.map(markAsRunning)
+            const updatedNestedSuites =
+              s.suites?.map((nestedSuite) => {
+                const nestedResult = markAsRunning(nestedSuite)
+                if (nestedResult.matched) {
+                  matched = true
+                }
+                return nestedResult.suite
+              }) || []
 
             return {
-              ...s,
-              tests: updatedTests || [],
-              suites: updatedNestedSuites || []
+              matched,
+              suite: {
+                ...s,
+                ...(matched
+                  ? {
+                      state: 'running' as const,
+                      start: runStart,
+                      end: undefined
+                    }
+                  : {}),
+                tests: updatedTests || [],
+                suites: updatedNestedSuites
+              }
             }
           }
 
-          updatedChunk[suiteUid] = markAsRunning(suite)
+          updatedChunk[suiteUid] = markAsRunning(suite).suite
         }
       )
       return updatedChunk
@@ -228,8 +274,11 @@ export class DataManagerController implements ReactiveController {
       }
 
       if (scope === 'clearExecutionData') {
-        const clearData = data as { uid?: string }
-        this.clearExecutionData(clearData.uid)
+        const clearData = data as {
+          uid?: string
+          entryType?: 'suite' | 'test'
+        }
+        this.clearExecutionData(clearData.uid, clearData.entryType)
         this.#host.requestUpdate()
         return
       }
@@ -352,6 +401,8 @@ export class DataManagerController implements ReactiveController {
   }
 
   #handleTestStopped() {
+    this.#activeRerunTestUid = undefined
+
     // Mark all running tests as failed when test execution is stopped
     const suites = this.suitesContextProvider.value || []
     const updatedSuites = suites.map((chunk) => {
@@ -503,9 +554,9 @@ export class DataManagerController implements ReactiveController {
         }
 
         const existing = suiteMap.get(uid)
-
+        const merged = existing ? this.#mergeSuite(existing, suite) : suite
         // Always merge to preserve all tests in the suite
-        suiteMap.set(uid, existing ? this.#mergeSuite(existing, suite) : suite)
+        suiteMap.set(uid, merged)
       })
     })
 
@@ -537,9 +588,57 @@ export class DataManagerController implements ReactiveController {
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { tests, suites, ...incomingProps } = incoming
 
+    // Strip undefined state from incoming so it doesn't overwrite a valid existing state.
+    // The Nightwatch reporter may send suites without a state field when the JSON
+    // serialization omits properties that are undefined on the object.
+    if (incomingProps.state === undefined || incomingProps.state === null) {
+      delete (incomingProps as any).state
+    }
+
+    // Treat incoming state=undefined the same as pending — both mean the backend
+    // hasn't assigned a terminal state yet.
+    const incomingStateIsPendingOrUnset =
+      incoming.state === 'pending' || incoming.state == null
+
+    const allChildren = [...(mergedTests || []), ...(mergedSuites || [])]
+    // Treat children with undefined/null state as in-progress (not yet terminal).
+    // This prevents prematurely deriving 'passed' when children haven't reported yet.
+    const hasInProgressChildren = allChildren.some(
+      (child) =>
+        child?.state === 'running' ||
+        child?.state === 'pending' ||
+        child?.state == null
+    )
+    const hasFailedChildren = allChildren.some((child) => child?.state === 'failed')
+    const hasChildren = allChildren.length > 0
+
+    // Only derive 'passed' when ALL children have reached a terminal state.
+    const allChildrenTerminal =
+      hasChildren &&
+      allChildren.every(
+        (child) =>
+          child?.state === 'passed' ||
+          child?.state === 'failed' ||
+          child?.state === 'skipped'
+      )
+
+    // On rerun start we optimistically mark the suite as running in the UI.
+    // Keep that running state until the backend emits concrete progress/result
+    // updates, instead of letting an intermediate "pending" snapshot clear it.
+    const keepRunningState =
+      existing.state === 'running' && incomingStateIsPendingOrUnset
+
+    const derivedCompletedState: SuiteStatsFragment['state'] | undefined =
+      allChildrenTerminal ? (hasFailedChildren ? 'failed' : 'passed') : undefined
+
     return {
       ...existing,
       ...incomingProps,
+      ...(keepRunningState && hasInProgressChildren
+        ? { state: 'running' as const }
+        : incomingStateIsPendingOrUnset && !hasInProgressChildren && derivedCompletedState
+          ? { state: derivedCompletedState }
+          : {}),
       tests: mergedTests,
       suites: mergedSuites
     }
@@ -572,6 +671,16 @@ export class DataManagerController implements ReactiveController {
         return
       }
       const existing = map.get(test.uid)
+      const activeTargetUid = this.#activeRerunTestUid
+
+      // During a single-test rerun, keep all sibling tests frozen exactly as
+      // they were before the rerun started. The backend can still emit suite-
+      // wide updates for those siblings, but the UI should only change the
+      // targeted test and its parent suite state.
+      if (activeTargetUid && test.uid !== activeTargetUid && existing) {
+        map.set(test.uid, { ...existing })
+        return
+      }
 
       // Check if this test is a rerun (different start time)
       const isRerun =
@@ -580,13 +689,17 @@ export class DataManagerController implements ReactiveController {
         existing.start &&
         this.#getTimestamp(test.start) !== this.#getTimestamp(existing.start)
 
-      if (isRerun && test.state === 'pending' && existing) {
+      if (activeTargetUid && isRerun && test.state === 'pending' && existing) {
         // The incoming suite structure marks all tests as "pending" at start.
-        // Preserve the existing state (running/passed/failed) so that tests
-        // not part of the current rerun keep their previous results visible.
-        // When a test actually starts executing, its state changes to "running"
-        // and that update correctly replaces the preserved state.
-        map.set(test.uid, { ...test, state: existing.state, end: existing.end })
+        // Preserve the ENTIRE existing record (including its old start time) so
+        // that tests not part of the current rerun keep their previous results.
+        // Crucially, keeping `existing.start` (the old run's timestamp) means
+        // every subsequent update for this test during the new run still has a
+        // different start time and therefore continues to be detected as a
+        // rerun — preventing a later normal-merge from overwriting state/end.
+        // When the test actually starts executing its state changes to "running"
+        // (non-pending), which falls through to the replace branch below.
+        map.set(test.uid, { ...existing })
         return
       }
 
