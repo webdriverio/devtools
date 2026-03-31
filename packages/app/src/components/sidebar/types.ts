@@ -15,6 +15,7 @@ export interface TestEntry {
 export interface RunCapabilities {
   canRunSuites: boolean
   canRunTests: boolean
+  canRunAll: boolean
 }
 
 export interface RunnerOptions {

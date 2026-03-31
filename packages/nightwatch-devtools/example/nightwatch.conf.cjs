@@ -22,7 +22,12 @@ module.exports = {
       desiredCapabilities: {
         browserName: 'chrome',
         'goog:chromeOptions': {
-          args: ['--headless', '--no-sandbox', '--disable-dev-shm-usage', '--window-size=1600,1200']
+          args: [
+            '--headless',
+            '--no-sandbox',
+            '--disable-dev-shm-usage',
+            '--window-size=1600,1200'
+          ]
         },
         'goog:loggingPrefs': { performance: 'ALL' }
       },

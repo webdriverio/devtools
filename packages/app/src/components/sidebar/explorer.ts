@@ -521,16 +521,18 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
         </h3>
         <nav class="flex ml-auto">
           <button
-            class="p-1 rounded hover:bg-toolbarHoverBackground text-sm group"
+            class="p-1 rounded text-sm group ${this.#getRunCapabilities().canRunAll ? 'hover:bg-toolbarHoverBackground' : 'opacity-30 cursor-not-allowed'}"
+            ?disabled=${!this.#getRunCapabilities().canRunAll}
             @click="${() => this.#runAllSuites()}"
           >
-            <icon-mdi-play class="group-hover:text-chartsGreen"></icon-mdi-play>
+            <icon-mdi-play class="${this.#getRunCapabilities().canRunAll ? 'group-hover:text-chartsGreen' : ''}"></icon-mdi-play>
           </button>
           <button
-            class="p-1 rounded hover:bg-toolbarHoverBackground text-sm group"
+            class="p-1 rounded text-sm group ${this.#getRunCapabilities().canRunAll ? 'hover:bg-toolbarHoverBackground' : 'opacity-30 cursor-not-allowed'}"
+            ?disabled=${!this.#getRunCapabilities().canRunAll}
             @click="${() => this.#stopActiveRun()}"
           >
-            <icon-mdi-stop class="group-hover:text-chartsRed"></icon-mdi-stop>
+            <icon-mdi-stop class="${this.#getRunCapabilities().canRunAll ? 'group-hover:text-chartsRed' : ''}"></icon-mdi-stop>
           </button>
           <button
             class="p-1 rounded hover:bg-toolbarHoverBackground text-sm group"
