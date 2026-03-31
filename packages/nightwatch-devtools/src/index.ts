@@ -917,7 +917,8 @@ class NightwatchDevToolsPlugin {
       baseDir: process.cwd(),
       runCapabilities: {
         canRunSuites: true,
-        canRunTests: !this.#isCucumberRunner
+        canRunTests: !this.#isCucumberRunner,
+        canRunAll: false
       }
     }
   }
