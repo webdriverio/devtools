@@ -1,7 +1,9 @@
 import type { SuiteStats, TestStats } from '@wdio/reporter'
 import type { TraceLog, CommandLog } from '@wdio/devtools-service/types'
 
-export type TestStatsFragment = Omit<Partial<TestStats>, 'uid'> & { uid: string }
+export type TestStatsFragment = Omit<Partial<TestStats>, 'uid'> & {
+  uid: string
+}
 
 export type SuiteStatsFragment = Omit<
   Partial<SuiteStats>,

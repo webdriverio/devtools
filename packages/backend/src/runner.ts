@@ -105,7 +105,13 @@ const DEFAULT_FILTERS = ({ specArg }: { specArg?: string }) =>
   specArg ? ['--spec', specArg] : []
 
 // Nightwatch CLI: positional spec file + optional --testcase filter
-FRAMEWORK_FILTERS.nightwatch = ({ specArg, payload }: { specArg?: string; payload: RunnerRequestBody }) => {
+FRAMEWORK_FILTERS.nightwatch = ({
+  specArg,
+  payload
+}: {
+  specArg?: string
+  payload: RunnerRequestBody
+}) => {
   const filters: string[] = []
   if (specArg) {
     // Nightwatch doesn't support file:line — strip any trailing line number
@@ -120,7 +126,12 @@ FRAMEWORK_FILTERS.nightwatch = ({ specArg, payload }: { specArg?: string; payloa
 // Nightwatch + Cucumber: feature files are resolved via the config's feature_path.
 // Never pass .feature files as positional args — Nightwatch rejects them.
 // Nightwatch forwards --name and --tags to the underlying Cucumber runner.
-FRAMEWORK_FILTERS['nightwatch-cucumber'] = ({ payload }: { specArg?: string; payload: RunnerRequestBody }) => {
+FRAMEWORK_FILTERS['nightwatch-cucumber'] = ({
+  payload
+}: {
+  specArg?: string
+  payload: RunnerRequestBody
+}) => {
   const filters: string[] = []
 
   // Only pass --name for scenario-level reruns. Feature/file-level suites
@@ -148,7 +159,9 @@ class TestRunner {
       await new Promise<void>((resolve) => setTimeout(resolve, 500))
     }
 
-    const isNightwatch = (payload.framework || '').toLowerCase().startsWith('nightwatch')
+    const isNightwatch = (payload.framework || '')
+      .toLowerCase()
+      .startsWith('nightwatch')
     const configPath = this.#resolveConfigPath(payload)
     this.#baseDir = process.env.DEVTOOLS_RUNNER_CWD || path.dirname(configPath)
 
@@ -157,7 +170,8 @@ class TestRunner {
       const nightwatchBin = resolveNightwatchBin(this.#baseDir)
       args = [
         nightwatchBin,
-        '--config', configPath,
+        '--config',
+        configPath,
         ...this.#buildFilters(payload)
       ].filter(Boolean)
     } else {
@@ -304,7 +318,9 @@ class TestRunner {
       ? path.dirname(this.#toFsPath(specCandidate))
       : undefined
 
-    const isNightwatch = (payload?.framework || '').toLowerCase().startsWith('nightwatch')
+    const isNightwatch = (payload?.framework || '')
+      .toLowerCase()
+      .startsWith('nightwatch')
     const candidates = this.#dedupeCandidates([
       payload?.configFile,
       this.#lastPayload?.configFile,
@@ -312,7 +328,10 @@ class TestRunner {
       process.env.DEVTOOLS_NIGHTWATCH_CONFIG,
       this.#findConfigFromSpec(specCandidate, isNightwatch),
       ...this.#expandDefaultConfigsFor(this.#baseDir, isNightwatch),
-      ...this.#expandDefaultConfigsFor(path.resolve(this.#baseDir, 'example'), isNightwatch),
+      ...this.#expandDefaultConfigsFor(
+        path.resolve(this.#baseDir, 'example'),
+        isNightwatch
+      ),
       ...this.#expandDefaultConfigsFor(specDir, isNightwatch)
     ])
 
@@ -424,7 +443,9 @@ function resolveNightwatchBin(baseDir: string): string {
       }
     }
     const parent = path.dirname(dir)
-    if (parent === dir) break
+    if (parent === dir) {
+      break
+    }
     dir = parent
   }
 

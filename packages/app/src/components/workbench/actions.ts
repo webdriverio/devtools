@@ -4,10 +4,7 @@ import { customElement } from 'lit/decorators.js'
 import { consume } from '@lit/context'
 
 import type { CommandLog } from '@wdio/devtools-service/types'
-import {
-  mutationContext,
-  commandContext
-} from '../../controller/context.js'
+import { mutationContext, commandContext } from '../../controller/context.js'
 
 import '~icons/mdi/pencil.js'
 import '~icons/mdi/family-tree.js'
