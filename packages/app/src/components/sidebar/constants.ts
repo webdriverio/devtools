@@ -16,6 +16,10 @@ export const DEFAULT_CAPABILITIES: RunCapabilities = {
 
 export const FRAMEWORK_CAPABILITIES: Record<string, RunCapabilities> = {
   cucumber: { canRunSuites: true, canRunTests: false, canRunAll: true },
-  'nightwatch-cucumber': { canRunSuites: true, canRunTests: false, canRunAll: false },
+  'nightwatch-cucumber': {
+    canRunSuites: true,
+    canRunTests: false,
+    canRunAll: false
+  },
   nightwatch: { canRunSuites: true, canRunTests: true, canRunAll: false }
 }

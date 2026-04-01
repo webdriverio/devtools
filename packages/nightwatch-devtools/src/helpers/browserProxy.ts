@@ -278,10 +278,7 @@ export class BrowserProxy {
             .then((screenshot) => {
               if (screenshot) {
                 ;(entryToScreenshot as any).screenshot = screenshot
-                this.sessionCapturer.sendReplaceCommand(
-                  ts,
-                  entryToScreenshot
-                )
+                this.sessionCapturer.sendReplaceCommand(ts, entryToScreenshot)
                 log.info(`[screenshot] Attached to ${methodName} (retry)`)
               }
             })
@@ -326,10 +323,7 @@ export class BrowserProxy {
               .then((screenshot) => {
                 if (screenshot) {
                   ;(entryToScreenshot as any).screenshot = screenshot
-                  this.sessionCapturer.sendReplaceCommand(
-                    ts,
-                    entryToScreenshot
-                  )
+                  this.sessionCapturer.sendReplaceCommand(ts, entryToScreenshot)
                   log.info(`[screenshot] Attached to ${methodName}`)
                 }
               })

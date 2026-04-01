@@ -1,6 +1,10 @@
 import { createContext, ContextProvider } from '@lit/context'
 import type { ReactiveController, ReactiveControllerHost } from 'lit'
-import type { Metadata, CommandLog, TraceLog } from '@wdio/devtools-service/types'
+import type {
+  Metadata,
+  CommandLog,
+  TraceLog
+} from '@wdio/devtools-service/types'
 
 import {
   mutationContext,
@@ -12,7 +16,11 @@ import {
   sourceContext,
   suiteContext
 } from './context.js'
-import type { TestStatsFragment, SuiteStatsFragment, SocketMessage } from './types.js'
+import type {
+  TestStatsFragment,
+  SuiteStatsFragment,
+  SocketMessage
+} from './types.js'
 
 const CACHE_ID = 'wdio-trace-cache'
 
@@ -117,13 +125,12 @@ export class DataManagerController implements ReactiveController {
                 state: 'running',
                 start: new Date(),
                 end: undefined,
-                tests:
-                  (s.tests?.map((test) => ({
-                    ...test,
-                    state: 'pending',
-                    start: new Date(),
-                    end: undefined
-                  })) ?? []) as TestStatsFragment[],
+                tests: (s.tests?.map((test) => ({
+                  ...test,
+                  state: 'pending',
+                  start: new Date(),
+                  end: undefined
+                })) ?? []) as TestStatsFragment[],
                 suites: s.suites?.map(markAllAsRunning) || []
               }
             }
@@ -162,15 +169,13 @@ export class DataManagerController implements ReactiveController {
                 state: 'running',
                 start: runStart,
                 end: undefined,
-                tests:
-                  (suiteNode.tests?.map((test) => ({
-                    ...test,
-                    state: 'pending',
-                    start: runStart,
-                    end: undefined
-                  })) ?? []) as TestStatsFragment[],
-                suites:
-                  suiteNode.suites?.map(markSuiteTreeAsRunning) || []
+                tests: (suiteNode.tests?.map((test) => ({
+                  ...test,
+                  state: 'pending',
+                  start: runStart,
+                  end: undefined
+                })) ?? []) as TestStatsFragment[],
+                suites: suiteNode.suites?.map(markSuiteTreeAsRunning) || []
               })
 
               return {
@@ -437,7 +442,10 @@ export class DataManagerController implements ReactiveController {
 
             // Derive the suite's own state from its updated children so that
             // STATE_MAP['running'] no longer produces a spinner after stop.
-            const allTests = [...(updatedTests || []), ...(updatedNestedSuites || [])]
+            const allTests = [
+              ...(updatedTests || []),
+              ...(updatedNestedSuites || [])
+            ]
             const hasFailed = allTests.some((t) => t?.state === 'failed')
             const hasRunning = allTests.some((t) => !t?.end)
             const derivedState: SuiteStatsFragment['state'] = hasRunning
@@ -598,7 +606,7 @@ export class DataManagerController implements ReactiveController {
     // Treat incoming state=undefined the same as pending — both mean the backend
     // hasn't assigned a terminal state yet.
     const incomingStateIsPendingOrUnset =
-      incoming.state === 'pending' || incoming.state == null
+      incoming.state === 'pending' || incoming.state === null
 
     const allChildren = [...(mergedTests || []), ...(mergedSuites || [])]
     // Treat children with undefined/null state as in-progress (not yet terminal).
@@ -607,9 +615,11 @@ export class DataManagerController implements ReactiveController {
       (child) =>
         child?.state === 'running' ||
         child?.state === 'pending' ||
-        child?.state == null
+        child?.state === null
     )
-    const hasFailedChildren = allChildren.some((child) => child?.state === 'failed')
+    const hasFailedChildren = allChildren.some(
+      (child) => child?.state === 'failed'
+    )
     const hasChildren = allChildren.length > 0
 
     // Only derive 'passed' when ALL children have reached a terminal state.
@@ -629,14 +639,20 @@ export class DataManagerController implements ReactiveController {
       existing.state === 'running' && incomingStateIsPendingOrUnset
 
     const derivedCompletedState: SuiteStatsFragment['state'] | undefined =
-      allChildrenTerminal ? (hasFailedChildren ? 'failed' : 'passed') : undefined
+      allChildrenTerminal
+        ? hasFailedChildren
+          ? 'failed'
+          : 'passed'
+        : undefined
 
     return {
       ...existing,
       ...incomingProps,
       ...(keepRunningState && hasInProgressChildren
         ? { state: 'running' as const }
-        : incomingStateIsPendingOrUnset && !hasInProgressChildren && derivedCompletedState
+        : incomingStateIsPendingOrUnset &&
+            !hasInProgressChildren &&
+            derivedCompletedState
           ? { state: derivedCompletedState }
           : {}),
       tests: mergedTests,
@@ -727,5 +743,3 @@ export class DataManagerController implements ReactiveController {
     this.suitesContextProvider.setValue(traceFile.suites || [])
   }
 }
-
-

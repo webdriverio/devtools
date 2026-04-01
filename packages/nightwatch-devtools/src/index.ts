@@ -32,7 +32,13 @@ import {
   findStepDefinitionLine,
   findFreePort
 } from './helpers/utils.js'
-import { DEFAULTS, TIMING, TEST_STATE, CONFIG_FILENAMES, PLUGIN_GLOBAL_KEY } from './constants.js'
+import {
+  DEFAULTS,
+  TIMING,
+  TEST_STATE,
+  CONFIG_FILENAMES,
+  PLUGIN_GLOBAL_KEY
+} from './constants.js'
 
 const log = logger('@wdio/nightwatch-devtools')
 
@@ -682,7 +688,9 @@ class NightwatchDevToolsPlugin {
 
     const processedTests = this.testManager.getProcessedTests(testFile)
     const runtimeTestName =
-      typeof currentTest?.name === 'string' ? currentTest.name.trim() : undefined
+      typeof currentTest?.name === 'string'
+        ? currentTest.name.trim()
+        : undefined
     const matchedRuntimeTestName = runtimeTestName
       ? testNames.find(
           (name) =>

@@ -5,10 +5,7 @@ import { consume } from '@lit/context'
 import type { TestStats, SuiteStats } from '@wdio/reporter'
 import type { Metadata } from '@wdio/devtools-service/types'
 import { repeat } from 'lit/directives/repeat.js'
-import {
-  suiteContext,
-  metadataContext
-} from '../../controller/context.js'
+import { suiteContext, metadataContext } from '../../controller/context.js'
 import type {
   TestEntry,
   RunCapabilities,
@@ -419,7 +416,10 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
     // For suites with no explicit terminal state, derive from children.
     // A suite with state=undefined or state=pending that has no terminal
     // children yet is still in-progress — don't show PASSED prematurely.
-    if ('tests' in entry && (state == null || state === 'pending' || state === 'running')) {
+    if (
+      'tests' in entry &&
+      (state === null || state === 'pending' || state === 'running')
+    ) {
       const allDescendants = [...entry.tests, ...entry.suites]
       if (allDescendants.length > 0) {
         const allTerminal = allDescendants.every(
@@ -466,7 +466,9 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
       // backend runner can distinguish it from a scenario/spec-level suite and
       // avoid applying a --name filter that would match no scenarios.
       const hasChildSuites = entry.suites && entry.suites.length > 0
-      const derivedType = hasChildSuites ? 'feature' : ((entry as any).type || 'suite')
+      const derivedType = hasChildSuites
+        ? 'feature'
+        : (entry as any).type || 'suite'
       return {
         uid: entry.uid,
         label: entry.title,
@@ -521,18 +523,32 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
         </h3>
         <nav class="flex ml-auto">
           <button
-            class="p-1 rounded text-sm group ${this.#getRunCapabilities().canRunAll ? 'hover:bg-toolbarHoverBackground' : 'opacity-30 cursor-not-allowed'}"
+            class="p-1 rounded text-sm group ${this.#getRunCapabilities()
+              .canRunAll
+              ? 'hover:bg-toolbarHoverBackground'
+              : 'opacity-30 cursor-not-allowed'}"
             ?disabled=${!this.#getRunCapabilities().canRunAll}
             @click="${() => this.#runAllSuites()}"
           >
-            <icon-mdi-play class="${this.#getRunCapabilities().canRunAll ? 'group-hover:text-chartsGreen' : ''}"></icon-mdi-play>
+            <icon-mdi-play
+              class="${this.#getRunCapabilities().canRunAll
+                ? 'group-hover:text-chartsGreen'
+                : ''}"
+            ></icon-mdi-play>
           </button>
           <button
-            class="p-1 rounded text-sm group ${this.#getRunCapabilities().canRunAll ? 'hover:bg-toolbarHoverBackground' : 'opacity-30 cursor-not-allowed'}"
+            class="p-1 rounded text-sm group ${this.#getRunCapabilities()
+              .canRunAll
+              ? 'hover:bg-toolbarHoverBackground'
+              : 'opacity-30 cursor-not-allowed'}"
             ?disabled=${!this.#getRunCapabilities().canRunAll}
             @click="${() => this.#stopActiveRun()}"
           >
-            <icon-mdi-stop class="${this.#getRunCapabilities().canRunAll ? 'group-hover:text-chartsRed' : ''}"></icon-mdi-stop>
+            <icon-mdi-stop
+              class="${this.#getRunCapabilities().canRunAll
+                ? 'group-hover:text-chartsRed'
+                : ''}"
+            ></icon-mdi-stop>
           </button>
           <button
             class="p-1 rounded hover:bg-toolbarHoverBackground text-sm group"
