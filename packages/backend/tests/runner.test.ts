@@ -91,7 +91,7 @@ describe('TestRunner', () => {
   })
 
   describe('run and stop', () => {
-    it('should prevent concurrent runs and handle environment variables', async () => {
+    it('should stop existing run and restart with environment variables', async () => {
       vi.mocked(spawn).mockReturnValue(mockChild)
       const payload: RunnerRequestBody = {
         uid: 'test-1',
@@ -104,9 +104,8 @@ describe('TestRunner', () => {
       const firstRun = testRunner.run(payload)
       await new Promise((resolve) => setTimeout(resolve, 10))
 
-      await expect(testRunner.run(payload)).rejects.toThrow(
-        'A test run is already in progress'
-      )
+      // A concurrent run stops the existing process and starts a new one
+      await expect(testRunner.run(payload)).resolves.toBeUndefined()
 
       const env = vi.mocked(spawn).mock.calls[0][2]?.env as Record<
         string,
