@@ -12,7 +12,7 @@ import { TestReporter } from './reporter.js'
 import { DevToolsAppLauncher } from './launcher.js'
 import { getBrowserObject } from './utils.js'
 import { parse } from 'stack-trace'
-import { type TraceLog, TraceType } from './types.js'
+import { type TraceLog, TraceType, type ServiceOptions } from './types.js'
 import {
   INTERNAL_COMMANDS,
   SPEC_FILE_PATTERN,
@@ -119,7 +119,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
      * create a new session capturer instance with the devtools options
      */
     const wdioCaps = caps as Capabilities.W3CCapabilities & {
-      'wdio:devtoolsOptions'?: any
+      'wdio:devtoolsOptions'?: ServiceOptions
     }
     this.#sessionCapturer = new SessionCapturer(
       wdioCaps['wdio:devtoolsOptions']

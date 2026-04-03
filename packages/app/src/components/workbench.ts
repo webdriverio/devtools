@@ -22,10 +22,11 @@ import './workbench/console.js'
 import './workbench/metadata.js'
 import './workbench/network.js'
 import './browser/snapshot.js'
-
-const MIN_WORKBENCH_HEIGHT = Math.min(300, window.innerHeight * 0.3)
-const MIN_METATAB_WIDTH = 260
-const RERENDER_TIMEOUT = 10
+import {
+  MIN_WORKBENCH_HEIGHT,
+  MIN_METATAB_WIDTH,
+  RERENDER_TIMEOUT
+} from '../controller/constants.js'
 
 const COMPONENT = 'wdio-devtools-workbench'
 @customElement(COMPONENT)

@@ -1,5 +1,6 @@
 import { createContext } from '@lit/context'
 import type { Metadata, CommandLog } from '@wdio/devtools-service/types'
+import type { SuiteStatsFragment } from './types.js'
 
 export const mutationContext = createContext<TraceMutation[]>(
   Symbol('mutationContext')
@@ -20,6 +21,9 @@ export const commandContext = createContext<CommandLog[]>(
 export const sourceContext = createContext<Record<string, string>>(
   Symbol('sourceContext')
 )
-export const suiteContext = createContext<Record<string, any>[]>(
+export const suiteContext = createContext<Record<string, SuiteStatsFragment>[]>(
   Symbol('suiteContext')
+)
+export const hasConnectionContext = createContext<boolean>(
+  Symbol('hasConnection')
 )

@@ -2,9 +2,13 @@ import fs from 'fs'
 import path from 'node:path'
 import { createRequire } from 'node:module'
 import { parse } from '@babel/parser'
-import * as babelTraverse from '@babel/traverse'
-import type { NodePath } from '@babel/traverse'
+import type {
+  Node as BabelNode,
+  NodePath,
+  TraverseOptions
+} from '@babel/traverse'
 import type { CallExpression } from '@babel/types'
+import { parse as parseStackTrace } from 'stack-trace'
 
 import {
   PARSE_PLUGINS,
@@ -23,10 +27,15 @@ import {
   STEPS_DIR_ASCENT_MAX,
   STEPS_GLOBAL_SEARCH_MAX_DEPTH
 } from './constants.js'
+import type { StepDef } from './types.js'
 
 const require = createRequire(import.meta.url)
-// eslint-disable-next-line @typescript-eslint/consistent-type-imports
-const stackTrace = require('stack-trace') as typeof import('stack-trace')
+// @babel/traverse ships as CommonJS; load the callable via require to avoid ESM interop issues
+const traverse = (
+  require('@babel/traverse') as {
+    default: (parent: BabelNode, opts?: TraverseOptions) => void
+  }
+).default
 const _astCache = new Map<string, any[]>()
 
 let CE: { CucumberExpression: any; ParameterTypeRegistry: any } | undefined
@@ -39,10 +48,6 @@ try {
 } catch {
   /* optional */
 }
-
-// eslint-disable-next-line @typescript-eslint/consistent-type-imports
-const traverse: (typeof import('@babel/traverse'))['default'] =
-  (babelTraverse as any).default ?? (babelTraverse as any)
 
 /**
  * Track current spec file (set by reporter)
@@ -196,7 +201,7 @@ export function findTestLocations(filePath: string) {
  * Prefer step-definition files, then spec/tests, then feature files.
  */
 export function getCurrentTestLocation() {
-  const frames = stackTrace.parse(new Error())
+  const frames = parseStackTrace(new Error())
 
   const pick = (predicate: (f: any) => boolean) => {
     const f = frames.find((fr) => {
@@ -236,16 +241,6 @@ export function getCurrentTestLocation() {
 /**
  * Step-definition discovery and matching (Cucumber)
  */
-type StepDef = {
-  kind: 'regex' | 'string' | 'expression'
-  keyword?: string
-  text?: string
-  regex?: RegExp
-  expr?: any
-  file: string
-  line: number
-  column: number
-}
 
 // Look for step-definitions directory by ascending from a base directory
 function _findStepsDir(startDir: string): string | undefined {

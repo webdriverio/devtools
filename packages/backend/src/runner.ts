@@ -253,8 +253,11 @@ class TestRunner {
     const specFile = payload.runAll
       ? undefined
       : this.#normaliseSpecFile(payload)
+    const line = specFile ? this.#resolveLineNumber(payload) : undefined
     const specArg = specFile
-      ? this.#buildSpecArgument(specFile, payload)
+      ? line
+        ? `${specFile}:${line}`
+        : specFile
       : undefined
 
     const builderCandidate = FRAMEWORK_FILTERS[framework]
@@ -263,11 +266,6 @@ class TestRunner {
         ? builderCandidate
         : DEFAULT_FILTERS
     return builder({ specArg, payload })
-  }
-
-  #buildSpecArgument(specFile: string, payload: RunnerRequestBody) {
-    const line = this.#resolveLineNumber(payload)
-    return line ? `${specFile}:${line}` : specFile
   }
 
   #resolveLineNumber(payload: RunnerRequestBody) {

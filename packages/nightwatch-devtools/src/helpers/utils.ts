@@ -7,7 +7,8 @@ import {
   ANSI_REGEX,
   LOG_LEVEL_PATTERNS,
   TEST_PATH_PATTERN,
-  TEST_FILE_PATTERN
+  TEST_FILE_PATTERN,
+  CONFIG_FILENAMES
 } from '../constants.js'
 import type {
   ConsoleLog,
@@ -504,4 +505,39 @@ export async function findFreePort(
     port++
   }
   return port
+}
+
+export function resolveNightwatchConfig(): string | undefined {
+  // Prefer the config explicitly passed via -c / --config to avoid picking up
+  // an unrelated config file that happens to sit higher in the directory tree.
+  const configFlagIdx = process.argv.findIndex(
+    (arg) => arg === '--config' || arg === '-c'
+  )
+  if (configFlagIdx !== -1 && process.argv[configFlagIdx + 1]) {
+    const argvConfig = process.argv[configFlagIdx + 1]
+    const resolved = path.isAbsolute(argvConfig)
+      ? argvConfig
+      : path.resolve(process.cwd(), argvConfig)
+    if (fs.existsSync(resolved)) {
+      return resolved
+    }
+  }
+
+  // Fallback: walk up the directory tree
+  let dir = process.cwd()
+  const root = path.parse(dir).root
+  while (dir && dir !== root) {
+    for (const file of CONFIG_FILENAMES) {
+      const candidate = path.join(dir, file)
+      if (fs.existsSync(candidate)) {
+        return candidate
+      }
+    }
+    const parent = path.dirname(dir)
+    if (parent === dir) {
+      break
+    }
+    dir = parent
+  }
+  return undefined
 }

@@ -4,6 +4,7 @@ import { customElement, property } from 'lit/decorators.js'
 import type { CommandLog } from '@wdio/devtools-service/types'
 
 import { ActionItem, ICON_CLASS } from './item.js'
+import '~icons/mdi/arrow-right.js'
 
 const SOURCE_COMPONENT = 'wdio-devtools-command-item'
 

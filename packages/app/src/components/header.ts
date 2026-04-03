@@ -8,8 +8,8 @@ import '~icons/mdi/moon-waning-crescent.js'
 import '~icons/mdi/file-upload-outline.js'
 
 import './inputs/traceLoader.js'
+import { DARK_MODE_KEY } from '../controller/constants.js'
 
-const DARK_MODE_KEY = 'darkMode'
 const darkModeInitValue = localStorage.getItem(DARK_MODE_KEY)
 
 @customElement('wdio-devtools-header')

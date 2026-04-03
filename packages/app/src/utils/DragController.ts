@@ -26,8 +26,7 @@ interface DragControllerOptions {
 type State = 'dragging' | 'idle'
 
 const defaultOptions = {
-  getContainerEl: () => Promise.resolve(null),
-  getDraggableEl: () => Promise.resolve(null)
+  getContainerEl: () => Promise.resolve(null)
 }
 
 export class DragController implements ReactiveController {
