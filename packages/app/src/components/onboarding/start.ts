@@ -1,6 +1,6 @@
 import { Element } from '@core/element'
 import { html, css } from 'lit'
-import { customElement, property } from 'lit/decorators.js'
+import { customElement } from 'lit/decorators.js'
 
 import '../inputs/traceLoader.js'
 
@@ -22,9 +22,6 @@ export class DevtoolsStart extends Element {
       }
     `
   ]
-
-  @property()
-  onLoad = (content: any) => content
 
   render() {
     return html`

@@ -155,8 +155,22 @@ export interface NightwatchBrowser {
   executeAsync: (script: Function, args?: any[]) => Promise<any>
   pause: (ms: number) => Promise<any>
   capabilities?: Record<string, any>
+  desiredCapabilities?: Record<string, any>
   sessionId?: string
   driver?: any
+  options?: {
+    testEnv?: string
+    webdriver?: { host?: string }
+    [key: string]: any
+  }
+  currentTest?: {
+    name?: string
+    module?: string
+    group?: string
+    [key: string]: any
+  }
+  results?: any
+  queue?: any
 }
 
 export interface NetworkRequest {

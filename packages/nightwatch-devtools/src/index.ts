@@ -30,7 +30,8 @@ import {
   extractTestMetadata,
   parseCucumberScenario,
   findStepDefinitionLine,
-  findFreePort
+  findFreePort,
+  resolveNightwatchConfig
 } from './helpers/utils.js'
 import {
   DEFAULTS,
@@ -102,7 +103,7 @@ class NightwatchDevToolsPlugin {
       }
     }
 
-    this.#configPath = this.#resolveNightwatchConfig()
+    this.#configPath = resolveNightwatchConfig()
     if (this.#configPath) {
       log.info(`✓ Config: ${this.#configPath}`)
     } else {
@@ -172,7 +173,7 @@ class NightwatchDevToolsPlugin {
   }
 
   async #ensureSessionInitialized(browser: NightwatchBrowser) {
-    const currentSessionId = (browser as any).sessionId
+    const currentSessionId = browser.sessionId
     const isSessionChange =
       currentSessionId &&
       this.#lastSessionId &&
@@ -184,7 +185,7 @@ class NightwatchDevToolsPlugin {
       this.sessionCapturer?.cleanup()
       this.sessionCapturer = null as any
     }
-    this.#lastSessionId = currentSessionId
+    this.#lastSessionId = currentSessionId ?? null
 
     if (this.sessionCapturer) {
       return
@@ -235,10 +236,10 @@ class NightwatchDevToolsPlugin {
       this.testReporter.updateSuites()
     }
 
-    const capabilities = (browser as any).capabilities || {}
-    const desiredCapabilities = (browser as any).desiredCapabilities || {}
-    const sessionId = (browser as any).sessionId
-    const opts = (browser as any).options || {}
+    const capabilities = browser.capabilities || {}
+    const desiredCapabilities = browser.desiredCapabilities || {}
+    const sessionId = browser.sessionId
+    const opts = browser.options || {}
     this.sessionCapturer.sendUpstream('metadata', {
       type: TraceType.Testrunner,
       capabilities,
@@ -929,41 +930,6 @@ class NightwatchDevToolsPlugin {
         canRunAll: false
       }
     }
-  }
-
-  #resolveNightwatchConfig(): string | undefined {
-    // Prefer the config explicitly passed via -c / --config to avoid picking up
-    // an unrelated config file that happens to sit higher in the directory tree.
-    const configFlagIdx = process.argv.findIndex(
-      (arg) => arg === '--config' || arg === '-c'
-    )
-    if (configFlagIdx !== -1 && process.argv[configFlagIdx + 1]) {
-      const argvConfig = process.argv[configFlagIdx + 1]
-      const resolved = path.isAbsolute(argvConfig)
-        ? argvConfig
-        : path.resolve(process.cwd(), argvConfig)
-      if (fs.existsSync(resolved)) {
-        return resolved
-      }
-    }
-
-    // Fallback: walk up the directory tree
-    let dir = process.cwd()
-    const root = path.parse(dir).root
-    while (dir && dir !== root) {
-      for (const file of CONFIG_FILENAMES) {
-        const candidate = path.join(dir, file)
-        if (fs.existsSync(candidate)) {
-          return candidate
-        }
-      }
-      const parent = path.dirname(dir)
-      if (parent === dir) {
-        break
-      }
-      dir = parent
-    }
-    return undefined
   }
 
   #incrementCount(state: TestStats['state']): void {

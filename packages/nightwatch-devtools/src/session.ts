@@ -17,6 +17,7 @@ import {
   chromeLogLevelToLogLevel,
   getRequestType
 } from './helpers/utils.js'
+import { CAPTURE_PERFORMANCE_SCRIPT } from './helpers/capturePerformance.js'
 import type {
   CommandLog,
   ConsoleLog,
@@ -308,53 +309,9 @@ export class SessionCapturer {
   ) {
     await new Promise((resolve) => setTimeout(resolve, 500))
 
-    const performanceData = await this.#browser!.execute(function () {
-      // @ts-ignore - executed in browser context
-      const performance = window.performance
-      // @ts-ignore
-      const navigation = performance.getEntriesByType?.('navigation')?.[0]
-      // @ts-ignore
-      const resources = performance.getEntriesByType?.('resource') || []
-
-      return {
-        navigation: navigation
-          ? {
-              // @ts-ignore
-              url: window.location.href,
-              timing: {
-                loadTime: navigation.loadEventEnd - navigation.fetchStart,
-                domContentLoaded:
-                  navigation.domContentLoadedEventEnd - navigation.fetchStart,
-                firstPaint:
-                  performance.getEntriesByType?.('paint')?.[0]?.startTime || 0
-              }
-            }
-          : null,
-        resources: resources.map((r: any) => ({
-          name: r.name,
-          type: r.initiatorType,
-          size: r.transferSize || r.decodedBodySize || 0,
-          duration: r.duration
-        })),
-        // @ts-ignore
-        cookies: (function () {
-          try {
-            // @ts-ignore
-            return document.cookie
-          } catch {
-            return ''
-          }
-        })(),
-        documentInfo: {
-          // @ts-ignore
-          title: document.title,
-          // @ts-ignore
-          url: window.location.href,
-          // @ts-ignore
-          referrer: document.referrer
-        }
-      }
-    })
+    const performanceData = await this.#browser!.execute(
+      CAPTURE_PERFORMANCE_SCRIPT
+    )
 
     let data: any
     if (performanceData && typeof performanceData === 'object') {

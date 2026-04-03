@@ -9,7 +9,7 @@ import './list.js'
 
 const SOURCE_COMPONENT = 'wdio-devtools-logs'
 @customElement(SOURCE_COMPONENT)
-export class DevtoolsSource extends Element {
+export class DevtoolsCommandLogs extends Element {
   #commandDefinition?: CommandEndpoint
 
   @property({ type: Object })
@@ -135,6 +135,6 @@ export class DevtoolsSource extends Element {
 
 declare global {
   interface HTMLElementTagNameMap {
-    [SOURCE_COMPONENT]: DevtoolsSource
+    [SOURCE_COMPONENT]: DevtoolsCommandLogs
   }
 }

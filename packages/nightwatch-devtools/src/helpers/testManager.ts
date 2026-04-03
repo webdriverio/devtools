@@ -31,9 +31,9 @@ export class TestManager {
     }
 
     if (state === TEST_STATE.PASSED) {
-      this.testReporter.onTestPass(test)
+      this.testReporter.onTestEnd(test)
     } else if (state === TEST_STATE.FAILED) {
-      this.testReporter.onTestFail(test)
+      this.testReporter.onTestEnd(test)
     } else if (state === TEST_STATE.RUNNING) {
       this.testReporter.onTestStart(test)
     }

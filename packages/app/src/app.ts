@@ -6,13 +6,12 @@ import { TraceType, type TraceLog } from '@wdio/devtools-service/types'
 import { Element } from '@core/element'
 import { DataManagerController } from './controller/DataManager.js'
 import { DragController, Direction } from './utils/DragController.js'
+import { SIDEBAR_MIN_WIDTH } from './controller/constants.js'
 
 import './components/header.js'
 import './components/sidebar.js'
 import './components/workbench.js'
 import './components/onboarding/start.js'
-
-const SIDEBAR_MIN_WIDTH = 250
 
 @customElement('wdio-devtools')
 export class WebdriverIODevtoolsApplication extends Element {

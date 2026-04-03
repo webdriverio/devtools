@@ -2,10 +2,13 @@ import { Element } from '@core/element'
 import { html, css, nothing, type TemplateResult } from 'lit'
 import { customElement, property } from 'lit/decorators.js'
 import { consume } from '@lit/context'
-import type { TestStats, SuiteStats } from '@wdio/reporter'
 import type { Metadata } from '@wdio/devtools-service/types'
 import { repeat } from 'lit/directives/repeat.js'
 import { suiteContext, metadataContext } from '../../controller/context.js'
+import type {
+  SuiteStatsFragment,
+  TestStatsFragment
+} from '../../controller/types.js'
 import type {
   TestEntry,
   RunCapabilities,
@@ -64,7 +67,7 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
 
   @consume({ context: suiteContext, subscribe: true })
   @property({ type: Array })
-  suites: Record<string, SuiteStats>[] | undefined = undefined
+  suites: Record<string, SuiteStatsFragment>[] | undefined = undefined
 
   @consume({ context: metadataContext, subscribe: true })
   metadata: Metadata | undefined = undefined
@@ -278,7 +281,7 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
     return html`
       <wdio-test-entry
         uid="${entry.uid}"
-        state="${entry.state as any}"
+        state="${entry.state ?? ''}"
         call-source="${entry.callSource || ''}"
         entry-type="${entry.type}"
         spec-file="${entry.specFile || ''}"
@@ -329,21 +332,23 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
     )
   }
 
-  #isRunning(entry: TestStats | SuiteStats): boolean {
+  #isRunning(entry: TestStatsFragment | SuiteStatsFragment): boolean {
     if ('tests' in entry) {
       // Fastest path: any explicitly running descendant
       if (
-        entry.tests.some((t) => (t as any).state === 'running') ||
-        entry.suites.some((s) => this.#isRunning(s))
+        (entry.tests ?? []).some((t) => t.state === 'running') ||
+        (entry.suites ?? []).some((s) => this.#isRunning(s))
       ) {
         return true
       }
 
-      const hasPendingTests = entry.tests.some(
-        (t) => (t as any).state === 'pending'
+      const hasPendingTests = (entry.tests ?? []).some(
+        (t) => t.state === 'pending'
       )
-      const hasPendingSuites = entry.suites.some((s) => this.#hasPending(s))
-      const suiteState = (entry as any).state
+      const hasPendingSuites = (entry.suites ?? []).some((s) =>
+        this.#hasPending(s)
+      )
+      const suiteState = entry.state
 
       // If the suite was explicitly marked 'running' (e.g. by markTestAsRunning)
       // and still has pending children, it's actively executing.
@@ -354,12 +359,10 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
       // Mixed terminal + pending children = run is in progress regardless of
       // explicit suite state (handles Nightwatch Cucumber where the feature
       // suite state may be undefined in the JSON payload).
-      const allDescendants = [...entry.tests, ...entry.suites]
+      const allDescendants = [...(entry.tests ?? []), ...(entry.suites ?? [])]
       const hasSomeTerminal = allDescendants.some(
         (t) =>
-          (t as any).state === 'passed' ||
-          (t as any).state === 'failed' ||
-          (t as any).state === 'skipped'
+          t.state === 'passed' || t.state === 'failed' || t.state === 'skipped'
       )
       if ((hasPendingTests || hasPendingSuites) && hasSomeTerminal) {
         return true
@@ -368,33 +371,33 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
       return false
     }
     // For individual tests rely on explicit state only.
-    return (entry as any).state === 'running'
+    return entry.state === 'running'
   }
 
-  #hasPending(entry: TestStats | SuiteStats): boolean {
+  #hasPending(entry: TestStatsFragment | SuiteStatsFragment): boolean {
     if ('tests' in entry) {
-      if ((entry as any).state === 'pending') {
+      if (entry.state === 'pending') {
         return true
       }
-      if (entry.tests.some((t) => (t as any).state === 'pending')) {
+      if ((entry.tests ?? []).some((t) => t.state === 'pending')) {
         return true
       }
-      if (entry.suites.some((s) => this.#hasPending(s))) {
+      if ((entry.suites ?? []).some((s) => this.#hasPending(s))) {
         return true
       }
       return false
     }
-    return (entry as any).state === 'pending'
+    return entry.state === 'pending'
   }
 
-  #hasFailed(entry: TestStats | SuiteStats): boolean {
+  #hasFailed(entry: TestStatsFragment | SuiteStatsFragment): boolean {
     if ('tests' in entry) {
       // Check if any immediate test failed
-      if (entry.tests.find((t) => t.state === 'failed')) {
+      if ((entry.tests ?? []).find((t) => t.state === 'failed')) {
         return true
       }
       // Check if any nested suite has failures
-      if (entry.suites.some((s) => this.#hasFailed(s))) {
+      if ((entry.suites ?? []).some((s) => this.#hasFailed(s))) {
         return true
       }
       return false
@@ -403,7 +406,9 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
     return entry.state === 'failed'
   }
 
-  #computeEntryState(entry: TestStats | SuiteStats): TestState | 'pending' {
+  #computeEntryState(
+    entry: TestStatsFragment | SuiteStatsFragment
+  ): TestState | 'pending' {
     // For suites, check running state from children FIRST — this ensures that
     // a rerun (which clears end times) shows the spinner immediately, even if
     // the suite still has a cached 'passed'/'failed' state from the previous run.
@@ -411,22 +416,27 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
       return TestState.RUNNING
     }
 
-    const state = (entry as any).state
+    const state = entry.state
+
+    // A suite with an explicit 'pending' state is always in-progress from the
+    // UI's perspective — the backend uses 'pending' to signal a new run is
+    // starting. Skip the children check: stale terminal children from the
+    // previous run must not cause the suite to appear as passed.
+    if ('tests' in entry && state === 'pending') {
+      return TestState.RUNNING
+    }
 
     // For suites with no explicit terminal state, derive from children.
-    // A suite with state=undefined or state=pending that has no terminal
+    // A suite with state=undefined or state=running that has no terminal
     // children yet is still in-progress — don't show PASSED prematurely.
-    if (
-      'tests' in entry &&
-      (state === null || state === 'pending' || state === 'running')
-    ) {
-      const allDescendants = [...entry.tests, ...entry.suites]
+    if ('tests' in entry && (state === null || state === 'running')) {
+      const allDescendants = [...(entry.tests ?? []), ...(entry.suites ?? [])]
       if (allDescendants.length > 0) {
         const allTerminal = allDescendants.every(
           (t) =>
-            (t as any).state === 'passed' ||
-            (t as any).state === 'failed' ||
-            (t as any).state === 'skipped'
+            t.state === 'passed' ||
+            t.state === 'failed' ||
+            t.state === 'skipped'
         )
         if (!allTerminal) {
           // Still has non-terminal children — treat as running/loading
@@ -436,7 +446,7 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
     }
 
     // Check explicit terminal state
-    const mappedState = STATE_MAP[state]
+    const mappedState = state ? STATE_MAP[state] : undefined
     if (mappedState) {
       return mappedState
     }
@@ -458,27 +468,25 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
     return entry.end ? TestState.PASSED : 'pending'
   }
 
-  #getTestEntry(entry: TestStats | SuiteStats): TestEntry {
+  #getTestEntry(entry: TestStatsFragment | SuiteStatsFragment): TestEntry {
     if ('tests' in entry) {
-      const entries = [...entry.tests, ...entry.suites]
+      const entries = [...(entry.tests ?? []), ...(entry.suites ?? [])]
       // A suite whose children are themselves suites is a feature/file-level
       // container (Cucumber feature or test file). Tag it as 'feature' so the
       // backend runner can distinguish it from a scenario/spec-level suite and
       // avoid applying a --name filter that would match no scenarios.
       const hasChildSuites = entry.suites && entry.suites.length > 0
-      const derivedType = hasChildSuites
-        ? 'feature'
-        : (entry as any).type || 'suite'
+      const derivedType = hasChildSuites ? 'feature' : entry.type || 'suite'
       return {
         uid: entry.uid,
-        label: entry.title,
+        label: entry.title ?? '',
         type: 'suite',
         state: this.#computeEntryState(entry),
-        callSource: (entry as any).callSource,
-        specFile: (entry as any).file,
-        fullTitle: entry.title,
-        featureFile: (entry as any).featureFile,
-        featureLine: (entry as any).featureLine,
+        callSource: entry.callSource,
+        specFile: entry.file,
+        fullTitle: entry.title ?? '',
+        featureFile: entry.featureFile,
+        featureLine: entry.featureLine,
         suiteType: derivedType,
         children: Object.values(entries)
           .map(this.#getTestEntry.bind(this))
@@ -487,14 +495,14 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
     }
     return {
       uid: entry.uid,
-      label: entry.title,
+      label: entry.title ?? '',
       type: 'test',
       state: this.#computeEntryState(entry),
-      callSource: (entry as any).callSource,
-      specFile: (entry as any).file,
-      fullTitle: (entry as any).fullTitle || entry.title,
-      featureFile: (entry as any).featureFile,
-      featureLine: (entry as any).featureLine,
+      callSource: entry.callSource,
+      specFile: entry.file,
+      fullTitle: entry.fullTitle || entry.title,
+      featureFile: entry.featureFile,
+      featureLine: entry.featureLine,
       children: []
     }
   }

@@ -77,7 +77,7 @@ module.exports = [
     rules: {
       '@typescript-eslint/no-unused-vars': [
         'error',
-        { argsIgnorePattern: '^_' }
+        { argsIgnorePattern: '^_', ignoreRestSiblings: true }
       ],
       '@typescript-eslint/consistent-type-imports': 'error',
       'no-unused-vars': 'off',

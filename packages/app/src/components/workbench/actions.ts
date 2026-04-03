@@ -6,12 +6,6 @@ import { consume } from '@lit/context'
 import type { CommandLog } from '@wdio/devtools-service/types'
 import { mutationContext, commandContext } from '../../controller/context.js'
 
-import '~icons/mdi/pencil.js'
-import '~icons/mdi/family-tree.js'
-import '~icons/mdi/alert.js'
-import '~icons/mdi/document.js'
-import '~icons/mdi/arrow-right.js'
-
 import '../placeholder.js'
 import './actionItems/command.js'
 import './actionItems/mutation.js'

@@ -1,8 +1,12 @@
 import type { SuiteStats, TestStats } from '@wdio/reporter'
 import type { TraceLog, CommandLog } from '@wdio/devtools-service/types'
 
-export type TestStatsFragment = Omit<Partial<TestStats>, 'uid'> & {
+export type TestStatsFragment = Omit<Partial<TestStats>, 'uid' | 'state'> & {
   uid: string
+  state?: 'running' | 'passed' | 'failed' | 'pending' | 'skipped'
+  callSource?: string
+  featureFile?: string
+  featureLine?: number
 }
 
 export type SuiteStatsFragment = Omit<
@@ -13,6 +17,11 @@ export type SuiteStatsFragment = Omit<
   state?: 'running' | 'passed' | 'failed' | 'pending'
   tests?: TestStatsFragment[]
   suites?: SuiteStatsFragment[]
+  callSource?: string
+  featureFile?: string
+  featureLine?: number
+  type?: string
+  file?: string
 }
 
 export interface SocketMessage<

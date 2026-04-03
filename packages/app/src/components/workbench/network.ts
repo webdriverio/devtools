@@ -31,6 +31,8 @@ export class DevtoolsNetwork extends Element {
   @state()
   searchQuery: string = ''
 
+  private _tabObserver?: MutationObserver
+
   connectedCallback() {
     super.connectedCallback()
     // Watch for visibility changes via active attribute
@@ -50,16 +52,15 @@ export class DevtoolsNetwork extends Element {
         })
       })
       observer.observe(parentTab, { attributes: true })
-      // Store observer to disconnect later
-      ;(this as any)._tabObserver = observer
+      this._tabObserver = observer
     }
   }
 
   disconnectedCallback() {
     super.disconnectedCallback()
     // Clean up observer
-    if ((this as any)._tabObserver) {
-      ;(this as any)._tabObserver.disconnect()
+    if (this._tabObserver) {
+      this._tabObserver.disconnect()
     }
   }
 

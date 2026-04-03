@@ -1,13 +1,8 @@
 /**
- * Script to capture performance data, cookies, and document info from the browser
- * This gets injected and executed in the browser context
+ * Script to capture performance data, cookies, and document info from the browser.
+ * Passed as a string to browser.execute() so no browser-context @ts-ignore is needed.
  */
-
-/**
- * Returns the script as a string to be executed in the browser
- */
-export const getCapturePerformanceScript = (): string => {
-  return `
+export const CAPTURE_PERFORMANCE_SCRIPT = `
     (function() {
       const performance = window.performance;
       const navigation = performance.getEntriesByType?.('navigation')?.[0];
@@ -55,4 +50,3 @@ export const getCapturePerformanceScript = (): string => {
       };
     })()
   `
-}

@@ -4,13 +4,7 @@ import { customElement } from 'lit/decorators.js'
 import { consume } from '@lit/context'
 
 import { consoleLogContext } from '../../controller/context.js'
-
-const LOG_ICONS: Record<ConsoleLogs['type'], string> = {
-  log: '📄',
-  info: 'ℹ️',
-  warn: '⚠️',
-  error: '❌'
-}
+import { LOG_ICONS } from '../../controller/constants.js'
 
 const SOURCE_COMPONENT = 'wdio-devtools-console-logs'
 @customElement(SOURCE_COMPONENT)

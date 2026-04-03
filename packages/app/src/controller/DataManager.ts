@@ -1,4 +1,4 @@
-import { createContext, ContextProvider } from '@lit/context'
+import { ContextProvider } from '@lit/context'
 import type { ReactiveController, ReactiveControllerHost } from 'lit'
 import type {
   Metadata,
@@ -14,17 +14,16 @@ import {
   metadataContext,
   commandContext,
   sourceContext,
-  suiteContext
+  suiteContext,
+  hasConnectionContext
 } from './context.js'
+import { CACHE_ID } from './constants.js'
+import { getTimestamp } from '../utils/helpers.js'
 import type {
   TestStatsFragment,
   SuiteStatsFragment,
   SocketMessage
 } from './types.js'
-
-const CACHE_ID = 'wdio-trace-cache'
-
-const hasConnection = createContext<boolean>(Symbol('hasConnection'))
 
 export class DataManagerController implements ReactiveController {
   #ws?: WebSocket
@@ -40,7 +39,7 @@ export class DataManagerController implements ReactiveController {
   commandsContextProvider: ContextProvider<typeof commandContext>
   sourcesContextProvider: ContextProvider<typeof sourceContext>
   suitesContextProvider: ContextProvider<typeof suiteContext>
-  hasConnectionProvider: ContextProvider<typeof hasConnection>
+  hasConnectionProvider: ContextProvider<typeof hasConnectionContext>
 
   constructor(host: ReactiveControllerHost & HTMLElement) {
     ;(this.#host = host).addController(this)
@@ -74,7 +73,7 @@ export class DataManagerController implements ReactiveController {
       context: suiteContext
     })
     this.hasConnectionProvider = new ContextProvider(this.#host, {
-      context: hasConnection,
+      context: hasConnectionContext,
       initialValue: false
     })
   }
@@ -90,9 +89,17 @@ export class DataManagerController implements ReactiveController {
   clearExecutionData(uid?: string, entryType?: 'suite' | 'test') {
     this.#resetExecutionData()
 
+    // When the backend sends clearExecutionData with no uid (e.g. a full Nightwatch
+    // rerun), immediately mark all suites as running so the spinner shows instead
+    // of the previous run's terminal state (passed/failed).
+    if (!uid) {
+      this.#markTestAsRunning('*', 'suite')
+      return
+    }
+
     // Track explicit single-test reruns so merge logic can keep sibling tests
     // stable while the backend emits suite-level "pending" snapshots.
-    if (entryType === 'test' && uid && uid !== '*') {
+    if (entryType === 'test' && uid !== '*') {
       this.#activeRerunTestUid = uid
     } else if (entryType === 'suite' || uid === '*') {
       this.#activeRerunTestUid = undefined
@@ -279,30 +286,19 @@ export class DataManagerController implements ReactiveController {
       }
 
       if (scope === 'clearExecutionData') {
-        const clearData = data as {
-          uid?: string
-          entryType?: 'suite' | 'test'
-        }
-        this.clearExecutionData(clearData.uid, clearData.entryType)
+        const { uid, entryType } =
+          data as SocketMessage<'clearExecutionData'>['data']
+        this.clearExecutionData(uid, entryType)
         this.#host.requestUpdate()
         return
       }
 
       if (scope === 'replaceCommand') {
-        const { oldTimestamp, command } = data as {
-          oldTimestamp: number
-          command: CommandLog
-        }
+        const { oldTimestamp, command } =
+          data as SocketMessage<'replaceCommand'>['data']
         this.#handleReplaceCommand(oldTimestamp, command)
         this.#host.requestUpdate()
         return
-      }
-
-      if (scope === 'suites') {
-        const shouldReset = this.#shouldResetForNewRun(data)
-        if (shouldReset) {
-          this.#resetExecutionData()
-        }
       }
 
       if (scope === 'mutations') {
@@ -320,6 +316,9 @@ export class DataManagerController implements ReactiveController {
       } else if (scope === 'sources') {
         this.#handleSourcesUpdate(data as Record<string, string>)
       } else if (scope === 'suites') {
+        if (this.#shouldResetForNewRun(data)) {
+          this.#resetExecutionData()
+        }
         this.#handleSuitesUpdate(data)
       }
 
@@ -344,14 +343,9 @@ export class DataManagerController implements ReactiveController {
           continue
         }
 
-        const suiteStartTime =
-          suite.start instanceof Date
-            ? suite.start.getTime()
-            : typeof suite.start === 'number'
-              ? suite.start
-              : typeof suite.start === 'string'
-                ? new Date(suite.start as string).getTime() || 0
-                : 0
+        const suiteStartTime = getTimestamp(
+          suite.start as Date | number | string | undefined
+        )
 
         if (suiteStartTime <= 0) {
           continue
@@ -365,9 +359,7 @@ export class DataManagerController implements ReactiveController {
           const existingChunks = this.suitesContextProvider.value || []
           let existingEnd: unknown = undefined
           outer: for (const ec of existingChunks) {
-            for (const [uid, existing] of Object.entries(
-              ec as Record<string, SuiteStatsFragment>
-            )) {
+            for (const [uid, existing] of Object.entries(ec)) {
               if (uid === Object.keys(chunk)[0]) {
                 existingEnd = existing?.end
                 break outer
@@ -573,13 +565,6 @@ export class DataManagerController implements ReactiveController {
     )
   }
 
-  #getTimestamp(date: Date | number | undefined): number {
-    if (!date) {
-      return 0
-    }
-    return date instanceof Date ? date.getTime() : date
-  }
-
   #handleLogsUpdate(data: string[]) {
     this.logsContextProvider.setValue(data)
   }
@@ -593,7 +578,6 @@ export class DataManagerController implements ReactiveController {
     )
 
     // Then merge suite properties, ensuring merged tests/suites are preserved
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { tests, suites, ...incomingProps } = incoming
 
     // Strip undefined state from incoming so it doesn't overwrite a valid existing state.
@@ -603,10 +587,13 @@ export class DataManagerController implements ReactiveController {
       delete (incomingProps as any).state
     }
 
-    // Treat incoming state=undefined the same as pending — both mean the backend
-    // hasn't assigned a terminal state yet.
+    // Treat incoming state=undefined/null the same as pending — WDIO's SuiteStats
+    // doesn't set 'state' on suite end (unlike TestStats), so undefined means the
+    // backend hasn't assigned a terminal state. Null is the Nightwatch equivalent.
     const incomingStateIsPendingOrUnset =
-      incoming.state === 'pending' || incoming.state === null
+      incoming.state === 'pending' ||
+      incoming.state === null ||
+      incoming.state === undefined
 
     const allChildren = [...(mergedTests || []), ...(mergedSuites || [])]
     // Treat children with undefined/null state as in-progress (not yet terminal).
@@ -633,17 +620,43 @@ export class DataManagerController implements ReactiveController {
       )
 
     // On rerun start we optimistically mark the suite as running in the UI.
-    // Keep that running state until the backend emits concrete progress/result
-    // updates, instead of letting an intermediate "pending" snapshot clear it.
+    // Keep (or set) running state whenever the incoming state is unset/pending
+    // AND children are still in-progress. This handles both:
+    //   • Nightwatch: suite was already 'running' → keep it running
+    //   • WDIO: suite was 'passed' from previous run but now has running children
+    //     (WDIO SuiteStats never carries an explicit state, so the previous
+    //     derivedCompletedState='passed' would otherwise be silently preserved)
     const keepRunningState =
-      existing.state === 'running' && incomingStateIsPendingOrUnset
+      incomingStateIsPendingOrUnset && hasInProgressChildren
+
+    // Only derive 'passed'/'failed' from children when the backend hasn't
+    // assigned an explicit state (WDIO case: SuiteStats.state is never set on
+    // suite end). When state is explicitly 'pending' the backend is signalling
+    // a new run is starting — stale children from the previous run must not
+    // be used to derive a completed state.
+    const incomingStateIsUnset =
+      incoming.state === null || incoming.state === undefined
 
     const derivedCompletedState: SuiteStatsFragment['state'] | undefined =
-      allChildrenTerminal
+      allChildrenTerminal && incomingStateIsUnset
         ? hasFailedChildren
           ? 'failed'
           : 'passed'
         : undefined
+
+    // When a new run starts the backend sends the feature suite with
+    // state: 'pending' before it has pushed any scenario children.
+    // #mergeChildSuites preserves stale child suites from the previous run,
+    // but they must not keep their terminal states — mark them 'pending' so
+    // they render as a spinner instead of a stale checkmark/cross.
+    const finalSuites =
+      incoming.state === 'pending' && mergedSuites
+        ? mergedSuites.map((s) =>
+            s.state === 'passed' || s.state === 'failed'
+              ? { ...s, state: 'pending' as const, end: undefined }
+              : s
+          )
+        : mergedSuites
 
     return {
       ...existing,
@@ -656,7 +669,7 @@ export class DataManagerController implements ReactiveController {
           ? { state: derivedCompletedState }
           : {}),
       tests: mergedTests,
-      suites: mergedSuites
+      suites: finalSuites
     }
   }
 
@@ -703,7 +716,7 @@ export class DataManagerController implements ReactiveController {
         existing &&
         test.start &&
         existing.start &&
-        this.#getTimestamp(test.start) !== this.#getTimestamp(existing.start)
+        getTimestamp(test.start) !== getTimestamp(existing.start)
 
       if (activeTargetUid && isRerun && test.state === 'pending' && existing) {
         // The incoming suite structure marks all tests as "pending" at start.
@@ -740,6 +753,8 @@ export class DataManagerController implements ReactiveController {
     this.metadataContextProvider.setValue(traceFile.metadata)
     this.commandsContextProvider.setValue(traceFile.commands)
     this.sourcesContextProvider.setValue(traceFile.sources)
-    this.suitesContextProvider.setValue(traceFile.suites || [])
+    this.suitesContextProvider.setValue(
+      (traceFile.suites || []) as Record<string, SuiteStatsFragment>[]
+    )
   }
 }

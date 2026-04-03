@@ -145,20 +145,6 @@ export class TestReporter {
   }
 
   /**
-   * Called when a test passes
-   */
-  onTestPass(testStats: TestStats) {
-    this.onTestEnd(testStats)
-  }
-
-  /**
-   * Called when a test fails
-   */
-  onTestFail(testStats: TestStats) {
-    this.onTestEnd(testStats)
-  }
-
-  /**
    * Called when a suite ends - create skipped tests
    */
   onSuiteEnd(suiteStats: SuiteStats) {

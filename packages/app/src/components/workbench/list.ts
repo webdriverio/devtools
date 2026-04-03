@@ -122,7 +122,7 @@ export class DevtoolsList extends Element {
       <section class="block">
         ${this.#renderSectionHeader(this.label)}
         <dl class="flex flex-wrap ${this.isCollapsed ? '' : 'mt-2'}">
-          ${(entries as any[]).map((entry, i) => {
+          ${(entries as any[]).map((entry) => {
             let key: string | undefined
             let val: unknown
 
@@ -150,24 +150,19 @@ export class DevtoolsList extends Element {
 
             const baseCls = 'row px-2 py-1 border-b-[1px] border-b-panelBorder'
             const colCls = isMultiline ? 'basis-full w-full' : 'basis-1/2'
-            const lastBorderFix = i === entries.length - 1 ? '' : ''
             const collapsedCls = this.isCollapsed ? 'collapse' : 'max-h-[500px]'
 
             if (key === undefined) {
               return html`
-                <dd
-                  class="${baseCls} ${colCls} ${collapsedCls} ${lastBorderFix}"
-                >
+                <dd class="${baseCls} ${colCls} ${collapsedCls}">
                   ${this.#renderMetadataProp(val)}
                 </dd>
               `
             }
 
             return html`
-              <dt class="${baseCls} ${colCls} ${collapsedCls} ${lastBorderFix}">
-                ${key}
-              </dt>
-              <dd class="${baseCls} ${colCls} ${collapsedCls} ${lastBorderFix}">
+              <dt class="${baseCls} ${colCls} ${collapsedCls}">${key}</dt>
+              <dd class="${baseCls} ${colCls} ${collapsedCls}">
                 ${this.#renderMetadataProp(val)}
               </dd>
             `

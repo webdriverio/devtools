@@ -4,6 +4,7 @@ import type { NetworkRequest } from '../../types.js'
 export class NetworkRequestCollector implements Collector<NetworkRequest> {
   #requests: NetworkRequest[] = []
   #pendingRequests = new Map<string, Partial<NetworkRequest>>()
+  #pendingXHRRequests = new WeakMap<XMLHttpRequest, Partial<NetworkRequest>>()
   #originalFetch?: typeof fetch
   #originalXhrOpen?: typeof XMLHttpRequest.prototype.open
   #originalXhrSend?: typeof XMLHttpRequest.prototype.send
@@ -194,8 +195,7 @@ export class NetworkRequestCollector implements Collector<NetworkRequest> {
         )
       }
 
-      ;(this as any)._networkRequestId = id
-      ;(this as any)._networkRequestData = {
+      self.#pendingXHRRequests.set(this, {
         id,
         url: urlString,
         method: method.toUpperCase(),
@@ -203,7 +203,7 @@ export class NetworkRequestCollector implements Collector<NetworkRequest> {
         timestamp: Date.now(),
         startTime: performance.now(),
         requestHeaders: {}
-      }
+      })
 
       return self.#originalXhrOpen!.call(
         this,
@@ -218,8 +218,7 @@ export class NetworkRequestCollector implements Collector<NetworkRequest> {
     XMLHttpRequest.prototype.send = function (
       body?: Document | XMLHttpRequestBodyInit | null
     ) {
-      const requestData = (this as any)
-        ._networkRequestData as Partial<NetworkRequest>
+      const requestData = self.#pendingXHRRequests.get(this)
 
       // If no request data, this request was filtered out - just send it
       if (!requestData) {

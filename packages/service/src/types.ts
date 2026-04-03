@@ -91,9 +91,26 @@ declare module '@wdio/reporter' {
     file?: string
     line?: number
     column?: number
+    callSource?: string
+    featureFile?: string
+    featureLine?: number
   }
 
   interface SuiteStats {
-    line?: string
+    line?: string | number | null
+    callSource?: string
+    featureFile?: string
+    featureLine?: number
   }
+}
+
+export type StepDef = {
+  kind: 'regex' | 'string' | 'expression'
+  keyword?: string
+  text?: string
+  regex?: RegExp
+  expr?: any
+  file: string
+  line: number
+  column: number
 }
