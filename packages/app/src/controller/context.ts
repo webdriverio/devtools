@@ -27,3 +27,6 @@ export const suiteContext = createContext<Record<string, SuiteStatsFragment>[]>(
 export const hasConnectionContext = createContext<boolean>(
   Symbol('hasConnection')
 )
+export const activeRerunContext = createContext<string | undefined>(
+  Symbol('activeRerunContext')
+)
