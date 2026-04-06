@@ -19,6 +19,7 @@ import {
 } from './context.js'
 import { CACHE_ID } from './constants.js'
 import { getTimestamp } from '../utils/helpers.js'
+import { rerunState } from './rerunState.js'
 import type {
   TestStatsFragment,
   SuiteStatsFragment,
@@ -87,14 +88,28 @@ export class DataManagerController implements ReactiveController {
   }
 
   clearExecutionData(uid?: string, entryType?: 'suite' | 'test') {
-    this.#resetExecutionData()
+    // If we are already tracking a feature-level rerun and this clear is for
+    // a child scenario (not the top-level rerun trigger itself), skip resetting
+    // execution data so previously-completed scenarios' data is preserved.
+    const isChildOfActiveRerun = !!(uid && rerunState.activeRerunSuiteUid && uid !== rerunState.activeRerunSuiteUid)
+
+    if (!isChildOfActiveRerun) {
+      this.#resetExecutionData()
+    }
 
     // When the backend sends clearExecutionData with no uid (e.g. a full Nightwatch
     // rerun), immediately mark all suites as running so the spinner shows instead
     // of the previous run's terminal state (passed/failed).
     if (!uid) {
+      rerunState.activeRerunSuiteUid = undefined
       this.#markTestAsRunning('*', 'suite')
       return
+    }
+
+    // Track the top-level rerun suite uid so we can identify child-scenario
+    // clears (from the Nightwatch backend) and skip their data wipes.
+    if (!isChildOfActiveRerun && entryType === 'suite' && uid !== '*') {
+      rerunState.activeRerunSuiteUid = uid
     }
 
     // Track explicit single-test reruns so merge logic can keep sibling tests
@@ -221,8 +236,12 @@ export class DataManagerController implements ReactiveController {
                 ...(matched
                   ? {
                       state: 'running' as const,
-                      start: runStart,
-                      end: undefined
+                      // Don't reset the parent's start/end when it is already
+                      // running — subsequent child-scenario marks would otherwise
+                      // reset the feature's original run timestamp.
+                      ...(s.state !== 'running'
+                        ? { start: runStart, end: undefined }
+                        : {})
                     }
                   : {}),
                 tests: updatedTests || [],
@@ -329,6 +348,33 @@ export class DataManagerController implements ReactiveController {
   }
 
   #shouldResetForNewRun(data: unknown): boolean {
+    // During a UI-triggered rerun, suppress auto-detection so sibling-scenario
+    // updates don't wipe accumulated execution data.
+    // Still update #lastSeenRunTimestamp so that once activeRerunSuiteUid is
+    // cleared the final suite update isn't mistakenly treated as a new run.
+    if (rerunState.activeRerunSuiteUid) {
+      const payloads = Array.isArray(data)
+        ? (data as Record<string, SuiteStatsFragment>[])
+        : ([data] as Record<string, SuiteStatsFragment>[])
+      for (const chunk of payloads) {
+        if (!chunk) {
+          continue
+        }
+        for (const suite of Object.values(chunk)) {
+          if (!suite?.start) {
+            continue
+          }
+          const t = getTimestamp(
+            suite.start as Date | number | string | undefined
+          )
+          if (t > this.#lastSeenRunTimestamp) {
+            this.#lastSeenRunTimestamp = t
+          }
+        }
+      }
+      return false
+    }
+
     const payloads = Array.isArray(data)
       ? (data as Record<string, SuiteStatsFragment>[])
       : ([data] as Record<string, SuiteStatsFragment>[])
@@ -399,6 +445,7 @@ export class DataManagerController implements ReactiveController {
 
   #handleTestStopped() {
     this.#activeRerunTestUid = undefined
+    rerunState.activeRerunSuiteUid = undefined
 
     // Mark all running tests as failed when test execution is stopped
     const suites = this.suitesContextProvider.value || []
@@ -563,6 +610,15 @@ export class DataManagerController implements ReactiveController {
     this.suitesContextProvider.setValue(
       Array.from(suiteMap.entries()).map(([uid, suite]) => ({ [uid]: suite }))
     )
+
+    // Once the active rerun suite reaches a terminal state, clear the tracking
+    // flag so subsequent CLI-triggered runs can be detected normally.
+    if (rerunState.activeRerunSuiteUid) {
+      const activeSuite = suiteMap.get(rerunState.activeRerunSuiteUid)
+      if (activeSuite?.end) {
+        rerunState.activeRerunSuiteUid = undefined
+      }
+    }
   }
 
   #handleLogsUpdate(data: string[]) {
@@ -649,8 +705,14 @@ export class DataManagerController implements ReactiveController {
     // #mergeChildSuites preserves stale child suites from the previous run,
     // but they must not keep their terminal states — mark them 'pending' so
     // they render as a spinner instead of a stale checkmark/cross.
+    // Exception: when only a specific child scenario is being rerun
+    // (activeRerunSuiteUid differs from the incoming feature suite's uid),
+    // sibling scenarios must keep their existing terminal states.
+    const isChildRerun =
+      !!rerunState.activeRerunSuiteUid &&
+      rerunState.activeRerunSuiteUid !== incoming.uid
     const finalSuites =
-      incoming.state === 'pending' && mergedSuites
+      incoming.state === 'pending' && mergedSuites && !isChildRerun
         ? mergedSuites.map((s) =>
             s.state === 'passed' || s.state === 'failed'
               ? { ...s, state: 'pending' as const, end: undefined }

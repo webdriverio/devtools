@@ -62,6 +62,7 @@ class NightwatchDevToolsPlugin {
   #failCount = 0
   #skipCount = 0
   #configPath: string | undefined
+  #srcFolders: string[] = []
 
   #getRerunLabel() {
     return process.env.DEVTOOLS_RERUN_ENTRY_TYPE === 'test'
@@ -240,6 +241,13 @@ class NightwatchDevToolsPlugin {
     const desiredCapabilities = browser.desiredCapabilities || {}
     const sessionId = browser.sessionId
     const opts = browser.options || {}
+
+    // Capture src_folders once so beforeEach can resolve test file paths
+    if (this.#srcFolders.length === 0) {
+      const sf = (opts as any).src_folders
+      this.#srcFolders = Array.isArray(sf) ? sf : sf ? [sf] : []
+    }
+
     this.sessionCapturer.sendUpstream('metadata', {
       type: TraceType.Testrunner,
       capabilities,
@@ -418,7 +426,13 @@ class NightwatchDevToolsPlugin {
     const isRetry = existingIdx !== -1
     if (isRetry) {
       featureSuite.suites[existingIdx] = scenarioSuite
-      this.sessionCapturer.sendUpstream('clearExecutionData', {})
+      // Pass the specific scenario uid so only this scenario's execution data
+      // is reset — a uid-less clearExecutionData would mark ALL suites as
+      // running, destroying the previous terminal states of sibling scenarios.
+      this.sessionCapturer.sendUpstream('clearExecutionData', {
+        uid: scenarioUid,
+        entryType: 'suite'
+      })
     } else {
       featureSuite.suites.push(scenarioSuite)
     }
@@ -584,7 +598,29 @@ class NightwatchDevToolsPlugin {
 
     if (!fullPath && testFile) {
       const workspaceRoot = process.cwd()
+      // currentTest.module is the path relative to a src_folder, e.g. "basic/ecosia"
+      // So we must try: path.join(cwd, srcFolder, module + '.js') for each src_folder
+      const modulePath = (currentTest.module || '').replace(/\\/g, '/')
+      const srcFolderPaths = this.#srcFolders.flatMap((sf) =>
+        modulePath
+          ? [
+              path.join(workspaceRoot, sf, modulePath + '.js'),
+              path.join(workspaceRoot, sf, modulePath + '.ts'),
+              path.join(workspaceRoot, sf, modulePath + '.cjs'),
+              path.join(workspaceRoot, sf, modulePath),
+            ]
+          : []
+      )
       const possiblePaths = [
+        // Highest priority: expand module path via each configured src_folder
+        ...srcFolderPaths,
+        // Fallback: treat module path as relative to cwd (works when src_folders isn't nested)
+        ...(modulePath ? [
+          path.join(workspaceRoot, modulePath + '.js'),
+          path.join(workspaceRoot, modulePath + '.ts'),
+          path.join(workspaceRoot, modulePath + '.cjs'),
+          path.join(workspaceRoot, modulePath),
+        ] : []),
         path.join(workspaceRoot, 'example/tests', testFile + '.js'),
         path.join(workspaceRoot, 'example/tests', testFile),
         path.join(workspaceRoot, 'tests', testFile + '.js'),
