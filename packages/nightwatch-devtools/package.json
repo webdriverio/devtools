@@ -32,11 +32,11 @@
     "ws": "^8.18.3"
   },
   "devDependencies": {
-    "@types/node": "^22.10.5",
+    "@types/node": "^25.5.2",
     "@types/ws": "^8.18.1",
-    "chromedriver": "^133.0.0",
+    "chromedriver": "^147.0.1",
     "nightwatch": "^3.0.0",
-    "typescript": "^5.9.2"
+    "typescript": "^6.0.2"
   },
   "peerDependencies": {
     "nightwatch": ">=3.0.0"
