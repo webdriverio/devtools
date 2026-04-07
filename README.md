@@ -1,6 +1,8 @@
 # WebdriverIO DevTools
 
-A powerful browser devtools extension for debugging, visualizing, and controlling WebdriverIO test executions in real-time.
+A powerful browser devtools extension for debugging, visualizing, and controlling test executions in real-time.
+
+Works with **WebdriverIO** and **[Nightwatch.js](./packages/nightwatch-devtools/README.md)** — same backend, same UI, same capture infrastructure.
 
 ## Features
 
@@ -106,14 +108,21 @@ pnpm build
 pnpm demo
 ```
 
+## Nightwatch Integration
+
+Using [Nightwatch.js](https://nightwatchjs.org/)? A dedicated adapter package brings the same DevTools UI to your Nightwatch test suite with zero test code changes.
+
+→ **[`@wdio/nightwatch-devtools`](./packages/nightwatch-devtools/README.md)** — installation, configuration, and Cucumber/BDD setup.
+
 ## Project Structure
 
 ```
 packages/
-├── app/          # Frontend Lit-based UI application
-├── backend/      # Fastify server with test runner management
-├── service/      # WebdriverIO service and reporter
-└── script/       # Browser-injected trace collection script
+├── app/                   # Frontend Lit-based UI application
+├── backend/               # Fastify server with test runner management
+├── service/               # WebdriverIO service and reporter
+├── script/                # Browser-injected trace collection script
+└── nightwatch-devtools/   # Nightwatch adapter plugin
 ```
 
 ## Contributing
