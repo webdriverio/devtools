@@ -573,12 +573,14 @@ export class SessionCapturer {
       // Poll for collector — the async IIFE may take a moment to initialise
       let hasCollector = false
       for (let attempt = 0; attempt < 5; attempt++) {
-        await browser.pause(200)
+        await new Promise((resolve) => setTimeout(resolve, 200))
         const checkResult = await browser.execute(
           'return typeof window.wdioTraceCollector !== "undefined"'
         )
         hasCollector = ((checkResult as any)?.value ?? checkResult) === true
-        if (hasCollector) break
+        if (hasCollector) {
+          break
+        }
       }
 
       if (hasCollector) {

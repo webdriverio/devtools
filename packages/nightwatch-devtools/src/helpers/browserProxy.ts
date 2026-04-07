@@ -96,14 +96,17 @@ export class BrowserProxy {
           result.perform((done: Function) => {
             injectAndCapture().finally(() => done && done())
           })
-        } else {
-          // Cucumber async/await: result is a Promise (or thenable).
-          Promise.resolve(result)
-            .then(injectAndCapture)
-            .catch(() => {})
+          return result
         }
-
-        return result
+        // Cucumber async/await: result is a Promise (or thenable).
+        // Return the AUGMENTED promise so that `await browser.url(...)` in
+        // the step definition waits for injectAndCapture to finish before
+        // Cucumber moves to the next step. Without this the injection races
+        // with the next step's commands (e.g. setValue), causing stale-element
+        // errors because the script-tag insertion mutates the DOM mid-form.
+        return Promise.resolve(result)
+          .then(injectAndCapture)
+          .catch(() => {})
       }
     }
 

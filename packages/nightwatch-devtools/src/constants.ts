@@ -93,7 +93,8 @@ export const NAVIGATION_COMMANDS = ['url', 'navigate', 'navigateTo'] as const
 export const SPINNER_RE = /^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/u
 
 /** Matches a path segment that indicates a test/spec directory (e.g. /tests/, /spec/, /nightwatch/examples/, /features/). */
-export const TEST_PATH_PATTERN = /\/(test|spec|tests|nightwatch|examples?|features|step-definitions)\//i
+export const TEST_PATH_PATTERN =
+  /\/(test|spec|tests|nightwatch|examples?|features|step-definitions)\//i
 
 /** Matches file names that follow the *.test.ts / *.spec.js naming convention. */
 export const TEST_FILE_PATTERN = /\.(?:test|spec)\.[cm]?[jt]sx?$/i

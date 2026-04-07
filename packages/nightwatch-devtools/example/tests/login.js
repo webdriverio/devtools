@@ -1,7 +1,11 @@
 describe('The Internet Guinea Pig Website', function () {
+  afterEach(async function (browser) {
+    await browser.end()
+  })
+
   it('should log into the secure area with valid credentials', async function (browser) {
     console.log('[TEST] Navigating to login page')
-    browser
+    await browser
       .url('https://the-internet.herokuapp.com/login')
       .waitForElementVisible('body')
 
@@ -15,7 +19,7 @@ describe('The Internet Guinea Pig Website', function () {
       '[TEST] Verifying flash message: You logged into a secure area!'
     )
     await browser
-      .waitForElementVisible('#flash')
+      .waitForElementVisible('#flash', 10000)
       .assert.textContains('#flash', 'You logged into a secure area!')
 
     console.log('[TEST] Flash message verified successfully')
@@ -35,8 +39,8 @@ describe('The Internet Guinea Pig Website', function () {
 
     console.log('[TEST] Verifying flash message: Your username is invalid!')
     await browser
-      .waitForElementVisible('.flash', 5000)
-      .assert.textContains('.flash', 'Your username is invalid!')
+      .waitForElementVisible('#flash', 10000)
+      .assert.textContains('#flash', 'Your username is invalid!')
 
     console.log('[TEST] Flash message verified successfully')
   })

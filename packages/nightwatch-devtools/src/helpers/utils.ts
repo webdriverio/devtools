@@ -151,7 +151,9 @@ export function extractTestMetadata(filePath: string): TestFileMetadata {
         }
       }
       // describe/it style: it('name', ...) / test('name', ...) / specify('name', ...)
-      const itMatch = line.match(/(?:it|test|specify)\s*\(\s*['"`]([^'"`]+)['"`]/)
+      const itMatch = line.match(
+        /(?:it|test|specify)\s*\(\s*['"`]([^'"`]+)['"`]/
+      )
       if (itMatch) {
         result.testNames.push(itMatch[1])
         result.testLines.push(lineNum)
