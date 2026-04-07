@@ -91,7 +91,11 @@ export class DataManagerController implements ReactiveController {
     // If we are already tracking a feature-level rerun and this clear is for
     // a child scenario (not the top-level rerun trigger itself), skip resetting
     // execution data so previously-completed scenarios' data is preserved.
-    const isChildOfActiveRerun = !!(uid && rerunState.activeRerunSuiteUid && uid !== rerunState.activeRerunSuiteUid)
+    const isChildOfActiveRerun = !!(
+      uid &&
+      rerunState.activeRerunSuiteUid &&
+      uid !== rerunState.activeRerunSuiteUid
+    )
 
     if (!isChildOfActiveRerun) {
       this.#resetExecutionData()

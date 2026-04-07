@@ -33,13 +33,7 @@ import {
   findFreePort,
   resolveNightwatchConfig
 } from './helpers/utils.js'
-import {
-  DEFAULTS,
-  TIMING,
-  TEST_STATE,
-  CONFIG_FILENAMES,
-  PLUGIN_GLOBAL_KEY
-} from './constants.js'
+import { DEFAULTS, TIMING, TEST_STATE, PLUGIN_GLOBAL_KEY } from './constants.js'
 
 const log = logger('@wdio/nightwatch-devtools')
 
@@ -607,7 +601,7 @@ class NightwatchDevToolsPlugin {
               path.join(workspaceRoot, sf, modulePath + '.js'),
               path.join(workspaceRoot, sf, modulePath + '.ts'),
               path.join(workspaceRoot, sf, modulePath + '.cjs'),
-              path.join(workspaceRoot, sf, modulePath),
+              path.join(workspaceRoot, sf, modulePath)
             ]
           : []
       )
@@ -615,12 +609,14 @@ class NightwatchDevToolsPlugin {
         // Highest priority: expand module path via each configured src_folder
         ...srcFolderPaths,
         // Fallback: treat module path as relative to cwd (works when src_folders isn't nested)
-        ...(modulePath ? [
-          path.join(workspaceRoot, modulePath + '.js'),
-          path.join(workspaceRoot, modulePath + '.ts'),
-          path.join(workspaceRoot, modulePath + '.cjs'),
-          path.join(workspaceRoot, modulePath),
-        ] : []),
+        ...(modulePath
+          ? [
+              path.join(workspaceRoot, modulePath + '.js'),
+              path.join(workspaceRoot, modulePath + '.ts'),
+              path.join(workspaceRoot, modulePath + '.cjs'),
+              path.join(workspaceRoot, modulePath)
+            ]
+          : []),
         path.join(workspaceRoot, 'example/tests', testFile + '.js'),
         path.join(workspaceRoot, 'example/tests', testFile),
         path.join(workspaceRoot, 'tests', testFile + '.js'),
