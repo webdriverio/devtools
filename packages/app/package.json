@@ -16,18 +16,18 @@
     "lint": "eslint ."
   },
   "dependencies": {
-    "@codemirror/lang-javascript": "^6.2.4",
+    "@codemirror/lang-javascript": "^6.2.5",
     "@codemirror/theme-one-dark": "^6.1.3",
     "@codemirror/view": "^6.38.1",
     "@iconify-json/mdi": "^1.2.3",
     "@lit/context": "^1.1.6",
+    "@wdio/devtools-service": "workspace:*",
     "@wdio/protocols": "9.24.0",
     "codemirror": "^6.0.2",
-    "lit": "^3.3.1",
+    "lit": "^3.3.2",
     "placeholder-loading": "^0.7.0",
     "pointer-tracker": "^2.5.3",
-    "preact": "^10.27.1",
-    "@wdio/devtools-service": "workspace:*"
+    "preact": "^10.27.1"
   },
   "author": "Christian Bromann <mail@bromann.dev>",
   "license": "MIT",
@@ -40,8 +40,8 @@
     "rollup": "^4.47.0",
     "stylelint": "^16.24.0",
     "stylelint-config-recommended": "^17.0.0",
-    "stylelint-config-tailwindcss": "^1.0.0",
-    "tailwindcss": "~4.1.18"
-    ,"vite": "7.3.2"
+    "stylelint-config-tailwindcss": "^1.0.1",
+    "tailwindcss": "~4.1.18",
+    "vite": "7.3.2"
   }
 }
