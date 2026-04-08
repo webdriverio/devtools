@@ -7,6 +7,7 @@ settings:
 overrides:
   vite: ^7.3.0
   '@types/node': 25.5.2
+  '@codemirror/state': 6.5.4
 
 importers:
 
@@ -187,16 +188,19 @@ importers:
         version: 4.60.1
       stylelint:
         specifier: ^16.24.0
-        version: 16.25.0(typescript@5.9.3)
+        version: 16.25.0(typescript@6.0.2)
       stylelint-config-recommended:
         specifier: ^17.0.0
-        version: 17.0.0(stylelint@16.25.0(typescript@5.9.3))
+        version: 17.0.0(stylelint@16.25.0(typescript@6.0.2))
       stylelint-config-tailwindcss:
         specifier: ^1.0.1
-        version: 1.0.1(stylelint@16.25.0(typescript@5.9.3))(tailwindcss@4.2.2)
+        version: 1.0.1(stylelint@16.25.0(typescript@6.0.2))(tailwindcss@4.2.2)
       tailwindcss:
         specifier: ~4.2.2
         version: 4.2.2
+      typescript:
+        specifier: 6.0.2
+        version: 6.0.2
       vite:
         specifier: ^7.3.0
         version: 7.3.2(@types/node@25.5.2)(jiti@2.6.1)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.8.3)
@@ -360,12 +364,15 @@ importers:
       '@wdio/protocols':
         specifier: 9.27.0
         version: 9.27.0
+      typescript:
+        specifier: 6.0.2
+        version: 6.0.2
       vite:
         specifier: ^7.3.0
         version: 7.3.2(@types/node@25.5.2)(jiti@2.6.1)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.8.3)
       vite-plugin-dts:
         specifier: ^4.5.4
-        version: 4.5.4(@types/node@25.5.2)(rollup@4.60.1)(typescript@5.9.3)(vite@7.3.2(@types/node@25.5.2)(jiti@2.6.1)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.8.3))
+        version: 4.5.4(@types/node@25.5.2)(rollup@4.60.1)(typescript@6.0.2)(vite@7.3.2(@types/node@25.5.2)(jiti@2.6.1)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.8.3))
 
 packages:
 
@@ -452,11 +459,8 @@ packages:
   '@codemirror/search@6.5.11':
     resolution: {integrity: sha512-KmWepDE6jUdL6n8cAAqIpRmLPBZ5ZKnicE8oGU/s3QrAVID+0VhLFrzUucVKHG5035/BSykhExDL/Xm7dHthiA==}
 
-  '@codemirror/state@6.5.2':
-    resolution: {integrity: sha512-FVqsPqtPWKVVL3dPSxy8wEF/ymIEuVzF1PK3VbUgrxXpJUSHQWWZz4JMToquRxnkw+36LTamCZG2iua2Ptq0fA==}
-
-  '@codemirror/state@6.6.0':
-    resolution: {integrity: sha512-4nbvra5R5EtiCzr9BTHiTLc+MLXK2QGiAVYMyi8PkQd3SR+6ixar/Q/01Fa21TBIDOZXgeWV4WppsQolSreAPQ==}
+  '@codemirror/state@6.5.4':
+    resolution: {integrity: sha512-8y7xqG/hpB53l25CIoit9/ngxdfoG+fx+V3SHBrinnhOtLvKHRyAJJuHzkWrR4YXXLX8eXBsejgAAxHUOdW1yw==}
 
   '@codemirror/theme-one-dark@6.1.3':
     resolution: {integrity: sha512-NzBdIvEJmx6fjeremiGp3t/okrLPYT0d9orIc7AFun8oZcRk58aejkqhv6spnz4MLAevrKNPMQYXEWMg4s+sKA==}
@@ -5460,6 +5464,11 @@ packages:
     engines: {node: '>=14.17'}
     hasBin: true
 
+  typescript@6.0.2:
+    resolution: {integrity: sha512-bGdAIrZ0wiGDo5l8c++HWtbaNCWTS4UTv7RaTH/ThVIgjkveJt83m74bBHMJkuCbslY8ixgLBVZJIOiQlQTjfQ==}
+    engines: {node: '>=14.17'}
+    hasBin: true
+
   ua-parser-js@1.0.41:
     resolution: {integrity: sha512-LbBDqdIC5s8iROCUjMbW1f5dJQTEFB1+KO9ogbvlb3nm9n4YHa5p4KTvFPWvh2Hs8gZMBuiB1/8+pdfe/tDPug==}
     hasBin: true
@@ -6011,14 +6020,14 @@ snapshots:
   '@codemirror/autocomplete@6.19.1':
     dependencies:
       '@codemirror/language': 6.11.3
-      '@codemirror/state': 6.5.2
+      '@codemirror/state': 6.5.4
       '@codemirror/view': 6.41.0
       '@lezer/common': 1.3.0
 
   '@codemirror/commands@6.10.0':
     dependencies:
       '@codemirror/language': 6.11.3
-      '@codemirror/state': 6.5.2
+      '@codemirror/state': 6.5.4
       '@codemirror/view': 6.41.0
       '@lezer/common': 1.3.0
 
@@ -6027,14 +6036,14 @@ snapshots:
       '@codemirror/autocomplete': 6.19.1
       '@codemirror/language': 6.11.3
       '@codemirror/lint': 6.9.1
-      '@codemirror/state': 6.5.2
+      '@codemirror/state': 6.5.4
       '@codemirror/view': 6.41.0
       '@lezer/common': 1.3.0
       '@lezer/javascript': 1.5.4
 
   '@codemirror/language@6.11.3':
     dependencies:
-      '@codemirror/state': 6.5.2
+      '@codemirror/state': 6.5.4
       '@codemirror/view': 6.41.0
       '@lezer/common': 1.3.0
       '@lezer/highlight': 1.2.2
@@ -6043,34 +6052,30 @@ snapshots:
 
   '@codemirror/lint@6.9.1':
     dependencies:
-      '@codemirror/state': 6.5.2
+      '@codemirror/state': 6.5.4
       '@codemirror/view': 6.41.0
       crelt: 1.0.6
 
   '@codemirror/search@6.5.11':
     dependencies:
-      '@codemirror/state': 6.5.2
+      '@codemirror/state': 6.5.4
       '@codemirror/view': 6.41.0
       crelt: 1.0.6
 
-  '@codemirror/state@6.5.2':
-    dependencies:
-      '@marijn/find-cluster-break': 1.0.2
-
-  '@codemirror/state@6.6.0':
+  '@codemirror/state@6.5.4':
     dependencies:
       '@marijn/find-cluster-break': 1.0.2
 
   '@codemirror/theme-one-dark@6.1.3':
     dependencies:
       '@codemirror/language': 6.11.3
-      '@codemirror/state': 6.5.2
+      '@codemirror/state': 6.5.4
       '@codemirror/view': 6.41.0
       '@lezer/highlight': 1.2.2
 
   '@codemirror/view@6.41.0':
     dependencies:
-      '@codemirror/state': 6.6.0
+      '@codemirror/state': 6.5.4
       crelt: 1.0.6
       style-mod: 4.1.3
       w3c-keyname: 2.2.8
@@ -7337,7 +7342,7 @@ snapshots:
       de-indent: 1.0.2
       he: 1.2.0
 
-  '@vue/language-core@2.2.0(typescript@5.9.3)':
+  '@vue/language-core@2.2.0(typescript@6.0.2)':
     dependencies:
       '@volar/language-core': 2.4.23
       '@vue/compiler-dom': 3.5.22
@@ -7348,7 +7353,7 @@ snapshots:
       muggle-string: 0.4.1
       path-browserify: 1.0.1
     optionalDependencies:
-      typescript: 5.9.3
+      typescript: 6.0.2
 
   '@vue/shared@3.5.22': {}
 
@@ -8216,7 +8221,7 @@ snapshots:
       '@codemirror/language': 6.11.3
       '@codemirror/lint': 6.9.1
       '@codemirror/search': 6.5.11
-      '@codemirror/state': 6.5.2
+      '@codemirror/state': 6.5.4
       '@codemirror/view': 6.41.0
 
   color-convert@1.9.3:
@@ -8282,14 +8287,14 @@ snapshots:
 
   core-util-is@1.0.3: {}
 
-  cosmiconfig@9.0.0(typescript@5.9.3):
+  cosmiconfig@9.0.0(typescript@6.0.2):
     dependencies:
       env-paths: 2.2.1
       import-fresh: 3.3.1
       js-yaml: 4.1.0
       parse-json: 5.2.0
     optionalDependencies:
-      typescript: 5.9.3
+      typescript: 6.0.2
 
   crc-32@1.2.2: {}
 
@@ -10718,7 +10723,7 @@ snapshots:
   proxy-agent@6.3.1:
     dependencies:
       agent-base: 7.1.4
-      debug: 4.3.4
+      debug: 4.4.3
       http-proxy-agent: 7.0.2
       https-proxy-agent: 7.0.6
       lru-cache: 7.18.3
@@ -11341,16 +11346,16 @@ snapshots:
 
   style-mod@4.1.3: {}
 
-  stylelint-config-recommended@17.0.0(stylelint@16.25.0(typescript@5.9.3)):
+  stylelint-config-recommended@17.0.0(stylelint@16.25.0(typescript@6.0.2)):
     dependencies:
-      stylelint: 16.25.0(typescript@5.9.3)
+      stylelint: 16.25.0(typescript@6.0.2)
 
-  stylelint-config-tailwindcss@1.0.1(stylelint@16.25.0(typescript@5.9.3))(tailwindcss@4.2.2):
+  stylelint-config-tailwindcss@1.0.1(stylelint@16.25.0(typescript@6.0.2))(tailwindcss@4.2.2):
     dependencies:
-      stylelint: 16.25.0(typescript@5.9.3)
+      stylelint: 16.25.0(typescript@6.0.2)
       tailwindcss: 4.2.2
 
-  stylelint@16.25.0(typescript@5.9.3):
+  stylelint@16.25.0(typescript@6.0.2):
     dependencies:
       '@csstools/css-parser-algorithms': 3.0.5(@csstools/css-tokenizer@3.0.4)
       '@csstools/css-tokenizer': 3.0.4
@@ -11359,7 +11364,7 @@ snapshots:
       '@dual-bundle/import-meta-resolve': 4.2.1
       balanced-match: 2.0.0
       colord: 2.9.3
-      cosmiconfig: 9.0.0(typescript@5.9.3)
+      cosmiconfig: 9.0.0(typescript@6.0.2)
       css-functions-list: 3.2.3
       css-tree: 3.1.0
       debug: 4.4.3
@@ -11671,6 +11676,8 @@ snapshots:
 
   typescript@5.9.3: {}
 
+  typescript@6.0.2: {}
+
   ua-parser-js@1.0.41: {}
 
   ufo@1.6.1: {}
@@ -11787,18 +11794,18 @@ snapshots:
       spdx-correct: 3.2.0
       spdx-expression-parse: 3.0.1
 
-  vite-plugin-dts@4.5.4(@types/node@25.5.2)(rollup@4.60.1)(typescript@5.9.3)(vite@7.3.2(@types/node@25.5.2)(jiti@2.6.1)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.8.3)):
+  vite-plugin-dts@4.5.4(@types/node@25.5.2)(rollup@4.60.1)(typescript@6.0.2)(vite@7.3.2(@types/node@25.5.2)(jiti@2.6.1)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.8.3)):
     dependencies:
       '@microsoft/api-extractor': 7.53.3(@types/node@25.5.2)
       '@rollup/pluginutils': 5.3.0(rollup@4.60.1)
       '@volar/typescript': 2.4.23
-      '@vue/language-core': 2.2.0(typescript@5.9.3)
+      '@vue/language-core': 2.2.0(typescript@6.0.2)
       compare-versions: 6.1.1
       debug: 4.4.3
       kolorist: 1.8.0
       local-pkg: 1.1.2
       magic-string: 0.30.21
-      typescript: 5.9.3
+      typescript: 6.0.2
     optionalDependencies:
       vite: 7.3.2(@types/node@25.5.2)(jiti@2.6.1)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.8.3)
     transitivePeerDependencies:

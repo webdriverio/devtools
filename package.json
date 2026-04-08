@@ -2,7 +2,7 @@
   "name": "devtools-monorepo",
   "type": "module",
   "scripts": {
-    "build": "pnpm --parallel build",
+    "build": "pnpm -r build",
     "demo": "wdio run ./example/wdio.conf.ts",
     "demo:nightwatch": "pnpm --filter @wdio/nightwatch-devtools example",
     "dev": "pnpm --parallel dev",
@@ -18,7 +18,8 @@
   "pnpm": {
     "overrides": {
       "vite": "^7.3.0",
-      "@types/node": "25.5.2"
+      "@types/node": "25.5.2",
+      "@codemirror/state": "6.5.4"
     },
     "ignoredBuiltDependencies": [
       "chromedriver"
