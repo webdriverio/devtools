@@ -12,6 +12,7 @@
     "build": "tsc",
     "watch": "tsc --watch",
     "clean": "rm -rf dist",
+    "lint": "eslint .",
     "example": "nightwatch -c example/nightwatch.conf.cjs"
   },
   "keywords": [
