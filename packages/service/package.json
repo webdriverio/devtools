@@ -57,6 +57,7 @@
     "typescript": "6.0.2",
     "vite": "8.0.7",
     "vite-plugin-dts": "^4.5.4"
+
   },
   "peerDependencies": {
     "@wdio/protocols": "9.27.0",
