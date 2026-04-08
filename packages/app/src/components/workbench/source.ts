@@ -73,7 +73,10 @@ export class DevtoolsSource extends Element {
             })
           }
         })
-        this.#tabObserver.observe(tab, { attributes: true, attributeFilter: ['active'] })
+        this.#tabObserver.observe(tab, {
+          attributes: true,
+          attributeFilter: ['active']
+        })
       }
     })
   }
