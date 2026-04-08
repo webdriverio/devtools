@@ -1,6 +1,6 @@
 import { Element } from '@core/element'
-import { html, css } from 'lit'
-import { customElement } from 'lit/decorators.js'
+import { html, css, type PropertyValues } from 'lit'
+import { customElement, state } from 'lit/decorators.js'
 import { consume } from '@lit/context'
 
 import { EditorView, basicSetup } from 'codemirror'
@@ -28,23 +28,30 @@ export class DevtoolsSource extends Element {
         width: 100%;
         height: 100%;
         padding: 10px 0px;
+        flex: 1;
+        min-height: 0;
       }
       .cm-content {
         padding: 0 !important;
       }
 
       .source-container {
+        display: flex;
+        flex-direction: column;
         width: 100%;
         height: 100%;
+        overflow: hidden;
       }
     `
   ]
 
   @consume({ context: sourceContext, subscribe: true })
+  @state()
   sources: Record<string, string> = {}
 
   #editorView?: EditorView
   #activeFile?: string
+  #tabObserver?: MutationObserver
 
   connectedCallback(): void {
     super.connectedCallback()
@@ -52,21 +59,44 @@ export class DevtoolsSource extends Element {
       'app-source-highlight',
       this.#highlightCallSource.bind(this)
     )
+    // Observe when the containing tab becomes active so CodeMirror can remeasure
+    // after having been initialized while the tab was hidden (display:none).
+    requestAnimationFrame(() => {
+      const tab = this.closest('wdio-devtools-tab')
+      if (tab) {
+        this.#tabObserver = new MutationObserver(() => {
+          if (tab.hasAttribute('active') && this.#editorView) {
+            // Force CodeMirror to remeasure and re-render after becoming visible
+            requestAnimationFrame(() => {
+              this.#editorView?.requestMeasure()
+              this.#editorView?.dom.dispatchEvent(new Event('resize'))
+            })
+          }
+        })
+        this.#tabObserver.observe(tab, { attributes: true, attributeFilter: ['active'] })
+      }
+    })
   }
 
   disconnectedCallback(): void {
     super.disconnectedCallback()
     this.#editorView?.destroy()
     this.#editorView = undefined
+    this.#tabObserver?.disconnect()
+    this.#tabObserver = undefined
   }
 
-  updated() {
+  updated(_changedProperties: PropertyValues<this>) {
     const sourceFileNames = Object.keys(this.sources || {})
     if (sourceFileNames.length === 0) {
       return
     }
-    // Mount or refresh the editor for the first source file
-    this.#mountEditor(sourceFileNames[0])
+    // Respect an explicitly highlighted file; otherwise show the first available
+    const targetFile =
+      this.#activeFile && this.sources?.[this.#activeFile]
+        ? this.#activeFile
+        : sourceFileNames[0]
+    this.#mountEditor(targetFile)
   }
 
   #mountEditor(filePath: string, highlightLine?: number) {
@@ -100,6 +130,11 @@ export class DevtoolsSource extends Element {
     }
     this.#editorView = new EditorView(opts)
     this.#activeFile = filePath
+
+    // Force a measure on the next frame so CodeMirror can calculate heights
+    // correctly — needed when the editor was created while the panel was hidden
+    // or before layout was complete.
+    requestAnimationFrame(() => this.#editorView?.requestMeasure())
 
     if (highlightLine && highlightLine > 0) {
       this.#scrollToLine(this.#editorView, highlightLine)
