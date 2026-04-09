@@ -74,6 +74,8 @@ Works with **WebdriverIO** and **[Nightwatch.js](./packages/nightwatch-devtools/
 npm install @wdio/devtools-service
 ```
 
+> **Nightwatch users:** `@wdio/nightwatch-devtools` is included as a dependency of `@wdio/devtools-service`. Install the service and import from `@wdio/nightwatch-devtools` directly — see the [Nightwatch Integration](#nightwatch-integration) section.
+
 ## Configuration
 
 Add the service to your `wdio.conf.js`:
@@ -112,7 +114,7 @@ pnpm demo
 
 Using [Nightwatch.js](https://nightwatchjs.org/)? A dedicated adapter package brings the same DevTools UI to your Nightwatch test suite with zero test code changes.
 
-→ **[`@wdio/nightwatch-devtools`](./packages/nightwatch-devtools/README.md)** — installation, configuration, and Cucumber/BDD setup.
+→ **[`@wdio/nightwatch-devtools`](./packages/nightwatch-devtools/README.md)** — configuration, Cucumber/BDD setup, and limitations.
 
 ## Project Structure
 
