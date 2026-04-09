@@ -1,6 +1,6 @@
 {
   "name": "@wdio/devtools-service",
-  "version": "10.2.1",
+  "version": "10.3.0",
   "description": "Hook up WebdriverIO with DevTools",
   "author": "Christian Bromann <mail@bromann.dev>",
   "repository": {

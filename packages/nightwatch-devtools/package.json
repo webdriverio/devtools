@@ -1,10 +1,26 @@
 {
   "name": "@wdio/nightwatch-devtools",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Nightwatch adapter for WebdriverIO DevTools - reuses existing backend, UI, and capture infrastructure",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/webdriverio/devtools.git",
+    "directory": "packages/nightwatch-devtools"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "nightwatch": {
     "plugin": true
   },
