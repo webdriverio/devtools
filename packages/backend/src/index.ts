@@ -1,3 +1,4 @@
+import fs from 'node:fs'
 import url from 'node:url'
 
 import Fastify, { type FastifyInstance, type FastifyRequest } from 'fastify'
@@ -21,6 +22,13 @@ interface DevtoolsBackendOptions {
 
 const log = logger('@wdio/devtools-backend')
 const clients = new Set<WebSocket>()
+
+/**
+ * Registry mapping sessionId → absolute path of the encoded .webm file.
+ * Populated when the service sends { scope: 'screencast', data: { sessionId, videoPath } }.
+ * Queried by GET /api/video/:sessionId.
+ */
+const videoRegistry = new Map<string, string>()
 
 export function broadcastToClients(message: string) {
   clients.forEach((client) => {
@@ -102,24 +110,45 @@ export async function start(
           `received ${message.length} byte message from worker to ${clients.size} client${clients.size > 1 ? 's' : ''}`
         )
 
-        // Parse message to check if it's a clearCommands message
+        // Parse message to check if it needs special handling
         try {
           const parsed = JSON.parse(message.toString())
 
-          // If this is a clearCommands message, transform it to clear-execution-data format
+          // Transform clearCommands → clearExecutionData for the UI
           if (parsed.scope === 'clearCommands') {
             const testUid = parsed.data?.testUid
             log.info(`Clearing commands for test: ${testUid || 'all'}`)
-
-            // Create a synthetic message that DataManager will understand
             const clearMessage = JSON.stringify({
               scope: 'clearExecutionData',
               data: { uid: testUid }
             })
-
             clients.forEach((client) => {
               if (client.readyState === WebSocket.OPEN) {
                 client.send(clearMessage)
+              }
+            })
+            return
+          }
+
+          // Intercept screencast messages: store the absolute videoPath in the
+          // registry (backend-only), then forward only the sessionId to the UI
+          // so the UI can request the video via GET /api/video/:sessionId.
+          if (parsed.scope === 'screencast' && parsed.data?.sessionId) {
+            const { sessionId, videoPath } = parsed.data
+            if (videoPath) {
+              videoRegistry.set(sessionId, videoPath)
+              log.info(
+                `Screencast registered for session ${sessionId}: ${videoPath}`
+              )
+            }
+            // Forward trimmed message (no videoPath) to UI clients
+            const uiMessage = JSON.stringify({
+              scope: 'screencast',
+              data: { sessionId }
+            })
+            clients.forEach((client) => {
+              if (client.readyState === WebSocket.OPEN) {
+                client.send(uiMessage)
               }
             })
             return
@@ -135,6 +164,29 @@ export async function start(
           }
         })
       })
+    }
+  )
+
+  // Serve recorded screencast videos. The service sends an absolute videoPath
+  // which is stored in videoRegistry; the UI only knows the sessionId and
+  // requests the file through this endpoint.
+  server.get(
+    '/api/video/:sessionId',
+    async (
+      request: FastifyRequest<{ Params: { sessionId: string } }>,
+      reply
+    ) => {
+      const { sessionId } = request.params
+      const videoPath = videoRegistry.get(sessionId)
+      if (!videoPath) {
+        return reply.code(404).send({ error: 'Video not found' })
+      }
+      if (!fs.existsSync(videoPath)) {
+        return reply.code(404).send({ error: 'Video file missing from disk' })
+      }
+      return reply
+        .header('Content-Type', 'video/webm')
+        .send(fs.createReadStream(videoPath))
     }
   )
 

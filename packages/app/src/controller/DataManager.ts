@@ -308,6 +308,14 @@ export class DataManagerController implements ReactiveController {
         return
       }
 
+      if (scope === 'screencast') {
+        const { sessionId } = data as { sessionId: string }
+        window.dispatchEvent(
+          new CustomEvent('screencast-ready', { detail: { sessionId } })
+        )
+        return
+      }
+
       if (scope === 'clearExecutionData') {
         const { uid, entryType } =
           data as SocketMessage<'clearExecutionData'>['data']
