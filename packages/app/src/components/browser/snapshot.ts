@@ -1,5 +1,5 @@
 import { Element } from '@core/element'
-import { html, css } from 'lit'
+import { html, css, nothing } from 'lit'
 import { consume } from '@lit/context'
 
 import { type ComponentChildren, h, render, type VNode } from 'preact'
@@ -18,6 +18,12 @@ import '~icons/mdi/world.js'
 import '../placeholder.js'
 
 const MUTATION_SELECTOR = '__mutation-highlight__'
+
+declare global {
+  interface WindowEventMap {
+    'screencast-ready': CustomEvent<{ sessionId: string }>
+  }
+}
 
 function transform(node: any): VNode<{}> {
   if (typeof node !== 'object' || node === null) {
@@ -47,6 +53,20 @@ export class DevtoolsBrowser extends Element {
   #activeUrl?: string
   /** Base64 PNG of the screenshot for the currently selected command, or null. */
   #screenshotData: string | null = null
+  /**
+   * All recorded videos received from the backend, in arrival order.
+   * Each entry is { sessionId, url } — a new entry is pushed for every
+   * browser session (initial + after every reloadSession() call).
+   */
+  #videos: Array<{ sessionId: string; url: string }> = []
+  /** Index into #videos of the currently displayed video. */
+  #activeVideoIdx = 0
+  /**
+   * Which view is active in the browser panel.
+   * 'video'    — always show the screencast player (default when a recording exists)
+   * 'snapshot' — show DOM mutations replay and per-command screenshots
+   */
+  #viewMode: 'snapshot' | 'video' = 'snapshot'
 
   @consume({ context: metadataContext, subscribe: true })
   metadata: Metadata | undefined = undefined
@@ -136,12 +156,62 @@ export class DevtoolsBrowser extends Element {
         display: block;
       }
 
+      .screencast-player {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        background: #111;
+        border-radius: 0 0 0.5rem 0.5rem;
+        display: block;
+      }
+
       .iframe-wrapper {
         position: relative;
         flex: 1;
         min-height: 0;
         display: flex;
         flex-direction: column;
+      }
+
+      .view-toggle {
+        display: flex;
+        gap: 2px;
+        margin-left: 0.5rem;
+        flex-shrink: 0;
+      }
+
+      .view-toggle button {
+        padding: 2px 10px;
+        font-size: 11px;
+        font-family: inherit;
+        border: 1px solid var(--vscode-editorSuggestWidget-border, #454545);
+        background: transparent;
+        color: var(--vscode-input-foreground, #ccc);
+        cursor: pointer;
+        border-radius: 3px;
+        line-height: 20px;
+        transition:
+          background 0.1s,
+          color 0.1s;
+      }
+
+      .view-toggle button.active {
+        background: var(--vscode-button-background, #0e639c);
+        color: var(--vscode-button-foreground, #fff);
+        border-color: transparent;
+      }
+
+      .video-select {
+        font-size: 11px;
+        font-family: inherit;
+        padding: 2px 4px;
+        border: 1px solid var(--vscode-dropdown-border, #454545);
+        border-radius: 3px;
+        background: var(--vscode-dropdown-background, #3c3c3c);
+        color: var(--vscode-dropdown-foreground, #ccc);
+        cursor: pointer;
+        line-height: 20px;
+        margin-left: 4px;
       }
     `
   ]
@@ -169,6 +239,10 @@ export class DevtoolsBrowser extends Element {
     window.addEventListener(
       'show-command',
       this.#handleShowCommand as EventListener
+    )
+    window.addEventListener(
+      'screencast-ready',
+      this.#handleScreencastReady as EventListener
     )
     await this.updateComplete
   }
@@ -215,8 +289,34 @@ export class DevtoolsBrowser extends Element {
       (event as CustomEvent<{ command?: CommandLog }>).detail?.command
     )
 
+  #handleScreencastReady = (event: Event) => {
+    const { sessionId } = (event as CustomEvent<{ sessionId: string }>).detail
+    this.#videos.push({ sessionId, url: `/api/video/${sessionId}` })
+    // Always show the latest video and switch to video mode automatically
+    this.#activeVideoIdx = this.#videos.length - 1
+    this.#viewMode = 'video'
+    this.requestUpdate()
+  }
+
+  #setViewMode(mode: 'snapshot' | 'video') {
+    this.#viewMode = mode
+    this.requestUpdate()
+  }
+
+  #setActiveVideo(idx: number) {
+    this.#activeVideoIdx = idx
+    this.requestUpdate()
+  }
+
+  /** URL of the currently selected video, or null when no videos exist. */
+  get #activeVideoUrl(): string | null {
+    return this.#videos[this.#activeVideoIdx]?.url ?? null
+  }
+
   async #renderCommandScreenshot(command?: CommandLog) {
     this.#screenshotData = command?.screenshot ?? null
+    // Switch to snapshot mode so the command screenshot is visible instead of the video.
+    this.#viewMode = 'snapshot'
     this.requestUpdate()
   }
 
@@ -461,32 +561,79 @@ export class DevtoolsBrowser extends Element {
             ></icon-mdi-world>
             <span class="truncate">${this.#activeUrl}</span>
           </div>
-        </header>
-        ${this.#screenshotData
-          ? html` <div class="iframe-wrapper">
-              <div
-                class="screenshot-overlay"
-                style="position:relative;flex:1;min-height:0;"
-              >
-                <img src="data:image/png;base64,${this.#screenshotData}" />
-              </div>
-            </div>`
-          : hasMutations
-            ? html` <div class="iframe-wrapper">
-                <iframe class="origin-top-left"></iframe>
-              </div>`
-            : displayScreenshot
-              ? html` <div class="iframe-wrapper">
-                  <div
-                    class="screenshot-overlay"
-                    style="position:relative;flex:1;min-height:0;"
+          ${this.#videos.length > 0
+            ? html`
+                <div class="view-toggle">
+                  <button
+                    class=${this.#viewMode === 'snapshot' ? 'active' : ''}
+                    @click=${() => this.#setViewMode('snapshot')}
                   >
-                    <img src="data:image/png;base64,${displayScreenshot}" />
-                  </div>
+                    Snapshot
+                  </button>
+                  <button
+                    class=${this.#viewMode === 'video' ? 'active' : ''}
+                    @click=${() => this.#setViewMode('video')}
+                  >
+                    Video
+                  </button>
+                  ${this.#videos.length > 1
+                    ? html`<select
+                        class="video-select"
+                        @change=${(e: Event) => {
+                          this.#setActiveVideo(
+                            Number((e.target as HTMLSelectElement).value)
+                          )
+                          this.#setViewMode('video')
+                        }}
+                      >
+                        ${this.#videos.map(
+                          (_v, i) =>
+                            html`<option
+                              value=${i}
+                              ?selected=${this.#activeVideoIdx === i}
+                            >
+                              Recording ${i + 1}
+                            </option>`
+                        )}
+                      </select>`
+                    : nothing}
+                </div>
+              `
+            : nothing}
+        </header>
+        ${this.#viewMode === 'video' && this.#activeVideoUrl
+          ? html`<div class="iframe-wrapper">
+              <video
+                class="screencast-player"
+                src="${this.#activeVideoUrl}"
+                controls
+              ></video>
+            </div>`
+          : this.#screenshotData
+            ? html`<div class="iframe-wrapper">
+                <div
+                  class="screenshot-overlay"
+                  style="position:relative;flex:1;min-height:0;"
+                >
+                  <img src="data:image/png;base64,${this.#screenshotData}" />
+                </div>
+              </div>`
+            : hasMutations
+              ? html`<div class="iframe-wrapper">
+                  <iframe class="origin-top-left"></iframe>
                 </div>`
-              : html`<wdio-devtools-placeholder
-                  style="height: 100%"
-                ></wdio-devtools-placeholder>`}
+              : displayScreenshot
+                ? html`<div class="iframe-wrapper">
+                    <div
+                      class="screenshot-overlay"
+                      style="position:relative;flex:1;min-height:0;"
+                    >
+                      <img src="data:image/png;base64,${displayScreenshot}" />
+                    </div>
+                  </div>`
+                : html`<wdio-devtools-placeholder
+                    style="height: 100%"
+                  ></wdio-devtools-placeholder>`}
       </section>
     `
   }
