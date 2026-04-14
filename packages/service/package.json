@@ -55,7 +55,7 @@
     "@wdio/globals": "9.27.0",
     "@wdio/protocols": "9.27.0",
     "typescript": "6.0.2",
-    "vite": "8.0.7",
+    "vite": "8.0.8",
     "vite-plugin-dts": "^4.5.4"
 
   },
