@@ -11,8 +11,16 @@ import { SessionCapturer } from './session.js'
 import { TestReporter } from './reporter.js'
 import { DevToolsAppLauncher } from './launcher.js'
 import { getBrowserObject } from './utils.js'
+import { ScreencastRecorder } from './screencast.js'
+import { encodeToVideo } from './video-encoder.js'
 import { parse } from 'stack-trace'
-import { type TraceLog, TraceType, type ServiceOptions } from './types.js'
+import {
+  type TraceLog,
+  TraceType,
+  type ServiceOptions,
+  type ScreencastOptions,
+  type ScreencastInfo
+} from './types.js'
 import {
   INTERNAL_COMMANDS,
   SPEC_FILE_PATTERN,
@@ -89,6 +97,12 @@ export default class DevToolsHookService implements Services.ServiceInstance {
   #sessionCapturer = new SessionCapturer()
   #browser?: WebdriverIO.Browser
   #bidiListenersSetup = false
+  #screencastRecorder?: ScreencastRecorder
+  #screencastOptions?: ScreencastOptions
+
+  constructor(serviceOptions: ServiceOptions = {}) {
+    this.#screencastOptions = serviceOptions.screencast
+  }
 
   /**
    * This is used to capture the command stack to ensure that we only capture
@@ -134,6 +148,16 @@ export default class DevToolsHookService implements Services.ServiceInstance {
       log.error(
         `Failed to inject script at session start: ${(err as Error).message}`
       )
+    }
+
+    /**
+     * Start screencast recording if the user has enabled it.
+     * Options come from the service constructor (services: [['devtools', { screencast: { enabled: true } }]]).
+     * Failures are non-fatal — a warning is logged and the session continues.
+     */
+    if (this.#screencastOptions?.enabled) {
+      this.#screencastRecorder = new ScreencastRecorder(this.#screencastOptions)
+      await this.#screencastRecorder.start(browser)
     }
 
     /**
@@ -233,9 +257,14 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     }
 
     /**
-     * propagate url change to devtools app
+     * On the first URL navigation, mark this moment as the start of meaningful
+     * recording so leading blank/black frames (browser not yet loaded, pre-test
+     * pauses, etc.) are trimmed from the encoded video.
+     * This fires via beforeCommand regardless of test runner (Mocha, Jasmine,
+     * Cucumber, or standalone), making it universally applicable.
      */
     if (command === 'url') {
+      this.#screencastRecorder?.setStartMarker()
       this.#sessionCapturer.sendUpstream('metadata', { url: args[0] })
     }
 
@@ -334,7 +363,11 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     if (!this.#browser) {
       return
     }
-    const outputDir = this.#browser.options.outputDir || process.cwd()
+
+    // Stop and encode the screencast for the current session.
+    await this.#finalizeScreencast(this.#browser.sessionId)
+
+    const outputDir = this.#outputDir
     const { ...options } = this.#browser.options
     const traceLog: TraceLog = {
       mutations: this.#sessionCapturer.mutations,
@@ -361,6 +394,88 @@ export default class DevToolsHookService implements Services.ServiceInstance {
 
     // Clean up console patching
     this.#sessionCapturer.cleanup()
+  }
+
+  /**
+   * Called by WebdriverIO after browser.reloadSession() completes.
+   * The old browser session (and its CDP connection) is destroyed at this
+   * point, so any in-flight screencast is already dead. We encode whatever
+   * frames were captured for the old session and then start a fresh recorder
+   * on the new session so the second scenario is also covered.
+   */
+  async onReload(oldSessionId: string, _newSessionId: string) {
+    if (!this.#screencastOptions?.enabled || !this.#browser) {
+      return
+    }
+
+    // Finalize the recording from the old session (CDP is already gone, so
+    // stop() will fail gracefully and we encode whatever frames arrived).
+    await this.#finalizeScreencast(oldSessionId)
+
+    // Start a new recorder for the new session.
+    this.#screencastRecorder = new ScreencastRecorder(this.#screencastOptions)
+    await this.#screencastRecorder.start(this.#browser)
+  }
+
+  /**
+   * Resolves the directory where devtools output files (trace JSON, video WebM)
+   * should be written, using the following priority:
+   *  1. `outputDir` if the user explicitly set it in wdio.conf — respected as-is.
+   *  2. `rootDir`   — WDIO automatically sets this to the directory containing
+   *                   wdio.conf.ts, so files always land next to the config file
+   *                   regardless of where the `wdio` command is invoked from.
+   *  3. `process.cwd()` — last-resort fallback.
+   *
+   * NOTE: Avoid setting `outputDir` in wdio.conf just to fix the output path —
+   * doing so redirects WDIO worker logs to files and silences the terminal.
+   * Rely on `rootDir` instead (it is set automatically by WDIO).
+   */
+  get #outputDir(): string {
+    const opts = this.#browser?.options as any
+    return opts?.outputDir || opts?.rootDir || process.cwd()
+  }
+
+  /**
+   * Stops the current screencast recorder, encodes collected frames into a
+   * .webm file, and notifies the backend. Safe to call even if recording
+   * never started or the CDP session died early.
+   */
+  async #finalizeScreencast(sessionId: string) {
+    if (!this.#screencastRecorder) {
+      return
+    }
+
+    await this.#screencastRecorder.stop()
+
+    // Skip ghost sessions: browser.reloadSession() creates a new session at the
+    // end of a test run that has no steps — it captures at most a handful of
+    // frames before teardown. Require at least 5 frames so we don't produce
+    // empty videos for these ephemeral sessions.
+    if (this.#screencastRecorder.frames.length < 5) {
+      return
+    }
+
+    const outputDir = this.#outputDir
+    const videoFile = `wdio-video-${sessionId}.webm`
+    const videoPath = path.join(outputDir, videoFile)
+    try {
+      await encodeToVideo(this.#screencastRecorder.frames, videoPath, {
+        captureFormat: this.#screencastOptions?.captureFormat
+      })
+      const screencastInfo: ScreencastInfo = {
+        sessionId,
+        videoPath,
+        videoFile,
+        frameCount: this.#screencastRecorder.frames.length,
+        duration: this.#screencastRecorder.duration
+      }
+      // Notify the backend (and then the UI) that a video is ready.
+      // The backend stores the absolute videoPath and exposes it via
+      // GET /api/video/:sessionId, forwarding only { sessionId } to the UI.
+      this.#sessionCapturer.sendUpstream('screencast', screencastInfo)
+    } catch (encodeErr) {
+      log.warn(`Screencast encode failed: ${(encodeErr as Error).message}`)
+    }
   }
 
   /**

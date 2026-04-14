@@ -63,7 +63,7 @@ export const config: Options.Testrunner = {
   capabilities: [
     {
       browserName: 'chrome',
-      browserVersion: '146.0.7680.178', // specify chromium browser version for testing
+      browserVersion: '147.0.7727.56', // specify chromium browser version for testing
       'goog:chromeOptions': {
         args: [
           '--headless',
@@ -127,7 +127,20 @@ export const config: Options.Testrunner = {
   // Services take over a specific job you don't want to take care of. They enhance
   // your test setup with almost no effort. Unlike plugins, they don't add new
   // commands. Instead, they hook themselves up into the test process.
-  services: ['devtools'],
+  services: [
+    [
+      'devtools',
+      {
+        screencast: {
+          enabled: true,
+          captureFormat: 'jpeg', // 'jpeg' or 'png' — frame format sent by Chrome over CDP
+          quality: 70, // JPEG quality 0–100
+          maxWidth: 1280, // max frame width in px
+          maxHeight: 720 // max frame height in px
+        }
+      }
+    ]
+  ],
   //
   // Framework you want to run your specs with.
   // The following are supported: Mocha, Jasmine, and Cucumber
