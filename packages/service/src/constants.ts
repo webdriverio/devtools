@@ -1,3 +1,14 @@
+import type { ScreencastOptions } from './types.js'
+
+export const SCREENCAST_DEFAULTS: Required<ScreencastOptions> = {
+  enabled: false,
+  captureFormat: 'jpeg',
+  quality: 70,
+  maxWidth: 1280,
+  maxHeight: 720,
+  pollIntervalMs: 200
+}
+
 export const PAGE_TRANSITION_COMMANDS: string[] = [
   'url',
   'navigateTo',
@@ -32,7 +43,7 @@ export const LOG_LEVEL_PATTERNS: ReadonlyArray<{
 /**
  * Visual indicators that suggest error-level logs
  */
-export const ERROR_INDICATORS = ['✗', '✓', 'failed', 'failure'] as const
+export const ERROR_INDICATORS = ['✗', 'failed', 'failure'] as const
 
 /**
  * Console log source types

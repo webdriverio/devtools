@@ -20,49 +20,26 @@ import { type CommandLog, type TraceLog, type LogLevel } from './types.js'
 
 const log = logger('@wdio/devtools-service:SessionCapturer')
 
-/**
- * Generic helper to strip ANSI escape codes from text
- */
-const stripAnsiCodes = (text: string): string => text.replace(ANSI_REGEX, '')
+const stripAnsi = (text: string) => text.replace(ANSI_REGEX, '')
 
-/**
- * Generic helper to detect log level from text content
- */
 const detectLogLevel = (text: string): LogLevel => {
-  const cleanText = stripAnsiCodes(text).toLowerCase()
-
-  // Check log level patterns in priority order
+  const t = stripAnsi(text).toLowerCase()
   for (const { level, pattern } of LOG_LEVEL_PATTERNS) {
-    if (pattern.test(cleanText)) {
+    if (pattern.test(t)) {
       return level
     }
   }
-
-  // Check for error indicators
-  if (
-    ERROR_INDICATORS.some((indicator) =>
-      cleanText.includes(indicator.toLowerCase())
-    )
-  ) {
+  if (ERROR_INDICATORS.some((i) => t.includes(i.toLowerCase()))) {
     return 'error'
   }
-
   return 'log'
 }
 
-/**
- * Generic helper to create a console log entry
- */
-const createConsoleLogEntry = (
+const toConsoleEntry = (
   type: LogLevel,
   args: any[],
   source: (typeof LOG_SOURCES)[keyof typeof LOG_SOURCES]
-): ConsoleLogs => ({
-  timestamp: Date.now(),
-  type,
-  args,
-  source
-})
+): ConsoleLogs => ({ timestamp: Date.now(), type, args, source })
 
 export class SessionCapturer {
   #ws: WebSocket | undefined
@@ -70,12 +47,16 @@ export class SessionCapturer {
   #originalConsoleMethods: Record<
     (typeof CONSOLE_METHODS)[number],
     typeof console.log
-  >
-  #originalProcessMethods: {
-    stdoutWrite: typeof process.stdout.write
-    stderrWrite: typeof process.stderr.write
+  > = {
+    log: console.log,
+    info: console.info,
+    warn: console.warn,
+    error: console.error
   }
-  #isCapturingConsole = false
+  #originalStdoutWrite = process.stdout.write.bind(process.stdout)
+  #originalStderrWrite = process.stderr.write.bind(process.stderr)
+  /** True while we are inside the patched console call — prevents double-capture via stream. */
+  #insideConsole = false
   commandsLog: CommandLog[] = []
   sources = new Map<string, string>()
   mutations: TraceMutation[] = []
@@ -114,112 +95,95 @@ export class SessionCapturer {
       )
     }
 
-    this.#originalConsoleMethods = {
-      log: console.log,
-      info: console.info,
-      warn: console.warn,
-      error: console.error
-    }
-
-    this.#originalProcessMethods = {
-      stdoutWrite: process.stdout.write.bind(process.stdout),
-      stderrWrite: process.stderr.write.bind(process.stderr)
-    }
-
     this.#patchConsole()
-    this.#interceptProcessStreams()
+    this.#patchStreams()
   }
 
+  /**
+   * Patch Node.js console methods so every console.log/info/warn/error call in
+   * the test runner process (test files, page-object helpers, etc.) is forwarded
+   * to the UI Console tab with source='test'.
+   */
   #patchConsole() {
     CONSOLE_METHODS.forEach((method) => {
-      const originalMethod = this.#originalConsoleMethods[method]
-      console[method] = (...consoleArgs: any[]) => {
-        const serializedArgs = consoleArgs.map((arg) =>
-          typeof arg === 'object' && arg !== null
+      const original = this.#originalConsoleMethods[method]
+      console[method] = (...args: any[]) => {
+        const serialized = args.map((a) =>
+          typeof a === 'object' && a !== null
             ? (() => {
                 try {
-                  return JSON.stringify(arg)
+                  return JSON.stringify(a)
                 } catch {
-                  return String(arg)
+                  return String(a)
                 }
               })()
-            : String(arg)
+            : String(a)
         )
+        const entry = toConsoleEntry(method, serialized, LOG_SOURCES.TEST)
+        this.consoleLogs.push(entry)
+        this.sendUpstream('consoleLogs', [entry])
 
-        const logEntry = createConsoleLogEntry(
-          method,
-          serializedArgs,
-          LOG_SOURCES.TEST
-        )
-        this.consoleLogs.push(logEntry)
-        this.sendUpstream('consoleLogs', [logEntry])
-
-        this.#isCapturingConsole = true
-        const result = originalMethod.apply(console, consoleArgs)
-        this.#isCapturingConsole = false
+        this.#insideConsole = true
+        const result = original.apply(console, args)
+        this.#insideConsole = false
         return result
       }
     })
   }
 
-  #interceptProcessStreams() {
-    const captureTerminalOutput = (outputData: string | Uint8Array) => {
-      const outputText =
-        typeof outputData === 'string' ? outputData : outputData.toString()
-      if (!outputText?.trim()) {
+  /**
+   * Patch process.stdout / process.stderr so all terminal output (WDIO
+   * framework logs, reporter output, etc.) is also forwarded to the UI
+   * Console tab with source='terminal'.  The original write is always
+   * called first so actual terminal output is never suppressed.
+   */
+  #patchStreams() {
+    const forward = (raw: string | Uint8Array) => {
+      const text = typeof raw === 'string' ? raw : raw.toString()
+      if (!text.trim()) {
         return
       }
-
-      outputText
+      text
         .split('\n')
-        .filter((line) => line.trim())
+        .filter((l) => l.trim())
         .forEach((line) => {
-          const logEntry = createConsoleLogEntry(
+          const entry = toConsoleEntry(
             detectLogLevel(line),
-            [stripAnsiCodes(line)],
+            [stripAnsi(line)],
             LOG_SOURCES.TERMINAL
           )
-          this.consoleLogs.push(logEntry)
-          this.sendUpstream('consoleLogs', [logEntry])
+          this.consoleLogs.push(entry)
+          this.sendUpstream('consoleLogs', [entry])
         })
     }
 
-    const interceptStreamWrite = (
+    const wrap = (
       stream: NodeJS.WriteStream,
-      originalWriteMethod: (...args: any[]) => boolean
+      original: (...a: any[]) => boolean
     ) => {
-      const capturer = this
-      stream.write = function (chunk: any, ...additionalArgs: any[]): boolean {
-        const writeResult = originalWriteMethod.call(
-          stream,
-          chunk,
-          ...additionalArgs
-        )
-        if (chunk && !capturer.#isCapturingConsole) {
-          captureTerminalOutput(chunk)
+      stream.write = ((chunk: any, ...rest: any[]): boolean => {
+        const result = original.call(stream, chunk, ...rest)
+        if (chunk && !this.#insideConsole) {
+          forward(chunk)
         }
-        return writeResult
-      } as any
+        return result
+      }) as any
     }
 
-    interceptStreamWrite(
-      process.stdout,
-      this.#originalProcessMethods.stdoutWrite
-    )
-    interceptStreamWrite(
-      process.stderr,
-      this.#originalProcessMethods.stderrWrite
-    )
+    wrap(process.stdout, this.#originalStdoutWrite)
+    wrap(process.stderr, this.#originalStderrWrite)
   }
 
-  #restoreConsole() {
+  /**
+   * Restore all patched methods. Must be called in after() so subsequent
+   * test runs (or the WDIO reporter teardown) see the real stdout/stderr.
+   */
+  cleanup() {
     CONSOLE_METHODS.forEach((method) => {
       console[method] = this.#originalConsoleMethods[method]
     })
-  }
-
-  cleanup() {
-    this.#restoreConsole()
+    process.stdout.write = this.#originalStdoutWrite as any
+    process.stderr.write = this.#originalStderrWrite as any
   }
 
   get isReportingUpstream() {
