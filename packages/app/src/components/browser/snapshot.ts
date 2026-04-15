@@ -574,7 +574,7 @@ export class DevtoolsBrowser extends Element {
                     class=${this.#viewMode === 'video' ? 'active' : ''}
                     @click=${() => this.#setViewMode('video')}
                   >
-                    Video
+                    Screencast
                   </button>
                   ${this.#videos.length > 1
                     ? html`<select
