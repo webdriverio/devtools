@@ -39,6 +39,19 @@ export function broadcastToClients(message: string) {
   })
 }
 
+function serveVideo(sessionId: string, reply: any) {
+  const videoPath = videoRegistry.get(sessionId)
+  if (!videoPath) {
+    return reply.code(404).send({ error: 'Video not found' })
+  }
+  if (!fs.existsSync(videoPath)) {
+    return reply.code(404).send({ error: 'Video file missing from disk' })
+  }
+  return reply
+    .header('Content-Type', 'video/webm')
+    .send(fs.createReadStream(videoPath))
+}
+
 export async function start(
   opts: DevtoolsBackendOptions = {}
 ): Promise<{ server: FastifyInstance; port: number }> {
@@ -188,16 +201,7 @@ export async function start(
       reply
     ) => {
       const { sessionId } = request.params
-      const videoPath = videoRegistry.get(sessionId)
-      if (!videoPath) {
-        return reply.code(404).send({ error: 'Video not found' })
-      }
-      if (!fs.existsSync(videoPath)) {
-        return reply.code(404).send({ error: 'Video file missing from disk' })
-      }
-      return reply
-        .header('Content-Type', 'video/webm')
-        .send(fs.createReadStream(videoPath))
+      return serveVideo(sessionId, reply)
     }
   )
 
