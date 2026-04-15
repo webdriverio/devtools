@@ -179,12 +179,10 @@ export async function start(
   server.get(
     '/api/video/:sessionId',
     {
-      config: {
-        rateLimit: {
-          max: 30,
-          timeWindow: '1 minute'
-        }
-      }
+      preHandler: server.rateLimit({
+        max: 30,
+        timeWindow: '1 minute'
+      })
     },
     async (
       request: FastifyRequest<{ Params: { sessionId: string } }>,
