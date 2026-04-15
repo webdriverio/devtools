@@ -3,6 +3,7 @@ import url from 'node:url'
 
 import Fastify, { type FastifyInstance, type FastifyRequest } from 'fastify'
 import staticServer from '@fastify/static'
+import rateLimit from '@fastify/rate-limit'
 import websocket from '@fastify/websocket'
 import getPort from 'get-port'
 import logger from '@wdio/logger'
@@ -54,6 +55,11 @@ export async function start(
   const appPath = await getDevtoolsApp()
 
   server = Fastify({ logger: true })
+  await server.register(rateLimit, {
+    global: false,
+    max: 100,
+    timeWindow: '1 minute'
+  })
   await server.register(websocket)
   await server.register(staticServer, {
     root: appPath
@@ -172,6 +178,14 @@ export async function start(
   // requests the file through this endpoint.
   server.get(
     '/api/video/:sessionId',
+    {
+      config: {
+        rateLimit: {
+          max: 30,
+          timeWindow: '1 minute'
+        }
+      }
+    },
     async (
       request: FastifyRequest<{ Params: { sessionId: string } }>,
       reply
