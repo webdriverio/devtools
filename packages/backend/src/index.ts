@@ -56,7 +56,6 @@ export async function start(
 
   server = Fastify({ logger: true })
   await server.register(rateLimit, {
-    global: false,
     max: 100,
     timeWindow: '1 minute'
   })
