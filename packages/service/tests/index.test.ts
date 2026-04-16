@@ -14,18 +14,44 @@ const mockSessionCapturerInstance = {
   afterCommand: vi.fn(),
   sendUpstream: vi.fn(),
   injectScript: vi.fn().mockResolvedValue(undefined),
+  cleanup: vi.fn(),
   commandsLog: [],
   sources: new Map(),
   mutations: [],
   traceLogs: [],
   consoleLogs: [],
-  isReportingUpstream: false
+  networkRequests: [],
+  isReportingUpstream: false,
+  metadata: { url: 'http://test.com', viewport: {} }
 }
 
 vi.mock('../src/session.js', () => ({
   SessionCapturer: vi.fn(function (this: any) {
     return mockSessionCapturerInstance
   })
+}))
+
+const mockScreencastRecorder = {
+  start: vi.fn().mockResolvedValue(undefined),
+  stop: vi.fn().mockResolvedValue(undefined),
+  setStartMarker: vi.fn(),
+  frames: [] as any[],
+  duration: 0,
+  isRecording: false
+}
+
+vi.mock('../src/screencast.js', () => ({
+  ScreencastRecorder: vi.fn(function () {
+    return mockScreencastRecorder
+  })
+}))
+
+vi.mock('../src/video-encoder.js', () => ({
+  encodeToVideo: vi.fn().mockResolvedValue(undefined)
+}))
+
+vi.mock('node:fs/promises', () => ({
+  default: { writeFile: vi.fn().mockResolvedValue(undefined) }
 }))
 
 describe('DevtoolsService - Internal Command Filtering', () => {
@@ -110,5 +136,116 @@ describe('DevtoolsService - Internal Command Filtering', () => {
       expect(capturedCommands).not.toContain('getTitle')
       expect(capturedCommands).not.toContain('waitUntil')
     })
+  })
+})
+
+describe('DevtoolsService - Screencast Integration', () => {
+  let service: DevToolsHookService
+  const mockBrowser = {
+    isBidi: true,
+    sessionId: 'session-123',
+    scriptAddPreloadScript: vi.fn().mockResolvedValue(undefined),
+    takeScreenshot: vi.fn().mockResolvedValue('screenshot'),
+    execute: vi.fn().mockResolvedValue({
+      width: 1200,
+      height: 800,
+      offsetLeft: 0,
+      offsetTop: 0
+    }),
+    on: vi.fn(),
+    emit: vi.fn(),
+    options: { rootDir: '/project/example' },
+    capabilities: { browserName: 'chrome' }
+  } as any
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockScreencastRecorder.frames = []
+    mockScreencastRecorder.duration = 0
+  })
+
+  it('full lifecycle: start → setStartMarker on url → encode on after() → notify backend', async () => {
+    const { encodeToVideo } = await import('../src/video-encoder.js')
+    service = new DevToolsHookService({ screencast: { enabled: true } })
+    await service.before({} as any, [], mockBrowser)
+
+    // Recorder started
+    expect(mockScreencastRecorder.start).toHaveBeenCalledWith(mockBrowser)
+
+    // setStartMarker fires on 'url', not on 'click'
+    service.beforeCommand('click' as any, ['.button'])
+    expect(mockScreencastRecorder.setStartMarker).not.toHaveBeenCalled()
+    service.beforeCommand('url' as any, ['https://example.com'])
+    expect(mockScreencastRecorder.setStartMarker).toHaveBeenCalled()
+
+    // after() stops, encodes, and notifies
+    mockScreencastRecorder.frames = Array(10).fill({
+      data: 'framedata',
+      timestamp: 1000
+    })
+    mockScreencastRecorder.duration = 5000
+    await service.after()
+
+    expect(mockScreencastRecorder.stop).toHaveBeenCalled()
+    expect(encodeToVideo).toHaveBeenCalledWith(
+      mockScreencastRecorder.frames,
+      expect.stringContaining('wdio-video-session-123.webm'),
+      expect.any(Object)
+    )
+    expect(mockSessionCapturerInstance.sendUpstream).toHaveBeenCalledWith(
+      'screencast',
+      expect.objectContaining({
+        sessionId: 'session-123',
+        frameCount: 10,
+        duration: 5000
+      })
+    )
+  })
+
+  it('skips when disabled, skips ghost sessions, and swallows encode errors', async () => {
+    const { encodeToVideo } = await import('../src/video-encoder.js')
+
+    // Disabled — recorder never starts
+    service = new DevToolsHookService({})
+    await service.before({} as any, [], mockBrowser)
+    expect(mockScreencastRecorder.start).not.toHaveBeenCalled()
+
+    // Ghost session — <5 frames, encoding skipped
+    service = new DevToolsHookService({ screencast: { enabled: true } })
+    await service.before({} as any, [], mockBrowser)
+    mockScreencastRecorder.frames = Array(3).fill({
+      data: 'f',
+      timestamp: 1000
+    })
+    vi.mocked(encodeToVideo).mockClear()
+    await service.after()
+    expect(encodeToVideo).not.toHaveBeenCalled()
+
+    // Encode error — swallowed, doesn't throw
+    service = new DevToolsHookService({ screencast: { enabled: true } })
+    await service.before({} as any, [], mockBrowser)
+    mockScreencastRecorder.frames = Array(10).fill({
+      data: 'f',
+      timestamp: 1000
+    })
+    vi.mocked(encodeToVideo).mockRejectedValueOnce(new Error('ffmpeg missing'))
+    await expect(service.after()).resolves.toBeUndefined()
+  })
+
+  it('onReload finalizes old session and starts fresh recorder', async () => {
+    const { ScreencastRecorder } = await import('../src/screencast.js')
+    service = new DevToolsHookService({ screencast: { enabled: true } })
+    await service.before({} as any, [], mockBrowser)
+    vi.clearAllMocks()
+
+    mockScreencastRecorder.frames = Array(10).fill({
+      data: 'f',
+      timestamp: 1000
+    })
+    await service.onReload('old-session', 'new-session')
+
+    expect(mockScreencastRecorder.stop).toHaveBeenCalled()
+    expect(ScreencastRecorder).toHaveBeenCalled()
+    expect(mockScreencastRecorder.start).toHaveBeenCalledWith(mockBrowser)
   })
 })

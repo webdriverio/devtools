@@ -37,6 +37,14 @@ Works with **WebdriverIO** and **[Nightwatch.js](./packages/nightwatch-devtools/
 - **Actions Tab Auto-Clear**: Execution data automatically clears and refreshes on reruns
 - **Metadata Tracking**: Test duration, status, and execution timestamps
 
+### 🎬 Session Screencast
+- **Automatic Video Recording**: Captures a continuous `.webm` video of the browser session alongside the existing snapshot and DOM mutation views
+- **Cross-Browser**: Uses Chrome DevTools Protocol (CDP) push mode for Chrome/Chromium; automatically falls back to screenshot polling for Firefox, Safari, and other browsers — no configuration change needed
+- **Per-Session Videos**: Each browser session (including sessions created by `browser.reloadSession()`) produces its own recording, selectable from a dropdown in the UI
+- **Smart Trimming**: Leading blank frames before the first URL navigation are automatically removed so videos start at the first meaningful page action
+
+> For setup, configuration options, and prerequisites see the **[service README](./packages/service/README.md#screencast-recording)**.
+
 ### 🔍︎ TestLens
 - **Code Intelligence**: View test definitions directly in your editor
 - **Run/Debug Actions**: Execute individual tests or suites with inline CodeLens actions
@@ -67,6 +75,9 @@ Works with **WebdriverIO** and **[Nightwatch.js](./packages/nightwatch-devtools/
 <img src="https://github.com/user-attachments/assets/2cca4885-f989-4d07-b7ce-a4fa476c3c1c" alt="Network Logs 1" width="400" />
 
 <img src="https://github.com/user-attachments/assets/0f81e0af-75b5-454f-bffb-e40654c89908" alt="Network Logs 2" width="400" />
+
+### 🎬 Session Screencast
+
 
 ## Installation
 

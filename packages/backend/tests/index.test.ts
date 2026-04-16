@@ -26,6 +26,29 @@ describe('backend index', () => {
     })
   })
 
+  describe('video endpoint', () => {
+    it('should return 404 for unknown session and respect rate limit', async () => {
+      vi.mocked(utils.getDevtoolsApp).mockResolvedValue('/mock/app/path')
+      const { server } = await start({ port: 0 })
+
+      // Unknown sessionId → 404
+      const res = await server?.inject({
+        method: 'GET',
+        url: '/api/video/unknown-session'
+      })
+      expect(res?.statusCode).toBe(404)
+      expect(JSON.parse(res?.body || '{}')).toEqual({
+        error: 'Video not found'
+      })
+
+      // Rate limit header is present (proves preHandler is active)
+      const headers = res?.headers || {}
+      expect(headers['x-ratelimit-limit']).toBeDefined()
+
+      await server?.close()
+    })
+  })
+
   describe('API endpoints', () => {
     it('should handle test run and stop requests with validation', async () => {
       vi.mocked(utils.getDevtoolsApp).mockResolvedValue('/mock/app/path')
