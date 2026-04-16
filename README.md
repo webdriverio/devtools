@@ -39,7 +39,7 @@ Works with **WebdriverIO** and **[Nightwatch.js](./packages/nightwatch-devtools/
 
 ### 🎬 Session Screencast
 - **Automatic Video Recording**: Captures a continuous `.webm` video of the browser session alongside the existing snapshot and DOM mutation views
-- **Cross-Browser**: Uses Chrome DevTools Protocol (CDP) push mode for Chrome/Chromium; automatically falls back to screenshot polling for Firefox, Safari, and other browsers — no configuration change needed
+- **Cross-Browser**: Uses Chrome DevTools Protocol (CDP) push mode for Chrome/Chromium; automatically falls back to screenshot polling for Firefox, Safari, and other browsers (no configuration change needed)
 - **Per-Session Videos**: Each browser session (including sessions created by `browser.reloadSession()`) produces its own recording, selectable from a dropdown in the UI
 - **Smart Trimming**: Leading blank frames before the first URL navigation are automatically removed so videos start at the first meaningful page action
 
@@ -77,6 +77,7 @@ Works with **WebdriverIO** and **[Nightwatch.js](./packages/nightwatch-devtools/
 <img src="https://github.com/user-attachments/assets/0f81e0af-75b5-454f-bffb-e40654c89908" alt="Network Logs 2" width="400" />
 
 ### 🎬 Session Screencast
+<img src="https://github.com/user-attachments/assets/65914424-480f-4b50-b54a-69e659710f15" alt="Screencast" width="400" />
 
 
 ## Installation
