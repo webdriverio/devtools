@@ -43,6 +43,9 @@ Works with **WebdriverIO** and **[Nightwatch.js](./packages/nightwatch-devtools/
 - **Per-Session Videos**: Each browser session (including sessions created by `browser.reloadSession()`) produces its own recording, selectable from a dropdown in the UI
 - **Smart Trimming**: Leading blank frames before the first URL navigation are automatically removed so videos start at the first meaningful page action
 
+> **Note:** Screencast recording is currently supported for **WebdriverIO only**. Nightwatch.js support is planned for a future release.
+>
+
 > For setup, configuration options, and prerequisites see the **[service README](./packages/service/README.md#screencast-recording)**.
 
 ### 🔍︎ TestLens
@@ -78,7 +81,6 @@ Works with **WebdriverIO** and **[Nightwatch.js](./packages/nightwatch-devtools/
 
 ### 🎬 Session Screencast
 <img src="https://github.com/user-attachments/assets/65914424-480f-4b50-b54a-69e659710f15" alt="Screencast" width="400" />
-
 
 ## Installation
 
