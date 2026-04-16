@@ -50,7 +50,9 @@ services: [['devtools', options]]
 
 ## Screencast Recording
 
-Records browser sessions as `.webm` videos using the Chrome DevTools Protocol. Videos are displayed in the DevTools UI alongside the snapshot and DOM mutation views.
+Records browser sessions as `.webm` videos. Videos are displayed in the DevTools UI alongside the snapshot and DOM mutation views.
+
+> **Note:** Screencast recording is currently supported for **WebdriverIO only**. Nightwatch.js support is planned for a future release.
 
 ### Setup
 
