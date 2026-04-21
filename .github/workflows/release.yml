@@ -48,11 +48,12 @@ jobs:
       - name: Build
         run: |
           pnpm --filter "@wdio/devtools-script" build
-          pnpm --filter "@wdio/devtools-app" build
           pnpm --filter "@wdio/devtools-backend" build
           pnpm --filter "@wdio/devtools-service" build
+          pnpm --filter "@wdio/devtools-app" build
           pnpm --filter "@wdio/nightwatch-devtools" build
       - name: Release
-        run: pnpm -r publish --access public --no-git-checks
+        run: pnpm -r publish --access public --no-git-checks --tag ${{ github.event.inputs.distTag }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
