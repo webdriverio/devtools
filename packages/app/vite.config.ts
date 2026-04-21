@@ -8,14 +8,11 @@ const __dirname = url.fileURLToPath(new URL('.', import.meta.url))
 
 export default defineConfig({
   resolve: {
+    // Force all codemirror packages to use the same @codemirror/state instance,
+    // preventing the "multiple instances" error when mixing codemirror meta-package
+    // with direct @codemirror/* imports under pnpm.
+    dedupe: ['@codemirror/state'],
     alias: {
-      // Force all codemirror packages to use the same @codemirror/state instance,
-      // preventing the "multiple instances" error when mixing codemirror meta-package
-      // with direct @codemirror/* imports under pnpm.
-      '@codemirror/state': path.resolve(
-        __dirname,
-        '../../node_modules/.pnpm/@codemirror+view@6.41.0/node_modules/@codemirror/state'
-      ),
       '@': path.resolve(__dirname, './src'),
       '@core': path.resolve(__dirname, './src/core'),
       '@components': path.resolve(__dirname, './src/components'),
