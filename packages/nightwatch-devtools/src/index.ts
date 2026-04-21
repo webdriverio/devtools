@@ -119,7 +119,8 @@ class NightwatchDevToolsPlugin {
         this.options.hostname
       )
       log.info('🚀 Starting DevTools backend...')
-      await start(this.options)
+      const { port } = await start(this.options)
+      this.options.port = port
       const url = `http://${this.options.hostname}:${this.options.port}`
       log.info(`✓ Backend started on port ${this.options.port}`)
       log.info(`  DevTools UI: ${url}`)

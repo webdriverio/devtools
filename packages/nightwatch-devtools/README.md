@@ -2,7 +2,9 @@
 
 > Nightwatch adapter for [WebdriverIO DevTools](../../README.md) - brings the same visual debugging UI to your Nightwatch test suite with zero test code changes.
 
-> **Note:** `@wdio/nightwatch-devtools` is included as a dependency of `@wdio/devtools-service`. Install the service package and import from `@wdio/nightwatch-devtools` directly.
+```bash
+npm install @wdio/nightwatch-devtools
+```
 
 ---
 

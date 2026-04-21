@@ -70,11 +70,17 @@ Works with **WebdriverIO** and **[Nightwatch.js](./packages/nightwatch-devtools/
 
 ## Installation
 
+**WebdriverIO:**
 ```bash
 npm install @wdio/devtools-service
 ```
 
-> **Nightwatch users:** `@wdio/nightwatch-devtools` is included as a dependency of `@wdio/devtools-service`. Install the service and import from `@wdio/nightwatch-devtools` directly — see the [Nightwatch Integration](#nightwatch-integration) section.
+**Nightwatch:**
+```bash
+npm install @wdio/nightwatch-devtools
+```
+
+> See the [Nightwatch Integration](#nightwatch-integration) section for configuration details.
 
 ## Configuration
 
