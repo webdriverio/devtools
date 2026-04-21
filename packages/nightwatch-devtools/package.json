@@ -1,6 +1,6 @@
 {
   "name": "@wdio/nightwatch-devtools",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Nightwatch adapter for WebdriverIO DevTools - reuses existing backend, UI, and capture infrastructure",
   "type": "module",
   "main": "dist/index.js",
