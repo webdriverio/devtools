@@ -39,7 +39,11 @@ export interface SocketMessage<
   data: T extends keyof TraceLog
     ? TraceLog[T]
     : T extends 'clearExecutionData'
-      ? { uid?: string; entryType?: 'suite' | 'test' }
+      ? {
+          uid?: string
+          entryType?: 'suite' | 'test'
+          clearSuiteTree?: boolean
+        }
       : T extends 'replaceCommand'
         ? { oldTimestamp: number; command: CommandLog }
         : unknown
