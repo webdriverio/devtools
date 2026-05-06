@@ -317,9 +317,15 @@ export class DataManagerController implements ReactiveController {
       }
 
       if (scope === 'clearExecutionData') {
-        const { uid, entryType } =
+        const { uid, entryType, clearSuiteTree } =
           data as SocketMessage<'clearExecutionData'>['data']
         this.clearExecutionData(uid, entryType)
+        if (clearSuiteTree) {
+          this.suitesContextProvider.setValue([])
+          this.#activeRerunTestUid = undefined
+          rerunState.activeRerunSuiteUid = undefined
+          this.#lastSeenRunTimestamp = 0
+        }
         this.#host.requestUpdate()
         return
       }
@@ -542,14 +548,22 @@ export class DataManagerController implements ReactiveController {
 
   #handleReplaceCommand(oldTimestamp: number, newCommand: CommandLog) {
     const current = this.commandsContextProvider.value || []
-    // Find the last entry with the matching timestamp (most recent retry)
-    const idx = current.map((c) => c.timestamp).lastIndexOf(oldTimestamp)
+    // Prefer stable `id` — chained selenium calls share a millisecond.
+    let idx = -1
+    const newId = (newCommand as CommandLog & { id?: number }).id
+    if (typeof newId === 'number') {
+      idx = current.findIndex(
+        (c) => (c as CommandLog & { id?: number }).id === newId
+      )
+    }
+    if (idx === -1) {
+      idx = current.map((c) => c.timestamp).lastIndexOf(oldTimestamp)
+    }
     if (idx !== -1) {
       const updated = [...current]
       updated[idx] = newCommand
       this.commandsContextProvider.setValue(updated)
     } else {
-      // No matching entry found — just append
       this.commandsContextProvider.setValue([...current, newCommand])
     }
   }
@@ -562,10 +576,28 @@ export class DataManagerController implements ReactiveController {
   }
 
   #handleNetworkRequestsUpdate(data: NetworkRequest[]) {
-    this.networkRequestsContextProvider.setValue([
-      ...(this.networkRequestsContextProvider.value || []),
-      ...data
-    ])
+    const current = this.networkRequestsContextProvider.value || []
+    const byId = new Map<string, number>()
+    current.forEach((r, i) => {
+      if (r?.id) {
+        byId.set(r.id, i)
+      }
+    })
+    const next = [...current]
+    for (const incoming of data) {
+      if (!incoming?.id) {
+        next.push(incoming)
+        continue
+      }
+      const existingIdx = byId.get(incoming.id)
+      if (existingIdx !== undefined) {
+        next[existingIdx] = incoming
+      } else {
+        byId.set(incoming.id, next.length)
+        next.push(incoming)
+      }
+    }
+    this.networkRequestsContextProvider.setValue(next)
   }
 
   #handleMetadataUpdate(data: Metadata) {

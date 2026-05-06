@@ -17,6 +17,7 @@ export class DevtoolsSidebar extends Element {
         border-right: 1px solid var(--vscode-panel-border) !important;
         display: flex;
         flex-direction: column;
+        height: 100%;
       }
     `
   ]

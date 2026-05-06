@@ -23,6 +23,8 @@ export interface RunnerOptions {
   configFile?: string
   configFilePath?: string
   runCapabilities?: Partial<RunCapabilities>
+  rerunCommand?: string
+  launchCommand?: string
 }
 
 export interface TestRunDetail {

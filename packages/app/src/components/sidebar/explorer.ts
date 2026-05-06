@@ -49,6 +49,7 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
         display: flex;
         flex-direction: column;
         min-height: 0;
+        flex: 1 1 auto;
       }
 
       header {
@@ -120,7 +121,9 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
       runAll: detail.uid === '*',
       framework: this.#getFramework(),
       specFile: detail.specFile || this.#deriveSpecFile(detail),
-      configFile: this.#getConfigPath()
+      configFile: this.#getConfigPath(),
+      rerunCommand: this.#getRerunCommand(),
+      launchCommand: this.#getLaunchCommand()
     }
     await this.#postToBackend('/api/tests/run', payload)
   }
@@ -199,7 +202,9 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
       entryType: 'suite',
       runAll: true,
       framework: this.#getFramework(),
-      configFile: this.#getConfigPath()
+      configFile: this.#getConfigPath(),
+      rerunCommand: this.#getRerunCommand(),
+      launchCommand: this.#getLaunchCommand()
     })
   }
 
@@ -275,6 +280,14 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
   #getConfigPath(): string | undefined {
     const options = this.#getRunnerOptions()
     return options?.configFilePath || options?.configFile
+  }
+
+  #getRerunCommand(): string | undefined {
+    return this.#getRunnerOptions()?.rerunCommand
+  }
+
+  #getLaunchCommand(): string | undefined {
+    return this.#getRunnerOptions()?.launchCommand
   }
 
   #renderEntry(entry: TestEntry): TemplateResult {
