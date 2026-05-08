@@ -150,38 +150,32 @@ class TestRunner {
   #child?: ChildProcess
   #lastPayload?: RunnerRequestBody
   #baseDir = process.cwd()
+  // Set on rerun spawn; consumed once by the next worker handshake so the
+  // accumulated suite tree is preserved instead of wiped.
+  #expectingRerunChild = false
+  consumeRerunChildFlag(): boolean {
+    const v = this.#expectingRerunChild
+    this.#expectingRerunChild = false
+    return v
+  }
 
   async run(payload: RunnerRequestBody) {
     if (this.#child) {
-      // A run is already in progress — stop it first so the new one can start.
       this.stop()
-      // Give the killed process a moment to release resources before spawning.
       await new Promise<void>((resolve) => setTimeout(resolve, 500))
     }
+    // devtoolsHost/Port in the payload = REUSE handshake (rerun child).
+    this.#expectingRerunChild = Boolean(
+      payload.devtoolsHost && payload.devtoolsPort
+    )
 
     const isNightwatch = (payload.framework || '')
       .toLowerCase()
       .startsWith('nightwatch')
-    const configPath = this.#resolveConfigPath(payload)
-    this.#baseDir = process.env.DEVTOOLS_RUNNER_CWD || path.dirname(configPath)
-
-    let args: string[]
-    if (isNightwatch) {
-      const nightwatchBin = resolveNightwatchBin(this.#baseDir)
-      args = [
-        nightwatchBin,
-        '--config',
-        configPath,
-        ...this.#buildFilters(payload)
-      ].filter(Boolean)
-    } else {
-      args = [
-        wdioBin,
-        'run',
-        configPath,
-        ...this.#buildFilters(payload)
-      ].filter(Boolean)
-    }
+    // Used when a plugin supplies its own rerun template (e.g. selenium —
+    // runs under mocha/jest/vitest/cucumber, none of which use wdioBin).
+    const isGenericShell =
+      !isNightwatch && Boolean(payload.rerunCommand || payload.launchCommand)
 
     const childEnv = { ...process.env }
     if (payload.devtoolsHost && payload.devtoolsPort) {
@@ -189,22 +183,55 @@ class TestRunner {
       childEnv.DEVTOOLS_APP_PORT = String(payload.devtoolsPort)
       childEnv.DEVTOOLS_APP_REUSE = '1'
     }
-    if (isNightwatch) {
-      if (payload.entryType === 'test' && payload.label) {
-        childEnv.DEVTOOLS_RERUN_ENTRY_TYPE = 'test'
-        childEnv.DEVTOOLS_RERUN_LABEL = payload.label
-      } else {
-        delete childEnv.DEVTOOLS_RERUN_ENTRY_TYPE
-        delete childEnv.DEVTOOLS_RERUN_LABEL
-      }
-    }
 
-    const child = spawn(process.execPath, args, {
-      cwd: this.#baseDir,
-      env: childEnv,
-      stdio: 'inherit',
-      detached: false
-    })
+    let child: ChildProcess
+    if (isGenericShell) {
+      const command = this.#resolveGenericCommand(payload)
+      this.#baseDir = process.env.DEVTOOLS_RUNNER_CWD || process.cwd()
+      child = spawn(command, {
+        cwd: this.#baseDir,
+        env: childEnv,
+        stdio: 'inherit',
+        detached: false,
+        shell: true
+      })
+    } else {
+      const configPath = this.#resolveConfigPath(payload)
+      this.#baseDir =
+        process.env.DEVTOOLS_RUNNER_CWD || path.dirname(configPath)
+      let args: string[]
+      if (isNightwatch) {
+        const nightwatchBin = resolveNightwatchBin(this.#baseDir)
+        args = [
+          nightwatchBin,
+          '--config',
+          configPath,
+          ...this.#buildFilters(payload)
+        ].filter(Boolean)
+      } else {
+        args = [
+          wdioBin,
+          'run',
+          configPath,
+          ...this.#buildFilters(payload)
+        ].filter(Boolean)
+      }
+      if (isNightwatch) {
+        if (payload.entryType === 'test' && payload.label) {
+          childEnv.DEVTOOLS_RERUN_ENTRY_TYPE = 'test'
+          childEnv.DEVTOOLS_RERUN_LABEL = payload.label
+        } else {
+          delete childEnv.DEVTOOLS_RERUN_ENTRY_TYPE
+          delete childEnv.DEVTOOLS_RERUN_LABEL
+        }
+      }
+      child = spawn(process.execPath, args, {
+        cwd: this.#baseDir,
+        env: childEnv,
+        stdio: 'inherit',
+        detached: false
+      })
+    }
 
     this.#child = child
     this.#lastPayload = payload
@@ -221,9 +248,26 @@ class TestRunner {
         this.#child = undefined
         this.#lastPayload = undefined
         this.#baseDir = process.cwd()
+        this.#expectingRerunChild = false
         reject(error)
       })
     })
+  }
+
+  // Targeted reruns substitute {{testName}} into rerunCommand; suite filtering
+  // works because mocha/jest/cucumber filter flags match by name (describe/it/scenario alike).
+  #resolveGenericCommand(payload: RunnerRequestBody): string {
+    const template = payload.rerunCommand
+    const fallback = payload.launchCommand || ''
+    const isTargetedRerun =
+      !payload.runAll &&
+      (payload.entryType === 'test' || payload.entryType === 'suite') &&
+      Boolean(payload.label || payload.fullTitle)
+    if (template && isTargetedRerun) {
+      const name = payload.label || payload.fullTitle || ''
+      return template.replace(/\{\{testName\}\}/g, name)
+    }
+    return fallback || template || ''
   }
 
   stop() {
@@ -232,19 +276,26 @@ class TestRunner {
     }
 
     const pid = this.#child.pid
+    const child = this.#child
 
-    // Kill the entire process tree
+    // SIGTERM, then SIGKILL after 1s — Jest swallows SIGTERM and keeps
+    // running until the current test resolves.
     kill(pid, 'SIGTERM', (err) => {
       if (err) {
-        console.error('Error stopping test run:', err)
-        // Try force kill if graceful termination fails
         kill(pid, 'SIGKILL')
       }
     })
+    const sigkillTimer = setTimeout(() => {
+      kill(pid, 'SIGKILL')
+    }, 1000)
+    // Cancel SIGKILL on clean exit — the PID slot may have been recycled.
+    child.once('close', () => clearTimeout(sigkillTimer))
 
-    // Clean up immediately
+    // Clear immediately so a follow-up /api/tests/run isn't blocked by the
+    // stale #child guard before SIGKILL lands.
     this.#child = undefined
     this.#lastPayload = undefined
+    this.#expectingRerunChild = false
     this.#baseDir = process.cwd()
   }
 
