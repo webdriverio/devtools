@@ -24,19 +24,37 @@ interface DevtoolsBackendOptions {
 const log = logger('@wdio/devtools-backend')
 const clients = new Set<WebSocket>()
 
-/**
- * Registry mapping sessionId → absolute path of the encoded .webm file.
- * Populated when the service sends { scope: 'screencast', data: { sessionId, videoPath } }.
- * Queried by GET /api/video/:sessionId.
- */
+// Notify the worker when a UI client connects so the plugin can unblock
+// Builder.build() instead of finishing the run before the dashboard appears.
+let workerSocket: WebSocket | undefined
+
+// sessionId → absolute path of the encoded .webm; queried by /api/video/:sessionId.
 const videoRegistry = new Map<string, string>()
 
+// Replay buffer for clients connecting after the worker has already streamed.
+// Required for plugins where the dashboard window spawns asynchronously and
+// may attach after a fast run has already completed.
+const MESSAGE_BUFFER_LIMIT = 10000
+const messageBuffer: string[] = []
+
 export function broadcastToClients(message: string) {
+  messageBuffer.push(message)
+  if (messageBuffer.length > MESSAGE_BUFFER_LIMIT) {
+    messageBuffer.shift()
+  }
   clients.forEach((client) => {
     if (client.readyState === WebSocket.OPEN) {
       client.send(message)
     }
   })
+}
+
+function replayBufferedMessages(socket: WebSocket) {
+  for (const msg of messageBuffer) {
+    if (socket.readyState === WebSocket.OPEN) {
+      socket.send(msg)
+    }
+  }
 }
 
 function serveVideo(sessionId: string, reply: any) {
@@ -113,9 +131,18 @@ export async function start(
     '/client',
     { websocket: true },
     (socket: WebSocket, _req: FastifyRequest) => {
-      log.info('client connected')
+      log.info(
+        `client connected (replaying ${messageBuffer.length} buffered message(s))`
+      )
+      replayBufferedMessages(socket)
       clients.add(socket)
       socket.on('close', () => clients.delete(socket))
+
+      if (workerSocket?.readyState === WebSocket.OPEN) {
+        workerSocket.send(
+          JSON.stringify({ scope: 'clientConnected', data: {} })
+        )
+      }
     }
   )
 
@@ -123,34 +150,46 @@ export async function start(
     '/worker',
     { websocket: true },
     (socket: WebSocket, _req: FastifyRequest) => {
+      // Drop the message buffer for a fresh run (so late dashboards don't
+      // replay stale state) but NOT for a rerun child — the dashboard's
+      // mergeSuite/mergeTests dedupe by uid, and the existing tree should
+      // stay rendered while sibling tests freeze at their last result.
+      const isRerunChild = testRunner.consumeRerunChildFlag()
+      if (!isRerunChild) {
+        messageBuffer.length = 0
+      }
+      workerSocket = socket
+      socket.on('close', () => {
+        if (workerSocket === socket) {
+          workerSocket = undefined
+        }
+      })
+      if (clients.size > 0) {
+        socket.send(JSON.stringify({ scope: 'clientConnected', data: {} }))
+      }
       socket.on('message', (message: Buffer) => {
-        log.info(
+        // Use `debug` — at `info` level this feeds the worker's stream
+        // capture and creates a backend↔capture loop.
+        log.debug(
           `received ${message.length} byte message from worker to ${clients.size} client${clients.size > 1 ? 's' : ''}`
         )
 
-        // Parse message to check if it needs special handling
         try {
           const parsed = JSON.parse(message.toString())
 
-          // Transform clearCommands → clearExecutionData for the UI
           if (parsed.scope === 'clearCommands') {
             const testUid = parsed.data?.testUid
             log.info(`Clearing commands for test: ${testUid || 'all'}`)
-            const clearMessage = JSON.stringify({
-              scope: 'clearExecutionData',
-              data: { uid: testUid }
-            })
-            clients.forEach((client) => {
-              if (client.readyState === WebSocket.OPEN) {
-                client.send(clearMessage)
-              }
-            })
+            broadcastToClients(
+              JSON.stringify({
+                scope: 'clearExecutionData',
+                data: { uid: testUid }
+              })
+            )
             return
           }
 
-          // Intercept screencast messages: store the absolute videoPath in the
-          // registry (backend-only), then forward only the sessionId to the UI
-          // so the UI can request the video via GET /api/video/:sessionId.
+          // Strip videoPath before forwarding — the UI fetches via /api/video/:sessionId.
           if (parsed.scope === 'screencast' && parsed.data?.sessionId) {
             const { sessionId, videoPath } = parsed.data
             if (videoPath) {
@@ -159,16 +198,12 @@ export async function start(
                 `Screencast registered for session ${sessionId}: ${videoPath}`
               )
             }
-            // Forward trimmed message (no videoPath) to UI clients
-            const uiMessage = JSON.stringify({
-              scope: 'screencast',
-              data: { sessionId }
-            })
-            clients.forEach((client) => {
-              if (client.readyState === WebSocket.OPEN) {
-                client.send(uiMessage)
-              }
-            })
+            broadcastToClients(
+              JSON.stringify({
+                scope: 'screencast',
+                data: { sessionId }
+              })
+            )
             return
           }
         } catch {
@@ -176,18 +211,11 @@ export async function start(
         }
 
         // Forward all other messages as-is
-        clients.forEach((client) => {
-          if (client.readyState === WebSocket.OPEN) {
-            client.send(message.toString())
-          }
-        })
+        broadcastToClients(message.toString())
       })
     }
   )
 
-  // Serve recorded screencast videos. The service sends an absolute videoPath
-  // which is stored in videoRegistry; the UI only knows the sessionId and
-  // requests the file through this endpoint.
   server.get(
     '/api/video/:sessionId',
     {

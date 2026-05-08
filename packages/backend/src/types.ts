@@ -29,4 +29,6 @@ export interface RunnerRequestBody {
   featureFile?: string
   featureLine?: number
   suiteType?: string
+  rerunCommand?: string
+  launchCommand?: string
 }

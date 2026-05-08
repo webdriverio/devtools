@@ -11,6 +11,7 @@ export interface CommandLog {
   callSource: string
   screenshot?: string
   testUid?: string
+  id?: number
 }
 
 export interface ScreencastFrame {
