@@ -101,7 +101,7 @@ export const CONTEXT_CHANGE_COMMANDS = [
  * Existing pattern (kept for any external consumers)
  */
 export const SPEC_FILE_PATTERN =
-  /\/(test|spec|features|pageobjects|@wdio\/expect-webdriverio)\//i
+  /\/(test|spec|features|steps|step-definitions|pageobjects|@wdio\/expect-webdriverio)\//i
 
 /**
  * Parser options
