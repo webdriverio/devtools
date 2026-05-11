@@ -6,12 +6,9 @@ import './setupConsole.js'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import * as os from 'node:os'
-import { spawn, type ChildProcess } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import logger from '@wdio/logger'
-import {
-  start as startBackend,
-  stop as stopBackend
-} from '@wdio/devtools-backend'
+import { startDetachedBackend } from './helpers/detachedBackend.js'
 import { patchSelenium, getElementOriginals } from './driverPatcher.js'
 import {
   ensureBidiCapability,
@@ -84,7 +81,6 @@ class SeleniumDevToolsPlugin {
   #screencast?: ScreencastRecorder
   #screencastOptions: ScreencastOptions
   #sessionId?: string
-  #uiBrowserProcess?: ChildProcess
   #uiUrlOpened = false
   #testFileDir?: string
   #keepAliveTimer?: ReturnType<typeof setInterval>
@@ -184,7 +180,10 @@ class SeleniumDevToolsPlugin {
             this.#options.hostname
           )
           log.info('🚀 Starting DevTools backend...')
-          const { port } = await startBackend(this.#options)
+          const { port } = await startDetachedBackend({
+            port: this.#options.port,
+            hostname: this.#options.hostname
+          })
           this.#options.port = port
           log.info(
             `✓ Backend ready — DevTools UI: http://${this.#options.hostname}:${this.#options.port}`
@@ -452,6 +451,14 @@ class SeleniumDevToolsPlugin {
       { hostname: this.#options.hostname, port: this.#options.port },
       driver
     )
+    // Dashboard closed AFTER tests finished → wind the runner down so the
+    // user doesn't have to Ctrl+C. Ignore during a live run: a momentary
+    // reconnect blip during tests must not abort them.
+    this.#sessionCapturer.setClientDisconnectedHandler(() => {
+      if (this.finalized) {
+        void gracefulShutdown(0)
+      }
+    })
     await this.#sessionCapturer.waitForConnection(TIMING.UI_CONNECTION_WAIT)
 
     this.#testReporter = new TestReporter((suitesData) => {
@@ -739,57 +746,36 @@ class SeleniumDevToolsPlugin {
 
     log.info(`Chrome binary: ${chromeBin}`)
     log.info(`💡 Opening DevTools UI: ${url}`)
+    const chromeArgs = [
+      `--user-data-dir=${userDataDir}`,
+      '--no-first-run',
+      '--no-default-browser-check',
+      '--window-size=1600,1200',
+      '--new-window',
+      url
+    ]
     try {
-      this.#uiBrowserProcess = spawn(
-        chromeBin,
-        [
-          `--user-data-dir=${userDataDir}`,
-          '--no-first-run',
-          '--no-default-browser-check',
-          '--window-size=1600,1200',
-          '--new-window',
-          url
-        ],
-        { detached: true, stdio: 'ignore' }
-      )
-      this.#uiBrowserProcess.unref()
-      this.#uiBrowserProcess.on('error', (err) => {
+      // Double-fork: a short-lived Node intermediate spawns Chrome detached
+      // and exits, so Chrome is reparented to launchd/init and survives any
+      // tree-kill the test runner does on its descendants (vitest's pool,
+      // jest --forceExit, mocha SIGINT). Same path for every runner.
+      const code =
+        'require("child_process")' +
+        `.spawn(${JSON.stringify(chromeBin)}, ${JSON.stringify(chromeArgs)}, { detached: true, stdio: "ignore" }).unref()`
+      const intermediate = spawn(process.execPath, ['-e', code], {
+        detached: true,
+        stdio: 'ignore'
+      })
+      intermediate.unref()
+      intermediate.on('error', (err) => {
         log.warn(
           `Could not auto-open DevTools UI (${err.message}). Open manually: ${url}`
         )
-      })
-      this.#uiBrowserProcess.on('exit', () => {
-        if (this.#uiBrowserClosed) {
-          return
-        }
-        this.#uiBrowserClosed = true
-        // Skip — Jest rejects post-test logs ("Cannot log after tests are done").
-        if (!this.#finalized) {
-          log.info('🪟 Dashboard window closed — shutting down')
-        }
-        this.#onUiBrowserClosed?.()
       })
     } catch (err) {
       log.warn(
         `Could not auto-open DevTools UI (${(err as Error).message}). Open manually: ${url}`
       )
-    }
-  }
-
-  #uiBrowserClosed = false
-  #onUiBrowserClosed?: () => void
-  setUiBrowserClosedHandler(fn: () => void) {
-    this.#onUiBrowserClosed = fn
-  }
-  killUiWindow() {
-    if (!this.#uiBrowserProcess || this.#uiBrowserProcess.killed) {
-      return
-    }
-    try {
-      // SIGTERM lets Chrome flush its --user-data-dir.
-      this.#uiBrowserProcess.kill('SIGTERM')
-    } catch {
-      /* process already gone */
     }
   }
 
@@ -861,26 +847,18 @@ class SeleniumDevToolsPlugin {
       log.info(
         `📊 Session summary — ${cmdCount} command(s), ${networkCount} network request(s), ${consoleCount} console log(s)`
       )
-      // Cleanup BEFORE close — trailing captures would enqueue into a dead socket.
       this.#sessionCapturer?.cleanup()
-      await this.#sessionCapturer?.closeWebSocket()
+      // Keep the worker WS open while the dashboard is up — it's the
+      // channel the backend uses to tell us "the user closed the
+      // dashboard, time to exit". gracefulShutdown closes it on real exit.
+      if (!this.#options.openUi || this.#isReuse) {
+        await this.#sessionCapturer?.closeWebSocket()
+      }
 
-      if (this.#options.openUi && !this.#isReuse && !this.#uiBrowserClosed) {
+      if (this.#options.openUi && !this.#isReuse) {
         log.info(
           `💡 Tests complete — DevTools UI: http://${this.#options.hostname}:${this.#options.port}`
         )
-        log.info('   Press Ctrl+C when done reviewing to exit.')
-        log.info(
-          `Cleanup finished in ${Date.now() - shutdownStart}ms (backend kept alive for review)`
-        )
-        this.#keepAliveTimer = setInterval(() => {
-          /* heartbeat */
-        }, 5000)
-        return
-      }
-
-      if (!this.#isReuse) {
-        await stopBackend()
       }
       log.info(`🛑 Shutdown complete (${Date.now() - shutdownStart}ms)`)
     } catch (err) {
@@ -925,7 +903,7 @@ const patched = patchSelenium({
   },
   onDriverCreated: (driver) => plugin.onDriverCreated(driver),
   onCommand: (cmd) => plugin.onCommand(cmd),
-  onBeforeQuit: () => plugin.onDriverEnd(),
+  onBeforeQuit: () => plugin.onSessionEnd(),
   // Block `await Builder.build()` until the dashboard is connected.
   waitForReady: () => plugin.waitForUiReady()
 })
@@ -1006,29 +984,26 @@ process.on('beforeExit', () => {
 async function gracefulShutdown(code: number) {
   try {
     plugin.clearKeepAlive()
-    plugin.killUiWindow()
     await plugin.sessionCapturer?.closeWebSocket()
-    await stopBackend()
     plugin.sessionCapturer?.cleanup()
+    // Best-effort: kill the detached Chrome dashboard. Each session's
+    // --user-data-dir contains the unique `selenium-devtools-ui-${port}`
+    // marker, so a pattern match lands on this run's window only.
+    try {
+      spawn(
+        '/usr/bin/pkill',
+        ['-f', `selenium-devtools-ui-${plugin.options.port}-`],
+        { stdio: 'ignore' }
+      )
+    } catch {
+      /* pkill missing — accept stale Chrome */
+    }
   } catch {
     /* best-effort */
   }
   process.exit(code)
 }
 
-// Window close → soft cleanup only; calling process.exit collides with the
-// runner's teardown. SIGINT/SIGTERM (below) are explicit and DO hard-exit.
-plugin.setUiBrowserClosedHandler(async () => {
-  try {
-    plugin.clearKeepAlive()
-    plugin.killUiWindow()
-    await plugin.sessionCapturer?.closeWebSocket()
-    await stopBackend()
-    plugin.sessionCapturer?.cleanup()
-  } catch {
-    /* best-effort */
-  }
-})
 process.on('SIGINT', () => {
   void gracefulShutdown(130)
 })

@@ -47,6 +47,7 @@ export class SessionCapturer {
   bidiActive = false
   #clientConnected = false
   #clientConnectedWaiters: Array<() => void> = []
+  #onClientDisconnected?: () => void
 
   commandsLog: CommandLog[] = []
   sources = new Map<string, string>()
@@ -84,6 +85,8 @@ export class SessionCapturer {
                 /* ignore */
               }
             }
+          } else if (parsed?.scope === 'clientDisconnected') {
+            this.#onClientDisconnected?.()
           }
         } catch {
           // ignore non-JSON messages
@@ -127,6 +130,10 @@ export class SessionCapturer {
     return new Promise<void>((resolve) => {
       this.#clientConnectedWaiters.push(resolve)
     })
+  }
+
+  setClientDisconnectedHandler(fn: () => void) {
+    this.#onClientDisconnected = fn
   }
 
   // ---- console & terminal capture ------------------------------------------

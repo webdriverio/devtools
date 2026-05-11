@@ -4,6 +4,7 @@ import path from 'node:path'
 import url from 'node:url'
 import { createRequire } from 'node:module'
 import kill from 'tree-kill'
+import { parse as shellParse } from 'shell-quote'
 import type { RunnerRequestBody } from './types.js'
 import { WDIO_CONFIG_FILENAMES, NIGHTWATCH_CONFIG_FILENAMES } from './types.js'
 
@@ -188,12 +189,12 @@ class TestRunner {
     if (isGenericShell) {
       const command = this.#resolveGenericCommand(payload)
       this.#baseDir = process.env.DEVTOOLS_RUNNER_CWD || process.cwd()
-      child = spawn(command, {
+      const { file, args } = this.#parseGenericCommand(command)
+      child = spawn(file, args, {
         cwd: this.#baseDir,
         env: childEnv,
         stdio: 'inherit',
-        detached: false,
-        shell: true
+        detached: false
       })
     } else {
       const configPath = this.#resolveConfigPath(payload)
@@ -268,6 +269,17 @@ class TestRunner {
       return template.replace(/\{\{testName\}\}/g, name)
     }
     return fallback || template || ''
+  }
+
+  #parseGenericCommand(command: string): { file: string; args: string[] } {
+    const tokens = (shellParse(command) as unknown[]).filter(
+      (token): token is string => typeof token === 'string'
+    )
+    if (tokens.length === 0) {
+      throw new Error('Invalid generic command: empty command')
+    }
+    const [file, ...args] = tokens
+    return { file, args }
   }
 
   stop() {
