@@ -136,7 +136,17 @@ export async function start(
       )
       replayBufferedMessages(socket)
       clients.add(socket)
-      socket.on('close', () => clients.delete(socket))
+      socket.on('close', () => {
+        clients.delete(socket)
+        // Last dashboard window closed — tell the worker so it can wind
+        // down. Lets the user close Chrome to end an interactive review
+        // session under any runner.
+        if (clients.size === 0 && workerSocket?.readyState === WebSocket.OPEN) {
+          workerSocket.send(
+            JSON.stringify({ scope: 'clientDisconnected', data: {} })
+          )
+        }
+      })
 
       if (workerSocket?.readyState === WebSocket.OPEN) {
         workerSocket.send(

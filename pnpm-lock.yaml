@@ -237,10 +237,16 @@ importers:
       import-meta-resolve:
         specifier: ^4.1.0
         version: 4.2.0
+      shell-quote:
+        specifier: ^1.8.3
+        version: 1.8.3
       tree-kill:
         specifier: ^1.2.2
         version: 1.2.2
     devDependencies:
+      '@types/shell-quote':
+        specifier: ^1.7.5
+        version: 1.7.5
       '@types/ws':
         specifier: ^8.18.1
         version: 8.18.1
@@ -2017,6 +2023,9 @@ packages:
 
   '@types/selenium-webdriver@4.35.5':
     resolution: {integrity: sha512-wCQCjWmahRkUAO7S703UAvBFkxz4o/rjX4T2AOSWKXSi0sTQPsrXxR0GjtFUT0ompedLkYH4R5HO5Urz0hyeog==}
+
+  '@types/shell-quote@1.7.5':
+    resolution: {integrity: sha512-+UE8GAGRPbJVQDdxi16dgadcBfQ+KG2vgZhV1+3A1XmHbmwcdwhCUwIdy+d3pAGrbvgRoVSjeI9vOWyq376Yzw==}
 
   '@types/sinonjs__fake-timers@8.1.5':
     resolution: {integrity: sha512-mQkU2jY8jJEF7YHjHvsQO8+3ughTL1mcnn96igfhONmR+fUPSKIkefQYpSe8bsly2Ep7oQbn/6VG5/9/0qcArQ==}
@@ -8578,6 +8587,8 @@ snapshots:
     dependencies:
       '@types/node': 25.5.2
       '@types/ws': 8.18.1
+
+  '@types/shell-quote@1.7.5': {}
 
   '@types/sinonjs__fake-timers@8.1.5': {}
 

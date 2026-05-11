@@ -188,21 +188,32 @@ export function tryRegisterJestHooks(callbacks: RunnerHookCallbacks): boolean {
   const wrapTestRegistrar = <T extends (...args: any[]) => any>(orig: T): T => {
     const wrapped = ((name: string, fn: any, timeout?: number) => {
       const stackAtRegistration = [...describeStack]
-      const fullName = [...stackAtRegistration, name].join(' ')
-      testToDescribeStack.set(fullName, stackAtRegistration)
+      const jestKey = [...stackAtRegistration, name].join(' ')
+      const vitestKey = [...stackAtRegistration, name].join(' > ')
+      testToDescribeStack.set(jestKey, stackAtRegistration)
+      testToDescribeStack.set(vitestKey, stackAtRegistration)
       let wrappedFn = fn
       if (typeof fn === 'function') {
         wrappedFn = function (this: any, ...fnArgs: any[]) {
+          // Key by inner test name — under Vitest the describe-stack
+          // capture isn't reliable (Vitest doesn't run describe bodies
+          // through our globalThis wrap), so the only stable identifier
+          // we share with afterEach is `name` itself.
+          const recordFailure = (err: Error) => {
+            testFailures.set(name, err)
+            testFailures.set(jestKey, err)
+            testFailures.set(vitestKey, err)
+          }
           let result: unknown
           try {
             result = fn.apply(this, fnArgs)
           } catch (err) {
-            testFailures.set(fullName, err as Error)
+            recordFailure(err as Error)
             throw err
           }
           if (result && typeof (result as any).then === 'function') {
             return (result as Promise<unknown>).catch((err: unknown) => {
-              testFailures.set(fullName, err as Error)
+              recordFailure(err as Error)
               throw err
             })
           }
@@ -263,13 +274,24 @@ export function tryRegisterJestHooks(callbacks: RunnerHookCallbacks): boolean {
       if (!fullName) {
         return
       }
+      // currentTestName: Jest joins describes with ' ', Vitest with ' > '.
       const stack = testToDescribeStack.get(fullName) ?? []
-      const stackPath = stack.join(' ')
-      const innerName =
-        stackPath && fullName.startsWith(stackPath + ' ')
-          ? fullName.slice(stackPath.length + 1)
-          : fullName
-      const suiteName = stack.length > 0 ? stack[0] : undefined
+      let innerName = fullName
+      let suiteName: string | undefined
+      if (stack.length > 0) {
+        const jestPath = stack.join(' ')
+        const vitestPath = stack.join(' > ')
+        if (fullName.startsWith(jestPath + ' ')) {
+          innerName = fullName.slice(jestPath.length + 1)
+        } else if (fullName.startsWith(vitestPath + ' > ')) {
+          innerName = fullName.slice(vitestPath.length + 3)
+        }
+        suiteName = stack[0]
+      } else if (fullName.includes(' > ')) {
+        const segments = fullName.split(' > ')
+        innerName = segments[segments.length - 1]
+        suiteName = segments[0]
+      }
       currentName = innerName
       let callSource: string | undefined
       if (file) {
@@ -297,13 +319,24 @@ export function tryRegisterJestHooks(callbacks: RunnerHookCallbacks): boolean {
         currentTestName?: string
       }
       const fullName = state?.currentTestName || ''
-      const thrown = testFailures.get(fullName)
+      // Try the recorded full-path keys first, then the inner test name —
+      // under Vitest the stack capture is empty so we keyed by inner name.
+      const innerKey =
+        fullName.split(' > ').pop() ?? fullName.split(' ').pop() ?? fullName
+      const thrown =
+        testFailures.get(fullName) ??
+        testFailures.get(fullName.replace(/ > /g, ' ')) ??
+        testFailures.get(fullName.replace(/ /g, ' > ')) ??
+        testFailures.get(innerKey)
       const expectFailed =
         Array.isArray(state?.suppressedErrors) &&
         state.suppressedErrors.length > 0
       const failed = !!thrown || expectFailed
       if (thrown) {
         testFailures.delete(fullName)
+        testFailures.delete(fullName.replace(/ > /g, ' '))
+        testFailures.delete(fullName.replace(/ /g, ' > '))
+        testFailures.delete(innerKey)
       }
       const finalState: 'passed' | 'failed' = failed ? 'failed' : 'passed'
       const icon = finalState === 'passed' ? '✓' : '✗'
