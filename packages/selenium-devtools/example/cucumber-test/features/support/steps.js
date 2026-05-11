@@ -19,7 +19,7 @@ When('I submit the login form', async function () {
 })
 
 Then('I should be on the secure page', async function () {
-  await this.driver.wait(until.urlContains('/secure'), 10_000)
+  await this.driver.wait(until.urlContains('/secure'), 10000)
 })
 
 Then(
@@ -27,7 +27,7 @@ Then(
   async function (pattern) {
     const flash = await this.driver.wait(
       until.elementLocated(By.id('flash')),
-      10_000
+      10000
     )
     const text = await flash.getText()
     assert.match(text, new RegExp(pattern, 'i'))
