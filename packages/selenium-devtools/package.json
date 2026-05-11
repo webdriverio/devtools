@@ -26,7 +26,7 @@
     "watch": "tsc --watch",
     "clean": "rm -rf dist",
     "lint": "eslint .",
-    "example:mocha": "mocha --require @wdio/selenium-devtools --timeout 60000 example/mocha-test/test/*.test.js",
+    "example:mocha": "mocha --require @wdio/selenium-devtools --timeout 60000 example/mocha-test/test/example.js",
     "example:jest": "NODE_OPTIONS=--experimental-vm-modules jest --config example/jest-test/jest.config.json",
     "example:vitest": "vitest run --config example/vitest-test/vitest.config.js",
     "example:cucumber": "cucumber-js --config example/cucumber-test/cucumber.json"
