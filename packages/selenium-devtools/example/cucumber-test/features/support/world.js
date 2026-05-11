@@ -1,7 +1,13 @@
-import { setWorldConstructor, World, Before, After, setDefaultTimeout } from '@cucumber/cucumber'
+import {
+  setWorldConstructor,
+  World,
+  Before,
+  After,
+  setDefaultTimeout
+} from '@cucumber/cucumber'
 import { Builder } from 'selenium-webdriver'
 
-setDefaultTimeout(60_000)
+setDefaultTimeout(60000)
 
 class CustomWorld extends World {
   constructor(options) {
