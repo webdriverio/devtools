@@ -368,7 +368,9 @@ export function tryRegisterCucumberHooks(
   })()
   const selfPath = selfUrl.replace(/^file:\/\//, '')
   const isSelfFrame = (line: string): boolean => {
-    if (!selfPath) return false
+    if (!selfPath) {
+      return false
+    }
     return line.includes(selfPath) || line.includes(selfUrl)
   }
 
@@ -387,8 +389,7 @@ export function tryRegisterCucumberHooks(
         continue
       }
       const m =
-        /\(([^)]+):(\d+):\d+\)$/.exec(line) ||
-        /at\s+(.+):(\d+):\d+$/.exec(line)
+        /\(([^)]+):(\d+):\d+\)$/.exec(line) || /at\s+(.+):(\d+):\d+$/.exec(line)
       if (m) {
         let uri = m[1]
         if (uri.startsWith('file://')) {
@@ -401,7 +402,9 @@ export function tryRegisterCucumberHooks(
   }
 
   for (const name of ['Given', 'When', 'Then', 'defineStep'] as const) {
-    if (typeof cucumber[name] !== 'function') continue
+    if (typeof cucumber[name] !== 'function') {
+      continue
+    }
     const orig = cucumber[name]
     cucumber[name] = function patchedRegistrar(...args: any[]) {
       const callSite = captureCallSite()
@@ -500,14 +503,10 @@ export function tryRegisterCucumberHooks(
       stepKeywordById = new Map<string, string>()
       stepLineById = new Map<string, number>()
       scenarioLineById = new Map<string, number>()
-      const featureChildren =
-        testCase?.gherkinDocument?.feature?.children ?? []
+      const featureChildren = testCase?.gherkinDocument?.feature?.children ?? []
       for (const child of featureChildren) {
         if (child?.scenario?.id && child?.scenario?.location?.line) {
-          scenarioLineById.set(
-            child.scenario.id,
-            child.scenario.location.line
-          )
+          scenarioLineById.set(child.scenario.id, child.scenario.location.line)
         }
         const steps = child?.scenario?.steps ?? child?.background?.steps ?? []
         for (const step of steps) {

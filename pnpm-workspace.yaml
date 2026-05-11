@@ -5,4 +5,5 @@ packages:
   - 'packages/service'
   - 'packages/app'
   - 'packages/nightwatch-devtools'
+  - 'packages/selenium-devtools'
   - 'example'
