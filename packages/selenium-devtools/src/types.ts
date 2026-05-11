@@ -262,9 +262,7 @@ export interface RunnerHookCallbacks {
     featureName?: string,
     featureCallSource?: string
   ) => void
-  onScenarioEnd?: (
-    state: 'passed' | 'failed' | 'skipped' | 'pending'
-  ) => void
+  onScenarioEnd?: (state: 'passed' | 'failed' | 'skipped' | 'pending') => void
   // Fires from the runner's after-all hook so the dashboard suite header
   // updates without waiting for process exit.
   onTestRunComplete?: (summary: {

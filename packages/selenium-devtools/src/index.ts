@@ -102,15 +102,13 @@ class SeleniumDevToolsPlugin {
     | { kind: 'end'; state: TestStats['state'] }
   > = []
   // Cucumber Before fires before the driver-build Before — stash and replay.
-  #pendingScenario:
-    | {
-        name: string
-        file?: string
-        callSource?: string
-        featureName?: string
-        featureCallSource?: string
-      }
-    | null = null
+  #pendingScenario: {
+    name: string
+    file?: string
+    callSource?: string
+    featureName?: string
+    featureCallSource?: string
+  } | null = null
 
   constructor(options: DevToolsOptions = {}) {
     this.#options = {
@@ -372,8 +370,7 @@ class SeleniumDevToolsPlugin {
     let rootSuite = this.#suiteManager.getRootSuite()
     const created = !rootSuite
     if (!rootSuite) {
-      const effectiveTitle =
-        this.#pendingScenario?.featureName ?? title
+      const effectiveTitle = this.#pendingScenario?.featureName ?? title
       rootSuite = this.#suiteManager.getOrCreateRootSuite(
         process.cwd(),
         effectiveTitle
@@ -967,7 +964,13 @@ function registerHooks() {
     onTestEnd: (state) => {
       plugin.endTest(state === 'pending' ? 'skipped' : state)
     },
-    onScenarioStart: (name, file, callSource, featureName, featureCallSource) => {
+    onScenarioStart: (
+      name,
+      file,
+      callSource,
+      featureName,
+      featureCallSource
+    ) => {
       plugin.startScenario(name, {
         file,
         callSource,

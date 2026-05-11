@@ -51,7 +51,9 @@ export class RerunManager {
 
   #stripFilterFlags(argv: string[]): string[] {
     const aliases = FILTER_FLAG_ALIASES[this.#runner] ?? []
-    if (aliases.length === 0) return argv
+    if (aliases.length === 0) {
+      return argv
+    }
     const out: string[] = []
     for (let i = 0; i < argv.length; i++) {
       const a = argv[i]
@@ -73,8 +75,12 @@ export class RerunManager {
 
   /** Single-quote for `sh -c`; embedded single-quotes get the `'\''` dance. */
   #shellQuote(s: string): string {
-    if (s === '') return "''"
-    if (/^[a-zA-Z0-9_\-./=:@]+$/.test(s)) return s
+    if (s === '') {
+      return "''"
+    }
+    if (/^[a-zA-Z0-9_\-./=:@]+$/.test(s)) {
+      return s
+    }
     return `'${s.replace(/'/g, "'\\''")}'`
   }
 }

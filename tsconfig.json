@@ -30,7 +30,9 @@
       "@wdio/devtools-script": ["packages/script/src/index.ts"],
       "@wdio/devtools-script/*": ["packages/script/src/*"],
       "@wdio/devtools-service": ["packages/service/src/index.ts"],
-      "@wdio/devtools-service/*": ["packages/service/src/*"]
+      "@wdio/devtools-service/*": ["packages/service/src/*"],
+      "@wdio/selenium-devtools": ["packages/selenium-devtools/src/index.ts"],
+      "@wdio/selenium-devtools/*": ["packages/selenium-devtools/src/*"]
     }
   }
 }
