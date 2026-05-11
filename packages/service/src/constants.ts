@@ -98,10 +98,11 @@ export const CONTEXT_CHANGE_COMMANDS = [
 ]
 
 /**
- * Existing pattern (kept for any external consumers)
+ * Shared pattern for identifying test-related file paths.
+ * Kept as a public export for consumers and may be expanded as supported locations evolve.
  */
 export const SPEC_FILE_PATTERN =
-  /\/(test|spec|features|steps|step-definitions|pageobjects|@wdio\/expect-webdriverio)\//i
+  /\/(test|spec|features|steps|step[-_]?definitions|pageobjects|@wdio\/expect-webdriverio)\//i
 
 /**
  * Parser options
