@@ -2,7 +2,7 @@
 
 A powerful browser devtools extension for debugging, visualizing, and controlling test executions in real-time.
 
-Works with **WebdriverIO** and **[Nightwatch.js](./packages/nightwatch-devtools/README.md)** — same backend, same UI, same capture infrastructure.
+Works with **WebdriverIO**, **[Nightwatch.js](./packages/nightwatch-devtools/README.md)**, and **[Selenium WebDriver](./packages/selenium-devtools/README.md)** (any test runner) — same backend, same UI, same capture infrastructure.
 
 ## Features
 
@@ -94,7 +94,12 @@ npm install @wdio/devtools-service
 npm install @wdio/nightwatch-devtools
 ```
 
-> See the [Nightwatch Integration](#nightwatch-integration) section for configuration details.
+**Selenium WebDriver (any runner — Mocha / Jest / Cucumber / plain Node):**
+```bash
+npm install @wdio/selenium-devtools
+```
+
+> See the [Nightwatch Integration](#nightwatch-integration) and [Selenium Integration](#selenium-integration) sections for configuration details.
 
 ## Configuration
 
@@ -136,6 +141,12 @@ Using [Nightwatch.js](https://nightwatchjs.org/)? A dedicated adapter package br
 
 → **[`@wdio/nightwatch-devtools`](./packages/nightwatch-devtools/README.md)** — configuration, Cucumber/BDD setup, and limitations.
 
+## Selenium Integration
+
+Using `selenium-webdriver` directly — under Mocha, Jest, Cucumber, or a plain Node script? A runner-agnostic adapter brings the same DevTools UI to any Selenium test suite. The plugin auto-detects the runner and wires test boundaries; no code changes required for hook-aware runners, and a small `DevTools.startTest/endTest` API for plain scripts.
+
+→ **[`@wdio/selenium-devtools`](./packages/selenium-devtools/README.md)** — per-runner setup, configuration options, and screencast details.
+
 ## Project Structure
 
 ```
@@ -144,7 +155,8 @@ packages/
 ├── backend/               # Fastify server with test runner management
 ├── service/               # WebdriverIO service and reporter
 ├── script/                # Browser-injected trace collection script
-└── nightwatch-devtools/   # Nightwatch adapter plugin
+├── nightwatch-devtools/   # Nightwatch adapter plugin
+└── selenium-devtools/     # Selenium WebDriver adapter plugin (runner-agnostic)
 ```
 
 ## Contributing
