@@ -87,7 +87,16 @@ function isUserCodeFrame(frame: {
 }
 
 function normalizeFilePath(filePath: string): string {
-  return filePath.replace(/^file:\/\//, '').split(':')[0]
+  // Node's stack traces in ESM use file:// URLs, which URL-encode spaces and
+  // other characters. Strip the prefix, drop the line:col suffix, and decode
+  // — otherwise `fs.readFile` hits ENOENT on any path containing a space.
+  const stripped = filePath.replace(/^file:\/\//, '').split(':')[0]
+  try {
+    return decodeURIComponent(stripped)
+  } catch {
+    // Malformed percent-encoding — keep the literal path rather than throw.
+    return stripped
+  }
 }
 
 export function getCallSourceFromStack(): {
