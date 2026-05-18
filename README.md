@@ -94,7 +94,7 @@ npm install @wdio/devtools-service
 npm install @wdio/nightwatch-devtools
 ```
 
-**Selenium WebDriver (any runner — Mocha / Jest / Cucumber / plain Node):**
+**Selenium:**
 ```bash
 npm install @wdio/selenium-devtools
 ```
@@ -156,7 +156,7 @@ packages/
 ├── service/               # WebdriverIO service and reporter
 ├── script/                # Browser-injected trace collection script
 ├── nightwatch-devtools/   # Nightwatch adapter plugin
-└── selenium-devtools/     # Selenium WebDriver adapter plugin (runner-agnostic)
+└── selenium-devtools/     # Selenium WebDriver adapter plugin
 ```
 
 ## Contributing
