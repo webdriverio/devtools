@@ -83,7 +83,14 @@ export const INTERNAL_COMMANDS = [
   'execute',
   'findElement',
   'getElementText',
-  'getElementShadowRoot'
+  'getElementShadowRoot',
+  // Service-internal — fired by the devtools service itself (preload
+  // injection, Puppeteer handle for CDP screencast, post-command screenshots
+  // & screencast polling). Recording them would pollute the Actions list
+  // with commands the user never wrote.
+  'scriptAddPreloadScript',
+  'getPuppeteer',
+  'takeScreenshot'
 ]
 
 export const CONTEXT_CHANGE_COMMANDS = [
@@ -96,13 +103,6 @@ export const CONTEXT_CHANGE_COMMANDS = [
   'createWindow',
   'closeWindow'
 ]
-
-/**
- * Shared pattern for identifying test-related file paths.
- * Kept as a public export for consumers and may be expanded as supported locations evolve.
- */
-export const SPEC_FILE_PATTERN =
-  /\/(test|spec|features|steps|step[-_]?definitions|pageobjects|@wdio\/expect-webdriverio)\//i
 
 /**
  * Parser options

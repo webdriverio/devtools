@@ -199,7 +199,21 @@ export async function start(
             return
           }
 
-          // Strip videoPath before forwarding — the UI fetches via /api/video/:sessionId.
+          // Capture the WDIO/Nightwatch config file path the worker was
+          // launched with, so the rerun resolver targets the same config
+          // (handles non-standard names like `wdio.BUILD.conf.ts`). Stays
+          // backend-only — no need to forward to UI clients.
+          if (parsed.scope === 'config' && parsed.data?.configFile) {
+            testRunner.registerConfigFile(parsed.data.configFile)
+            log.info(
+              `Registered config file for reruns: ${parsed.data.configFile}`
+            )
+            return
+          }
+
+          // Intercept screencast messages: store the absolute videoPath in the
+          // registry (backend-only), then forward only the sessionId to the UI
+          // so the UI can request the video via GET /api/video/:sessionId.
           if (parsed.scope === 'screencast' && parsed.data?.sessionId) {
             const { sessionId, videoPath } = parsed.data
             if (videoPath) {
