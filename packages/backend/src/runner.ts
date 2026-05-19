@@ -150,6 +150,7 @@ FRAMEWORK_FILTERS['nightwatch-cucumber'] = ({
 class TestRunner {
   #child?: ChildProcess
   #lastPayload?: RunnerRequestBody
+  #registeredConfigFile?: string
   #baseDir = process.cwd()
   // Set on rerun spawn; consumed once by the next worker handshake so the
   // accumulated suite tree is preserved instead of wiped.
@@ -158,6 +159,19 @@ class TestRunner {
     const v = this.#expectingRerunChild
     this.#expectingRerunChild = false
     return v
+  }
+
+  /**
+   * Remember the config path a live worker reported (via the `/worker`
+   * websocket on session start). #resolveConfigPath consults this first,
+   * so reruns target the same config the user originally invoked — even
+   * non-standard names like `wdio.BUILD.conf.ts` that wouldn't be found
+   * by the default-filename search.
+   */
+  registerConfigFile(configFile: string) {
+    if (configFile && fs.existsSync(configFile)) {
+      this.#registeredConfigFile = configFile
+    }
   }
 
   async run(payload: RunnerRequestBody) {
@@ -328,7 +342,24 @@ class TestRunner {
       typeof builderCandidate === 'function'
         ? builderCandidate
         : DEFAULT_FILTERS
-    return builder({ specArg, payload })
+    const baseFilters = builder({ specArg, payload })
+
+    // "Run All" should rerun the original invocation's scope, not every
+    // spec WDIO can find. The launcher captured the user's CLI --spec
+    // arg(s) into DEVTOOLS_WDIO_INITIAL_SPECS; inject them here so the UI
+    // button matches what the user expects. Non-Nightwatch (WDIO) only —
+    // Nightwatch resolves specs differently and handled by its own filter.
+    if (payload.runAll && !framework.startsWith('nightwatch')) {
+      const initialSpecs = process.env.DEVTOOLS_WDIO_INITIAL_SPECS
+      if (initialSpecs) {
+        const specs = initialSpecs.split(path.delimiter).filter(Boolean)
+        for (const spec of specs) {
+          baseFilters.push('--spec', spec)
+        }
+      }
+    }
+
+    return baseFilters
   }
 
   #resolveLineNumber(payload: RunnerRequestBody) {
@@ -385,6 +416,9 @@ class TestRunner {
     const candidates = this.#dedupeCandidates([
       payload?.configFile,
       this.#lastPayload?.configFile,
+      // What the live worker registered on session-start over the /worker
+      // websocket — authoritative for the config the user actually invoked.
+      this.#registeredConfigFile,
       process.env.DEVTOOLS_WDIO_CONFIG,
       process.env.DEVTOOLS_NIGHTWATCH_CONFIG,
       this.#findConfigFromSpec(specCandidate, isNightwatch),

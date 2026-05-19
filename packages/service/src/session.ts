@@ -190,6 +190,37 @@ export class SessionCapturer {
     return Boolean(this.#ws) && this.#ws?.readyState === WebSocket.OPEN
   }
 
+  /**
+   * Read a source file from disk (once) and add it to the trace's sources map
+   * so the UI's Source tab can render it. Accepts either a bare path or a
+   * "path:line[:col]" location; the line/column are stripped.
+   *
+   * Step-definition files, feature files, etc. never appear on the runtime
+   * call stack of a WebDriver command (cucumber dispatches step handlers
+   * directly), so afterCommand's stack-walk can't load them. The reporter
+   * computes those locations via mapTestToSource and calls this method so
+   * the lens icon in the UI can jump straight to the step.
+   */
+  async ensureSourceLoaded(location?: string): Promise<void> {
+    if (!location) {
+      return
+    }
+    const absolutePath = location.startsWith('file://')
+      ? url.fileURLToPath(location)
+      : location
+    const sourceFilePath = absolutePath.split(':')[0]
+    if (!sourceFilePath || this.sources.has(sourceFilePath)) {
+      return
+    }
+    try {
+      const sourceCode = (await fs.readFile(sourceFilePath, 'utf-8')).toString()
+      this.sources.set(sourceFilePath, sourceCode)
+      this.sendUpstream('sources', { [sourceFilePath]: sourceCode })
+    } catch {
+      // file unreadable / missing — nothing to surface
+    }
+  }
+
   async afterCommand(
     browser: WebdriverIO.Browser,
     command: keyof WebDriverCommands,
@@ -330,6 +361,67 @@ export class SessionCapturer {
     } catch (err) {
       log.error(`Failed to capture trace: ${(err as Error).message}`)
     }
+  }
+
+  /**
+   * Capture a browser-side console message from a WebDriver BiDi
+   * `log.entryAdded` event. Going through the protocol stream means we no
+   * longer depend on the page-side `console.*` patch surviving — pages that
+   * rewrite `console` (or were already loaded before the preload ran)
+   * still surface their output here.
+   */
+  handleLogEntryAdded(event: {
+    type?: 'console' | 'javascript'
+    level?: 'debug' | 'info' | 'warn' | 'error'
+    text?: string
+    method?: string
+    timestamp?: number
+    args?: Array<{ type?: string; value?: unknown }>
+  }) {
+    const methodToType: Record<string, ConsoleLogs['type']> = {
+      log: 'log',
+      info: 'info',
+      warn: 'warn',
+      error: 'error',
+      debug: 'log',
+      trace: 'log'
+    }
+    const levelToType: Record<string, ConsoleLogs['type']> = {
+      info: 'info',
+      warn: 'warn',
+      error: 'error',
+      debug: 'log'
+    }
+    const type: ConsoleLogs['type'] =
+      methodToType[event.method ?? ''] ??
+      levelToType[event.level ?? ''] ??
+      'log'
+
+    const args: string[] = Array.isArray(event.args)
+      ? event.args.map((a) => {
+          if (a && 'value' in a && a.value !== undefined) {
+            try {
+              return typeof a.value === 'string'
+                ? a.value
+                : JSON.stringify(a.value)
+            } catch {
+              return String(a.value)
+            }
+          }
+          return `[${a?.type ?? 'unknown'}]`
+        })
+      : event.text
+        ? [event.text]
+        : []
+
+    const entry: ConsoleLogs = {
+      timestamp: typeof event.timestamp === 'number' ? event.timestamp : Date.now(),
+      type,
+      args,
+      source: LOG_SOURCES.BROWSER
+    }
+    this.consoleLogs.push(entry)
+    this.sendUpstream('consoleLogs', [entry])
   }
 
   handleNetworkRequestStarted(event: {

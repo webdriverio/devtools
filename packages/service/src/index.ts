@@ -10,7 +10,7 @@ import type { WebDriverCommands } from '@wdio/protocols'
 import { SessionCapturer } from './session.js'
 import { TestReporter } from './reporter.js'
 import { DevToolsAppLauncher } from './launcher.js'
-import { getBrowserObject } from './utils.js'
+import { getBrowserObject, isUserSpecFile } from './utils.js'
 import { ScreencastRecorder } from './screencast.js'
 import { encodeToVideo } from './video-encoder.js'
 import { parse } from 'stack-trace'
@@ -21,11 +21,7 @@ import {
   type ScreencastOptions,
   type ScreencastInfo
 } from './types.js'
-import {
-  INTERNAL_COMMANDS,
-  SPEC_FILE_PATTERN,
-  CONTEXT_CHANGE_COMMANDS
-} from './constants.js'
+import { INTERNAL_COMMANDS, CONTEXT_CHANGE_COMMANDS } from './constants.js'
 
 export * from './types.js'
 export const launcher = DevToolsAppLauncher
@@ -90,6 +86,38 @@ export function setupForDevtools(opts: Options.WebdriverIO) {
    * return modified session configuration
    */
   return opts
+}
+
+/**
+ * Resolve the WDIO/Nightwatch config file path this run was launched with.
+ * Prefer DEVTOOLS_WDIO_CONFIG (set by DevToolsAppLauncher in the launcher
+ * process and inherited by forked workers) since workers' own argv doesn't
+ * carry the positional config. Falls back to argv scanning for standalone
+ * use (e.g. setupForDevtools) where the launcher hook didn't run.
+ */
+function detectInvocationConfigPath(): string | undefined {
+  const envPath = process.env.DEVTOOLS_WDIO_CONFIG
+  if (envPath) {
+    return path.isAbsolute(envPath)
+      ? envPath
+      : path.resolve(process.cwd(), envPath)
+  }
+  const argv = process.argv
+  for (let i = 0; i < argv.length - 1; i++) {
+    if (argv[i] === '--config' || argv[i] === '-c') {
+      const next = argv[i + 1]
+      if (next && /\.(conf|config)\.(ts|js|cjs|mjs)$/i.test(next)) {
+        return path.isAbsolute(next) ? next : path.resolve(process.cwd(), next)
+      }
+    }
+  }
+  const positional = argv.find((a) => /\.conf\.(ts|js|cjs|mjs)$/i.test(a))
+  if (!positional) {
+    return undefined
+  }
+  return path.isAbsolute(positional)
+    ? positional
+    : path.resolve(process.cwd(), positional)
 }
 
 export default class DevToolsHookService implements Services.ServiceInstance {
@@ -188,6 +216,19 @@ export default class DevToolsHookService implements Services.ServiceInstance {
       )
     }
 
+    // Tell the backend which config file this run was launched with so the
+    // UI's rerun button targets the SAME config. Without this the backend's
+    // resolver only knows the default names (wdio.conf.{ts,js,...}) and
+    // silently picks the wrong one for projects using non-standard names
+    // like `wdio.BUILD.conf.ts` — leading to reruns that miss headless
+    // flags, beforeFeature hooks, etc. and time out.
+    const detectedConfig = detectInvocationConfigPath()
+    if (detectedConfig) {
+      this.#sessionCapturer.sendUpstream('config', {
+        configFile: detectedConfig
+      })
+    }
+
     if ('reporters' in config) {
       const self = this
       config.reporters = [
@@ -197,8 +238,13 @@ export default class DevToolsHookService implements Services.ServiceInstance {
          */
         class DevToolsReporter extends TestReporter {
           constructor(options: Reporters.Options) {
-            super(options, (upstreamData: any) =>
-              self.#sessionCapturer.sendUpstream('suites', upstreamData)
+            super(
+              options,
+              (upstreamData: any) =>
+                self.#sessionCapturer.sendUpstream('suites', upstreamData),
+              (location: string) => {
+                self.#sessionCapturer.ensureSourceLoaded(location)
+              }
             )
             self.#testReporters.push(this)
           }
@@ -253,7 +299,24 @@ export default class DevToolsHookService implements Services.ServiceInstance {
         this.#sessionCapturer.handleNetworkFetchError(event)
       })
 
-      log.info('✓ BiDi network event listeners registered')
+      this.#browser.on('log.entryAdded', (event: any) => {
+        this.#sessionCapturer.handleLogEntryAdded(event)
+      })
+
+      // Subscribe explicitly to the log module — WDIO auto-subscribes to
+      // network events when listeners are attached, but log events need an
+      // explicit subscription on most browsers.
+      try {
+        ;(this.#browser as any).sessionSubscribe?.({
+          events: ['log.entryAdded']
+        })
+      } catch (err) {
+        log.warn(
+          `Could not subscribe to log.entryAdded: ${(err as Error).message}`
+        )
+      }
+
+      log.info('✓ BiDi network + log event listeners registered')
     }
 
     /**
@@ -276,7 +339,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     const source = stack.find((frame) => {
       const file = frame.getFileName()
       // Only consider command frames from user spec/test files
-      return file && SPEC_FILE_PATTERN.test(file)
+      return isUserSpecFile(file)
     })
 
     if (

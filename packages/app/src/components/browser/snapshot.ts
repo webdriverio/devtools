@@ -133,10 +133,11 @@ export class DevtoolsBrowser extends Element {
 
       iframe {
         background-color: white;
-        flex: 1;
+        position: absolute;
+        top: 0;
+        left: 0;
         border: none;
         border-radius: 0 0 0.5rem 0.5rem;
-        min-height: 0;
       }
 
       .screenshot-overlay {
@@ -169,6 +170,7 @@ export class DevtoolsBrowser extends Element {
         position: relative;
         flex: 1;
         min-height: 0;
+        overflow: hidden;
         display: flex;
         flex-direction: column;
       }
@@ -249,7 +251,7 @@ export class DevtoolsBrowser extends Element {
 
   #setIframeSize() {
     const metadata = this.metadata
-    if (!this.section || !this.iframe || !this.header || !metadata) {
+    if (!this.section || !this.header || !metadata) {
       return
     }
 
@@ -262,26 +264,72 @@ export class DevtoolsBrowser extends Element {
       return
     }
 
-    this.iframe.removeAttribute('style')
-    const frameSize = this.getBoundingClientRect()
-    const headerSize = this.header.getBoundingClientRect()
+    this.iframe?.removeAttribute('style')
 
-    let scale = frameSize.width / viewportWidth
-    if (scale > 0.85) {
-      /**
-       * Make sure we stop scaling at 85% of the viewport width to ensure
-       * we keep the aspect ratio. We substract 0.05 to have a bit of a
-       * padding
-       */
-      scale = frameSize.height / viewportHeight - 0.05
-    }
+    // Defer the measurement to the next frame so we read post-reflow
+    // dimensions when the surrounding panel has just resized (e.g. Chrome
+    // DevTools opening/closing). Reading on the same tick as the resize
+    // event can return the pre-reflow size.
+    requestAnimationFrame(() => {
+      if (!this.section || !this.header) {
+        return
+      }
+      const frameSize = this.getBoundingClientRect()
+      const headerSize = this.header.getBoundingClientRect()
+      const hostStyle = getComputedStyle(this)
 
-    this.section.style.width = `${viewportWidth * scale}px`
-    this.section.style.height = `${Math.min(frameSize.height, viewportHeight * scale)}px`
-    this.iframe.style.width = `${viewportWidth}px`
-    // this.iframe.style.height = `${(Math.min(frameSize.height, viewportHeight * scale) - headerSize.height)}px`
-    this.iframe.style.height = `${viewportHeight - headerSize.height / scale}px`
-    this.iframe.style.transform = `scale(${scale})`
+      // getBoundingClientRect returns the padding-box; the section lives
+      // inside the content box, so the host's padding eats into what the
+      // section can actually claim. Subtract it explicitly — otherwise a
+      // height-limited scale can push section.width past the visible edge.
+      const padX =
+        parseFloat(hostStyle.paddingLeft || '0') +
+        parseFloat(hostStyle.paddingRight || '0')
+      const padY =
+        parseFloat(hostStyle.paddingTop || '0') +
+        parseFloat(hostStyle.paddingBottom || '0')
+
+      // Use the recorded viewport as authoritative — the iframe renders at
+      // that size and the section mirrors it. We tried fitting to the
+      // measured contentDocument scrollHeight to remove dead space below
+      // short pages, but the measurement races with async CSS loading:
+      // sites whose stylesheets arrive late report a near-zero scrollHeight
+      // at first paint, which made the section collapse to a strip even
+      // for full-height pages like github.com/login. Easier and more
+      // reliable to mirror what a real browser shows at the recorded size.
+      const effectiveViewportH = viewportHeight
+
+      // Fit the (effective) viewport into the area beneath the mock browser's
+      // header, preserving aspect ratio. min(scaleW, scaleH) is the standard
+      // "contain" sizing — guarantees no overflow on either axis whether the
+      // container is wider or taller than the viewport.
+      const availW = Math.max(0, frameSize.width - padX)
+      const availH = Math.max(0, frameSize.height - padY - headerSize.height)
+      const scale = Math.max(
+        0,
+        Math.min(availW / viewportWidth, availH / effectiveViewportH)
+      )
+
+      this.section.style.width = `${viewportWidth * scale}px`
+      this.section.style.height = `${effectiveViewportH * scale + headerSize.height}px`
+
+      // The iframe only exists in mutation-replay view — in screenshot/video
+      // modes the section is filled by an <img> or <video> instead, and
+      // there's nothing extra to size. Skip iframe-specific styling rather
+      // than bailing out: the section sizing above still needs to run so
+      // those modes also rescale on panel resize.
+      if (this.iframe) {
+        // The iframe is `position: absolute` inside an overflow:hidden
+        // wrapper, so the declared 1280×800 layout is honored regardless of
+        // the wrapper's flex sizing. transform-origin 0 0 anchors the scaled
+        // content to the wrapper's top-left, and the wrapper's overflow
+        // clips any sub-pixel overshoot.
+        this.iframe.style.width = `${viewportWidth}px`
+        this.iframe.style.height = `${viewportHeight}px`
+        this.iframe.style.transformOrigin = '0 0'
+        this.iframe.style.transform = `scale(${scale})`
+      }
+    })
   }
 
   #handleShowCommand = (event: Event) =>
@@ -320,6 +368,14 @@ export class DevtoolsBrowser extends Element {
     this.requestUpdate()
   }
 
+  // Re-fit on every render. View-mode flips (clicking an action, toggling
+  // video/snapshot) replace the iframe in the DOM with an <img> or <video>,
+  // which doesn't fire `resize` — without this, the section keeps its
+  // previous pixel size and the new content stays mis-sized.
+  updated() {
+    this.#setIframeSize()
+  }
+
   async #renderNewDocument(doc: SimplifiedVNode, baseUrl: string) {
     const root = transform(doc)
     const baseTag = h('base', { href: baseUrl })
@@ -351,6 +407,10 @@ export class DevtoolsBrowser extends Element {
      */
     ;[...this.#vdom.querySelectorAll('script')].forEach((el) => el.remove())
     docEl.ownerDocument.replaceChild(this.#vdom, docEl)
+
+    // The iframe's content just changed, so its measured height likely
+    // changed too. Re-fit the section so it hugs the new content.
+    this.#setIframeSize()
   }
 
   async #handleMutation(mutation: TraceMutation) {

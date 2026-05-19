@@ -149,12 +149,18 @@ function parseFeatureFileForExampleLines(
 
 export class TestReporter extends WebdriverIOReporter {
   #report: (data: any) => void
+  #loadSource: (location: string) => void
   #currentSpecFile?: string
   #suitePath: string[] = []
 
-  constructor(options: any, report: (data: any) => void) {
+  constructor(
+    options: any,
+    report: (data: any) => void,
+    loadSource: (location: string) => void = () => {}
+  ) {
     super(options)
     this.#report = report
+    this.#loadSource = loadSource
     // Reset signature counters for each new reporter instance (new test run)
     resetSignatureCounters()
   }
@@ -197,6 +203,7 @@ export class TestReporter extends WebdriverIOReporter {
     if ((suiteStats as any).file && (suiteStats as any).line !== null) {
       ;(suiteStats as any).callSource =
         `${(suiteStats as any).file}:${(suiteStats as any).line}`
+      this.#loadSource((suiteStats as any).file)
     }
 
     this.#sendUpstream()
@@ -218,6 +225,7 @@ export class TestReporter extends WebdriverIOReporter {
     if ((testStats as any).file && (testStats as any).line !== null) {
       ;(testStats as any).callSource =
         `${(testStats as any).file}:${(testStats as any).line}`
+      this.#loadSource((testStats as any).file)
     }
 
     // Generate stable UID after enriching metadata for consistent test identification
