@@ -88,13 +88,6 @@ export function setupForDevtools(opts: Options.WebdriverIO) {
   return opts
 }
 
-/**
- * Resolve the WDIO/Nightwatch config file path this run was launched with.
- * Prefer DEVTOOLS_WDIO_CONFIG (set by DevToolsAppLauncher in the launcher
- * process and inherited by forked workers) since workers' own argv doesn't
- * carry the positional config. Falls back to argv scanning for standalone
- * use (e.g. setupForDevtools) where the launcher hook didn't run.
- */
 function detectInvocationConfigPath(): string | undefined {
   const envPath = process.env.DEVTOOLS_WDIO_CONFIG
   if (envPath) {
@@ -216,12 +209,6 @@ export default class DevToolsHookService implements Services.ServiceInstance {
       )
     }
 
-    // Tell the backend which config file this run was launched with so the
-    // UI's rerun button targets the SAME config. Without this the backend's
-    // resolver only knows the default names (wdio.conf.{ts,js,...}) and
-    // silently picks the wrong one for projects using non-standard names
-    // like `wdio.BUILD.conf.ts` — leading to reruns that miss headless
-    // flags, beforeFeature hooks, etc. and time out.
     const detectedConfig = detectInvocationConfigPath()
     if (detectedConfig) {
       this.#sessionCapturer.sendUpstream('config', {
@@ -303,9 +290,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
         this.#sessionCapturer.handleLogEntryAdded(event)
       })
 
-      // Subscribe explicitly to the log module — WDIO auto-subscribes to
-      // network events when listeners are attached, but log events need an
-      // explicit subscription on most browsers.
+      // WDIO auto-subscribes to network events but not log events.
       try {
         ;(this.#browser as any).sessionSubscribe?.({
           events: ['log.entryAdded']

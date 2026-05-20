@@ -161,13 +161,6 @@ class TestRunner {
     return v
   }
 
-  /**
-   * Remember the config path a live worker reported (via the `/worker`
-   * websocket on session start). #resolveConfigPath consults this first,
-   * so reruns target the same config the user originally invoked — even
-   * non-standard names like `wdio.BUILD.conf.ts` that wouldn't be found
-   * by the default-filename search.
-   */
   registerConfigFile(configFile: string) {
     if (configFile && fs.existsSync(configFile)) {
       this.#registeredConfigFile = configFile
@@ -337,18 +330,21 @@ class TestRunner {
         : specFile
       : undefined
 
-    const builderCandidate = FRAMEWORK_FILTERS[framework]
+    // hasOwnProperty.call: payload-supplied `framework` mustn't reach
+    // prototype methods (__proto__, constructor, etc.).
+    const builderCandidate = Object.prototype.hasOwnProperty.call(
+      FRAMEWORK_FILTERS,
+      framework
+    )
+      ? FRAMEWORK_FILTERS[framework]
+      : undefined
     const builder =
       typeof builderCandidate === 'function'
         ? builderCandidate
         : DEFAULT_FILTERS
     const baseFilters = builder({ specArg, payload })
 
-    // "Run All" should rerun the original invocation's scope, not every
-    // spec WDIO can find. The launcher captured the user's CLI --spec
-    // arg(s) into DEVTOOLS_WDIO_INITIAL_SPECS; inject them here so the UI
-    // button matches what the user expects. Non-Nightwatch (WDIO) only —
-    // Nightwatch resolves specs differently and handled by its own filter.
+    // Scope "Run All" to the user's original --spec args. Nightwatch resolves specs via its own filter.
     if (payload.runAll && !framework.startsWith('nightwatch')) {
       const initialSpecs = process.env.DEVTOOLS_WDIO_INITIAL_SPECS
       if (initialSpecs) {
@@ -416,8 +412,6 @@ class TestRunner {
     const candidates = this.#dedupeCandidates([
       payload?.configFile,
       this.#lastPayload?.configFile,
-      // What the live worker registered on session-start over the /worker
-      // websocket — authoritative for the config the user actually invoked.
       this.#registeredConfigFile,
       process.env.DEVTOOLS_WDIO_CONFIG,
       process.env.DEVTOOLS_NIGHTWATCH_CONFIG,

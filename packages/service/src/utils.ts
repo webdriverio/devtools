@@ -57,15 +57,6 @@ export function setCurrentSpecFile(file?: string) {
   CURRENT_SPEC_FILE = file
 }
 
-/**
- * Whether a stack frame's file is user-authored test code (specs, steps,
- * page objects, etc.) as opposed to framework internals.
- *
- * Inverted allowlist: anything outside `node_modules` and Node internals
- * is user code, regardless of directory name. The single exception is
- * `@wdio/expect-webdriverio`, which lives in node_modules but holds
- * user-written assertion frames we want to treat as origin.
- */
 export function isUserSpecFile(file?: string | null): boolean {
   if (!file) {
     return false

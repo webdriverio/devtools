@@ -199,10 +199,6 @@ export async function start(
             return
           }
 
-          // Capture the WDIO/Nightwatch config file path the worker was
-          // launched with, so the rerun resolver targets the same config
-          // (handles non-standard names like `wdio.BUILD.conf.ts`). Stays
-          // backend-only — no need to forward to UI clients.
           if (parsed.scope === 'config' && parsed.data?.configFile) {
             testRunner.registerConfigFile(parsed.data.configFile)
             log.info(

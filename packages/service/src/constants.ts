@@ -84,10 +84,7 @@ export const INTERNAL_COMMANDS = [
   'findElement',
   'getElementText',
   'getElementShadowRoot',
-  // Service-internal — fired by the devtools service itself (preload
-  // injection, Puppeteer handle for CDP screencast, post-command screenshots
-  // & screencast polling). Recording them would pollute the Actions list
-  // with commands the user never wrote.
+  // Fired by the service itself; keep out of the user-facing Actions list.
   'scriptAddPreloadScript',
   'getPuppeteer',
   'takeScreenshot'

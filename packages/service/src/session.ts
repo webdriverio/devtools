@@ -190,17 +190,8 @@ export class SessionCapturer {
     return Boolean(this.#ws) && this.#ws?.readyState === WebSocket.OPEN
   }
 
-  /**
-   * Read a source file from disk (once) and add it to the trace's sources map
-   * so the UI's Source tab can render it. Accepts either a bare path or a
-   * "path:line[:col]" location; the line/column are stripped.
-   *
-   * Step-definition files, feature files, etc. never appear on the runtime
-   * call stack of a WebDriver command (cucumber dispatches step handlers
-   * directly), so afterCommand's stack-walk can't load them. The reporter
-   * computes those locations via mapTestToSource and calls this method so
-   * the lens icon in the UI can jump straight to the step.
-   */
+  // Cucumber step files never appear on the WebDriver call stack;
+  // the reporter feeds their paths here so the Source tab can resolve them.
   async ensureSourceLoaded(location?: string): Promise<void> {
     if (!location) {
       return
@@ -363,13 +354,7 @@ export class SessionCapturer {
     }
   }
 
-  /**
-   * Capture a browser-side console message from a WebDriver BiDi
-   * `log.entryAdded` event. Going through the protocol stream means we no
-   * longer depend on the page-side `console.*` patch surviving — pages that
-   * rewrite `console` (or were already loaded before the preload ran)
-   * still surface their output here.
-   */
+  // Protocol-level capture survives pages that rewrite their own console.
   handleLogEntryAdded(event: {
     type?: 'console' | 'javascript'
     level?: 'debug' | 'info' | 'warn' | 'error'
@@ -415,7 +400,8 @@ export class SessionCapturer {
         : []
 
     const entry: ConsoleLogs = {
-      timestamp: typeof event.timestamp === 'number' ? event.timestamp : Date.now(),
+      timestamp:
+        typeof event.timestamp === 'number' ? event.timestamp : Date.now(),
       type,
       args,
       source: LOG_SOURCES.BROWSER
