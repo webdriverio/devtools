@@ -8,6 +8,7 @@ packages:
   - 'packages/app'
   - 'packages/nightwatch-devtools'
   - 'packages/selenium-devtools'
+  - 'packages/elements'
   - 'examples/wdio'
   - 'examples/selenium'
   - 'examples/nightwatch'
