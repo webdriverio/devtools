@@ -24,7 +24,7 @@ const ACTION_MAP: Record<string, TraceAction> = {
   switchToFrame: { class: 'Frame', method: 'goto' },
   touchAction: { class: 'Element', method: 'tap' },
   // browser.action().perform() — special registration in register-overwrites.ts
-  action: { class: 'Mouse', method: 'tap' },
+  action: { class: 'Mouse', method: 'tap' }
 }
 
 // clearValue and addValue are excluded: they are always fired internally by setValue
@@ -61,8 +61,11 @@ export function formatActionTitle(
 ): string {
   // Pointer/touch action: extract x,y from the sequence's first pointerMove
   if (command === 'action') {
-    const seq = args[0] as { actions?: Array<{ type: string; x?: number; y?: number }> } | undefined
+    const seq = args[0] as
+      | { actions?: Array<{ type: string; x?: number; y?: number }> }
+      | undefined
     const move = seq?.actions?.find((a) => a.type === 'pointerMove')
+
     if (move?.x !== undefined) {
       return `${action.class}.${action.method}(${move.x}, ${move.y})`
     }
@@ -70,10 +73,12 @@ export function formatActionTitle(
   }
 
   // Fall back to selector from params when the command takes no positional args
-  const firstArg = args[0] !== undefined ? args[0] : params?.selector
+  const firstArg = args[0] ?? params?.selector
   if (firstArg === undefined) {
     return `${action.class}.${action.method}()`
   }
-  const label = String(firstArg).slice(0, 80)
+  const label = (
+    typeof firstArg === 'object' ? JSON.stringify(firstArg) : String(firstArg)
+  ).slice(0, 80)
   return `${action.class}.${action.method}("${label}")`
 }

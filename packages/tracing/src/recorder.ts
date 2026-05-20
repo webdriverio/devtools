@@ -1,7 +1,11 @@
 import { createTraceSession, getMonotonicMs } from './state.js'
 import { buildTraceZip } from './zip-writer.js'
-import { mapCommandToAction, formatActionTitle, ELEMENT_COMMANDS } from './action-mapping.js'
-import { getElements, type VisibleElementsResult } from '@wdio/elements'
+import {
+  ELEMENT_COMMANDS,
+  formatActionTitle,
+  mapCommandToAction
+} from './action-mapping.js'
+import { getElements } from '@wdio/elements'
 import { NetworkTracer } from './network.js'
 import type { TraceSession } from './types.js'
 
@@ -11,12 +15,13 @@ export interface TraceRecorderOptions {
 }
 
 export class TraceRecorder {
+  readonly #browser: WebdriverIO.Browser
+  readonly #options: TraceRecorderOptions
+
   #session!: TraceSession
   #networkTracer!: NetworkTracer
   #internalCommandDepth = 0
-  #browser: WebdriverIO.Browser
   #bidiListenersSetup = false
-  #options: TraceRecorderOptions
 
   constructor(browser: WebdriverIO.Browser, options?: TraceRecorderOptions) {
     this.#browser = browser
@@ -25,30 +30,32 @@ export class TraceRecorder {
 
   start(): void {
     const caps = this.#browser.capabilities as Record<string, unknown>
-    const isAndroid = (this.#browser as any).isAndroid as boolean | undefined
-    const isIOS = (this.#browser as any).isIOS as boolean | undefined
 
     let browserName: string
     let viewport: { width: number; height: number }
     let title: string
     let sessionType: 'browser' | 'ios' | 'android' = 'browser'
 
-    if (isAndroid) {
+    if (this.#browser.isAndroid) {
       sessionType = 'android'
       browserName = 'chromium'
-      const deviceName = String(caps['appium:deviceName'] ?? 'device')
+      const rawDevice = caps['appium:deviceName']
+      const deviceName = typeof rawDevice === 'string' ? rawDevice : 'device'
       title = `android - ${deviceName}`
       viewport = { width: 412, height: 915 }
-    } else if (isIOS) {
+    } else if (this.#browser.isIOS) {
       sessionType = 'ios'
       browserName = 'chromium'
-      const deviceName = String(caps['appium:deviceName'] ?? 'device')
+      const rawDevice = caps['appium:deviceName']
+      const deviceName = typeof rawDevice === 'string' ? rawDevice : 'device'
       title = `ios - ${deviceName}`
       viewport = { width: 390, height: 844 }
     } else {
-      browserName = String(caps.browserName ?? 'chromium')
+      browserName =
+        typeof caps.browserName === 'string' ? caps.browserName : 'chromium'
       viewport = { width: 1920, height: 1080 }
-      title = String(caps.browserName ?? browserName)
+      title =
+        typeof caps.browserName === 'string' ? caps.browserName : browserName
     }
 
     this.#session = createTraceSession(
@@ -97,7 +104,7 @@ export class TraceRecorder {
       method: action.method,
       pageId: this.#session.pageId,
       params,
-      title: formatActionTitle(action, command, args, params),
+      title: formatActionTitle(action, command, args, params)
     })
 
     if (ELEMENT_COMMANDS.has(command)) {
@@ -140,7 +147,7 @@ export class TraceRecorder {
   }
 
   #setupBidiListeners(): void {
-    if (this.#bidiListenersSetup || !(this.#browser as any).isBidi) {
+    if (this.#bidiListenersSetup || !this.#browser.isBidi) {
       return
     }
     this.#bidiListenersSetup = true
@@ -165,16 +172,27 @@ export class TraceRecorder {
   }
 
   async #captureElements(wallTimestamp: number): Promise<string | undefined> {
+    // Manage depth directly so the finally always fires, even when the race
+    // timeout wins before getElements() resolves.
+    this.#internalCommandDepth++
     try {
-      const result = await this.#runInternal(() =>
-        getElements(this.#browser, { inViewportOnly: true, includeBounds: true })
-      ) as VisibleElementsResult
+      const result = await Promise.race([
+        getElements(this.#browser, {
+          inViewportOnly: true,
+          includeBounds: true
+        }),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('getElements timeout')), 5000)
+        )
+      ])
       const resourceName = `elements-${this.#session.pageId}-${wallTimestamp}.json`
       const data = Buffer.from(JSON.stringify(result.elements), 'utf8')
       this.#session.elementSnapshots.push({ resourceName, data })
       return resourceName
     } catch {
       return undefined
+    } finally {
+      this.#internalCommandDepth--
     }
   }
 
@@ -183,9 +201,7 @@ export class TraceRecorder {
       return
     }
     try {
-      const base64 = await this.#runInternal(() =>
-        this.#browser.takeScreenshot()
-      )
+      const base64 = await this.#runInternal(this.#browser.takeScreenshot)
       const inputBuffer = Buffer.from(base64, 'base64')
 
       let imageBuffer: Buffer

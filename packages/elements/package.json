@@ -9,6 +9,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./locators": {
+      "types": "./dist/locators/index.d.ts",
+      "import": "./dist/locators/index.js"
     }
   },
   "types": "./dist/index.d.ts",

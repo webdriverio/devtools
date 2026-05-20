@@ -7,12 +7,14 @@ export function registerOverwrites(
   browser: WebdriverIO.Browser,
   recorder: TraceRecorder
 ): void {
-  if ((browser as any)[TRACE_INSTALLED]) return
+  if ((browser as any)[TRACE_INSTALLED]) {
+    return
+  }
   ;(browser as any)[TRACE_INSTALLED] = true
 
   for (const name of BROWSER_COMMAND_LIST) {
-    ;(browser as any).overwriteCommand(
-      name,
+    browser.overwriteCommand(
+      name as never,
       async function (
         this: WebdriverIO.Browser,
         origFn: (...args: unknown[]) => Promise<unknown>,
@@ -24,8 +26,8 @@ export function registerOverwrites(
   }
 
   for (const name of ELEMENT_COMMAND_LIST) {
-    ;(browser as any).overwriteCommand(
-      name,
+    browser.overwriteCommand(
+      name as never,
       async function (
         this: WebdriverIO.Element,
         origFn: (...args: unknown[]) => Promise<unknown>,

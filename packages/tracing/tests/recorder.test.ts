@@ -37,7 +37,12 @@ describe('TraceRecorder', () => {
     const recorder = new TraceRecorder(browser)
     recorder.start()
 
-    await recorder.wrapAction('url', ['https://example.com'], undefined, async () => {})
+    await recorder.wrapAction(
+      'url',
+      ['https://example.com'],
+      undefined,
+      async () => {}
+    )
 
     const beforeEvt = recorder.session.events.find(
       (e): e is BeforeActionEvent => e.type === 'before'
@@ -56,9 +61,14 @@ describe('TraceRecorder', () => {
     recorder.start()
 
     await expect(
-      recorder.wrapAction('url', ['https://example.com'], undefined, async () => {
-        throw new Error('navigation failed')
-      })
+      recorder.wrapAction(
+        'url',
+        ['https://example.com'],
+        undefined,
+        async () => {
+          throw new Error('navigation failed')
+        }
+      )
     ).rejects.toThrow('navigation failed')
 
     const beforeEvt = recorder.session.events.find(
