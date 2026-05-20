@@ -18,101 +18,101 @@ function escapeRegex(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
-const FRAMEWORK_FILTERS: Record<
-  string,
-  (ctx: { specArg?: string; payload: RunnerRequestBody }) => string[]
-> = {
-  cucumber: ({ specArg, payload }) => {
-    const filters: string[] = []
+type FilterBuilder = (ctx: {
+  specArg?: string
+  payload: RunnerRequestBody
+}) => string[]
 
-    // For feature-level suites, run the entire feature file
-    if (payload.suiteType === 'feature' && specArg) {
-      // Remove any line number from specArg for feature-level execution
-      const featureFile = specArg.split(':')[0]
-      filters.push('--spec', featureFile)
-      return filters
-    }
+// Map (not object) keeps payload-supplied `framework` from reaching
+// prototype methods at dispatch time — CodeQL: unvalidated-dynamic-method-call.
+const FRAMEWORK_FILTERS = new Map<string, FilterBuilder>()
 
-    // Priority 1: Use feature file with line number for exact scenario targeting (works for examples)
-    // Note: Cucumber scenarios are type 'suite', not 'test'
-    if (payload.featureFile && payload.featureLine) {
-      filters.push('--spec', `${payload.featureFile}:${payload.featureLine}`)
-      return filters
-    }
+FRAMEWORK_FILTERS.set('cucumber', ({ specArg, payload }) => {
+  const filters: string[] = []
 
-    // Priority 2: For specific test reruns with example row number, use exact regex match
-    if (payload.entryType === 'test' && payload.fullTitle) {
-      // Cucumber fullTitle format: "1: Scenario name" or "2: Scenario name"
-      // Extract the row number and scenario name
-      // Avoid ReDoS by removing ambiguous \s* before .* - use string operations instead
-      const colonIndex = payload.fullTitle.indexOf(':')
-      if (colonIndex > 0) {
-        const rowNumber = payload.fullTitle.substring(0, colonIndex)
-        const scenarioName = payload.fullTitle.substring(colonIndex + 1).trim()
-        // Validate row number is digits only
-        if (/^\d+$/.test(rowNumber)) {
-          // Use spec file filter
-          if (specArg) {
-            filters.push('--spec', specArg)
-          }
-          // Use regex to match the exact "rowNumber: scenarioName" pattern
-          // This ensures we only run that specific example row
-          filters.push(
-            '--cucumberOpts.name',
-            `^${rowNumber}:\\s*${escapeRegex(scenarioName)}$`
-          )
-          return filters
-        }
-      }
-      // No row number - use plain name filter
-      if (specArg) {
-        filters.push('--spec', specArg)
-      }
-      filters.push('--cucumberOpts.name', payload.fullTitle.trim())
-      return filters
-    }
-
-    // Suite-level rerun
-    if (specArg) {
-      filters.push('--spec', specArg)
-    }
-    return filters
-  },
-  mocha: ({ specArg, payload }) => {
-    const filters: string[] = []
-    if (specArg) {
-      filters.push('--spec', specArg)
-    }
-    // For both tests and suites, use grep to filter
-    if (payload.fullTitle) {
-      filters.push('--mochaOpts.grep', payload.fullTitle)
-    }
-    return filters
-  },
-  jasmine: ({ specArg, payload }) => {
-    const filters: string[] = []
-    if (specArg) {
-      filters.push('--spec', specArg)
-    }
-    // For both tests and suites, use grep to filter
-    if (payload.fullTitle) {
-      filters.push('--jasmineOpts.grep', payload.fullTitle)
-    }
+  // For feature-level suites, run the entire feature file
+  if (payload.suiteType === 'feature' && specArg) {
+    // Remove any line number from specArg for feature-level execution
+    const featureFile = specArg.split(':')[0]
+    filters.push('--spec', featureFile)
     return filters
   }
-}
 
-const DEFAULT_FILTERS = ({ specArg }: { specArg?: string }) =>
+  // Priority 1: Use feature file with line number for exact scenario targeting (works for examples)
+  // Note: Cucumber scenarios are type 'suite', not 'test'
+  if (payload.featureFile && payload.featureLine) {
+    filters.push('--spec', `${payload.featureFile}:${payload.featureLine}`)
+    return filters
+  }
+
+  // Priority 2: For specific test reruns with example row number, use exact regex match
+  if (payload.entryType === 'test' && payload.fullTitle) {
+    // Cucumber fullTitle format: "1: Scenario name" or "2: Scenario name"
+    // Extract the row number and scenario name
+    // Avoid ReDoS by removing ambiguous \s* before .* - use string operations instead
+    const colonIndex = payload.fullTitle.indexOf(':')
+    if (colonIndex > 0) {
+      const rowNumber = payload.fullTitle.substring(0, colonIndex)
+      const scenarioName = payload.fullTitle.substring(colonIndex + 1).trim()
+      // Validate row number is digits only
+      if (/^\d+$/.test(rowNumber)) {
+        // Use spec file filter
+        if (specArg) {
+          filters.push('--spec', specArg)
+        }
+        // Use regex to match the exact "rowNumber: scenarioName" pattern
+        // This ensures we only run that specific example row
+        filters.push(
+          '--cucumberOpts.name',
+          `^${rowNumber}:\\s*${escapeRegex(scenarioName)}$`
+        )
+        return filters
+      }
+    }
+    // No row number - use plain name filter
+    if (specArg) {
+      filters.push('--spec', specArg)
+    }
+    filters.push('--cucumberOpts.name', payload.fullTitle.trim())
+    return filters
+  }
+
+  // Suite-level rerun
+  if (specArg) {
+    filters.push('--spec', specArg)
+  }
+  return filters
+})
+
+FRAMEWORK_FILTERS.set('mocha', ({ specArg, payload }) => {
+  const filters: string[] = []
+  if (specArg) {
+    filters.push('--spec', specArg)
+  }
+  // For both tests and suites, use grep to filter
+  if (payload.fullTitle) {
+    filters.push('--mochaOpts.grep', payload.fullTitle)
+  }
+  return filters
+})
+
+FRAMEWORK_FILTERS.set('jasmine', ({ specArg, payload }) => {
+  const filters: string[] = []
+  if (specArg) {
+    filters.push('--spec', specArg)
+  }
+  // For both tests and suites, use grep to filter
+  if (payload.fullTitle) {
+    filters.push('--jasmineOpts.grep', payload.fullTitle)
+  }
+  return filters
+})
+
+const DEFAULT_FILTERS: FilterBuilder = ({ specArg }) =>
   specArg ? ['--spec', specArg] : []
 
 // Nightwatch CLI: positional spec file + optional --testcase filter
-FRAMEWORK_FILTERS.nightwatch = ({
-  specArg,
-  payload
-}: {
-  specArg?: string
-  payload: RunnerRequestBody
-}) => {
+FRAMEWORK_FILTERS.set('nightwatch', ({ specArg, payload }) => {
   const filters: string[] = []
   if (specArg) {
     // Nightwatch doesn't support file:line — strip any trailing line number
@@ -122,17 +122,12 @@ FRAMEWORK_FILTERS.nightwatch = ({
     filters.push('--testcase', payload.label)
   }
   return filters
-}
+})
 
 // Nightwatch + Cucumber: feature files are resolved via the config's feature_path.
 // Never pass .feature files as positional args — Nightwatch rejects them.
 // Nightwatch forwards --name and --tags to the underlying Cucumber runner.
-FRAMEWORK_FILTERS['nightwatch-cucumber'] = ({
-  payload
-}: {
-  specArg?: string
-  payload: RunnerRequestBody
-}) => {
+FRAMEWORK_FILTERS.set('nightwatch-cucumber', ({ payload }) => {
   const filters: string[] = []
 
   // Only pass --name for scenario-level reruns. Feature/file-level suites
@@ -145,7 +140,7 @@ FRAMEWORK_FILTERS['nightwatch-cucumber'] = ({
     filters.push('--name', `^${escaped}$`)
   }
   return filters
-}
+})
 
 class TestRunner {
   #child?: ChildProcess
@@ -330,18 +325,7 @@ class TestRunner {
         : specFile
       : undefined
 
-    // hasOwnProperty.call: payload-supplied `framework` mustn't reach
-    // prototype methods (__proto__, constructor, etc.).
-    const builderCandidate = Object.prototype.hasOwnProperty.call(
-      FRAMEWORK_FILTERS,
-      framework
-    )
-      ? FRAMEWORK_FILTERS[framework]
-      : undefined
-    const builder =
-      typeof builderCandidate === 'function'
-        ? builderCandidate
-        : DEFAULT_FILTERS
+    const builder = FRAMEWORK_FILTERS.get(framework) ?? DEFAULT_FILTERS
     const baseFilters = builder({ specArg, payload })
 
     // Scope "Run All" to the user's original --spec args. Nightwatch resolves specs via its own filter.
