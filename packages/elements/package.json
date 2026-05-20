@@ -1,0 +1,32 @@
+{
+  "name": "@wdio/elements",
+  "version": "1.0.0",
+  "description": "Element detection scripts for WebdriverIO",
+  "author": "Vince Graics",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p ./tsconfig.json",
+    "lint": "eslint . --fix"
+  },
+  "dependencies": {
+    "@xmldom/xmldom": "^0.9.8",
+    "xpath": "^0.0.34"
+  },
+  "devDependencies": {
+    "@types/node": "25.5.2",
+    "@wdio/globals": "9.27.0",
+    "typescript": "6.0.2",
+    "vitest": "^4.0.16"
+  },
+  "peerDependencies": {
+    "webdriverio": "^9.0.0"
+  }
+}
