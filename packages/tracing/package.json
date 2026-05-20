@@ -1,0 +1,38 @@
+{
+  "name": "@wdio/tracing-service",
+  "version": "1.0.0",
+  "description": "WDIO tracing service — records Vibium/Playwright v8 trace zips",
+  "author": "Vince Graics",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p ./tsconfig.json",
+    "lint": "eslint . --fix"
+  },
+  "dependencies": {
+    "@wdio/elements": "workspace:*",
+    "@wdio/logger": "9.18.0",
+    "@wdio/types": "9.27.0",
+    "yazl": "^2.5.1"
+  },
+  "optionalDependencies": {
+    "sharp": "^0.34.2"
+  },
+  "devDependencies": {
+    "@types/node": "25.5.2",
+    "@types/yazl": "^2.4.6",
+    "@wdio/globals": "9.27.0",
+    "typescript": "6.0.2",
+    "vitest": "^4.0.16"
+  },
+  "peerDependencies": {
+    "webdriverio": "^9.0.0"
+  }
+}

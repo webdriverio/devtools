@@ -29,3 +29,9 @@ example/wdio-*.json
 
 # pnpm state, cache, logs, and debug files
 /packages/**/*.mjs
+
+.trace
+traces
+
+.trace
+traces

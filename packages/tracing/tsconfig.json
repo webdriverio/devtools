@@ -1,0 +1,20 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "ignoreDeprecations": "6.0",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "outDir": "dist",
+    "rootDir": "src",
+    "noEmit": false,
+    "allowImportingTsExtensions": false,
+    "declaration": true,
+    "skipLibCheck": true,
+    "types": ["node", "@wdio/globals/types"],
+    "paths": {
+      "@wdio/elements": ["packages/elements/dist/index.d.ts"],
+      "@wdio/elements/*": ["packages/elements/dist/*"]
+    }
+  },
+  "include": ["src/**/*"]
+}
