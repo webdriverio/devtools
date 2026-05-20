@@ -574,4 +574,113 @@ describe('SessionCapturer', () => {
       })
     })
   })
+
+  describe('ensureSourceLoaded', () => {
+    it('reads a file once and emits a sources message', async () => {
+      const capturer = new SessionCapturer()
+      const send = vi.spyOn(capturer, 'sendUpstream' as any)
+      vi.mocked(fs.readFile).mockResolvedValueOnce(
+        Buffer.from('export default 1\n')
+      )
+
+      await capturer.ensureSourceLoaded('/abs/path/given.ts:24')
+
+      expect(fs.readFile).toHaveBeenCalledWith('/abs/path/given.ts', 'utf-8')
+      expect(capturer.sources.get('/abs/path/given.ts')).toBe(
+        'export default 1\n'
+      )
+      expect(send).toHaveBeenCalledWith('sources', {
+        '/abs/path/given.ts': 'export default 1\n'
+      })
+
+      // Second call for same path is a no-op.
+      vi.mocked(fs.readFile).mockClear()
+      send.mockClear()
+      await capturer.ensureSourceLoaded('/abs/path/given.ts')
+      expect(fs.readFile).not.toHaveBeenCalled()
+      expect(send).not.toHaveBeenCalled()
+    })
+
+    it('is a no-op on missing path or unreadable file', async () => {
+      const capturer = new SessionCapturer()
+      const send = vi.spyOn(capturer, 'sendUpstream' as any)
+
+      await capturer.ensureSourceLoaded(undefined)
+      await capturer.ensureSourceLoaded('')
+      vi.mocked(fs.readFile).mockRejectedValueOnce(new Error('ENOENT'))
+      await capturer.ensureSourceLoaded('/missing.ts')
+
+      expect(capturer.sources.size).toBe(0)
+      expect(send).not.toHaveBeenCalled()
+    })
+
+    it('converts file:// URLs to filesystem paths', async () => {
+      const capturer = new SessionCapturer()
+      vi.mocked(fs.readFile).mockResolvedValueOnce(Buffer.from('content'))
+
+      await capturer.ensureSourceLoaded('file:///home/u/spec.ts:1:1')
+
+      expect(fs.readFile).toHaveBeenCalledWith('/home/u/spec.ts', 'utf-8')
+    })
+  })
+
+  describe('handleLogEntryAdded', () => {
+    it('records a console-method entry with browser source', () => {
+      const capturer = new SessionCapturer()
+      capturer.handleLogEntryAdded({
+        type: 'console',
+        method: 'warn',
+        text: 'oops',
+        timestamp: 12345,
+        args: [{ type: 'string', value: 'oops' }]
+      })
+
+      expect(capturer.consoleLogs).toHaveLength(1)
+      expect(capturer.consoleLogs[0]).toMatchObject({
+        type: 'warn',
+        source: LOG_SOURCES.BROWSER,
+        timestamp: 12345,
+        args: ['oops']
+      })
+    })
+
+    it('falls back to level when method is absent (javascript log entries)', () => {
+      const capturer = new SessionCapturer()
+      capturer.handleLogEntryAdded({
+        type: 'javascript',
+        level: 'error',
+        text: 'uncaught TypeError'
+      })
+
+      expect(capturer.consoleLogs[0].type).toBe('error')
+      expect(capturer.consoleLogs[0].args).toEqual(['uncaught TypeError'])
+    })
+
+    it('maps unknown method/level to "log"', () => {
+      const capturer = new SessionCapturer()
+      capturer.handleLogEntryAdded({ method: 'table', text: 'x' } as any)
+
+      expect(capturer.consoleLogs[0].type).toBe('log')
+    })
+
+    it('serialises non-string remote values via JSON.stringify', () => {
+      const capturer = new SessionCapturer()
+      capturer.handleLogEntryAdded({
+        type: 'console',
+        method: 'log',
+        args: [
+          { type: 'number', value: 42 },
+          { type: 'object', value: { a: 1 } } as any,
+          { type: 'undefined' } as any
+        ],
+        timestamp: 0
+      })
+
+      expect(capturer.consoleLogs[0].args).toEqual([
+        '42',
+        '{"a":1}',
+        '[undefined]'
+      ])
+    })
+  })
 })

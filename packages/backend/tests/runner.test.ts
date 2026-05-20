@@ -264,6 +264,7 @@ describe('TestRunner', () => {
 
   describe('runAll mode', () => {
     it('should not use spec filter when runAll is true', async () => {
+      delete process.env.DEVTOOLS_WDIO_INITIAL_SPECS
       vi.mocked(spawn).mockReturnValue(createMockChild())
       await testRunner.run({
         uid: 'run-all',
@@ -274,6 +275,86 @@ describe('TestRunner', () => {
 
       const args = vi.mocked(spawn).mock.calls[0][1] as string[]
       expect(args).not.toContain('--spec')
+    })
+
+    it('scopes runAll to DEVTOOLS_WDIO_INITIAL_SPECS when set', async () => {
+      const initial = ['/abs/a.feature', '/abs/b.feature'].join(path.delimiter)
+      process.env.DEVTOOLS_WDIO_INITIAL_SPECS = initial
+      vi.mocked(spawn).mockReturnValue(createMockChild())
+
+      await testRunner.run({
+        uid: 'run-all',
+        entryType: 'suite',
+        runAll: true,
+        configFile: mockConfigPath
+      })
+
+      const args = vi.mocked(spawn).mock.calls[0][1] as string[]
+      // Each detected spec should appear as its own --spec entry.
+      const specPositions = args
+        .map((a, i) => (a === '--spec' ? i : -1))
+        .filter((i) => i >= 0)
+      expect(specPositions).toHaveLength(2)
+      const specValues = specPositions.map((i) => args[i + 1])
+      expect(specValues).toEqual(['/abs/a.feature', '/abs/b.feature'])
+
+      delete process.env.DEVTOOLS_WDIO_INITIAL_SPECS
+    })
+  })
+
+  describe('framework dispatch via Map (CodeQL hardening)', () => {
+    beforeEach(() => {
+      vi.mocked(spawn).mockReturnValue(createMockChild())
+    })
+
+    // Unknown framework names — including prototype keys — must not reach a
+    // builder. They fall through to DEFAULT_FILTERS which only emits --spec.
+    it.each(['unknown', '__proto__', 'constructor', 'hasOwnProperty'])(
+      'falls back to DEFAULT_FILTERS for framework %s',
+      async (framework) => {
+        await testRunner.run({
+          uid: `t-${framework}`,
+          entryType: 'test',
+          framework: framework as any,
+          specFile: mockSpecFile,
+          configFile: mockConfigPath
+        })
+        const args = vi.mocked(spawn).mock.calls.at(-1)![1] as string[]
+        expect(args).toContain('--spec')
+        expect(args).not.toContain('--mochaOpts.grep')
+        expect(args).not.toContain('--jasmineOpts.grep')
+        expect(args).not.toContain('--cucumberOpts.name')
+        testRunner.stop()
+      }
+    )
+  })
+
+  describe('registerConfigFile', () => {
+    it('uses a worker-registered config path ahead of the default search', async () => {
+      const registered = '/proj/wdio.BUILD.conf.ts'
+      vi.mocked(fs.existsSync).mockImplementation(
+        (p) => p === registered || p === mockConfigPath
+      )
+      const { testRunner: tr } = await import('../src/runner.js')
+      tr.registerConfigFile(registered)
+
+      vi.mocked(spawn).mockReturnValue(createMockChild())
+      await tr.run({ uid: 'reg-1', entryType: 'test' })
+
+      const args = vi.mocked(spawn).mock.calls.at(-1)![1] as string[]
+      expect(args).toContain(registered)
+    })
+
+    it('ignores a non-existent path', async () => {
+      vi.mocked(fs.existsSync).mockReturnValue(false)
+      const { testRunner: tr } = await import('../src/runner.js')
+      tr.registerConfigFile('/does/not/exist.ts')
+
+      // Internal state stays unchanged; tr.run still fails to locate any config
+      // (no change in behaviour from non-existent path).
+      await expect(tr.run({ uid: 'reg-2', entryType: 'test' })).rejects.toThrow(
+        'Cannot locate WDIO config'
+      )
     })
   })
 })

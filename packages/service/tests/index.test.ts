@@ -136,6 +136,22 @@ describe('DevtoolsService - Internal Command Filtering', () => {
       expect(capturedCommands).not.toContain('getTitle')
       expect(capturedCommands).not.toContain('waitUntil')
     })
+
+    // Service-fired commands (preload injection, Puppeteer handle for CDP,
+    // post-command screenshots) must not surface as user actions.
+    it.each(['scriptAddPreloadScript', 'getPuppeteer', 'takeScreenshot'])(
+      'filters service-internal %s out of the command stack',
+      (cmd) => {
+        executeCommand('click', ['.user'])
+        executeCommand(cmd as any, [], 'noop')
+        const captured =
+          mockSessionCapturerInstance.afterCommand.mock.calls.map(
+            (call) => call[1]
+          )
+        expect(captured).toContain('click')
+        expect(captured).not.toContain(cmd)
+      }
+    )
   })
 })
 

@@ -124,4 +124,64 @@ describe('TestReporter - Rerun & Stable UID', () => {
       }).not.toThrow()
     })
   })
+
+  describe('loadSource callback', () => {
+    it('invokes loadSource with the file mapped to a test', () => {
+      const loadSource = vi.fn()
+      const r = new TestReporter(
+        { logFile: '/tmp/test.log' },
+        sendUpstream as any,
+        loadSource
+      )
+
+      r.onTestStart(
+        createTestStats({
+          title: 'Given I open the url',
+          fullTitle: 'Given I open the url',
+          file: '/proj/src/features/x.feature',
+          argument: { uri: '/proj/src/features/x.feature', line: 5 } as any
+        })
+      )
+
+      // mapTestToSource may rewrite `testStats.file` (it can fall back to the
+      // runtime stack when no spec file is on disk), so don't pin to a path —
+      // just assert the callback fired with the resolved file.
+      expect(loadSource).toHaveBeenCalledTimes(1)
+      expect(typeof loadSource.mock.calls[0][0]).toBe('string')
+      expect(loadSource.mock.calls[0][0].length).toBeGreaterThan(0)
+    })
+
+    it('invokes loadSource for suites that get mapped to a file', () => {
+      const loadSource = vi.fn()
+      const r = new TestReporter(
+        { logFile: '/tmp/test.log' },
+        sendUpstream as any,
+        loadSource
+      )
+
+      const suiteStats = createSuiteStats({
+        title: 'Login feature',
+        file: '/proj/src/features/login.feature'
+      })
+
+      r.onSuiteStart(suiteStats)
+
+      expect(loadSource).toHaveBeenCalledWith(
+        expect.stringContaining('login.feature')
+      )
+    })
+
+    it('treats loadSource as optional (default no-op)', () => {
+      const r = new TestReporter(
+        { logFile: '/tmp/test.log' },
+        sendUpstream as any
+      )
+
+      // No loadSource passed — must not throw when test/suite events fire.
+      expect(() => {
+        r.onSuiteStart(createSuiteStats())
+        r.onTestStart(createTestStats())
+      }).not.toThrow()
+    })
+  })
 })
