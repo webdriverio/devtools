@@ -325,7 +325,11 @@ class TestRunner {
         : specFile
       : undefined
 
-    const builder = FRAMEWORK_FILTERS.get(framework) ?? DEFAULT_FILTERS
+    const candidateBuilder = FRAMEWORK_FILTERS.get(framework)
+    const builder =
+      typeof candidateBuilder === 'function'
+        ? candidateBuilder
+        : DEFAULT_FILTERS
     const baseFilters = builder({ specArg, payload })
 
     // Scope "Run All" to the user's original --spec args. Nightwatch resolves specs via its own filter.
