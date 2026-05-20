@@ -6,4 +6,5 @@ packages:
   - 'packages/app'
   - 'packages/nightwatch-devtools'
   - 'packages/selenium-devtools'
+  - 'packages/elements'
   - 'example'
