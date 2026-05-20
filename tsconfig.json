@@ -33,6 +33,8 @@
       "@wdio/devtools-service/*": ["packages/service/src/*"],
       "@wdio/selenium-devtools": ["packages/selenium-devtools/src/index.ts"],
       "@wdio/selenium-devtools/*": ["packages/selenium-devtools/src/*"],
+      "@wdio/tracing-service": ["packages/tracing/src/index.ts"],
+      "@wdio/tracing-service/*": ["packages/tracing/src/*"],
       "@wdio/elements": ["packages/elements/src/index.ts"],
       "@wdio/elements/*": ["packages/elements/src/*"]
     }
