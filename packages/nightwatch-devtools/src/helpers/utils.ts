@@ -6,7 +6,6 @@ import logger from '@wdio/logger'
 import {
   ANSI_REGEX,
   LOG_LEVEL_PATTERNS,
-  TEST_PATH_PATTERN,
   TEST_FILE_PATTERN,
   CONFIG_FILENAMES
 } from '../constants.js'
@@ -107,11 +106,15 @@ export function findTestFileFromStack(): string | undefined {
     return undefined
   }
 
-  const frame = parseStackTrace(stack).find(
-    (f) =>
-      isUserCodeFrame(f) &&
-      (TEST_PATH_PATTERN.test(f.file) || TEST_FILE_PATTERN.test(f.file))
+  // Prefer a frame whose filename matches *.test.ts / *.spec.ts (strong
+  // signal). Fall back to the first plain user-code frame so arbitrary
+  // project layouts (e.g. Cucumber step files under `src/steps/`) still
+  // surface their owning file instead of going undetected.
+  const frames = parseStackTrace(stack)
+  const preferred = frames.find(
+    (f) => isUserCodeFrame(f) && TEST_FILE_PATTERN.test(f.file)
   )
+  const frame = preferred ?? frames.find(isUserCodeFrame)
   if (!frame?.file) {
     return undefined
   }

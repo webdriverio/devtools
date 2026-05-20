@@ -21,7 +21,7 @@
       "@types/node": "25.5.2",
       "@codemirror/state": "6.5.4"
     },
-    "ignoredBuiltDependencies": [
+    "onlyBuiltDependencies": [
       "chromedriver"
     ]
   },

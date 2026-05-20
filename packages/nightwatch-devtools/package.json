@@ -51,7 +51,7 @@
   "devDependencies": {
     "@types/node": "25.5.2",
     "@types/ws": "^8.18.1",
-    "chromedriver": "^147.0.1",
+    "chromedriver": "^148.0.3",
     "nightwatch": "^3.0.0",
     "typescript": "^6.0.2"
   },
