@@ -8,26 +8,8 @@ import type { ServiceOptions, ExtendedCapabilities } from './types.js'
 
 const log = logger('@wdio/devtools-service:Launcher')
 
-/**
- * When the UI re-runs a test, the backend spawns a fresh WDIO process with
- * DEVTOOLS_APP_REUSE=1. The original CLI process is typically still alive
- * and its port-binding services (static-server, mock-server, etc.) still
- * own their ports. The rerun process loads the same config and those
- * services' `onPrepare` call `app.listen(port)` again — EADDRINUSE.
- *
- * WDIO runs service onPrepare hooks in parallel (Promise.all in
- * runServiceHook), so we can't mutate `config.services` to splice out the
- * conflicting service from our own onPrepare — by the time we run it's
- * already racing. Instead, patch http.Server.prototype.listen at module
- * load time (which runs before any onPrepare fires) and quietly swallow
- * EADDRINUSE specifically when we know we're a rerun. The demo app is
- * still served by the original process, so the test still works — we
- * just stop the noisy "service failed in onPrepare hook" log.
- *
- * Scope is narrow: only DEVTOOLS_APP_REUSE=1, only EADDRINUSE, only the
- * one offending server (we revert the per-instance override once the
- * error has been consumed so future emits behave normally).
- */
+// On rerun the original CLI process still owns its port-binding services;
+// swallow EADDRINUSE so other services' onPrepare don't fail loudly.
 if (process.env.DEVTOOLS_APP_REUSE === '1') {
   const originalListen = http.Server.prototype.listen
   http.Server.prototype.listen = function patchedListen(
@@ -53,14 +35,7 @@ if (process.env.DEVTOOLS_APP_REUSE === '1') {
   }
 }
 
-/**
- * Find the config file the user invoked WDIO/Nightwatch with by scanning
- * the launcher's argv. Handles `wdio run <config>` positional form and the
- * `--config <path>` (Nightwatch) flagged form. Returns an absolute path.
- *
- * Detection lives in the launcher (not the worker) because workers are
- * forked with their own argv and don't see the original config arg.
- */
+// Lives in the launcher: forked workers have their own argv without the config arg.
 function detectInvocationConfigPath(): string | undefined {
   const argv = process.argv
   for (let i = 0; i < argv.length - 1; i++) {
@@ -80,13 +55,6 @@ function detectInvocationConfigPath(): string | undefined {
     : path.resolve(process.cwd(), positional)
 }
 
-/**
- * Collect any `--spec` / `-s` paths the user passed at the CLI. Used to
- * scope the UI's "Run All" button to the spec(s) that were originally
- * invoked, rather than letting WDIO walk every file matched by
- * `config.specs`. WDIO accepts both repeated `--spec foo --spec bar`
- * and comma-separated `--spec foo,bar` forms.
- */
 function detectInvocationSpecs(): string[] {
   const argv = process.argv
   const out: string[] = []
@@ -122,23 +90,12 @@ export class DevToolsAppLauncher {
 
   async onPrepare(_: never, caps: ExtendedCapabilities[]) {
     try {
-      // Capture the config the user invoked with so the rerun resolver in
-      // the backend can target the same file (handles non-standard names
-      // like `wdio.BUILD.conf.ts` that the default-name search won't find).
-      // Set in process.env so:
-      //   - in-process backend reads it dynamically in `#resolveConfigPath`
-      //   - the WDIO worker inherits it and forwards it to the backend over
-      //     the /worker WS for the reused-app case.
       const detectedConfig = detectInvocationConfigPath()
       if (detectedConfig && !process.env.DEVTOOLS_WDIO_CONFIG) {
         process.env.DEVTOOLS_WDIO_CONFIG = detectedConfig
         log.info(`Detected config for reruns: ${detectedConfig}`)
       }
 
-      // Remember the spec(s) the user invoked with so the UI's "Run All"
-      // button reruns the same scope rather than expanding to every spec
-      // matched by `config.specs`. The backend reads this dynamically when
-      // building rerun filters for runAll payloads.
       if (!process.env.DEVTOOLS_WDIO_INITIAL_SPECS) {
         const detectedSpecs = detectInvocationSpecs()
         if (detectedSpecs.length) {

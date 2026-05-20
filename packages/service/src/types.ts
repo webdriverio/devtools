@@ -104,9 +104,6 @@ export interface TraceLog {
   sources: Record<string, string>
   suites?: Record<string, SuiteStats>[]
   screencast?: ScreencastInfo
-  // Out-of-band run metadata: the absolute path of the WDIO/Nightwatch
-  // config that launched this session, used by the backend to re-target
-  // reruns at the same config (rather than falling back to wdio.conf.ts).
   config?: { configFile?: string }
 }
 
