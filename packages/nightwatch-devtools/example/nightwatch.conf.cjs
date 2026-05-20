@@ -10,7 +10,7 @@ module.exports = {
 
   webdriver: {
     start_process: true,
-    server_path: '/opt/homebrew/bin/chromedriver',
+    // server_path: '/opt/homebrew/bin/chromedriver',
     port: 9515
   },
 
