@@ -11,7 +11,8 @@
             "node",
             "@wdio/globals/types",
             "expect-webdriverio",
-            "@wdio/cucumber-framework"
+            "@wdio/cucumber-framework",
+            "@wdio/mocha-framework"
         ],
         "skipLibCheck": true,
         "noEmit": true,
@@ -25,6 +26,9 @@
     },
     "include": [
         "test",
-        "wdio.conf.ts"
+        "specs",
+        "wdio.conf.ts",
+        "wdio.chrome.conf.ts",
+        "wdio.android.conf.ts"
     ]
 }
