@@ -1,6 +1,6 @@
 {
   "name": "@wdio/selenium-devtools",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Selenium WebDriver adapter for WebdriverIO DevTools — runner-agnostic, reuses existing backend, UI, and capture infrastructure",
   "type": "module",
   "main": "dist/index.js",
@@ -26,6 +26,7 @@
     "watch": "tsc --watch",
     "clean": "rm -rf dist",
     "lint": "eslint .",
+    "prepublishOnly": "pnpm build",
     "example:mocha": "mocha --require @wdio/selenium-devtools --timeout 60000 example/mocha-test/test/example.js",
     "example:jest": "NODE_OPTIONS=--experimental-vm-modules jest --config example/jest-test/jest.config.json",
     "example:vitest": "vitest run --config example/vitest-test/vitest.config.js",

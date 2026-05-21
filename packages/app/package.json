@@ -1,6 +1,6 @@
 {
   "name": "@wdio/devtools-app",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "description": "Browser devtools extension for debugging WebdriverIO tests.",
   "type": "module",
   "repository": {
@@ -13,7 +13,8 @@
     "dev": "vite build --watch",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "prepublishOnly": "pnpm build"
   },
   "dependencies": {
     "@codemirror/lang-javascript": "^6.2.5",

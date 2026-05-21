@@ -46,12 +46,7 @@ jobs:
       - name: Install Dependencies
         run: pnpm install
       - name: Build
-        run: |
-          pnpm --filter "@wdio/devtools-script" build
-          pnpm --filter "@wdio/devtools-backend" build
-          pnpm --filter "@wdio/devtools-service" build
-          pnpm --filter "@wdio/devtools-app" build
-          pnpm --filter "@wdio/nightwatch-devtools" build
+        run: pnpm -r build
       - name: Release
         run: pnpm -r publish --access public --no-git-checks
         env:
