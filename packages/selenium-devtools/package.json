@@ -54,7 +54,7 @@
   },
   "devDependencies": {
     "@cucumber/cucumber": "^11.1.0",
-    "@types/node": "25.5.2",
+    "@types/node": "25.9.1",
     "@types/ws": "^8.18.1",
     "chromedriver": "^147.0.1",
     "jest": "^29.7.0",
