@@ -1,6 +1,6 @@
 {
   "name": "@wdio/devtools-backend",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "description": "Backend service to spin up WebdriverIO Devtools",
   "author": "Christian Bromann <mail@bromann.dev>",
   "license": "MIT",
@@ -20,7 +20,8 @@
     "dev:ts": "tsc --watch",
     "dev:app": "nodemon --watch ./dist ./dist/index.js",
     "build": "tsc -p ./tsconfig.json",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "prepublishOnly": "pnpm build"
   },
   "dependencies": {
     "@fastify/rate-limit": "^10.3.0",

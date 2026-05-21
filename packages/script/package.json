@@ -1,6 +1,6 @@
 {
   "name": "@wdio/devtools-script",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "description": "Script to be injected into a page to trace the page",
   "author": "Christian Bromann <mail@bromann.dev>",
   "repository": {
@@ -16,7 +16,8 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "prepublishOnly": "pnpm build"
   },
   "dependencies": {
     "htm": "^3.1.1",
