@@ -44,8 +44,7 @@ import { Builder, By, until } from 'selenium-webdriver'
 import { DevTools } from '@wdio/selenium-devtools'
 
 DevTools.configure({
-  screencast: { enabled: true, quality: 70, maxWidth: 1280, maxHeight: 720 },
-  headless: true
+  screencast: { enabled: true, quality: 70, maxWidth: 1280, maxHeight: 720 }
 })
 
 describe('smoke test', function () {
@@ -85,8 +84,7 @@ import { DevTools } from '@wdio/selenium-devtools'
 import { Builder, By, until } from 'selenium-webdriver'
 
 DevTools.configure({
-  screencast: { enabled: true, quality: 70, maxWidth: 1280, maxHeight: 720 },
-  headless: true
+  screencast: { enabled: true, quality: 70, maxWidth: 1280, maxHeight: 720 }
 })
 
 describe('login flow', () => {
@@ -142,8 +140,7 @@ Cucumber's split layout means three small files — one to configure the plugin,
 import { DevTools } from '@wdio/selenium-devtools'
 
 DevTools.configure({
-  screencast: { enabled: true, quality: 70, maxWidth: 1280, maxHeight: 720 },
-  headless: true
+  screencast: { enabled: true, quality: 70, maxWidth: 1280, maxHeight: 720 }
 })
 ```
 
@@ -256,12 +253,13 @@ The runner snippets above use a typical config:
 
 ```javascript
 DevTools.configure({
-  screencast: { enabled: true, quality: 70, maxWidth: 1280, maxHeight: 720 },
-  headless: true
+  screencast: { enabled: true, quality: 70, maxWidth: 1280, maxHeight: 720 }
 })
 ```
 
 Here's what every option does, in plain language. **All are optional** — the plugin runs fine with `DevTools.configure({})` or no configure call at all.
+
+> **For CI**, set both `headless: true` (hide the test browser) and `openUi: false` (don't try to open the dashboard window). The backend stays running on the configured port so you can still open the UI later.
 
 #### `screencast` — record a video of the browser
 **Default:** off. Set `{ enabled: true }` to record a `.webm` video for every browser session. Watch it back in the "Screencast" tab in the dashboard.
