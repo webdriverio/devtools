@@ -176,3 +176,26 @@ export type StepDef = {
   line: number
   column: number
 }
+
+export interface PreservedAttempt {
+  testUid: string
+  scope: 'test' | 'suite'
+  capturedAt: number
+  window: { start: number; end: number }
+  test: {
+    title?: string
+    fullTitle?: string
+    file?: string
+    callSource?: string
+    start?: number
+    end?: number
+    duration?: number
+    state?: 'passed' | 'failed' | 'skipped' | 'pending' | 'running'
+    error?: { message: string; name?: string; stack?: string }
+  }
+  commands: CommandLog[]
+  consoleLogs: ConsoleLogs[]
+  networkRequests: NetworkRequest[]
+  mutations: TraceMutation[]
+  sources: Record<string, string>
+}
