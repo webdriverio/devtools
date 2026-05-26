@@ -78,6 +78,10 @@ export function serializeWebSnapshot(
         : node.role
 
     if (isInteractive) {
+      // No selector → agent can't act on this node; skip entirely
+      if (!node.selector) {
+        continue
+      }
       if (node.name) {
         lines.push(`${indent}${roleLabel} "${node.name}"  →  ${node.selector}`)
       } else {
@@ -86,10 +90,9 @@ export function serializeWebSnapshot(
           lines.push(
             `${indent}${roleLabel} ∈ "${purpose}"  →  ${node.selector}`
           )
-        } else if (node.selector) {
+        } else {
           lines.push(`${indent}${roleLabel}  →  ${node.selector}`)
         }
-        // No name, no purpose, no selector: skip — not useful to an LLM
       }
     } else {
       // Container / structural: show role + name when present, no selector

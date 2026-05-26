@@ -64,11 +64,30 @@ describe('serializeWebSnapshot', () => {
     expect(out).toContain('checkbox ∈ "Login form"  →  #remember')
   })
 
-  it('omits interactive node with no name, no ancestor name, and no selector', () => {
-    const nodes = [node({ role: 'button', depth: 0, name: '', selector: '' })]
+  it('omits interactive node with no selector regardless of name', () => {
+    const nodes = [
+      node({ role: 'button', depth: 0, name: '', selector: '' }),
+      node({
+        role: 'button',
+        depth: 0,
+        name: 'Named but unselector',
+        selector: ''
+      })
+    ]
     const out = serializeWebSnapshot(nodes)
-    // Only the header, node is skipped
+    // Only the header — both nodes skipped due to missing selector
     expect(out.split('\n').length).toBe(1)
+  })
+
+  it('omits interactive node with ∈ context but no selector', () => {
+    const nodes = [
+      node({ role: 'form', depth: 0, name: 'Login form' }),
+      node({ role: 'combobox', depth: 1, name: '', selector: '' })
+    ]
+    const out = serializeWebSnapshot(nodes)
+    // combobox has ancestor context but no selector — must be dropped
+    expect(out).not.toContain('combobox')
+    expect(out).not.toContain('→')
   })
 
   it('renders container role without selector', () => {
