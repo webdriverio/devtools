@@ -12,6 +12,7 @@ import { WebSocket } from 'ws'
 import { getDevtoolsApp } from './utils.js'
 import { DEFAULT_PORT } from './constants.js'
 import { testRunner } from './runner.js'
+import { baselineStore } from './baselineStore.js'
 import type { RunnerRequestBody } from './types.js'
 
 let server: FastifyInstance | undefined
@@ -127,6 +128,71 @@ export async function start(
     reply.send({ ok: true })
   })
 
+  server.post(
+    '/api/baseline/preserve',
+    async (
+      request: FastifyRequest<{
+        Body: { testUid?: string; scope?: 'test' | 'suite' }
+      }>,
+      reply
+    ) => {
+      const { testUid, scope } = request.body || {}
+      if (!testUid || (scope !== 'test' && scope !== 'suite')) {
+        return reply.code(400).send({
+          error: 'Invalid preserve payload: testUid and scope required'
+        })
+      }
+      const attempt = baselineStore.preserve(testUid, scope)
+      if (!attempt) {
+        return reply
+          .code(409)
+          .send({ error: 'No captured data for the requested uid' })
+      }
+      broadcastToClients(
+        JSON.stringify({
+          scope: 'baseline:saved',
+          data: { testUid, attempt }
+        })
+      )
+      return reply.send({ ok: true, attempt })
+    }
+  )
+
+  server.post(
+    '/api/baseline/clear',
+    async (request: FastifyRequest<{ Body: { testUid?: string } }>, reply) => {
+      const { testUid } = request.body || {}
+      if (!testUid) {
+        return reply.code(400).send({ error: 'testUid required' })
+      }
+      const removed = baselineStore.clear(testUid)
+      if (removed) {
+        broadcastToClients(
+          JSON.stringify({
+            scope: 'baseline:cleared',
+            data: { testUid }
+          })
+        )
+      }
+      return reply.send({ ok: true, removed })
+    }
+  )
+
+  server.get(
+    '/api/baseline/:testUid',
+    async (
+      request: FastifyRequest<{
+        Params: { testUid: string }
+        Querystring: { scope?: 'test' | 'suite' }
+      }>,
+      reply
+    ) => {
+      const { testUid } = request.params
+      const scope = request.query.scope === 'suite' ? 'suite' : 'test'
+      return reply.send(baselineStore.getPair(testUid, scope))
+    }
+  )
+
   server.get(
     '/client',
     { websocket: true },
@@ -168,6 +234,12 @@ export async function start(
       if (!isRerunChild) {
         messageBuffer.length = 0
       }
+      // Always reset the baseline accumulator. Unlike messageBuffer, its
+      // purpose is to hold only the CURRENT run's events for time-window
+      // snapshots. Keeping it across rerun-child connects expands each
+      // test's time window (min-start / max-end across updates), which
+      // makes Preserve & Rerun pull in commands from previous runs.
+      baselineStore.resetActiveRun()
       workerSocket = socket
       socket.on('close', () => {
         if (workerSocket === socket) {
@@ -190,6 +262,11 @@ export async function start(
           if (parsed.scope === 'clearCommands') {
             const testUid = parsed.data?.testUid
             log.info(`Clearing commands for test: ${testUid || 'all'}`)
+            // Mirror the dashboard's reset behavior: clearing without a uid
+            // is a full reset, so wipe the baseline accumulator too.
+            if (!testUid) {
+              baselineStore.resetActiveRun()
+            }
             broadcastToClients(
               JSON.stringify({
                 scope: 'clearExecutionData',
@@ -226,6 +303,10 @@ export async function start(
             )
             return
           }
+          // Tee the event into the baseline accumulator for time-window
+          // partitioning at preserve time. Done after special-case handling
+          // so we don't accumulate control frames (clearCommands, screencast).
+          baselineStore.recordEvent(parsed.scope, parsed.data)
         } catch {
           // Not JSON or parsing failed, forward as-is
         }

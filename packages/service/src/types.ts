@@ -177,6 +177,16 @@ export type StepDef = {
   column: number
 }
 
+export interface PreservedStep {
+  uid: string
+  title?: string
+  fullTitle?: string
+  start?: number
+  end?: number
+  state?: 'passed' | 'failed' | 'skipped' | 'pending' | 'running'
+  error?: { message: string; name?: string; stack?: string }
+}
+
 export interface PreservedAttempt {
   testUid: string
   scope: 'test' | 'suite'
@@ -193,6 +203,13 @@ export interface PreservedAttempt {
     state?: 'passed' | 'failed' | 'skipped' | 'pending' | 'running'
     error?: { message: string; name?: string; stack?: string }
   }
+  /**
+   * Descendant step (TestStats) snapshots — populated when scope === 'suite'.
+   * Each entry has its own time window so commands can be attributed to the
+   * step that owned them at runtime. The Compare tab uses this to mark
+   * commands that ran inside a failed step (the assertion site).
+   */
+  steps?: PreservedStep[]
   commands: CommandLog[]
   consoleLogs: ConsoleLogs[]
   networkRequests: NetworkRequest[]
