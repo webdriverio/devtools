@@ -1,5 +1,9 @@
 import type { SuiteStats, TestStats } from '@wdio/reporter'
-import type { TraceLog, CommandLog } from '@wdio/devtools-service/types'
+import type {
+  TraceLog,
+  CommandLog,
+  PreservedAttempt
+} from '@wdio/devtools-service/types'
 
 export type TestStatsFragment = Omit<Partial<TestStats>, 'uid' | 'state'> & {
   uid: string
@@ -29,11 +33,15 @@ export interface SocketMessage<
     | keyof TraceLog
     | 'testStopped'
     | 'clearExecutionData'
-    | 'replaceCommand' =
+    | 'replaceCommand'
+    | 'baseline:saved'
+    | 'baseline:cleared' =
     | keyof TraceLog
     | 'testStopped'
     | 'clearExecutionData'
     | 'replaceCommand'
+    | 'baseline:saved'
+    | 'baseline:cleared'
 > {
   scope: T
   data: T extends keyof TraceLog
@@ -46,5 +54,9 @@ export interface SocketMessage<
         }
       : T extends 'replaceCommand'
         ? { oldTimestamp: number; command: CommandLog }
-        : unknown
+        : T extends 'baseline:saved'
+          ? { testUid: string; attempt: PreservedAttempt }
+          : T extends 'baseline:cleared'
+            ? { testUid: string }
+            : unknown
 }

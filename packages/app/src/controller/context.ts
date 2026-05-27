@@ -1,5 +1,9 @@
 import { createContext } from '@lit/context'
-import type { Metadata, CommandLog } from '@wdio/devtools-service/types'
+import type {
+  Metadata,
+  CommandLog,
+  PreservedAttempt
+} from '@wdio/devtools-service/types'
 import type { SuiteStatsFragment } from './types.js'
 
 export const mutationContext = createContext<TraceMutation[]>(
@@ -29,4 +33,10 @@ export const hasConnectionContext = createContext<boolean>(
 )
 export const activeRerunContext = createContext<string | undefined>(
   Symbol('activeRerunContext')
+)
+export const baselineContext = createContext<Map<string, PreservedAttempt>>(
+  Symbol('baselineContext')
+)
+export const selectedTestUidContext = createContext<string | undefined>(
+  Symbol('selectedTestUidContext')
 )

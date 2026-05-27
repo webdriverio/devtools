@@ -3,7 +3,8 @@ import type { ReactiveController, ReactiveControllerHost } from 'lit'
 import type {
   Metadata,
   CommandLog,
-  TraceLog
+  TraceLog,
+  PreservedAttempt
 } from '@wdio/devtools-service/types'
 
 import {
@@ -15,7 +16,9 @@ import {
   commandContext,
   sourceContext,
   suiteContext,
-  hasConnectionContext
+  hasConnectionContext,
+  baselineContext,
+  selectedTestUidContext
 } from './context.js'
 import { CACHE_ID } from './constants.js'
 import { getTimestamp } from '../utils/helpers.js'
@@ -41,6 +44,8 @@ export class DataManagerController implements ReactiveController {
   sourcesContextProvider: ContextProvider<typeof sourceContext>
   suitesContextProvider: ContextProvider<typeof suiteContext>
   hasConnectionProvider: ContextProvider<typeof hasConnectionContext>
+  baselineContextProvider: ContextProvider<typeof baselineContext>
+  selectedTestUidContextProvider: ContextProvider<typeof selectedTestUidContext>
 
   constructor(host: ReactiveControllerHost & HTMLElement) {
     ;(this.#host = host).addController(this)
@@ -77,6 +82,32 @@ export class DataManagerController implements ReactiveController {
       context: hasConnectionContext,
       initialValue: false
     })
+    this.baselineContextProvider = new ContextProvider(this.#host, {
+      context: baselineContext,
+      initialValue: new Map<string, PreservedAttempt>()
+    })
+    this.selectedTestUidContextProvider = new ContextProvider(this.#host, {
+      context: selectedTestUidContext,
+      initialValue: undefined
+    })
+  }
+
+  setSelectedTestUid(uid: string | undefined) {
+    this.selectedTestUidContextProvider.setValue(uid)
+  }
+
+  #handleBaselineSaved(testUid: string, attempt: PreservedAttempt) {
+    const next = new Map(this.baselineContextProvider.value || new Map())
+    next.set(testUid, attempt)
+    this.baselineContextProvider.setValue(next)
+    // Auto-select the preserved test so the Compare tab can find the pair.
+    this.selectedTestUidContextProvider.setValue(testUid)
+  }
+
+  #handleBaselineCleared(testUid: string) {
+    const next = new Map(this.baselineContextProvider.value || new Map())
+    next.delete(testUid)
+    this.baselineContextProvider.setValue(next)
   }
 
   get hasConnection() {
@@ -151,12 +182,12 @@ export class DataManagerController implements ReactiveController {
                 state: 'running',
                 start: new Date(),
                 end: undefined,
-                tests: (s.tests?.map((test) => ({
-                  ...test,
-                  state: 'pending',
-                  start: new Date(),
-                  end: undefined
-                })) ?? []) as TestStatsFragment[],
+                // Clear leaf-level tests so stale step entries from a previous
+                // run don't linger when the feature file or test code changed
+                // between runs (e.g. Cucumber step text edited). The new run
+                // repopulates them. Child suites are preserved so the tree
+                // structure remains visible during the rerun.
+                tests: [] as TestStatsFragment[],
                 suites: s.suites?.map(markAllAsRunning) || []
               }
             }
@@ -195,12 +226,9 @@ export class DataManagerController implements ReactiveController {
                 state: 'running',
                 start: runStart,
                 end: undefined,
-                tests: (suiteNode.tests?.map((test) => ({
-                  ...test,
-                  state: 'pending',
-                  start: runStart,
-                  end: undefined
-                })) ?? []) as TestStatsFragment[],
+                // Clear leaf-level tests on rerun so stale step entries from
+                // a previous run can't linger. See sibling markAllAsRunning.
+                tests: [] as TestStatsFragment[],
                 suites: suiteNode.suites?.map(markSuiteTreeAsRunning) || []
               })
 
@@ -334,6 +362,21 @@ export class DataManagerController implements ReactiveController {
         const { oldTimestamp, command } =
           data as SocketMessage<'replaceCommand'>['data']
         this.#handleReplaceCommand(oldTimestamp, command)
+        this.#host.requestUpdate()
+        return
+      }
+
+      if (scope === 'baseline:saved') {
+        const { testUid, attempt } =
+          data as SocketMessage<'baseline:saved'>['data']
+        this.#handleBaselineSaved(testUid, attempt)
+        this.#host.requestUpdate()
+        return
+      }
+
+      if (scope === 'baseline:cleared') {
+        const { testUid } = data as SocketMessage<'baseline:cleared'>['data']
+        this.#handleBaselineCleared(testUid)
         this.#host.requestUpdate()
         return
       }
@@ -633,22 +676,32 @@ export class DataManagerController implements ReactiveController {
       )
     })
 
-    // Process incoming payloads
+    // Canonicalize uids for root suites so a rerun whose reporter assigned a
+    // different uid still merges into the original row.
+    const existingRootSuites = Array.from(suiteMap.values())
+    const incomingRootSuites: SuiteStatsFragment[] = []
     payloads.forEach((chunk) => {
       if (!chunk) {
         return
       }
-
-      Object.entries(chunk).forEach(([uid, suite]) => {
-        if (!suite?.uid) {
-          return
+      for (const suite of Object.values(chunk)) {
+        if (suite?.uid) {
+          incomingRootSuites.push(suite)
         }
+      }
+    })
+    const canonicalizedRoots = this.#canonicalizeUids(
+      existingRootSuites,
+      incomingRootSuites
+    )
 
-        const existing = suiteMap.get(uid)
-        const merged = existing ? this.#mergeSuite(existing, suite) : suite
-        // Always merge to preserve all tests in the suite
-        suiteMap.set(uid, merged)
-      })
+    canonicalizedRoots.forEach((suite) => {
+      if (!suite?.uid) {
+        return
+      }
+      const existing = suiteMap.get(suite.uid)
+      const merged = existing ? this.#mergeSuite(existing, suite) : suite
+      suiteMap.set(suite.uid, merged)
     })
 
     this.suitesContextProvider.setValue(
@@ -779,6 +832,65 @@ export class DataManagerController implements ReactiveController {
     }
   }
 
+  /**
+   * Build a stable identity key for a test/suite that survives reporter UID drift
+   * across reruns. The reporter's signature counter can reassign UIDs when a
+   * single scenario is rerun (e.g. Cucumber outline example 2 reruns alone and
+   * gets the UID example 1 originally had). Matching by (file + featureLine +
+   * fullTitle) lets the merge dedupe by stable identity instead of the unstable
+   * uid.
+   */
+  #canonicalKey(
+    item: TestStatsFragment | SuiteStatsFragment
+  ): string | undefined {
+    const file = item.file ?? ''
+    const featureFile = item.featureFile ?? ''
+    const featureLine = item.featureLine ?? ''
+    const fullTitle = item.fullTitle ?? item.title ?? ''
+    if (!file && !featureFile && !fullTitle) {
+      return undefined
+    }
+    return `${file}::${featureFile}:${featureLine}::${fullTitle}`
+  }
+
+  /**
+   * Map an incoming item's uid to an existing entry's uid when their canonical
+   * keys match. Lets rerun payloads merge into the original rows even if the
+   * reporter assigned a different uid this time around.
+   */
+  #canonicalizeUids<T extends TestStatsFragment | SuiteStatsFragment>(
+    prev: T[],
+    next: T[]
+  ): T[] {
+    if (!next.length || !prev.length) {
+      return next
+    }
+    const canonicalToUid = new Map<string, string>()
+    for (const item of prev) {
+      if (!item) {
+        continue
+      }
+      const key = this.#canonicalKey(item)
+      if (key && !canonicalToUid.has(key)) {
+        canonicalToUid.set(key, item.uid)
+      }
+    }
+    return next.map((item) => {
+      if (!item) {
+        return item
+      }
+      const key = this.#canonicalKey(item)
+      if (!key) {
+        return item
+      }
+      const stableUid = canonicalToUid.get(key)
+      if (stableUid && stableUid !== item.uid) {
+        return { ...item, uid: stableUid }
+      }
+      return item
+    })
+  }
+
   #mergeChildSuites(
     prev: SuiteStatsFragment[] = [],
     next: SuiteStatsFragment[] = []
@@ -786,7 +898,9 @@ export class DataManagerController implements ReactiveController {
     const map = new Map<string, SuiteStatsFragment>()
     prev?.forEach((suite) => suite && map.set(suite.uid, suite))
 
-    next?.forEach((suite) => {
+    const canonicalizedNext = this.#canonicalizeUids(prev || [], next || [])
+
+    canonicalizedNext.forEach((suite) => {
       if (!suite) {
         return
       }
@@ -801,7 +915,9 @@ export class DataManagerController implements ReactiveController {
     const map = new Map<string, TestStatsFragment>()
     prev?.forEach((test) => test && map.set(test.uid, test))
 
-    next?.forEach((test) => {
+    const canonicalizedNext = this.#canonicalizeUids(prev || [], next || [])
+
+    canonicalizedNext.forEach((test) => {
       if (!test) {
         return
       }

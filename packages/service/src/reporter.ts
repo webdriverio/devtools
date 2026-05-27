@@ -16,15 +16,39 @@ const signatureCounters = new Map<string, number>()
 function generateStableUid(item: SuiteStats | TestStats): string {
   const rawItem = item as any
 
-  // For Cucumber scenarios with numeric UIDs (example indices), use them directly
-  // to ensure consistent UIDs across reruns
+  // For Cucumber scenarios, prefer the feature file URI:line as the stable
+  // discriminator. The Cucumber pickle carries the actual line of the example
+  // row, which is stable across reruns regardless of how many examples run.
+  // The previous fallback used WDIO's index-based uid (`example-${rawItem.uid}`),
+  // but that uid is reassigned when running a subset of examples — e.g. running
+  // only example 2 alone makes it example index 0, colliding with example 1's
+  // stable UID from a full run and causing duplicate rows in the dashboard.
+  if (
+    rawItem.type === 'scenario' &&
+    rawItem.featureFile &&
+    typeof rawItem.featureLine === 'number'
+  ) {
+    const parts = [
+      rawItem.featureFile,
+      String(rawItem.featureLine),
+      item.title
+    ]
+    const hash = parts
+      .join('::')
+      .split('')
+      .reduce((acc, char) => {
+        return ((acc << 5) - acc + char.charCodeAt(0)) | 0
+      }, 0)
+    return `stable-${Math.abs(hash).toString(36)}`
+  }
+
+  // Fallback for Cucumber scenarios where the pickle URI:line wasn't captured.
   if (rawItem.type === 'scenario' && /^\d+$/.test(rawItem.uid)) {
     const parts = [
       item.title,
       rawItem.file || '',
       rawItem.parent || '',
       rawItem.cid || '',
-      // Use original UID (example index) to ensure stable identification
       `example-${rawItem.uid}`
     ]
     const hash = parts
@@ -170,18 +194,31 @@ export class TestReporter extends WebdriverIOReporter {
 
     const rawSuite = suiteStats as any
 
-    // For Cucumber scenario outlines: extract feature file line number from example index
+    // For Cucumber scenarios: prefer the pickle's URI:line (stable across
+    // single-example reruns). Fall back to index-based feature-file parsing
+    // only if the pickle data isn't available.
     if (rawSuite.type === 'scenario' && suiteStats.file?.endsWith('.feature')) {
-      const exampleIndex = parseInt(rawSuite.uid, 10)
-      if (!isNaN(exampleIndex)) {
-        const exampleLines = parseFeatureFileForExampleLines(
-          suiteStats.file,
-          suiteStats.title
-        )
-        if (exampleLines?.has(exampleIndex)) {
-          const lineNumber = exampleLines.get(exampleIndex)!
-          rawSuite.featureFile = suiteStats.file
-          rawSuite.featureLine = lineNumber
+      const pickleUri =
+        rawSuite.argument?.uri ?? rawSuite.pickle?.uri ?? rawSuite.uri
+      const pickleLine =
+        rawSuite.argument?.line ??
+        rawSuite.pickle?.location?.line ??
+        rawSuite.line
+      if (typeof pickleUri === 'string' && typeof pickleLine === 'number') {
+        rawSuite.featureFile = pickleUri
+        rawSuite.featureLine = pickleLine
+      } else {
+        const exampleIndex = parseInt(rawSuite.uid, 10)
+        if (!isNaN(exampleIndex)) {
+          const exampleLines = parseFeatureFileForExampleLines(
+            suiteStats.file,
+            suiteStats.title
+          )
+          if (exampleLines?.has(exampleIndex)) {
+            const lineNumber = exampleLines.get(exampleIndex)!
+            rawSuite.featureFile = suiteStats.file
+            rawSuite.featureLine = lineNumber
+          }
         }
       }
     }

@@ -6,8 +6,10 @@ import { consume } from '@lit/context'
 import { DragController, Direction } from '../utils/DragController.js'
 import {
   consoleLogContext,
-  networkRequestContext
+  networkRequestContext,
+  baselineContext
 } from '../controller/context.js'
+import type { PreservedAttempt } from '@wdio/devtools-service/types'
 
 import '~icons/mdi/arrow-collapse-down.js'
 import '~icons/mdi/arrow-collapse-up.js'
@@ -21,6 +23,7 @@ import './workbench/logs.js'
 import './workbench/console.js'
 import './workbench/metadata.js'
 import './workbench/network.js'
+import './workbench/compare.js'
 import './browser/snapshot.js'
 import {
   MIN_WORKBENCH_HEIGHT,
@@ -42,6 +45,10 @@ export class DevtoolsWorkbench extends Element {
   @consume({ context: networkRequestContext, subscribe: true })
   @state()
   networkRequests: NetworkRequest[] | undefined = undefined
+
+  @consume({ context: baselineContext, subscribe: true })
+  @state()
+  baselines: Map<string, PreservedAttempt> | undefined = undefined
 
   static styles = [
     ...Element.styles,
@@ -215,6 +222,16 @@ export class DevtoolsWorkbench extends Element {
         >
           <wdio-devtools-network></wdio-devtools-network>
         </wdio-devtools-tab>
+        ${(this.baselines?.size || 0) > 0
+          ? html`
+              <wdio-devtools-tab
+                label="Compare"
+                .badge="${this.baselines?.size || 0}"
+              >
+                <wdio-devtools-compare></wdio-devtools-compare>
+              </wdio-devtools-tab>
+            `
+          : nothing}
         <nav class="ml-auto" slot="actions">
           <button
             @click="${() => this.#toggle('toolbar')}"

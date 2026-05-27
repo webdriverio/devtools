@@ -17,6 +17,7 @@ import '~icons/mdi/window-close.js'
 import '~icons/mdi/debug-step-over.js'
 import '~icons/mdi/check.js'
 import '~icons/mdi/checkbox-blank-circle-outline.js'
+import '~icons/mdi/bug-play.js'
 
 const TEST_SUITE = 'wdio-test-suite'
 
@@ -169,6 +170,31 @@ export class ExplorerTestEntry extends CollapseableEntry {
     )
   }
 
+  #preserveAndRerun(event: Event) {
+    event.stopPropagation()
+    if (!this.uid || this.runDisabled) {
+      return
+    }
+    const detail: TestRunDetail = {
+      uid: this.uid,
+      entryType: this.entryType,
+      specFile: this.specFile,
+      fullTitle: this.fullTitle,
+      label: this.labelText,
+      callSource: this.callSource,
+      featureFile: this.featureFile,
+      featureLine: this.featureLine,
+      suiteType: this.suiteType
+    }
+    this.dispatchEvent(
+      new CustomEvent<TestRunDetail>('app-test-preserve-rerun', {
+        detail,
+        bubbles: true,
+        composed: true
+      })
+    )
+  }
+
   get hasPassed() {
     return this.state === TestState.PASSED
   }
@@ -256,6 +282,20 @@ export class ExplorerTestEntry extends CollapseableEntry {
                       : 'group-hover/button:text-chartsGreen'}"
                   ></icon-mdi-play>
                 </button>
+                ${this.hasFailed && !this.runDisabled
+                  ? html`
+                      <button
+                        class="p-1 rounded hover:bg-toolbarHoverBackground my-1 group/button"
+                        title="Preserve current run and rerun for comparison"
+                        @click="${(event: Event) =>
+                          this.#preserveAndRerun(event)}"
+                      >
+                        <icon-mdi-bug-play
+                          class="group-hover/button:text-chartsBlue"
+                        ></icon-mdi-bug-play>
+                      </button>
+                    `
+                  : nothing}
               `
             : !this.runDisabled
               ? html`

@@ -95,14 +95,19 @@ export class DevtoolsTabs extends Element {
     }
   }
 
+  #refreshTabList() {
+    this.#tabList =
+      this.tabs
+        .map((el) => el.getAttribute('label') as string)
+        .filter(Boolean) || []
+    this.requestUpdate()
+  }
+
   connectedCallback() {
     super.connectedCallback()
     setTimeout(() => {
       // wait till innerHTML is parsed
-      this.#tabList =
-        this.tabs
-          .map((el) => el.getAttribute('label') as string)
-          .filter(Boolean) || []
+      this.#refreshTabList()
 
       /**
        * get tab id either from local storage or a tab element that
@@ -120,7 +125,7 @@ export class DevtoolsTabs extends Element {
        */
       if (!this.#activeTab) {
         this.#activeTab = this.#tabList[0]
-        this.tabs[0].setAttribute('active', '')
+        this.tabs[0]?.setAttribute('active', '')
       } else {
         this.activateTab(this.#activeTab)
       }
@@ -132,6 +137,16 @@ export class DevtoolsTabs extends Element {
         this.requestUpdate()
       }, 250)
     })
+  }
+
+  firstUpdated() {
+    // Refresh the tab list whenever the light-DOM slot contents change —
+    // e.g. a conditionally-rendered tab like Compare mounting/unmounting
+    // after the user clicks Preserve & Rerun.
+    const slot = this.shadowRoot?.querySelector(
+      'slot:not([name])'
+    ) as HTMLSlotElement | null
+    slot?.addEventListener('slotchange', () => this.#refreshTabList())
   }
 
   disconnectedCallback() {

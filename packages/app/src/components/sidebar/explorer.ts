@@ -40,6 +40,7 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
   #filterListener = this.#filterTests.bind(this)
   #runListener = this.#handleTestRun.bind(this)
   #stopListener = this.#handleTestStop.bind(this)
+  #preserveRerunListener = this.#handlePreserveAndRerun.bind(this)
 
   static styles = [
     ...Element.styles,
@@ -82,6 +83,10 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
     window.addEventListener('app-test-filter', this.#filterListener)
     this.addEventListener('app-test-run', this.#runListener as EventListener)
     this.addEventListener('app-test-stop', this.#stopListener as EventListener)
+    this.addEventListener(
+      'app-test-preserve-rerun',
+      this.#preserveRerunListener as EventListener
+    )
   }
 
   disconnectedCallback(): void {
@@ -91,6 +96,10 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
     this.removeEventListener(
       'app-test-stop',
       this.#stopListener as EventListener
+    )
+    this.removeEventListener(
+      'app-test-preserve-rerun',
+      this.#preserveRerunListener as EventListener
     )
   }
 
@@ -131,6 +140,54 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
   async #handleTestStop(event: Event) {
     event.stopPropagation()
     await this.#postToBackend('/api/tests/stop', {})
+  }
+
+  async #handlePreserveAndRerun(event: Event) {
+    event.stopPropagation()
+    const detail = (event as CustomEvent<TestRunDetail>).detail
+    if (this.#isRunDisabledDetail(detail)) {
+      this.#surfaceCapabilityWarning(detail)
+      return
+    }
+
+    // Preserve the current run's captured data BEFORE clearing it, so the
+    // baseline can be compared against the upcoming rerun's live capture.
+    try {
+      const response = await fetch('/api/baseline/preserve', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          testUid: detail.uid,
+          scope: detail.entryType
+        })
+      })
+      if (!response.ok) {
+        const errorText = await response.text()
+        window.dispatchEvent(
+          new CustomEvent('app-logs', {
+            detail: `Failed to preserve baseline: ${errorText}`
+          })
+        )
+        // Don't trigger rerun if preserve failed — would lose comparison value.
+        return
+      }
+    } catch (error) {
+      window.dispatchEvent(
+        new CustomEvent('app-logs', {
+          detail: `Preserve error: ${(error as Error).message}`
+        })
+      )
+      return
+    }
+
+    // Hand off to the existing rerun flow now that the baseline is pinned.
+    this.dispatchEvent(
+      new CustomEvent<TestRunDetail>('app-test-run', {
+        detail,
+        bubbles: true,
+        composed: true
+      })
+    )
   }
 
   async #postToBackend(path: string, body: Record<string, unknown>) {
