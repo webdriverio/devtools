@@ -90,6 +90,9 @@ Works with **WebdriverIO**, **[Nightwatch.js](./packages/nightwatch-devtools/REA
 ### 🎬 Session Screencast
 <img src="https://github.com/user-attachments/assets/65914424-480f-4b50-b54a-69e659710f15" alt="Screencast" width="400" />
 
+### 🐞 Preserve & Rerun
+<img src="https://github.com/user-attachments/assets/247d687e-59ae-41ba-83c8-ad6be9ff7687" alt="Preserve & Rerun" width="400" />
+
 ## Installation
 
 **WebdriverIO:**
