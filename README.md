@@ -49,7 +49,8 @@ Works with **WebdriverIO**, **[Nightwatch.js](./packages/nightwatch-devtools/REA
 > For setup, configuration options, and prerequisites see the **[service README](./packages/service/README.md#screencast-recording)**.
 
 ### 🐞 Preserve & Rerun (Compare)
-- **Side-by-side diff**: Click the bug-play icon on a failed test to snapshot the failing run and rerun in one action — the Compare tab shows the two runs aligned by command, with the failure point and assertion error (Expected vs Received) called out
+- **When the bug icon appears**: Only on test/suite rows in a `failed` state and the icon sits next to ▶ on hover, available wherever a plain rerun is supported (e.g. Cucumber scenarios at the scenario row, Mocha tests at the test or suite row)
+- **Side-by-side diff**: Click the bug-play icon on a failed test to snapshot the failing run and rerun in one action and the Compare tab shows the two runs aligned by command, with the failure point and assertion error (Expected vs Received) called out
 - **Diagnose flaky tests**: See exactly which command differed between a pass and a fail without re-reading logs
 - **Pop out**: Open the comparison in a separate, themed window for a roomier view
 
