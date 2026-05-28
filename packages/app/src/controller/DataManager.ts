@@ -20,6 +20,7 @@ import {
   baselineContext,
   selectedTestUidContext
 } from './context.js'
+import { BASELINE_WS_SCOPE } from '../components/workbench/compare/constants.js'
 import { CACHE_ID } from './constants.js'
 import { getTimestamp } from '../utils/helpers.js'
 import { rerunState } from './rerunState.js'
@@ -366,16 +367,19 @@ export class DataManagerController implements ReactiveController {
         return
       }
 
-      if (scope === 'baseline:saved') {
-        const { testUid, attempt } =
-          data as SocketMessage<'baseline:saved'>['data']
+      if (scope === BASELINE_WS_SCOPE.saved) {
+        const { testUid, attempt } = data as SocketMessage<
+          typeof BASELINE_WS_SCOPE.saved
+        >['data']
         this.#handleBaselineSaved(testUid, attempt)
         this.#host.requestUpdate()
         return
       }
 
-      if (scope === 'baseline:cleared') {
-        const { testUid } = data as SocketMessage<'baseline:cleared'>['data']
+      if (scope === BASELINE_WS_SCOPE.cleared) {
+        const { testUid } = data as SocketMessage<
+          typeof BASELINE_WS_SCOPE.cleared
+        >['data']
         this.#handleBaselineCleared(testUid)
         this.#host.requestUpdate()
         return

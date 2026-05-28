@@ -31,4 +31,5 @@ export interface RunnerRequestBody {
   suiteType?: string
   rerunCommand?: string
   launchCommand?: string
+  preserveBaseline?: boolean
 }

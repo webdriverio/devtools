@@ -7,12 +7,15 @@ export interface ComparePairedStep {
   divergent: boolean
 }
 
-/**
- * Pair commands by index. Once a divergent pair is encountered, every
- * subsequent index is also marked divergent (mirrors how Playwright
- * thinks about trace alignment — once execution forks, downstream
- * comparison is meaningless).
- */
+export type DivergenceKind =
+  | 'none'
+  | 'commandName'
+  | 'args'
+  | 'error'
+  | 'missing'
+
+/** Pair commands by index. Once a real divergence is detected the fork bit
+ *  sticks — downstream rows are also marked divergent. */
 export function pairSteps(
   baseline: CommandLog[] = [],
   latest: CommandLog[] = []
@@ -45,27 +48,11 @@ export function commandsEqual(
   if (stableStringify(a.args) !== stableStringify(b.args)) {
     return false
   }
-  // Outcome diff: error presence/message difference is a divergence.
-  // We intentionally do NOT compare `result` here — WebDriver element refs
-  // (`{"element-6066-11e4-a52e-4f735466cecf": "..."}` from $() / $$()) get
-  // a fresh ID every browser session, so comparing raw results would mark
-  // every selector call as divergent. Result divergence as a signal for
-  // assertion failure is handled instead by step-level pass/fail markers.
+  // Skip `result` comparison: W3C element refs get a fresh id each session.
   const aErr = a.error ? a.error.message || String(a.error) : ''
   const bErr = b.error ? b.error.message || String(b.error) : ''
-  if (aErr !== bErr) {
-    return false
-  }
-  return true
+  return aErr === bErr
 }
-
-/**
- * Classify the nature of a pair's divergence so the UI can render different
- * cues for each. `none` = identical; `command` = different command/args (a
- * fork in execution); `error` = WebDriver-level error on one side only;
- * `missing` = one side has the step and the other doesn't.
- */
-export type DivergenceKind = 'none' | 'command' | 'error' | 'missing'
 
 export function classifyDivergence(
   a: CommandLog | undefined,
@@ -75,10 +62,10 @@ export function classifyDivergence(
     return a || b ? 'missing' : 'none'
   }
   if (a.command !== b.command) {
-    return 'command'
+    return 'commandName'
   }
   if (stableStringify(a.args) !== stableStringify(b.args)) {
-    return 'command'
+    return 'args'
   }
   const aErr = a.error ? a.error.message || String(a.error) : ''
   const bErr = b.error ? b.error.message || String(b.error) : ''
@@ -90,6 +77,52 @@ export function classifyDivergence(
 
 export function firstDivergentIndex(pairs: ComparePairedStep[]): number {
   return pairs.findIndex((p) => p.divergent)
+}
+
+const MAX_JSON_LEN = 500
+
+export function safeJson(value: unknown): string {
+  try {
+    const s = JSON.stringify(value)
+    if (!s) {
+      return String(value)
+    }
+    return s.length > MAX_JSON_LEN ? s.slice(0, MAX_JSON_LEN) + '…' : s
+  } catch {
+    return String(value)
+  }
+}
+
+/** Strip ANSI escapes and collapse blank-line runs so the error banner
+ *  doesn't grow tall from formatting whitespace. */
+export function cleanErrorMessage(msg: string): string {
+  return msg
+    .replace(/\[[0-9;]*m/g, '')
+    .replace(/\[\d+m/g, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
+const STEP_VERB_RE =
+  /^(?:I should see|should see|should have|should be|should contain|should equal|should match|see|have|equals?|matches?|contains?)\s+(?:a\s+)?(?:flash\s+message\s+saying\s+|text\s+|message\s+saying\s+|message\s+|value\s+)?(.+)$/i
+
+/** Best-effort extraction of the expected value from a Cucumber step title
+ *  (strip the keyword + common verb phrase, return the parameterized tail). */
+export function extractExpectedFromStepText(
+  stepText: string
+): string | undefined {
+  if (!stepText) {
+    return undefined
+  }
+  const stripped = stepText
+    .replace(/^\d+:\s*/, '')
+    .replace(/^(Given|When|Then|And|But)\s+/i, '')
+    .trim()
+  const m = stripped.match(STEP_VERB_RE)
+  if (m && m[1]) {
+    return m[1].trim()
+  }
+  return stripped || undefined
 }
 
 function stableStringify(value: unknown): string {

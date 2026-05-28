@@ -28,11 +28,7 @@ function generateStableUid(item: SuiteStats | TestStats): string {
     rawItem.featureFile &&
     typeof rawItem.featureLine === 'number'
   ) {
-    const parts = [
-      rawItem.featureFile,
-      String(rawItem.featureLine),
-      item.title
-    ]
+    const parts = [rawItem.featureFile, String(rawItem.featureLine), item.title]
     const hash = parts
       .join('::')
       .split('')
@@ -274,6 +270,25 @@ export class TestReporter extends WebdriverIOReporter {
 
   onTestEnd(testStats: TestStats): void {
     super.onTestEnd(testStats)
+    // Normalize the error to a plain object so its fields survive JSON
+    // serialization over the WebSocket. Error instances have message/name/
+    // stack as non-enumerable, so JSON.stringify would drop them. We also
+    // explicitly capture assertion-library extras (`expected`, `actual`,
+    // `matcherResult`) — Jest/expect-webdriverio may attach these as either
+    // enumerable or non-enumerable depending on version, so we access them
+    // by name rather than relying on spread.
+    const rawErr = (testStats as any).error
+    if (rawErr) {
+      ;(testStats as any).error = {
+        ...rawErr,
+        message: rawErr.message,
+        name: rawErr.name,
+        stack: rawErr.stack,
+        expected: rawErr.expected,
+        actual: rawErr.actual,
+        matcherResult: rawErr.matcherResult
+      }
+    }
     this.#sendUpstream()
   }
 

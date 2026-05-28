@@ -3,6 +3,8 @@ import { html, css, nothing } from 'lit'
 import { customElement, state } from 'lit/decorators.js'
 import { consume } from '@lit/context'
 
+import '~icons/mdi/open-in-new.js'
+
 import type {
   CommandLog,
   PreservedAttempt,
@@ -20,9 +22,17 @@ import type { SuiteStatsFragment } from '../../controller/types.js'
 import {
   pairSteps,
   classifyDivergence,
+  cleanErrorMessage,
+  extractExpectedFromStepText,
+  safeJson,
   type ComparePairedStep,
   type DivergenceKind
 } from './compare/compareUtils.js'
+import {
+  BASELINE_API,
+  POPOUT_QUERY,
+  buildPopoutFeatures
+} from './compare/constants.js'
 
 const COMPONENT = 'wdio-devtools-compare'
 
@@ -38,6 +48,9 @@ export class DevtoolsCompare extends Element {
         height: 100%;
         min-height: 0;
         overflow: hidden;
+        /* Needed so popout mode (where Compare sits directly under body) is themed. */
+        background-color: var(--vscode-editor-background, #1e1e1e);
+        color: var(--vscode-foreground, #cccccc);
       }
       .compare-grid {
         display: grid;
@@ -46,6 +59,9 @@ export class DevtoolsCompare extends Element {
         flex: 1 1 auto;
         min-height: 0;
         overflow: auto;
+        /* Stack rows from the top so they don't stretch to fill the grid. */
+        align-content: start;
+        grid-auto-rows: min-content;
       }
       .step-row {
         display: contents;
@@ -80,6 +96,10 @@ export class DevtoolsCompare extends Element {
       .marker.ok {
         color: var(--vscode-charts-green, #73c373);
       }
+      .marker.info {
+        color: var(--vscode-descriptionForeground, #999);
+        opacity: 0.7;
+      }
       .error-banner {
         margin: 0.5rem 0.75rem;
         padding: 0.5rem 0.75rem;
@@ -87,21 +107,29 @@ export class DevtoolsCompare extends Element {
         border-left: 3px solid var(--vscode-charts-red, #f48771);
         border-radius: 3px;
         font-size: 0.85em;
-        font-family: var(--vscode-editor-font-family, monospace);
-        white-space: pre-wrap;
-        word-break: break-word;
       }
       .error-banner-title {
         font-weight: 600;
         margin-bottom: 0.25rem;
         opacity: 0.85;
+        font-family: inherit;
+      }
+      /* Pre-wrap only on the message body so template indentation doesn't render. */
+      .error-banner-message {
+        font-family: var(--vscode-editor-font-family, monospace);
+        white-space: pre-wrap;
+        word-break: break-word;
+        margin: 0;
       }
       .step-cell.missing {
         opacity: 0.35;
         font-style: italic;
       }
       .step-cell:hover {
-        background: var(--vscode-toolbar-hoverBackground, rgba(255, 255, 255, 0.06));
+        background: var(
+          --vscode-toolbar-hoverBackground,
+          rgba(255, 255, 255, 0.06)
+        );
       }
       .step-cell.expanded {
         background: rgba(80, 160, 255, 0.06);
@@ -197,7 +225,20 @@ export class DevtoolsCompare extends Element {
         font-size: 0.85em;
       }
       button.action:hover {
-        background: var(--vscode-toolbar-hoverBackground, rgba(255, 255, 255, 0.06));
+        background: var(
+          --vscode-toolbar-hoverBackground,
+          rgba(255, 255, 255, 0.06)
+        );
+      }
+      button.action.icon-only {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0.25rem 0.4rem;
+      }
+      button.action.icon-only svg {
+        width: 1em;
+        height: 1em;
       }
     `
   ]
@@ -237,6 +278,11 @@ export class DevtoolsCompare extends Element {
 
   #autoScrolledForUid: string | null = null
 
+  // Hide the Pop out button when we're already in a popout.
+  #isPopout =
+    new URLSearchParams(window.location.search).get(POPOUT_QUERY.viewKey) ===
+    POPOUT_QUERY.viewValue
+
   updated() {
     // Autoscroll to the first divergent row when a new baseline appears.
     if (
@@ -260,12 +306,8 @@ export class DevtoolsCompare extends Element {
     return this.baselines?.get(this.selectedTestUid)
   }
 
-  /**
-   * Derive the latest run's step list from the live suite tree, so the
-   * Compare tab can attribute live commands to their parent step on the
-   * latest side just as the baseline does on its frozen snapshot.
-   * Walks the subtree rooted at selectedTestUid and collects leaf tests.
-   */
+  /** Walk live suiteContext under selectedTestUid and collect leaf tests
+   *  so live commands can be attributed to their parent step. */
   #liveStepsForSelectedUid(): PreservedStep[] {
     const target = this.selectedTestUid
     if (!target || !this.liveSuites) {
@@ -276,20 +318,30 @@ export class DevtoolsCompare extends Element {
     const findRoot = (
       s: SuiteStatsFragment | undefined
     ): SuiteStatsFragment | undefined => {
-      if (!s) return undefined
-      if (s.uid === target) return s
+      if (!s) {
+        return undefined
+      }
+      if (s.uid === target) {
+        return s
+      }
       for (const child of s.suites ?? []) {
         const hit = findRoot(child)
-        if (hit) return hit
+        if (hit) {
+          return hit
+        }
       }
       return undefined
     }
     for (const chunk of this.liveSuites) {
       for (const root of Object.values(chunk)) {
         foundRoot = findRoot(root)
-        if (foundRoot) break
+        if (foundRoot) {
+          break
+        }
       }
-      if (foundRoot) break
+      if (foundRoot) {
+        break
+      }
     }
     if (!foundRoot) {
       return []
@@ -303,11 +355,13 @@ export class DevtoolsCompare extends Element {
           start: t.start ? new Date(t.start).getTime() : undefined,
           end: t.end ? new Date(t.end).getTime() : undefined,
           state:
-            t.state === 'pending' || t.state === 'running'
-              ? t.state
-              : t.state,
+            t.state === 'pending' || t.state === 'running' ? t.state : t.state,
           error: t.error
-            ? { message: t.error.message, name: t.error.name, stack: t.error.stack }
+            ? {
+                message: t.error.message,
+                name: t.error.name,
+                stack: t.error.stack
+              }
             : undefined
         })
       }
@@ -323,18 +377,81 @@ export class DevtoolsCompare extends Element {
     cmd: CommandLog | undefined,
     side: 'baseline' | 'latest'
   ): PreservedStep | undefined {
-    if (!cmd?.timestamp) return undefined
+    if (!cmd?.timestamp) {
+      return undefined
+    }
     const steps =
       side === 'baseline'
-        ? this.#getBaseline()?.steps ?? []
+        ? (this.#getBaseline()?.steps ?? [])
         : this.#liveStepsForSelectedUid()
     const ts = cmd.timestamp
     return steps.find(
       (s) =>
-        s.start != null &&
-        s.end != null &&
+        s.start !== null &&
+        s.start !== undefined &&
+        s.end !== null &&
+        s.end !== undefined &&
         ts >= s.start &&
         ts <= s.end
+    )
+  }
+
+  /** The failure site is either the command that errored at the WebDriver
+   *  level OR the last command in a failed step (assertion site). */
+  #isFailureSite(
+    cmd: CommandLog,
+    step: PreservedStep | undefined,
+    allCommandsOnSide: CommandLog[]
+  ): boolean {
+    if (!step || step.state !== 'failed') {
+      return false
+    }
+    if (cmd.error?.message) {
+      return true
+    }
+    if (step.start === null || step.end === null) {
+      return false
+    }
+    let lastTs = 0
+    for (const c of allCommandsOnSide) {
+      if (
+        c.timestamp !== null &&
+        step.start !== undefined &&
+        step.end !== undefined &&
+        c.timestamp >= step.start &&
+        c.timestamp <= step.end &&
+        c.timestamp > lastTs
+      ) {
+        lastTs = c.timestamp
+      }
+    }
+    return cmd.timestamp === lastTs
+  }
+
+  /** Scope the global live command stream to commands within the selected
+   *  test's step time windows (mirrors the backend's snapshot filter). */
+  #liveCommandsForSelectedUid(): CommandLog[] {
+    const all = this.liveCommands || []
+    const steps = this.#liveStepsForSelectedUid()
+    if (steps.length === 0) {
+      return all
+    }
+    let start = Number.POSITIVE_INFINITY
+    let end = 0
+    for (const s of steps) {
+      if (s.start !== null && s.start !== undefined && s.start < start) {
+        start = s.start
+      }
+      const candidateEnd = s.end ?? Date.now()
+      if (candidateEnd > end) {
+        end = candidateEnd
+      }
+    }
+    if (!Number.isFinite(start)) {
+      return all
+    }
+    return all.filter(
+      (c) => c.timestamp !== null && c.timestamp >= start && c.timestamp <= end
     )
   }
 
@@ -343,7 +460,7 @@ export class DevtoolsCompare extends Element {
       return
     }
     try {
-      await fetch('/api/baseline/clear', {
+      await fetch(BASELINE_API.clear, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ testUid: this.selectedTestUid })
@@ -351,6 +468,18 @@ export class DevtoolsCompare extends Element {
     } catch {
       // best-effort; the server broadcast updates the context.
     }
+  }
+
+  #popOut() {
+    if (!this.selectedTestUid) {
+      return
+    }
+    const params = new URLSearchParams({
+      [POPOUT_QUERY.viewKey]: POPOUT_QUERY.viewValue,
+      [POPOUT_QUERY.uidKey]: this.selectedTestUid
+    })
+    const url = `${window.location.pathname}?${params.toString()}`
+    window.open(url, `compare-${this.selectedTestUid}`, buildPopoutFeatures())
   }
 
   render() {
@@ -371,7 +500,7 @@ export class DevtoolsCompare extends Element {
     }
 
     const baselineCommands = baseline.commands as CommandLog[]
-    const latestCommands = (this.liveCommands || []) as CommandLog[]
+    const latestCommands = this.#liveCommandsForSelectedUid()
 
     // Naming follows physical sides (left/right) after swap.
     const leftAttempt = this.swapped ? null : baseline
@@ -386,6 +515,8 @@ export class DevtoolsCompare extends Element {
     const firstDivergent = pairs.findIndex((p) => p.divergent)
 
     const errorMessage = baseline.test.error?.message
+      ? cleanErrorMessage(baseline.test.error.message)
+      : undefined
     return html`
       <div class="topbar">
         <span class="pill ${baseline.test.state || ''}">
@@ -393,9 +524,7 @@ export class DevtoolsCompare extends Element {
           ${baselineCommands.length} commands
         </span>
         <span>⇄</span>
-        <span class="pill">
-          Latest · ${latestCommands.length} commands
-        </span>
+        <span class="pill"> Latest · ${latestCommands.length} commands </span>
         <span style="opacity:0.6; font-size:0.85em;">
           ${baseline.scope === 'suite' ? 'suite scope' : 'test scope'}
         </span>
@@ -422,30 +551,31 @@ export class DevtoolsCompare extends Element {
         >
           Clear
         </button>
+        ${this.#isPopout
+          ? nothing
+          : html`
+              <button
+                class="action icon-only"
+                @click="${() => this.#popOut()}"
+                title="Open this comparison in a separate window"
+                aria-label="Open in a separate window"
+              >
+                <icon-mdi-open-in-new></icon-mdi-open-in-new>
+              </button>
+            `}
       </div>
       ${errorMessage
-        ? html`
-            <div class="error-banner">
-              <div class="error-banner-title">
-                Why the baseline failed
-              </div>
-              ${errorMessage}
-            </div>
-          `
+        ? html`<div class="error-banner">
+            <div class="error-banner-title">Why the baseline failed</div>
+            <div class="error-banner-message">${errorMessage}</div>
+          </div>`
         : nothing}
       <div class="compare-grid">
-        <div class="col-header">
-          ${this.swapped ? 'Latest' : 'Baseline'}
-        </div>
-        <div class="col-header">
-          ${this.swapped ? 'Baseline' : 'Latest'}
-        </div>
-        ${visiblePairs.map((pair) => this.#renderPair(
-          pair,
-          leftCommands,
-          rightCommands,
-          firstDivergent
-        ))}
+        <div class="col-header">${this.swapped ? 'Latest' : 'Baseline'}</div>
+        <div class="col-header">${this.swapped ? 'Baseline' : 'Latest'}</div>
+        ${visiblePairs.map((pair) =>
+          this.#renderPair(pair, leftCommands, rightCommands, firstDivergent)
+        )}
       </div>
       ${leftAttempt || rightAttempt ? nothing : nothing}
     `
@@ -463,60 +593,130 @@ export class DevtoolsCompare extends Element {
     const right = rightCommands[pair.index]
 
     // Classify divergence ONCE so left and right rows share the same label.
-    // The kind tells the user *why* this row diverged — different command
-    // (execution forked), WebDriver error on one side, or one side has no
-    // command at this index. We deliberately don't compare raw results —
-    // WebDriver element refs (W3C element-id keys) change every session and
-    // would create false positives. Assertion failures are surfaced instead
-    // by step-level markers (see below).
     const kind: DivergenceKind = classifyDivergence(left, right)
-    const stepFor = (cmd: CommandLog | undefined, side: 'baseline' | 'latest') =>
-      this.#findStepFor(cmd, side)
-    const marker = (cmd: CommandLog | undefined, side: 'baseline' | 'latest') => {
+    const stepFor = (
+      cmd: CommandLog | undefined,
+      side: 'baseline' | 'latest'
+    ) => this.#findStepFor(cmd, side)
+    // Skip "missing" markers when one side is entirely empty (e.g. the rerun
+    // hasn't produced commands yet). The populated side should display its
+    // own status, not be falsely flagged as "missing".
+    const leftEmpty = leftCommands.length === 0
+    const rightEmpty = rightCommands.length === 0
+    const oneSideEntirelyEmpty = leftEmpty || rightEmpty
+    const marker = (
+      cmd: CommandLog | undefined,
+      side: 'baseline' | 'latest'
+    ) => {
       if (!cmd) {
         return nothing
       }
-      // Row-level divergence first — these are the strongest signals.
+      // Row-level divergence wins over the per-command status marker.
       switch (kind) {
-        case 'command':
-          return html`<span class="marker command" title="Different command or arguments"
-            >≠ call</span
+        case 'commandName':
+          return html`<span
+            class="marker command"
+            title="Different WebDriver command — execution diverged at this step"
+            >different command</span
+          >`
+        case 'args':
+          return html`<span
+            class="marker command"
+            title="Same command, different arguments (compare args in the expanded view)"
+            >args differ</span
           >`
         case 'error':
-          return html`<span class="marker error" title="WebDriver error differs"
-            >⚠ error</span
-          >`
-        case 'missing':
-          return html`<span class="marker error" title="Only one side has this step"
-            >∅ missing</span
-          >`
+          if (cmd.error?.message) {
+            return html`<span
+              class="marker error"
+              title="WebDriver error: ${cmd.error.message}"
+              >⚠ error</span
+            >`
+          }
+          break
       }
-      // Same WebDriver-level call on both sides — fall back to step-level
-      // pass/fail so the failed step's commands (the assertion site) are
-      // still visible. The getText command itself succeeds even when the
-      // toHaveText assertion afterwards fails; this surfaces that.
       const step = stepFor(cmd, side)
-      if (step?.state === 'failed') {
-        const tooltip = step.error?.message
-          ? `Failed step: ${step.fullTitle || step.title || step.uid}\n${step.error.message}`
-          : `Failed step: ${step.fullTitle || step.title || step.uid}`
-        return html`<span class="marker error" title="${tooltip}">✗ in failed step</span>`
+      const allCmdsThisSide =
+        side === 'baseline'
+          ? ((this.#getBaseline()?.commands ?? []) as CommandLog[])
+          : this.#liveCommandsForSelectedUid()
+      const statusMarker =
+        step?.state === 'failed' &&
+        this.#isFailureSite(cmd, step, allCmdsThisSide)
+          ? html`<span
+              class="marker error"
+              title="${step.error?.message
+                ? `Failed step: ${step.fullTitle || step.title || step.uid}\n${step.error.message}`
+                : `Failed step: ${step.fullTitle || step.title || step.uid}`}"
+              >✗ in failed step</span
+            >`
+          : step?.state === 'passed'
+            ? html`<span
+                class="marker ok"
+                title="Step passed: ${step.fullTitle || step.title || step.uid}"
+                >✓</span
+              >`
+            : html`<span class="marker ok" title="Identical">✓</span>`
+      // Truncation: status + a muted "only here" pill.
+      if (kind === 'missing' && !oneSideEntirelyEmpty) {
+        return html`${statusMarker}<span
+            class="marker info"
+            title="Only present on this side — the other run ended before this step"
+            >only here</span
+          >`
       }
-      if (step?.state === 'passed') {
-        return html`<span class="marker ok" title="Step passed: ${step.fullTitle || step.title || step.uid}">✓</span>`
-      }
-      return html`<span class="marker ok" title="Identical">✓</span>`
+      return statusMarker
     }
 
-    const cellClass = (cmd: CommandLog | undefined) => {
+    // Truncation = one side has the command, the other doesn't.
+    const isTruncation = !left || !right
+    /** Per-cell divergence so the passing side stays neutral when only the
+     *  other side has the actual problem. */
+    const cellIsDivergent = (
+      cmd: CommandLog | undefined,
+      side: 'baseline' | 'latest'
+    ) => {
+      if (!pair.divergent || isTruncation || !cmd) {
+        return false
+      }
+      switch (kind) {
+        case 'commandName':
+        case 'args':
+          // Both sides genuinely differ — both cells are divergent.
+          return true
+        case 'error':
+          // Only the side with the actual error is divergent.
+          return !!cmd.error?.message
+        case 'missing':
+          return false
+        case 'none':
+        default: {
+          // Step-level failure site: only the failure site is divergent.
+          const step = this.#findStepFor(cmd, side)
+          if (step?.state !== 'failed') {
+            return false
+          }
+          const allCmds =
+            side === 'baseline'
+              ? ((this.#getBaseline()?.commands ?? []) as CommandLog[])
+              : this.#liveCommandsForSelectedUid()
+          return this.#isFailureSite(cmd, step, allCmds)
+        }
+      }
+    }
+    const cellClass = (
+      cmd: CommandLog | undefined,
+      side: 'baseline' | 'latest'
+    ) => {
       const cls = ['step-cell']
       if (!cmd) {
         cls.push('missing')
       }
-      if (pair.divergent) {
+      const divergent = cellIsDivergent(cmd, side)
+      if (divergent) {
         cls.push('divergent')
       }
-      if (isFirstDivergent) {
+      if (isFirstDivergent && divergent) {
         cls.push('first')
       }
       if (expanded) {
@@ -525,28 +725,31 @@ export class DevtoolsCompare extends Element {
       return cls.join(' ')
     }
 
+    type Side = 'baseline' | 'latest'
+    const leftSide: Side = this.swapped ? 'latest' : 'baseline'
+    const rightSide: Side = this.swapped ? 'baseline' : 'latest'
     return html`
       <div class="step-row">
         <div
-          class="${cellClass(left)}"
+          class="${cellClass(left, leftSide)}"
           data-first-divergent="${isFirstDivergent ? 'true' : 'false'}"
           @click="${() => this.#toggleExpand(pair.index)}"
         >
           ${left
             ? html`${pair.index + 1}. <code>${left.command}</code>${marker(
                   left,
-                  this.swapped ? 'latest' : 'baseline'
+                  leftSide
                 )}`
             : html`—`}
         </div>
         <div
-          class="${cellClass(right)}"
+          class="${cellClass(right, rightSide)}"
           @click="${() => this.#toggleExpand(pair.index)}"
         >
           ${right
             ? html`${pair.index + 1}. <code>${right.command}</code>${marker(
                   right,
-                  this.swapped ? 'baseline' : 'latest'
+                  rightSide
                 )}`
             : html`—`}
         </div>
@@ -556,11 +759,13 @@ export class DevtoolsCompare extends Element {
                 <div class="detail-grid">
                   ${this.#renderDetailBlock(
                     this.swapped ? 'Latest' : 'Baseline',
-                    left
+                    left,
+                    this.swapped ? 'latest' : 'baseline'
                   )}
                   ${this.#renderDetailBlock(
                     this.swapped ? 'Baseline' : 'Latest',
-                    right
+                    right,
+                    this.swapped ? 'baseline' : 'latest'
                   )}
                 </div>
               </div>
@@ -570,7 +775,11 @@ export class DevtoolsCompare extends Element {
     `
   }
 
-  #renderDetailBlock(label: string, cmd: CommandLog | undefined) {
+  #renderDetailBlock(
+    label: string,
+    cmd: CommandLog | undefined,
+    side: 'baseline' | 'latest'
+  ) {
     if (!cmd) {
       return html`<div class="detail-block">
         <h4>${label}</h4>
@@ -579,13 +788,82 @@ export class DevtoolsCompare extends Element {
     }
     const argsStr = safeJson(cmd.args)
     const resultStr = safeJson(cmd.result)
+    const step = this.#findStepFor(cmd, side)
+    // Only the failure-site command shows step-level expected/actual/assertion;
+    // other commands in the failed step succeeded individually.
+    const allCmdsThisSide =
+      side === 'baseline'
+        ? ((this.#getBaseline()?.commands ?? []) as CommandLog[])
+        : this.#liveCommandsForSelectedUid()
+    const isFailureSite = this.#isFailureSite(cmd, step, allCmdsThisSide)
+    const expected =
+      isFailureSite && step?.error?.expected !== undefined
+        ? step.error.expected
+        : isFailureSite
+          ? step?.error?.matcherResult?.expected
+          : undefined
+    const actual =
+      isFailureSite && step?.error?.actual !== undefined
+        ? step.error.actual
+        : isFailureSite
+          ? step?.error?.matcherResult?.actual
+          : undefined
+    const assertionMessage = isFailureSite
+      ? step?.error?.matcherResult?.message || step?.error?.message
+      : undefined
+    // Fallback: extract the expected from the Cucumber step text.
+    const stepText = step?.fullTitle || step?.title || ''
+    const fallbackExpected =
+      isFailureSite && expected === undefined && step?.state === 'failed'
+        ? extractExpectedFromStepText(stepText)
+        : undefined
     return html`
       <div class="detail-block">
         <h4>${label} · ${cmd.command}</h4>
+        ${step
+          ? html`<pre
+              style="opacity:0.85; border-left:2px solid ${step.state ===
+              'failed'
+                ? 'var(--vscode-charts-red,#f48771)'
+                : 'var(--vscode-charts-green,#73c373)'}; padding-left:0.5rem;"
+            >
+step: ${stepText || step.uid}</pre
+            >`
+          : nothing}
         <pre>args: ${argsStr}</pre>
         ${cmd.error
-          ? html`<pre style="color:var(--vscode-charts-red,#f48771);">error: ${cmd.error.message || String(cmd.error)}</pre>`
+          ? html`<pre style="color:var(--vscode-charts-red,#f48771);">
+error: ${cmd.error.message || String(cmd.error)}</pre
+            >`
           : html`<pre>result: ${resultStr}</pre>`}
+        ${expected !== undefined
+          ? html`<pre
+              style="color:var(--vscode-charts-green,#73c373); white-space:pre-wrap; word-break:break-word;"
+            >
+expected: ${safeJson(expected)}</pre
+            >`
+          : fallbackExpected
+            ? html`<pre
+                style="color:var(--vscode-charts-green,#73c373); white-space:pre-wrap; word-break:break-word;"
+                title="Derived from the step text (the assertion library didn't surface a structured expected value)"
+              >
+expected (from step): ${fallbackExpected}</pre
+              >`
+            : nothing}
+        ${actual !== undefined
+          ? html`<pre
+              style="color:var(--vscode-charts-orange,#d19a66); white-space:pre-wrap; word-break:break-word;"
+            >
+actual:   ${safeJson(actual)}</pre
+            >`
+          : nothing}
+        ${assertionMessage
+          ? html`<pre
+              style="color:var(--vscode-charts-red,#f48771); white-space:pre-wrap; word-break:break-word; max-height:200px; overflow:auto;"
+            >
+assertion: ${assertionMessage}</pre
+            >`
+          : nothing}
         ${cmd.screenshot
           ? html`<img
               src="${cmd.screenshot.startsWith('data:')
@@ -600,18 +878,6 @@ export class DevtoolsCompare extends Element {
 
   #toggleExpand(index: number) {
     this.expandedIndex = this.expandedIndex === index ? null : index
-  }
-}
-
-function safeJson(v: unknown): string {
-  try {
-    const s = JSON.stringify(v)
-    if (!s) {
-      return String(v)
-    }
-    return s.length > 500 ? s.slice(0, 500) + '…' : s
-  } catch {
-    return String(v)
   }
 }
 
