@@ -18,7 +18,7 @@
   "pnpm": {
     "overrides": {
       "vite": "^8.0.7",
-      "@types/node": "25.5.2",
+      "@types/node": "25.9.1",
       "@codemirror/state": "6.5.4"
     },
     "onlyBuiltDependencies": [
@@ -27,7 +27,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@types/node": "25.5.2",
+    "@types/node": "25.9.1",
     "@typescript-eslint/eslint-plugin": "^8.40.0",
     "@typescript-eslint/parser": "^8.40.0",
     "@typescript-eslint/utils": "^8.40.0",
