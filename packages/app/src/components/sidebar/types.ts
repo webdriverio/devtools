@@ -38,6 +38,7 @@ export interface TestRunDetail {
   featureFile?: string
   featureLine?: number
   suiteType?: string
+  preserveBaseline?: boolean
 }
 
 export enum TestState {

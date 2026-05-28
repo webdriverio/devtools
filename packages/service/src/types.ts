@@ -184,7 +184,20 @@ export interface PreservedStep {
   start?: number
   end?: number
   state?: 'passed' | 'failed' | 'skipped' | 'pending' | 'running'
-  error?: { message: string; name?: string; stack?: string }
+  error?: {
+    message?: string
+    name?: string
+    stack?: string
+    /** expect-webdriverio surfaces these directly on the error. */
+    expected?: unknown
+    actual?: unknown
+    /** expect-webdriverio also bundles them under matcherResult. */
+    matcherResult?: {
+      expected?: unknown
+      actual?: unknown
+      message?: string
+    }
+  }
 }
 
 export interface PreservedAttempt {

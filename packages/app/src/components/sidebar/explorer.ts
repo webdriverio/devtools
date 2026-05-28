@@ -21,6 +21,7 @@ import {
   FRAMEWORK_CAPABILITIES,
   STATE_MAP
 } from './constants.js'
+import { BASELINE_API } from '../workbench/compare/constants.js'
 
 import '~icons/mdi/play.js'
 import '~icons/mdi/stop.js'
@@ -125,6 +126,7 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
       })
     )
 
+    // Forward preserveBaseline so the backend knows whether to drop baselines.
     const payload = {
       ...detail,
       runAll: detail.uid === '*',
@@ -132,7 +134,8 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
       specFile: detail.specFile || this.#deriveSpecFile(detail),
       configFile: this.#getConfigPath(),
       rerunCommand: this.#getRerunCommand(),
-      launchCommand: this.#getLaunchCommand()
+      launchCommand: this.#getLaunchCommand(),
+      preserveBaseline: detail.preserveBaseline === true
     }
     await this.#postToBackend('/api/tests/run', payload)
   }
@@ -150,10 +153,9 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
       return
     }
 
-    // Preserve the current run's captured data BEFORE clearing it, so the
-    // baseline can be compared against the upcoming rerun's live capture.
+    // Snapshot the current run BEFORE the rerun clears live data.
     try {
-      const response = await fetch('/api/baseline/preserve', {
+      const response = await fetch(BASELINE_API.preserve, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
@@ -168,8 +170,7 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
             detail: `Failed to preserve baseline: ${errorText}`
           })
         )
-        // Don't trigger rerun if preserve failed — would lose comparison value.
-        return
+        return // skip rerun if preserve failed — no comparison value
       }
     } catch (error) {
       window.dispatchEvent(
@@ -180,10 +181,10 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
       return
     }
 
-    // Hand off to the existing rerun flow now that the baseline is pinned.
+    // Flag the rerun so #handleTestRun doesn't wipe the baseline we just saved.
     this.dispatchEvent(
       new CustomEvent<TestRunDetail>('app-test-run', {
-        detail,
+        detail: { ...detail, preserveBaseline: true },
         bubbles: true,
         composed: true
       })

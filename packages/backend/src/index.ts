@@ -13,6 +13,7 @@ import { getDevtoolsApp } from './utils.js'
 import { DEFAULT_PORT } from './constants.js'
 import { testRunner } from './runner.js'
 import { baselineStore } from './baselineStore.js'
+import { BASELINE_API, BASELINE_WS_SCOPE } from './baseline/constants.js'
 import type { RunnerRequestBody } from './types.js'
 
 let server: FastifyInstance | undefined
@@ -103,6 +104,25 @@ export async function start(
       if (!body?.uid || !body.entryType) {
         return reply.code(400).send({ error: 'Invalid run payload' })
       }
+      // Broadcast a clear so popouts (which only see WS events) wipe too.
+      broadcastToClients(
+        JSON.stringify({
+          scope: 'clearExecutionData',
+          data: { uid: body.uid, entryType: body.entryType }
+        })
+      )
+      // Plain Rerun hides the Compare tab by dropping all baselines.
+      if (!body.preserveBaseline) {
+        const clearedUids = baselineStore.clearAll()
+        for (const testUid of clearedUids) {
+          broadcastToClients(
+            JSON.stringify({
+              scope: BASELINE_WS_SCOPE.cleared,
+              data: { testUid }
+            })
+          )
+        }
+      }
       try {
         await testRunner.run({
           ...body,
@@ -129,7 +149,7 @@ export async function start(
   })
 
   server.post(
-    '/api/baseline/preserve',
+    BASELINE_API.preserve,
     async (
       request: FastifyRequest<{
         Body: { testUid?: string; scope?: 'test' | 'suite' }
@@ -150,7 +170,7 @@ export async function start(
       }
       broadcastToClients(
         JSON.stringify({
-          scope: 'baseline:saved',
+          scope: BASELINE_WS_SCOPE.saved,
           data: { testUid, attempt }
         })
       )
@@ -159,7 +179,7 @@ export async function start(
   )
 
   server.post(
-    '/api/baseline/clear',
+    BASELINE_API.clear,
     async (request: FastifyRequest<{ Body: { testUid?: string } }>, reply) => {
       const { testUid } = request.body || {}
       if (!testUid) {
@@ -169,7 +189,7 @@ export async function start(
       if (removed) {
         broadcastToClients(
           JSON.stringify({
-            scope: 'baseline:cleared',
+            scope: BASELINE_WS_SCOPE.cleared,
             data: { testUid }
           })
         )
@@ -179,7 +199,7 @@ export async function start(
   )
 
   server.get(
-    '/api/baseline/:testUid',
+    BASELINE_API.get,
     async (
       request: FastifyRequest<{
         Params: { testUid: string }
@@ -226,20 +246,16 @@ export async function start(
     '/worker',
     { websocket: true },
     (socket: WebSocket, _req: FastifyRequest) => {
-      // Drop the message buffer for a fresh run (so late dashboards don't
-      // replay stale state) but NOT for a rerun child — the dashboard's
-      // mergeSuite/mergeTests dedupe by uid, and the existing tree should
-      // stay rendered while sibling tests freeze at their last result.
+      // Don't drop the message buffer for rerun-child connects (the dashboard
+      // tree dedupes by uid and stale state must survive). Same applies to
+      // baselineStore.activeRun — keep it across reruns so Preserve & Rerun on
+      // a different failed test still finds data; #updateNode handles window
+      // expansion across reruns of the same test.
       const isRerunChild = testRunner.consumeRerunChildFlag()
       if (!isRerunChild) {
         messageBuffer.length = 0
+        baselineStore.resetActiveRun()
       }
-      // Always reset the baseline accumulator. Unlike messageBuffer, its
-      // purpose is to hold only the CURRENT run's events for time-window
-      // snapshots. Keeping it across rerun-child connects expands each
-      // test's time window (min-start / max-end across updates), which
-      // makes Preserve & Rerun pull in commands from previous runs.
-      baselineStore.resetActiveRun()
       workerSocket = socket
       socket.on('close', () => {
         if (workerSocket === socket) {

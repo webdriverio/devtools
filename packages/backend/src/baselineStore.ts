@@ -1,125 +1,26 @@
 /**
- * In-memory baseline store for the "Preserve & Rerun" feature.
- *
- * The backend already forwards worker socket frames to all dashboard clients.
- * We tee a copy of each event into an accumulator (`activeRun`) so a snapshot
- * can be taken at any point and pinned as a baseline for a specific test/suite.
- *
- * Per-test scoping is achieved by tracking each test/suite's time window from
- * the `suites` payloads (each TestStats/SuiteStats carries `start`/`end` dates),
- * then filtering the flat command/log streams by timestamp at snapshot time.
- * No reporter changes required.
+ * In-memory baseline store for "Preserve & Rerun". Tees worker WS frames
+ * into an accumulator, then time-window-filters per test/suite on demand.
  */
 import logger from '@wdio/logger'
 
+import type {
+  ActiveRun,
+  CommandLogLike,
+  ConsoleLogLike,
+  MutationLike,
+  NetworkRequestLike,
+  NodeError,
+  NodeState,
+  PreservedAttempt,
+  PreservedStep,
+  TimeWindowNode
+} from './baseline/types.js'
+import { freshRun, toMs, pickMin, pickMax } from './baseline/utils.js'
+
+export type { PreservedAttempt, PreservedStep } from './baseline/types.js'
+
 const log = logger('@wdio/devtools-baseline')
-
-interface CommandLogLike {
-  timestamp: number
-  [key: string]: unknown
-}
-interface ConsoleLogLike {
-  timestamp: number
-  [key: string]: unknown
-}
-interface NetworkRequestLike {
-  id?: string
-  timestamp: number
-  startTime?: number
-  endTime?: number
-  [key: string]: unknown
-}
-interface MutationLike {
-  timestamp: number
-  [key: string]: unknown
-}
-
-interface TimeWindowNode {
-  uid: string
-  kind: 'suite' | 'test'
-  title?: string
-  fullTitle?: string
-  file?: string
-  callSource?: string
-  start?: number
-  end?: number
-  state?: 'passed' | 'failed' | 'skipped' | 'pending' | 'running'
-  error?: { message: string; name?: string; stack?: string }
-  childUids: string[]
-}
-
-export interface PreservedStep {
-  uid: string
-  title?: string
-  fullTitle?: string
-  start?: number
-  end?: number
-  state?: TimeWindowNode['state']
-  error?: TimeWindowNode['error']
-}
-
-export interface PreservedAttempt {
-  testUid: string
-  scope: 'test' | 'suite'
-  capturedAt: number
-  window: { start: number; end: number }
-  test: {
-    title?: string
-    fullTitle?: string
-    file?: string
-    callSource?: string
-    start?: number
-    end?: number
-    duration?: number
-    state?: TimeWindowNode['state']
-    error?: TimeWindowNode['error']
-  }
-  steps?: PreservedStep[]
-  commands: CommandLogLike[]
-  consoleLogs: ConsoleLogLike[]
-  networkRequests: NetworkRequestLike[]
-  mutations: MutationLike[]
-  sources: Record<string, string>
-}
-
-interface ActiveRun {
-  commands: CommandLogLike[]
-  consoleLogs: ConsoleLogLike[]
-  networkRequests: NetworkRequestLike[]
-  mutations: MutationLike[]
-  sources: Record<string, string>
-  nodes: Map<string, TimeWindowNode>
-  startedAt: number
-}
-
-function freshRun(): ActiveRun {
-  return {
-    commands: [],
-    consoleLogs: [],
-    networkRequests: [],
-    mutations: [],
-    sources: {},
-    nodes: new Map(),
-    startedAt: Date.now()
-  }
-}
-
-function toMs(value: unknown): number | undefined {
-  if (value == null) {
-    return undefined
-  }
-  if (typeof value === 'number') {
-    return value
-  }
-  if (typeof value === 'string') {
-    const t = Date.parse(value)
-    return Number.isFinite(t) ? t : undefined
-  }
-  if (value instanceof Date) {
-    return value.getTime()
-  }
-  return undefined
-}
 
 class BaselineStore {
   #activeRun: ActiveRun = freshRun()
@@ -130,10 +31,6 @@ class BaselineStore {
     this.#activeRun = freshRun()
   }
 
-  /**
-   * Tee an incoming worker WS frame into the active-run accumulator.
-   * Mirrors the same payload shapes the dashboard already consumes.
-   */
   recordEvent(scope: string, data: unknown) {
     if (!data) {
       return
@@ -160,15 +57,10 @@ class BaselineStore {
         }
         return
       case 'sources':
-        Object.assign(
-          this.#activeRun.sources,
-          data as Record<string, string>
-        )
+        Object.assign(this.#activeRun.sources, data as Record<string, string>)
         return
       case 'suites':
         this.#ingestSuites(data)
-        return
-      default:
         return
     }
   }
@@ -254,7 +146,26 @@ class BaselineStore {
     const existing = this.#activeRun.nodes.get(uid)
     const incomingStart = toMs(n.start)
     const incomingEnd = toMs(n.end)
-    const merged: TimeWindowNode = {
+
+    // A new run is detected when the incoming start is strictly after the
+    // previous run's end. Without this, repeated reruns balloon the window.
+    const isNewRun =
+      existing?.end !== undefined &&
+      incomingStart !== undefined &&
+      incomingStart > existing.end
+
+    const nextStart = isNewRun
+      ? incomingStart
+      : pickMin(existing?.start, incomingStart)
+    const nextEnd = isNewRun ? incomingEnd : pickMax(existing?.end, incomingEnd)
+    const nextState = isNewRun
+      ? (n.state as NodeState | undefined)
+      : ((n.state as NodeState | undefined) ?? existing?.state)
+    const nextError = isNewRun
+      ? (n.error as NodeError | undefined)
+      : ((n.error as NodeError | undefined) ?? existing?.error)
+
+    this.#activeRun.nodes.set(uid, {
       uid,
       kind,
       title: typeof n.title === 'string' ? n.title : existing?.title,
@@ -262,29 +173,15 @@ class BaselineStore {
         typeof n.fullTitle === 'string' ? n.fullTitle : existing?.fullTitle,
       file: typeof n.file === 'string' ? n.file : existing?.file,
       callSource:
-        typeof n.callSource === 'string'
-          ? n.callSource
-          : existing?.callSource,
-      start:
-        incomingStart != null && (existing?.start == null || incomingStart < existing.start)
-          ? incomingStart
-          : existing?.start ?? incomingStart,
-      end:
-        incomingEnd != null && (existing?.end == null || incomingEnd > existing.end)
-          ? incomingEnd
-          : existing?.end ?? incomingEnd,
-      state: (n.state as TimeWindowNode['state']) ?? existing?.state,
-      error: (n.error as TimeWindowNode['error']) ?? existing?.error,
-      childUids:
-        childUids.length > 0 ? childUids : existing?.childUids ?? []
-    }
-    this.#activeRun.nodes.set(uid, merged)
+        typeof n.callSource === 'string' ? n.callSource : existing?.callSource,
+      start: nextStart,
+      end: nextEnd,
+      state: nextState,
+      error: nextError,
+      childUids: childUids.length > 0 ? childUids : (existing?.childUids ?? [])
+    })
   }
 
-  /**
-   * Compute the [start, end] time window for a uid by unioning the windows
-   * of all descendant tests (or the test's own window).
-   */
   #windowFor(uid: string): { start: number; end: number } | undefined {
     const node = this.#activeRun.nodes.get(uid)
     if (!node) {
@@ -293,7 +190,7 @@ class BaselineStore {
     let start = node.start ?? Number.POSITIVE_INFINITY
     let end = node.end ?? Date.now()
     const visit = (n: TimeWindowNode) => {
-      if (n.start != null && n.start < start) {
+      if (n.start !== undefined && n.start < start) {
         start = n.start
       }
       const candidateEnd = n.end ?? Date.now()
@@ -314,13 +211,8 @@ class BaselineStore {
     return { start, end }
   }
 
-  /**
-   * Derive a state for a node when its own state is undefined. WDIO doesn't
-   * set explicit state on SuiteStats — so a passed/failed suite snapshot
-   * would otherwise show "unknown" in the UI. Walk descendants and use the
-   * worst-case outcome (failed > running > passed).
-   */
-  #deriveState(node: TimeWindowNode): TimeWindowNode['state'] {
+  /** Worst-case rollup so a suite snapshot doesn't show "unknown". */
+  #deriveState(node: TimeWindowNode): NodeState | undefined {
     if (node.state) {
       return node.state
     }
@@ -355,10 +247,25 @@ class BaselineStore {
     return undefined
   }
 
-  /**
-   * Build a PreservedAttempt for the given uid by filtering activeRun
-   * streams to the time window of that test/suite.
-   */
+  /** Falls back to the first failing descendant's error so suite snapshots
+   *  carry the assertion text. */
+  #deriveError(node: TimeWindowNode): NodeError | undefined {
+    if (node.error?.message) {
+      return node.error
+    }
+    for (const childUid of node.childUids) {
+      const child = this.#activeRun.nodes.get(childUid)
+      if (!child) {
+        continue
+      }
+      const childError = this.#deriveError(child)
+      if (childError?.message) {
+        return childError
+      }
+    }
+    return node.error
+  }
+
   snapshot(uid: string, scope: 'test' | 'suite'): PreservedAttempt | undefined {
     const node = this.#activeRun.nodes.get(uid)
     if (!node) {
@@ -368,30 +275,15 @@ class BaselineStore {
     if (!window) {
       return undefined
     }
+
     const inWindow = (t: number | undefined) =>
-      t != null && t >= window.start && t <= window.end
+      t !== undefined && t >= window.start && t <= window.end
     const inWindowSpan = (start?: number, end?: number) => {
       const s = start ?? end ?? 0
       const e = end ?? start ?? Date.now()
       return e >= window.start && s <= window.end
     }
 
-    const commands = this.#activeRun.commands.filter((c) =>
-      inWindow(c.timestamp)
-    )
-    const consoleLogs = this.#activeRun.consoleLogs.filter((c) =>
-      inWindow(c.timestamp)
-    )
-    const networkRequests = this.#activeRun.networkRequests.filter((r) =>
-      inWindowSpan(r.startTime ?? r.timestamp, r.endTime)
-    )
-    const mutations = this.#activeRun.mutations.filter((m) =>
-      inWindow(m.timestamp)
-    )
-
-    // Collect descendant test (step) nodes for step-level attribution in the
-    // Compare tab. A failed step's commands can then be marked even when the
-    // commands themselves succeeded (typical for an assertion failure).
     const steps: PreservedStep[] = []
     const collectSteps = (n: TimeWindowNode) => {
       if (n.kind === 'test') {
@@ -427,30 +319,29 @@ class BaselineStore {
         start: node.start,
         end: node.end,
         duration:
-          node.start != null && node.end != null
+          node.start !== undefined && node.end !== undefined
             ? node.end - node.start
             : undefined,
         state: this.#deriveState(node),
-        error: node.error
+        error: this.#deriveError(node)
       },
       steps: steps.length > 0 ? steps : undefined,
-      commands,
-      consoleLogs,
-      networkRequests,
-      mutations,
+      commands: this.#activeRun.commands.filter((c) => inWindow(c.timestamp)),
+      consoleLogs: this.#activeRun.consoleLogs.filter((c) =>
+        inWindow(c.timestamp)
+      ),
+      networkRequests: this.#activeRun.networkRequests.filter((r) =>
+        inWindowSpan(r.startTime ?? r.timestamp, r.endTime)
+      ),
+      mutations: this.#activeRun.mutations.filter((m) => inWindow(m.timestamp)),
       sources: { ...this.#activeRun.sources }
     }
   }
 
-  preserve(
-    uid: string,
-    scope: 'test' | 'suite'
-  ): PreservedAttempt | undefined {
+  preserve(uid: string, scope: 'test' | 'suite'): PreservedAttempt | undefined {
     const attempt = this.snapshot(uid, scope)
     if (!attempt) {
-      log.warn(
-        `preserve: no data captured for uid=${uid}; refusing empty snapshot`
-      )
+      log.warn(`preserve: no data captured for uid=${uid}`)
       return undefined
     }
     if (attempt.commands.length === 0) {
@@ -468,14 +359,16 @@ class BaselineStore {
     return this.#baselines.delete(uid)
   }
 
+  clearAll(): string[] {
+    const uids = Array.from(this.#baselines.keys())
+    this.#baselines.clear()
+    return uids
+  }
+
   get(uid: string): PreservedAttempt | undefined {
     return this.#baselines.get(uid)
   }
 
-  /**
-   * For dashboard rehydration: baseline + a fresh snapshot of the current
-   * activeRun for the same uid (the "latest" side of the compare view).
-   */
   getPair(uid: string, scope: 'test' | 'suite' = 'test') {
     const baseline = this.#baselines.get(uid)
     const latest = baseline

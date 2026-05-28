@@ -6,16 +6,48 @@ import { TraceType, type TraceLog } from '@wdio/devtools-service/types'
 import { Element } from '@core/element'
 import { DataManagerController } from './controller/DataManager.js'
 import { DragController, Direction } from './utils/DragController.js'
-import { SIDEBAR_MIN_WIDTH } from './controller/constants.js'
+import { SIDEBAR_MIN_WIDTH, DARK_MODE_KEY } from './controller/constants.js'
+import { POPOUT_QUERY } from './components/workbench/compare/constants.js'
+
+// Bootstrap the dark-mode class on <body> as early as possible so popout
+// windows (which don't render the header) still get themed consistently
+// with the main dashboard. The header still owns the toggle.
+const darkModeInit = localStorage.getItem(DARK_MODE_KEY)
+const isDarkMode =
+  typeof darkModeInit === 'string'
+    ? darkModeInit === 'true'
+    : window.matchMedia('(prefers-color-scheme: dark)').matches
+if (isDarkMode) {
+  document.body.classList.add('dark')
+}
+// Cross-window sync: when the user toggles dark mode in the main dashboard,
+// the storage event fires in OTHER windows (popouts) and we mirror the
+// theme change there too.
+window.addEventListener('storage', (e) => {
+  if (e.key === DARK_MODE_KEY) {
+    document.body.classList.toggle('dark', e.newValue === 'true')
+  }
+})
 
 import './components/header.js'
 import './components/sidebar.js'
 import './components/workbench.js'
 import './components/onboarding/start.js'
+import './components/workbench/compare.js'
 
 @customElement('wdio-devtools')
 export class WebdriverIODevtoolsApplication extends Element {
   dataManager = new DataManagerController(this)
+
+  // Popout mode: when opened via the Compare tab's "↗ Pop out" button the
+  // URL carries ?view=compare&uid=<testUid>. The app then renders only the
+  // Compare panel full-viewport (no header, no sidebar, no workbench tabs).
+  #popoutMode =
+    new URLSearchParams(window.location.search).get(POPOUT_QUERY.viewKey) ===
+    POPOUT_QUERY.viewValue
+  #popoutUid =
+    new URLSearchParams(window.location.search).get(POPOUT_QUERY.uidKey) ||
+    undefined
 
   static styles = [
     ...Element.styles,
@@ -56,9 +88,20 @@ export class WebdriverIODevtoolsApplication extends Element {
       'clear-execution-data',
       this.#clearExecutionData.bind(this)
     )
+    // In popout mode, the URL carries the test uid the parent window was
+    // viewing. Push it into the context so the Compare component finds the
+    // matching baseline as soon as the WS reconnects in this new window.
+    if (this.#popoutMode && this.#popoutUid) {
+      this.dataManager.setSelectedTestUid(this.#popoutUid)
+    }
   }
 
   render() {
+    if (this.#popoutMode) {
+      return html`
+        <wdio-devtools-compare style="flex:1 1 auto;"></wdio-devtools-compare>
+      `
+    }
     return html`
       <wdio-devtools-header></wdio-devtools-header>
       ${this.#mainContent()}
