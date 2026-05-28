@@ -808,8 +808,11 @@ export class DevtoolsCompare extends Element {
         : isFailureSite
           ? step?.error?.matcherResult?.actual
           : undefined
-    const assertionMessage = isFailureSite
+    const rawAssertion = isFailureSite
       ? step?.error?.matcherResult?.message || step?.error?.message
+      : undefined
+    const assertionMessage = rawAssertion
+      ? cleanErrorMessage(rawAssertion)
       : undefined
     // Fallback: extract the expected from the Cucumber step text.
     const stepText = step?.fullTitle || step?.title || ''
