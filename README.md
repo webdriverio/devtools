@@ -12,13 +12,6 @@ Works with **WebdriverIO**, **[Nightwatch.js](./packages/nightwatch-devtools/REA
 - **Stop Test Execution**: Terminate running tests with proper process cleanup using the stop button
 - **Test List Preservation**: All tests remain visible in the sidebar during reruns, maintaining full context
 
-### 🐞 Preserve & Rerun (Compare)
-- **Side-by-side diff**: Click the bug-play icon on a failed test to snapshot the failing run and rerun in one action — the Compare tab shows the two runs aligned by command, with the failure point and assertion error (Expected vs Received) called out
-- **Diagnose flaky tests**: See exactly which command differed between a pass and a fail without re-reading logs
-- **Pop out**: Open the comparison in a separate, themed window for a roomier view
-
-> **Note:** Preserve & Rerun is currently supported for **WebdriverIO only**. Nightwatch.js and Selenium support is planned for a future release.
-
 ### 🎭 Multi-Framework Support
 - **Mocha**: Full support with grep-based filtering for test/suite execution
 - **Jasmine**: Complete integration with grep-based filtering
@@ -54,6 +47,13 @@ Works with **WebdriverIO**, **[Nightwatch.js](./packages/nightwatch-devtools/REA
 >
 
 > For setup, configuration options, and prerequisites see the **[service README](./packages/service/README.md#screencast-recording)**.
+
+### 🐞 Preserve & Rerun (Compare)
+- **Side-by-side diff**: Click the bug-play icon on a failed test to snapshot the failing run and rerun in one action — the Compare tab shows the two runs aligned by command, with the failure point and assertion error (Expected vs Received) called out
+- **Diagnose flaky tests**: See exactly which command differed between a pass and a fail without re-reading logs
+- **Pop out**: Open the comparison in a separate, themed window for a roomier view
+
+> **Note:** Preserve & Rerun is currently supported for **WebdriverIO only**. Nightwatch.js and Selenium support is planned for a future release.
 
 ### 🔍︎ TestLens
 - **Code Intelligence**: View test definitions directly in your editor
