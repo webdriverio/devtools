@@ -6,6 +6,9 @@
 
 export type LogLevel = 'trace' | 'debug' | 'log' | 'info' | 'warn' | 'error'
 
+/** Where a captured ConsoleLog entry originated. */
+export type LogSource = 'browser' | 'test' | 'terminal'
+
 export enum TraceType {
   Standalone = 'standalone',
   Testrunner = 'testrunner'
@@ -74,11 +77,23 @@ export interface CommandLog {
   id?: number
 }
 
+/**
+ * Payload broadcast under the WS scope `'replaceCommand'`. Tells the UI to
+ * swap an existing CommandLog in-place — used when an adapter reconciles a
+ * preliminary entry with the actual final result (e.g. selenium's
+ * driverPatcher emits a placeholder, then replaces it once the command
+ * resolves).
+ */
+export interface ReplaceCommandWsPayload {
+  oldTimestamp: number
+  command: CommandLog
+}
+
 export interface ConsoleLog {
   type: LogLevel
   args: any[]
   timestamp: number
-  source?: string
+  source?: LogSource
 }
 
 export interface NetworkRequest {
