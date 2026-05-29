@@ -1,8 +1,4 @@
-import * as net from 'node:net'
 import { parse as parseStackTrace } from 'stacktrace-parser'
-import logger from '@wdio/logger'
-
-const log = logger('@wdio/selenium-devtools:utils')
 
 // Console helpers come from @wdio/devtools-core. `stripAnsiCodes` is the
 // local name kept for backwards compatibility with existing import sites.
@@ -95,26 +91,7 @@ export function findTestLineInFile(
   return null
 }
 
-export function isPortInUse(port: number, hostname: string): Promise<boolean> {
-  return new Promise((resolve) => {
-    const server = net.createServer()
-    server.once('error', () => resolve(true))
-    server.once('listening', () => server.close(() => resolve(false)))
-    server.listen(port, hostname)
-  })
-}
-
-export async function findFreePort(
-  startPort: number,
-  hostname: string
-): Promise<number> {
-  let port = startPort
-  while (await isPortInUse(port, hostname)) {
-    log.warn(`Port ${port} is in use, trying ${port + 1}...`)
-    port++
-  }
-  return port
-}
+export { isPortInUse, findFreePort } from '@wdio/devtools-core'
 
 /**
  * Capture the command line that launched the current process so the UI's
@@ -122,47 +99,7 @@ export async function findFreePort(
  * argv when npm script context is unavailable.
  */
 /** Derive a human-readable request type from URL and MIME type. */
-export function getRequestType(url: string, mimeType?: string): string {
-  const contentType = mimeType?.toLowerCase() ?? ''
-  const urlLower = url.toLowerCase()
-  if (contentType.includes('text/html')) {
-    return 'document'
-  }
-  if (contentType.includes('text/css')) {
-    return 'stylesheet'
-  }
-  if (
-    contentType.includes('javascript') ||
-    contentType.includes('ecmascript')
-  ) {
-    return 'script'
-  }
-  if (contentType.includes('image/')) {
-    return 'image'
-  }
-  if (contentType.includes('font/') || contentType.includes('woff')) {
-    return 'font'
-  }
-  if (contentType.includes('application/json')) {
-    return 'fetch'
-  }
-  if (urlLower.endsWith('.html') || urlLower.endsWith('.htm')) {
-    return 'document'
-  }
-  if (urlLower.endsWith('.css')) {
-    return 'stylesheet'
-  }
-  if (urlLower.endsWith('.js') || urlLower.endsWith('.mjs')) {
-    return 'script'
-  }
-  if (/\.(png|jpg|jpeg|gif|svg|webp|ico)$/.test(urlLower)) {
-    return 'image'
-  }
-  if (/\.(woff|woff2|ttf|eot|otf)$/.test(urlLower)) {
-    return 'font'
-  }
-  return 'xhr'
-}
+export { getRequestType } from '@wdio/devtools-core'
 
 export function captureLaunchCommand(): string {
   const npmScript = process.env.npm_lifecycle_event
