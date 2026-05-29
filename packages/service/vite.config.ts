@@ -35,14 +35,25 @@ export default defineConfig({
       },
       // Inline private workspace packages (@wdio/devtools-core,
       // @wdio/devtools-shared) — they are not published, so the dist must
-      // not contain runtime `import` statements for them. See CLAUDE.md §2.6.
-      external: (id) =>
-        !id.startsWith(path.resolve(__dirname, 'src')) &&
-        !id.startsWith('./') &&
-        id !== '@wdio/devtools-core' &&
-        !id.startsWith('@wdio/devtools-core/') &&
-        id !== '@wdio/devtools-shared' &&
-        !id.startsWith('@wdio/devtools-shared/')
+      // not contain runtime `import` statements for them. The `id` here can
+      // be EITHER the unresolved package name OR an already-resolved absolute
+      // path (vite resolves workspace symlinks before calling this), so we
+      // check for both forms. See CLAUDE.md §2.6.
+      external: (id) => {
+        const isPrivateWorkspaceDep =
+          id === '@wdio/devtools-core' ||
+          id === '@wdio/devtools-shared' ||
+          id.startsWith('@wdio/devtools-core/') ||
+          id.startsWith('@wdio/devtools-shared/') ||
+          id.includes('/packages/core/') ||
+          id.includes('/packages/shared/')
+        if (isPrivateWorkspaceDep) {
+          return false
+        }
+        return (
+          !id.startsWith(path.resolve(__dirname, 'src')) && !id.startsWith('./')
+        )
+      }
     }
   },
   plugins: [

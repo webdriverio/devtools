@@ -2,3 +2,4 @@
 // adapters. See ARCHITECTURE.md §2 and CLAUDE.md §2.2.
 
 export * from './console.js'
+export * from './uid.js'

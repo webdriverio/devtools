@@ -233,7 +233,7 @@ This is a snapshot of where the codebase diverges from the architecture above. A
 
 ### Populated packages and what's still in adapters
 - `packages/shared` contains baseline API constants, `TestRunnerId`, and the core test-event types (`CommandLog`, `ConsoleLog`, `NetworkRequest`, `Metadata`, `TraceLog`, `TraceType`, `PreservedAttempt`, `PreservedStep`, `TestStatus`, `TestError`, `PerformanceData`, `DocumentInfo`, `Viewport`, `ScreencastInfo`, `LogLevel`). Adapter `types.ts` files re-export shared types for backwards compatibility.
-- `packages/core` contains console-capture constants and pure helpers (`CONSOLE_METHODS`, `ANSI_REGEX`, `LOG_LEVEL_PATTERNS`, `LOG_SOURCES`, `ERROR_INDICATORS`, `stripAnsi`, `detectLogLevel`, `createConsoleLogEntry`). The full `SessionCapturer` class, `#patchConsole`/`#patchStreams` instance logic, UID generation, command-log builder, reporter base, sourcemap loader, and WS client are still in adapters and duplicated 3 ways.
+- `packages/core` contains console-capture constants and pure helpers (`CONSOLE_METHODS`, `ANSI_REGEX`, `LOG_LEVEL_PATTERNS`, `LOG_SOURCES`, `ERROR_INDICATORS`, `stripAnsi`, `detectLogLevel`, `createConsoleLogEntry`) and stable-UID helpers (`generateStableUid`, `deterministicUid`, `resetSignatureCounters`). The full `SessionCapturer` class, `#patchConsole`/`#patchStreams` instance logic, command-log builder, reporter base, sourcemap loader, and WS client are still in adapters and duplicated 3 ways.
 
 ### Misplaced logic
 - `packages/service` currently contains framework-agnostic logic (UID generation, console capture, sourcemap resolution, reporter base) that belongs in `core`. The other two adapters re-implement the same logic instead of importing it.
@@ -258,8 +258,8 @@ Not a hard sequence — just the order that minimizes churn. Each step is intend
 2. ~~**Move duplicated cross-package types into `shared`.**~~ ✅ Done for the 6 app-imported types and their dependencies.
 3. ~~**Move duplicated constants and status types into `shared`.**~~ ✅ Done. `BASELINE_API`, `BASELINE_WS_SCOPE`, `TestStatus`, `TestRunnerId` all live in shared. Sidebar `TestState` is a value-only enum-style accessor backed by `TestStatus`.
 4. ~~**Create `packages/core`.**~~ ✅ Done.
-5. ~~**Extract one duplicated logic block into `core`.**~~ ✅ Done for pure console helpers (constants, `stripAnsi`, `detectLogLevel`, `createConsoleLogEntry`). The `SessionCapturer` class itself still owns the patching logic in each adapter.
-6. **Continue extracting `SessionCapturer`, UID gen, command-log builder, reporter base, sourcemap loader, WS client into `core`.** One per PR. `SessionCapturer` is the biggest — it ties together console patching, stream wrapping, and the upstream WS, and needs a clean callback-based API so each adapter can hook its own session state.
+5. ~~**Extract one duplicated logic block into `core`.**~~ ✅ Done for pure console helpers and UID helpers (constants, `stripAnsi`, `detectLogLevel`, `createConsoleLogEntry`, `generateStableUid`, `deterministicUid`, `resetSignatureCounters`). The `SessionCapturer` class itself still owns the patching logic in each adapter.
+6. **Continue extracting `SessionCapturer`, command-log builder, reporter base, sourcemap loader, WS client into `core`.** One per PR. `SessionCapturer` is the biggest — it ties together console patching, stream wrapping, and the upstream WS, and needs a clean callback-based API so each adapter can hook its own session state.
 7. **Type the HTTP/WS contracts in `shared`.** Backend and app start importing them at the boundary.
 8. ~~**Replace string-based framework checks in `runner.ts` with `FrameworkId`.**~~ ✅ Done via `TestRunnerId` in shared (typed `FRAMEWORK_FILTERS` map key).
 9. **Split god-files opportunistically as their sections are edited** (boy-scout rule from CLAUDE.md §5).

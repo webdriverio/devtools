@@ -5,7 +5,6 @@ import { parse as parseStackTrace } from 'stacktrace-parser'
 import logger from '@wdio/logger'
 import { TEST_FILE_PATTERN, CONFIG_FILENAMES } from '../constants.js'
 import type {
-  LogLevel,
   NightwatchTestCase,
   TestFileMetadata,
   StepLocation
@@ -20,12 +19,17 @@ export function determineTestState(
   return testcase.passed > 0 && testcase.failed === 0 ? 'passed' : 'failed'
 }
 
-// Track test occurrences to generate stable UIDs
-const signatureCounters = new Map<string, number>()
+import {
+  generateStableUid as generateStableUidByFileName,
+  deterministicUid as deterministicUidFromCore,
+  resetSignatureCounters as resetSignatureCountersFromCore
+} from '@wdio/devtools-core'
 
 /**
  * Generate stable UID for test/suite.
  * Accepts either (item: SuiteStats | TestStats) or (file: string, name: string).
+ * Hashing is delegated to @wdio/devtools-core; this wrapper preserves the
+ * dual-signature convenience used by the Nightwatch suite/test managers.
  */
 export function generateStableUid(itemOrFile: any, name?: string): string {
   let file: string, testName: string
@@ -40,35 +44,12 @@ export function generateStableUid(itemOrFile: any, name?: string): string {
     file = itemOrFile || ''
     testName = String(name || '')
   }
-  const signature = `${file}::${testName}`
-  const count = signatureCounters.get(signature) || 0
-  signatureCounters.set(signature, count + 1)
-  const hashInput = count > 0 ? `${signature}::${count}` : signature
-  const hash = hashInput
-    .split('')
-    .reduce((acc, char) => ((acc << 5) - acc + char.charCodeAt(0)) | 0, 0)
-  return `stable-${Math.abs(hash).toString(36)}`
+  return generateStableUidByFileName(file, testName)
 }
 
-/** Reset counters at the start of each test run. */
-export function resetSignatureCounters() {
-  signatureCounters.clear()
-}
+export const resetSignatureCounters = resetSignatureCountersFromCore
 
-/**
- * Compute a purely deterministic UID from arbitrary string parts.
- * Unlike generateStableUid this NEVER uses the signature counter, so calling
- * it multiple times with the same inputs always returns the same value.
- * Use this wherever the same entity (e.g. a Cucumber scenario) must map to
- * the same UID across retries.
- */
-export function deterministicUid(...parts: string[]): string {
-  const hash = parts
-    .join('::')
-    .split('')
-    .reduce((acc, char) => ((acc << 5) - acc + char.charCodeAt(0)) | 0, 0)
-  return `stable-${Math.abs(hash).toString(36)}`
-}
+export const deterministicUid = deterministicUidFromCore
 
 /** Returns true if a stack frame belongs to user code (not dependencies, internals, or build output). */
 function isUserCodeFrame(frame: {
@@ -248,26 +229,7 @@ export {
   createConsoleLogEntry
 } from '@wdio/devtools-core'
 
-/** Map a Chrome DevTools log level string to our LogLevel union. */
-export function chromeLogLevelToLogLevel(
-  level: string | { value?: number; name?: string }
-): LogLevel {
-  const levelName = (
-    typeof level === 'object' ? (level?.name ?? '') : (level ?? '')
-  ).toUpperCase()
-  switch (levelName) {
-    case 'SEVERE':
-      return 'error'
-    case 'WARNING':
-      return 'warn'
-    case 'INFO':
-      return 'info'
-    case 'DEBUG':
-      return 'debug'
-    default:
-      return 'log'
-  }
-}
+export { chromeLogLevelToLogLevel } from '@wdio/devtools-core'
 
 /** Derive a human-readable request type from URL and MIME type. */
 export function getRequestType(url: string, mimeType?: string): string {

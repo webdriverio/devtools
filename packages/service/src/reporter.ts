@@ -3,16 +3,21 @@ import WebdriverIOReporter, {
   type TestStats
 } from '@wdio/reporter'
 import {
+  deterministicUid,
+  generateStableUid as generateStableUidByFileName,
+  resetSignatureCounters
+} from '@wdio/devtools-core'
+import {
   mapTestToSource,
   setCurrentSpecFile,
   mapSuiteToSource
 } from './utils.js'
 import { readFileSync, existsSync } from 'node:fs'
 
-// Track test/suite occurrences within current run to handle duplicate signatures
-const signatureCounters = new Map<string, number>()
-
-// Generate stable UID based on test/suite metadata
+// Generate stable UID for a WDIO suite/test stats object. Handles WDIO's
+// Cucumber-specific shapes (scenarios with featureFile/featureLine, or with
+// numeric uid + example-row fallback), then delegates the Mocha/Jasmine path
+// to core's generateStableUid.
 function generateStableUid(item: SuiteStats | TestStats): string {
   const rawItem = item as any
 
@@ -28,60 +33,31 @@ function generateStableUid(item: SuiteStats | TestStats): string {
     rawItem.featureFile &&
     typeof rawItem.featureLine === 'number'
   ) {
-    const parts = [rawItem.featureFile, String(rawItem.featureLine), item.title]
-    const hash = parts
-      .join('::')
-      .split('')
-      .reduce((acc, char) => {
-        return ((acc << 5) - acc + char.charCodeAt(0)) | 0
-      }, 0)
-    return `stable-${Math.abs(hash).toString(36)}`
+    return deterministicUid(
+      rawItem.featureFile,
+      String(rawItem.featureLine),
+      item.title
+    )
   }
 
   // Fallback for Cucumber scenarios where the pickle URI:line wasn't captured.
   if (rawItem.type === 'scenario' && /^\d+$/.test(rawItem.uid)) {
-    const parts = [
+    return deterministicUid(
       item.title,
       rawItem.file || '',
       rawItem.parent || '',
       rawItem.cid || '',
       `example-${rawItem.uid}`
-    ]
-    const hash = parts
-      .join('::')
-      .split('')
-      .reduce((acc, char) => {
-        return ((acc << 5) - acc + char.charCodeAt(0)) | 0
-      }, 0)
-    return `stable-${Math.abs(hash).toString(36)}`
+    )
   }
 
   // For Mocha/Jasmine tests and suites, use only stable identifiers
   // that don't change between full and partial runs
   // DO NOT use cid or parent as they can vary based on run context
-  const parts = [rawItem.file || '', String(rawItem.fullTitle || item.title)]
-
-  const signature = parts.join('::')
-  const count = signatureCounters.get(signature) || 0
-  signatureCounters.set(signature, count + 1)
-
-  if (count > 0) {
-    parts.push(String(count))
-  }
-
-  const hash = parts
-    .join('::')
-    .split('')
-    .reduce((acc, char) => {
-      return ((acc << 5) - acc + char.charCodeAt(0)) | 0
-    }, 0)
-
-  return `stable-${Math.abs(hash).toString(36)}`
-}
-
-// Reset counters at the start of each test run
-function resetSignatureCounters() {
-  signatureCounters.clear()
+  return generateStableUidByFileName(
+    rawItem.file || '',
+    String(rawItem.fullTitle || item.title)
+  )
 }
 
 /**
