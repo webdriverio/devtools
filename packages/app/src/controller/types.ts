@@ -1,10 +1,10 @@
 import type { SuiteStats, TestStats } from '@wdio/reporter'
 import type {
   TraceLog,
-  CommandLog,
   TestStatus,
   BaselineSavedWsPayload,
-  BaselineClearedWsPayload
+  BaselineClearedWsPayload,
+  ReplaceCommandWsPayload
 } from '@wdio/devtools-shared'
 
 export type TestStatsFragment = Omit<Partial<TestStats>, 'uid' | 'state'> & {
@@ -55,7 +55,7 @@ export interface SocketMessage<
           clearSuiteTree?: boolean
         }
       : T extends 'replaceCommand'
-        ? { oldTimestamp: number; command: CommandLog }
+        ? ReplaceCommandWsPayload
         : T extends 'baseline:saved'
           ? BaselineSavedWsPayload
           : T extends 'baseline:cleared'

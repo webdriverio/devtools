@@ -1,7 +1,11 @@
 import fs from 'node:fs'
 import url from 'node:url'
 
-import Fastify, { type FastifyInstance, type FastifyRequest } from 'fastify'
+import Fastify, {
+  type FastifyInstance,
+  type FastifyReply,
+  type FastifyRequest
+} from 'fastify'
 import staticServer from '@fastify/static'
 import rateLimit from '@fastify/rate-limit'
 import websocket from '@fastify/websocket'
@@ -68,7 +72,7 @@ function replayBufferedMessages(socket: WebSocket) {
   }
 }
 
-function serveVideo(sessionId: string, reply: any) {
+function serveVideo(sessionId: string, reply: FastifyReply) {
   const videoPath = videoRegistry.get(sessionId)
   if (!videoPath) {
     return reply.code(404).send({ error: 'Video not found' })

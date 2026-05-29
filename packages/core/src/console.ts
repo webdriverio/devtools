@@ -1,4 +1,4 @@
-import type { ConsoleLog, LogLevel } from '@wdio/devtools-shared'
+import type { ConsoleLog, LogLevel, LogSource } from '@wdio/devtools-shared'
 
 /**
  * Console methods we intercept to forward test/runner-process output into the
@@ -36,14 +36,14 @@ export const LOG_LEVEL_PATTERNS: ReadonlyArray<{
 /** Visual indicators that suggest error-level logs in unstructured output. */
 export const ERROR_INDICATORS = ['✗', 'failed', 'failure'] as const
 
-/** Where a captured ConsoleLog entry originated. */
+/** Enum-style accessor for the canonical LogSource values from shared. */
 export const LOG_SOURCES = {
   BROWSER: 'browser',
   TEST: 'test',
   TERMINAL: 'terminal'
-} as const
+} as const satisfies Record<string, LogSource>
 
-export type LogSource = (typeof LOG_SOURCES)[keyof typeof LOG_SOURCES]
+export type { LogSource } from '@wdio/devtools-shared'
 
 /**
  * Classify a line of unstructured terminal output by scanning for log-level
