@@ -17,9 +17,9 @@
   "typeScriptVersion": "^5.0.0",
   "scripts": {
     "dev": "run-p dev:*",
-    "dev:ts": "tsc --watch",
+    "dev:ts": "tsup src/index.ts --format esm --dts --watch",
     "dev:app": "nodemon --watch ./dist ./dist/index.js",
-    "build": "tsc -p ./tsconfig.json",
+    "build": "tsup src/index.ts --format esm --dts --clean",
     "lint": "eslint .",
     "prepublishOnly": "pnpm build"
   },
@@ -39,7 +39,9 @@
   "devDependencies": {
     "@types/shell-quote": "^1.7.5",
     "@types/ws": "^8.18.1",
+    "@wdio/devtools-shared": "workspace:^",
     "nodemon": "^3.1.14",
+    "tsup": "^8.0.0",
     "ws": "^8.18.3"
   }
 }

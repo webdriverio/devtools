@@ -13,7 +13,7 @@ import { getDevtoolsApp } from './utils.js'
 import { DEFAULT_PORT } from './constants.js'
 import { testRunner } from './runner.js'
 import { baselineStore } from './baselineStore.js'
-import { BASELINE_API, BASELINE_WS_SCOPE } from './baseline/constants.js'
+import { BASELINE_API, BASELINE_WS_SCOPE } from '@wdio/devtools-shared'
 import type { RunnerRequestBody } from './types.js'
 
 let server: FastifyInstance | undefined
