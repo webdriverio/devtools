@@ -22,7 +22,10 @@ import {
   FRAMEWORK_CAPABILITIES,
   STATE_MAP
 } from './constants.js'
-import { BASELINE_API } from '@wdio/devtools-shared'
+import {
+  BASELINE_API,
+  type BaselinePreserveRequest
+} from '@wdio/devtools-shared'
 
 import '~icons/mdi/play.js'
 import '~icons/mdi/stop.js'
@@ -156,13 +159,14 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
 
     // Snapshot the current run BEFORE the rerun clears live data.
     try {
+      const body: BaselinePreserveRequest = {
+        testUid: detail.uid,
+        scope: detail.entryType
+      }
       const response = await fetch(BASELINE_API.preserve, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          testUid: detail.uid,
-          scope: detail.entryType
-        })
+        body: JSON.stringify(body)
       })
       if (!response.ok) {
         const errorText = await response.text()
