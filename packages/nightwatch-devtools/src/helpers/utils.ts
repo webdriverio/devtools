@@ -49,25 +49,11 @@ export const resetSignatureCounters = resetSignatureCountersFromCore
 
 export const deterministicUid = deterministicUidFromCore
 
-/** Returns true if a stack frame belongs to user code (not dependencies, internals, or build output). */
-function isUserCodeFrame(frame: {
-  file?: string | null
-}): frame is { file: string } {
-  const { file } = frame
-  return !!(
-    file &&
-    !file.includes('/node_modules/') &&
-    !file.includes('<anonymous>') &&
-    !file.includes('node:internal') &&
-    !file.includes('/dist/') &&
-    !file.includes('/index.js')
-  )
-}
-
-/** Strips the file:// protocol and any trailing :line:col suffix from a file path. */
-function normalizeFilePath(filePath: string): string {
-  return filePath.replace(/^file:\/\//, '').split(':')[0]
-}
+import {
+  isUserCodeFrame,
+  normalizeFilePath,
+  getCallSourceFromStack as getCallSourceFromStackFromCore
+} from '@wdio/devtools-core'
 
 /**
  * Find test file from stack trace.
@@ -151,27 +137,7 @@ export function extractTestMetadata(filePath: string): TestFileMetadata {
   return result
 }
 
-/**
- * Get call source info from stack trace.
- * Returns { filePath, callSource } where callSource has the filename:line format.
- */
-export function getCallSourceFromStack(): {
-  filePath: string | undefined
-  callSource: string
-} {
-  const stack = new Error().stack
-  if (!stack) {
-    return { filePath: undefined, callSource: 'unknown:0' }
-  }
-
-  const frame = parseStackTrace(stack).find(isUserCodeFrame)
-  if (!frame?.file) {
-    return { filePath: undefined, callSource: 'unknown:0' }
-  }
-
-  const filePath = normalizeFilePath(frame.file)
-  return { filePath, callSource: `${filePath}:${frame.lineNumber ?? 0}` }
-}
+export const getCallSourceFromStack = getCallSourceFromStackFromCore
 
 /**
  * Find test file by searching the workspace for a matching filename.
