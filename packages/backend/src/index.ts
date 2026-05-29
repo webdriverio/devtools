@@ -13,7 +13,16 @@ import { getDevtoolsApp } from './utils.js'
 import { DEFAULT_PORT } from './constants.js'
 import { testRunner } from './runner.js'
 import { baselineStore } from './baselineStore.js'
-import { BASELINE_API, BASELINE_WS_SCOPE } from '@wdio/devtools-shared'
+import {
+  BASELINE_API,
+  BASELINE_WS_SCOPE,
+  type BaselinePreserveRequest,
+  type BaselineClearRequest,
+  type BaselineGetParams,
+  type BaselineGetQuery,
+  type BaselineSavedWsPayload,
+  type BaselineClearedWsPayload
+} from '@wdio/devtools-shared'
 import type { RunnerRequestBody } from './types.js'
 
 let server: FastifyInstance | undefined
@@ -151,9 +160,7 @@ export async function start(
   server.post(
     BASELINE_API.preserve,
     async (
-      request: FastifyRequest<{
-        Body: { testUid?: string; scope?: 'test' | 'suite' }
-      }>,
+      request: FastifyRequest<{ Body: Partial<BaselinePreserveRequest> }>,
       reply
     ) => {
       const { testUid, scope } = request.body || {}
@@ -168,11 +175,9 @@ export async function start(
           .code(409)
           .send({ error: 'No captured data for the requested uid' })
       }
+      const payload: BaselineSavedWsPayload = { testUid, attempt }
       broadcastToClients(
-        JSON.stringify({
-          scope: BASELINE_WS_SCOPE.saved,
-          data: { testUid, attempt }
-        })
+        JSON.stringify({ scope: BASELINE_WS_SCOPE.saved, data: payload })
       )
       return reply.send({ ok: true, attempt })
     }
@@ -180,18 +185,19 @@ export async function start(
 
   server.post(
     BASELINE_API.clear,
-    async (request: FastifyRequest<{ Body: { testUid?: string } }>, reply) => {
+    async (
+      request: FastifyRequest<{ Body: Partial<BaselineClearRequest> }>,
+      reply
+    ) => {
       const { testUid } = request.body || {}
       if (!testUid) {
         return reply.code(400).send({ error: 'testUid required' })
       }
       const removed = baselineStore.clear(testUid)
       if (removed) {
+        const payload: BaselineClearedWsPayload = { testUid }
         broadcastToClients(
-          JSON.stringify({
-            scope: BASELINE_WS_SCOPE.cleared,
-            data: { testUid }
-          })
+          JSON.stringify({ scope: BASELINE_WS_SCOPE.cleared, data: payload })
         )
       }
       return reply.send({ ok: true, removed })
@@ -202,8 +208,8 @@ export async function start(
     BASELINE_API.get,
     async (
       request: FastifyRequest<{
-        Params: { testUid: string }
-        Querystring: { scope?: 'test' | 'suite' }
+        Params: BaselineGetParams
+        Querystring: BaselineGetQuery
       }>,
       reply
     ) => {
