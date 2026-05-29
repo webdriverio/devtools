@@ -135,7 +135,7 @@ A file that mixes these concerns is debt and must be split when next touched.
 
 ### Naming
 
-- **One name per concept across the whole repo.** The canonical name for test status is `TestStatus` in `@wdio/devtools-shared`. Today `TestState` (app sidebar) and inline unions in `app/src/controller/types.ts` still diverge; consolidate them when next touched.
+- **One name per concept across the whole repo.** The canonical name for test status is `TestStatus` in `@wdio/devtools-shared`. The sidebar `TestState` object is a value-only enum-style accessor; its values come from `TestStatus`.
 - Constants: `SCREAMING_SNAKE_CASE`. Types: `PascalCase`. Functions and variables: `camelCase`. Files: `kebab-case.ts` unless matching a class name.
 
 ### File and function size
@@ -265,9 +265,7 @@ These are documented violations of this file's rules. They exist today; they are
 
 - `packages/core` does not exist yet. Until it does, every shared piece of framework-agnostic logic is forced into an adapter package. Creating it is the next-highest-priority debt item.
 - `packages/shared` exists and contains `BASELINE_API`, `BASELINE_WS_SCOPE`, and the core test-event types (`CommandLog`, `ConsoleLog`, `NetworkRequest`, `Metadata`, `TraceLog`, `TraceType`, `PreservedAttempt`, `PreservedStep`, `TestStatus`, `TestError`, `PerformanceData`, `DocumentInfo`, `Viewport`, `ScreencastInfo`, `LogLevel`). Adapter type files re-export shared types for backwards compatibility.
-- Test-status enum still exists as `TestState` in `packages/app/src/components/sidebar/types.ts` and as inline unions in `packages/app/src/controller/types.ts`. Both should consolidate to shared's `TestStatus`. (`NodeState` in backend is now an alias for `TestStatus`.)
 - `SessionCapturer`, `generateStableUid`/`deterministicUid`, console capture, and ANSI-stripping logic are duplicated across all three adapter packages.
-- `packages/backend/src/runner.ts` branches on framework names as strings (`'cucumber'`, `'nightwatch'`, etc.) instead of a typed `FrameworkId` from `shared`.
 - `TraceMutation` is defined in `packages/script/types.d.ts` as a global (browser-only, depends on DOM types). Adapters and backend currently sidestep this with loose `unknown[]` / `MutationLike` types. A clean home for browser/page-side types is open: extract from script into a small package consumable by both browser and Node consumers, or accept that mutation arrays cross the boundary as `unknown[]`.
 
 ### File-size debt (god-files to split as touched)

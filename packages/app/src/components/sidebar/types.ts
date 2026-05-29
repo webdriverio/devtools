@@ -41,9 +41,19 @@ export interface TestRunDetail {
   preserveBaseline?: boolean
 }
 
-export enum TestState {
-  PASSED = 'passed',
-  FAILED = 'failed',
-  RUNNING = 'running',
-  SKIPPED = 'skipped'
-}
+import type { TestStatus } from '@wdio/devtools-shared'
+
+/**
+ * Enum-style accessor for the canonical TestStatus values. Use the
+ * shared TestStatus type for type annotations; this object is for
+ * readable value comparisons (`state === TestState.PASSED`).
+ */
+export const TestState = {
+  PASSED: 'passed',
+  FAILED: 'failed',
+  RUNNING: 'running',
+  SKIPPED: 'skipped',
+  PENDING: 'pending'
+} as const satisfies Record<string, TestStatus>
+
+export type { TestStatus } from '@wdio/devtools-shared'

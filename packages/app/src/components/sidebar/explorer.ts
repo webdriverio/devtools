@@ -13,7 +13,8 @@ import type {
   TestEntry,
   RunCapabilities,
   RunnerOptions,
-  TestRunDetail
+  TestRunDetail,
+  TestStatus
 } from './types.js'
 import { TestState } from './types.js'
 import {
@@ -479,7 +480,7 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
 
   #computeEntryState(
     entry: TestStatsFragment | SuiteStatsFragment
-  ): TestState | 'pending' {
+  ): TestStatus {
     // For suites, check running state from children FIRST — this ensures that
     // a rerun (which clears end times) shows the spinner immediately, even if
     // the suite still has a cached 'passed'/'failed' state from the previous run.

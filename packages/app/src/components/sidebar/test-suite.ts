@@ -3,7 +3,7 @@ import { html, css, nothing } from 'lit'
 import { customElement, property } from 'lit/decorators.js'
 
 import { CollapseableEntry } from './collapseableEntry.js'
-import type { TestRunDetail } from './types.js'
+import type { TestRunDetail, TestStatus } from './types.js'
 import { TestState } from './types.js'
 
 import '~icons/mdi/chevron-right.js'
@@ -49,7 +49,7 @@ export class ExplorerTestEntry extends CollapseableEntry {
   uid?: string
 
   @property({ type: String })
-  state?: TestState
+  state?: TestStatus
 
   @property({ type: String, attribute: 'call-source' })
   callSource?: string
