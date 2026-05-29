@@ -13,6 +13,21 @@ export enum TraceType {
 
 export type TestStatus = 'passed' | 'failed' | 'skipped' | 'pending' | 'running'
 
+/**
+ * Identifier sent by each adapter on RunnerRequestBody.framework. Used by the
+ * backend's runner to pick rerun CLI args. This is technically the *test
+ * runner* identifier rather than the higher-level framework (wdio/nightwatch/
+ * selenium) — wdio's runner can be mocha/jasmine/cucumber, nightwatch can be
+ * vanilla or cucumber, selenium adapters report 'selenium-webdriver'.
+ */
+export type TestRunnerId =
+  | 'mocha'
+  | 'jasmine'
+  | 'cucumber'
+  | 'nightwatch'
+  | 'nightwatch-cucumber'
+  | 'selenium-webdriver'
+
 // ─── Inner event payloads ───────────────────────────────────────────────────
 
 export interface PerformanceData {

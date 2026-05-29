@@ -5,6 +5,7 @@ import url from 'node:url'
 import { createRequire } from 'node:module'
 import kill from 'tree-kill'
 import { parse as shellParse } from 'shell-quote'
+import type { TestRunnerId } from '@wdio/devtools-shared'
 import type { RunnerRequestBody } from './types.js'
 import { WDIO_CONFIG_FILENAMES, NIGHTWATCH_CONFIG_FILENAMES } from './types.js'
 
@@ -25,7 +26,8 @@ type FilterBuilder = (ctx: {
 
 // Map (not object) keeps payload-supplied `framework` from reaching
 // prototype methods at dispatch time — CodeQL: unvalidated-dynamic-method-call.
-const FRAMEWORK_FILTERS = new Map<string, FilterBuilder>()
+// Keyed by TestRunnerId so adding a new runner forces compile-time updates here.
+const FRAMEWORK_FILTERS = new Map<TestRunnerId, FilterBuilder>()
 
 FRAMEWORK_FILTERS.set('cucumber', ({ specArg, payload }) => {
   const filters: string[] = []
@@ -325,7 +327,9 @@ class TestRunner {
         : specFile
       : undefined
 
-    const candidateBuilder = FRAMEWORK_FILTERS.get(framework)
+    // Cast: framework comes from an HTTP payload, so it's `string` at the
+    // boundary. The Map naturally returns undefined for unknown runners.
+    const candidateBuilder = FRAMEWORK_FILTERS.get(framework as TestRunnerId)
     const builder =
       typeof candidateBuilder === 'function'
         ? candidateBuilder

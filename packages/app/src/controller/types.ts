@@ -2,12 +2,13 @@ import type { SuiteStats, TestStats } from '@wdio/reporter'
 import type {
   TraceLog,
   CommandLog,
-  PreservedAttempt
+  PreservedAttempt,
+  TestStatus
 } from '@wdio/devtools-shared'
 
 export type TestStatsFragment = Omit<Partial<TestStats>, 'uid' | 'state'> & {
   uid: string
-  state?: 'running' | 'passed' | 'failed' | 'pending' | 'skipped'
+  state?: TestStatus
   callSource?: string
   featureFile?: string
   featureLine?: number
@@ -18,7 +19,7 @@ export type SuiteStatsFragment = Omit<
   'uid' | 'tests' | 'suites'
 > & {
   uid: string
-  state?: 'running' | 'passed' | 'failed' | 'pending'
+  state?: TestStatus
   tests?: TestStatsFragment[]
   suites?: SuiteStatsFragment[]
   callSource?: string

@@ -1,6 +1,7 @@
 import { TestState } from './types.js'
+import type { TestStatus } from './types.js'
 
-export const STATE_MAP: Record<string, TestState> = {
+export const STATE_MAP: Record<string, TestStatus> = {
   running: TestState.RUNNING,
   failed: TestState.FAILED,
   passed: TestState.PASSED,

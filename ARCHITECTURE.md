@@ -237,7 +237,6 @@ This is a snapshot of where the codebase diverges from the architecture above. A
 
 ### Misplaced logic
 - `packages/service` currently contains framework-agnostic logic (UID generation, console capture, sourcemap resolution, reporter base) that belongs in `core`. The other two adapters re-implement the same logic instead of importing it.
-- `packages/backend/src/runner.ts` uses string-based framework checks instead of a typed `FrameworkId`.
 
 ### Misplaced state and concerns
 - `packages/app/src/controller/DataManager.ts` (~986 lines) bundles WS connection, 11 context providers, business logic, and baseline coordination into one file. Target: one module per concern behind a thin façade.
@@ -257,12 +256,12 @@ Not a hard sequence — just the order that minimizes churn. Each step is intend
 
 1. ~~**Create `packages/shared`.** Empty workspace package with proper `package.json`, `tsconfig`, exports.~~ ✅ Done.
 2. ~~**Move duplicated cross-package types into `shared`.**~~ ✅ Done for the 6 app-imported types and their dependencies.
-3. ~~**Move duplicated constants into `shared`.**~~ ✅ `BASELINE_API`, `BASELINE_WS_SCOPE` done. Remaining: status enums (`TestState` in sidebar/types.ts, inline unions in controller/types.ts) should consolidate to shared's `TestStatus`.
+3. ~~**Move duplicated constants and status types into `shared`.**~~ ✅ Done. `BASELINE_API`, `BASELINE_WS_SCOPE`, `TestStatus`, `TestRunnerId` all live in shared. Sidebar `TestState` is a value-only enum-style accessor backed by `TestStatus`.
 4. **Create `packages/core`.** Empty package, wired into the workspace.
 5. **Extract one duplicated logic block into `core`.** Console capture is the easiest because the three implementations are nearly identical. Each adapter then imports from `core` instead of holding its own copy.
 6. **Continue extracting UID gen, command log builder, reporter base, sourcemap loader, WS client.** One per PR.
 7. **Type the HTTP/WS contracts in `shared`.** Backend and app start importing them at the boundary.
-8. **Replace string-based framework checks in `runner.ts` with `FrameworkId`.**
+8. ~~**Replace string-based framework checks in `runner.ts` with `FrameworkId`.**~~ ✅ Done via `TestRunnerId` in shared (typed `FRAMEWORK_FILTERS` map key).
 9. **Split god-files opportunistically as their sections are edited** (boy-scout rule from CLAUDE.md §5).
 
 Steps 1–3 alone resolve roughly half of the known debt and unlock the rest. Steps 5–6 are where the per-feature productivity gains compound — once console capture is in core, the next feature touching console logs is one change instead of three.
