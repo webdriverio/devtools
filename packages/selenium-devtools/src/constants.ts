@@ -88,13 +88,7 @@ export const TIMING = {
   BROWSER_POLL_INTERVAL: 1000
 } as const
 
-export const TEST_STATE = {
-  PENDING: 'pending',
-  RUNNING: 'running',
-  PASSED: 'passed',
-  FAILED: 'failed',
-  SKIPPED: 'skipped'
-} as const
+export { TEST_STATE } from '@wdio/devtools-shared'
 
 export { LOG_LEVEL_PATTERNS } from '@wdio/devtools-core'
 

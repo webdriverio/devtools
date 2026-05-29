@@ -2,4 +2,5 @@
 // across @wdio/devtools-* packages. See ARCHITECTURE.md §2 and CLAUDE.md §2.1.
 
 export * from './baseline.js'
+export * from './routes.js'
 export * from './types.js'

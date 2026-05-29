@@ -16,6 +16,7 @@ import {
   detectLogLevel,
   stripAnsi
 } from '@wdio/devtools-core'
+import { WS_PATHS } from '@wdio/devtools-shared'
 import { type CommandLog, type TraceLog } from './types.js'
 
 const log = logger('@wdio/devtools-service:SessionCapturer')
@@ -66,7 +67,7 @@ export class SessionCapturer {
   constructor(devtoolsOptions: { hostname?: string; port?: number } = {}) {
     const { port, hostname } = devtoolsOptions
     if (hostname && port) {
-      this.#ws = new WebSocket(`ws://${hostname}:${port}/worker`)
+      this.#ws = new WebSocket(`ws://${hostname}:${port}${WS_PATHS.worker}`)
       this.#ws.on('error', (err: unknown) =>
         log.error(
           `Couldn't connect to devtools backend: ${(err as Error).message}`

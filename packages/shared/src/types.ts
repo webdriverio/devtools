@@ -17,6 +17,20 @@ export enum TraceType {
 export type TestStatus = 'passed' | 'failed' | 'skipped' | 'pending' | 'running'
 
 /**
+ * Enum-style accessor for the canonical TestStatus values. Adapter code uses
+ * this for readable comparisons (`state === TEST_STATE.PASSED`). The app's
+ * sidebar has a parallel `TestState` accessor with the same values; that's a
+ * naming holdover (PascalCase enum-style) — both can coexist.
+ */
+export const TEST_STATE = {
+  PENDING: 'pending',
+  RUNNING: 'running',
+  PASSED: 'passed',
+  FAILED: 'failed',
+  SKIPPED: 'skipped'
+} as const satisfies Record<string, TestStatus>
+
+/**
  * Identifier sent by each adapter on RunnerRequestBody.framework. Used by the
  * backend's runner to pick rerun CLI args. This is technically the *test
  * runner* identifier rather than the higher-level framework (wdio/nightwatch/
