@@ -4,6 +4,8 @@ import path from 'node:path'
 import { createRequire } from 'node:module'
 import logger from '@wdio/logger'
 import { WebSocket } from 'ws'
+import { serializeError } from '@wdio/devtools-core'
+import { WS_PATHS } from '@wdio/devtools-shared'
 import {
   CONSOLE_METHODS,
   LOG_SOURCES,
@@ -58,7 +60,7 @@ export class SessionCapturer {
     const { port, hostname } = devtoolsOptions
     this.#browser = browser
     if (hostname && port) {
-      this.#ws = new WebSocket(`ws://${hostname}:${port}/worker`)
+      this.#ws = new WebSocket(`ws://${hostname}:${port}${WS_PATHS.worker}`)
 
       this.#ws.on('open', () => {
         this.#hasConnected = true
@@ -257,12 +259,6 @@ export class SessionCapturer {
     })
   }
 
-  #serializeError(error: Error | undefined) {
-    return error
-      ? { name: error.name, message: error.message, stack: error.stack }
-      : undefined
-  }
-
   async captureCommand(
     command: string,
     args: any[],
@@ -273,7 +269,7 @@ export class SessionCapturer {
     timestamp?: number
   ): Promise<boolean> {
     // Serialize error properly (Error objects don't JSON.stringify well)
-    const serializedError = this.#serializeError(error)
+    const serializedError = serializeError(error)
 
     const commandId = this.#commandCounter++
     const commandLogEntry: CommandLog & { _id?: number } = {
@@ -377,7 +373,7 @@ export class SessionCapturer {
     // Allow the slot to be re-used by a new entry
     this.#sentCommandIds.delete(oldId)
 
-    const serializedError = this.#serializeError(error)
+    const serializedError = serializeError(error)
     const commandId = this.#commandCounter++
     const entry: CommandLog & { _id?: number } = {
       _id: commandId,

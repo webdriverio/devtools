@@ -20,6 +20,7 @@ import { baselineStore } from './baselineStore.js'
 import {
   BASELINE_API,
   BASELINE_WS_SCOPE,
+  WS_PATHS,
   type BaselinePreserveRequest,
   type BaselineClearRequest,
   type BaselineGetParams,
@@ -224,7 +225,7 @@ export async function start(
   )
 
   server.get(
-    '/client',
+    WS_PATHS.client,
     { websocket: true },
     (socket: WebSocket, _req: FastifyRequest) => {
       log.info(
@@ -253,7 +254,7 @@ export async function start(
   )
 
   server.get(
-    '/worker',
+    WS_PATHS.worker,
     { websocket: true },
     (socket: WebSocket, _req: FastifyRequest) => {
       // Don't drop the message buffer for rerun-child connects (the dashboard
