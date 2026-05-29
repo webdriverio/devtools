@@ -77,8 +77,7 @@ export const BOOLEAN_COMMAND_PATTERN =
 
 export const NAVIGATION_COMMANDS = ['url', 'navigate', 'navigateTo'] as const
 
-/** Spinner progress frames — suppress from UI Console output. */
-export const SPINNER_RE = /^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/u
+export { SPINNER_RE } from '@wdio/devtools-core'
 
 /** Matches file names that follow the *.test.ts / *.spec.js naming convention. */
 export const TEST_FILE_PATTERN = /\.(?:test|spec)\.[cm]?[jt]sx?$/i

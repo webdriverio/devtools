@@ -110,6 +110,12 @@ declare module '@wdio/reporter' {
     callSource?: string
     featureFile?: string
     featureLine?: number
+    // Cucumber pickle augmentations (the WDIO Cucumber adapter attaches these
+    // on scenarios; @wdio/reporter's base types don't include them). `argument`
+    // already exists in the base with a different shape, so reads of its
+    // Cucumber-specific fields stay locally cast in reporter.ts.
+    pickle?: { uri?: string; location?: { line?: number } }
+    uri?: string
   }
 
   interface SuiteStats {
@@ -117,6 +123,8 @@ declare module '@wdio/reporter' {
     callSource?: string
     featureFile?: string
     featureLine?: number
+    pickle?: { uri?: string; location?: { line?: number } }
+    uri?: string
   }
 }
 

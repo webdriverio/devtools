@@ -278,8 +278,6 @@ These are documented violations of this file's rules. They exist today; they are
 
 ### Type-safety debt
 
-- `packages/service/src/reporter.ts` uses `as any` for reporter input (around lines 17, 21).
-- `packages/backend/src/index.ts` uses `reply: any` in the video-serving function.
 - App-to-backend `fetch()` calls have no shared request/response types.
 
 ---
