@@ -70,3 +70,28 @@ export function createConsoleLogEntry(
 ): ConsoleLog {
   return { timestamp: Date.now(), type, args, source }
 }
+
+/**
+ * Map a Chrome DevTools log-level string (or `{name, value}` object) to our
+ * `LogLevel` union. Used by CDP/BiDi consumers that surface browser-side
+ * console output through SEVERE/WARNING/INFO/DEBUG severity names.
+ */
+export function chromeLogLevelToLogLevel(
+  level: string | { value?: number; name?: string }
+): LogLevel {
+  const levelName = (
+    typeof level === 'object' ? (level?.name ?? '') : (level ?? '')
+  ).toUpperCase()
+  switch (levelName) {
+    case 'SEVERE':
+      return 'error'
+    case 'WARNING':
+      return 'warn'
+    case 'INFO':
+      return 'info'
+    case 'DEBUG':
+      return 'debug'
+    default:
+      return 'log'
+  }
+}

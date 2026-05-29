@@ -1,7 +1,6 @@
 import * as net from 'node:net'
 import { parse as parseStackTrace } from 'stacktrace-parser'
 import logger from '@wdio/logger'
-import type { LogLevel } from '../types.js'
 
 const log = logger('@wdio/selenium-devtools:utils')
 
@@ -13,50 +12,13 @@ export {
   createConsoleLogEntry
 } from '@wdio/devtools-core'
 
-export function chromeLogLevelToLogLevel(
-  level: string | { value?: number; name?: string }
-): LogLevel {
-  const levelName = (
-    typeof level === 'object' ? (level?.name ?? '') : (level ?? '')
-  ).toUpperCase()
-  switch (levelName) {
-    case 'SEVERE':
-      return 'error'
-    case 'WARNING':
-      return 'warn'
-    case 'INFO':
-      return 'info'
-    case 'DEBUG':
-      return 'debug'
-    default:
-      return 'log'
-  }
-}
+export { chromeLogLevelToLogLevel } from '@wdio/devtools-core'
 
-const signatureCounters = new Map<string, number>()
-
-export function generateStableUid(file: string, name: string): string {
-  const signature = `${file}::${name}`
-  const count = signatureCounters.get(signature) || 0
-  signatureCounters.set(signature, count + 1)
-  const hashInput = count > 0 ? `${signature}::${count}` : signature
-  const hash = hashInput
-    .split('')
-    .reduce((acc, char) => ((acc << 5) - acc + char.charCodeAt(0)) | 0, 0)
-  return `stable-${Math.abs(hash).toString(36)}`
-}
-
-export function deterministicUid(...parts: string[]): string {
-  const hash = parts
-    .join('::')
-    .split('')
-    .reduce((acc, char) => ((acc << 5) - acc + char.charCodeAt(0)) | 0, 0)
-  return `stable-${Math.abs(hash).toString(36)}`
-}
-
-export function resetSignatureCounters() {
-  signatureCounters.clear()
-}
+export {
+  generateStableUid,
+  deterministicUid,
+  resetSignatureCounters
+} from '@wdio/devtools-core'
 
 function isUserCodeFrame(frame: {
   file?: string | null
