@@ -93,7 +93,7 @@ importers:
         specifier: ^9.19.1
         version: 9.27.0(puppeteer-core@21.11.0)
 
-  example:
+  examples/wdio:
     devDependencies:
       '@wdio/cli':
         specifier: 9.27.0
@@ -103,7 +103,7 @@ importers:
         version: 9.27.0
       '@wdio/devtools-service':
         specifier: workspace:*
-        version: link:../packages/service
+        version: link:../../packages/service
       '@wdio/globals':
         specifier: 9.27.0
         version: 9.27.0(expect-webdriverio@5.6.5)(webdriverio@9.27.0(puppeteer-core@21.11.0))
@@ -268,12 +268,18 @@ importers:
 
   packages/core:
     devDependencies:
+      '@types/ws':
+        specifier: ^8.18.1
+        version: 8.18.1
       '@wdio/devtools-shared':
         specifier: workspace:^
         version: link:../shared
       stacktrace-parser:
         specifier: ^0.1.11
         version: 0.1.11
+      ws:
+        specifier: ^8.18.3
+        version: 8.20.0
 
   packages/nightwatch-devtools:
     dependencies:

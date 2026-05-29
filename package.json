@@ -3,8 +3,9 @@
   "type": "module",
   "scripts": {
     "build": "pnpm -r build",
-    "demo": "wdio run ./example/wdio.conf.ts",
+    "demo:wdio": "wdio run ./examples/wdio/wdio.conf.ts",
     "demo:nightwatch": "pnpm --filter @wdio/nightwatch-devtools example",
+    "demo:selenium": "pnpm --filter @wdio/selenium-devtools example",
     "dev": "pnpm --parallel dev",
     "preview": "pnpm --parallel preview",
     "test": "vitest run",

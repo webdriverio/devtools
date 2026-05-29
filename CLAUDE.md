@@ -24,7 +24,7 @@ Packages (pnpm workspace):
 | `packages/nightwatch-devtools` | Nightwatch adapter. Hook registration + lifecycle binding. |
 | `packages/selenium-devtools` | Selenium adapter. Driver patching + runner hooks. |
 | `packages/script` | Browser-injected runtime. Runs **inside the page under test** (not in Node), captures DOM mutations and page-side traces. Not a home for shared Node-side logic — that belongs in `core`. |
-| `example/` | Demo project. |
+| `examples/wdio/`, `examples/nightwatch/`, `examples/selenium/` | Per-framework demo projects, used for manual verification (§4). |
 
 Both `packages/shared` and `packages/core` exist and have begun receiving migrations. The biggest remaining work in `core` is extracting the duplicated `SessionCapturer`, UID generation, command-log builder, reporter base, and WS client from the three adapters.
 
@@ -39,11 +39,12 @@ Run from repo root unless noted:
 | `pnpm test` | Run vitest suite once. |
 | `pnpm test:watch` | Run vitest in watch mode. |
 | `pnpm lint` | Lint all packages in parallel. |
-| `pnpm demo` | Run the WebdriverIO example. |
+| `pnpm demo:wdio` | Run the WebdriverIO example. |
 | `pnpm demo:nightwatch` | Run the Nightwatch example. |
+| `pnpm demo:selenium` | Run the Selenium example (mocha runner by default; selenium-devtools also exposes `example:mocha` / `example:jest` / `example:cucumber` for per-runner variants). |
 | `pnpm dev` | Run all packages in parallel dev mode. |
 
-Before any UI/runtime change is claimed done: `pnpm build && pnpm test && pnpm demo` (or `demo:nightwatch` if your change targets Nightwatch).
+Before any UI/runtime change is claimed done: `pnpm build && pnpm test && pnpm demo:wdio` (or `demo:nightwatch` / `demo:selenium` if your change targets that framework).
 
 ### Path aliases (TypeScript)
 
@@ -177,12 +178,12 @@ The repo uses **vitest** at the root.
 
 ### Recommended
 
-- Adapter packages: unit tests for non-trivial parsing or transformation logic. Hook-wiring may be verified manually via `example/`.
+- Adapter packages: unit tests for non-trivial parsing or transformation logic. Hook-wiring may be verified manually via `examples/<framework>/`.
 - `backend` and `app`: tests for non-UI logic (parsers, transforms, state reducers).
 
 ### Manual verification
 
-For UI or runtime changes, you **must** run the change in `example/` before claiming the work is done. Type-checks and unit tests verify code correctness, not feature correctness. If you cannot run the example, say so explicitly — do not claim success on the basis of `tsc --noEmit` alone.
+For UI or runtime changes, you **must** run the change in `examples/<framework>/` before claiming the work is done. Type-checks and unit tests verify code correctness, not feature correctness. If you cannot run the example, say so explicitly — do not claim success on the basis of `tsc --noEmit` alone.
 
 ---
 
@@ -204,7 +205,7 @@ For UI or runtime changes, you **must** run the change in `example/` before clai
 
 - Run `pnpm build`, `pnpm test`, and `pnpm lint`. Don't push red.
 - Re-read your diff. Delete anything you wouldn't be able to justify to a reviewer.
-- For UI/runtime changes, verify in `example/`.
+- For UI/runtime changes, verify in `examples/<framework>/`.
 - Check: does the diff reduce or increase the count of known debt items in §7? If it increases, reconsider.
 
 ### Commits
@@ -234,7 +235,7 @@ You are expected to treat this file as a hard contract.
 - Making the same logical change in two or more adapter packages. Propose extracting to `core` instead.
 - Adding a `// TODO`, `// keep in sync`, or similar comment as a substitute for fixing the underlying issue.
 - Skipping pre-commit hooks with `--no-verify`.
-- Claiming a UI/runtime change works without running it in `example/`.
+- Claiming a UI/runtime change works without running it in `examples/<framework>/`.
 - Importing one adapter package from another, or importing any adapter from `backend` or `app`.
 
 ### Warn, then proceed if the user confirms

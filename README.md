@@ -143,7 +143,7 @@ pnpm install
 pnpm build
 
 # Run demo
-pnpm demo
+pnpm demo:wdio
 ```
 
 ## Nightwatch Integration

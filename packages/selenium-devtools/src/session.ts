@@ -3,7 +3,7 @@ import path from 'node:path'
 import { createRequire } from 'node:module'
 import logger from '@wdio/logger'
 import { WebSocket } from 'ws'
-import { serializeError } from '@wdio/devtools-core'
+import { isInternalStreamLine, serializeError } from '@wdio/devtools-core'
 import { WS_PATHS } from '@wdio/devtools-shared'
 import {
   CONSOLE_METHODS,
@@ -166,7 +166,7 @@ export class SessionCapturer {
         if (!cleanText) {
           return result
         }
-        if (this.#isInternalStreamLine(cleanText)) {
+        if (isInternalStreamLine(cleanText)) {
           return result
         }
 
@@ -180,25 +180,6 @@ export class SessionCapturer {
         return result
       }
     })
-  }
-
-  // Drop lines that would feed back into sendUpstream and loop: pino JSON,
-  // [SESSION] markers, backend logs, Jest console.info framing.
-  #isInternalStreamLine(line: string): boolean {
-    const t = line.trim()
-    if (t.startsWith('{"') || t.startsWith('[SESSION]')) {
-      return true
-    }
-    if (t.includes('@wdio/devtools-backend')) {
-      return true
-    }
-    if (/^console\.(log|info|warn|error|debug|trace)$/.test(t)) {
-      return true
-    }
-    if (/^at\s.+:\d+:\d+\)?$/.test(t)) {
-      return true
-    }
-    return false
   }
 
   #interceptProcessStreams() {
@@ -218,11 +199,7 @@ export class SessionCapturer {
           const segments = rawLine.split('\r').filter((s) => s.trim())
           const lastSegment = segments[segments.length - 1] ?? rawLine
           const clean = stripAnsiCodes(lastSegment).trim()
-          if (
-            !clean ||
-            this.#isInternalStreamLine(clean) ||
-            SPINNER_RE.test(clean)
-          ) {
+          if (!clean || isInternalStreamLine(clean) || SPINNER_RE.test(clean)) {
             continue
           }
           linesToCapture.push(clean)

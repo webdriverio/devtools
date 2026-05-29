@@ -43,6 +43,31 @@ export const ERROR_INDICATORS = ['✗', 'failed', 'failure'] as const
  */
 export const SPINNER_RE = /^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/u
 
+/**
+ * Filter out terminal/stream lines that would feed back into the WS bridge
+ * and cause an infinite forwarding loop: pino JSON output, [SESSION] markers,
+ * backend logger lines, Jest console framing, and bare stack-frame lines.
+ *
+ * Adapters call this from their stream-patch before forwarding lines to the
+ * UI Console tab. Combine with SPINNER_RE for full noise filtering.
+ */
+export function isInternalStreamLine(line: string): boolean {
+  const t = line.trim()
+  if (t.startsWith('{"') || t.startsWith('[SESSION]')) {
+    return true
+  }
+  if (t.includes('@wdio/devtools-backend')) {
+    return true
+  }
+  if (/^console\.(log|info|warn|error|debug|trace)$/.test(t)) {
+    return true
+  }
+  if (/^at\s.+:\d+:\d+\)?$/.test(t)) {
+    return true
+  }
+  return false
+}
+
 /** Enum-style accessor for the canonical LogSource values from shared. */
 export const LOG_SOURCES = {
   BROWSER: 'browser',

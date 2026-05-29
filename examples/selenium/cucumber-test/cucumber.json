@@ -1,0 +1,12 @@
+{
+  "default": {
+    "import": [
+      "../../examples/selenium/cucumber-test/features/support/setup.js",
+      "../../examples/selenium/cucumber-test/features/support/world.js",
+      "../../examples/selenium/cucumber-test/features/support/steps.js"
+    ],
+    "paths": ["../../examples/selenium/cucumber-test/features/*.feature"],
+    "publishQuiet": true,
+    "format": ["progress"]
+  }
+}

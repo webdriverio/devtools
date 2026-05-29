@@ -29,7 +29,7 @@
     "watch": "tsup src/index.ts --format esm --dts --sourcemap --watch",
     "clean": "rm -rf dist",
     "lint": "eslint .",
-    "example": "nightwatch -c example/nightwatch.conf.cjs",
+    "example": "nightwatch -c ../../examples/nightwatch/nightwatch.conf.cjs",
     "prepublishOnly": "pnpm build"
   },
   "keywords": [
