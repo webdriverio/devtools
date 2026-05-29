@@ -1,18 +1,25 @@
-import type { WebDriverCommands } from '@wdio/protocols'
-import type { Capabilities, Options } from '@wdio/types'
-import type { SuiteStats } from '@wdio/reporter'
+// WDIO-specific types live here. Cross-package types come from @wdio/devtools-shared.
+//
+// Re-exports below maintain backwards compatibility for external consumers of
+// @wdio/devtools-service/types. New code should import directly from
+// @wdio/devtools-shared.
 
-export interface CommandLog {
-  command: keyof WebDriverCommands
-  args: any[]
-  result: any
-  error?: Error
-  timestamp: number
-  callSource: string
-  screenshot?: string
-  testUid?: string
-  id?: number
-}
+export {
+  TraceType,
+  type CommandLog,
+  type ConsoleLog,
+  type DocumentInfo,
+  type LogLevel,
+  type Metadata,
+  type NetworkRequest,
+  type PerformanceData,
+  type PreservedAttempt,
+  type PreservedStep,
+  type ScreencastInfo,
+  type TestStatus,
+  type TraceLog,
+  type Viewport
+} from '@wdio/devtools-shared'
 
 export interface ScreencastFrame {
   /** Base64-encoded image data — JPEG/PNG from CDP push mode or PNG from browser.takeScreenshot() in polling mode */
@@ -56,62 +63,9 @@ export interface ScreencastOptions {
   pollIntervalMs?: number
 }
 
-export interface ScreencastInfo {
-  sessionId?: string
-  /** Absolute path to the encoded video file on disk */
-  videoPath?: string
-  /** Filename only, e.g. wdio-video-{sessionId}.webm */
-  videoFile?: string
-  frameCount?: number
-  /** Duration in milliseconds between first and last frame */
-  duration?: number
-}
-
-export enum TraceType {
-  Standalone = 'standalone',
-  Testrunner = 'testrunner'
-}
-
-export interface Viewport {
-  width: number
-  height: number
-  offsetLeft: number
-  offsetTop: number
-  scale: number
-}
-
-export interface Metadata {
-  type: TraceType
-  url: string
-  options: Omit<Options.WebdriverIO, 'capabilities'>
-  capabilities: Capabilities.W3CCapabilities
-  viewport: Viewport
-  /** Nightwatch / extended fields */
-  sessionId?: string
-  testEnv?: string
-  host?: string
-  modulePath?: string
-  desiredCapabilities?: Record<string, unknown>
-}
-
-export interface TraceLog {
-  mutations: TraceMutation[]
-  logs: string[]
-  consoleLogs: ConsoleLogs[]
-  networkRequests: NetworkRequest[]
-  metadata: Metadata
-  commands: CommandLog[]
-  sources: Record<string, string>
-  suites?: Record<string, SuiteStats>[]
-  screencast?: ScreencastInfo
-  config?: { configFile?: string }
-}
-
 export interface ExtendedCapabilities extends WebdriverIO.Capabilities {
   'wdio:devtoolsOptions'?: ServiceOptions
 }
-
-export type LogLevel = 'trace' | 'debug' | 'log' | 'info' | 'warn' | 'error'
 
 export interface ServiceOptions {
   /**
@@ -175,57 +129,4 @@ export type StepDef = {
   file: string
   line: number
   column: number
-}
-
-export interface PreservedStep {
-  uid: string
-  title?: string
-  fullTitle?: string
-  start?: number
-  end?: number
-  state?: 'passed' | 'failed' | 'skipped' | 'pending' | 'running'
-  error?: {
-    message?: string
-    name?: string
-    stack?: string
-    /** expect-webdriverio surfaces these directly on the error. */
-    expected?: unknown
-    actual?: unknown
-    /** expect-webdriverio also bundles them under matcherResult. */
-    matcherResult?: {
-      expected?: unknown
-      actual?: unknown
-      message?: string
-    }
-  }
-}
-
-export interface PreservedAttempt {
-  testUid: string
-  scope: 'test' | 'suite'
-  capturedAt: number
-  window: { start: number; end: number }
-  test: {
-    title?: string
-    fullTitle?: string
-    file?: string
-    callSource?: string
-    start?: number
-    end?: number
-    duration?: number
-    state?: 'passed' | 'failed' | 'skipped' | 'pending' | 'running'
-    error?: { message: string; name?: string; stack?: string }
-  }
-  /**
-   * Descendant step (TestStats) snapshots — populated when scope === 'suite'.
-   * Each entry has its own time window so commands can be attributed to the
-   * step that owned them at runtime. The Compare tab uses this to mark
-   * commands that ran inside a failed step (the assertion site).
-   */
-  steps?: PreservedStep[]
-  commands: CommandLog[]
-  consoleLogs: ConsoleLogs[]
-  networkRequests: NetworkRequest[]
-  mutations: TraceMutation[]
-  sources: Record<string, string>
 }

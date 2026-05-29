@@ -1,4 +1,4 @@
-import type { CommandLog } from '@wdio/devtools-service/types'
+import type { CommandLog } from '@wdio/devtools-shared'
 
 export interface ComparePairedStep {
   index: number

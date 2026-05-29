@@ -3,7 +3,7 @@ import type {
   Metadata,
   CommandLog,
   PreservedAttempt
-} from '@wdio/devtools-service/types'
+} from '@wdio/devtools-shared'
 import type { SuiteStatsFragment } from './types.js'
 
 export const mutationContext = createContext<TraceMutation[]>(

@@ -1,7 +1,7 @@
 import './tailwind.css'
 import { css, html, nothing } from 'lit'
 import { customElement, query } from 'lit/decorators.js'
-import { TraceType, type TraceLog } from '@wdio/devtools-service/types'
+import { TraceType, type TraceLog } from '@wdio/devtools-shared'
 
 import { Element } from '@core/element'
 import { DataManagerController } from './controller/DataManager.js'

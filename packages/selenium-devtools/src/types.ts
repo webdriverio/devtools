@@ -1,3 +1,17 @@
+// Selenium-specific types live here. Cross-package types come from @wdio/devtools-shared.
+
+export {
+  TraceType,
+  type CommandLog,
+  type ConsoleLog,
+  type DocumentInfo,
+  type LogLevel,
+  type Metadata,
+  type NetworkRequest,
+  type PerformanceData,
+  type TestStatus
+} from '@wdio/devtools-shared'
+
 export interface DevToolsOptions {
   port?: number
   hostname?: string
@@ -42,61 +56,6 @@ export interface ScreencastOptions {
   pollIntervalMs?: number
 }
 
-export interface CommandLog {
-  command: string
-  args: any[]
-  result?: any
-  error?: { name: string; message: string; stack?: string }
-  timestamp: number
-  callSource?: string
-  screenshot?: string
-  testUid?: string
-  performance?: PerformanceData
-  cookies?: string
-  documentInfo?: DocumentInfo
-  // Stable id used for replaceCommand reconciliation (timestamps collide on
-  // chained calls within the same millisecond).
-  id?: number
-}
-
-export interface PerformanceData {
-  navigation?: {
-    url: string
-    timing: {
-      loadTime?: number
-      domReady?: number
-      responseTime?: number
-      dnsLookup?: number
-      tcpConnection?: number
-      serverResponse?: number
-    }
-  }
-  resources?: Array<{
-    url: string
-    duration: number
-    size: number
-    type: string
-    startTime: number
-    responseEnd: number
-  }>
-}
-
-export interface DocumentInfo {
-  url: string
-  title: string
-  headers: { userAgent: string; language: string; platform: string }
-  documentInfo: { readyState: string; referrer: string; characterSet: string }
-}
-
-export type LogLevel = 'trace' | 'debug' | 'log' | 'info' | 'warn' | 'error'
-
-export interface ConsoleLog {
-  timestamp: number
-  type: LogLevel
-  args: any[]
-  source: string
-}
-
 export interface TestStats {
   uid: string
   cid: string
@@ -131,35 +90,6 @@ export interface SuiteStats {
   _duration: number
   parent?: string
   callSource?: string
-}
-
-export enum TraceType {
-  Testrunner = 'testrunner'
-}
-
-export interface Metadata {
-  type: TraceType
-  url?: string
-  options?: any
-  capabilities?: any
-  viewport?: any
-}
-
-export interface NetworkRequest {
-  id: string
-  url: string
-  method: string
-  status?: number
-  statusText?: string
-  timestamp: number
-  startTime: number
-  endTime?: number
-  time?: number
-  type: string
-  requestHeaders?: Record<string, string>
-  responseHeaders?: Record<string, string>
-  size?: number
-  error?: string
 }
 
 /**
@@ -227,6 +157,8 @@ export interface ElementOriginals {
 }
 
 // ─── bidi ───────────────────────────────────────────────────────────────────
+
+import type { ConsoleLog, NetworkRequest } from '@wdio/devtools-shared'
 
 export interface BidiHandlerSinks {
   pushConsoleLog: (entry: ConsoleLog) => void

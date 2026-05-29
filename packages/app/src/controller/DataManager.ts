@@ -5,7 +5,7 @@ import type {
   CommandLog,
   TraceLog,
   PreservedAttempt
-} from '@wdio/devtools-service/types'
+} from '@wdio/devtools-shared'
 
 import {
   mutationContext,
@@ -970,7 +970,9 @@ export class DataManagerController implements ReactiveController {
 
   loadTraceFile(traceFile: TraceLog) {
     localStorage.setItem(CACHE_ID, JSON.stringify(traceFile))
-    this.mutationsContextProvider.setValue(traceFile.mutations)
+    this.mutationsContextProvider.setValue(
+      traceFile.mutations as TraceMutation[]
+    )
     this.logsContextProvider.setValue(traceFile.logs)
     this.consoleLogsContextProvider.setValue(traceFile.consoleLogs)
     this.networkRequestsContextProvider.setValue(

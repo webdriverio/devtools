@@ -1,40 +1,28 @@
-export interface CommandLogLike {
-  timestamp: number
-  [key: string]: unknown
-}
+import type {
+  CommandLog,
+  ConsoleLog,
+  NetworkRequest,
+  TestError,
+  TestStatus
+} from '@wdio/devtools-shared'
 
-export interface ConsoleLogLike {
-  timestamp: number
-  [key: string]: unknown
-}
+// Backend storage uses the canonical shared types. The `*Like` aliases below
+// are kept so existing backend code that referenced them continues to compile;
+// new code should use the shared types directly.
+export type CommandLogLike = CommandLog
+export type ConsoleLogLike = ConsoleLog
+export type NetworkRequestLike = NetworkRequest
 
-export interface NetworkRequestLike {
-  id?: string
-  timestamp: number
-  startTime?: number
-  endTime?: number
-  [key: string]: unknown
-}
-
+// Mutations stay loose: the concrete shape (TraceMutation) lives in
+// packages/script (browser-side, depends on DOM types) and isn't safe to
+// import here.
 export interface MutationLike {
   timestamp: number
   [key: string]: unknown
 }
 
-export type NodeState = 'passed' | 'failed' | 'skipped' | 'pending' | 'running'
-
-export interface NodeError {
-  message?: string
-  name?: string
-  stack?: string
-  expected?: unknown
-  actual?: unknown
-  matcherResult?: {
-    expected?: unknown
-    actual?: unknown
-    message?: string
-  }
-}
+export type NodeState = TestStatus
+export type NodeError = TestError
 
 export interface TimeWindowNode {
   uid: string
@@ -50,44 +38,12 @@ export interface TimeWindowNode {
   childUids: string[]
 }
 
-export interface PreservedStep {
-  uid: string
-  title?: string
-  fullTitle?: string
-  start?: number
-  end?: number
-  state?: NodeState
-  error?: NodeError
-}
-
-export interface PreservedAttempt {
-  testUid: string
-  scope: 'test' | 'suite'
-  capturedAt: number
-  window: { start: number; end: number }
-  test: {
-    title?: string
-    fullTitle?: string
-    file?: string
-    callSource?: string
-    start?: number
-    end?: number
-    duration?: number
-    state?: NodeState
-    error?: NodeError
-  }
-  steps?: PreservedStep[]
-  commands: CommandLogLike[]
-  consoleLogs: ConsoleLogLike[]
-  networkRequests: NetworkRequestLike[]
-  mutations: MutationLike[]
-  sources: Record<string, string>
-}
+export type { PreservedAttempt, PreservedStep } from '@wdio/devtools-shared'
 
 export interface ActiveRun {
-  commands: CommandLogLike[]
-  consoleLogs: ConsoleLogLike[]
-  networkRequests: NetworkRequestLike[]
+  commands: CommandLog[]
+  consoleLogs: ConsoleLog[]
+  networkRequests: NetworkRequest[]
   mutations: MutationLike[]
   sources: Record<string, string>
   nodes: Map<string, TimeWindowNode>

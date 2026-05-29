@@ -5,14 +5,14 @@ import { consume } from '@lit/context'
 import { type ComponentChildren, h, render, type VNode } from 'preact'
 import { customElement, query } from 'lit/decorators.js'
 import type { SimplifiedVNode } from '../../../../script/types'
-import type { CommandLog } from '@wdio/devtools-service/types'
+import type { CommandLog } from '@wdio/devtools-shared'
 
 import {
   mutationContext,
   metadataContext,
   commandContext
 } from '../../controller/context.js'
-import type { Metadata } from '@wdio/devtools-service/types'
+import type { Metadata } from '@wdio/devtools-shared'
 
 import '~icons/mdi/world.js'
 import '../placeholder.js'

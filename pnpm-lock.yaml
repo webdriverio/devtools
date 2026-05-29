@@ -299,6 +299,9 @@ importers:
       '@types/ws':
         specifier: ^8.18.1
         version: 8.18.1
+      '@wdio/devtools-shared':
+        specifier: workspace:^
+        version: link:../shared
       chromedriver:
         specifier: ^148.0.3
         version: 148.0.3
@@ -361,6 +364,9 @@ importers:
       '@types/ws':
         specifier: ^8.18.1
         version: 8.18.1
+      '@wdio/devtools-shared':
+        specifier: workspace:^
+        version: link:../shared
       chromedriver:
         specifier: ^147.0.1
         version: 147.0.1
@@ -447,6 +453,9 @@ importers:
       '@types/ws':
         specifier: ^8.18.1
         version: 8.18.1
+      '@wdio/devtools-shared':
+        specifier: workspace:^
+        version: link:../shared
       '@wdio/globals':
         specifier: 9.27.0
         version: 9.27.0(expect-webdriverio@5.6.5)(webdriverio@9.27.0(puppeteer-core@21.11.0))
