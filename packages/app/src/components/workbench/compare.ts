@@ -28,7 +28,7 @@ import {
   type ComparePairedStep,
   type DivergenceKind
 } from './compare/compareUtils.js'
-import { BASELINE_API } from '@wdio/devtools-shared'
+import { BASELINE_API, type BaselineClearRequest } from '@wdio/devtools-shared'
 import { POPOUT_QUERY, buildPopoutFeatures } from './compare/constants.js'
 
 const COMPONENT = 'wdio-devtools-compare'
@@ -457,10 +457,11 @@ export class DevtoolsCompare extends Element {
       return
     }
     try {
+      const body: BaselineClearRequest = { testUid: this.selectedTestUid }
       await fetch(BASELINE_API.clear, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ testUid: this.selectedTestUid })
+        body: JSON.stringify(body)
       })
     } catch {
       // best-effort; the server broadcast updates the context.

@@ -2,8 +2,9 @@ import type { SuiteStats, TestStats } from '@wdio/reporter'
 import type {
   TraceLog,
   CommandLog,
-  PreservedAttempt,
-  TestStatus
+  TestStatus,
+  BaselineSavedWsPayload,
+  BaselineClearedWsPayload
 } from '@wdio/devtools-shared'
 
 export type TestStatsFragment = Omit<Partial<TestStats>, 'uid' | 'state'> & {
@@ -56,8 +57,8 @@ export interface SocketMessage<
       : T extends 'replaceCommand'
         ? { oldTimestamp: number; command: CommandLog }
         : T extends 'baseline:saved'
-          ? { testUid: string; attempt: PreservedAttempt }
+          ? BaselineSavedWsPayload
           : T extends 'baseline:cleared'
-            ? { testUid: string }
+            ? BaselineClearedWsPayload
             : unknown
 }
