@@ -1,0 +1,30 @@
+{
+  "name": "@wdio/devtools-core",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Framework-agnostic capture/reporter logic shared by @wdio/devtools-* adapters. Workspace-internal, never published — code is inlined into each consuming adapter at build time.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/webdriverio/devtools.git",
+    "directory": "packages/core"
+  },
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./*": {
+      "types": "./src/*.ts",
+      "default": "./src/*.ts"
+    }
+  },
+  "types": "./src/index.ts",
+  "scripts": {
+    "lint": "eslint ."
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@wdio/devtools-shared": "workspace:^"
+  }
+}

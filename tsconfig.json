@@ -27,6 +27,8 @@
 
       "@wdio/devtools-shared": ["packages/shared/src/index.ts"],
       "@wdio/devtools-shared/*": ["packages/shared/src/*"],
+      "@wdio/devtools-core": ["packages/core/src/index.ts"],
+      "@wdio/devtools-core/*": ["packages/core/src/*"],
       "@wdio/devtools-backend": ["packages/backend/src/index.ts"],
       "@wdio/devtools-backend/*": ["packages/backend/src/*"],
       "@wdio/devtools-script": ["packages/script/src/index.ts"],

@@ -8,38 +8,17 @@ import { resolve } from 'import-meta-resolve'
 import { SevereServiceError } from 'webdriverio'
 import type { WebDriverCommands } from '@wdio/protocols'
 
+import { PAGE_TRANSITION_COMMANDS } from './constants.js'
 import {
-  PAGE_TRANSITION_COMMANDS,
-  ANSI_REGEX,
   CONSOLE_METHODS,
-  LOG_LEVEL_PATTERNS,
-  ERROR_INDICATORS,
-  LOG_SOURCES
-} from './constants.js'
-import { type CommandLog, type TraceLog, type LogLevel } from './types.js'
+  LOG_SOURCES,
+  createConsoleLogEntry,
+  detectLogLevel,
+  stripAnsi
+} from '@wdio/devtools-core'
+import { type CommandLog, type TraceLog } from './types.js'
 
 const log = logger('@wdio/devtools-service:SessionCapturer')
-
-const stripAnsi = (text: string) => text.replace(ANSI_REGEX, '')
-
-const detectLogLevel = (text: string): LogLevel => {
-  const t = stripAnsi(text).toLowerCase()
-  for (const { level, pattern } of LOG_LEVEL_PATTERNS) {
-    if (pattern.test(t)) {
-      return level
-    }
-  }
-  if (ERROR_INDICATORS.some((i) => t.includes(i.toLowerCase()))) {
-    return 'error'
-  }
-  return 'log'
-}
-
-const toConsoleEntry = (
-  type: LogLevel,
-  args: any[],
-  source: (typeof LOG_SOURCES)[keyof typeof LOG_SOURCES]
-): ConsoleLogs => ({ timestamp: Date.now(), type, args, source })
 
 export class SessionCapturer {
   #ws: WebSocket | undefined
@@ -119,7 +98,11 @@ export class SessionCapturer {
               })()
             : String(a)
         )
-        const entry = toConsoleEntry(method, serialized, LOG_SOURCES.TEST)
+        const entry = createConsoleLogEntry(
+          method,
+          serialized,
+          LOG_SOURCES.TEST
+        )
         this.consoleLogs.push(entry)
         this.sendUpstream('consoleLogs', [entry])
 
@@ -147,7 +130,7 @@ export class SessionCapturer {
         .split('\n')
         .filter((l) => l.trim())
         .forEach((line) => {
-          const entry = toConsoleEntry(
+          const entry = createConsoleLogEntry(
             detectLogLevel(line),
             [stripAnsi(line)],
             LOG_SOURCES.TERMINAL

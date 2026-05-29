@@ -266,6 +266,12 @@ importers:
         specifier: ^8.18.3
         version: 8.20.0
 
+  packages/core:
+    devDependencies:
+      '@wdio/devtools-shared':
+        specifier: workspace:^
+        version: link:../shared
+
   packages/nightwatch-devtools:
     dependencies:
       '@wdio/devtools-backend':
@@ -299,6 +305,9 @@ importers:
       '@types/ws':
         specifier: ^8.18.1
         version: 8.18.1
+      '@wdio/devtools-core':
+        specifier: workspace:^
+        version: link:../core
       '@wdio/devtools-shared':
         specifier: workspace:^
         version: link:../shared
@@ -364,6 +373,9 @@ importers:
       '@types/ws':
         specifier: ^8.18.1
         version: 8.18.1
+      '@wdio/devtools-core':
+        specifier: workspace:^
+        version: link:../core
       '@wdio/devtools-shared':
         specifier: workspace:^
         version: link:../shared
@@ -453,6 +465,9 @@ importers:
       '@types/ws':
         specifier: ^8.18.1
         version: 8.18.1
+      '@wdio/devtools-core':
+        specifier: workspace:^
+        version: link:../core
       '@wdio/devtools-shared':
         specifier: workspace:^
         version: link:../shared

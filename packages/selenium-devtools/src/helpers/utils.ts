@@ -1,31 +1,17 @@
 import * as net from 'node:net'
 import { parse as parseStackTrace } from 'stacktrace-parser'
 import logger from '@wdio/logger'
-import { ANSI_REGEX, LOG_LEVEL_PATTERNS, LOG_SOURCES } from '../constants.js'
-import type { ConsoleLog, LogLevel } from '../types.js'
+import type { LogLevel } from '../types.js'
 
 const log = logger('@wdio/selenium-devtools:utils')
 
-export const stripAnsiCodes = (text: string): string =>
-  text.replace(ANSI_REGEX, '')
-
-export function detectLogLevel(text: string): LogLevel {
-  const normalised = stripAnsiCodes(text).toLowerCase()
-  for (const { level, pattern } of LOG_LEVEL_PATTERNS) {
-    if (pattern.test(normalised)) {
-      return level
-    }
-  }
-  return 'log'
-}
-
-export function createConsoleLogEntry(
-  type: LogLevel,
-  args: any[],
-  source: string = LOG_SOURCES.TEST
-): ConsoleLog {
-  return { timestamp: Date.now(), type, args, source }
-}
+// Console helpers come from @wdio/devtools-core. `stripAnsiCodes` is the
+// local name kept for backwards compatibility with existing import sites.
+export {
+  stripAnsi as stripAnsiCodes,
+  detectLogLevel,
+  createConsoleLogEntry
+} from '@wdio/devtools-core'
 
 export function chromeLogLevelToLogLevel(
   level: string | { value?: number; name?: string }
