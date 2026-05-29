@@ -3,7 +3,7 @@ import { html, css } from 'lit'
 import { customElement } from 'lit/decorators.js'
 import { consume } from '@lit/context'
 
-import type { CommandLog } from '@wdio/devtools-service/types'
+import type { CommandLog } from '@wdio/devtools-shared'
 import { mutationContext, commandContext } from '../../controller/context.js'
 
 import '../placeholder.js'

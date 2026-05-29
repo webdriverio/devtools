@@ -73,7 +73,7 @@ These apply to every file in the repo. Code that doesn't comply is debt to be fi
 
 No type, constant, enum, schema, or contract may be defined in more than one package. Every shared concept lives in `packages/shared`.
 
-If two declarations exist today (e.g. `PreservedAttempt` in both `service` and `backend`), the next change that touches either of them must consolidate them into `shared`.
+If a duplicated declaration is discovered, the next change that touches it must consolidate to `shared`.
 
 ### 2.2 Framework-agnostic logic lives in `core`
 
@@ -135,7 +135,7 @@ A file that mixes these concerns is debt and must be split when next touched.
 
 ### Naming
 
-- **One name per concept across the whole repo.** Today we have `TestState`, `NodeState`, and inline `'running' | 'passed' | …` unions all meaning the same thing — that ends with the next change to any of them. Pick one canonical name in `shared` and use it everywhere.
+- **One name per concept across the whole repo.** The canonical name for test status is `TestStatus` in `@wdio/devtools-shared`. Today `TestState` (app sidebar) and inline unions in `app/src/controller/types.ts` still diverge; consolidate them when next touched.
 - Constants: `SCREAMING_SNAKE_CASE`. Types: `PascalCase`. Functions and variables: `camelCase`. Files: `kebab-case.ts` unless matching a class name.
 
 ### File and function size
@@ -264,12 +264,11 @@ These are documented violations of this file's rules. They exist today; they are
 ### Architecture debt
 
 - `packages/core` does not exist yet. Until it does, every shared piece of framework-agnostic logic is forced into an adapter package. Creating it is the next-highest-priority debt item.
-- `packages/shared` exists and is being populated. Migrating remaining duplicated types and constants into it (and deleting the duplicates) is the active debt work.
-- `PreservedAttempt`, `PreservedStep` are defined in both `packages/service/src/types.ts` and `packages/backend/src/baseline/types.ts`.
-- `CommandLog` is defined in `packages/service/src/types.ts`, `packages/nightwatch-devtools/src/types.ts`, and `packages/selenium-devtools/src/types.ts`.
-- Test-status enum exists three ways: `TestState` (`packages/app/src/components/sidebar/types.ts`), `NodeState` (`packages/backend/src/baseline/types.ts`), and inline unions in `packages/app/src/controller/types.ts`.
+- `packages/shared` exists and contains `BASELINE_API`, `BASELINE_WS_SCOPE`, and the core test-event types (`CommandLog`, `ConsoleLog`, `NetworkRequest`, `Metadata`, `TraceLog`, `TraceType`, `PreservedAttempt`, `PreservedStep`, `TestStatus`, `TestError`, `PerformanceData`, `DocumentInfo`, `Viewport`, `ScreencastInfo`, `LogLevel`). Adapter type files re-export shared types for backwards compatibility.
+- Test-status enum still exists as `TestState` in `packages/app/src/components/sidebar/types.ts` and as inline unions in `packages/app/src/controller/types.ts`. Both should consolidate to shared's `TestStatus`. (`NodeState` in backend is now an alias for `TestStatus`.)
 - `SessionCapturer`, `generateStableUid`/`deterministicUid`, console capture, and ANSI-stripping logic are duplicated across all three adapter packages.
 - `packages/backend/src/runner.ts` branches on framework names as strings (`'cucumber'`, `'nightwatch'`, etc.) instead of a typed `FrameworkId` from `shared`.
+- `TraceMutation` is defined in `packages/script/types.d.ts` as a global (browser-only, depends on DOM types). Adapters and backend currently sidestep this with loose `unknown[]` / `MutationLike` types. A clean home for browser/page-side types is open: extract from script into a small package consumable by both browser and Node consumers, or accept that mutation arrays cross the boundary as `unknown[]`.
 
 ### File-size debt (god-files to split as touched)
 

@@ -3,7 +3,7 @@ import type {
   TraceLog,
   CommandLog,
   PreservedAttempt
-} from '@wdio/devtools-service/types'
+} from '@wdio/devtools-shared'
 
 export type TestStatsFragment = Omit<Partial<TestStats>, 'uid' | 'state'> & {
   uid: string

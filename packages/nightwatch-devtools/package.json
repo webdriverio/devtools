@@ -52,6 +52,7 @@
   "devDependencies": {
     "@types/node": "25.5.2",
     "@types/ws": "^8.18.1",
+    "@wdio/devtools-shared": "workspace:^",
     "chromedriver": "^148.0.3",
     "nightwatch": "^3.0.0",
     "tsup": "^8.0.0",

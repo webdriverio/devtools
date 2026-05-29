@@ -1,71 +1,22 @@
+// Nightwatch-specific types live here. Cross-package types come from @wdio/devtools-shared.
+
+export {
+  TraceType,
+  type CommandLog,
+  type ConsoleLog,
+  type DocumentInfo,
+  type LogLevel,
+  type Metadata,
+  type NetworkRequest,
+  type PerformanceData,
+  type TestStatus,
+  type TraceLog
+} from '@wdio/devtools-shared'
+
 export interface CommandStackFrame {
   command: string
   callSource?: string
   signature: string
-}
-
-export interface PerformanceData {
-  navigation?: {
-    url: string
-    timing: {
-      loadTime?: number
-      domReady?: number
-      responseTime?: number
-      dnsLookup?: number
-      tcpConnection?: number
-      serverResponse?: number
-    }
-  }
-  resources?: Array<{
-    url: string
-    duration: number
-    size: number
-    type: string
-    startTime: number
-    responseEnd: number
-  }>
-}
-
-export interface DocumentInfo {
-  url: string
-  title: string
-  headers: {
-    userAgent: string
-    language: string
-    platform: string
-  }
-  documentInfo: {
-    readyState: string
-    referrer: string
-    characterSet: string
-  }
-}
-
-export interface CommandLog {
-  command: string
-  args: any[]
-  result?: any
-  error?: Error
-  timestamp: number
-  callSource?: string
-  screenshot?: string
-  testUid?: string
-  performance?: PerformanceData
-  cookies?: string
-  documentInfo?: DocumentInfo
-}
-
-export enum TraceType {
-  Testrunner = 'testrunner'
-}
-
-export type LogLevel = 'trace' | 'debug' | 'log' | 'info' | 'warn' | 'error'
-
-export interface ConsoleLog {
-  timestamp: number
-  type: LogLevel
-  args: any[]
-  source: string
 }
 
 export interface TestStats {
@@ -125,25 +76,6 @@ export interface SuiteStats {
   callSource?: string
 }
 
-export interface Metadata {
-  type: TraceType
-  url?: string
-  options?: any
-  capabilities?: any
-  viewport?: any
-}
-
-export interface TraceLog {
-  mutations: any[]
-  logs: string[]
-  consoleLogs: ConsoleLog[]
-  networkRequests: any[]
-  metadata: Metadata
-  commands: CommandLog[]
-  sources: Record<string, string>
-  suites: Record<string, SuiteStats>[]
-}
-
 export interface DevToolsOptions {
   port?: number
   hostname?: string
@@ -171,34 +103,4 @@ export interface NightwatchBrowser {
   }
   results?: any
   queue?: any
-}
-
-export interface NetworkRequest {
-  id: string
-  url: string
-  method: string
-  headers?: Record<string, string>
-  cookies?: any[]
-  status?: number
-  statusText?: string
-  timestamp: number
-  startTime: number
-  endTime?: number
-  time?: number
-  type: string
-  requestHeaders?: Record<string, string>
-  responseHeaders?: Record<string, string>
-  navigation?: string
-  redirectChain?: any[]
-  children?: NetworkRequest[]
-  response?: {
-    fromCache: boolean
-    headers: Record<string, string>
-    mimeType: string
-    status: number
-  }
-  error?: string
-  requestBody?: string
-  responseBody?: string
-  size?: number
 }

@@ -9,7 +9,7 @@ import type {
   CommandLog,
   PreservedAttempt,
   PreservedStep
-} from '@wdio/devtools-service/types'
+} from '@wdio/devtools-shared'
 import {
   baselineContext,
   selectedTestUidContext,

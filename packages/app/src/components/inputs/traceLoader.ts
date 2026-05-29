@@ -1,7 +1,7 @@
 import { Element } from '@core/element'
 import { html } from 'lit'
 import { customElement, property } from 'lit/decorators.js'
-import type { TraceLog } from '@wdio/devtools-service/types'
+import type { TraceLog } from '@wdio/devtools-shared'
 
 @customElement('wdio-devtools-trace-loader')
 export class DevtoolsTraceLoader extends Element {

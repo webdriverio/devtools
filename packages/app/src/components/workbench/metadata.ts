@@ -3,7 +3,7 @@ import { html, css } from 'lit'
 import { customElement } from 'lit/decorators.js'
 import { consume } from '@lit/context'
 
-import type { Metadata } from '@wdio/devtools-service/types'
+import type { Metadata } from '@wdio/devtools-shared'
 import { metadataContext } from '../../controller/context.js'
 
 import './list.js'

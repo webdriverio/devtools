@@ -2,7 +2,7 @@ import { Element } from '@core/element'
 import { html, css, nothing, type TemplateResult } from 'lit'
 import { customElement, property } from 'lit/decorators.js'
 import { consume } from '@lit/context'
-import type { Metadata } from '@wdio/devtools-service/types'
+import type { Metadata } from '@wdio/devtools-shared'
 import { repeat } from 'lit/directives/repeat.js'
 import { suiteContext, metadataContext } from '../../controller/context.js'
 import type {

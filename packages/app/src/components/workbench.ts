@@ -9,7 +9,7 @@ import {
   networkRequestContext,
   baselineContext
 } from '../controller/context.js'
-import type { PreservedAttempt } from '@wdio/devtools-service/types'
+import type { PreservedAttempt } from '@wdio/devtools-shared'
 
 import '~icons/mdi/arrow-collapse-down.js'
 import '~icons/mdi/arrow-collapse-up.js'
