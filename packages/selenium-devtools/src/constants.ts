@@ -68,7 +68,7 @@ export const NAVIGATION_COMMANDS = [
 // here so existing imports from ./constants.js continue to work.
 export { ANSI_REGEX, CONSOLE_METHODS, LOG_SOURCES } from '@wdio/devtools-core'
 
-export const SPINNER_RE = /^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/u
+export { SPINNER_RE } from '@wdio/devtools-core'
 
 export const DEFAULTS = {
   CID: '0-0',

@@ -36,6 +36,13 @@ export const LOG_LEVEL_PATTERNS: ReadonlyArray<{
 /** Visual indicators that suggest error-level logs in unstructured output. */
 export const ERROR_INDICATORS = ['✗', 'failed', 'failure'] as const
 
+/**
+ * Matches the leading Braille spinner glyphs that runners (Nightwatch CLI,
+ * Selenium tooling) emit for in-place progress updates. Adapters skip lines
+ * that match this so the dashboard's Console tab isn't flooded with frames.
+ */
+export const SPINNER_RE = /^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/u
+
 /** Enum-style accessor for the canonical LogSource values from shared. */
 export const LOG_SOURCES = {
   BROWSER: 'browser',
