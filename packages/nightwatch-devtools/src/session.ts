@@ -4,7 +4,7 @@ import path from 'node:path'
 import { createRequire } from 'node:module'
 import logger from '@wdio/logger'
 import { WebSocket } from 'ws'
-import { serializeError } from '@wdio/devtools-core'
+import { isInternalStreamLine, serializeError } from '@wdio/devtools-core'
 import { WS_PATHS } from '@wdio/devtools-shared'
 import {
   CONSOLE_METHODS,
@@ -126,15 +126,6 @@ export class SessionCapturer {
     })
   }
 
-  #isInternalStreamLine(line: string): boolean {
-    const t = line.trim()
-    return (
-      t.startsWith('{"') ||
-      t.includes('@wdio/devtools-backend') ||
-      t.startsWith('[SESSION]')
-    )
-  }
-
   #hasConnected = false
   #isCapturingStream = false
 
@@ -157,11 +148,7 @@ export class SessionCapturer {
           const segments = rawLine.split('\r').filter((s) => s.trim())
           const lastSegment = segments[segments.length - 1] ?? rawLine
           const clean = stripAnsiCodes(lastSegment).trim()
-          if (
-            !clean ||
-            this.#isInternalStreamLine(clean) ||
-            SPINNER_RE.test(clean)
-          ) {
+          if (!clean || isInternalStreamLine(clean) || SPINNER_RE.test(clean)) {
             continue
           }
           linesToCapture.push(clean)

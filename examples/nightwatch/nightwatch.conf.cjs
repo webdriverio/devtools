@@ -1,8 +1,10 @@
 // Simple import - just require the package
+const path = require('node:path')
 const nightwatchDevtools = require('@wdio/nightwatch-devtools').default
 
 module.exports = {
-  src_folders: ['example/tests'],
+  // Resolve relative to this config file so the path holds regardless of CWD.
+  src_folders: [path.resolve(__dirname, 'tests')],
   output_folder: false, // Skip generating nightwatch reports for this example
   // Add custom reporter to capture commands
   custom_commands_path: [],

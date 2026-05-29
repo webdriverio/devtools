@@ -618,8 +618,8 @@ class NightwatchDevToolsPlugin {
               path.join(workspaceRoot, modulePath)
             ]
           : []),
-        path.join(workspaceRoot, 'example/tests', testFile + '.js'),
-        path.join(workspaceRoot, 'example/tests', testFile),
+        path.join(workspaceRoot, 'examples/nightwatch/tests', testFile + '.js'),
+        path.join(workspaceRoot, 'examples/nightwatch/tests', testFile),
         path.join(workspaceRoot, 'tests', testFile + '.js'),
         path.join(workspaceRoot, 'test', testFile + '.js'),
         path.join(workspaceRoot, testFile + '.js')

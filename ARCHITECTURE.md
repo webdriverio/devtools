@@ -145,9 +145,9 @@ Plus one out-of-band piece: **`packages/script`** is injected into the browser u
 
 **Why it's separate:** Different execution environment (browser, not Node). It cannot import from `core` (which assumes Node) or `shared` directly unless `shared` stays strictly browser-safe.
 
-### `example/`
+### `examples/wdio/`, `examples/nightwatch/`, `examples/selenium/`
 
-**Owns:** A working consumer of each adapter, used for manual verification per [CLAUDE.md §4](./CLAUDE.md#4-testing).
+**Owns:** Per-framework demo projects, used for manual verification per [CLAUDE.md §4](./CLAUDE.md#4-testing). Run via `pnpm demo:wdio` / `pnpm demo:nightwatch` / `pnpm demo:selenium` from the repo root. Selenium has multiple runners (`mocha-test/`, `jest-test/`, `cucumber-test/`); the default `demo:selenium` script runs mocha, and `selenium-devtools` exposes per-runner variants via `pnpm --filter @wdio/selenium-devtools example:<runner>`.
 
 ---
 

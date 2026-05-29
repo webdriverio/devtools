@@ -27,10 +27,10 @@
     "clean": "rm -rf dist",
     "lint": "eslint .",
     "prepublishOnly": "pnpm build",
-    "example:mocha": "mocha --require @wdio/selenium-devtools --timeout 60000 example/mocha-test/test/example.js",
-    "example:jest": "NODE_OPTIONS=--experimental-vm-modules jest --config example/jest-test/jest.config.json",
-    "example:vitest": "vitest run --config example/vitest-test/vitest.config.js",
-    "example:cucumber": "cucumber-js --config example/cucumber-test/cucumber.json"
+    "example": "pnpm example:mocha",
+    "example:mocha": "mocha --require @wdio/selenium-devtools --timeout 60000 ../../examples/selenium/mocha-test/test/example.js",
+    "example:jest": "NODE_OPTIONS=--experimental-vm-modules jest --config ../../examples/selenium/jest-test/jest.config.json",
+    "example:cucumber": "cucumber-js --config ../../examples/selenium/cucumber-test/cucumber.json"
   },
   "keywords": [
     "selenium",
