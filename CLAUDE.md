@@ -19,14 +19,14 @@ Packages (pnpm workspace):
 | `packages/app` | Lit-based browser UI. Framework-agnostic. |
 | `packages/backend` | Fastify server, WebSocket gateway, baseline store, test runner spawner. Framework-agnostic at the API layer; framework-aware only via a typed `FrameworkId`. |
 | `packages/shared` | Types, constants, HTTP/WS contracts. Pure, no runtime deps on other packages. Single source of truth. Workspace-internal (`"private": true`); inlined into each consumer at build time. |
-| `packages/core` *(does not exist yet — must be created)* | Framework-agnostic capture/reporter logic: `SessionCapturer`, `ReporterBase`, UID generation, console/network/command capture, sourcemaps, WS client. |
+| `packages/core` | Framework-agnostic capture/reporter logic. Currently houses console-capture constants and helpers (`CONSOLE_METHODS`, `ANSI_REGEX`, `LOG_LEVEL_PATTERNS`, `LOG_SOURCES`, `stripAnsi`, `detectLogLevel`, `createConsoleLogEntry`); UID gen, command-log builder, reporter base, sourcemap loader, WS client still pending migration. Workspace-internal (`"private": true`); inlined into each adapter at build time. |
 | `packages/service` | WebdriverIO adapter. Hook registration + WDIO-specific config. |
 | `packages/nightwatch-devtools` | Nightwatch adapter. Hook registration + lifecycle binding. |
 | `packages/selenium-devtools` | Selenium adapter. Driver patching + runner hooks. |
 | `packages/script` | Browser-injected runtime. Runs **inside the page under test** (not in Node), captures DOM mutations and page-side traces. Not a home for shared Node-side logic — that belongs in `core`. |
 | `example/` | Demo project. |
 
-`packages/core` is part of the architecture even though it doesn't exist yet. Creating it is the next piece of debt to pay down (§7). `packages/shared` exists and has begun receiving migrations (today: `BASELINE_API`, `BASELINE_WS_SCOPE`, `BaselineWsScope`).
+Both `packages/shared` and `packages/core` exist and have begun receiving migrations. The biggest remaining work in `core` is extracting the duplicated `SessionCapturer`, UID generation, command-log builder, reporter base, and WS client from the three adapters.
 
 ### Commands
 
@@ -59,7 +59,7 @@ Defined in root `tsconfig.json`. Use these in imports — do **not** use long re
 | `@wdio/devtools-service` / `@wdio/devtools-service/*` | `packages/service/src/...` |
 | `@wdio/selenium-devtools` / `@wdio/selenium-devtools/*` | `packages/selenium-devtools/src/...` |
 
-`packages/shared` is wired in already; when `packages/core` is created, add aliases for it in the same place.
+`packages/shared` and `packages/core` are both wired in (`@wdio/devtools-shared`, `@wdio/devtools-core`).
 
 > ⚠️ Note: `@core/*` today points to `packages/app/src/core/` (app-internal). The future framework-agnostic `packages/core` will need a different alias (e.g. `@wdio/devtools-core`) to avoid collision. Resolve this when `packages/core` is created.
 
@@ -107,7 +107,7 @@ Every `fetch(...)` and `ws.send(...)` has a typed request/response shape defined
 Bundlers in use today: **vite** for `app`, `service`, `script`; **tsup** for `backend`, `nightwatch-devtools`, `selenium-devtools`.
 
 - List `@wdio/devtools-shared` / `@wdio/devtools-core` in `devDependencies` with `workspace:^`, **never** in `dependencies`. Both tsup and vite externalize anything in `dependencies` by default — `devDependencies` is what gets inlined. If the dep leaks into `dependencies`, pnpm publish rewrites the version to something that doesn't exist on npm and end-user installs fail.
-- Do **not** add `@wdio/devtools-shared` or `@wdio/devtools-core` to `rollupOptions.external` (vite) or to tsup's `external` option, or any equivalent.
+- Do **not** add `@wdio/devtools-shared` or `@wdio/devtools-core` to `rollupOptions.external` (vite) or to tsup's `external` option, or any equivalent. **Note**: vite configs that use a callback like `external: (id) => !id.startsWith(...)` to externalize *everything* outside `src/` will also externalize private workspace packages by mistake. Such callbacks must explicitly include `id !== '@wdio/devtools-shared'` (and `core`) as exclusions — see `packages/service/vite.config.ts` for the pattern.
 - Do **not** switch a consuming package's build to `tsc`-only. If the package needs a build, it gets a bundler.
 - After any change to a bundler config or build script, run `pnpm build` on the affected package and verify its `dist/index.js` contains no `from '@wdio/devtools-shared'` or `from '@wdio/devtools-core'` strings.
 
@@ -263,9 +263,9 @@ These are documented violations of this file's rules. They exist today; they are
 
 ### Architecture debt
 
-- `packages/core` does not exist yet. Until it does, every shared piece of framework-agnostic logic is forced into an adapter package. Creating it is the next-highest-priority debt item.
-- `packages/shared` exists and contains `BASELINE_API`, `BASELINE_WS_SCOPE`, and the core test-event types (`CommandLog`, `ConsoleLog`, `NetworkRequest`, `Metadata`, `TraceLog`, `TraceType`, `PreservedAttempt`, `PreservedStep`, `TestStatus`, `TestError`, `PerformanceData`, `DocumentInfo`, `Viewport`, `ScreencastInfo`, `LogLevel`). Adapter type files re-export shared types for backwards compatibility.
-- `SessionCapturer`, `generateStableUid`/`deterministicUid`, console capture, and ANSI-stripping logic are duplicated across all three adapter packages.
+- `packages/shared` contains `BASELINE_API`, `BASELINE_WS_SCOPE`, `TestRunnerId`, and the core test-event types (`CommandLog`, `ConsoleLog`, `NetworkRequest`, `Metadata`, `TraceLog`, `TraceType`, `PreservedAttempt`, `PreservedStep`, `TestStatus`, `TestError`, `PerformanceData`, `DocumentInfo`, `Viewport`, `ScreencastInfo`, `LogLevel`). Adapter type files re-export shared types for backwards compatibility.
+- `packages/core` contains console-capture constants and helpers (`CONSOLE_METHODS`, `ANSI_REGEX`, `LOG_LEVEL_PATTERNS`, `LOG_SOURCES`, `ERROR_INDICATORS`, `stripAnsi`, `detectLogLevel`, `createConsoleLogEntry`). The full `SessionCapturer`, UID gen, command-log builder, reporter base, sourcemap loader, and WS client still live in adapters (mostly `packages/service`) and are duplicated across the other two.
+- `SessionCapturer`, `generateStableUid`/`deterministicUid`, and `#patchConsole`/`#patchStreams` instance logic are still duplicated across all three adapter packages. (Pure console helpers — `stripAnsi`, `detectLogLevel`, `createConsoleLogEntry`, ANSI/level constants — now live in `packages/core`.)
 - `TraceMutation` is defined in `packages/script/types.d.ts` as a global (browser-only, depends on DOM types). Adapters and backend currently sidestep this with loose `unknown[]` / `MutationLike` types. A clean home for browser/page-side types is open: extract from script into a small package consumable by both browser and Node consumers, or accept that mutation arrays cross the boundary as `unknown[]`.
 
 ### File-size debt (god-files to split as touched)

@@ -3,14 +3,8 @@ import * as net from 'node:net'
 import * as path from 'node:path'
 import { parse as parseStackTrace } from 'stacktrace-parser'
 import logger from '@wdio/logger'
-import {
-  ANSI_REGEX,
-  LOG_LEVEL_PATTERNS,
-  TEST_FILE_PATTERN,
-  CONFIG_FILENAMES
-} from '../constants.js'
+import { TEST_FILE_PATTERN, CONFIG_FILENAMES } from '../constants.js'
 import type {
-  ConsoleLog,
   LogLevel,
   NightwatchTestCase,
   TestFileMetadata,
@@ -246,33 +240,13 @@ export function findTestFileByName(
 // Console / log helpers (used by SessionCapturer)
 // ---------------------------------------------------------------------------
 
-/**
- * Strip ANSI escape codes from a string.
- */
-export const stripAnsiCodes = (text: string): string =>
-  text.replace(ANSI_REGEX, '')
-
-/** Infer a log level from the text content of a line. */
-export function detectLogLevel(text: string): LogLevel {
-  const normalised = stripAnsiCodes(text).toLowerCase()
-  for (const { level, pattern } of LOG_LEVEL_PATTERNS) {
-    if (pattern.test(normalised)) {
-      return level
-    }
-  }
-  return 'log'
-}
-
-/**
- * Build a ConsoleLog entry.
- */
-export function createConsoleLogEntry(
-  type: LogLevel,
-  args: any[],
-  source: string
-): ConsoleLog {
-  return { timestamp: Date.now(), type, args, source }
-}
+// Console helpers come from @wdio/devtools-core. `stripAnsiCodes` is the
+// local name kept for backwards compatibility with existing import sites.
+export {
+  stripAnsi as stripAnsiCodes,
+  detectLogLevel,
+  createConsoleLogEntry
+} from '@wdio/devtools-core'
 
 /** Map a Chrome DevTools log level string to our LogLevel union. */
 export function chromeLogLevelToLogLevel(

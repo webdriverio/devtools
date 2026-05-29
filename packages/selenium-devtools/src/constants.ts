@@ -64,15 +64,9 @@ export const NAVIGATION_COMMANDS = [
   'refresh'
 ] as const
 
-export const CONSOLE_METHODS = ['log', 'info', 'warn', 'error'] as const
-
-export const LOG_SOURCES = {
-  BROWSER: 'browser',
-  TEST: 'test',
-  TERMINAL: 'terminal'
-} as const
-
-export const ANSI_REGEX = /\x1b\[[?]?[0-9;]*[A-Za-z]/g
+// Console capture constants are defined in @wdio/devtools-core; re-exported
+// here so existing imports from ./constants.js continue to work.
+export { ANSI_REGEX, CONSOLE_METHODS, LOG_SOURCES } from '@wdio/devtools-core'
 
 export const SPINNER_RE = /^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/u
 
@@ -102,16 +96,7 @@ export const TEST_STATE = {
   SKIPPED: 'skipped'
 } as const
 
-export const LOG_LEVEL_PATTERNS: ReadonlyArray<{
-  level: 'trace' | 'debug' | 'info' | 'warn' | 'error'
-  pattern: RegExp
-}> = [
-  { level: 'trace', pattern: /\btrace\b/i },
-  { level: 'debug', pattern: /\bdebug\b/i },
-  { level: 'info', pattern: /\binfo\b/i },
-  { level: 'warn', pattern: /\bwarn(ing)?\b/i },
-  { level: 'error', pattern: /\berror\b/i }
-] as const
+export { LOG_LEVEL_PATTERNS } from '@wdio/devtools-core'
 
 export const SCREENCAST_DEFAULTS = {
   enabled: false,

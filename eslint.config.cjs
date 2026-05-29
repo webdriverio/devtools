@@ -224,6 +224,11 @@ module.exports = [
               group: ['@/*', '@components/*'],
               message:
                 'Backend must not import from app (CLAUDE.md §2.4). App talks to backend over WS/HTTP using shared contracts.'
+            },
+            {
+              group: ['@wdio/devtools-core', '@wdio/devtools-core/*'],
+              message:
+                'Backend must not depend on core (CLAUDE.md §2.2). core is framework-agnostic adapter logic; backend only needs shared contracts.'
             }
           ]
         }
@@ -263,6 +268,54 @@ module.exports = [
               group: ['@wdio/devtools-backend', '@wdio/devtools-backend/*'],
               message:
                 'App must not import from backend directly (CLAUDE.md §2.4). Communicate via WS/HTTP using shared contracts.'
+            },
+            {
+              group: ['@wdio/devtools-core', '@wdio/devtools-core/*'],
+              message:
+                'App must not import from core (CLAUDE.md §2.2). core is framework-agnostic adapter logic; the app receives normalized events over WS.'
+            }
+          ]
+        }
+      ]
+    }
+  },
+
+  // CLAUDE.md §2.2 — core is for adapters only. Backend, app, and script
+  // must not depend on core. Core itself may only import from shared.
+  {
+    files: ['packages/core/**/*.{ts,tsx,js,mjs,cjs}'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['@wdio/devtools-service', '@wdio/devtools-service/*'],
+              message:
+                'core must not depend on any adapter (CLAUDE.md §2.2). Adapters import core, not the other way around.'
+            },
+            {
+              group: [
+                '@wdio/nightwatch-devtools',
+                '@wdio/nightwatch-devtools/*'
+              ],
+              message:
+                'core must not depend on any adapter (CLAUDE.md §2.2). Adapters import core, not the other way around.'
+            },
+            {
+              group: ['@wdio/selenium-devtools', '@wdio/selenium-devtools/*'],
+              message:
+                'core must not depend on any adapter (CLAUDE.md §2.2). Adapters import core, not the other way around.'
+            },
+            {
+              group: ['@wdio/devtools-backend', '@wdio/devtools-backend/*'],
+              message:
+                'core must not depend on backend (CLAUDE.md §2.2). core is the lower layer.'
+            },
+            {
+              group: ['@/*', '@components/*'],
+              message:
+                'core must not depend on app (CLAUDE.md §2.2). core is Node-side adapter logic.'
             }
           ]
         }

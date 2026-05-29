@@ -33,8 +33,16 @@ export default defineConfig({
       output: {
         entryFileNames: '[name].js'
       },
+      // Inline private workspace packages (@wdio/devtools-core,
+      // @wdio/devtools-shared) — they are not published, so the dist must
+      // not contain runtime `import` statements for them. See CLAUDE.md §2.6.
       external: (id) =>
-        !id.startsWith(path.resolve(__dirname, 'src')) && !id.startsWith('./')
+        !id.startsWith(path.resolve(__dirname, 'src')) &&
+        !id.startsWith('./') &&
+        id !== '@wdio/devtools-core' &&
+        !id.startsWith('@wdio/devtools-core/') &&
+        id !== '@wdio/devtools-shared' &&
+        !id.startsWith('@wdio/devtools-shared/')
     }
   },
   plugins: [
