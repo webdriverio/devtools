@@ -25,6 +25,7 @@
   },
   "license": "MIT",
   "devDependencies": {
-    "@wdio/devtools-shared": "workspace:^"
+    "@wdio/devtools-shared": "workspace:^",
+    "stacktrace-parser": "^0.1.11"
   }
 }

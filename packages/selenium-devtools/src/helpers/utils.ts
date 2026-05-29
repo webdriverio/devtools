@@ -1,5 +1,3 @@
-import { parse as parseStackTrace } from 'stacktrace-parser'
-
 // Console helpers come from @wdio/devtools-core. `stripAnsiCodes` is the
 // local name kept for backwards compatibility with existing import sites.
 export {
@@ -16,50 +14,7 @@ export {
   resetSignatureCounters
 } from '@wdio/devtools-core'
 
-function isUserCodeFrame(frame: {
-  file?: string | null
-}): frame is { file: string } {
-  const { file } = frame
-  return !!(
-    file &&
-    !file.includes('/node_modules/') &&
-    !file.includes('<anonymous>') &&
-    !file.includes('node:internal') &&
-    !file.includes('/dist/') &&
-    !file.endsWith('/index.js')
-  )
-}
-
-function normalizeFilePath(filePath: string): string {
-  // Node's stack traces in ESM use file:// URLs, which URL-encode spaces and
-  // other characters. Strip the prefix, drop the line:col suffix, and decode
-  // — otherwise `fs.readFile` hits ENOENT on any path containing a space.
-  const stripped = filePath.replace(/^file:\/\//, '').split(':')[0]
-  try {
-    return decodeURIComponent(stripped)
-  } catch {
-    // Malformed percent-encoding — keep the literal path rather than throw.
-    return stripped
-  }
-}
-
-export function getCallSourceFromStack(): {
-  filePath: string | undefined
-  callSource: string
-} {
-  const stack = new Error().stack
-  if (!stack) {
-    return { filePath: undefined, callSource: 'unknown:0' }
-  }
-
-  const frame = parseStackTrace(stack).find(isUserCodeFrame)
-  if (!frame?.file) {
-    return { filePath: undefined, callSource: 'unknown:0' }
-  }
-
-  const filePath = normalizeFilePath(frame.file)
-  return { filePath, callSource: `${filePath}:${frame.lineNumber ?? 0}` }
-}
+export { getCallSourceFromStack } from '@wdio/devtools-core'
 
 // Source-scan for `it/test/specify('title', ...)` (or `describe/context/suite`
 // when kind='suite'). Stack-walking from inside the runner's beforeEach
