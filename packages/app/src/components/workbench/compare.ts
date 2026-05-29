@@ -28,11 +28,8 @@ import {
   type ComparePairedStep,
   type DivergenceKind
 } from './compare/compareUtils.js'
-import {
-  BASELINE_API,
-  POPOUT_QUERY,
-  buildPopoutFeatures
-} from './compare/constants.js'
+import { BASELINE_API } from '@wdio/devtools-shared'
+import { POPOUT_QUERY, buildPopoutFeatures } from './compare/constants.js'
 
 const COMPONENT = 'wdio-devtools-compare'
 

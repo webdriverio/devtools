@@ -21,7 +21,7 @@ import {
   FRAMEWORK_CAPABILITIES,
   STATE_MAP
 } from './constants.js'
-import { BASELINE_API } from '../workbench/compare/constants.js'
+import { BASELINE_API } from '@wdio/devtools-shared'
 
 import '~icons/mdi/play.js'
 import '~icons/mdi/stop.js'

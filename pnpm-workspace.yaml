@@ -1,5 +1,6 @@
 # pnpm-workspace.yaml
 packages:
+  - 'packages/shared'
   - 'packages/backend'
   - 'packages/script'
   - 'packages/service'

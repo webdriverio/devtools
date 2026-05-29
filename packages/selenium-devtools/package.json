@@ -22,8 +22,8 @@
     "README.md"
   ],
   "scripts": {
-    "build": "tsc",
-    "watch": "tsc --watch",
+    "build": "tsup src/index.ts --format esm --dts --sourcemap --clean",
+    "watch": "tsup src/index.ts --format esm --dts --sourcemap --watch",
     "clean": "rm -rf dist",
     "lint": "eslint .",
     "prepublishOnly": "pnpm build",
@@ -60,6 +60,7 @@
     "jest": "^29.7.0",
     "mocha": "^10.7.0",
     "selenium-webdriver": "^4.27.0",
+    "tsup": "^8.0.0",
     "typescript": "^6.0.2",
     "vitest": "^2.1.9"
   },

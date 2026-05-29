@@ -20,7 +20,7 @@ import {
   baselineContext,
   selectedTestUidContext
 } from './context.js'
-import { BASELINE_WS_SCOPE } from '../components/workbench/compare/constants.js'
+import { BASELINE_WS_SCOPE } from '@wdio/devtools-shared'
 import { CACHE_ID } from './constants.js'
 import { getTimestamp } from '../utils/helpers.js'
 import { rerunState } from './rerunState.js'

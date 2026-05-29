@@ -25,8 +25,8 @@
     "plugin": true
   },
   "scripts": {
-    "build": "tsc",
-    "watch": "tsc --watch",
+    "build": "tsup src/index.ts --format esm --dts --sourcemap --clean",
+    "watch": "tsup src/index.ts --format esm --dts --sourcemap --watch",
     "clean": "rm -rf dist",
     "lint": "eslint .",
     "example": "nightwatch -c example/nightwatch.conf.cjs",
@@ -54,6 +54,7 @@
     "@types/ws": "^8.18.1",
     "chromedriver": "^148.0.3",
     "nightwatch": "^3.0.0",
+    "tsup": "^8.0.0",
     "typescript": "^6.0.2"
   },
   "peerDependencies": {
