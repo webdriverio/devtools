@@ -19,9 +19,11 @@ export interface BrowserElementInfo {
 
 export interface GetBrowserElementsOptions {
   includeBounds?: boolean
+  /** Only return elements whose bounding rect intersects the viewport (default true). */
+  inViewportOnly?: boolean
 }
 
-const elementsScript = (includeBounds: boolean) =>
+const elementsScript = (includeBounds: boolean, inViewportOnly: boolean) =>
   (function () {
     const interactableSelectors = [
       'a[href]',
@@ -79,7 +81,7 @@ const elementsScript = (includeBounds: boolean) =>
           .map((id) => document.getElementById(id)?.textContent?.trim() || '')
           .filter(Boolean)
         if (texts.length > 0) {
-          return texts.join(' ').slice(0, 100)
+          return texts.join(' ').slice(0, 200)
         }
       }
 
@@ -132,7 +134,7 @@ const elementsScript = (includeBounds: boolean) =>
       }
 
       // 8. text content (truncated, whitespace normalized)
-      return (el.textContent?.trim().replace(/\s+/g, ' ') || '').slice(0, 100)
+      return (el.textContent?.trim().replace(/\s+/g, ' ') || '').slice(0, 200)
     }
 
     function getSelector(element: HTMLElement): string {
@@ -140,7 +142,7 @@ const elementsScript = (includeBounds: boolean) =>
 
       // 1. tag*=Text — best per WebdriverIO docs
       const text = element.textContent?.trim().replace(/\s+/g, ' ')
-      if (text && text.length > 0 && text.length <= 50) {
+      if (text && text.length > 0 && text.length <= 120) {
         const sameTagElements = document.querySelectorAll(tag)
         let matchCount = 0
         sameTagElements.forEach((el) => {
@@ -155,8 +157,11 @@ const elementsScript = (includeBounds: boolean) =>
 
       // 2. aria/label
       const ariaLabel = element.getAttribute('aria-label')
-      if (ariaLabel && ariaLabel.length <= 80) {
-        return `aria/${ariaLabel}`
+      if (ariaLabel && ariaLabel.length <= 200) {
+        const sel = `[aria-label="${CSS.escape(ariaLabel)}"]`
+        if (document.querySelectorAll(sel).length === 1) {
+          return sel
+        }
       }
 
       // 3. data-testid
@@ -253,6 +258,10 @@ const elementsScript = (includeBounds: boolean) =>
         rect.right <=
           (window.innerWidth || document.documentElement.clientWidth)
 
+      if (inViewportOnly && !isInViewport) {
+        return
+      }
+
       const entry: Record<string, unknown> = {
         tagName: htmlEl.tagName.toLowerCase(),
         name: getAccessibleName(htmlEl),
@@ -285,9 +294,10 @@ export async function getInteractableBrowserElements(
   browser: WebdriverIO.Browser,
   options: GetBrowserElementsOptions = {}
 ): Promise<BrowserElementInfo[]> {
-  const { includeBounds = false } = options
+  const { includeBounds = false, inViewportOnly = true } = options
   return (browser as any).execute(
     elementsScript,
-    includeBounds
+    includeBounds,
+    inViewportOnly
   ) as unknown as Promise<BrowserElementInfo[]>
 }

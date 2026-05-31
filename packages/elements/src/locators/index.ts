@@ -88,6 +88,7 @@ interface ProcessingContext {
   isNative: boolean
   viewportSize: { width: number; height: number }
   filters: FilterOptions
+  inViewportOnly: boolean
   results: ElementWithLocators[]
   parsedDOM: XMLDocument | null
 }
@@ -179,6 +180,15 @@ function processElement(element: JSONElement, ctx: ProcessingContext): void {
     return
   }
 
+  // Skip off-screen elements early when viewport filtering is on —
+  // avoids expensive locator generation for elements the caller doesn't want.
+  if (ctx.inViewportOnly) {
+    const b = parseBounds(element, ctx.platform)
+    if (!isWithinViewport(b, ctx.viewportSize)) {
+      return
+    }
+  }
+
   try {
     const targetNode = ctx.parsedDOM
       ? findDOMNodeByPath(ctx.parsedDOM, element.path)
@@ -254,6 +264,7 @@ export function generateAllElementLocators(
     isNative: options.isNative ?? true,
     viewportSize: options.viewportSize ?? { width: 9999, height: 9999 },
     filters: options.filters ?? {},
+    inViewportOnly: options.inViewportOnly ?? true,
     results: [],
     parsedDOM
   }

@@ -7,6 +7,7 @@
 
 import type { AccessibilityNode } from './accessibility-tree.js'
 import type { JSONElement } from './locators/types.js'
+import { parseAndroidBounds, parseIOSBounds } from './locators/xml-parsing.js'
 
 /**
  * Roles that can be interacted with — rendered with `→ selector`.
@@ -29,8 +30,10 @@ const INTERACTIVE_ROLES = new Set([
 ])
 
 /**
- * Walk backwards from `index` to find the nearest ancestor with a non-empty name.
- * Returns that name, or undefined if none found.
+ * Walk backwards from `index` to find the nearest ancestor or preceding
+ * structural sibling with a non-empty name.  Same-depth nodes are only
+ * used when they are structural (img, heading, statictext, …) — never
+ * another interactive element.
  */
 function inferPurpose(
   nodes: AccessibilityNode[],
@@ -38,23 +41,36 @@ function inferPurpose(
 ): string | undefined {
   const myDepth = nodes[index].depth
   for (let i = index - 1; i >= 0; i--) {
-    if (nodes[i].depth < myDepth && nodes[i].name) {
+    if (nodes[i].depth <= myDepth && nodes[i].name) {
+      // Same-depth sibling: only structural elements count
+      if (nodes[i].depth === myDepth && INTERACTIVE_ROLES.has(nodes[i].role)) {
+        continue
+      }
       return nodes[i].name
     }
   }
   return undefined
 }
 
+export interface WebSnapshotOptions {
+  /** Only include nodes whose bounding rect intersects the viewport (default true). */
+  inViewportOnly?: boolean
+}
+
 /**
  * Serialize a web accessibility tree into a depth-indented text snapshot.
  *
- * @param nodes  Flat ordered node list from getBrowserAccessibilityTree()
+ * @param nodes   Flat ordered node list from getBrowserAccessibilityTree()
  * @param context  Optional page context for the header line
+ * @param options  {@link WebSnapshotOptions}
  */
 export function serializeWebSnapshot(
   nodes: AccessibilityNode[],
-  context?: { url?: string; title?: string }
+  context?: { url?: string; title?: string },
+  options: WebSnapshotOptions = {}
 ): string {
+  const { inViewportOnly = true } = options
+
   let header = '[Page'
   if (context?.title) {
     header += `: ${context.title}`
@@ -68,8 +84,41 @@ export function serializeWebSnapshot(
 
   for (let i = 0; i < nodes.length; i++) {
     const node = nodes[i]
+
+    // When viewport filtering is on, skip nodes that are known to be off-screen.
+    // Nodes from a tree captured with inViewportOnly=false will have
+    // isInViewport populated; nodes from a pre-filtered tree all have
+    // isInViewport=true (or undefined for pre-existing data).
+    if (inViewportOnly && node.isInViewport === false) {
+      continue
+    }
+
     const indent = '  '.repeat(node.depth + 1) // +1 indents everything under the header
     const isInteractive = INTERACTIVE_ROLES.has(node.role)
+
+    // Skip statictext that merely echoes the parent link/button name.
+    // Example: link "Highlights" → a*=Highlights doesn't need
+    //   statictext "Highlights" as a child because it adds no information.
+    if (node.role === 'statictext' && node.name) {
+      let echoedByParent = false
+      for (let j = i - 1; j >= 0; j--) {
+        if (nodes[j].depth < node.depth) {
+          const parentRole = nodes[j].role
+          const parentName = nodes[j].name
+          if (
+            INTERACTIVE_ROLES.has(parentRole) &&
+            parentName &&
+            parentName.includes(node.name)
+          ) {
+            echoedByParent = true
+          }
+          break // only check the immediate structural parent
+        }
+      }
+      if (echoedByParent) {
+        continue
+      }
+    }
 
     // Heading gets level suffix: heading[2]
     const roleLabel =
@@ -82,10 +131,16 @@ export function serializeWebSnapshot(
       if (!node.selector) {
         continue
       }
+      const purpose = inferPurpose(nodes, i)
       if (node.name) {
-        lines.push(`${indent}${roleLabel} "${node.name}"  →  ${node.selector}`)
+        // Show parent context when available — disambiguates
+        // duplicate selectors like six "Add to Wishlist" buttons.
+        lines.push(
+          purpose
+            ? `${indent}${roleLabel} "${node.name}" ∈ "${purpose}"  →  ${node.selector}`
+            : `${indent}${roleLabel} "${node.name}"  →  ${node.selector}`
+        )
       } else {
-        const purpose = inferPurpose(nodes, i)
         if (purpose) {
           lines.push(
             `${indent}${roleLabel} ∈ "${purpose}"  →  ${node.selector}`
@@ -173,11 +228,43 @@ function isMobileInteractive(
   return attrs.accessible === 'true'
 }
 
+interface WalkMobileOptions {
+  inViewportOnly: boolean
+  viewport: { width: number; height: number }
+}
+
+function isMobileInViewport(
+  element: JSONElement,
+  platform: 'android' | 'ios',
+  viewport: { width: number; height: number }
+): boolean {
+  const bounds =
+    platform === 'android'
+      ? parseAndroidBounds(element.attributes.bounds || '')
+      : parseIOSBounds(element.attributes)
+
+  // Elements without explicit bounds dimensions default to "in viewport"
+  // so we don't silently drop content from sources that omit bounds info.
+  if (bounds.width === 0 && bounds.height === 0) {
+    return true
+  }
+
+  return (
+    bounds.x >= 0 &&
+    bounds.y >= 0 &&
+    bounds.width > 0 &&
+    bounds.height > 0 &&
+    bounds.x + bounds.width <= viewport.width &&
+    bounds.y + bounds.height <= viewport.height
+  )
+}
+
 function walkMobileTree(
   element: JSONElement,
   platform: 'android' | 'ios',
   depth: number,
   lines: string[],
+  walkOpts: WalkMobileOptions,
   parentIdentity?: string
 ): void {
   const attrs = element.attributes
@@ -190,6 +277,32 @@ function walkMobileTree(
     platform === 'android'
       ? getBestAndroidLocator(attrs)
       : getBestIOSLocator(attrs)
+
+  if (walkOpts.inViewportOnly) {
+    const inViewport = isMobileInViewport(element, platform, walkOpts.viewport)
+
+    if (interactive && !inViewport) {
+      // Interactive element off-screen — skip entirely.
+      // Still recurse into children (e.g. a scrollable list whose items
+      // extend beyond the viewport but the scroll container itself is in view).
+      for (const child of element.children || []) {
+        walkMobileTree(child, platform, depth + 1, lines, walkOpts,
+          identity || parentIdentity)
+      }
+      return
+    }
+
+    if (!interactive && !inViewport) {
+      // Container fully off-screen — collapse to a single label.
+      lines.push(
+        identity
+          ? `${indent}⋯ ${tag} "${identity}" (off-screen)`
+          : `${indent}⋯ ${tag} (off-screen)`
+      )
+      // Do NOT recurse into children of an off-screen container.
+      return
+    }
+  }
 
   if (interactive && locator) {
     if (identity) {
@@ -210,16 +323,24 @@ function walkMobileTree(
       platform,
       depth + 1,
       lines,
+      walkOpts,
       identity || parentIdentity
     )
   }
+}
+
+export interface MobileSnapshotOptions {
+  /** Only include elements whose bounds intersect the viewport (default true). */
+  inViewportOnly?: boolean
 }
 
 /**
  * Serialize a mobile element tree into a depth-indented text snapshot.
  *
  * @param root     Root JSONElement from the page source XML parse
- * @param context  Platform, optional device name and viewport
+ * @param context  Platform, optional device name and viewport.
+ *                 Viewport dimensions are required when `inViewportOnly` is true.
+ * @param options  {@link MobileSnapshotOptions}
  */
 export function serializeMobileSnapshot(
   root: JSONElement,
@@ -227,9 +348,13 @@ export function serializeMobileSnapshot(
     platform: 'android' | 'ios'
     deviceName?: string
     viewport?: { width: number; height: number }
-  }
+  },
+  options: MobileSnapshotOptions = {}
 ): string {
   const { platform, deviceName, viewport } = context
+  const { inViewportOnly = true } = options
+
+  const effectiveViewport = viewport ?? { width: 9999, height: 9999 }
 
   let header = `[${platform}`
   if (deviceName) {
@@ -241,6 +366,9 @@ export function serializeMobileSnapshot(
   header += ']'
 
   const lines: string[] = [header]
-  walkMobileTree(root, platform, 1, lines)
+  walkMobileTree(root, platform, 1, lines, {
+    inViewportOnly,
+    viewport: effectiveViewport
+  })
   return lines.join('\n')
 }

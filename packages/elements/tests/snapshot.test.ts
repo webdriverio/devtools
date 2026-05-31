@@ -142,10 +142,10 @@ describe('serializeWebSnapshot', () => {
     })
     expect(out).toContain('[Page: Login — https://example.com/login]')
     expect(out).toContain('navigation "Main"')
-    expect(out).toContain('link "Home"  →  a*=Home')
+    expect(out).toContain('link "Home" ∈ "Main"  →  a*=Home')
     expect(out).toContain('heading[1] "Sign in"')
-    expect(out).toContain('textbox "Email address"  →  #email')
-    expect(out).toContain('button "Sign in"  →  button*=Sign in')
+    expect(out).toContain('textbox "Email address" ∈ "Login"  →  #email')
+    expect(out).toContain('button "Sign in" ∈ "Login"  →  button*=Sign in')
   })
 })
 

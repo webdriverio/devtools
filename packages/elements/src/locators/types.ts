@@ -105,4 +105,6 @@ export interface GenerateLocatorsOptions {
   viewportSize?: { width: number; height: number }
   filters?: FilterOptions
   isNative?: boolean
+  /** Only return elements whose bounds intersect the viewport (default true). */
+  inViewportOnly?: boolean
 }

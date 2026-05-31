@@ -39,6 +39,8 @@ export interface MobileElementInfo {
 export interface GetMobileElementsOptions {
   includeContainers?: boolean
   includeBounds?: boolean
+  /** Only return elements whose bounds intersect the viewport (default true). */
+  inViewportOnly?: boolean
   filterOptions?: FilterOptions
 }
 
@@ -145,6 +147,7 @@ export async function getMobileVisibleElementsWithTree(
   const {
     includeContainers = false,
     includeBounds = false,
+    inViewportOnly = true,
     filterOptions
   } = options
 
@@ -161,7 +164,8 @@ export async function getMobileVisibleElementsWithTree(
   const elementLocators = generateAllElementLocators(pageSource, {
     platform,
     viewportSize,
-    filters
+    filters,
+    inViewportOnly
   })
 
   const elements = elementLocators.map((el) =>

@@ -19,9 +19,11 @@ export interface AccessibilityNode {
   pressed: string
   required: string
   readonly: string
+  /** Whether the element's bounding rect intersects the viewport. */
+  isInViewport?: boolean
 }
 
-const accessibilityTreeScript = () =>
+const accessibilityTreeScript = (inViewportOnly: boolean) =>
   (function () {
     const INPUT_TYPE_ROLES: Record<string, string> = {
       text: 'textbox',
@@ -40,17 +42,6 @@ const accessibilityTreeScript = () =>
       file: 'button',
       color: 'button'
     }
-
-    const LANDMARK_ROLES = new Set([
-      'navigation',
-      'main',
-      'banner',
-      'contentinfo',
-      'complementary',
-      'form',
-      'dialog',
-      'region'
-    ])
 
     // Container roles: named only via aria-label/aria-labelledby, not textContent
     const CONTAINER_ROLES = new Set([
@@ -154,6 +145,12 @@ const accessibilityTreeScript = () =>
         return 'generic'
       }
 
+      // Capture elements with visible direct text that don't match
+      // any semantic role — book titles, prices, labels, etc.
+      if (getDirectText(el)) {
+        return 'statictext'
+      }
+
       return null
     }
 
@@ -170,7 +167,7 @@ const accessibilityTreeScript = () =>
           .map((id) => document.getElementById(id)?.textContent?.trim() || '')
           .filter(Boolean)
         if (texts.length > 0) {
-          return texts.join(' ').slice(0, 100)
+          return texts.join(' ').slice(0, 200)
         }
       }
 
@@ -217,17 +214,26 @@ const accessibilityTreeScript = () =>
         return title.trim()
       }
 
+      // 9. Child <img alt> — common pattern for image links and buttons
+      const childImg = el.querySelector('img')
+      if (childImg) {
+        const alt = childImg.getAttribute('alt')
+        if (alt) {
+          return alt.trim()
+        }
+      }
+
       if (role && CONTAINER_ROLES.has(role)) {
         return ''
       }
-      return (el.textContent?.trim().replace(/\s+/g, ' ') || '').slice(0, 100)
+      return (el.textContent?.trim().replace(/\s+/g, ' ') || '').slice(0, 200)
     }
 
     function getSelector(element: HTMLElement): string {
       const tag = element.tagName.toLowerCase()
 
       const text = element.textContent?.trim().replace(/\s+/g, ' ')
-      if (text && text.length > 0 && text.length <= 50) {
+      if (text && text.length > 0 && text.length <= 120) {
         const sameTagElements = document.querySelectorAll(tag)
         let matchCount = 0
         sameTagElements.forEach((el) => {
@@ -241,8 +247,11 @@ const accessibilityTreeScript = () =>
       }
 
       const ariaLabel = element.getAttribute('aria-label')
-      if (ariaLabel && ariaLabel.length <= 80) {
-        return `aria/${ariaLabel}`
+      if (ariaLabel && ariaLabel.length <= 200) {
+        const sel = `[aria-label="${CSS.escape(ariaLabel)}"]`
+        if (document.querySelectorAll(sel).length === 1) {
+          return sel
+        }
       }
 
       const testId = element.getAttribute('data-testid')
@@ -310,6 +319,17 @@ const accessibilityTreeScript = () =>
       return path.join(' > ')
     }
 
+    /** Extract text from immediate text-node children only (not nested elements). */
+    function getDirectText(el: HTMLElement): string {
+      let text = ''
+      for (const child of Array.from(el.childNodes)) {
+        if (child.nodeType === 3 /* TEXT_NODE */) {
+          text += child.textContent
+        }
+      }
+      return text.trim().replace(/\s+/g, ' ')
+    }
+
     function isVisible(el: HTMLElement): boolean {
       if (typeof el.checkVisibility === 'function') {
         return el.checkVisibility({
@@ -325,6 +345,18 @@ const accessibilityTreeScript = () =>
         style.opacity !== '0' &&
         el.offsetWidth > 0 &&
         el.offsetHeight > 0
+      )
+    }
+
+    function isInViewport(el: HTMLElement): boolean {
+      const rect = el.getBoundingClientRect()
+      return (
+        rect.top >= 0 &&
+        rect.left >= 0 &&
+        rect.bottom <=
+          (window.innerHeight || document.documentElement.clientHeight) &&
+        rect.right <=
+          (window.innerWidth || document.documentElement.clientWidth)
       )
     }
 
@@ -383,6 +415,7 @@ const accessibilityTreeScript = () =>
       }
 
       const role = getRole(el)
+      const inViewport = isInViewport(el)
 
       if (!role) {
         for (const child of Array.from(el.children)) {
@@ -391,16 +424,27 @@ const accessibilityTreeScript = () =>
         return
       }
 
+      // When viewport filtering is on, skip nodes outside the viewport.
+      // Still recurse into children — they may have different positioning
+      // (e.g. position:fixed elements inside an off-screen container).
+      if (inViewportOnly && !inViewport) {
+        for (const child of Array.from(el.children)) {
+          walk(child as HTMLElement, depth + 1)
+        }
+        return
+      }
+
       const name = getAccessibleName(el, role)
-      const isLandmark = LANDMARK_ROLES.has(role)
-      const hasIdentity = !!(name || isLandmark)
-      const selector = hasIdentity ? getSelector(el) : ''
+      // Always generate a selector — even elements without an accessible
+      // name need a CSS-path fallback so the snapshot doesn't lose them.
+      const selector = getSelector(el)
       const node: RawNode = {
         role,
         name,
         selector,
         depth,
         level: getLevel(el) ?? '',
+        isInViewport: inViewport,
         ...getState(el)
       }
       result.push(node)
@@ -419,11 +463,18 @@ const accessibilityTreeScript = () =>
 
 /**
  * Get browser accessibility tree via a single DOM walk.
+ *
+ * @param browser  WebdriverIO browser instance
+ * @param options  {@link inViewportOnly} defaults to `true` — only nodes
+ *                 whose bounding rect intersects the viewport are included.
  */
 export async function getBrowserAccessibilityTree(
-  browser: WebdriverIO.Browser
+  browser: WebdriverIO.Browser,
+  options: { inViewportOnly?: boolean } = {}
 ): Promise<AccessibilityNode[]> {
+  const { inViewportOnly = true } = options
   return (browser as any).execute(
-    accessibilityTreeScript
+    accessibilityTreeScript,
+    inViewportOnly
   ) as unknown as Promise<AccessibilityNode[]>
 }

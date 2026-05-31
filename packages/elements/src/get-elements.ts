@@ -36,16 +36,16 @@ export async function getElements(
     const platform = browser.isAndroid ? 'android' : 'ios'
     const result = await getMobileVisibleElementsWithTree(browser, platform, {
       includeContainers,
-      includeBounds
+      includeBounds,
+      inViewportOnly
     })
     elements = result.elements
     tree = result.tree ?? undefined
   } else {
-    elements = await getInteractableBrowserElements(browser, { includeBounds })
-  }
-
-  if (inViewportOnly) {
-    elements = elements.filter((el) => el.isInViewport !== false)
+    elements = await getInteractableBrowserElements(browser, {
+      includeBounds,
+      inViewportOnly
+    })
   }
 
   const total = elements.length
