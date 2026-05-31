@@ -181,7 +181,7 @@ describe('serializeMobileSnapshot', () => {
       })
     ])
     const out = serializeMobileSnapshot(root, { platform: 'android' })
-    expect(out).toContain('Button "Skip"  →  accessibility-id:Skip')
+    expect(out).toContain('button "Skip"  →  ~Skip')
   })
 
   it('falls back to resource-id when no content-desc', () => {
@@ -194,7 +194,7 @@ describe('serializeMobileSnapshot', () => {
       })
     ])
     const out = serializeMobileSnapshot(root, { platform: 'android' })
-    expect(out).toContain('EditText  →  id:com.example:id/search')
+    expect(out).toContain('textbox "search"  →  id:com.example:id/search')
   })
 
   it('renders ∈ ancestor context when element has no identity', () => {
@@ -214,7 +214,7 @@ describe('serializeMobileSnapshot', () => {
     ])
     const out = serializeMobileSnapshot(root, { platform: 'android' })
     expect(out).toContain(
-      'EditText ∈ "Search section"  →  id:com.example:id/search'
+      'textbox "search" ∈ "Search section"  →  id:com.example:id/search'
     )
   })
 
@@ -227,9 +227,7 @@ describe('serializeMobileSnapshot', () => {
       })
     ])
     const out = serializeMobileSnapshot(root, { platform: 'ios' })
-    expect(out).toContain(
-      'Button "Accept All Cookies"  →  accessibility-id:Accept All Cookies'
-    )
+    expect(out).toContain('button "Accept All Cookies"  →  ~Accept All Cookies')
   })
 
   it('simplifies iOS XCUIElementType prefix', () => {

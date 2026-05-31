@@ -161,6 +161,12 @@ export async function getMobileVisibleElementsWithTree(
 
   const tree = xmlToJSON(pageSource)
 
+  // Stash the source XML on the root element so serializeMobileSnapshot
+  // can use the full locator pipeline without requiring it as a separate arg.
+  if (tree) {
+    tree.attributes._sourceXML = pageSource
+  }
+
   const elementLocators = generateAllElementLocators(pageSource, {
     platform,
     viewportSize,

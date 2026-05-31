@@ -209,6 +209,10 @@ function processElement(element: JSONElement, ctx: ProcessingContext): void {
       return
     }
 
+    // Stash the best locator on the tree node so serializeMobileSnapshot
+    // can reuse the full locator pipeline instead of recomputing.
+    element.attributes._selector = locators[0][1]
+
     const transformed = transformElement(element, locators, ctx)
     if (Object.keys(transformed.locators).length === 0) {
       return
