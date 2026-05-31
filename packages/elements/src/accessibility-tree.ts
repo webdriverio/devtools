@@ -10,6 +10,7 @@ export interface AccessibilityNode {
   role: string
   name: string
   selector: string
+  depth: number
   level: number | string
   disabled: string
   checked: string
@@ -398,6 +399,7 @@ const accessibilityTreeScript = () =>
         role,
         name,
         selector,
+        depth,
         level: getLevel(el) ?? '',
         ...getState(el)
       }

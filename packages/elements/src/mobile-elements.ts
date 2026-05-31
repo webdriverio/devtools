@@ -7,11 +7,13 @@
 import type {
   ElementWithLocators,
   FilterOptions,
+  JSONElement,
   LocatorStrategy
 } from './locators/index.js'
 import {
   generateAllElementLocators,
-  getDefaultFilters
+  getDefaultFilters,
+  xmlToJSON
 } from './locators/index.js'
 
 /**
@@ -130,15 +132,16 @@ async function getViewportSize(
 }
 
 /**
- * Get all visible elements from a mobile app
+ * Get all visible elements from a mobile app, also returning the raw JSON element tree.
+ * Single parse of page source: tree and flat list share one xmlToJSON call.
  *
  * Performance: 2 HTTP calls (getWindowSize + getPageSource) vs 12+ per element with legacy approach
  */
-export async function getMobileVisibleElements(
+export async function getMobileVisibleElementsWithTree(
   browser: WebdriverIO.Browser,
   platform: 'ios' | 'android',
   options: GetMobileElementsOptions = {}
-): Promise<MobileElementInfo[]> {
+): Promise<{ elements: MobileElementInfo[]; tree: JSONElement | null }> {
   const {
     includeContainers = false,
     includeBounds = false,
@@ -153,11 +156,34 @@ export async function getMobileVisibleElements(
     ...filterOptions
   }
 
-  const elements = generateAllElementLocators(pageSource, {
+  const tree = xmlToJSON(pageSource)
+
+  const elementLocators = generateAllElementLocators(pageSource, {
     platform,
     viewportSize,
     filters
   })
 
-  return elements.map((el) => toMobileElementInfo(el, includeBounds))
+  const elements = elementLocators.map((el) =>
+    toMobileElementInfo(el, includeBounds)
+  )
+  return { elements, tree }
+}
+
+/**
+ * Get all visible elements from a mobile app
+ *
+ * Performance: 2 HTTP calls (getWindowSize + getPageSource) vs 12+ per element with legacy approach
+ */
+export async function getMobileVisibleElements(
+  browser: WebdriverIO.Browser,
+  platform: 'ios' | 'android',
+  options: GetMobileElementsOptions = {}
+): Promise<MobileElementInfo[]> {
+  const { elements } = await getMobileVisibleElementsWithTree(
+    browser,
+    platform,
+    options
+  )
+  return elements
 }

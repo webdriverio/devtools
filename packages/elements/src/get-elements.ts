@@ -1,11 +1,14 @@
 import { getInteractableBrowserElements } from './browser-elements.js'
-import { getMobileVisibleElements } from './mobile-elements.js'
+import { getMobileVisibleElementsWithTree } from './mobile-elements.js'
+import type { JSONElement } from './locators/types.js'
 
 export type VisibleElementsResult = {
   total: number
   showing: number
   hasMore: boolean
   elements: unknown[]
+  /** Raw JSON element tree — only present for mobile (android/ios) sessions */
+  tree?: JSONElement
 }
 
 export async function getElements(
@@ -27,13 +30,16 @@ export async function getElements(
   } = params
 
   let elements: { isInViewport?: boolean }[]
+  let tree: JSONElement | undefined
 
   if (browser.isAndroid || browser.isIOS) {
     const platform = browser.isAndroid ? 'android' : 'ios'
-    elements = await getMobileVisibleElements(browser, platform, {
+    const result = await getMobileVisibleElementsWithTree(browser, platform, {
       includeContainers,
       includeBounds
     })
+    elements = result.elements
+    tree = result.tree ?? undefined
   } else {
     elements = await getInteractableBrowserElements(browser, { includeBounds })
   }
@@ -55,6 +61,7 @@ export async function getElements(
     total,
     showing: elements.length,
     hasMore: offset + elements.length < total,
-    elements
+    elements,
+    ...(tree !== undefined ? { tree } : {})
   }
 }

@@ -15,3 +15,6 @@ export type {
 
 export { getElements } from './get-elements.js'
 export type { VisibleElementsResult } from './get-elements.js'
+
+export { serializeWebSnapshot, serializeMobileSnapshot } from './snapshot.js'
+export type { JSONElement } from './locators/types.js'

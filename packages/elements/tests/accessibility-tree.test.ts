@@ -8,6 +8,7 @@ describe('getBrowserAccessibilityTree', () => {
         role: 'button',
         name: 'Submit',
         selector: 'button*=Submit',
+        depth: 0,
         level: '',
         disabled: '',
         checked: '',
