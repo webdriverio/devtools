@@ -20,7 +20,7 @@ import {
   baselineContext,
   selectedTestUidContext
 } from './context.js'
-import { BASELINE_WS_SCOPE } from '@wdio/devtools-shared'
+import { BASELINE_WS_SCOPE, WS_SCOPE } from '@wdio/devtools-shared'
 import { CACHE_ID } from './constants.js'
 import { rerunState } from './rerunState.js'
 import type { SuiteStatsFragment, SocketMessage } from './types.js'
@@ -211,7 +211,7 @@ export class DataManagerController implements ReactiveController {
         return
       }
 
-      if (scope === 'testStopped') {
+      if (scope === WS_SCOPE.testStopped) {
         this.#handleTestStopped()
         this.#host.requestUpdate()
         return
@@ -225,7 +225,7 @@ export class DataManagerController implements ReactiveController {
         return
       }
 
-      if (scope === 'clearExecutionData') {
+      if (scope === WS_SCOPE.clearExecutionData) {
         const { uid, entryType, clearSuiteTree } =
           data as SocketMessage<'clearExecutionData'>['data']
         this.clearExecutionData(uid, entryType)
@@ -239,7 +239,7 @@ export class DataManagerController implements ReactiveController {
         return
       }
 
-      if (scope === 'replaceCommand') {
+      if (scope === WS_SCOPE.replaceCommand) {
         const { oldTimestamp, command } =
           data as SocketMessage<'replaceCommand'>['data']
         this.#handleReplaceCommand(oldTimestamp, command)

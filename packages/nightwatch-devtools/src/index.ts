@@ -10,7 +10,7 @@ import * as path from 'node:path'
 import * as os from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { start, stop } from '@wdio/devtools-backend'
-import { REUSE_ENV } from '@wdio/devtools-shared'
+import { REUSE_ENV, WS_SCOPE } from '@wdio/devtools-shared'
 import logger from '@wdio/logger'
 import { remote } from 'webdriverio'
 import { SessionCapturer } from './session.js'
@@ -398,7 +398,7 @@ class NightwatchDevToolsPlugin {
       // Pass the specific scenario uid so only this scenario's execution data
       // is reset — a uid-less clearExecutionData would mark ALL suites as
       // running, destroying the previous terminal states of sibling scenarios.
-      this.sessionCapturer.sendUpstream('clearExecutionData', {
+      this.sessionCapturer.sendUpstream(WS_SCOPE.clearExecutionData, {
         uid: scenarioUid,
         entryType: 'suite'
       })

@@ -22,6 +22,7 @@ import {
   BASELINE_API,
   BASELINE_WS_SCOPE,
   WS_PATHS,
+  WS_SCOPE,
   type BaselinePreserveRequest,
   type BaselineClearRequest,
   type BaselineGetParams,
@@ -129,7 +130,7 @@ export async function start(
       // Broadcast a clear so popouts (which only see WS events) wipe too.
       broadcastToClients(
         JSON.stringify({
-          scope: 'clearExecutionData',
+          scope: WS_SCOPE.clearExecutionData,
           data: { uid: body.uid, entryType: body.entryType }
         })
       )
@@ -163,7 +164,7 @@ export async function start(
     testRunner.stop()
     broadcastToClients(
       JSON.stringify({
-        scope: 'testStopped',
+        scope: WS_SCOPE.testStopped,
         data: { stopped: true, timestamp: Date.now() }
       })
     )
@@ -257,13 +258,15 @@ export async function start(
               ? workerSocket
               : undefined
         if (clients.size === 0 && target) {
-          target.send(JSON.stringify({ scope: 'clientDisconnected', data: {} }))
+          target.send(
+            JSON.stringify({ scope: WS_SCOPE.clientDisconnected, data: {} })
+          )
         }
       })
 
       if (workerSocket?.readyState === WebSocket.OPEN) {
         workerSocket.send(
-          JSON.stringify({ scope: 'clientConnected', data: {} })
+          JSON.stringify({ scope: WS_SCOPE.clientConnected, data: {} })
         )
       }
     }
@@ -296,7 +299,7 @@ export async function start(
         }
       })
       if (clients.size > 0) {
-        socket.send(JSON.stringify({ scope: 'clientConnected', data: {} }))
+        socket.send(JSON.stringify({ scope: WS_SCOPE.clientConnected, data: {} }))
       }
       socket.on(
         'message',

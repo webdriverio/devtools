@@ -8,6 +8,7 @@ import {
   serializeError,
   type LogSource
 } from '@wdio/devtools-core'
+import { WS_SCOPE } from '@wdio/devtools-shared'
 import { LOG_SOURCES, NAVIGATION_COMMANDS } from './constants.js'
 import { chromeLogLevelToLogLevel } from './helpers/utils.js'
 import { getDriverOriginals } from './driverPatcher.js'
@@ -74,7 +75,7 @@ export class SessionCapturer extends SessionCapturerBase {
 
   protected override onWsMessage(msg: unknown): void {
     const parsed = msg as { scope?: string } | null | undefined
-    if (parsed?.scope === 'clientConnected') {
+    if (parsed?.scope === WS_SCOPE.clientConnected) {
       this.#clientConnected = true
       const waiters = this.#clientConnectedWaiters
       this.#clientConnectedWaiters = []
@@ -85,7 +86,7 @@ export class SessionCapturer extends SessionCapturerBase {
           /* ignore */
         }
       }
-    } else if (parsed?.scope === 'clientDisconnected') {
+    } else if (parsed?.scope === WS_SCOPE.clientDisconnected) {
       this.#onClientDisconnected?.()
     }
   }
