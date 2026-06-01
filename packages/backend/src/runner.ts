@@ -2,147 +2,14 @@ import { spawn, type ChildProcess } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import url from 'node:url'
-import { createRequire } from 'node:module'
 import kill from 'tree-kill'
 import { parse as shellParse, quote as shellQuote } from 'shell-quote'
-import type { TestRunnerId } from '@wdio/devtools-shared'
-import type { RunnerRequestBody } from './types.js'
+import type { RunnerRequestBody, TestRunnerId } from '@wdio/devtools-shared'
 import { WDIO_CONFIG_FILENAMES, NIGHTWATCH_CONFIG_FILENAMES } from './types.js'
+import { getFilterBuilder } from './framework-filters.js'
+import { resolveNightwatchBin, resolveWdioBin } from './bin-resolver.js'
 
-const require = createRequire(import.meta.url)
 const wdioBin = resolveWdioBin()
-
-/**
- * Escape special regex characters in a string
- */
-function escapeRegex(str: string): string {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-}
-
-type FilterBuilder = (ctx: {
-  specArg?: string
-  payload: RunnerRequestBody
-}) => string[]
-
-// Map (not object) keeps payload-supplied `framework` from reaching
-// prototype methods at dispatch time — CodeQL: unvalidated-dynamic-method-call.
-// Keyed by TestRunnerId so adding a new runner forces compile-time updates here.
-const FRAMEWORK_FILTERS = new Map<TestRunnerId, FilterBuilder>()
-
-FRAMEWORK_FILTERS.set('cucumber', ({ specArg, payload }) => {
-  const filters: string[] = []
-
-  // For feature-level suites, run the entire feature file
-  if (payload.suiteType === 'feature' && specArg) {
-    // Remove any line number from specArg for feature-level execution
-    const featureFile = specArg.split(':')[0]
-    filters.push('--spec', featureFile)
-    return filters
-  }
-
-  // Priority 1: Use feature file with line number for exact scenario targeting (works for examples)
-  // Note: Cucumber scenarios are type 'suite', not 'test'
-  if (payload.featureFile && payload.featureLine) {
-    filters.push('--spec', `${payload.featureFile}:${payload.featureLine}`)
-    return filters
-  }
-
-  // Priority 2: For specific test reruns with example row number, use exact regex match
-  if (payload.entryType === 'test' && payload.fullTitle) {
-    // Cucumber fullTitle format: "1: Scenario name" or "2: Scenario name"
-    // Extract the row number and scenario name
-    // Avoid ReDoS by removing ambiguous \s* before .* - use string operations instead
-    const colonIndex = payload.fullTitle.indexOf(':')
-    if (colonIndex > 0) {
-      const rowNumber = payload.fullTitle.substring(0, colonIndex)
-      const scenarioName = payload.fullTitle.substring(colonIndex + 1).trim()
-      // Validate row number is digits only
-      if (/^\d+$/.test(rowNumber)) {
-        // Use spec file filter
-        if (specArg) {
-          filters.push('--spec', specArg)
-        }
-        // Use regex to match the exact "rowNumber: scenarioName" pattern
-        // This ensures we only run that specific example row
-        filters.push(
-          '--cucumberOpts.name',
-          `^${rowNumber}:\\s*${escapeRegex(scenarioName)}$`
-        )
-        return filters
-      }
-    }
-    // No row number - use plain name filter
-    if (specArg) {
-      filters.push('--spec', specArg)
-    }
-    filters.push('--cucumberOpts.name', payload.fullTitle.trim())
-    return filters
-  }
-
-  // Suite-level rerun
-  if (specArg) {
-    filters.push('--spec', specArg)
-  }
-  return filters
-})
-
-FRAMEWORK_FILTERS.set('mocha', ({ specArg, payload }) => {
-  const filters: string[] = []
-  if (specArg) {
-    filters.push('--spec', specArg)
-  }
-  // For both tests and suites, use grep to filter
-  if (payload.fullTitle) {
-    filters.push('--mochaOpts.grep', payload.fullTitle)
-  }
-  return filters
-})
-
-FRAMEWORK_FILTERS.set('jasmine', ({ specArg, payload }) => {
-  const filters: string[] = []
-  if (specArg) {
-    filters.push('--spec', specArg)
-  }
-  // For both tests and suites, use grep to filter
-  if (payload.fullTitle) {
-    filters.push('--jasmineOpts.grep', payload.fullTitle)
-  }
-  return filters
-})
-
-const DEFAULT_FILTERS: FilterBuilder = ({ specArg }) =>
-  specArg ? ['--spec', specArg] : []
-
-// Nightwatch CLI: positional spec file + optional --testcase filter
-FRAMEWORK_FILTERS.set('nightwatch', ({ specArg, payload }) => {
-  const filters: string[] = []
-  if (specArg) {
-    // Nightwatch doesn't support file:line — strip any trailing line number
-    filters.push(specArg.split(':')[0])
-  }
-  if (payload.entryType === 'test' && payload.label) {
-    filters.push('--testcase', payload.label)
-  }
-  return filters
-})
-
-// Nightwatch + Cucumber: feature files are resolved via the config's feature_path.
-// Never pass .feature files as positional args — Nightwatch rejects them.
-// Nightwatch forwards --name and --tags to the underlying Cucumber runner.
-FRAMEWORK_FILTERS.set('nightwatch-cucumber', ({ payload }) => {
-  const filters: string[] = []
-
-  // Only pass --name for scenario-level reruns. Feature/file-level suites
-  // (suiteType === 'feature') run all their scenarios, so no --name filter.
-  const isFeatureLevel = payload.suiteType === 'feature' || payload.runAll
-  if (!isFeatureLevel && payload.fullTitle) {
-    // Wrap as an anchored exact regex so "Scenario A" never also matches
-    // "Scenario A-1" (Cucumber treats --name as a regex).
-    const escaped = payload.fullTitle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    filters.push('--name', `^${escaped}$`)
-  }
-  return filters
-})
 
 class TestRunner {
   #child?: ChildProcess
@@ -353,12 +220,9 @@ class TestRunner {
       : undefined
 
     // Cast: framework comes from an HTTP payload, so it's `string` at the
-    // boundary. The Map naturally returns undefined for unknown runners.
-    const candidateBuilder = FRAMEWORK_FILTERS.get(framework as TestRunnerId)
-    const builder =
-      typeof candidateBuilder === 'function'
-        ? candidateBuilder
-        : DEFAULT_FILTERS
+    // boundary. getFilterBuilder() falls back to the default spec-only
+    // builder for unknown runners.
+    const builder = getFilterBuilder(framework as TestRunnerId)
     const baseFilters = builder({ specArg, payload })
 
     // Scope "Run All" to the user's original --spec args. Nightwatch resolves specs via its own filter.
@@ -503,87 +367,6 @@ class TestRunner {
             typeof value === 'string' && value.length > 0
         )
       )
-    )
-  }
-}
-
-function resolveNightwatchBin(baseDir: string): string {
-  const envOverride = process.env.DEVTOOLS_NIGHTWATCH_BIN
-  if (envOverride) {
-    const resolved = path.isAbsolute(envOverride)
-      ? envOverride
-      : path.resolve(process.cwd(), envOverride)
-    if (fs.existsSync(resolved)) {
-      return resolved
-    }
-  }
-
-  // Walk up from baseDir looking for node_modules/nightwatch/package.json
-  // and resolve the actual JS entry (avoids running the shell-script wrapper
-  // at node_modules/.bin/nightwatch directly via node).
-  let dir = baseDir
-  const root = path.parse(dir).root
-  while (dir !== root) {
-    const nightwatchPkgPath = path.join(
-      dir,
-      'node_modules',
-      'nightwatch',
-      'package.json'
-    )
-    if (fs.existsSync(nightwatchPkgPath)) {
-      try {
-        const pkg = JSON.parse(fs.readFileSync(nightwatchPkgPath, 'utf8'))
-        const nightwatchDir = path.join(dir, 'node_modules', 'nightwatch')
-        const binEntry =
-          typeof pkg.bin === 'string'
-            ? pkg.bin
-            : (pkg.bin?.nightwatch ?? pkg.bin?.nw)
-        if (binEntry) {
-          const jsPath = path.resolve(nightwatchDir, binEntry)
-          if (fs.existsSync(jsPath)) {
-            return jsPath
-          }
-        }
-      } catch {
-        // malformed package.json — continue walking
-      }
-    }
-    const parent = path.dirname(dir)
-    if (parent === dir) {
-      break
-    }
-    dir = parent
-  }
-
-  throw new Error(
-    'Cannot find nightwatch binary. Install nightwatch locally or set DEVTOOLS_NIGHTWATCH_BIN env var.'
-  )
-}
-
-function resolveWdioBin() {
-  const envOverride = process.env.DEVTOOLS_WDIO_BIN
-  if (envOverride) {
-    const overriddenPath = path.isAbsolute(envOverride)
-      ? envOverride
-      : path.resolve(process.cwd(), envOverride)
-    if (!fs.existsSync(overriddenPath)) {
-      throw new Error(
-        `DEVTOOLS_WDIO_BIN "${overriddenPath}" does not exist or is not accessible`
-      )
-    }
-    return overriddenPath
-  }
-
-  try {
-    const cliEntry = require.resolve('@wdio/cli')
-    const candidate = path.resolve(path.dirname(cliEntry), '../bin/wdio.js')
-    if (!fs.existsSync(candidate)) {
-      throw new Error(`Derived WDIO bin "${candidate}" does not exist`)
-    }
-    return candidate
-  } catch (error) {
-    throw new Error(
-      `Failed to resolve WDIO binary. Provide DEVTOOLS_WDIO_BIN env var. ${(error as Error).message}`
     )
   }
 }

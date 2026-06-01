@@ -83,12 +83,36 @@ export abstract class SessionCapturerBase {
   }
 
   // ── Public API ──────────────────────────────────────────────────────────
-  /** Send a typed event to the dashboard. No-op if the WS isn't open. */
+  /**
+   * Send a typed event to the dashboard. No-op if the WS isn't open. Catches
+   * send-time exceptions so a transient socket error never aborts the host
+   * runner. Subclasses that want diagnostics on drop or error override
+   * {@link onUpstreamDrop}.
+   */
   sendUpstream(event: string, data: unknown): void {
-    if (this.ws?.readyState !== WebSocket.OPEN) {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      this.onUpstreamDrop(event, 'closed')
       return
     }
-    this.ws.send(JSON.stringify({ scope: event, data }))
+    try {
+      this.ws.send(JSON.stringify({ scope: event, data }))
+    } catch (err) {
+      this.onUpstreamDrop(event, 'send-error', err)
+    }
+  }
+
+  /**
+   * Hook fired when a {@link sendUpstream} call can't deliver. Default: silent
+   * (matches the historical behavior of service/selenium). Nightwatch overrides
+   * this to log a warning — useful when a runner drops mid-test and the user
+   * needs to know why captured data is incomplete.
+   */
+  protected onUpstreamDrop(
+    _event: string,
+    _reason: 'closed' | 'send-error',
+    _err?: unknown
+  ): void {
+    // no-op
   }
 
   /** True once the WS has opened at least once and is currently OPEN. */

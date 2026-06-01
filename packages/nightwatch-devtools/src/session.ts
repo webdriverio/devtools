@@ -3,7 +3,6 @@ import http from 'node:http'
 import path from 'node:path'
 import { createRequire } from 'node:module'
 import logger from '@wdio/logger'
-import { WebSocket } from 'ws'
 import {
   SessionCapturerBase,
   createConsoleLogEntry,
@@ -300,24 +299,19 @@ export class SessionCapturer extends SessionCapturerBase {
     }
   }
 
-  /**
-   * Override base's `sendUpstream` to add nightwatch-specific diagnostics:
-   * warns once the WS disconnects mid-run (so dropped events are visible),
-   * and catches send errors instead of throwing.
-   */
-  override sendUpstream(event: string, data: unknown): void {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      if (this.hasEverConnected()) {
-        log.warn(`[upstream] WebSocket not open — dropping "${event}" event`)
-      }
-      return
-    }
-    try {
-      this.ws.send(JSON.stringify({ scope: event, data }))
-    } catch (err) {
+  protected override onUpstreamDrop(
+    event: string,
+    reason: 'closed' | 'send-error',
+    err?: unknown
+  ): void {
+    if (reason === 'send-error') {
       log.warn(
         `[upstream] Failed to send "${event}": ${(err as Error).message}`
       )
+      return
+    }
+    if (this.hasEverConnected()) {
+      log.warn(`[upstream] WebSocket not open — dropping "${event}" event`)
     }
   }
 

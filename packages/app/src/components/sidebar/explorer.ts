@@ -24,7 +24,9 @@ import {
 } from './constants.js'
 import {
   BASELINE_API,
-  type BaselinePreserveRequest
+  TESTS_API,
+  type BaselinePreserveRequest,
+  type RunnerRequestBody
 } from '@wdio/devtools-shared'
 
 import '~icons/mdi/play.js'
@@ -131,7 +133,7 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
     )
 
     // Forward preserveBaseline so the backend knows whether to drop baselines.
-    const payload = {
+    const payload: RunnerRequestBody = {
       ...detail,
       runAll: detail.uid === '*',
       framework: this.#getFramework(),
@@ -141,12 +143,12 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
       launchCommand: this.#getLaunchCommand(),
       preserveBaseline: detail.preserveBaseline === true
     }
-    await this.#postToBackend('/api/tests/run', payload)
+    await this.#postToBackend(TESTS_API.run, payload)
   }
 
   async #handleTestStop(event: Event) {
     event.stopPropagation()
-    await this.#postToBackend('/api/tests/stop', {})
+    await this.#postToBackend(TESTS_API.stop, {})
   }
 
   async #handlePreserveAndRerun(event: Event) {
@@ -196,7 +198,10 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
     )
   }
 
-  async #postToBackend(path: string, body: Record<string, unknown>) {
+  async #postToBackend(
+    path: typeof TESTS_API.run | typeof TESTS_API.stop,
+    body: RunnerRequestBody | Record<string, never>
+  ) {
     try {
       const response = await fetch(path, {
         method: 'POST',
@@ -260,7 +265,7 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
       })
     )
 
-    void this.#postToBackend('/api/tests/run', {
+    const payload: RunnerRequestBody = {
       uid: '*',
       entryType: 'suite',
       runAll: true,
@@ -268,13 +273,14 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
       configFile: this.#getConfigPath(),
       rerunCommand: this.#getRerunCommand(),
       launchCommand: this.#getLaunchCommand()
-    })
+    }
+    void this.#postToBackend(TESTS_API.run, payload)
   }
 
   #stopActiveRun() {
-    void this.#postToBackend('/api/tests/stop', {
-      uid: '*'
-    })
+    // Backend ignores the body for /api/tests/stop — sending {} keeps the
+    // typed helper happy without changing behavior.
+    void this.#postToBackend(TESTS_API.stop, {})
   }
 
   #getFramework(): string | undefined {
