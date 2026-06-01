@@ -26,7 +26,7 @@ Packages (pnpm workspace):
 | `packages/script` | Browser-injected runtime. Runs **inside the page under test** (not in Node), captures DOM mutations and page-side traces. Not a home for shared Node-side logic — that belongs in `core`. |
 | `examples/wdio/`, `examples/nightwatch/`, `examples/selenium/` | Per-framework demo projects, used for manual verification (§4). |
 
-Both `packages/shared` and `packages/core` exist and host the shared types, contracts, and adapter scaffolding. The `SessionCapturerBase` class in `core` owns console/stream patching, WS connection, and command id bookkeeping; all three adapters extend it. `TestReporterBase` is shared by the nightwatch + selenium reporters (service uses `@wdio/reporter` from WDIO). Remaining `core` candidates are smaller: nightwatch's `sendUpstream` `try`/`catch` wrapper could fold into base, and a handful of partially-shared `TIMING`/`DEFAULTS` constants.
+Both `packages/shared` and `packages/core` exist and host the shared types, contracts, and adapter scaffolding. The `SessionCapturerBase` class in `core` owns console/stream patching, WS connection, command id bookkeeping, and upstream-send guard/try-catch (with an `onUpstreamDrop` hook subclasses can override for diagnostics); all three adapters extend it. `TestReporterBase` is shared by the nightwatch + selenium reporters (service uses `@wdio/reporter` from WDIO). Remaining `core` candidate is a handful of partially-shared `TIMING`/`DEFAULTS` constants.
 
 ### Commands
 
@@ -267,7 +267,7 @@ These are documented violations of this file's rules. They exist today; they are
 
 - `packages/shared` contains `BASELINE_API`, `BASELINE_WS_SCOPE`, `TestRunnerId`, and the core test-event types (`CommandLog`, `ConsoleLog`, `NetworkRequest`, `Metadata`, `TraceLog`, `TraceType`, `PreservedAttempt`, `PreservedStep`, `TestStatus`, `TestError`, `TestStats`, `SuiteStats`, `ReporterError`, `PerformanceData`, `DocumentInfo`, `Viewport`, `ScreencastInfo`, `LogLevel`). `SuiteStats.featureFile` is the cucumber-only `.feature` path, distinct from `file` (which owns the suite's stable UID and stays at cwd). Adapter type files re-export shared types for backwards compatibility.
 - `packages/core` contains console-capture constants and helpers (`CONSOLE_METHODS`, `ANSI_REGEX`, `LOG_LEVEL_PATTERNS`, `LOG_SOURCES`, `ERROR_INDICATORS`, `stripAnsi`, `detectLogLevel`, `createConsoleLogEntry`, `isInternalStreamLine`, `SPINNER_RE`), stable-UID helpers (`generateStableUid`, `deterministicUid`, `resetSignatureCounters`), stack-frame helpers (`isUserCodeFrame`, `normalizeFilePath`, `getCallSourceFromStack`), `serializeError` (returns `SerializedError`), net helpers (`isPortInUse`, `findFreePort`, `getRequestType`), `chromeLogLevelToLogLevel`, the `SessionCapturerBase` abstract class, and the `TestReporterBase` abstract class. Adapter `SessionCapturer` and `TestReporter` subclasses contain only framework-specific logic.
-- Remaining adapter-side duplication: nightwatch's `sendUpstream` `try`/`catch`+one-shot-warning wrapper (could fold into base; selenium's wrapper is plainer and stays local) and partially-shared `TIMING`/`DEFAULTS` constants (each adapter has framework-specific values). Service's WDIO-specific Cucumber UID branching stays in `service/reporter.ts` and delegates the actual hashing to core.
+- Remaining adapter-side duplication: partially-shared `TIMING`/`DEFAULTS` constants (each adapter has framework-specific values, so partial sharing only saves a handful of lines). Service's WDIO-specific Cucumber UID branching stays in `service/reporter.ts` and delegates the actual hashing to core. The `sendUpstream` guard/try-catch is now in base; subclasses override `onUpstreamDrop` only when they want diagnostics on drop.
 - `TraceMutation` is defined in `packages/script/types.d.ts` as a global (browser-only, depends on DOM types). Adapters and backend currently sidestep this with loose `unknown[]` / `MutationLike` types. A clean home for browser/page-side types is open: extract from script into a small package consumable by both browser and Node consumers, or accept that mutation arrays cross the boundary as `unknown[]`.
 
 ### File-size debt (god-files to split as touched)
@@ -275,12 +275,11 @@ These are documented violations of this file's rules. They exist today; they are
 - `packages/app/src/controller/DataManager.ts` (~986 lines)
 - `packages/app/src/components/workbench/compare.ts` (~888 lines)
 - `packages/app/src/components/sidebar/explorer.ts` (~670 lines)
-- `packages/backend/src/runner.ts` (~473 lines)
 - `packages/backend/src/index.ts` (~387 lines)
 
 ### Type-safety debt
 
-- App-to-backend `fetch()` calls have no shared request/response types.
+_(All known type-safety debt resolved. New violations should still be tracked here as they're discovered.)_
 
 ---
 
