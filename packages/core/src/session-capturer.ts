@@ -1,6 +1,6 @@
 import { WebSocket } from 'ws'
 import type { CommandLog, LogLevel, LogSource } from '@wdio/devtools-shared'
-import { WS_PATHS } from '@wdio/devtools-shared'
+import { WS_PATHS, WS_SCOPE } from '@wdio/devtools-shared'
 import {
   CONSOLE_METHODS,
   LOG_SOURCES,
@@ -158,7 +158,7 @@ export abstract class SessionCapturerBase {
   ): void {
     const toSend = { ...command }
     delete toSend._id
-    this.sendUpstream('replaceCommand', { oldTimestamp, command: toSend })
+    this.sendUpstream(WS_SCOPE.replaceCommand, { oldTimestamp, command: toSend })
   }
 
   /**

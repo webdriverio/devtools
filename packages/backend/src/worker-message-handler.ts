@@ -1,4 +1,5 @@
 import logger from '@wdio/logger'
+import { WS_SCOPE } from '@wdio/devtools-shared'
 import type { baselineStore as BaselineStore } from './baselineStore.js'
 import type { testRunner as TestRunner } from './runner.js'
 
@@ -31,7 +32,7 @@ export function createWorkerMessageHandler(
     try {
       const parsed = JSON.parse(message.toString())
 
-      if (parsed.scope === 'clearCommands') {
+      if (parsed.scope === WS_SCOPE.clearCommands) {
         const testUid = parsed.data?.testUid
         log.info(`Clearing commands for test: ${testUid || 'all'}`)
         // Mirror the dashboard's reset behavior: clearing without a uid
@@ -41,7 +42,7 @@ export function createWorkerMessageHandler(
         }
         ctx.broadcastToClients(
           JSON.stringify({
-            scope: 'clearExecutionData',
+            scope: WS_SCOPE.clearExecutionData,
             data: { uid: testUid }
           })
         )
