@@ -1,6 +1,7 @@
 import path from 'node:path'
 import type { Capabilities, Options } from '@wdio/types'
 import type { WebDriverCommands } from '@wdio/protocols'
+import { RUNNER_ENV } from '@wdio/devtools-shared'
 import DevToolsHookService from './index.js'
 import { TraceType } from './types.js'
 
@@ -10,7 +11,7 @@ import { TraceType } from './types.js'
  * rerun button knows which config to relaunch with.
  */
 export function detectInvocationConfigPath(): string | undefined {
-  const envPath = process.env.DEVTOOLS_WDIO_CONFIG
+  const envPath = process.env[RUNNER_ENV.WDIO_CONFIG]
   if (envPath) {
     return path.isAbsolute(envPath)
       ? envPath
