@@ -95,42 +95,67 @@ function findSuiteLocationByText(
 
 // ── Stats enrichers ─────────────────────────────────────────────────────────
 /**
+ * Subset of stats fields {@link mapTestToSource}/{@link mapSuiteToSource}
+ * read. The wdio reporter's TestStats/SuiteStats classes carry many more
+ * fields (hooks, retries, etc.) that vary by reporter version, so the
+ * function parameters stay `unknown` and we narrow internally with one cast
+ * per call instead of per-field `as any` sprinkled through the body.
+ */
+interface StatsHintShape {
+  title?: string
+  fullTitle?: string
+  file?: string
+  specFile?: string
+  specs?: string[]
+}
+
+const asHint = (stats: unknown): StatsHintShape =>
+  (stats ?? {}) as StatsHintShape
+
+/** Pull the most-relevant hint path from a stats fragment. Falls through:
+ *  specs[0] → file → specFile → caller hint → tracked current spec file. */
+function hintFromStats(
+  stats: StatsHintShape,
+  hintFile: string | undefined
+): string | undefined {
+  if (Array.isArray(stats.specs) && stats.specs[0]) {
+    return stats.specs[0]
+  }
+  return stats.file || stats.specFile || hintFile || CURRENT_SPEC_FILE
+}
+
+/**
  * Enrich test stats with `file`/`line`/`column`:
  *  - Cucumber: prefer step-definition file/line
  *  - Mocha/Jasmine: AST with suite path; fallback to runtime stack
  */
-export function mapTestToSource(testStats: any, hintFile?: string): void {
-  const title = String(testStats?.title ?? '').trim()
-  const fullTitle = normalizeFullTitle(testStats?.fullTitle)
-
-  const hint =
-    (Array.isArray((testStats as any).specs)
-      ? (testStats as any).specs[0]
-      : undefined) ||
-    (testStats as any).file ||
-    (testStats as any).specFile ||
-    hintFile ||
-    CURRENT_SPEC_FILE
+export function mapTestToSource(
+  testStats: unknown,
+  hintFile?: string
+): void {
+  const t = asHint(testStats)
+  const title = String(t.title ?? '').trim()
+  const fullTitle = normalizeFullTitle(t.fullTitle)
 
   // Cucumber-like step: resolve step-definition location
   if (/^(Given|When|Then|And|But)\b/i.test(title)) {
+    const hint = hintFromStats(t, hintFile)
     const stepLoc = findStepDefinitionLocation(
       title,
-      FEATURE_FILE_RE.test(String(hint)) ? hint : undefined
+      hint && FEATURE_FILE_RE.test(hint) ? hint : undefined
     )
     if (stepLoc) {
-      Object.assign(testStats, stepLoc)
+      Object.assign(testStats as object, stepLoc)
       return
     }
   }
 
-  // Mocha/Jasmine static mapping via AST
+  // Mocha/Jasmine static mapping via AST. The .file-first fallback ORDER
+  // here matches the previous behavior — .file beats .specs[0].
   const file =
-    (testStats as any).file ||
-    (Array.isArray((testStats as any).specs)
-      ? (testStats as any).specs[0]
-      : undefined) ||
-    (testStats as any).specFile ||
+    t.file ||
+    (Array.isArray(t.specs) ? t.specs[0] : undefined) ||
+    t.specFile ||
     hintFile ||
     CURRENT_SPEC_FILE
 
@@ -153,7 +178,7 @@ export function mapTestToSource(testStats: any, hintFile?: string): void {
         ) || locs.find((l) => l.type === 'test' && l.name === title)
 
       if (match) {
-        Object.assign(testStats, {
+        Object.assign(testStats as object, {
           file,
           line: match.line,
           column: match.column
@@ -164,7 +189,7 @@ export function mapTestToSource(testStats: any, hintFile?: string): void {
 
     const textLoc = findTestLocationByText(file, title)
     if (textLoc) {
-      Object.assign(testStats, textLoc)
+      Object.assign(testStats as object, textLoc)
       return
     }
   }
@@ -172,7 +197,7 @@ export function mapTestToSource(testStats: any, hintFile?: string): void {
   // Runtime stack fallback
   const runtimeLoc = getCurrentTestLocation()
   if (runtimeLoc) {
-    Object.assign(testStats, runtimeLoc)
+    Object.assign(testStats as object, runtimeLoc)
   }
 }
 
@@ -182,12 +207,13 @@ export function mapTestToSource(testStats: any, hintFile?: string): void {
  *  - Cucumber: find Feature/Scenario line in .feature file
  */
 export function mapSuiteToSource(
-  suiteStats: any,
+  suiteStats: unknown,
   hintFile?: string,
   suitePath: string[] = []
 ): void {
-  const title = String(suiteStats?.title ?? '').trim()
-  const file = (suiteStats as any).file || hintFile || CURRENT_SPEC_FILE
+  const s = asHint(suiteStats)
+  const title = String(s.title ?? '').trim()
+  const file = s.file || hintFile || CURRENT_SPEC_FILE
   if (!title || !file) {
     return
   }
@@ -201,7 +227,7 @@ export function mapSuiteToSource(
       for (let i = 0; i < src.length; i++) {
         const m = src[i].match(FEATURE_OR_SCENARIO_LINE_RE)
         if (m && norm(m[2]) === want) {
-          Object.assign(suiteStats, { file, line: i + 1, column: 1 })
+          Object.assign(suiteStats as object, { file, line: i + 1, column: 1 })
           return
         }
       }
@@ -229,7 +255,7 @@ export function mapSuiteToSource(
         locs.find((l) => l.type === 'suite' && l.titlePath.at(-1) === title)
 
       if (match?.line) {
-        Object.assign(suiteStats, {
+        Object.assign(suiteStats as object, {
           file,
           line: match.line,
           column: match.column
@@ -244,6 +270,6 @@ export function mapSuiteToSource(
   // Fallback: text search
   const textLoc = findSuiteLocationByText(file, title)
   if (textLoc) {
-    Object.assign(suiteStats, textLoc)
+    Object.assign(suiteStats as object, textLoc)
   }
 }
