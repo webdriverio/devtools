@@ -50,8 +50,15 @@ export default defineConfig({
         if (isPrivateWorkspaceDep) {
           return false
         }
+        // Any relative import (`./foo.js` from top-level, OR `../foo.js`
+        // from a subfolder like utils/) and any absolute path under src/
+        // must be bundled, not externalized. The `../` case was missing
+        // before and caused constants.ts to leak as a non-emitted external
+        // import once utils/ subfolder modules started importing it.
         return (
-          !id.startsWith(path.resolve(__dirname, 'src')) && !id.startsWith('./')
+          !id.startsWith(path.resolve(__dirname, 'src')) &&
+          !id.startsWith('./') &&
+          !id.startsWith('../')
         )
       }
     }

@@ -9,6 +9,7 @@ import * as os from 'node:os'
 import logger from '@wdio/logger'
 import { startDetachedBackend } from './helpers/detachedBackend.js'
 import { openDashboard } from './helpers/dashboardLauncher.js'
+import { buildDriverMetadata } from './helpers/driverMetadata.js'
 import {
   gracefulShutdown,
   registerProcessHooks
@@ -44,7 +45,6 @@ import {
   NAVIGATION_COMMANDS
 } from './constants.js'
 import {
-  TraceType,
   type CapturedCommand,
   type CommandLog,
   type DevToolsOptions,
@@ -497,58 +497,17 @@ class SeleniumDevToolsPlugin {
       return
     }
 
-    try {
-      const session = driver.getSession ? await driver.getSession() : undefined
-      const capabilities = driver.getCapabilities
-        ? await driver.getCapabilities()
-        : undefined
-      this.#sessionId = session?.getId?.() ?? undefined
-      const capGet = (k: string): any => {
-        if (capabilities?.get && typeof capabilities.get === 'function') {
-          return capabilities.get(k)
-        }
-        const serialized = capabilities?.serialize?.() ?? capabilities ?? {}
-        return serialized[k]
-      }
-      const browserName = capGet('browserName') ?? 'unknown'
-      const browserVersion = capGet('browserVersion') ?? capGet('version') ?? ''
-      const platform = capGet('platformName') ?? capGet('platform') ?? ''
-      log.info(
-        `🌐 Browser: ${browserName}${browserVersion ? ' ' + browserVersion : ''}${platform ? ' on ' + platform : ''} (sessionId: ${this.#sessionId ?? 'unknown'})`
-      )
-      const webSocketUrl = capGet('webSocketUrl')
-      const chromeOpts = capGet('goog:chromeOptions') ?? {}
-      const chromeArgs: string[] = Array.isArray(chromeOpts?.args)
-        ? chromeOpts.args
-        : []
-      const headlessArg = chromeArgs.find((a) => a.startsWith('--headless'))
-      log.info(
-        `📋 Capabilities sent: browserName=${browserName}, webSocketUrl=${webSocketUrl ? 'on' : 'off'}` +
-          (headlessArg ? `, ${headlessArg}` : '') +
-          (chromeArgs.length ? `, chromeArgs=${chromeArgs.length}` : '')
-      )
-      log.info(`Driver session created in ${Date.now() - driverReadyTs}ms`)
-      this.#sessionCapturer.sendUpstream('metadata', {
-        type: TraceType.Testrunner,
-        capabilities: capabilities?.serialize?.() ?? capabilities ?? {},
-        sessionId: this.#sessionId,
-        options: {
-          framework: 'selenium-webdriver',
-          baseDir: process.cwd(),
-          rerunCommand:
-            this.#options.rerunCommand ?? this.#rerunManager.rerunTemplate,
-          launchCommand: this.#rerunManager.launchCommand,
-          // Cucumber `--name` filters scenarios but not Gherkin steps, so
-          // leaf-step rerun stays disabled there.
-          runCapabilities: {
-            canRunSuites: true,
-            canRunTests: RUNNER !== 'cucumber',
-            canRunAll: true
-          }
-        }
-      })
-    } catch (err) {
-      log.warn(`Failed to send metadata: ${(err as Error).message}`)
+    const { sessionId, metadata } = await buildDriverMetadata({
+      driver,
+      driverReadyTs,
+      runner: RUNNER,
+      rerunCommand: this.#options.rerunCommand,
+      rerunTemplate: this.#rerunManager.rerunTemplate,
+      launchCommand: this.#rerunManager.launchCommand
+    })
+    this.#sessionId = sessionId
+    if (metadata) {
+      this.#sessionCapturer.sendUpstream('metadata', metadata)
     }
 
     // Parallel — serial attach misses frames on fast tests.
