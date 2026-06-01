@@ -34,7 +34,16 @@ export class DevtoolsMetadata extends Element {
       return html`<wdio-devtools-placeholder></wdio-devtools-placeholder>`
     }
 
-    const m = this.metadata as any
+    const m = this.metadata as {
+      sessionId?: string
+      testEnv?: string
+      host?: string
+      modulePath?: string
+      url?: string
+      capabilities?: Record<string, unknown>
+      desiredCapabilities?: Record<string, unknown>
+      options?: Record<string, unknown>
+    }
     const sessionInfo: Record<string, unknown> = {}
     if (m.sessionId) {
       sessionInfo['Session ID'] = m.sessionId

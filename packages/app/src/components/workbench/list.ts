@@ -122,7 +122,7 @@ export class DevtoolsList extends Element {
       <section class="block">
         ${this.#renderSectionHeader(this.label)}
         <dl class="flex flex-wrap ${this.isCollapsed ? '' : 'mt-2'}">
-          ${(entries as any[]).map((entry) => {
+          ${(entries as unknown[]).map((entry) => {
             let key: string | undefined
             let val: unknown
 

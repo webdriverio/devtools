@@ -5,6 +5,23 @@ import type { ScreencastFrame, ScreencastOptions } from './types.js'
 
 const log = logger('@wdio/devtools-service:ScreencastRecorder')
 
+interface CdpSessionLike {
+  send(method: string, params?: Record<string, unknown>): Promise<unknown>
+  on(event: string, handler: (event: unknown) => void | Promise<void>): void
+}
+
+interface PuppeteerPageLike {
+  createCDPSession(): Promise<CdpSessionLike>
+}
+
+interface PuppeteerLike {
+  pages(): Promise<PuppeteerPageLike[]>
+}
+
+interface BrowserWithPuppeteer {
+  getPuppeteer(): Promise<PuppeteerLike>
+}
+
 /**
  * Manages session screencast recording with automatic browser detection.
  *
@@ -27,7 +44,7 @@ const log = logger('@wdio/devtools-service:ScreencastRecorder')
 export class ScreencastRecorder {
   #frames: ScreencastFrame[] = []
   /** Puppeteer CDPSession — set only in CDP mode. */
-  #cdpSession: any = undefined
+  #cdpSession: CdpSessionLike | undefined = undefined
   /** setInterval handle — set only in polling mode. */
   #pollTimer: ReturnType<typeof setInterval> | undefined = undefined
   #isRecording = false
@@ -119,23 +136,32 @@ export class ScreencastRecorder {
    */
   async #startCdp(browser: WebdriverIO.Browser): Promise<boolean> {
     try {
-      const puppeteer = await (browser as any).getPuppeteer()
+      // getPuppeteer is WDIO's lazy CDP escape hatch — not in the public types.
+      const puppeteer = await (
+        browser as unknown as BrowserWithPuppeteer
+      ).getPuppeteer()
       const pages = await puppeteer.pages()
       if (!pages.length) {
         return false
       }
 
       const page = pages[0]
-      this.#cdpSession = await page.createCDPSession()
+      const session = await page.createCDPSession()
+      this.#cdpSession = session
 
-      await this.#cdpSession.send('Page.startScreencast', {
+      await session.send('Page.startScreencast', {
         format: this.#options.captureFormat,
         quality: this.#options.quality,
         maxWidth: this.#options.maxWidth,
         maxHeight: this.#options.maxHeight
       })
 
-      this.#cdpSession.on('Page.screencastFrame', async (event: any) => {
+      session.on('Page.screencastFrame', async (rawEvent) => {
+        const event = rawEvent as {
+          data: string
+          metadata: { timestamp: number }
+          sessionId?: number
+        }
         // CDP timestamp is seconds (float); convert to ms.
         this.#frames.push({
           data: event.data,
@@ -143,7 +169,7 @@ export class ScreencastRecorder {
         })
         // Chrome stops sending frames if acks are not sent promptly.
         try {
-          await this.#cdpSession.send('Page.screencastFrameAck', {
+          await session.send('Page.screencastFrameAck', {
             sessionId: event.sessionId
           })
         } catch (ackErr) {
@@ -163,8 +189,12 @@ export class ScreencastRecorder {
   }
 
   async #stopCdp(): Promise<void> {
+    const session = this.#cdpSession
+    if (!session) {
+      return
+    }
     try {
-      await this.#cdpSession.send('Page.stopScreencast')
+      await session.send('Page.stopScreencast')
       log.info(
         `✓ Screencast stopped — ${this.#frames.length} frame(s) collected`
       )

@@ -111,7 +111,7 @@ class NightwatchDevToolsPlugin {
 
     if (isReuse) {
       // Register the plugin instance so Cucumber hooks can call back into it.
-      ;(globalThis as any)[PLUGIN_GLOBAL_KEY] = this
+      ;(globalThis as Record<string, unknown>)[PLUGIN_GLOBAL_KEY] = this
       return
     }
 
@@ -163,7 +163,7 @@ class NightwatchDevToolsPlugin {
       await new Promise((resolve) =>
         setTimeout(resolve, TIMING.UI_CONNECTION_WAIT)
       )
-      ;(globalThis as any)[PLUGIN_GLOBAL_KEY] = this
+      ;(globalThis as Record<string, unknown>)[PLUGIN_GLOBAL_KEY] = this
     } catch (err) {
       log.error(`Failed to start backend: ${(err as Error).message}`)
       throw err
@@ -181,7 +181,9 @@ class NightwatchDevToolsPlugin {
       log.info('Browser session changed — reconnecting WebSocket only')
       this.isScriptInjected = false
       this.sessionCapturer?.cleanup()
-      this.sessionCapturer = null as any
+      // Intentional null-out — the next `#ensureSessionInitialized` call
+      // reassigns. Cast through unknown so the strict field type passes.
+      this.sessionCapturer = null as unknown as SessionCapturer
     }
     this.#lastSessionId = currentSessionId ?? null
 
@@ -241,7 +243,7 @@ class NightwatchDevToolsPlugin {
 
     // Capture src_folders once so beforeEach can resolve test file paths
     if (this.#srcFolders.length === 0) {
-      const sf = (opts as any).src_folders
+      const sf = (opts as { src_folders?: string | string[] }).src_folders
       this.#srcFolders = Array.isArray(sf) ? sf : sf ? [sf] : []
     }
 
@@ -259,15 +261,18 @@ class NightwatchDevToolsPlugin {
     const browserName =
       capabilities.browserName || desiredCapabilities.browserName || 'unknown'
     const browserVersion =
-      capabilities.browserVersion || (capabilities as any).version || ''
+      capabilities.browserVersion ||
+      (capabilities as { version?: string }).version ||
+      ''
     log.info(
       `✓ Browser: ${browserName}${browserVersion ? ' ' + browserVersion : ''} (session: ${sessionId})`
     )
 
-    const loggingPrefs =
-      (capabilities as any)['goog:loggingPrefs'] ||
-      (desiredCapabilities as any)['goog:loggingPrefs'] ||
-      {}
+    const loggingPrefs = ((capabilities as Record<string, unknown>)[
+      'goog:loggingPrefs'
+    ] ||
+      (desiredCapabilities as Record<string, unknown>)['goog:loggingPrefs'] ||
+      {}) as { performance?: string }
     if (!loggingPrefs.performance) {
       log.warn(
         "⚠  Network tab will be empty — add 'goog:loggingPrefs': { performance: 'ALL' } to your capabilities"
@@ -502,10 +507,18 @@ class NightwatchDevToolsPlugin {
     this.browserProxy?.resetCommandTracking()
 
     const stepText: string = pickleStep?.text ?? ''
-    const step = (this.#currentScenarioSuite.tests as any[]).find(
-      (t: any) =>
+    type MutStep = {
+      title?: string
+      state?: string
+      start?: Date | null
+      end?: Date | null
+    }
+    const step = (
+      this.#currentScenarioSuite.tests as Array<MutStep | string>
+    ).find(
+      (t): t is MutStep =>
         typeof t !== 'string' &&
-        (t.title.endsWith(stepText) || t.title === stepText)
+        (t.title?.endsWith(stepText) === true || t.title === stepText)
     )
     if (step) {
       step.state = TEST_STATE.RUNNING
@@ -549,7 +562,9 @@ class NightwatchDevToolsPlugin {
 
     await this.#ensureSessionInitialized(browser)
 
-    const currentTest = (browser as any).currentTest
+    // Nightwatch's `currentTest` is loosely structured (module/results/name);
+    // keep it `any` here so per-field access stays terse.
+    const currentTest: any = (browser as { currentTest?: unknown }).currentTest
     if (!currentTest) {
       return
     }
@@ -711,7 +726,11 @@ class NightwatchDevToolsPlugin {
 
     if (browser && this.sessionCapturer) {
       try {
-        const currentTest = (browser as any).currentTest
+        // Nightwatch's `currentTest` is loosely structured
+        // (module/results/name); keep it `any` here so per-field access
+        // stays terse.
+        const currentTest: any = (browser as { currentTest?: unknown })
+          .currentTest
         const results = currentTest?.results || {}
         const testFile =
           (currentTest.module || '').split('/').pop() || DEFAULTS.FILE_NAME
@@ -799,7 +818,8 @@ class NightwatchDevToolsPlugin {
 
   async after(browser?: NightwatchBrowser) {
     try {
-      const currentTest = (browser as any)?.currentTest
+      const currentTest: any = (browser as { currentTest?: unknown })
+        ?.currentTest
       const testcases = currentTest?.results?.testcases || {}
 
       for (const [, suite] of (
@@ -842,7 +862,10 @@ class NightwatchDevToolsPlugin {
       log.info('💡 Please close the DevTools browser window to finish...')
 
       if (this.#devtoolsBrowser) {
-        ;(logger as any).setLevel('devtools', 'warn')
+        ;(logger as { setLevel: (ns: string, lvl: string) => void }).setLevel(
+          'devtools',
+          'warn'
+        )
         let exitBySignal = false
 
         const signalHandler = () => {
@@ -870,7 +893,10 @@ class NightwatchDevToolsPlugin {
         if (!exitBySignal) {
           process.removeListener('SIGINT', signalHandler)
           process.removeListener('SIGTERM', signalHandler)
-          ;(logger as any).setLevel('devtools', 'info')
+          ;(logger as { setLevel: (ns: string, lvl: string) => void }).setLevel(
+            'devtools',
+            'info'
+          )
           try {
             await this.#devtoolsBrowser.deleteSession()
           } catch {

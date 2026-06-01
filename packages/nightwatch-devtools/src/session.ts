@@ -28,6 +28,18 @@ import type {
 const require = createRequire(import.meta.url)
 const log = logger('@wdio/nightwatch-devtools:SessionCapturer')
 
+/**
+ * WebDriver responses are sometimes wrapped as `{ value: T }` (the W3C
+ * protocol shape) and sometimes flat. This helper unwraps the value field
+ * if present, otherwise returns the input as-is.
+ */
+function unwrapDriverValue<T = unknown>(result: unknown): T {
+  if (result && typeof result === 'object' && 'value' in result) {
+    return (result as { value: T }).value
+  }
+  return result as T
+}
+
 export class SessionCapturer extends SessionCapturerBase {
   #browser: NightwatchBrowser | undefined
 
@@ -125,13 +137,10 @@ export class SessionCapturer extends SessionCapturerBase {
       CAPTURE_PERFORMANCE_SCRIPT
     )
 
-    let data: any
-    if (performanceData && typeof performanceData === 'object') {
-      data =
-        'value' in performanceData
-          ? (performanceData as any).value
-          : performanceData
-    }
+    // `data` field surface is loose (Chrome perf data dump) — keep it `any`
+    // for the downstream property access. `unwrapDriverValue` handles the
+    // `{value: ...}` W3C-protocol unwrap when present.
+    const data: any = unwrapDriverValue(performanceData)
 
     if (data && data.navigation) {
       commandLogEntry.performance = {
@@ -181,9 +190,11 @@ export class SessionCapturer extends SessionCapturerBase {
     timestamp?: number
   ): { entry: CommandLog & { _id?: number }; oldTimestamp: number } {
     // Remove the superseded entry and capture its timestamp for the UI
-    const idx = this.commandsLog.findIndex((c: any) => c._id === oldId)
+    const idx = this.commandsLog.findIndex(
+      (c) => (c as CommandLog & { _id?: number })._id === oldId
+    )
     const oldTimestamp: number =
-      idx !== -1 ? ((this.commandsLog[idx] as any).timestamp ?? 0) : 0
+      idx !== -1 ? (this.commandsLog[idx]?.timestamp ?? 0) : 0
     if (idx !== -1) {
       this.commandsLog.splice(idx, 1)
     }
@@ -212,7 +223,10 @@ export class SessionCapturer extends SessionCapturerBase {
    * of the request being appended after `end()` / `quit()`.
    */
   takeScreenshotViaHttp(browser: NightwatchBrowser): Promise<string | null> {
-    const browserAny = browser as any
+    // Nightwatch's internal config lives at non-public paths (transport,
+    // queue.transport, nightwatchInstance.settings, globals.nightwatchInstance);
+    // none are in the NightwatchBrowser type. Cast once for dynamic access.
+    const browserAny = browser as unknown as Record<string, any>
     const sessionId = browserAny.sessionId
     if (!sessionId) {
       return Promise.resolve(null)
@@ -352,7 +366,7 @@ export class SessionCapturer extends SessionCapturerBase {
         const checkResult = await browser.execute(
           'return typeof window.wdioTraceCollector !== "undefined"'
         )
-        hasCollector = ((checkResult as any)?.value ?? checkResult) === true
+        hasCollector = unwrapDriverValue<unknown>(checkResult) === true
         if (hasCollector) {
           break
         }
@@ -375,13 +389,17 @@ export class SessionCapturer extends SessionCapturerBase {
    */
   async captureBrowserLogs(browser: NightwatchBrowser) {
     try {
-      const rawLogs = await (browser as any).getLog('browser')
-      const logs = ((rawLogs as any)?.value ?? rawLogs) as Array<{
-        level: string
-        message: string
-        source: string
-        timestamp: number
-      }>
+      const rawLogs = await (
+        browser as unknown as Record<string, (type: string) => Promise<unknown>>
+      ).getLog('browser')
+      const logs = unwrapDriverValue<
+        Array<{
+          level: string
+          message: string
+          source: string
+          timestamp: number
+        }>
+      >(rawLogs)
 
       if (!Array.isArray(logs) || logs.length === 0) {
         return
@@ -407,8 +425,10 @@ export class SessionCapturer extends SessionCapturerBase {
    */
   async captureNetworkFromPerformanceLogs(browser: NightwatchBrowser) {
     try {
-      const rawLogs = await (browser as any).getLog('performance')
-      const logs = ((rawLogs as any)?.value ?? rawLogs) as PerfLogEntry[]
+      const rawLogs = await (
+        browser as unknown as Record<string, (type: string) => Promise<unknown>>
+      ).getLog('performance')
+      const logs = unwrapDriverValue<PerfLogEntry[]>(rawLogs)
 
       if (!Array.isArray(logs) || logs.length === 0) {
         return
@@ -448,8 +468,7 @@ export class SessionCapturer extends SessionCapturerBase {
       const checkResult = await browser.execute(
         'return typeof window.wdioTraceCollector !== "undefined"'
       )
-      const collectorExists =
-        ((checkResult as any)?.value ?? checkResult) === true
+      const collectorExists = unwrapDriverValue<unknown>(checkResult) === true
 
       if (!collectorExists) {
         return
@@ -462,7 +481,9 @@ export class SessionCapturer extends SessionCapturerBase {
         return window.wdioTraceCollector.getTraceData();
       `)
 
-      const traceData = (result as any)?.value ?? result
+      const traceData = unwrapDriverValue<Record<string, unknown> | null>(
+        result
+      )
       if (!traceData) {
         return
       }

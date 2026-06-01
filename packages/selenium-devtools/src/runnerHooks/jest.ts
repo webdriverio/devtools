@@ -6,8 +6,21 @@ const log = logger('@wdio/selenium-devtools:runnerHooks:jest')
 
 // `suppressedErrors` only catches failed expect()s; we track thrown errors
 // (e.g. selenium TimeoutError) separately to mark those tests failed too.
+// Jest/Vitest globals are untyped at runtime; we type each used slot as a
+// generic callable rather than `any`, so reads + assignments still compile.
+type JestFn = (...args: any[]) => any
+type JestGlobals = {
+  describe?: JestFn
+  test?: JestFn
+  it?: JestFn
+  beforeAll?: JestFn
+  afterAll?: JestFn
+  beforeEach?: JestFn
+  afterEach?: JestFn
+  expect?: { getState?: () => unknown }
+}
 export function tryRegisterJestHooks(callbacks: RunnerHookCallbacks): boolean {
-  const g = globalThis as any
+  const g = globalThis as unknown as JestGlobals
   if (
     typeof g.beforeEach !== 'function' ||
     typeof g.afterEach !== 'function' ||
@@ -28,18 +41,27 @@ export function tryRegisterJestHooks(callbacks: RunnerHookCallbacks): boolean {
   const wrapWithDescribePush = <T extends (...args: any[]) => any>(
     orig: T
   ): T => {
-    const wrapped = ((name: string, fn: () => void, ...rest: any[]) => {
+    const wrapped = ((name: string, fn: () => void, ...rest: unknown[]) => {
       describeStack.push(name)
       try {
-        return (orig as any).call(g, name, fn, ...rest)
+        return (orig as (...args: unknown[]) => unknown).call(
+          g,
+          name,
+          fn,
+          ...rest
+        )
       } finally {
         describeStack.pop()
       }
-    }) as any as T
+    }) as unknown as T
     // Preserve .skip / .only / .each modifiers.
-    for (const k of Reflect.ownKeys(orig as any)) {
+    // Preserve `.skip` / `.only` / `.each` modifiers via index access. Casts
+    // are intentional — globals are untyped at this framework boundary.
+    const wrappedObj = wrapped as unknown as Record<string | symbol, unknown>
+    const origObj = orig as unknown as Record<string | symbol, unknown>
+    for (const k of Reflect.ownKeys(origObj)) {
       try {
-        ;(wrapped as any)[k] = (orig as any)[k]
+        wrappedObj[k] = origObj[k]
       } catch {
         /* read-only own keys */
       }
@@ -47,7 +69,7 @@ export function tryRegisterJestHooks(callbacks: RunnerHookCallbacks): boolean {
     return wrapped
   }
   const wrapTestRegistrar = <T extends (...args: any[]) => any>(orig: T): T => {
-    const wrapped = ((name: string, fn: any, timeout?: number) => {
+    const wrapped = ((name: string, fn: unknown, timeout?: number) => {
       const stackAtRegistration = [...describeStack]
       const jestKey = [...stackAtRegistration, name].join(' ')
       const vitestKey = [...stackAtRegistration, name].join(' > ')
@@ -55,7 +77,7 @@ export function tryRegisterJestHooks(callbacks: RunnerHookCallbacks): boolean {
       testToDescribeStack.set(vitestKey, stackAtRegistration)
       let wrappedFn = fn
       if (typeof fn === 'function') {
-        wrappedFn = function (this: any, ...fnArgs: any[]) {
+        wrappedFn = function (this: unknown, ...fnArgs: unknown[]) {
           // Key by inner test name — under Vitest the describe-stack
           // capture isn't reliable (Vitest doesn't run describe bodies
           // through our globalThis wrap), so the only stable identifier
@@ -72,7 +94,10 @@ export function tryRegisterJestHooks(callbacks: RunnerHookCallbacks): boolean {
             recordFailure(err as Error)
             throw err
           }
-          if (result && typeof (result as any).then === 'function') {
+          if (
+            result &&
+            typeof (result as Promise<unknown>).then === 'function'
+          ) {
             return (result as Promise<unknown>).catch((err: unknown) => {
               recordFailure(err as Error)
               throw err
@@ -81,11 +106,20 @@ export function tryRegisterJestHooks(callbacks: RunnerHookCallbacks): boolean {
           return result
         }
       }
-      return (orig as any).call(g, name, wrappedFn, timeout)
-    }) as any as T
-    for (const k of Reflect.ownKeys(orig as any)) {
+      return (orig as (...args: unknown[]) => unknown).call(
+        g,
+        name,
+        wrappedFn,
+        timeout
+      )
+    }) as unknown as T
+    // Preserve `.skip` / `.only` / `.each` modifiers via index access. Casts
+    // are intentional — globals are untyped at this framework boundary.
+    const wrappedObj = wrapped as unknown as Record<string | symbol, unknown>
+    const origObj = orig as unknown as Record<string | symbol, unknown>
+    for (const k of Reflect.ownKeys(origObj)) {
       try {
-        ;(wrapped as any)[k] = (orig as any)[k]
+        wrappedObj[k] = origObj[k]
       } catch {
         /* read-only own keys */
       }
@@ -122,11 +156,11 @@ export function tryRegisterJestHooks(callbacks: RunnerHookCallbacks): boolean {
         })
       })
     }
-    g.beforeEach(() => {
+    g.beforeEach!(() => {
       if (runStartTs === 0) {
         runStartTs = Date.now()
       }
-      const state = g.expect.getState() as {
+      const state = g.expect!.getState!() as {
         currentTestName?: string
         testPath?: string
       }
@@ -174,8 +208,8 @@ export function tryRegisterJestHooks(callbacks: RunnerHookCallbacks): boolean {
         suiteCallSource
       )
     })
-    g.afterEach(() => {
-      const state = g.expect.getState() as {
+    g.afterEach!(() => {
+      const state = g.expect!.getState!() as {
         suppressedErrors?: unknown[]
         currentTestName?: string
       }

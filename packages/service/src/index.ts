@@ -372,7 +372,9 @@ export default class DevToolsHookService implements Services.ServiceInstance {
    * Rely on `rootDir` instead (it is set automatically by WDIO).
    */
   get #outputDir(): string {
-    const opts = this.#browser?.options as any
+    const opts = this.#browser?.options as
+      | { outputDir?: string; rootDir?: string }
+      | undefined
     return opts?.outputDir || opts?.rootDir || process.cwd()
   }
 
@@ -441,7 +443,10 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     try {
       this.#injecting = true
       const markerPresent = await this.#browser.execute(() => {
-        return Boolean((window as any).__WDIO_DEVTOOLS_MARK)
+        return Boolean(
+          (window as unknown as { __WDIO_DEVTOOLS_MARK?: unknown })
+            .__WDIO_DEVTOOLS_MARK
+        )
       })
       if (markerPresent) {
         return

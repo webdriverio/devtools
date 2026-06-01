@@ -120,8 +120,11 @@ export class DevtoolsBrowser extends Element {
     // viewport may not be serialized yet (race between metadata message and
     // first resize event), or may arrive without dimensions — fall back to
     // sensible defaults so we never throw.
-    const viewportWidth = (metadata.viewport as any)?.width || 1280
-    const viewportHeight = (metadata.viewport as any)?.height || 800
+    const viewport = metadata.viewport as
+      | { width?: number; height?: number }
+      | undefined
+    const viewportWidth = viewport?.width || 1280
+    const viewportHeight = viewport?.height || 800
     if (!viewportWidth || !viewportHeight) {
       return
     }

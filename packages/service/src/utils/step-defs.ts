@@ -7,7 +7,12 @@ import type {
   NodePath,
   TraverseOptions
 } from '@babel/traverse'
-import type { CallExpression } from '@babel/types'
+import type {
+  CallExpression,
+  Identifier,
+  MemberExpression
+} from '@babel/types'
+import type { ParserPlugin } from '@babel/parser'
 
 import {
   PARSE_PLUGINS,
@@ -177,27 +182,31 @@ function collectStepDefs(stepsDir: string): StepDef[] {
       const src = fs.readFileSync(file, 'utf-8')
       const ast = parse(src, {
         sourceType: 'module',
-        plugins: PARSE_PLUGINS as any,
+        plugins: PARSE_PLUGINS as unknown as ParserPlugin[],
         errorRecovery: true
       })
 
       traverse(ast, {
         CallExpression(p: NodePath<CallExpression>) {
-          const callee: any = p.node.callee
+          const callee = p.node.callee
           let name: string | undefined
-          if (callee?.type === 'Identifier') {
-            name = callee.name
-          } else if (callee?.type === 'MemberExpression') {
-            const prop = (callee as any).property
-            if (prop?.type === 'Identifier') {
-              name = prop.name
+          if (callee.type === 'Identifier') {
+            name = (callee as Identifier).name
+          } else if (callee.type === 'MemberExpression') {
+            const prop = (callee as MemberExpression).property
+            if (prop.type === 'Identifier') {
+              name = (prop as Identifier).name
             }
           }
           if (!name || !(STEP_FN_NAMES as readonly string[]).includes(name)) {
             return
           }
 
-          const arg = p.node.arguments?.[0] as any
+          type StepArg =
+            | { type: 'RegExpLiteral'; pattern: string; flags?: string }
+            | { type: 'StringLiteral'; value: string }
+            | { type: string }
+          const arg = p.node.arguments?.[0] as StepArg | undefined
           const loc = {
             file,
             line: p.node.loc?.start.line ?? 1,
@@ -205,16 +214,18 @@ function collectStepDefs(stepsDir: string): StepDef[] {
           }
 
           if (arg?.type === 'RegExpLiteral') {
+            const re = arg as { pattern: string; flags?: string }
             defs.push({
               kind: 'regex',
-              regex: new RegExp(arg.pattern, arg.flags ?? ''),
+              regex: new RegExp(re.pattern, re.flags ?? ''),
               ...loc
             })
             pushed++
           } else if (arg?.type === 'StringLiteral') {
-            if (CE && arg.value.includes('{')) {
+            const sl = arg as { value: string }
+            if (CE && sl.value.includes('{')) {
               const expr = new CE!.CucumberExpression(
-                arg.value,
+                sl.value,
                 new CE!.ParameterTypeRegistry()
               )
               defs.push({ kind: 'expression', expr, ...loc })
@@ -222,7 +233,7 @@ function collectStepDefs(stepsDir: string): StepDef[] {
               defs.push({
                 kind: 'string',
                 keyword: name,
-                text: arg.value,
+                text: sl.value,
                 ...loc
               })
             }

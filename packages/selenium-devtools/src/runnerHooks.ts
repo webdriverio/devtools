@@ -9,7 +9,12 @@ export { tryRegisterMochaHooks, tryRegisterJestHooks, tryRegisterCucumberHooks }
 // Mocha is identified by `it`+`describe`+`beforeEach` without that.
 // Cucumber doesn't expose globals — we detect via argv + a require probe.
 export function detectRunner(): 'jest' | 'mocha' | 'cucumber' | null {
-  const g = globalThis as any
+  const g = globalThis as unknown as {
+    beforeEach?: unknown
+    expect?: { getState?: unknown }
+    it?: unknown
+    describe?: unknown
+  }
   if ((process.argv[1] || '').toLowerCase().includes('cucumber')) {
     return 'cucumber'
   }

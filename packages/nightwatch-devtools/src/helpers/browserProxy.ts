@@ -132,7 +132,13 @@ export class BrowserProxy {
       return
     }
 
-    const browserAny = browser as any
+    // Single widening: Nightwatch's `browser` is a dynamic command bag —
+    // every wrapped lookup below is property-name → function. Casting once
+    // keeps the wrap loop readable.
+    const browserAny = browser as unknown as Record<
+      string,
+      (...args: unknown[]) => unknown
+    >
     const allMethods = new Set([
       ...Object.keys(browser),
       ...Object.getOwnPropertyNames(Object.getPrototypeOf(browser))
