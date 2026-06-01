@@ -120,6 +120,12 @@ export abstract class SessionCapturerBase {
     return Boolean(this.ws) && this.ws?.readyState === WebSocket.OPEN
   }
 
+  /** Property-style alias for {@link isConnected} — used by tests that
+   *  read it as a getter while mutating `ws.readyState` directly. */
+  get isReportingUpstream(): boolean {
+    return this.isConnected()
+  }
+
   /** Subclasses can read this to gate retry/reconnect logic. */
   protected hasEverConnected(): boolean {
     return this.#hasConnected
@@ -227,6 +233,10 @@ export abstract class SessionCapturerBase {
         if (!joined || this.isInternalStreamLine(joined)) {
           return result
         }
+        // Pass the per-arg serialized array (`['payload', '{"x":1}']`) rather
+        // than the joined string. The dashboard's `#formatArgs` joins on its
+        // own; preserving the array form is lossless and lets future consumers
+        // group/style individual args.
         this.onLine(method as LogLevel, serialized, LOG_SOURCES.TEST)
         return result
       }
