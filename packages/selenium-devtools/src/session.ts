@@ -2,21 +2,14 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { createRequire } from 'node:module'
 import logger from '@wdio/logger'
-import { WebSocket } from 'ws'
-import { isInternalStreamLine, serializeError } from '@wdio/devtools-core'
-import { WS_PATHS } from '@wdio/devtools-shared'
 import {
-  CONSOLE_METHODS,
-  LOG_SOURCES,
-  NAVIGATION_COMMANDS,
-  SPINNER_RE
-} from './constants.js'
-import {
-  stripAnsiCodes,
-  detectLogLevel,
+  SessionCapturerBase,
   createConsoleLogEntry,
-  chromeLogLevelToLogLevel
-} from './helpers/utils.js'
+  serializeError,
+  type LogSource
+} from '@wdio/devtools-core'
+import { LOG_SOURCES, NAVIGATION_COMMANDS } from './constants.js'
+import { chromeLogLevelToLogLevel } from './helpers/utils.js'
 import { getDriverOriginals } from './driverPatcher.js'
 import type {
   CommandLog,
@@ -28,22 +21,8 @@ import type {
 const require = createRequire(import.meta.url)
 const log = logger('@wdio/selenium-devtools:SessionCapturer')
 
-export class SessionCapturer {
-  #ws: WebSocket | undefined
-  #originalConsoleMethods: Record<
-    (typeof CONSOLE_METHODS)[number],
-    typeof console.log
-  >
-  #originalProcessMethods: {
-    stdoutWrite: typeof process.stdout.write
-    stderrWrite: typeof process.stderr.write
-  }
-  #isCapturingConsole = false
-  #isCapturingStream = false
-  #hasConnected = false
+export class SessionCapturer extends SessionCapturerBase {
   #driver: SeleniumDriverLike | undefined
-  #commandCounter = 0
-  #sentCommandIds = new Set<number>()
 
   // True once BiDi inspectors are attached — script-trace path skips streams.
   bidiActive = false
@@ -63,62 +42,66 @@ export class SessionCapturer {
     devtoolsOptions: { hostname?: string; port?: number } = {},
     driver?: SeleniumDriverLike
   ) {
-    const { port, hostname } = devtoolsOptions
+    super(devtoolsOptions)
     this.#driver = driver
-    if (hostname && port) {
-      this.#ws = new WebSocket(`ws://${hostname}:${port}${WS_PATHS.worker}`)
 
-      this.#ws.on('open', () => {
-        this.#hasConnected = true
-        log.info('✓ Worker WebSocket connected to backend')
-      })
-
-      this.#ws.on('message', (raw: Buffer | string) => {
-        try {
-          const parsed = JSON.parse(raw.toString())
-          if (parsed?.scope === 'clientConnected') {
-            this.#clientConnected = true
-            const waiters = this.#clientConnectedWaiters
-            this.#clientConnectedWaiters = []
-            for (const w of waiters) {
-              try {
-                w()
-              } catch {
-                /* ignore */
-              }
-            }
-          } else if (parsed?.scope === 'clientDisconnected') {
-            this.#onClientDisconnected?.()
-          }
-        } catch {
-          // ignore non-JSON messages
-        }
-      })
-
-      this.#ws.on('error', (err: unknown) =>
-        log.error(
-          `Couldn't connect to devtools backend: ${(err as Error).message}`
-        )
+    // Skip console patching when running under Jest's CustomConsole / Vitest —
+    // those reroute writes through their own console, which causes our patched
+    // `console.*` to feed back through stream interception and loop. Stream
+    // interception alone is sufficient in that case.
+    const protoName = Object.getPrototypeOf(console)?.constructor?.name
+    if (!protoName || protoName === 'Console') {
+      this.patchConsole()
+    } else {
+      log.info(
+        `Detected non-standard console (${protoName}) — skipping console patching, using stdout interception only`
       )
-
-      this.#ws.on('close', () => {
-        log.info('Worker WebSocket disconnected')
-      })
     }
+    this.patchStreams()
+  }
 
-    this.#originalConsoleMethods = {
-      log: console.log,
-      info: console.info,
-      warn: console.warn,
-      error: console.error
-    }
-    this.#originalProcessMethods = {
-      stdoutWrite: process.stdout.write.bind(process.stdout),
-      stderrWrite: process.stderr.write.bind(process.stderr)
-    }
+  protected override onWsOpen(): void {
+    log.info('✓ Worker WebSocket connected to backend')
+  }
 
-    this.#patchConsole()
-    this.#interceptProcessStreams()
+  protected override onWsError(err: unknown): void {
+    log.error(`Couldn't connect to devtools backend: ${(err as Error).message}`)
+  }
+
+  protected override onWsClose(): void {
+    log.info('Worker WebSocket disconnected')
+  }
+
+  protected override onWsMessage(msg: unknown): void {
+    const parsed = msg as { scope?: string } | null | undefined
+    if (parsed?.scope === 'clientConnected') {
+      this.#clientConnected = true
+      const waiters = this.#clientConnectedWaiters
+      this.#clientConnectedWaiters = []
+      for (const w of waiters) {
+        try {
+          w()
+        } catch {
+          /* ignore */
+        }
+      }
+    } else if (parsed?.scope === 'clientDisconnected') {
+      this.#onClientDisconnected?.()
+    }
+  }
+
+  /**
+   * Push every captured line into the local `consoleLogs` array so it ends up
+   * in any future trace export, in addition to the live WS broadcast.
+   */
+  protected override onLine(
+    type: LogLevel,
+    args: string[],
+    source: LogSource
+  ): void {
+    const entry = createConsoleLogEntry(type, args, source)
+    this.consoleLogs.push(entry)
+    this.sendUpstream('consoleLogs', [entry])
   }
 
   setDriver(driver: SeleniumDriverLike) {
@@ -138,184 +121,7 @@ export class SessionCapturer {
     this.#onClientDisconnected = fn
   }
 
-  // ---- console & terminal capture ------------------------------------------
-
-  #patchConsole() {
-    // Non-standard consoles (Jest CustomConsole, Vitest) reroute writes past
-    // our text filter and create a feedback loop — rely on stream interception.
-    const protoName = Object.getPrototypeOf(console)?.constructor?.name
-    if (protoName && protoName !== 'Console') {
-      log.info(
-        `Detected non-standard console (${protoName}) — skipping console patching, using stdout interception only`
-      )
-      return
-    }
-    CONSOLE_METHODS.forEach((method) => {
-      const originalMethod = this.#originalConsoleMethods[method]
-      console[method] = (...consoleArgs: any[]) => {
-        this.#isCapturingConsole = true
-        const result = originalMethod.apply(console, consoleArgs)
-        this.#isCapturingConsole = false
-
-        const rawText = consoleArgs
-          .map((a) =>
-            typeof a === 'object' && a !== null ? JSON.stringify(a) : String(a)
-          )
-          .join(' ')
-        const cleanText = stripAnsiCodes(rawText).trim()
-        if (!cleanText) {
-          return result
-        }
-        if (isInternalStreamLine(cleanText)) {
-          return result
-        }
-
-        const logEntry = createConsoleLogEntry(
-          method as LogLevel,
-          [cleanText],
-          LOG_SOURCES.TEST
-        )
-        this.consoleLogs.push(logEntry)
-        this.sendUpstream('consoleLogs', [logEntry])
-        return result
-      }
-    })
-  }
-
-  #interceptProcessStreams() {
-    const captureTerminalOutput = (outputData: string | Uint8Array) => {
-      if (this.#isCapturingStream) {
-        return
-      }
-      const outputText =
-        typeof outputData === 'string' ? outputData : outputData.toString()
-      if (!outputText?.trim()) {
-        return
-      }
-      this.#isCapturingStream = true
-      try {
-        const linesToCapture: string[] = []
-        for (const rawLine of outputText.split('\n')) {
-          const segments = rawLine.split('\r').filter((s) => s.trim())
-          const lastSegment = segments[segments.length - 1] ?? rawLine
-          const clean = stripAnsiCodes(lastSegment).trim()
-          if (!clean || isInternalStreamLine(clean) || SPINNER_RE.test(clean)) {
-            continue
-          }
-          linesToCapture.push(clean)
-        }
-        for (const clean of linesToCapture) {
-          const entry = createConsoleLogEntry(
-            detectLogLevel(clean),
-            [clean],
-            LOG_SOURCES.TERMINAL
-          )
-          this.consoleLogs.push(entry)
-          this.sendUpstream('consoleLogs', [entry])
-        }
-      } finally {
-        this.#isCapturingStream = false
-      }
-    }
-
-    const interceptStreamWrite = (
-      stream: NodeJS.WriteStream,
-      original: (...args: any[]) => boolean
-    ) => {
-      const capturer = this
-      stream.write = function (chunk: any, ...rest: any[]): boolean {
-        const writeResult = original.call(stream, chunk, ...rest)
-        if (chunk && !capturer.#isCapturingConsole) {
-          captureTerminalOutput(chunk)
-        }
-        return writeResult
-      } as any
-    }
-
-    interceptStreamWrite(
-      process.stdout,
-      this.#originalProcessMethods.stdoutWrite
-    )
-    interceptStreamWrite(
-      process.stderr,
-      this.#originalProcessMethods.stderrWrite
-    )
-  }
-
-  #restoreConsole() {
-    CONSOLE_METHODS.forEach((method) => {
-      console[method] = this.#originalConsoleMethods[method]
-    })
-  }
-
-  #restoreProcessStreams() {
-    process.stdout.write = this.#originalProcessMethods.stdoutWrite as any
-    process.stderr.write = this.#originalProcessMethods.stderrWrite as any
-  }
-
-  cleanup() {
-    this.#restoreConsole()
-    this.#restoreProcessStreams()
-  }
-
   // ---- WebSocket plumbing --------------------------------------------------
-
-  get isReportingUpstream() {
-    return Boolean(this.#ws) && this.#ws?.readyState === WebSocket.OPEN
-  }
-
-  isConnected(): boolean {
-    return this.#ws?.readyState === WebSocket.OPEN
-  }
-
-  async waitForConnection(timeoutMs = 5000): Promise<boolean> {
-    if (!this.#ws) {
-      return false
-    }
-    if (this.#ws.readyState === WebSocket.OPEN) {
-      return true
-    }
-    return new Promise((resolve) => {
-      const timeout = setTimeout(() => {
-        log.warn(`WebSocket connection timeout after ${timeoutMs}ms`)
-        resolve(false)
-      }, timeoutMs)
-      this.#ws!.once('open', () => {
-        clearTimeout(timeout)
-        resolve(true)
-      })
-      this.#ws!.once('error', () => {
-        clearTimeout(timeout)
-        resolve(false)
-      })
-    })
-  }
-
-  async closeWebSocket(): Promise<void> {
-    if (!this.#ws || this.#ws.readyState === WebSocket.CLOSED) {
-      return
-    }
-    return new Promise<void>((resolve) => {
-      const timeout = setTimeout(resolve, 2000)
-      this.#ws!.once('close', () => {
-        clearTimeout(timeout)
-        resolve()
-      })
-      this.#ws!.close()
-    })
-  }
-
-  sendUpstream(event: string, data: any) {
-    // Silent drops — logging here would loop back through stream interception.
-    if (!this.#ws || this.#ws.readyState !== WebSocket.OPEN) {
-      return
-    }
-    try {
-      this.#ws.send(JSON.stringify({ scope: event, data }))
-    } catch {
-      /* teardown */
-    }
-  }
 
   // ---- command capture -----------------------------------------------------
 
@@ -328,7 +134,7 @@ export class SessionCapturer {
     callSource?: string,
     timestamp?: number
   ): Promise<CommandLog & { _id?: number }> {
-    const commandId = this.#commandCounter++
+    const commandId = this.commandCounter++
     // `id` is the stable lookup key — chained calls share a ms timestamp,
     // so timestamp-based matching rewrites the wrong entry on async updates.
     const entry: CommandLog & { _id?: number } = {
@@ -346,22 +152,14 @@ export class SessionCapturer {
     return entry
   }
 
-  sendCommand(command: CommandLog & { _id?: number }) {
-    if (command._id !== undefined && !this.#sentCommandIds.has(command._id)) {
-      this.#sentCommandIds.add(command._id)
+  override sendCommand(command: CommandLog & { _id?: number }): number {
+    if (command._id !== undefined && !this.sentCommandIds.has(command._id)) {
+      this.sentCommandIds.add(command._id)
       const toSend = { ...command }
       delete toSend._id
       this.sendUpstream('commands', [toSend])
     }
-  }
-
-  sendReplaceCommand(
-    oldTimestamp: number,
-    command: CommandLog & { _id?: number }
-  ) {
-    const toSend = { ...command }
-    delete toSend._id
-    this.sendUpstream('replaceCommand', { oldTimestamp, command: toSend })
+    return command._id ?? 0
   }
 
   /** Update an existing entry in place (matched by `_id`) for retry coalesce. */
@@ -382,7 +180,7 @@ export class SessionCapturer {
       idx !== -1 ? ((this.commandsLog[idx] as any).timestamp ?? 0) : 0
     if (idx === -1) {
       const fresh = {
-        _id: this.#commandCounter++,
+        _id: this.commandCounter++,
         id: undefined as unknown as number,
         command,
         args,
@@ -403,7 +201,7 @@ export class SessionCapturer {
     previous.command = command as any
     previous.args = args
     previous.result = result
-    previous.error = serializeError(error) as any
+    previous.error = serializeError(error)
     previous.timestamp = timestamp || Date.now()
     previous.callSource = callSource
     previous.testUid = testUid

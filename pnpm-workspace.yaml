@@ -9,3 +9,4 @@ packages:
   - 'packages/nightwatch-devtools'
   - 'packages/selenium-devtools'
   - 'examples/wdio'
+  - 'examples/selenium'
