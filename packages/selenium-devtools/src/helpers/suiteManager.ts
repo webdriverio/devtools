@@ -52,7 +52,8 @@ export class SuiteManager {
   startScenarioSuite(
     name: string,
     file: string,
-    callSource?: string
+    callSource?: string,
+    featureFile?: string
   ): SuiteStats | null {
     if (!this.rootSuite) {
       return null
@@ -72,6 +73,7 @@ export class SuiteManager {
       hooks: [],
       _duration: DEFAULTS.DURATION,
       callSource,
+      featureFile,
       // Without `parent`, the dashboard's `!suite.parent` filter renders this
       // sub-suite at the root too, duplicating it next to the feature.
       parent: this.rootSuite.uid

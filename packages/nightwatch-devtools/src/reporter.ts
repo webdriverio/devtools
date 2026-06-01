@@ -1,29 +1,16 @@
 import logger from '@wdio/logger'
+import { TestReporterBase } from '@wdio/devtools-core'
 import { DEFAULTS } from './constants.js'
-import {
-  extractTestMetadata,
-  generateStableUid,
-  resetSignatureCounters
-} from './helpers/utils.js'
+import { extractTestMetadata, generateStableUid } from './helpers/utils.js'
 import type { SuiteStats, TestStats } from './types.js'
 
 const log = logger('@wdio/nightwatch-devtools:Reporter')
 
-export class TestReporter {
-  #report: (data: any) => void
+export class TestReporter extends TestReporterBase {
   #currentSpecFile?: string
   #testNamesCache = new Map<string, string[]>()
   #currentSuite?: SuiteStats
-  #allSuites: SuiteStats[] = []
 
-  constructor(report: (data: any) => void) {
-    this.#report = report
-    resetSignatureCounters()
-  }
-
-  /**
-   * Called when a suite starts
-   */
   onSuiteStart(suiteStats: SuiteStats) {
     this.#currentSpecFile = suiteStats.file
     this.#currentSuite = suiteStats
@@ -32,12 +19,10 @@ export class TestReporter {
         ? process.env.DEVTOOLS_RERUN_LABEL?.trim()
         : undefined
 
-    // Generate stable UID only if not already set
     if (!suiteStats.uid) {
       suiteStats.uid = generateStableUid(suiteStats)
     }
 
-    // Extract test names from source file
     if (
       this.#currentSpecFile &&
       !this.#testNamesCache.has(this.#currentSpecFile)
@@ -54,101 +39,49 @@ export class TestReporter {
       }
     }
 
-    this.#allSuites.push(suiteStats)
-    this.#sendUpstream()
+    this.allSuites.push(suiteStats)
+    this.sendUpstream()
   }
 
-  /**
-   * Clear execution data when a rerun starts.
-   * Resets test name cache and suites so they're repopulated fresh during the new run.
-   */
-  clearExecutionData() {
+  override clearExecutionData() {
+    super.clearExecutionData()
     this.#testNamesCache.clear()
-    this.#allSuites = []
     this.#currentSuite = undefined
     this.#currentSpecFile = undefined
-    resetSignatureCounters()
   }
 
-  /**
-   * Update the upstream reporter callback (used after a WebDriver session change
-   * so suite data is sent over the new WebSocket without rebuilding the reporter).
-   */
-  updateUpstream(report: (data: any) => void) {
-    this.#report = report
-  }
-
-  /**
-   * Update the suites data (send to UI)
-   */
-  updateSuites() {
-    this.#sendUpstream()
-  }
-
-  /**
-   * Get the current suite
-   */
   getCurrentSuite(): SuiteStats | undefined {
     return this.#currentSuite
   }
 
-  /**
-   * Called when a test starts
-   */
+  /** Find by title within parent suite — Nightwatch retries reuse the title slot. */
   onTestStart(testStats: TestStats) {
-    // Generate stable UID (hashed, so consistent even if called multiple times)
     if (!testStats.uid || testStats.uid.includes('temp-')) {
       testStats.uid = generateStableUid(testStats)
     }
 
-    // Search for test by title within parent suite
-    for (const suite of this.#allSuites) {
+    for (const suite of this.allSuites) {
       const testIndex = suite.tests.findIndex((t) => {
         if (typeof t === 'string') {
           return false
         }
-        // Match by title and parent suite
         return t.title === testStats.title && t.parent === suite.uid
       })
       if (testIndex !== -1) {
-        // Update existing test
         suite.tests[testIndex] = testStats
-        this.#sendUpstream()
+        this.sendUpstream()
         return
       }
     }
 
-    // Test not found in any suite, add it to current suite (legacy behavior)
     if (this.#currentSuite) {
       this.#currentSuite.tests.push(testStats)
     }
-
-    this.#sendUpstream()
+    this.sendUpstream()
   }
 
-  /**
-   * Called when a test ends
-   */
-  onTestEnd(testStats: TestStats) {
-    // Search all suites for this test (not just current suite)
-    for (const suite of this.#allSuites) {
-      const testIndex = suite.tests.findIndex(
-        (t) => (typeof t === 'string' ? t : t.uid) === testStats.uid
-      )
-      if (testIndex !== -1) {
-        suite.tests[testIndex] = testStats
-        break
-      }
-    }
-
-    this.#sendUpstream()
-  }
-
-  /**
-   * Called when a suite ends - create skipped tests
-   */
-  onSuiteEnd(suiteStats: SuiteStats) {
-    // Get all test names from cache
+  /** Synthesize `skipped` entries for tests that never executed. */
+  override onSuiteEnd(suiteStats: SuiteStats) {
     const cachedNames = this.#testNamesCache.get(suiteStats.file) || []
     const processedTestNames = new Set(
       suiteStats.tests
@@ -156,7 +89,6 @@ export class TestReporter {
         .filter((title): title is string => Boolean(title))
     )
 
-    // Create skipped tests for tests that didn't run
     cachedNames.forEach((testName) => {
       if (!processedTestNames.has(testName)) {
         const skippedTest: TestStats = {
@@ -177,48 +109,22 @@ export class TestReporter {
           _duration: DEFAULTS.DURATION,
           hooks: []
         }
-
         suiteStats.tests.push(skippedTest)
         log.info(`Created skipped test "${testName}" (never executed)`)
       }
     })
 
-    this.#sendUpstream()
+    this.sendUpstream()
   }
 
-  /**
-   * Update a specific suite and send to UI (used when updating suite title)
-   */
+  /** Replace a suite when its UID changes mid-run (after spec rescan). */
   updateSuite(suiteStats: SuiteStats) {
-    // Find and remove the old suite by file
-    const index = this.#allSuites.findIndex((s) => s.file === suiteStats.file)
+    const index = this.allSuites.findIndex((s) => s.file === suiteStats.file)
     if (index !== -1) {
-      // Remove the old suite entry (with old UID)
-      this.#allSuites.splice(index, 1)
+      this.allSuites.splice(index, 1)
     }
-    // Add the updated suite with new UID
-    this.#allSuites.push(suiteStats)
-    // Update current suite reference
+    this.allSuites.push(suiteStats)
     this.#currentSuite = suiteStats
-    this.#sendUpstream()
-  }
-
-  #sendUpstream() {
-    const payload: Record<string, SuiteStats>[] = []
-
-    for (const suite of this.#allSuites) {
-      if (suite && suite.uid) {
-        // Each suite becomes an object with its UID as the key
-        payload.push({ [suite.uid]: suite })
-      }
-    }
-
-    if (payload.length > 0) {
-      this.#report(payload)
-    }
-  }
-
-  get report() {
-    return this.#allSuites
+    this.sendUpstream()
   }
 }

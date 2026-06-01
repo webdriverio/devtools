@@ -239,3 +239,54 @@ export interface PreservedAttempt {
   mutations: unknown[]
   sources: Record<string, string>
 }
+
+// ─── Test reporter stats (nightwatch + selenium adapters) ───────────────────
+
+/**
+ * Serialized form of an `Error`, used after capture so the payload survives
+ * `JSON.stringify` over the WS bridge. The capture-time shape (raw `Error`
+ * instance) is also accepted for callers that haven't serialized yet.
+ */
+export type ReporterError =
+  | Error
+  | { name: string; message: string; stack?: string }
+
+export interface TestStats {
+  uid: string
+  cid: string
+  title: string
+  fullTitle: string
+  parent: string
+  state: TestStatus
+  start: Date
+  end: Date | null
+  type: 'test'
+  file: string
+  retries: number
+  _duration: number
+  error?: ReporterError
+  hooks?: unknown[]
+  callSource?: string
+}
+
+export interface SuiteStats {
+  uid: string
+  cid: string
+  title: string
+  fullTitle: string
+  type: 'suite'
+  file: string
+  start: Date
+  state?: TestStatus
+  end?: Date | null
+  tests: (string | TestStats)[]
+  suites: SuiteStats[]
+  hooks: unknown[]
+  _duration: number
+  parent?: string
+  callSource?: string
+  /** Cucumber-only: the .feature file path. Distinct from `file` because the
+   *  root suite's `file` stays at cwd to keep its stable UID; rerun payloads
+   *  use this to drive feature-level filtering. */
+  featureFile?: string
+}

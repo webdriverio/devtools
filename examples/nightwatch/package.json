@@ -1,0 +1,13 @@
+{
+  "name": "@wdio/devtools-example-nightwatch",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Nightwatch demo project used by pnpm demo:nightwatch. Needs its own node_modules so the backend's rerun spawner can resolve the nightwatch binary from this directory.",
+  "scripts": {
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "@wdio/nightwatch-devtools": "workspace:^",
+    "nightwatch": "^3.0.0"
+  }
+}

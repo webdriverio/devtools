@@ -9,6 +9,8 @@ export {
   type Metadata,
   type NetworkRequest,
   type PerformanceData,
+  type SuiteStats,
+  type TestStats,
   type TestStatus,
   type TraceLog
 } from '@wdio/devtools-shared'
@@ -17,24 +19,6 @@ export interface CommandStackFrame {
   command: string
   callSource?: string
   signature: string
-}
-
-export interface TestStats {
-  uid: string
-  cid: string
-  title: string
-  fullTitle: string
-  parent: string
-  state: 'passed' | 'failed' | 'skipped' | 'pending' | 'running'
-  start: Date
-  end: Date | null
-  type: 'test'
-  file: string
-  retries: number
-  _duration: number
-  error?: Error
-  hooks?: any[]
-  callSource?: string
 }
 
 export interface NightwatchTestCase {
@@ -56,24 +40,6 @@ export interface TestFileMetadata {
 export interface StepLocation {
   filePath: string
   line: number
-}
-
-export interface SuiteStats {
-  uid: string
-  cid: string
-  title: string
-  fullTitle: string
-  type: 'suite'
-  file: string
-  start: Date
-  state?: 'pending' | 'running' | 'passed' | 'failed' | 'skipped'
-  end?: Date | null
-  tests: (string | TestStats)[]
-  suites: SuiteStats[]
-  hooks: any[]
-  _duration: number
-  parent?: string
-  callSource?: string
 }
 
 export interface DevToolsOptions {

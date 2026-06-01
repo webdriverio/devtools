@@ -341,9 +341,24 @@ class SeleniumDevToolsPlugin {
         meta.featureCallSource
       )
     }
-    const file =
-      meta.file ?? this.#suiteManager.getRootSuite()?.file ?? process.cwd()
-    this.#suiteManager.startScenarioSuite(name, file, meta.callSource)
+    // Stamp the .feature path as `featureFile` on the root and the scenario
+    // sub-suite. The root suite's `file` stays at process.cwd() (changing it
+    // mid-run would shift the stable UID and orphan accumulated state on the
+    // dashboard). The dashboard's rerun payload forwards `featureFile` to the
+    // backend, which strips `--name` and uses it as a positional arg for
+    // feature-level reruns.
+    const root = this.#suiteManager.getRootSuite()
+    if (root && meta.file && root.featureFile !== meta.file) {
+      root.featureFile = meta.file
+      this.#testReporter.updateSuites()
+    }
+    const file = meta.file ?? root?.file ?? process.cwd()
+    this.#suiteManager.startScenarioSuite(
+      name,
+      file,
+      meta.callSource,
+      meta.file
+    )
     this.#lastCapturedSig = null
     this.#lastCapturedId = null
     if (meta.file) {
@@ -837,8 +852,14 @@ class SeleniumDevToolsPlugin {
     try {
       await this.onDriverEnd().catch(() => {})
 
+      // Don't call suiteManager.finalize() here — it sets `root.end`, which
+      // signals the dashboard's rerun tracker that the feature has finished
+      // and unblocks the new-run reset for the next scenario. onSessionEnd
+      // fires on each `driver.quit()` (per cucumber scenario), so finalizing
+      // the root here is premature. The true end-of-run finalize happens in
+      // finalizeTestRun (cucumber AfterAll). testReporter.updateSuites() is
+      // still useful to flush per-scenario state to the dashboard.
       this.#testManager?.finalizeSession()
-      this.#suiteManager?.finalize()
       this.#testReporter?.updateSuites()
 
       const cmdCount = this.#sessionCapturer?.commandsLog.length ?? 0
@@ -869,10 +890,13 @@ class SeleniumDevToolsPlugin {
         return
       }
 
-      // Non-interactive path (no dashboard or rerun child): close the WS now
-      // and log the final shutdown.
-      await this.#sessionCapturer?.closeWebSocket()
-      log.info(`🛑 Shutdown complete (${Date.now() - shutdownStart}ms)`)
+      // Non-interactive path (no dashboard or rerun child). Don't close the
+      // WS yet: this `onSessionEnd` is reached via the patched `driver.quit()`
+      // (cucumber's per-scenario `After` hook), but the runner's
+      // `onScenarioEnd` hook fires AFTER `After`. Closing the WS here would
+      // drop the final state update. Defer the close to `beforeExit`/`exit`,
+      // by which time every post-quit runner hook has flushed.
+      log.info(`🛑 Session ended (${Date.now() - shutdownStart}ms)`)
     } catch (err) {
       log.warn(`Cleanup error: ${(err as Error).message}`)
     }
@@ -903,10 +927,21 @@ class SeleniumDevToolsPlugin {
     this.#testManager?.finalizeSession()
     this.#suiteManager?.finalize()
     this.#testReporter?.updateSuites()
+    // Reuse mode (rerun child): close the WS now so the child's event loop
+    // can drain and the process exits on its own. Outside reuse, the parent
+    // owns the WS lifecycle via the keep-alive + clientDisconnected handler.
+    // onTestRunComplete fires AFTER per-scenario `After` hooks, so any state
+    // updates queued in the cucumber lifecycle have already flushed.
+    if (this.#isReuse) {
+      void this.#sessionCapturer?.closeWebSocket()
+    }
   }
 
   get sessionCapturer() {
     return this.#sessionCapturer
+  }
+  get isReuse() {
+    return this.#isReuse
   }
   get rerunManager() {
     return this.#rerunManager
@@ -1006,7 +1041,12 @@ process.on('exit', () => {
   void plugin.onSessionEnd()
 })
 process.on('beforeExit', () => {
+  // onSessionEnd is idempotent — re-firing it after per-scenario quit is a
+  // no-op. The real work here is the deferred WS close (see onSessionEnd
+  // non-interactive branch). closeWebSocket() returns immediately if already
+  // closed, so this is safe for both reuse mode and the dashboard path.
   void plugin.onSessionEnd()
+  void plugin.sessionCapturer?.closeWebSocket()
 })
 
 async function gracefulShutdown(code: number) {
@@ -1017,14 +1057,21 @@ async function gracefulShutdown(code: number) {
     // Best-effort: kill the detached Chrome dashboard. Each session's
     // --user-data-dir contains the unique `selenium-devtools-ui-${port}`
     // marker, so a pattern match lands on this run's window only.
-    try {
-      spawn(
-        '/usr/bin/pkill',
-        ['-f', `selenium-devtools-ui-${plugin.options.port}-`],
-        { stdio: 'ignore' }
-      )
-    } catch {
-      /* pkill missing — accept stale Chrome */
+    //
+    // Skip in reuse mode — the dashboard belongs to the parent, not the
+    // rerun child. A rerun child being SIGTERMed by the backend (e.g. when
+    // a fresh rerun arrives while the previous one is still alive) must
+    // never kill the parent's dashboard.
+    if (!plugin.isReuse) {
+      try {
+        spawn(
+          '/usr/bin/pkill',
+          ['-f', `selenium-devtools-ui-${plugin.options.port}-`],
+          { stdio: 'ignore' }
+        )
+      } catch {
+        /* pkill missing — accept stale Chrome */
+      }
     }
   } catch {
     /* best-effort */
