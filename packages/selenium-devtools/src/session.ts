@@ -175,14 +175,14 @@ export class SessionCapturer extends SessionCapturerBase {
     timestamp?: number
   ): { entry: CommandLog & { _id?: number }; oldTimestamp: number } {
     const idx = this.commandsLog.findIndex(
-      (c: any) => (c as CommandLog & { _id?: number })._id === oldId
+      (c) => (c as CommandLog & { _id?: number })._id === oldId
     )
-    const oldTimestamp =
-      idx !== -1 ? ((this.commandsLog[idx] as any).timestamp ?? 0) : 0
+    const oldTimestamp = idx !== -1 ? (this.commandsLog[idx]?.timestamp ?? 0) : 0
     if (idx === -1) {
-      const fresh = {
-        _id: this.commandCounter++,
-        id: undefined as unknown as number,
+      const newId = this.commandCounter++
+      const fresh: CommandLog & { _id?: number; id?: number } = {
+        _id: newId,
+        id: newId,
         command,
         args,
         result,
@@ -190,8 +190,7 @@ export class SessionCapturer extends SessionCapturerBase {
         timestamp: timestamp || Date.now(),
         callSource,
         testUid
-      } as CommandLog & { _id?: number }
-      ;(fresh as any).id = fresh._id
+      }
       this.commandsLog.push(fresh)
       return { entry: fresh, oldTimestamp: 0 }
     }
@@ -199,7 +198,7 @@ export class SessionCapturer extends SessionCapturerBase {
       _id?: number
       id?: number
     }
-    previous.command = command as any
+    previous.command = command
     previous.args = args
     previous.result = result
     previous.error = serializeError(error)

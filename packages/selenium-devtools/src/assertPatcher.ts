@@ -48,21 +48,24 @@ export function patchNodeAssert(
     return false
   }
 
-  if ((assertModule as any)[ASSERT_PATCHED_SYMBOL]) {
+  // Node's `assert` is a function with methods on it — cast once for the
+  // symbol + dynamic method access we do here.
+  const assertObj = assertModule as Record<string | symbol, unknown>
+  if (assertObj[ASSERT_PATCHED_SYMBOL]) {
     return true
   }
-  ;(assertModule as any)[ASSERT_PATCHED_SYMBOL] = true
+  assertObj[ASSERT_PATCHED_SYMBOL] = true
 
   // Wrap each tracked method on `assert` and `assert.strict`. We don't
   // overwrite `assert.strict.equal` separately because Node's strict
   // namespace shares method bodies internally — patching the surface is
   // enough.
   const wrapMethod = (methodName: string) => {
-    const original = (assertModule as any)[methodName]
+    const original = assertObj[methodName]
     if (typeof original !== 'function') {
       return
     }
-    ;(assertModule as any)[methodName] = function patchedAssert(
+    assertObj[methodName] = function patchedAssert(
       ...args: any[]
     ) {
       const callInfo = getCallSourceFromStack()

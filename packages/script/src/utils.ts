@@ -38,7 +38,7 @@ export function parseNode(
 
   try {
     return createVNode(
-      h(tagName, props, ...(childNodes || []).map((cn) => parseNode(cn))) as any
+      h(tagName, props, ...(childNodes || []).map((cn) => parseNode(cn)))
     )
   } catch (err: any) {
     return createVNode(h('div', { class: 'parseNode' }, err.stack))

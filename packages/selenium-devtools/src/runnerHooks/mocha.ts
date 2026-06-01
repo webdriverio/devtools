@@ -6,7 +6,12 @@ const log = logger('@wdio/selenium-devtools:runnerHooks:mocha')
 
 // Use beforeEach/afterEach — wrapping `it()` breaks `it.skip` / `it.only`.
 export function tryRegisterMochaHooks(callbacks: RunnerHookCallbacks): boolean {
-  const g = globalThis as any
+  const g = globalThis as unknown as {
+    beforeEach?: (fn: (this: { currentTest?: MochaTestCtx }) => void) => void
+    afterEach?: (fn: (this: { currentTest?: MochaTestCtx }) => void) => void
+    before?: (fn: () => void) => void
+    after?: (fn: () => void) => void
+  }
   if (typeof g.beforeEach !== 'function' || typeof g.afterEach !== 'function') {
     return false
   }
@@ -17,11 +22,11 @@ export function tryRegisterMochaHooks(callbacks: RunnerHookCallbacks): boolean {
   let testsPending = 0
   try {
     if (typeof g.before === 'function' && typeof g.after === 'function') {
-      g.before(function () {
+      g.before(() => {
         runStartTs = Date.now()
         log.info('🧪 Test run starting')
       })
-      g.after(function () {
+      g.after(() => {
         const durationMs = Date.now() - runStartTs
         const duration = (durationMs / 1000).toFixed(2)
         log.info(
@@ -37,12 +42,12 @@ export function tryRegisterMochaHooks(callbacks: RunnerHookCallbacks): boolean {
         })
       })
     }
-    g.beforeEach(function (this: any) {
+    g.beforeEach!(function (this: { currentTest?: MochaTestCtx }) {
       // Fallback when `before` registered too late to fire.
       if (runStartTs === 0) {
         runStartTs = Date.now()
       }
-      const test: MochaTestCtx | undefined = this?.currentTest
+      const test = this?.currentTest
       if (!test?.title) {
         return
       }
@@ -71,8 +76,8 @@ export function tryRegisterMochaHooks(callbacks: RunnerHookCallbacks): boolean {
         suiteCallSource
       )
     })
-    g.afterEach(function (this: any) {
-      const test: MochaTestCtx | undefined = this?.currentTest
+    g.afterEach!(function (this: { currentTest?: MochaTestCtx }) {
+      const test = this?.currentTest
       const state =
         test?.state === 'failed'
           ? 'failed'

@@ -48,28 +48,28 @@ interface CucumberPluginBridge {
 }
 
 Before({ order: 1000 }, async function (this: any, { pickle }: any) {
-  const plugin = (globalThis as any)[PLUGIN_GLOBAL_KEY] as CucumberPluginBridge | undefined
+  const plugin = (globalThis as Record<string, unknown>)[PLUGIN_GLOBAL_KEY] as CucumberPluginBridge | undefined
   if (this.browser && plugin) {
     await plugin.cucumberBefore(this.browser, pickle)
   }
 })
 
 After({ order: -1 }, async function (this: any, { result, pickle }: any) {
-  const plugin = (globalThis as any)[PLUGIN_GLOBAL_KEY] as CucumberPluginBridge | undefined
+  const plugin = (globalThis as Record<string, unknown>)[PLUGIN_GLOBAL_KEY] as CucumberPluginBridge | undefined
   if (this.browser && plugin) {
     await plugin.cucumberAfter(this.browser, result, pickle)
   }
 })
 
 BeforeStep({ order: 1000 }, async function (this: any, { pickleStep, pickle }: any) {
-  const plugin = (globalThis as any)[PLUGIN_GLOBAL_KEY] as CucumberPluginBridge | undefined
+  const plugin = (globalThis as Record<string, unknown>)[PLUGIN_GLOBAL_KEY] as CucumberPluginBridge | undefined
   if (this.browser && plugin) {
     await plugin.cucumberBeforeStep(this.browser, pickleStep, pickle)
   }
 })
 
 AfterStep({ order: 1000 }, async function (this: any, { result, pickleStep, pickle }: any) {
-  const plugin = (globalThis as any)[PLUGIN_GLOBAL_KEY] as CucumberPluginBridge | undefined
+  const plugin = (globalThis as Record<string, unknown>)[PLUGIN_GLOBAL_KEY] as CucumberPluginBridge | undefined
   if (this.browser && plugin) {
     await plugin.cucumberAfterStep(this.browser, result, pickleStep, pickle)
   }

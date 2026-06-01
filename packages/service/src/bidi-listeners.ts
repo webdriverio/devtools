@@ -36,7 +36,10 @@ export function attachBidiListeners(
 
   // WDIO auto-subscribes to network events but not log events.
   try {
-    ;(browser as any).sessionSubscribe?.({ events: ['log.entryAdded'] })
+    // sessionSubscribe is a BiDi-specific WDIO method not in the public types.
+    ;(
+      browser as { sessionSubscribe?: (opts: { events: string[] }) => unknown }
+    ).sessionSubscribe?.({ events: ['log.entryAdded'] })
   } catch (err) {
     log.warn(
       `Could not subscribe to log.entryAdded: ${(err as Error).message}`

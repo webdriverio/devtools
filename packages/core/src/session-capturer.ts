@@ -283,13 +283,16 @@ export abstract class SessionCapturerBase {
       original: (...a: any[]) => boolean
     ) => {
       const capturer = this
-      stream.write = function (chunk: any, ...rest: any[]): boolean {
+      // `stream.write` has Node's multi-overload signature that's hard to
+      // satisfy with a single function expression — cast to the stream's
+      // own `write` member type rather than `any`.
+      stream.write = function (chunk: unknown, ...rest: unknown[]): boolean {
         const result = original.call(stream, chunk, ...rest)
         if (chunk && !capturer.#isCapturingConsole) {
-          captureChunk(chunk)
+          captureChunk(chunk as string | Uint8Array)
         }
         return result
-      } as any
+      } as typeof stream.write
     }
 
     wrap(process.stdout, this.#originalStdoutWrite)
@@ -303,8 +306,11 @@ export abstract class SessionCapturerBase {
   }
 
   protected restoreStreams(): void {
-    process.stdout.write = this.#originalStdoutWrite as any
-    process.stderr.write = this.#originalStderrWrite as any
+    // Restoring the pre-patch references — the typed write signature differs
+    // slightly from the runtime instance type after `.bind()`, hence the cast
+    // through the stream's own `write` member type.
+    process.stdout.write = this.#originalStdoutWrite as typeof process.stdout.write
+    process.stderr.write = this.#originalStderrWrite as typeof process.stderr.write
   }
 
   // ── Hooks (subclasses override) ─────────────────────────────────────────

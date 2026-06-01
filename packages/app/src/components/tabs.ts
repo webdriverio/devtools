@@ -31,7 +31,7 @@ export class DevtoolsTabs extends Element {
     const tabElement = this.tabs.find(
       (el) => el.getAttribute('label') === tabId
     )
-    const badge = (tabElement as any)?.badge
+    const badge = (tabElement as { badge?: number } | undefined)?.badge
     const showBadge = badge && badge > 0
 
     return html`

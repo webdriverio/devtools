@@ -92,20 +92,26 @@ function webElementSummary(el: any): string {
   return peek ? `<WebElement id=${peek}>` : '<WebElement>'
 }
 
+// Selenium prototypes (WebDriver/WebElement/Builder) carry methods we patch
+// dynamically — Reflect.{get,set} keeps the casts to a single location and
+// drops per-line `as any`.
+type Patchable = Record<string | symbol, unknown>
+
 function wrapPrototype(
   proto: object,
   methodNames: Iterable<string>,
   fromElement: boolean,
   hooks: DriverPatcherHooks
 ): string[] {
-  if ((proto as any)[PATCHED_SYMBOL]) {
+  const p = proto as Patchable
+  if (p[PATCHED_SYMBOL]) {
     return []
   }
-  ;(proto as any)[PATCHED_SYMBOL] = true
+  p[PATCHED_SYMBOL] = true
 
   const wrapped: string[] = []
   for (const methodName of methodNames) {
-    const original = (proto as any)[methodName]
+    const original = p[methodName]
     if (typeof original !== 'function') {
       continue
     }
@@ -113,7 +119,7 @@ function wrapPrototype(
       continue
     }
 
-    ;(proto as any)[methodName] = function (...args: any[]): any {
+    p[methodName] = function (...args: unknown[]): unknown {
       const callInfo = getCallSourceFromStack()
       const startedAt = Date.now()
       const sanitizedArgs = args.map(safeSerialize)
@@ -198,7 +204,7 @@ export function patchSelenium(hooks: DriverPatcherHooks): boolean {
 
   const driverMethods = collectMethodNames(WebDriver.prototype)
   const tracked = driverMethods.filter(
-    (m) => !INTERNAL_DRIVER_METHODS.includes(m as any)
+    (m) => !(INTERNAL_DRIVER_METHODS as readonly string[]).includes(m)
   )
   const wrappedDriver = wrapPrototype(
     WebDriver.prototype,
@@ -245,8 +251,9 @@ export function patchSelenium(hooks: DriverPatcherHooks): boolean {
     log.info(`Wrapped ${wrappedEl.length} WebElement method(s)`)
   }
 
-  if (!(Builder.prototype as any)[PATCHED_SYMBOL]) {
-    ;(Builder.prototype as any)[PATCHED_SYMBOL] = true
+  const builderProto = Builder.prototype as Patchable
+  if (!builderProto[PATCHED_SYMBOL]) {
+    builderProto[PATCHED_SYMBOL] = true
     const originalBuild = Builder.prototype.build
     Builder.prototype.build = function patchedBuild(this: any, ...args: any[]) {
       if (hooks.onBeforeBuild) {
@@ -270,10 +277,14 @@ export function patchSelenium(hooks: DriverPatcherHooks): boolean {
 
       // Selenium 4: WebDriver is thenable. Extend `.then` so `await Builder.build()`
       // also waits for the dashboard to connect.
-      const isThenable = driver && typeof (driver as any).then === 'function'
+      // Selenium 4 WebDriver is thenable; selenium 3 may not be. Cast once.
+      const d = driver as Patchable
+      const isThenable = driver && typeof d.then === 'function'
       if (isThenable && hooks.waitForReady) {
-        const originalThen = (driver as any).then.bind(driver)
-        ;(driver as any).then = function patchedThen(
+        const originalThen = (d.then as (...args: unknown[]) => unknown).bind(
+          driver
+        )
+        d.then = function patchedThen(
           onFulfilled?: (value: any) => any,
           onRejected?: (reason: any) => any
         ) {

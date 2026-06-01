@@ -502,5 +502,5 @@ function getSearchableLabel(entry: TestEntry): string[] {
   if (entry.children.length === 0) {
     return [entry.label]
   }
-  return entry.children.map(getSearchableLabel) as any as string[]
+  return entry.children.flatMap(getSearchableLabel)
 }
