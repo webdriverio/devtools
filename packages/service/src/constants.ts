@@ -1,3 +1,4 @@
+import type { ParserPlugin } from '@babel/parser'
 import type { ScreencastOptions } from './types.js'
 
 export const SCREENCAST_DEFAULTS: Required<ScreencastOptions> = {
@@ -82,7 +83,7 @@ export const PARSE_PLUGINS = [
   'decorators-legacy',
   'classProperties',
   'dynamicImport'
-] as const
+] as const satisfies readonly ParserPlugin[]
 
 /**
  * Test framework identifiers

@@ -10,6 +10,7 @@ import * as path from 'node:path'
 import * as os from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { start, stop } from '@wdio/devtools-backend'
+import { errorMessage } from '@wdio/devtools-core'
 import { REUSE_ENV, WS_SCOPE } from '@wdio/devtools-shared'
 import logger from '@wdio/logger'
 import { remote } from 'webdriverio'
@@ -156,7 +157,7 @@ class NightwatchDevToolsPlugin {
 
         await this.#devtoolsBrowser.url(url)
       } catch (err) {
-        log.error(`Failed to open DevTools UI: ${(err as Error).message}`)
+        log.error(`Failed to open DevTools UI: ${errorMessage(err)}`)
         log.info(`Please manually open: ${url}`)
       }
 
@@ -165,7 +166,7 @@ class NightwatchDevToolsPlugin {
       )
       ;(globalThis as Record<string, unknown>)[PLUGIN_GLOBAL_KEY] = this
     } catch (err) {
-      log.error(`Failed to start backend: ${(err as Error).message}`)
+      log.error(`Failed to start backend: ${errorMessage(err)}`)
       throw err
     }
   }
@@ -486,9 +487,7 @@ class NightwatchDevToolsPlugin {
 
       await this.sessionCapturer.captureTrace(browser)
     } catch (err) {
-      log.error(
-        `Failed to finalize Cucumber scenario: ${(err as Error).message}`
-      )
+      log.error(`Failed to finalize Cucumber scenario: ${errorMessage(err)}`)
     }
   }
 
@@ -811,7 +810,7 @@ class NightwatchDevToolsPlugin {
 
         await this.sessionCapturer.captureTrace(browser)
       } catch (err) {
-        log.error(`Failed to capture trace: ${(err as Error).message}`)
+        log.error(`Failed to capture trace: ${errorMessage(err)}`)
       }
     }
   }
@@ -907,7 +906,7 @@ class NightwatchDevToolsPlugin {
         }
       }
     } catch (err) {
-      log.error(`Failed to stop backend: ${(err as Error).message}`)
+      log.error(`Failed to stop backend: ${errorMessage(err)}`)
     }
   }
 
@@ -966,7 +965,7 @@ class NightwatchDevToolsPlugin {
           })
         }
       } catch (err) {
-        log.error(`Error in event handler: ${(err as Error).message}`)
+        log.error(`Error in event handler: ${errorMessage(err)}`)
       }
     }
 

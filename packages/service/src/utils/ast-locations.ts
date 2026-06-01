@@ -2,7 +2,6 @@ import fs from 'fs'
 import { createRequire } from 'node:module'
 import { parse } from '@babel/parser'
 import type { Node as BabelNode, TraverseOptions } from '@babel/traverse'
-import type { ParserPlugin } from '@babel/parser'
 import { parse as parseStackTrace } from 'stack-trace'
 
 type CalleeNode =
@@ -70,7 +69,7 @@ export function findTestLocations(filePath: string): Loc[] {
   const src = fs.readFileSync(filePath, 'utf-8')
   const ast = parse(src, {
     sourceType: 'module',
-    plugins: PARSE_PLUGINS as unknown as ParserPlugin[],
+    plugins: [...PARSE_PLUGINS],
     errorRecovery: true,
     allowReturnOutsideFunction: true
   })

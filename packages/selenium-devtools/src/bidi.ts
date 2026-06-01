@@ -1,5 +1,6 @@
 import { createRequire } from 'node:module'
 import logger from '@wdio/logger'
+import { errorMessage } from '@wdio/devtools-core'
 import { LOG_SOURCES } from './constants.js'
 import { chromeLogLevelToLogLevel, getRequestType } from './helpers/utils.js'
 import type { BidiHandlerSinks, LogLevel, NetworkRequest } from './types.js'
@@ -37,7 +38,7 @@ export function ensureBidiCapability(builder: any): void {
     caps.set('webSocketUrl', true)
     log.info('Set webSocketUrl=true on builder capabilities (BiDi enabled)')
   } catch (err) {
-    log.warn(`Failed to set webSocketUrl capability: ${(err as Error).message}`)
+    log.warn(`Failed to set webSocketUrl capability: ${errorMessage(err)}`)
   }
 }
 
@@ -66,7 +67,7 @@ export function ensureHeadlessChrome(builder: any): void {
     caps.set('goog:chromeOptions', { ...existing, args })
     log.info('Injected --headless=old into Chrome capabilities')
   } catch (err) {
-    log.warn(`Failed to set headless Chrome option: ${(err as Error).message}`)
+    log.warn(`Failed to set headless Chrome option: ${errorMessage(err)}`)
   }
 }
 
@@ -95,7 +96,7 @@ export async function attachBidiHandlers(
             source: LOG_SOURCES.BROWSER
           })
         } catch (err) {
-          log.warn(`onConsoleEntry handler threw: ${(err as Error).message}`)
+          log.warn(`onConsoleEntry handler threw: ${errorMessage(err)}`)
         }
       })
       await inspector.onJavascriptException((exception: any) => {
@@ -114,14 +115,14 @@ export async function attachBidiHandlers(
           })
         } catch (err) {
           log.warn(
-            `onJavascriptException handler threw: ${(err as Error).message}`
+            `onJavascriptException handler threw: ${errorMessage(err)}`
           )
         }
       })
       attached++
       log.info('✓ BiDi LogInspector attached (console + JS exceptions)')
     } catch (err) {
-      log.warn(`BiDi LogInspector attach failed: ${(err as Error).message}`)
+      log.warn(`BiDi LogInspector attach failed: ${errorMessage(err)}`)
     }
   } else {
     log.info('selenium-webdriver/bidi/logInspector not available — skipping')
@@ -150,7 +151,7 @@ export async function attachBidiHandlers(
           pending.set(requestId, entry)
           sinks.pushNetworkRequest(entry)
         } catch (err) {
-          log.warn(`beforeRequestSent threw: ${(err as Error).message}`)
+          log.warn(`beforeRequestSent threw: ${errorMessage(err)}`)
         }
       })
 
@@ -174,14 +175,14 @@ export async function attachBidiHandlers(
           pending.delete(requestId)
           sinks.replaceNetworkRequest(requestId, finalized)
         } catch (err) {
-          log.warn(`responseCompleted threw: ${(err as Error).message}`)
+          log.warn(`responseCompleted threw: ${errorMessage(err)}`)
         }
       })
 
       attached++
       log.info('✓ BiDi NetworkInspector attached (request + response)')
     } catch (err) {
-      log.warn(`BiDi NetworkInspector attach failed: ${(err as Error).message}`)
+      log.warn(`BiDi NetworkInspector attach failed: ${errorMessage(err)}`)
     }
   } else {
     log.info(

@@ -36,7 +36,7 @@ import {
   detectSeleniumVersion
 } from './helpers/runtime.js'
 import { findFreePort, getCallSourceFromStack } from './helpers/utils.js'
-import { RetryTracker, toError } from '@wdio/devtools-core'
+import { RetryTracker, errorMessage, toError } from '@wdio/devtools-core'
 import { tryRegisterRunnerHooks } from './runnerHooks.js'
 import { patchNodeAssert } from './assertPatcher.js'
 import {
@@ -201,7 +201,7 @@ class SeleniumDevToolsPlugin {
           this.#openUiWindow()
         }
       } catch (err) {
-        log.error(`Failed to start backend: ${(err as Error).message}`)
+        log.error(`Failed to start backend: ${errorMessage(err)}`)
       }
     })()
     return this.#backendStartPromise
@@ -516,7 +516,7 @@ class SeleniumDevToolsPlugin {
             this.#screencast = new ScreencastRecorder(this.#screencastOptions)
             await this.#screencast.start(driver)
           } catch (err) {
-            log.warn(`Screencast start failed: ${(err as Error).message}`)
+            log.warn(`Screencast start failed: ${errorMessage(err)}`)
           }
         })()
       : Promise.resolve()
@@ -532,7 +532,7 @@ class SeleniumDevToolsPlugin {
           )
         }
       } catch (err) {
-        log.warn(`BiDi attach threw: ${(err as Error).message}`)
+        log.warn(`BiDi attach threw: ${errorMessage(err)}`)
       }
     })()
 
@@ -709,7 +709,7 @@ class SeleniumDevToolsPlugin {
       // by which time every post-quit runner hook has flushed.
       log.info(`🛑 Session ended (${Date.now() - shutdownStart}ms)`)
     } catch (err) {
-      log.warn(`Cleanup error: ${(err as Error).message}`)
+      log.warn(`Cleanup error: ${errorMessage(err)}`)
     }
   }
 

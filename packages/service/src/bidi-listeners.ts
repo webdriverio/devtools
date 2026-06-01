@@ -1,4 +1,5 @@
 import logger from '@wdio/logger'
+import { errorMessage } from '@wdio/devtools-core'
 import type { SessionCapturer } from './session.js'
 
 const log = logger('@wdio/devtools-service:bidi-listeners')
@@ -36,13 +37,11 @@ export function attachBidiListeners(
 
   // WDIO auto-subscribes to network events but not log events.
   try {
-    // sessionSubscribe is a BiDi-specific WDIO method not in the public types.
-    ;(
-      browser as { sessionSubscribe?: (opts: { events: string[] }) => unknown }
-    ).sessionSubscribe?.({ events: ['log.entryAdded'] })
+    // sessionSubscribe is augmented onto WebdriverIO.Browser in types.ts.
+    browser.sessionSubscribe?.({ events: ['log.entryAdded'] })
   } catch (err) {
     log.warn(
-      `Could not subscribe to log.entryAdded: ${(err as Error).message}`
+      `Could not subscribe to log.entryAdded: ${errorMessage(err)}`
     )
   }
 

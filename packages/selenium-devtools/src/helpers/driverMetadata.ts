@@ -1,4 +1,5 @@
 import logger from '@wdio/logger'
+import { errorMessage } from '@wdio/devtools-core'
 import { TraceType } from '@wdio/devtools-shared'
 import type { SeleniumDriverLike } from '../types.js'
 
@@ -86,7 +87,7 @@ export async function buildDriverMetadata(
       }
     }
   } catch (err) {
-    log.warn(`Failed to send metadata: ${(err as Error).message}`)
+    log.warn(`Failed to send metadata: ${errorMessage(err)}`)
     return { sessionId: undefined, metadata: undefined }
   }
 }

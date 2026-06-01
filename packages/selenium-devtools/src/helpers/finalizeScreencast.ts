@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import logger from '@wdio/logger'
+import { errorMessage } from '@wdio/devtools-core'
 import { encodeToVideo } from './videoEncoder.js'
 import type { ScreencastRecorder } from '../screencast.js'
 
@@ -33,7 +34,7 @@ export async function finalizeScreencast({
   try {
     await screencast.stop()
   } catch (err) {
-    log.warn(`Screencast stop failed: ${(err as Error).message}`)
+    log.warn(`Screencast stop failed: ${errorMessage(err)}`)
     return
   }
   const frames = screencast.frames
@@ -59,6 +60,6 @@ export async function finalizeScreencast({
       frameCount: frames.length
     })
   } catch (err) {
-    log.warn(`Screencast encode failed: ${(err as Error).message}`)
+    log.warn(`Screencast encode failed: ${errorMessage(err)}`)
   }
 }

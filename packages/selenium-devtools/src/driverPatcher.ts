@@ -1,5 +1,6 @@
 import { createRequire } from 'node:module'
 import logger from '@wdio/logger'
+import { errorMessage } from '@wdio/devtools-core'
 import {
   INTERNAL_DRIVER_METHODS,
   PATCHED_SYMBOL,
@@ -36,7 +37,7 @@ function loadSeleniumWebdriver(): any | null {
       return localRequire('selenium-webdriver')
     } catch (err) {
       log.warn(
-        `selenium-webdriver not found — devtools auto-attach disabled. (${(err as Error).message})`
+        `selenium-webdriver not found — devtools auto-attach disabled. (${errorMessage(err)})`
       )
       return null
     }
@@ -223,7 +224,7 @@ export function patchSelenium(hooks: DriverPatcherHooks): boolean {
         try {
           await hooks.onBeforeQuit(this)
         } catch (err) {
-          log.warn(`onBeforeQuit hook threw: ${(err as Error).message}`)
+          log.warn(`onBeforeQuit hook threw: ${errorMessage(err)}`)
         }
       }
       return originalQuit.call(this)
@@ -260,7 +261,7 @@ export function patchSelenium(hooks: DriverPatcherHooks): boolean {
         try {
           hooks.onBeforeBuild(this)
         } catch (err) {
-          log.warn(`onBeforeBuild hook threw: ${(err as Error).message}`)
+          log.warn(`onBeforeBuild hook threw: ${errorMessage(err)}`)
         }
       }
       const driver = originalBuild.apply(this, args)
@@ -268,11 +269,11 @@ export function patchSelenium(hooks: DriverPatcherHooks): boolean {
         const result = hooks.onDriverCreated(driver)
         if (result && typeof (result as Promise<unknown>).then === 'function') {
           ;(result as Promise<unknown>).catch((err) =>
-            log.warn(`onDriverCreated hook rejected: ${(err as Error).message}`)
+            log.warn(`onDriverCreated hook rejected: ${errorMessage(err)}`)
           )
         }
       } catch (err) {
-        log.warn(`onDriverCreated hook threw: ${(err as Error).message}`)
+        log.warn(`onDriverCreated hook threw: ${errorMessage(err)}`)
       }
 
       // Selenium 4: WebDriver is thenable. Extend `.then` so `await Builder.build()`

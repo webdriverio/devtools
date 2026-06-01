@@ -1,4 +1,5 @@
 import logger from '@wdio/logger'
+import { errorMessage } from '@wdio/devtools-core'
 import { getElementOriginals } from '../driverPatcher.js'
 import type { SessionCapturer } from '../session.js'
 import type { CommandLog } from '../types.js'
@@ -73,7 +74,7 @@ export function captureNavigationTrace(
       }
     } catch (err) {
       if (!isFinalized()) {
-        log.warn(`Trace capture failed: ${(err as Error).message}`)
+        log.warn(`Trace capture failed: ${errorMessage(err)}`)
       }
     }
   })()

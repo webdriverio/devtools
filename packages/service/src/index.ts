@@ -3,6 +3,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 
 import logger from '@wdio/logger'
+import { errorMessage } from '@wdio/devtools-core'
 import { SevereServiceError } from 'webdriverio'
 import type { Services, Reporters, Capabilities, Options } from '@wdio/types'
 import type { WebDriverCommands } from '@wdio/protocols'
@@ -91,7 +92,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
       await this.#injectScriptSync(browser)
     } catch (err) {
       log.error(
-        `Failed to inject script at session start: ${(err as Error).message}`
+        `Failed to inject script at session start: ${errorMessage(err)}`
       )
     }
 
@@ -453,7 +454,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
       }
       await this.#sessionCapturer.injectScript(getBrowserObject(this.#browser))
     } catch (err) {
-      log.warn(`[inject] failed (reason=${reason}): ${(err as Error).message}`)
+      log.warn(`[inject] failed (reason=${reason}): ${errorMessage(err)}`)
     } finally {
       this.#injecting = false
     }

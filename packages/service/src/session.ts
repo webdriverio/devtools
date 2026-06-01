@@ -12,6 +12,7 @@ import {
   LOG_SOURCES,
   SessionCapturerBase,
   createConsoleLogEntry,
+  errorMessage,
   getRequestType,
   type LogSource
 } from '@wdio/devtools-core'
@@ -58,7 +59,7 @@ export class SessionCapturer extends SessionCapturerBase {
   }
 
   protected override onWsError(err: unknown): void {
-    log.error(`Couldn't connect to devtools backend: ${(err as Error).message}`)
+    log.error(`Couldn't connect to devtools backend: ${errorMessage(err)}`)
   }
 
   /**
@@ -234,7 +235,7 @@ export class SessionCapturer extends SessionCapturerBase {
 
       this.sendUpstream('metadata', metadata)
     } catch (err) {
-      log.error(`Failed to capture trace: ${(err as Error).message}`)
+      log.error(`Failed to capture trace: ${errorMessage(err)}`)
     }
   }
 

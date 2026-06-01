@@ -118,7 +118,7 @@ export function patchNodeAssert(
           command: `assert.${methodName}`,
           args: sanitizedArgs,
           result: undefined,
-          error: err instanceof Error ? err : new Error(String(err)),
+          error: toError(err),
           callSource: callInfo.callSource,
           timestamp: startedAt,
           fromElement: false

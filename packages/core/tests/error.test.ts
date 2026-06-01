@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { toError, serializeError } from '../src/error.js'
+import { toError, serializeError, errorMessage } from '../src/error.js'
 
 describe('toError', () => {
   it('returns the input unchanged when it is already an Error', () => {
@@ -38,6 +38,40 @@ describe('toError', () => {
   it("ignores a non-string .name field on an object with .message", () => {
     const out = toError({ message: 'm', name: 123 as unknown as string })
     expect(out.name).toBe('Error')
+  })
+})
+
+describe('errorMessage', () => {
+  it('reads .message from an Error', () => {
+    expect(errorMessage(new Error('boom'))).toBe('boom')
+  })
+
+  it('reads .message from Error subclasses', () => {
+    expect(errorMessage(new TypeError('bad type'))).toBe('bad type')
+  })
+
+  it('returns a thrown string unchanged', () => {
+    expect(errorMessage('something broke')).toBe('something broke')
+  })
+
+  it('reads .message from a plain object with one', () => {
+    expect(errorMessage({ message: 'nightwatch failed' })).toBe(
+      'nightwatch failed'
+    )
+  })
+
+  it('returns "unknown error" for null/undefined', () => {
+    expect(errorMessage(null)).toBe('unknown error')
+    expect(errorMessage(undefined)).toBe('unknown error')
+  })
+
+  it('stringifies primitives that are neither Error nor string', () => {
+    expect(errorMessage(42)).toBe('42')
+    expect(errorMessage(true)).toBe('true')
+  })
+
+  it('falls back to String() for plain objects without .message', () => {
+    expect(errorMessage({ foo: 'bar' })).toBe('[object Object]')
   })
 })
 

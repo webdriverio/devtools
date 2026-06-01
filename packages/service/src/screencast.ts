@@ -1,4 +1,5 @@
 import logger from '@wdio/logger'
+import { errorMessage } from '@wdio/devtools-core'
 
 import { SCREENCAST_DEFAULTS } from './constants.js'
 import type { ScreencastFrame, ScreencastOptions } from './types.js'
@@ -16,10 +17,6 @@ interface PuppeteerPageLike {
 
 interface PuppeteerLike {
   pages(): Promise<PuppeteerPageLike[]>
-}
-
-interface BrowserWithPuppeteer {
-  getPuppeteer(): Promise<PuppeteerLike>
 }
 
 /**
@@ -136,10 +133,13 @@ export class ScreencastRecorder {
    */
   async #startCdp(browser: WebdriverIO.Browser): Promise<boolean> {
     try {
-      // getPuppeteer is WDIO's lazy CDP escape hatch — not in the public types.
-      const puppeteer = await (
-        browser as unknown as BrowserWithPuppeteer
-      ).getPuppeteer()
+      // getPuppeteer is augmented onto WebdriverIO.Browser in types.ts; the
+      // returned Puppeteer object isn't typed by WDIO, so narrow it locally.
+      const raw = await browser.getPuppeteer?.()
+      if (!raw) {
+        return false
+      }
+      const puppeteer = raw as PuppeteerLike
       const pages = await puppeteer.pages()
       if (!pages.length) {
         return false
@@ -199,7 +199,7 @@ export class ScreencastRecorder {
         `✓ Screencast stopped — ${this.#frames.length} frame(s) collected`
       )
     } catch (err) {
-      const msg = (err as Error).message ?? ''
+      const msg = errorMessage(err) ?? ''
       if (msg.includes('Session closed') || msg.includes('Target closed')) {
         // Browser shut down before after() completed — frames already buffered.
         log.debug(
@@ -244,7 +244,7 @@ export class ScreencastRecorder {
       )
     } catch (err) {
       log.warn(
-        `Screencast unavailable (${(err as Error).message}). ` +
+        `Screencast unavailable (${errorMessage(err)}). ` +
           'Recording will be skipped.'
       )
     }

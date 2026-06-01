@@ -1,4 +1,5 @@
 import logger from '@wdio/logger'
+import { errorMessage } from '@wdio/devtools-core'
 import {
   BLANK_FRAME_THRESHOLD_BYTES,
   SCREENCAST_DEFAULTS
@@ -139,7 +140,7 @@ export class ScreencastRecorder {
       return true
     } catch (err) {
       log.info(
-        `CDP screencast unavailable (${(err as Error).message}); will try polling`
+        `CDP screencast unavailable (${errorMessage(err)}); will try polling`
       )
       return false
     }
@@ -149,7 +150,7 @@ export class ScreencastRecorder {
     try {
       this.#cdp.execute('Page.stopScreencast')
     } catch (err) {
-      log.warn(`Screencast: error stopping CDP — ${(err as Error).message}`)
+      log.warn(`Screencast: error stopping CDP — ${errorMessage(err)}`)
     }
     try {
       if (this.#cdpFrameListener && this.#cdp?._wsConnection?.off) {
@@ -191,7 +192,7 @@ export class ScreencastRecorder {
       )
     } catch (err) {
       log.warn(
-        `Screencast unavailable (${(err as Error).message}). Recording skipped.`
+        `Screencast unavailable (${errorMessage(err)}). Recording skipped.`
       )
     }
   }
