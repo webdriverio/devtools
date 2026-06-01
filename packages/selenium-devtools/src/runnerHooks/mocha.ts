@@ -1,4 +1,5 @@
 import logger from '@wdio/logger'
+import { errorMessage } from '@wdio/devtools-core'
 import { findTestLineInFile } from '../helpers/utils.js'
 import type { MochaTestCtx, RunnerHookCallbacks } from '../types.js'
 
@@ -6,6 +7,8 @@ const log = logger('@wdio/selenium-devtools:runnerHooks:mocha')
 
 // Use beforeEach/afterEach — wrapping `it()` breaks `it.skip` / `it.only`.
 export function tryRegisterMochaHooks(callbacks: RunnerHookCallbacks): boolean {
+  // Double-cast: built-in `globalThis` lacks the mocha globals; kept local
+  // (not `declare global`) so consumers don't get them as ambient types.
   const g = globalThis as unknown as {
     beforeEach?: (fn: (this: { currentTest?: MochaTestCtx }) => void) => void
     afterEach?: (fn: (this: { currentTest?: MochaTestCtx }) => void) => void
@@ -104,7 +107,7 @@ export function tryRegisterMochaHooks(callbacks: RunnerHookCallbacks): boolean {
     )
     return true
   } catch (err) {
-    log.warn(`Failed to register mocha hooks: ${(err as Error).message}`)
+    log.warn(`Failed to register mocha hooks: ${errorMessage(err)}`)
     return false
   }
 }

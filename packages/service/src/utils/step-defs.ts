@@ -12,7 +12,6 @@ import type {
   Identifier,
   MemberExpression
 } from '@babel/types'
-import type { ParserPlugin } from '@babel/parser'
 
 import {
   PARSE_PLUGINS,
@@ -182,7 +181,7 @@ function collectStepDefs(stepsDir: string): StepDef[] {
       const src = fs.readFileSync(file, 'utf-8')
       const ast = parse(src, {
         sourceType: 'module',
-        plugins: PARSE_PLUGINS as unknown as ParserPlugin[],
+        plugins: [...PARSE_PLUGINS],
         errorRecovery: true
       })
 

@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import logger from '@wdio/logger'
+import { errorMessage } from '@wdio/devtools-core'
 
 const log = logger('@wdio/selenium-devtools:dashboardLauncher')
 
@@ -55,7 +56,7 @@ export function openDashboard(host: string, port: number): boolean {
     return true
   } catch (err) {
     log.warn(
-      `Could not auto-open DevTools UI (${(err as Error).message}). Open manually: ${url}`
+      `Could not auto-open DevTools UI (${errorMessage(err)}). Open manually: ${url}`
     )
     return false
   }

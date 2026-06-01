@@ -100,6 +100,14 @@ export interface ServiceOptions {
 declare namespace WebdriverIO {
   interface ServiceOption extends ServiceOptions {}
   interface Capabilities {}
+  interface Browser {
+    // CDP escape hatch present at runtime in Chrome/Chromium sessions but
+    // omitted from WDIO's public Browser type. Returns Puppeteer's top-level
+    // browser object — see screencast.ts for the local shape we use.
+    getPuppeteer?: () => Promise<unknown>
+    // BiDi-specific WDIO method, present at runtime when BiDi is active.
+    sessionSubscribe?: (opts: { events: string[] }) => Promise<unknown>
+  }
 }
 
 declare module '@wdio/reporter' {

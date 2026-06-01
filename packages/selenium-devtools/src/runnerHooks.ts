@@ -9,6 +9,8 @@ export { tryRegisterMochaHooks, tryRegisterJestHooks, tryRegisterCucumberHooks }
 // Mocha is identified by `it`+`describe`+`beforeEach` without that.
 // Cucumber doesn't expose globals — we detect via argv + a require probe.
 export function detectRunner(): 'jest' | 'mocha' | 'cucumber' | null {
+  // Double-cast: built-in `globalThis` lacks the runner globals; kept local
+  // (not `declare global`) so consumers don't get them as ambient types.
   const g = globalThis as unknown as {
     beforeEach?: unknown
     expect?: { getState?: unknown }

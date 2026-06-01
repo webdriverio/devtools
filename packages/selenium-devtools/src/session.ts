@@ -5,6 +5,7 @@ import logger from '@wdio/logger'
 import {
   SessionCapturerBase,
   createConsoleLogEntry,
+  errorMessage,
   serializeError,
   type LogSource
 } from '@wdio/devtools-core'
@@ -66,7 +67,7 @@ export class SessionCapturer extends SessionCapturerBase {
   }
 
   protected override onWsError(err: unknown): void {
-    log.error(`Couldn't connect to devtools backend: ${(err as Error).message}`)
+    log.error(`Couldn't connect to devtools backend: ${errorMessage(err)}`)
   }
 
   protected override onWsClose(): void {
@@ -220,7 +221,7 @@ export class SessionCapturer extends SessionCapturerBase {
       const data = await fn(driver)
       return data || null
     } catch (err) {
-      log.warn(`[screenshot] Failed: ${(err as Error).message}`)
+      log.warn(`[screenshot] Failed: ${errorMessage(err)}`)
       return null
     }
   }
@@ -237,7 +238,7 @@ export class SessionCapturer extends SessionCapturerBase {
       this.sendUpstream('sources', { [filePath]: source.toString() })
     } catch (err) {
       log.warn(
-        `Failed to read source file ${filePath}: ${(err as Error).message}`
+        `Failed to read source file ${filePath}: ${errorMessage(err)}`
       )
     }
   }
@@ -278,7 +279,7 @@ export class SessionCapturer extends SessionCapturerBase {
       log.warn('Script injection may have failed — collector not found')
     } catch (err) {
       // Driver torn down between navigation and deferred trace work.
-      const msg = (err as Error).message ?? ''
+      const msg = errorMessage(err)
       if (
         msg.includes('ECONNREFUSED') ||
         msg.includes('no such session') ||
@@ -347,7 +348,7 @@ export class SessionCapturer extends SessionCapturerBase {
         this.sendUpstream('logs', traceLogs)
       }
     } catch (err) {
-      const msg = (err as Error).message ?? ''
+      const msg = errorMessage(err)
       if (
         msg.includes('ECONNREFUSED') ||
         msg.includes('no such session') ||

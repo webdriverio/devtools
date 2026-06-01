@@ -1,5 +1,6 @@
 import { createRequire } from 'node:module'
 import logger from '@wdio/logger'
+import { errorMessage } from '@wdio/devtools-core'
 import type { RunnerHookCallbacks } from '../types.js'
 
 const log = logger('@wdio/selenium-devtools:runnerHooks:cucumber')
@@ -301,7 +302,7 @@ export function tryRegisterCucumberHooks(
     )
     return true
   } catch (err) {
-    log.warn(`Failed to register cucumber hooks: ${(err as Error).message}`)
+    log.warn(`Failed to register cucumber hooks: ${errorMessage(err)}`)
     return false
   }
 }

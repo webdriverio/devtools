@@ -6,6 +6,7 @@ import logger from '@wdio/logger'
 import {
   SessionCapturerBase,
   createConsoleLogEntry,
+  errorMessage,
   serializeError,
   type LogSource
 } from '@wdio/devtools-core'
@@ -66,7 +67,7 @@ export class SessionCapturer extends SessionCapturerBase {
   }
 
   protected override onWsError(err: unknown): void {
-    log.error(`Couldn't connect to devtools backend: ${(err as Error).message}`)
+    log.error(`Couldn't connect to devtools backend: ${errorMessage(err)}`)
   }
 
   protected override onWsClose(): void {
@@ -118,9 +119,7 @@ export class SessionCapturer extends SessionCapturerBase {
     )
     if (isNavigationCommand && this.#browser && !error) {
       this.#capturePerformanceData(commandLogEntry, args).catch((err) => {
-        log.warn(
-          `Failed to capture performance data: ${(err as Error).message}`
-        )
+        log.warn(`Failed to capture performance data: ${errorMessage(err)}`)
       })
     }
 
@@ -292,7 +291,7 @@ export class SessionCapturer extends SessionCapturerBase {
       })
       req.on('error', (err) => {
         log.warn(
-          `[screenshot] HTTP request failed (${endpoint}): ${(err as Error).message}`
+          `[screenshot] HTTP request failed (${endpoint}): ${errorMessage(err)}`
         )
         resolve(null)
       })
@@ -312,9 +311,7 @@ export class SessionCapturer extends SessionCapturerBase {
         this.sources.set(filePath, sourceCode.toString())
         this.sendUpstream('sources', { [filePath]: sourceCode.toString() })
       } catch (err) {
-        log.warn(
-          `Failed to read source file ${filePath}: ${(err as Error).message}`
-        )
+        log.warn(`Failed to read source file ${filePath}: ${errorMessage(err)}`)
       }
     }
   }
@@ -325,9 +322,7 @@ export class SessionCapturer extends SessionCapturerBase {
     err?: unknown
   ): void {
     if (reason === 'send-error') {
-      log.warn(
-        `[upstream] Failed to send "${event}": ${(err as Error).message}`
-      )
+      log.warn(`[upstream] Failed to send "${event}": ${errorMessage(err)}`)
       return
     }
     if (this.hasEverConnected()) {
@@ -378,7 +373,7 @@ export class SessionCapturer extends SessionCapturerBase {
         log.warn('Script injection may have failed — collector not found')
       }
     } catch (err) {
-      log.error(`Failed to inject script: ${(err as Error).message}`)
+      log.error(`Failed to inject script: ${errorMessage(err)}`)
       throw err
     }
   }
@@ -448,7 +443,7 @@ export class SessionCapturer extends SessionCapturerBase {
         this.sendUpstream('networkRequests', deduped)
       }
     } catch (err) {
-      const msg = (err as Error).message ?? ''
+      const msg = errorMessage(err) ?? ''
       // Silently skip when performance logging was not enabled in capabilities
       if (!msg.includes('log type') && !msg.includes('performance')) {
         log.warn(`Performance log capture failed: ${msg}`)
@@ -528,7 +523,7 @@ export class SessionCapturer extends SessionCapturerBase {
       }
     } catch (err) {
       log.error(
-        `Failed to capture trace from injected script: ${(err as Error).message}`
+        `Failed to capture trace from injected script: ${errorMessage(err)}`
       )
     }
   }

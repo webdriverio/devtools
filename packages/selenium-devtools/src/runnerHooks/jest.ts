@@ -1,4 +1,5 @@
 import logger from '@wdio/logger'
+import { errorMessage } from '@wdio/devtools-core'
 import { findTestLineInFile } from '../helpers/utils.js'
 import type { RunnerHookCallbacks } from '../types.js'
 
@@ -6,8 +7,10 @@ const log = logger('@wdio/selenium-devtools:runnerHooks:jest')
 
 // `suppressedErrors` only catches failed expect()s; we track thrown errors
 // (e.g. selenium TimeoutError) separately to mark those tests failed too.
-// Jest/Vitest globals are untyped at runtime; we type each used slot as a
-// generic callable rather than `any`, so reads + assignments still compile.
+
+// Jest/Vitest globals — kept as a local shape rather than a `declare global`
+// so consumers of this package don't pick up `describe`/`it` as ambient
+// globals when they may not actually be present.
 type JestFn = (...args: any[]) => any
 type JestGlobals = {
   describe?: JestFn
@@ -20,6 +23,8 @@ type JestGlobals = {
   expect?: { getState?: () => unknown }
 }
 export function tryRegisterJestHooks(callbacks: RunnerHookCallbacks): boolean {
+  // Double-cast required: built-in `globalThis` type doesn't include the
+  // runner globals, and they aren't structurally compatible.
   const g = globalThis as unknown as JestGlobals
   if (
     typeof g.beforeEach !== 'function' ||
@@ -248,7 +253,7 @@ export function tryRegisterJestHooks(callbacks: RunnerHookCallbacks): boolean {
     )
     return true
   } catch (err) {
-    log.warn(`Failed to register jest hooks: ${(err as Error).message}`)
+    log.warn(`Failed to register jest hooks: ${errorMessage(err)}`)
     return false
   }
 }
