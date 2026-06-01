@@ -275,7 +275,6 @@ These are documented violations of this file's rules. They exist today; they are
 - `packages/app/src/controller/DataManager.ts` (~986 lines)
 - `packages/app/src/components/workbench/compare.ts` (~888 lines)
 - `packages/app/src/components/sidebar/explorer.ts` (~670 lines)
-- `packages/backend/src/index.ts` (~387 lines)
 
 ### Type-safety debt
 

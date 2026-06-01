@@ -17,6 +17,7 @@ import { getDevtoolsApp } from './utils.js'
 import { DEFAULT_PORT } from './constants.js'
 import { testRunner } from './runner.js'
 import { baselineStore } from './baselineStore.js'
+import { createWorkerMessageHandler } from './worker-message-handler.js'
 import {
   BASELINE_API,
   BASELINE_WS_SCOPE,
@@ -297,71 +298,16 @@ export async function start(
       if (clients.size > 0) {
         socket.send(JSON.stringify({ scope: 'clientConnected', data: {} }))
       }
-      socket.on('message', (message: Buffer) => {
-        // Use `debug` — at `info` level this feeds the worker's stream
-        // capture and creates a backend↔capture loop.
-        log.debug(
-          `received ${message.length} byte message from worker to ${clients.size} client${clients.size > 1 ? 's' : ''}`
-        )
-
-        try {
-          const parsed = JSON.parse(message.toString())
-
-          if (parsed.scope === 'clearCommands') {
-            const testUid = parsed.data?.testUid
-            log.info(`Clearing commands for test: ${testUid || 'all'}`)
-            // Mirror the dashboard's reset behavior: clearing without a uid
-            // is a full reset, so wipe the baseline accumulator too.
-            if (!testUid) {
-              baselineStore.resetActiveRun()
-            }
-            broadcastToClients(
-              JSON.stringify({
-                scope: 'clearExecutionData',
-                data: { uid: testUid }
-              })
-            )
-            return
-          }
-
-          if (parsed.scope === 'config' && parsed.data?.configFile) {
-            testRunner.registerConfigFile(parsed.data.configFile)
-            log.info(
-              `Registered config file for reruns: ${parsed.data.configFile}`
-            )
-            return
-          }
-
-          // Intercept screencast messages: store the absolute videoPath in the
-          // registry (backend-only), then forward only the sessionId to the UI
-          // so the UI can request the video via GET /api/video/:sessionId.
-          if (parsed.scope === 'screencast' && parsed.data?.sessionId) {
-            const { sessionId, videoPath } = parsed.data
-            if (videoPath) {
-              videoRegistry.set(sessionId, videoPath)
-              log.info(
-                `Screencast registered for session ${sessionId}: ${videoPath}`
-              )
-            }
-            broadcastToClients(
-              JSON.stringify({
-                scope: 'screencast',
-                data: { sessionId }
-              })
-            )
-            return
-          }
-          // Tee the event into the baseline accumulator for time-window
-          // partitioning at preserve time. Done after special-case handling
-          // so we don't accumulate control frames (clearCommands, screencast).
-          baselineStore.recordEvent(parsed.scope, parsed.data)
-        } catch {
-          // Not JSON or parsing failed, forward as-is
-        }
-
-        // Forward all other messages as-is
-        broadcastToClients(message.toString())
-      })
+      socket.on(
+        'message',
+        createWorkerMessageHandler({
+          baselineStore,
+          testRunner,
+          videoRegistry,
+          broadcastToClients,
+          clientCount: () => clients.size
+        })
+      )
     }
   )
 
