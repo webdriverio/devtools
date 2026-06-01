@@ -317,8 +317,8 @@ export default class DevToolsHookService implements Services.ServiceInstance {
       consoleLogs: this.#sessionCapturer.consoleLogs,
       networkRequests: this.#sessionCapturer.networkRequests,
       metadata: {
-        type: this.captureType,
         ...this.#sessionCapturer.metadata!,
+        type: this.captureType,
         options,
         capabilities: this.#browser.capabilities as Capabilities.W3CCapabilities
       },

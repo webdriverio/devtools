@@ -33,24 +33,6 @@ export class SessionCapturer extends SessionCapturerBase {
     }
   >()
 
-  // Captured session state exposed to service/index.ts for the final trace
-  // payload (consumed in afterTest / before browser reloadSession).
-  commandsLog: CommandLog[] = []
-  mutations: TraceMutation[] = []
-  traceLogs: string[] = []
-  consoleLogs: ConsoleLogs[] = []
-  networkRequests: NetworkRequest[] = []
-  metadata?: {
-    url: string
-    viewport: {
-      width: number
-      height: number
-      offsetLeft: number
-      offsetTop: number
-      scale: number
-    }
-  }
-
   constructor(devtoolsOptions: { hostname?: string; port?: number } = {}) {
     super(devtoolsOptions)
     this.patchConsole()
@@ -192,31 +174,10 @@ export class SessionCapturer extends SessionCapturerBase {
         return
       }
 
-      const { mutations, traceLogs, consoleLogs, networkRequests, metadata } =
-        await browser.execute(() => window.wdioTraceCollector.getTraceData())
-      this.metadata = metadata
-
-      if (Array.isArray(mutations)) {
-        this.mutations.push(...(mutations as TraceMutation[]))
-        this.sendUpstream('mutations', mutations)
-      }
-      if (Array.isArray(traceLogs)) {
-        this.traceLogs.push(...traceLogs)
-        this.sendUpstream('logs', traceLogs)
-      }
-      if (Array.isArray(consoleLogs)) {
-        const browserLogs = consoleLogs as ConsoleLogs[]
-        browserLogs.forEach((entry) => (entry.source = LOG_SOURCES.BROWSER))
-        this.consoleLogs.push(...browserLogs)
-        this.sendUpstream('consoleLogs', browserLogs)
-      }
-      if (Array.isArray(networkRequests)) {
-        const requests = networkRequests as NetworkRequest[]
-        this.networkRequests.push(...requests)
-        this.sendUpstream('networkRequests', requests)
-      }
-
-      this.sendUpstream('metadata', metadata)
+      const payload = await browser.execute(() =>
+        window.wdioTraceCollector.getTraceData()
+      )
+      this.processTracePayload(payload as Record<string, unknown>)
     } catch (err) {
       log.error(`Failed to capture trace: ${errorMessage(err)}`)
     }

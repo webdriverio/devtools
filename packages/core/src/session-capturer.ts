@@ -1,6 +1,13 @@
 import fs from 'node:fs/promises'
 import { WebSocket } from 'ws'
-import type { CommandLog, LogLevel, LogSource } from '@wdio/devtools-shared'
+import type {
+  CommandLog,
+  ConsoleLog,
+  LogLevel,
+  LogSource,
+  Metadata,
+  NetworkRequest
+} from '@wdio/devtools-shared'
 import { WS_PATHS, WS_SCOPE } from '@wdio/devtools-shared'
 import {
   CONSOLE_METHODS,
@@ -58,6 +65,18 @@ export abstract class SessionCapturerBase {
   // accessed by adapter-specific source-discovery flows, e.g. service's
   // `ensureSourceLoaded` which parses `file://` locations first).
   sources = new Map<string, string>()
+
+  // Captured trace payload — populated by `processTracePayload` (driven from
+  // adapter-specific `captureTrace` flows) and by direct pushes from BiDi/CDP
+  // listeners. Mutations stay `unknown[]` here because the canonical
+  // `TraceMutation` shape is a browser-only DOM type (script package); cross-
+  // package consumers treat the array as opaque.
+  commandsLog: CommandLog[] = []
+  consoleLogs: ConsoleLog[] = []
+  networkRequests: NetworkRequest[] = []
+  mutations: unknown[] = []
+  traceLogs: string[] = []
+  metadata?: Metadata
 
   // ── Construction ────────────────────────────────────────────────────────
   constructor(opts: SessionCapturerOptions = {}) {
@@ -195,6 +214,75 @@ export abstract class SessionCapturerBase {
    */
   protected onSourceReadError(_filePath: string, _err: unknown): void {
     // no-op — service silently swallows; subclasses can opt into a log line.
+  }
+
+  /**
+   * Ingest the `{ mutations, traceLogs, consoleLogs, networkRequests, metadata }`
+   * payload returned by the page-side `wdioTraceCollector.getTraceData()`.
+   * Tags console logs with `source: 'browser'`, pushes each array into the
+   * matching local field, and broadcasts via the appropriate WS scopes.
+   *
+   * `skipConsoleLogs` / `skipNetworkRequests` opt out when an out-of-band
+   * channel (BiDi) is already delivering those streams — without the gate
+   * the dashboard would see each entry twice.
+   */
+  protected processTracePayload(
+    payload: {
+      mutations?: unknown
+      traceLogs?: unknown
+      consoleLogs?: unknown
+      networkRequests?: unknown
+      metadata?: unknown
+    },
+    opts: { skipConsoleLogs?: boolean; skipNetworkRequests?: boolean } = {}
+  ): void {
+    const { mutations, traceLogs, consoleLogs, networkRequests, metadata } =
+      payload
+
+    if (metadata && typeof metadata === 'object') {
+      // Page-side trace data is a JS bag; only fields that match Metadata
+      // survive at runtime, but TS can't prove that. Cast to Partial<Metadata>
+      // so the merge stays type-checked while accepting incomplete payloads.
+      this.metadata = {
+        ...this.metadata,
+        ...(metadata as Partial<Metadata>)
+      } as Metadata
+      this.sendUpstream('metadata', this.metadata)
+    }
+
+    if (
+      !opts.skipConsoleLogs &&
+      Array.isArray(consoleLogs) &&
+      consoleLogs.length > 0
+    ) {
+      const tagged = (consoleLogs as ConsoleLog[]).map((entry) => ({
+        ...entry,
+        source: LOG_SOURCES.BROWSER as LogSource
+      }))
+      this.consoleLogs.push(...tagged)
+      this.sendUpstream('consoleLogs', tagged)
+    }
+
+    if (
+      !opts.skipNetworkRequests &&
+      Array.isArray(networkRequests) &&
+      networkRequests.length > 0
+    ) {
+      const reqs = networkRequests as NetworkRequest[]
+      this.networkRequests.push(...reqs)
+      this.sendUpstream('networkRequests', reqs)
+    }
+
+    if (Array.isArray(mutations) && mutations.length > 0) {
+      this.mutations.push(...mutations)
+      this.sendUpstream('mutations', mutations)
+    }
+
+    if (Array.isArray(traceLogs) && traceLogs.length > 0) {
+      const logs = traceLogs as string[]
+      this.traceLogs.push(...logs)
+      this.sendUpstream('logs', logs)
+    }
   }
 
   /**

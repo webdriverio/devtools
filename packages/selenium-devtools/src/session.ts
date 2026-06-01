@@ -32,13 +32,6 @@ export class SessionCapturer extends SessionCapturerBase {
   #clientConnectedWaiters: Array<() => void> = []
   #onClientDisconnected?: () => void
 
-  commandsLog: CommandLog[] = []
-  consoleLogs: ConsoleLog[] = []
-  mutations: any[] = []
-  traceLogs: string[] = []
-  networkRequests: any[] = []
-  metadata?: any
-
   constructor(
     devtoolsOptions: { hostname?: string; port?: number } = {},
     driver?: SeleniumDriverLike
@@ -301,41 +294,10 @@ export class SessionCapturer extends SessionCapturerBase {
       if (!traceData) {
         return
       }
-      const { mutations, traceLogs, consoleLogs, networkRequests, metadata } =
-        traceData
-
-      if (metadata) {
-        this.metadata = { ...this.metadata, ...metadata }
-        this.sendUpstream('metadata', this.metadata)
-      }
-      if (
-        !this.bidiActive &&
-        Array.isArray(consoleLogs) &&
-        consoleLogs.length > 0
-      ) {
-        const tagged = consoleLogs.map((e: any) => ({
-          ...e,
-          source: LOG_SOURCES.BROWSER
-        }))
-        this.consoleLogs.push(...tagged)
-        this.sendUpstream('consoleLogs', tagged)
-      }
-      if (
-        !this.bidiActive &&
-        Array.isArray(networkRequests) &&
-        networkRequests.length > 0
-      ) {
-        this.networkRequests.push(...networkRequests)
-        this.sendUpstream('networkRequests', networkRequests)
-      }
-      if (Array.isArray(mutations) && mutations.length > 0) {
-        this.mutations.push(...mutations)
-        this.sendUpstream('mutations', mutations)
-      }
-      if (Array.isArray(traceLogs) && traceLogs.length > 0) {
-        this.traceLogs.push(...traceLogs)
-        this.sendUpstream('logs', traceLogs)
-      }
+      this.processTracePayload(traceData as Record<string, unknown>, {
+        skipConsoleLogs: this.bidiActive,
+        skipNetworkRequests: this.bidiActive
+      })
     } catch (err) {
       const msg = errorMessage(err)
       if (
