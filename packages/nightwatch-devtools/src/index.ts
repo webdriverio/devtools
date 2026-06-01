@@ -23,9 +23,10 @@ import {
   type NightwatchBrowser,
   type TestStats
 } from './types.js'
+import { resolveSpecFilePath } from './helpers/specFileResolver.js'
+import { scanFeatureFile } from './helpers/featureFileScan.js'
 import {
   determineTestState,
-  findTestFileFromStack,
   deterministicUid,
   extractTestMetadata,
   parseCucumberScenario,
@@ -289,43 +290,15 @@ class NightwatchDevToolsPlugin {
     const featureUri: string = pickle.uri ?? 'unknown.feature'
     const scenarioName: string = pickle.name ?? 'Unknown Scenario'
 
-    // Derive the feature name from the "Feature: <name>" header in the file,
-    // falling back to the filename (e.g. "login") only if the file can't be read.
-    let featureName: string = path.basename(featureUri, '.feature')
-    let featureContent = ''
-    const featureAbsPath = path.resolve(process.cwd(), featureUri)
-    const stepDefFiles: Array<{ filePath: string; content: string }> = []
-    if (featureUri !== 'unknown.feature' && fs.existsSync(featureAbsPath)) {
-      featureContent = fs.readFileSync(featureAbsPath, 'utf-8')
-      const match = featureContent.match(/^\s*Feature:\s*(.+)/m)
-      if (match) {
-        featureName = match[1].trim()
-      }
-
-      this.sessionCapturer.captureSource(featureAbsPath).catch(() => {})
-
-      // Capture step definitions from sibling directories
-      const featureDir = path.dirname(featureAbsPath)
-      const stepDirCandidates = ['step_definitions', 'steps', 'support']
-      for (const candidate of stepDirCandidates) {
-        const stepDir = path.join(featureDir, candidate)
-        if (fs.existsSync(stepDir) && fs.statSync(stepDir).isDirectory()) {
-          for (const entry of fs.readdirSync(stepDir)) {
-            if (/\.(js|ts|mjs|cjs)$/.test(entry)) {
-              const stepFilePath = path.join(stepDir, entry)
-              this.sessionCapturer.captureSource(stepFilePath).catch(() => {})
-              try {
-                stepDefFiles.push({
-                  filePath: stepFilePath,
-                  content: fs.readFileSync(stepFilePath, 'utf-8')
-                })
-              } catch {
-                // skip unreadable files
-              }
-            }
-          }
-        }
-      }
+    const {
+      featureName,
+      featureContent,
+      featureAbsPath,
+      stepDefFiles,
+      capturedPaths
+    } = scanFeatureFile(featureUri)
+    for (const p of capturedPaths) {
+      this.sessionCapturer.captureSource(p).catch(() => {})
     }
 
     // Get or create the feature-level suite (no individual test names — scenarios go into suites[])
@@ -585,54 +558,12 @@ class NightwatchDevToolsPlugin {
       currentTest.module ||
       DEFAULTS.FILE_NAME
 
-    let fullPath: string | null = findTestFileFromStack() || null
-    const cachedPath = this.browserProxy.getCurrentTestFullPath()
-    if (!fullPath && cachedPath && cachedPath.includes(testFile)) {
-      fullPath = cachedPath
-    }
-
-    if (!fullPath && testFile) {
-      const workspaceRoot = process.cwd()
-      // currentTest.module is the path relative to a src_folder, e.g. "basic/ecosia"
-      // So we must try: path.join(cwd, srcFolder, module + '.js') for each src_folder
-      const modulePath = (currentTest.module || '').replace(/\\/g, '/')
-      // Use `path.resolve` (not `path.join`) so absolute src_folders entries
-      // — like `path.resolve(__dirname, 'tests')` from a nightwatch.conf.cjs
-      // that lives outside the package — bypass `workspaceRoot` correctly.
-      const srcFolderPaths = this.#srcFolders.flatMap((sf) =>
-        modulePath
-          ? [
-              path.resolve(workspaceRoot, sf, modulePath + '.js'),
-              path.resolve(workspaceRoot, sf, modulePath + '.ts'),
-              path.resolve(workspaceRoot, sf, modulePath + '.cjs'),
-              path.resolve(workspaceRoot, sf, modulePath)
-            ]
-          : []
-      )
-      const possiblePaths = [
-        // Highest priority: expand module path via each configured src_folder
-        ...srcFolderPaths,
-        // Fallback: treat module path as relative to cwd (works when src_folders isn't nested)
-        ...(modulePath
-          ? [
-              path.resolve(workspaceRoot, modulePath + '.js'),
-              path.resolve(workspaceRoot, modulePath + '.ts'),
-              path.resolve(workspaceRoot, modulePath + '.cjs'),
-              path.resolve(workspaceRoot, modulePath)
-            ]
-          : []),
-        path.resolve(workspaceRoot, 'tests', testFile + '.js'),
-        path.resolve(workspaceRoot, 'test', testFile + '.js'),
-        path.resolve(workspaceRoot, testFile + '.js')
-      ]
-
-      for (const possiblePath of possiblePaths) {
-        if (fs.existsSync(possiblePath)) {
-          fullPath = possiblePath
-          break
-        }
-      }
-    }
+    const fullPath = resolveSpecFilePath(
+      testFile,
+      currentTest.module,
+      this.#srcFolders,
+      this.browserProxy.getCurrentTestFullPath() || undefined
+    )
 
     // Extract suite title and test metadata
     let suiteTitle = testFile

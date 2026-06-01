@@ -10,7 +10,13 @@ import {
   type LogSource
 } from '@wdio/devtools-core'
 import { LOG_SOURCES, NAVIGATION_COMMANDS } from './constants.js'
-import { chromeLogLevelToLogLevel, getRequestType } from './helpers/utils.js'
+import { chromeLogLevelToLogLevel } from './helpers/utils.js'
+import {
+  parseNetworkFromPerfLogs,
+  dedupeNetworkRequests,
+  type NetworkEntry,
+  type PerfLogEntry
+} from './helpers/perfLogs.js'
 import { CAPTURE_PERFORMANCE_SCRIPT } from './helpers/capturePerformance.js'
 import type {
   CommandLog,
@@ -402,120 +408,22 @@ export class SessionCapturer extends SessionCapturerBase {
   async captureNetworkFromPerformanceLogs(browser: NightwatchBrowser) {
     try {
       const rawLogs = await (browser as any).getLog('performance')
-      const logs = ((rawLogs as any)?.value ?? rawLogs) as Array<{
-        level: string
-        message: string
-        timestamp: number
-      }>
+      const logs = ((rawLogs as any)?.value ?? rawLogs) as PerfLogEntry[]
 
       if (!Array.isArray(logs) || logs.length === 0) {
         return
       }
 
-      // Parse CDP Network.* events from the performance log
-      const pendingRequests = new Map<string, any>()
-      const networkEntries: any[] = []
-
-      for (const entry of logs) {
-        try {
-          const msg = JSON.parse(entry.message)
-          const { method, params } = msg.message
-
-          if (method === 'Network.requestWillBeSent') {
-            const { requestId, request: req, timestamp } = params
-            pendingRequests.set(requestId, {
-              id: `${entry.timestamp}-${requestId}`,
-              url: req.url,
-              method: req.method,
-              requestHeaders: req.headers,
-              timestamp: Math.round(timestamp * 1000),
-              startTime: entry.timestamp
-            })
-          } else if (method === 'Network.responseReceived') {
-            const { requestId, response } = params
-            const pending = pendingRequests.get(requestId)
-            if (pending) {
-              const responseHeaders: Record<string, string> = {}
-              for (const [k, v] of Object.entries(response.headers || {})) {
-                responseHeaders[k.toLowerCase()] = String(v)
-              }
-              pending.status = response.status
-              pending.statusText = response.statusText
-              pending.responseHeaders = responseHeaders
-              pending.mimeType = response.mimeType
-              pending.type = getRequestType(pending.url, response.mimeType)
-            }
-          } else if (method === 'Network.loadingFinished') {
-            const { requestId, encodedDataLength } = params
-            const pending = pendingRequests.get(requestId)
-            if (pending && pending.status !== undefined) {
-              pending.size = encodedDataLength
-              pending.endTime = entry.timestamp
-              pending.time = entry.timestamp - pending.startTime
-              networkEntries.push({ ...pending })
-              pendingRequests.delete(requestId)
-            }
-          } else if (method === 'Network.loadingFailed') {
-            const { requestId, errorText } = params
-            const pending = pendingRequests.get(requestId)
-            if (pending) {
-              pending.error = errorText
-              pending.endTime = entry.timestamp
-              pending.time = entry.timestamp - pending.startTime
-              networkEntries.push({ ...pending })
-              pendingRequests.delete(requestId)
-            }
-          }
-        } catch {
-          // skip malformed entries
-        }
+      const networkEntries = parseNetworkFromPerfLogs(logs)
+      if (networkEntries.length === 0) {
+        return
       }
 
-      if (networkEntries.length > 0) {
-        // Helper: for failed requests strip query string so that parallel
-        // autocomplete/prefetch requests to the same path (e.g. /search?q=W,
-        // /search?q=We, /search?q=Web…) collapse to a single entry.
-        const failedKey = (entry: any): string => {
-          try {
-            const u = new URL(entry.url)
-            return `err:${entry.method}:${u.origin}${u.pathname}`
-          } catch {
-            return `err:${entry.method}:${entry.url}`
-          }
-        }
-
-        const alreadySeen = new Set(
-          this.networkRequests.map((r: any) =>
-            r.error !== undefined
-              ? failedKey(r)
-              : `ok:${r.method}:${r.url}:${r.timestamp}`
-          )
-        )
-
-        const deduped: any[] = []
-        const seenFailedInBatch = new Map<string, number>()
-
-        for (const entry of networkEntries) {
-          if (entry.error !== undefined) {
-            const key = failedKey(entry)
-            if (alreadySeen.has(key)) {
-              continue
-            }
-            const existing = seenFailedInBatch.get(key)
-            if (existing !== undefined) {
-              deduped[existing] = entry // replace with latest failure
-            } else {
-              seenFailedInBatch.set(key, deduped.length)
-              deduped.push(entry)
-            }
-          } else {
-            const key = `ok:${entry.method}:${entry.url}:${entry.timestamp}`
-            if (!alreadySeen.has(key)) {
-              deduped.push(entry)
-            }
-          }
-        }
-
+      const deduped = dedupeNetworkRequests(
+        networkEntries,
+        this.networkRequests as NetworkEntry[]
+      )
+      if (deduped.length > 0) {
         this.networkRequests.push(...deduped)
         this.sendUpstream('networkRequests', deduped)
       }
