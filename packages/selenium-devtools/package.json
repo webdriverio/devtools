@@ -61,7 +61,7 @@
     "mocha": "^10.7.0",
     "selenium-webdriver": "^4.27.0",
     "typescript": "^6.0.2",
-    "vitest": "^2.1.9"
+    "vitest": "^4.1.0"
   },
   "peerDependencies": {
     "selenium-webdriver": ">=4.8.0"
