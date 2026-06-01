@@ -272,8 +272,8 @@ These are documented violations of this file's rules. They exist today; they are
 
 ### File-size debt (god-files to split as touched)
 
-- `packages/app/src/controller/DataManager.ts` (~986 lines)
-- `packages/app/src/components/workbench/compare.ts` (~888 lines)
+- `packages/app/src/controller/DataManager.ts` (~751 lines, was 986 — suite-merge logic extracted as pure functions; remainder is the per-scope socket-message handlers tightly coupled to ContextProvider state)
+- `packages/app/src/components/workbench/compare.ts` (~687 lines, was 888 — static styles extracted; remainder is Lit render methods tightly coupled to component state)
 - `packages/app/src/components/sidebar/explorer.ts` (~506 lines, was 670 — entry-state logic extracted, remainder is Lit render + runner-options getters coupled to component state)
 
 ### Type-safety debt
