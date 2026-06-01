@@ -13,15 +13,11 @@ import type {
   TestEntry,
   RunCapabilities,
   RunnerOptions,
-  TestRunDetail,
-  TestStatus
+  TestRunDetail
 } from './types.js'
 import { TestState } from './types.js'
-import {
-  DEFAULT_CAPABILITIES,
-  FRAMEWORK_CAPABILITIES,
-  STATE_MAP
-} from './constants.js'
+import { DEFAULT_CAPABILITIES, FRAMEWORK_CAPABILITIES } from './constants.js'
+import { getTestEntry } from './test-entry-state.js'
 import {
   BASELINE_API,
   TESTS_API,
@@ -414,179 +410,8 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
     )
   }
 
-  #isRunning(entry: TestStatsFragment | SuiteStatsFragment): boolean {
-    if ('tests' in entry) {
-      // Fastest path: any explicitly running descendant
-      if (
-        (entry.tests ?? []).some((t) => t.state === 'running') ||
-        (entry.suites ?? []).some((s) => this.#isRunning(s))
-      ) {
-        return true
-      }
-
-      const hasPendingTests = (entry.tests ?? []).some(
-        (t) => t.state === 'pending'
-      )
-      const hasPendingSuites = (entry.suites ?? []).some((s) =>
-        this.#hasPending(s)
-      )
-      const suiteState = entry.state
-
-      // If the suite was explicitly marked 'running' (e.g. by markTestAsRunning)
-      // and still has pending children, it's actively executing.
-      if (suiteState === 'running' && (hasPendingTests || hasPendingSuites)) {
-        return true
-      }
-
-      // Mixed terminal + pending children = run is in progress regardless of
-      // explicit suite state (handles Nightwatch Cucumber where the feature
-      // suite state may be undefined in the JSON payload).
-      const allDescendants = [...(entry.tests ?? []), ...(entry.suites ?? [])]
-      const hasSomeTerminal = allDescendants.some(
-        (t) =>
-          t.state === 'passed' || t.state === 'failed' || t.state === 'skipped'
-      )
-      if ((hasPendingTests || hasPendingSuites) && hasSomeTerminal) {
-        return true
-      }
-
-      return false
-    }
-    // For individual tests rely on explicit state only.
-    return entry.state === 'running'
-  }
-
-  #hasPending(entry: TestStatsFragment | SuiteStatsFragment): boolean {
-    if ('tests' in entry) {
-      if (entry.state === 'pending') {
-        return true
-      }
-      if ((entry.tests ?? []).some((t) => t.state === 'pending')) {
-        return true
-      }
-      if ((entry.suites ?? []).some((s) => this.#hasPending(s))) {
-        return true
-      }
-      return false
-    }
-    return entry.state === 'pending'
-  }
-
-  #hasFailed(entry: TestStatsFragment | SuiteStatsFragment): boolean {
-    if ('tests' in entry) {
-      // Check if any immediate test failed
-      if ((entry.tests ?? []).find((t) => t.state === 'failed')) {
-        return true
-      }
-      // Check if any nested suite has failures
-      if ((entry.suites ?? []).some((s) => this.#hasFailed(s))) {
-        return true
-      }
-      return false
-    }
-    // For individual tests
-    return entry.state === 'failed'
-  }
-
-  #computeEntryState(
-    entry: TestStatsFragment | SuiteStatsFragment
-  ): TestStatus {
-    // For suites, check running state from children FIRST — this ensures that
-    // a rerun (which clears end times) shows the spinner immediately, even if
-    // the suite still has a cached 'passed'/'failed' state from the previous run.
-    if ('tests' in entry && this.#isRunning(entry)) {
-      return TestState.RUNNING
-    }
-
-    const state = entry.state
-
-    // A suite with an explicit 'pending' state is always in-progress from the
-    // UI's perspective — the backend uses 'pending' to signal a new run is
-    // starting. Skip the children check: stale terminal children from the
-    // previous run must not cause the suite to appear as passed.
-    if ('tests' in entry && state === 'pending') {
-      return TestState.RUNNING
-    }
-
-    // For suites with no explicit terminal state, derive from children.
-    // A suite with state=undefined or state=running that has no terminal
-    // children yet is still in-progress — don't show PASSED prematurely.
-    if ('tests' in entry && (state === null || state === 'running')) {
-      const allDescendants = [...(entry.tests ?? []), ...(entry.suites ?? [])]
-      if (allDescendants.length > 0) {
-        const allTerminal = allDescendants.every(
-          (t) =>
-            t.state === 'passed' ||
-            t.state === 'failed' ||
-            t.state === 'skipped'
-        )
-        if (!allTerminal) {
-          // Still has non-terminal children — treat as running/loading
-          return TestState.RUNNING
-        }
-      }
-    }
-
-    // Check explicit terminal state
-    const mappedState = state ? STATE_MAP[state] : undefined
-    if (mappedState) {
-      return mappedState
-    }
-
-    // For suites, compute state from children
-    if ('tests' in entry) {
-      if (this.#hasFailed(entry)) {
-        return TestState.FAILED
-      }
-      return TestState.PASSED
-    }
-
-    // For individual leaf tests: pending = spinner (run is in progress),
-    // not circle (which implies "never run").
-    if (state === 'pending') {
-      return TestState.RUNNING
-    }
-
-    return entry.end ? TestState.PASSED : 'pending'
-  }
-
   #getTestEntry(entry: TestStatsFragment | SuiteStatsFragment): TestEntry {
-    if ('tests' in entry) {
-      const entries = [...(entry.tests ?? []), ...(entry.suites ?? [])]
-      // A suite whose children are themselves suites is a feature/file-level
-      // container (Cucumber feature or test file). Tag it as 'feature' so the
-      // backend runner can distinguish it from a scenario/spec-level suite and
-      // avoid applying a --name filter that would match no scenarios.
-      const hasChildSuites = entry.suites && entry.suites.length > 0
-      const derivedType = hasChildSuites ? 'feature' : entry.type || 'suite'
-      return {
-        uid: entry.uid,
-        label: entry.title ?? '',
-        type: 'suite',
-        state: this.#computeEntryState(entry),
-        callSource: entry.callSource,
-        specFile: entry.file,
-        fullTitle: entry.title ?? '',
-        featureFile: entry.featureFile,
-        featureLine: entry.featureLine,
-        suiteType: derivedType,
-        children: Object.values(entries)
-          .map(this.#getTestEntry.bind(this))
-          .filter(this.#filterEntry.bind(this))
-      }
-    }
-    return {
-      uid: entry.uid,
-      label: entry.title ?? '',
-      type: 'test',
-      state: this.#computeEntryState(entry),
-      callSource: entry.callSource,
-      specFile: entry.file,
-      fullTitle: entry.fullTitle || entry.title,
-      featureFile: entry.featureFile,
-      featureLine: entry.featureLine,
-      children: []
-    }
+    return getTestEntry(entry, this.#filterEntry.bind(this))
   }
 
   render() {
