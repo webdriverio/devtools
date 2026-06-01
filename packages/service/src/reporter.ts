@@ -215,13 +215,15 @@ export class TestReporter extends WebdriverIOReporter {
 
     // Enrich and set callSource for suites
     mapSuiteToSource(suiteStats, this.#currentSpecFile, this.#suitePath)
-    if (
-      suiteStats.file &&
-      suiteStats.line !== null &&
-      suiteStats.line !== undefined
-    ) {
-      suiteStats.callSource = `${suiteStats.file}:${suiteStats.line}`
+    if (suiteStats.file) {
+      // loadSource only needs the file path — line is irrelevant for fetching
+      // the source. Fire whenever there's a file mapping, even if line is unset
+      // (e.g. cucumber feature suites where the line comes from pickle data
+      // populated later).
       this.#loadSource(suiteStats.file)
+      if (suiteStats.line !== null && suiteStats.line !== undefined) {
+        suiteStats.callSource = `${suiteStats.file}:${suiteStats.line}`
+      }
     }
 
     this.#sendUpstream()

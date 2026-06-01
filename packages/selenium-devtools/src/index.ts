@@ -6,9 +6,13 @@ import './setupConsole.js'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import * as os from 'node:os'
-import { spawn } from 'node:child_process'
 import logger from '@wdio/logger'
 import { startDetachedBackend } from './helpers/detachedBackend.js'
+import { openDashboard } from './helpers/dashboardLauncher.js'
+import {
+  gracefulShutdown,
+  registerProcessHooks
+} from './helpers/processHooks.js'
 import { patchSelenium, getElementOriginals } from './driverPatcher.js'
 import {
   ensureBidiCapability,
@@ -471,7 +475,7 @@ class SeleniumDevToolsPlugin {
     // reconnect blip during tests must not abort them.
     this.#sessionCapturer.setClientDisconnectedHandler(() => {
       if (this.finalized) {
-        void gracefulShutdown(0)
+        void gracefulShutdown(this, 0)
       }
     })
     await this.#sessionCapturer.waitForConnection(TIMING.UI_CONNECTION_WAIT)
@@ -710,88 +714,12 @@ class SeleniumDevToolsPlugin {
     }
   }
 
-  // `open` merges windows into an existing Chrome process and loses
-  // `--user-data-dir` isolation, so we spawn the binary directly.
-  #findChromeBinary(): string | null {
-    const candidates =
-      process.platform === 'darwin'
-        ? [
-            '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-            '/Applications/Google Chrome Beta.app/Contents/MacOS/Google Chrome Beta',
-            '/Applications/Chromium.app/Contents/MacOS/Chromium',
-            `${os.homedir()}/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`
-          ]
-        : process.platform === 'win32'
-          ? [
-              'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
-              'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
-              `${process.env.LOCALAPPDATA}\\Google\\Chrome\\Application\\chrome.exe`
-            ]
-          : [
-              '/usr/bin/google-chrome',
-              '/usr/bin/google-chrome-stable',
-              '/usr/bin/chromium-browser',
-              '/usr/bin/chromium'
-            ]
-    for (const c of candidates) {
-      if (c && fs.existsSync(c)) {
-        return c
-      }
-    }
-    return null
-  }
-
   #openUiWindow() {
     if (this.#uiUrlOpened) {
       return
     }
     this.#uiUrlOpened = true
-    const url = `http://${this.#options.hostname}:${this.#options.port}`
-
-    const chromeBin = this.#findChromeBinary()
-    if (!chromeBin) {
-      log.warn(`Chrome binary not found. Open manually: ${url}`)
-      return
-    }
-
-    const userDataDir = path.join(
-      os.tmpdir(),
-      `selenium-devtools-ui-${this.#options.port}-${Date.now()}`
-    )
-
-    log.info(`Chrome binary: ${chromeBin}`)
-    log.info(`💡 Opening DevTools UI: ${url}`)
-    const chromeArgs = [
-      `--user-data-dir=${userDataDir}`,
-      '--no-first-run',
-      '--no-default-browser-check',
-      '--window-size=1600,1200',
-      '--new-window',
-      url
-    ]
-    try {
-      // Double-fork: a short-lived Node intermediate spawns Chrome detached
-      // and exits, so Chrome is reparented to launchd/init and survives any
-      // tree-kill the test runner does on its descendants (vitest's pool,
-      // jest --forceExit, mocha SIGINT). Same path for every runner.
-      const code =
-        'require("child_process")' +
-        `.spawn(${JSON.stringify(chromeBin)}, ${JSON.stringify(chromeArgs)}, { detached: true, stdio: "ignore" }).unref()`
-      const intermediate = spawn(process.execPath, ['-e', code], {
-        detached: true,
-        stdio: 'ignore'
-      })
-      intermediate.unref()
-      intermediate.on('error', (err) => {
-        log.warn(
-          `Could not auto-open DevTools UI (${err.message}). Open manually: ${url}`
-        )
-      })
-    } catch (err) {
-      log.warn(
-        `Could not auto-open DevTools UI (${(err as Error).message}). Open manually: ${url}`
-      )
-    }
+    openDashboard(this.#options.hostname, this.#options.port)
   }
 
   #finalized = false
@@ -1037,54 +965,7 @@ if (!registerHooks()) {
   }, 100)
 }
 
-process.on('exit', () => {
-  void plugin.onSessionEnd()
-})
-process.on('beforeExit', () => {
-  // onSessionEnd is idempotent — re-firing it after per-scenario quit is a
-  // no-op. The real work here is the deferred WS close (see onSessionEnd
-  // non-interactive branch). closeWebSocket() returns immediately if already
-  // closed, so this is safe for both reuse mode and the dashboard path.
-  void plugin.onSessionEnd()
-  void plugin.sessionCapturer?.closeWebSocket()
-})
-
-async function gracefulShutdown(code: number) {
-  try {
-    plugin.clearKeepAlive()
-    await plugin.sessionCapturer?.closeWebSocket()
-    plugin.sessionCapturer?.cleanup()
-    // Best-effort: kill the detached Chrome dashboard. Each session's
-    // --user-data-dir contains the unique `selenium-devtools-ui-${port}`
-    // marker, so a pattern match lands on this run's window only.
-    //
-    // Skip in reuse mode — the dashboard belongs to the parent, not the
-    // rerun child. A rerun child being SIGTERMed by the backend (e.g. when
-    // a fresh rerun arrives while the previous one is still alive) must
-    // never kill the parent's dashboard.
-    if (!plugin.isReuse) {
-      try {
-        spawn(
-          '/usr/bin/pkill',
-          ['-f', `selenium-devtools-ui-${plugin.options.port}-`],
-          { stdio: 'ignore' }
-        )
-      } catch {
-        /* pkill missing — accept stale Chrome */
-      }
-    }
-  } catch {
-    /* best-effort */
-  }
-  process.exit(code)
-}
-
-process.on('SIGINT', () => {
-  void gracefulShutdown(130)
-})
-process.on('SIGTERM', () => {
-  void gracefulShutdown(143)
-})
+registerProcessHooks(plugin)
 
 export const DevTools = {
   configure: (opts: { rerunCommand?: string }) => plugin.configure(opts),
