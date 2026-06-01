@@ -34,10 +34,7 @@ export const snapshotStyles = css`
   }
 
   .frame-dot:nth-child(1) {
-    background-color: var(
-      --vscode-notificationsErrorIcon-foreground,
-      #e51400
-    );
+    background-color: var(--vscode-notificationsErrorIcon-foreground, #e51400);
   }
 
   .frame-dot:nth-child(2) {
@@ -48,10 +45,7 @@ export const snapshotStyles = css`
   }
 
   .frame-dot:nth-child(3) {
-    background-color: var(
-      --vscode-ports-iconRunningProcessForeground,
-      #369432
-    );
+    background-color: var(--vscode-ports-iconRunningProcessForeground, #369432);
   }
 
   iframe {

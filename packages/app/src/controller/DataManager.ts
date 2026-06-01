@@ -30,6 +30,7 @@ import type {
   SocketMessage
 } from './types.js'
 import { canonicalizeUids, mergeSuite } from './suite-merge.js'
+import { markAllRunning, markSpecificRunning } from './mark-running.js'
 
 export class DataManagerController implements ReactiveController {
   #ws?: WebSocket
@@ -164,133 +165,11 @@ export class DataManagerController implements ReactiveController {
 
   #markTestAsRunning(uid: string, entryType?: 'suite' | 'test') {
     const suites = this.suitesContextProvider.value || []
-
-    // If uid is '*', mark ALL tests/suites as running
-    if (uid === '*') {
-      const updatedSuites = suites.map((chunk) => {
-        const updatedChunk: Record<string, SuiteStatsFragment> = {}
-        Object.entries(chunk as Record<string, SuiteStatsFragment>).forEach(
-          ([suiteUid, suite]) => {
-            if (!suite) {
-              updatedChunk[suiteUid] = suite
-              return
-            }
-
-            const markAllAsRunning = (
-              s: SuiteStatsFragment
-            ): SuiteStatsFragment => {
-              return {
-                ...s,
-                state: 'running',
-                start: new Date(),
-                end: undefined,
-                // Clear leaf-level tests so stale step entries from a previous
-                // run don't linger when the feature file or test code changed
-                // between runs (e.g. Cucumber step text edited). The new run
-                // repopulates them. Child suites are preserved so the tree
-                // structure remains visible during the rerun.
-                tests: [] as TestStatsFragment[],
-                suites: s.suites?.map(markAllAsRunning) || []
-              }
-            }
-
-            updatedChunk[suiteUid] = markAllAsRunning(suite)
-          }
-        )
-        return updatedChunk
-      })
-      this.suitesContextProvider.setValue(updatedSuites)
-      this.#host.requestUpdate()
-      return
-    }
-
-    // Otherwise, mark specific test/suite as running
-    const updatedSuites = suites.map((chunk) => {
-      const updatedChunk: Record<string, SuiteStatsFragment> = {}
-      Object.entries(chunk as Record<string, SuiteStatsFragment>).forEach(
-        ([suiteUid, suite]) => {
-          if (!suite) {
-            updatedChunk[suiteUid] = suite
-            return
-          }
-
-          // Recursive helper to mark only the targeted branch as running
-          const markAsRunning = (
-            s: SuiteStatsFragment
-          ): { suite: SuiteStatsFragment; matched: boolean } => {
-            const runStart = new Date()
-
-            if (entryType !== 'test' && s.uid === uid) {
-              const markSuiteTreeAsRunning = (
-                suiteNode: SuiteStatsFragment
-              ): SuiteStatsFragment => ({
-                ...suiteNode,
-                state: 'running',
-                start: runStart,
-                end: undefined,
-                // Clear leaf-level tests on rerun so stale step entries from
-                // a previous run can't linger. See sibling markAllAsRunning.
-                tests: [] as TestStatsFragment[],
-                suites: suiteNode.suites?.map(markSuiteTreeAsRunning) || []
-              })
-
-              return {
-                matched: true,
-                suite: markSuiteTreeAsRunning(s)
-              }
-            }
-
-            let matched = false
-            const updatedTests = (s.tests?.map((test) => {
-              if (test.uid === uid) {
-                matched = true
-                return {
-                  ...test,
-                  state: 'pending',
-                  start: new Date(),
-                  end: undefined
-                }
-              }
-              return test
-            }) ?? []) as TestStatsFragment[]
-
-            const updatedNestedSuites =
-              s.suites?.map((nestedSuite) => {
-                const nestedResult = markAsRunning(nestedSuite)
-                if (nestedResult.matched) {
-                  matched = true
-                }
-                return nestedResult.suite
-              }) || []
-
-            return {
-              matched,
-              suite: {
-                ...s,
-                ...(matched
-                  ? {
-                      state: 'running' as const,
-                      // Don't reset the parent's start/end when it is already
-                      // running — subsequent child-scenario marks would otherwise
-                      // reset the feature's original run timestamp.
-                      ...(s.state !== 'running'
-                        ? { start: runStart, end: undefined }
-                        : {})
-                    }
-                  : {}),
-                tests: updatedTests || [],
-                suites: updatedNestedSuites
-              }
-            }
-          }
-
-          updatedChunk[suiteUid] = markAsRunning(suite).suite
-        }
-      )
-      return updatedChunk
-    })
-
-    this.suitesContextProvider.setValue(updatedSuites)
+    const updated =
+      uid === '*'
+        ? markAllRunning(suites)
+        : markSpecificRunning(suites, uid, entryType)
+    this.suitesContextProvider.setValue(updated)
     this.#host.requestUpdate()
   }
 
