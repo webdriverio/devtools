@@ -6,10 +6,10 @@
 import logger from '@wdio/logger'
 import {
   INTERNAL_COMMANDS_TO_IGNORE,
-  BOOLEAN_COMMAND_PATTERN,
   NAVIGATION_COMMANDS
 } from '../constants.js'
 import { getCallSourceFromStack } from './utils.js'
+import { serializeCommandResult } from './serializeCommandResult.js'
 import type { SessionCapturer } from '../session.js'
 import type { TestManager } from './testManager.js'
 import type { NightwatchBrowser, CommandStackFrame } from '../types.js'
@@ -221,35 +221,10 @@ export class BrowserProxy {
         this.commandStack.pop()
       }
 
-      const isBooleanCommand = BOOLEAN_COMMAND_PATTERN.test(methodName)
-
-      let serializedResult: any = undefined
-      if (callbackResult !== null && callbackResult !== undefined) {
-        if (typeof callbackResult === 'object' && 'passed' in callbackResult) {
-          // Nightwatch assertion object {passed, actual, expected, message}
-          serializedResult = callbackResult.passed
-            ? true
-            : {
-                passed: false,
-                actual: callbackResult.actual,
-                expected: callbackResult.expected,
-                message: callbackResult.message
-              }
-        } else if (
-          typeof callbackResult === 'object' &&
-          'value' in callbackResult
-        ) {
-          const raw = callbackResult.value
-          // Boolean-semantic command returning null → timed out / not found → false
-          serializedResult = raw === null && isBooleanCommand ? false : raw
-        } else if (typeof callbackResult !== 'function') {
-          try {
-            serializedResult = JSON.parse(JSON.stringify(callbackResult))
-          } catch {
-            serializedResult = String(callbackResult)
-          }
-        }
-      }
+      const serializedResult = serializeCommandResult(
+        callbackResult,
+        methodName
+      )
 
       const currentTest = this.getCurrentTest()
       const effectiveUid = currentTest?.uid ?? testUid

@@ -4,6 +4,11 @@ import type {
   PreservedStep
 } from '@wdio/devtools-shared'
 import type { SuiteStatsFragment } from '../../../controller/types.js'
+import {
+  cleanErrorMessage,
+  extractExpectedFromStepText,
+  safeJson
+} from './compareUtils.js'
 
 /**
  * Walk the live suite tree to find the subtree rooted at `selectedTestUid`
@@ -105,6 +110,68 @@ export function findStepFor(
       ts >= s.start &&
       ts <= s.end
   )
+}
+
+/**
+ * Pre-computed data for one side of a detail-block render. Pulling this out
+ * of compare.ts's `#renderDetailBlock` lets the template stay focused on
+ * markup and lets the computation be tested in isolation.
+ */
+export interface DetailBlockData {
+  argsStr: string
+  resultStr: string
+  step: PreservedStep | undefined
+  atFailureSite: boolean
+  expected: unknown
+  actual: unknown
+  assertionMessage: string | undefined
+  fallbackExpected: string | undefined
+  stepText: string
+}
+
+export function computeDetailBlockData(
+  cmd: CommandLog,
+  step: PreservedStep | undefined,
+  allCommandsOnSide: CommandLog[]
+): DetailBlockData {
+  const atFailureSite = isFailureSite(cmd, step, allCommandsOnSide)
+  const expected =
+    atFailureSite && step?.error?.expected !== undefined
+      ? step.error.expected
+      : atFailureSite
+        ? step?.error?.matcherResult?.expected
+        : undefined
+  const actual =
+    atFailureSite && step?.error?.actual !== undefined
+      ? step.error.actual
+      : atFailureSite
+        ? step?.error?.matcherResult?.actual
+        : undefined
+  const rawAssertion = atFailureSite
+    ? step?.error?.matcherResult?.message || step?.error?.message
+    : undefined
+  const assertionMessage = rawAssertion
+    ? cleanErrorMessage(rawAssertion)
+    : undefined
+  const stepText = step?.fullTitle || step?.title || ''
+  // Fallback: extract the expected from the Cucumber step text when the
+  // assertion library didn't surface a structured expected value.
+  const fallbackExpected =
+    atFailureSite && expected === undefined && step?.state === 'failed'
+      ? extractExpectedFromStepText(stepText)
+      : undefined
+
+  return {
+    argsStr: safeJson(cmd.args),
+    resultStr: safeJson(cmd.result),
+    step,
+    atFailureSite,
+    expected,
+    actual,
+    assertionMessage,
+    fallbackExpected,
+    stepText
+  }
 }
 
 /**

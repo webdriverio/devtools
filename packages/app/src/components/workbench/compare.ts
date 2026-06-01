@@ -23,7 +23,6 @@ import {
   pairSteps,
   classifyDivergence,
   cleanErrorMessage,
-  extractExpectedFromStepText,
   safeJson,
   type ComparePairedStep,
   type DivergenceKind
@@ -34,7 +33,8 @@ import { compareStyles } from './compare/styles.js'
 import {
   liveStepsForUid,
   findStepFor,
-  isFailureSite
+  isFailureSite,
+  computeDetailBlockData
 } from './compare/stepResolution.js'
 
 const COMPONENT = 'wdio-devtools-compare'
@@ -482,40 +482,26 @@ export class DevtoolsCompare extends Element {
         <em style="opacity:0.6;">No command at this step</em>
       </div>`
     }
-    const argsStr = safeJson(cmd.args)
-    const resultStr = safeJson(cmd.result)
-    const step = this.#findStepFor(cmd, side)
     // Only the failure-site command shows step-level expected/actual/assertion;
     // other commands in the failed step succeeded individually.
     const allCmdsThisSide =
       side === 'baseline'
         ? ((this.#getBaseline()?.commands ?? []) as CommandLog[])
         : this.#liveCommandsForSelectedUid()
-    const atFailureSite = isFailureSite(cmd, step, allCmdsThisSide)
-    const expected =
-      atFailureSite && step?.error?.expected !== undefined
-        ? step.error.expected
-        : atFailureSite
-          ? step?.error?.matcherResult?.expected
-          : undefined
-    const actual =
-      atFailureSite && step?.error?.actual !== undefined
-        ? step.error.actual
-        : atFailureSite
-          ? step?.error?.matcherResult?.actual
-          : undefined
-    const rawAssertion = atFailureSite
-      ? step?.error?.matcherResult?.message || step?.error?.message
-      : undefined
-    const assertionMessage = rawAssertion
-      ? cleanErrorMessage(rawAssertion)
-      : undefined
-    // Fallback: extract the expected from the Cucumber step text.
-    const stepText = step?.fullTitle || step?.title || ''
-    const fallbackExpected =
-      atFailureSite && expected === undefined && step?.state === 'failed'
-        ? extractExpectedFromStepText(stepText)
-        : undefined
+    const {
+      argsStr,
+      resultStr,
+      step,
+      expected,
+      actual,
+      assertionMessage,
+      fallbackExpected,
+      stepText
+    } = computeDetailBlockData(
+      cmd,
+      this.#findStepFor(cmd, side),
+      allCmdsThisSide
+    )
     return html`
       <div class="detail-block">
         <h4>${label} · ${cmd.command}</h4>
