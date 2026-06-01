@@ -42,7 +42,14 @@ const clients = new Set<WebSocket>()
 
 // Notify the worker when a UI client connects so the plugin can unblock
 // Builder.build() instead of finishing the run before the dashboard appears.
+//
+// `parentWorkerSocket` is the long-lived worker (the original test runner
+// holding the keep-alive on shutdown). `workerSocket` tracks whichever worker
+// most recently connected — typically a rerun child while it runs. Outbound
+// signals like `clientDisconnected` go to the PARENT, otherwise a closed
+// rerun-child leaves the parent unreachable and `clientDisconnected` is lost.
 let workerSocket: WebSocket | undefined
+let parentWorkerSocket: WebSocket | undefined
 
 // sessionId → absolute path of the encoded .webm; queried by /api/video/:sessionId.
 const videoRegistry = new Map<string, string>()
@@ -238,10 +245,18 @@ export async function start(
         // Last dashboard window closed — tell the worker so it can wind
         // down. Lets the user close Chrome to end an interactive review
         // session under any runner.
-        if (clients.size === 0 && workerSocket?.readyState === WebSocket.OPEN) {
-          workerSocket.send(
-            JSON.stringify({ scope: 'clientDisconnected', data: {} })
-          )
+        // Route to the PARENT worker — it owns the keep-alive + shutdown
+        // handler. The `workerSocket` ref may point at a rerun child that's
+        // about to exit; falling back to `parentWorkerSocket` handles that
+        // (and a fresh post-rerun click before the child fully closes).
+        const target =
+          parentWorkerSocket?.readyState === WebSocket.OPEN
+            ? parentWorkerSocket
+            : workerSocket?.readyState === WebSocket.OPEN
+              ? workerSocket
+              : undefined
+        if (clients.size === 0 && target) {
+          target.send(JSON.stringify({ scope: 'clientDisconnected', data: {} }))
         }
       })
 
@@ -268,9 +283,15 @@ export async function start(
         baselineStore.resetActiveRun()
       }
       workerSocket = socket
+      if (!isRerunChild) {
+        parentWorkerSocket = socket
+      }
       socket.on('close', () => {
         if (workerSocket === socket) {
           workerSocket = undefined
+        }
+        if (parentWorkerSocket === socket) {
+          parentWorkerSocket = undefined
         }
       })
       if (clients.size > 0) {

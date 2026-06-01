@@ -27,7 +27,7 @@
     "clean": "rm -rf dist",
     "lint": "eslint .",
     "prepublishOnly": "pnpm build",
-    "example": "pnpm example:mocha",
+    "example": "pnpm example:cucumber",
     "example:mocha": "mocha --require @wdio/selenium-devtools --timeout 60000 ../../examples/selenium/mocha-test/test/example.js",
     "example:jest": "NODE_OPTIONS=--experimental-vm-modules jest --config ../../examples/selenium/jest-test/jest.config.json",
     "example:cucumber": "cucumber-js --config ../../examples/selenium/cucumber-test/cucumber.json"

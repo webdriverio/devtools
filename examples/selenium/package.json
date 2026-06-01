@@ -10,5 +10,8 @@
   "dependencies": {
     "@wdio/selenium-devtools": "workspace:^",
     "selenium-webdriver": "^4.27.0"
+  },
+  "devDependencies": {
+    "@cucumber/cucumber": "^11.1.0"
   }
 }

@@ -4,7 +4,7 @@ import path from 'node:path'
 import url from 'node:url'
 import { createRequire } from 'node:module'
 import kill from 'tree-kill'
-import { parse as shellParse } from 'shell-quote'
+import { parse as shellParse, quote as shellQuote } from 'shell-quote'
 import type { TestRunnerId } from '@wdio/devtools-shared'
 import type { RunnerRequestBody } from './types.js'
 import { WDIO_CONFIG_FILENAMES, NIGHTWATCH_CONFIG_FILENAMES } from './types.js'
@@ -261,6 +261,13 @@ class TestRunner {
 
   // Targeted reruns substitute {{testName}} into rerunCommand; suite filtering
   // works because mocha/jest/cucumber filter flags match by name (describe/it/scenario alike).
+  //
+  // Exception: cucumber's `--name` matches scenario titles only, never feature
+  // titles — a suite-level rerun on a feature would substitute the feature name
+  // and match zero scenarios. When the payload looks like a cucumber feature
+  // rerun (entryType='suite', spec file ends in `.feature`, template carries
+  // `--name "{{testName}}"`), strip `--name` and pass the feature file as a
+  // positional arg so cucumber-js runs every scenario in that file.
   #resolveGenericCommand(payload: RunnerRequestBody): string {
     const template = payload.rerunCommand
     const fallback = payload.launchCommand || ''
@@ -268,11 +275,29 @@ class TestRunner {
       !payload.runAll &&
       (payload.entryType === 'test' || payload.entryType === 'suite') &&
       Boolean(payload.label || payload.fullTitle)
-    if (template && isTargetedRerun) {
-      const name = payload.label || payload.fullTitle || ''
-      return template.replace(/\{\{testName\}\}/g, name)
+    if (!template || !isTargetedRerun) {
+      return fallback || template || ''
     }
-    return fallback || template || ''
+    // Cucumber's `--name` matches scenario titles, never feature titles.
+    // Feature-level reruns must drop `--name` and pass the .feature path as a
+    // positional arg. The dashboard tags the root suite with
+    // `suiteType: 'feature'`, which is what distinguishes a true feature-level
+    // rerun from a scenario rerun (scenarios are also `entryType: 'suite'` but
+    // `suiteType: 'suite'`).
+    const featureSpec =
+      payload.featureFile ||
+      (payload.specFile?.endsWith('.feature') ? payload.specFile : undefined)
+    const isCucumberFeatureRerun =
+      payload.entryType === 'suite' &&
+      payload.suiteType === 'feature' &&
+      Boolean(featureSpec) &&
+      /--name\s+"\{\{testName\}\}"/.test(template)
+    if (isCucumberFeatureRerun && featureSpec) {
+      const stripped = template.replace(/\s*--name\s+"\{\{testName\}\}"/, '')
+      return `${stripped} ${shellQuote([featureSpec])}`
+    }
+    const name = payload.label || payload.fullTitle || ''
+    return template.replace(/\{\{testName\}\}/g, name)
   }
 
   #parseGenericCommand(command: string): { file: string; args: string[] } {

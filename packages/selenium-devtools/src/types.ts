@@ -9,6 +9,8 @@ export {
   type Metadata,
   type NetworkRequest,
   type PerformanceData,
+  type SuiteStats,
+  type TestStats,
   type TestStatus
 } from '@wdio/devtools-shared'
 
@@ -54,42 +56,6 @@ export interface ScreencastOptions {
    * Used when CDP isn't available — calls driver.takeScreenshot() at this rate.
    */
   pollIntervalMs?: number
-}
-
-export interface TestStats {
-  uid: string
-  cid: string
-  title: string
-  fullTitle: string
-  parent: string
-  state: 'passed' | 'failed' | 'skipped' | 'pending' | 'running'
-  start: Date
-  end: Date | null
-  type: 'test'
-  file: string
-  retries: number
-  _duration: number
-  error?: { name: string; message: string; stack?: string }
-  hooks?: any[]
-  callSource?: string
-}
-
-export interface SuiteStats {
-  uid: string
-  cid: string
-  title: string
-  fullTitle: string
-  type: 'suite'
-  file: string
-  start: Date
-  state?: 'pending' | 'running' | 'passed' | 'failed' | 'skipped'
-  end?: Date | null
-  tests: (string | TestStats)[]
-  suites: SuiteStats[]
-  hooks: any[]
-  _duration: number
-  parent?: string
-  callSource?: string
 }
 
 /**
