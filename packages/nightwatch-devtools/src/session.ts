@@ -44,13 +44,6 @@ function unwrapDriverValue<T = unknown>(result: unknown): T {
 export class SessionCapturer extends SessionCapturerBase {
   #browser: NightwatchBrowser | undefined
 
-  commandsLog: CommandLog[] = []
-  consoleLogs: ConsoleLog[] = []
-  mutations: any[] = []
-  traceLogs: string[] = []
-  networkRequests: any[] = []
-  metadata?: any
-
   constructor(
     devtoolsOptions: { hostname?: string; port?: number } = {},
     browser?: NightwatchBrowser
@@ -429,8 +422,14 @@ export class SessionCapturer extends SessionCapturerBase {
         this.networkRequests as NetworkEntry[]
       )
       if (deduped.length > 0) {
-        this.networkRequests.push(...deduped)
-        this.sendUpstream('networkRequests', deduped)
+        // NetworkEntry has `type?: string`; the shared NetworkRequest needs
+        // `type: string` so default the field at this framework boundary.
+        const normalized = deduped.map((d) => ({
+          ...d,
+          type: d.type ?? 'unknown'
+        }))
+        this.networkRequests.push(...normalized)
+        this.sendUpstream('networkRequests', normalized)
       }
     } catch (err) {
       const msg = errorMessage(err) ?? ''
@@ -473,43 +472,14 @@ export class SessionCapturer extends SessionCapturerBase {
         return
       }
 
-      const { mutations, traceLogs, consoleLogs, networkRequests, metadata } =
-        traceData
-
-      if (metadata) {
-        this.metadata = { ...this.metadata, ...metadata }
-        this.sendUpstream('metadata', this.metadata)
-      }
-
-      if (Array.isArray(consoleLogs) && consoleLogs.length > 0) {
-        const tagged = consoleLogs.map((e: any) => ({
-          ...e,
-          source: LOG_SOURCES.BROWSER
-        }))
-        this.consoleLogs.push(...tagged)
-        this.sendUpstream('consoleLogs', tagged)
-      }
-
-      if (Array.isArray(networkRequests) && networkRequests.length > 0) {
-        this.networkRequests.push(...networkRequests)
-        this.sendUpstream('networkRequests', networkRequests)
-      }
-
-      if (Array.isArray(mutations) && mutations.length > 0) {
-        this.mutations.push(...mutations)
-        this.sendUpstream('mutations', mutations)
-        log.info(`[trace] Captured ${mutations.length} DOM mutation(s)`)
-      }
-
-      if (Array.isArray(traceLogs) && traceLogs.length > 0) {
-        this.traceLogs.push(...traceLogs)
-        this.sendUpstream('logs', traceLogs)
-      }
-
-      if (Array.isArray(networkRequests) && networkRequests.length > 0) {
-        log.info(
-          `[trace] Captured ${networkRequests.length} network request(s)`
-        )
+      this.processTracePayload(traceData)
+      const mutationCount = Array.isArray(
+        (traceData as { mutations?: unknown }).mutations
+      )
+        ? (traceData as { mutations: unknown[] }).mutations.length
+        : 0
+      if (mutationCount > 0) {
+        log.info(`[trace] Captured ${mutationCount} DOM mutation(s)`)
       }
     } catch (err) {
       log.error(
