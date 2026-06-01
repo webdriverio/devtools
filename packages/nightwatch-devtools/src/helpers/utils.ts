@@ -1,12 +1,26 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { parse as parseStackTrace } from 'stacktrace-parser'
+import {
+  generateStableUid as generateStableUidByFileName,
+  isUserCodeFrame,
+  normalizeFilePath
+} from '@wdio/devtools-core'
 import { TEST_FILE_PATTERN, CONFIG_FILENAMES } from '../constants.js'
 import type {
   NightwatchTestCase,
   TestFileMetadata,
   StepLocation
 } from '../types.js'
+
+// These three are pure re-exports — adapters use the core implementations
+// directly, no wrapper logic. Single-line re-exports keep the indirection
+// visible without introducing dummy variables.
+export {
+  deterministicUid,
+  getCallSourceFromStack,
+  resetSignatureCounters
+} from '@wdio/devtools-core'
 
 export function determineTestState(
   testcase: NightwatchTestCase
@@ -16,12 +30,6 @@ export function determineTestState(
   }
   return testcase.passed > 0 && testcase.failed === 0 ? 'passed' : 'failed'
 }
-
-import {
-  generateStableUid as generateStableUidByFileName,
-  deterministicUid as deterministicUidFromCore,
-  resetSignatureCounters as resetSignatureCountersFromCore
-} from '@wdio/devtools-core'
 
 /**
  * Generate stable UID for test/suite.
@@ -44,16 +52,6 @@ export function generateStableUid(itemOrFile: any, name?: string): string {
   }
   return generateStableUidByFileName(file, testName)
 }
-
-export const resetSignatureCounters = resetSignatureCountersFromCore
-
-export const deterministicUid = deterministicUidFromCore
-
-import {
-  isUserCodeFrame,
-  normalizeFilePath,
-  getCallSourceFromStack as getCallSourceFromStackFromCore
-} from '@wdio/devtools-core'
 
 /**
  * Find test file from stack trace.
@@ -136,8 +134,6 @@ export function extractTestMetadata(filePath: string): TestFileMetadata {
   }
   return result
 }
-
-export const getCallSourceFromStack = getCallSourceFromStackFromCore
 
 /**
  * Find test file by searching the workspace for a matching filename.

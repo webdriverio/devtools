@@ -3,18 +3,21 @@
 
 // MUST be the first import — see setupConsole.ts.
 import './setupConsole.js'
-import * as fs from 'node:fs'
 import * as path from 'node:path'
-import * as os from 'node:os'
 import logger from '@wdio/logger'
 import { startDetachedBackend } from './helpers/detachedBackend.js'
 import { openDashboard } from './helpers/dashboardLauncher.js'
 import { buildDriverMetadata } from './helpers/driverMetadata.js'
+import { finalizeScreencast } from './helpers/finalizeScreencast.js'
+import {
+  enrichFindResult,
+  captureNavigationTrace
+} from './helpers/commandPostActions.js'
 import {
   gracefulShutdown,
   registerProcessHooks
 } from './helpers/processHooks.js'
-import { patchSelenium, getElementOriginals } from './driverPatcher.js'
+import { patchSelenium } from './driverPatcher.js'
 import {
   ensureBidiCapability,
   ensureHeadlessChrome,
@@ -27,7 +30,6 @@ import { SuiteManager } from './helpers/suiteManager.js'
 import { TestManager } from './helpers/testManager.js'
 import { RerunManager } from './rerunManager.js'
 import { ScreencastRecorder } from './screencast.js'
-import { encodeToVideo } from './helpers/videoEncoder.js'
 import {
   detectOwnVersion,
   detectRunner,
@@ -616,60 +618,18 @@ class SeleniumDevToolsPlugin {
       cmd.rawResult &&
       (cmd.command === 'findElement' || cmd.command === 'findElements')
     ) {
-      const ts = entry.timestamp
-      void this.#enrichFindResult(cmd.rawResult, entry, ts)
+      void enrichFindResult(capturer, cmd.rawResult, entry, entry.timestamp)
     }
 
     if (capturer.isNavigationCommand(cmd.command) && !cmd.fromElement) {
-      void (async () => {
-        try {
-          if (!this.#scriptInjected) {
-            this.#scriptInjected = true
-            await capturer.injectScript()
-          }
-          await capturer.captureTrace()
-          if (!capturer.bidiActive) {
-            await capturer.captureBrowserLogs()
-          }
-        } catch (err) {
-          if (!this.#finalized) {
-            log.warn(`Trace capture failed: ${(err as Error).message}`)
-          }
-        }
-      })()
-    }
-  }
-
-  async #enrichFindResult(rawResult: any, entry: any, ts: number) {
-    const capturer = this.#sessionCapturer
-    if (!capturer) {
-      return
-    }
-    // Unwrapped methods so these probes don't appear as phantom commands.
-    const els = getElementOriginals()
-    const getTagName = els.getTagName
-    const getText = els.getText
-    if (!getTagName || !getText) {
-      return
-    }
-    try {
-      const elements = Array.isArray(rawResult) ? rawResult : [rawResult]
-      const previews = await Promise.all(
-        elements.slice(0, 5).map(async (el: any) => {
-          const tag = await getTagName(el).catch(() => 'element')
-          const text = await getText(el).catch(() => '')
-          const trimmed = text.length > 60 ? text.slice(0, 60) + '…' : text
-          return trimmed ? `<${tag}>"${trimmed}"` : `<${tag}>`
-        })
+      captureNavigationTrace(
+        capturer,
+        this.#scriptInjected,
+        () => {
+          this.#scriptInjected = true
+        },
+        () => this.#finalized
       )
-      const more = elements.length > 5 ? `, +${elements.length - 5} more` : ''
-      const enriched = Array.isArray(rawResult)
-        ? `[${previews.join(', ')}${more}]`
-        : previews[0]
-      entry.result = enriched
-      capturer.sendReplaceCommand(ts, entry)
-    } catch {
-      // Element detached / stale — leave the original `<WebElement>` text.
     }
   }
 
@@ -688,38 +648,15 @@ class SeleniumDevToolsPlugin {
 
   /** Per-driver cleanup; keeps capturer/suite/testManager/backend alive. */
   async onDriverEnd() {
-    if (this.#screencast) {
-      try {
-        await this.#screencast.stop()
-        const frames = this.#screencast.frames
-        if (frames.length > 0 && this.#sessionId) {
-          const fileName = `selenium-video-${this.#sessionId}.webm`
-          // Output dir priority: test-file dir → cwd → os.tmpdir().
-          const candidate = this.#testFileDir || process.cwd()
-          let videoPath = path.join(candidate, fileName)
-          try {
-            fs.accessSync(candidate, fs.constants.W_OK)
-          } catch {
-            videoPath = path.join(os.tmpdir(), fileName)
-          }
-          try {
-            await encodeToVideo(frames, videoPath, {
-              captureFormat: this.#screencastOptions.captureFormat
-            })
-            log.info(`📹 Screencast video: ${videoPath}`)
-            this.#sessionCapturer?.sendUpstream('screencast', {
-              sessionId: this.#sessionId,
-              videoPath,
-              videoFile: fileName,
-              frameCount: frames.length
-            })
-          } catch (err) {
-            log.warn(`Screencast encode failed: ${(err as Error).message}`)
-          }
-        }
-      } catch (err) {
-        log.warn(`Screencast stop failed: ${(err as Error).message}`)
-      }
+    if (this.#screencast && this.#sessionId) {
+      await finalizeScreencast({
+        screencast: this.#screencast,
+        sessionId: this.#sessionId,
+        testFileDir: this.#testFileDir,
+        captureFormat: this.#screencastOptions.captureFormat,
+        sendUpstream: (scope, data) =>
+          this.#sessionCapturer?.sendUpstream(scope, data)
+      })
     }
     this.#driver = undefined
     this.#screencast = undefined

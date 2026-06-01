@@ -1,7 +1,4 @@
-import type {
-  SuiteStatsFragment,
-  TestStatsFragment
-} from './types.js'
+import type { SuiteStatsFragment, TestStatsFragment } from './types.js'
 
 /**
  * Pure tree transforms that mark a suite/test as "running" on rerun start.
@@ -131,6 +128,69 @@ export function markSpecificRunning(
         }
 
         updatedChunk[suiteUid] = markAsRunning(suite).suite
+      }
+    )
+    return updatedChunk
+  })
+}
+
+/**
+ * Mark every still-running test (no `end`) as failed. Used when the user
+ * manually stops the run from the dashboard — without this, suites with
+ * `state: 'running'` would keep showing their spinner indefinitely.
+ *
+ * The suite's state is derived from its updated children: if any child is
+ * failed (or the suite itself was 'running' with no live children left),
+ * the suite ends up failed. Otherwise the existing state is preserved.
+ */
+export function markRunningAsStopped(suites: SuiteChunks): SuiteChunks {
+  const updateSuite = (s: SuiteStatsFragment): SuiteStatsFragment => {
+    const updatedTests = s.tests?.map((test): TestStatsFragment => {
+      if (test && !test.end) {
+        return {
+          ...test,
+          end: new Date(),
+          state: 'failed',
+          error: {
+            message: 'Test execution stopped',
+            name: 'TestStoppedError'
+          }
+        }
+      }
+      return test
+    })
+
+    const updatedNestedSuites = s.suites?.map(updateSuite)
+
+    const allTests = [...(updatedTests || []), ...(updatedNestedSuites || [])]
+    const hasFailed = allTests.some((t) => t?.state === 'failed')
+    const hasRunning = allTests.some((t) => !t?.end)
+    const derivedState: SuiteStatsFragment['state'] = hasRunning
+      ? s.state
+      : hasFailed
+        ? 'failed'
+        : s.state === 'running'
+          ? 'failed'
+          : s.state
+
+    return {
+      ...s,
+      state: derivedState,
+      ...(!hasRunning && !s.end ? { end: new Date() } : {}),
+      tests: updatedTests || [],
+      suites: updatedNestedSuites || []
+    }
+  }
+
+  return suites.map((chunk) => {
+    const updatedChunk: Record<string, SuiteStatsFragment> = {}
+    Object.entries(chunk as Record<string, SuiteStatsFragment>).forEach(
+      ([uid, suite]) => {
+        if (!suite) {
+          updatedChunk[uid] = suite
+          return
+        }
+        updatedChunk[uid] = updateSuite(suite)
       }
     )
     return updatedChunk

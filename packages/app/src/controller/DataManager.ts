@@ -22,15 +22,15 @@ import {
 } from './context.js'
 import { BASELINE_WS_SCOPE } from '@wdio/devtools-shared'
 import { CACHE_ID } from './constants.js'
-import { getTimestamp } from '../utils/helpers.js'
 import { rerunState } from './rerunState.js'
-import type {
-  TestStatsFragment,
-  SuiteStatsFragment,
-  SocketMessage
-} from './types.js'
+import type { SuiteStatsFragment, SocketMessage } from './types.js'
 import { canonicalizeUids, mergeSuite } from './suite-merge.js'
-import { markAllRunning, markSpecificRunning } from './mark-running.js'
+import {
+  markAllRunning,
+  markSpecificRunning,
+  markRunningAsStopped
+} from './mark-running.js'
+import { shouldResetForNewRun } from './run-detection.js'
 
 export class DataManagerController implements ReactiveController {
   #ws?: WebSocket
@@ -293,84 +293,16 @@ export class DataManagerController implements ReactiveController {
   }
 
   #shouldResetForNewRun(data: unknown): boolean {
-    // During a UI-triggered rerun, suppress auto-detection so sibling-scenario
-    // updates don't wipe accumulated execution data.
-    // Still update #lastSeenRunTimestamp so that once activeRerunSuiteUid is
-    // cleared the final suite update isn't mistakenly treated as a new run.
-    if (rerunState.activeRerunSuiteUid) {
-      const payloads = Array.isArray(data)
-        ? (data as Record<string, SuiteStatsFragment>[])
-        : ([data] as Record<string, SuiteStatsFragment>[])
-      for (const chunk of payloads) {
-        if (!chunk) {
-          continue
-        }
-        for (const suite of Object.values(chunk)) {
-          if (!suite?.start) {
-            continue
-          }
-          const t = getTimestamp(
-            suite.start as Date | number | string | undefined
-          )
-          if (t > this.#lastSeenRunTimestamp) {
-            this.#lastSeenRunTimestamp = t
-          }
-        }
-      }
-      return false
-    }
-
-    const payloads = Array.isArray(data)
-      ? (data as Record<string, SuiteStatsFragment>[])
-      : ([data] as Record<string, SuiteStatsFragment>[])
-
-    for (const chunk of payloads) {
-      if (!chunk) {
-        continue
-      }
-
-      for (const suite of Object.values(chunk)) {
-        if (!suite?.start) {
-          continue
-        }
-
-        const suiteStartTime = getTimestamp(
-          suite.start as Date | number | string | undefined
-        )
-
-        if (suiteStartTime <= 0) {
-          continue
-        }
-
-        // New run detected if we see a newer start timestamp.
-        // Exception: if the existing suite for this uid has no end time, it is
-        // still an ongoing run (e.g. a Cucumber feature spanning multiple
-        // scenarios) — treat it as a continuation, not a new run.
-        if (suiteStartTime > this.#lastSeenRunTimestamp) {
-          const existingChunks = this.suitesContextProvider.value || []
-          let existingEnd: unknown = undefined
-          outer: for (const ec of existingChunks) {
-            for (const [uid, existing] of Object.entries(ec)) {
-              if (uid === Object.keys(chunk)[0]) {
-                existingEnd = existing?.end
-                break outer
-              }
-            }
-          }
-          // Only reset if the previous run was already finished (had an end time).
-          // An ongoing run (end == null / undefined) is just a continuation.
-          const previousRunFinished =
-            existingEnd !== null && existingEnd !== undefined
-          if (previousRunFinished) {
-            this.#lastSeenRunTimestamp = suiteStartTime
-            return true
-          }
-          // Continuation — update tracking timestamp but do NOT reset
-          this.#lastSeenRunTimestamp = suiteStartTime
-        }
-      }
-    }
-    return false
+    const { shouldReset, newLastSeenTimestamp } = shouldResetForNewRun(
+      data,
+      {
+        lastSeenRunTimestamp: this.#lastSeenRunTimestamp,
+        activeRerunSuiteUid: rerunState.activeRerunSuiteUid
+      },
+      this.suitesContextProvider.value || []
+    )
+    this.#lastSeenRunTimestamp = newLastSeenTimestamp
+    return shouldReset
   }
 
   #resetExecutionData() {
@@ -391,72 +323,8 @@ export class DataManagerController implements ReactiveController {
   #handleTestStopped() {
     this.#activeRerunTestUid = undefined
     rerunState.activeRerunSuiteUid = undefined
-
-    // Mark all running tests as failed when test execution is stopped
     const suites = this.suitesContextProvider.value || []
-    const updatedSuites = suites.map((chunk) => {
-      const updatedChunk: Record<string, SuiteStatsFragment> = {}
-      Object.entries(chunk as Record<string, SuiteStatsFragment>).forEach(
-        ([uid, suite]) => {
-          if (!suite) {
-            updatedChunk[uid] = suite
-            return
-          }
-
-          // Recursive helper to update tests and nested suites
-          const updateSuite = (s: SuiteStatsFragment): SuiteStatsFragment => {
-            const updatedTests = s.tests?.map((test): TestStatsFragment => {
-              // If test is running (no end time), mark it as failed
-              if (test && !test.end) {
-                return {
-                  ...test,
-                  end: new Date(),
-                  state: 'failed',
-                  error: {
-                    message: 'Test execution stopped',
-                    name: 'TestStoppedError'
-                  }
-                }
-              }
-              return test
-            })
-
-            // Recursively update nested suites (for Cucumber scenarios)
-            const updatedNestedSuites = s.suites?.map(updateSuite)
-
-            // Derive the suite's own state from its updated children so that
-            // STATE_MAP['running'] no longer produces a spinner after stop.
-            const allTests = [
-              ...(updatedTests || []),
-              ...(updatedNestedSuites || [])
-            ]
-            const hasFailed = allTests.some((t) => t?.state === 'failed')
-            const hasRunning = allTests.some((t) => !t?.end)
-            const derivedState: SuiteStatsFragment['state'] = hasRunning
-              ? s.state
-              : hasFailed
-                ? 'failed'
-                : s.state === 'running'
-                  ? 'failed'
-                  : s.state
-
-            return {
-              ...s,
-              state: derivedState,
-              ...(!hasRunning && !s.end ? { end: new Date() } : {}),
-
-              tests: updatedTests || [],
-              suites: updatedNestedSuites || []
-            }
-          }
-
-          updatedChunk[uid] = updateSuite(suite)
-        }
-      )
-      return updatedChunk
-    })
-
-    this.suitesContextProvider.setValue(updatedSuites)
+    this.suitesContextProvider.setValue(markRunningAsStopped(suites))
   }
 
   #handleMutationsUpdate(data: TraceMutation[]) {

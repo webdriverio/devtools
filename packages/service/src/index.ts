@@ -12,6 +12,7 @@ import { TestReporter } from './reporter.js'
 import { DevToolsAppLauncher } from './launcher.js'
 import { getBrowserObject, isUserSpecFile } from './utils.js'
 import { ScreencastRecorder } from './screencast.js'
+import { attachBidiListeners } from './bidi-listeners.js'
 import { encodeToVideo } from './video-encoder.js'
 import { parse } from 'stack-trace'
 import {
@@ -193,38 +194,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     // Set up BiDi listeners on first command (before any actual commands are executed)
     if (!this.#bidiListenersSetup && this.#browser.isBidi) {
       this.#bidiListenersSetup = true
-      log.info('Setting up BiDi network event listeners...')
-
-      // Listen for network events
-      this.#browser.on('network.beforeRequestSent', (event: any) => {
-        this.#sessionCapturer.handleNetworkRequestStarted(event)
-      })
-
-      this.#browser.on('network.responseCompleted', (event: any) => {
-        this.#sessionCapturer.handleNetworkResponseCompleted(event)
-      })
-
-      this.#browser.on('network.fetchError', (event: any) => {
-        log.info(`>>> BiDi fetchError - keys: ${Object.keys(event).join(', ')}`)
-        this.#sessionCapturer.handleNetworkFetchError(event)
-      })
-
-      this.#browser.on('log.entryAdded', (event: any) => {
-        this.#sessionCapturer.handleLogEntryAdded(event)
-      })
-
-      // WDIO auto-subscribes to network events but not log events.
-      try {
-        ;(this.#browser as any).sessionSubscribe?.({
-          events: ['log.entryAdded']
-        })
-      } catch (err) {
-        log.warn(
-          `Could not subscribe to log.entryAdded: ${(err as Error).message}`
-        )
-      }
-
-      log.info('✓ BiDi network + log event listeners registered')
+      attachBidiListeners(this.#browser, this.#sessionCapturer)
     }
 
     /**
