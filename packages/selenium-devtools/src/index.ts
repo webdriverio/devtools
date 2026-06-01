@@ -36,7 +36,7 @@ import {
   detectSeleniumVersion
 } from './helpers/runtime.js'
 import { findFreePort, getCallSourceFromStack } from './helpers/utils.js'
-import { RetryTracker } from '@wdio/devtools-core'
+import { RetryTracker, toError } from '@wdio/devtools-core'
 import { tryRegisterRunnerHooks } from './runnerHooks.js'
 import { patchNodeAssert } from './assertPatcher.js'
 import {
@@ -551,12 +551,7 @@ class SeleniumDevToolsPlugin {
       return
     }
 
-    const error =
-      cmd.error && cmd.error instanceof Error
-        ? cmd.error
-        : cmd.error
-          ? new Error(String(cmd.error))
-          : undefined
+    const error = cmd.error ? toError(cmd.error) : undefined
 
     const cmdSig = RetryTracker.signature(
       cmd.command,

@@ -1,5 +1,6 @@
 import { createRequire } from 'node:module'
 import logger from '@wdio/logger'
+import { toError } from '@wdio/devtools-core'
 import { ASSERT_PATCHED_SYMBOL, TRACKED_ASSERT_METHODS } from './constants.js'
 import { getCallSourceFromStack } from './helpers/utils.js'
 import type { CapturedCommand } from './types.js'
@@ -90,7 +91,7 @@ export function patchNodeAssert(
                 command: `assert.${methodName}`,
                 args: sanitizedArgs,
                 result: undefined,
-                error: err instanceof Error ? err : new Error(String(err)),
+                error: toError(err),
                 callSource: callInfo.callSource,
                 timestamp: startedAt,
                 fromElement: false

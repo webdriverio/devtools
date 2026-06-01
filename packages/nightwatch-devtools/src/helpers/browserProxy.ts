@@ -10,7 +10,7 @@ import {
 } from '../constants.js'
 import { getCallSourceFromStack } from './utils.js'
 import { serializeCommandResult } from './serializeCommandResult.js'
-import { RetryTracker } from '@wdio/devtools-core'
+import { RetryTracker, toError } from '@wdio/devtools-core'
 import type { SessionCapturer } from '../session.js'
 import type { TestManager } from './testManager.js'
 import type {
@@ -73,13 +73,20 @@ export class BrowserProxy {
   wrapUrlMethod(browser: NightwatchBrowser): void {
     const sessionCapturer = this.sessionCapturer
 
+    // Cast once for dynamic method access — Nightwatch's typed surface
+    // doesn't enumerate every command, but they all live on the same object.
+    // The return type stays `any` because wrapNav has to handle both
+    // Nightwatch's chainable API (returns a chainable with `.perform`) and
+    // Cucumber async/await (returns a Promise) — typing it narrows wrongly.
+    const b = browser as unknown as Record<string, (...args: unknown[]) => any>
+
     const wrapNav = (methodName: string) => {
-      if (typeof (browser as any)[methodName] !== 'function') {
+      if (typeof b[methodName] !== 'function') {
         return
       }
-      const original = (browser as any)[methodName].bind(browser)
+      const original = b[methodName].bind(browser)
 
-      ;(browser as any)[methodName] = function (...args: any[]) {
+      b[methodName] = function (...args: unknown[]) {
         const result = original(...args)
 
         const injectAndCapture = () => {
@@ -141,7 +148,9 @@ export class BrowserProxy {
       }
 
       if (
-        INTERNAL_COMMANDS_TO_IGNORE.includes(methodName as any) ||
+        (INTERNAL_COMMANDS_TO_IGNORE as readonly string[]).includes(
+          methodName
+        ) ||
         methodName.startsWith('__')
       ) {
         return
@@ -348,15 +357,15 @@ export class BrowserProxy {
       return
     }
 
-    const errMsg = error instanceof Error ? error.message : String(error)
-    log.error(`[command error] ${methodName}: ${errMsg}`)
+    const normalizedError = toError(error)
+    log.error(`[command error] ${methodName}: ${normalizedError.message}`)
 
     this.sessionCapturer
       .captureCommand(
         methodName,
         args,
         undefined,
-        error instanceof Error ? error : new Error(String(error)),
+        normalizedError,
         currentTest.uid,
         callSource
       )
