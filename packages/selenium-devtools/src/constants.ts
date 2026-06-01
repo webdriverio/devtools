@@ -102,13 +102,7 @@ export const SCREENCAST_DEFAULTS = {
 }
 
 /** Test-state environment markers used by the rerun handshake. */
-export const REUSE_ENV = {
-  REUSE: 'DEVTOOLS_APP_REUSE',
-  HOST: 'DEVTOOLS_APP_HOST',
-  PORT: 'DEVTOOLS_APP_PORT',
-  RERUN_LABEL: 'DEVTOOLS_RERUN_LABEL',
-  RERUN_ENTRY_TYPE: 'DEVTOOLS_RERUN_ENTRY_TYPE'
-} as const
+export { REUSE_ENV } from '@wdio/devtools-shared'
 
 /**
  * Decoded JPEG bytes below which a frame is treated as blank/uniform

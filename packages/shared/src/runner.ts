@@ -9,6 +9,22 @@ export const TESTS_API = {
   stop: '/api/tests/stop'
 } as const
 
+/**
+ * Environment variables the backend's rerun spawner sets on the child
+ * process so the adapter (service/nightwatch/selenium) can detect the
+ * reuse-mode handshake and connect to the existing dashboard backend
+ * instead of starting a new one. Single source of truth — typos in any
+ * leg of the handshake silently break reruns, so all four packages
+ * (backend writer + three adapter readers) reference this object.
+ */
+export const REUSE_ENV = {
+  REUSE: 'DEVTOOLS_APP_REUSE',
+  HOST: 'DEVTOOLS_APP_HOST',
+  PORT: 'DEVTOOLS_APP_PORT',
+  RERUN_LABEL: 'DEVTOOLS_RERUN_LABEL',
+  RERUN_ENTRY_TYPE: 'DEVTOOLS_RERUN_ENTRY_TYPE'
+} as const
+
 /** POST /api/tests/run body. */
 export interface RunnerRequestBody {
   uid: string

@@ -3,6 +3,7 @@ import http from 'node:http'
 import { remote } from 'webdriverio'
 import { start } from '@wdio/devtools-backend'
 import logger from '@wdio/logger'
+import { REUSE_ENV } from '@wdio/devtools-shared'
 import { DEFAULT_LAUNCH_CAPS } from './constants.js'
 import type { ServiceOptions, ExtendedCapabilities } from './types.js'
 
@@ -10,7 +11,7 @@ const log = logger('@wdio/devtools-service:Launcher')
 
 // On rerun the original CLI process still owns its port-binding services;
 // swallow EADDRINUSE so other services' onPrepare don't fail loudly.
-if (process.env.DEVTOOLS_APP_REUSE === '1') {
+if (process.env[REUSE_ENV.REUSE] === '1') {
   const originalListen = http.Server.prototype.listen
   http.Server.prototype.listen = function patchedListen(
     this: http.Server,
@@ -108,10 +109,10 @@ export class DevToolsAppLauncher {
         }
       }
 
-      const reusePort = process.env.DEVTOOLS_APP_PORT
+      const reusePort = process.env[REUSE_ENV.PORT]
       const reuseHost =
-        process.env.DEVTOOLS_APP_HOST || this.#options.hostname || 'localhost'
-      if (process.env.DEVTOOLS_APP_REUSE === '1' && reusePort) {
+        process.env[REUSE_ENV.HOST] || this.#options.hostname || 'localhost'
+      if (process.env[REUSE_ENV.REUSE] === '1' && reusePort) {
         log.info(
           `Reusing existing DevTools app at http://${reuseHost}:${reusePort}`
         )

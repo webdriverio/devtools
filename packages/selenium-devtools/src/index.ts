@@ -36,6 +36,7 @@ import {
   detectSeleniumVersion
 } from './helpers/runtime.js'
 import { findFreePort, getCallSourceFromStack } from './helpers/utils.js'
+import { RetryTracker } from '@wdio/devtools-core'
 import { tryRegisterRunnerHooks } from './runnerHooks.js'
 import { patchNodeAssert } from './assertPatcher.js'
 import {
@@ -82,8 +83,7 @@ class SeleniumDevToolsPlugin {
   #scriptInjected = false
   #isReuse = false
   // Coalesce internal retries: same {command,args,src} replaces prior entry.
-  #lastCapturedSig: string | null = null
-  #lastCapturedId: number | null = null
+  #retryTracker = new RetryTracker()
   #screencast?: ScreencastRecorder
   #screencastOptions: ScreencastOptions
   #sessionId?: string
@@ -308,8 +308,7 @@ class SeleniumDevToolsPlugin {
     }
 
     this.#testManager!.startMarkedTest(name, resolvedMeta)
-    this.#lastCapturedSig = null
-    this.#lastCapturedId = null
+    this.#retryTracker.reset()
     if (file) {
       this.#sessionCapturer?.captureSource(file).catch(() => {})
     }
@@ -365,8 +364,7 @@ class SeleniumDevToolsPlugin {
       meta.callSource,
       meta.file
     )
-    this.#lastCapturedSig = null
-    this.#lastCapturedId = null
+    this.#retryTracker.reset()
     if (meta.file) {
       this.#sessionCapturer?.captureSource(meta.file).catch(() => {})
     }
@@ -378,8 +376,7 @@ class SeleniumDevToolsPlugin {
     }
     this.#testManager?.endCurrent(state)
     this.#suiteManager.endScenarioSuite(state)
-    this.#lastCapturedSig = null
-    this.#lastCapturedId = null
+    this.#retryTracker.reset()
   }
 
   /** Lazy-create rootSuite + testManager so they take the real describe title. */
@@ -561,18 +558,15 @@ class SeleniumDevToolsPlugin {
           ? new Error(String(cmd.error))
           : undefined
 
-    const cmdSig = JSON.stringify({
-      command: cmd.command,
-      args: cmd.args,
-      src: cmd.callSource ?? null
-    })
-    const isRetry =
-      this.#lastCapturedSig === cmdSig && this.#lastCapturedId !== null
-
+    const cmdSig = RetryTracker.signature(
+      cmd.command,
+      cmd.args,
+      cmd.callSource
+    )
     let entry: CommandLog & { _id?: number }
-    if (isRetry) {
+    if (this.#retryTracker.isRetry(cmdSig)) {
       const replaced = capturer.replaceCommand(
-        this.#lastCapturedId!,
+        this.#retryTracker.lastId!,
         cmd.command,
         cmd.args.map((a: any) => a),
         error ? undefined : cmd.result,
@@ -582,7 +576,7 @@ class SeleniumDevToolsPlugin {
         cmd.timestamp
       )
       entry = replaced.entry as CommandLog & { _id?: number }
-      this.#lastCapturedId = entry._id ?? null
+      this.#retryTracker.setLastId(entry._id ?? null)
       capturer.sendReplaceCommand(replaced.oldTimestamp, entry)
     } else {
       entry = (await capturer.captureCommand(
@@ -595,8 +589,7 @@ class SeleniumDevToolsPlugin {
         cmd.timestamp
       )) as CommandLog & { _id?: number }
       capturer.sendCommand(entry)
-      this.#lastCapturedSig = cmdSig
-      this.#lastCapturedId = entry._id ?? null
+      this.#retryTracker.recordCapture(cmdSig, entry._id ?? null)
     }
 
     if (this.#options.captureScreenshots && !error) {
@@ -662,8 +655,7 @@ class SeleniumDevToolsPlugin {
     this.#screencast = undefined
     this.#scriptInjected = false
     this.#sessionId = undefined
-    this.#lastCapturedSig = null
-    this.#lastCapturedId = null
+    this.#retryTracker.reset()
   }
 
   /** Final teardown. Idempotent. */

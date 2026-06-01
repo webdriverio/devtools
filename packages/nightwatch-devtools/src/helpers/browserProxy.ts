@@ -10,9 +10,14 @@ import {
 } from '../constants.js'
 import { getCallSourceFromStack } from './utils.js'
 import { serializeCommandResult } from './serializeCommandResult.js'
+import { RetryTracker } from '@wdio/devtools-core'
 import type { SessionCapturer } from '../session.js'
 import type { TestManager } from './testManager.js'
-import type { NightwatchBrowser, CommandStackFrame } from '../types.js'
+import type {
+  CommandLog,
+  NightwatchBrowser,
+  CommandStackFrame
+} from '../types.js'
 
 const log = logger('@wdio/nightwatch-devtools:browserProxy')
 
@@ -27,8 +32,7 @@ export class BrowserProxy {
    * command (e.g. getText inside a waitFor loop) overwrite the previous entry
    * rather than appending, showing only the final execution result.
    */
-  private lastCapturedSig: string | null = null
-  private lastCapturedId: number | null = null
+  private retryTracker = new RetryTracker()
 
   constructor(
     private sessionCapturer: SessionCapturer,
@@ -47,8 +51,7 @@ export class BrowserProxy {
   resetCommandTracking(): void {
     this.commandStack = []
     this.lastCommandSig = null
-    this.lastCapturedSig = null
-    this.lastCapturedId = null
+    this.retryTracker.reset()
   }
 
   getCurrentTestFullPath(): string | null {
@@ -230,14 +233,11 @@ export class BrowserProxy {
       const effectiveUid = currentTest?.uid ?? testUid
 
       if (effectiveUid) {
-        const isRetry =
-          cmdSig === this.lastCapturedSig && this.lastCapturedId !== null
-
-        if (isRetry) {
+        if (this.retryTracker.isRetry(cmdSig)) {
           // Same command fired again (internal retry) — replace the previous
           // entry so only the final result appears in the UI.
           const { entry, oldTimestamp } = this.sessionCapturer.replaceCommand(
-            this.lastCapturedId!,
+            this.retryTracker.lastId!,
             methodName,
             logArgs,
             serializedResult,
@@ -246,30 +246,20 @@ export class BrowserProxy {
             callSource,
             commandTimestamp
           )
-          this.lastCapturedId = entry._id ?? null
+          this.retryTracker.setLastId(entry._id ?? null)
           this.sessionCapturer.sendReplaceCommand(oldTimestamp, entry)
 
-          const entryToScreenshot = entry
-          const ts = (entryToScreenshot as any).timestamp
-          this.sessionCapturer
-            .takeScreenshotViaHttp(browser)
-            .then((screenshot) => {
-              if (screenshot) {
-                ;(entryToScreenshot as any).screenshot = screenshot
-                this.sessionCapturer.sendReplaceCommand(ts, entryToScreenshot)
-                log.info(`[screenshot] Attached to ${methodName} (retry)`)
-              }
-            })
-            .catch(() => {})
+          this.attachScreenshot(browser, entry, methodName, ' (retry)')
         } else {
           // New command — capture and track.
           // captureCommand() pushes the entry to commandsLog synchronously
           // before any async work (navigation perf capture), so we can grab
           // the ID immediately after the call — before any microtask fires.
           // This avoids the race where a Nightwatch retry callback executes
-          // before .then() sets lastCapturedId, causing missed dedup.
-          this.lastCapturedSig = cmdSig
-          this.lastCapturedId = null
+          // before .then() sets lastId, causing missed dedup. Stage the sig
+          // now, set the id after the synchronous push lands.
+          this.retryTracker.setLastSig(cmdSig)
+          this.retryTracker.setLastId(null)
           this.sessionCapturer
             .captureCommand(
               methodName,
@@ -288,24 +278,15 @@ export class BrowserProxy {
               this.sessionCapturer.commandsLog.length - 1
             ]
           if (lastCommand) {
-            this.lastCapturedId = (lastCommand as any)._id ?? null
+            this.retryTracker.setLastId(
+              (lastCommand as { _id?: number })._id ?? null
+            )
             this.sessionCapturer.sendCommand(lastCommand)
             log.info(`[command] ${methodName}`)
           }
 
-          const entryToScreenshot = lastCommand
-          if (entryToScreenshot) {
-            const ts = (entryToScreenshot as any).timestamp
-            this.sessionCapturer
-              .takeScreenshotViaHttp(browser)
-              .then((screenshot) => {
-                if (screenshot) {
-                  ;(entryToScreenshot as any).screenshot = screenshot
-                  this.sessionCapturer.sendReplaceCommand(ts, entryToScreenshot)
-                  log.info(`[screenshot] Attached to ${methodName}`)
-                }
-              })
-              .catch(() => {})
+          if (lastCommand) {
+            this.attachScreenshot(browser, lastCommand, methodName)
           }
 
           // After DOM-mutating commands, re-poll mutations from the injected
@@ -394,5 +375,31 @@ export class BrowserProxy {
 
   isProxied(browser: NightwatchBrowser): boolean {
     return this.proxiedBrowsers.has(browser as object)
+  }
+
+  /**
+   * Fire-and-forget: pull a screenshot via the WebDriver HTTP endpoint and
+   * attach it to an already-captured command entry. The `suffix` is appended
+   * to the log line so retried-command screenshots show `(retry)`. Errors
+   * are silently swallowed — screenshots are best-effort and shouldn't fail
+   * the run.
+   */
+  private attachScreenshot(
+    browser: NightwatchBrowser,
+    entry: { timestamp?: number; screenshot?: string | null },
+    methodName: string,
+    suffix = ''
+  ): void {
+    const ts = entry.timestamp ?? 0
+    this.sessionCapturer
+      .takeScreenshotViaHttp(browser)
+      .then((screenshot) => {
+        if (screenshot) {
+          entry.screenshot = screenshot
+          this.sessionCapturer.sendReplaceCommand(ts, entry as CommandLog)
+          log.info(`[screenshot] Attached to ${methodName}${suffix}`)
+        }
+      })
+      .catch(() => {})
   }
 }
