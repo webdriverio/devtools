@@ -10,6 +10,7 @@ import * as path from 'node:path'
 import * as os from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { start, stop } from '@wdio/devtools-backend'
+import { REUSE_ENV } from '@wdio/devtools-shared'
 import logger from '@wdio/logger'
 import { remote } from 'webdriverio'
 import { SessionCapturer } from './session.js'
@@ -60,8 +61,8 @@ class NightwatchDevToolsPlugin {
   #srcFolders: string[] = []
 
   #getRerunLabel() {
-    return process.env.DEVTOOLS_RERUN_ENTRY_TYPE === 'test'
-      ? process.env.DEVTOOLS_RERUN_LABEL?.trim()
+    return process.env[REUSE_ENV.RERUN_ENTRY_TYPE] === 'test'
+      ? process.env[REUSE_ENV.RERUN_LABEL]?.trim()
       : undefined
   }
 
@@ -76,13 +77,13 @@ class NightwatchDevToolsPlugin {
     // When relaunched by the DevTools UI rerun button the backend is already
     // running — skip startup and just connect the WebSocket worker.
     const isReuse =
-      process.env.DEVTOOLS_APP_REUSE === '1' &&
-      process.env.DEVTOOLS_APP_HOST &&
-      process.env.DEVTOOLS_APP_PORT
+      process.env[REUSE_ENV.REUSE] === '1' &&
+      process.env[REUSE_ENV.HOST] &&
+      process.env[REUSE_ENV.PORT]
 
     if (isReuse) {
-      this.options.hostname = process.env.DEVTOOLS_APP_HOST!
-      this.options.port = Number(process.env.DEVTOOLS_APP_PORT)
+      this.options.hostname = process.env[REUSE_ENV.HOST]!
+      this.options.port = Number(process.env[REUSE_ENV.PORT])
       log.info(
         `♻  Reusing DevTools backend at ${this.options.hostname}:${this.options.port}`
       )

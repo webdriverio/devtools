@@ -4,7 +4,11 @@ import path from 'node:path'
 import url from 'node:url'
 import kill from 'tree-kill'
 import { parse as shellParse, quote as shellQuote } from 'shell-quote'
-import type { RunnerRequestBody, TestRunnerId } from '@wdio/devtools-shared'
+import {
+  REUSE_ENV,
+  type RunnerRequestBody,
+  type TestRunnerId
+} from '@wdio/devtools-shared'
 import { WDIO_CONFIG_FILENAMES, NIGHTWATCH_CONFIG_FILENAMES } from './types.js'
 import { getFilterBuilder } from './framework-filters.js'
 import { resolveNightwatchBin, resolveWdioBin } from './bin-resolver.js'
@@ -51,9 +55,9 @@ class TestRunner {
 
     const childEnv = { ...process.env }
     if (payload.devtoolsHost && payload.devtoolsPort) {
-      childEnv.DEVTOOLS_APP_HOST = payload.devtoolsHost
-      childEnv.DEVTOOLS_APP_PORT = String(payload.devtoolsPort)
-      childEnv.DEVTOOLS_APP_REUSE = '1'
+      childEnv[REUSE_ENV.HOST] = payload.devtoolsHost
+      childEnv[REUSE_ENV.PORT] = String(payload.devtoolsPort)
+      childEnv[REUSE_ENV.REUSE] = '1'
     }
 
     let child: ChildProcess
@@ -90,11 +94,11 @@ class TestRunner {
       }
       if (isNightwatch) {
         if (payload.entryType === 'test' && payload.label) {
-          childEnv.DEVTOOLS_RERUN_ENTRY_TYPE = 'test'
-          childEnv.DEVTOOLS_RERUN_LABEL = payload.label
+          childEnv[REUSE_ENV.RERUN_ENTRY_TYPE] = 'test'
+          childEnv[REUSE_ENV.RERUN_LABEL] = payload.label
         } else {
-          delete childEnv.DEVTOOLS_RERUN_ENTRY_TYPE
-          delete childEnv.DEVTOOLS_RERUN_LABEL
+          delete childEnv[REUSE_ENV.RERUN_ENTRY_TYPE]
+          delete childEnv[REUSE_ENV.RERUN_LABEL]
         }
       }
       child = spawn(process.execPath, args, {

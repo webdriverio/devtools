@@ -1,5 +1,6 @@
 import logger from '@wdio/logger'
 import { TestReporterBase } from '@wdio/devtools-core'
+import { REUSE_ENV } from '@wdio/devtools-shared'
 import { DEFAULTS } from './constants.js'
 import { extractTestMetadata, generateStableUid } from './helpers/utils.js'
 import type { SuiteStats, TestStats } from './types.js'
@@ -15,8 +16,8 @@ export class TestReporter extends TestReporterBase {
     this.#currentSpecFile = suiteStats.file
     this.#currentSuite = suiteStats
     const rerunLabel =
-      process.env.DEVTOOLS_RERUN_ENTRY_TYPE === 'test'
-        ? process.env.DEVTOOLS_RERUN_LABEL?.trim()
+      process.env[REUSE_ENV.RERUN_ENTRY_TYPE] === 'test'
+        ? process.env[REUSE_ENV.RERUN_LABEL]?.trim()
         : undefined
 
     if (!suiteStats.uid) {
