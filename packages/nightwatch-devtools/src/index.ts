@@ -596,13 +596,16 @@ class NightwatchDevToolsPlugin {
       // currentTest.module is the path relative to a src_folder, e.g. "basic/ecosia"
       // So we must try: path.join(cwd, srcFolder, module + '.js') for each src_folder
       const modulePath = (currentTest.module || '').replace(/\\/g, '/')
+      // Use `path.resolve` (not `path.join`) so absolute src_folders entries
+      // — like `path.resolve(__dirname, 'tests')` from a nightwatch.conf.cjs
+      // that lives outside the package — bypass `workspaceRoot` correctly.
       const srcFolderPaths = this.#srcFolders.flatMap((sf) =>
         modulePath
           ? [
-              path.join(workspaceRoot, sf, modulePath + '.js'),
-              path.join(workspaceRoot, sf, modulePath + '.ts'),
-              path.join(workspaceRoot, sf, modulePath + '.cjs'),
-              path.join(workspaceRoot, sf, modulePath)
+              path.resolve(workspaceRoot, sf, modulePath + '.js'),
+              path.resolve(workspaceRoot, sf, modulePath + '.ts'),
+              path.resolve(workspaceRoot, sf, modulePath + '.cjs'),
+              path.resolve(workspaceRoot, sf, modulePath)
             ]
           : []
       )
@@ -612,17 +615,15 @@ class NightwatchDevToolsPlugin {
         // Fallback: treat module path as relative to cwd (works when src_folders isn't nested)
         ...(modulePath
           ? [
-              path.join(workspaceRoot, modulePath + '.js'),
-              path.join(workspaceRoot, modulePath + '.ts'),
-              path.join(workspaceRoot, modulePath + '.cjs'),
-              path.join(workspaceRoot, modulePath)
+              path.resolve(workspaceRoot, modulePath + '.js'),
+              path.resolve(workspaceRoot, modulePath + '.ts'),
+              path.resolve(workspaceRoot, modulePath + '.cjs'),
+              path.resolve(workspaceRoot, modulePath)
             ]
           : []),
-        path.join(workspaceRoot, 'examples/nightwatch/tests', testFile + '.js'),
-        path.join(workspaceRoot, 'examples/nightwatch/tests', testFile),
-        path.join(workspaceRoot, 'tests', testFile + '.js'),
-        path.join(workspaceRoot, 'test', testFile + '.js'),
-        path.join(workspaceRoot, testFile + '.js')
+        path.resolve(workspaceRoot, 'tests', testFile + '.js'),
+        path.resolve(workspaceRoot, 'test', testFile + '.js'),
+        path.resolve(workspaceRoot, testFile + '.js')
       ]
 
       for (const possiblePath of possiblePaths) {

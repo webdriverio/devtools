@@ -4,21 +4,14 @@ import path from 'node:path'
 import { createRequire } from 'node:module'
 import logger from '@wdio/logger'
 import { WebSocket } from 'ws'
-import { isInternalStreamLine, serializeError } from '@wdio/devtools-core'
-import { WS_PATHS } from '@wdio/devtools-shared'
 import {
-  CONSOLE_METHODS,
-  LOG_SOURCES,
-  NAVIGATION_COMMANDS,
-  SPINNER_RE
-} from './constants.js'
-import {
-  stripAnsiCodes,
-  detectLogLevel,
+  SessionCapturerBase,
   createConsoleLogEntry,
-  chromeLogLevelToLogLevel,
-  getRequestType
-} from './helpers/utils.js'
+  serializeError,
+  type LogSource
+} from '@wdio/devtools-core'
+import { LOG_SOURCES, NAVIGATION_COMMANDS } from './constants.js'
+import { chromeLogLevelToLogLevel, getRequestType } from './helpers/utils.js'
 import { CAPTURE_PERFORMANCE_SCRIPT } from './helpers/capturePerformance.js'
 import type {
   CommandLog,
@@ -30,20 +23,8 @@ import type {
 const require = createRequire(import.meta.url)
 const log = logger('@wdio/nightwatch-devtools:SessionCapturer')
 
-export class SessionCapturer {
-  #ws: WebSocket | undefined
-  #originalConsoleMethods: Record<
-    (typeof CONSOLE_METHODS)[number],
-    typeof console.log
-  >
-  #originalProcessMethods: {
-    stdoutWrite: typeof process.stdout.write
-    stderrWrite: typeof process.stderr.write
-  }
-  #isCapturingConsole = false
+export class SessionCapturer extends SessionCapturerBase {
   #browser: NightwatchBrowser | undefined
-  #commandCounter = 0
-  #sentCommandIds = new Set<number>()
 
   commandsLog: CommandLog[] = []
   sources = new Map<string, string>()
@@ -57,193 +38,36 @@ export class SessionCapturer {
     devtoolsOptions: { hostname?: string; port?: number } = {},
     browser?: NightwatchBrowser
   ) {
-    const { port, hostname } = devtoolsOptions
+    super(devtoolsOptions)
     this.#browser = browser
-    if (hostname && port) {
-      this.#ws = new WebSocket(`ws://${hostname}:${port}${WS_PATHS.worker}`)
-
-      this.#ws.on('open', () => {
-        this.#hasConnected = true
-        log.info('✓ Worker WebSocket connected to backend')
-      })
-
-      this.#ws.on('error', (err: unknown) =>
-        log.error(
-          `Couldn't connect to devtools backend: ${(err as Error).message}`
-        )
-      )
-
-      this.#ws.on('close', () => {
-        log.info('Worker WebSocket disconnected')
-      })
-    }
-
-    this.#originalConsoleMethods = {
-      log: console.log,
-      info: console.info,
-      warn: console.warn,
-      error: console.error
-    }
-
-    this.#originalProcessMethods = {
-      stdoutWrite: process.stdout.write.bind(process.stdout),
-      stderrWrite: process.stderr.write.bind(process.stderr)
-    }
-
-    this.#patchConsole()
-    this.#interceptProcessStreams()
+    this.patchConsole()
+    this.patchStreams()
   }
 
-  #patchConsole() {
-    CONSOLE_METHODS.forEach((method) => {
-      const originalMethod = this.#originalConsoleMethods[method]
-      console[method] = (...consoleArgs: any[]) => {
-        this.#isCapturingConsole = true
-        const result = originalMethod.apply(console, consoleArgs)
-        this.#isCapturingConsole = false
-
-        // Capture all console output; strip ANSI codes for clean display in UI
-        const rawText = consoleArgs
-          .map((a) =>
-            typeof a === 'object' && a !== null ? JSON.stringify(a) : String(a)
-          )
-          .join(' ')
-        const cleanText = stripAnsiCodes(rawText).trim()
-        if (!cleanText) {
-          return result
-        }
-
-        const logEntry = createConsoleLogEntry(
-          method as LogLevel,
-          [cleanText],
-          LOG_SOURCES.TEST
-        )
-        this.consoleLogs.push(logEntry)
-        this.sendUpstream('consoleLogs', [logEntry])
-
-        return result
-      }
-    })
+  protected override onWsOpen(): void {
+    log.info('✓ Worker WebSocket connected to backend')
   }
 
-  #hasConnected = false
-  #isCapturingStream = false
-
-  #interceptProcessStreams() {
-    const captureTerminalOutput = (outputData: string | Uint8Array) => {
-      if (this.#isCapturingStream) {
-        return
-      }
-      const outputText =
-        typeof outputData === 'string' ? outputData : outputData.toString()
-      if (!outputText?.trim()) {
-        return
-      }
-
-      this.#isCapturingStream = true
-      try {
-        const linesToCapture: string[] = []
-
-        for (const rawLine of outputText.split('\n')) {
-          const segments = rawLine.split('\r').filter((s) => s.trim())
-          const lastSegment = segments[segments.length - 1] ?? rawLine
-          const clean = stripAnsiCodes(lastSegment).trim()
-          if (!clean || isInternalStreamLine(clean) || SPINNER_RE.test(clean)) {
-            continue
-          }
-          linesToCapture.push(clean)
-        }
-
-        for (const clean of linesToCapture) {
-          const logEntry = createConsoleLogEntry(
-            detectLogLevel(clean),
-            [clean],
-            LOG_SOURCES.TERMINAL
-          )
-          this.consoleLogs.push(logEntry)
-          this.sendUpstream('consoleLogs', [logEntry])
-        }
-      } finally {
-        this.#isCapturingStream = false
-      }
-    }
-
-    const interceptStreamWrite = (
-      stream: NodeJS.WriteStream,
-      originalWriteMethod: (...args: any[]) => boolean
-    ) => {
-      const capturer = this
-      stream.write = function (chunk: any, ...additionalArgs: any[]): boolean {
-        const writeResult = originalWriteMethod.call(
-          stream,
-          chunk,
-          ...additionalArgs
-        )
-        if (chunk && !capturer.#isCapturingConsole) {
-          captureTerminalOutput(chunk)
-        }
-        return writeResult
-      } as any
-    }
-
-    interceptStreamWrite(
-      process.stdout,
-      this.#originalProcessMethods.stdoutWrite
-    )
-    interceptStreamWrite(
-      process.stderr,
-      this.#originalProcessMethods.stderrWrite
-    )
+  protected override onWsError(err: unknown): void {
+    log.error(`Couldn't connect to devtools backend: ${(err as Error).message}`)
   }
 
-  #restoreConsole() {
-    CONSOLE_METHODS.forEach((method) => {
-      console[method] = this.#originalConsoleMethods[method]
-    })
-  }
-
-  #restoreProcessStreams() {
-    process.stdout.write = this.#originalProcessMethods.stdoutWrite as any
-    process.stderr.write = this.#originalProcessMethods.stderrWrite as any
-  }
-
-  cleanup() {
-    this.#restoreConsole()
-    this.#restoreProcessStreams()
-  }
-
-  get isReportingUpstream() {
-    return Boolean(this.#ws) && this.#ws?.readyState === WebSocket.OPEN
+  protected override onWsClose(): void {
+    log.info('Worker WebSocket disconnected')
   }
 
   /**
-   * Wait for WebSocket to connect
+   * Push every captured line into the local `consoleLogs` array so it ends up
+   * in any future trace export, in addition to the live WS broadcast.
    */
-  async waitForConnection(timeoutMs: number = 5000): Promise<boolean> {
-    if (!this.#ws) {
-      return false
-    }
-
-    if (this.#ws.readyState === WebSocket.OPEN) {
-      return true
-    }
-
-    return new Promise((resolve) => {
-      const timeout = setTimeout(() => {
-        log.warn(`WebSocket connection timeout after ${timeoutMs}ms`)
-        resolve(false)
-      }, timeoutMs)
-
-      this.#ws!.once('open', () => {
-        clearTimeout(timeout)
-        resolve(true)
-      })
-
-      this.#ws!.once('error', () => {
-        clearTimeout(timeout)
-        resolve(false)
-      })
-    })
+  protected override onLine(
+    type: LogLevel,
+    args: string[],
+    source: LogSource
+  ): void {
+    const entry = createConsoleLogEntry(type, args, source)
+    this.consoleLogs.push(entry)
+    this.sendUpstream('consoleLogs', [entry])
   }
 
   async captureCommand(
@@ -258,13 +82,13 @@ export class SessionCapturer {
     // Serialize error properly (Error objects don't JSON.stringify well)
     const serializedError = serializeError(error)
 
-    const commandId = this.#commandCounter++
+    const commandId = this.commandCounter++
     const commandLogEntry: CommandLog & { _id?: number } = {
       _id: commandId,
       command,
       args,
       result,
-      error: serializedError as any,
+      error: serializedError,
       timestamp: timestamp || Date.now(),
       callSource,
       testUid
@@ -322,15 +146,16 @@ export class SessionCapturer {
     }
   }
 
-  /** Send a command to the UI (only if not already sent) */
-  sendCommand(command: CommandLog & { _id?: number }) {
-    if (command._id !== undefined && !this.#sentCommandIds.has(command._id)) {
-      this.#sentCommandIds.add(command._id)
+  /** Send a command to the UI (only if not already sent). Returns the id. */
+  override sendCommand(command: CommandLog & { _id?: number }): number {
+    if (command._id !== undefined && !this.sentCommandIds.has(command._id)) {
+      this.sentCommandIds.add(command._id)
       // Remove internal ID before sending
       const commandToSend = { ...command }
       delete commandToSend._id
       this.sendUpstream('commands', [commandToSend])
     }
+    return command._id ?? 0
   }
 
   /**
@@ -358,35 +183,22 @@ export class SessionCapturer {
       this.commandsLog.splice(idx, 1)
     }
     // Allow the slot to be re-used by a new entry
-    this.#sentCommandIds.delete(oldId)
+    this.sentCommandIds.delete(oldId)
 
     const serializedError = serializeError(error)
-    const commandId = this.#commandCounter++
+    const commandId = this.commandCounter++
     const entry: CommandLog & { _id?: number } = {
       _id: commandId,
       command,
       args,
       result,
-      error: serializedError as any,
+      error: serializedError,
       timestamp: timestamp || Date.now(),
       callSource,
       testUid
     }
     this.commandsLog.push(entry)
     return { entry, oldTimestamp }
-  }
-
-  /** Send a replace-command event to the UI (swaps old entry in-place) */
-  sendReplaceCommand(
-    oldTimestamp: number,
-    command: CommandLog & { _id?: number }
-  ) {
-    const commandToSend = { ...command }
-    delete commandToSend._id
-    this.sendUpstream('replaceCommand', {
-      oldTimestamp,
-      command: commandToSend
-    })
   }
 
   /**
@@ -488,45 +300,25 @@ export class SessionCapturer {
     }
   }
 
-  /** Send data upstream to backend */
-  sendUpstream(event: string, data: any) {
-    if (!this.#ws || this.#ws.readyState !== WebSocket.OPEN) {
-      if (this.#hasConnected) {
+  /**
+   * Override base's `sendUpstream` to add nightwatch-specific diagnostics:
+   * warns once the WS disconnects mid-run (so dropped events are visible),
+   * and catches send errors instead of throwing.
+   */
+  override sendUpstream(event: string, data: unknown): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      if (this.hasEverConnected()) {
         log.warn(`[upstream] WebSocket not open — dropping "${event}" event`)
       }
       return
     }
-
     try {
-      this.#ws.send(JSON.stringify({ scope: event, data }))
+      this.ws.send(JSON.stringify({ scope: event, data }))
     } catch (err) {
       log.warn(
         `[upstream] Failed to send "${event}": ${(err as Error).message}`
       )
     }
-  }
-
-  /** Returns true when the WebSocket is open. */
-  isConnected(): boolean {
-    return this.#ws?.readyState === WebSocket.OPEN
-  }
-
-  /**
-   * Gracefully close the WebSocket, waiting for any buffered messages to flush.
-   * Call this before process exit in reuse mode to prevent data loss.
-   */
-  async closeWebSocket(): Promise<void> {
-    if (!this.#ws || this.#ws.readyState === WebSocket.CLOSED) {
-      return
-    }
-    return new Promise<void>((resolve) => {
-      const timeout = setTimeout(resolve, 2000)
-      this.#ws!.once('close', () => {
-        clearTimeout(timeout)
-        resolve()
-      })
-      this.#ws!.close()
-    })
   }
 
   /**

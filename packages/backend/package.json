@@ -34,14 +34,14 @@
     "get-port": "^7.1.0",
     "import-meta-resolve": "^4.1.0",
     "shell-quote": "^1.8.3",
-    "tree-kill": "^1.2.2"
+    "tree-kill": "^1.2.2",
+    "ws": "^8.18.3"
   },
   "devDependencies": {
     "@types/shell-quote": "^1.7.5",
     "@types/ws": "^8.18.1",
     "@wdio/devtools-shared": "workspace:^",
     "nodemon": "^3.1.14",
-    "tsup": "^8.0.0",
-    "ws": "^8.18.3"
+    "tsup": "^8.0.0"
   }
 }

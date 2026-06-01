@@ -848,22 +848,50 @@ class SeleniumDevToolsPlugin {
         `📊 Session summary — ${cmdCount} command(s), ${networkCount} network request(s), ${consoleCount} console log(s)`
       )
       this.#sessionCapturer?.cleanup()
-      // Keep the worker WS open while the dashboard is up — it's the
-      // channel the backend uses to tell us "the user closed the
-      // dashboard, time to exit". gracefulShutdown closes it on real exit.
-      if (!this.#options.openUi || this.#isReuse) {
-        await this.#sessionCapturer?.closeWebSocket()
-      }
 
+      // Interactive path: dashboard is up — wait for the user to close it,
+      // then finish teardown. Matches wdio's "Please close the browser
+      // window to finish..." UX. The worker WS stays open as the channel
+      // the backend uses to signal `clientDisconnected`.
       if (this.#options.openUi && !this.#isReuse) {
         log.info(
           `💡 Tests complete — DevTools UI: http://${this.#options.hostname}:${this.#options.port}`
         )
+        log.info(
+          '🔵 Close the DevTools browser window (or press Ctrl+C) to finish'
+        )
+        this.#keepAliveTimer = setInterval(() => {}, 60 * 60 * 1000)
+        this.#sessionCapturer?.setClientDisconnectedHandler(() => {
+          log.info('Dashboard closed — shutting down')
+          this.clearKeepAlive()
+          void this.#completeShutdown(shutdownStart)
+        })
+        return
       }
+
+      // Non-interactive path (no dashboard or rerun child): close the WS now
+      // and log the final shutdown.
+      await this.#sessionCapturer?.closeWebSocket()
       log.info(`🛑 Shutdown complete (${Date.now() - shutdownStart}ms)`)
     } catch (err) {
       log.warn(`Cleanup error: ${(err as Error).message}`)
     }
+  }
+
+  /**
+   * Final cleanup once the user has closed the dashboard browser. Drives the
+   * remaining teardown explicitly and `exit(0)`s — the natural event-loop
+   * drain doesn't fire reliably because the detached backend's own close
+   * races with the worker WS close.
+   */
+  async #completeShutdown(shutdownStart: number) {
+    try {
+      await this.#sessionCapturer?.closeWebSocket()
+    } catch {
+      /* best-effort */
+    }
+    log.info(`🛑 Shutdown complete (${Date.now() - shutdownStart}ms)`)
+    process.exit(0)
   }
 
   async onProcessExit() {

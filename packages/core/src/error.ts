@@ -1,4 +1,9 @@
-import type { TestError } from '@wdio/devtools-shared'
+/** Plain-object shape of an Error after `serializeError`. */
+export interface SerializedError {
+  name: string
+  message: string
+  stack?: string
+}
 
 /**
  * Normalize an Error to a plain object so its fields survive `JSON.stringify`
@@ -10,7 +15,7 @@ import type { TestError } from '@wdio/devtools-shared'
  */
 export function serializeError(
   error: Error | undefined
-): TestError | undefined {
+): SerializedError | undefined {
   if (!error) {
     return undefined
   }

@@ -2,7 +2,6 @@ import fs from 'node:fs/promises'
 import url from 'node:url'
 
 import logger from '@wdio/logger'
-import { WebSocket } from 'ws'
 import { parse } from 'stack-trace'
 import { resolve } from 'import-meta-resolve'
 import { SevereServiceError } from 'webdriverio'
@@ -10,39 +9,18 @@ import type { WebDriverCommands } from '@wdio/protocols'
 
 import { PAGE_TRANSITION_COMMANDS } from './constants.js'
 import {
-  CONSOLE_METHODS,
   LOG_SOURCES,
+  SessionCapturerBase,
   createConsoleLogEntry,
-  detectLogLevel,
-  stripAnsi
+  getRequestType,
+  type LogSource
 } from '@wdio/devtools-core'
-import { WS_PATHS } from '@wdio/devtools-shared'
-import { type CommandLog, type TraceLog } from './types.js'
+import type { CommandLog, LogLevel } from './types.js'
 
 const log = logger('@wdio/devtools-service:SessionCapturer')
 
-export class SessionCapturer {
-  #ws: WebSocket | undefined
+export class SessionCapturer extends SessionCapturerBase {
   #isScriptInjected = false
-  #originalConsoleMethods: Record<
-    (typeof CONSOLE_METHODS)[number],
-    typeof console.log
-  > = {
-    log: console.log,
-    info: console.info,
-    warn: console.warn,
-    error: console.error
-  }
-  #originalStdoutWrite = process.stdout.write.bind(process.stdout)
-  #originalStderrWrite = process.stderr.write.bind(process.stderr)
-  /** True while we are inside the patched console call — prevents double-capture via stream. */
-  #insideConsole = false
-  commandsLog: CommandLog[] = []
-  sources = new Map<string, string>()
-  mutations: TraceMutation[] = []
-  traceLogs: string[] = []
-  consoleLogs: ConsoleLogs[] = []
-  networkRequests: NetworkRequest[] = []
   #pendingNetworkRequests = new Map<
     string,
     {
@@ -53,6 +31,15 @@ export class SessionCapturer {
       requestHeaders?: Record<string, string>
     }
   >()
+
+  // Captured session state exposed to service/index.ts for the final trace
+  // payload (consumed in afterTest / before browser reloadSession).
+  commandsLog: CommandLog[] = []
+  sources = new Map<string, string>()
+  mutations: TraceMutation[] = []
+  traceLogs: string[] = []
+  consoleLogs: ConsoleLogs[] = []
+  networkRequests: NetworkRequest[] = []
   metadata?: {
     url: string
     viewport: {
@@ -65,113 +52,27 @@ export class SessionCapturer {
   }
 
   constructor(devtoolsOptions: { hostname?: string; port?: number } = {}) {
-    const { port, hostname } = devtoolsOptions
-    if (hostname && port) {
-      this.#ws = new WebSocket(`ws://${hostname}:${port}${WS_PATHS.worker}`)
-      this.#ws.on('error', (err: unknown) =>
-        log.error(
-          `Couldn't connect to devtools backend: ${(err as Error).message}`
-        )
-      )
-    }
+    super(devtoolsOptions)
+    this.patchConsole()
+    this.patchStreams()
+  }
 
-    this.#patchConsole()
-    this.#patchStreams()
+  protected override onWsError(err: unknown): void {
+    log.error(`Couldn't connect to devtools backend: ${(err as Error).message}`)
   }
 
   /**
-   * Patch Node.js console methods so every console.log/info/warn/error call in
-   * the test runner process (test files, page-object helpers, etc.) is forwarded
-   * to the UI Console tab with source='test'.
+   * Push every captured line into the local `consoleLogs` array so it ends up
+   * in the final trace payload, in addition to the live WS broadcast.
    */
-  #patchConsole() {
-    CONSOLE_METHODS.forEach((method) => {
-      const original = this.#originalConsoleMethods[method]
-      console[method] = (...args: any[]) => {
-        const serialized = args.map((a) =>
-          typeof a === 'object' && a !== null
-            ? (() => {
-                try {
-                  return JSON.stringify(a)
-                } catch {
-                  return String(a)
-                }
-              })()
-            : String(a)
-        )
-        const entry = createConsoleLogEntry(
-          method,
-          serialized,
-          LOG_SOURCES.TEST
-        )
-        this.consoleLogs.push(entry)
-        this.sendUpstream('consoleLogs', [entry])
-
-        this.#insideConsole = true
-        const result = original.apply(console, args)
-        this.#insideConsole = false
-        return result
-      }
-    })
-  }
-
-  /**
-   * Patch process.stdout / process.stderr so all terminal output (WDIO
-   * framework logs, reporter output, etc.) is also forwarded to the UI
-   * Console tab with source='terminal'.  The original write is always
-   * called first so actual terminal output is never suppressed.
-   */
-  #patchStreams() {
-    const forward = (raw: string | Uint8Array) => {
-      const text = typeof raw === 'string' ? raw : raw.toString()
-      if (!text.trim()) {
-        return
-      }
-      text
-        .split('\n')
-        .filter((l) => l.trim())
-        .forEach((line) => {
-          const entry = createConsoleLogEntry(
-            detectLogLevel(line),
-            [stripAnsi(line)],
-            LOG_SOURCES.TERMINAL
-          )
-          this.consoleLogs.push(entry)
-          this.sendUpstream('consoleLogs', [entry])
-        })
-    }
-
-    const wrap = (
-      stream: NodeJS.WriteStream,
-      original: (...a: any[]) => boolean
-    ) => {
-      stream.write = ((chunk: any, ...rest: any[]): boolean => {
-        const result = original.call(stream, chunk, ...rest)
-        if (chunk && !this.#insideConsole) {
-          forward(chunk)
-        }
-        return result
-      }) as any
-    }
-
-    wrap(process.stdout, this.#originalStdoutWrite)
-    wrap(process.stderr, this.#originalStderrWrite)
-  }
-
-  /**
-   * Restore all patched methods. Must be called in after() so subsequent
-   * test runs (or the WDIO reporter teardown) see the real stdout/stderr.
-   */
-  cleanup() {
-    CONSOLE_METHODS.forEach((method) => {
-      console[method] = this.#originalConsoleMethods[method]
-    })
-    process.stdout.write = this.#originalStdoutWrite as any
-    process.stderr.write = this.#originalStderrWrite as any
-  }
-
-  get isReportingUpstream() {
-    return Boolean(this.#ws) && this.#ws?.readyState === WebSocket.OPEN
+  protected override onLine(
+    type: LogLevel,
+    args: string[],
+    source: LogSource
+  ): void {
+    const entry = createConsoleLogEntry(type, args, source)
+    this.consoleLogs.push(entry as ConsoleLogs)
+    this.sendUpstream('consoleLogs', [entry])
   }
 
   // Cucumber step files never appear on the WebDriver call stack;
@@ -321,7 +222,7 @@ export class SessionCapturer {
       }
       if (Array.isArray(consoleLogs)) {
         const browserLogs = consoleLogs as ConsoleLogs[]
-        browserLogs.forEach((log) => (log.source = LOG_SOURCES.BROWSER))
+        browserLogs.forEach((entry) => (entry.source = LOG_SOURCES.BROWSER))
         this.consoleLogs.push(...browserLogs)
         this.sendUpstream('consoleLogs', browserLogs)
       }
@@ -332,7 +233,6 @@ export class SessionCapturer {
       }
 
       this.sendUpstream('metadata', metadata)
-      log.info(`✓ Sent metadata upstream, WS state: ${this.#ws?.readyState}`)
     } catch (err) {
       log.error(`Failed to capture trace: ${(err as Error).message}`)
     }
@@ -498,7 +398,7 @@ export class SessionCapturer {
         method: pending.method,
         status: response.status,
         statusText: response.statusText,
-        type: this.#getRequestType(pending.url, contentType),
+        type: getRequestType(pending.url, contentType),
         timestamp: pending.timestamp,
         startTime: pending.startTime,
         endTime,
@@ -518,57 +418,5 @@ export class SessionCapturer {
   handleNetworkFetchError(event: { request: { request: string } }) {
     const requestId = event.request.request
     this.#pendingNetworkRequests.delete(requestId)
-  }
-
-  #getRequestType(url: string, contentType?: string): string {
-    const urlLower = url.toLowerCase()
-    const ct = contentType?.toLowerCase() || ''
-
-    if (ct.includes('text/html')) {
-      return 'document'
-    }
-    if (ct.includes('text/css')) {
-      return 'stylesheet'
-    }
-    if (ct.includes('javascript') || ct.includes('ecmascript')) {
-      return 'script'
-    }
-    if (ct.includes('image/')) {
-      return 'image'
-    }
-    if (ct.includes('font/') || ct.includes('woff')) {
-      return 'font'
-    }
-    if (ct.includes('application/json')) {
-      return 'fetch'
-    }
-
-    if (urlLower.endsWith('.html') || urlLower.endsWith('.htm')) {
-      return 'document'
-    }
-    if (urlLower.endsWith('.css')) {
-      return 'stylesheet'
-    }
-    if (urlLower.endsWith('.js') || urlLower.endsWith('.mjs')) {
-      return 'script'
-    }
-    if (urlLower.match(/\.(png|jpg|jpeg|gif|svg|webp|ico)$/)) {
-      return 'image'
-    }
-    if (urlLower.match(/\.(woff|woff2|ttf|eot|otf)$/)) {
-      return 'font'
-    }
-
-    return 'xhr'
-  }
-
-  sendUpstream<Scope extends keyof TraceLog>(
-    scope: Scope,
-    data: Partial<TraceLog[Scope]>
-  ) {
-    if (!this.#ws || this.#ws.readyState !== WebSocket.OPEN) {
-      return
-    }
-    this.#ws.send(JSON.stringify({ scope, data }))
   }
 }

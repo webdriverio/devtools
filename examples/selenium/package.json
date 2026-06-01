@@ -1,0 +1,14 @@
+{
+  "name": "@wdio/devtools-example-selenium",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Selenium WebDriver demo project used by pnpm demo:selenium. Imports selenium-webdriver directly; needs its own node_modules.",
+  "type": "module",
+  "scripts": {
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "@wdio/selenium-devtools": "workspace:^",
+    "selenium-webdriver": "^4.27.0"
+  }
+}
