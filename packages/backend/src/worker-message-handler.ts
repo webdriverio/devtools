@@ -51,9 +51,7 @@ export function createWorkerMessageHandler(
 
       if (parsed.scope === 'config' && parsed.data?.configFile) {
         ctx.testRunner.registerConfigFile(parsed.data.configFile)
-        log.info(
-          `Registered config file for reruns: ${parsed.data.configFile}`
-        )
+        log.info(`Registered config file for reruns: ${parsed.data.configFile}`)
         return
       }
 
@@ -64,7 +62,9 @@ export function createWorkerMessageHandler(
         const { sessionId, videoPath } = parsed.data
         if (videoPath) {
           ctx.videoRegistry.set(sessionId, videoPath)
-          log.info(`Screencast registered for session ${sessionId}: ${videoPath}`)
+          log.info(
+            `Screencast registered for session ${sessionId}: ${videoPath}`
+          )
         }
         ctx.broadcastToClients(
           JSON.stringify({

@@ -65,9 +65,7 @@ export function patchNodeAssert(
     if (typeof original !== 'function') {
       return
     }
-    assertObj[methodName] = function patchedAssert(
-      ...args: any[]
-    ) {
+    assertObj[methodName] = function patchedAssert(...args: any[]) {
       const callInfo = getCallSourceFromStack()
       const startedAt = Date.now()
       const sanitizedArgs = args.map(safeSerialize)

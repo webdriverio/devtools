@@ -11,7 +11,11 @@ type CalleeNode =
 
 type TitleNode =
   | { type: 'StringLiteral'; value: string }
-  | { type: 'TemplateLiteral'; expressions: unknown[]; quasis: Array<{ value: { cooked?: string } }> }
+  | {
+      type: 'TemplateLiteral'
+      expressions: unknown[]
+      quasis: Array<{ value: { cooked?: string } }>
+    }
   | { type: string }
 
 interface StackFrameLike {
@@ -159,9 +163,11 @@ export function findTestLocations(filePath: string): Loc[] {
 
 /** Capture a stack trace and pick a user frame. Prefers step-definition
  *  files, then specs, then `.feature` files. */
-export function getCurrentTestLocation():
-  | { file: string; line: number; column: number }
-  | null {
+export function getCurrentTestLocation(): {
+  file: string
+  line: number
+  column: number
+} | null {
   const frames = parseStackTrace(new Error())
 
   const pick = (predicate: (f: StackFrameLike) => boolean) => {

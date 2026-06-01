@@ -14,7 +14,10 @@ describe('toError', () => {
   })
 
   it('wraps a plain object with a .message field into an Error preserving message + name', () => {
-    const out = toError({ message: 'nightwatch failed', name: 'AssertionError' })
+    const out = toError({
+      message: 'nightwatch failed',
+      name: 'AssertionError'
+    })
     expect(out).toBeInstanceOf(Error)
     expect(out.message).toBe('nightwatch failed')
     expect(out.name).toBe('AssertionError')
@@ -35,7 +38,7 @@ describe('toError', () => {
     expect(toError(undefined).message).toBe('undefined')
   })
 
-  it("ignores a non-string .name field on an object with .message", () => {
+  it('ignores a non-string .name field on an object with .message', () => {
     const out = toError({ message: 'm', name: 123 as unknown as string })
     expect(out.name).toBe('Error')
   })

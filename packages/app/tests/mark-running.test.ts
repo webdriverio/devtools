@@ -80,10 +80,7 @@ describe('markSpecificRunning', () => {
   it('marks a matched suite subtree as running when entryType is suite', () => {
     const input = chunks(
       suite('root', {
-        suites: [
-          suite('target'),
-          suite('sibling', { state: 'failed' })
-        ]
+        suites: [suite('target'), suite('sibling', { state: 'failed' })]
       })
     )
     const out = markSpecificRunning(input, 'target', 'suite')
@@ -153,7 +150,7 @@ describe('markRunningAsStopped', () => {
     expect(t1?.end).toBeInstanceOf(Date)
   })
 
-  it("leaves already-terminal tests untouched", () => {
+  it('leaves already-terminal tests untouched', () => {
     const input = chunks(
       suite('root', {
         tests: [test('t1', { state: 'passed' })]

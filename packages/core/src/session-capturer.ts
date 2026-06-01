@@ -1,3 +1,4 @@
+import fs from 'node:fs/promises'
 import { WebSocket } from 'ws'
 import type { CommandLog, LogLevel, LogSource } from '@wdio/devtools-shared'
 import { WS_PATHS, WS_SCOPE } from '@wdio/devtools-shared'
@@ -52,6 +53,11 @@ export abstract class SessionCapturerBase {
   // while still sharing the counter and de-dup set with base helpers.
   protected commandCounter = 0
   protected sentCommandIds = new Set<number>()
+
+  // Map of file path → source text. Populated by `captureSource` (also
+  // accessed by adapter-specific source-discovery flows, e.g. service's
+  // `ensureSourceLoaded` which parses `file://` locations first).
+  sources = new Map<string, string>()
 
   // ── Construction ────────────────────────────────────────────────────────
   constructor(opts: SessionCapturerOptions = {}) {
@@ -158,7 +164,37 @@ export abstract class SessionCapturerBase {
   ): void {
     const toSend = { ...command }
     delete toSend._id
-    this.sendUpstream(WS_SCOPE.replaceCommand, { oldTimestamp, command: toSend })
+    this.sendUpstream(WS_SCOPE.replaceCommand, {
+      oldTimestamp,
+      command: toSend
+    })
+  }
+
+  /**
+   * Read a file from disk, store in `sources`, and broadcast to the UI via
+   * `sendUpstream('sources', { [path]: text })`. Idempotent — a cached path is
+   * a no-op. Read errors are logged via `onSourceReadError` (default: silent)
+   * so a missing source never aborts capture.
+   */
+  async captureSource(filePath: string): Promise<void> {
+    if (this.sources.has(filePath)) {
+      return
+    }
+    try {
+      const source = (await fs.readFile(filePath, 'utf-8')).toString()
+      this.sources.set(filePath, source)
+      this.sendUpstream('sources', { [filePath]: source })
+    } catch (err) {
+      this.onSourceReadError(filePath, err)
+    }
+  }
+
+  /**
+   * Hook fired when `captureSource` can't read a file. Default: silent.
+   * Subclasses (nightwatch, selenium) override to log a warning.
+   */
+  protected onSourceReadError(_filePath: string, _err: unknown): void {
+    // no-op — service silently swallows; subclasses can opt into a log line.
   }
 
   /**
@@ -309,8 +345,10 @@ export abstract class SessionCapturerBase {
     // Restoring the pre-patch references — the typed write signature differs
     // slightly from the runtime instance type after `.bind()`, hence the cast
     // through the stream's own `write` member type.
-    process.stdout.write = this.#originalStdoutWrite as typeof process.stdout.write
-    process.stderr.write = this.#originalStderrWrite as typeof process.stderr.write
+    process.stdout.write = this
+      .#originalStdoutWrite as typeof process.stdout.write
+    process.stderr.write = this
+      .#originalStderrWrite as typeof process.stderr.write
   }
 
   // ── Hooks (subclasses override) ─────────────────────────────────────────
