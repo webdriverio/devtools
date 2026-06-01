@@ -67,9 +67,7 @@ describe('canonicalKey', () => {
   })
 
   it('returns undefined when there is nothing to key on', () => {
-    expect(
-      canonicalKey({ uid: 'a' } as TestStatsFragment)
-    ).toBeUndefined()
+    expect(canonicalKey({ uid: 'a' } as TestStatsFragment)).toBeUndefined()
   })
 
   it('falls back from fullTitle to title', () => {
@@ -129,11 +127,7 @@ describe('mergeTests', () => {
       test('target', { state: 'running', start: 5000 }),
       test('sibling', { state: 'pending', start: 5000 })
     ]
-    const merged = mergeTests(
-      prev,
-      next,
-      ctx({ activeRerunTestUid: 'target' })
-    )
+    const merged = mergeTests(prev, next, ctx({ activeRerunTestUid: 'target' }))
     const sibling = merged.find((t) => t.uid === 'sibling')!
     expect(sibling.state).toBe('passed')
     expect(sibling.start).toBe(1000)

@@ -31,6 +31,11 @@ import {
 import { BASELINE_API, type BaselineClearRequest } from '@wdio/devtools-shared'
 import { POPOUT_QUERY, buildPopoutFeatures } from './compare/constants.js'
 import { compareStyles } from './compare/styles.js'
+import {
+  liveStepsForUid,
+  findStepFor,
+  isFailureSite
+} from './compare/stepResolution.js'
 
 const COMPONENT = 'wdio-devtools-compare'
 
@@ -104,123 +109,19 @@ export class DevtoolsCompare extends Element {
   /** Walk live suiteContext under selectedTestUid and collect leaf tests
    *  so live commands can be attributed to their parent step. */
   #liveStepsForSelectedUid(): PreservedStep[] {
-    const target = this.selectedTestUid
-    if (!target || !this.liveSuites) {
-      return []
-    }
-    const out: PreservedStep[] = []
-    let foundRoot: SuiteStatsFragment | undefined
-    const findRoot = (
-      s: SuiteStatsFragment | undefined
-    ): SuiteStatsFragment | undefined => {
-      if (!s) {
-        return undefined
-      }
-      if (s.uid === target) {
-        return s
-      }
-      for (const child of s.suites ?? []) {
-        const hit = findRoot(child)
-        if (hit) {
-          return hit
-        }
-      }
-      return undefined
-    }
-    for (const chunk of this.liveSuites) {
-      for (const root of Object.values(chunk)) {
-        foundRoot = findRoot(root)
-        if (foundRoot) {
-          break
-        }
-      }
-      if (foundRoot) {
-        break
-      }
-    }
-    if (!foundRoot) {
-      return []
-    }
-    const visit = (s: SuiteStatsFragment) => {
-      for (const t of s.tests ?? []) {
-        out.push({
-          uid: t.uid,
-          title: t.title,
-          fullTitle: t.fullTitle,
-          start: t.start ? new Date(t.start).getTime() : undefined,
-          end: t.end ? new Date(t.end).getTime() : undefined,
-          state:
-            t.state === 'pending' || t.state === 'running' ? t.state : t.state,
-          error: t.error
-            ? {
-                message: t.error.message,
-                name: t.error.name,
-                stack: t.error.stack
-              }
-            : undefined
-        })
-      }
-      for (const child of s.suites ?? []) {
-        visit(child)
-      }
-    }
-    visit(foundRoot)
-    return out
+    return liveStepsForUid(this.selectedTestUid, this.liveSuites)
   }
 
   #findStepFor(
     cmd: CommandLog | undefined,
     side: 'baseline' | 'latest'
   ): PreservedStep | undefined {
-    if (!cmd?.timestamp) {
-      return undefined
-    }
-    const steps =
-      side === 'baseline'
-        ? (this.#getBaseline()?.steps ?? [])
-        : this.#liveStepsForSelectedUid()
-    const ts = cmd.timestamp
-    return steps.find(
-      (s) =>
-        s.start !== null &&
-        s.start !== undefined &&
-        s.end !== null &&
-        s.end !== undefined &&
-        ts >= s.start &&
-        ts <= s.end
+    return findStepFor(
+      cmd,
+      side,
+      this.#getBaseline(),
+      this.#liveStepsForSelectedUid()
     )
-  }
-
-  /** The failure site is either the command that errored at the WebDriver
-   *  level OR the last command in a failed step (assertion site). */
-  #isFailureSite(
-    cmd: CommandLog,
-    step: PreservedStep | undefined,
-    allCommandsOnSide: CommandLog[]
-  ): boolean {
-    if (!step || step.state !== 'failed') {
-      return false
-    }
-    if (cmd.error?.message) {
-      return true
-    }
-    if (step.start === null || step.end === null) {
-      return false
-    }
-    let lastTs = 0
-    for (const c of allCommandsOnSide) {
-      if (
-        c.timestamp !== null &&
-        step.start !== undefined &&
-        step.end !== undefined &&
-        c.timestamp >= step.start &&
-        c.timestamp <= step.end &&
-        c.timestamp > lastTs
-      ) {
-        lastTs = c.timestamp
-      }
-    }
-    return cmd.timestamp === lastTs
   }
 
   /** Scope the global live command stream to commands within the selected
@@ -437,8 +338,7 @@ export class DevtoolsCompare extends Element {
           ? ((this.#getBaseline()?.commands ?? []) as CommandLog[])
           : this.#liveCommandsForSelectedUid()
       const statusMarker =
-        step?.state === 'failed' &&
-        this.#isFailureSite(cmd, step, allCmdsThisSide)
+        step?.state === 'failed' && isFailureSite(cmd, step, allCmdsThisSide)
           ? html`<span
               class="marker error"
               title="${step.error?.message
@@ -496,7 +396,7 @@ export class DevtoolsCompare extends Element {
             side === 'baseline'
               ? ((this.#getBaseline()?.commands ?? []) as CommandLog[])
               : this.#liveCommandsForSelectedUid()
-          return this.#isFailureSite(cmd, step, allCmds)
+          return isFailureSite(cmd, step, allCmds)
         }
       }
     }
@@ -591,20 +491,20 @@ export class DevtoolsCompare extends Element {
       side === 'baseline'
         ? ((this.#getBaseline()?.commands ?? []) as CommandLog[])
         : this.#liveCommandsForSelectedUid()
-    const isFailureSite = this.#isFailureSite(cmd, step, allCmdsThisSide)
+    const atFailureSite = isFailureSite(cmd, step, allCmdsThisSide)
     const expected =
-      isFailureSite && step?.error?.expected !== undefined
+      atFailureSite && step?.error?.expected !== undefined
         ? step.error.expected
-        : isFailureSite
+        : atFailureSite
           ? step?.error?.matcherResult?.expected
           : undefined
     const actual =
-      isFailureSite && step?.error?.actual !== undefined
+      atFailureSite && step?.error?.actual !== undefined
         ? step.error.actual
-        : isFailureSite
+        : atFailureSite
           ? step?.error?.matcherResult?.actual
           : undefined
-    const rawAssertion = isFailureSite
+    const rawAssertion = atFailureSite
       ? step?.error?.matcherResult?.message || step?.error?.message
       : undefined
     const assertionMessage = rawAssertion
@@ -613,7 +513,7 @@ export class DevtoolsCompare extends Element {
     // Fallback: extract the expected from the Cucumber step text.
     const stepText = step?.fullTitle || step?.title || ''
     const fallbackExpected =
-      isFailureSite && expected === undefined && step?.state === 'failed'
+      atFailureSite && expected === undefined && step?.state === 'failed'
         ? extractExpectedFromStepText(stepText)
         : undefined
     return html`
