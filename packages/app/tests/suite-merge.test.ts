@@ -19,33 +19,39 @@ const ctx = (override: Partial<MergeContext> = {}): MergeContext => ({
   ...override
 })
 
+// Tests use `number` start/end values for terseness — the fragment types
+// declare `Date` (from @wdio/reporter), but the merge logic only compares
+// via `getTimestamp` which accepts both shapes. Cast through `as never` to
+// bypass the structural mismatch.
 const test = (
   uid: string,
-  overrides: Partial<TestStatsFragment> = {}
-): TestStatsFragment => ({
-  uid,
-  title: uid,
-  fullTitle: uid,
-  state: 'passed',
-  start: 1000,
-  end: 2000,
-  ...overrides
-}) as TestStatsFragment
+  overrides: Record<string, unknown> = {}
+): TestStatsFragment =>
+  ({
+    uid,
+    title: uid,
+    fullTitle: uid,
+    state: 'passed',
+    start: 1000,
+    end: 2000,
+    ...overrides
+  }) as never as TestStatsFragment
 
 const suite = (
   uid: string,
-  overrides: Partial<SuiteStatsFragment> = {}
-): SuiteStatsFragment => ({
-  uid,
-  title: uid,
-  fullTitle: uid,
-  state: 'passed',
-  start: 1000,
-  end: 2000,
-  tests: [],
-  suites: [],
-  ...overrides
-}) as SuiteStatsFragment
+  overrides: Record<string, unknown> = {}
+): SuiteStatsFragment =>
+  ({
+    uid,
+    title: uid,
+    fullTitle: uid,
+    state: 'passed',
+    start: 1000,
+    end: 2000,
+    tests: [],
+    suites: [],
+    ...overrides
+  }) as never as SuiteStatsFragment
 
 describe('canonicalKey', () => {
   it('builds a stable key from file + featureLine + fullTitle', () => {
