@@ -33,85 +33,8 @@ type CommandFrame = {
   callSource?: string
 }
 
-/**
- * Setup WebdriverIO Devtools hook for standalone instances
- */
-export function setupForDevtools(opts: Options.WebdriverIO) {
-  let browserCaptured = false
-  const service = new DevToolsHookService()
-  service.captureType = TraceType.Standalone
-
-  // In v9, the `opts` object itself contains the capabilities.
-  // The `beforeSession` hook expects the config and the capabilities.
-  service.beforeSession(opts, opts as Capabilities.W3CCapabilities)
-
-  opts.beforeCommand = Array.isArray(opts.beforeCommand)
-    ? opts.beforeCommand
-    : opts.beforeCommand
-      ? [opts.beforeCommand]
-      : []
-  opts.beforeCommand.push(async function captureBrowserInstance(
-    this: WebdriverIO.Browser,
-    command: keyof WebDriverCommands
-  ) {
-    if (!browserCaptured) {
-      browserCaptured = true
-      service.before(
-        this.capabilities as Capabilities.W3CCapabilities,
-        [],
-        this
-      )
-    }
-
-    /**
-     * capture trace on `deleteSession` since we can't do it in `afterCommand` as the session
-     * would be terminated by then
-     */
-    if (command === 'deleteSession') {
-      await service.after()
-    }
-  }, service.beforeCommand.bind(service))
-
-  /**
-   * register after command hook
-   */
-  opts.afterCommand = Array.isArray(opts.afterCommand)
-    ? opts.afterCommand
-    : opts.afterCommand
-      ? [opts.afterCommand]
-      : []
-  opts.afterCommand.push(service.afterCommand.bind(service))
-
-  /**
-   * return modified session configuration
-   */
-  return opts
-}
-
-function detectInvocationConfigPath(): string | undefined {
-  const envPath = process.env.DEVTOOLS_WDIO_CONFIG
-  if (envPath) {
-    return path.isAbsolute(envPath)
-      ? envPath
-      : path.resolve(process.cwd(), envPath)
-  }
-  const argv = process.argv
-  for (let i = 0; i < argv.length - 1; i++) {
-    if (argv[i] === '--config' || argv[i] === '-c') {
-      const next = argv[i + 1]
-      if (next && /\.(conf|config)\.(ts|js|cjs|mjs)$/i.test(next)) {
-        return path.isAbsolute(next) ? next : path.resolve(process.cwd(), next)
-      }
-    }
-  }
-  const positional = argv.find((a) => /\.conf\.(ts|js|cjs|mjs)$/i.test(a))
-  if (!positional) {
-    return undefined
-  }
-  return path.isAbsolute(positional)
-    ? positional
-    : path.resolve(process.cwd(), positional)
-}
+export { setupForDevtools } from './standalone.js'
+import { detectInvocationConfigPath } from './standalone.js'
 
 export default class DevToolsHookService implements Services.ServiceInstance {
   #testReporters: TestReporter[] = []
