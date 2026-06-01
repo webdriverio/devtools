@@ -8,7 +8,9 @@ import type { SuiteStatsFragment } from '../src/controller/types.js'
 
 type SuiteChunks = Array<Record<string, SuiteStatsFragment>>
 
-const state = (overrides: Partial<RunDetectionState> = {}): RunDetectionState => ({
+const state = (
+  overrides: Partial<RunDetectionState> = {}
+): RunDetectionState => ({
   lastSeenRunTimestamp: 0,
   activeRerunSuiteUid: undefined,
   ...overrides
@@ -52,7 +54,9 @@ describe('shouldResetForNewRun', () => {
     const incoming = chunks(
       suite('root', { start: new Date(2026, 0, 1, 11, 0, 0) })
     )
-    const existing = chunks(suite('root', { end: new Date(2026, 0, 1, 10, 30, 0) }))
+    const existing = chunks(
+      suite('root', { end: new Date(2026, 0, 1, 10, 30, 0) })
+    )
     const result = shouldResetForNewRun(
       incoming,
       state({ lastSeenRunTimestamp: oldStart }),
@@ -61,7 +65,7 @@ describe('shouldResetForNewRun', () => {
     expect(result.shouldReset).toBe(true)
   })
 
-  it("treats an ongoing previous run as a continuation (no reset)", () => {
+  it('treats an ongoing previous run as a continuation (no reset)', () => {
     const oldStart = new Date(2026, 0, 1, 10, 0, 0).getTime()
     const incoming = chunks(
       suite('root', { start: new Date(2026, 0, 1, 11, 0, 0) })
@@ -98,8 +102,6 @@ describe('shouldResetForNewRun', () => {
       null as unknown as Record<string, SuiteStatsFragment>,
       { root: suite('root') }
     ]
-    expect(() =>
-      shouldResetForNewRun(incoming, state(), [])
-    ).not.toThrow()
+    expect(() => shouldResetForNewRun(incoming, state(), [])).not.toThrow()
   })
 })

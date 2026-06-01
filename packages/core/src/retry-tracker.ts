@@ -15,7 +15,11 @@ export class RetryTracker {
   #lastId: number | null = null
 
   /** Build the canonical signature used for retry-equality checks. */
-  static signature(command: string, args: unknown, callSource?: string): string {
+  static signature(
+    command: string,
+    args: unknown,
+    callSource?: string
+  ): string {
     return JSON.stringify({ command, args, src: callSource ?? null })
   }
 

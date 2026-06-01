@@ -129,10 +129,7 @@ function hintFromStats(
  *  - Cucumber: prefer step-definition file/line
  *  - Mocha/Jasmine: AST with suite path; fallback to runtime stack
  */
-export function mapTestToSource(
-  testStats: unknown,
-  hintFile?: string
-): void {
+export function mapTestToSource(testStats: unknown, hintFile?: string): void {
   const t = asHint(testStats)
   const title = String(t.title ?? '').trim()
   const fullTitle = normalizeFullTitle(t.fullTitle)

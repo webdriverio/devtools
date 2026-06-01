@@ -7,11 +7,7 @@ import type {
   NodePath,
   TraverseOptions
 } from '@babel/traverse'
-import type {
-  CallExpression,
-  Identifier,
-  MemberExpression
-} from '@babel/types'
+import type { CallExpression, Identifier, MemberExpression } from '@babel/types'
 
 import {
   PARSE_PLUGINS,

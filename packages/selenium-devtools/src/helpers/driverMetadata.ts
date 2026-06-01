@@ -30,8 +30,14 @@ export interface DriverMetadataResult {
 export async function buildDriverMetadata(
   input: DriverMetadataInput
 ): Promise<DriverMetadataResult> {
-  const { driver, driverReadyTs, runner, rerunCommand, rerunTemplate, launchCommand } =
-    input
+  const {
+    driver,
+    driverReadyTs,
+    runner,
+    rerunCommand,
+    rerunTemplate,
+    launchCommand
+  } = input
 
   try {
     const session = driver.getSession ? await driver.getSession() : undefined

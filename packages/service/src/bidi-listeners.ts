@@ -40,9 +40,7 @@ export function attachBidiListeners(
     // sessionSubscribe is augmented onto WebdriverIO.Browser in types.ts.
     browser.sessionSubscribe?.({ events: ['log.entryAdded'] })
   } catch (err) {
-    log.warn(
-      `Could not subscribe to log.entryAdded: ${errorMessage(err)}`
-    )
+    log.warn(`Could not subscribe to log.entryAdded: ${errorMessage(err)}`)
   }
 
   log.info('✓ BiDi network + log event listeners registered')

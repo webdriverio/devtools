@@ -47,8 +47,10 @@ describe('serializeCommandResult', () => {
       )
     })
 
-    it("coerces null to false for boolean-semantic commands (waitFor*, is*, has*)", () => {
-      expect(serializeCommandResult({ value: null }, 'waitForExist')).toBe(false)
+    it('coerces null to false for boolean-semantic commands (waitFor*, is*, has*)', () => {
+      expect(serializeCommandResult({ value: null }, 'waitForExist')).toBe(
+        false
+      )
       expect(serializeCommandResult({ value: null }, 'isVisible')).toBe(false)
       expect(serializeCommandResult({ value: null }, 'hasClass')).toBe(false)
     })
@@ -58,9 +60,9 @@ describe('serializeCommandResult', () => {
     })
 
     it('preserves an object value verbatim', () => {
-      expect(
-        serializeCommandResult({ value: { x: 1 } }, 'execute')
-      ).toEqual({ x: 1 })
+      expect(serializeCommandResult({ value: { x: 1 } }, 'execute')).toEqual({
+        x: 1
+      })
     })
   })
 
@@ -83,9 +85,7 @@ describe('serializeCommandResult', () => {
 
   describe('Function inputs', () => {
     it('returns undefined for a function (no useful serialization)', () => {
-      expect(
-        serializeCommandResult(() => 1, 'execute')
-      ).toBeUndefined()
+      expect(serializeCommandResult(() => 1, 'execute')).toBeUndefined()
     })
   })
 })

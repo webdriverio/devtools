@@ -33,7 +33,6 @@ export class SessionCapturer extends SessionCapturerBase {
   #onClientDisconnected?: () => void
 
   commandsLog: CommandLog[] = []
-  sources = new Map<string, string>()
   consoleLogs: ConsoleLog[] = []
   mutations: any[] = []
   traceLogs: string[] = []
@@ -178,7 +177,8 @@ export class SessionCapturer extends SessionCapturerBase {
     const idx = this.commandsLog.findIndex(
       (c) => (c as CommandLog & { _id?: number })._id === oldId
     )
-    const oldTimestamp = idx !== -1 ? (this.commandsLog[idx]?.timestamp ?? 0) : 0
+    const oldTimestamp =
+      idx !== -1 ? (this.commandsLog[idx]?.timestamp ?? 0) : 0
     if (idx === -1) {
       const newId = this.commandCounter++
       const fresh: CommandLog & { _id?: number; id?: number } = {
@@ -228,19 +228,8 @@ export class SessionCapturer extends SessionCapturerBase {
 
   // ---- source files --------------------------------------------------------
 
-  async captureSource(filePath: string) {
-    if (this.sources.has(filePath)) {
-      return
-    }
-    try {
-      const source = await fs.readFile(filePath, 'utf-8')
-      this.sources.set(filePath, source.toString())
-      this.sendUpstream('sources', { [filePath]: source.toString() })
-    } catch (err) {
-      log.warn(
-        `Failed to read source file ${filePath}: ${errorMessage(err)}`
-      )
-    }
+  protected override onSourceReadError(filePath: string, err: unknown): void {
+    log.warn(`Failed to read source file ${filePath}: ${errorMessage(err)}`)
   }
 
   // ---- browser-side trace (script injection) -------------------------------

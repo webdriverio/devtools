@@ -114,9 +114,7 @@ export async function attachBidiHandlers(
             source: LOG_SOURCES.BROWSER
           })
         } catch (err) {
-          log.warn(
-            `onJavascriptException handler threw: ${errorMessage(err)}`
-          )
+          log.warn(`onJavascriptException handler threw: ${errorMessage(err)}`)
         }
       })
       attached++

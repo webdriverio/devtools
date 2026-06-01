@@ -36,7 +36,6 @@ export class SessionCapturer extends SessionCapturerBase {
   // Captured session state exposed to service/index.ts for the final trace
   // payload (consumed in afterTest / before browser reloadSession).
   commandsLog: CommandLog[] = []
-  sources = new Map<string, string>()
   mutations: TraceMutation[] = []
   traceLogs: string[] = []
   consoleLogs: ConsoleLogs[] = []
@@ -86,16 +85,10 @@ export class SessionCapturer extends SessionCapturerBase {
       ? url.fileURLToPath(location)
       : location
     const sourceFilePath = absolutePath.split(':')[0]
-    if (!sourceFilePath || this.sources.has(sourceFilePath)) {
+    if (!sourceFilePath) {
       return
     }
-    try {
-      const sourceCode = (await fs.readFile(sourceFilePath, 'utf-8')).toString()
-      this.sources.set(sourceFilePath, sourceCode)
-      this.sendUpstream('sources', { [sourceFilePath]: sourceCode })
-    } catch {
-      // file unreadable / missing — nothing to surface
-    }
+    await this.captureSource(sourceFilePath)
   }
 
   async afterCommand(
@@ -128,18 +121,8 @@ export class SessionCapturer extends SessionCapturerBase {
       ? url.fileURLToPath(sourceFileLocation)
       : sourceFileLocation
     const sourceFilePath = absolutePath.split(':')[0]
-    const doesFileExist = await fs.access(sourceFilePath).then(
-      () => true,
-      () => false
-    )
-    if (
-      sourceFileLocation &&
-      !this.sources.has(sourceFileLocation) &&
-      doesFileExist
-    ) {
-      const sourceCode = await fs.readFile(sourceFilePath, 'utf-8')
-      this.sources.set(sourceFilePath, sourceCode.toString())
-      this.sendUpstream('sources', { [sourceFilePath]: sourceCode.toString() })
+    if (sourceFileLocation && sourceFilePath) {
+      await this.captureSource(sourceFilePath)
     }
     const commandLogEntry: CommandLog = {
       command,

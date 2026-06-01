@@ -553,11 +553,7 @@ class SeleniumDevToolsPlugin {
 
     const error = cmd.error ? toError(cmd.error) : undefined
 
-    const cmdSig = RetryTracker.signature(
-      cmd.command,
-      cmd.args,
-      cmd.callSource
-    )
+    const cmdSig = RetryTracker.signature(cmd.command, cmd.args, cmd.callSource)
     let entry: CommandLog & { _id?: number }
     if (this.#retryTracker.isRetry(cmdSig)) {
       const replaced = capturer.replaceCommand(

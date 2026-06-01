@@ -45,7 +45,6 @@ export class SessionCapturer extends SessionCapturerBase {
   #browser: NightwatchBrowser | undefined
 
   commandsLog: CommandLog[] = []
-  sources = new Map<string, string>()
   consoleLogs: ConsoleLog[] = []
   mutations: any[] = []
   traceLogs: string[] = []
@@ -303,17 +302,8 @@ export class SessionCapturer extends SessionCapturerBase {
     })
   }
 
-  /** Capture test source code */
-  async captureSource(filePath: string) {
-    if (!this.sources.has(filePath)) {
-      try {
-        const sourceCode = await fs.readFile(filePath, 'utf-8')
-        this.sources.set(filePath, sourceCode.toString())
-        this.sendUpstream('sources', { [filePath]: sourceCode.toString() })
-      } catch (err) {
-        log.warn(`Failed to read source file ${filePath}: ${errorMessage(err)}`)
-      }
-    }
+  protected override onSourceReadError(filePath: string, err: unknown): void {
+    log.warn(`Failed to read source file ${filePath}: ${errorMessage(err)}`)
   }
 
   protected override onUpstreamDrop(

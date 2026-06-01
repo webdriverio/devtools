@@ -299,7 +299,9 @@ export async function start(
         }
       })
       if (clients.size > 0) {
-        socket.send(JSON.stringify({ scope: WS_SCOPE.clientConnected, data: {} }))
+        socket.send(
+          JSON.stringify({ scope: WS_SCOPE.clientConnected, data: {} })
+        )
       }
       socket.on(
         'message',

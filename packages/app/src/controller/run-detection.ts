@@ -56,7 +56,9 @@ export function shouldResetForNewRun(
         if (!suite?.start) {
           continue
         }
-        const t = getTimestamp(suite.start as Date | number | string | undefined)
+        const t = getTimestamp(
+          suite.start as Date | number | string | undefined
+        )
         if (t > lastSeen) {
           lastSeen = t
         }
