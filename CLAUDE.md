@@ -274,7 +274,7 @@ These are documented violations of this file's rules. They exist today; they are
 
 - `packages/app/src/controller/DataManager.ts` (~986 lines)
 - `packages/app/src/components/workbench/compare.ts` (~888 lines)
-- `packages/app/src/components/sidebar/explorer.ts` (~670 lines)
+- `packages/app/src/components/sidebar/explorer.ts` (~506 lines, was 670 — entry-state logic extracted, remainder is Lit render + runner-options getters coupled to component state)
 
 ### Type-safety debt
 
