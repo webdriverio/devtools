@@ -291,7 +291,7 @@ describe('SessionCapturer', () => {
       'log'
     ])
     expect(captured.every((e) => e.source === LOG_SOURCES.TEST)).toBe(true)
-    expect(captured[4].args[0]).toBe('payload {"id":1,"nested":{"x":2}}')
+    expect(captured[4].args).toEqual(['payload', '{"id":1,"nested":{"x":2}}'])
 
     capturer.cleanup()
     expect(console.log).toBe(originalLog)
