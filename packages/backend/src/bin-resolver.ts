@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { createRequire } from 'node:module'
+import { RUNNER_ENV } from '@wdio/devtools-shared'
 
 const require = createRequire(import.meta.url)
 
@@ -12,7 +13,7 @@ const require = createRequire(import.meta.url)
  * `node_modules/.bin/nightwatch` via node).
  */
 export function resolveNightwatchBin(baseDir: string): string {
-  const envOverride = process.env.DEVTOOLS_NIGHTWATCH_BIN
+  const envOverride = process.env[RUNNER_ENV.NIGHTWATCH_BIN]
   if (envOverride) {
     const resolved = path.isAbsolute(envOverride)
       ? envOverride
@@ -66,7 +67,7 @@ export function resolveNightwatchBin(baseDir: string): string {
  * from the `@wdio/cli` package's location (the published `bin/wdio.js`).
  */
 export function resolveWdioBin(): string {
-  const envOverride = process.env.DEVTOOLS_WDIO_BIN
+  const envOverride = process.env[RUNNER_ENV.WDIO_BIN]
   if (envOverride) {
     const overriddenPath = path.isAbsolute(envOverride)
       ? envOverride

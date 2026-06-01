@@ -3,7 +3,7 @@ import http from 'node:http'
 import { remote } from 'webdriverio'
 import { start } from '@wdio/devtools-backend'
 import logger from '@wdio/logger'
-import { REUSE_ENV } from '@wdio/devtools-shared'
+import { REUSE_ENV, RUNNER_ENV } from '@wdio/devtools-shared'
 import { DEFAULT_LAUNCH_CAPS } from './constants.js'
 import type { ServiceOptions, ExtendedCapabilities } from './types.js'
 
@@ -92,15 +92,15 @@ export class DevToolsAppLauncher {
   async onPrepare(_: never, caps: ExtendedCapabilities[]) {
     try {
       const detectedConfig = detectInvocationConfigPath()
-      if (detectedConfig && !process.env.DEVTOOLS_WDIO_CONFIG) {
-        process.env.DEVTOOLS_WDIO_CONFIG = detectedConfig
+      if (detectedConfig && !process.env[RUNNER_ENV.WDIO_CONFIG]) {
+        process.env[RUNNER_ENV.WDIO_CONFIG] = detectedConfig
         log.info(`Detected config for reruns: ${detectedConfig}`)
       }
 
-      if (!process.env.DEVTOOLS_WDIO_INITIAL_SPECS) {
+      if (!process.env[RUNNER_ENV.WDIO_INITIAL_SPECS]) {
         const detectedSpecs = detectInvocationSpecs()
         if (detectedSpecs.length) {
-          process.env.DEVTOOLS_WDIO_INITIAL_SPECS = detectedSpecs.join(
+          process.env[RUNNER_ENV.WDIO_INITIAL_SPECS] = detectedSpecs.join(
             path.delimiter
           )
           log.info(

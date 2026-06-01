@@ -25,6 +25,23 @@ export const REUSE_ENV = {
   RERUN_ENTRY_TYPE: 'DEVTOOLS_RERUN_ENTRY_TYPE'
 } as const
 
+/**
+ * Environment variables the WDIO service writes during `onPrepare` (config
+ * path it detected, initial --spec args) so the backend's rerun spawner can
+ * relaunch with the same config. Also covers DEVTOOLS_RUNNER_CWD which the
+ * backend reads to know which directory to spawn the child in. Bin-override
+ * vars (DEVTOOLS_WDIO_BIN, DEVTOOLS_NIGHTWATCH_BIN) live here too — they're
+ * test-rig overrides that backend's bin-resolver respects.
+ */
+export const RUNNER_ENV = {
+  WDIO_CONFIG: 'DEVTOOLS_WDIO_CONFIG',
+  NIGHTWATCH_CONFIG: 'DEVTOOLS_NIGHTWATCH_CONFIG',
+  WDIO_INITIAL_SPECS: 'DEVTOOLS_WDIO_INITIAL_SPECS',
+  RUNNER_CWD: 'DEVTOOLS_RUNNER_CWD',
+  WDIO_BIN: 'DEVTOOLS_WDIO_BIN',
+  NIGHTWATCH_BIN: 'DEVTOOLS_NIGHTWATCH_BIN'
+} as const
+
 /** POST /api/tests/run body. */
 export interface RunnerRequestBody {
   uid: string

@@ -6,6 +6,7 @@ import kill from 'tree-kill'
 import { parse as shellParse, quote as shellQuote } from 'shell-quote'
 import {
   REUSE_ENV,
+  RUNNER_ENV,
   type RunnerRequestBody,
   type TestRunnerId
 } from '@wdio/devtools-shared'
@@ -63,7 +64,7 @@ class TestRunner {
     let child: ChildProcess
     if (isGenericShell) {
       const command = this.#resolveGenericCommand(payload)
-      this.#baseDir = process.env.DEVTOOLS_RUNNER_CWD || process.cwd()
+      this.#baseDir = process.env[RUNNER_ENV.RUNNER_CWD] || process.cwd()
       const { file, args } = this.#parseGenericCommand(command)
       child = spawn(file, args, {
         cwd: this.#baseDir,
@@ -74,7 +75,7 @@ class TestRunner {
     } else {
       const configPath = this.#resolveConfigPath(payload)
       this.#baseDir =
-        process.env.DEVTOOLS_RUNNER_CWD || path.dirname(configPath)
+        process.env[RUNNER_ENV.RUNNER_CWD] || path.dirname(configPath)
       let args: string[]
       if (isNightwatch) {
         const nightwatchBin = resolveNightwatchBin(this.#baseDir)
@@ -231,7 +232,7 @@ class TestRunner {
 
     // Scope "Run All" to the user's original --spec args. Nightwatch resolves specs via its own filter.
     if (payload.runAll && !framework.startsWith('nightwatch')) {
-      const initialSpecs = process.env.DEVTOOLS_WDIO_INITIAL_SPECS
+      const initialSpecs = process.env[RUNNER_ENV.WDIO_INITIAL_SPECS]
       if (initialSpecs) {
         const specs = initialSpecs.split(path.delimiter).filter(Boolean)
         for (const spec of specs) {
@@ -298,8 +299,8 @@ class TestRunner {
       payload?.configFile,
       this.#lastPayload?.configFile,
       this.#registeredConfigFile,
-      process.env.DEVTOOLS_WDIO_CONFIG,
-      process.env.DEVTOOLS_NIGHTWATCH_CONFIG,
+      process.env[RUNNER_ENV.WDIO_CONFIG],
+      process.env[RUNNER_ENV.NIGHTWATCH_CONFIG],
       this.#findConfigFromSpec(specCandidate, isNightwatch),
       ...this.#expandDefaultConfigsFor(this.#baseDir, isNightwatch),
       ...this.#expandDefaultConfigsFor(
