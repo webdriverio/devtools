@@ -42,23 +42,18 @@ export {
   LOG_SOURCES
 } from '@wdio/devtools-core'
 
+import { DEFAULTS_BASE, TIMING_BASE } from '@wdio/devtools-shared'
+
 export const DEFAULTS = {
-  CID: '0-0',
+  ...DEFAULTS_BASE,
   TEST_NAME: 'unknown',
-  FILE_NAME: 'unknown',
-  RETRIES: 0,
-  DURATION: 0
+  FILE_NAME: 'unknown'
 } as const
 
-/** Timing constants (in milliseconds) */
 export const TIMING = {
-  UI_RENDER_DELAY: 150,
-  TEST_START_DELAY: 100,
-  SUITE_COMPLETE_DELAY: 200,
-  UI_CONNECTION_WAIT: 10000,
-  BROWSER_CLOSE_WAIT: 2000,
-  INITIAL_CONNECTION_WAIT: 500,
-  BROWSER_POLL_INTERVAL: 1000
+  ...TIMING_BASE,
+  /** Nightwatch boots slower than selenium — give the dashboard 10s. */
+  UI_CONNECTION_WAIT: 10000
 } as const
 
 export { TEST_STATE } from '@wdio/devtools-shared'

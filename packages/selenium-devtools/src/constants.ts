@@ -70,22 +70,18 @@ export { ANSI_REGEX, CONSOLE_METHODS, LOG_SOURCES } from '@wdio/devtools-core'
 
 export { SPINNER_RE } from '@wdio/devtools-core'
 
+import { DEFAULTS_BASE, TIMING_BASE } from '@wdio/devtools-shared'
+
 export const DEFAULTS = {
-  CID: '0-0',
+  ...DEFAULTS_BASE,
   SESSION_TITLE: 'Selenium Session',
-  FILE_NAME: 'selenium',
-  RETRIES: 0,
-  DURATION: 0
+  FILE_NAME: 'selenium'
 } as const
 
 export const TIMING = {
-  UI_RENDER_DELAY: 150,
-  TEST_START_DELAY: 100,
-  SUITE_COMPLETE_DELAY: 200,
-  UI_CONNECTION_WAIT: 2000,
-  BROWSER_CLOSE_WAIT: 2000,
-  INITIAL_CONNECTION_WAIT: 500,
-  BROWSER_POLL_INTERVAL: 1000
+  ...TIMING_BASE,
+  /** Selenium boots fast — 2s is enough for the dashboard to attach. */
+  UI_CONNECTION_WAIT: 2000
 } as const
 
 export { TEST_STATE } from '@wdio/devtools-shared'
