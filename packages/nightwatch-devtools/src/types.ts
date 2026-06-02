@@ -56,6 +56,14 @@ export interface DevToolsOptions {
    * browser Nightwatch supports.
    */
   screencast?: ScreencastOptions
+  /**
+   * Enable WebDriver BiDi capture (browser console + JS exceptions + network
+   * via `selenium-webdriver/bidi`). Requires `webSocketUrl: true` in your
+   * capabilities and a BiDi-capable chromedriver. When attached, the per-
+   * command perf-log network capture path is gated off to avoid duplicate
+   * entries. Defaults to `false` — opt-in.
+   */
+  bidi?: boolean
 }
 
 export interface NightwatchBrowser {

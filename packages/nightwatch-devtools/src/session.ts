@@ -42,6 +42,10 @@ function unwrapDriverValue<T = unknown>(result: unknown): T {
 export class SessionCapturer extends SessionCapturerBase {
   #browser: NightwatchBrowser | undefined
 
+  // True once BiDi inspectors are attached — the per-command perf-log network
+  // capture path skips when set, so we don't double-emit network requests.
+  bidiActive = false
+
   constructor(
     devtoolsOptions: { hostname?: string; port?: number } = {},
     browser?: NightwatchBrowser
@@ -372,6 +376,10 @@ export class SessionCapturer extends SessionCapturerBase {
    * Requires loggingPrefs: { performance: 'ALL' } in Chrome capabilities.
    */
   async captureNetworkFromPerformanceLogs(browser: NightwatchBrowser) {
+    // BiDi network inspector is the source of truth when attached.
+    if (this.bidiActive) {
+      return
+    }
     try {
       const rawLogs = await (
         browser as unknown as Record<string, (type: string) => Promise<unknown>>

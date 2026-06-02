@@ -83,6 +83,7 @@ module.exports = {
 | `port` | `number` | `3000` | Port for the DevTools backend server. Auto-incremented if already in use. |
 | `hostname` | `string` | `'localhost'` | Hostname the backend server binds to. |
 | `screencast` | `ScreencastOptions` | `{ enabled: false }` | Session video recording (see [Screencast](#screencast)). |
+| `bidi` | `boolean` | `false` | Opt into WebDriver BiDi capture for browser console + JS exceptions + network. Requires `webSocketUrl: true` in your capabilities and a BiDi-capable chromedriver. When attached, the per-command Chrome perf-log network path is gated off so requests don't duplicate. |
 
 ```javascript
 globals: nightwatchDevtools({
@@ -163,6 +164,29 @@ Overall feature parity with the WebdriverIO DevTools service is approximately **
 ### Preserve & Rerun (Compare)
 
 Available for Nightwatch — same dashboard UI as WebdriverIO. The "compare with rerun" flow snapshots the failing run, re-launches the test with `DEVTOOLS_RERUN_LABEL` set (the plugin filters down to just that test name on the rerun), and the dashboard shows the two runs side-by-side aligned by command.
+
+### BiDi capture (opt-in)
+
+Enable WebDriver BiDi capture for browser console messages, JS exceptions, and network requests. Equivalent to the path selenium-devtools uses — both adapters call the same `attachBidiHandlers` in `@wdio/devtools-core`.
+
+```javascript
+globals: nightwatchDevtools({
+  port: 3000,
+  bidi: true
+})
+```
+
+You also need `webSocketUrl: true` in your capabilities so chromedriver actually exposes the BiDi channel:
+
+```javascript
+desiredCapabilities: {
+  browserName: 'chrome',
+  'webSocketUrl': true,                         // ← enables BiDi
+  'goog:chromeOptions': { /* ... */ }
+}
+```
+
+When attached, the per-command Chrome performance-log network capture path is gated off so requests don't appear twice in the dashboard. If `webSocketUrl` is missing or the chromedriver version doesn't expose BiDi, the attach silently fails and the perf-log fallback continues to work.
 
 ## :page_facing_up: License
 
