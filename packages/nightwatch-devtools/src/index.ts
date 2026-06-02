@@ -28,6 +28,10 @@ import {
   type TestStats
 } from './types.js'
 import { resolveSpecFilePath } from './helpers/specFileResolver.js'
+import {
+  closeOpenSteps,
+  cucumberResultToTestState
+} from './helpers/cucumberResult.js'
 import { scanFeatureFile } from './helpers/featureFileScan.js'
 import {
   determineTestState,
@@ -517,35 +521,16 @@ class NightwatchDevToolsPlugin {
     pickle: any
   ) {
     try {
-      const status = String(result?.status ?? 'UNKNOWN').toUpperCase()
-      const scenarioState: TestStats['state'] =
-        status === 'PASSED'
-          ? TEST_STATE.PASSED
-          : status === 'SKIPPED'
-            ? TEST_STATE.SKIPPED
-            : TEST_STATE.FAILED
-
-      if (this.#currentScenarioSuite) {
+      const scenarioState = cucumberResultToTestState(result)
+      const scenario = this.#currentScenarioSuite
+      if (scenario) {
+        const now = new Date()
         const duration =
-          Date.now() -
-          (this.#currentScenarioSuite.start?.getTime() ?? Date.now())
-        this.#currentScenarioSuite.state = scenarioState
-        this.#currentScenarioSuite.end = new Date()
-        this.#currentScenarioSuite._duration = duration
-
-        // Ensure any still-running or pending steps are marked appropriately
-        for (const step of this.#currentScenarioSuite.tests) {
-          if (
-            typeof step !== 'string' &&
-            (step.state === 'running' || step.state === 'pending')
-          ) {
-            step.state =
-              scenarioState === TEST_STATE.PASSED
-                ? TEST_STATE.PASSED
-                : TEST_STATE.FAILED
-            step.end = new Date()
-          }
-        }
+          now.getTime() - (scenario.start?.getTime() ?? now.getTime())
+        scenario.state = scenarioState
+        scenario.end = now
+        scenario._duration = duration
+        closeOpenSteps(scenario, scenarioState, now)
 
         const featureUri: string = pickle?.uri ?? 'unknown.feature'
         this.testManager.markTestAsProcessed(featureUri, pickle?.name ?? '')
@@ -558,8 +543,9 @@ class NightwatchDevToolsPlugin {
 
         this.#incrementCount(scenarioState)
         const icon = this.#testIcon(scenarioState)
-        const durationSec = (duration / 1000).toFixed(2)
-        log.info(`  ${icon} ${pickle?.name ?? 'Unknown'} (${durationSec}s)`)
+        log.info(
+          `  ${icon} ${pickle?.name ?? 'Unknown'} (${(duration / 1000).toFixed(2)}s)`
+        )
 
         this.testReporter.updateSuites()
         this.#currentScenarioSuite = null
