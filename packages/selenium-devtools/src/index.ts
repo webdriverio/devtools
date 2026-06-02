@@ -9,6 +9,7 @@ import { startDetachedBackend } from './helpers/detachedBackend.js'
 import { openDashboard } from './helpers/dashboardLauncher.js'
 import { buildDriverMetadata } from './helpers/driverMetadata.js'
 import { finalizeScreencast } from '@wdio/devtools-core'
+import { captureOrReplaceCommand } from './helpers/captureOrReplaceCommand.js'
 import {
   enrichFindResult,
   captureNavigationTrace
@@ -49,7 +50,6 @@ import {
 } from './constants.js'
 import {
   type CapturedCommand,
-  type CommandLog,
   type DevToolsOptions,
   type ScreencastOptions,
   type SeleniumDriverLike,
@@ -545,43 +545,18 @@ class SeleniumDevToolsPlugin {
     if (!capturer || !testManager) {
       return
     }
-
     const test = testManager.getOrEnsureTest()
     if (!test) {
       return
     }
 
+    const entry = await captureOrReplaceCommand({
+      capturer,
+      retryTracker: this.#retryTracker,
+      test,
+      cmd
+    })
     const error = cmd.error ? toError(cmd.error) : undefined
-
-    const cmdSig = RetryTracker.signature(cmd.command, cmd.args, cmd.callSource)
-    let entry: CommandLog & { _id?: number }
-    if (this.#retryTracker.isRetry(cmdSig)) {
-      const replaced = capturer.replaceCommand(
-        this.#retryTracker.lastId!,
-        cmd.command,
-        cmd.args.map((a: any) => a),
-        error ? undefined : cmd.result,
-        error,
-        test.uid,
-        cmd.callSource,
-        cmd.timestamp
-      )
-      entry = replaced.entry as CommandLog & { _id?: number }
-      this.#retryTracker.setLastId(entry._id ?? null)
-      capturer.sendReplaceCommand(replaced.oldTimestamp, entry)
-    } else {
-      entry = (await capturer.captureCommand(
-        cmd.command,
-        cmd.args,
-        cmd.result,
-        error,
-        test.uid,
-        cmd.callSource,
-        cmd.timestamp
-      )) as CommandLog & { _id?: number }
-      capturer.sendCommand(entry)
-      this.#retryTracker.recordCapture(cmdSig, entry._id ?? null)
-    }
 
     if (this.#options.captureScreenshots && !error) {
       const ts = entry.timestamp

@@ -25,6 +25,7 @@ import {
   type DevToolsOptions,
   type NightwatchBrowser,
   type ScreencastOptions,
+  type SuiteStats,
   type TestStats
 } from './types.js'
 import { resolveSpecFilePath } from './helpers/specFileResolver.js'
@@ -32,13 +33,12 @@ import {
   closeOpenSteps,
   cucumberResultToTestState
 } from './helpers/cucumberResult.js'
+import { buildCucumberScenarioSuite } from './helpers/cucumberScenarioBuilder.js'
 import { scanFeatureFile } from './helpers/featureFileScan.js'
 import {
   determineTestState,
-  deterministicUid,
   extractTestMetadata,
   parseCucumberScenario,
-  findStepDefinitionLine,
   findFreePort,
   resolveNightwatchConfig
 } from './helpers/utils.js'
@@ -422,81 +422,32 @@ class NightwatchDevToolsPlugin {
       featureSuite.callSource = `${featureAbsPath}:${featureLine}`
     }
 
-    // Create a scenario sub-suite (child of feature suite).
-    // Use deterministicUid (no counter) so the SAME scenario always maps to the
-    // SAME uid across retries, enabling correct retry detection below.
-    const scenarioUid = deterministicUid(featureUri, `scenario:${scenarioName}`)
-
-    const scenarioSuite: any = {
-      uid: scenarioUid,
-      cid: DEFAULTS.CID,
-      title: scenarioName,
-      fullTitle: `${featureName} ${scenarioName}`,
-      parent: featureSuite.uid,
-      type: 'suite' as const,
-      file: featureUri,
-      start: new Date(),
-      state: 'running',
-      end: null,
-      tests: [],
-      suites: [],
-      hooks: [],
-      _duration: 0,
-      callSource:
-        featureAbsPath && scenarioLine > 0
-          ? `${featureAbsPath}:${scenarioLine}`
-          : undefined
-    }
-
-    // Create a TestStats entry for each step
-    steps.forEach((step, i) => {
-      const keyword = stepKeywords[i] || ''
-      const stepLabel = keyword ? `${keyword} ${step.text}` : step.text
-      const stepUid = deterministicUid(
-        featureUri,
-        `step:${scenarioName}:${step.text}`
-      )
-      scenarioSuite.tests.push({
-        uid: stepUid,
-        cid: DEFAULTS.CID,
-        title: stepLabel,
-        fullTitle: `${scenarioName} ${stepLabel}`,
-        parent: scenarioUid,
-        state: 'pending',
-        start: new Date(),
-        end: null,
-        type: 'test' as const,
-        file: featureUri,
-        retries: 0,
-        _duration: 0,
-        hooks: [],
-        callSource: (() => {
-          const loc = findStepDefinitionLine(stepDefFiles, step.text)
-          if (loc) {
-            return `${loc.filePath}:${loc.line}`
-          }
-          if (featureAbsPath && stepLines[i] > 0) {
-            return `${featureAbsPath}:${stepLines[i]}`
-          }
-          return undefined
-        })()
-      })
+    const scenarioSuite = buildCucumberScenarioSuite({
+      featureUri,
+      scenarioName,
+      featureName,
+      featureAbsPath,
+      stepDefFiles,
+      steps,
+      stepLines,
+      stepKeywords,
+      scenarioLine,
+      parentFeatureSuiteUid: featureSuite.uid
     })
 
     // Add scenario sub-suite to the feature suite.
     // If a suite with this uid already exists it means this is a RETRY of the same
     // scenario — clear execution data so only the latest attempt's commands are shown.
     const existingIdx = featureSuite.suites.findIndex(
-      (s: any) => s.uid === scenarioUid
+      (s: SuiteStats) => s.uid === scenarioSuite.uid
     )
-    const isRetry = existingIdx !== -1
-    if (isRetry) {
+    if (existingIdx !== -1) {
       featureSuite.suites[existingIdx] = scenarioSuite
       // Pass the specific scenario uid so only this scenario's execution data
       // is reset — a uid-less clearExecutionData would mark ALL suites as
       // running, destroying the previous terminal states of sibling scenarios.
       this.sessionCapturer.sendUpstream(WS_SCOPE.clearExecutionData, {
-        uid: scenarioUid,
+        uid: scenarioSuite.uid,
         entryType: 'suite'
       })
     } else {
