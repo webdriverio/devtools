@@ -8,6 +8,6 @@
   },
   "dependencies": {
     "@wdio/nightwatch-devtools": "workspace:^",
-    "nightwatch": "^3.0.0"
+    "nightwatch": "^3.16.0"
   }
 }

@@ -1,6 +1,6 @@
 {
   "name": "@wdio/devtools-core",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "private": true,
   "description": "Framework-agnostic capture/reporter logic shared by @wdio/devtools-* adapters. Workspace-internal, never published — code is inlined into each consuming adapter at build time.",
   "repository": {
@@ -26,9 +26,9 @@
   },
   "license": "MIT",
   "devDependencies": {
-    "@wdio/devtools-shared": "workspace:^",
     "@types/ws": "^8.18.1",
+    "@wdio/devtools-shared": "workspace:^",
     "stacktrace-parser": "^0.1.11",
-    "ws": "^8.18.3"
+    "ws": "^8.21.0"
   }
 }
