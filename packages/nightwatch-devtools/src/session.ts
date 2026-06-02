@@ -1,12 +1,11 @@
-import fs from 'node:fs/promises'
 import http from 'node:http'
-import path from 'node:path'
-import { createRequire } from 'node:module'
 import logger from '@wdio/logger'
 import {
   SessionCapturerBase,
   createConsoleLogEntry,
   errorMessage,
+  loadInjectableScript,
+  pollUntilReady,
   serializeError,
   type LogSource
 } from '@wdio/devtools-core'
@@ -26,7 +25,6 @@ import type {
   NightwatchBrowser
 } from './types.js'
 
-const require = createRequire(import.meta.url)
 const log = logger('@wdio/nightwatch-devtools:SessionCapturer')
 
 /**
@@ -149,18 +147,6 @@ export class SessionCapturer extends SessionCapturerBase {
         title: data.documentInfo?.title
       }
     }
-  }
-
-  /** Send a command to the UI (only if not already sent). Returns the id. */
-  override sendCommand(command: CommandLog & { _id?: number }): number {
-    if (command._id !== undefined && !this.sentCommandIds.has(command._id)) {
-      this.sentCommandIds.add(command._id)
-      // Remove internal ID before sending
-      const commandToSend = { ...command }
-      delete commandToSend._id
-      this.sendUpstream('commands', [commandToSend])
-    }
-    return command._id ?? 0
   }
 
   /**
@@ -318,37 +304,21 @@ export class SessionCapturer extends SessionCapturerBase {
    */
   async injectScript(browser: NightwatchBrowser) {
     try {
-      // Load the preload script
-      const scriptPath = require.resolve('@wdio/devtools-script')
-      const scriptDir = path.dirname(scriptPath)
-      const preloadScriptPath = path.join(scriptDir, 'script.js')
-      let scriptContent = await fs.readFile(preloadScriptPath, 'utf-8')
-
-      // The script contains top-level await - wrap the entire script in async IIFE before injection
-      scriptContent = `(async function() { ${scriptContent} })()`
-
-      // Inject using script element - synchronous check after timeout
+      const scriptContent = await loadInjectableScript()
       const injectionScript = `
         const script = document.createElement('script');
         script.textContent = arguments[0];
         document.head.appendChild(script);
         return true;
       `
-
       await browser.execute(injectionScript, [scriptContent])
 
-      // Poll for collector — the async IIFE may take a moment to initialise
-      let hasCollector = false
-      for (let attempt = 0; attempt < 5; attempt++) {
-        await new Promise((resolve) => setTimeout(resolve, 200))
+      const hasCollector = await pollUntilReady(async () => {
         const checkResult = await browser.execute(
           'return typeof window.wdioTraceCollector !== "undefined"'
         )
-        hasCollector = unwrapDriverValue<unknown>(checkResult) === true
-        if (hasCollector) {
-          break
-        }
-      }
+        return unwrapDriverValue<unknown>(checkResult) === true
+      })
 
       if (hasCollector) {
         log.info('✓ Script injected and collector ready')

@@ -157,18 +157,24 @@ export abstract class SessionCapturerBase {
   }
 
   /**
-   * Buffer/send a CommandLog with a stable internal id (the assigned id is
-   * stamped onto the command's `_id` field). De-dupes — sending the same id
-   * twice is a no-op.
+   * Send a CommandLog over the WS. If the entry already has an `_id` (set by
+   * the adapter's `captureCommand` during buffering), use it; otherwise
+   * allocate a fresh one. The `_id` is the de-dup key and is stripped from
+   * the broadcast payload — it's adapter-internal bookkeeping.
+   * Returns the id, or 0 if the entry had no `_id` and none could be assigned.
    */
   sendCommand(command: CommandLog & { _id?: number }): number {
-    const id = this.commandCounter++
-    command._id = id
+    if (command._id === undefined) {
+      command._id = this.commandCounter++
+    }
+    const id = command._id
     if (this.sentCommandIds.has(id)) {
       return id
     }
     this.sentCommandIds.add(id)
-    this.sendUpstream('commands', [command])
+    const toSend = { ...command }
+    delete toSend._id
+    this.sendUpstream('commands', [toSend])
     return id
   }
 
