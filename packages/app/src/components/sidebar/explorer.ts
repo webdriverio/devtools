@@ -414,68 +414,61 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
     return getTestEntry(entry, this.#filterEntry.bind(this))
   }
 
+  #renderHeaderToolbar() {
+    const canRunAll = this.#getRunCapabilities().canRunAll
+    const runBtnCls = canRunAll
+      ? 'hover:bg-toolbarHoverBackground'
+      : 'opacity-30 cursor-not-allowed'
+    const iconCls = (color: string) => (canRunAll ? `group-hover:${color}` : '')
+    return html`
+      <nav class="flex ml-auto">
+        <button
+          class="p-1 rounded text-sm group ${runBtnCls}"
+          ?disabled=${!canRunAll}
+          @click="${() => this.#runAllSuites()}"
+        >
+          <icon-mdi-play class="${iconCls('text-chartsGreen')}"></icon-mdi-play>
+        </button>
+        <button
+          class="p-1 rounded text-sm group ${runBtnCls}"
+          ?disabled=${!canRunAll}
+          @click="${() => this.#stopActiveRun()}"
+        >
+          <icon-mdi-stop class="${iconCls('text-chartsRed')}"></icon-mdi-stop>
+        </button>
+        <button
+          class="p-1 rounded hover:bg-toolbarHoverBackground text-sm group"
+        >
+          <icon-mdi-eye class="group-hover:text-chartsYellow"></icon-mdi-eye>
+        </button>
+        <button
+          class="p-1 rounded hover:bg-toolbarHoverBackground text-sm group"
+        >
+          ${this.renderCollapseOrExpandIcon('group-hover:text-chartsBlue')}
+        </button>
+      </nav>
+    `
+  }
+
   render() {
     if (!this.suites) {
       return
     }
-
     const rootSuites = this.suites
       .flatMap((s) => Object.values(s))
       .filter((suite) => !suite.parent)
-
     const uniqueSuites = Array.from(
       new Map(rootSuites.map((suite) => [suite.uid, suite])).values()
     )
-
     const suites = uniqueSuites
       .map(this.#getTestEntry.bind(this))
       .filter(this.#filterEntry.bind(this))
-
     return html`
       <header class="pl-4 py-2 flex shadow-md pr-2">
         <h3 class="flex content-center flex-wrap uppercase font-bold text-sm">
           Tests
         </h3>
-        <nav class="flex ml-auto">
-          <button
-            class="p-1 rounded text-sm group ${this.#getRunCapabilities()
-              .canRunAll
-              ? 'hover:bg-toolbarHoverBackground'
-              : 'opacity-30 cursor-not-allowed'}"
-            ?disabled=${!this.#getRunCapabilities().canRunAll}
-            @click="${() => this.#runAllSuites()}"
-          >
-            <icon-mdi-play
-              class="${this.#getRunCapabilities().canRunAll
-                ? 'group-hover:text-chartsGreen'
-                : ''}"
-            ></icon-mdi-play>
-          </button>
-          <button
-            class="p-1 rounded text-sm group ${this.#getRunCapabilities()
-              .canRunAll
-              ? 'hover:bg-toolbarHoverBackground'
-              : 'opacity-30 cursor-not-allowed'}"
-            ?disabled=${!this.#getRunCapabilities().canRunAll}
-            @click="${() => this.#stopActiveRun()}"
-          >
-            <icon-mdi-stop
-              class="${this.#getRunCapabilities().canRunAll
-                ? 'group-hover:text-chartsRed'
-                : ''}"
-            ></icon-mdi-stop>
-          </button>
-          <button
-            class="p-1 rounded hover:bg-toolbarHoverBackground text-sm group"
-          >
-            <icon-mdi-eye class="group-hover:text-chartsYellow"></icon-mdi-eye>
-          </button>
-          <button
-            class="p-1 rounded hover:bg-toolbarHoverBackground text-sm group"
-          >
-            ${this.renderCollapseOrExpandIcon('group-hover:text-chartsBlue')}
-          </button>
-        </nav>
+        ${this.#renderHeaderToolbar()}
       </header>
       <wdio-test-suite>
         ${suites.length

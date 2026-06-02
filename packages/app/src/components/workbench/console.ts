@@ -182,58 +182,53 @@ export class DevtoolsConsoleLogs extends Element {
     return String(args)
   }
 
+  #renderEmptyState() {
+    return html`
+      <div class="empty-state">
+        <div class="empty-state-icon">📋</div>
+        <div class="empty-state-text">No console logs captured yet</div>
+      </div>
+    `
+  }
+
+  #renderLogEntry(log: any) {
+    const icon = LOG_ICONS[log.type] || LOG_ICONS.log
+    const sourceLabel =
+      log.source === 'test'
+        ? '[TEST]'
+        : log.source === 'terminal'
+          ? '[WDIO]'
+          : log.source === 'browser'
+            ? '[BROWSER]'
+            : ''
+    const sourceClass = log.source ? `source-${log.source}` : ''
+    return html`
+      <div class="log-entry log-type-${log.type || 'log'}">
+        ${log.timestamp
+          ? html`<div class="log-time">
+              ${this.#formatElapsedTime(log.timestamp)}
+            </div>`
+          : nothing}
+        <div class="log-icon">${icon}</div>
+        <div class="log-content">
+          ${sourceLabel
+            ? html`<span class="log-prefix ${sourceClass}"
+                >${sourceLabel}</span
+              >`
+            : nothing}
+          <span class="log-message">${this.#formatArgs(log.args)}</span>
+        </div>
+      </div>
+    `
+  }
+
   render() {
     if (!this.logs || this.logs.length === 0) {
-      return html`
-        <div class="empty-state">
-          <div class="empty-state-icon">📋</div>
-          <div class="empty-state-text">No console logs captured yet</div>
-        </div>
-      `
+      return this.#renderEmptyState()
     }
-
-    if (this.logs.length === 0) {
-      return html`
-        <div class="empty-state">
-          <div class="empty-state-icon">📋</div>
-          <div class="empty-state-text">No console logs captured yet</div>
-        </div>
-      `
-    }
-
     return html`
       <div class="console-container">
-        ${this.logs.map((log: any) => {
-          const icon = LOG_ICONS[log.type] || LOG_ICONS.log
-          const sourceLabel =
-            log.source === 'test'
-              ? '[TEST]'
-              : log.source === 'terminal'
-                ? '[WDIO]'
-                : log.source === 'browser'
-                  ? '[BROWSER]'
-                  : ''
-          const sourceClass = log.source ? `source-${log.source}` : ''
-
-          return html`
-            <div class="log-entry log-type-${log.type || 'log'}">
-              ${log.timestamp
-                ? html`<div class="log-time">
-                    ${this.#formatElapsedTime(log.timestamp)}
-                  </div>`
-                : nothing}
-              <div class="log-icon">${icon}</div>
-              <div class="log-content">
-                ${sourceLabel
-                  ? html`<span class="log-prefix ${sourceClass}"
-                      >${sourceLabel}</span
-                    >`
-                  : nothing}
-                <span class="log-message">${this.#formatArgs(log.args)}</span>
-              </div>
-            </div>
-          `
-        })}
+        ${this.logs.map((log: any) => this.#renderLogEntry(log))}
       </div>
     `
   }

@@ -234,14 +234,97 @@ export class ExplorerTestEntry extends CollapseableEntry {
     ></icon-mdi-checkbox-blank-circle-outline>`
   }
 
-  render() {
-    const hasNoChildren = !this.hasChildren
-    const isCollapsed = this.isCollapsed === 'true'
+  #renderStopButton() {
+    return html`
+      <button
+        class="p-1 rounded hover:bg-toolbarHoverBackground my-1 group/button"
+        title="Stop run"
+        @click="${(event: Event) => this.#stopEntry(event)}"
+      >
+        <icon-mdi-stop
+          class="group-hover/button:text-chartsRed"
+        ></icon-mdi-stop>
+      </button>
+    `
+  }
+
+  #renderRunButton() {
     const runTooltip = this.runDisabled
       ? this.runDisabledReason ||
         'Single-step execution is controlled by its scenario.'
       : 'Run this entry'
+    return html`
+      <button
+        class="p-1 rounded hover:bg-toolbarHoverBackground my-1 group/button ${this
+          .runDisabled
+          ? 'opacity-60 cursor-not-allowed hover:bg-transparent'
+          : ''}"
+        title="${runTooltip}"
+        ?disabled=${this.runDisabled}
+        @click="${(event: Event) => this.#runEntry(event)}"
+      >
+        <icon-mdi-play
+          class="${this.runDisabled
+            ? ''
+            : 'group-hover/button:text-chartsGreen'}"
+        ></icon-mdi-play>
+      </button>
+    `
+  }
 
+  #renderRunStopButtons() {
+    if (this.isRunning) {
+      return this.runDisabled ? nothing : this.#renderStopButton()
+    }
+    return html`
+      ${this.#renderRunButton()}
+      ${this.hasFailed && !this.runDisabled
+        ? html`
+            <button
+              class="p-1 rounded hover:bg-toolbarHoverBackground my-1 group/button"
+              title="Preserve current run and rerun for comparison"
+              @click="${(event: Event) => this.#preserveAndRerun(event)}"
+            >
+              <icon-mdi-bug-play
+                class="group-hover/button:text-chartsBlue"
+              ></icon-mdi-bug-play>
+            </button>
+          `
+        : nothing}
+    `
+  }
+
+  #renderToolbar(hasNoChildren: boolean) {
+    return html`
+      <nav
+        class="flex-none ml-auto mr-1 transition-opacity opacity-0 group-hover/sidebar:opacity-100"
+      >
+        ${this.#renderRunStopButtons()}
+        <button
+          class="p-1 rounded hover:bg-toolbarHoverBackground my-1 group"
+          @click="${() => this.#viewSource()}"
+        >
+          <icon-mdi-eye class="group-hover:text-chartsYellow"></icon-mdi-eye>
+        </button>
+        ${!hasNoChildren
+          ? html`
+              <button
+                class="p-1 rounded hover:bg-toolbarHoverBackground my-1 group"
+                @click="${() => this.#toggleEntry()}"
+              >
+                ${this.renderCollapseOrExpandIcon(
+                  'group-hover:text-chartsBlue'
+                )}
+              </button>
+            `
+          : nothing}
+      </nav>
+    `
+  }
+
+  render() {
+    const hasNoChildren = !this.hasChildren
+    const isCollapsed = this.isCollapsed === 'true'
     return html`
       <section class="block mt-2 text-sm flex w-full group/sidebar">
         <button
@@ -262,73 +345,7 @@ export class ExplorerTestEntry extends CollapseableEntry {
           ${this.testStateIcon}
           <slot name="label" class="mx-2 mt-1 block flex-initial shrink"></slot>
         </span>
-        <nav
-          class="flex-none ml-auto mr-1 transition-opacity opacity-0 group-hover/sidebar:opacity-100"
-        >
-          ${!this.isRunning
-            ? html`
-                <button
-                  class="p-1 rounded hover:bg-toolbarHoverBackground my-1 group/button ${this
-                    .runDisabled
-                    ? 'opacity-60 cursor-not-allowed hover:bg-transparent'
-                    : ''}"
-                  title="${runTooltip}"
-                  ?disabled=${this.runDisabled}
-                  @click="${(event: Event) => this.#runEntry(event)}"
-                >
-                  <icon-mdi-play
-                    class="${this.runDisabled
-                      ? ''
-                      : 'group-hover/button:text-chartsGreen'}"
-                  ></icon-mdi-play>
-                </button>
-                ${this.hasFailed && !this.runDisabled
-                  ? html`
-                      <button
-                        class="p-1 rounded hover:bg-toolbarHoverBackground my-1 group/button"
-                        title="Preserve current run and rerun for comparison"
-                        @click="${(event: Event) =>
-                          this.#preserveAndRerun(event)}"
-                      >
-                        <icon-mdi-bug-play
-                          class="group-hover/button:text-chartsBlue"
-                        ></icon-mdi-bug-play>
-                      </button>
-                    `
-                  : nothing}
-              `
-            : !this.runDisabled
-              ? html`
-                  <button
-                    class="p-1 rounded hover:bg-toolbarHoverBackground my-1 group/button"
-                    title="Stop run"
-                    @click="${(event: Event) => this.#stopEntry(event)}"
-                  >
-                    <icon-mdi-stop
-                      class="group-hover/button:text-chartsRed"
-                    ></icon-mdi-stop>
-                  </button>
-                `
-              : nothing}
-          <button
-            class="p-1 rounded hover:bg-toolbarHoverBackground my-1 group"
-            @click="${() => this.#viewSource()}"
-          >
-            <icon-mdi-eye class="group-hover:text-chartsYellow"></icon-mdi-eye>
-          </button>
-          ${!hasNoChildren
-            ? html`
-                <button
-                  class="p-1 rounded hover:bg-toolbarHoverBackground my-1 group"
-                  @click="${() => this.#toggleEntry()}"
-                >
-                  ${this.renderCollapseOrExpandIcon(
-                    'group-hover:text-chartsBlue'
-                  )}
-                </button>
-              `
-            : nothing}
-        </nav>
+        ${this.#renderToolbar(hasNoChildren)}
       </section>
       <section class="block ml-4 ${!isCollapsed ? '' : 'hidden'}">
         <slot name="children"></slot>

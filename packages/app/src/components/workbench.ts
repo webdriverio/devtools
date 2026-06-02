@@ -120,81 +120,93 @@ export class DevtoolsWorkbench extends Element {
   @query('section[data-horizontal-resizer-window]')
   horizontalResizerWindow?: HTMLElement
 
-  render() {
-    // When collapsed keep previous full behavior; when expanded no fixed height class
-    const heightWorkbench = this.#toolbarCollapsed ? 'h-full flex-1' : ''
+  #computeWorkbenchPaneStyle(): string {
+    if (this.#toolbarCollapsed) {
+      return ''
+    }
+    const m = this.#dragVertical.getPosition().match(/(\d+(?:\.\d+)?)px/)
+    const raw = m ? parseFloat(m[1]) : window.innerHeight * 0.7
+    const capped = Math.min(raw, window.innerHeight * 0.7)
+    const paneHeight = Math.max(MIN_WORKBENCH_HEIGHT, capped)
+    return `flex:0 0 ${paneHeight}px; height:${paneHeight}px; max-height:70vh; min-height:0;`
+  }
 
-    const styleWorkbench = this.#toolbarCollapsed
-      ? ''
-      : (() => {
-          const m = this.#dragVertical.getPosition().match(/(\d+(?:\.\d+)?)px/)
-          const raw = m ? parseFloat(m[1]) : window.innerHeight * 0.7
-          const capped = Math.min(raw, window.innerHeight * 0.7)
-          const paneHeight = Math.max(MIN_WORKBENCH_HEIGHT, capped)
-          return `flex:0 0 ${paneHeight}px; height:${paneHeight}px; max-height:70vh; min-height:0;`
-        })()
+  #computeSidebarStyle(): string {
+    if (this.#workbenchSidebarCollapsed) {
+      return 'width:0; flex:0 0 0; overflow:hidden;'
+    }
+    const pos = this.#dragHorizontal.getPosition()
+    const m = pos.match(/flex-basis:\s*([\d.]+)px/)
+    const w = m ? m[1] : MIN_METATAB_WIDTH
+    return `${pos}; flex:0 0 auto; min-width:${w}px; max-width:${w}px;`
+  }
 
-    const sidebarStyle = this.#workbenchSidebarCollapsed
-      ? 'width:0; flex:0 0 0; overflow:hidden;'
-      : (() => {
-          const pos = this.#dragHorizontal.getPosition()
-          const m = pos.match(/flex-basis:\s*([\d.]+)px/)
-          const w = m ? m[1] : MIN_METATAB_WIDTH
-          return `${pos}; flex:0 0 auto; min-width:${w}px; max-width:${w}px;`
-        })()
-
+  #renderActionsSidebar() {
     return html`
-      <section
-        data-horizontal-resizer-window
-        class="flex relative w-full ${heightWorkbench} min-h-0 overflow-hidden"
-        style="${styleWorkbench}"
+      <wdio-devtools-tabs
+        cacheId="activeActionsTab"
+        class="h-full flex flex-col border-r-[1px] border-r-panelBorder ${this
+          .#workbenchSidebarCollapsed
+          ? 'hidden'
+          : ''}"
       >
-        <section data-sidebar class="flex-none" style="${sidebarStyle}">
-          <wdio-devtools-tabs
-            cacheId="activeActionsTab"
-            class="h-full flex flex-col border-r-[1px] border-r-panelBorder ${this
-              .#workbenchSidebarCollapsed
-              ? 'hidden'
-              : ''}"
+        <wdio-devtools-tab label="Actions">
+          <wdio-devtools-actions></wdio-devtools-actions>
+        </wdio-devtools-tab>
+        <wdio-devtools-tab label="Metadata">
+          <wdio-devtools-metadata></wdio-devtools-metadata>
+        </wdio-devtools-tab>
+        <nav class="ml-auto" slot="actions">
+          <button
+            @click="${() => this.#toggle('workbenchSidebar')}"
+            class="flex h-10 w-10 items-center justify-center pointer ml-auto hover:bg-toolbarHoverBackground"
           >
-            <wdio-devtools-tab label="Actions">
-              <wdio-devtools-actions></wdio-devtools-actions>
-            </wdio-devtools-tab>
-            <wdio-devtools-tab label="Metadata">
-              <wdio-devtools-metadata></wdio-devtools-metadata>
-            </wdio-devtools-tab>
-            <nav class="ml-auto" slot="actions">
-              <button
-                @click="${() => this.#toggle('workbenchSidebar')}"
-                class="flex h-10 w-10 items-center justify-center pointer ml-auto hover:bg-toolbarHoverBackground"
-              >
-                <icon-mdi-arrow-collapse-left></icon-mdi-arrow-collapse-left>
-              </button>
-            </nav>
-          </wdio-devtools-tabs>
-          ${this.#workbenchSidebarCollapsed
-            ? html`
-                <button
-                  @click="${() => this.#toggle('workbenchSidebar')}"
-                  class="absolute top-2 left-2 bg-sideBarBackground flex h-10 w-10 items-center justify-center cursor-pointer rounded-md shadow hover:bg-toolbarHoverBackground border border-panelBorder"
-                >
-                  <icon-mdi-arrow-collapse-right></icon-mdi-arrow-collapse-right>
-                </button>
-              `
-            : nothing}
-        </section>
-        ${!this.#workbenchSidebarCollapsed
-          ? this.#dragHorizontal.getSlider('z-30')
-          : nothing}
-        <section
-          class="basis-auto text-gray-500 flex items-center justify-center flex-grow"
-        >
-          <wdio-devtools-browser></wdio-devtools-browser>
-        </section>
-      </section>
-      ${!this.#toolbarCollapsed
-        ? this.#dragVertical.getSlider('z-[999] -mt-[5px] pointer-events-auto')
+            <icon-mdi-arrow-collapse-left></icon-mdi-arrow-collapse-left>
+          </button>
+        </nav>
+      </wdio-devtools-tabs>
+      ${this.#workbenchSidebarCollapsed
+        ? html`
+            <button
+              @click="${() => this.#toggle('workbenchSidebar')}"
+              class="absolute top-2 left-2 bg-sideBarBackground flex h-10 w-10 items-center justify-center cursor-pointer rounded-md shadow hover:bg-toolbarHoverBackground border border-panelBorder"
+            >
+              <icon-mdi-arrow-collapse-right></icon-mdi-arrow-collapse-right>
+            </button>
+          `
         : nothing}
+    `
+  }
+
+  #renderCompareTabIfAvailable() {
+    if ((this.baselines?.size || 0) === 0) {
+      return nothing
+    }
+    return html`
+      <wdio-devtools-tab label="Compare" .badge="${this.baselines?.size || 0}">
+        <wdio-devtools-compare></wdio-devtools-compare>
+      </wdio-devtools-tab>
+    `
+  }
+
+  #renderToolbarCollapseButton() {
+    if (!this.#toolbarCollapsed) {
+      return nothing
+    }
+    return html`
+      <button
+        @click="${() => this.#toggle('toolbar')}"
+        class="fixed z-[9999] right-2 bottom-2 bg-sideBarBackground flex h-10 w-10 items-center justify-center cursor-pointer rounded-md shadow hover:bg-toolbarHoverBackground border border-panelBorder group"
+      >
+        <icon-mdi-arrow-collapse-up
+          class="group-hover:text-chartsBlue"
+        ></icon-mdi-arrow-collapse-up>
+      </button>
+    `
+  }
+
+  #renderWorkbenchTabs() {
+    return html`
       <wdio-devtools-tabs
         cacheId="activeWorkbenchTab"
         class="relative z-10 border-t-[1px] border-t-panelBorder ${this
@@ -222,16 +234,7 @@ export class DevtoolsWorkbench extends Element {
         >
           <wdio-devtools-network></wdio-devtools-network>
         </wdio-devtools-tab>
-        ${(this.baselines?.size || 0) > 0
-          ? html`
-              <wdio-devtools-tab
-                label="Compare"
-                .badge="${this.baselines?.size || 0}"
-              >
-                <wdio-devtools-compare></wdio-devtools-compare>
-              </wdio-devtools-tab>
-            `
-          : nothing}
+        ${this.#renderCompareTabIfAvailable()}
         <nav class="ml-auto" slot="actions">
           <button
             @click="${() => this.#toggle('toolbar')}"
@@ -243,19 +246,38 @@ export class DevtoolsWorkbench extends Element {
           </button>
         </nav>
       </wdio-devtools-tabs>
-      ${this.#toolbarCollapsed
-        ? html`
-            <button
-              @click="${() => this.#toggle('toolbar')}"
-              class="fixed z-[9999] right-2 bottom-2 bg-sideBarBackground flex h-10 w-10 items-center justify-center cursor-pointer rounded-md shadow
-                   hover:bg-toolbarHoverBackground border border-panelBorder group"
-            >
-              <icon-mdi-arrow-collapse-up
-                class="group-hover:text-chartsBlue"
-              ></icon-mdi-arrow-collapse-up>
-            </button>
-          `
+      ${this.#renderToolbarCollapseButton()}
+    `
+  }
+
+  render() {
+    const heightWorkbench = this.#toolbarCollapsed ? 'h-full flex-1' : ''
+    return html`
+      <section
+        data-horizontal-resizer-window
+        class="flex relative w-full ${heightWorkbench} min-h-0 overflow-hidden"
+        style="${this.#computeWorkbenchPaneStyle()}"
+      >
+        <section
+          data-sidebar
+          class="flex-none"
+          style="${this.#computeSidebarStyle()}"
+        >
+          ${this.#renderActionsSidebar()}
+        </section>
+        ${!this.#workbenchSidebarCollapsed
+          ? this.#dragHorizontal.getSlider('z-30')
+          : nothing}
+        <section
+          class="basis-auto text-gray-500 flex items-center justify-center flex-grow"
+        >
+          <wdio-devtools-browser></wdio-devtools-browser>
+        </section>
+      </section>
+      ${!this.#toolbarCollapsed
+        ? this.#dragVertical.getSlider('z-[999] -mt-[5px] pointer-events-auto')
         : nothing}
+      ${this.#renderWorkbenchTabs()}
     `
   }
 }
