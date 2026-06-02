@@ -19,32 +19,7 @@ export { getCallSourceFromStack } from '@wdio/devtools-core'
 // Source-scan for `it/test/specify('title', ...)` (or `describe/context/suite`
 // when kind='suite'). Stack-walking from inside the runner's beforeEach
 // hooks doesn't reach the user's test body.
-import * as fs from 'node:fs'
-
-export function findTestLineInFile(
-  filePath: string,
-  title: string,
-  kind: 'test' | 'suite' = 'test'
-): number | null {
-  try {
-    if (!fs.existsSync(filePath)) {
-      return null
-    }
-    const lines = fs.readFileSync(filePath, 'utf-8').split('\n')
-    const escaped = title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    const keywords =
-      kind === 'suite' ? 'describe|context|suite' : 'it|test|specify'
-    const re = new RegExp(`\\b(?:${keywords})\\s*\\(\\s*['"\`]${escaped}['"\`]`)
-    for (let i = 0; i < lines.length; i++) {
-      if (re.test(lines[i])) {
-        return i + 1
-      }
-    }
-  } catch {
-    /* ignore — fall back to file:0 */
-  }
-  return null
-}
+export { findTestLineInFile } from '@wdio/devtools-core'
 
 export { isPortInUse, findFreePort } from '@wdio/devtools-core'
 
