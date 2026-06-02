@@ -161,84 +161,97 @@ function collectStepDefsFromText(file: string): StepDef[] {
   return out
 }
 
+type StepArg =
+  | { type: 'RegExpLiteral'; pattern: string; flags?: string }
+  | { type: 'StringLiteral'; value: string }
+  | { type: string }
+
+function calleeName(callee: CallExpression['callee']): string | undefined {
+  if (callee.type === 'Identifier') {
+    return (callee as Identifier).name
+  }
+  if (callee.type === 'MemberExpression') {
+    const prop = (callee as MemberExpression).property
+    if (prop.type === 'Identifier') {
+      return (prop as Identifier).name
+    }
+  }
+  return undefined
+}
+
+function pushStepDefFromArg(
+  name: string,
+  arg: StepArg | undefined,
+  loc: { file: string; line: number; column: number },
+  defs: StepDef[]
+): boolean {
+  if (arg?.type === 'RegExpLiteral') {
+    const re = arg as { pattern: string; flags?: string }
+    defs.push({
+      kind: 'regex',
+      regex: new RegExp(re.pattern, re.flags ?? ''),
+      ...loc
+    })
+    return true
+  }
+  if (arg?.type === 'StringLiteral') {
+    const sl = arg as { value: string }
+    if (CE && sl.value.includes('{')) {
+      const expr = new CE!.CucumberExpression(
+        sl.value,
+        new CE!.ParameterTypeRegistry()
+      )
+      defs.push({ kind: 'expression', expr, ...loc })
+    } else {
+      defs.push({ kind: 'string', keyword: name, text: sl.value, ...loc })
+    }
+    return true
+  }
+  return false
+}
+
+function collectStepDefsFromFile(file: string, defs: StepDef[]): number {
+  let pushed = 0
+  try {
+    const src = fs.readFileSync(file, 'utf-8')
+    const ast = parse(src, {
+      sourceType: 'module',
+      plugins: [...PARSE_PLUGINS],
+      errorRecovery: true
+    })
+    traverse(ast, {
+      CallExpression(p: NodePath<CallExpression>) {
+        const name = calleeName(p.node.callee)
+        if (!name || !(STEP_FN_NAMES as readonly string[]).includes(name)) {
+          return
+        }
+        const arg = p.node.arguments?.[0] as StepArg | undefined
+        const loc = {
+          file,
+          line: p.node.loc?.start.line ?? 1,
+          column: p.node.loc?.start.column ?? 0
+        }
+        if (pushStepDefFromArg(name, arg, loc, defs)) {
+          pushed++
+        }
+      }
+    })
+  } catch {
+    /* AST errors fall through to text scan */
+  }
+  return pushed
+}
+
 const stepsCache = new Map<string, StepDef[]>()
 function collectStepDefs(stepsDir: string): StepDef[] {
   const cached = stepsCache.get(stepsDir)
   if (cached) {
     return cached
   }
-
   const files = listFiles(stepsDir)
   const defs: StepDef[] = []
-
   for (const file of files) {
-    let pushed = 0
-    try {
-      const src = fs.readFileSync(file, 'utf-8')
-      const ast = parse(src, {
-        sourceType: 'module',
-        plugins: [...PARSE_PLUGINS],
-        errorRecovery: true
-      })
-
-      traverse(ast, {
-        CallExpression(p: NodePath<CallExpression>) {
-          const callee = p.node.callee
-          let name: string | undefined
-          if (callee.type === 'Identifier') {
-            name = (callee as Identifier).name
-          } else if (callee.type === 'MemberExpression') {
-            const prop = (callee as MemberExpression).property
-            if (prop.type === 'Identifier') {
-              name = (prop as Identifier).name
-            }
-          }
-          if (!name || !(STEP_FN_NAMES as readonly string[]).includes(name)) {
-            return
-          }
-
-          type StepArg =
-            | { type: 'RegExpLiteral'; pattern: string; flags?: string }
-            | { type: 'StringLiteral'; value: string }
-            | { type: string }
-          const arg = p.node.arguments?.[0] as StepArg | undefined
-          const loc = {
-            file,
-            line: p.node.loc?.start.line ?? 1,
-            column: p.node.loc?.start.column ?? 0
-          }
-
-          if (arg?.type === 'RegExpLiteral') {
-            const re = arg as { pattern: string; flags?: string }
-            defs.push({
-              kind: 'regex',
-              regex: new RegExp(re.pattern, re.flags ?? ''),
-              ...loc
-            })
-            pushed++
-          } else if (arg?.type === 'StringLiteral') {
-            const sl = arg as { value: string }
-            if (CE && sl.value.includes('{')) {
-              const expr = new CE!.CucumberExpression(
-                sl.value,
-                new CE!.ParameterTypeRegistry()
-              )
-              defs.push({ kind: 'expression', expr, ...loc })
-            } else {
-              defs.push({
-                kind: 'string',
-                keyword: name,
-                text: sl.value,
-                ...loc
-              })
-            }
-            pushed++
-          }
-        }
-      })
-    } catch {
-      /* AST errors fall through to text scan */
-    }
+    const pushed = collectStepDefsFromFile(file, defs)
     if (pushed === 0) {
       const fromText = collectStepDefsFromText(file)
       if (fromText.length) {
@@ -246,7 +259,6 @@ function collectStepDefs(stepsDir: string): StepDef[] {
       }
     }
   }
-
   stepsCache.set(stepsDir, defs)
   return defs
 }
@@ -275,11 +287,20 @@ export function findStepDefinitionLocation(
   }
 
   const defs = collectStepDefs(stepsDir)
-
   const title = String(stepTitle ?? '').trim()
   const titleNoKw = title.replace(/^(Given|When|Then|And|But)\s+/i, '').trim()
+  const match = matchStepDef(defs, title, titleNoKw)
+  if (match) {
+    return { file: match.file, line: match.line, column: match.column }
+  }
+  return
+}
 
-  // String match
+function matchStepDef(
+  defs: StepDef[],
+  title: string,
+  titleNoKw: string
+): StepDef | undefined {
   const s = defs.find(
     (d) =>
       d.kind === 'string' &&
@@ -289,10 +310,8 @@ export function findStepDefinitionLocation(
         }) === 0)
   )
   if (s) {
-    return { file: s.file, line: s.line, column: s.column }
+    return s
   }
-
-  // Cucumber expression match
   const e = defs.find(
     (d) =>
       d.kind === 'expression' &&
@@ -305,17 +324,10 @@ export function findStepDefinitionLocation(
       })()
   )
   if (e) {
-    return { file: e.file, line: e.line, column: e.column }
+    return e
   }
-
-  // Regex match
-  const r = defs.find(
+  return defs.find(
     (d) =>
       d.kind === 'regex' && (d.regex!.test(titleNoKw) || d.regex!.test(title))
   )
-  if (r) {
-    return { file: r.file, line: r.line, column: r.column }
-  }
-
-  return
 }

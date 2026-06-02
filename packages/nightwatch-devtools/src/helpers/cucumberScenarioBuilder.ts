@@ -33,6 +33,47 @@ export interface CucumberScenarioBuildInput {
  * scenario+steps construction was ~70 lines of object-literal building that
  * doesn't touch plugin state.
  */
+function buildScenarioStepTest(
+  input: CucumberScenarioBuildInput,
+  scenarioUid: string,
+  i: number
+): SuiteStats['tests'][number] {
+  const {
+    featureUri,
+    scenarioName,
+    featureAbsPath,
+    stepDefFiles,
+    steps,
+    stepLines,
+    stepKeywords
+  } = input
+  const step = steps[i]
+  const keyword = stepKeywords[i] || ''
+  const stepLabel = keyword ? `${keyword} ${step.text}` : step.text
+  const stepDefLoc = findStepDefinitionLine(stepDefFiles, step.text)
+  const callSource = stepDefLoc
+    ? `${stepDefLoc.filePath}:${stepDefLoc.line}`
+    : featureAbsPath && stepLines[i] > 0
+      ? `${featureAbsPath}:${stepLines[i]}`
+      : undefined
+  return {
+    uid: deterministicUid(featureUri, `step:${scenarioName}:${step.text}`),
+    cid: DEFAULTS.CID,
+    title: stepLabel,
+    fullTitle: `${scenarioName} ${stepLabel}`,
+    parent: scenarioUid,
+    state: TEST_STATE.PENDING,
+    start: new Date(),
+    end: null,
+    type: 'test' as const,
+    file: featureUri,
+    retries: 0,
+    _duration: 0,
+    hooks: [],
+    callSource
+  }
+}
+
 export function buildCucumberScenarioSuite(
   input: CucumberScenarioBuildInput
 ): SuiteStats {
@@ -41,18 +82,13 @@ export function buildCucumberScenarioSuite(
     scenarioName,
     featureName,
     featureAbsPath,
-    stepDefFiles,
     steps,
-    stepLines,
-    stepKeywords,
     scenarioLine,
     parentFeatureSuiteUid
   } = input
-
   // deterministicUid (no counter) so the SAME scenario gets the SAME uid
   // across retries — that's what makes retry-coalescing work upstream.
   const scenarioUid = deterministicUid(featureUri, `scenario:${scenarioName}`)
-
   const scenarioSuite: SuiteStats = {
     uid: scenarioUid,
     cid: DEFAULTS.CID,
@@ -73,39 +109,8 @@ export function buildCucumberScenarioSuite(
         ? `${featureAbsPath}:${scenarioLine}`
         : undefined
   }
-
   for (let i = 0; i < steps.length; i++) {
-    const step = steps[i]
-    const keyword = stepKeywords[i] || ''
-    const stepLabel = keyword ? `${keyword} ${step.text}` : step.text
-    const stepUid = deterministicUid(
-      featureUri,
-      `step:${scenarioName}:${step.text}`
-    )
-    const stepDefLoc = findStepDefinitionLine(stepDefFiles, step.text)
-    const callSource = stepDefLoc
-      ? `${stepDefLoc.filePath}:${stepDefLoc.line}`
-      : featureAbsPath && stepLines[i] > 0
-        ? `${featureAbsPath}:${stepLines[i]}`
-        : undefined
-
-    scenarioSuite.tests.push({
-      uid: stepUid,
-      cid: DEFAULTS.CID,
-      title: stepLabel,
-      fullTitle: `${scenarioName} ${stepLabel}`,
-      parent: scenarioUid,
-      state: TEST_STATE.PENDING,
-      start: new Date(),
-      end: null,
-      type: 'test' as const,
-      file: featureUri,
-      retries: 0,
-      _duration: 0,
-      hooks: [],
-      callSource
-    })
+    scenarioSuite.tests.push(buildScenarioStepTest(input, scenarioUid, i))
   }
-
   return scenarioSuite
 }

@@ -36,90 +36,68 @@ class TestRunner {
     }
   }
 
-  async run(payload: RunnerRequestBody) {
-    if (this.#child) {
-      this.stop()
-      await new Promise<void>((resolve) => setTimeout(resolve, 500))
-    }
-    // devtoolsHost/Port in the payload = REUSE handshake (rerun child).
-    this.#expectingRerunChild = Boolean(
-      payload.devtoolsHost && payload.devtoolsPort
-    )
-
-    const isNightwatch = (payload.framework || '')
-      .toLowerCase()
-      .startsWith('nightwatch')
-    // Used when a plugin supplies its own rerun template (e.g. selenium —
-    // runs under mocha/jest/vitest/cucumber, none of which use wdioBin).
-    const isGenericShell =
-      !isNightwatch && Boolean(payload.rerunCommand || payload.launchCommand)
-
-    const childEnv = { ...process.env }
+  #buildReuseEnv(payload: RunnerRequestBody): NodeJS.ProcessEnv {
+    const childEnv: NodeJS.ProcessEnv = { ...process.env }
     if (payload.devtoolsHost && payload.devtoolsPort) {
       childEnv[REUSE_ENV.HOST] = payload.devtoolsHost
       childEnv[REUSE_ENV.PORT] = String(payload.devtoolsPort)
       childEnv[REUSE_ENV.REUSE] = '1'
     }
+    return childEnv
+  }
 
-    let child: ChildProcess
-    if (isGenericShell) {
-      const command = this.#resolveGenericCommand(payload)
-      this.#baseDir = process.env[RUNNER_ENV.RUNNER_CWD] || process.cwd()
-      const { file, args } = this.#parseGenericCommand(command)
-      child = spawn(file, args, {
-        cwd: this.#baseDir,
-        env: childEnv,
-        stdio: 'inherit',
-        detached: false
-      })
-    } else {
-      const configPath = this.#resolveConfigPath(payload)
-      this.#baseDir =
-        process.env[RUNNER_ENV.RUNNER_CWD] || path.dirname(configPath)
-      let args: string[]
-      if (isNightwatch) {
-        const nightwatchBin = resolveNightwatchBin(this.#baseDir)
-        args = [
-          nightwatchBin,
+  #spawnGeneric(
+    payload: RunnerRequestBody,
+    childEnv: NodeJS.ProcessEnv
+  ): ChildProcess {
+    const command = this.#resolveGenericCommand(payload)
+    this.#baseDir = process.env[RUNNER_ENV.RUNNER_CWD] || process.cwd()
+    const { file, args } = this.#parseGenericCommand(command)
+    return spawn(file, args, {
+      cwd: this.#baseDir,
+      env: childEnv,
+      stdio: 'inherit',
+      detached: false
+    })
+  }
+
+  #spawnFramework(
+    payload: RunnerRequestBody,
+    childEnv: NodeJS.ProcessEnv,
+    isNightwatch: boolean
+  ): ChildProcess {
+    const configPath = this.#resolveConfigPath(payload)
+    this.#baseDir =
+      process.env[RUNNER_ENV.RUNNER_CWD] || path.dirname(configPath)
+    const args: string[] = isNightwatch
+      ? [
+          resolveNightwatchBin(this.#baseDir),
           '--config',
           configPath,
           ...this.#buildFilters(payload)
         ].filter(Boolean)
+      : [wdioBin, 'run', configPath, ...this.#buildFilters(payload)].filter(
+          Boolean
+        )
+    if (isNightwatch) {
+      if (payload.entryType === 'test' && payload.label) {
+        childEnv[REUSE_ENV.RERUN_ENTRY_TYPE] = 'test'
+        childEnv[REUSE_ENV.RERUN_LABEL] = payload.label
       } else {
-        args = [
-          wdioBin,
-          'run',
-          configPath,
-          ...this.#buildFilters(payload)
-        ].filter(Boolean)
+        delete childEnv[REUSE_ENV.RERUN_ENTRY_TYPE]
+        delete childEnv[REUSE_ENV.RERUN_LABEL]
       }
-      if (isNightwatch) {
-        if (payload.entryType === 'test' && payload.label) {
-          childEnv[REUSE_ENV.RERUN_ENTRY_TYPE] = 'test'
-          childEnv[REUSE_ENV.RERUN_LABEL] = payload.label
-        } else {
-          delete childEnv[REUSE_ENV.RERUN_ENTRY_TYPE]
-          delete childEnv[REUSE_ENV.RERUN_LABEL]
-        }
-      }
-      child = spawn(process.execPath, args, {
-        cwd: this.#baseDir,
-        env: childEnv,
-        stdio: 'inherit',
-        detached: false
-      })
     }
-
-    this.#child = child
-    this.#lastPayload = payload
-
-    child.once('close', () => {
-      this.#child = undefined
-      this.#lastPayload = undefined
-      this.#baseDir = process.cwd()
+    return spawn(process.execPath, args, {
+      cwd: this.#baseDir,
+      env: childEnv,
+      stdio: 'inherit',
+      detached: false
     })
+  }
 
-    await new Promise<void>((resolve, reject) => {
+  #waitForSpawn(child: ChildProcess): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
       child.once('spawn', resolve)
       child.once('error', (error) => {
         this.#child = undefined
@@ -129,6 +107,38 @@ class TestRunner {
         reject(error)
       })
     })
+  }
+
+  async run(payload: RunnerRequestBody) {
+    if (this.#child) {
+      this.stop()
+      await new Promise<void>((resolve) => setTimeout(resolve, 500))
+    }
+    // devtoolsHost/Port in the payload = REUSE handshake (rerun child).
+    this.#expectingRerunChild = Boolean(
+      payload.devtoolsHost && payload.devtoolsPort
+    )
+    const isNightwatch = (payload.framework || '')
+      .toLowerCase()
+      .startsWith('nightwatch')
+    // Plugins that supply their own rerun template (e.g. selenium — runs
+    // under mocha/jest/vitest/cucumber, none of which use wdioBin).
+    const isGenericShell =
+      !isNightwatch && Boolean(payload.rerunCommand || payload.launchCommand)
+
+    const childEnv = this.#buildReuseEnv(payload)
+    const child = isGenericShell
+      ? this.#spawnGeneric(payload, childEnv)
+      : this.#spawnFramework(payload, childEnv, isNightwatch)
+
+    this.#child = child
+    this.#lastPayload = payload
+    child.once('close', () => {
+      this.#child = undefined
+      this.#lastPayload = undefined
+      this.#baseDir = process.cwd()
+    })
+    await this.#waitForSpawn(child)
   }
 
   // Targeted reruns substitute {{testName}} into rerunCommand; suite filtering

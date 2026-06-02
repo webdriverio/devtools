@@ -70,6 +70,56 @@ function generateStableUid(item: SuiteStats | TestStats): string {
  * Parse a Cucumber feature file to extract line numbers for scenario outline examples
  * Returns a map of example index -> line number
  */
+function findScenarioLineIndex(lines: string[], scenarioTitle: string): number {
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim()
+    if (
+      (line.startsWith('Scenario Outline:') || line.startsWith('Scenario:')) &&
+      line.includes(scenarioTitle)
+    ) {
+      return i
+    }
+  }
+  return -1
+}
+
+function findExamplesSectionStart(lines: string[], fromIndex: number): number {
+  for (let i = fromIndex; i < lines.length; i++) {
+    if (lines[i].trim().startsWith('Examples:')) {
+      return i
+    }
+  }
+  return -1
+}
+
+function collectExampleDataRowLines(
+  lines: string[],
+  examplesStartIndex: number
+): Map<number, number> {
+  const exampleLines = new Map<number, number>()
+  let exampleIndex = 0
+  let foundHeader = false
+  for (let i = examplesStartIndex + 1; i < lines.length; i++) {
+    const line = lines[i].trim()
+    if (
+      line.startsWith('Scenario') ||
+      line.startsWith('Feature:') ||
+      (!line && exampleIndex > 0)
+    ) {
+      break
+    }
+    if (line.startsWith('|')) {
+      if (!foundHeader) {
+        foundHeader = true
+      } else {
+        exampleLines.set(exampleIndex, i + 1)
+        exampleIndex++
+      }
+    }
+  }
+  return exampleLines
+}
+
 function parseFeatureFileForExampleLines(
   filePath: string,
   scenarioTitle: string
@@ -78,70 +128,19 @@ function parseFeatureFileForExampleLines(
     if (!existsSync(filePath)) {
       return null
     }
-
-    const content = readFileSync(filePath, 'utf-8')
-    const lines = content.split('\n')
-
-    // Find the scenario outline with matching title
-    let scenarioLineIndex = -1
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i].trim()
-      if (
-        (line.startsWith('Scenario Outline:') ||
-          line.startsWith('Scenario:')) &&
-        line.includes(scenarioTitle)
-      ) {
-        scenarioLineIndex = i
-        break
-      }
-    }
-
+    const lines = readFileSync(filePath, 'utf-8').split('\n')
+    const scenarioLineIndex = findScenarioLineIndex(lines, scenarioTitle)
     if (scenarioLineIndex === -1) {
       return null
     }
-
-    // Find the Examples section
-    let examplesStartIndex = -1
-    for (let i = scenarioLineIndex; i < lines.length; i++) {
-      if (lines[i].trim().startsWith('Examples:')) {
-        examplesStartIndex = i
-        break
-      }
-    }
-
+    const examplesStartIndex = findExamplesSectionStart(
+      lines,
+      scenarioLineIndex
+    )
     if (examplesStartIndex === -1) {
       return null
     }
-
-    // Find the data rows (skip header row with |)
-    const exampleLines = new Map<number, number>()
-    let exampleIndex = 0
-    let foundHeader = false
-
-    for (let i = examplesStartIndex + 1; i < lines.length; i++) {
-      const line = lines[i].trim()
-
-      // Stop at next scenario or feature end
-      if (
-        line.startsWith('Scenario') ||
-        line.startsWith('Feature:') ||
-        (!line && exampleIndex > 0)
-      ) {
-        break
-      }
-
-      // Data rows start with |
-      if (line.startsWith('|')) {
-        if (!foundHeader) {
-          foundHeader = true // Skip header row
-        } else {
-          // Store line number (1-indexed)
-          exampleLines.set(exampleIndex, i + 1)
-          exampleIndex++
-        }
-      }
-    }
-
+    const exampleLines = collectExampleDataRowLines(lines, examplesStartIndex)
     return exampleLines.size > 0 ? exampleLines : null
   } catch (error) {
     console.error('[Reporter] Failed to parse feature file:', error)

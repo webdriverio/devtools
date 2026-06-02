@@ -63,13 +63,36 @@ function rootCalleeName(callee: CalleeNode | undefined): string | undefined {
   return
 }
 
+function staticTitle(node: TitleNode | undefined): string | undefined {
+  if (!node) {
+    return
+  }
+  if (node.type === 'StringLiteral') {
+    return (node as { value: string }).value
+  }
+  if (node.type === 'TemplateLiteral') {
+    const tl = node as {
+      expressions: unknown[]
+      quasis: Array<{ value: { cooked?: string } }>
+    }
+    if (tl.expressions.length === 0) {
+      return tl.quasis.map((q) => q.value.cooked ?? '').join('')
+    }
+  }
+  return
+}
+
+const isSuiteFn = (n?: string): boolean =>
+  (!!n && (SUITE_FN_NAMES as readonly string[]).includes(n)) || n === 'Feature'
+const isTestFn = (n?: string): boolean =>
+  !!n && (TEST_FN_NAMES as readonly string[]).includes(n)
+
 /** Parse a JS/TS test/spec file and collect suite/test calls (Mocha/Jasmine)
  *  with full title paths. */
 export function findTestLocations(filePath: string): Loc[] {
   if (!fs.existsSync(filePath)) {
     return []
   }
-
   const src = fs.readFileSync(filePath, 'utf-8')
   const ast = parse(src, {
     sourceType: 'module',
@@ -80,75 +103,44 @@ export function findTestLocations(filePath: string): Loc[] {
 
   const out: Loc[] = []
   const suiteStack: string[] = []
-
-  const isSuite = (n?: string) =>
-    (!!n && (SUITE_FN_NAMES as readonly string[]).includes(n)) ||
-    n === 'Feature'
-  const isTest = (n?: string) =>
-    !!n && (TEST_FN_NAMES as readonly string[]).includes(n)
-
-  const staticTitle = (node: TitleNode | undefined): string | undefined => {
-    if (!node) {
-      return
-    }
-    if (node.type === 'StringLiteral') {
-      return (node as { value: string }).value
-    }
-    if (node.type === 'TemplateLiteral') {
-      const tl = node as {
-        expressions: unknown[]
-        quasis: Array<{ value: { cooked?: string } }>
-      }
-      if (tl.expressions.length === 0) {
-        return tl.quasis.map((q) => q.value.cooked ?? '').join('')
-      }
-    }
-    return
-  }
-
   traverse(ast, {
     enter(p) {
       if (!p.isCallExpression()) {
         return
       }
-      const callee = p.node.callee as CalleeNode
-      const root = rootCalleeName(callee)
+      const root = rootCalleeName(p.node.callee as CalleeNode)
       if (!root) {
         return
       }
-
-      if (isSuite(root)) {
-        const ttl = staticTitle(p.node.arguments?.[0] as TitleNode | undefined)
-        if (ttl) {
-          out.push({
-            type: 'suite',
-            name: ttl,
-            titlePath: [...suiteStack, ttl],
-            line: p.node.loc?.start.line,
-            column: p.node.loc?.start.column
-          })
-          suiteStack.push(ttl)
-        }
-      } else if (isTest(root)) {
-        const ttl = staticTitle(p.node.arguments?.[0] as TitleNode | undefined)
-        if (ttl) {
-          out.push({
-            type: 'test',
-            name: ttl,
-            titlePath: [...suiteStack, ttl],
-            line: p.node.loc?.start.line,
-            column: p.node.loc?.start.column
-          })
-        }
+      const ttl = staticTitle(p.node.arguments?.[0] as TitleNode | undefined)
+      if (!ttl) {
+        return
+      }
+      if (isSuiteFn(root)) {
+        out.push({
+          type: 'suite',
+          name: ttl,
+          titlePath: [...suiteStack, ttl],
+          line: p.node.loc?.start.line,
+          column: p.node.loc?.start.column
+        })
+        suiteStack.push(ttl)
+      } else if (isTestFn(root)) {
+        out.push({
+          type: 'test',
+          name: ttl,
+          titlePath: [...suiteStack, ttl],
+          line: p.node.loc?.start.line,
+          column: p.node.loc?.start.column
+        })
       }
     },
     exit(p) {
       if (!p.isCallExpression()) {
         return
       }
-      const callee = p.node.callee as CalleeNode
-      const root = rootCalleeName(callee)
-      if (!root || !isSuite(root)) {
+      const root = rootCalleeName(p.node.callee as CalleeNode)
+      if (!root || !isSuiteFn(root)) {
         return
       }
       const ttl = staticTitle(p.node.arguments?.[0] as TitleNode | undefined)
