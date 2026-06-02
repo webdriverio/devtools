@@ -266,16 +266,32 @@ These are documented violations of this file's rules. They exist today; they are
 
 ### Architecture debt
 
-- `packages/shared` contains `BASELINE_API`, `BASELINE_WS_SCOPE`, `TestRunnerId`, and the core test-event types (`CommandLog`, `ConsoleLog`, `NetworkRequest`, `Metadata`, `TraceLog`, `TraceType`, `PreservedAttempt`, `PreservedStep`, `TestStatus`, `TestError`, `TestStats`, `SuiteStats`, `ReporterError`, `PerformanceData`, `DocumentInfo`, `Viewport`, `ScreencastInfo`, `LogLevel`). `SuiteStats.featureFile` is the cucumber-only `.feature` path, distinct from `file` (which owns the suite's stable UID and stays at cwd). Adapter type files re-export shared types for backwards compatibility.
-- `packages/core` contains console-capture constants and helpers (`CONSOLE_METHODS`, `ANSI_REGEX`, `LOG_LEVEL_PATTERNS`, `LOG_SOURCES`, `ERROR_INDICATORS`, `stripAnsi`, `detectLogLevel`, `createConsoleLogEntry`, `isInternalStreamLine`, `SPINNER_RE`), stable-UID helpers (`generateStableUid`, `deterministicUid`, `resetSignatureCounters`), stack-frame helpers (`isUserCodeFrame`, `normalizeFilePath`, `getCallSourceFromStack`), `serializeError` (returns `SerializedError`), net helpers (`isPortInUse`, `findFreePort`, `getRequestType`), `chromeLogLevelToLogLevel`, the `SessionCapturerBase` abstract class, and the `TestReporterBase` abstract class. Adapter `SessionCapturer` and `TestReporter` subclasses contain only framework-specific logic.
-- Remaining adapter-side duplication: partially-shared `TIMING`/`DEFAULTS` constants (each adapter has framework-specific values, so partial sharing only saves a handful of lines). Service's WDIO-specific Cucumber UID branching stays in `service/reporter.ts` and delegates the actual hashing to core. The `sendUpstream` guard/try-catch is now in base; subclasses override `onUpstreamDrop` only when they want diagnostics on drop.
-- `TraceMutation` is defined in `packages/script/types.d.ts` as a global (browser-only, depends on DOM types). Adapters and backend currently sidestep this with loose `unknown[]` / `MutationLike` types. A clean home for browser/page-side types is open: extract from script into a small package consumable by both browser and Node consumers, or accept that mutation arrays cross the boundary as `unknown[]`.
+- `packages/shared` is the single source of truth for types, contracts, and cross-adapter constants. Now contains `BASELINE_API`, `BASELINE_WS_SCOPE`, `WS_PATHS`, `WS_SCOPE`, `TESTS_API`, `REUSE_ENV`, `RUNNER_ENV`, `TIMING_BASE`, `DEFAULTS_BASE`, `SCREENCAST_DEFAULTS`, `TestRunnerId`, and the test-event types (`CommandLog`, `ConsoleLog`, `NetworkRequest`, `Metadata`, `TraceLog`, `TraceMutation`, `TraceType`, `PreservedAttempt`, `PreservedStep`, `TestStatus`, `TestError`, `TestStats`, `SuiteStats`, `ReporterError`, `PerformanceData`, `DocumentInfo`, `Viewport`, `ScreencastInfo`, `ScreencastFrame`, `ScreencastOptions`, `LogLevel`, `LogSource`). `SuiteStats.featureFile` is the cucumber-only `.feature` path, distinct from `file` (which owns the suite's stable UID and stays at cwd). Adapter type files re-export shared types for backwards compatibility.
+- `packages/core` contains the framework-agnostic capture/reporting library: `SessionCapturerBase`, `TestReporterBase`, `ScreencastRecorderBase`, plus pure helpers (`assert-patcher`, `bidi`, `console`, `error`, `finalize-screencast`, `mapChromeBrowserLogs`, `net`, `performance-capture`, `retry-tracker`, `script-loader`, `serializeError`, `stack`, `suite-helpers`, `test-discovery`, `uid`, `video-encoder`). Adapter subclasses contain only framework-specific glue (driver patching, hook registration, BiDi-builder caps).
+- **`patchNodeAssert` is wired only in selenium-devtools.** The shared helper lives in core/assert-patcher; service and nightwatch can opt in via a one-line call from their plugin entries when they're ready. Not auto-enabled — many WDIO/Nightwatch users use chai/expect.
+- **BiDi capture is wired in service (native WDIO) and selenium (`selenium-webdriver/bidi`). Nightwatch is opt-in via `bidi: true`** — requires `webSocketUrl: true` capability. The `core/bidi.ts` helpers (`attachBidiHandlers`, `loadSeleniumSubmodule`, `arrayHeadersToObject`) are shared.
+- **Performance API capture is wired in all three adapters via `CAPTURE_PERFORMANCE_SCRIPT` in core.** The script is identical; each adapter wires it into its own afterCommand-equivalent path.
+- **`replaceCommand`** has two different semantics — selenium mutates in place (preserves `_id`/`id` continuity); nightwatch splices and reissues with a new `_id`. Both call the same `core/suite-helpers` factories, but the storage strategy stays adapter-specific because the runner integrations differ. Could be unified by parameterizing the policy if the divergence ever causes a real problem.
 
 ### File-size debt (god-files to split as touched)
 
-- `packages/app/src/controller/DataManager.ts` (~751 lines, was 986 — suite-merge logic extracted as pure functions; remainder is the per-scope socket-message handlers tightly coupled to ContextProvider state)
-- `packages/app/src/components/workbench/compare.ts` (~687 lines, was 888 — static styles extracted; remainder is Lit render methods tightly coupled to component state)
+- `packages/nightwatch-devtools/src/index.ts` (~892 lines, was 1091 — `cucumberResult` helpers extracted; remainder is the cucumber lifecycle + session-init + screencast wiring)
+- `packages/app/src/components/workbench/compare.ts` (~573 lines, was 888 — static styles extracted; remainder is Lit render methods tightly coupled to component state)
 - `packages/app/src/components/sidebar/explorer.ts` (~506 lines, was 670 — entry-state logic extracted, remainder is Lit render + runner-options getters coupled to component state)
+- `packages/app/src/controller/DataManager.ts` (~498 lines, was 986 — suite-merge logic + mark-running + run-detection extracted as pure functions; remainder is per-scope socket-message handlers tightly coupled to ContextProvider state)
+- `packages/nightwatch-devtools/src/session.ts` (~470 lines — captureNetworkFromPerformanceLogs + captureBrowserLogs + captureTrace tightly coupled to NightwatchBrowser state)
+
+### Test coverage gaps (worst-risk-first)
+
+Genuine coverage gaps surfaced by `pnpm test:coverage`. Numbers reflect the current state:
+
+- `backend/src/bin-resolver.ts` — **22%**. Resolves the WDIO/Nightwatch CLI for spawned reruns. Bugs here break dashboard-initiated reruns.
+- `backend/src/worker-message-handler.ts` — now fully covered (was 3.8%).
+- `script/src/collectors/networkRequests.ts` — **15%**. Browser-side; needs happy-dom or jsdom setup.
+- `service/src/reporter.ts` — **37%**. WDIO Cucumber + Mocha reporter; lots of edge cases.
+- Adapter `index.ts` plugin entries — **40–60%**. Lifecycle wiring; hard to unit-test, partially exercised by demos.
+
+Coverage threshold gate in `vitest.config.ts` enforces a floor — anything below the configured numbers fails CI. Adjust upward as gaps close; never adjust downward.
 
 ### Type-safety debt
 
