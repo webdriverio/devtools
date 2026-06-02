@@ -18,6 +18,48 @@ import {
  * Returns `[]` when the selected UID isn't found in any chunk (e.g. when the
  * user navigated to a stale UID that's no longer in the dashboard tree).
  */
+function findSuiteByUid(
+  s: SuiteStatsFragment | undefined,
+  uid: string
+): SuiteStatsFragment | undefined {
+  if (!s) {
+    return undefined
+  }
+  if (s.uid === uid) {
+    return s
+  }
+  for (const child of s.suites ?? []) {
+    const hit = findSuiteByUid(child, uid)
+    if (hit) {
+      return hit
+    }
+  }
+  return undefined
+}
+
+function flattenSuiteTests(s: SuiteStatsFragment, out: PreservedStep[]): void {
+  for (const t of s.tests ?? []) {
+    out.push({
+      uid: t.uid,
+      title: t.title,
+      fullTitle: t.fullTitle,
+      start: t.start ? new Date(t.start).getTime() : undefined,
+      end: t.end ? new Date(t.end).getTime() : undefined,
+      state: t.state === 'pending' || t.state === 'running' ? t.state : t.state,
+      error: t.error
+        ? {
+            message: t.error.message,
+            name: t.error.name,
+            stack: t.error.stack
+          }
+        : undefined
+    })
+  }
+  for (const child of s.suites ?? []) {
+    flattenSuiteTests(child, out)
+  }
+}
+
 export function liveStepsForUid(
   selectedTestUid: string | undefined,
   liveSuites: Array<Record<string, SuiteStatsFragment | undefined>> | undefined
@@ -26,26 +68,9 @@ export function liveStepsForUid(
     return []
   }
   let foundRoot: SuiteStatsFragment | undefined
-  const findRoot = (
-    s: SuiteStatsFragment | undefined
-  ): SuiteStatsFragment | undefined => {
-    if (!s) {
-      return undefined
-    }
-    if (s.uid === selectedTestUid) {
-      return s
-    }
-    for (const child of s.suites ?? []) {
-      const hit = findRoot(child)
-      if (hit) {
-        return hit
-      }
-    }
-    return undefined
-  }
   for (const chunk of liveSuites) {
     for (const root of Object.values(chunk)) {
-      foundRoot = findRoot(root)
+      foundRoot = findSuiteByUid(root, selectedTestUid)
       if (foundRoot) {
         break
       }
@@ -58,30 +83,7 @@ export function liveStepsForUid(
     return []
   }
   const out: PreservedStep[] = []
-  const visit = (s: SuiteStatsFragment) => {
-    for (const t of s.tests ?? []) {
-      out.push({
-        uid: t.uid,
-        title: t.title,
-        fullTitle: t.fullTitle,
-        start: t.start ? new Date(t.start).getTime() : undefined,
-        end: t.end ? new Date(t.end).getTime() : undefined,
-        state:
-          t.state === 'pending' || t.state === 'running' ? t.state : t.state,
-        error: t.error
-          ? {
-              message: t.error.message,
-              name: t.error.name,
-              stack: t.error.stack
-            }
-          : undefined
-      })
-    }
-    for (const child of s.suites ?? []) {
-      visit(child)
-    }
-  }
-  visit(foundRoot)
+  flattenSuiteTests(foundRoot, out)
   return out
 }
 

@@ -8,6 +8,43 @@ import {
 import { log } from './logger.js'
 import { collector } from './collector.js'
 
+function serializeMutation(
+  m: MutationRecord,
+  timestamp: number
+): TraceMutation {
+  const addedNodes = Array.from(m.addedNodes).map((node) => {
+    assignRef(node as Element)
+    return parseFragment(node as Element)
+  })
+  const removedNodes = Array.from(m.removedNodes).map((node) => getRef(node))
+  const target = getRef(m.target)
+  const previousSibling = m.previousSibling ? getRef(m.previousSibling) : null
+  const nextSibling = m.nextSibling ? getRef(m.nextSibling) : null
+  let attributeValue: string | undefined
+  if (m.type === 'attributes') {
+    attributeValue = (m.target as Element).getAttribute(m.attributeName!) || ''
+  }
+  let newTextContent: string | undefined
+  if (m.type === 'characterData') {
+    newTextContent = (m.target as Element).textContent || ''
+  }
+  log(`added mutation: ${m.type}`)
+  return {
+    type: m.type,
+    attributeName: m.attributeName,
+    attributeNamespace: m.attributeNamespace,
+    oldValue: m.oldValue,
+    addedNodes,
+    target,
+    removedNodes,
+    previousSibling,
+    nextSibling,
+    timestamp,
+    attributeValue,
+    newTextContent
+  } as TraceMutation
+}
+
 try {
   log('waiting for body to render')
   await waitForBody()
@@ -32,58 +69,10 @@ try {
   const observer = new MutationObserver((ml) => {
     const timestamp = Date.now()
     const mutationList = ml.filter((m) => m.attributeName !== 'data-wdio-ref')
-
     log(`observed ${mutationList.length} mutations`)
     try {
       collector.captureMutation(
-        mutationList.map(
-          ({
-            target: t,
-            addedNodes: an,
-            removedNodes: rn,
-            type,
-            attributeName,
-            attributeNamespace,
-            previousSibling: ps,
-            nextSibling: ns,
-            oldValue
-          }) => {
-            const addedNodes = Array.from(an).map((node) => {
-              assignRef(node as Element)
-              return parseFragment(node as Element)
-            })
-
-            const removedNodes = Array.from(rn).map((node) => getRef(node))
-            const target = getRef(t)
-            const previousSibling = ps ? getRef(ps) : null
-            const nextSibling = ns ? getRef(ns) : null
-
-            let attributeValue: string | undefined
-            if (type === 'attributes') {
-              attributeValue = (t as Element).getAttribute(attributeName!) || ''
-            }
-            let newTextContent: string | undefined
-            if (type === 'characterData') {
-              newTextContent = (t as Element).textContent || ''
-            }
-
-            log(`added mutation: ${type}`)
-            return {
-              type,
-              attributeName,
-              attributeNamespace,
-              oldValue,
-              addedNodes,
-              target,
-              removedNodes,
-              previousSibling,
-              nextSibling,
-              timestamp,
-              attributeValue,
-              newTextContent
-            } as TraceMutation
-          }
-        )
+        mutationList.map((m) => serializeMutation(m, timestamp))
       )
     } catch (err: any) {
       collector.captureError(err)

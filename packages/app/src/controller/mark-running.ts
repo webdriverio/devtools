@@ -50,6 +50,72 @@ export function markAllRunning(suites: SuiteChunks): SuiteChunks {
  *    if already running so re-clicking a child doesn't reset the feature's
  *    run timestamp.
  */
+function markSuiteTreeAsRunning(
+  suiteNode: SuiteStatsFragment,
+  runStart: Date
+): SuiteStatsFragment {
+  return {
+    ...suiteNode,
+    state: 'running',
+    start: runStart,
+    end: undefined,
+    tests: [] as TestStatsFragment[],
+    suites:
+      suiteNode.suites?.map((s) => markSuiteTreeAsRunning(s, runStart)) || []
+  }
+}
+
+function markSuiteWithUid(
+  s: SuiteStatsFragment,
+  uid: string,
+  entryType: 'suite' | 'test' | undefined,
+  runStart: Date
+): { suite: SuiteStatsFragment; matched: boolean } {
+  if (entryType !== 'test' && s.uid === uid) {
+    return { matched: true, suite: markSuiteTreeAsRunning(s, runStart) }
+  }
+  let matched = false
+  const updatedTests = (s.tests?.map((test) => {
+    if (test.uid === uid) {
+      matched = true
+      return { ...test, state: 'pending', start: new Date(), end: undefined }
+    }
+    return test
+  }) ?? []) as TestStatsFragment[]
+  const updatedNestedSuites =
+    s.suites?.map((nestedSuite) => {
+      const nestedResult = markSuiteWithUid(
+        nestedSuite,
+        uid,
+        entryType,
+        runStart
+      )
+      if (nestedResult.matched) {
+        matched = true
+      }
+      return nestedResult.suite
+    }) || []
+  return {
+    matched,
+    suite: {
+      ...s,
+      ...(matched
+        ? {
+            state: 'running' as const,
+            // Preserve parent's start/end if already running — subsequent
+            // child-scenario marks would otherwise reset the feature's
+            // original run timestamp.
+            ...(s.state !== 'running'
+              ? { start: runStart, end: undefined }
+              : {})
+          }
+        : {}),
+      tests: updatedTests || [],
+      suites: updatedNestedSuites
+    }
+  }
+}
+
 export function markSpecificRunning(
   suites: SuiteChunks,
   uid: string,
@@ -63,71 +129,13 @@ export function markSpecificRunning(
           updatedChunk[suiteUid] = suite
           return
         }
-
-        const markAsRunning = (
-          s: SuiteStatsFragment
-        ): { suite: SuiteStatsFragment; matched: boolean } => {
-          const runStart = new Date()
-
-          if (entryType !== 'test' && s.uid === uid) {
-            const markSuiteTreeAsRunning = (
-              suiteNode: SuiteStatsFragment
-            ): SuiteStatsFragment => ({
-              ...suiteNode,
-              state: 'running',
-              start: runStart,
-              end: undefined,
-              tests: [] as TestStatsFragment[],
-              suites: suiteNode.suites?.map(markSuiteTreeAsRunning) || []
-            })
-            return { matched: true, suite: markSuiteTreeAsRunning(s) }
-          }
-
-          let matched = false
-          const updatedTests = (s.tests?.map((test) => {
-            if (test.uid === uid) {
-              matched = true
-              return {
-                ...test,
-                state: 'pending',
-                start: new Date(),
-                end: undefined
-              }
-            }
-            return test
-          }) ?? []) as TestStatsFragment[]
-
-          const updatedNestedSuites =
-            s.suites?.map((nestedSuite) => {
-              const nestedResult = markAsRunning(nestedSuite)
-              if (nestedResult.matched) {
-                matched = true
-              }
-              return nestedResult.suite
-            }) || []
-
-          return {
-            matched,
-            suite: {
-              ...s,
-              ...(matched
-                ? {
-                    state: 'running' as const,
-                    // Preserve parent's start/end if already running —
-                    // subsequent child-scenario marks would otherwise reset
-                    // the feature's original run timestamp.
-                    ...(s.state !== 'running'
-                      ? { start: runStart, end: undefined }
-                      : {})
-                  }
-                : {}),
-              tests: updatedTests || [],
-              suites: updatedNestedSuites
-            }
-          }
-        }
-
-        updatedChunk[suiteUid] = markAsRunning(suite).suite
+        const runStart = new Date()
+        updatedChunk[suiteUid] = markSuiteWithUid(
+          suite,
+          uid,
+          entryType,
+          runStart
+        ).suite
       }
     )
     return updatedChunk

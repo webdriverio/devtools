@@ -204,88 +204,93 @@ export class DataManagerController implements ReactiveController {
     }
   }
 
+  #handleClearExecutionScope(data: unknown): void {
+    const { uid, entryType, clearSuiteTree } =
+      data as SocketMessage<'clearExecutionData'>['data']
+    this.clearExecutionData(uid, entryType)
+    if (clearSuiteTree) {
+      this.suitesContextProvider.setValue([])
+      this.#activeRerunTestUid = undefined
+      rerunState.activeRerunSuiteUid = undefined
+      this.#lastSeenRunTimestamp = 0
+    }
+  }
+
+  // Returns true if the control scope was fully handled and the regular
+  // dispatch should be skipped. Caller is responsible for requestUpdate().
+  #handleControlScope(scope: string, data: unknown): boolean {
+    if (scope === WS_SCOPE.testStopped) {
+      this.#handleTestStopped()
+      return true
+    }
+    if (scope === 'screencast') {
+      const { sessionId } = data as { sessionId: string }
+      window.dispatchEvent(
+        new CustomEvent('screencast-ready', { detail: { sessionId } })
+      )
+      return true
+    }
+    if (scope === WS_SCOPE.clearExecutionData) {
+      this.#handleClearExecutionScope(data)
+      return true
+    }
+    if (scope === WS_SCOPE.replaceCommand) {
+      const { oldTimestamp, command } =
+        data as SocketMessage<'replaceCommand'>['data']
+      this.#handleReplaceCommand(oldTimestamp, command)
+      return true
+    }
+    if (scope === BASELINE_WS_SCOPE.saved) {
+      const { testUid, attempt } = data as SocketMessage<
+        typeof BASELINE_WS_SCOPE.saved
+      >['data']
+      this.#handleBaselineSaved(testUid, attempt)
+      return true
+    }
+    if (scope === BASELINE_WS_SCOPE.cleared) {
+      const { testUid } = data as SocketMessage<
+        typeof BASELINE_WS_SCOPE.cleared
+      >['data']
+      this.#handleBaselineCleared(testUid)
+      return true
+    }
+    return false
+  }
+
+  #dispatchDataScope(scope: string, data: unknown): void {
+    if (scope === 'mutations') {
+      this.#handleMutationsUpdate(data as TraceMutation[])
+    } else if (scope === 'logs') {
+      this.#handleLogsUpdate(data as string[])
+    } else if (scope === 'commands') {
+      this.#handleCommandsUpdate(data as CommandLog[])
+    } else if (scope === 'metadata') {
+      this.#handleMetadataUpdate(data as Metadata)
+    } else if (scope === 'consoleLogs') {
+      this.#handleConsoleLogsUpdate(data as string[])
+    } else if (scope === 'networkRequests') {
+      this.#handleNetworkRequestsUpdate(data as NetworkRequest[])
+    } else if (scope === 'sources') {
+      this.#handleSourcesUpdate(data as Record<string, string>)
+    } else if (scope === 'suites') {
+      if (this.#shouldResetForNewRun(data)) {
+        this.#resetExecutionData()
+      }
+      this.#handleSuitesUpdate(data)
+    }
+  }
+
   #handleSocketMessage(event: MessageEvent) {
     try {
       const { scope, data } = JSON.parse(event.data) as SocketMessage
       if (!data) {
         return
       }
-
-      if (scope === WS_SCOPE.testStopped) {
-        this.#handleTestStopped()
+      if (this.#handleControlScope(scope, data)) {
         this.#host.requestUpdate()
         return
       }
-
-      if (scope === 'screencast') {
-        const { sessionId } = data as { sessionId: string }
-        window.dispatchEvent(
-          new CustomEvent('screencast-ready', { detail: { sessionId } })
-        )
-        return
-      }
-
-      if (scope === WS_SCOPE.clearExecutionData) {
-        const { uid, entryType, clearSuiteTree } =
-          data as SocketMessage<'clearExecutionData'>['data']
-        this.clearExecutionData(uid, entryType)
-        if (clearSuiteTree) {
-          this.suitesContextProvider.setValue([])
-          this.#activeRerunTestUid = undefined
-          rerunState.activeRerunSuiteUid = undefined
-          this.#lastSeenRunTimestamp = 0
-        }
-        this.#host.requestUpdate()
-        return
-      }
-
-      if (scope === WS_SCOPE.replaceCommand) {
-        const { oldTimestamp, command } =
-          data as SocketMessage<'replaceCommand'>['data']
-        this.#handleReplaceCommand(oldTimestamp, command)
-        this.#host.requestUpdate()
-        return
-      }
-
-      if (scope === BASELINE_WS_SCOPE.saved) {
-        const { testUid, attempt } = data as SocketMessage<
-          typeof BASELINE_WS_SCOPE.saved
-        >['data']
-        this.#handleBaselineSaved(testUid, attempt)
-        this.#host.requestUpdate()
-        return
-      }
-
-      if (scope === BASELINE_WS_SCOPE.cleared) {
-        const { testUid } = data as SocketMessage<
-          typeof BASELINE_WS_SCOPE.cleared
-        >['data']
-        this.#handleBaselineCleared(testUid)
-        this.#host.requestUpdate()
-        return
-      }
-
-      if (scope === 'mutations') {
-        this.#handleMutationsUpdate(data as TraceMutation[])
-      } else if (scope === 'logs') {
-        this.#handleLogsUpdate(data as string[])
-      } else if (scope === 'commands') {
-        this.#handleCommandsUpdate(data as CommandLog[])
-      } else if (scope === 'metadata') {
-        this.#handleMetadataUpdate(data as Metadata)
-      } else if (scope === 'consoleLogs') {
-        this.#handleConsoleLogsUpdate(data as string[])
-      } else if (scope === 'networkRequests') {
-        this.#handleNetworkRequestsUpdate(data as NetworkRequest[])
-      } else if (scope === 'sources') {
-        this.#handleSourcesUpdate(data as Record<string, string>)
-      } else if (scope === 'suites') {
-        if (this.#shouldResetForNewRun(data)) {
-          this.#resetExecutionData()
-        }
-        this.#handleSuitesUpdate(data)
-      }
-
+      this.#dispatchDataScope(scope, data)
       this.#host.requestUpdate()
     } catch (e: unknown) {
       console.warn(`Failed to parse socket message: ${(e as Error).message}`)
