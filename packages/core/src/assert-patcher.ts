@@ -68,6 +68,59 @@ export function safeSerializeAssertArg(value: unknown): unknown {
   return value
 }
 
+function makePatchedAssertMethod(
+  methodName: string,
+  original: (...a: unknown[]) => unknown,
+  onCommand: (cmd: CapturedAssert) => void
+): (...args: unknown[]) => unknown {
+  return function patchedAssert(this: unknown, ...args: unknown[]) {
+    const callInfo = getCallSourceFromStack()
+    const startedAt = Date.now()
+    const sanitizedArgs = args.map(safeSerializeAssertArg)
+    const passed = () =>
+      onCommand({
+        command: `assert.${methodName}`,
+        args: sanitizedArgs,
+        result: 'passed',
+        error: undefined,
+        callSource: callInfo.callSource,
+        timestamp: startedAt
+      })
+    const failed = (err: unknown) =>
+      onCommand({
+        command: `assert.${methodName}`,
+        args: sanitizedArgs,
+        result: undefined,
+        error: toError(err),
+        callSource: callInfo.callSource,
+        timestamp: startedAt
+      })
+
+    try {
+      const result = original.apply(this, args)
+      // Async assert methods (rejects/doesNotReject) return a Promise.
+      const maybe = result as { then?: unknown } | null | undefined
+      if (maybe && typeof maybe.then === 'function') {
+        return (result as Promise<unknown>).then(
+          (v) => {
+            passed()
+            return v
+          },
+          (err) => {
+            failed(err)
+            throw err
+          }
+        )
+      }
+      passed()
+      return result
+    } catch (err) {
+      failed(err)
+      throw err
+    }
+  }
+}
+
 /**
  * Patch `node:assert` so each tracked method emits a `CapturedAssert` to the
  * supplied hook. Idempotent across calls (guarded by `ASSERT_PATCHED_SYMBOL`).
@@ -107,68 +160,16 @@ export function patchNodeAssert(
   }
   assertObj[ASSERT_PATCHED_SYMBOL] = true
 
-  const wrapMethod = (methodName: string) => {
+  for (const methodName of TRACKED_ASSERT_METHODS) {
     const original = assertObj[methodName]
     if (typeof original !== 'function') {
-      return
+      continue
     }
-    assertObj[methodName] = function patchedAssert(
-      this: unknown,
-      ...args: unknown[]
-    ) {
-      const callInfo = getCallSourceFromStack()
-      const startedAt = Date.now()
-      const sanitizedArgs = args.map(safeSerializeAssertArg)
-
-      const passed = () =>
-        onCommand({
-          command: `assert.${methodName}`,
-          args: sanitizedArgs,
-          result: 'passed',
-          error: undefined,
-          callSource: callInfo.callSource,
-          timestamp: startedAt
-        })
-      const failed = (err: unknown) =>
-        onCommand({
-          command: `assert.${methodName}`,
-          args: sanitizedArgs,
-          result: undefined,
-          error: toError(err),
-          callSource: callInfo.callSource,
-          timestamp: startedAt
-        })
-
-      try {
-        const result = (original as (...a: unknown[]) => unknown).apply(
-          this,
-          args
-        )
-        // Async assert methods (rejects/doesNotReject) return a Promise.
-        const maybe = result as { then?: unknown } | null | undefined
-        if (maybe && typeof maybe.then === 'function') {
-          return (result as Promise<unknown>).then(
-            (v) => {
-              passed()
-              return v
-            },
-            (err) => {
-              failed(err)
-              throw err
-            }
-          )
-        }
-        passed()
-        return result
-      } catch (err) {
-        failed(err)
-        throw err
-      }
-    }
-  }
-
-  for (const m of TRACKED_ASSERT_METHODS) {
-    wrapMethod(m)
+    assertObj[methodName] = makePatchedAssertMethod(
+      methodName,
+      original as (...a: unknown[]) => unknown,
+      onCommand
+    )
   }
 
   log('info', `Patched ${TRACKED_ASSERT_METHODS.length} node:assert method(s)`)
