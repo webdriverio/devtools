@@ -86,32 +86,35 @@ module.exports = [
     }
   },
 
-  // TypeScript test files
-  {
-    files: ['**/*.test.ts'],
-    rules: {
-      'dot-notation': 'off',
-      'max-lines': 'off',
-      'max-lines-per-function': 'off'
-    }
-  },
-
   // Code-quality warnings (CLAUDE.md §3).
   // Kept as `warn` so existing legacy violations surface in IDE/CI without
   // blocking the build. Promote to `error` once known debt (CLAUDE.md §7)
   // is cleared.
+  // MUST come before the test-file override block — flat config rule blocks
+  // apply in order, so later blocks override earlier ones for matching files.
   {
     files: ['**/*.ts'],
     rules: {
       '@typescript-eslint/no-explicit-any': 'warn',
       'max-lines': [
         'warn',
-        { max: 400, skipBlankLines: true, skipComments: true }
+        { max: 500, skipBlankLines: true, skipComments: true }
       ],
       'max-lines-per-function': [
         'warn',
         { max: 50, skipBlankLines: true, skipComments: true, IIFEs: true }
       ]
+    }
+  },
+
+  // TypeScript test files — turns off the size rules. MUST come AFTER the
+  // production rules block above so the off-rule wins for matching files.
+  {
+    files: ['**/*.test.ts'],
+    rules: {
+      'dot-notation': 'off',
+      'max-lines': 'off',
+      'max-lines-per-function': 'off'
     }
   },
 

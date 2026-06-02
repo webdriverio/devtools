@@ -29,6 +29,7 @@ import {
 } from './compare/compareUtils.js'
 import { BASELINE_API, type BaselineClearRequest } from '@wdio/devtools-shared'
 import { POPOUT_QUERY, buildPopoutFeatures } from './compare/constants.js'
+import { renderMarker } from './compare/markers.js'
 import { compareStyles } from './compare/styles.js'
 import {
   liveStepsForUid,
@@ -291,78 +292,21 @@ export class DevtoolsCompare extends Element {
 
     // Classify divergence ONCE so left and right rows share the same label.
     const kind: DivergenceKind = classifyDivergence(left, right)
-    const stepFor = (
-      cmd: CommandLog | undefined,
-      side: 'baseline' | 'latest'
-    ) => this.#findStepFor(cmd, side)
     // Skip "missing" markers when one side is entirely empty (e.g. the rerun
     // hasn't produced commands yet). The populated side should display its
     // own status, not be falsely flagged as "missing".
-    const leftEmpty = leftCommands.length === 0
-    const rightEmpty = rightCommands.length === 0
-    const oneSideEntirelyEmpty = leftEmpty || rightEmpty
-    const marker = (
-      cmd: CommandLog | undefined,
-      side: 'baseline' | 'latest'
-    ) => {
-      if (!cmd) {
-        return nothing
-      }
-      // Row-level divergence wins over the per-command status marker.
-      switch (kind) {
-        case 'commandName':
-          return html`<span
-            class="marker command"
-            title="Different WebDriver command — execution diverged at this step"
-            >different command</span
-          >`
-        case 'args':
-          return html`<span
-            class="marker command"
-            title="Same command, different arguments (compare args in the expanded view)"
-            >args differ</span
-          >`
-        case 'error':
-          if (cmd.error?.message) {
-            return html`<span
-              class="marker error"
-              title="WebDriver error: ${cmd.error.message}"
-              >⚠ error</span
-            >`
-          }
-          break
-      }
-      const step = stepFor(cmd, side)
-      const allCmdsThisSide =
-        side === 'baseline'
-          ? ((this.#getBaseline()?.commands ?? []) as CommandLog[])
-          : this.#liveCommandsForSelectedUid()
-      const statusMarker =
-        step?.state === 'failed' && isFailureSite(cmd, step, allCmdsThisSide)
-          ? html`<span
-              class="marker error"
-              title="${step.error?.message
-                ? `Failed step: ${step.fullTitle || step.title || step.uid}\n${step.error.message}`
-                : `Failed step: ${step.fullTitle || step.title || step.uid}`}"
-              >✗ in failed step</span
-            >`
-          : step?.state === 'passed'
-            ? html`<span
-                class="marker ok"
-                title="Step passed: ${step.fullTitle || step.title || step.uid}"
-                >✓</span
-              >`
-            : html`<span class="marker ok" title="Identical">✓</span>`
-      // Truncation: status + a muted "only here" pill.
-      if (kind === 'missing' && !oneSideEntirelyEmpty) {
-        return html`${statusMarker}<span
-            class="marker info"
-            title="Only present on this side — the other run ended before this step"
-            >only here</span
-          >`
-      }
-      return statusMarker
-    }
+    const oneSideEntirelyEmpty =
+      leftCommands.length === 0 || rightCommands.length === 0
+    const baselineCmds = (this.#getBaseline()?.commands ?? []) as CommandLog[]
+    const latestCmds = this.#liveCommandsForSelectedUid()
+    const marker = (cmd: CommandLog | undefined, side: 'baseline' | 'latest') =>
+      renderMarker({
+        cmd,
+        kind,
+        step: this.#findStepFor(cmd, side),
+        allCmdsThisSide: side === 'baseline' ? baselineCmds : latestCmds,
+        oneSideEntirelyEmpty
+      })
 
     // Truncation = one side has the command, the other doesn't.
     const isTruncation = !left || !right
