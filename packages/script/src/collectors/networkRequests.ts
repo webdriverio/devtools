@@ -164,15 +164,48 @@ export class NetworkRequestCollector implements Collector<NetworkRequest> {
     }
   }
 
-  #patchXHR() {
-    if (typeof XMLHttpRequest === 'undefined') {
+  #recordXHRResponse(
+    xhr: XMLHttpRequest,
+    requestData: Partial<NetworkRequest>,
+    startTime: number
+  ): void {
+    const endTime = performance.now()
+    const responseHeaders = this.#extractXHRHeaders(xhr)
+    const contentType = responseHeaders['content-type']?.trim()
+    if (!contentType || contentType === '-') {
       return
     }
+    let responseBody: string | undefined
+    try {
+      if (
+        contentType.includes('application/json') ||
+        contentType.includes('text/')
+      ) {
+        responseBody = xhr.responseText
+      }
+    } catch {
+      /* ignore body read errors */
+    }
+    this.#requests.push({
+      id: requestData.id!,
+      url: requestData.url!,
+      method: requestData.method!,
+      status: xhr.status,
+      statusText: xhr.statusText,
+      type: 'xhr',
+      timestamp: requestData.timestamp!,
+      startTime,
+      endTime,
+      time: endTime - startTime,
+      requestHeaders: requestData.requestHeaders,
+      responseHeaders,
+      requestBody: requestData.requestBody,
+      responseBody,
+      size: this.#estimateSize(responseBody)
+    })
+  }
 
-    const self = this
-    this.#originalXhrOpen = XMLHttpRequest.prototype.open
-    this.#originalXhrSend = XMLHttpRequest.prototype.send
-
+  #patchXHROpen(self: this): void {
     XMLHttpRequest.prototype.open = function (
       method: string,
       url: string | URL,
@@ -180,31 +213,18 @@ export class NetworkRequestCollector implements Collector<NetworkRequest> {
       username?: string | null,
       password?: string | null
     ) {
-      const id = self.#generateId()
       const urlString = typeof url === 'string' ? url : url.href
-
-      // Skip internal/non-HTTP requests
-      if (self.#shouldIgnoreRequest(urlString)) {
-        return self.#originalXhrOpen!.call(
-          this,
-          method,
-          url as string,
-          async ?? true,
-          username,
-          password
-        )
+      if (!self.#shouldIgnoreRequest(urlString)) {
+        self.#pendingXHRRequests.set(this, {
+          id: self.#generateId(),
+          url: urlString,
+          method: method.toUpperCase(),
+          type: 'xhr',
+          timestamp: Date.now(),
+          startTime: performance.now(),
+          requestHeaders: {}
+        })
       }
-
-      self.#pendingXHRRequests.set(this, {
-        id,
-        url: urlString,
-        method: method.toUpperCase(),
-        type: 'xhr',
-        timestamp: Date.now(),
-        startTime: performance.now(),
-        requestHeaders: {}
-      })
-
       return self.#originalXhrOpen!.call(
         this,
         method,
@@ -214,76 +234,35 @@ export class NetworkRequestCollector implements Collector<NetworkRequest> {
         password
       )
     }
+  }
 
+  #patchXHRSend(self: this): void {
     XMLHttpRequest.prototype.send = function (
       body?: Document | XMLHttpRequestBodyInit | null
     ) {
       const requestData = self.#pendingXHRRequests.get(this)
-
-      // If no request data, this request was filtered out - just send it
       if (!requestData) {
         return self.#originalXhrSend!.call(this, body)
       }
-
       if (body) {
         requestData.requestBody = String(body)
       }
-
       const startTime = requestData.startTime || performance.now()
-
-      const loadHandler = function (this: XMLHttpRequest) {
-        const endTime = performance.now()
-        const time = endTime - startTime
-
-        const responseHeaders = self.#extractXHRHeaders(this)
-        const contentType = responseHeaders['content-type']?.trim()
-
-        if (!contentType || contentType === '-') {
-          return
-        }
-
-        let responseBody: string | undefined
-        try {
-          if (
-            contentType.includes('application/json') ||
-            contentType.includes('text/')
-          ) {
-            responseBody = this.responseText
-          }
-        } catch {
-          // Ignore
-        }
-
-        const networkRequest: NetworkRequest = {
-          id: requestData.id!,
-          url: requestData.url!,
-          method: requestData.method!,
-          status: this.status,
-          statusText: this.statusText,
-          type: 'xhr',
-          timestamp: requestData.timestamp!,
-          startTime,
-          endTime,
-          time,
-          requestHeaders: requestData.requestHeaders,
-          responseHeaders,
-          requestBody: requestData.requestBody,
-          responseBody,
-          size: self.#estimateSize(responseBody)
-        }
-
-        self.#requests.push(networkRequest)
-      }
-
-      const errorHandler = function (this: XMLHttpRequest) {
-        // Skip errors
-      }
-
-      this.addEventListener('load', loadHandler)
-      this.addEventListener('error', errorHandler)
-
+      this.addEventListener('load', function (this: XMLHttpRequest) {
+        self.#recordXHRResponse(this, requestData, startTime)
+      })
       return self.#originalXhrSend!.call(this, body)
     }
+  }
+
+  #patchXHR() {
+    if (typeof XMLHttpRequest === 'undefined') {
+      return
+    }
+    this.#originalXhrOpen = XMLHttpRequest.prototype.open
+    this.#originalXhrSend = XMLHttpRequest.prototype.send
+    this.#patchXHROpen(this)
+    this.#patchXHRSend(this)
   }
 
   #extractHeaders(headers: HeadersInit | Headers): Record<string, string> {
