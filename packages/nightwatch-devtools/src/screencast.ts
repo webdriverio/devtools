@@ -1,5 +1,7 @@
 import logger from '@wdio/logger'
 import { ScreencastRecorderBase, errorMessage } from '@wdio/devtools-core'
+import type { ScreencastOptions } from '@wdio/devtools-shared'
+import type { SessionCapturer } from './session.js'
 import type { NightwatchBrowser } from './types.js'
 
 const log = logger('@wdio/nightwatch-devtools:ScreencastRecorder')
@@ -7,10 +9,21 @@ const log = logger('@wdio/nightwatch-devtools:ScreencastRecorder')
 /**
  * Nightwatch screencast recorder. Polling-only — Nightwatch doesn't expose a
  * stable CDP escape hatch the way WDIO (getPuppeteer) and Selenium
- * (createCDPConnection) do, so we don't override the CDP hooks. Polling works
- * on every browser Nightwatch supports.
+ * (createCDPConnection) do.
+ *
+ * `browser.takeScreenshot()` goes through Nightwatch's command queue and is
+ * unreliable for polling (the existing code has `takeScreenshotViaHttp` for
+ * the same reason — see session.ts). The recorder delegates to that helper
+ * instead so screenshots fire directly over the WebDriver HTTP transport.
  */
 export class ScreencastRecorder extends ScreencastRecorderBase<NightwatchBrowser> {
+  readonly #sessionCapturer: SessionCapturer
+
+  constructor(sessionCapturer: SessionCapturer, options: ScreencastOptions) {
+    super(options)
+    this.#sessionCapturer = sessionCapturer
+  }
+
   protected override onPollingStarted(intervalMs: number): void {
     log.info(
       `✓ Screencast recording started (polling mode, ${intervalMs} ms interval)`
@@ -32,26 +45,6 @@ export class ScreencastRecorder extends ScreencastRecorderBase<NightwatchBrowser
     if (!browser) {
       return null
     }
-    try {
-      // Nightwatch's browser.takeScreenshot resolves to a base64 PNG string
-      // (W3C-wrapped or flat depending on the driver). The cast is the
-      // dynamic-command-bag widening we already do for browser methods.
-      const result = await (
-        browser as unknown as Record<string, () => Promise<unknown>>
-      ).takeScreenshot()
-      if (typeof result === 'string') {
-        return result
-      }
-      if (
-        result &&
-        typeof result === 'object' &&
-        typeof (result as { value?: unknown }).value === 'string'
-      ) {
-        return (result as { value: string }).value
-      }
-      return null
-    } catch {
-      return null
-    }
+    return this.#sessionCapturer.takeScreenshotViaHttp(browser)
   }
 }

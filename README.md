@@ -39,14 +39,14 @@ Works with **WebdriverIO**, **[Nightwatch.js](./packages/nightwatch-devtools/REA
 
 ### 🎬 Session Screencast
 - **Automatic Video Recording**: Captures a continuous `.webm` video of the browser session alongside the existing snapshot and DOM mutation views
-- **Cross-Browser**: Uses Chrome DevTools Protocol (CDP) push mode for Chrome/Chromium; automatically falls back to screenshot polling for Firefox, Safari, and other browsers (no configuration change needed)
+- **Per-framework modes**:
+  - **WebdriverIO**: CDP push mode for Chrome/Chromium (efficient, no per-command overhead); polling fallback for other browsers
+  - **Selenium WebDriver**: CDP push mode via `selenium-webdriver/bidi`; polling fallback otherwise
+  - **Nightwatch.js**: Polling mode (Nightwatch doesn't expose a stable CDP escape hatch); works on every browser Nightwatch supports
 - **Per-Session Videos**: Each browser session (including sessions created by `browser.reloadSession()`) produces its own recording, selectable from a dropdown in the UI
 - **Smart Trimming**: Leading blank frames before the first URL navigation are automatically removed so videos start at the first meaningful page action
 
-> **Note:** Screencast recording is currently supported for **WebdriverIO only**. Nightwatch.js support is planned for a future release.
->
-
-> For setup, configuration options, and prerequisites see the **[service README](./packages/service/README.md#screencast-recording)**.
+> For setup, configuration options, and prerequisites see each adapter's README: **[WebdriverIO](./packages/service/README.md#screencast-recording)** · **[Selenium](./packages/selenium-devtools/README.md)** · **[Nightwatch](./packages/nightwatch-devtools/README.md#screencast)**.
 
 ### 🐞 Preserve & Rerun (Compare)
 - **When the bug icon appears**: Only on test/suite rows in a `failed` state and the icon sits next to ▶ on hover, available wherever a plain rerun is supported (e.g. Cucumber scenarios at the scenario row, Mocha tests at the test or suite row)
@@ -54,7 +54,7 @@ Works with **WebdriverIO**, **[Nightwatch.js](./packages/nightwatch-devtools/REA
 - **Diagnose flaky tests**: See exactly which command differed between a pass and a fail without re-reading logs
 - **Pop out**: Open the comparison in a separate, themed window for a roomier view
 
-> **Note:** Preserve & Rerun is currently supported for **WebdriverIO only**. Nightwatch.js and Selenium support is planned for a future release.
+> Available across **WebdriverIO, Selenium WebDriver, and Nightwatch.js**. The rerun mechanism differs per framework (WDIO uses `--spec` + grep, Selenium substitutes a runner-specific filter flag like `--grep`/`--testNamePattern`, Nightwatch reads `DEVTOOLS_RERUN_LABEL`); the dashboard contract is identical.
 
 ### 🔍︎ TestLens
 - **Code Intelligence**: View test definitions directly in your editor
