@@ -34,6 +34,7 @@ import {
   cucumberResultToTestState
 } from './helpers/cucumberResult.js'
 import { buildCucumberScenarioSuite } from './helpers/cucumberScenarioBuilder.js'
+import { closePreviousTest } from './helpers/closePreviousTest.js'
 import { scanFeatureFile } from './helpers/featureFileScan.js'
 import {
   determineTestState,
@@ -658,37 +659,14 @@ class NightwatchDevToolsPlugin {
     ) as TestStats | undefined
 
     if (runningTest) {
-      const testcases = currentTest?.results?.testcases || {}
-
-      if (testcases[runningTest.title]) {
-        const testcase = testcases[runningTest.title]
-        const testState = determineTestState(testcase)
-        runningTest.state = testState
-        runningTest.end = new Date()
-        runningTest._duration = parseFloat(testcase.time || '0') * 1000
-        this.testManager.updateTestState(runningTest, testState)
-        this.testManager.markTestAsProcessed(testFile, runningTest.title)
-        this.#incrementCount(testState)
-        const prevIcon = this.#testIcon(testState)
-        log.info(
-          `  ${prevIcon} ${runningTest.title} (${(runningTest._duration / 1000).toFixed(2)}s)`
-        )
-      } else {
-        const endTime = new Date()
-        const duration = endTime.getTime() - (runningTest.start?.getTime() || 0)
-        this.testManager.updateTestState(
-          runningTest,
-          TEST_STATE.PASSED as TestStats['state'],
-          endTime,
-          duration
-        )
-        this.testManager.markTestAsProcessed(testFile, runningTest.title)
-        this.#passCount++
-        log.info(`  ✅ ${runningTest.title} (${(duration / 1000).toFixed(2)}s)`)
-      }
-      await new Promise((resolve) =>
-        setTimeout(resolve, TIMING.UI_RENDER_DELAY)
-      )
+      await closePreviousTest({
+        runningTest,
+        testFile,
+        testcases: currentTest?.results?.testcases || {},
+        testManager: this.testManager,
+        incrementCount: (state) => this.#incrementCount(state),
+        testIcon: (state) => this.#testIcon(state)
+      })
     }
 
     const processedTests = this.testManager.getProcessedTests(testFile)
