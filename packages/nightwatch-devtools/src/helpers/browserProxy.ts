@@ -181,6 +181,177 @@ export class BrowserProxy {
     log.info(`✓ Wrapped ${wrappedMethods.length} browser methods`)
   }
 
+  private handleRetryReplacement(
+    browser: NightwatchBrowser,
+    methodName: string,
+    logArgs: any[],
+    serializedResult: any,
+    effectiveUid: string,
+    callSource: string | undefined,
+    commandTimestamp: number
+  ): void {
+    // Same command fired again (internal retry) — replace the previous
+    // entry so only the final result appears in the UI.
+    const { entry, oldTimestamp } = this.sessionCapturer.replaceCommand(
+      this.retryTracker.lastId!,
+      methodName,
+      logArgs,
+      serializedResult,
+      undefined,
+      effectiveUid,
+      callSource,
+      commandTimestamp
+    )
+    this.retryTracker.setLastId(entry._id ?? null)
+    this.sessionCapturer.sendReplaceCommand(oldTimestamp, entry)
+    this.attachScreenshot(browser, entry, methodName, ' (retry)')
+  }
+
+  private captureFreshCommand(
+    browser: NightwatchBrowser,
+    methodName: string,
+    logArgs: any[],
+    serializedResult: any,
+    effectiveUid: string,
+    callSource: string | undefined,
+    commandTimestamp: number,
+    cmdSig: string
+  ): void {
+    // captureCommand() pushes the entry to commandsLog synchronously before
+    // any async work (navigation perf capture), so we can grab the ID
+    // immediately after the call — before any microtask fires. This avoids
+    // the race where a Nightwatch retry callback executes before .then() sets
+    // lastId, causing missed dedup. Stage the sig now, set the id after the
+    // synchronous push lands.
+    this.retryTracker.setLastSig(cmdSig)
+    this.retryTracker.setLastId(null)
+    this.sessionCapturer
+      .captureCommand(
+        methodName,
+        logArgs,
+        serializedResult,
+        undefined,
+        effectiveUid,
+        callSource,
+        commandTimestamp
+      )
+      .catch((err: any) =>
+        log.error(`Failed to capture ${methodName}: ${err.message}`)
+      )
+    const lastCommand =
+      this.sessionCapturer.commandsLog[
+        this.sessionCapturer.commandsLog.length - 1
+      ]
+    if (lastCommand) {
+      this.retryTracker.setLastId((lastCommand as { _id?: number })._id ?? null)
+      this.sessionCapturer.sendCommand(lastCommand)
+      log.info(`[command] ${methodName}`)
+      this.attachScreenshot(browser, lastCommand, methodName)
+    }
+    this.maybeRepollMutations(browser, methodName)
+  }
+
+  // After DOM-mutating commands, re-poll mutations from the injected script
+  // so the browser preview stays in sync. setTimeout runs OUTSIDE Nightwatch's
+  // current callback stack (safer queue-wise).
+  private maybeRepollMutations(
+    browser: NightwatchBrowser,
+    methodName: string
+  ): void {
+    const isDomMutating =
+      (NAVIGATION_COMMANDS as readonly string[]).includes(methodName) ||
+      [
+        'click',
+        'doubleClick',
+        'rightClick',
+        'setValue',
+        'clearValue',
+        'sendKeys',
+        'submitForm',
+        'back',
+        'forward',
+        'refresh'
+      ].includes(methodName)
+    if (!isDomMutating) {
+      return
+    }
+    setTimeout(() => {
+      this.sessionCapturer.captureTrace(browser).catch(() => {})
+    }, 200)
+  }
+
+  private popCommandStackIfMatches(methodName: string, cmdSig: string): void {
+    const stackFrame = this.commandStack[this.commandStack.length - 1]
+    if (stackFrame?.command === methodName && stackFrame.signature === cmdSig) {
+      this.commandStack.pop()
+    }
+  }
+
+  // Result-capturing callback factory — called by Nightwatch's async queue
+  // when the command completes. This is where we get the *actual* result.
+  private makeCaptureCallback(
+    browser: NightwatchBrowser,
+    methodName: string,
+    logArgs: any[],
+    cmdSig: string,
+    callSource: string | undefined,
+    commandTimestamp: number,
+    testUid: string | undefined,
+    userCallback: Function | null
+  ): (callbackResult: any) => any {
+    return (callbackResult: any) => {
+      this.popCommandStackIfMatches(methodName, cmdSig)
+      const serializedResult = serializeCommandResult(
+        callbackResult,
+        methodName
+      )
+      const effectiveUid = this.getCurrentTest()?.uid ?? testUid
+      if (effectiveUid) {
+        if (this.retryTracker.isRetry(cmdSig)) {
+          this.handleRetryReplacement(
+            browser,
+            methodName,
+            logArgs,
+            serializedResult,
+            effectiveUid,
+            callSource,
+            commandTimestamp
+          )
+        } else {
+          this.captureFreshCommand(
+            browser,
+            methodName,
+            logArgs,
+            serializedResult,
+            effectiveUid,
+            callSource,
+            commandTimestamp,
+            cmdSig
+          )
+        }
+      }
+      if (userCallback) {
+        return userCallback(callbackResult)
+      }
+    }
+  }
+
+  private pushCommandStackIfNew(
+    methodName: string,
+    cmdSig: string,
+    callSource: string | undefined
+  ): void {
+    if (this.lastCommandSig === cmdSig) {
+      return
+    }
+    this.commandStack.push({
+      command: methodName,
+      callSource,
+      signature: cmdSig
+    })
+    this.lastCommandSig = cmdSig
+  }
+
   private handleCommandExecution(
     browser: NightwatchBrowser,
     browserAny: any,
@@ -188,11 +359,9 @@ export class BrowserProxy {
     originalMethod: Function,
     args: any[]
   ): any {
-    const currentNightwatchTest = browserAny.currentTest
-    const currentTestName = this.testManager.detectTestBoundary(
-      currentNightwatchTest
+    this.testManager.startTestIfPending(
+      this.testManager.detectTestBoundary(browserAny.currentTest)
     )
-    this.testManager.startTestIfPending(currentTestName)
 
     const callInfo = getCallSourceFromStack()
     if (callInfo.filePath && !this.currentTestFullPath) {
@@ -204,149 +373,30 @@ export class BrowserProxy {
     const userCallback: Function | null = hasUserCallback ? lastArg : null
     const logArgs = hasUserCallback ? args.slice(0, -1) : args
 
-    // Check for duplicate commands (based on method + logical args)
     const cmdSig = JSON.stringify({
       command: methodName,
       args: logArgs,
       src: callInfo.callSource
     })
-    const isDuplicate = this.lastCommandSig === cmdSig
+    this.pushCommandStackIfNew(methodName, cmdSig, callInfo.callSource)
 
-    if (!isDuplicate) {
-      this.commandStack.push({
-        command: methodName,
-        callSource: callInfo.callSource,
-        signature: cmdSig
-      })
-      this.lastCommandSig = cmdSig
-    }
-
-    const testAtCallTime = this.getCurrentTest()
-    const testUid = testAtCallTime?.uid
     const callSource = callInfo.callSource
     const commandTimestamp = Date.now()
-
-    /**
-     * Result-capturing callback — called by Nightwatch's async queue when the
-     * command completes.  This is where we get the *actual* result value.
-     */
-    const captureCallback = (callbackResult: any) => {
-      const stackFrame = this.commandStack[this.commandStack.length - 1]
-      if (
-        stackFrame?.command === methodName &&
-        stackFrame.signature === cmdSig
-      ) {
-        this.commandStack.pop()
-      }
-
-      const serializedResult = serializeCommandResult(
-        callbackResult,
-        methodName
-      )
-
-      const currentTest = this.getCurrentTest()
-      const effectiveUid = currentTest?.uid ?? testUid
-
-      if (effectiveUid) {
-        if (this.retryTracker.isRetry(cmdSig)) {
-          // Same command fired again (internal retry) — replace the previous
-          // entry so only the final result appears in the UI.
-          const { entry, oldTimestamp } = this.sessionCapturer.replaceCommand(
-            this.retryTracker.lastId!,
-            methodName,
-            logArgs,
-            serializedResult,
-            undefined,
-            effectiveUid,
-            callSource,
-            commandTimestamp
-          )
-          this.retryTracker.setLastId(entry._id ?? null)
-          this.sessionCapturer.sendReplaceCommand(oldTimestamp, entry)
-
-          this.attachScreenshot(browser, entry, methodName, ' (retry)')
-        } else {
-          // New command — capture and track.
-          // captureCommand() pushes the entry to commandsLog synchronously
-          // before any async work (navigation perf capture), so we can grab
-          // the ID immediately after the call — before any microtask fires.
-          // This avoids the race where a Nightwatch retry callback executes
-          // before .then() sets lastId, causing missed dedup. Stage the sig
-          // now, set the id after the synchronous push lands.
-          this.retryTracker.setLastSig(cmdSig)
-          this.retryTracker.setLastId(null)
-          this.sessionCapturer
-            .captureCommand(
-              methodName,
-              logArgs,
-              serializedResult,
-              undefined,
-              effectiveUid,
-              callSource,
-              commandTimestamp
-            )
-            .catch((err: any) =>
-              log.error(`Failed to capture ${methodName}: ${err.message}`)
-            )
-          const lastCommand =
-            this.sessionCapturer.commandsLog[
-              this.sessionCapturer.commandsLog.length - 1
-            ]
-          if (lastCommand) {
-            this.retryTracker.setLastId(
-              (lastCommand as { _id?: number })._id ?? null
-            )
-            this.sessionCapturer.sendCommand(lastCommand)
-            log.info(`[command] ${methodName}`)
-          }
-
-          if (lastCommand) {
-            this.attachScreenshot(browser, lastCommand, methodName)
-          }
-
-          // After DOM-mutating commands, re-poll mutations from the injected
-          // script so the browser preview stays in sync. Use setTimeout to
-          // run OUTSIDE Nightwatch's current callback stack (safer queue-wise).
-          const isDomMutating =
-            (NAVIGATION_COMMANDS as readonly string[]).includes(methodName) ||
-            [
-              'click',
-              'doubleClick',
-              'rightClick',
-              'setValue',
-              'clearValue',
-              'sendKeys',
-              'submitForm',
-              'back',
-              'forward',
-              'refresh'
-            ].includes(methodName)
-          if (isDomMutating) {
-            setTimeout(() => {
-              this.sessionCapturer.captureTrace(browser).catch(() => {})
-            }, 200)
-          }
-        }
-      }
-
-      if (userCallback) {
-        return userCallback(callbackResult)
-      }
-    }
-
+    const captureCallback = this.makeCaptureCallback(
+      browser,
+      methodName,
+      logArgs,
+      cmdSig,
+      callSource,
+      commandTimestamp,
+      this.getCurrentTest()?.uid,
+      userCallback
+    )
     const modifiedArgs = [...logArgs, captureCallback]
-
     try {
-      const result = originalMethod(...modifiedArgs)
-      return result
+      return originalMethod(...modifiedArgs)
     } catch (error) {
-      const stackFrame = this.commandStack[this.commandStack.length - 1]
-      if (
-        stackFrame?.command === methodName &&
-        stackFrame.signature === cmdSig
-      ) {
-        this.commandStack.pop()
-      }
+      this.popCommandStackIfMatches(methodName, cmdSig)
       this.captureCommandError(methodName, logArgs, error, callSource)
       throw error
     }

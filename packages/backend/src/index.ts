@@ -95,72 +95,55 @@ function serveVideo(sessionId: string, reply: FastifyReply) {
     .send(fs.createReadStream(videoPath))
 }
 
-export async function start(
-  opts: DevtoolsBackendOptions = {}
-): Promise<{ server: FastifyInstance; port: number }> {
-  const host = opts.hostname || 'localhost'
-  // Use getPort to find an available port, starting with the preferred port
-  const preferredPort = opts.port || DEFAULT_PORT
-  const port = await getPort({ port: preferredPort })
-
-  // Log if we had to use a different port
-  if (opts.port && port !== opts.port) {
-    log.warn(`Port ${opts.port} is already in use, using port ${port} instead`)
+async function handleTestRun(
+  body: RunnerRequestBody,
+  host: string,
+  port: number,
+  reply: FastifyReply
+): Promise<FastifyReply> {
+  if (!body?.uid || !body.entryType) {
+    return reply.code(400).send({ error: 'Invalid run payload' })
   }
-
-  const appPath = await getDevtoolsApp()
-
-  server = Fastify({ logger: true })
-  await server.register(rateLimit, {
-    max: 100,
-    timeWindow: '1 minute'
-  })
-  await server.register(websocket)
-  await server.register(staticServer, {
-    root: appPath
-  })
-
-  server.post(
-    '/api/tests/run',
-    async (request: FastifyRequest<{ Body: RunnerRequestBody }>, reply) => {
-      const body = request.body
-      if (!body?.uid || !body.entryType) {
-        return reply.code(400).send({ error: 'Invalid run payload' })
-      }
-      // Broadcast a clear so popouts (which only see WS events) wipe too.
+  // Broadcast a clear so popouts (which only see WS events) wipe too.
+  broadcastToClients(
+    JSON.stringify({
+      scope: WS_SCOPE.clearExecutionData,
+      data: { uid: body.uid, entryType: body.entryType }
+    })
+  )
+  // Plain Rerun hides the Compare tab by dropping all baselines.
+  if (!body.preserveBaseline) {
+    const clearedUids = baselineStore.clearAll()
+    for (const testUid of clearedUids) {
       broadcastToClients(
         JSON.stringify({
-          scope: WS_SCOPE.clearExecutionData,
-          data: { uid: body.uid, entryType: body.entryType }
+          scope: BASELINE_WS_SCOPE.cleared,
+          data: { testUid }
         })
       )
-      // Plain Rerun hides the Compare tab by dropping all baselines.
-      if (!body.preserveBaseline) {
-        const clearedUids = baselineStore.clearAll()
-        for (const testUid of clearedUids) {
-          broadcastToClients(
-            JSON.stringify({
-              scope: BASELINE_WS_SCOPE.cleared,
-              data: { testUid }
-            })
-          )
-        }
-      }
-      try {
-        await testRunner.run({
-          ...body,
-          devtoolsHost: host,
-          devtoolsPort: port
-        })
-        return reply.send({ ok: true })
-      } catch (error) {
-        log.error(`Failed to start test run: ${(error as Error).message}`)
-        return reply.code(500).send({ error: (error as Error).message })
-      }
     }
+  }
+  try {
+    await testRunner.run({ ...body, devtoolsHost: host, devtoolsPort: port })
+    return reply.send({ ok: true })
+  } catch (error) {
+    log.error(`Failed to start test run: ${(error as Error).message}`)
+    return reply.code(500).send({ error: (error as Error).message })
+  }
+}
+
+function registerTestRoutes(
+  s: FastifyInstance,
+  host: string,
+  port: number
+): void {
+  s.post(
+    '/api/tests/run',
+    (request: FastifyRequest<{ Body: RunnerRequestBody }>, reply) =>
+      handleTestRun(request.body, host, port, reply)
   )
 
-  server.post('/api/tests/stop', async (_request, reply) => {
+  s.post('/api/tests/stop', async (_request, reply) => {
     testRunner.stop()
     broadcastToClients(
       JSON.stringify({
@@ -170,55 +153,63 @@ export async function start(
     )
     reply.send({ ok: true })
   })
+}
 
-  server.post(
+async function handleBaselinePreserve(
+  body: Partial<BaselinePreserveRequest>,
+  reply: FastifyReply
+): Promise<FastifyReply> {
+  const { testUid, scope } = body || {}
+  if (!testUid || (scope !== 'test' && scope !== 'suite')) {
+    return reply.code(400).send({
+      error: 'Invalid preserve payload: testUid and scope required'
+    })
+  }
+  const attempt = baselineStore.preserve(testUid, scope)
+  if (!attempt) {
+    return reply
+      .code(409)
+      .send({ error: 'No captured data for the requested uid' })
+  }
+  const payload: BaselineSavedWsPayload = { testUid, attempt }
+  broadcastToClients(
+    JSON.stringify({ scope: BASELINE_WS_SCOPE.saved, data: payload })
+  )
+  return reply.send({ ok: true, attempt })
+}
+
+async function handleBaselineClear(
+  body: Partial<BaselineClearRequest>,
+  reply: FastifyReply
+): Promise<FastifyReply> {
+  const { testUid } = body || {}
+  if (!testUid) {
+    return reply.code(400).send({ error: 'testUid required' })
+  }
+  const removed = baselineStore.clear(testUid)
+  if (removed) {
+    const payload: BaselineClearedWsPayload = { testUid }
+    broadcastToClients(
+      JSON.stringify({ scope: BASELINE_WS_SCOPE.cleared, data: payload })
+    )
+  }
+  return reply.send({ ok: true, removed })
+}
+
+function registerBaselineRoutes(s: FastifyInstance): void {
+  s.post(
     BASELINE_API.preserve,
-    async (
+    (
       request: FastifyRequest<{ Body: Partial<BaselinePreserveRequest> }>,
       reply
-    ) => {
-      const { testUid, scope } = request.body || {}
-      if (!testUid || (scope !== 'test' && scope !== 'suite')) {
-        return reply.code(400).send({
-          error: 'Invalid preserve payload: testUid and scope required'
-        })
-      }
-      const attempt = baselineStore.preserve(testUid, scope)
-      if (!attempt) {
-        return reply
-          .code(409)
-          .send({ error: 'No captured data for the requested uid' })
-      }
-      const payload: BaselineSavedWsPayload = { testUid, attempt }
-      broadcastToClients(
-        JSON.stringify({ scope: BASELINE_WS_SCOPE.saved, data: payload })
-      )
-      return reply.send({ ok: true, attempt })
-    }
+    ) => handleBaselinePreserve(request.body, reply)
   )
-
-  server.post(
+  s.post(
     BASELINE_API.clear,
-    async (
-      request: FastifyRequest<{ Body: Partial<BaselineClearRequest> }>,
-      reply
-    ) => {
-      const { testUid } = request.body || {}
-      if (!testUid) {
-        return reply.code(400).send({ error: 'testUid required' })
-      }
-      const removed = baselineStore.clear(testUid)
-      if (removed) {
-        const payload: BaselineClearedWsPayload = { testUid }
-        broadcastToClients(
-          JSON.stringify({ scope: BASELINE_WS_SCOPE.cleared, data: payload })
-        )
-      }
-      return reply.send({ ok: true, removed })
-    }
+    (request: FastifyRequest<{ Body: Partial<BaselineClearRequest> }>, reply) =>
+      handleBaselineClear(request.body, reply)
   )
-
-  server.get(
+  s.get(
     BASELINE_API.get,
     async (
       request: FastifyRequest<{
@@ -232,8 +223,31 @@ export async function start(
       return reply.send(baselineStore.getPair(testUid, scope))
     }
   )
+}
 
-  server.get(
+function handleClientWsClose(socket: WebSocket): void {
+  clients.delete(socket)
+  // Last dashboard window closed — tell the worker so it can wind down. Lets
+  // the user close Chrome to end an interactive review session under any
+  // runner. Route to the PARENT worker — it owns the keep-alive + shutdown
+  // handler. The `workerSocket` ref may point at a rerun child that's about
+  // to exit; falling back to `parentWorkerSocket` handles that (and a fresh
+  // post-rerun click before the child fully closes).
+  const target =
+    parentWorkerSocket?.readyState === WebSocket.OPEN
+      ? parentWorkerSocket
+      : workerSocket?.readyState === WebSocket.OPEN
+        ? workerSocket
+        : undefined
+  if (clients.size === 0 && target) {
+    target.send(
+      JSON.stringify({ scope: WS_SCOPE.clientDisconnected, data: {} })
+    )
+  }
+}
+
+function registerClientWebSocket(s: FastifyInstance): void {
+  s.get(
     WS_PATHS.client,
     { websocket: true },
     (socket: WebSocket, _req: FastifyRequest) => {
@@ -242,28 +256,7 @@ export async function start(
       )
       replayBufferedMessages(socket)
       clients.add(socket)
-      socket.on('close', () => {
-        clients.delete(socket)
-        // Last dashboard window closed — tell the worker so it can wind
-        // down. Lets the user close Chrome to end an interactive review
-        // session under any runner.
-        // Route to the PARENT worker — it owns the keep-alive + shutdown
-        // handler. The `workerSocket` ref may point at a rerun child that's
-        // about to exit; falling back to `parentWorkerSocket` handles that
-        // (and a fresh post-rerun click before the child fully closes).
-        const target =
-          parentWorkerSocket?.readyState === WebSocket.OPEN
-            ? parentWorkerSocket
-            : workerSocket?.readyState === WebSocket.OPEN
-              ? workerSocket
-              : undefined
-        if (clients.size === 0 && target) {
-          target.send(
-            JSON.stringify({ scope: WS_SCOPE.clientDisconnected, data: {} })
-          )
-        }
-      })
-
+      socket.on('close', () => handleClientWsClose(socket))
       if (workerSocket?.readyState === WebSocket.OPEN) {
         workerSocket.send(
           JSON.stringify({ scope: WS_SCOPE.clientConnected, data: {} })
@@ -271,8 +264,10 @@ export async function start(
       }
     }
   )
+}
 
-  server.get(
+function registerWorkerWebSocket(s: FastifyInstance): void {
+  s.get(
     WS_PATHS.worker,
     { websocket: true },
     (socket: WebSocket, _req: FastifyRequest) => {
@@ -315,11 +310,13 @@ export async function start(
       )
     }
   )
+}
 
-  server.get(
+function registerVideoRoute(s: FastifyInstance): void {
+  s.get(
     '/api/video/:sessionId',
     {
-      preHandler: server.rateLimit({
+      preHandler: s.rateLimit({
         max: 30,
         timeWindow: '1 minute'
       })
@@ -328,10 +325,32 @@ export async function start(
       request: FastifyRequest<{ Params: { sessionId: string } }>,
       reply
     ) => {
-      const { sessionId } = request.params
-      return serveVideo(sessionId, reply)
+      return serveVideo(request.params.sessionId, reply)
     }
   )
+}
+
+export async function start(
+  opts: DevtoolsBackendOptions = {}
+): Promise<{ server: FastifyInstance; port: number }> {
+  const host = opts.hostname || 'localhost'
+  const preferredPort = opts.port || DEFAULT_PORT
+  const port = await getPort({ port: preferredPort })
+  if (opts.port && port !== opts.port) {
+    log.warn(`Port ${opts.port} is already in use, using port ${port} instead`)
+  }
+
+  const appPath = await getDevtoolsApp()
+  server = Fastify({ logger: true })
+  await server.register(rateLimit, { max: 100, timeWindow: '1 minute' })
+  await server.register(websocket)
+  await server.register(staticServer, { root: appPath })
+
+  registerTestRoutes(server, host, port)
+  registerBaselineRoutes(server)
+  registerClientWebSocket(server)
+  registerWorkerWebSocket(server)
+  registerVideoRoute(server)
 
   log.info(`Starting WebdriverIO Devtools application on port ${port}`)
   await server.listen({ port, host })
