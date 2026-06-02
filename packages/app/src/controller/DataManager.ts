@@ -415,14 +415,8 @@ export class DataManagerController implements ReactiveController {
     this.sourcesContextProvider.setValue(merged)
   }
 
-  #handleSuitesUpdate(data: unknown) {
-    const payloads = Array.isArray(data)
-      ? (data as Record<string, SuiteStatsFragment>[])
-      : ([data] as Record<string, SuiteStatsFragment>[])
-
+  #seedSuiteMapFromContext(): Map<string, SuiteStatsFragment> {
     const suiteMap = new Map<string, SuiteStatsFragment>()
-
-    // Populate with existing suites (keeps test list visible)
     ;(this.suitesContextProvider.value || []).forEach((chunk) => {
       Object.entries(chunk as Record<string, SuiteStatsFragment>).forEach(
         ([uid, suite]) => {
@@ -432,21 +426,35 @@ export class DataManagerController implements ReactiveController {
         }
       )
     })
+    return suiteMap
+  }
 
-    // Canonicalize uids for root suites so a rerun whose reporter assigned a
-    // different uid still merges into the original row.
-    const existingRootSuites = Array.from(suiteMap.values())
-    const incomingRootSuites: SuiteStatsFragment[] = []
+  #collectIncomingRootSuites(
+    payloads: Record<string, SuiteStatsFragment>[]
+  ): SuiteStatsFragment[] {
+    const out: SuiteStatsFragment[] = []
     payloads.forEach((chunk) => {
       if (!chunk) {
         return
       }
       for (const suite of Object.values(chunk)) {
         if (suite?.uid) {
-          incomingRootSuites.push(suite)
+          out.push(suite)
         }
       }
     })
+    return out
+  }
+
+  #handleSuitesUpdate(data: unknown) {
+    const payloads = Array.isArray(data)
+      ? (data as Record<string, SuiteStatsFragment>[])
+      : ([data] as Record<string, SuiteStatsFragment>[])
+    const suiteMap = this.#seedSuiteMapFromContext()
+    // Canonicalize uids for root suites so a rerun whose reporter assigned a
+    // different uid still merges into the original row.
+    const existingRootSuites = Array.from(suiteMap.values())
+    const incomingRootSuites = this.#collectIncomingRootSuites(payloads)
     const mergeCtx = {
       activeRerunTestUid: this.#activeRerunTestUid,
       activeRerunSuiteUid: rerunState.activeRerunSuiteUid
@@ -455,7 +463,6 @@ export class DataManagerController implements ReactiveController {
       existingRootSuites,
       incomingRootSuites
     )
-
     canonicalizedRoots.forEach((suite) => {
       if (!suite?.uid) {
         return
@@ -464,7 +471,6 @@ export class DataManagerController implements ReactiveController {
       const merged = existing ? mergeSuite(existing, suite, mergeCtx) : suite
       suiteMap.set(suite.uid, merged)
     })
-
     this.suitesContextProvider.setValue(
       Array.from(suiteMap.entries()).map(([uid, suite]) => ({ [uid]: suite }))
     )

@@ -31,15 +31,10 @@ export interface MarkerContext {
  * (for the truncation "only here" case), or `nothing` when there's no
  * command to mark.
  */
-export function renderMarker(
-  opts: MarkerContext
-): TemplateResult | typeof nothing {
-  const { cmd, kind, step, allCmdsThisSide, oneSideEntirelyEmpty } = opts
-  if (!cmd) {
-    return nothing
-  }
-
-  // Row-level divergence wins over the per-command status marker.
+function renderRowDivergenceMarker(
+  kind: MarkerContext['kind'],
+  cmd: NonNullable<MarkerContext['cmd']>
+): TemplateResult | undefined {
   switch (kind) {
     case 'commandName':
       return html`<span
@@ -61,27 +56,47 @@ export function renderMarker(
           >⚠ error</span
         >`
       }
-      break
+      return undefined
   }
+  return undefined
+}
 
-  const statusMarker =
-    step?.state === 'failed' && isFailureSite(cmd, step, allCmdsThisSide)
-      ? html`<span
-          class="marker error"
-          title="${step.error?.message
-            ? `Failed step: ${step.fullTitle || step.title || step.uid}\n${step.error.message}`
-            : `Failed step: ${step.fullTitle || step.title || step.uid}`}"
-          >✗ in failed step</span
-        >`
-      : step?.state === 'passed'
-        ? html`<span
-            class="marker ok"
-            title="Step passed: ${step.fullTitle || step.title || step.uid}"
-            >✓</span
-          >`
-        : html`<span class="marker ok" title="Identical">✓</span>`
+function renderStatusMarker(
+  cmd: NonNullable<MarkerContext['cmd']>,
+  step: MarkerContext['step'],
+  allCmdsThisSide: MarkerContext['allCmdsThisSide']
+): TemplateResult {
+  if (step?.state === 'failed' && isFailureSite(cmd, step, allCmdsThisSide)) {
+    const id = step.fullTitle || step.title || step.uid
+    const titleText = step.error?.message
+      ? `Failed step: ${id}\n${step.error.message}`
+      : `Failed step: ${id}`
+    return html`<span class="marker error" title="${titleText}"
+      >✗ in failed step</span
+    >`
+  }
+  if (step?.state === 'passed') {
+    return html`<span
+      class="marker ok"
+      title="Step passed: ${step.fullTitle || step.title || step.uid}"
+      >✓</span
+    >`
+  }
+  return html`<span class="marker ok" title="Identical">✓</span>`
+}
 
-  // Truncation: status + a muted "only here" pill.
+export function renderMarker(
+  opts: MarkerContext
+): TemplateResult | typeof nothing {
+  const { cmd, kind, step, allCmdsThisSide, oneSideEntirelyEmpty } = opts
+  if (!cmd) {
+    return nothing
+  }
+  const divergence = renderRowDivergenceMarker(kind, cmd)
+  if (divergence) {
+    return divergence
+  }
+  const statusMarker = renderStatusMarker(cmd, step, allCmdsThisSide)
   if (kind === 'missing' && !oneSideEntirelyEmpty) {
     return html`${statusMarker}<span
         class="marker info"

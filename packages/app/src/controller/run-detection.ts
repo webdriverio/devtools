@@ -36,34 +36,56 @@ export interface RunDetectionResult {
  *
  * Pure: no `this`. Pass state in, write the returned timestamp back.
  */
+// During a known rerun: just advance the lastSeen high-water mark and don't
+// signal a reset — we'd otherwise wipe the rerun's own freshly-written tree.
+function advanceLastSeenAcrossPayloads(
+  payloads: Record<string, SuiteStatsFragment>[],
+  lastSeen: number
+): number {
+  for (const chunk of payloads) {
+    if (!chunk) {
+      continue
+    }
+    for (const suite of Object.values(chunk)) {
+      if (!suite?.start) {
+        continue
+      }
+      const t = getTimestamp(suite.start as Date | number | string | undefined)
+      if (t > lastSeen) {
+        lastSeen = t
+      }
+    }
+  }
+  return lastSeen
+}
+
+function lookupExistingSuiteEnd(
+  chunk: Record<string, SuiteStatsFragment>,
+  existingChunks: SuiteChunks
+): unknown {
+  const firstUid = Object.keys(chunk)[0]
+  for (const ec of existingChunks) {
+    for (const [uid, existing] of Object.entries(ec)) {
+      if (uid === firstUid) {
+        return existing?.end
+      }
+    }
+  }
+  return undefined
+}
+
 export function shouldResetForNewRun(
   data: unknown,
   state: RunDetectionState,
   existingChunks: SuiteChunks
 ): RunDetectionResult {
   let lastSeen = state.lastSeenRunTimestamp
-
   const payloads = Array.isArray(data)
     ? (data as Record<string, SuiteStatsFragment>[])
     : ([data] as Record<string, SuiteStatsFragment>[])
 
   if (state.activeRerunSuiteUid) {
-    for (const chunk of payloads) {
-      if (!chunk) {
-        continue
-      }
-      for (const suite of Object.values(chunk)) {
-        if (!suite?.start) {
-          continue
-        }
-        const t = getTimestamp(
-          suite.start as Date | number | string | undefined
-        )
-        if (t > lastSeen) {
-          lastSeen = t
-        }
-      }
-    }
+    lastSeen = advanceLastSeenAcrossPayloads(payloads, lastSeen)
     return { shouldReset: false, newLastSeenTimestamp: lastSeen }
   }
 
@@ -78,30 +100,17 @@ export function shouldResetForNewRun(
       const suiteStartTime = getTimestamp(
         suite.start as Date | number | string | undefined
       )
-      if (suiteStartTime <= 0) {
+      if (suiteStartTime <= 0 || suiteStartTime <= lastSeen) {
         continue
       }
-      if (suiteStartTime > lastSeen) {
-        let existingEnd: unknown = undefined
-        outer: for (const ec of existingChunks) {
-          for (const [uid, existing] of Object.entries(ec)) {
-            if (uid === Object.keys(chunk)[0]) {
-              existingEnd = existing?.end
-              break outer
-            }
-          }
-        }
-        const previousRunFinished =
-          existingEnd !== null && existingEnd !== undefined
-        if (previousRunFinished) {
-          return {
-            shouldReset: true,
-            newLastSeenTimestamp: suiteStartTime
-          }
-        }
-        // Continuation — update tracking timestamp but do NOT reset
-        lastSeen = suiteStartTime
+      const existingEnd = lookupExistingSuiteEnd(chunk, existingChunks)
+      const previousRunFinished =
+        existingEnd !== null && existingEnd !== undefined
+      if (previousRunFinished) {
+        return { shouldReset: true, newLastSeenTimestamp: suiteStartTime }
       }
+      // Continuation — advance high-water mark, don't reset.
+      lastSeen = suiteStartTime
     }
   }
   return { shouldReset: false, newLastSeenTimestamp: lastSeen }

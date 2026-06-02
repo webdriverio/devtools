@@ -153,38 +153,19 @@ export function mergeChildSuites(
   return Array.from(map.values())
 }
 
-export function mergeSuite(
-  existing: SuiteStatsFragment,
-  incoming: SuiteStatsFragment,
-  ctx: MergeContext
-): SuiteStatsFragment {
-  // First merge tests and suites properly
-  const mergedTests = mergeTests(existing.tests, incoming.tests, ctx)
-  const mergedSuites = mergeChildSuites(existing.suites, incoming.suites, ctx)
+interface ChildStateSummary {
+  hasInProgressChildren: boolean
+  hasFailedChildren: boolean
+  allChildrenTerminal: boolean
+}
 
-  // Then merge suite properties, ensuring merged tests/suites are preserved
-  const { tests, suites, ...incomingProps } = incoming
-  void tests
-  void suites
-
-  // Strip undefined state from incoming so it doesn't overwrite a valid existing state.
-  // The Nightwatch reporter may send suites without a state field when the JSON
-  // serialization omits properties that are undefined on the object.
-  if (incomingProps.state === undefined || incomingProps.state === null) {
-    delete (incomingProps as Partial<SuiteStatsFragment>).state
-  }
-
-  // Treat incoming state=undefined/null the same as pending — WDIO's SuiteStats
-  // doesn't set 'state' on suite end (unlike TestStats), so undefined means the
-  // backend hasn't assigned a terminal state. Null is the Nightwatch equivalent.
-  const incomingStateIsPendingOrUnset =
-    incoming.state === 'pending' ||
-    incoming.state === null ||
-    incoming.state === undefined
-
+function summarizeChildStates(
+  mergedTests: SuiteStatsFragment['tests'] | undefined,
+  mergedSuites: SuiteStatsFragment['suites'] | undefined
+): ChildStateSummary {
   const allChildren = [...(mergedTests || []), ...(mergedSuites || [])]
-  // Treat children with undefined/null state as in-progress (not yet terminal).
-  // This prevents prematurely deriving 'passed' when children haven't reported yet.
+  // undefined/null state counts as in-progress so we don't derive 'passed'
+  // before children have reported.
   const hasInProgressChildren = allChildren.some(
     (child) =>
       child?.state === 'running' ||
@@ -195,8 +176,6 @@ export function mergeSuite(
     (child) => child?.state === 'failed'
   )
   const hasChildren = allChildren.length > 0
-
-  // Only derive 'passed' when ALL children have reached a terminal state.
   const allChildrenTerminal =
     hasChildren &&
     allChildren.every(
@@ -205,25 +184,69 @@ export function mergeSuite(
         child?.state === 'failed' ||
         child?.state === 'skipped'
     )
+  return { hasInProgressChildren, hasFailedChildren, allChildrenTerminal }
+}
 
-  // On rerun start we optimistically mark the suite as running in the UI.
-  // Keep (or set) running state whenever the incoming state is unset/pending
-  // AND children are still in-progress. This handles both:
-  //   • Nightwatch: suite was already 'running' → keep it running
-  //   • WDIO: suite was 'passed' from previous run but now has running children
-  //     (WDIO SuiteStats never carries an explicit state, so the previous
-  //     derivedCompletedState='passed' would otherwise be silently preserved)
-  const keepRunningState =
-    incomingStateIsPendingOrUnset && hasInProgressChildren
+// When a new run starts the backend sends the feature suite with
+// state: 'pending' before it has pushed any scenario children. Stale child
+// suites preserved by mergeChildSuites must not keep their terminal states —
+// mark them 'pending' so they render as a spinner instead of a stale check.
+// Exception: child-scope rerun (activeRerunSuiteUid differs from the
+// incoming feature suite's uid) — sibling scenarios keep terminal states.
+function resetStaleChildrenOnRerun(
+  mergedSuites: SuiteStatsFragment['suites'] | undefined,
+  incoming: SuiteStatsFragment,
+  ctx: MergeContext
+): SuiteStatsFragment['suites'] | undefined {
+  const isChildRerun =
+    !!ctx.activeRerunSuiteUid && ctx.activeRerunSuiteUid !== incoming.uid
+  if (incoming.state !== 'pending' || !mergedSuites || isChildRerun) {
+    return mergedSuites
+  }
+  return mergedSuites.map((s) =>
+    s.state === 'passed' || s.state === 'failed'
+      ? { ...s, state: 'pending' as const, end: undefined }
+      : s
+  )
+}
 
-  // Only derive 'passed'/'failed' from children when the backend hasn't
-  // assigned an explicit state (WDIO case: SuiteStats.state is never set on
-  // suite end). When state is explicitly 'pending' the backend is signalling
-  // a new run is starting — stale children from the previous run must not
-  // be used to derive a completed state.
+export function mergeSuite(
+  existing: SuiteStatsFragment,
+  incoming: SuiteStatsFragment,
+  ctx: MergeContext
+): SuiteStatsFragment {
+  const mergedTests = mergeTests(existing.tests, incoming.tests, ctx)
+  const mergedSuites = mergeChildSuites(existing.suites, incoming.suites, ctx)
+
+  // Strip nullish state from incoming so it doesn't overwrite a valid existing
+  // state. Nightwatch reporter may omit state fields entirely.
+  const { tests, suites, ...incomingProps } = incoming
+  void tests
+  void suites
+  if (incomingProps.state === undefined || incomingProps.state === null) {
+    delete (incomingProps as Partial<SuiteStatsFragment>).state
+  }
+
+  // WDIO SuiteStats never carries 'state' on suite end → treat
+  // undefined/null/pending the same.
+  const incomingStateIsPendingOrUnset =
+    incoming.state === 'pending' ||
+    incoming.state === null ||
+    incoming.state === undefined
   const incomingStateIsUnset =
     incoming.state === null || incoming.state === undefined
 
+  const { hasInProgressChildren, hasFailedChildren, allChildrenTerminal } =
+    summarizeChildStates(mergedTests, mergedSuites)
+
+  // Keep 'running' when the backend hasn't reported a terminal state and any
+  // child is still in flight — covers both Nightwatch (was 'running') and
+  // WDIO (was 'passed' from previous run, now has new running children).
+  const keepRunningState =
+    incomingStateIsPendingOrUnset && hasInProgressChildren
+
+  // Only derive a terminal state when the backend left it unset AND every
+  // child has settled. Avoids deriving 'passed' from stale previous-run kids.
   const derivedCompletedState: SuiteStatsFragment['state'] | undefined =
     allChildrenTerminal && incomingStateIsUnset
       ? hasFailedChildren
@@ -231,24 +254,7 @@ export function mergeSuite(
         : 'passed'
       : undefined
 
-  // When a new run starts the backend sends the feature suite with
-  // state: 'pending' before it has pushed any scenario children.
-  // mergeChildSuites preserves stale child suites from the previous run,
-  // but they must not keep their terminal states — mark them 'pending' so
-  // they render as a spinner instead of a stale checkmark/cross.
-  // Exception: when only a specific child scenario is being rerun
-  // (activeRerunSuiteUid differs from the incoming feature suite's uid),
-  // sibling scenarios must keep their existing terminal states.
-  const isChildRerun =
-    !!ctx.activeRerunSuiteUid && ctx.activeRerunSuiteUid !== incoming.uid
-  const finalSuites =
-    incoming.state === 'pending' && mergedSuites && !isChildRerun
-      ? mergedSuites.map((s) =>
-          s.state === 'passed' || s.state === 'failed'
-            ? { ...s, state: 'pending' as const, end: undefined }
-            : s
-        )
-      : mergedSuites
+  const finalSuites = resetStaleChildrenOnRerun(mergedSuites, incoming, ctx)
 
   return {
     ...existing,
