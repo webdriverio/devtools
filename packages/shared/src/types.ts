@@ -218,11 +218,34 @@ export interface Metadata {
   desiredCapabilities?: Record<string, unknown>
 }
 
+/**
+ * Node-safe shape of a captured DOM mutation. The browser-side script
+ * (packages/script) extends this with the real `MutationRecordType` union
+ * via the global `TraceMutation` declaration there; this Node version uses
+ * a plain string literal type so the shape can flow through shared without
+ * dragging the DOM lib into shared's compilation.
+ *
+ * `addedNodes` / `removedNodes` are opaque payloads here — the browser side
+ * stringifies / serializes them via SimplifiedVNode.
+ */
+export interface TraceMutation {
+  type: 'attributes' | 'characterData' | 'childList'
+  attributeName?: string
+  attributeNamespace?: string
+  attributeValue?: string
+  newTextContent?: string
+  oldValue?: string
+  addedNodes: unknown[]
+  target?: string
+  removedNodes: string[]
+  previousSibling?: string
+  nextSibling?: string
+  timestamp: number
+  url?: string
+}
+
 export interface TraceLog {
-  // Mutations are typed as unknown[] here because the concrete shape lives in
-  // packages/script (browser-side, depends on DOM types). Adapters and the app
-  // can narrow with their own DOM-aware TraceMutation type when needed.
-  mutations: unknown[]
+  mutations: TraceMutation[]
   logs: string[]
   consoleLogs: ConsoleLog[]
   networkRequests: NetworkRequest[]
