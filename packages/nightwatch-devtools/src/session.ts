@@ -17,7 +17,11 @@ import {
   type NetworkEntry,
   type PerfLogEntry
 } from './helpers/perfLogs.js'
-import { CAPTURE_PERFORMANCE_SCRIPT } from './helpers/capturePerformance.js'
+import {
+  CAPTURE_PERFORMANCE_SCRIPT,
+  type CapturedPerformancePayload,
+  applyPerformanceData
+} from '@wdio/devtools-core'
 import type {
   CommandLog,
   ConsoleLog,
@@ -125,32 +129,11 @@ export class SessionCapturer extends SessionCapturerBase {
     args: any[]
   ) {
     await new Promise((resolve) => setTimeout(resolve, 500))
-
-    const performanceData = await this.#browser!.execute(
-      CAPTURE_PERFORMANCE_SCRIPT
+    const raw = await this.#browser!.execute(CAPTURE_PERFORMANCE_SCRIPT)
+    const payload = unwrapDriverValue<CapturedPerformancePayload | undefined>(
+      raw
     )
-
-    // `data` field surface is loose (Chrome perf data dump) — keep it `any`
-    // for the downstream property access. `unwrapDriverValue` handles the
-    // `{value: ...}` W3C-protocol unwrap when present.
-    const data: any = unwrapDriverValue(performanceData)
-
-    if (data && data.navigation) {
-      commandLogEntry.performance = {
-        navigation: data.navigation,
-        resources: data.resources
-      }
-      commandLogEntry.cookies = data.cookies
-      commandLogEntry.documentInfo = data.documentInfo
-      commandLogEntry.result = {
-        url: args[0],
-        loadTime: data.navigation?.timing?.loadTime,
-        resources: data.resources,
-        resourceCount: data.resources?.length,
-        cookies: data.cookies,
-        title: data.documentInfo?.title
-      }
-    }
+    applyPerformanceData(commandLogEntry, payload, args[0])
   }
 
   /**

@@ -612,7 +612,10 @@ class SeleniumDevToolsPlugin {
         () => {
           this.#scriptInjected = true
         },
-        () => this.#finalized
+        () => this.#finalized,
+        entry,
+        cmd.args,
+        this.#driver
       )
     }
   }
