@@ -72,17 +72,21 @@ class NightwatchDevToolsPlugin {
   #screencastOptions: ScreencastOptions
   #screencastRecorder?: ScreencastRecorder
   #screencastSessionId?: string
+  #bidiEnabled = false
+  #bidiAttachAttempted = false
 
   constructor(options: DevToolsOptions = {}) {
     this.options = {
       port: options.port ?? 3000,
       hostname: options.hostname ?? 'localhost',
-      screencast: options.screencast ?? {}
+      screencast: options.screencast ?? {},
+      bidi: options.bidi ?? false
     }
     this.#screencastOptions = {
       ...SCREENCAST_DEFAULTS,
       ...(options.screencast ?? {})
     }
+    this.#bidiEnabled = options.bidi === true
   }
 
   async before() {
@@ -288,10 +292,31 @@ class NightwatchDevToolsPlugin {
     ] ||
       (desiredCapabilities as Record<string, unknown>)['goog:loggingPrefs'] ||
       {}) as { performance?: string }
-    if (!loggingPrefs.performance) {
+    if (!loggingPrefs.performance && !this.#bidiEnabled) {
       log.warn(
-        "⚠  Network tab will be empty — add 'goog:loggingPrefs': { performance: 'ALL' } to your capabilities"
+        "⚠  Network tab will be empty — add 'goog:loggingPrefs': { performance: 'ALL' } to your capabilities (or enable bidi:true)"
       )
+    }
+
+    // BiDi: opt-in. Requires `webSocketUrl: true` capability + a BiDi-capable
+    // chromedriver. We attempt once per session; on failure or unavailability
+    // the perf-log fallback path continues to work.
+    if (this.#bidiEnabled && !this.#bidiAttachAttempted) {
+      this.#bidiAttachAttempted = true
+      const driver = (browser as { driver?: unknown }).driver
+      if (driver) {
+        const { attachBidiHandlers, buildBidiSinks } = await import('./bidi.js')
+        const ok = await attachBidiHandlers(
+          driver,
+          buildBidiSinks(this.sessionCapturer)
+        )
+        if (ok) {
+          this.sessionCapturer.bidiActive = true
+          log.info('✓ BiDi attached — perf-log network capture disabled')
+        }
+      } else {
+        log.warn('bidi:true set but browser.driver unavailable — skipping')
+      }
     }
 
     // Screencast: start a fresh recorder per browser session — every

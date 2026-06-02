@@ -1,28 +1,23 @@
-import { createRequire } from 'node:module'
 import logger from '@wdio/logger'
-import { errorMessage } from '@wdio/devtools-core'
-import { LOG_SOURCES } from './constants.js'
-import { chromeLogLevelToLogLevel, getRequestType } from './helpers/utils.js'
-import type { BidiHandlerSinks, LogLevel, NetworkRequest } from './types.js'
+import {
+  type BidiHandlerSinks,
+  attachBidiHandlers as attachBidiHandlersCore,
+  errorMessage
+} from '@wdio/devtools-core'
 import type { SessionCapturer } from './session.js'
 
 const log = logger('@wdio/selenium-devtools:bidi')
 
-function loadSeleniumSubmodule(subpath: string): any | null {
-  try {
-    const userRequire = createRequire(`${process.cwd()}/`)
-    return userRequire(`selenium-webdriver/${subpath}`)
-  } catch {
-    try {
-      const localRequire = createRequire(import.meta.url)
-      return localRequire(`selenium-webdriver/${subpath}`)
-    } catch {
-      return null
-    }
-  }
-}
+// Generic BiDi attach/load helpers live in @wdio/devtools-core; re-exported
+// here so existing internal imports from './bidi.js' continue to resolve.
+export {
+  arrayHeadersToObject,
+  loadSeleniumSubmodule,
+  type BidiHandlerSinks
+} from '@wdio/devtools-core'
 
 // Sets webSocketUrl=true so the driver actually exposes the BiDi channel.
+// Selenium-specific because it operates on the selenium-webdriver Builder.
 export function ensureBidiCapability(builder: any): void {
   try {
     const caps =
@@ -44,6 +39,7 @@ export function ensureBidiCapability(builder: any): void {
 
 // `--headless=old` (not `=new`) — `new` produces all-black frames under
 // CDP `Page.startScreencast` on macOS (upstream Chrome bug).
+// Selenium-specific because it operates on the selenium-webdriver Builder.
 export function ensureHeadlessChrome(builder: any): void {
   try {
     const caps =
@@ -71,149 +67,18 @@ export function ensureHeadlessChrome(builder: any): void {
   }
 }
 
-// Returns true when at least one stream connected — caller disables the
-// equivalent script-injection collectors to avoid duplicates.
+/**
+ * Selenium-specific wrapper around the core `attachBidiHandlers`. Adds the
+ * adapter's logger so users see BiDi lifecycle events under the
+ * `@wdio/selenium-devtools:bidi` namespace they're used to.
+ */
 export async function attachBidiHandlers(
   driver: any,
   sinks: BidiHandlerSinks
 ): Promise<boolean> {
-  const logInspectorFactory = loadSeleniumSubmodule('bidi/logInspector')
-  const networkInspectorFactory = loadSeleniumSubmodule('bidi/networkInspector')
-
-  let attached = 0
-
-  if (typeof logInspectorFactory === 'function') {
-    try {
-      const inspector = await logInspectorFactory(driver)
-      await inspector.onConsoleEntry((entry: any) => {
-        try {
-          const level = (entry?.level ?? entry?.type ?? 'info').toString()
-          const text = entry?.text ?? entry?.message ?? ''
-          sinks.pushConsoleLog({
-            timestamp: Number(entry?.timestamp) || Date.now(),
-            type: chromeLogLevelToLogLevel(level) as LogLevel,
-            args: [text],
-            source: LOG_SOURCES.BROWSER
-          })
-        } catch (err) {
-          log.warn(`onConsoleEntry handler threw: ${errorMessage(err)}`)
-        }
-      })
-      await inspector.onJavascriptException((exception: any) => {
-        try {
-          const text =
-            exception?.text ?? exception?.message ?? String(exception)
-          const trimmed = String(text).replace(/\s+/g, ' ').slice(0, 200)
-          log.warn(
-            `🐛 JS error in page: ${trimmed}${String(text).length > 200 ? '…' : ''}`
-          )
-          sinks.pushConsoleLog({
-            timestamp: Date.now(),
-            type: 'error',
-            args: [text],
-            source: LOG_SOURCES.BROWSER
-          })
-        } catch (err) {
-          log.warn(`onJavascriptException handler threw: ${errorMessage(err)}`)
-        }
-      })
-      attached++
-      log.info('✓ BiDi LogInspector attached (console + JS exceptions)')
-    } catch (err) {
-      log.warn(`BiDi LogInspector attach failed: ${errorMessage(err)}`)
-    }
-  } else {
-    log.info('selenium-webdriver/bidi/logInspector not available — skipping')
-  }
-
-  if (typeof networkInspectorFactory === 'function') {
-    try {
-      const inspector = await networkInspectorFactory(driver)
-      const pending = new Map<string, NetworkRequest>()
-
-      await inspector.beforeRequestSent((event: any) => {
-        try {
-          const requestId = String(event?.request?.request ?? event?.id ?? '')
-          if (!requestId) {
-            return
-          }
-          const entry: NetworkRequest = {
-            id: requestId,
-            url: event?.request?.url ?? '',
-            method: event?.request?.method ?? 'GET',
-            requestHeaders: arrayHeadersToObject(event?.request?.headers),
-            timestamp: Date.now(),
-            startTime: Number(event?.timestamp ?? Date.now()),
-            type: getRequestType(event?.request?.url ?? '')
-          }
-          pending.set(requestId, entry)
-          sinks.pushNetworkRequest(entry)
-        } catch (err) {
-          log.warn(`beforeRequestSent threw: ${errorMessage(err)}`)
-        }
-      })
-
-      await inspector.responseCompleted((event: any) => {
-        try {
-          const requestId = String(event?.request?.request ?? event?.id ?? '')
-          const previous = pending.get(requestId)
-          if (!previous) {
-            return
-          }
-          const finalized: NetworkRequest = {
-            ...previous,
-            status: Number(event?.response?.status) || previous.status,
-            statusText: event?.response?.statusText ?? previous.statusText,
-            responseHeaders: arrayHeadersToObject(event?.response?.headers),
-            type: getRequestType(previous.url, event?.response?.mimeType),
-            endTime: Number(event?.timestamp ?? Date.now()),
-            time: Number(event?.timestamp ?? Date.now()) - previous.startTime,
-            size: Number(event?.response?.bytesReceived) || undefined
-          }
-          pending.delete(requestId)
-          sinks.replaceNetworkRequest(requestId, finalized)
-        } catch (err) {
-          log.warn(`responseCompleted threw: ${errorMessage(err)}`)
-        }
-      })
-
-      attached++
-      log.info('✓ BiDi NetworkInspector attached (request + response)')
-    } catch (err) {
-      log.warn(`BiDi NetworkInspector attach failed: ${errorMessage(err)}`)
-    }
-  } else {
-    log.info(
-      'selenium-webdriver/bidi/networkInspector not available — skipping'
-    )
-  }
-
-  return attached > 0
-}
-
-// BiDi headers arrive as Array<{name, value:{value|type}}>; flatten to a
-// lowercased dictionary.
-function arrayHeadersToObject(
-  headers: any
-): Record<string, string> | undefined {
-  if (!Array.isArray(headers)) {
-    return undefined
-  }
-  const out: Record<string, string> = {}
-  for (const h of headers) {
-    const name = String(h?.name ?? '').toLowerCase()
-    if (!name) {
-      continue
-    }
-    const v = h?.value
-    out[name] =
-      typeof v === 'string'
-        ? v
-        : typeof v?.value === 'string'
-          ? v.value
-          : JSON.stringify(v ?? '')
-  }
-  return out
+  return attachBidiHandlersCore(driver, sinks, (level, message) =>
+    log[level](message)
+  )
 }
 
 export function buildBidiSinks(capturer: SessionCapturer): BidiHandlerSinks {
@@ -227,7 +92,9 @@ export function buildBidiSinks(capturer: SessionCapturer): BidiHandlerSinks {
       capturer.sendUpstream('networkRequests', [entry])
     },
     replaceNetworkRequest: (id, entry) => {
-      const idx = capturer.networkRequests.findIndex((r: any) => r.id === id)
+      const idx = capturer.networkRequests.findIndex(
+        (r: NetworkRequestWithId) => r.id === id
+      )
       if (idx !== -1) {
         capturer.networkRequests[idx] = entry
       } else {
@@ -237,3 +104,5 @@ export function buildBidiSinks(capturer: SessionCapturer): BidiHandlerSinks {
     }
   }
 }
+
+type NetworkRequestWithId = { id?: string }
