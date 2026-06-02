@@ -1,4 +1,9 @@
-import { DEFAULTS, TEST_STATE } from '../constants.js'
+import {
+  computeSuiteFinalStatePermissive,
+  createSuiteStats,
+  stampSuiteEnd
+} from '@wdio/devtools-core'
+import { DEFAULTS } from '../constants.js'
 import type { SuiteStats, TestStats } from '../types.js'
 import type { TestReporter } from '../reporter.js'
 import { generateStableUid } from './utils.js'
@@ -17,21 +22,12 @@ export class SuiteManager {
       return this.rootSuite
     }
 
-    const suite: SuiteStats = {
+    const suite = createSuiteStats({
       uid: generateStableUid(file, title),
       cid: DEFAULTS.CID,
       title,
-      fullTitle: title,
-      file,
-      type: 'suite',
-      start: new Date(),
-      state: TEST_STATE.RUNNING,
-      end: null,
-      tests: [],
-      suites: [],
-      hooks: [],
-      _duration: DEFAULTS.DURATION
-    }
+      file
+    })
 
     this.rootSuite = suite
     this.currentParent = suite
@@ -58,26 +54,17 @@ export class SuiteManager {
     if (!this.rootSuite) {
       return null
     }
-    const sub: SuiteStats = {
+    const sub = createSuiteStats({
       uid: generateStableUid(file, `${this.rootSuite.uid}::${name}`),
       cid: DEFAULTS.CID,
       title: name,
-      fullTitle: name,
       file,
-      type: 'suite',
-      start: new Date(),
-      state: TEST_STATE.RUNNING,
-      end: null,
-      tests: [],
-      suites: [],
-      hooks: [],
-      _duration: DEFAULTS.DURATION,
       callSource,
       featureFile,
       // Without `parent`, the dashboard's `!suite.parent` filter renders this
       // sub-suite at the root too, duplicating it next to the feature.
       parent: this.rootSuite.uid
-    }
+    })
     this.rootSuite.suites = this.rootSuite.suites ?? []
     this.rootSuite.suites.push(sub)
     this.currentParent = sub
@@ -90,9 +77,7 @@ export class SuiteManager {
     if (!cur || cur === this.rootSuite || cur.end) {
       return
     }
-    cur.end = new Date()
-    cur._duration =
-      cur.end.getTime() - (cur.start?.getTime() || cur.end.getTime())
+    stampSuiteEnd(cur)
     cur.state = state
     this.testReporter.onSuiteEnd(cur)
     this.currentParent = this.rootSuite
@@ -130,19 +115,8 @@ export class SuiteManager {
     if (!this.rootSuite || this.rootSuite.end) {
       return
     }
-    this.rootSuite.end = new Date()
-    this.rootSuite._duration =
-      this.rootSuite.end.getTime() -
-      (this.rootSuite.start?.getTime() || this.rootSuite.end.getTime())
-
-    const failedDirect = this.rootSuite.tests.some(
-      (t) => typeof t !== 'string' && t.state === TEST_STATE.FAILED
-    )
-    const failedNested = (this.rootSuite.suites ?? []).some(
-      (s) => s.state === TEST_STATE.FAILED
-    )
-    this.rootSuite.state =
-      failedDirect || failedNested ? TEST_STATE.FAILED : TEST_STATE.PASSED
+    stampSuiteEnd(this.rootSuite)
+    this.rootSuite.state = computeSuiteFinalStatePermissive(this.rootSuite)
     this.testReporter.onSuiteEnd(this.rootSuite)
   }
 
