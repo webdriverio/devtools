@@ -5,40 +5,61 @@ import type { RunnerHookCallbacks } from '../types.js'
 
 const log = logger('@wdio/selenium-devtools:runnerHooks:cucumber')
 
-// Loads `@cucumber/cucumber` from the user's install (peer-dep style) and
-// registers BeforeAll/Before/After/AfterAll. The hook receives the full
-// pickle so we can surface scenario name + feature name in the dashboard.
-export function tryRegisterCucumberHooks(
-  callbacks: RunnerHookCallbacks
-): boolean {
-  const tryLoad = (): any | null => {
+type CucumberModule = Record<string, unknown> & {
+  Before?: (fn: (testCase: unknown) => void) => void
+  After?: (fn: (testCase: unknown) => void) => void
+  BeforeAll?: (fn: () => void) => void
+  AfterAll?: (fn: () => void) => void
+  BeforeStep?: (fn: (arg: unknown) => void) => void
+  AfterStep?: (fn: (arg: unknown) => void) => void
+}
+
+interface StepDefinition {
+  pattern: string | RegExp
+  uri: string
+  line: number
+}
+
+interface GherkinIndex {
+  stepKeywordById: Map<string, string>
+  stepLineById: Map<string, number>
+  scenarioLineById: Map<string, number>
+}
+
+interface RunCounters {
+  runStartTs: number
+  started: number
+  passed: number
+  failed: number
+  pending: number
+}
+
+function loadCucumber(): CucumberModule | null {
+  try {
+    return createRequire(`${process.cwd()}/`)('@cucumber/cucumber')
+  } catch {
     try {
-      return createRequire(`${process.cwd()}/`)('@cucumber/cucumber')
+      return createRequire(import.meta.url)('@cucumber/cucumber')
     } catch {
-      try {
-        return createRequire(import.meta.url)('@cucumber/cucumber')
-      } catch {
-        return null
-      }
+      return null
     }
   }
-  const cucumber = tryLoad()
-  if (!cucumber) {
-    return false
-  }
-  const { Before, After, BeforeAll, AfterAll, BeforeStep, AfterStep } = cucumber
-  if (typeof Before !== 'function' || typeof After !== 'function') {
-    return false
-  }
+}
 
-  // BeforeStep doesn't expose which step definition matched, so we wrap the
-  // Given/When/Then registrars to snapshot (pattern → uri:line) at registration.
-  const stepDefinitions: Array<{
-    pattern: string | RegExp
-    uri: string
-    line: number
-  }> = []
+// Cucumber-expression → regex. Handles built-in placeholders only; custom
+// types fall through to wildcard.
+function patternToRegex(pattern: string): RegExp {
+  const escaped = pattern.replace(/[{}.*+?^$|()[\]\\]/g, '\\$&')
+  const expanded = escaped
+    .replace(/\\\{string\\\}/g, '"([^"]*)"')
+    .replace(/\\\{int\\\}/g, '(-?\\d+)')
+    .replace(/\\\{float\\\}/g, '(-?\\d*\\.?\\d+)')
+    .replace(/\\\{word\\\}/g, '([^\\s]+)')
+    .replace(/\\\{[^}]*\\\}/g, '(.+?)')
+  return new RegExp(`^${expanded}$`)
+}
 
+function makeCallSiteCapturer(): () => { uri: string; line: number } | null {
   const selfUrl = (() => {
     try {
       return import.meta.url
@@ -47,14 +68,10 @@ export function tryRegisterCucumberHooks(
     }
   })()
   const selfPath = selfUrl.replace(/^file:\/\//, '')
-  const isSelfFrame = (line: string): boolean => {
-    if (!selfPath) {
-      return false
-    }
-    return line.includes(selfPath) || line.includes(selfUrl)
-  }
+  const isSelfFrame = (line: string): boolean =>
+    !!selfPath && (line.includes(selfPath) || line.includes(selfUrl))
 
-  const captureCallSite = (): { uri: string; line: number } | null => {
+  return () => {
     const stack = new Error().stack || ''
     for (const raw of stack.split('\n')) {
       const line = raw.trim()
@@ -71,232 +88,285 @@ export function tryRegisterCucumberHooks(
       const m =
         /\(([^)]+):(\d+):\d+\)$/.exec(line) || /at\s+(.+):(\d+):\d+$/.exec(line)
       if (m) {
-        let uri = m[1]
-        if (uri.startsWith('file://')) {
-          uri = uri.replace(/^file:\/\//, '')
-        }
+        const uri = m[1].startsWith('file://')
+          ? m[1].replace(/^file:\/\//, '')
+          : m[1]
         return { uri, line: Number(m[2]) }
       }
     }
     return null
   }
+}
+
+// BeforeStep doesn't expose which step definition matched. Wraps Given/When/Then
+// to snapshot (pattern → uri:line) at registration time.
+function createStepDefinitionRegistry(cucumber: CucumberModule): {
+  find: (text: string) => { uri: string; line: number } | null
+} {
+  const defs: StepDefinition[] = []
+  const captureCallSite = makeCallSiteCapturer()
 
   for (const name of ['Given', 'When', 'Then', 'defineStep'] as const) {
-    if (typeof cucumber[name] !== 'function') {
+    const orig = cucumber[name]
+    if (typeof orig !== 'function') {
       continue
     }
-    const orig = cucumber[name]
-    cucumber[name] = function patchedRegistrar(...args: any[]) {
+    const fn = orig as (...a: unknown[]) => unknown
+    const wrapped = function patchedRegistrar(
+      this: unknown,
+      ...args: unknown[]
+    ) {
       const callSite = captureCallSite()
       if (callSite && args.length > 0) {
-        stepDefinitions.push({
-          pattern: args[0],
+        defs.push({
+          pattern: args[0] as string | RegExp,
           uri: callSite.uri,
           line: callSite.line
         })
       }
-      return orig.apply(this, args)
+      return fn.apply(this, args)
     }
-    Object.assign(cucumber[name], orig)
+    Object.assign(wrapped, orig)
+    cucumber[name] = wrapped
   }
 
-  // Cucumber-expression → regex. Handles built-in placeholders only; custom
-  // types fall through to wildcard. Braces MUST be in the escape set so the
-  // subsequent `\{string\}`-shaped replacements can match.
-  const patternToRegex = (pattern: string): RegExp => {
-    const escaped = pattern.replace(/[{}.*+?^$|()[\]\\]/g, '\\$&')
-    const expanded = escaped
-      .replace(/\\\{string\\\}/g, '"([^"]*)"')
-      .replace(/\\\{int\\\}/g, '(-?\\d+)')
-      .replace(/\\\{float\\\}/g, '(-?\\d*\\.?\\d+)')
-      .replace(/\\\{word\\\}/g, '([^\\s]+)')
-      .replace(/\\\{[^}]*\\\}/g, '(.+?)')
-    return new RegExp(`^${expanded}$`)
-  }
-
-  const findStepDefinition = (
-    text: string
-  ): { uri: string; line: number } | null => {
-    for (const def of stepDefinitions) {
-      let regex: RegExp
-      try {
-        regex =
-          def.pattern instanceof RegExp
-            ? def.pattern
-            : patternToRegex(String(def.pattern))
-      } catch {
-        continue
+  return {
+    find(text) {
+      for (const def of defs) {
+        let regex: RegExp
+        try {
+          regex =
+            def.pattern instanceof RegExp
+              ? def.pattern
+              : patternToRegex(String(def.pattern))
+        } catch {
+          continue
+        }
+        if (regex.test(text)) {
+          return { uri: def.uri, line: def.line }
+        }
       }
-      if (regex.test(text)) {
-        return { uri: def.uri, line: def.line }
+      return null
+    }
+  }
+}
+
+function makeGherkinIndex(): GherkinIndex {
+  return {
+    stepKeywordById: new Map<string, string>(),
+    stepLineById: new Map<string, number>(),
+    scenarioLineById: new Map<string, number>()
+  }
+}
+
+function populateGherkinIndex(index: GherkinIndex, testCase: any): void {
+  index.stepKeywordById.clear()
+  index.stepLineById.clear()
+  index.scenarioLineById.clear()
+  const featureChildren = testCase?.gherkinDocument?.feature?.children ?? []
+  for (const child of featureChildren) {
+    if (child?.scenario?.id && child?.scenario?.location?.line) {
+      index.scenarioLineById.set(
+        child.scenario.id,
+        child.scenario.location.line
+      )
+    }
+    const steps = child?.scenario?.steps ?? child?.background?.steps ?? []
+    for (const step of steps) {
+      if (step?.id && typeof step?.keyword === 'string') {
+        index.stepKeywordById.set(step.id, step.keyword)
+      }
+      if (step?.id && step?.location?.line) {
+        index.stepLineById.set(step.id, step.location.line)
       }
     }
-    return null
+  }
+}
+
+type ScenarioState = 'passed' | 'failed' | 'pending'
+
+function mapCucumberStatus(status: string): ScenarioState | 'skipped' {
+  const s = status.toUpperCase()
+  if (s === 'FAILED' || s === 'UNDEFINED' || s === 'AMBIGUOUS') {
+    return 'failed'
+  }
+  if (s === 'PENDING') {
+    return 'pending'
+  }
+  if (s === 'SKIPPED') {
+    return 'skipped'
+  }
+  return 'passed'
+}
+
+function registerRunLifecycleHooks(
+  cucumber: CucumberModule,
+  counters: RunCounters,
+  callbacks: RunnerHookCallbacks
+): void {
+  const { BeforeAll, AfterAll } = cucumber
+  if (typeof BeforeAll !== 'function' || typeof AfterAll !== 'function') {
+    return
+  }
+  BeforeAll(() => {
+    counters.runStartTs = Date.now()
+    log.info('🧪 Test run starting')
+  })
+  AfterAll(() => {
+    const durationMs = Date.now() - counters.runStartTs
+    const duration = (durationMs / 1000).toFixed(2)
+    log.info(
+      `🧪 Test run complete: ${counters.passed} passed, ${counters.failed} failed` +
+        (counters.pending ? `, ${counters.pending} pending` : '') +
+        ` (${duration}s, ${counters.started} total)`
+    )
+    callbacks.onTestRunComplete?.({
+      passed: counters.passed,
+      failed: counters.failed,
+      pending: counters.pending,
+      durationMs
+    })
+  })
+}
+
+function registerScenarioHooks(
+  cucumber: CucumberModule,
+  index: GherkinIndex,
+  counters: RunCounters,
+  callbacks: RunnerHookCallbacks
+): void {
+  const { Before, After } = cucumber
+  if (typeof Before !== 'function' || typeof After !== 'function') {
+    return
   }
 
-  let runStartTs = 0
-  let testsStarted = 0
-  let testsPassed = 0
-  let testsFailed = 0
-  let testsPending = 0
+  Before(function (testCase: any) {
+    if (counters.runStartTs === 0) {
+      counters.runStartTs = Date.now()
+    }
+    populateGherkinIndex(index, testCase)
+    const pickle = testCase?.pickle
+    const name: string = pickle?.name ?? 'unknown scenario'
+    const file: string | undefined = pickle?.uri
+    const featureName: string | undefined =
+      testCase?.gherkinDocument?.feature?.name
+    const featureLine = testCase?.gherkinDocument?.feature?.location?.line
+
+    const scenarioLineFromMap =
+      Array.isArray(pickle?.astNodeIds) &&
+      index.scenarioLineById.get(pickle.astNodeIds[0])
+    const scenarioLine = scenarioLineFromMap || pickle?.location?.line
+    const callSource = file
+      ? scenarioLine
+        ? `${file}:${scenarioLine}`
+        : `${file}:0`
+      : undefined
+    const featureCallSource = file
+      ? featureLine
+        ? `${file}:${featureLine}`
+        : `${file}:1`
+      : undefined
+
+    log.info(`▶ Scenario: "${name}"`)
+    counters.started++
+    callbacks.onScenarioStart?.(
+      name,
+      file,
+      callSource,
+      featureName,
+      featureCallSource
+    )
+  })
+
+  After(function (testCase: any) {
+    const state = mapCucumberStatus(String(testCase?.result?.status ?? ''))
+    const scenarioState: ScenarioState = state === 'skipped' ? 'pending' : state
+    const icon =
+      scenarioState === 'passed' ? '✓' : scenarioState === 'failed' ? '✗' : '○'
+    log.info(`${icon} Scenario: "${testCase?.pickle?.name ?? 'unknown'}"`)
+    if (scenarioState === 'passed') {
+      counters.passed++
+    } else if (scenarioState === 'failed') {
+      counters.failed++
+    } else {
+      counters.pending++
+    }
+    callbacks.onScenarioEnd?.(scenarioState)
+  })
+}
+
+function registerStepHooks(
+  cucumber: CucumberModule,
+  index: GherkinIndex,
+  stepDefs: { find: (text: string) => { uri: string; line: number } | null },
+  callbacks: RunnerHookCallbacks
+): void {
+  const { BeforeStep, AfterStep } = cucumber
+  if (typeof BeforeStep === 'function') {
+    BeforeStep(function (arg: any) {
+      const pickleStep = arg?.pickleStep
+      if (!pickleStep) {
+        return
+      }
+      const astId =
+        Array.isArray(pickleStep.astNodeIds) && pickleStep.astNodeIds[0]
+      const keyword = (astId && index.stepKeywordById.get(astId)) || ''
+      const text: string = pickleStep.text ?? ''
+      const title = `${keyword}${text}`.trim()
+      const stepDef = stepDefs.find(text)
+      const featureFile: string | undefined = arg?.pickle?.uri
+      const featureLineForStep =
+        (astId && index.stepLineById.get(astId)) || pickleStep?.location?.line
+      const file = stepDef ? stepDef.uri : featureFile
+      const callSource = stepDef
+        ? `${stepDef.uri}:${stepDef.line}`
+        : featureFile
+          ? featureLineForStep
+            ? `${featureFile}:${featureLineForStep}`
+            : `${featureFile}:0`
+          : undefined
+      callbacks.onTestStart(title, file, callSource)
+    })
+  }
+  if (typeof AfterStep === 'function') {
+    AfterStep(function (arg: any) {
+      const state = mapCucumberStatus(String(arg?.result?.status ?? ''))
+      callbacks.onTestEnd(state)
+    })
+  }
+}
+
+// Loads `@cucumber/cucumber` from the user's install (peer-dep style) and
+// registers BeforeAll/Before/After/AfterAll. The hook receives the full
+// pickle so we can surface scenario name + feature name in the dashboard.
+export function tryRegisterCucumberHooks(
+  callbacks: RunnerHookCallbacks
+): boolean {
+  const cucumber = loadCucumber()
+  if (!cucumber) {
+    return false
+  }
+  if (
+    typeof cucumber.Before !== 'function' ||
+    typeof cucumber.After !== 'function'
+  ) {
+    return false
+  }
+
+  const stepDefs = createStepDefinitionRegistry(cucumber)
+  const counters: RunCounters = {
+    runStartTs: 0,
+    started: 0,
+    passed: 0,
+    failed: 0,
+    pending: 0
+  }
 
   try {
-    if (typeof BeforeAll === 'function' && typeof AfterAll === 'function') {
-      BeforeAll(() => {
-        runStartTs = Date.now()
-        log.info('🧪 Test run starting')
-      })
-      AfterAll(() => {
-        const durationMs = Date.now() - runStartTs
-        const duration = (durationMs / 1000).toFixed(2)
-        log.info(
-          `🧪 Test run complete: ${testsPassed} passed, ${testsFailed} failed` +
-            (testsPending ? `, ${testsPending} pending` : '') +
-            ` (${duration}s, ${testsStarted} total)`
-        )
-        callbacks.onTestRunComplete?.({
-          passed: testsPassed,
-          failed: testsFailed,
-          pending: testsPending,
-          durationMs
-        })
-      })
-    }
-
-    // PickleStep has no `location.line`; only the gherkinDocument AST does.
-    // These maps bridge astNodeId → line for the dashboard's test-lens.
-    let stepKeywordById = new Map<string, string>()
-    let stepLineById = new Map<string, number>()
-    let scenarioLineById = new Map<string, number>()
-
-    Before(function (testCase: any) {
-      if (runStartTs === 0) {
-        runStartTs = Date.now()
-      }
-      const pickle = testCase?.pickle
-      const name: string = pickle?.name ?? 'unknown scenario'
-      const file: string | undefined = pickle?.uri
-      const featureName: string | undefined =
-        testCase?.gherkinDocument?.feature?.name
-      const featureLine = testCase?.gherkinDocument?.feature?.location?.line
-
-      stepKeywordById = new Map<string, string>()
-      stepLineById = new Map<string, number>()
-      scenarioLineById = new Map<string, number>()
-      const featureChildren = testCase?.gherkinDocument?.feature?.children ?? []
-      for (const child of featureChildren) {
-        if (child?.scenario?.id && child?.scenario?.location?.line) {
-          scenarioLineById.set(child.scenario.id, child.scenario.location.line)
-        }
-        const steps = child?.scenario?.steps ?? child?.background?.steps ?? []
-        for (const step of steps) {
-          if (step?.id && typeof step?.keyword === 'string') {
-            stepKeywordById.set(step.id, step.keyword)
-          }
-          if (step?.id && step?.location?.line) {
-            stepLineById.set(step.id, step.location.line)
-          }
-        }
-      }
-
-      const scenarioLineFromMap =
-        Array.isArray(pickle?.astNodeIds) &&
-        scenarioLineById.get(pickle.astNodeIds[0])
-      const scenarioLine = scenarioLineFromMap || pickle?.location?.line
-      const callSource = file
-        ? scenarioLine
-          ? `${file}:${scenarioLine}`
-          : `${file}:0`
-        : undefined
-      const featureCallSource = file
-        ? featureLine
-          ? `${file}:${featureLine}`
-          : `${file}:1`
-        : undefined
-
-      log.info(`▶ Scenario: "${name}"`)
-      testsStarted++
-      callbacks.onScenarioStart?.(
-        name,
-        file,
-        callSource,
-        featureName,
-        featureCallSource
-      )
-    })
-
-    if (typeof BeforeStep === 'function') {
-      BeforeStep(function (arg: any) {
-        const pickleStep = arg?.pickleStep
-        if (!pickleStep) {
-          return
-        }
-        const astId =
-          Array.isArray(pickleStep.astNodeIds) && pickleStep.astNodeIds[0]
-        const keyword = (astId && stepKeywordById.get(astId)) || ''
-        const text: string = pickleStep.text ?? ''
-        const title = `${keyword}${text}`.trim()
-        // Prefer the step-definition source over the .feature line — the
-        // dashboard's Source panel loads `file`, not `callSource`.
-        const stepDef = findStepDefinition(text)
-        const featureFile: string | undefined = arg?.pickle?.uri
-        const featureLineForStep =
-          (astId && stepLineById.get(astId)) || pickleStep?.location?.line
-        const file = stepDef ? stepDef.uri : featureFile
-        const callSource = stepDef
-          ? `${stepDef.uri}:${stepDef.line}`
-          : featureFile
-            ? featureLineForStep
-              ? `${featureFile}:${featureLineForStep}`
-              : `${featureFile}:0`
-            : undefined
-        callbacks.onTestStart(title, file, callSource)
-      })
-    }
-
-    if (typeof AfterStep === 'function') {
-      AfterStep(function (arg: any) {
-        const status = String(arg?.result?.status ?? '').toUpperCase()
-        let state: 'passed' | 'failed' | 'pending' | 'skipped' = 'passed'
-        if (
-          status === 'FAILED' ||
-          status === 'UNDEFINED' ||
-          status === 'AMBIGUOUS'
-        ) {
-          state = 'failed'
-        } else if (status === 'PENDING') {
-          state = 'pending'
-        } else if (status === 'SKIPPED') {
-          state = 'skipped'
-        }
-        callbacks.onTestEnd(state)
-      })
-    }
-
-    After(function (testCase: any) {
-      const status = String(testCase?.result?.status ?? '').toUpperCase()
-      let state: 'passed' | 'failed' | 'pending' = 'passed'
-      if (
-        status === 'FAILED' ||
-        status === 'UNDEFINED' ||
-        status === 'AMBIGUOUS'
-      ) {
-        state = 'failed'
-      } else if (status === 'PENDING' || status === 'SKIPPED') {
-        state = 'pending'
-      }
-      const icon = state === 'passed' ? '✓' : state === 'failed' ? '✗' : '○'
-      log.info(`${icon} Scenario: "${testCase?.pickle?.name ?? 'unknown'}"`)
-      if (state === 'passed') {
-        testsPassed++
-      } else if (state === 'failed') {
-        testsFailed++
-      } else {
-        testsPending++
-      }
-      callbacks.onScenarioEnd?.(state)
-    })
-
+    registerRunLifecycleHooks(cucumber, counters, callbacks)
+    const index = makeGherkinIndex()
+    registerScenarioHooks(cucumber, index, counters, callbacks)
+    registerStepHooks(cucumber, index, stepDefs, callbacks)
     log.info(
       '✓ Cucumber hooks registered — Before/After=scenario sub-suite, BeforeStep/AfterStep=Gherkin step tests'
     )

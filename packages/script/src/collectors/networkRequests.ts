@@ -68,94 +68,94 @@ export class NetworkRequestCollector implements Collector<NetworkRequest> {
     return false
   }
 
+  #extractFetchUrl(input: RequestInfo | URL): string {
+    if (typeof input === 'string') {
+      return input
+    }
+    return input instanceof URL ? input.href : input.url
+  }
+
+  async #readResponseBody(
+    response: Response,
+    contentType: string
+  ): Promise<string | undefined> {
+    try {
+      if (
+        contentType.includes('application/json') ||
+        contentType.includes('text/')
+      ) {
+        return await response.clone().text()
+      }
+    } catch {
+      /* ignore body read errors */
+    }
+    return undefined
+  }
+
+  async #recordFetchResponse(
+    id: string,
+    request: Partial<NetworkRequest>,
+    response: Response,
+    startTime: number
+  ): Promise<void> {
+    const endTime = performance.now()
+    const responseHeaders = this.#extractHeaders(response.headers)
+    const contentType = responseHeaders['content-type']?.trim()
+    if (!contentType || contentType === '-') {
+      this.#pendingRequests.delete(id)
+      return
+    }
+    const responseBody = await this.#readResponseBody(response, contentType)
+    this.#requests.push({
+      id,
+      url: request.url!,
+      method: request.method!,
+      status: response.status,
+      statusText: response.statusText,
+      type: 'fetch',
+      timestamp: request.timestamp!,
+      startTime,
+      endTime,
+      time: endTime - startTime,
+      requestHeaders: request.requestHeaders,
+      responseHeaders,
+      requestBody: request.requestBody,
+      responseBody,
+      size: this.#estimateSize(responseBody)
+    })
+    this.#pendingRequests.delete(id)
+  }
+
   #patchFetch() {
     if (typeof window.fetch !== 'function') {
       return
     }
-
     this.#originalFetch = window.fetch
     const self = this
-
     window.fetch = async function (
       input: RequestInfo | URL,
       init?: RequestInit
     ): Promise<Response> {
-      const id = self.#generateId()
-      const url =
-        typeof input === 'string'
-          ? input
-          : input instanceof URL
-            ? input.href
-            : input.url
-      const method = init?.method?.toUpperCase() || 'GET'
-
-      // Skip internal/non-HTTP requests
+      const url = self.#extractFetchUrl(input)
       if (self.#shouldIgnoreRequest(url)) {
         return self.#originalFetch!.apply(this, [input, init])
       }
-
+      const id = self.#generateId()
       const startTime = performance.now()
-      const timestamp = Date.now()
-
       const request: Partial<NetworkRequest> = {
         id,
         url,
-        method,
+        method: init?.method?.toUpperCase() || 'GET',
         type: 'fetch',
-        timestamp,
+        timestamp: Date.now(),
         startTime,
         requestHeaders: init?.headers ? self.#extractHeaders(init.headers) : {},
         requestBody: init?.body ? String(init.body) : undefined
       }
-
       self.#pendingRequests.set(id, request)
-
       try {
         const response = await self.#originalFetch!.apply(this, [input, init])
-        const endTime = performance.now()
-        const time = endTime - startTime
-
-        const responseHeaders = self.#extractHeaders(response.headers)
-        const contentType = responseHeaders['content-type']?.trim()
-
-        if (!contentType || contentType === '-') {
-          self.#pendingRequests.delete(id)
-          return response
-        }
-
-        let responseBody: string | undefined
-        try {
-          if (
-            contentType.includes('application/json') ||
-            contentType.includes('text/')
-          ) {
-            responseBody = await response.clone().text()
-          }
-        } catch {
-          // Ignore body read errors
-        }
-
-        const networkRequest: NetworkRequest = {
-          id,
-          url,
-          method,
-          status: response.status,
-          statusText: response.statusText,
-          type: 'fetch',
-          timestamp,
-          startTime,
-          endTime,
-          time,
-          requestHeaders: request.requestHeaders,
-          responseHeaders,
-          requestBody: request.requestBody,
-          responseBody,
-          size: self.#estimateSize(responseBody)
-        }
-
-        self.#requests.push(networkRequest)
-        self.#pendingRequests.delete(id)
-
+        await self.#recordFetchResponse(id, request, response, startTime)
         return response
       } catch (error) {
         self.#pendingRequests.delete(id)

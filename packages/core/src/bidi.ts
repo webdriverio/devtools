@@ -46,6 +46,194 @@ export function loadSeleniumSubmodule<T = unknown>(subpath: string): T | null {
   }
 }
 
+type BidiLogger = (level: 'info' | 'warn', message: string) => void
+type InspectorFactory = (driver: unknown) => Promise<unknown>
+
+interface LogInspector {
+  onConsoleEntry: (cb: (entry: unknown) => void) => Promise<void>
+  onJavascriptException: (cb: (exc: unknown) => void) => Promise<void>
+}
+
+interface NetworkInspector {
+  beforeRequestSent: (cb: (e: unknown) => void) => Promise<void>
+  responseCompleted: (cb: (e: unknown) => void) => Promise<void>
+}
+
+function handleBidiConsoleEntry(
+  rawEntry: unknown,
+  sinks: BidiHandlerSinks,
+  log: BidiLogger
+): void {
+  const entry = rawEntry as {
+    level?: string
+    type?: string
+    text?: string
+    message?: string
+    timestamp?: number
+  }
+  try {
+    const level = (entry?.level ?? entry?.type ?? 'info').toString()
+    const text = entry?.text ?? entry?.message ?? ''
+    sinks.pushConsoleLog({
+      timestamp: Number(entry?.timestamp) || Date.now(),
+      type: chromeLogLevelToLogLevel(level) as LogLevel,
+      args: [text],
+      source: LOG_SOURCES.BROWSER as LogSource
+    })
+  } catch (err) {
+    log('warn', `onConsoleEntry handler threw: ${errorMessage(err)}`)
+  }
+}
+
+function handleBidiJsException(
+  rawExc: unknown,
+  sinks: BidiHandlerSinks,
+  log: BidiLogger
+): void {
+  const exception = rawExc as { text?: string; message?: string }
+  try {
+    const text = exception?.text ?? exception?.message ?? String(rawExc)
+    const trimmed = String(text).replace(/\s+/g, ' ').slice(0, 200)
+    log(
+      'warn',
+      `🐛 JS error in page: ${trimmed}${String(text).length > 200 ? '…' : ''}`
+    )
+    sinks.pushConsoleLog({
+      timestamp: Date.now(),
+      type: 'error',
+      args: [text],
+      source: LOG_SOURCES.BROWSER as LogSource
+    })
+  } catch (err) {
+    log('warn', `onJavascriptException handler threw: ${errorMessage(err)}`)
+  }
+}
+
+async function attachLogInspector(
+  driver: unknown,
+  factory: InspectorFactory,
+  sinks: BidiHandlerSinks,
+  log: BidiLogger
+): Promise<boolean> {
+  try {
+    const inspector = (await factory(driver)) as LogInspector
+    await inspector.onConsoleEntry((e) => handleBidiConsoleEntry(e, sinks, log))
+    await inspector.onJavascriptException((e) =>
+      handleBidiJsException(e, sinks, log)
+    )
+    log('info', '✓ BiDi LogInspector attached (console + JS exceptions)')
+    return true
+  } catch (err) {
+    log('warn', `BiDi LogInspector attach failed: ${errorMessage(err)}`)
+    return false
+  }
+}
+
+interface BeforeRequestSentEvent {
+  request?: {
+    request?: string
+    url?: string
+    method?: string
+    headers?: unknown
+  }
+  id?: string
+  timestamp?: number
+}
+
+interface ResponseCompletedEvent {
+  request?: { request?: string }
+  id?: string
+  timestamp?: number
+  response?: {
+    status?: number
+    statusText?: string
+    headers?: unknown
+    mimeType?: string
+    bytesReceived?: number
+  }
+}
+
+function handleBidiRequestSent(
+  rawEvent: unknown,
+  pending: Map<string, NetworkRequest>,
+  sinks: BidiHandlerSinks,
+  log: BidiLogger
+): void {
+  const event = rawEvent as BeforeRequestSentEvent
+  try {
+    const requestId = String(event?.request?.request ?? event?.id ?? '')
+    if (!requestId) {
+      return
+    }
+    const entry: NetworkRequest = {
+      id: requestId,
+      url: event?.request?.url ?? '',
+      method: event?.request?.method ?? 'GET',
+      requestHeaders: arrayHeadersToObject(event?.request?.headers),
+      timestamp: Date.now(),
+      startTime: Number(event?.timestamp ?? Date.now()),
+      type: getRequestType(event?.request?.url ?? '')
+    }
+    pending.set(requestId, entry)
+    sinks.pushNetworkRequest(entry)
+  } catch (err) {
+    log('warn', `beforeRequestSent threw: ${errorMessage(err)}`)
+  }
+}
+
+function handleBidiResponseCompleted(
+  rawEvent: unknown,
+  pending: Map<string, NetworkRequest>,
+  sinks: BidiHandlerSinks,
+  log: BidiLogger
+): void {
+  const event = rawEvent as ResponseCompletedEvent
+  try {
+    const requestId = String(event?.request?.request ?? event?.id ?? '')
+    const previous = pending.get(requestId)
+    if (!previous) {
+      return
+    }
+    const finalized: NetworkRequest = {
+      ...previous,
+      status: Number(event?.response?.status) || previous.status,
+      statusText: event?.response?.statusText ?? previous.statusText,
+      responseHeaders: arrayHeadersToObject(event?.response?.headers),
+      type: getRequestType(previous.url, event?.response?.mimeType),
+      endTime: Number(event?.timestamp ?? Date.now()),
+      time: Number(event?.timestamp ?? Date.now()) - previous.startTime,
+      size: Number(event?.response?.bytesReceived) || undefined
+    }
+    pending.delete(requestId)
+    sinks.replaceNetworkRequest(requestId, finalized)
+  } catch (err) {
+    log('warn', `responseCompleted threw: ${errorMessage(err)}`)
+  }
+}
+
+async function attachNetworkInspector(
+  driver: unknown,
+  factory: InspectorFactory,
+  sinks: BidiHandlerSinks,
+  log: BidiLogger
+): Promise<boolean> {
+  try {
+    const inspector = (await factory(driver)) as NetworkInspector
+    const pending = new Map<string, NetworkRequest>()
+    await inspector.beforeRequestSent((e) =>
+      handleBidiRequestSent(e, pending, sinks, log)
+    )
+    await inspector.responseCompleted((e) =>
+      handleBidiResponseCompleted(e, pending, sinks, log)
+    )
+    log('info', '✓ BiDi NetworkInspector attached (request + response)')
+    return true
+  } catch (err) {
+    log('warn', `BiDi NetworkInspector attach failed: ${errorMessage(err)}`)
+    return false
+  }
+}
+
 /**
  * Attach the selenium-webdriver BiDi LogInspector + NetworkInspector to a
  * driver and route their events into the given sinks. Returns `true` when at
@@ -66,156 +254,24 @@ export async function attachBidiHandlers(
   sinks: BidiHandlerSinks,
   onLog?: (level: 'info' | 'warn', message: string) => void
 ): Promise<boolean> {
-  const log = (level: 'info' | 'warn', message: string) =>
-    onLog?.(level, message)
-
-  type InspectorFactory = (driver: unknown) => Promise<unknown>
-  const logInspectorFactory =
+  const log: BidiLogger = (level, message) => onLog?.(level, message)
+  const logFactory =
     loadSeleniumSubmodule<InspectorFactory>('bidi/logInspector')
-  const networkInspectorFactory = loadSeleniumSubmodule<InspectorFactory>(
+  const networkFactory = loadSeleniumSubmodule<InspectorFactory>(
     'bidi/networkInspector'
   )
 
   let attached = 0
-
-  if (typeof logInspectorFactory === 'function') {
-    try {
-      const inspector = (await logInspectorFactory(driver)) as {
-        onConsoleEntry: (cb: (entry: unknown) => void) => Promise<void>
-        onJavascriptException: (cb: (exc: unknown) => void) => Promise<void>
-      }
-      await inspector.onConsoleEntry((rawEntry) => {
-        const entry = rawEntry as {
-          level?: string
-          type?: string
-          text?: string
-          message?: string
-          timestamp?: number
-        }
-        try {
-          const level = (entry?.level ?? entry?.type ?? 'info').toString()
-          const text = entry?.text ?? entry?.message ?? ''
-          sinks.pushConsoleLog({
-            timestamp: Number(entry?.timestamp) || Date.now(),
-            type: chromeLogLevelToLogLevel(level) as LogLevel,
-            args: [text],
-            source: LOG_SOURCES.BROWSER as LogSource
-          })
-        } catch (err) {
-          log('warn', `onConsoleEntry handler threw: ${errorMessage(err)}`)
-        }
-      })
-      await inspector.onJavascriptException((rawExc) => {
-        const exception = rawExc as { text?: string; message?: string }
-        try {
-          const text = exception?.text ?? exception?.message ?? String(rawExc)
-          const trimmed = String(text).replace(/\s+/g, ' ').slice(0, 200)
-          log(
-            'warn',
-            `🐛 JS error in page: ${trimmed}${String(text).length > 200 ? '…' : ''}`
-          )
-          sinks.pushConsoleLog({
-            timestamp: Date.now(),
-            type: 'error',
-            args: [text],
-            source: LOG_SOURCES.BROWSER as LogSource
-          })
-        } catch (err) {
-          log(
-            'warn',
-            `onJavascriptException handler threw: ${errorMessage(err)}`
-          )
-        }
-      })
+  if (typeof logFactory === 'function') {
+    if (await attachLogInspector(driver, logFactory, sinks, log)) {
       attached++
-      log('info', '✓ BiDi LogInspector attached (console + JS exceptions)')
-    } catch (err) {
-      log('warn', `BiDi LogInspector attach failed: ${errorMessage(err)}`)
     }
   } else {
     log('info', 'selenium-webdriver/bidi/logInspector not available — skipping')
   }
-
-  if (typeof networkInspectorFactory === 'function') {
-    try {
-      const inspector = (await networkInspectorFactory(driver)) as {
-        beforeRequestSent: (cb: (e: unknown) => void) => Promise<void>
-        responseCompleted: (cb: (e: unknown) => void) => Promise<void>
-      }
-      const pending = new Map<string, NetworkRequest>()
-
-      await inspector.beforeRequestSent((rawEvent) => {
-        const event = rawEvent as {
-          request?: {
-            request?: string
-            url?: string
-            method?: string
-            headers?: unknown
-          }
-          id?: string
-          timestamp?: number
-        }
-        try {
-          const requestId = String(event?.request?.request ?? event?.id ?? '')
-          if (!requestId) {
-            return
-          }
-          const entry: NetworkRequest = {
-            id: requestId,
-            url: event?.request?.url ?? '',
-            method: event?.request?.method ?? 'GET',
-            requestHeaders: arrayHeadersToObject(event?.request?.headers),
-            timestamp: Date.now(),
-            startTime: Number(event?.timestamp ?? Date.now()),
-            type: getRequestType(event?.request?.url ?? '')
-          }
-          pending.set(requestId, entry)
-          sinks.pushNetworkRequest(entry)
-        } catch (err) {
-          log('warn', `beforeRequestSent threw: ${errorMessage(err)}`)
-        }
-      })
-
-      await inspector.responseCompleted((rawEvent) => {
-        const event = rawEvent as {
-          request?: { request?: string }
-          id?: string
-          timestamp?: number
-          response?: {
-            status?: number
-            statusText?: string
-            headers?: unknown
-            mimeType?: string
-            bytesReceived?: number
-          }
-        }
-        try {
-          const requestId = String(event?.request?.request ?? event?.id ?? '')
-          const previous = pending.get(requestId)
-          if (!previous) {
-            return
-          }
-          const finalized: NetworkRequest = {
-            ...previous,
-            status: Number(event?.response?.status) || previous.status,
-            statusText: event?.response?.statusText ?? previous.statusText,
-            responseHeaders: arrayHeadersToObject(event?.response?.headers),
-            type: getRequestType(previous.url, event?.response?.mimeType),
-            endTime: Number(event?.timestamp ?? Date.now()),
-            time: Number(event?.timestamp ?? Date.now()) - previous.startTime,
-            size: Number(event?.response?.bytesReceived) || undefined
-          }
-          pending.delete(requestId)
-          sinks.replaceNetworkRequest(requestId, finalized)
-        } catch (err) {
-          log('warn', `responseCompleted threw: ${errorMessage(err)}`)
-        }
-      })
-
+  if (typeof networkFactory === 'function') {
+    if (await attachNetworkInspector(driver, networkFactory, sinks, log)) {
       attached++
-      log('info', '✓ BiDi NetworkInspector attached (request + response)')
-    } catch (err) {
-      log('warn', `BiDi NetworkInspector attach failed: ${errorMessage(err)}`)
     }
   } else {
     log(
@@ -223,7 +279,6 @@ export async function attachBidiHandlers(
       'selenium-webdriver/bidi/networkInspector not available — skipping'
     )
   }
-
   return attached > 0
 }
 
