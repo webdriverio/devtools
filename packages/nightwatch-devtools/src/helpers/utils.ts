@@ -170,6 +170,31 @@ export { getRequestType } from '@wdio/devtools-core'
  *  - `stepLines`    — 1-based line numbers for each step (for TestLens navigation)
  *  - `stepKeywords` — BDD keyword (Given/When/Then/And/But) for each step (for labels)
  */
+function collectStepsAfterScenario(
+  lines: string[],
+  scenarioIndex: number,
+  stepCount: number
+): { stepLines: number[]; stepKeywords: string[] } {
+  const stepRe = /^\s*(Given|When|Then|And|But)\s+/i
+  const stepLines: number[] = []
+  const stepKeywords: string[] = []
+  for (
+    let j = scenarioIndex + 1;
+    j < lines.length && stepLines.length < stepCount;
+    j++
+  ) {
+    if (/^\s*(?:Scenario:|Feature:)/i.test(lines[j])) {
+      break
+    }
+    const m = stepRe.exec(lines[j])
+    if (m) {
+      stepLines.push(j + 1)
+      stepKeywords.push(m[1])
+    }
+  }
+  return { stepLines, stepKeywords }
+}
+
 export function parseCucumberScenario(
   featureContent: string,
   scenarioName: string,
@@ -189,43 +214,26 @@ export function parseCucumberScenario(
       stepKeywords: Array<string>(stepCount).fill('')
     }
   }
-
   const lines = featureContent.split('\n')
-  const stepRe = /^\s*(Given|When|Then|And|But)\s+/i
   let featureLine = 1
   let scenarioLine = 1
-  const stepLines: number[] = []
-  const stepKeywords: string[] = []
-
+  let stepLines: number[] = []
+  let stepKeywords: string[] = []
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]
     const lineNum = i + 1
-
     if (featureLine === 1 && /^\s*Feature:/i.test(line)) {
       featureLine = lineNum
       continue
     }
-
     if (/^\s*Scenario:/i.test(line) && line.includes(scenarioName)) {
       scenarioLine = lineNum
-      for (
-        let j = i + 1;
-        j < lines.length && stepLines.length < stepCount;
-        j++
-      ) {
-        if (/^\s*(?:Scenario:|Feature:)/i.test(lines[j])) {
-          break
-        }
-        const m = stepRe.exec(lines[j])
-        if (m) {
-          stepLines.push(j + 1)
-          stepKeywords.push(m[1])
-        }
-      }
+      const collected = collectStepsAfterScenario(lines, i, stepCount)
+      stepLines = collected.stepLines
+      stepKeywords = collected.stepKeywords
       break
     }
   }
-
   while (stepKeywords.length < stepCount) {
     stepKeywords.push('')
   }
