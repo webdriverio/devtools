@@ -186,78 +186,71 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     this.#commandStack = []
   }
 
+  #resolveCallSourceFromFrame(
+    frame: ReturnType<typeof parse>[number]
+  ): string | undefined {
+    const rawFile = frame.getFileName() ?? undefined
+    let absPath = rawFile
+    if (rawFile?.startsWith('file://')) {
+      try {
+        const url = new URL(rawFile)
+        absPath = decodeURIComponent(url.pathname)
+      } catch {
+        absPath = rawFile
+      }
+    }
+    if (absPath?.includes('?')) {
+      absPath = absPath.split('?')[0]
+    }
+    if (absPath === undefined) {
+      return undefined
+    }
+    const line = frame.getLineNumber() ?? undefined
+    const column = frame.getColumnNumber() ?? undefined
+    return `${absPath}:${line ?? 0}:${column ?? 0}`
+  }
+
+  #pushTopLevelCommandFrame(
+    command: string,
+    args: string[],
+    callSource: string | undefined
+  ): void {
+    if (INTERNAL_COMMANDS.includes(command)) {
+      return
+    }
+    const cmdSig = JSON.stringify({ command, args, src: callSource })
+    if (this.#lastCommandSig !== cmdSig) {
+      this.#commandStack.push({ command, callSource })
+      this.#lastCommandSig = cmdSig
+    }
+  }
+
   async beforeCommand(command: string, args: string[]) {
     if (!this.#browser) {
       return
     }
-
-    // Set up BiDi listeners on first command (before any actual commands are executed)
+    // BiDi listeners attach on the first command (before any execute).
     if (!this.#bidiListenersSetup && this.#browser.isBidi) {
       this.#bidiListenersSetup = true
       attachBidiListeners(this.#browser, this.#sessionCapturer)
     }
-
-    /**
-     * On the first URL navigation, mark this moment as the start of meaningful
-     * recording so leading blank/black frames (browser not yet loaded, pre-test
-     * pauses, etc.) are trimmed from the encoded video.
-     * This fires via beforeCommand regardless of test runner (Mocha, Jasmine,
-     * Cucumber, or standalone), making it universally applicable.
-     */
+    // On first URL navigation, mark the start of meaningful recording so
+    // leading blank frames (pre-test pauses, etc.) are trimmed from the video.
+    // Fires regardless of runner (Mocha, Jasmine, Cucumber, standalone).
     if (command === 'url') {
       this.#screencastRecorder?.setStartMarker()
       this.#sessionCapturer.sendUpstream('metadata', { url: args[0] })
     }
-
-    /**
-     * Smart stack filtering to detect top-level user commands
-     */
+    // Smart stack filtering to detect top-level user commands.
     Error.stackTraceLimit = 20
     const stack = parse(new Error('')).reverse()
-    const source = stack.find((frame) => {
-      const file = frame.getFileName()
-      // Only consider command frames from user spec/test files
-      return isUserSpecFile(file)
-    })
-
-    if (
-      source &&
-      this.#commandStack.length === 0 &&
-      !INTERNAL_COMMANDS.includes(command)
-    ) {
-      const rawFile = source.getFileName() ?? undefined
-      let absPath = rawFile
-
-      if (rawFile?.startsWith('file://')) {
-        try {
-          const url = new URL(rawFile)
-          absPath = decodeURIComponent(url.pathname)
-        } catch {
-          absPath = rawFile
-        }
-      }
-
-      if (absPath?.includes('?')) {
-        absPath = absPath.split('?')[0]
-      }
-
-      const line = source.getLineNumber() ?? undefined
-      const column = source.getColumnNumber() ?? undefined
-      const callSource =
-        absPath !== undefined
-          ? `${absPath}:${line ?? 0}:${column ?? 0}`
-          : undefined
-
-      const cmdSig = JSON.stringify({
+    const source = stack.find((frame) => isUserSpecFile(frame.getFileName()))
+    if (source && this.#commandStack.length === 0) {
+      this.#pushTopLevelCommandFrame(
         command,
         args,
-        src: callSource
-      })
-
-      if (this.#lastCommandSig !== cmdSig) {
-        this.#commandStack.push({ command, callSource })
-        this.#lastCommandSig = cmdSig
-      }
+        this.#resolveCallSourceFromFrame(source)
+      )
     }
   }
 

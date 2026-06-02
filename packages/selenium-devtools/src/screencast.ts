@@ -41,6 +41,35 @@ export class ScreencastRecorder extends ScreencastRecorderBase<SeleniumDriverLik
     return takeShot(driver)
   }
 
+  #makeCdpFrameHandler(cdp: any): (raw: any) => void {
+    return (raw: any) => {
+      try {
+        const payload = JSON.parse(raw.toString())
+        if (payload.method !== 'Page.screencastFrame') {
+          return
+        }
+        const params = payload.params || {}
+        this.pushCdpFrame(params.data, params.metadata?.timestamp)
+        // Anchor frame 0 at the first content-bearing frame to trim the
+        // leading about:blank dead-air. Approximate decoded size: base64
+        // expands by ~33%, so multiply by 0.75 for a rough decoded byte count.
+        if (!this.hasStartMarker) {
+          const decodedSize = Math.floor((params.data?.length ?? 0) * 0.75)
+          if (decodedSize >= BLANK_FRAME_THRESHOLD_BYTES) {
+            this.markStartAtLatest()
+          }
+        }
+        if (params.sessionId !== undefined) {
+          cdp.execute('Page.screencastFrameAck', {
+            sessionId: params.sessionId
+          })
+        }
+      } catch {
+        // ignore non-JSON / non-screencast messages
+      }
+    }
+  }
+
   protected override async tryStartCdp(): Promise<boolean> {
     const driver = this.driver
     if (!driver || typeof driver.createCDPConnection !== 'function') {
@@ -49,49 +78,20 @@ export class ScreencastRecorder extends ScreencastRecorderBase<SeleniumDriverLik
     try {
       const cdp = await driver.createCDPConnection('page')
       this.#cdp = cdp
-
       const ws = cdp._wsConnection
       if (!ws || typeof ws.on !== 'function') {
         log.warn('CDP connection has no underlying WebSocket — falling back')
         return false
       }
-
-      const onMessage = (raw: any) => {
-        try {
-          const payload = JSON.parse(raw.toString())
-          if (payload.method !== 'Page.screencastFrame') {
-            return
-          }
-          const params = payload.params || {}
-          this.pushCdpFrame(params.data, params.metadata?.timestamp)
-          // Anchor frame 0 at the first content-bearing frame to trim the
-          // leading about:blank dead-air. Approximate decoded size: base64
-          // expands by ~33%, so multiply by 0.75 for a rough decoded byte count.
-          if (!this.hasStartMarker) {
-            const decodedSize = Math.floor((params.data?.length ?? 0) * 0.75)
-            if (decodedSize >= BLANK_FRAME_THRESHOLD_BYTES) {
-              this.markStartAtLatest()
-            }
-          }
-          if (params.sessionId !== undefined) {
-            cdp.execute('Page.screencastFrameAck', {
-              sessionId: params.sessionId
-            })
-          }
-        } catch {
-          // ignore non-JSON / non-screencast messages
-        }
-      }
+      const onMessage = this.#makeCdpFrameHandler(cdp)
       this.#cdpFrameListener = onMessage
       ws.on('message', onMessage)
-
       cdp.execute('Page.startScreencast', {
         format: this.options.captureFormat,
         quality: this.options.quality,
         maxWidth: this.options.maxWidth,
         maxHeight: this.options.maxHeight
       })
-
       log.info('✓ Screencast recording started (CDP mode)')
       return true
     } catch (err) {

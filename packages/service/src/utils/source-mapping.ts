@@ -129,6 +129,35 @@ function hintFromStats(
  *  - Cucumber: prefer step-definition file/line
  *  - Mocha/Jasmine: AST with suite path; fallback to runtime stack
  */
+function resolveTestFromAst(
+  file: string,
+  title: string,
+  fullTitle: string
+): { file: string; line?: number; column?: number } | undefined {
+  if (!_astCache.has(file)) {
+    try {
+      _astCache.set(file, findTestLocations(file))
+    } catch {
+      /* parse errors */
+    }
+  }
+  const locs = _astCache.get(file)
+  if (!locs?.length) {
+    return undefined
+  }
+  const match =
+    locs.find(
+      (l) =>
+        l.type === 'test' &&
+        l.name === title &&
+        fullTitle.includes(l.titlePath.join(' '))
+    ) || locs.find((l) => l.type === 'test' && l.name === title)
+  if (!match) {
+    return undefined
+  }
+  return { file, line: match.line, column: match.column }
+}
+
 export function mapTestToSource(testStats: unknown, hintFile?: string): void {
   const t = asHint(testStats)
   const title = String(t.title ?? '').trim()
@@ -157,33 +186,11 @@ export function mapTestToSource(testStats: unknown, hintFile?: string): void {
     CURRENT_SPEC_FILE
 
   if (file && !FEATURE_FILE_RE.test(file)) {
-    if (!_astCache.has(file)) {
-      try {
-        _astCache.set(file, findTestLocations(file))
-      } catch {
-        /* parse errors */
-      }
+    const astLoc = resolveTestFromAst(file, title, fullTitle)
+    if (astLoc) {
+      Object.assign(testStats as object, astLoc)
+      return
     }
-    const locs = _astCache.get(file)
-    if (locs?.length) {
-      const match =
-        locs.find(
-          (l) =>
-            l.type === 'test' &&
-            l.name === title &&
-            fullTitle.includes(l.titlePath.join(' '))
-        ) || locs.find((l) => l.type === 'test' && l.name === title)
-
-      if (match) {
-        Object.assign(testStats as object, {
-          file,
-          line: match.line,
-          column: match.column
-        })
-        return
-      }
-    }
-
     const textLoc = findTestLocationByText(file, title)
     if (textLoc) {
       Object.assign(testStats as object, textLoc)
@@ -191,7 +198,6 @@ export function mapTestToSource(testStats: unknown, hintFile?: string): void {
     }
   }
 
-  // Runtime stack fallback
   const runtimeLoc = getCurrentTestLocation()
   if (runtimeLoc) {
     Object.assign(testStats as object, runtimeLoc)
@@ -203,6 +209,56 @@ export function mapTestToSource(testStats: unknown, hintFile?: string): void {
  *  - Mocha/Jasmine: map describe/context by title path using AST
  *  - Cucumber: find Feature/Scenario line in .feature file
  */
+function mapFeatureSuiteFromFile(
+  file: string,
+  title: string
+): { file: string; line: number; column: number } | undefined {
+  try {
+    const src = fs.readFileSync(file, 'utf-8').split(/\r?\n/)
+    const norm = (s: string) => s.trim().replace(/\s+/g, ' ')
+    const want = norm(title)
+    for (let i = 0; i < src.length; i++) {
+      const m = src[i].match(FEATURE_OR_SCENARIO_LINE_RE)
+      if (m && norm(m[2]) === want) {
+        return { file, line: i + 1, column: 1 }
+      }
+    }
+  } catch {
+    /* unreadable file */
+  }
+  return undefined
+}
+
+function resolveSuiteFromAst(
+  file: string,
+  title: string,
+  suitePath: string[]
+): { file: string; line?: number; column?: number } | undefined {
+  try {
+    if (!_astCache.has(file)) {
+      _astCache.set(file, findTestLocations(file))
+    }
+    const locs = _astCache.get(file)
+    if (!locs?.length) {
+      return undefined
+    }
+    const match =
+      locs.find(
+        (l) =>
+          l.type === 'suite' &&
+          Array.isArray(l.titlePath) &&
+          l.titlePath.length === suitePath.length &&
+          l.titlePath.every((t: string, i: number) => t === suitePath[i])
+      ) || locs.find((l) => l.type === 'suite' && l.titlePath.at(-1) === title)
+    if (match?.line) {
+      return { file, line: match.line, column: match.column }
+    }
+  } catch {
+    /* ignore */
+  }
+  return undefined
+}
+
 export function mapSuiteToSource(
   suiteStats: unknown,
   hintFile?: string,
@@ -214,54 +270,17 @@ export function mapSuiteToSource(
   if (!title || !file) {
     return
   }
-
-  // Cucumber: feature/scenario line
   if (FEATURE_FILE_RE.test(file)) {
-    try {
-      const src = fs.readFileSync(file, 'utf-8').split(/\r?\n/)
-      const norm = (s: string) => s.trim().replace(/\s+/g, ' ')
-      const want = norm(title)
-      for (let i = 0; i < src.length; i++) {
-        const m = src[i].match(FEATURE_OR_SCENARIO_LINE_RE)
-        if (m && norm(m[2]) === want) {
-          Object.assign(suiteStats as object, { file, line: i + 1, column: 1 })
-          return
-        }
-      }
-    } catch {
-      /* unreadable file */
+    const featureLoc = mapFeatureSuiteFromFile(file, title)
+    if (featureLoc) {
+      Object.assign(suiteStats as object, featureLoc)
     }
     return
   }
-
-  // Mocha/Jasmine: AST first
-  try {
-    if (!_astCache.has(file)) {
-      _astCache.set(file, findTestLocations(file))
-    }
-    const locs = _astCache.get(file)
-    if (locs?.length) {
-      const match =
-        locs.find(
-          (l) =>
-            l.type === 'suite' &&
-            Array.isArray(l.titlePath) &&
-            l.titlePath.length === suitePath.length &&
-            l.titlePath.every((t: string, i: number) => t === suitePath[i])
-        ) ||
-        locs.find((l) => l.type === 'suite' && l.titlePath.at(-1) === title)
-
-      if (match?.line) {
-        Object.assign(suiteStats as object, {
-          file,
-          line: match.line,
-          column: match.column
-        })
-        return
-      }
-    }
-  } catch {
-    /* ignore */
+  const astLoc = resolveSuiteFromAst(file, title, suitePath)
+  if (astLoc) {
+    Object.assign(suiteStats as object, astLoc)
+    return
   }
 
   // Fallback: text search

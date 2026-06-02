@@ -181,16 +181,14 @@ export class SessionCapturer extends SessionCapturerBase {
    * This completely bypasses Nightwatch's command queue so there is no risk
    * of the request being appended after `end()` / `quit()`.
    */
-  takeScreenshotViaHttp(browser: NightwatchBrowser): Promise<string | null> {
-    // Nightwatch's internal config lives at non-public paths (transport,
-    // queue.transport, nightwatchInstance.settings, globals.nightwatchInstance);
-    // none are in the NightwatchBrowser type. Cast once for dynamic access.
+  // Nightwatch's internal config lives at non-public paths (transport,
+  // queue.transport, nightwatchInstance.settings, globals.nightwatchInstance);
+  // none are in the NightwatchBrowser type. Cast for dynamic access.
+  #resolveDriverEndpoint(
+    browser: NightwatchBrowser,
+    sessionId: string
+  ): string {
     const browserAny = browser as unknown as Record<string, any>
-    const sessionId = browserAny.sessionId
-    if (!sessionId) {
-      return Promise.resolve(null)
-    }
-
     const pick = (obj: any, ...keys: string[]): any => {
       if (!obj || typeof obj !== 'object') {
         return undefined
@@ -203,33 +201,35 @@ export class SessionCapturer extends SessionCapturerBase {
       }
       return undefined
     }
-
     const transportSettings =
       browserAny.transport?.settings?.webdriver ||
       browserAny.queue?.transport?.settings?.webdriver ||
       browserAny.nightwatchInstance?.transport?.settings?.webdriver ||
       {}
-
     const opts = browserAny.options || {}
     const nightwatchSettings =
       browserAny.nightwatchInstance?.settings ||
       browserAny.globals?.nightwatchInstance?.settings ||
       {}
-
     const driverHost: string =
       pick(transportSettings, 'host', 'server_address') ||
       pick(opts.webdriver, 'host') ||
       pick(nightwatchSettings.webdriver, 'host') ||
       'localhost'
-
     const driverPort: number =
       pick(transportSettings, 'port') ||
       pick(opts.webdriver, 'port') ||
       pick(nightwatchSettings.webdriver, 'port') ||
       9515
+    return `http://${driverHost}:${driverPort}/session/${sessionId}/screenshot`
+  }
 
-    const endpoint = `http://${driverHost}:${driverPort}/session/${sessionId}/screenshot`
-
+  takeScreenshotViaHttp(browser: NightwatchBrowser): Promise<string | null> {
+    const sessionId = (browser as unknown as Record<string, any>).sessionId
+    if (!sessionId) {
+      return Promise.resolve(null)
+    }
+    const endpoint = this.#resolveDriverEndpoint(browser, sessionId)
     return new Promise((resolve) => {
       const req = http.get(endpoint, (res) => {
         let body = ''

@@ -76,14 +76,10 @@ export class SessionCapturer extends SessionCapturerBase {
     await this.captureSource(sourceFilePath)
   }
 
-  async afterCommand(
-    browser: WebdriverIO.Browser,
-    command: keyof WebDriverCommands,
-    args: any[],
-    result: any,
-    error: Error | undefined,
-    callSource?: string
-  ) {
+  #resolveUserStackFrame(): {
+    sourceFileLocation: string
+    absolutePath: string
+  } {
     const sourceFileLocation =
       parse(new Error(''))
         .filter((frame) => Boolean(frame.getFileName()))
@@ -105,6 +101,18 @@ export class SessionCapturer extends SessionCapturerBase {
     const absolutePath = sourceFileLocation.startsWith('file://')
       ? url.fileURLToPath(sourceFileLocation)
       : sourceFileLocation
+    return { sourceFileLocation, absolutePath }
+  }
+
+  async afterCommand(
+    browser: WebdriverIO.Browser,
+    command: keyof WebDriverCommands,
+    args: any[],
+    result: any,
+    error: Error | undefined,
+    callSource?: string
+  ) {
+    const { sourceFileLocation, absolutePath } = this.#resolveUserStackFrame()
     const sourceFilePath = absolutePath.split(':')[0]
     if (sourceFileLocation && sourceFilePath) {
       await this.captureSource(sourceFilePath)
@@ -126,10 +134,7 @@ export class SessionCapturer extends SessionCapturerBase {
     }
     this.commandsLog.push(commandLogEntry)
     this.sendUpstream('commands', [commandLogEntry])
-
-    /**
-     * capture trace and write to file on commands that could trigger a page transition
-     */
+    // Capture trace + perf on commands that could trigger a page transition.
     if (PAGE_TRANSITION_COMMANDS.includes(command)) {
       await this.#capturePerformance(browser, commandLogEntry, args)
       await this.#captureTrace(browser)
@@ -223,14 +228,20 @@ export class SessionCapturer extends SessionCapturerBase {
   }
 
   // Protocol-level capture survives pages that rewrite their own console.
-  handleLogEntryAdded(event: {
-    type?: 'console' | 'javascript'
-    level?: 'debug' | 'info' | 'warn' | 'error'
-    text?: string
-    method?: string
-    timestamp?: number
-    args?: Array<{ type?: string; value?: unknown }>
-  }) {
+  #stringifyBidiLogArg(
+    a: { type?: string; value?: unknown } | undefined
+  ): string {
+    if (a && 'value' in a && a.value !== undefined) {
+      try {
+        return typeof a.value === 'string' ? a.value : JSON.stringify(a.value)
+      } catch {
+        return String(a.value)
+      }
+    }
+    return `[${a?.type ?? 'unknown'}]`
+  }
+
+  #mapBidiLogType(method?: string, level?: string): ConsoleLogs['type'] {
     const methodToType: Record<string, ConsoleLogs['type']> = {
       log: 'log',
       info: 'info',
@@ -245,28 +256,23 @@ export class SessionCapturer extends SessionCapturerBase {
       error: 'error',
       debug: 'log'
     }
-    const type: ConsoleLogs['type'] =
-      methodToType[event.method ?? ''] ??
-      levelToType[event.level ?? ''] ??
-      'log'
+    return methodToType[method ?? ''] ?? levelToType[level ?? ''] ?? 'log'
+  }
 
+  handleLogEntryAdded(event: {
+    type?: 'console' | 'javascript'
+    level?: 'debug' | 'info' | 'warn' | 'error'
+    text?: string
+    method?: string
+    timestamp?: number
+    args?: Array<{ type?: string; value?: unknown }>
+  }) {
+    const type = this.#mapBidiLogType(event.method, event.level)
     const args: string[] = Array.isArray(event.args)
-      ? event.args.map((a) => {
-          if (a && 'value' in a && a.value !== undefined) {
-            try {
-              return typeof a.value === 'string'
-                ? a.value
-                : JSON.stringify(a.value)
-            } catch {
-              return String(a.value)
-            }
-          }
-          return `[${a?.type ?? 'unknown'}]`
-        })
+      ? event.args.map((a) => this.#stringifyBidiLogArg(a))
       : event.text
         ? [event.text]
         : []
-
     const entry: ConsoleLogs = {
       timestamp:
         typeof event.timestamp === 'number' ? event.timestamp : Date.now(),
@@ -326,6 +332,33 @@ export class SessionCapturer extends SessionCapturerBase {
     }
   }
 
+  #flattenBidiHeaders(
+    headers:
+      | {
+          name: string
+          value: { type?: string; value?: string } | string
+        }[]
+      | undefined
+  ): Record<string, string> {
+    const out: Record<string, string> = {}
+    if (!headers) {
+      return out
+    }
+    for (const h of headers) {
+      const name = typeof h.name === 'string' ? h.name.toLowerCase() : ''
+      const value =
+        typeof h.value === 'string'
+          ? h.value
+          : typeof h.value === 'object' && h.value?.value
+            ? h.value.value
+            : ''
+      if (name) {
+        out[name] = value
+      }
+    }
+    return out
+  }
+
   handleNetworkResponseCompleted(event: {
     request: { request: string }
     response: {
@@ -346,35 +379,12 @@ export class SessionCapturer extends SessionCapturerBase {
       if (!pending) {
         return
       }
-
       this.#pendingNetworkRequests.delete(requestId)
-
-      const responseHeaders: Record<string, string> = {}
-      if (response.headers) {
-        response.headers.forEach(
-          (h: {
-            name: string
-            value: { type?: string; value?: string } | string
-          }) => {
-            const name = typeof h.name === 'string' ? h.name.toLowerCase() : ''
-            const value =
-              typeof h.value === 'string'
-                ? h.value
-                : typeof h.value === 'object' && h.value?.value
-                  ? h.value.value
-                  : ''
-            if (name) {
-              responseHeaders[name] = value
-            }
-          }
-        )
-      }
-
+      const responseHeaders = this.#flattenBidiHeaders(response.headers)
       const contentType = responseHeaders['content-type']?.trim()
       if (!contentType || contentType === '-') {
         return
       }
-
       const endTime = performance.now()
       const networkRequest: NetworkRequest = {
         id: `${timestamp}-${requestId}`,
@@ -391,7 +401,6 @@ export class SessionCapturer extends SessionCapturerBase {
         responseHeaders,
         size: response.bytesReceived
       }
-
       this.networkRequests.push(networkRequest)
       this.sendUpstream('networkRequests', [networkRequest])
     } catch (err) {

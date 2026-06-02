@@ -36,10 +36,70 @@ export interface NetworkEntry {
  * sees `requestWillBeSent` → `responseReceived` → `loadingFinished` events,
  * and emits the completed entry on the terminal event.
  */
+function applyResponseReceived(p: NetworkEntry, response: any): void {
+  const responseHeaders: Record<string, string> = {}
+  for (const [k, v] of Object.entries(response.headers || {})) {
+    responseHeaders[k.toLowerCase()] = String(v)
+  }
+  p.status = response.status
+  p.statusText = response.statusText
+  p.responseHeaders = responseHeaders
+  p.mimeType = response.mimeType
+  p.type = getRequestType(p.url, response.mimeType)
+}
+
+function handlePerfLogEvent(
+  method: string,
+  params: any,
+  entry: PerfLogEntry,
+  pending: Map<string, NetworkEntry>,
+  completed: NetworkEntry[]
+): void {
+  if (method === 'Network.requestWillBeSent') {
+    const { requestId, request: req, timestamp } = params
+    pending.set(requestId, {
+      id: `${entry.timestamp}-${requestId}`,
+      url: req.url,
+      method: req.method,
+      requestHeaders: req.headers,
+      timestamp: Math.round(timestamp * 1000),
+      startTime: entry.timestamp
+    })
+    return
+  }
+  if (method === 'Network.responseReceived') {
+    const p = pending.get(params.requestId)
+    if (p) {
+      applyResponseReceived(p, params.response)
+    }
+    return
+  }
+  if (method === 'Network.loadingFinished') {
+    const p = pending.get(params.requestId)
+    if (p && p.status !== undefined) {
+      p.size = params.encodedDataLength
+      p.endTime = entry.timestamp
+      p.time = entry.timestamp - p.startTime
+      completed.push({ ...p })
+      pending.delete(params.requestId)
+    }
+    return
+  }
+  if (method === 'Network.loadingFailed') {
+    const p = pending.get(params.requestId)
+    if (p) {
+      p.error = params.errorText
+      p.endTime = entry.timestamp
+      p.time = entry.timestamp - p.startTime
+      completed.push({ ...p })
+      pending.delete(params.requestId)
+    }
+  }
+}
+
 export function parseNetworkFromPerfLogs(logs: PerfLogEntry[]): NetworkEntry[] {
   const pending = new Map<string, NetworkEntry>()
   const completed: NetworkEntry[] = []
-
   for (const entry of logs) {
     let parsed: any
     try {
@@ -52,54 +112,8 @@ export function parseNetworkFromPerfLogs(logs: PerfLogEntry[]): NetworkEntry[] {
     if (!method || !params) {
       continue
     }
-
-    if (method === 'Network.requestWillBeSent') {
-      const { requestId, request: req, timestamp } = params
-      pending.set(requestId, {
-        id: `${entry.timestamp}-${requestId}`,
-        url: req.url,
-        method: req.method,
-        requestHeaders: req.headers,
-        timestamp: Math.round(timestamp * 1000),
-        startTime: entry.timestamp
-      })
-    } else if (method === 'Network.responseReceived') {
-      const { requestId, response } = params
-      const p = pending.get(requestId)
-      if (p) {
-        const responseHeaders: Record<string, string> = {}
-        for (const [k, v] of Object.entries(response.headers || {})) {
-          responseHeaders[k.toLowerCase()] = String(v)
-        }
-        p.status = response.status
-        p.statusText = response.statusText
-        p.responseHeaders = responseHeaders
-        p.mimeType = response.mimeType
-        p.type = getRequestType(p.url, response.mimeType)
-      }
-    } else if (method === 'Network.loadingFinished') {
-      const { requestId, encodedDataLength } = params
-      const p = pending.get(requestId)
-      if (p && p.status !== undefined) {
-        p.size = encodedDataLength
-        p.endTime = entry.timestamp
-        p.time = entry.timestamp - p.startTime
-        completed.push({ ...p })
-        pending.delete(requestId)
-      }
-    } else if (method === 'Network.loadingFailed') {
-      const { requestId, errorText } = params
-      const p = pending.get(requestId)
-      if (p) {
-        p.error = errorText
-        p.endTime = entry.timestamp
-        p.time = entry.timestamp - p.startTime
-        completed.push({ ...p })
-        pending.delete(requestId)
-      }
-    }
+    handlePerfLogEvent(method, params, entry, pending, completed)
   }
-
   return completed
 }
 

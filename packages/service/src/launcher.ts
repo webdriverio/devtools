@@ -89,26 +89,28 @@ export class DevToolsAppLauncher {
     this.#options = options
   }
 
+  #captureRerunEnv(): void {
+    const detectedConfig = detectInvocationConfigPath()
+    if (detectedConfig && !process.env[RUNNER_ENV.WDIO_CONFIG]) {
+      process.env[RUNNER_ENV.WDIO_CONFIG] = detectedConfig
+      log.info(`Detected config for reruns: ${detectedConfig}`)
+    }
+    if (!process.env[RUNNER_ENV.WDIO_INITIAL_SPECS]) {
+      const detectedSpecs = detectInvocationSpecs()
+      if (detectedSpecs.length) {
+        process.env[RUNNER_ENV.WDIO_INITIAL_SPECS] = detectedSpecs.join(
+          path.delimiter
+        )
+        log.info(
+          `Detected initial specs for Run All: ${detectedSpecs.join(', ')}`
+        )
+      }
+    }
+  }
+
   async onPrepare(_: never, caps: ExtendedCapabilities[]) {
     try {
-      const detectedConfig = detectInvocationConfigPath()
-      if (detectedConfig && !process.env[RUNNER_ENV.WDIO_CONFIG]) {
-        process.env[RUNNER_ENV.WDIO_CONFIG] = detectedConfig
-        log.info(`Detected config for reruns: ${detectedConfig}`)
-      }
-
-      if (!process.env[RUNNER_ENV.WDIO_INITIAL_SPECS]) {
-        const detectedSpecs = detectInvocationSpecs()
-        if (detectedSpecs.length) {
-          process.env[RUNNER_ENV.WDIO_INITIAL_SPECS] = detectedSpecs.join(
-            path.delimiter
-          )
-          log.info(
-            `Detected initial specs for Run All: ${detectedSpecs.join(', ')}`
-          )
-        }
-      }
-
+      this.#captureRerunEnv()
       const reusePort = process.env[REUSE_ENV.PORT]
       const reuseHost =
         process.env[REUSE_ENV.HOST] || this.#options.hostname || 'localhost'
@@ -126,11 +128,9 @@ export class DevToolsAppLauncher {
         port: this.#options.port,
         hostname: this.#options.hostname
       })
-
       if (!port) {
         return console.log(`Failed to start server on port ${port}`)
       }
-
       this.#updateCapabilities(caps, {
         port,
         hostname: this.#options.hostname || 'localhost'

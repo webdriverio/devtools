@@ -20,6 +20,48 @@ export interface DriverMetadataResult {
   metadata: Record<string, unknown> | undefined
 }
 
+function makeCapGet(capabilities: unknown): (k: string) => any {
+  return (k: string) => {
+    const caps = capabilities as
+      | {
+          get?: (k: string) => unknown
+          serialize?: () => Record<string, unknown>
+        }
+      | undefined
+    if (caps?.get && typeof caps.get === 'function') {
+      return caps.get(k)
+    }
+    const serialized =
+      caps?.serialize?.() ?? (caps as Record<string, unknown>) ?? {}
+    return serialized[k]
+  }
+}
+
+function logBrowserBoot(
+  capGet: (k: string) => any,
+  sessionId: string | undefined,
+  driverReadyTs: number
+): void {
+  const browserName = capGet('browserName') ?? 'unknown'
+  const browserVersion = capGet('browserVersion') ?? capGet('version') ?? ''
+  const platform = capGet('platformName') ?? capGet('platform') ?? ''
+  log.info(
+    `🌐 Browser: ${browserName}${browserVersion ? ' ' + browserVersion : ''}${platform ? ' on ' + platform : ''} (sessionId: ${sessionId ?? 'unknown'})`
+  )
+  const webSocketUrl = capGet('webSocketUrl')
+  const chromeOpts = capGet('goog:chromeOptions') ?? {}
+  const chromeArgs: string[] = Array.isArray(chromeOpts?.args)
+    ? chromeOpts.args
+    : []
+  const headlessArg = chromeArgs.find((a) => a.startsWith('--headless'))
+  log.info(
+    `📋 Capabilities sent: browserName=${browserName}, webSocketUrl=${webSocketUrl ? 'on' : 'off'}` +
+      (headlessArg ? `, ${headlessArg}` : '') +
+      (chromeArgs.length ? `, chromeArgs=${chromeArgs.length}` : '')
+  )
+  log.info(`Driver session created in ${Date.now() - driverReadyTs}ms`)
+}
+
 /**
  * Extract session id + a fully-built upstream-metadata payload from a freshly
  * created Selenium driver. Logs the standard `Browser:`/`Capabilities sent:`/
@@ -30,47 +72,15 @@ export interface DriverMetadataResult {
 export async function buildDriverMetadata(
   input: DriverMetadataInput
 ): Promise<DriverMetadataResult> {
-  const {
-    driver,
-    driverReadyTs,
-    runner,
-    rerunCommand,
-    rerunTemplate,
-    launchCommand
-  } = input
-
+  const { driver, driverReadyTs, runner } = input
   try {
     const session = driver.getSession ? await driver.getSession() : undefined
     const capabilities = driver.getCapabilities
       ? await driver.getCapabilities()
       : undefined
     const sessionId = session?.getId?.() ?? undefined
-    const capGet = (k: string): any => {
-      if (capabilities?.get && typeof capabilities.get === 'function') {
-        return capabilities.get(k)
-      }
-      const serialized = capabilities?.serialize?.() ?? capabilities ?? {}
-      return serialized[k]
-    }
-    const browserName = capGet('browserName') ?? 'unknown'
-    const browserVersion = capGet('browserVersion') ?? capGet('version') ?? ''
-    const platform = capGet('platformName') ?? capGet('platform') ?? ''
-    log.info(
-      `🌐 Browser: ${browserName}${browserVersion ? ' ' + browserVersion : ''}${platform ? ' on ' + platform : ''} (sessionId: ${sessionId ?? 'unknown'})`
-    )
-    const webSocketUrl = capGet('webSocketUrl')
-    const chromeOpts = capGet('goog:chromeOptions') ?? {}
-    const chromeArgs: string[] = Array.isArray(chromeOpts?.args)
-      ? chromeOpts.args
-      : []
-    const headlessArg = chromeArgs.find((a) => a.startsWith('--headless'))
-    log.info(
-      `📋 Capabilities sent: browserName=${browserName}, webSocketUrl=${webSocketUrl ? 'on' : 'off'}` +
-        (headlessArg ? `, ${headlessArg}` : '') +
-        (chromeArgs.length ? `, chromeArgs=${chromeArgs.length}` : '')
-    )
-    log.info(`Driver session created in ${Date.now() - driverReadyTs}ms`)
-
+    const capGet = makeCapGet(capabilities)
+    logBrowserBoot(capGet, sessionId, driverReadyTs)
     return {
       sessionId,
       metadata: {
@@ -80,8 +90,8 @@ export async function buildDriverMetadata(
         options: {
           framework: 'selenium-webdriver',
           baseDir: process.cwd(),
-          rerunCommand: rerunCommand ?? rerunTemplate,
-          launchCommand,
+          rerunCommand: input.rerunCommand ?? input.rerunTemplate,
+          launchCommand: input.launchCommand,
           // Cucumber `--name` filters scenarios but not Gherkin steps, so
           // leaf-step rerun stays disabled there.
           runCapabilities: {

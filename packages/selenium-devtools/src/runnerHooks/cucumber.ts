@@ -229,6 +229,67 @@ function registerRunLifecycleHooks(
   })
 }
 
+function handleScenarioStart(
+  testCase: any,
+  index: GherkinIndex,
+  counters: RunCounters,
+  callbacks: RunnerHookCallbacks
+): void {
+  if (counters.runStartTs === 0) {
+    counters.runStartTs = Date.now()
+  }
+  populateGherkinIndex(index, testCase)
+  const pickle = testCase?.pickle
+  const name: string = pickle?.name ?? 'unknown scenario'
+  const file: string | undefined = pickle?.uri
+  const featureName: string | undefined =
+    testCase?.gherkinDocument?.feature?.name
+  const featureLine = testCase?.gherkinDocument?.feature?.location?.line
+  const scenarioLineFromMap =
+    Array.isArray(pickle?.astNodeIds) &&
+    index.scenarioLineById.get(pickle.astNodeIds[0])
+  const scenarioLine = scenarioLineFromMap || pickle?.location?.line
+  const callSource = file
+    ? scenarioLine
+      ? `${file}:${scenarioLine}`
+      : `${file}:0`
+    : undefined
+  const featureCallSource = file
+    ? featureLine
+      ? `${file}:${featureLine}`
+      : `${file}:1`
+    : undefined
+  log.info(`▶ Scenario: "${name}"`)
+  counters.started++
+  callbacks.onScenarioStart?.(
+    name,
+    file,
+    callSource,
+    featureName,
+    featureCallSource
+  )
+}
+
+function handleScenarioEnd(
+  testCase: any,
+  counters: RunCounters,
+  callbacks: RunnerHookCallbacks
+): void {
+  const state = mapCucumberStatus(String(testCase?.result?.status ?? ''))
+  const scenarioState: ScenarioState = state === 'skipped' ? 'pending' : state
+  const icon =
+    scenarioState === 'passed' ? '✓' : scenarioState === 'failed' ? '✗' : '○'
+  log.info(`${icon} Scenario: "${testCase?.pickle?.name ?? 'unknown'}"`)
+  if (scenarioState === 'passed') {
+    counters.passed++
+  } else if (scenarioState === 'failed') {
+    counters.failed++
+  } else {
+    counters.pending++
+  }
+  callbacks.onScenarioEnd?.(scenarioState)
+}
+
 function registerScenarioHooks(
   cucumber: CucumberModule,
   index: GherkinIndex,
@@ -239,60 +300,10 @@ function registerScenarioHooks(
   if (typeof Before !== 'function' || typeof After !== 'function') {
     return
   }
-
-  Before(function (testCase: any) {
-    if (counters.runStartTs === 0) {
-      counters.runStartTs = Date.now()
-    }
-    populateGherkinIndex(index, testCase)
-    const pickle = testCase?.pickle
-    const name: string = pickle?.name ?? 'unknown scenario'
-    const file: string | undefined = pickle?.uri
-    const featureName: string | undefined =
-      testCase?.gherkinDocument?.feature?.name
-    const featureLine = testCase?.gherkinDocument?.feature?.location?.line
-
-    const scenarioLineFromMap =
-      Array.isArray(pickle?.astNodeIds) &&
-      index.scenarioLineById.get(pickle.astNodeIds[0])
-    const scenarioLine = scenarioLineFromMap || pickle?.location?.line
-    const callSource = file
-      ? scenarioLine
-        ? `${file}:${scenarioLine}`
-        : `${file}:0`
-      : undefined
-    const featureCallSource = file
-      ? featureLine
-        ? `${file}:${featureLine}`
-        : `${file}:1`
-      : undefined
-
-    log.info(`▶ Scenario: "${name}"`)
-    counters.started++
-    callbacks.onScenarioStart?.(
-      name,
-      file,
-      callSource,
-      featureName,
-      featureCallSource
-    )
-  })
-
-  After(function (testCase: any) {
-    const state = mapCucumberStatus(String(testCase?.result?.status ?? ''))
-    const scenarioState: ScenarioState = state === 'skipped' ? 'pending' : state
-    const icon =
-      scenarioState === 'passed' ? '✓' : scenarioState === 'failed' ? '✗' : '○'
-    log.info(`${icon} Scenario: "${testCase?.pickle?.name ?? 'unknown'}"`)
-    if (scenarioState === 'passed') {
-      counters.passed++
-    } else if (scenarioState === 'failed') {
-      counters.failed++
-    } else {
-      counters.pending++
-    }
-    callbacks.onScenarioEnd?.(scenarioState)
-  })
+  Before((testCase: any) =>
+    handleScenarioStart(testCase, index, counters, callbacks)
+  )
+  After((testCase: any) => handleScenarioEnd(testCase, counters, callbacks))
 }
 
 function registerStepHooks(

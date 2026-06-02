@@ -266,6 +266,43 @@ class BaselineStore {
     return node.error
   }
 
+  #collectStepsRecursive(node: TimeWindowNode, steps: PreservedStep[]): void {
+    if (node.kind === 'test') {
+      steps.push({
+        uid: node.uid,
+        title: node.title,
+        fullTitle: node.fullTitle,
+        start: node.start,
+        end: node.end,
+        state: node.state,
+        error: node.error
+      })
+    }
+    for (const childUid of node.childUids) {
+      const child = this.#activeRun.nodes.get(childUid)
+      if (child) {
+        this.#collectStepsRecursive(child, steps)
+      }
+    }
+  }
+
+  #buildTestSnapshot(node: TimeWindowNode): PreservedAttempt['test'] {
+    return {
+      title: node.title,
+      fullTitle: node.fullTitle,
+      file: node.file,
+      callSource: node.callSource,
+      start: node.start,
+      end: node.end,
+      duration:
+        node.start !== undefined && node.end !== undefined
+          ? node.end - node.start
+          : undefined,
+      state: this.#deriveState(node),
+      error: this.#deriveError(node)
+    }
+  }
+
   snapshot(uid: string, scope: 'test' | 'suite'): PreservedAttempt | undefined {
     const node = this.#activeRun.nodes.get(uid)
     if (!node) {
@@ -275,7 +312,6 @@ class BaselineStore {
     if (!window) {
       return undefined
     }
-
     const inWindow = (t: number | undefined) =>
       t !== undefined && t >= window.start && t <= window.end
     const inWindowSpan = (start?: number, end?: number) => {
@@ -283,48 +319,14 @@ class BaselineStore {
       const e = end ?? start ?? Date.now()
       return e >= window.start && s <= window.end
     }
-
     const steps: PreservedStep[] = []
-    const collectSteps = (n: TimeWindowNode) => {
-      if (n.kind === 'test') {
-        steps.push({
-          uid: n.uid,
-          title: n.title,
-          fullTitle: n.fullTitle,
-          start: n.start,
-          end: n.end,
-          state: n.state,
-          error: n.error
-        })
-      }
-      for (const childUid of n.childUids) {
-        const child = this.#activeRun.nodes.get(childUid)
-        if (child) {
-          collectSteps(child)
-        }
-      }
-    }
-    collectSteps(node)
-
+    this.#collectStepsRecursive(node, steps)
     return {
       testUid: uid,
       scope,
       capturedAt: Date.now(),
       window,
-      test: {
-        title: node.title,
-        fullTitle: node.fullTitle,
-        file: node.file,
-        callSource: node.callSource,
-        start: node.start,
-        end: node.end,
-        duration:
-          node.start !== undefined && node.end !== undefined
-            ? node.end - node.start
-            : undefined,
-        state: this.#deriveState(node),
-        error: this.#deriveError(node)
-      },
+      test: this.#buildTestSnapshot(node),
       steps: steps.length > 0 ? steps : undefined,
       commands: this.#activeRun.commands.filter((c) => inWindow(c.timestamp)),
       consoleLogs: this.#activeRun.consoleLogs.filter((c) =>
