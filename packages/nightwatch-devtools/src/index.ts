@@ -94,6 +94,56 @@ class NightwatchDevToolsPlugin {
     this.#bidiEnabled = options.bidi === true
   }
 
+  #handleReuseMode(): void {
+    this.options.hostname = process.env[REUSE_ENV.HOST]!
+    this.options.port = Number(process.env[REUSE_ENV.PORT])
+    log.info(
+      `♻  Reusing DevTools backend at ${this.options.hostname}:${this.options.port}`
+    )
+    // Clear execution data from the previous run when rerunning so test-name
+    // caches and suites are fresh for the new run.
+    if (this.testReporter) {
+      this.testReporter.clearExecutionData()
+      this.suiteManager.clearExecutionData()
+      this.#passCount = 0
+      this.#failCount = 0
+      this.#skipCount = 0
+      log.info('Cleared execution data for rerun')
+    }
+  }
+
+  async #openDevtoolsBrowser(url: string): Promise<void> {
+    try {
+      // Unique user data directory per instance to prevent conflicts.
+      this.#userDataDir = path.join(
+        os.tmpdir(),
+        `nightwatch-devtools-${this.options.port}-${Date.now()}`
+      )
+      if (!fs.existsSync(this.#userDataDir)) {
+        fs.mkdirSync(this.#userDataDir, { recursive: true })
+      }
+      this.#devtoolsBrowser = await remote({
+        logLevel: 'info',
+        automationProtocol: 'devtools',
+        capabilities: {
+          browserName: 'chrome',
+          'goog:chromeOptions': {
+            args: [
+              '--window-size=1600,1200',
+              `--user-data-dir=${this.#userDataDir}`,
+              '--no-first-run',
+              '--no-default-browser-check'
+            ]
+          }
+        }
+      })
+      await this.#devtoolsBrowser.url(url)
+    } catch (err) {
+      log.error(`Failed to open DevTools UI: ${errorMessage(err)}`)
+      log.info(`Please manually open: ${url}`)
+    }
+  }
+
   async before() {
     // When relaunched by the DevTools UI rerun button the backend is already
     // running — skip startup and just connect the WebSocket worker.
@@ -103,22 +153,7 @@ class NightwatchDevToolsPlugin {
       process.env[REUSE_ENV.PORT]
 
     if (isReuse) {
-      this.options.hostname = process.env[REUSE_ENV.HOST]!
-      this.options.port = Number(process.env[REUSE_ENV.PORT])
-      log.info(
-        `♻  Reusing DevTools backend at ${this.options.hostname}:${this.options.port}`
-      )
-      // Clear execution data from the previous run when rerunning
-      // This ensures test names cache and suites are fresh for the new run
-      if (this.testReporter) {
-        this.testReporter.clearExecutionData()
-        this.suiteManager.clearExecutionData()
-        // Reset counters for fresh run
-        this.#passCount = 0
-        this.#failCount = 0
-        this.#skipCount = 0
-        log.info('Cleared execution data for rerun')
-      }
+      this.#handleReuseMode()
     }
 
     this.#configPath = resolveNightwatchConfig()
@@ -147,40 +182,7 @@ class NightwatchDevToolsPlugin {
       const url = `http://${this.options.hostname}:${this.options.port}`
       log.info(`✓ Backend started on port ${this.options.port}`)
       log.info(`  DevTools UI: ${url}`)
-
-      try {
-        // Create unique user data directory for this instance to prevent conflicts
-        this.#userDataDir = path.join(
-          os.tmpdir(),
-          `nightwatch-devtools-${this.options.port}-${Date.now()}`
-        )
-
-        if (!fs.existsSync(this.#userDataDir)) {
-          fs.mkdirSync(this.#userDataDir, { recursive: true })
-        }
-
-        this.#devtoolsBrowser = await remote({
-          logLevel: 'info',
-          automationProtocol: 'devtools',
-          capabilities: {
-            browserName: 'chrome',
-            'goog:chromeOptions': {
-              args: [
-                '--window-size=1600,1200',
-                `--user-data-dir=${this.#userDataDir}`,
-                '--no-first-run',
-                '--no-default-browser-check'
-              ]
-            }
-          }
-        })
-
-        await this.#devtoolsBrowser.url(url)
-      } catch (err) {
-        log.error(`Failed to open DevTools UI: ${errorMessage(err)}`)
-        log.info(`Please manually open: ${url}`)
-      }
-
+      await this.#openDevtoolsBrowser(url)
       await new Promise((resolve) =>
         setTimeout(resolve, TIMING.UI_CONNECTION_WAIT)
       )
@@ -191,86 +193,62 @@ class NightwatchDevToolsPlugin {
     }
   }
 
-  async #ensureSessionInitialized(browser: NightwatchBrowser) {
-    const currentSessionId = browser.sessionId
-    const isSessionChange =
-      currentSessionId &&
-      this.#lastSessionId &&
-      currentSessionId !== this.#lastSessionId
+  async #handleSessionChange(): Promise<void> {
+    log.info('Browser session changed — reconnecting WebSocket only')
+    this.isScriptInjected = false
+    // Reset BiDi-attach state so the new session gets its own attach —
+    // inspectors are bound to a specific driver instance and don't carry
+    // across sessions. Without this, only the first session captures via
+    // BiDi and the rest silently fall back to the perf-log path.
+    this.#bidiAttachAttempted = false
+    // Finalize the previous session's screencast BEFORE we tear down its
+    // capturer — encode + broadcast use the existing WS connection.
+    await this.#finalizeCurrentScreencast()
+    this.sessionCapturer?.cleanup()
+    // Intentional null-out — the next `#ensureSessionInitialized` call
+    // reassigns. Cast through unknown so the strict field type passes.
+    this.sessionCapturer = null as unknown as SessionCapturer
+  }
 
-    if (isSessionChange) {
-      log.info('Browser session changed — reconnecting WebSocket only')
-      this.isScriptInjected = false
-      // Reset BiDi-attach state so the new session gets its own attach —
-      // inspectors are bound to a specific driver instance and don't carry
-      // across sessions. Without this, only the first session captures via
-      // BiDi and the rest silently fall back to the perf-log path.
-      this.#bidiAttachAttempted = false
-      // Finalize the previous session's screencast BEFORE we tear down its
-      // capturer — encode + broadcast use the existing WS connection.
-      await this.#finalizeCurrentScreencast()
-      this.sessionCapturer?.cleanup()
-      // Intentional null-out — the next `#ensureSessionInitialized` call
-      // reassigns. Cast through unknown so the strict field type passes.
-      this.sessionCapturer = null as unknown as SessionCapturer
-    }
-    this.#lastSessionId = currentSessionId ?? null
-
-    if (this.sessionCapturer) {
-      return
-    }
-
-    await new Promise((resolve) =>
-      setTimeout(resolve, TIMING.INITIAL_CONNECTION_WAIT)
+  #initReporterChain(): void {
+    // First-time setup: create reporter chain once for the entire run.
+    // These must NOT be recreated on session change — doing so generates a
+    // new feature suite with a fresh start timestamp, which DataManager sees
+    // as a new run and wipes all accumulated commands.
+    this.testReporter = new TestReporter((suitesData: any) => {
+      if (this.sessionCapturer) {
+        this.sessionCapturer.sendUpstream('suites', suitesData)
+      }
+    })
+    this.testManager = new TestManager(this.testReporter)
+    this.suiteManager = new SuiteManager(this.testReporter)
+    this.browserProxy = new BrowserProxy(
+      this.sessionCapturer,
+      this.testManager,
+      () => this.#currentTest ?? this.#currentScenarioSuite
     )
+  }
 
-    this.sessionCapturer = new SessionCapturer(
-      { port: this.options.port, hostname: this.options.hostname },
-      browser
-    )
+  #rebindReporterToNewSession(): void {
+    // Session change: update the reporter's upstream callback to use the new
+    // WebSocket, update the proxy's capturer reference (avoids re-wrapping
+    // already-wrapped browser methods which would double-capture commands),
+    // then replay current suite state to the newly-connected UI.
+    this.testReporter.updateUpstream((suitesData: any) => {
+      if (this.sessionCapturer) {
+        this.sessionCapturer.sendUpstream('suites', suitesData)
+      }
+    })
+    this.browserProxy.updateSessionCapturer(this.sessionCapturer)
+    this.testReporter.updateSuites()
+  }
 
-    const connected = await this.sessionCapturer.waitForConnection(3000)
-    if (!connected) {
-      log.error('❌ Worker WebSocket failed to connect!')
-    }
-
-    if (!this.testReporter) {
-      // First-time setup: create reporter chain once for the entire run.
-      // These must NOT be recreated on session change — doing so generates a
-      // new feature suite with a fresh start timestamp, which DataManager sees
-      // as a new run and wipes all accumulated commands.
-      this.testReporter = new TestReporter((suitesData: any) => {
-        if (this.sessionCapturer) {
-          this.sessionCapturer.sendUpstream('suites', suitesData)
-        }
-      })
-      this.testManager = new TestManager(this.testReporter)
-      this.suiteManager = new SuiteManager(this.testReporter)
-      this.browserProxy = new BrowserProxy(
-        this.sessionCapturer,
-        this.testManager,
-        () => this.#currentTest ?? this.#currentScenarioSuite
-      )
-    } else {
-      // Session change: update the reporter's upstream callback to use the new
-      // WebSocket, update the proxy's capturer reference (avoids re-wrapping
-      // already-wrapped browser methods which would double-capture commands),
-      // then replay current suite state to the newly-connected UI.
-      this.testReporter.updateUpstream((suitesData: any) => {
-        if (this.sessionCapturer) {
-          this.sessionCapturer.sendUpstream('suites', suitesData)
-        }
-      })
-      this.browserProxy.updateSessionCapturer(this.sessionCapturer)
-      this.testReporter.updateSuites()
-    }
-
+  #broadcastSessionMetadata(browser: NightwatchBrowser): void {
     const capabilities = browser.capabilities || {}
     const desiredCapabilities = browser.desiredCapabilities || {}
     const sessionId = browser.sessionId
     const opts = browser.options || {}
 
-    // Capture src_folders once so beforeEach can resolve test file paths
     if (this.#srcFolders.length === 0) {
       const sf = (opts as { src_folders?: string | string[] }).src_folders
       this.#srcFolders = Array.isArray(sf) ? sf : sf ? [sf] : []
@@ -307,46 +285,96 @@ class NightwatchDevToolsPlugin {
         "⚠  Network tab will be empty — add 'goog:loggingPrefs': { performance: 'ALL' } to your capabilities (or enable bidi:true)"
       )
     }
+  }
 
-    // BiDi: opt-in. Requires `webSocketUrl: true` capability + a BiDi-capable
-    // chromedriver. We attempt once per session; on failure or unavailability
-    // the perf-log fallback path continues to work.
-    if (this.#bidiEnabled && !this.#bidiAttachAttempted) {
-      this.#bidiAttachAttempted = true
-      const driver = (browser as { driver?: unknown }).driver
-      if (driver) {
-        const { attachBidiHandlers, buildBidiSinks } = await import('./bidi.js')
-        const ok = await attachBidiHandlers(
-          driver,
-          buildBidiSinks(this.sessionCapturer)
-        )
-        if (ok) {
-          this.sessionCapturer.bidiActive = true
-          log.info('✓ BiDi attached — perf-log network capture disabled')
-        }
-      } else {
-        log.warn('bidi:true set but browser.driver unavailable — skipping')
-      }
+  // BiDi: opt-in. Requires `webSocketUrl: true` capability + a BiDi-capable
+  // chromedriver. We attempt once per session; on failure or unavailability
+  // the perf-log fallback path continues to work.
+  async #tryAttachBidi(browser: NightwatchBrowser): Promise<void> {
+    if (!this.#bidiEnabled || this.#bidiAttachAttempted) {
+      return
     }
+    this.#bidiAttachAttempted = true
+    const driver = (browser as { driver?: unknown }).driver
+    if (!driver) {
+      log.warn('bidi:true set but browser.driver unavailable — skipping')
+      return
+    }
+    const { attachBidiHandlers, buildBidiSinks } = await import('./bidi.js')
+    const ok = await attachBidiHandlers(
+      driver,
+      buildBidiSinks(this.sessionCapturer)
+    )
+    if (ok) {
+      this.sessionCapturer.bidiActive = true
+      log.info('✓ BiDi attached — perf-log network capture disabled')
+    }
+  }
 
-    // Screencast: start a fresh recorder per browser session — every
-    // reloadSession / per-test browser produces its own .webm, matching
-    // the WDIO service behavior. Polling mode only (Nightwatch has no
-    // stable CDP escape hatch). Finalized when the next session change
-    // fires or when after() runs.
+  // Screencast: start a fresh recorder per browser session — every
+  // reloadSession / per-test browser produces its own .webm, matching
+  // the WDIO service behavior. Polling mode only (Nightwatch has no
+  // stable CDP escape hatch). Finalized when the next session change
+  // fires or when after() runs.
+  async #tryStartScreencast(
+    browser: NightwatchBrowser,
+    sessionId: string | undefined
+  ): Promise<void> {
     if (
-      this.#screencastOptions.enabled &&
-      !this.#screencastRecorder &&
-      sessionId
+      !this.#screencastOptions.enabled ||
+      this.#screencastRecorder ||
+      !sessionId
     ) {
-      this.#screencastRecorder = new ScreencastRecorder(
-        this.sessionCapturer,
-        this.#screencastOptions
-      )
-      this.#screencastSessionId = sessionId
-      log.info(`🎬 Starting screencast for session ${sessionId}`)
-      await this.#screencastRecorder.start(browser)
+      return
     }
+    this.#screencastRecorder = new ScreencastRecorder(
+      this.sessionCapturer,
+      this.#screencastOptions
+    )
+    this.#screencastSessionId = sessionId
+    log.info(`🎬 Starting screencast for session ${sessionId}`)
+    await this.#screencastRecorder.start(browser)
+  }
+
+  async #ensureSessionInitialized(browser: NightwatchBrowser) {
+    const currentSessionId = browser.sessionId
+    const isSessionChange =
+      currentSessionId &&
+      this.#lastSessionId &&
+      currentSessionId !== this.#lastSessionId
+
+    if (isSessionChange) {
+      await this.#handleSessionChange()
+    }
+    this.#lastSessionId = currentSessionId ?? null
+
+    if (this.sessionCapturer) {
+      return
+    }
+
+    await new Promise((resolve) =>
+      setTimeout(resolve, TIMING.INITIAL_CONNECTION_WAIT)
+    )
+
+    this.sessionCapturer = new SessionCapturer(
+      { port: this.options.port, hostname: this.options.hostname },
+      browser
+    )
+
+    const connected = await this.sessionCapturer.waitForConnection(3000)
+    if (!connected) {
+      log.error('❌ Worker WebSocket failed to connect!')
+    }
+
+    if (!this.testReporter) {
+      this.#initReporterChain()
+    } else {
+      this.#rebindReporterToNewSession()
+    }
+
+    this.#broadcastSessionMetadata(browser)
+    await this.#tryAttachBidi(browser)
+    await this.#tryStartScreencast(browser, browser.sessionId)
   }
 
   /**
@@ -383,60 +411,10 @@ class NightwatchDevToolsPlugin {
   }
 
   /** Called from Cucumber Before hook (order:1000) — one call per scenario. */
-  async #initCucumberScenario(browser: NightwatchBrowser, pickle: any) {
-    await this.#ensureSessionInitialized(browser)
-
-    const featureUri: string = pickle.uri ?? 'unknown.feature'
-    const scenarioName: string = pickle.name ?? 'Unknown Scenario'
-
-    const {
-      featureName,
-      featureContent,
-      featureAbsPath,
-      stepDefFiles,
-      capturedPaths
-    } = scanFeatureFile(featureUri)
-    for (const p of capturedPaths) {
-      this.sessionCapturer.captureSource(p).catch(() => {})
-    }
-
-    // Get or create the feature-level suite (no individual test names — scenarios go into suites[])
-    const featureSuite = this.suiteManager.getOrCreateSuite(
-      featureUri,
-      featureName,
-      featureUri,
-      []
-    )
-    this.suiteManager.markSuiteAsRunning(featureSuite)
-
-    // Parse step keywords from the feature file
-    const steps: Array<{ text: string }> = pickle.steps ?? []
-
-    // Parse line numbers and keywords for TestLens navigation and step labels
-    const { featureLine, scenarioLine, stepLines, stepKeywords } =
-      parseCucumberScenario(
-        featureContent,
-        scenarioName,
-        steps.map((s) => s.text)
-      )
-    if (featureAbsPath && featureLine > 0) {
-      featureSuite.callSource = `${featureAbsPath}:${featureLine}`
-    }
-
-    const scenarioSuite = buildCucumberScenarioSuite({
-      featureUri,
-      scenarioName,
-      featureName,
-      featureAbsPath,
-      stepDefFiles,
-      steps,
-      stepLines,
-      stepKeywords,
-      scenarioLine,
-      parentFeatureSuiteUid: featureSuite.uid
-    })
-
-    // Add scenario sub-suite to the feature suite.
+  #attachScenarioToFeature(
+    featureSuite: SuiteStats,
+    scenarioSuite: SuiteStats
+  ): void {
     // If a suite with this uid already exists it means this is a RETRY of the same
     // scenario — clear execution data so only the latest attempt's commands are shown.
     const existingIdx = featureSuite.suites.findIndex(
@@ -454,20 +432,82 @@ class NightwatchDevToolsPlugin {
     } else {
       featureSuite.suites.push(scenarioSuite)
     }
+  }
 
+  #createFeatureSuite(
+    featureUri: string,
+    featureName: string,
+    featureContent: string,
+    featureAbsPath: string,
+    scenarioName: string,
+    steps: Array<{ text: string }>
+  ): {
+    featureSuite: SuiteStats
+    scenarioLine: number
+    stepLines: number[]
+    stepKeywords: string[]
+  } {
+    const featureSuite = this.suiteManager.getOrCreateSuite(
+      featureUri,
+      featureName,
+      featureUri,
+      []
+    )
+    this.suiteManager.markSuiteAsRunning(featureSuite)
+    const { featureLine, scenarioLine, stepLines, stepKeywords } =
+      parseCucumberScenario(
+        featureContent,
+        scenarioName,
+        steps.map((s) => s.text)
+      )
+    if (featureAbsPath && featureLine > 0) {
+      featureSuite.callSource = `${featureAbsPath}:${featureLine}`
+    }
+    return { featureSuite, scenarioLine, stepLines, stepKeywords }
+  }
+
+  async #initCucumberScenario(browser: NightwatchBrowser, pickle: any) {
+    await this.#ensureSessionInitialized(browser)
+    const featureUri: string = pickle.uri ?? 'unknown.feature'
+    const scenarioName: string = pickle.name ?? 'Unknown Scenario'
+    const steps: Array<{ text: string }> = pickle.steps ?? []
+    const {
+      featureName,
+      featureContent,
+      featureAbsPath,
+      stepDefFiles,
+      capturedPaths
+    } = scanFeatureFile(featureUri)
+    for (const p of capturedPaths) {
+      this.sessionCapturer.captureSource(p).catch(() => {})
+    }
+    const { featureSuite, scenarioLine, stepLines, stepKeywords } =
+      this.#createFeatureSuite(
+        featureUri,
+        featureName,
+        featureContent,
+        featureAbsPath,
+        scenarioName,
+        steps
+      )
+    const scenarioSuite = buildCucumberScenarioSuite({
+      featureUri,
+      scenarioName,
+      featureName,
+      featureAbsPath,
+      stepDefFiles,
+      steps,
+      stepLines,
+      stepKeywords,
+      scenarioLine,
+      parentFeatureSuiteUid: featureSuite.uid
+    })
+    this.#attachScenarioToFeature(featureSuite, scenarioSuite)
     this.#currentScenarioSuite = scenarioSuite
     this.#currentStep = null
     this.#currentTest = null
-
     this.testReporter.updateSuites()
-
-    if (!this.isScriptInjected) {
-      this.browserProxy.wrapUrlMethod(browser)
-      this.isScriptInjected = true
-    }
-    this.browserProxy.wrapBrowserCommands(browser)
-    this.browserProxy.resetCommandTracking()
-
+    this.#wrapBrowserOnce(browser)
     log.info(`🥒 Scenario: ${scenarioName}`)
   }
 
@@ -579,20 +619,14 @@ class NightwatchDevToolsPlugin {
     void pickleStep // used by BeforeStep to find the step
   }
 
-  async beforeEach(browser: NightwatchBrowser) {
-    if (this.#isCucumberRunner) {
-      return
-    }
-
-    await this.#ensureSessionInitialized(browser)
-
-    // Nightwatch's `currentTest` is loosely structured (module/results/name);
-    // keep it `any` here so per-field access stays terse.
-    const currentTest: any = (browser as { currentTest?: unknown }).currentTest
-    if (!currentTest) {
-      return
-    }
-
+  #resolveSuiteMetadata(currentTest: any): {
+    testFile: string
+    fullPath: string | null
+    suiteTitle: string
+    testNames: string[]
+    suiteLine: number | null
+    testLines: number[]
+  } {
     const testFile =
       (currentTest.module || '').split('/').pop() ||
       currentTest.module ||
@@ -604,30 +638,24 @@ class NightwatchDevToolsPlugin {
       this.#srcFolders,
       this.browserProxy.getCurrentTestFullPath() || undefined
     )
-
-    // Extract suite title and test metadata
-    let suiteTitle = testFile
     if (!fullPath) {
       log.warn(
         `[beforeEach] Could not resolve file path for "${testFile}" — source view will be unavailable`
       )
     }
+
+    let suiteTitle = testFile
     let testNames: string[] = []
     let suiteLine: number | null = null
     let testLines: number[] = []
     if (fullPath) {
-      const {
-        suiteTitle: parsedTitle,
-        testNames: parsedNames,
-        suiteLine: parsedSuiteLine,
-        testLines: parsedTestLines
-      } = extractTestMetadata(fullPath)
-      if (parsedTitle) {
-        suiteTitle = parsedTitle
+      const parsed = extractTestMetadata(fullPath)
+      if (parsed.suiteTitle) {
+        suiteTitle = parsed.suiteTitle
       }
-      testNames = parsedNames
-      suiteLine = parsedSuiteLine
-      testLines = parsedTestLines
+      testNames = parsed.testNames
+      suiteLine = parsed.suiteLine
+      testLines = parsed.testLines
     }
 
     const rerunLabel = this.#getRerunLabel()
@@ -638,38 +666,14 @@ class NightwatchDevToolsPlugin {
         testLines = testLines[targetIndex] ? [testLines[targetIndex]] : []
       }
     }
+    return { testFile, fullPath, suiteTitle, testNames, suiteLine, testLines }
+  }
 
-    // Get or create suite for this test file
-    const currentSuite = this.suiteManager.getOrCreateSuite(
-      testFile,
-      suiteTitle,
-      fullPath,
-      testNames,
-      suiteLine,
-      testLines
-    )
-
-    // Capture source file for display
-    if (fullPath && fullPath.includes('/')) {
-      this.sessionCapturer.captureSource(fullPath).catch(() => {})
-    }
-
-    const runningTest = currentSuite.tests.find(
-      (t: any) => typeof t !== 'string' && t.state === TEST_STATE.RUNNING
-    ) as TestStats | undefined
-
-    if (runningTest) {
-      await closePreviousTest({
-        runningTest,
-        testFile,
-        testcases: currentTest?.results?.testcases || {},
-        testManager: this.testManager,
-        incrementCount: (state) => this.#incrementCount(state),
-        testIcon: (state) => this.#testIcon(state)
-      })
-    }
-
-    const processedTests = this.testManager.getProcessedTests(testFile)
+  #pickCurrentTestName(
+    currentTest: any,
+    testNames: string[],
+    processedTests: Set<string>
+  ): string | undefined {
     const runtimeTestName =
       typeof currentTest?.name === 'string'
         ? currentTest.name.trim()
@@ -680,43 +684,108 @@ class NightwatchDevToolsPlugin {
             runtimeTestName === name || runtimeTestName.endsWith(` ${name}`)
         )
       : undefined
-    const currentTestName =
+    return (
       matchedRuntimeTestName ||
       testNames.find((name) => !processedTests.has(name))
+    )
+  }
 
-    if (currentTestName) {
-      if (processedTests.size === 0) {
-        this.suiteManager.markSuiteAsRunning(currentSuite)
-      }
-
-      const test = this.testManager.findTestInSuite(
-        currentSuite,
-        currentTestName
-      )
-      if (test) {
-        test.state = TEST_STATE.RUNNING as TestStats['state']
-        test.start = new Date()
-        test.end = null
-        this.testReporter.onTestStart(test)
-        this.#currentTest = test
-        log.info(`  ▶ ${currentTestName}`)
-        await new Promise((resolve) =>
-          setTimeout(resolve, TIMING.TEST_START_DELAY)
-        )
-      } else {
-        log.warn(
-          `Test "${currentTestName}" not found in suite "${currentSuite.title}"`
-        )
-        this.#currentTest = null
-      }
+  async #startNextTest(
+    currentSuite: any,
+    currentTestName: string,
+    processedTests: Set<string>
+  ): Promise<void> {
+    if (processedTests.size === 0) {
+      this.suiteManager.markSuiteAsRunning(currentSuite)
     }
+    const test = this.testManager.findTestInSuite(currentSuite, currentTestName)
+    if (test) {
+      test.state = TEST_STATE.RUNNING as TestStats['state']
+      test.start = new Date()
+      test.end = null
+      this.testReporter.onTestStart(test)
+      this.#currentTest = test
+      log.info(`  ▶ ${currentTestName}`)
+      await new Promise((resolve) =>
+        setTimeout(resolve, TIMING.TEST_START_DELAY)
+      )
+    } else {
+      log.warn(
+        `Test "${currentTestName}" not found in suite "${currentSuite.title}"`
+      )
+      this.#currentTest = null
+    }
+  }
 
+  async #closePreviousRunningTest(
+    currentSuite: any,
+    testFile: string,
+    currentTest: any
+  ): Promise<void> {
+    const runningTest = currentSuite.tests.find(
+      (t: any) => typeof t !== 'string' && t.state === TEST_STATE.RUNNING
+    ) as TestStats | undefined
+    if (!runningTest) {
+      return
+    }
+    await closePreviousTest({
+      runningTest,
+      testFile,
+      testcases: currentTest?.results?.testcases || {},
+      testManager: this.testManager,
+      incrementCount: (state) => this.#incrementCount(state),
+      testIcon: (state) => this.#testIcon(state)
+    })
+  }
+
+  #wrapBrowserOnce(browser: NightwatchBrowser): void {
     if (!this.isScriptInjected) {
       this.browserProxy.wrapUrlMethod(browser)
       this.isScriptInjected = true
     }
     this.browserProxy.resetCommandTracking()
     this.browserProxy.wrapBrowserCommands(browser)
+  }
+
+  async beforeEach(browser: NightwatchBrowser) {
+    if (this.#isCucumberRunner) {
+      return
+    }
+    await this.#ensureSessionInitialized(browser)
+
+    // Nightwatch's `currentTest` is loosely structured (module/results/name);
+    // keep it `any` here so per-field access stays terse.
+    const currentTest: any = (browser as { currentTest?: unknown }).currentTest
+    if (!currentTest) {
+      return
+    }
+
+    const { testFile, fullPath, suiteTitle, testNames, suiteLine, testLines } =
+      this.#resolveSuiteMetadata(currentTest)
+    const currentSuite = this.suiteManager.getOrCreateSuite(
+      testFile,
+      suiteTitle,
+      fullPath,
+      testNames,
+      suiteLine,
+      testLines
+    )
+    if (fullPath && fullPath.includes('/')) {
+      this.sessionCapturer.captureSource(fullPath).catch(() => {})
+    }
+
+    await this.#closePreviousRunningTest(currentSuite, testFile, currentTest)
+
+    const processedTests = this.testManager.getProcessedTests(testFile)
+    const currentTestName = this.#pickCurrentTestName(
+      currentTest,
+      testNames,
+      processedTests
+    )
+    if (currentTestName) {
+      await this.#startNextTest(currentSuite, currentTestName, processedTests)
+    }
+    this.#wrapBrowserOnce(browser)
   }
 
   async afterEach(browser: NightwatchBrowser) {
@@ -727,89 +796,7 @@ class NightwatchDevToolsPlugin {
 
     if (browser && this.sessionCapturer) {
       try {
-        // Nightwatch's `currentTest` is loosely structured
-        // (module/results/name); keep it `any` here so per-field access
-        // stays terse.
-        const currentTest: any = (browser as { currentTest?: unknown })
-          .currentTest
-        const results = currentTest?.results || {}
-        const testFile =
-          (currentTest.module || '').split('/').pop() || DEFAULTS.FILE_NAME
-        const testcases = results.testcases || {}
-        const testcaseNames = Object.keys(testcases)
-
-        const currentSuite = this.suiteManager.getSuite(testFile)
-        if (currentSuite) {
-          const processedTests = this.testManager.getProcessedTests(testFile)
-
-          if (testcaseNames.length === 0) {
-            const runningTest = currentSuite.tests.find(
-              (t: any) =>
-                typeof t !== 'string' && t.state === TEST_STATE.RUNNING
-            ) as TestStats | undefined
-
-            if (runningTest && !processedTests.has(runningTest.title)) {
-              const testState: TestStats['state'] =
-                results.errors > 0 || results.failed > 0
-                  ? TEST_STATE.FAILED
-                  : TEST_STATE.PASSED
-              const endTime = new Date()
-              const duration =
-                endTime.getTime() - (runningTest.start?.getTime() || 0)
-
-              this.testManager.updateTestState(
-                runningTest,
-                testState,
-                endTime,
-                duration
-              )
-              this.testManager.markTestAsProcessed(testFile, runningTest.title)
-              this.#incrementCount(testState)
-              const icon = this.#testIcon(testState)
-              log.info(
-                `  ${icon} ${runningTest.title} (${(duration / 1000).toFixed(2)}s)`
-              )
-            }
-          } else {
-            const unprocessedTests = testcaseNames.filter(
-              (name) => !processedTests.has(name)
-            )
-
-            for (const currentTestName of unprocessedTests) {
-              const testcase = testcases[currentTestName]
-              const testState = determineTestState(testcase)
-
-              const test = this.testManager.findTestInSuite(
-                currentSuite,
-                currentTestName
-              )
-              if (test) {
-                const dur = parseFloat(testcase.time || '0') * 1000
-                this.testManager.updateTestState(
-                  test,
-                  testState,
-                  new Date(),
-                  dur
-                )
-                this.#incrementCount(testState)
-                const icon = this.#testIcon(testState)
-                log.info(
-                  `  ${icon} ${currentTestName} (${(dur / 1000).toFixed(2)}s)`
-                )
-              }
-
-              this.testManager.markTestAsProcessed(testFile, currentTestName)
-            }
-
-            if (processedTests.size === testcaseNames.length) {
-              this.suiteManager.finalizeSuite(currentSuite)
-              await new Promise((resolve) =>
-                setTimeout(resolve, TIMING.SUITE_COMPLETE_DELAY)
-              )
-            }
-          }
-        }
-
+        await this.#closeOutTestcases(browser)
         await this.sessionCapturer.captureTrace(browser)
       } catch (err) {
         log.error(`Failed to capture trace: ${errorMessage(err)}`)
@@ -817,41 +804,102 @@ class NightwatchDevToolsPlugin {
     }
   }
 
-  async after(browser?: NightwatchBrowser) {
-    await this.#finalizeCurrentScreencast()
-    try {
-      const currentTest: any = (browser as { currentTest?: unknown })
-        ?.currentTest
-      const testcases = currentTest?.results?.testcases || {}
+  #closeUnreportedRunningTest(
+    currentSuite: any,
+    testFile: string,
+    results: any,
+    processedTests: Set<string>
+  ): void {
+    const runningTest = currentSuite.tests.find(
+      (t: any) => typeof t !== 'string' && t.state === TEST_STATE.RUNNING
+    ) as TestStats | undefined
+    if (!runningTest || processedTests.has(runningTest.title)) {
+      return
+    }
+    const testState: TestStats['state'] =
+      results.errors > 0 || results.failed > 0
+        ? TEST_STATE.FAILED
+        : TEST_STATE.PASSED
+    const endTime = new Date()
+    const duration = endTime.getTime() - (runningTest.start?.getTime() || 0)
+    this.testManager.updateTestState(runningTest, testState, endTime, duration)
+    this.testManager.markTestAsProcessed(testFile, runningTest.title)
+    this.#incrementCount(testState)
+    const icon = this.#testIcon(testState)
+    log.info(
+      `  ${icon} ${runningTest.title} (${(duration / 1000).toFixed(2)}s)`
+    )
+  }
 
-      for (const [, suite] of (
-        this.suiteManager?.getAllSuites() ?? new Map()
-      ).entries()) {
-        this.testManager.finalizeSuiteTests(suite, testcases)
-        await new Promise((resolve) =>
-          setTimeout(resolve, TIMING.SUITE_COMPLETE_DELAY)
-        )
-        this.suiteManager.finalizeSuite(suite)
+  async #closeReportedTestcases(
+    currentSuite: any,
+    testFile: string,
+    testcases: Record<string, any>,
+    processedTests: Set<string>
+  ): Promise<void> {
+    const testcaseNames = Object.keys(testcases)
+    const unprocessedTests = testcaseNames.filter(
+      (name) => !processedTests.has(name)
+    )
+    for (const currentTestName of unprocessedTests) {
+      const testcase = testcases[currentTestName]
+      const testState = determineTestState(testcase)
+      const test = this.testManager.findTestInSuite(
+        currentSuite,
+        currentTestName
+      )
+      if (test) {
+        const dur = parseFloat(testcase.time || '0') * 1000
+        this.testManager.updateTestState(test, testState, new Date(), dur)
+        this.#incrementCount(testState)
+        const icon = this.#testIcon(testState)
+        log.info(`  ${icon} ${currentTestName} (${(dur / 1000).toFixed(2)}s)`)
       }
-
+      this.testManager.markTestAsProcessed(testFile, currentTestName)
+    }
+    if (processedTests.size === testcaseNames.length) {
+      this.suiteManager.finalizeSuite(currentSuite)
       await new Promise((resolve) =>
         setTimeout(resolve, TIMING.SUITE_COMPLETE_DELAY)
       )
+    }
+  }
 
-      const summary = [
-        this.#passCount > 0 ? `${this.#passCount} passed` : null,
-        this.#failCount > 0 ? `${this.#failCount} failed` : null,
-        this.#skipCount > 0 ? `${this.#skipCount} skipped` : null
-      ]
-        .filter(Boolean)
-        .join('  ')
-      const totalFailed = this.#failCount
-
-      log.info(`${totalFailed > 0 ? '❌' : '✅'} Tests complete!  ${summary}`)
-      log.info(
-        `   DevTools UI: http://${this.options.hostname}:${this.options.port}`
+  async #closeOutTestcases(browser: NightwatchBrowser): Promise<void> {
+    // Nightwatch's `currentTest` is loosely structured (module/results/name);
+    // keep it `any` here so per-field access stays terse.
+    const currentTest: any = (browser as { currentTest?: unknown }).currentTest
+    const results = currentTest?.results || {}
+    const testFile =
+      (currentTest.module || '').split('/').pop() || DEFAULTS.FILE_NAME
+    const testcases = results.testcases || {}
+    const currentSuite = this.suiteManager.getSuite(testFile)
+    if (!currentSuite) {
+      return
+    }
+    const processedTests = this.testManager.getProcessedTests(testFile)
+    if (Object.keys(testcases).length === 0) {
+      this.#closeUnreportedRunningTest(
+        currentSuite,
+        testFile,
+        results,
+        processedTests
       )
+    } else {
+      await this.#closeReportedTestcases(
+        currentSuite,
+        testFile,
+        testcases,
+        processedTests
+      )
+    }
+  }
 
+  async after(browser?: NightwatchBrowser) {
+    await this.#finalizeCurrentScreencast()
+    try {
+      await this.#finalizeAllSuites(browser)
+      this.#logRunSummary()
       if (!this.#devtoolsBrowser) {
         // Reuse mode: force one final suites broadcast so the UI reflects the
         // actual outcome before the process exits.
@@ -860,57 +908,89 @@ class NightwatchDevToolsPlugin {
         await this.sessionCapturer?.closeWebSocket()
         return
       }
-
       log.info('💡 Please close the DevTools browser window to finish...')
-
-      if (this.#devtoolsBrowser) {
-        ;(logger as { setLevel: (ns: string, lvl: string) => void }).setLevel(
-          'devtools',
-          'warn'
-        )
-        let exitBySignal = false
-
-        const signalHandler = () => {
-          exitBySignal = true
-          log.info('\n✓ Exiting... Browser window will remain open')
-          process.exit(0)
-        }
-        process.once('SIGINT', signalHandler)
-        process.once('SIGTERM', signalHandler)
-
-        while (true) {
-          try {
-            await this.#devtoolsBrowser.getTitle()
-            await new Promise((res) =>
-              setTimeout(res, TIMING.BROWSER_POLL_INTERVAL)
-            )
-          } catch {
-            if (!exitBySignal) {
-              log.info('Browser window closed, stopping DevTools app')
-              break
-            }
-          }
-        }
-
-        if (!exitBySignal) {
-          process.removeListener('SIGINT', signalHandler)
-          process.removeListener('SIGTERM', signalHandler)
-          ;(logger as { setLevel: (ns: string, lvl: string) => void }).setLevel(
-            'devtools',
-            'info'
-          )
-          try {
-            await this.#devtoolsBrowser.deleteSession()
-          } catch {
-            // session already closed
-          }
-          await stop()
-          process.exit(0)
-        }
-      }
+      await this.#waitForDevtoolsBrowserClose()
     } catch (err) {
       log.error(`Failed to stop backend: ${errorMessage(err)}`)
     }
+  }
+
+  async #finalizeAllSuites(browser?: NightwatchBrowser): Promise<void> {
+    const currentTest: any = (browser as { currentTest?: unknown })?.currentTest
+    const testcases = currentTest?.results?.testcases || {}
+    for (const [, suite] of (
+      this.suiteManager?.getAllSuites() ?? new Map()
+    ).entries()) {
+      this.testManager.finalizeSuiteTests(suite, testcases)
+      await new Promise((resolve) =>
+        setTimeout(resolve, TIMING.SUITE_COMPLETE_DELAY)
+      )
+      this.suiteManager.finalizeSuite(suite)
+    }
+    await new Promise((resolve) =>
+      setTimeout(resolve, TIMING.SUITE_COMPLETE_DELAY)
+    )
+  }
+
+  #logRunSummary(): void {
+    const summary = [
+      this.#passCount > 0 ? `${this.#passCount} passed` : null,
+      this.#failCount > 0 ? `${this.#failCount} failed` : null,
+      this.#skipCount > 0 ? `${this.#skipCount} skipped` : null
+    ]
+      .filter(Boolean)
+      .join('  ')
+    log.info(`${this.#failCount > 0 ? '❌' : '✅'} Tests complete!  ${summary}`)
+    log.info(
+      `   DevTools UI: http://${this.options.hostname}:${this.options.port}`
+    )
+  }
+
+  async #waitForDevtoolsBrowserClose(): Promise<void> {
+    if (!this.#devtoolsBrowser) {
+      return
+    }
+    ;(logger as { setLevel: (ns: string, lvl: string) => void }).setLevel(
+      'devtools',
+      'warn'
+    )
+    let exitBySignal = false
+    const signalHandler = () => {
+      exitBySignal = true
+      log.info('\n✓ Exiting... Browser window will remain open')
+      process.exit(0)
+    }
+    process.once('SIGINT', signalHandler)
+    process.once('SIGTERM', signalHandler)
+    while (true) {
+      try {
+        await this.#devtoolsBrowser.getTitle()
+        await new Promise((res) =>
+          setTimeout(res, TIMING.BROWSER_POLL_INTERVAL)
+        )
+      } catch {
+        if (!exitBySignal) {
+          log.info('Browser window closed, stopping DevTools app')
+          break
+        }
+      }
+    }
+    if (exitBySignal) {
+      return
+    }
+    process.removeListener('SIGINT', signalHandler)
+    process.removeListener('SIGTERM', signalHandler)
+    ;(logger as { setLevel: (ns: string, lvl: string) => void }).setLevel(
+      'devtools',
+      'info'
+    )
+    try {
+      await this.#devtoolsBrowser.deleteSession()
+    } catch {
+      /* session already closed */
+    }
+    await stop()
+    process.exit(0)
   }
 
   #buildMetadataOptions() {
