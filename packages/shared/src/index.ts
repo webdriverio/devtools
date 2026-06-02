@@ -4,4 +4,5 @@
 export * from './baseline.js'
 export * from './routes.js'
 export * from './runner.js'
+export * from './timing.js'
 export * from './types.js'
