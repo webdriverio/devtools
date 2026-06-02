@@ -6,7 +6,8 @@ import type {
   LogLevel,
   LogSource,
   Metadata,
-  NetworkRequest
+  NetworkRequest,
+  TraceMutation
 } from '@wdio/devtools-shared'
 import { WS_PATHS, WS_SCOPE } from '@wdio/devtools-shared'
 import {
@@ -74,7 +75,7 @@ export abstract class SessionCapturerBase {
   commandsLog: CommandLog[] = []
   consoleLogs: ConsoleLog[] = []
   networkRequests: NetworkRequest[] = []
-  mutations: unknown[] = []
+  mutations: TraceMutation[] = []
   traceLogs: string[] = []
   metadata?: Metadata
 
