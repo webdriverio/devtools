@@ -4,20 +4,15 @@ import {
   createConsoleLogEntry,
   errorMessage,
   loadInjectableScript,
+  mapChromeBrowserLogs,
   pollUntilReady,
   serializeError,
   type LogSource
 } from '@wdio/devtools-core'
 import { WS_SCOPE } from '@wdio/devtools-shared'
-import { LOG_SOURCES, NAVIGATION_COMMANDS } from './constants.js'
-import { chromeLogLevelToLogLevel } from './helpers/utils.js'
+import { NAVIGATION_COMMANDS } from './constants.js'
 import { getDriverOriginals } from './driverPatcher.js'
-import type {
-  CommandLog,
-  ConsoleLog,
-  LogLevel,
-  SeleniumDriverLike
-} from './types.js'
+import type { CommandLog, LogLevel, SeleniumDriverLike } from './types.js'
 
 const log = logger('@wdio/selenium-devtools:SessionCapturer')
 
@@ -306,14 +301,7 @@ export class SessionCapturer extends SessionCapturerBase {
       if (!Array.isArray(entries) || entries.length === 0) {
         return
       }
-      const tagged: ConsoleLog[] = entries.map(
-        (entry: { level: any; message: string; timestamp: number }) => ({
-          timestamp: entry.timestamp,
-          type: chromeLogLevelToLogLevel(entry.level),
-          args: [entry.message],
-          source: LOG_SOURCES.BROWSER
-        })
-      )
+      const tagged = mapChromeBrowserLogs(entries)
       this.consoleLogs.push(...tagged)
       this.sendUpstream('consoleLogs', tagged)
     } catch {

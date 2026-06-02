@@ -5,12 +5,12 @@ import {
   createConsoleLogEntry,
   errorMessage,
   loadInjectableScript,
+  mapChromeBrowserLogs,
   pollUntilReady,
   serializeError,
   type LogSource
 } from '@wdio/devtools-core'
-import { LOG_SOURCES, NAVIGATION_COMMANDS } from './constants.js'
-import { chromeLogLevelToLogLevel } from './helpers/utils.js'
+import { NAVIGATION_COMMANDS } from './constants.js'
 import {
   parseNetworkFromPerfLogs,
   dedupeNetworkRequests,
@@ -22,12 +22,7 @@ import {
   type CapturedPerformancePayload,
   applyPerformanceData
 } from '@wdio/devtools-core'
-import type {
-  CommandLog,
-  ConsoleLog,
-  LogLevel,
-  NightwatchBrowser
-} from './types.js'
+import type { CommandLog, LogLevel, NightwatchBrowser } from './types.js'
 
 const log = logger('@wdio/nightwatch-devtools:SessionCapturer')
 
@@ -327,26 +322,16 @@ export class SessionCapturer extends SessionCapturerBase {
       const rawLogs = await (
         browser as unknown as Record<string, (type: string) => Promise<unknown>>
       ).getLog('browser')
-      const logs = unwrapDriverValue<
-        Array<{
-          level: string
-          message: string
-          source: string
-          timestamp: number
-        }>
-      >(rawLogs)
+      const logs =
+        unwrapDriverValue<
+          Array<{ level: string; message: string; timestamp: number }>
+        >(rawLogs)
 
       if (!Array.isArray(logs) || logs.length === 0) {
         return
       }
 
-      const entries: ConsoleLog[] = logs.map((entry) => ({
-        timestamp: entry.timestamp,
-        type: chromeLogLevelToLogLevel(entry.level),
-        args: [entry.message],
-        source: LOG_SOURCES.BROWSER
-      }))
-
+      const entries = mapChromeBrowserLogs(logs)
       this.consoleLogs.push(...entries)
       this.sendUpstream('consoleLogs', entries)
     } catch {

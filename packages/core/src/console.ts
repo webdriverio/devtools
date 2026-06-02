@@ -104,6 +104,27 @@ export function createConsoleLogEntry(
 }
 
 /**
+ * Map raw Chrome browser-log entries (the shape returned by both
+ * `driver.manage().logs().get('browser')` in selenium-webdriver and
+ * `browser.getLog('browser')` in nightwatch) into the dashboard's typed
+ * ConsoleLog shape, tagged as source='browser'. Each entry's Chrome level
+ * (`SEVERE` / `WARNING` / `INFO` / `DEBUG`) is normalised through
+ * {@link chromeLogLevelToLogLevel}.
+ */
+export function mapChromeBrowserLogs(
+  entries: Array<{ level: unknown; message: string; timestamp: number }>
+): ConsoleLog[] {
+  return entries.map((entry) => ({
+    timestamp: entry.timestamp,
+    type: chromeLogLevelToLogLevel(
+      entry.level as string | { value?: number; name?: string }
+    ),
+    args: [entry.message],
+    source: LOG_SOURCES.BROWSER
+  }))
+}
+
+/**
  * Map a Chrome DevTools log-level string (or `{name, value}` object) to our
  * `LogLevel` union. Used by CDP/BiDi consumers that surface browser-side
  * console output through SEVERE/WARNING/INFO/DEBUG severity names.
