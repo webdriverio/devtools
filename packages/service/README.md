@@ -122,3 +122,11 @@ No configuration change is needed to switch modes — the service detects browse
 |---|---|
 | `wdio-trace-{sessionId}.json` | Full trace: DOM mutations, commands, screenshots, console logs, network requests |
 | `wdio-video-{sessionId}.webm` | Screencast video (only produced when `screencast.enabled: true`) |
+
+## Performance API capture
+
+After every navigation command (`url`, `navigateTo`, etc.), the service runs the shared `CAPTURE_PERFORMANCE_SCRIPT` from `@wdio/devtools-core` to read `window.performance.getEntriesByType('navigation' | 'resource')`, cookies, and document info. The result is attached to the command entry in the Actions tab so you see `loadTime` / `domReady` / `responseTime` / resource counts per navigation. Same script and `applyPerformanceData` post-processing used by selenium-devtools and nightwatch-devtools — uniform dashboard fields across all three adapters.
+
+## Shared library notes
+
+Most of this service's capture + reporting logic now lives in `@wdio/devtools-core` and is consumed by all three adapters: `SessionCapturerBase`, `ScreencastRecorderBase`, `TestReporterBase`, `loadInjectableScript`/`pollUntilReady`, `processTracePayload`, `captureSource`, `sendCommand`/`sendReplaceCommand`, `errorMessage`/`toError`/`serializeError`, `RetryTracker`, `mapChromeBrowserLogs`, `attachBidiHandlers`, `finalizeScreencast`, `encodeToVideo`, `suite-helpers`, `test-discovery`. This service contains only WDIO-specific glue (BiDi event listeners via WDIO's native `browser.on`, the WDIO reporter integration, `beforeCommand`/`afterCommand` hook wiring, Cucumber UID branching).

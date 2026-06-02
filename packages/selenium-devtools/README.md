@@ -394,6 +394,14 @@ The plugin patches `selenium-webdriver`'s `Builder`, `WebDriver`, and `WebElemen
 
 When BiDi is available (Chrome ≥114), console logs, JavaScript exceptions, and network events stream directly via the Selenium BiDi handlers. Otherwise the plugin falls back to an injected browser-side collector script.
 
+> The BiDi attach + inspector wiring lives in [`@wdio/devtools-core`'s `bidi.ts`](../core/src/bidi.ts) (`loadSeleniumSubmodule`, `attachBidiHandlers`, `arrayHeadersToObject`) — the same helpers nightwatch-devtools uses when its `bidi: true` opt-in is enabled. This adapter's `bidi.ts` keeps only the selenium-specific Builder-cap helpers (`ensureBidiCapability`, `ensureHeadlessChrome`) and the `buildBidiSinks` wrapper.
+
+### Performance API capture
+
+After every navigation command (`get`, `navigate`, `navigateTo`, etc.), the plugin runs the shared `CAPTURE_PERFORMANCE_SCRIPT` from `@wdio/devtools-core` to read `window.performance.getEntriesByType('navigation' | 'resource')`, cookies, and document info. The result is attached to the command entry in the Actions tab so you see `loadTime` / `domReady` / `responseTime` / resource counts / cookies / document title per navigation.
+
+Same script and post-processing (`applyPerformanceData`) used by `@wdio/devtools-service` and `@wdio/nightwatch-devtools` — uniform dashboard fields across all three adapters.
+
 ---
 
 ## Limitations
