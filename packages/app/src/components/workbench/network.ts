@@ -96,19 +96,7 @@ export class DevtoolsNetwork extends Element {
     this.selectedRequest = request
   }
 
-  render() {
-    const filteredRequests = this.#filterRequests()
-
-    if (!this.networkRequests || this.networkRequests.length === 0) {
-      return html`
-        <wdio-devtools-placeholder
-          icon="network"
-          title="No network requests captured"
-          description="Network requests will appear here as your tests run"
-        ></wdio-devtools-placeholder>
-      `
-    }
-
+  #renderNetworkHeader() {
     return html`
       <div class="network-header">
         <input
@@ -132,6 +120,50 @@ export class DevtoolsNetwork extends Element {
           )}
         </div>
       </div>
+    `
+  }
+
+  #renderRequestRow(request: NetworkRequest) {
+    return html`
+      <div
+        class="request-row ${this.selectedRequest?.id === request.id
+          ? 'selected'
+          : ''} ${request.error ? 'error' : ''}"
+        @click="${() => this.#selectRequest(request)}"
+      >
+        <span class="truncate" title="${request.url}"
+          >${getFileName(request.url)}</span
+        >
+        <span>${request.method}</span>
+        <span class="${getStatusClass(request.status)}"
+          >${request.status || (request.error ? 'ERR' : '-')}</span
+        >
+        <span class="truncate text-muted"
+          >${request.responseHeaders?.['content-type']?.split(';')[0] ||
+          '-'}</span
+        >
+        <span>${formatTime(request.time)}</span>
+        <span>${formatBytes(request.size)}</span>
+        <span class="text-muted"
+          >${request.startTime ? `${request.startTime.toFixed(1)}s` : '-'}</span
+        >
+      </div>
+    `
+  }
+
+  render() {
+    if (!this.networkRequests || this.networkRequests.length === 0) {
+      return html`
+        <wdio-devtools-placeholder
+          icon="network"
+          title="No network requests captured"
+          description="Network requests will appear here as your tests run"
+        ></wdio-devtools-placeholder>
+      `
+    }
+    const filteredRequests = this.#filterRequests()
+    return html`
+      ${this.#renderNetworkHeader()}
       <div class="network-content">
         <div class="requests-list">
           <div class="requests-header">
@@ -144,154 +176,94 @@ export class DevtoolsNetwork extends Element {
             <div>Start</div>
           </div>
           ${filteredRequests.length === 0
-            ? html`
-                <div class="p-4 text-center text-sm text-muted">
-                  No requests match your filter
-                </div>
-              `
-            : filteredRequests.map(
-                (request) => html`
-                  <div
-                    class="request-row ${this.selectedRequest?.id === request.id
-                      ? 'selected'
-                      : ''} ${request.error ? 'error' : ''}"
-                    @click="${() => this.#selectRequest(request)}"
-                  >
-                    <span class="truncate" title="${request.url}"
-                      >${getFileName(request.url)}</span
-                    >
-                    <span>${request.method}</span>
-                    <span class="${getStatusClass(request.status)}"
-                      >${request.status || (request.error ? 'ERR' : '-')}</span
-                    >
-                    <span class="truncate text-muted"
-                      >${request.responseHeaders?.['content-type']?.split(
-                        ';'
-                      )[0] || '-'}</span
-                    >
-                    <span>${formatTime(request.time)}</span>
-                    <span>${formatBytes(request.size)}</span>
-                    <span class="text-muted"
-                      >${request.startTime
-                        ? `${request.startTime.toFixed(1)}s`
-                        : '-'}</span
-                    >
-                  </div>
-                `
-              )}
+            ? html`<div class="p-4 text-center text-sm text-muted">
+                No requests match your filter
+              </div>`
+            : filteredRequests.map((r) => this.#renderRequestRow(r))}
         </div>
         ${this.selectedRequest ? this.#renderRequestDetail() : nothing}
       </div>
     `
   }
 
+  #renderHeaderRow(key: string, value: unknown, valueClass = '') {
+    return html`
+      <div class="header-row">
+        <span class="header-key">${key}:</span>
+        <span class="header-value ${valueClass}">${value}</span>
+      </div>
+    `
+  }
+
+  #renderHeadersSection(
+    title: string,
+    headers: Record<string, string> | undefined
+  ) {
+    if (!headers || Object.keys(headers).length === 0) {
+      return nothing
+    }
+    return html`
+      <div class="detail-section">
+        <div class="detail-title">${title}</div>
+        <div class="detail-content">
+          ${Object.entries(headers).map(([k, v]) =>
+            this.#renderHeaderRow(k, v)
+          )}
+        </div>
+      </div>
+    `
+  }
+
+  #renderBodySection(title: string, body: string | undefined) {
+    if (!body) {
+      return nothing
+    }
+    return html`
+      <div class="detail-section">
+        <div class="detail-title">${title}</div>
+        <div class="detail-content">
+          <pre>${this.#formatBody(body)}</pre>
+        </div>
+      </div>
+    `
+  }
+
+  #renderGeneralSection(req: NetworkRequest) {
+    return html`
+      <div class="detail-section">
+        <div class="detail-title">General</div>
+        <div class="detail-content">
+          ${this.#renderHeaderRow('URL', req.url)}
+          ${this.#renderHeaderRow('Method', req.method)}
+          ${this.#renderHeaderRow(
+            'Status',
+            html`${req.status || '-'} ${req.statusText || ''}`,
+            getStatusClass(req.status)
+          )}
+          ${this.#renderHeaderRow('Type', req.type)}
+          ${req.time
+            ? this.#renderHeaderRow('Time', formatTime(req.time))
+            : nothing}
+          ${req.size
+            ? this.#renderHeaderRow('Size', formatBytes(req.size))
+            : nothing}
+          ${req.error
+            ? this.#renderHeaderRow('Error', req.error, 'text-red-500')
+            : nothing}
+        </div>
+      </div>
+    `
+  }
+
   #renderRequestDetail() {
     const req = this.selectedRequest!
-
     return html`
       <div class="request-detail">
-        <div class="detail-section">
-          <div class="detail-title">General</div>
-          <div class="detail-content">
-            <div class="header-row">
-              <span class="header-key">URL:</span>
-              <span class="header-value">${req.url}</span>
-            </div>
-            <div class="header-row">
-              <span class="header-key">Method:</span>
-              <span class="header-value">${req.method}</span>
-            </div>
-            <div class="header-row">
-              <span class="header-key">Status:</span>
-              <span class="header-value ${getStatusClass(req.status)}"
-                >${req.status || '-'} ${req.statusText || ''}</span
-              >
-            </div>
-            <div class="header-row">
-              <span class="header-key">Type:</span>
-              <span class="header-value">${req.type}</span>
-            </div>
-            ${req.time
-              ? html`
-                  <div class="header-row">
-                    <span class="header-key">Time:</span>
-                    <span class="header-value">${formatTime(req.time)}</span>
-                  </div>
-                `
-              : nothing}
-            ${req.size
-              ? html`
-                  <div class="header-row">
-                    <span class="header-key">Size:</span>
-                    <span class="header-value">${formatBytes(req.size)}</span>
-                  </div>
-                `
-              : nothing}
-            ${req.error
-              ? html`
-                  <div class="header-row">
-                    <span class="header-key">Error:</span>
-                    <span class="header-value text-red-500">${req.error}</span>
-                  </div>
-                `
-              : nothing}
-          </div>
-        </div>
-
-        ${req.requestHeaders && Object.keys(req.requestHeaders).length > 0
-          ? html`
-              <div class="detail-section">
-                <div class="detail-title">Request Headers</div>
-                <div class="detail-content">
-                  ${Object.entries(req.requestHeaders).map(
-                    ([key, value]) => html`
-                      <div class="header-row">
-                        <span class="header-key">${key}:</span>
-                        <span class="header-value">${value}</span>
-                      </div>
-                    `
-                  )}
-                </div>
-              </div>
-            `
-          : nothing}
-        ${req.requestBody
-          ? html`
-              <div class="detail-section">
-                <div class="detail-title">Request Body</div>
-                <div class="detail-content">
-                  <pre>${this.#formatBody(req.requestBody)}</pre>
-                </div>
-              </div>
-            `
-          : nothing}
-        ${req.responseHeaders && Object.keys(req.responseHeaders).length > 0
-          ? html`
-              <div class="detail-section">
-                <div class="detail-title">Response Headers</div>
-                <div class="detail-content">
-                  ${Object.entries(req.responseHeaders).map(
-                    ([key, value]) => html`
-                      <div class="header-row">
-                        <span class="header-key">${key}:</span>
-                        <span class="header-value">${value}</span>
-                      </div>
-                    `
-                  )}
-                </div>
-              </div>
-            `
-          : nothing}
-        ${req.responseBody
-          ? html`
-              <div class="detail-section">
-                <div class="detail-title">Response Body</div>
-                <div class="detail-content">
-                  <pre>${this.#formatBody(req.responseBody)}</pre>
-                </div>
-              </div>
-            `
-          : nothing}
+        ${this.#renderGeneralSection(req)}
+        ${this.#renderHeadersSection('Request Headers', req.requestHeaders)}
+        ${this.#renderBodySection('Request Body', req.requestBody)}
+        ${this.#renderHeadersSection('Response Headers', req.responseHeaders)}
+        ${this.#renderBodySection('Response Body', req.responseBody)}
       </div>
     `
   }

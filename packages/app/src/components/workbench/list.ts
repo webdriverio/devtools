@@ -94,10 +94,53 @@ export class DevtoolsList extends Element {
     `
   }
 
+  #unpackEntry(
+    entry: unknown,
+    isArrayList: boolean
+  ): { key: string | undefined; val: unknown } {
+    const isKeyValueTuple = (v: unknown): v is [string, unknown] =>
+      Array.isArray(v) && v.length === 2 && typeof v[0] === 'string'
+    if (isArrayList) {
+      if (isKeyValueTuple(entry)) {
+        return { key: entry[0], val: entry[1] }
+      }
+      return { key: undefined, val: entry }
+    }
+    const tuple = entry as [string, unknown]
+    return { key: tuple[0], val: tuple[1] }
+  }
+
+  #renderRow(entry: unknown, isArrayList: boolean) {
+    const { key, val } = this.#unpackEntry(entry, isArrayList)
+    const stringForMeasure =
+      val && typeof val === 'object'
+        ? JSON.stringify(val, null, 2)
+        : String(val)
+    const isMultiline =
+      /\n/.test(stringForMeasure) ||
+      stringForMeasure.length > 40 ||
+      (val && typeof val === 'object')
+    const baseCls = 'row px-2 py-1 border-b-[1px] border-b-panelBorder'
+    const colCls = isMultiline ? 'basis-full w-full' : 'basis-1/2'
+    const collapsedCls = this.isCollapsed ? 'collapse' : 'max-h-[500px]'
+    if (key === undefined) {
+      return html`
+        <dd class="${baseCls} ${colCls} ${collapsedCls}">
+          ${this.#renderMetadataProp(val)}
+        </dd>
+      `
+    }
+    return html`
+      <dt class="${baseCls} ${colCls} ${collapsedCls}">${key}</dt>
+      <dd class="${baseCls} ${colCls} ${collapsedCls}">
+        ${this.#renderMetadataProp(val)}
+      </dd>
+    `
+  }
+
   render() {
     const list = this.list ?? {}
     const isArrayList = Array.isArray(list)
-
     if (list === null) {
       return null
     }
@@ -110,63 +153,14 @@ export class DevtoolsList extends Element {
     ) {
       return null
     }
-
-    const entries: unknown[] | [string, unknown][] = isArrayList
+    const entries: unknown[] = isArrayList
       ? (this.list as unknown[])
       : Object.entries(this.list as Record<string, unknown>)
-
-    const isKeyValueTuple = (val: unknown): val is [string, unknown] =>
-      Array.isArray(val) && val.length === 2 && typeof val[0] === 'string'
-
     return html`
       <section class="block">
         ${this.#renderSectionHeader(this.label)}
         <dl class="flex flex-wrap ${this.isCollapsed ? '' : 'mt-2'}">
-          ${(entries as unknown[]).map((entry) => {
-            let key: string | undefined
-            let val: unknown
-
-            if (isArrayList) {
-              if (isKeyValueTuple(entry)) {
-                key = entry[0]
-                val = entry[1]
-              } else {
-                val = entry
-              }
-            } else {
-              key = (entry as [string, unknown])[0]
-              val = (entry as [string, unknown])[1]
-            }
-
-            const stringForMeasure =
-              val && typeof val === 'object'
-                ? JSON.stringify(val, null, 2)
-                : String(val)
-
-            const isMultiline =
-              /\n/.test(stringForMeasure) ||
-              stringForMeasure.length > 40 ||
-              (val && typeof val === 'object')
-
-            const baseCls = 'row px-2 py-1 border-b-[1px] border-b-panelBorder'
-            const colCls = isMultiline ? 'basis-full w-full' : 'basis-1/2'
-            const collapsedCls = this.isCollapsed ? 'collapse' : 'max-h-[500px]'
-
-            if (key === undefined) {
-              return html`
-                <dd class="${baseCls} ${colCls} ${collapsedCls}">
-                  ${this.#renderMetadataProp(val)}
-                </dd>
-              `
-            }
-
-            return html`
-              <dt class="${baseCls} ${colCls} ${collapsedCls}">${key}</dt>
-              <dd class="${baseCls} ${colCls} ${collapsedCls}">
-                ${this.#renderMetadataProp(val)}
-              </dd>
-            `
-          })}
+          ${entries.map((entry) => this.#renderRow(entry, isArrayList))}
         </dl>
       </section>
     `

@@ -99,6 +99,15 @@ export class DevtoolsSidebarFilter extends Element {
     return this.#filterQuery
   }
 
+  #renderStateCheckbox(state: FilterState, label: string, id: string) {
+    return html`
+      <li>
+        <input type="checkbox" value="${state}" name="${id}" id="${id}" />
+        <label for="${id}">${label}</label>
+      </li>
+    `
+  }
+
   render() {
     return html`
       <button
@@ -128,33 +137,13 @@ export class DevtoolsSidebarFilter extends Element {
           class="${this.#isStateFilterOpen ? 'show' : 'hidden'}"
         >
           <ul class="block w-full">
-            <li>
-              <input
-                type="checkbox"
-                value="${FilterState.PASSED}"
-                name="passed"
-                id="passed"
-              />
-              <label for="passed">Passed</label>
-            </li>
-            <li>
-              <input
-                type="checkbox"
-                value="${FilterState.FAILED}"
-                name="failed"
-                id="failed"
-              />
-              <label for="failed">Failed</label>
-            </li>
-            <li>
-              <input
-                type="checkbox"
-                value="${FilterState.SKIPPED}"
-                name="skipped"
-                id="skipped"
-              />
-              <label for="skipped">Skipped</label>
-            </li>
+            ${this.#renderStateCheckbox(FilterState.PASSED, 'Passed', 'passed')}
+            ${this.#renderStateCheckbox(FilterState.FAILED, 'Failed', 'failed')}
+            ${this.#renderStateCheckbox(
+              FilterState.SKIPPED,
+              'Skipped',
+              'skipped'
+            )}
           </ul>
         </form>
       </div>

@@ -76,6 +76,35 @@ export class DevtoolsCommandLogs extends Element {
     })
   }
 
+  #renderParameters() {
+    const args = this.command!.args || []
+    const params = args.reduce(
+      (acc: Record<string, unknown>, val: unknown, i: number) => {
+        const paramName = this.#commandDefinition?.parameters?.[i]?.name ?? i
+        acc[paramName] = val
+        return acc
+      },
+      {} as Record<string, unknown>
+    )
+    return html`<wdio-devtools-list
+      label="Parameters"
+      class="text-xs"
+      .list="${params}"
+    ></wdio-devtools-list>`
+  }
+
+  #renderResult() {
+    const result = this.command!.result
+    if (result === null || result === undefined) {
+      return ''
+    }
+    return html`<wdio-devtools-list
+      label="Result"
+      class="text-xs"
+      .list="${typeof result === 'object' ? result : [result]}"
+    ></wdio-devtools-list>`
+  }
+
   render() {
     if (!this.command) {
       return html`
@@ -84,7 +113,6 @@ export class DevtoolsCommandLogs extends Element {
         </section>
       `
     }
-
     return html`
       <section
         class="flex flex-column border-b-[1px] border-b-panelBorder px-2 py-1"
@@ -107,28 +135,7 @@ export class DevtoolsCommandLogs extends Element {
         >
         </wdio-devtools-list>
       `}
-      <wdio-devtools-list
-        label="Parameters"
-        class="text-xs"
-        .list="${(this.command.args || []).reduce(
-          (acc: Record<string, unknown>, val: unknown, i: number) => {
-            const def = this.#commandDefinition
-            const paramName = def?.parameters?.[i]?.name ?? i
-            acc[paramName] = val
-            return acc
-          },
-          {} as Record<string, unknown>
-        )}"
-      ></wdio-devtools-list>
-      ${this.command.result !== null && this.command.result !== undefined
-        ? html`<wdio-devtools-list
-            label="Result"
-            class="text-xs"
-            .list="${typeof this.command.result === 'object'
-              ? this.command.result
-              : [this.command.result]}"
-          ></wdio-devtools-list>`
-        : ''}
+      ${this.#renderParameters()} ${this.#renderResult()}
     `
   }
 }

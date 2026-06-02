@@ -29,21 +29,7 @@ export class DevtoolsMetadata extends Element {
     `
   ]
 
-  render() {
-    if (!this.metadata) {
-      return html`<wdio-devtools-placeholder></wdio-devtools-placeholder>`
-    }
-
-    const m = this.metadata as {
-      sessionId?: string
-      testEnv?: string
-      host?: string
-      modulePath?: string
-      url?: string
-      capabilities?: Record<string, unknown>
-      desiredCapabilities?: Record<string, unknown>
-      options?: Record<string, unknown>
-    }
+  #buildSessionInfo(m: MetadataShape): Record<string, unknown> {
     const sessionInfo: Record<string, unknown> = {}
     if (m.sessionId) {
       sessionInfo['Session ID'] = m.sessionId
@@ -60,35 +46,47 @@ export class DevtoolsMetadata extends Element {
     if (m.url) {
       sessionInfo.URL = m.url
     }
+    return sessionInfo
+  }
 
-    const caps = m.capabilities || {}
-    const desiredCaps = m.desiredCapabilities || {}
+  #renderListIfNonEmpty(label: string, list: Record<string, unknown>) {
+    return Object.keys(list).length
+      ? html`<wdio-devtools-list
+          label="${label}"
+          .list="${list}"
+        ></wdio-devtools-list>`
+      : ''
+  }
 
+  render() {
+    if (!this.metadata) {
+      return html`<wdio-devtools-placeholder></wdio-devtools-placeholder>`
+    }
+    const m = this.metadata as MetadataShape
     return html`
-      ${Object.keys(sessionInfo).length
-        ? html`<wdio-devtools-list
-            label="Session"
-            .list="${sessionInfo}"
-          ></wdio-devtools-list>`
-        : ''}
+      ${this.#renderListIfNonEmpty('Session', this.#buildSessionInfo(m))}
       <wdio-devtools-list
         label="Capabilities"
-        .list="${caps}"
+        .list="${m.capabilities || {}}"
       ></wdio-devtools-list>
-      ${Object.keys(desiredCaps).length
-        ? html`<wdio-devtools-list
-            label="Desired Capabilities"
-            .list="${desiredCaps}"
-          ></wdio-devtools-list>`
-        : ''}
-      ${m.options && Object.keys(m.options).length
-        ? html`<wdio-devtools-list
-            label="Options"
-            .list="${m.options}"
-          ></wdio-devtools-list>`
-        : ''}
+      ${this.#renderListIfNonEmpty(
+        'Desired Capabilities',
+        m.desiredCapabilities || {}
+      )}
+      ${this.#renderListIfNonEmpty('Options', m.options || {})}
     `
   }
+}
+
+interface MetadataShape {
+  sessionId?: string
+  testEnv?: string
+  host?: string
+  modulePath?: string
+  url?: string
+  capabilities?: Record<string, unknown>
+  desiredCapabilities?: Record<string, unknown>
+  options?: Record<string, unknown>
 }
 
 declare global {

@@ -424,19 +424,97 @@ export class DevtoolsBrowser extends Element {
     return null
   }
 
+  #renderViewToggle() {
+    if (this.#videos.length === 0) {
+      return nothing
+    }
+    return html`
+      <div class="view-toggle">
+        <button
+          class=${this.#viewMode === 'snapshot' ? 'active' : ''}
+          @click=${() => this.#setViewMode('snapshot')}
+        >
+          Snapshot
+        </button>
+        <button
+          class=${this.#viewMode === 'video' ? 'active' : ''}
+          @click=${() => this.#setViewMode('video')}
+        >
+          Screencast
+        </button>
+        ${this.#videos.length > 1
+          ? html`<select
+              class="video-select"
+              @change=${(e: Event) => {
+                this.#setActiveVideo(
+                  Number((e.target as HTMLSelectElement).value)
+                )
+                this.#setViewMode('video')
+              }}
+            >
+              ${this.#videos.map(
+                (_v, i) =>
+                  html`<option
+                    value=${i}
+                    ?selected=${this.#activeVideoIdx === i}
+                  >
+                    Recording ${i + 1}
+                  </option>`
+              )}
+            </select>`
+          : nothing}
+      </div>
+    `
+  }
+
+  #renderViewport(hasMutations: number | null) {
+    if (this.#viewMode === 'video' && this.#activeVideoUrl) {
+      return html`<div class="iframe-wrapper">
+        <video
+          class="screencast-player"
+          src="${this.#activeVideoUrl}"
+          controls
+        ></video>
+      </div>`
+    }
+    if (this.#screenshotData) {
+      return html`<div class="iframe-wrapper">
+        <div
+          class="screenshot-overlay"
+          style="position:relative;flex:1;min-height:0;"
+        >
+          <img src="data:image/png;base64,${this.#screenshotData}" />
+        </div>
+      </div>`
+    }
+    if (hasMutations) {
+      return html`<div class="iframe-wrapper">
+        <iframe class="origin-top-left"></iframe>
+      </div>`
+    }
+    const autoScreenshot = hasMutations ? null : this.#latestAutoScreenshot
+    if (autoScreenshot) {
+      return html`<div class="iframe-wrapper">
+        <div
+          class="screenshot-overlay"
+          style="position:relative;flex:1;min-height:0;"
+        >
+          <img src="data:image/png;base64,${autoScreenshot}" />
+        </div>
+      </div>`
+    }
+    return html`<wdio-devtools-placeholder
+      style="height: 100%"
+    ></wdio-devtools-placeholder>`
+  }
+
   render() {
-    /**
-     * render a browser state if it hasn't before
-     */
+    // Render the initial browser state lazily on first mutation arrival.
     if (this.mutations && this.mutations.length && !this.#activeUrl) {
       this.#setIframeSize()
       this.#renderBrowserState()
     }
-
     const hasMutations = this.mutations && this.mutations.length
-    const autoScreenshot = hasMutations ? null : this.#latestAutoScreenshot
-    const displayScreenshot = this.#screenshotData ?? autoScreenshot
-
     return html`
       <section
         class="w-full h-full bg-sideBarBackground rounded-lg border-2 border-panelBorder shadow-xl"
@@ -455,79 +533,9 @@ export class DevtoolsBrowser extends Element {
             ></icon-mdi-world>
             <span class="truncate">${this.#activeUrl}</span>
           </div>
-          ${this.#videos.length > 0
-            ? html`
-                <div class="view-toggle">
-                  <button
-                    class=${this.#viewMode === 'snapshot' ? 'active' : ''}
-                    @click=${() => this.#setViewMode('snapshot')}
-                  >
-                    Snapshot
-                  </button>
-                  <button
-                    class=${this.#viewMode === 'video' ? 'active' : ''}
-                    @click=${() => this.#setViewMode('video')}
-                  >
-                    Screencast
-                  </button>
-                  ${this.#videos.length > 1
-                    ? html`<select
-                        class="video-select"
-                        @change=${(e: Event) => {
-                          this.#setActiveVideo(
-                            Number((e.target as HTMLSelectElement).value)
-                          )
-                          this.#setViewMode('video')
-                        }}
-                      >
-                        ${this.#videos.map(
-                          (_v, i) =>
-                            html`<option
-                              value=${i}
-                              ?selected=${this.#activeVideoIdx === i}
-                            >
-                              Recording ${i + 1}
-                            </option>`
-                        )}
-                      </select>`
-                    : nothing}
-                </div>
-              `
-            : nothing}
+          ${this.#renderViewToggle()}
         </header>
-        ${this.#viewMode === 'video' && this.#activeVideoUrl
-          ? html`<div class="iframe-wrapper">
-              <video
-                class="screencast-player"
-                src="${this.#activeVideoUrl}"
-                controls
-              ></video>
-            </div>`
-          : this.#screenshotData
-            ? html`<div class="iframe-wrapper">
-                <div
-                  class="screenshot-overlay"
-                  style="position:relative;flex:1;min-height:0;"
-                >
-                  <img src="data:image/png;base64,${this.#screenshotData}" />
-                </div>
-              </div>`
-            : hasMutations
-              ? html`<div class="iframe-wrapper">
-                  <iframe class="origin-top-left"></iframe>
-                </div>`
-              : displayScreenshot
-                ? html`<div class="iframe-wrapper">
-                    <div
-                      class="screenshot-overlay"
-                      style="position:relative;flex:1;min-height:0;"
-                    >
-                      <img src="data:image/png;base64,${displayScreenshot}" />
-                    </div>
-                  </div>`
-                : html`<wdio-devtools-placeholder
-                    style="height: 100%"
-                  ></wdio-devtools-placeholder>`}
+        ${this.#renderViewport(hasMutations)}
       </section>
     `
   }

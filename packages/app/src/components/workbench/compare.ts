@@ -27,6 +27,15 @@ import {
   type ComparePairedStep,
   type DivergenceKind
 } from './compare/compareUtils.js'
+
+interface RenderPairCtx {
+  pair: ComparePairedStep
+  kind: DivergenceKind
+  isTruncation: boolean
+  oneSideEntirelyEmpty: boolean
+  expanded: boolean
+  isFirstDivergent: boolean
+}
 import { BASELINE_API, type BaselineClearRequest } from '@wdio/devtools-shared'
 import { POPOUT_QUERY, buildPopoutFeatures } from './compare/constants.js'
 import { renderMarker } from './compare/markers.js'
@@ -180,49 +189,47 @@ export class DevtoolsCompare extends Element {
     window.open(url, `compare-${this.selectedTestUid}`, buildPopoutFeatures())
   }
 
-  render() {
-    const baseline = this.#getBaseline()
-    if (!baseline) {
-      return html`
-        <div class="empty-state">
-          <div>
-            <p>No baseline preserved.</p>
-            <p>
-              Click the
-              <strong>📌 Preserve &amp; Rerun</strong> button on a failed test
-              to compare the failing run against the rerun.
-            </p>
-          </div>
+  #renderEmptyState() {
+    return html`
+      <div class="empty-state">
+        <div>
+          <p>No baseline preserved.</p>
+          <p>
+            Click the
+            <strong>📌 Preserve &amp; Rerun</strong> button on a failed test to
+            compare the failing run against the rerun.
+          </p>
         </div>
-      `
+      </div>
+    `
+  }
+
+  #renderPopoutButton() {
+    if (this.#isPopout) {
+      return nothing
     }
+    return html`
+      <button
+        class="action icon-only"
+        @click="${() => this.#popOut()}"
+        title="Open this comparison in a separate window"
+        aria-label="Open in a separate window"
+      >
+        <icon-mdi-open-in-new></icon-mdi-open-in-new>
+      </button>
+    `
+  }
 
-    const baselineCommands = baseline.commands as CommandLog[]
-    const latestCommands = this.#liveCommandsForSelectedUid()
-
-    // Naming follows physical sides (left/right) after swap.
-    const leftAttempt = this.swapped ? null : baseline
-    const rightAttempt = this.swapped ? baseline : null
-    const leftCommands = this.swapped ? latestCommands : baselineCommands
-    const rightCommands = this.swapped ? baselineCommands : latestCommands
-
-    const pairs = pairSteps(baselineCommands, latestCommands)
-    const visiblePairs = this.differencesOnly
-      ? pairs.filter((p) => p.divergent || !p.baseline || !p.latest)
-      : pairs
-    const firstDivergent = pairs.findIndex((p) => p.divergent)
-
-    const errorMessage = baseline.test.error?.message
-      ? cleanErrorMessage(baseline.test.error.message)
-      : undefined
+  #renderTopbar(baseline: PreservedAttempt, latestCount: number) {
+    const baselineCount = (baseline.commands as CommandLog[]).length
     return html`
       <div class="topbar">
         <span class="pill ${baseline.test.state || ''}">
-          Baseline · ${baseline.test.state || 'unknown'} ·
-          ${baselineCommands.length} commands
+          Baseline · ${baseline.test.state || 'unknown'} · ${baselineCount}
+          commands
         </span>
         <span>⇄</span>
-        <span class="pill"> Latest · ${latestCommands.length} commands </span>
+        <span class="pill"> Latest · ${latestCount} commands </span>
         <span style="opacity:0.6; font-size:0.85em;">
           ${baseline.scope === 'suite' ? 'suite scope' : 'test scope'}
         </span>
@@ -249,19 +256,31 @@ export class DevtoolsCompare extends Element {
         >
           Clear
         </button>
-        ${this.#isPopout
-          ? nothing
-          : html`
-              <button
-                class="action icon-only"
-                @click="${() => this.#popOut()}"
-                title="Open this comparison in a separate window"
-                aria-label="Open in a separate window"
-              >
-                <icon-mdi-open-in-new></icon-mdi-open-in-new>
-              </button>
-            `}
+        ${this.#renderPopoutButton()}
       </div>
+    `
+  }
+
+  render() {
+    const baseline = this.#getBaseline()
+    if (!baseline) {
+      return this.#renderEmptyState()
+    }
+    const baselineCommands = baseline.commands as CommandLog[]
+    const latestCommands = this.#liveCommandsForSelectedUid()
+    // Naming follows physical sides (left/right) after swap.
+    const leftCommands = this.swapped ? latestCommands : baselineCommands
+    const rightCommands = this.swapped ? baselineCommands : latestCommands
+    const pairs = pairSteps(baselineCommands, latestCommands)
+    const visiblePairs = this.differencesOnly
+      ? pairs.filter((p) => p.divergent || !p.baseline || !p.latest)
+      : pairs
+    const firstDivergent = pairs.findIndex((p) => p.divergent)
+    const errorMessage = baseline.test.error?.message
+      ? cleanErrorMessage(baseline.test.error.message)
+      : undefined
+    return html`
+      ${this.#renderTopbar(baseline, latestCommands.length)}
       ${errorMessage
         ? html`<div class="error-banner">
             <div class="error-banner-title">Why the baseline failed</div>
@@ -275,7 +294,6 @@ export class DevtoolsCompare extends Element {
           this.#renderPair(pair, leftCommands, rightCommands, firstDivergent)
         )}
       </div>
-      ${leftAttempt || rightAttempt ? nothing : nothing}
     `
   }
 
@@ -289,7 +307,6 @@ export class DevtoolsCompare extends Element {
     const expanded = this.expandedIndex === pair.index
     const left = leftCommands[pair.index]
     const right = rightCommands[pair.index]
-
     // Classify divergence ONCE so left and right rows share the same label.
     const kind: DivergenceKind = classifyDivergence(left, right)
     // Skip "missing" markers when one side is entirely empty (e.g. the rerun
@@ -297,102 +314,21 @@ export class DevtoolsCompare extends Element {
     // own status, not be falsely flagged as "missing".
     const oneSideEntirelyEmpty =
       leftCommands.length === 0 || rightCommands.length === 0
-    const baselineCmds = (this.#getBaseline()?.commands ?? []) as CommandLog[]
-    const latestCmds = this.#liveCommandsForSelectedUid()
-    const marker = (cmd: CommandLog | undefined, side: 'baseline' | 'latest') =>
-      renderMarker({
-        cmd,
-        kind,
-        step: this.#findStepFor(cmd, side),
-        allCmdsThisSide: side === 'baseline' ? baselineCmds : latestCmds,
-        oneSideEntirelyEmpty
-      })
-
-    // Truncation = one side has the command, the other doesn't.
-    const isTruncation = !left || !right
-    /** Per-cell divergence so the passing side stays neutral when only the
-     *  other side has the actual problem. */
-    const cellIsDivergent = (
-      cmd: CommandLog | undefined,
-      side: 'baseline' | 'latest'
-    ) => {
-      if (!pair.divergent || isTruncation || !cmd) {
-        return false
-      }
-      switch (kind) {
-        case 'commandName':
-        case 'args':
-          // Both sides genuinely differ — both cells are divergent.
-          return true
-        case 'error':
-          // Only the side with the actual error is divergent.
-          return !!cmd.error?.message
-        case 'missing':
-          return false
-        case 'none':
-        default: {
-          // Step-level failure site: only the failure site is divergent.
-          const step = this.#findStepFor(cmd, side)
-          if (step?.state !== 'failed') {
-            return false
-          }
-          const allCmds =
-            side === 'baseline'
-              ? ((this.#getBaseline()?.commands ?? []) as CommandLog[])
-              : this.#liveCommandsForSelectedUid()
-          return isFailureSite(cmd, step, allCmds)
-        }
-      }
+    const ctx: RenderPairCtx = {
+      pair,
+      kind,
+      isTruncation: !left || !right,
+      oneSideEntirelyEmpty,
+      expanded,
+      isFirstDivergent
     }
-    const cellClass = (
-      cmd: CommandLog | undefined,
-      side: 'baseline' | 'latest'
-    ) => {
-      const cls = ['step-cell']
-      if (!cmd) {
-        cls.push('missing')
-      }
-      const divergent = cellIsDivergent(cmd, side)
-      if (divergent) {
-        cls.push('divergent')
-      }
-      if (isFirstDivergent && divergent) {
-        cls.push('first')
-      }
-      if (expanded) {
-        cls.push('expanded')
-      }
-      return cls.join(' ')
-    }
-
     type Side = 'baseline' | 'latest'
     const leftSide: Side = this.swapped ? 'latest' : 'baseline'
     const rightSide: Side = this.swapped ? 'baseline' : 'latest'
     return html`
       <div class="step-row">
-        <div
-          class="${cellClass(left, leftSide)}"
-          data-first-divergent="${isFirstDivergent ? 'true' : 'false'}"
-          @click="${() => this.#toggleExpand(pair.index)}"
-        >
-          ${left
-            ? html`${pair.index + 1}. <code>${left.command}</code>${marker(
-                  left,
-                  leftSide
-                )}`
-            : html`—`}
-        </div>
-        <div
-          class="${cellClass(right, rightSide)}"
-          @click="${() => this.#toggleExpand(pair.index)}"
-        >
-          ${right
-            ? html`${pair.index + 1}. <code>${right.command}</code>${marker(
-                  right,
-                  rightSide
-                )}`
-            : html`—`}
-        </div>
+        ${this.#renderPairCell(left, leftSide, ctx)}
+        ${this.#renderPairCell(right, rightSide, ctx)}
         ${expanded
           ? html`
               <div class="detail-panel">
@@ -415,6 +351,133 @@ export class DevtoolsCompare extends Element {
     `
   }
 
+  #cellIsDivergent(
+    cmd: CommandLog | undefined,
+    side: 'baseline' | 'latest',
+    ctx: RenderPairCtx
+  ): boolean {
+    if (!ctx.pair.divergent || ctx.isTruncation || !cmd) {
+      return false
+    }
+    switch (ctx.kind) {
+      case 'commandName':
+      case 'args':
+        return true
+      case 'error':
+        return !!cmd.error?.message
+      case 'missing':
+        return false
+      case 'none':
+      default: {
+        const step = this.#findStepFor(cmd, side)
+        if (step?.state !== 'failed') {
+          return false
+        }
+        const allCmds =
+          side === 'baseline'
+            ? ((this.#getBaseline()?.commands ?? []) as CommandLog[])
+            : this.#liveCommandsForSelectedUid()
+        return isFailureSite(cmd, step, allCmds)
+      }
+    }
+  }
+
+  #renderPairCell(
+    cmd: CommandLog | undefined,
+    side: 'baseline' | 'latest',
+    ctx: RenderPairCtx
+  ) {
+    const cls = ['step-cell']
+    if (!cmd) {
+      cls.push('missing')
+    }
+    const divergent = this.#cellIsDivergent(cmd, side, ctx)
+    if (divergent) {
+      cls.push('divergent')
+    }
+    if (ctx.isFirstDivergent && divergent) {
+      cls.push('first')
+    }
+    if (ctx.expanded) {
+      cls.push('expanded')
+    }
+    const allCmds =
+      side === 'baseline'
+        ? ((this.#getBaseline()?.commands ?? []) as CommandLog[])
+        : this.#liveCommandsForSelectedUid()
+    const marker = renderMarker({
+      cmd,
+      kind: ctx.kind,
+      step: this.#findStepFor(cmd, side),
+      allCmdsThisSide: allCmds,
+      oneSideEntirelyEmpty: ctx.oneSideEntirelyEmpty
+    })
+    return html`
+      <div
+        class="${cls.join(' ')}"
+        data-first-divergent="${ctx.isFirstDivergent ? 'true' : 'false'}"
+        @click="${() => this.#toggleExpand(ctx.pair.index)}"
+      >
+        ${cmd
+          ? html`${ctx.pair.index + 1}. <code>${cmd.command}</code>${marker}`
+          : html`—`}
+      </div>
+    `
+  }
+
+  #renderDetailStepBanner(step: PreservedStep | undefined, stepText: string) {
+    if (!step) {
+      return nothing
+    }
+    const color =
+      step.state === 'failed'
+        ? 'var(--vscode-charts-red,#f48771)'
+        : 'var(--vscode-charts-green,#73c373)'
+    return html`<pre
+      style="opacity:0.85; border-left:2px solid ${color}; padding-left:0.5rem;"
+    >
+step: ${stepText || step.uid}</pre
+    >`
+  }
+
+  #renderExpectedActualAssertion(
+    expected: unknown,
+    actual: unknown,
+    assertionMessage: string | undefined,
+    fallbackExpected: string | undefined
+  ) {
+    return html`
+      ${expected !== undefined
+        ? html`<pre
+            style="color:var(--vscode-charts-green,#73c373); white-space:pre-wrap; word-break:break-word;"
+          >
+expected: ${safeJson(expected)}</pre
+          >`
+        : fallbackExpected
+          ? html`<pre
+              style="color:var(--vscode-charts-green,#73c373); white-space:pre-wrap; word-break:break-word;"
+              title="Derived from the step text (the assertion library didn't surface a structured expected value)"
+            >
+expected (from step): ${fallbackExpected}</pre
+            >`
+          : nothing}
+      ${actual !== undefined
+        ? html`<pre
+            style="color:var(--vscode-charts-orange,#d19a66); white-space:pre-wrap; word-break:break-word;"
+          >
+actual:   ${safeJson(actual)}</pre
+          >`
+        : nothing}
+      ${assertionMessage
+        ? html`<pre
+            style="color:var(--vscode-charts-red,#f48771); white-space:pre-wrap; word-break:break-word; max-height:200px; overflow:auto;"
+          >
+assertion: ${assertionMessage}</pre
+          >`
+        : nothing}
+    `
+  }
+
   #renderDetailBlock(
     label: string,
     cmd: CommandLog | undefined,
@@ -432,16 +495,7 @@ export class DevtoolsCompare extends Element {
       side === 'baseline'
         ? ((this.#getBaseline()?.commands ?? []) as CommandLog[])
         : this.#liveCommandsForSelectedUid()
-    const {
-      argsStr,
-      resultStr,
-      step,
-      expected,
-      actual,
-      assertionMessage,
-      fallbackExpected,
-      stepText
-    } = computeDetailBlockData(
+    const data = computeDetailBlockData(
       cmd,
       this.#findStepFor(cmd, side),
       allCmdsThisSide
@@ -449,50 +503,19 @@ export class DevtoolsCompare extends Element {
     return html`
       <div class="detail-block">
         <h4>${label} · ${cmd.command}</h4>
-        ${step
-          ? html`<pre
-              style="opacity:0.85; border-left:2px solid ${step.state ===
-              'failed'
-                ? 'var(--vscode-charts-red,#f48771)'
-                : 'var(--vscode-charts-green,#73c373)'}; padding-left:0.5rem;"
-            >
-step: ${stepText || step.uid}</pre
-            >`
-          : nothing}
-        <pre>args: ${argsStr}</pre>
+        ${this.#renderDetailStepBanner(data.step, data.stepText)}
+        <pre>args: ${data.argsStr}</pre>
         ${cmd.error
           ? html`<pre style="color:var(--vscode-charts-red,#f48771);">
 error: ${cmd.error.message || String(cmd.error)}</pre
             >`
-          : html`<pre>result: ${resultStr}</pre>`}
-        ${expected !== undefined
-          ? html`<pre
-              style="color:var(--vscode-charts-green,#73c373); white-space:pre-wrap; word-break:break-word;"
-            >
-expected: ${safeJson(expected)}</pre
-            >`
-          : fallbackExpected
-            ? html`<pre
-                style="color:var(--vscode-charts-green,#73c373); white-space:pre-wrap; word-break:break-word;"
-                title="Derived from the step text (the assertion library didn't surface a structured expected value)"
-              >
-expected (from step): ${fallbackExpected}</pre
-              >`
-            : nothing}
-        ${actual !== undefined
-          ? html`<pre
-              style="color:var(--vscode-charts-orange,#d19a66); white-space:pre-wrap; word-break:break-word;"
-            >
-actual:   ${safeJson(actual)}</pre
-            >`
-          : nothing}
-        ${assertionMessage
-          ? html`<pre
-              style="color:var(--vscode-charts-red,#f48771); white-space:pre-wrap; word-break:break-word; max-height:200px; overflow:auto;"
-            >
-assertion: ${assertionMessage}</pre
-            >`
-          : nothing}
+          : html`<pre>result: ${data.resultStr}</pre>`}
+        ${this.#renderExpectedActualAssertion(
+          data.expected,
+          data.actual,
+          data.assertionMessage,
+          data.fallbackExpected
+        )}
         ${cmd.screenshot
           ? html`<img
               src="${cmd.screenshot.startsWith('data:')
