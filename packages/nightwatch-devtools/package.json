@@ -44,6 +44,7 @@
     "@wdio/devtools-backend": "workspace:*",
     "@wdio/devtools-script": "workspace:*",
     "@wdio/logger": "^9.6.0",
+    "fluent-ffmpeg": "^2.1.3",
     "import-meta-resolve": "^4.2.0",
     "stacktrace-parser": "^0.1.11",
     "webdriverio": "^9.18.0",

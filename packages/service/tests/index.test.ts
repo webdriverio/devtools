@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import type * as DevtoolsCore from '@wdio/devtools-core'
 import DevToolsHookService from '../src/index.js'
 
 const fakeFrame = {
@@ -46,9 +47,23 @@ vi.mock('../src/screencast.js', () => ({
   })
 }))
 
-vi.mock('../src/video-encoder.js', () => ({
-  encodeToVideo: vi.fn().mockResolvedValue(undefined)
-}))
+vi.mock('@wdio/devtools-core', async (importOriginal) => {
+  const actual = await importOriginal<typeof DevtoolsCore>()
+  return {
+    ...actual,
+    encodeToVideo: vi.fn().mockResolvedValue(undefined),
+    finalizeScreencast: vi.fn(async (opts: any) => {
+      await opts.recorder.stop()
+      opts.sendUpstream('screencast', {
+        sessionId: opts.sessionId,
+        videoPath: `/out/${opts.filenamePrefix}-${opts.sessionId}.webm`,
+        videoFile: `${opts.filenamePrefix}-${opts.sessionId}.webm`,
+        frameCount: opts.recorder.frames.length,
+        duration: opts.recorder.duration
+      })
+    })
+  }
+})
 
 vi.mock('node:fs/promises', () => ({
   default: { writeFile: vi.fn().mockResolvedValue(undefined) }
@@ -181,7 +196,6 @@ describe('DevtoolsService - Screencast Integration', () => {
   })
 
   it('full lifecycle: start → setStartMarker on url → encode on after() → notify backend', async () => {
-    const { encodeToVideo } = await import('../src/video-encoder.js')
     service = new DevToolsHookService({ screencast: { enabled: true } })
     await service.before({} as any, [], mockBrowser)
 
@@ -203,49 +217,39 @@ describe('DevtoolsService - Screencast Integration', () => {
     await service.after()
 
     expect(mockScreencastRecorder.stop).toHaveBeenCalled()
-    expect(encodeToVideo).toHaveBeenCalledWith(
-      mockScreencastRecorder.frames,
-      expect.stringContaining('wdio-video-session-123.webm'),
-      expect.any(Object)
-    )
     expect(mockSessionCapturerInstance.sendUpstream).toHaveBeenCalledWith(
       'screencast',
       expect.objectContaining({
         sessionId: 'session-123',
         frameCount: 10,
-        duration: 5000
+        duration: 5000,
+        videoFile: 'wdio-video-session-123.webm'
       })
     )
   })
 
-  it('skips when disabled, skips ghost sessions, and swallows encode errors', async () => {
-    const { encodeToVideo } = await import('../src/video-encoder.js')
+  it('skips when disabled, forwards minFrames=5 for ghost sessions, swallows encode errors', async () => {
+    const { finalizeScreencast } = await import('@wdio/devtools-core')
 
-    // Disabled — recorder never starts
+    // Disabled — recorder never starts, finalizer never called
     service = new DevToolsHookService({})
     await service.before({} as any, [], mockBrowser)
     expect(mockScreencastRecorder.start).not.toHaveBeenCalled()
+    expect(finalizeScreencast).not.toHaveBeenCalled()
 
-    // Ghost session — <5 frames, encoding skipped
+    // Enabled — finalizer is called with minFrames=5 so the helper skips
+    // ghost sessions internally (we don't need to assert recorder.frames).
+    vi.mocked(finalizeScreencast).mockClear()
     service = new DevToolsHookService({ screencast: { enabled: true } })
     await service.before({} as any, [], mockBrowser)
-    mockScreencastRecorder.frames = Array(3).fill({
-      data: 'f',
-      timestamp: 1000
-    })
-    vi.mocked(encodeToVideo).mockClear()
+    mockScreencastRecorder.frames = Array(3).fill({ data: 'f', timestamp: 1 })
     await service.after()
-    expect(encodeToVideo).not.toHaveBeenCalled()
+    expect(finalizeScreencast).toHaveBeenCalledWith(
+      expect.objectContaining({ filenamePrefix: 'wdio-video', minFrames: 5 })
+    )
 
-    // Encode error — swallowed, doesn't throw
-    service = new DevToolsHookService({ screencast: { enabled: true } })
-    await service.before({} as any, [], mockBrowser)
-    mockScreencastRecorder.frames = Array(10).fill({
-      data: 'f',
-      timestamp: 1000
-    })
-    vi.mocked(encodeToVideo).mockRejectedValueOnce(new Error('ffmpeg missing'))
-    await expect(service.after()).resolves.toBeUndefined()
+    // Encode-error swallowing is the responsibility of the shared finalize
+    // helper itself (covered in core/tests). Service just needs to invoke it.
   })
 
   it('onReload finalizes old session and starts fresh recorder', async () => {

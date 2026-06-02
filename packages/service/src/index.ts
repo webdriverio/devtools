@@ -14,14 +14,13 @@ import { DevToolsAppLauncher } from './launcher.js'
 import { getBrowserObject, isUserSpecFile } from './utils.js'
 import { ScreencastRecorder } from './screencast.js'
 import { attachBidiListeners } from './bidi-listeners.js'
-import { encodeToVideo } from './video-encoder.js'
+import { finalizeScreencast } from '@wdio/devtools-core'
 import { parse } from 'stack-trace'
 import {
   type TraceLog,
   TraceType,
   type ServiceOptions,
-  type ScreencastOptions,
-  type ScreencastInfo
+  type ScreencastOptions
 } from './types.js'
 import { INTERNAL_COMMANDS, CONTEXT_CHANGE_COMMANDS } from './constants.js'
 
@@ -388,38 +387,21 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     if (!this.#screencastRecorder) {
       return
     }
-
-    await this.#screencastRecorder.stop()
-
-    // Skip ghost sessions: browser.reloadSession() creates a new session at the
-    // end of a test run that has no steps — it captures at most a handful of
-    // frames before teardown. Require at least 5 frames so we don't produce
+    // Skip ghost sessions: browser.reloadSession() creates a new session at
+    // the end of a test run that has no steps — it captures at most a handful
+    // of frames before teardown. Require at least 5 frames so we don't produce
     // empty videos for these ephemeral sessions.
-    if (this.#screencastRecorder.frames.length < 5) {
-      return
-    }
-
-    const outputDir = this.#outputDir
-    const videoFile = `wdio-video-${sessionId}.webm`
-    const videoPath = path.join(outputDir, videoFile)
-    try {
-      await encodeToVideo(this.#screencastRecorder.frames, videoPath, {
-        captureFormat: this.#screencastOptions?.captureFormat
-      })
-      const screencastInfo: ScreencastInfo = {
-        sessionId,
-        videoPath,
-        videoFile,
-        frameCount: this.#screencastRecorder.frames.length,
-        duration: this.#screencastRecorder.duration
-      }
-      // Notify the backend (and then the UI) that a video is ready.
-      // The backend stores the absolute videoPath and exposes it via
-      // GET /api/video/:sessionId, forwarding only { sessionId } to the UI.
-      this.#sessionCapturer.sendUpstream('screencast', screencastInfo)
-    } catch (encodeErr) {
-      log.warn(`Screencast encode failed: ${(encodeErr as Error).message}`)
-    }
+    await finalizeScreencast({
+      recorder: this.#screencastRecorder,
+      sessionId,
+      filenamePrefix: 'wdio-video',
+      outputDir: this.#outputDir,
+      minFrames: 5,
+      captureFormat: this.#screencastOptions?.captureFormat,
+      sendUpstream: (scope, data) =>
+        this.#sessionCapturer.sendUpstream(scope, data),
+      onLog: (level, message) => log[level](message)
+    })
   }
 
   /**

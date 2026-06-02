@@ -33,30 +33,10 @@ export interface DevToolsOptions {
   headless?: boolean
 }
 
-export interface ScreencastFrame {
-  /** Base64-encoded image data — JPEG/PNG. */
-  data: string
-  /** Unix timestamp in milliseconds. */
-  timestamp: number
-}
-
-export interface ScreencastOptions {
-  /** Enable screencast recording for this session (default: false). */
-  enabled?: boolean
-  /** Image format for individual frames (default: 'jpeg'). Chromium-only. */
-  captureFormat?: 'jpeg' | 'png'
-  /** JPEG quality 0–100 (default: 70). Chromium-only. */
-  quality?: number
-  /** Max frame width in px Chrome sends over CDP (default: 1280). Chromium-only. */
-  maxWidth?: number
-  /** Max frame height in px Chrome sends over CDP (default: 720). Chromium-only. */
-  maxHeight?: number
-  /**
-   * Polling interval for non-Chromium fallback (default: 200 ms).
-   * Used when CDP isn't available — calls driver.takeScreenshot() at this rate.
-   */
-  pollIntervalMs?: number
-}
+// ScreencastFrame, ScreencastOptions hoisted to @wdio/devtools-shared; re-exported
+// here for backwards compatibility with existing selenium-internal imports.
+import type { ScreencastOptions } from '@wdio/devtools-shared'
+export type { ScreencastFrame, ScreencastOptions } from '@wdio/devtools-shared'
 
 /**
  * Minimal shape of a selenium-webdriver `WebDriver` instance that the plugin

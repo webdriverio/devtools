@@ -21,47 +21,10 @@ export {
   type Viewport
 } from '@wdio/devtools-shared'
 
-export interface ScreencastFrame {
-  /** Base64-encoded image data — JPEG/PNG from CDP push mode or PNG from browser.takeScreenshot() in polling mode */
-  data: string
-  /** Unix timestamp in milliseconds */
-  timestamp: number
-}
-
-export interface ScreencastOptions {
-  /** Enable screencast recording for this session (default: false) */
-  enabled?: boolean
-  /**
-   * Image format for individual frames (default: 'jpeg').
-   * - Chrome/Chromium (CDP mode): controls the format Chrome sends over CDP.
-   * - Other browsers (polling mode): screenshots are always PNG; this option
-   *   is ignored.
-   * Does NOT affect the output video container, which is always WebM.
-   */
-  captureFormat?: 'jpeg' | 'png'
-  /**
-   * JPEG quality 0–100 (default: 70).
-   * Only applies in Chrome/Chromium CDP mode with captureFormat 'jpeg'.
-   */
-  quality?: number
-  /**
-   * Max frame width in pixels Chrome sends over CDP (default: 1280).
-   * Only applies in Chrome/Chromium CDP mode.
-   */
-  maxWidth?: number
-  /**
-   * Max frame height in pixels Chrome sends over CDP (default: 720).
-   * Only applies in Chrome/Chromium CDP mode.
-   */
-  maxHeight?: number
-  /**
-   * Screenshot polling interval in milliseconds for non-Chrome browsers
-   * (default: 200 ms ≈ 5 fps).
-   * Polling calls browser.takeScreenshot() at this interval. A lower value
-   * gives smoother video but adds more WebDriver round-trips during the test.
-   */
-  pollIntervalMs?: number
-}
+// ScreencastFrame, ScreencastOptions hoisted to @wdio/devtools-shared; re-exported
+// here for backwards compatibility with existing service-internal imports.
+import type { ScreencastOptions } from '@wdio/devtools-shared'
+export type { ScreencastFrame, ScreencastOptions } from '@wdio/devtools-shared'
 
 export interface ExtendedCapabilities extends WebdriverIO.Capabilities {
   'wdio:devtoolsOptions'?: ServiceOptions

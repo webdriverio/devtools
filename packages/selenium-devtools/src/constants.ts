@@ -92,14 +92,9 @@ export { TEST_STATE } from '@wdio/devtools-shared'
 
 export { LOG_LEVEL_PATTERNS } from '@wdio/devtools-core'
 
-export const SCREENCAST_DEFAULTS = {
-  enabled: false,
-  captureFormat: 'jpeg' as const,
-  quality: 70,
-  maxWidth: 1280,
-  maxHeight: 720,
-  pollIntervalMs: 200
-}
+// SCREENCAST_DEFAULTS hoisted to @wdio/devtools-shared; re-exported for
+// backwards compatibility with existing selenium-internal imports.
+export { SCREENCAST_DEFAULTS } from '@wdio/devtools-shared'
 
 /** Test-state environment markers used by the rerun handshake. */
 export { REUSE_ENV } from '@wdio/devtools-shared'

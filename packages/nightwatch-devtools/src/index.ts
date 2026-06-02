@@ -10,12 +10,13 @@ import * as path from 'node:path'
 import * as os from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { start, stop } from '@wdio/devtools-backend'
-import { errorMessage } from '@wdio/devtools-core'
-import { REUSE_ENV, WS_SCOPE } from '@wdio/devtools-shared'
+import { errorMessage, finalizeScreencast } from '@wdio/devtools-core'
+import { REUSE_ENV, SCREENCAST_DEFAULTS, WS_SCOPE } from '@wdio/devtools-shared'
 import logger from '@wdio/logger'
 import { remote } from 'webdriverio'
 import { SessionCapturer } from './session.js'
 import { TestReporter } from './reporter.js'
+import { ScreencastRecorder } from './screencast.js'
 import { TestManager } from './helpers/testManager.js'
 import { SuiteManager } from './helpers/suiteManager.js'
 import { BrowserProxy } from './helpers/browserProxy.js'
@@ -23,6 +24,7 @@ import {
   TraceType,
   type DevToolsOptions,
   type NightwatchBrowser,
+  type ScreencastOptions,
   type TestStats
 } from './types.js'
 import { resolveSpecFilePath } from './helpers/specFileResolver.js'
@@ -67,10 +69,19 @@ class NightwatchDevToolsPlugin {
       : undefined
   }
 
+  #screencastOptions: ScreencastOptions
+  #screencastRecorder?: ScreencastRecorder
+  #screencastSessionId?: string
+
   constructor(options: DevToolsOptions = {}) {
     this.options = {
       port: options.port ?? 3000,
-      hostname: options.hostname ?? 'localhost'
+      hostname: options.hostname ?? 'localhost',
+      screencast: options.screencast ?? {}
+    }
+    this.#screencastOptions = {
+      ...SCREENCAST_DEFAULTS,
+      ...(options.screencast ?? {})
     }
   }
 
@@ -278,6 +289,19 @@ class NightwatchDevToolsPlugin {
       log.warn(
         "⚠  Network tab will be empty — add 'goog:loggingPrefs': { performance: 'ALL' } to your capabilities"
       )
+    }
+
+    // Screencast: start once per run on the first session we see. Polling
+    // mode only (Nightwatch has no stable CDP escape hatch); finalized in
+    // the after() hook via @wdio/devtools-core's shared finalizer.
+    if (
+      this.#screencastOptions.enabled &&
+      !this.#screencastRecorder &&
+      sessionId
+    ) {
+      this.#screencastRecorder = new ScreencastRecorder(this.#screencastOptions)
+      this.#screencastSessionId = sessionId
+      await this.#screencastRecorder.start(browser)
     }
   }
 
@@ -816,6 +840,19 @@ class NightwatchDevToolsPlugin {
   }
 
   async after(browser?: NightwatchBrowser) {
+    if (this.#screencastRecorder && this.#screencastSessionId) {
+      await finalizeScreencast({
+        recorder: this.#screencastRecorder,
+        sessionId: this.#screencastSessionId,
+        filenamePrefix: 'nightwatch-video',
+        outputDir: process.cwd(),
+        captureFormat: this.#screencastOptions.captureFormat,
+        sendUpstream: (scope, data) =>
+          this.sessionCapturer?.sendUpstream(scope, data),
+        onLog: (level, message) => log[level](message)
+      })
+      this.#screencastRecorder = undefined
+    }
     try {
       const currentTest: any = (browser as { currentTest?: unknown })
         ?.currentTest
