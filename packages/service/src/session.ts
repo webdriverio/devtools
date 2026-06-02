@@ -157,7 +157,17 @@ export class SessionCapturer extends SessionCapturerBase {
         this.sendUpstream('commands', [entry])
       }
     } catch (err) {
-      log.warn(`Performance capture failed: ${errorMessage(err)}`)
+      const msg = errorMessage(err)
+      // Session torn down between the navigation command and the deferred
+      // perf-script execution — expected during teardown of the last test.
+      if (
+        msg.includes('ECONNREFUSED') ||
+        msg.includes('no such session') ||
+        msg.includes('invalid session id')
+      ) {
+        return
+      }
+      log.warn(`Performance capture failed: ${msg}`)
     }
   }
 

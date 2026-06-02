@@ -23,6 +23,10 @@ module.exports = {
 
       desiredCapabilities: {
         browserName: 'chrome',
+        // Required for chromedriver to expose the BiDi WebSocket channel.
+        // Without this, attachBidiHandlers silently fails and the perf-log
+        // fallback takes over.
+        webSocketUrl: true,
         'goog:chromeOptions': {
           args: [
             '--headless',
@@ -34,11 +38,15 @@ module.exports = {
         'goog:loggingPrefs': { performance: 'ALL' }
       },
       // Simple configuration - just call the function to get globals.
-      // Screencast records a polling-mode .webm via fluent-ffmpeg; the file
-      // is written to cwd as nightwatch-video-<sessionId>.webm.
+      // - screencast: polling-mode .webm written to cwd as
+      //   nightwatch-video-<sessionId>.webm.
+      // - bidi: opt-in WebDriver BiDi capture for console + network. When
+      //   attached, the per-command Chrome perf-log network path is gated
+      //   off to avoid duplicate entries.
       globals: nightwatchDevtools({
         port: 3000,
-        screencast: { enabled: true, pollIntervalMs: 200 }
+        screencast: { enabled: true, pollIntervalMs: 200 },
+        bidi: true
       })
     }
   }

@@ -200,6 +200,11 @@ class NightwatchDevToolsPlugin {
     if (isSessionChange) {
       log.info('Browser session changed — reconnecting WebSocket only')
       this.isScriptInjected = false
+      // Reset BiDi-attach state so the new session gets its own attach —
+      // inspectors are bound to a specific driver instance and don't carry
+      // across sessions. Without this, only the first session captures via
+      // BiDi and the rest silently fall back to the perf-log path.
+      this.#bidiAttachAttempted = false
       // Finalize the previous session's screencast BEFORE we tear down its
       // capturer — encode + broadcast use the existing WS connection.
       await this.#finalizeCurrentScreencast()
