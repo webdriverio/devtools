@@ -1,11 +1,10 @@
-import fs from 'node:fs/promises'
-import path from 'node:path'
-import { createRequire } from 'node:module'
 import logger from '@wdio/logger'
 import {
   SessionCapturerBase,
   createConsoleLogEntry,
   errorMessage,
+  loadInjectableScript,
+  pollUntilReady,
   serializeError,
   type LogSource
 } from '@wdio/devtools-core'
@@ -20,7 +19,6 @@ import type {
   SeleniumDriverLike
 } from './types.js'
 
-const require = createRequire(import.meta.url)
 const log = logger('@wdio/selenium-devtools:SessionCapturer')
 
 export class SessionCapturer extends SessionCapturerBase {
@@ -146,16 +144,6 @@ export class SessionCapturer extends SessionCapturerBase {
     return entry
   }
 
-  override sendCommand(command: CommandLog & { _id?: number }): number {
-    if (command._id !== undefined && !this.sentCommandIds.has(command._id)) {
-      this.sentCommandIds.add(command._id)
-      const toSend = { ...command }
-      delete toSend._id
-      this.sendUpstream('commands', [toSend])
-    }
-    return command._id ?? 0
-  }
-
   /** Update an existing entry in place (matched by `_id`) for retry coalesce. */
   replaceCommand(
     oldId: number,
@@ -234,31 +222,24 @@ export class SessionCapturer extends SessionCapturerBase {
       return
     }
     try {
-      const scriptPath = require.resolve('@wdio/devtools-script')
-      const scriptDir = path.dirname(scriptPath)
-      const preloadScriptPath = path.join(scriptDir, 'script.js')
-      let scriptContent = await fs.readFile(preloadScriptPath, 'utf-8')
-      // Wrap top-level await so it can run inside a <script> body.
-      scriptContent = `(async function() { ${scriptContent} })()`
-
+      const scriptContent = await loadInjectableScript()
       await exec(
         driver,
         "var s=document.createElement('script');s.textContent=arguments[0];document.head.appendChild(s);return true;",
         scriptContent
       )
-
-      for (let i = 0; i < 5; i++) {
-        await new Promise((r) => setTimeout(r, 200))
-        const ready = await exec(
+      const ready = await pollUntilReady(async () => {
+        const r = await exec(
           driver,
           'return typeof window.wdioTraceCollector !== "undefined";'
         )
-        if (ready === true) {
-          log.info('✓ Script injected and collector ready')
-          return
-        }
+        return r === true
+      })
+      if (ready) {
+        log.info('✓ Script injected and collector ready')
+      } else {
+        log.warn('Script injection may have failed — collector not found')
       }
-      log.warn('Script injection may have failed — collector not found')
     } catch (err) {
       // Driver torn down between navigation and deferred trace work.
       const msg = errorMessage(err)
