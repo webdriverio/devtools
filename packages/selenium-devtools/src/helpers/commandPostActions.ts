@@ -7,7 +7,7 @@ import {
 } from '@wdio/devtools-core'
 import { getDriverOriginals, getElementOriginals } from '../driverPatcher.js'
 import type { SessionCapturer } from '../session.js'
-import type { CommandLog } from '../types.js'
+import type { CommandLog, SeleniumDriverLike } from '../types.js'
 
 const log = logger('@wdio/selenium-devtools:commandPostActions')
 
@@ -110,9 +110,10 @@ async function capturePerformance(
   try {
     // Brief settle so navigation entries populate before we read them.
     await new Promise((resolve) => setTimeout(resolve, 500))
-    const raw = (await exec(driver, CAPTURE_PERFORMANCE_SCRIPT)) as
-      | CapturedPerformancePayload
-      | undefined
+    const raw = (await exec(
+      driver as SeleniumDriverLike,
+      CAPTURE_PERFORMANCE_SCRIPT
+    )) as CapturedPerformancePayload | undefined
     if (applyPerformanceData(entry, raw, args?.[0] as string | undefined)) {
       capturer.sendReplaceCommand(entry.timestamp ?? Date.now(), entry)
     }
