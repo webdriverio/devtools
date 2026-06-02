@@ -192,6 +192,9 @@ class NightwatchDevToolsPlugin {
     if (isSessionChange) {
       log.info('Browser session changed — reconnecting WebSocket only')
       this.isScriptInjected = false
+      // Finalize the previous session's screencast BEFORE we tear down its
+      // capturer — encode + broadcast use the existing WS connection.
+      await this.#finalizeCurrentScreencast()
       this.sessionCapturer?.cleanup()
       // Intentional null-out — the next `#ensureSessionInitialized` call
       // reassigns. Cast through unknown so the strict field type passes.
@@ -291,18 +294,48 @@ class NightwatchDevToolsPlugin {
       )
     }
 
-    // Screencast: start once per run on the first session we see. Polling
-    // mode only (Nightwatch has no stable CDP escape hatch); finalized in
-    // the after() hook via @wdio/devtools-core's shared finalizer.
+    // Screencast: start a fresh recorder per browser session — every
+    // reloadSession / per-test browser produces its own .webm, matching
+    // the WDIO service behavior. Polling mode only (Nightwatch has no
+    // stable CDP escape hatch). Finalized when the next session change
+    // fires or when after() runs.
     if (
       this.#screencastOptions.enabled &&
       !this.#screencastRecorder &&
       sessionId
     ) {
-      this.#screencastRecorder = new ScreencastRecorder(this.#screencastOptions)
+      this.#screencastRecorder = new ScreencastRecorder(
+        this.sessionCapturer,
+        this.#screencastOptions
+      )
       this.#screencastSessionId = sessionId
+      log.info(`🎬 Starting screencast for session ${sessionId}`)
       await this.#screencastRecorder.start(browser)
     }
+  }
+
+  /**
+   * Stop, encode, and broadcast the current session's screencast (if any),
+   * then clear state so the next `#ensureSessionInitialized` call starts a
+   * fresh recorder. Safe to call multiple times — no-op when nothing is
+   * recording.
+   */
+  async #finalizeCurrentScreencast(): Promise<void> {
+    if (!this.#screencastRecorder || !this.#screencastSessionId) {
+      return
+    }
+    await finalizeScreencast({
+      recorder: this.#screencastRecorder,
+      sessionId: this.#screencastSessionId,
+      filenamePrefix: 'nightwatch-video',
+      outputDir: process.cwd(),
+      captureFormat: this.#screencastOptions.captureFormat,
+      sendUpstream: (scope, data) =>
+        this.sessionCapturer?.sendUpstream(scope, data),
+      onLog: (level, message) => log[level](message)
+    })
+    this.#screencastRecorder = undefined
+    this.#screencastSessionId = undefined
   }
 
   async cucumberBefore(browser: NightwatchBrowser, pickle: any) {
@@ -840,19 +873,7 @@ class NightwatchDevToolsPlugin {
   }
 
   async after(browser?: NightwatchBrowser) {
-    if (this.#screencastRecorder && this.#screencastSessionId) {
-      await finalizeScreencast({
-        recorder: this.#screencastRecorder,
-        sessionId: this.#screencastSessionId,
-        filenamePrefix: 'nightwatch-video',
-        outputDir: process.cwd(),
-        captureFormat: this.#screencastOptions.captureFormat,
-        sendUpstream: (scope, data) =>
-          this.sessionCapturer?.sendUpstream(scope, data),
-        onLog: (level, message) => log[level](message)
-      })
-      this.#screencastRecorder = undefined
-    }
+    await this.#finalizeCurrentScreencast()
     try {
       const currentTest: any = (browser as { currentTest?: unknown })
         ?.currentTest
