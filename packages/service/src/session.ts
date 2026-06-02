@@ -9,11 +9,14 @@ import type { WebDriverCommands } from '@wdio/protocols'
 
 import { PAGE_TRANSITION_COMMANDS } from './constants.js'
 import {
+  CAPTURE_PERFORMANCE_SCRIPT,
   LOG_SOURCES,
   SessionCapturerBase,
+  applyPerformanceData,
   createConsoleLogEntry,
   errorMessage,
   getRequestType,
+  type CapturedPerformancePayload,
   type LogSource
 } from '@wdio/devtools-core'
 import type { CommandLog, LogLevel } from './types.js'
@@ -128,7 +131,35 @@ export class SessionCapturer extends SessionCapturerBase {
      * capture trace and write to file on commands that could trigger a page transition
      */
     if (PAGE_TRANSITION_COMMANDS.includes(command)) {
+      await this.#capturePerformance(browser, commandLogEntry, args)
       await this.#captureTrace(browser)
+    }
+  }
+
+  /**
+   * Run the shared Performance API capture script and attach the result to
+   * the given CommandLog entry. Same `CAPTURE_PERFORMANCE_SCRIPT` +
+   * `applyPerformanceData` selenium and nightwatch use, so the dashboard
+   * shows consistent navigation/resources/cookies across all three adapters.
+   */
+  async #capturePerformance(
+    browser: WebdriverIO.Browser,
+    entry: CommandLog,
+    args: unknown[]
+  ): Promise<void> {
+    try {
+      // Brief settle so navigation entries are populated before we read them.
+      await new Promise((resolve) => setTimeout(resolve, 500))
+      const payload = (await browser.execute(
+        CAPTURE_PERFORMANCE_SCRIPT
+      )) as CapturedPerformancePayload | undefined
+      if (
+        applyPerformanceData(entry, payload, args[0] as string | undefined)
+      ) {
+        this.sendUpstream('commands', [entry])
+      }
+    } catch (err) {
+      log.warn(`Performance capture failed: ${errorMessage(err)}`)
     }
   }
 

@@ -1,6 +1,11 @@
 import logger from '@wdio/logger'
-import { errorMessage } from '@wdio/devtools-core'
-import { getElementOriginals } from '../driverPatcher.js'
+import {
+  CAPTURE_PERFORMANCE_SCRIPT,
+  applyPerformanceData,
+  errorMessage,
+  type CapturedPerformancePayload
+} from '@wdio/devtools-core'
+import { getDriverOriginals, getElementOriginals } from '../driverPatcher.js'
 import type { SessionCapturer } from '../session.js'
 import type { CommandLog } from '../types.js'
 
@@ -52,21 +57,33 @@ export async function enrichFindResult(
 
 /**
  * On navigation commands, inject the page-side capture script (once per
- * session) and pull the latest trace + browser logs. Fire-and-forget; errors
- * are logged unless the session has already finalized (post-quit errors are
- * expected and uninteresting).
+ * session), capture Performance API data onto the command entry, and pull
+ * the latest trace + browser logs. Fire-and-forget; errors are logged unless
+ * the session has already finalized (post-quit errors are expected and
+ * uninteresting).
+ *
+ * When `entry` is provided, the shared `CAPTURE_PERFORMANCE_SCRIPT` runs
+ * against the driver and attaches navigation / resources / cookies /
+ * documentInfo onto the entry — same shape nightwatch and service produce
+ * via `applyPerformanceData`.
  */
 export function captureNavigationTrace(
   capturer: SessionCapturer,
   alreadyInjected: boolean,
   onInjected: () => void,
-  isFinalized: () => boolean
+  isFinalized: () => boolean,
+  entry?: CommandLog,
+  args?: unknown[],
+  driver?: unknown
 ): void {
   void (async () => {
     try {
       if (!alreadyInjected) {
         onInjected()
         await capturer.injectScript()
+      }
+      if (entry && driver) {
+        await capturePerformance(capturer, driver, entry, args)
       }
       await capturer.captureTrace()
       if (!capturer.bidiActive) {
@@ -78,4 +95,28 @@ export function captureNavigationTrace(
       }
     }
   })()
+}
+
+async function capturePerformance(
+  capturer: SessionCapturer,
+  driver: unknown,
+  entry: CommandLog,
+  args: unknown[] | undefined
+): Promise<void> {
+  const exec = getDriverOriginals().executeScript
+  if (!exec) {
+    return
+  }
+  try {
+    // Brief settle so navigation entries populate before we read them.
+    await new Promise((resolve) => setTimeout(resolve, 500))
+    const raw = (await exec(driver, CAPTURE_PERFORMANCE_SCRIPT)) as
+      | CapturedPerformancePayload
+      | undefined
+    if (applyPerformanceData(entry, raw, args?.[0] as string | undefined)) {
+      capturer.sendReplaceCommand(entry.timestamp ?? Date.now(), entry)
+    }
+  } catch (err) {
+    log.warn(`Performance capture failed: ${errorMessage(err)}`)
+  }
 }
