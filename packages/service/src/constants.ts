@@ -1,14 +1,8 @@
 import type { ParserPlugin } from '@babel/parser'
-import type { ScreencastOptions } from './types.js'
 
-export const SCREENCAST_DEFAULTS: Required<ScreencastOptions> = {
-  enabled: false,
-  captureFormat: 'jpeg',
-  quality: 70,
-  maxWidth: 1280,
-  maxHeight: 720,
-  pollIntervalMs: 200
-}
+// SCREENCAST_DEFAULTS hoisted to @wdio/devtools-shared; re-exported for
+// backwards compatibility with existing service-internal imports.
+export { SCREENCAST_DEFAULTS } from '@wdio/devtools-shared'
 
 export const PAGE_TRANSITION_COMMANDS: string[] = [
   'url',

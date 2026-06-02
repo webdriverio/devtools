@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 
-import { encodeToVideo } from '../src/video-encoder.js'
+import { encodeToVideo } from '@wdio/devtools-core'
 import type { ScreencastFrame } from '../src/types.js'
 
 vi.mock('@wdio/logger', () => {
@@ -51,7 +51,7 @@ const makeFrames = (timestamps: number[]): ScreencastFrame[] =>
 describe('encodeToVideo', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    vi.mocked(fs.mkdtemp).mockResolvedValue('/tmp/wdio-screencast-abc123')
+    vi.mocked(fs.mkdtemp).mockResolvedValue('/tmp/devtools-screencast-abc123')
     vi.mocked(fs.writeFile).mockResolvedValue(undefined)
     vi.mocked(fs.rm).mockResolvedValue(undefined)
 
@@ -87,13 +87,13 @@ describe('encodeToVideo', () => {
 
     // Temp dir created
     expect(fs.mkdtemp).toHaveBeenCalledWith(
-      path.join('/tmp', 'wdio-screencast-')
+      path.join('/tmp', 'devtools-screencast-')
     )
 
     // 3 frame files + 1 manifest = 4 writes
     expect(fs.writeFile).toHaveBeenCalledTimes(4)
     expect(fs.writeFile).toHaveBeenCalledWith(
-      '/tmp/wdio-screencast-abc123/frame-000000.jpg',
+      '/tmp/devtools-screencast-abc123/frame-000000.jpg',
       expect.any(Buffer)
     )
 
@@ -112,7 +112,7 @@ describe('encodeToVideo', () => {
     expect(mockFfmpegInstance.output).toHaveBeenCalledWith('/out/video.webm')
 
     // Temp dir cleaned up
-    expect(fs.rm).toHaveBeenCalledWith('/tmp/wdio-screencast-abc123', {
+    expect(fs.rm).toHaveBeenCalledWith('/tmp/devtools-screencast-abc123', {
       recursive: true,
       force: true
     })
@@ -131,7 +131,7 @@ describe('encodeToVideo', () => {
     ).rejects.toThrow('ffmpeg binary not found')
 
     // Temp dir still cleaned up on failure
-    expect(fs.rm).toHaveBeenCalledWith('/tmp/wdio-screencast-abc123', {
+    expect(fs.rm).toHaveBeenCalledWith('/tmp/devtools-screencast-abc123', {
       recursive: true,
       force: true
     })

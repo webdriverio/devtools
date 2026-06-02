@@ -159,6 +159,52 @@ export interface ScreencastInfo {
   duration?: number
 }
 
+/** Single captured screencast frame — base64 image + capture timestamp (ms). */
+export interface ScreencastFrame {
+  /** Base64-encoded image data — JPEG/PNG from CDP push mode or PNG from browser.takeScreenshot() in polling mode. */
+  data: string
+  /** Unix timestamp in milliseconds. */
+  timestamp: number
+}
+
+/**
+ * Screencast recorder configuration. Used by every adapter — the base recorder
+ * in `@wdio/devtools-core` consumes this shape; per-adapter wrappers extend it
+ * (e.g. WDIO's CDP fast-path opts).
+ */
+export interface ScreencastOptions {
+  /** Enable screencast recording for this session (default: false). */
+  enabled?: boolean
+  /**
+   * Image format for individual frames (default: 'jpeg').
+   * - Chrome/Chromium (CDP mode): controls the format Chrome sends over CDP.
+   * - Other browsers (polling mode): screenshots are always PNG; ignored.
+   * Does NOT affect the output video container, which is always WebM.
+   */
+  captureFormat?: 'jpeg' | 'png'
+  /** JPEG quality 0–100 (default: 70). CDP mode + 'jpeg' only. */
+  quality?: number
+  /** Max frame width in pixels Chrome sends over CDP (default: 1280). */
+  maxWidth?: number
+  /** Max frame height in pixels Chrome sends over CDP (default: 720). */
+  maxHeight?: number
+  /**
+   * Screenshot polling interval in milliseconds for non-Chrome browsers
+   * (default: 200 ms ≈ 5 fps). Lower = smoother, more WebDriver round-trips.
+   */
+  pollIntervalMs?: number
+}
+
+/** Defaults applied to ScreencastOptions when not specified by the user. */
+export const SCREENCAST_DEFAULTS: Required<ScreencastOptions> = {
+  enabled: false,
+  captureFormat: 'jpeg',
+  quality: 70,
+  maxWidth: 1280,
+  maxHeight: 720,
+  pollIntervalMs: 200
+}
+
 export interface Metadata {
   type: TraceType
   url?: string

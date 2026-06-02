@@ -33,8 +33,13 @@ module.exports = {
         },
         'goog:loggingPrefs': { performance: 'ALL' }
       },
-      // Simple configuration - just call the function to get globals
-      globals: nightwatchDevtools({ port: 3000 })
+      // Simple configuration - just call the function to get globals.
+      // Screencast records a polling-mode .webm via fluent-ffmpeg; the file
+      // is written to cwd as nightwatch-video-<sessionId>.webm.
+      globals: nightwatchDevtools({
+        port: 3000,
+        screencast: { enabled: true, pollIntervalMs: 200 }
+      })
     }
   }
 }

@@ -1,99 +1,61 @@
 import logger from '@wdio/logger'
-import { errorMessage } from '@wdio/devtools-core'
-import {
-  BLANK_FRAME_THRESHOLD_BYTES,
-  SCREENCAST_DEFAULTS
-} from './constants.js'
+import { ScreencastRecorderBase, errorMessage } from '@wdio/devtools-core'
+import { BLANK_FRAME_THRESHOLD_BYTES } from './constants.js'
 import { getDriverOriginals } from './driverPatcher.js'
-import type {
-  ScreencastFrame,
-  ScreencastOptions,
-  SeleniumDriverLike
-} from './types.js'
+import type { SeleniumDriverLike } from './types.js'
 
 const log = logger('@wdio/selenium-devtools:ScreencastRecorder')
 
-// Two strategies:
-//   1. CDP push (Chromium): listens to `Page.screencastFrame` events.
-//   2. Polling fallback: calls unwrapped `takeScreenshot()` at pollIntervalMs.
-// Frames buffer in memory and encode to WebM at stop().
-export class ScreencastRecorder {
-  #frames: ScreencastFrame[] = []
+/**
+ * Selenium-specific screencast recorder. Inherits the frame buffer, polling
+ * fallback, and public API from {@link ScreencastRecorderBase}; overrides the
+ * CDP hooks to use selenium-webdriver's `createCDPConnection('page')` API and
+ * listens directly on the underlying CDP WebSocket for `Page.screencastFrame`.
+ */
+export class ScreencastRecorder extends ScreencastRecorderBase<SeleniumDriverLike> {
   #cdp: any = undefined
   #cdpFrameListener: ((data: any) => void) | undefined
-  #pollTimer: ReturnType<typeof setInterval> | undefined
-  #isRecording = false
-  #options: Required<ScreencastOptions>
-  #startIndex = 0
-  #startMarkerSet = false
 
-  constructor(options: ScreencastOptions = {}) {
-    this.#options = { ...SCREENCAST_DEFAULTS, ...options }
+  protected override onPollingStarted(intervalMs: number): void {
+    log.info(
+      `✓ Screencast recording started (polling mode, ${intervalMs} ms interval)`
+    )
   }
 
-  async start(driver: SeleniumDriverLike): Promise<void> {
-    if (this.#isRecording) {
-      return
+  protected override onPollingStopped(frameCount: number): void {
+    log.info(`✓ Screencast stopped — ${frameCount} frame(s) collected`)
+  }
+
+  protected override onUnavailable(err: unknown): void {
+    log.warn(
+      `Screencast unavailable (${errorMessage(err)}). Recording skipped.`
+    )
+  }
+
+  protected override async takeScreenshot(): Promise<string | null> {
+    const driver = this.driver
+    const takeShot = getDriverOriginals().takeScreenshot
+    if (!driver || !takeShot) {
+      return null
     }
-    const cdpOk = await this.#startCdp(driver)
-    if (!cdpOk) {
-      await this.#startPolling(driver)
-    }
+    return takeShot(driver)
   }
 
-  async stop(): Promise<void> {
-    if (!this.#isRecording) {
-      return
-    }
-    if (this.#cdp) {
-      await this.#stopCdp()
-    } else if (this.#pollTimer !== undefined) {
-      this.#stopPolling()
-    }
-    this.#isRecording = false
-  }
-
-  setStartMarker() {
-    if (!this.#startMarkerSet) {
-      this.#startMarkerSet = true
-      this.#startIndex = this.#frames.length
-    }
-  }
-
-  get frames(): ScreencastFrame[] {
-    return this.#frames.slice(this.#startIndex)
-  }
-
-  get duration(): number {
-    const f = this.frames
-    if (f.length < 2) {
-      return 0
-    }
-    return f[f.length - 1].timestamp - f[0].timestamp
-  }
-
-  get isRecording(): boolean {
-    return this.#isRecording
-  }
-
-  // ─── CDP path (Chromium) ─────────────────────────────────────────────────
-
-  async #startCdp(driver: SeleniumDriverLike): Promise<boolean> {
-    if (typeof driver.createCDPConnection !== 'function') {
+  protected override async tryStartCdp(): Promise<boolean> {
+    const driver = this.driver
+    if (!driver || typeof driver.createCDPConnection !== 'function') {
       return false
     }
     try {
       const cdp = await driver.createCDPConnection('page')
       this.#cdp = cdp
 
-      // Listen for frames on the underlying WebSocket. Each CDP event arrives
-      // as a JSON message with method='Page.screencastFrame' and embedded
-      // params. We push to the frame buffer and ack so Chrome keeps streaming.
       const ws = cdp._wsConnection
       if (!ws || typeof ws.on !== 'function') {
         log.warn('CDP connection has no underlying WebSocket — falling back')
         return false
       }
+
       const onMessage = (raw: any) => {
         try {
           const payload = JSON.parse(raw.toString())
@@ -101,19 +63,14 @@ export class ScreencastRecorder {
             return
           }
           const params = payload.params || {}
-          const ts =
-            params.metadata?.timestamp !== undefined &&
-            params.metadata?.timestamp !== null
-              ? Math.round(params.metadata.timestamp * 1000)
-              : Date.now()
-          this.#frames.push({ data: params.data, timestamp: ts })
+          this.pushCdpFrame(params.data, params.metadata?.timestamp)
           // Anchor frame 0 at the first content-bearing frame to trim the
-          // leading about:blank dead-air.
-          if (!this.#startMarkerSet) {
+          // leading about:blank dead-air. Approximate decoded size: base64
+          // expands by ~33%, so multiply by 0.75 for a rough decoded byte count.
+          if (!this.hasStartMarker) {
             const decodedSize = Math.floor((params.data?.length ?? 0) * 0.75)
             if (decodedSize >= BLANK_FRAME_THRESHOLD_BYTES) {
-              this.#startIndex = Math.max(0, this.#frames.length - 1)
-              this.#startMarkerSet = true
+              this.markStartAtLatest()
             }
           }
           if (params.sessionId !== undefined) {
@@ -129,13 +86,12 @@ export class ScreencastRecorder {
       ws.on('message', onMessage)
 
       cdp.execute('Page.startScreencast', {
-        format: this.#options.captureFormat,
-        quality: this.#options.quality,
-        maxWidth: this.#options.maxWidth,
-        maxHeight: this.#options.maxHeight
+        format: this.options.captureFormat,
+        quality: this.options.quality,
+        maxWidth: this.options.maxWidth,
+        maxHeight: this.options.maxHeight
       })
 
-      this.#isRecording = true
       log.info('✓ Screencast recording started (CDP mode)')
       return true
     } catch (err) {
@@ -146,9 +102,9 @@ export class ScreencastRecorder {
     }
   }
 
-  async #stopCdp(): Promise<void> {
+  protected override async tryStopCdp(): Promise<void> {
     try {
-      this.#cdp.execute('Page.stopScreencast')
+      this.#cdp?.execute('Page.stopScreencast')
     } catch (err) {
       log.warn(`Screencast: error stopping CDP — ${errorMessage(err)}`)
     }
@@ -159,51 +115,8 @@ export class ScreencastRecorder {
     } catch {
       // detach best-effort
     }
-    log.info(`✓ Screencast stopped — ${this.#frames.length} frame(s) collected`)
+    log.info(`✓ Screencast stopped — ${this.buffer.length} frame(s) collected`)
     this.#cdp = undefined
     this.#cdpFrameListener = undefined
-  }
-
-  // ─── Polling fallback (any browser) ──────────────────────────────────────
-
-  async #startPolling(driver: SeleniumDriverLike): Promise<void> {
-    const takeShot = getDriverOriginals().takeScreenshot
-    if (!takeShot) {
-      log.warn('Screencast unavailable — driver lacks takeScreenshot')
-      return
-    }
-    try {
-      const first = await takeShot(driver)
-      this.#frames.push({ data: first, timestamp: Date.now() })
-
-      const intervalMs = this.#options.pollIntervalMs
-      this.#pollTimer = setInterval(async () => {
-        try {
-          const data = await takeShot(driver)
-          this.#frames.push({ data, timestamp: Date.now() })
-        } catch {
-          this.#stopPolling()
-        }
-      }, intervalMs)
-
-      this.#isRecording = true
-      log.info(
-        `✓ Screencast recording started (polling mode, ${intervalMs} ms interval)`
-      )
-    } catch (err) {
-      log.warn(
-        `Screencast unavailable (${errorMessage(err)}). Recording skipped.`
-      )
-    }
-  }
-
-  #stopPolling(): void {
-    if (this.#pollTimer !== undefined) {
-      clearInterval(this.#pollTimer)
-      this.#pollTimer = undefined
-      log.info(
-        `✓ Screencast stopped — ${this.#frames.length} frame(s) collected`
-      )
-    }
   }
 }

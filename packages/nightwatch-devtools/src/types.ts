@@ -9,11 +9,15 @@ export {
   type Metadata,
   type NetworkRequest,
   type PerformanceData,
+  type ScreencastFrame,
+  type ScreencastOptions,
   type SuiteStats,
   type TestStats,
   type TestStatus,
   type TraceLog
 } from '@wdio/devtools-shared'
+
+import type { ScreencastOptions } from '@wdio/devtools-shared'
 
 export interface CommandStackFrame {
   command: string
@@ -45,6 +49,13 @@ export interface StepLocation {
 export interface DevToolsOptions {
   port?: number
   hostname?: string
+  /**
+   * Screencast recording options. When enabled, a continuous video of the
+   * browser session is recorded and saved as a .webm file at the end of the
+   * test run. Polling mode only on Nightwatch (no CDP push); works on every
+   * browser Nightwatch supports.
+   */
+  screencast?: ScreencastOptions
 }
 
 export interface NightwatchBrowser {

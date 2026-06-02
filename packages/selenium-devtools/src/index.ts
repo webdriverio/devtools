@@ -8,7 +8,7 @@ import logger from '@wdio/logger'
 import { startDetachedBackend } from './helpers/detachedBackend.js'
 import { openDashboard } from './helpers/dashboardLauncher.js'
 import { buildDriverMetadata } from './helpers/driverMetadata.js'
-import { finalizeScreencast } from './helpers/finalizeScreencast.js'
+import { finalizeScreencast } from '@wdio/devtools-core'
 import {
   enrichFindResult,
   captureNavigationTrace
@@ -634,12 +634,14 @@ class SeleniumDevToolsPlugin {
   async onDriverEnd() {
     if (this.#screencast && this.#sessionId) {
       await finalizeScreencast({
-        screencast: this.#screencast,
+        recorder: this.#screencast,
         sessionId: this.#sessionId,
-        testFileDir: this.#testFileDir,
+        filenamePrefix: 'selenium-video',
+        outputDir: this.#testFileDir,
         captureFormat: this.#screencastOptions.captureFormat,
         sendUpstream: (scope, data) =>
-          this.#sessionCapturer?.sendUpstream(scope, data)
+          this.#sessionCapturer?.sendUpstream(scope, data),
+        onLog: (level, message) => log[level](message)
       })
     }
     this.#driver = undefined
