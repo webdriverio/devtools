@@ -1,3 +1,4 @@
+import { stampTestEnd } from '@wdio/devtools-core'
 import { TEST_STATE, DEFAULTS } from '../constants.js'
 import {
   type TestStats,
@@ -159,8 +160,7 @@ export class TestManager {
       if (test.state === TEST_STATE.RUNNING && test.start) {
         // Test was started but never finished - assume passed
         test.state = TEST_STATE.PASSED
-        test.end = new Date()
-        test._duration = test.end.getTime() - (test.start?.getTime() || 0)
+        stampTestEnd(test)
         this.updateTestState(test, TEST_STATE.PASSED as TestStats['state'])
       } else if (test.state === TEST_STATE.PENDING) {
         const testcase = testcases[test.title]

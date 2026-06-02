@@ -1,4 +1,5 @@
 import logger from '@wdio/logger'
+import { createTestStats, stampTestEnd } from '@wdio/devtools-core'
 import { DEFAULTS, TEST_STATE } from '../constants.js'
 import type { SuiteStats, TestStats } from '../types.js'
 import type { TestReporter } from '../reporter.js'
@@ -60,21 +61,13 @@ export class TestManager {
 
     log.info('Creating synthetic session test (no startTest called yet)')
     const title = DEFAULTS.SESSION_TITLE
-    const test: TestStats = {
+    const test = createTestStats({
       uid: deterministicUid(this.suite.file, `session:${this.suite.uid}`),
       cid: DEFAULTS.CID,
       title,
-      fullTitle: title,
-      parent: this.suite.uid,
-      state: TEST_STATE.RUNNING,
-      start: new Date(),
-      end: null,
-      type: 'test',
       file: this.suite.file,
-      retries: DEFAULTS.RETRIES,
-      _duration: DEFAULTS.DURATION,
-      hooks: []
-    }
+      parent: this.suite.uid
+    })
     this.suite.tests.push(test)
     this.#currentTest = test
     this.testReporter.onTestStart(test)
@@ -120,24 +113,16 @@ export class TestManager {
 
     this.#mode = 'marked'
     const file = opts.file || this.suite.file
-    const test: TestStats = {
-      // Scope by parent so two suites with the same test/step name don't
-      // collide on signatureCounter disambiguation across rerun processes.
+    // Scope by parent so two suites with the same test/step name don't
+    // collide on signatureCounter disambiguation across rerun processes.
+    const test = createTestStats({
       uid: generateStableUid(file, `${this.suite.uid}::${name}`),
       cid: DEFAULTS.CID,
       title: name,
-      fullTitle: name,
-      parent: this.suite.uid,
-      state: TEST_STATE.RUNNING,
-      start: new Date(),
-      end: null,
-      type: 'test',
       file,
-      retries: DEFAULTS.RETRIES,
-      _duration: DEFAULTS.DURATION,
-      hooks: [],
+      parent: this.suite.uid,
       callSource: opts.callSource
-    }
+    })
     log.info(
       `Started marked test "${name}" (callSource: ${opts.callSource || 'n/a'})`
     )
@@ -154,8 +139,7 @@ export class TestManager {
       return
     }
     test.state = state
-    test.end = new Date()
-    test._duration = test.end.getTime() - (test.start?.getTime() ?? Date.now())
+    stampTestEnd(test)
     this.testReporter.onTestEnd(test)
     this.#currentTest = null
   }

@@ -1,8 +1,18 @@
 /**
- * Suite Manager
- * Handles test suite creation and management
+ * Suite Manager — Nightwatch flavor.
+ * Maintains one suite per test file (Nightwatch runs each file independently).
+ * Shares the suite factory + state-computation logic with selenium via
+ * @wdio/devtools-core's suite-helpers; the storage strategy (Map by file)
+ * is Nightwatch-specific and stays here.
  */
 
+import {
+  computeSuiteFinalStateStrict,
+  computeSuiteRunningState,
+  createSuiteStats,
+  createTestStats,
+  stampSuiteEnd
+} from '@wdio/devtools-core'
 import { DEFAULTS, TEST_STATE } from '../constants.js'
 import type { SuiteStats, TestStats } from '../types.js'
 import type { TestReporter } from '../reporter.js'
@@ -33,53 +43,34 @@ export class SuiteManager {
     testLines?: number[]
   ): SuiteStats {
     if (!this.currentSuiteByFile.has(testFile)) {
-      const suiteStats: SuiteStats = {
-        uid: '',
+      const file = fullPath || testFile
+      const suiteStats = createSuiteStats({
+        uid: generateStableUid(file, suiteTitle),
         cid: DEFAULTS.CID,
         title: suiteTitle,
-        fullTitle: suiteTitle,
-        file: fullPath || testFile,
-        type: 'suite' as const,
-        start: new Date(),
-        state: TEST_STATE.PENDING,
-        end: null,
-        tests: [],
-        suites: [],
-        hooks: [],
-        _duration: DEFAULTS.DURATION,
+        file,
+        state: TEST_STATE.PENDING as TestStats['state'],
         callSource:
           suiteLine && fullPath ? `${fullPath}:${suiteLine}` : undefined
-      }
-
-      suiteStats.uid = generateStableUid(suiteStats.file, suiteStats.title)
+      })
 
       // Create test entries with pending state
-      if (testNames.length > 0) {
-        for (let idx = 0; idx < testNames.length; idx++) {
-          const testName = testNames[idx]
-          const testLine = testLines?.[idx]
-          const fullTitle = `${suiteTitle} ${testName}`
-          const testUid = generateStableUid(fullPath || testFile, fullTitle)
-          const testEntry: TestStats = {
-            uid: testUid,
-            cid: DEFAULTS.CID,
-            title: testName,
-            fullTitle: fullTitle,
-            parent: suiteStats.uid,
-            state: TEST_STATE.PENDING as TestStats['state'],
-            start: new Date(),
-            end: null,
-            type: 'test' as const,
-            file: fullPath || testFile,
-            retries: DEFAULTS.RETRIES,
-            _duration: DEFAULTS.DURATION,
-            hooks: [],
-            callSource:
-              testLine && fullPath ? `${fullPath}:${testLine}` : undefined
-          }
-          suiteStats.tests.push(testEntry)
-        }
-        // Don't send updates here - onSuiteStart will send it
+      for (let idx = 0; idx < testNames.length; idx++) {
+        const testName = testNames[idx]
+        const testLine = testLines?.[idx]
+        const fullTitle = `${suiteTitle} ${testName}`
+        const testEntry = createTestStats({
+          uid: generateStableUid(file, fullTitle),
+          cid: DEFAULTS.CID,
+          title: testName,
+          fullTitle,
+          file,
+          parent: suiteStats.uid,
+          state: TEST_STATE.PENDING as TestStats['state'],
+          callSource:
+            testLine && fullPath ? `${fullPath}:${testLine}` : undefined
+        })
+        suiteStats.tests.push(testEntry)
       }
 
       this.currentSuiteByFile.set(testFile, suiteStats)
@@ -112,17 +103,7 @@ export class SuiteManager {
    * Used during Cucumber runs to keep the feature-level suite state fresh.
    */
   finalizeSuiteState(suite: SuiteStats): void {
-    const hasFailures =
-      suite.tests.some((t: any) => t.state === TEST_STATE.FAILED) ||
-      suite.suites.some((s) => s.state === TEST_STATE.FAILED)
-    const hasRunning =
-      suite.tests.some((t: any) => t.state === TEST_STATE.RUNNING) ||
-      suite.suites.some((s) => s.state === TEST_STATE.RUNNING || !s.end)
-    suite.state = hasFailures
-      ? TEST_STATE.FAILED
-      : hasRunning
-        ? TEST_STATE.RUNNING
-        : TEST_STATE.PASSED
+    suite.state = computeSuiteRunningState(suite)
     this.testReporter.updateSuites()
   }
 
@@ -132,38 +113,9 @@ export class SuiteManager {
   finalizeSuite(suite: SuiteStats): void {
     if (suite.end) {
       return
-    } // Already finalized
-
-    suite.end = new Date()
-    suite._duration = suite.end.getTime() - (suite.start?.getTime() || 0)
-
-    // Check direct tests
-    const hasFailures =
-      suite.tests.some((t: any) => t.state === TEST_STATE.FAILED) ||
-      suite.suites.some((s) => s.state === TEST_STATE.FAILED)
-    const allPassed =
-      suite.tests.every(
-        (t: any) =>
-          t.state === TEST_STATE.PASSED || t.state === TEST_STATE.SKIPPED
-      ) &&
-      suite.suites.every(
-        (s) => s.state === TEST_STATE.PASSED || s.state === TEST_STATE.SKIPPED
-      )
-    const hasSkipped = suite.tests.some(
-      (t: any) => t.state === TEST_STATE.SKIPPED
-    )
-    const hasItems = suite.tests.length > 0 || suite.suites.length > 0
-
-    if (hasFailures) {
-      suite.state = TEST_STATE.FAILED
-    } else if (!hasItems || allPassed) {
-      suite.state = TEST_STATE.PASSED
-    } else if (hasSkipped) {
-      suite.state = TEST_STATE.PASSED
-    } else {
-      suite.state = TEST_STATE.FAILED
     }
-
+    stampSuiteEnd(suite)
+    suite.state = computeSuiteFinalStateStrict(suite)
     this.testReporter.onSuiteEnd(suite)
   }
 
