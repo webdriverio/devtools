@@ -1,7 +1,12 @@
 import fs from 'fs'
 import { createRequire } from 'node:module'
 import { parse } from '@babel/parser'
-import type { Node as BabelNode, TraverseOptions } from '@babel/traverse'
+import type {
+  Node as BabelNode,
+  NodePath,
+  TraverseOptions
+} from '@babel/traverse'
+import type { CallExpression } from '@babel/types'
 import { parse as parseStackTrace } from 'stack-trace'
 
 type CalleeNode =
@@ -87,6 +92,53 @@ const isSuiteFn = (n?: string): boolean =>
 const isTestFn = (n?: string): boolean =>
   !!n && (TEST_FN_NAMES as readonly string[]).includes(n)
 
+function handleEnterCallExpression(
+  p: NodePath<CallExpression>,
+  out: Loc[],
+  suiteStack: string[]
+): void {
+  const root = rootCalleeName(p.node.callee as CalleeNode)
+  if (!root) {
+    return
+  }
+  const ttl = staticTitle(p.node.arguments?.[0] as TitleNode | undefined)
+  if (!ttl) {
+    return
+  }
+  if (isSuiteFn(root)) {
+    out.push({
+      type: 'suite',
+      name: ttl,
+      titlePath: [...suiteStack, ttl],
+      line: p.node.loc?.start.line,
+      column: p.node.loc?.start.column
+    })
+    suiteStack.push(ttl)
+  } else if (isTestFn(root)) {
+    out.push({
+      type: 'test',
+      name: ttl,
+      titlePath: [...suiteStack, ttl],
+      line: p.node.loc?.start.line,
+      column: p.node.loc?.start.column
+    })
+  }
+}
+
+function handleExitCallExpression(
+  p: NodePath<CallExpression>,
+  suiteStack: string[]
+): void {
+  const root = rootCalleeName(p.node.callee as CalleeNode)
+  if (!root || !isSuiteFn(root)) {
+    return
+  }
+  const ttl = staticTitle(p.node.arguments?.[0] as TitleNode | undefined)
+  if (ttl && suiteStack[suiteStack.length - 1] === ttl) {
+    suiteStack.pop()
+  }
+}
+
 /** Parse a JS/TS test/spec file and collect suite/test calls (Mocha/Jasmine)
  *  with full title paths. */
 export function findTestLocations(filePath: string): Loc[] {
@@ -105,47 +157,13 @@ export function findTestLocations(filePath: string): Loc[] {
   const suiteStack: string[] = []
   traverse(ast, {
     enter(p) {
-      if (!p.isCallExpression()) {
-        return
-      }
-      const root = rootCalleeName(p.node.callee as CalleeNode)
-      if (!root) {
-        return
-      }
-      const ttl = staticTitle(p.node.arguments?.[0] as TitleNode | undefined)
-      if (!ttl) {
-        return
-      }
-      if (isSuiteFn(root)) {
-        out.push({
-          type: 'suite',
-          name: ttl,
-          titlePath: [...suiteStack, ttl],
-          line: p.node.loc?.start.line,
-          column: p.node.loc?.start.column
-        })
-        suiteStack.push(ttl)
-      } else if (isTestFn(root)) {
-        out.push({
-          type: 'test',
-          name: ttl,
-          titlePath: [...suiteStack, ttl],
-          line: p.node.loc?.start.line,
-          column: p.node.loc?.start.column
-        })
+      if (p.isCallExpression()) {
+        handleEnterCallExpression(p, out, suiteStack)
       }
     },
     exit(p) {
-      if (!p.isCallExpression()) {
-        return
-      }
-      const root = rootCalleeName(p.node.callee as CalleeNode)
-      if (!root || !isSuiteFn(root)) {
-        return
-      }
-      const ttl = staticTitle(p.node.arguments?.[0] as TitleNode | undefined)
-      if (ttl && suiteStack[suiteStack.length - 1] === ttl) {
-        suiteStack.pop()
+      if (p.isCallExpression()) {
+        handleExitCallExpression(p, suiteStack)
       }
     }
   })
