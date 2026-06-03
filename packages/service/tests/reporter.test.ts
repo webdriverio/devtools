@@ -1,4 +1,7 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import { TestReporter } from '../src/reporter.js'
 import type { TestStats, SuiteStats } from '@wdio/reporter'
 
@@ -182,6 +185,143 @@ describe('TestReporter - Rerun & Stable UID', () => {
         r.onSuiteStart(createSuiteStats())
         r.onTestStart(createTestStats())
       }).not.toThrow()
+    })
+  })
+
+  describe('onTestEnd error normalization', () => {
+    it('preserves non-enumerable Error fields for JSON serialization', () => {
+      const err = new Error('assertion failed')
+      err.stack = 'Error: assertion failed\n    at foo.js:1:1'
+      ;(err as any).expected = 42
+      ;(err as any).actual = 41
+      ;(err as any).matcherResult = { pass: false, message: 'mismatch' }
+
+      const testStats = createTestStats({ uid: 'test-end-1' })
+      reporter.onTestStart(testStats)
+      testStats.error = err as any
+      reporter.onTestEnd(testStats)
+
+      // The normalized error must round-trip through JSON without losing
+      // message/name/stack (which would happen with a raw Error instance).
+      const round = JSON.parse(JSON.stringify(testStats.error))
+      expect(round.message).toBe('assertion failed')
+      expect(round.name).toBe('Error')
+      expect(round.stack).toContain('foo.js:1:1')
+      expect(round.expected).toBe(42)
+      expect(round.actual).toBe(41)
+      expect(round.matcherResult).toEqual({ pass: false, message: 'mismatch' })
+    })
+
+    it('leaves testStats.error untouched when no error is set', () => {
+      const testStats = createTestStats({ uid: 'test-end-2' })
+      reporter.onTestStart(testStats)
+      reporter.onTestEnd(testStats)
+      expect(testStats.error).toBeUndefined()
+    })
+  })
+
+  describe('onSuiteEnd suite-path management', () => {
+    it('pops outer/inner titles in reverse order without throwing', () => {
+      const outer = createSuiteStats({
+        uid: 'outer',
+        title: 'outer-suite',
+        file: '/test/outer.spec.ts'
+      })
+      const inner = createSuiteStats({
+        uid: 'inner',
+        title: 'inner-suite',
+        file: '/test/outer.spec.ts',
+        parent: 'outer-suite'
+      })
+      expect(() => {
+        reporter.onSuiteStart(outer)
+        reporter.onSuiteStart(inner)
+        reporter.onSuiteEnd(inner)
+        reporter.onSuiteEnd(outer)
+      }).not.toThrow()
+    })
+
+    it('handles onSuiteEnd before matching onSuiteStart without throwing', () => {
+      // Mismatched end (title not at top of stack) — pop is a no-op.
+      const dangling = createSuiteStats({ uid: 'dangling', title: 'stray' })
+      expect(() => reporter.onSuiteEnd(dangling)).not.toThrow()
+    })
+  })
+
+  describe('Scenario Outline example-line resolution from feature file', () => {
+    const tmpFile = path.join(os.tmpdir(), `wdio-outline-${Date.now()}.feature`)
+
+    afterAll(() => {
+      try {
+        fs.unlinkSync(tmpFile)
+      } catch {
+        /* ignore */
+      }
+    })
+
+    it('maps numeric uid (example index) to the data-row line', () => {
+      const content = [
+        'Feature: outline',
+        '',
+        '  Scenario Outline: greet <name>',
+        '    Given a <name>',
+        '    Examples:',
+        '      | name |',
+        '      | alice |',
+        '      | bob   |',
+        '      | carol |',
+        ''
+      ].join('\n')
+      fs.writeFileSync(tmpFile, content, 'utf-8')
+
+      // uid='0' maps to the first data row (after the header)
+      const suite = createSuiteStats({
+        uid: '0',
+        title: 'greet <name>',
+        file: tmpFile
+      })
+      // mark as scenario so the parseFeatureFile path triggers
+      ;(suite as any).type = 'scenario'
+
+      const r = new TestReporter(
+        { logFile: '/tmp/test.log' },
+        sendUpstream as any
+      )
+      r.onSuiteStart(suite)
+      // The first data row "alice" is the 7th line (1-indexed) in the content.
+      expect(suite.featureFile).toBe(tmpFile)
+      expect(suite.featureLine).toBe(7)
+    })
+
+    it('falls back to pickle URI:line when the cucumber argument is set', () => {
+      const suite = createSuiteStats({
+        uid: '0',
+        title: 'login scenario',
+        file: '/some/login.feature',
+        argument: { uri: '/some/login.feature', line: 42 } as any
+      })
+      ;(suite as any).type = 'scenario'
+
+      reporter.onSuiteStart(suite)
+      expect(suite.featureFile).toBe('/some/login.feature')
+      expect(suite.featureLine).toBe(42)
+    })
+  })
+
+  describe('report getter', () => {
+    it('exposes the parent reporter suites map after suite start', () => {
+      const suite = createSuiteStats({
+        uid: 'suite-payload',
+        title: 'X',
+        file: '/test/x.spec.ts'
+      })
+      reporter.onSuiteStart(suite)
+      // After onSuiteStart, the suite's uid has been rewritten to a stable hash
+      expect(typeof suite.uid).toBe('string')
+      expect(suite.uid.length).toBeGreaterThan(0)
+      // The `report` accessor returns the parent reporter's suites map.
+      // It may be undefined depending on internals but should not throw.
+      expect(() => reporter.report).not.toThrow()
     })
   })
 })
