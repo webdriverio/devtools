@@ -31,11 +31,14 @@ const traverse = (
 // @cucumber/cucumber-expressions is an optional peer; load lazily. The
 // constructor types vary across versions, so we keep the shapes minimal —
 // only the constructor signatures we actually call.
+interface CucumberExpressionInstance {
+  match(text: string): unknown
+}
 interface CucumberExpressionsModule {
   CucumberExpression: new (
     pattern: string,
     registry: ParameterTypeRegistryInstance
-  ) => unknown
+  ) => CucumberExpressionInstance
   ParameterTypeRegistry: new () => ParameterTypeRegistryInstance
 }
 type ParameterTypeRegistryInstance = object

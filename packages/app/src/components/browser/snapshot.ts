@@ -26,17 +26,31 @@ declare global {
   }
 }
 
-function transform(node: any): VNode<{}> {
+interface SerializedVNode {
+  type?: string
+  props?: {
+    children?: SerializedVNode | SerializedVNode[] | string | number
+  } & Record<string, unknown>
+}
+type TransformInput = SerializedVNode | string | number | null
+
+function transform(node: TransformInput): VNode<{}> {
   if (typeof node !== 'object' || node === null) {
     // Plain string/number text node — return as-is for Preact to render as text.
-    return node as VNode<{}>
+    return node as unknown as VNode<{}>
   }
 
   const { children, ...props } = node.props ?? {}
   /**
    * ToDo(Christian): fix way we collect data on added nodes in script
    */
-  if (!node.type && children?.type) {
+  if (
+    !node.type &&
+    children &&
+    typeof children === 'object' &&
+    !Array.isArray(children) &&
+    children.type
+  ) {
     return transform(children)
   }
 

@@ -107,8 +107,8 @@ export class SessionCapturer extends SessionCapturerBase {
   async afterCommand(
     browser: WebdriverIO.Browser,
     command: keyof WebDriverCommands,
-    args: any[],
-    result: any,
+    args: unknown[],
+    result: unknown,
     error: Error | undefined,
     callSource?: string
   ) {

@@ -151,7 +151,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
           constructor(options: Reporters.Options) {
             super(
               options,
-              (upstreamData: any) =>
+              (upstreamData) =>
                 self.#sessionCapturer.sendUpstream('suites', upstreamData),
               (location: string) => {
                 self.#sessionCapturer.ensureSourceLoaded(location)
@@ -256,8 +256,8 @@ export default class DevToolsHookService implements Services.ServiceInstance {
 
   afterCommand(
     command: keyof WebDriverCommands,
-    args: any[],
-    result: any,
+    args: unknown[],
+    result: unknown,
     error?: Error
   ) {
     // Skip bookkeeping for internal injection calls

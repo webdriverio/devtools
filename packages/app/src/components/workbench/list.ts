@@ -64,7 +64,7 @@ export class DevtoolsList extends Element {
     `
   ]
 
-  #renderMetadataProp(prop: any) {
+  #renderMetadataProp(prop: unknown) {
     if (typeof prop === 'object' && prop !== null) {
       return html`<pre>${JSON.stringify(prop, null, 2)}</pre>`
     }

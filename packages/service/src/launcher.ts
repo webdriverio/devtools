@@ -163,8 +163,11 @@ export class DevToolsAppLauncher {
       }
       try {
         await this.#browser.deleteSession()
-      } catch (err: any) {
-        log.warn('Session already closed or could not be deleted:', err.message)
+      } catch (err) {
+        log.warn(
+          'Session already closed or could not be deleted:',
+          (err as Error).message
+        )
       }
     }
   }

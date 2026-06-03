@@ -164,7 +164,7 @@ export class DevtoolsConsoleLogs extends Element {
     return `${elapsed.toFixed(1)}s`
   }
 
-  #formatArgs(args: any[]): string {
+  #formatArgs(args: unknown): string {
     if (Array.isArray(args)) {
       return args
         .map((arg) => {
@@ -191,7 +191,7 @@ export class DevtoolsConsoleLogs extends Element {
     `
   }
 
-  #renderLogEntry(log: any) {
+  #renderLogEntry(log: ConsoleLogs) {
     const icon = LOG_ICONS[log.type] || LOG_ICONS.log
     const sourceLabel =
       log.source === 'test'
@@ -228,7 +228,7 @@ export class DevtoolsConsoleLogs extends Element {
     }
     return html`
       <div class="console-container">
-        ${this.logs.map((log: any) => this.#renderLogEntry(log))}
+        ${this.logs.map((log) => this.#renderLogEntry(log))}
       </div>
     `
   }
