@@ -229,6 +229,69 @@ describe('SessionCapturer.captureNetworkFromPerformanceLogs', () => {
   })
 })
 
+describe('SessionCapturer.takeScreenshotViaHttp', () => {
+  it('returns null when no sessionId on the browser', async () => {
+    const browser = makeMockBrowser()
+    const cap = makeCapturer(browser)
+    expect(await cap.takeScreenshotViaHttp(browser)).toBeNull()
+  })
+
+  it('parses { value } JSON from the driver screenshot endpoint', async () => {
+    const http = await import('node:http')
+    const server = http.createServer((_req, res) => {
+      res.setHeader('content-type', 'application/json')
+      res.end(JSON.stringify({ value: 'base64data' }))
+    })
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()))
+    const port = (server.address() as { port: number }).port
+    const browser = makeMockBrowser({
+      sessionId: 'sess-1',
+      transport: {
+        settings: { webdriver: { host: '127.0.0.1', port } }
+      }
+    })
+    const cap = makeCapturer(browser)
+    try {
+      expect(await cap.takeScreenshotViaHttp(browser)).toBe('base64data')
+    } finally {
+      await new Promise<void>((r) => server.close(() => r()))
+    }
+  })
+
+  it('returns null when the response body is not JSON', async () => {
+    const http = await import('node:http')
+    const server = http.createServer((_req, res) => {
+      res.end('<<not json>>')
+    })
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()))
+    const port = (server.address() as { port: number }).port
+    const browser = makeMockBrowser({
+      sessionId: 'sess-2',
+      transport: {
+        settings: { webdriver: { host: '127.0.0.1', port } }
+      }
+    })
+    const cap = makeCapturer(browser)
+    try {
+      expect(await cap.takeScreenshotViaHttp(browser)).toBeNull()
+    } finally {
+      await new Promise<void>((r) => server.close(() => r()))
+    }
+  })
+
+  it('returns null when the request fails (no listener)', async () => {
+    // Connect to a port nothing is listening on
+    const browser = makeMockBrowser({
+      sessionId: 'sess-3',
+      transport: {
+        settings: { webdriver: { host: '127.0.0.1', port: 1 } }
+      }
+    })
+    const cap = makeCapturer(browser)
+    expect(await cap.takeScreenshotViaHttp(browser)).toBeNull()
+  })
+})
+
 describe('SessionCapturer.captureTrace', () => {
   it('delegates to captureNetworkFromPerformanceLogs and stops when no collector', async () => {
     const browser = makeMockBrowser({
