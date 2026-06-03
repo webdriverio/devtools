@@ -88,7 +88,10 @@ export async function runPluginBefore(ctx: PluginBeforeCtx): Promise<void> {
     return
   }
   try {
-    ctx.options.port = await findFreePort(ctx.options.port, ctx.options.hostname)
+    ctx.options.port = await findFreePort(
+      ctx.options.port,
+      ctx.options.hostname
+    )
     log.info('🚀 Starting DevTools backend...')
     const { port } = await start(ctx.options)
     ctx.options.port = port

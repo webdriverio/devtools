@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+import { describe, it, expect, afterAll } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -96,12 +96,9 @@ describe('findTestLocations', () => {
   it('supports Jasmine `xit` and `fit` via TEST_FN_NAMES', () => {
     const file = writeFile(
       'jasmine.spec.ts',
-      [
-        "describe('Pending', () => {",
-        "  it('runs', () => {})",
-        '})',
-        ''
-      ].join('\n')
+      ["describe('Pending', () => {", "  it('runs', () => {})", '})', ''].join(
+        '\n'
+      )
     )
     const locs = findTestLocations(file)
     expect(locs.find((l) => l.name === 'runs')).toBeDefined()
@@ -149,9 +146,7 @@ describe('findTestLocations', () => {
       )
     )
     const locs = findTestLocations(file)
-    const feature = locs.find(
-      (l) => l.type === 'suite' && l.name === 'Auth'
-    )
+    const feature = locs.find((l) => l.type === 'suite' && l.name === 'Auth')
     expect(feature).toBeDefined()
   })
 

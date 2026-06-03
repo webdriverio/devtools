@@ -12,15 +12,9 @@ import type { TestReporter } from './reporter.js'
 import type { SuiteManager } from './helpers/suiteManager.js'
 import type { TestManager } from './helpers/testManager.js'
 import type { ScreencastRecorder } from './screencast.js'
-import type {
-  ScreencastOptions,
-  SeleniumDriverLike
-} from './types.js'
+import type { ScreencastOptions, SeleniumDriverLike } from './types.js'
 import type { RetryTracker } from '@wdio/devtools-core'
-import type {
-  PendingTestAction,
-  PendingScenario
-} from './test-management.js'
+import type { PendingTestAction, PendingScenario } from './test-management.js'
 
 export interface PluginInternals {
   // Config
