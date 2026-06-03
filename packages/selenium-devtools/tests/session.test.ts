@@ -1,6 +1,20 @@
+import { createRequire } from 'node:module'
 import { afterEach, describe, it, expect, vi, beforeEach } from 'vitest'
 import { SessionCapturer } from '../src/session.js'
 import { getDriverOriginals } from '../src/driverPatcher.js'
+
+// `@wdio/devtools-script` is a workspace sibling that may not be built
+// yet in a CI test job that runs before the script-package build step.
+// injectScript() reads its dist file on disk, so this test only runs
+// when the script package is resolvable.
+const scriptPackageAvailable = (() => {
+  try {
+    createRequire(import.meta.url).resolve('@wdio/devtools-script')
+    return true
+  } catch {
+    return false
+  }
+})()
 
 function makeCapturer(driver?: unknown): SessionCapturer {
   return new SessionCapturer({}, driver as never)
@@ -168,26 +182,29 @@ describe('selenium SessionCapturer (with stashed executeScript)', () => {
     }
   }
 
-  it('injectScript runs to completion when collector becomes ready', async () => {
-    let scriptInjected = false
-    let collectorReadyCalls = 0
-    stubExec(async (_driver, script) => {
-      const s = String(script)
-      if (s.includes('createElement')) {
-        scriptInjected = true
-        return true
-      }
-      if (s.includes('wdioTraceCollector')) {
-        collectorReadyCalls++
-        return collectorReadyCalls >= 1
-      }
-      return undefined
-    })
-    const cap = makeCapturer({ id: 'd' })
-    await cap.injectScript()
-    expect(scriptInjected).toBe(true)
-    expect(collectorReadyCalls).toBeGreaterThanOrEqual(1)
-  })
+  it.skipIf(!scriptPackageAvailable)(
+    'injectScript runs to completion when collector becomes ready',
+    async () => {
+      let scriptInjected = false
+      let collectorReadyCalls = 0
+      stubExec(async (_driver, script) => {
+        const s = String(script)
+        if (s.includes('createElement')) {
+          scriptInjected = true
+          return true
+        }
+        if (s.includes('wdioTraceCollector')) {
+          collectorReadyCalls++
+          return collectorReadyCalls >= 1
+        }
+        return undefined
+      })
+      const cap = makeCapturer({ id: 'd' })
+      await cap.injectScript()
+      expect(scriptInjected).toBe(true)
+      expect(collectorReadyCalls).toBeGreaterThanOrEqual(1)
+    }
+  )
 
   it('injectScript swallows ECONNREFUSED / no-such-session errors silently', async () => {
     stubExec(async () => {
