@@ -159,7 +159,51 @@ function makeGherkinIndex(): GherkinIndex {
   }
 }
 
-function populateGherkinIndex(index: GherkinIndex, testCase: any): void {
+interface GherkinStep {
+  id?: string
+  keyword?: string
+  location?: { line?: number }
+}
+interface GherkinScenario {
+  id?: string
+  location?: { line?: number }
+  steps?: GherkinStep[]
+}
+interface GherkinFeatureChild {
+  scenario?: GherkinScenario
+  background?: { steps?: GherkinStep[] }
+}
+interface GherkinFeature {
+  name?: string
+  location?: { line?: number }
+  children?: GherkinFeatureChild[]
+}
+interface CucumberPickleStep {
+  text?: string
+  astNodeIds?: string[]
+  location?: { line?: number }
+}
+interface CucumberPickle {
+  name?: string
+  uri?: string
+  location?: { line?: number }
+  astNodeIds?: string[]
+}
+interface CucumberTestCase {
+  gherkinDocument?: { feature?: GherkinFeature }
+  pickle?: CucumberPickle
+  result?: { status?: string }
+}
+interface CucumberStepArg {
+  pickleStep?: CucumberPickleStep
+  pickle?: CucumberPickle
+  result?: { status?: string }
+}
+
+function populateGherkinIndex(
+  index: GherkinIndex,
+  testCase: CucumberTestCase
+): void {
   index.stepKeywordById.clear()
   index.stepLineById.clear()
   index.scenarioLineById.clear()
@@ -230,7 +274,7 @@ function registerRunLifecycleHooks(
 }
 
 function handleScenarioStart(
-  testCase: any,
+  testCase: CucumberTestCase,
   index: GherkinIndex,
   counters: RunCounters,
   callbacks: RunnerHookCallbacks
@@ -246,8 +290,9 @@ function handleScenarioStart(
     testCase?.gherkinDocument?.feature?.name
   const featureLine = testCase?.gherkinDocument?.feature?.location?.line
   const scenarioLineFromMap =
-    Array.isArray(pickle?.astNodeIds) &&
-    index.scenarioLineById.get(pickle.astNodeIds[0])
+    pickle?.astNodeIds && Array.isArray(pickle.astNodeIds)
+      ? index.scenarioLineById.get(pickle.astNodeIds[0])
+      : undefined
   const scenarioLine = scenarioLineFromMap || pickle?.location?.line
   const callSource = file
     ? scenarioLine
@@ -271,7 +316,7 @@ function handleScenarioStart(
 }
 
 function handleScenarioEnd(
-  testCase: any,
+  testCase: CucumberTestCase,
   counters: RunCounters,
   callbacks: RunnerHookCallbacks
 ): void {
@@ -300,10 +345,17 @@ function registerScenarioHooks(
   if (typeof Before !== 'function' || typeof After !== 'function') {
     return
   }
-  Before((testCase: any) =>
-    handleScenarioStart(testCase, index, counters, callbacks)
+  Before((testCase) =>
+    handleScenarioStart(
+      testCase as CucumberTestCase,
+      index,
+      counters,
+      callbacks
+    )
   )
-  After((testCase: any) => handleScenarioEnd(testCase, counters, callbacks))
+  After((testCase) =>
+    handleScenarioEnd(testCase as CucumberTestCase, counters, callbacks)
+  )
 }
 
 function registerStepHooks(
@@ -314,13 +366,15 @@ function registerStepHooks(
 ): void {
   const { BeforeStep, AfterStep } = cucumber
   if (typeof BeforeStep === 'function') {
-    BeforeStep(function (arg: any) {
+    BeforeStep(function (raw) {
+      const arg = raw as CucumberStepArg
       const pickleStep = arg?.pickleStep
       if (!pickleStep) {
         return
       }
-      const astId =
-        Array.isArray(pickleStep.astNodeIds) && pickleStep.astNodeIds[0]
+      const astId = Array.isArray(pickleStep.astNodeIds)
+        ? pickleStep.astNodeIds[0]
+        : undefined
       const keyword = (astId && index.stepKeywordById.get(astId)) || ''
       const text: string = pickleStep.text ?? ''
       const title = `${keyword}${text}`.trim()
@@ -340,7 +394,8 @@ function registerStepHooks(
     })
   }
   if (typeof AfterStep === 'function') {
-    AfterStep(function (arg: any) {
+    AfterStep(function (raw) {
+      const arg = raw as CucumberStepArg
       const state = mapCucumberStatus(String(arg?.result?.status ?? ''))
       callbacks.onTestEnd(state)
     })
