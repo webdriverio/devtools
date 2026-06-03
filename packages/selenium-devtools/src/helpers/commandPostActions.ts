@@ -3,11 +3,19 @@ import {
   CAPTURE_PERFORMANCE_SCRIPT,
   applyPerformanceData,
   errorMessage,
-  type CapturedPerformancePayload
+  toError,
+  type CapturedPerformancePayload,
+  type RetryTracker
 } from '@wdio/devtools-core'
 import { getDriverOriginals, getElementOriginals } from '../driverPatcher.js'
+import { captureOrReplaceCommand } from './captureOrReplaceCommand.js'
 import type { SessionCapturer } from '../session.js'
-import type { CommandLog, SeleniumDriverLike } from '../types.js'
+import type { TestManager } from './testManager.js'
+import type {
+  CapturedCommand,
+  CommandLog,
+  SeleniumDriverLike
+} from '../types.js'
 
 const log = logger('@wdio/selenium-devtools:commandPostActions')
 
@@ -129,5 +137,81 @@ async function capturePerformance(
       return
     }
     log.warn(`Performance capture failed: ${msg}`)
+  }
+}
+
+export interface OnCommandCtx {
+  readonly sessionCapturer: SessionCapturer | undefined
+  readonly testManager: TestManager | undefined
+  readonly retryTracker: RetryTracker
+  readonly options: { captureScreenshots: boolean }
+  readonly scriptInjected: boolean
+  readonly finalized: boolean
+  readonly driver: SeleniumDriverLike | undefined
+  setScriptInjected(v: boolean): void
+}
+
+function attachScreenshotAsync(
+  capturer: SessionCapturer,
+  entry: CommandLog
+): void {
+  const ts = entry.timestamp
+  capturer
+    .takeScreenshot()
+    .then((shot) => {
+      if (shot) {
+        entry.screenshot = shot
+        capturer.sendReplaceCommand(ts, entry)
+      }
+    })
+    .catch(() => {})
+}
+
+/**
+ * Plugin-side handler for a single command capture event. Pulled out of the
+ * plugin class so the hot path stays readable and the post-capture branches
+ * (screenshot, find-result enrichment, navigation trace) are easier to test.
+ */
+export async function handleOnCommand(
+  ctx: OnCommandCtx,
+  cmd: CapturedCommand
+): Promise<void> {
+  const capturer = ctx.sessionCapturer
+  const testManager = ctx.testManager
+  if (!capturer || !testManager) {
+    return
+  }
+  const test = testManager.getOrEnsureTest()
+  if (!test) {
+    return
+  }
+  const entry = await captureOrReplaceCommand({
+    capturer,
+    retryTracker: ctx.retryTracker,
+    test,
+    cmd
+  })
+  const error = cmd.error ? toError(cmd.error) : undefined
+  if (ctx.options.captureScreenshots && !error) {
+    attachScreenshotAsync(capturer, entry)
+  }
+  // Enrich opaque WebElement results with tag + text preview for the UI.
+  if (
+    !error &&
+    cmd.rawResult &&
+    (cmd.command === 'findElement' || cmd.command === 'findElements')
+  ) {
+    void enrichFindResult(capturer, cmd.rawResult, entry, entry.timestamp)
+  }
+  if (capturer.isNavigationCommand(cmd.command) && !cmd.fromElement) {
+    captureNavigationTrace(
+      capturer,
+      ctx.scriptInjected,
+      () => ctx.setScriptInjected(true),
+      () => ctx.finalized,
+      entry,
+      cmd.args,
+      ctx.driver
+    )
   }
 }
