@@ -5,6 +5,7 @@ const importPlugin = require('eslint-plugin-import')
 const unicorn = require('eslint-plugin-unicorn')
 const prettierConfig = require('eslint-config-prettier')
 const prettierPlugin = require('eslint-plugin-prettier')
+const security = require('eslint-plugin-security')
 
 module.exports = [
   {
@@ -107,6 +108,41 @@ module.exports = [
     }
   },
 
+  // Security rules — local mirror of the high-signal CodeQL findings that
+  // burned us in CI. Keeps the round-trip short: `pnpm lint` flags the same
+  // patterns the PR's CodeQL scan would. GitHub-managed default-setup CodeQL
+  // still runs as the authoritative gate (it has taint flow /
+  // interprocedural analysis these rules can't match).
+  //
+  // Rule selection is conservative — rules that produced >0 true positives
+  // here or that fire on unambiguously bad patterns (eval, new Buffer).
+  // Excluded:
+  //   - detect-non-literal-fs-filename: 50+ false positives on legitimate
+  //     internal file reads (config/test-file discovery, source loading).
+  //   - detect-non-literal-require: createRequire patterns are by design.
+  //   - detect-object-injection: fires on every `arr[i]`.
+  //   - detect-possible-timing-attacks: not relevant for this dashboard.
+  {
+    files: ['**/*.{ts,tsx,js,mjs,cjs}'],
+    plugins: { security },
+    rules: {
+      // Matches CodeQL `js/polynomial-redos` + `js/redos`. The detector is
+      // somewhat over-conservative (flags benign `(\d+)?` patterns) but the
+      // false-positive cost (one-off review) is lower than missing a real
+      // ReDoS — keep at `warn`.
+      'security/detect-unsafe-regex': 'warn',
+      // Matches CodeQL `js/non-literal-regexp`. `new RegExp(userInput)` is a
+      // ReDoS vector; even when inputs are controlled it's worth eyes.
+      'security/detect-non-literal-regexp': 'warn',
+      // Matches CodeQL `js/code-injection`. Should never appear.
+      'security/detect-eval-with-expression': 'error',
+      // Node.js footguns that should never appear in production code.
+      'security/detect-buffer-noassert': 'error',
+      'security/detect-new-buffer': 'error',
+      'security/detect-pseudoRandomBytes': 'error'
+    }
+  },
+
   // TypeScript test files — turns off the size rules. MUST come AFTER the
   // production rules block above so the off-rule wins for matching files.
   {
@@ -119,7 +155,10 @@ module.exports = [
       // without restating every field of the real type. The cost of forcing
       // proper types here is high (lots of `as unknown as RealType` casts)
       // and the benefit is low — tests don't ship.
-      '@typescript-eslint/no-explicit-any': 'off'
+      '@typescript-eslint/no-explicit-any': 'off',
+      // Tests legitimately build dynamic regexes from fixture data.
+      'security/detect-non-literal-regexp': 'off',
+      'security/detect-unsafe-regex': 'off'
     }
   },
 
