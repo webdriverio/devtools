@@ -111,7 +111,7 @@ describe('baselineStore', () => {
     })
   })
 
-  it('preserve refuses an empty-command snapshot (the 409 case)', () => {
+  it('preserve refuses an empty-command snapshot', () => {
     baselineStore.recordEvent('suites', suite({ start: 100, end: 200 }))
     expect(baselineStore.preserve(TEST_UID, 'test')).toBeUndefined()
     expect(baselineStore.get(TEST_UID)).toBeUndefined()
