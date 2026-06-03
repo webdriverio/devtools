@@ -38,7 +38,9 @@ Run from repo root unless noted:
 | `pnpm build` | Build all packages (`pnpm -r build`). |
 | `pnpm test` | Run vitest suite once. |
 | `pnpm test:watch` | Run vitest in watch mode. |
-| `pnpm lint` | Lint all packages in parallel. |
+| `pnpm lint` | Lint all packages in parallel. Includes `eslint-plugin-security` rules (`detect-unsafe-regex`, `detect-non-literal-regexp`, `detect-eval-with-expression`, plus a few Node.js footguns) that flag a subset of what GitHub's CodeQL scan catches. |
+| `pnpm codeql` | Heavier local CodeQL CLI scan (the full `codeql/javascript-queries` suite). Mirrors GitHub's default-setup CodeQL — closes the gap that `pnpm lint` can't reach (taint flow, polynomial-redos with adjacent quantifiers, unvalidated-dispatch). Requires `codeql` CLI; run `pnpm codeql:install` first. |
+| `pnpm codeql:quick` | Faster CodeQL run using the smaller `javascript-code-scanning` suite. |
 | `pnpm demo:wdio` | Run the WebdriverIO example. |
 | `pnpm demo:nightwatch` | Run the Nightwatch example. |
 | `pnpm demo:selenium` | Run the Selenium example (mocha runner by default; selenium-devtools also exposes `example:mocha` / `example:jest` / `example:cucumber` for per-runner variants). |
@@ -205,6 +207,7 @@ For UI or runtime changes, you **must** run the change in `examples/<framework>/
 ### Before you finish
 
 - Run `pnpm build`, `pnpm test`, and `pnpm lint`. Don't push red.
+- For PRs that touch code with parser-like regex, child-process invocation, or anything reading user-provided paths, also run `pnpm codeql` (or `pnpm codeql:quick`). GitHub's CodeQL scan will run on the PR anyway — catching findings locally is just a faster round-trip.
 - Re-read your diff. Delete anything you wouldn't be able to justify to a reviewer.
 - For UI/runtime changes, verify in `examples/<framework>/`.
 - Check: does the diff reduce or increase the count of known debt items in §7? If it increases, reconsider.
