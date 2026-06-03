@@ -1,20 +1,17 @@
-import { createRequire } from 'node:module'
 import { afterEach, describe, it, expect, vi, beforeEach } from 'vitest'
+import { loadInjectableScript } from '@wdio/devtools-core'
 import { SessionCapturer } from '../src/session.js'
 import { getDriverOriginals } from '../src/driverPatcher.js'
 
 // `@wdio/devtools-script` is a workspace sibling that may not be built
 // yet in a CI test job that runs before the script-package build step.
-// injectScript() reads its dist file on disk, so this test only runs
-// when the script package is resolvable.
-const scriptPackageAvailable = (() => {
-  try {
-    createRequire(import.meta.url).resolve('@wdio/devtools-script')
-    return true
-  } catch {
-    return false
-  }
-})()
+// injectScript() calls loadInjectableScript() (resolve + readFile), so
+// the probe attempts the same operation — checking only resolution
+// against the TEST file's node_modules tree historically drifted from
+// what the runtime actually does inside @wdio/devtools-core.
+const scriptPackageAvailable = await loadInjectableScript()
+  .then(() => true)
+  .catch(() => false)
 
 function makeCapturer(driver?: unknown): SessionCapturer {
   return new SessionCapturer({}, driver as never)

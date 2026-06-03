@@ -97,7 +97,7 @@ globals: nightwatchDevtools({
 
 ## Screencast
 
-Record a continuous `.webm` video of the browser session. The recording starts on the first session the plugin sees and is finalized in Nightwatch's `after()` hook, writing `nightwatch-video-<sessionId>.webm` to the current working directory.
+Record a continuous `.webm` video of the browser session. The recording starts on the first session the plugin sees and is finalized in Nightwatch's `after()` hook, writing `nightwatch-video-<sessionId>.webm` to the directory of the test file that just ran. Falls back to the directory containing `nightwatch.conf.*` if the test file path isn't known, and to `process.cwd()` as a last resort. Directories under `node_modules/` are skipped.
 
 **Polling mode only.** Nightwatch doesn't expose a stable CDP escape hatch the way WebdriverIO (`browser.getPuppeteer()`) and Selenium (`driver.createCDPConnection`) do, so the screencast captures frames by calling `browser.takeScreenshot()` at a fixed interval. This works on every browser Nightwatch supports.
 

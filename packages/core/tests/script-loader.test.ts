@@ -1,23 +1,17 @@
-import { createRequire } from 'node:module'
 import { describe, it, expect, vi } from 'vitest'
 import { loadInjectableScript, pollUntilReady } from '../src/script-loader.js'
 
 /**
  * `@wdio/devtools-script` is a workspace sibling that gets built before
  * adapter runtime use. In CI the test job may run before that package is
- * built, in which case `require.resolve('@wdio/devtools-script')` throws.
- * Skip the integration assertion in that case rather than failing the
- * suite — the contract (IIFE wrap) is still asserted whenever the script
- * package is available.
+ * built, in which case `loadInjectableScript()` throws (resolve or
+ * readFile fails). Probe by attempting the full operation — anything
+ * cheaper risks drifting from what the runtime actually does, and that
+ * drift is exactly what caused the historical CI/local divergence.
  */
-const scriptPackageAvailable = (() => {
-  try {
-    createRequire(import.meta.url).resolve('@wdio/devtools-script')
-    return true
-  } catch {
-    return false
-  }
-})()
+const scriptPackageAvailable = await loadInjectableScript()
+  .then(() => true)
+  .catch(() => false)
 
 describe('loadInjectableScript', () => {
   it.skipIf(!scriptPackageAvailable)(

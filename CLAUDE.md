@@ -1,36 +1,22 @@
-# CLAUDE.md
+# Repo conventions
 
-This file is the contract for working in this repository. It applies to **all code in this repo** — existing and new alike. There is no "legacy carve-out": code that does not yet comply is debt, and every change must move the repo closer to compliance, never further from it.
+This file describes the conventions in place across the devtools monorepo — how code is organized, how packages relate to each other, how tests are structured, and what the coding style looks like. It's the companion to [ARCHITECTURE.md](./ARCHITECTURE.md): that file says where the pieces are; this one says why they're shaped the way they are and what to look for when adding or changing code.
 
-Both human contributors and AI agents (Claude Code) must follow it. When a rule here conflicts with what looks easier in the moment, the rule wins.
-
-If you are an AI agent: read this file in full before making any non-trivial change. When in doubt, ask the user.
+Anyone working in the repo, human or AI agent, can use this as the source of truth for "how do we do things here."
 
 ---
 
-## 1. What this repo is
+## What this repo is
 
-A devtools UI for end-to-end browser tests, supporting three frameworks (WebdriverIO, Nightwatch, Selenium) with **one backend and one UI**. The frameworks are adapters that feed the same backend the same event stream.
+A devtools dashboard for end-to-end browser tests. Three test frameworks (WebdriverIO, Nightwatch, Selenium) push the same normalized event stream through a single backend into a single Lit-based browser UI. The adapters are deliberately thin — they translate framework hooks into calls on a shared core capture/reporting library and own only the framework-specific glue.
 
-Packages (pnpm workspace):
+Package map and data flow are in [ARCHITECTURE.md](./ARCHITECTURE.md). The summary: `shared` for types and contracts, `core` for framework-agnostic capture, three adapters (`service`, `nightwatch-devtools`, `selenium-devtools`) for framework glue, `backend` for the server, `app` for the UI, `script` for the page-injected runtime.
 
-| Package | Role |
-|---|---|
-| `packages/app` | Lit-based browser UI. Framework-agnostic. |
-| `packages/backend` | Fastify server, WebSocket gateway, baseline store, test runner spawner. Framework-agnostic at the API layer; framework-aware only via a typed `FrameworkId`. |
-| `packages/shared` | Types, constants, HTTP/WS contracts. Pure, no runtime deps on other packages. Single source of truth. Workspace-internal (`"private": true`); inlined into each consumer at build time. |
-| `packages/core` | Framework-agnostic capture/reporter logic. Currently houses console-capture constants and helpers, UID gen, error serialization, stack helpers, net helpers, `SessionCapturerBase` (extended by all three adapters), and `TestReporterBase` (extended by nightwatch + selenium reporters). Workspace-internal (`"private": true`); inlined into each adapter at build time. |
-| `packages/service` | WebdriverIO adapter. Hook registration + WDIO-specific config. |
-| `packages/nightwatch-devtools` | Nightwatch adapter. Hook registration + lifecycle binding. |
-| `packages/selenium-devtools` | Selenium adapter. Driver patching + runner hooks. |
-| `packages/script` | Browser-injected runtime. Runs **inside the page under test** (not in Node), captures DOM mutations and page-side traces. Not a home for shared Node-side logic — that belongs in `core`. |
-| `examples/wdio/`, `examples/nightwatch/`, `examples/selenium/` | Per-framework demo projects, used for manual verification (§4). |
+---
 
-Both `packages/shared` and `packages/core` exist and host the shared types, contracts, and adapter scaffolding. The `SessionCapturerBase` class in `core` owns console/stream patching, WS connection, command id bookkeeping, and upstream-send guard/try-catch (with an `onUpstreamDrop` hook subclasses can override for diagnostics); all three adapters extend it. `TestReporterBase` is shared by the nightwatch + selenium reporters (service uses `@wdio/reporter` from WDIO). Remaining `core` candidate is a handful of partially-shared `TIMING`/`DEFAULTS` constants.
+## Commands
 
-### Commands
-
-Run from repo root unless noted:
+Run from repo root unless noted.
 
 | Command | What it does |
 |---|---|
@@ -38,276 +24,239 @@ Run from repo root unless noted:
 | `pnpm build` | Build all packages (`pnpm -r build`). |
 | `pnpm test` | Run vitest suite once. |
 | `pnpm test:watch` | Run vitest in watch mode. |
-| `pnpm lint` | Lint all packages in parallel. Includes `eslint-plugin-security` rules (`detect-unsafe-regex`, `detect-non-literal-regexp`, `detect-eval-with-expression`, plus a few Node.js footguns) that flag a subset of what GitHub's CodeQL scan catches. |
-| `pnpm codeql` | Heavier local CodeQL CLI scan (the full `codeql/javascript-queries` suite). Mirrors GitHub's default-setup CodeQL — closes the gap that `pnpm lint` can't reach (taint flow, polynomial-redos with adjacent quantifiers, unvalidated-dispatch). Requires `codeql` CLI; run `pnpm codeql:install` first. |
-| `pnpm codeql:quick` | Faster CodeQL run using the smaller `javascript-code-scanning` suite. |
-| `pnpm demo:wdio` | Run the WebdriverIO example. |
-| `pnpm demo:nightwatch` | Run the Nightwatch example. |
-| `pnpm demo:selenium` | Run the Selenium example (mocha runner by default; selenium-devtools also exposes `example:mocha` / `example:jest` / `example:cucumber` for per-runner variants). |
+| `pnpm test:coverage` | Run vitest with v8 coverage. The thresholds in `vitest.config.ts` are the floor — drops fail CI. |
+| `pnpm lint` | Lint all packages in parallel. Includes `eslint-plugin-security` for a subset of CodeQL findings; deeper taint-flow checks surface on the PR's CodeQL scan. |
+| `pnpm demo:wdio` / `pnpm demo:nightwatch` / `pnpm demo:selenium` | Run the per-framework example projects. Useful for manual verification of UI or runtime changes. |
 | `pnpm dev` | Run all packages in parallel dev mode. |
 
-Before any UI/runtime change is claimed done: `pnpm build && pnpm test && pnpm demo:wdio` (or `demo:nightwatch` / `demo:selenium` if your change targets that framework).
+`selenium-devtools` exposes per-runner variants of its example via `pnpm --filter @wdio/selenium-devtools example:mocha` / `:jest` / `:cucumber` / `:jasmine` / `:vitest`.
 
-### Path aliases (TypeScript)
+---
 
-Defined in root `tsconfig.json`. Use these in imports — do **not** use long relative paths like `../../../components/...`:
+## Path aliases
+
+Defined in root `tsconfig.json`:
 
 | Alias | Resolves to |
 |---|---|
 | `@/*` | `packages/app/src/*` |
 | `@components/*` | `packages/app/src/components/*` |
-| `@core/*` | `packages/app/src/core/*` (app-internal, not the future `packages/core`) |
-| `@wdio/devtools-backend` / `@wdio/devtools-backend/*` | `packages/backend/src/...` |
-| `@wdio/devtools-script` / `@wdio/devtools-script/*` | `packages/script/src/...` |
-| `@wdio/devtools-service` / `@wdio/devtools-service/*` | `packages/service/src/...` |
-| `@wdio/selenium-devtools` / `@wdio/selenium-devtools/*` | `packages/selenium-devtools/src/...` |
+| `@core/*` | `packages/app/src/core/*` (app-internal — not the framework-agnostic `packages/core`) |
+| `@wdio/devtools-backend` / `*` | `packages/backend/src/...` |
+| `@wdio/devtools-script` / `*` | `packages/script/src/...` |
+| `@wdio/devtools-service` / `*` | `packages/service/src/...` |
+| `@wdio/selenium-devtools` / `*` | `packages/selenium-devtools/src/...` |
+| `@wdio/devtools-shared` / `*` | `packages/shared/src/...` |
+| `@wdio/devtools-core` / `*` | `packages/core/src/...` |
 
-`packages/shared` and `packages/core` are both wired in (`@wdio/devtools-shared`, `@wdio/devtools-core`).
+These exist so imports stay short and grep-able. Long relative paths (`../../../components/…`) aren't used.
 
-> ⚠️ Note: `@core/*` today points to `packages/app/src/core/` (app-internal). The future framework-agnostic `packages/core` will need a different alias (e.g. `@wdio/devtools-core`) to avoid collision. Resolve this when `packages/core` is created.
-
----
-
-## 2. Architecture rules
-
-These apply to every file in the repo. Code that doesn't comply is debt to be fixed (§7), not an exception.
-
-### 2.1 One source of truth per concept
-
-No type, constant, enum, schema, or contract may be defined in more than one package. Every shared concept lives in `packages/shared`.
-
-If a duplicated declaration is discovered, the next change that touches it must consolidate to `shared`.
-
-### 2.2 Framework-agnostic logic lives in `core`
-
-Any capture, parsing, normalization, sourcemap, UID, reporter, or WS-framing logic is framework-agnostic and lives in `packages/core`. Adapter packages call into `core`; they do not reimplement.
-
-If a feature requires the same logical change in two or more adapters, the logic does not belong in the adapters — it belongs in `core`. Stop and extract.
-
-### 2.3 Adapters are thin and isolated
-
-Adapter packages (`service`, `nightwatch-devtools`, `selenium-devtools`) own only:
-- Framework-specific hook registration and lifecycle binding
-- Framework-specific driver/browser patching
-- Framework-specific config
-
-They **may not** import from each other. They **may** import from `shared` and `core`. They **may not** be imported by `backend` or `app`.
-
-### 2.4 `backend` and `app` are framework-agnostic
-
-`backend` and `app` import from `shared` (for contracts) and from each other only via the WS/HTTP boundary. They do not import any adapter package.
-
-If `backend` needs to behave differently per framework (e.g. building rerun CLI args in `runner.ts`), it branches on a typed `FrameworkId` from `shared`. **No string comparisons like `if (framework === 'nightwatch')`** anywhere outside an adapter.
-
-### 2.5 Boundaries have typed contracts
-
-Every `fetch(...)` and `ws.send(...)` has a typed request/response shape defined in `shared`. No untyped `any` payloads cross a package boundary. No "the caller knows what shape comes back" agreements.
-
-### 2.6 Workspace-internal packages must stay inlined at build time
-
-`packages/shared` and (when it exists) `packages/core` are marked `"private": true` and are **never published to npm**. Each consuming package's bundler must inline their code into its own `dist/` at build time. **Packages that consume `@wdio/devtools-shared` or `@wdio/devtools-core` must use a bundler — `tsc`-only builds emit literal `import` statements that npm cannot resolve at install time.**
-
-Bundlers in use today: **vite** for `app`, `service`, `script`; **tsup** for `backend`, `nightwatch-devtools`, `selenium-devtools`.
-
-- List `@wdio/devtools-shared` / `@wdio/devtools-core` in `devDependencies` with `workspace:^`, **never** in `dependencies`. Both tsup and vite externalize anything in `dependencies` by default — `devDependencies` is what gets inlined. If the dep leaks into `dependencies`, pnpm publish rewrites the version to something that doesn't exist on npm and end-user installs fail.
-- Do **not** add `@wdio/devtools-shared` or `@wdio/devtools-core` to `rollupOptions.external` (vite) or to tsup's `external` option, or any equivalent. **Vite `external` callback footgun (bit us twice already):** vite resolves workspace imports BEFORE invoking the callback, so the `id` parameter is often an absolute path like `/Users/.../packages/core/src/index.ts`, *not* the package name `@wdio/devtools-core`. A check like `id !== '@wdio/devtools-core'` will silently miss the absolute-path form, and the dist ends up with literal absolute paths that work nowhere but the build machine. Always check for BOTH forms: package name (`id === '@wdio/devtools-core'`, `id.startsWith('@wdio/devtools-core/')`) AND resolved path (`id.includes('/packages/core/')`). See [`packages/service/vite.config.ts`](packages/service/vite.config.ts) for the canonical pattern.
-- **Vite `external` relative-import footgun:** the same callback also receives bare relative imports for in-tree source files (e.g. `./utils.js` from index.ts, `../constants.js` from utils/source-mapping.ts). A check that only allows `./` will silently externalize `../`-style imports from subfolder modules — the dist ends up referencing a non-emitted file (`./constants.js` import with no `constants.js` on disk) and crashes at install time with `ERR_MODULE_NOT_FOUND`. Allow both `./` AND `../` prefixes (or just check `path.resolve(__dirname, 'src')`). When adding subfolders under `src/`, run a Node-resolve smoke test on the dist after build.
-- Do **not** switch a consuming package's build to `tsc`-only. If the package needs a build, it gets a bundler.
-- After any change to a bundler config or build script, run `pnpm build` on the affected package and verify its `dist/*.js` contain no references to private workspace packages — **check both forms**:
-  - `grep -E "@wdio/devtools-(core|shared)|/packages/(core|shared)/" packages/<pkg>/dist/*.js` should return nothing. Checking only `@wdio/devtools-core` misses the absolute-path form vite leaves behind when its `external` callback is misconfigured.
-
-### 2.7 Separation of concerns within a file
-
-A file owns one concern. Specifically:
-- **UI components render.** They do not call `fetch`, manage WebSocket state, or run business logic.
-- **Controllers/services own I/O and state.** They do not render.
-- **Backend route handlers wire requests to services.** They do not contain business logic inline.
-- **Reporters report.** They do not also do sourcemap resolution, file I/O, and step UID generation in the same file.
-
-A file that mixes these concerns is debt and must be split when next touched.
+The `@core/*` name is a historical alias for app-internal helpers and predates `packages/core`. They don't collide because they resolve to different roots, but the names are confusable.
 
 ---
 
-## 3. Coding standards
+## Conventions
+
+### One source of truth per concept
+
+Every shared type, constant, enum, schema, and HTTP/WS contract lives in `packages/shared`. Adapter packages and the app never re-declare a concept that already exists upstream — they re-export shared definitions when a local consumer name needs to stay stable (e.g. nightwatch's `TEST_FILE_PATTERN` is `export { SPEC_FILE_RE as TEST_FILE_PATTERN } from '@wdio/devtools-shared'`).
+
+When a duplicate is discovered, the next change that touches either copy consolidates them into shared.
+
+### Framework-agnostic logic lives in `core`
+
+Anything that captures, parses, normalizes, formats, or transports test-event data and doesn't depend on a specific framework's API lives in `packages/core`. Adapters call into core; they don't reimplement.
+
+If the same logical change would land in two or more adapters, the logic belongs in core. This rule produced the current `SessionCapturerBase`, `TestReporterBase`, `ScreencastRecorderBase`, `resolveAdapterOutputDir`, and the pure helpers around console capture, error serialization, UID generation, stack-trace parsing, BiDi attachment, and screencast finalization.
+
+Some helpers are framework-agnostic by nature but used in only one adapter today (e.g. nightwatch's `parseNetworkFromPerfLogs` for CDP perf-log parsing, selenium's `detectRunner`/`captureLaunchCommand`). They stay in their adapter until a second consumer appears; at that point they move to core.
+
+### Adapters are thin and isolated
+
+Adapter packages own only:
+
+- Framework-specific hook registration and lifecycle binding.
+- Framework-specific driver/browser patching.
+- Framework-specific config and capabilities.
+
+They import from `shared` and `core`, never from each other. They aren't imported by `backend` or `app`.
+
+### Backend and app are framework-agnostic
+
+`backend` and `app` import from `shared` only (for contracts) and from each other via the WS/HTTP boundary. Neither imports an adapter package.
+
+Framework-specific behavior in the backend is contained in two files: `runner.ts` and `framework-filters.ts`. Both branch on a typed `TestRunnerId` from shared, never on a magic string. The `framework-filters` dispatch is a `switch` over `TestRunnerId` (not a table lookup) so CodeQL's `unvalidated-dynamic-method-call` query trusts the call site.
+
+### Boundaries have typed contracts
+
+Every `fetch(...)` and `ws.send(...)` has a typed request/response shape in shared. `SocketMessage<T extends WsMessageScope>` is the canonical WS wire format — receivers narrow on `scope` to get the exact payload type per branch.
+
+No `any` crosses a package boundary. When a framework API forces a loosely-typed value (Nightwatch's `currentTest`, Selenium's BiDi events, raw HTTP payloads), the `any` is cast to a typed shape immediately at the boundary, with the cast site documenting why.
+
+### Workspace-internal packages stay bundled
+
+`packages/shared` and `packages/core` are `"private": true` and never published. Each consumer inlines their code into its own `dist/` at build time.
+
+- Both deps are listed in `devDependencies` with `workspace:^`, never in `dependencies`. Vite and tsup both externalize anything in `dependencies` by default; `devDependencies` is what gets inlined.
+- Neither is added to a bundler's `external` config. Vite's `external` callback receives both the bare package name *and* the resolved absolute path (e.g. `/Users/.../packages/core/src/index.ts`); a check for only one form silently externalizes the other.
+- The same callback receives bare relative imports (`./utils.js`, `../constants.js`). A check that allows only `./` will externalize `../`-style imports from subfolders and the dist crashes with `ERR_MODULE_NOT_FOUND` at install time.
+- `packages/service/vite.config.ts` is the canonical pattern for getting both right.
+- After any change to a bundler config or build script, `grep -E "@wdio/devtools-(core|shared)|/packages/(core|shared)/" packages/<pkg>/dist/*.js` should return nothing. That's how you catch the absolute-path leak.
+
+Bundlers in use: **vite** for `app`, `service`, `script`; **tsup** for `backend`, `nightwatch-devtools`, `selenium-devtools`.
+
+### Separation of concerns within a file
+
+Files own one concern:
+
+- UI components render. They don't `fetch`, manage WebSocket state, or run business logic.
+- Controllers and services own I/O and state. They don't render.
+- Backend route handlers wire requests to services. They don't contain business logic inline.
+- Reporters report. They don't also resolve sourcemaps, read files, and generate step UIDs in the same module.
+
+Mixed-concern files are split as they're touched. The app-side helpers like `contextUpdates.ts`, `runnerCapabilities.ts`, `renderDetailBlock.ts`, `compareUtils.ts`, `suite-merge.ts`, `mark-running.ts`, `run-detection.ts`, and `stepResolution.ts` are all extractions from larger god-files.
 
 ### TypeScript
 
-- `strict: true` is on (configured in root `tsconfig.json`). Do not weaken it.
-- **No `any`.** If a framework or library forces it, isolate the `any` to one line at the boundary and cast to a typed shape immediately. Add a one-line comment explaining why.
-- **No `as unknown as X`** double-casts unless the reason is documented inline.
-- Prefer `type` for unions and `interface` for object shapes that may be extended.
-- Exported names from `shared` and `core` are public API of those packages — treat renames as breaking changes.
+- `strict: true` is on (root `tsconfig.json`).
+- No `any`. If a framework or library forces it, the `any` is isolated at the boundary and cast to a typed shape with a one-line comment explaining why. As of writing, there are no `no-explicit-any` warnings repo-wide.
+- No `as unknown as X` double-casts unless the reason is documented inline.
+- `type` for unions, `interface` for object shapes that may be extended.
+- Names exported from `shared` and `core` are public API of those packages — renames are breaking changes for downstream consumers.
 
 ### Naming
 
-- **One name per concept across the whole repo.** The canonical name for test status is `TestStatus` in `@wdio/devtools-shared`. The sidebar `TestState` object is a value-only enum-style accessor; its values come from `TestStatus`.
-- Constants: `SCREAMING_SNAKE_CASE`. Types: `PascalCase`. Functions and variables: `camelCase`. Files: `kebab-case.ts` unless matching a class name.
+- One name per concept across the whole repo. The canonical test-status name is `TestStatus` in shared; the sidebar `TestState` is a value-only enum-style accessor over the same string union.
+- Constants are `SCREAMING_SNAKE_CASE`. Types are `PascalCase`. Functions and variables are `camelCase`. Files are `kebab-case.ts` unless they match a class name (`SessionCapturer.ts`).
 
 ### File and function size
 
-- **File**: ~400 lines. A larger file is a smell; do not add to it without splitting.
-- **Function**: ~50 lines.
-- Known god-files that must be split as they're touched: `packages/app/src/controller/DataManager.ts` (~986 lines), `packages/app/src/components/workbench/compare.ts` (~888 lines), `packages/app/src/components/sidebar/explorer.ts` (~670 lines), `packages/backend/src/index.ts` (~387 lines).
+Soft caps (warnings in `pnpm lint`, not errors):
+
+- **File**: 500 logic lines (blank lines and comments excluded). Files growing toward this cap are split as their sections are edited.
+- **Function**: 50 logic lines.
+
+A few declarative blocks (`#getInternals` accessor bags in the adapter plugins) exceed the function cap intentionally — splitting them artificially hurts readability. Those are marked with an inline `eslint-disable-next-line max-lines-per-function` plus a one-line justification.
 
 ### Comments
 
 - Default to no comments. Names should explain *what*.
-- Write a comment only when the *why* is non-obvious: a hidden constraint, a workaround for a specific bug, a subtle invariant.
-- Do not write `// TODO`, `// added for X feature`, `// removed old logic`, or `// keep in sync` comments. Git history holds the first three; the fourth means you should have used a single source of truth.
-- One line max. No multi-paragraph docstrings.
+- A comment is written only when the *why* is non-obvious: a hidden constraint, a workaround for a specific bug, a subtle invariant, behavior that would surprise a reader.
+- `// TODO`, `// added for X`, `// removed Y`, `// keep in sync` aren't used — the first three belong in git history; the fourth means a single source of truth is missing.
+- One line max. Multi-paragraph docstrings aren't used.
 
 ### Error handling
 
-- Validate at boundaries (HTTP input, WS messages, framework callbacks). Trust internal code.
-- Never swallow errors silently. Catch only to add context, then rethrow or log with enough detail to debug.
-- No `catch (e) {}` blocks. No empty catches.
+- Validation happens at boundaries (HTTP input, WS messages, framework callbacks). Internal code is trusted.
+- Errors aren't swallowed silently. `catch` only adds context, then rethrows or logs with enough detail to debug. Empty catches don't appear in production code.
 
 ### Dead code
 
-- Delete unused exports, unused imports, commented-out blocks, and `_unused` parameters when you find them.
-- Do not keep "in case we need it later" code. Git history is the safety net.
+Unused exports, unused imports, commented-out blocks, and `_unused` parameters get deleted when discovered. Git history is the safety net for "in case we need it later" code.
 
 ---
 
-## 4. Testing
+## Testing
 
-The repo uses **vitest** at the root.
+The repo uses **vitest** at the root. The current state: 566 tests across 47 files; thresholds at `vitest.config.ts` enforce a floor of 85/77/86/85 (statements/branches/functions/lines). Coverage is ratcheted upward as gaps close, never downward.
 
-### Required
+### What gets tested
 
-- **`shared` and `core`**: unit tests for every new exported function or type guard. These are the foundation; bugs here cascade.
-- **Bug fixes (any package)**: a regression test that fails before the fix and passes after. If you genuinely can't write one (e.g. it requires a real browser and the infra doesn't exist), say so explicitly in the PR.
+- **`shared` and `core`**: unit tests for every exported function and type guard. These are the foundation; regressions cascade.
+- **Bug fixes (any package)**: a regression test that fails before the fix and passes after. When a real test is genuinely impossible (e.g. requires a live browser the infra doesn't have), the PR description says so.
 - **New HTTP/WS contracts**: a test that exercises the contract end-to-end at least once.
 
-### Recommended
+### Adapter and backend logic
 
-- Adapter packages: unit tests for non-trivial parsing or transformation logic. Hook-wiring may be verified manually via `examples/<framework>/`.
-- `backend` and `app`: tests for non-UI logic (parsers, transforms, state reducers).
+Non-trivial parsing or transformation logic in adapters has unit tests. Hook wiring is verified manually via `examples/<framework>/`. `backend` and `app` test their non-UI logic (parsers, transforms, state reducers); UI verification is manual.
 
 ### Manual verification
 
-For UI or runtime changes, you **must** run the change in `examples/<framework>/` before claiming the work is done. Type-checks and unit tests verify code correctness, not feature correctness. If you cannot run the example, say so explicitly — do not claim success on the basis of `tsc --noEmit` alone.
+For UI or runtime changes, `examples/<framework>/` is the verification harness. Type-checks and unit tests verify code correctness, not feature correctness — claiming a UI change works on the basis of `tsc --noEmit` alone misses the point.
+
+When CI can't run an example (no real browser), the PR description says so explicitly.
+
+### Skipping tests that depend on workspace-internal build artifacts
+
+A handful of tests need `@wdio/devtools-script` to be built first (the browser-injected bundle). CI test jobs sometimes run before that build step; those tests gate on `it.skipIf` after probing `createRequire(import.meta.url).resolve('@wdio/devtools-script')`. Locally they run normally.
 
 ---
 
-## 5. Workflow
+## Workflow
 
-### Before you start
+### When adding code
 
-1. Read this file.
-2. Read the README of any package you're touching.
-3. Ask: does this change belong in the package I'm about to edit, or does it belong in `shared` / `core`? If `shared` or `core` — go there first.
+The decision tree from [ARCHITECTURE.md "Where things live"](./ARCHITECTURE.md#where-things-live) is the starting point. The general shape:
 
-### While you work
+- Shared concept → `shared`.
+- Framework-agnostic capture/reporting logic → `core`.
+- Framework-specific glue → the matching adapter.
+- Server route/WS handler → `backend` (contract in `shared` first).
+- UI → `app`.
+- Code that runs in the browser under test → `script`.
 
-- Make the minimum change that solves the problem. No drive-by refactors of unrelated code, no speculative abstractions for hypothetical future requirements.
-- **The boy-scout rule applies always.** When you touch a file or a section, leave it more compliant with this document than you found it. If you touch a duplicated type, consolidate it into `shared`. If you edit a section of a god-file, split that section out. If you change a magic-string framework check, replace it with a typed `FrameworkId`. The scope of cleanup matches the scope of your change — don't rewrite the whole file, but don't leave a clear violation in the lines you touched either.
-- Do not introduce new violations to "match the existing style." The existing style is debt.
+When the right place is ambiguous (something between `shared` and `core`, or between `core` and an adapter), the question that resolves it is: *who else would want this?* If the answer is "any future adapter would," it's `core`. If "only the framework with X-specific API does," it's the adapter.
 
-### Before you finish
+### While editing
 
-- Run `pnpm build`, `pnpm test`, and `pnpm lint`. Don't push red.
-- For PRs that touch code with parser-like regex, child-process invocation, or anything reading user-provided paths, also run `pnpm codeql` (or `pnpm codeql:quick`). GitHub's CodeQL scan will run on the PR anyway — catching findings locally is just a faster round-trip.
-- Re-read your diff. Delete anything you wouldn't be able to justify to a reviewer.
-- For UI/runtime changes, verify in `examples/<framework>/`.
-- Check: does the diff reduce or increase the count of known debt items in §7? If it increases, reconsider.
+- Boy-scout rule applies: when touching a file or section, leave it more aligned with these conventions than it was found. Touch a duplicated type, consolidate it into shared. Touch a section of a god-file, split that section out. Touch a magic-string framework check, replace it with `TestRunnerId`. The cleanup scope matches the change scope — don't rewrite the whole file, but don't leave a clear convention violation in lines just touched.
+- New code doesn't introduce violations to match existing style. Where existing style violates these conventions, that's documented debt (§ Known debt), not a template.
+
+### Before pushing
+
+- `pnpm build`, `pnpm test`, `pnpm lint`. Don't push red.
+- For UI or runtime changes: verify in `examples/<framework>/`.
+- Deeper security findings (taint flow, polynomial-redos with adjacent quantifiers) surface on the PR's CodeQL scan; review and fix those before merge.
 
 ### Commits
 
-- Small, focused commits. Don't bundle unrelated changes.
-- Imperative mood. Explain *why*, not *what* — the diff shows the what.
-- Never amend commits that have been pushed or shared.
-- Never use `--no-verify` to skip hooks. If a hook fails, fix the underlying problem.
+- Small, focused. Don't bundle unrelated changes.
+- Imperative mood. The commit message explains *why*; the diff shows *what*.
+- New commits, not amends to pushed/shared commits.
+- No `--no-verify` to skip hooks. If a hook fails, the underlying issue gets fixed.
 
 ### PRs
 
 - One concern per PR. A refactor and a feature are two PRs.
-- If the PR touches more than one adapter package, the description must answer: **why isn't this in `core`?**
-- Note in the PR description which debt items from §7 (if any) the change paid down.
+- A PR touching more than one adapter package answers in its description: *why isn't this in `core`?*
 
 ---
 
-## 6. What an AI agent (Claude) should do
+## Known debt
 
-You are expected to treat this file as a hard contract.
+Documented divergences from the conventions above. They exist today as debt to be paid down, not exceptions to the rules. Each change reduces this list; new violations don't get added.
 
-### Refuse
+### Architecture
 
-- Adding a type, constant, enum, or contract that duplicates one that exists in another package. Propose extracting to `shared` instead.
-- Adding an `any` type at a package boundary.
-- Adding `if (framework === '...')` or any string-based framework check outside an adapter package.
-- Making the same logical change in two or more adapter packages. Propose extracting to `core` instead.
-- Adding a `// TODO`, `// keep in sync`, or similar comment as a substitute for fixing the underlying issue.
-- Skipping pre-commit hooks with `--no-verify`.
-- Claiming a UI/runtime change works without running it in `examples/<framework>/`.
-- Importing one adapter package from another, or importing any adapter from `backend` or `app`.
+- `replaceCommand` has two semantics — Selenium mutates in place (preserves `_id`/`id` for chained calls); Nightwatch splices and reissues. Both call the same `core/suite-helpers` factories; the storage strategy stays adapter-specific because runner integrations differ. Could be unified by parameterizing the policy if the divergence ever causes a real problem.
+- `patchNodeAssert` is wired only in `selenium-devtools`. The shared helper lives in `core/assert-patcher`; Service and Nightwatch can opt in via a one-line call when ready. Not auto-enabled — both communities lean on chai/expect.
+- BiDi is auto-attached in Service and Selenium; Nightwatch is opt-in via `bidi: true` and requires `webSocketUrl: true` in capabilities.
 
-### Warn, then proceed if the user confirms
+### File-size (raw line counts; soft cap is 500 logic lines)
 
-- A file or function exceeds the soft size limits in §3.
-- A change that grows a god-file rather than splitting the section being edited.
-- Adding a feature behind a flag without an explicit request.
+None of the entries below trigger the `max-lines` lint rule after `skipBlankLines`/`skipComments`. They're documented because their raw line count is over 500, and the next substantive change to any of them should still look for an extraction opportunity.
 
-### Do without asking
-
-- Run formatters, type checks, and tests.
-- Move a duplicated type or constant to `shared` (creating the package if needed) as part of a change that touches it. That's the boy-scout rule, not scope creep.
-- Split the *section being edited* out of a god-file. Do not rewrite the whole file uninvited.
-- Replace a string-based framework check with a typed `FrameworkId` when you're editing the file containing it.
-
-### Always
-
-- State the planned approach in one or two sentences before making non-trivial changes, especially anything touching package boundaries.
-- When the right place for new code is ambiguous (`shared` vs `core` vs adapter), ask the user before writing it.
-- After completing a change, in one or two sentences: what changed, what's next, and which §7 debt item the change moved (if any).
-
----
-
-## 7. Known debt
-
-These are documented violations of this file's rules. They exist today; they are debt, not exceptions. Every change must reduce this list, never extend it. As items are resolved, delete them from this section.
-
-### Architecture debt
-
-- `packages/shared` is the single source of truth for types, contracts, and cross-adapter constants. Now contains `BASELINE_API`, `BASELINE_WS_SCOPE`, `WS_PATHS`, `WS_SCOPE`, `TESTS_API`, `REUSE_ENV`, `RUNNER_ENV`, `TIMING_BASE`, `DEFAULTS_BASE`, `SCREENCAST_DEFAULTS`, `TestRunnerId`, and the test-event types (`CommandLog`, `ConsoleLog`, `NetworkRequest`, `Metadata`, `TraceLog`, `TraceMutation`, `TraceType`, `PreservedAttempt`, `PreservedStep`, `TestStatus`, `TestError`, `TestStats`, `SuiteStats`, `ReporterError`, `PerformanceData`, `DocumentInfo`, `Viewport`, `ScreencastInfo`, `ScreencastFrame`, `ScreencastOptions`, `LogLevel`, `LogSource`). `SuiteStats.featureFile` is the cucumber-only `.feature` path, distinct from `file` (which owns the suite's stable UID and stays at cwd). Adapter type files re-export shared types for backwards compatibility.
-- `packages/core` contains the framework-agnostic capture/reporting library: `SessionCapturerBase`, `TestReporterBase`, `ScreencastRecorderBase`, plus pure helpers (`assert-patcher`, `bidi`, `console`, `error`, `finalize-screencast`, `mapChromeBrowserLogs`, `net`, `performance-capture`, `retry-tracker`, `script-loader`, `serializeError`, `stack`, `suite-helpers`, `test-discovery`, `uid`, `video-encoder`). Adapter subclasses contain only framework-specific glue (driver patching, hook registration, BiDi-builder caps).
-- **`patchNodeAssert` is wired only in selenium-devtools.** The shared helper lives in core/assert-patcher; service and nightwatch can opt in via a one-line call from their plugin entries when they're ready. Not auto-enabled — many WDIO/Nightwatch users use chai/expect.
-- **BiDi capture is wired in service (native WDIO) and selenium (`selenium-webdriver/bidi`). Nightwatch is opt-in via `bidi: true`** — requires `webSocketUrl: true` capability. The `core/bidi.ts` helpers (`attachBidiHandlers`, `loadSeleniumSubmodule`, `arrayHeadersToObject`) are shared.
-- **Performance API capture is wired in all three adapters via `CAPTURE_PERFORMANCE_SCRIPT` in core.** The script is identical; each adapter wires it into its own afterCommand-equivalent path.
-- **`replaceCommand`** has two different semantics — selenium mutates in place (preserves `_id`/`id` continuity); nightwatch splices and reissues with a new `_id`. Both call the same `core/suite-helpers` factories, but the storage strategy stays adapter-specific because the runner integrations differ. Could be unified by parameterizing the policy if the divergence ever causes a real problem.
-
-### File-size debt (god-files to split as touched)
-
-Raw line counts; soft cap is 500 (blank+comment-skipped, so warnings only trip well above this).
-
-- `packages/nightwatch-devtools/src/index.ts` (~558 — cucumber/test/run-lifecycle modules extracted; remainder is the `PluginInternals` accessor bag + per-method delegators)
-- `packages/selenium-devtools/src/index.ts` (~557 — session/test-lifecycle extracted; remainder is the `PluginInternals` accessor bag + onCommand/onDriverCreated wiring)
-- `packages/app/src/components/workbench/compare.ts` (~540 — static styles extracted; remainder is Lit render methods tightly coupled to component state)
-- `packages/app/src/controller/DataManager.ts` (~509 — suite-merge, mark-running, run-detection extracted as pure functions; remainder is per-scope socket-message handlers tightly coupled to ContextProvider state)
-- `packages/app/src/components/sidebar/explorer.ts` (~499 — entry-state logic extracted; remainder is Lit render + runner-options getters coupled to component state)
-- `packages/nightwatch-devtools/src/session.ts` (~468 — captureNetworkFromPerformanceLogs + captureBrowserLogs + captureTrace tightly coupled to NightwatchBrowser state; also a coverage gap)
+- `packages/nightwatch-devtools/src/index.ts` (~536 raw). Cucumber/test/run-lifecycle, session-init, event-hub modules already extracted; remainder is the `PluginInternals` accessor bag plus per-method delegators plus the factory. Accept-as-is.
+- `packages/selenium-devtools/src/index.ts` (~560 raw). Session/test-lifecycle extracted; remainder is the `PluginInternals` accessor bag plus onCommand/onDriverCreated wiring. Same situation as nightwatch.
+- `packages/nightwatch-devtools/src/session.ts` (~468). `captureNetworkFromPerformanceLogs` + `captureBrowserLogs` + `captureTrace` are tightly coupled to NightwatchBrowser state. Coverage at 78% after recent backfill; further extraction would need rewriting the browser-coupling.
 
 ### Test coverage gaps (worst-risk-first)
 
-Genuine coverage gaps surfaced by `pnpm test:coverage`. Numbers reflect the current state:
+Numbers reflect actual `pnpm test:coverage` output.
 
-- `packages/nightwatch-devtools/src/session.ts` — **38%**. The biggest gap repo-wide; also one of the file-size debt items. Refactor + tests should land together.
-- `packages/script/src/logger.ts` — **20%**. Tiny file (~12 lines); guarded by `process.env.WDIO_DEVTOOLS_LOG`. Trivially testable.
-- `packages/backend/src/baselineStore.ts` — **68%**. Edge cases around blob deletion, baseline TTL, and disk-quota paths.
-- `packages/selenium-devtools/src/launcher.ts` — **66%**.
+- `packages/selenium-devtools/src/session.ts` — **83%**. Remaining branches are inside http-error / no-such-session paths that need a real driver to exercise.
+- `packages/nightwatch-devtools/src/session.ts` — **78%**. `takeScreenshotViaHttp` error branches need real WebDriver.
 - `packages/service/src/screencast.ts` — **76%**. CDP fast-path branches hard to exercise without a real Chrome.
-- `packages/core/src/script-loader.ts` — **67%**. fs-read error branches.
+- `packages/backend/src/baselineStore.ts` — **91%**. Remaining 9% is leaf-error paths.
 
-Coverage threshold gate in `vitest.config.ts` enforces a floor — anything below the configured numbers fails CI. Adjust upward as gaps close; never adjust downward.
+The threshold gate in `vitest.config.ts` enforces the current floor — it ratchets upward as gaps close, never downward.
 
-### Type-safety debt
+### Type-safety
 
-_(All known type-safety debt resolved. New violations should still be tracked here as they're discovered.)_
+No known violations. New ones get tracked here as discovered.
 
 ---
 
-## 8. Living document
+## Living document
 
-This file is expected to evolve. When you discover a recurring decision point it doesn't cover, propose adding it. When a rule turns out to be wrong in practice, propose changing it.
-
-Do not silently ignore rules. If a rule is getting in the way of real work, that's a signal to fix the rule, not to break it.
+This file evolves with the repo. When a convention turns out to be wrong in practice, the right fix is to update the convention, not to silently break it. When a recurring decision point isn't covered here, it gets added.

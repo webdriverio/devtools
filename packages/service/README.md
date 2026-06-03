@@ -52,7 +52,7 @@ services: [['devtools', options]]
 
 Records browser sessions as `.webm` videos. Videos are displayed in the DevTools UI alongside the snapshot and DOM mutation views.
 
-> **Note:** Screencast recording is currently supported for **WebdriverIO only**. Nightwatch.js support is planned for a future release.
+Available across all three adapters — WebdriverIO uses CDP push for Chrome (and polling fallback otherwise); see the [Nightwatch](../nightwatch-devtools/README.md#screencast) and [Selenium](../selenium-devtools/README.md) READMEs for their adapter-specific modes.
 
 ### Setup
 
