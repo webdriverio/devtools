@@ -74,13 +74,13 @@ try {
       collector.captureMutation(
         mutationList.map((m) => serializeMutation(m, timestamp))
       )
-    } catch (err: any) {
-      collector.captureError(err)
+    } catch (err) {
+      collector.captureError(err as Error)
     }
   })
   observer.observe(document.body, config)
-} catch (err: any) {
-  collector.captureError(err)
+} catch (err) {
+  collector.captureError(err as Error)
 }
 
 log('Finished program')

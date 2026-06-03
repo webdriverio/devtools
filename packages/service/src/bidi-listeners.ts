@@ -21,18 +21,34 @@ export function attachBidiListeners(
 ): void {
   log.info('Setting up BiDi network event listeners...')
 
-  browser.on('network.beforeRequestSent', (event: any) => {
-    capturer.handleNetworkRequestStarted(event)
+  // WDIO's BiDi event types are a broader union than our handlers'
+  // narrower expected shape. The handlers do their own runtime narrowing;
+  // the cast at this seam is intentional and isolated.
+  type BidiRequestSent = Parameters<
+    typeof capturer.handleNetworkRequestStarted
+  >[0]
+  type BidiResponseCompleted = Parameters<
+    typeof capturer.handleNetworkResponseCompleted
+  >[0]
+  type BidiFetchError = Parameters<typeof capturer.handleNetworkFetchError>[0]
+  type BidiLogEntry = Parameters<typeof capturer.handleLogEntryAdded>[0]
+
+  browser.on('network.beforeRequestSent', (event) => {
+    capturer.handleNetworkRequestStarted(event as unknown as BidiRequestSent)
   })
-  browser.on('network.responseCompleted', (event: any) => {
-    capturer.handleNetworkResponseCompleted(event)
+  browser.on('network.responseCompleted', (event) => {
+    capturer.handleNetworkResponseCompleted(
+      event as unknown as BidiResponseCompleted
+    )
   })
-  browser.on('network.fetchError', (event: any) => {
-    log.info(`>>> BiDi fetchError - keys: ${Object.keys(event).join(', ')}`)
-    capturer.handleNetworkFetchError(event)
+  browser.on('network.fetchError', (event) => {
+    log.info(
+      `>>> BiDi fetchError - keys: ${Object.keys(event as object).join(', ')}`
+    )
+    capturer.handleNetworkFetchError(event as unknown as BidiFetchError)
   })
-  browser.on('log.entryAdded', (event: any) => {
-    capturer.handleLogEntryAdded(event)
+  browser.on('log.entryAdded', (event) => {
+    capturer.handleLogEntryAdded(event as unknown as BidiLogEntry)
   })
 
   // WDIO auto-subscribes to network events but not log events.

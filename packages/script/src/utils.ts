@@ -14,7 +14,7 @@ export type vElement = DefaultTreeAdapterMap['element']
 export type vText = DefaultTreeAdapterMap['textNode']
 export type vChildNode = DefaultTreeAdapterMap['childNode']
 
-function createVNode(elem: any) {
+function createVNode(elem: { type: unknown; props: unknown }) {
   const { type, props } = elem
   return { type, props } as SimplifiedVNode
 }
@@ -22,7 +22,7 @@ function createVNode(elem: any) {
 export function parseNode(
   fragment: vFragment | vComment | vText | vChildNode
 ): SimplifiedVNode | string {
-  const props: Record<string, any> = {}
+  const props: Record<string, unknown> = {}
 
   if (fragment.nodeName === '#comment') {
     return (fragment as vComment).data
@@ -40,8 +40,8 @@ export function parseNode(
     return createVNode(
       h(tagName, props, ...(childNodes || []).map((cn) => parseNode(cn)))
     )
-  } catch (err: any) {
-    return createVNode(h('div', { class: 'parseNode' }, err.stack))
+  } catch (err) {
+    return createVNode(h('div', { class: 'parseNode' }, (err as Error).stack))
   }
 }
 
@@ -49,8 +49,10 @@ export function parseDocument(node: HTMLElement) {
   try {
     const fragment = parse(node.outerHTML)
     return parseNode(fragment.childNodes[0])
-  } catch (err: any) {
-    return createVNode(h('div', { class: 'parseDocument' }, err.stack))
+  } catch (err) {
+    return createVNode(
+      h('div', { class: 'parseDocument' }, (err as Error).stack)
+    )
   }
 }
 
@@ -58,8 +60,10 @@ export function parseFragment(node: Element) {
   try {
     const fragment = parseFragmentImport(node.outerHTML)
     return parseNode(fragment)
-  } catch (err: any) {
-    return createVNode(h('div', { class: 'parseFragmentWrapper' }, err.stack))
+  } catch (err) {
+    return createVNode(
+      h('div', { class: 'parseFragmentWrapper' }, (err as Error).stack)
+    )
   }
 }
 

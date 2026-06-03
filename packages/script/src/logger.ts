@@ -1,6 +1,6 @@
 let logs: string[] = []
 
-export function log(...args: any[]) {
+export function log(...args: unknown[]) {
   logs.push(args.map((a) => JSON.stringify(a)).join(' '))
 }
 

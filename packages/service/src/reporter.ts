@@ -2,6 +2,7 @@ import WebdriverIOReporter, {
   type SuiteStats,
   type TestStats
 } from '@wdio/reporter'
+import type { Reporters } from '@wdio/types'
 import {
   deterministicUid,
   generateStableUid as generateStableUidByFileName,
@@ -149,14 +150,14 @@ function parseFeatureFileForExampleLines(
 }
 
 export class TestReporter extends WebdriverIOReporter {
-  #report: (data: any) => void
+  #report: (data: Record<string, SuiteStats>[]) => void
   #loadSource: (location: string) => void
   #currentSpecFile?: string
   #suitePath: string[] = []
 
   constructor(
-    options: any,
-    report: (data: any) => void,
+    options: Reporters.Options,
+    report: (data: Record<string, SuiteStats>[]) => void,
     loadSource: (location: string) => void = () => {}
   ) {
     super(options)

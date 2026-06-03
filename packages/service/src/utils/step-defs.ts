@@ -28,7 +28,19 @@ const traverse = (
   }
 ).default
 
-let CE: { CucumberExpression: any; ParameterTypeRegistry: any } | undefined
+// @cucumber/cucumber-expressions is an optional peer; load lazily. The
+// constructor types vary across versions, so we keep the shapes minimal —
+// only the constructor signatures we actually call.
+interface CucumberExpressionsModule {
+  CucumberExpression: new (
+    pattern: string,
+    registry: ParameterTypeRegistryInstance
+  ) => unknown
+  ParameterTypeRegistry: new () => ParameterTypeRegistryInstance
+}
+type ParameterTypeRegistryInstance = object
+
+let CE: CucumberExpressionsModule | undefined
 try {
   const ce = require('@cucumber/cucumber-expressions')
   CE = {

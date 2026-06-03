@@ -114,7 +114,12 @@ module.exports = [
     rules: {
       'dot-notation': 'off',
       'max-lines': 'off',
-      'max-lines-per-function': 'off'
+      'max-lines-per-function': 'off',
+      // Test fixtures intentionally use `any` to construct partial mocks
+      // without restating every field of the real type. The cost of forcing
+      // proper types here is high (lots of `as unknown as RealType` casts)
+      // and the benefit is low — tests don't ship.
+      '@typescript-eslint/no-explicit-any': 'off'
     }
   },
 

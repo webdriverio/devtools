@@ -3,7 +3,7 @@ import type { Collector } from './collector.js'
 const consoleMethods = ['log', 'info', 'warn', 'error'] as const
 export interface ConsoleLogs {
   type: 'log' | 'info' | 'warn' | 'error'
-  args: any[]
+  args: unknown[]
   timestamp: number
   source?: 'browser' | 'test' | 'terminal'
 }
