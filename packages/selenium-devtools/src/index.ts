@@ -88,7 +88,7 @@ class SeleniumDevToolsPlugin {
   #screencastOptions: ScreencastOptions
   #sessionId?: string
   #uiUrlOpened = false
-  #testFileDir?: string
+  #testFilePath?: string
   #keepAliveTimer?: ReturnType<typeof setInterval>
   #uiReadyPromise?: Promise<void>
   // First it() body fires before onDriverCreated's async setup completes —
@@ -337,11 +337,11 @@ class SeleniumDevToolsPlugin {
       set scriptInjected(v) {
         self.#scriptInjected = v
       },
-      get testFileDir() {
-        return self.#testFileDir
+      get testFilePath() {
+        return self.#testFilePath
       },
-      set testFileDir(v) {
-        self.#testFileDir = v
+      set testFilePath(v) {
+        self.#testFilePath = v
       },
       get keepAliveTimer() {
         return self.#keepAliveTimer

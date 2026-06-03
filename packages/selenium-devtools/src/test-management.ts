@@ -8,7 +8,6 @@
  * exposing only the fields and methods these helpers need.
  */
 
-import * as path from 'node:path'
 import logger from '@wdio/logger'
 import { TestManager } from './helpers/testManager.js'
 import { getCallSourceFromStack } from './helpers/utils.js'
@@ -45,7 +44,7 @@ export interface TestManagementCtx {
   readonly sessionCapturer: SessionCapturer | undefined
   suiteManager: SuiteManager | undefined
   testManager: TestManager | undefined
-  testFileDir: string | undefined
+  testFilePath: string | undefined
   pendingTestActions: PendingTestAction[]
   pendingScenario: PendingScenario | null
 }
@@ -69,8 +68,8 @@ export function startTest(
   name: string,
   meta: StartTestMeta = {}
 ): void {
-  if (!ctx.testFileDir && meta.file) {
-    ctx.testFileDir = path.dirname(meta.file)
+  if (!ctx.testFilePath && meta.file) {
+    ctx.testFilePath = meta.file
   }
   const stackInfo = getCallSourceFromStack()
   const file = meta.file || stackInfo.filePath

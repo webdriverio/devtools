@@ -50,6 +50,10 @@ export interface PluginInternals {
   screencastRecorder: ScreencastRecorder | undefined
   screencastSessionId: string | undefined
 
+  /** Absolute path to the resolved Nightwatch config file, if known. Used as
+   *  a fallback directory for screencast video output. */
+  configPath: string | undefined
+
   // Current execution (set by lifecycle, read across modules)
   getCurrentTest(): unknown
   getCurrentScenarioSuite(): SuiteStats | null

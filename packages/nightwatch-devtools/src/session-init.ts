@@ -12,7 +12,10 @@
  */
 
 import logger from '@wdio/logger'
-import { finalizeScreencast } from '@wdio/devtools-core'
+import {
+  finalizeScreencast,
+  resolveAdapterOutputDir
+} from '@wdio/devtools-core'
 import { TraceType } from './types.js'
 import { TIMING } from './constants.js'
 import { SessionCapturer } from './session.js'
@@ -47,6 +50,7 @@ export interface SessionInitCtx {
   srcFolders: string[]
   screencastRecorder: ScreencastRecorder | undefined
   screencastSessionId: string | undefined
+  configPath: string | undefined
 
   getCurrentTest(): unknown
   getCurrentScenarioSuite(): SuiteStats | null
@@ -250,7 +254,10 @@ export async function finalizeCurrentScreencast(
     recorder: ctx.screencastRecorder,
     sessionId: ctx.screencastSessionId,
     filenamePrefix: 'nightwatch-video',
-    outputDir: process.cwd(),
+    outputDir: resolveAdapterOutputDir({
+      testFilePath: ctx.browserProxy?.getCurrentTestFullPath?.() ?? undefined,
+      configPath: ctx.configPath
+    }),
     captureFormat: ctx.screencastOptions.captureFormat,
     sendUpstream: (scope, data) =>
       ctx.sessionCapturer?.sendUpstream(scope, data),

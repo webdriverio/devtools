@@ -42,7 +42,7 @@ export interface PluginInternals {
   screencast: ScreencastRecorder | undefined
   sessionId: string | undefined
   scriptInjected: boolean
-  testFileDir: string | undefined
+  testFilePath: string | undefined
   keepAliveTimer: ReturnType<typeof setInterval> | undefined
 
   // Test management buffers
