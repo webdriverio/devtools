@@ -114,6 +114,9 @@ class NightwatchDevToolsPlugin {
   // Single internals "bag" — structurally satisfies all 4 lifecycle ctx
   // interfaces. Lifecycle modules cast it to their narrow type at call time.
   #internals: PluginInternals | undefined
+  // Declarative accessor map — splitting this purely to satisfy the
+  // line-count rule hurts readability; the body is mechanical wiring.
+  // eslint-disable-next-line max-lines-per-function
   #getInternals(): PluginInternals {
     if (this.#internals) {
       return this.#internals
