@@ -1,5 +1,10 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { DevToolsAppLauncher } from '../src/launcher.js'
+import path from 'node:path'
+import { afterEach, describe, it, expect, vi, beforeEach } from 'vitest'
+import {
+  DevToolsAppLauncher,
+  detectInvocationConfigPath,
+  detectInvocationSpecs
+} from '../src/launcher.js'
 import * as backend from '@wdio/devtools-backend'
 import { remote } from 'webdriverio'
 
@@ -265,6 +270,87 @@ describe('DevToolsAppLauncher', () => {
 
       await launcher.onPrepare(undefined as never, caps)
       await expect(launcher.onComplete()).resolves.toBeUndefined()
+    })
+  })
+
+  describe('detectInvocationConfigPath', () => {
+    let originalArgv: string[]
+    beforeEach(() => {
+      originalArgv = process.argv
+    })
+    afterEach?.(() => {
+      process.argv = originalArgv
+    })
+
+    it('returns undefined when no --config is present', () => {
+      process.argv = ['node', 'cli']
+      expect(detectInvocationConfigPath()).toBeUndefined()
+      process.argv = originalArgv
+    })
+
+    it('resolves --config <path> against cwd when relative', () => {
+      process.argv = ['node', 'cli', '--config', 'wdio.conf.ts']
+      expect(detectInvocationConfigPath()).toBe(
+        path.resolve(process.cwd(), 'wdio.conf.ts')
+      )
+      process.argv = originalArgv
+    })
+
+    it('returns absolute --config path verbatim', () => {
+      const abs = '/abs/wdio.conf.cjs'
+      process.argv = ['node', 'cli', '-c', abs]
+      expect(detectInvocationConfigPath()).toBe(abs)
+      process.argv = originalArgv
+    })
+
+    it('ignores --config when value does not match the conf naming pattern', () => {
+      process.argv = ['node', 'cli', '--config', 'not-a-conf.txt']
+      expect(detectInvocationConfigPath()).toBeUndefined()
+      process.argv = originalArgv
+    })
+
+    it('finds a positional .conf.* path when no --config flag', () => {
+      process.argv = ['node', 'cli', 'wdio.conf.ts', '--spec', 's']
+      expect(detectInvocationConfigPath()).toBe(
+        path.resolve(process.cwd(), 'wdio.conf.ts')
+      )
+      process.argv = originalArgv
+    })
+  })
+
+  describe('detectInvocationSpecs', () => {
+    let originalArgv: string[]
+    beforeEach(() => {
+      originalArgv = process.argv
+    })
+
+    it('returns [] when no --spec is given', () => {
+      process.argv = ['node', 'cli']
+      expect(detectInvocationSpecs()).toEqual([])
+      process.argv = originalArgv
+    })
+
+    it('splits comma-separated --spec values and resolves each against cwd', () => {
+      process.argv = ['node', 'cli', '--spec', 'a.test.ts,b.test.ts']
+      const result = detectInvocationSpecs()
+      expect(result).toEqual([
+        path.resolve(process.cwd(), 'a.test.ts'),
+        path.resolve(process.cwd(), 'b.test.ts')
+      ])
+      process.argv = originalArgv
+    })
+
+    it('honors absolute spec paths verbatim', () => {
+      process.argv = ['node', 'cli', '-s', '/abs/a.test.ts']
+      expect(detectInvocationSpecs()).toEqual(['/abs/a.test.ts'])
+      process.argv = originalArgv
+    })
+
+    it('drops empty entries inside comma-separated --spec values', () => {
+      process.argv = ['node', 'cli', '--spec', 'a.ts, ,b.ts,']
+      const result = detectInvocationSpecs()
+      expect(result).toHaveLength(2)
+      process.argv = originalArgv
     })
   })
 

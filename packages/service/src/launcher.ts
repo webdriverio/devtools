@@ -37,7 +37,8 @@ if (process.env[REUSE_ENV.REUSE] === '1') {
 }
 
 // Lives in the launcher: forked workers have their own argv without the config arg.
-function detectInvocationConfigPath(): string | undefined {
+// Exported for unit tests; not part of the package's public API surface.
+export function detectInvocationConfigPath(): string | undefined {
   const argv = process.argv
   for (let i = 0; i < argv.length - 1; i++) {
     if (argv[i] === '--config' || argv[i] === '-c') {
@@ -56,7 +57,7 @@ function detectInvocationConfigPath(): string | undefined {
     : path.resolve(process.cwd(), positional)
 }
 
-function detectInvocationSpecs(): string[] {
+export function detectInvocationSpecs(): string[] {
   const argv = process.argv
   const out: string[] = []
   for (let i = 0; i < argv.length - 1; i++) {
