@@ -57,6 +57,7 @@ export interface PluginInternals {
 
   // Plugin-side delegates
   setFinalized(v: boolean): void
+  setScriptInjected(v: boolean): void
   ensureBackendStarted(): Promise<void>
   flushPendingTestActions(): void
   resetRetryTracker(): void

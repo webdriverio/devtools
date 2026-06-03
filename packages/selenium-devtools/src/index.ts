@@ -6,11 +6,8 @@ import './setupConsole.js'
 import logger from '@wdio/logger'
 import { startDetachedBackend } from './helpers/detachedBackend.js'
 import { openDashboard } from './helpers/dashboardLauncher.js'
-import { captureOrReplaceCommand } from './helpers/captureOrReplaceCommand.js'
-import {
-  enrichFindResult,
-  captureNavigationTrace
-} from './helpers/commandPostActions.js'
+import { handleOnCommand } from './helpers/commandPostActions.js'
+import { logConfigSummary } from './helpers/configSummary.js'
 import { registerProcessHooks } from './helpers/processHooks.js'
 import { patchSelenium } from './driverPatcher.js'
 import { ensureBidiCapability, ensureHeadlessChrome } from './bidi.js'
@@ -41,15 +38,13 @@ import {
   detectRunner,
   detectSeleniumVersion
 } from './helpers/runtime.js'
-import { findFreePort, getCallSourceFromStack } from './helpers/utils.js'
-import { RetryTracker, errorMessage, toError } from '@wdio/devtools-core'
+import { findFreePort } from './helpers/utils.js'
+import { RetryTracker, errorMessage } from '@wdio/devtools-core'
 import { tryRegisterRunnerHooks } from './runnerHooks.js'
 import { patchNodeAssert } from './assertPatcher.js'
 import {
-  DEFAULTS,
   REUSE_ENV,
   SCREENCAST_DEFAULTS,
-  TIMING,
   TEST_STATE,
   NAVIGATION_COMMANDS
 } from './constants.js'
@@ -135,32 +130,7 @@ class SeleniumDevToolsPlugin {
       ...SCREENCAST_DEFAULTS,
       ...(options.screencast ?? {})
     }
-    this.#detectReuseMode()
-  }
-
-  #configSummaryLogged = false
-
-  #logConfigSummary() {
-    if (this.#configSummaryLogged) {
-      return
-    }
-    this.#configSummaryLogged = true
-    const screencast = this.#screencastOptions.enabled
-      ? `${this.#screencastOptions.maxWidth}x${this.#screencastOptions.maxHeight}@q${this.#screencastOptions.quality}`
-      : 'off'
-    const rerun = this.#options.rerunCommand
-      ? 'custom'
-      : this.#rerunManager.rerunTemplate
-        ? 'auto'
-        : 'launch-only'
-    log.info(
-      `Configuration: openUi=${this.#options.openUi}, headless=${this.#options.headless}, ` +
-        `screencast=${screencast}, captureScreenshots=${this.#options.captureScreenshots}, ` +
-        `rerun=${rerun}`
-    )
-  }
-
-  #detectReuseMode() {
+    // Reuse mode: rerun child inherits the parent's backend host/port.
     if (
       process.env[REUSE_ENV.REUSE] === '1' &&
       process.env[REUSE_ENV.HOST] &&
@@ -173,6 +143,22 @@ class SeleniumDevToolsPlugin {
         `♻  Reusing DevTools backend at ${this.#options.hostname}:${this.#options.port}`
       )
     }
+  }
+
+  #configSummaryLogged = false
+  #logConfigSummary() {
+    if (this.#configSummaryLogged) {
+      return
+    }
+    this.#configSummaryLogged = true
+    logConfigSummary({
+      openUi: this.#options.openUi,
+      headless: this.#options.headless,
+      captureScreenshots: this.#options.captureScreenshots,
+      rerunCommand: this.#options.rerunCommand,
+      screencast: this.#screencastOptions,
+      rerunManager: this.#rerunManager
+    })
   }
 
   async ensureBackendStarted(): Promise<void> {
@@ -375,6 +361,9 @@ class SeleniumDevToolsPlugin {
       setFinalized: (v) => {
         self.#finalized = v
       },
+      setScriptInjected: (v) => {
+        self.#scriptInjected = v
+      },
       ensureBackendStarted: () => self.ensureBackendStarted(),
       flushPendingTestActions: () => self.#flushPendingTestActions(),
       resetRetryTracker: () => self.#retryTracker.reset(),
@@ -410,59 +399,7 @@ class SeleniumDevToolsPlugin {
   }
 
   async onCommand(cmd: CapturedCommand) {
-    const capturer = this.#sessionCapturer
-    const testManager = this.#testManager
-    if (!capturer || !testManager) {
-      return
-    }
-    const test = testManager.getOrEnsureTest()
-    if (!test) {
-      return
-    }
-
-    const entry = await captureOrReplaceCommand({
-      capturer,
-      retryTracker: this.#retryTracker,
-      test,
-      cmd
-    })
-    const error = cmd.error ? toError(cmd.error) : undefined
-
-    if (this.#options.captureScreenshots && !error) {
-      const ts = entry.timestamp
-      capturer
-        .takeScreenshot()
-        .then((shot) => {
-          if (shot) {
-            entry.screenshot = shot
-            capturer.sendReplaceCommand(ts, entry)
-          }
-        })
-        .catch(() => {})
-    }
-
-    // Enrich opaque WebElement results with tag + text preview for the UI.
-    if (
-      !error &&
-      cmd.rawResult &&
-      (cmd.command === 'findElement' || cmd.command === 'findElements')
-    ) {
-      void enrichFindResult(capturer, cmd.rawResult, entry, entry.timestamp)
-    }
-
-    if (capturer.isNavigationCommand(cmd.command) && !cmd.fromElement) {
-      captureNavigationTrace(
-        capturer,
-        this.#scriptInjected,
-        () => {
-          this.#scriptInjected = true
-        },
-        () => this.#finalized,
-        entry,
-        cmd.args,
-        this.#driver
-      )
-    }
+    await handleOnCommand(this.#getInternals(), cmd)
   }
 
   #openUiWindow() {
