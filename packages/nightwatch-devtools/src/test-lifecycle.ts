@@ -94,9 +94,7 @@ export function pickCurrentTestName(
   processedTests: Set<string>
 ): string | undefined {
   const runtimeTestName =
-    typeof currentTest?.name === 'string'
-      ? currentTest.name.trim()
-      : undefined
+    typeof currentTest?.name === 'string' ? currentTest.name.trim() : undefined
   const matchedRuntimeTestName = runtimeTestName
     ? testNames.find(
         (name) =>

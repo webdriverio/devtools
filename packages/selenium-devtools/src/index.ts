@@ -3,34 +3,40 @@
 
 // MUST be the first import — see setupConsole.ts.
 import './setupConsole.js'
-import * as path from 'node:path'
 import logger from '@wdio/logger'
 import { startDetachedBackend } from './helpers/detachedBackend.js'
 import { openDashboard } from './helpers/dashboardLauncher.js'
-import { buildDriverMetadata } from './helpers/driverMetadata.js'
-import { finalizeScreencast } from '@wdio/devtools-core'
 import { captureOrReplaceCommand } from './helpers/captureOrReplaceCommand.js'
 import {
   enrichFindResult,
   captureNavigationTrace
 } from './helpers/commandPostActions.js'
-import {
-  gracefulShutdown,
-  registerProcessHooks
-} from './helpers/processHooks.js'
+import { registerProcessHooks } from './helpers/processHooks.js'
 import { patchSelenium } from './driverPatcher.js'
-import {
-  ensureBidiCapability,
-  ensureHeadlessChrome,
-  attachBidiHandlers,
-  buildBidiSinks
-} from './bidi.js'
-import { SessionCapturer } from './session.js'
-import { TestReporter } from './reporter.js'
-import { SuiteManager } from './helpers/suiteManager.js'
-import { TestManager } from './helpers/testManager.js'
+import { ensureBidiCapability, ensureHeadlessChrome } from './bidi.js'
+import type { SessionCapturer } from './session.js'
+import type { TestReporter } from './reporter.js'
+import type { SuiteManager } from './helpers/suiteManager.js'
+import type { TestManager } from './helpers/testManager.js'
 import { RerunManager } from './rerunManager.js'
-import { ScreencastRecorder } from './screencast.js'
+import type { ScreencastRecorder } from './screencast.js'
+import {
+  onDriverCreated as sessionOnDriverCreated,
+  onDriverEnd as sessionOnDriverEnd,
+  onSessionEnd as sessionOnSessionEnd,
+  setPluginRef,
+  type SessionLifecycleCtx
+} from './session-lifecycle.js'
+import {
+  startTest as tmStartTest,
+  endTest as tmEndTest,
+  startScenario as tmStartScenario,
+  endScenario as tmEndScenario,
+  flushPendingTestActions as tmFlushPendingTestActions,
+  type TestManagementCtx,
+  type StartTestMeta,
+  type StartScenarioMeta
+} from './test-management.js'
 import {
   detectOwnVersion,
   detectRunner,
@@ -262,281 +268,179 @@ class SeleniumDevToolsPlugin {
     return this.#options
   }
 
+  #testMgmtCtx: TestManagementCtx | undefined
+  #getTestMgmtCtx(): TestManagementCtx {
+    if (this.#testMgmtCtx) {
+      return this.#testMgmtCtx
+    }
+    const self = this
+    this.#testMgmtCtx = {
+      get retryTracker() {
+        return self.#retryTracker
+      },
+      get testReporter() {
+        return self.#testReporter
+      },
+      get sessionCapturer() {
+        return self.#sessionCapturer
+      },
+      get suiteManager() {
+        return self.#suiteManager
+      },
+      set suiteManager(v) {
+        self.#suiteManager = v
+      },
+      get testManager() {
+        return self.#testManager
+      },
+      set testManager(v) {
+        self.#testManager = v
+      },
+      get testFileDir() {
+        return self.#testFileDir
+      },
+      set testFileDir(v) {
+        self.#testFileDir = v
+      },
+      get pendingTestActions() {
+        return self.#pendingTestActions
+      },
+      set pendingTestActions(v) {
+        self.#pendingTestActions = v
+      },
+      get pendingScenario() {
+        return self.#pendingScenario
+      },
+      set pendingScenario(v) {
+        self.#pendingScenario = v
+      }
+    }
+    return this.#testMgmtCtx
+  }
+
   /** Public API: start a marked test. */
-  startTest(
-    name: string,
-    meta: {
-      file?: string
-      callSource?: string
-      suiteName?: string
-      suiteCallSource?: string
-    } = {}
-  ) {
-    if (!this.#testFileDir && meta.file) {
-      this.#testFileDir = path.dirname(meta.file)
-    }
-    const stackInfo = getCallSourceFromStack()
-    const file = meta.file || stackInfo.filePath
-    const callSource = meta.callSource || stackInfo.callSource
-    const resolvedMeta: { file?: string; callSource?: string } = {}
-    if (file) {
-      resolvedMeta.file = file
-    }
-    if (callSource && callSource !== 'unknown:0') {
-      resolvedMeta.callSource = callSource
-    }
-    if (!this.#suiteManager || !this.#testReporter) {
-      this.#pendingTestActions.push({
-        kind: 'start',
-        name,
-        meta: resolvedMeta,
-        suiteName: meta.suiteName,
-        suiteCallSource: meta.suiteCallSource
-      })
-      return
-    }
-
-    this.#ensureSuiteAndTestManager(
-      meta.suiteName ?? DEFAULTS.SESSION_TITLE,
-      meta.suiteCallSource
-    )
-    if (meta.suiteName || meta.suiteCallSource) {
-      this.#suiteManager.setRootSuiteTitle(
-        meta.suiteName ?? '',
-        meta.suiteCallSource
-      )
-    }
-
-    this.#testManager!.startMarkedTest(name, resolvedMeta)
-    this.#retryTracker.reset()
-    if (file) {
-      this.#sessionCapturer?.captureSource(file).catch(() => {})
-    }
+  startTest(name: string, meta: StartTestMeta = {}) {
+    tmStartTest(this.#getTestMgmtCtx(), name, meta)
   }
 
   endTest(state: TestStats['state'] = 'passed') {
-    if (!this.#testManager) {
-      this.#pendingTestActions.push({ kind: 'end', state })
-      return
-    }
-    this.#testManager.endCurrent(state)
+    tmEndTest(this.#getTestMgmtCtx(), state)
   }
 
-  /** Cucumber scenario boundary — opens a sub-suite under the feature root. */
-  startScenario(
-    name: string,
-    meta: {
-      file?: string
-      callSource?: string
-      featureName?: string
-      featureCallSource?: string
-    } = {}
-  ) {
-    if (!this.#suiteManager || !this.#testReporter) {
-      this.#pendingScenario = { name, ...meta }
-      return
-    }
-    this.#ensureSuiteAndTestManager(
-      meta.featureName ?? DEFAULTS.SESSION_TITLE,
-      meta.featureCallSource
-    )
-    if (meta.featureName || meta.featureCallSource) {
-      this.#suiteManager.setRootSuiteTitle(
-        meta.featureName ?? '',
-        meta.featureCallSource
-      )
-    }
-    // Stamp the .feature path as `featureFile` on the root and the scenario
-    // sub-suite. The root suite's `file` stays at process.cwd() (changing it
-    // mid-run would shift the stable UID and orphan accumulated state on the
-    // dashboard). The dashboard's rerun payload forwards `featureFile` to the
-    // backend, which strips `--name` and uses it as a positional arg for
-    // feature-level reruns.
-    const root = this.#suiteManager.getRootSuite()
-    if (root && meta.file && root.featureFile !== meta.file) {
-      root.featureFile = meta.file
-      this.#testReporter.updateSuites()
-    }
-    const file = meta.file ?? root?.file ?? process.cwd()
-    this.#suiteManager.startScenarioSuite(
-      name,
-      file,
-      meta.callSource,
-      meta.file
-    )
-    this.#retryTracker.reset()
-    if (meta.file) {
-      this.#sessionCapturer?.captureSource(meta.file).catch(() => {})
-    }
+  startScenario(name: string, meta: StartScenarioMeta = {}) {
+    tmStartScenario(this.#getTestMgmtCtx(), name, meta)
   }
 
   endScenario(state: TestStats['state'] = 'passed') {
-    if (!this.#suiteManager) {
-      return
-    }
-    this.#testManager?.endCurrent(state)
-    this.#suiteManager.endScenarioSuite(state)
-    this.#retryTracker.reset()
+    tmEndScenario(this.#getTestMgmtCtx(), state)
   }
 
-  /** Lazy-create rootSuite + testManager so they take the real describe title. */
-  #ensureSuiteAndTestManager(title: string, callSource?: string): void {
-    if (!this.#suiteManager || !this.#testReporter) {
-      return
-    }
-    let rootSuite = this.#suiteManager.getRootSuite()
-    const created = !rootSuite
-    if (!rootSuite) {
-      const effectiveTitle = this.#pendingScenario?.featureName ?? title
-      rootSuite = this.#suiteManager.getOrCreateRootSuite(
-        process.cwd(),
-        effectiveTitle
-      )
-      const cs = this.#pendingScenario?.featureCallSource ?? callSource
-      if (cs) {
-        rootSuite.callSource = cs
-      }
-    }
-    if (!this.#testManager) {
-      this.#testManager = new TestManager(
-        rootSuite,
-        this.#testReporter,
-        this.#suiteManager
-      )
-    }
-    if (created && this.#pendingScenario) {
-      const p = this.#pendingScenario
-      this.#pendingScenario = null
-      const file = p.file ?? rootSuite.file
-      this.#suiteManager.startScenarioSuite(p.name, file, p.callSource)
-      if (p.file) {
-        this.#sessionCapturer?.captureSource(p.file).catch(() => {})
-      }
-    }
-  }
-
-  /** Apply any startTest/endTest calls buffered before testManager existed. */
   #flushPendingTestActions() {
-    if (this.#pendingTestActions.length === 0) {
-      return
+    tmFlushPendingTestActions(this.#getTestMgmtCtx())
+  }
+
+  #sessionCtx: SessionLifecycleCtx | undefined
+  #getSessionCtx(): SessionLifecycleCtx {
+    if (this.#sessionCtx) {
+      return this.#sessionCtx
     }
-    for (const action of this.#pendingTestActions) {
-      if (action.kind === 'start') {
-        this.#ensureSuiteAndTestManager(
-          action.suiteName ?? DEFAULTS.SESSION_TITLE,
-          action.suiteCallSource
-        )
-        if (!this.#testManager) {
-          continue
-        }
-        if (action.suiteName || action.suiteCallSource) {
-          this.#suiteManager?.setRootSuiteTitle(
-            action.suiteName ?? '',
-            action.suiteCallSource
-          )
-        }
-        this.#testManager.startMarkedTest(action.name, action.meta)
-        if (action.meta.file) {
-          this.#sessionCapturer?.captureSource(action.meta.file).catch(() => {})
-        }
-      } else {
-        this.#testManager?.endCurrent(action.state)
-      }
+    const self = this
+    this.#sessionCtx = {
+      get options() {
+        return self.#options
+      },
+      get screencastOptions() {
+        return self.#screencastOptions
+      },
+      get runner() {
+        return RUNNER
+      },
+      get rerunTemplate() {
+        return self.#rerunManager.rerunTemplate
+      },
+      get launchCommand() {
+        return self.#rerunManager.launchCommand
+      },
+      get isReuse() {
+        return self.#isReuse
+      },
+      get finalized() {
+        return self.#finalized
+      },
+      get driver() {
+        return self.#driver
+      },
+      set driver(v) {
+        self.#driver = v
+      },
+      get sessionCapturer() {
+        return self.#sessionCapturer
+      },
+      set sessionCapturer(v) {
+        self.#sessionCapturer = v
+      },
+      get testReporter() {
+        return self.#testReporter
+      },
+      set testReporter(v) {
+        self.#testReporter = v
+      },
+      get suiteManager() {
+        return self.#suiteManager
+      },
+      set suiteManager(v) {
+        self.#suiteManager = v
+      },
+      get testManager() {
+        return self.#testManager
+      },
+      set testManager(v) {
+        self.#testManager = v
+      },
+      get screencast() {
+        return self.#screencast
+      },
+      set screencast(v) {
+        self.#screencast = v
+      },
+      get sessionId() {
+        return self.#sessionId
+      },
+      set sessionId(v) {
+        self.#sessionId = v
+      },
+      get scriptInjected() {
+        return self.#scriptInjected
+      },
+      set scriptInjected(v) {
+        self.#scriptInjected = v
+      },
+      get testFileDir() {
+        return self.#testFileDir
+      },
+      set testFileDir(v) {
+        self.#testFileDir = v
+      },
+      get keepAliveTimer() {
+        return self.#keepAliveTimer
+      },
+      set keepAliveTimer(v) {
+        self.#keepAliveTimer = v
+      },
+      setFinalized: (v) => {
+        self.#finalized = v
+      },
+      ensureBackendStarted: () => self.ensureBackendStarted(),
+      flushPendingTestActions: () => self.#flushPendingTestActions(),
+      resetRetryTracker: () => self.#retryTracker.reset(),
+      clearKeepAlive: () => self.clearKeepAlive()
     }
-    this.#pendingTestActions = []
+    setPluginRef(this.#sessionCtx, this)
+    return this.#sessionCtx
   }
 
   async onDriverCreated(driver: SeleniumDriverLike) {
-    const driverReadyTs = Date.now()
-    await this.ensureBackendStarted()
-
-    if (this.#driver === driver) {
-      return
-    }
-
-    // Fresh-driver-per-test: re-target capturer; reuse suite/reporter/testManager.
-    if (this.#driver || this.#sessionCapturer) {
-      log.info('New driver detected — re-targeting capturer for next test')
-      this.#driver = driver
-      this.#sessionCapturer?.setDriver(driver)
-      await this.#initPerDriverCapture(driver, driverReadyTs)
-      return
-    }
-
-    this.#driver = driver
-
-    this.#sessionCapturer = new SessionCapturer(
-      { hostname: this.#options.hostname, port: this.#options.port },
-      driver
-    )
-    // Dashboard closed AFTER tests finished → wind the runner down so the
-    // user doesn't have to Ctrl+C. Ignore during a live run: a momentary
-    // reconnect blip during tests must not abort them.
-    this.#sessionCapturer.setClientDisconnectedHandler(() => {
-      if (this.finalized) {
-        void gracefulShutdown(this, 0)
-      }
-    })
-    await this.#sessionCapturer.waitForConnection(TIMING.UI_CONNECTION_WAIT)
-
-    this.#testReporter = new TestReporter((suitesData) => {
-      this.#sessionCapturer?.sendUpstream('suites', suitesData)
-    })
-    this.#suiteManager = new SuiteManager(this.#testReporter)
-    this.#flushPendingTestActions()
-
-    await this.#initPerDriverCapture(driver, driverReadyTs)
-  }
-
-  async #initPerDriverCapture(
-    driver: SeleniumDriverLike,
-    driverReadyTs: number
-  ) {
-    if (!this.#sessionCapturer) {
-      return
-    }
-
-    const { sessionId, metadata } = await buildDriverMetadata({
-      driver,
-      driverReadyTs,
-      runner: RUNNER,
-      rerunCommand: this.#options.rerunCommand,
-      rerunTemplate: this.#rerunManager.rerunTemplate,
-      launchCommand: this.#rerunManager.launchCommand
-    })
-    this.#sessionId = sessionId
-    if (metadata) {
-      this.#sessionCapturer.sendUpstream('metadata', metadata)
-    }
-
-    // Parallel — serial attach misses frames on fast tests.
-    const screencastPromise = this.#screencastOptions.enabled
-      ? (async () => {
-          try {
-            this.#screencast = new ScreencastRecorder(this.#screencastOptions)
-            await this.#screencast.start(driver)
-          } catch (err) {
-            log.warn(`Screencast start failed: ${errorMessage(err)}`)
-          }
-        })()
-      : Promise.resolve()
-
-    const bidiPromise = (async () => {
-      try {
-        const sinks = buildBidiSinks(this.#sessionCapturer!)
-        const ok = await attachBidiHandlers(driver, sinks)
-        if (ok) {
-          this.#sessionCapturer!.bidiActive = true
-          log.info(
-            '✓ BiDi data flow active — script-injected console/network suppressed'
-          )
-        }
-      } catch (err) {
-        log.warn(`BiDi attach threw: ${errorMessage(err)}`)
-      }
-    })()
-
-    await Promise.all([screencastPromise, bidiPromise])
+    await sessionOnDriverCreated(this.#getSessionCtx(), driver)
   }
 
   async onCommand(cmd: CapturedCommand) {
@@ -610,99 +514,11 @@ class SeleniumDevToolsPlugin {
 
   /** Per-driver cleanup; keeps capturer/suite/testManager/backend alive. */
   async onDriverEnd() {
-    if (this.#screencast && this.#sessionId) {
-      await finalizeScreencast({
-        recorder: this.#screencast,
-        sessionId: this.#sessionId,
-        filenamePrefix: 'selenium-video',
-        outputDir: this.#testFileDir,
-        captureFormat: this.#screencastOptions.captureFormat,
-        sendUpstream: (scope, data) =>
-          this.#sessionCapturer?.sendUpstream(scope, data),
-        onLog: (level, message) => log[level](message)
-      })
-    }
-    this.#driver = undefined
-    this.#screencast = undefined
-    this.#scriptInjected = false
-    this.#sessionId = undefined
-    this.#retryTracker.reset()
+    await sessionOnDriverEnd(this.#getSessionCtx())
   }
 
-  /** Final teardown. Idempotent. */
   async onSessionEnd() {
-    if (this.#finalized) {
-      return
-    }
-    this.#finalized = true
-    const shutdownStart = Date.now()
-    try {
-      await this.onDriverEnd().catch(() => {})
-
-      // Don't call suiteManager.finalize() here — it sets `root.end`, which
-      // signals the dashboard's rerun tracker that the feature has finished
-      // and unblocks the new-run reset for the next scenario. onSessionEnd
-      // fires on each `driver.quit()` (per cucumber scenario), so finalizing
-      // the root here is premature. The true end-of-run finalize happens in
-      // finalizeTestRun (cucumber AfterAll). testReporter.updateSuites() is
-      // still useful to flush per-scenario state to the dashboard.
-      this.#testManager?.finalizeSession()
-      this.#testReporter?.updateSuites()
-
-      const cmdCount = this.#sessionCapturer?.commandsLog.length ?? 0
-      const consoleCount = this.#sessionCapturer?.consoleLogs.length ?? 0
-      const networkCount = this.#sessionCapturer?.networkRequests.length ?? 0
-      log.info(
-        `📊 Session summary — ${cmdCount} command(s), ${networkCount} network request(s), ${consoleCount} console log(s)`
-      )
-      this.#sessionCapturer?.cleanup()
-
-      // Interactive path: dashboard is up — wait for the user to close it,
-      // then finish teardown. Matches wdio's "Please close the browser
-      // window to finish..." UX. The worker WS stays open as the channel
-      // the backend uses to signal `clientDisconnected`.
-      if (this.#options.openUi && !this.#isReuse) {
-        log.info(
-          `💡 Tests complete — DevTools UI: http://${this.#options.hostname}:${this.#options.port}`
-        )
-        log.info(
-          '🔵 Close the DevTools browser window (or press Ctrl+C) to finish'
-        )
-        this.#keepAliveTimer = setInterval(() => {}, 60 * 60 * 1000)
-        this.#sessionCapturer?.setClientDisconnectedHandler(() => {
-          log.info('Dashboard closed — shutting down')
-          this.clearKeepAlive()
-          void this.#completeShutdown(shutdownStart)
-        })
-        return
-      }
-
-      // Non-interactive path (no dashboard or rerun child). Don't close the
-      // WS yet: this `onSessionEnd` is reached via the patched `driver.quit()`
-      // (cucumber's per-scenario `After` hook), but the runner's
-      // `onScenarioEnd` hook fires AFTER `After`. Closing the WS here would
-      // drop the final state update. Defer the close to `beforeExit`/`exit`,
-      // by which time every post-quit runner hook has flushed.
-      log.info(`🛑 Session ended (${Date.now() - shutdownStart}ms)`)
-    } catch (err) {
-      log.warn(`Cleanup error: ${errorMessage(err)}`)
-    }
-  }
-
-  /**
-   * Final cleanup once the user has closed the dashboard browser. Drives the
-   * remaining teardown explicitly and `exit(0)`s — the natural event-loop
-   * drain doesn't fire reliably because the detached backend's own close
-   * races with the worker WS close.
-   */
-  async #completeShutdown(shutdownStart: number) {
-    try {
-      await this.#sessionCapturer?.closeWebSocket()
-    } catch {
-      /* best-effort */
-    }
-    log.info(`🛑 Shutdown complete (${Date.now() - shutdownStart}ms)`)
-    process.exit(0)
+    await sessionOnSessionEnd(this.#getSessionCtx())
   }
 
   async onProcessExit() {
