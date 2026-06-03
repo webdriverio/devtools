@@ -68,8 +68,10 @@ export const NAVIGATION_COMMANDS = ['url', 'navigate', 'navigateTo'] as const
 
 export { SPINNER_RE } from '@wdio/devtools-core'
 
-/** Matches file names that follow the *.test.ts / *.spec.js naming convention. */
-export const TEST_FILE_PATTERN = /\.(?:test|spec)\.[cm]?[jt]sx?$/i
+/** Matches file names that follow the *.test.ts / *.spec.js naming
+ *  convention. Re-exported from @wdio/devtools-shared (single source of
+ *  truth — service uses the same pattern under the name SPEC_FILE_RE). */
+export { SPEC_FILE_RE as TEST_FILE_PATTERN } from '@wdio/devtools-shared'
 
 /** Nightwatch config file names to search for, in priority order. */
 export const CONFIG_FILENAMES = [

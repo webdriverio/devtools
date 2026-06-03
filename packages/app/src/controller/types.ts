@@ -1,10 +1,16 @@
 import type { SuiteStats, TestStats } from '@wdio/reporter'
-import type {
-  TraceLog,
-  TestStatus,
-  BaselineSavedWsPayload,
-  BaselineClearedWsPayload,
-  ReplaceCommandWsPayload
+import type { TestStatus } from '@wdio/devtools-shared'
+
+// SocketMessage / WsScope / WsPayloadFor are the WS wire format and live in
+// @wdio/devtools-shared (§2.1 + §2.5). Re-exported here for back-compat with
+// existing import sites; new code should import from shared directly.
+export type {
+  ControlScope,
+  ClearExecutionDataWsPayload,
+  SocketMessage,
+  TraceScope,
+  WsMessageScope,
+  WsPayloadFor
 } from '@wdio/devtools-shared'
 
 export type TestStatsFragment = Omit<Partial<TestStats>, 'uid' | 'state'> & {
@@ -28,37 +34,4 @@ export type SuiteStatsFragment = Omit<
   featureLine?: number
   type?: string
   file?: string
-}
-
-export interface SocketMessage<
-  T extends
-    | keyof TraceLog
-    | 'testStopped'
-    | 'clearExecutionData'
-    | 'replaceCommand'
-    | 'baseline:saved'
-    | 'baseline:cleared' =
-    | keyof TraceLog
-    | 'testStopped'
-    | 'clearExecutionData'
-    | 'replaceCommand'
-    | 'baseline:saved'
-    | 'baseline:cleared'
-> {
-  scope: T
-  data: T extends keyof TraceLog
-    ? TraceLog[T]
-    : T extends 'clearExecutionData'
-      ? {
-          uid?: string
-          entryType?: 'suite' | 'test'
-          clearSuiteTree?: boolean
-        }
-      : T extends 'replaceCommand'
-        ? ReplaceCommandWsPayload
-        : T extends 'baseline:saved'
-          ? BaselineSavedWsPayload
-          : T extends 'baseline:cleared'
-            ? BaselineClearedWsPayload
-            : unknown
 }

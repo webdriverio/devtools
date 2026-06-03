@@ -99,8 +99,9 @@ export const STEP_FN_NAMES = [
 export const STEP_FILE_RE = /\.(?:steps?)\.[cm]?[jt]sx?$/i
 export const STEP_DIR_RE =
   /(?:^|\/)(?:step[-_]?definitions|steps)\/.+\.[cm]?[jt]sx?$/i
-export const SPEC_FILE_RE = /\.(?:test|spec)\.[cm]?[jt]sx?$/i
-export const FEATURE_FILE_RE = /\.feature$/i
+// SPEC_FILE_RE / FEATURE_FILE_RE come from shared — re-exported here so
+// existing import sites in service keep resolving.
+export { SPEC_FILE_RE, FEATURE_FILE_RE } from '@wdio/devtools-shared'
 export const SOURCE_FILE_EXT_RE = /\.(?:[cm]?js|[cm]?ts)x?$/
 
 /**
