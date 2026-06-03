@@ -19,7 +19,7 @@ import type { SessionCapturer } from './session.js'
 import type { TestReporter } from './reporter.js'
 import type { SuiteManager } from './helpers/suiteManager.js'
 import type { TestManager } from './helpers/testManager.js'
-import type { NightwatchBrowser } from './types.js'
+import type { NightwatchBrowser, NightwatchCurrentTest } from './types.js'
 import { TIMING, PLUGIN_GLOBAL_KEY } from './constants.js'
 import { findFreePort, resolveNightwatchConfig } from './helpers/utils.js'
 
@@ -148,8 +148,8 @@ export async function finalizeAllSuites(
   ctx: RunLifecycleCtx,
   browser?: NightwatchBrowser
 ): Promise<void> {
-  const currentTest: any = (browser as { currentTest?: unknown })?.currentTest
-  const testcases = currentTest?.results?.testcases || {}
+  const currentTest = browser?.currentTest as NightwatchCurrentTest | undefined
+  const testcases = currentTest?.results?.testcases ?? {}
   for (const [, suite] of (
     ctx.suiteManager?.getAllSuites() ?? new Map()
   ).entries()) {

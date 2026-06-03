@@ -31,7 +31,36 @@ export interface NightwatchTestCase {
   errors: number
   skipped: number
   time: string
-  assertions: any[]
+  assertions: unknown[]
+}
+
+/** Nightwatch's per-test results bag. Loose by design — fields vary across
+ *  Nightwatch versions. We read only the pieces we need; everything else
+ *  flows through as `unknown`. */
+export interface NightwatchTestResults {
+  errors?: number
+  failed?: number
+  passed?: number
+  skipped?: number
+  testcases?: Record<string, NightwatchTestCase>
+  [key: string]: unknown
+}
+
+/** `browser.currentTest` shape — Nightwatch documents this informally. */
+export interface NightwatchCurrentTest {
+  name?: string
+  module?: string
+  group?: string
+  results?: NightwatchTestResults
+  [key: string]: unknown
+}
+
+/** Nightwatch `eventHub` shape — only `runner` + `on()` are documented; the
+ *  rest of the public surface is `unknown` to us. */
+export interface NightwatchEventHub {
+  runner?: string
+  on(event: string, listener: (data: unknown) => void): void
+  [key: string]: unknown
 }
 
 export interface TestFileMetadata {
@@ -67,25 +96,33 @@ export interface DevToolsOptions {
 }
 
 export interface NightwatchBrowser {
-  url: (url: string) => Promise<any>
-  execute: (script: string | Function, args?: any[]) => Promise<any>
-  executeAsync: (script: Function, args?: any[]) => Promise<any>
-  pause: (ms: number) => Promise<any>
-  capabilities?: Record<string, any>
-  desiredCapabilities?: Record<string, any>
+  url: (url: string) => Promise<unknown>
+  execute: (
+    script: string | ((...args: unknown[]) => unknown),
+    args?: unknown[]
+  ) => Promise<unknown>
+  executeAsync: (
+    script: (...args: unknown[]) => unknown,
+    args?: unknown[]
+  ) => Promise<unknown>
+  pause: (ms: number) => Promise<unknown>
+  capabilities?: Record<string, unknown>
+  desiredCapabilities?: Record<string, unknown>
   sessionId?: string
-  driver?: any
+  /** Driver instance from selenium-webdriver — its public shape is wide; we
+   *  pass it through to BiDi attach helpers that do their own narrowing. */
+  driver?: unknown
   options?: {
     testEnv?: string
     webdriver?: { host?: string }
-    [key: string]: any
+    [key: string]: unknown
   }
   currentTest?: {
     name?: string
     module?: string
     group?: string
-    [key: string]: any
+    [key: string]: unknown
   }
-  results?: any
-  queue?: any
+  results?: unknown
+  queue?: unknown
 }

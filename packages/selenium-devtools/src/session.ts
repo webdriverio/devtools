@@ -114,8 +114,8 @@ export class SessionCapturer extends SessionCapturerBase {
 
   async captureCommand(
     command: string,
-    args: any[],
-    result: any,
+    args: unknown[],
+    result: unknown,
     error: Error | undefined,
     testUid?: string,
     callSource?: string,
@@ -143,8 +143,8 @@ export class SessionCapturer extends SessionCapturerBase {
   replaceCommand(
     oldId: number,
     command: string,
-    args: any[],
-    result: any,
+    args: unknown[],
+    result: unknown,
     error: Error | undefined,
     testUid?: string,
     callSource?: string,

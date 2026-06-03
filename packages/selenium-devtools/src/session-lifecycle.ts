@@ -86,7 +86,10 @@ export async function onDriverCreated(
   // blip during tests must not abort them.
   ctx.sessionCapturer.setClientDisconnectedHandler(() => {
     if (ctx.finalized) {
-      void gracefulShutdown(ctxPluginRef(ctx), 0)
+      void gracefulShutdown(
+        ctxPluginRef(ctx) as Parameters<typeof gracefulShutdown>[0],
+        0
+      )
     }
   })
   await ctx.sessionCapturer.waitForConnection(TIMING.UI_CONNECTION_WAIT)
@@ -106,7 +109,7 @@ const PLUGIN_REF = Symbol.for('@wdio/selenium-devtools/plugin-ref')
 export function setPluginRef(ctx: SessionLifecycleCtx, plugin: unknown): void {
   ;(ctx as unknown as Record<symbol, unknown>)[PLUGIN_REF] = plugin
 }
-function ctxPluginRef(ctx: SessionLifecycleCtx): any {
+function ctxPluginRef(ctx: SessionLifecycleCtx): unknown {
   return (ctx as unknown as Record<symbol, unknown>)[PLUGIN_REF]
 }
 

@@ -14,7 +14,14 @@ import type { TestReporter } from './reporter.js'
 import type { TestManager } from './helpers/testManager.js'
 import type { SuiteManager } from './helpers/suiteManager.js'
 import type { BrowserProxy } from './helpers/browserProxy.js'
-import type { NightwatchBrowser, TestStats } from './types.js'
+import type {
+  NightwatchBrowser,
+  NightwatchCurrentTest,
+  NightwatchTestCase,
+  NightwatchTestResults,
+  SuiteStats,
+  TestStats
+} from './types.js'
 import { DEFAULTS, TIMING, TEST_STATE } from './constants.js'
 import { resolveSpecFilePath } from './helpers/specFileResolver.js'
 import { closePreviousTest } from './helpers/closePreviousTest.js'
@@ -47,15 +54,14 @@ interface SuiteMetadata {
 
 export function resolveSuiteMetadata(
   ctx: TestLifecycleCtx,
-  currentTest: any
+  currentTest: NightwatchCurrentTest
 ): SuiteMetadata {
+  const moduleName = currentTest.module ?? ''
   const testFile =
-    (currentTest.module || '').split('/').pop() ||
-    currentTest.module ||
-    DEFAULTS.FILE_NAME
+    moduleName.split('/').pop() || moduleName || DEFAULTS.FILE_NAME
   const fullPath = resolveSpecFilePath(
     testFile,
-    currentTest.module,
+    moduleName,
     ctx.srcFolders,
     ctx.browserProxy.getCurrentTestFullPath() || undefined
   )
@@ -89,7 +95,7 @@ export function resolveSuiteMetadata(
 }
 
 export function pickCurrentTestName(
-  currentTest: any,
+  currentTest: NightwatchCurrentTest,
   testNames: string[],
   processedTests: Set<string>
 ): string | undefined {
@@ -109,7 +115,7 @@ export function pickCurrentTestName(
 
 export async function startNextTest(
   ctx: TestLifecycleCtx,
-  currentSuite: any,
+  currentSuite: SuiteStats,
   currentTestName: string,
   processedTests: Set<string>
 ): Promise<void> {
@@ -135,13 +141,14 @@ export async function startNextTest(
 
 export async function closePreviousRunningTest(
   ctx: TestLifecycleCtx,
-  currentSuite: any,
+  currentSuite: SuiteStats,
   testFile: string,
-  currentTest: any
+  currentTest: NightwatchCurrentTest
 ): Promise<void> {
   const runningTest = currentSuite.tests.find(
-    (t: any) => typeof t !== 'string' && t.state === TEST_STATE.RUNNING
-  ) as TestStats | undefined
+    (t): t is TestStats =>
+      typeof t !== 'string' && t.state === TEST_STATE.RUNNING
+  )
   if (!runningTest) {
     return
   }
@@ -169,21 +176,22 @@ export function wrapBrowserOnce(
 
 function closeUnreportedRunningTest(
   ctx: TestLifecycleCtx,
-  currentSuite: any,
+  currentSuite: SuiteStats,
   testFile: string,
-  results: any,
+  results: NightwatchTestResults,
   processedTests: Set<string>
 ): void {
   const runningTest = currentSuite.tests.find(
-    (t: any) => typeof t !== 'string' && t.state === TEST_STATE.RUNNING
-  ) as TestStats | undefined
+    (t): t is TestStats =>
+      typeof t !== 'string' && t.state === TEST_STATE.RUNNING
+  )
   if (!runningTest || processedTests.has(runningTest.title)) {
     return
   }
-  const testState: TestStats['state'] =
-    results.errors > 0 || results.failed > 0
-      ? TEST_STATE.FAILED
-      : TEST_STATE.PASSED
+  const failed = (results.errors ?? 0) > 0 || (results.failed ?? 0) > 0
+  const testState: TestStats['state'] = failed
+    ? TEST_STATE.FAILED
+    : TEST_STATE.PASSED
   const endTime = new Date()
   const duration = endTime.getTime() - (runningTest.start?.getTime() || 0)
   ctx.testManager.updateTestState(runningTest, testState, endTime, duration)
@@ -195,9 +203,9 @@ function closeUnreportedRunningTest(
 
 async function closeReportedTestcases(
   ctx: TestLifecycleCtx,
-  currentSuite: any,
+  currentSuite: SuiteStats,
   testFile: string,
-  testcases: Record<string, any>,
+  testcases: Record<string, NightwatchTestCase>,
   processedTests: Set<string>
 ): Promise<void> {
   const testcaseNames = Object.keys(testcases)
@@ -229,13 +237,11 @@ export async function closeOutTestcases(
   ctx: TestLifecycleCtx,
   browser: NightwatchBrowser
 ): Promise<void> {
-  // Nightwatch's `currentTest` is loosely structured (module/results/name);
-  // keep it `any` here so per-field access stays terse.
-  const currentTest: any = (browser as { currentTest?: unknown }).currentTest
-  const results = currentTest?.results || {}
-  const testFile =
-    (currentTest.module || '').split('/').pop() || DEFAULTS.FILE_NAME
-  const testcases = results.testcases || {}
+  const currentTest = (browser.currentTest ?? {}) as NightwatchCurrentTest
+  const results: NightwatchTestResults = currentTest.results ?? {}
+  const moduleName = currentTest.module ?? ''
+  const testFile = moduleName.split('/').pop() || DEFAULTS.FILE_NAME
+  const testcases = results.testcases ?? {}
   const currentSuite = ctx.suiteManager.getSuite(testFile)
   if (!currentSuite) {
     return

@@ -45,7 +45,7 @@ export async function enrichFindResult(
   try {
     const elements = Array.isArray(rawResult) ? rawResult : [rawResult]
     const previews = await Promise.all(
-      elements.slice(0, 5).map(async (el: any) => {
+      elements.slice(0, 5).map(async (el: unknown) => {
         const tag = await getTagName(el).catch(() => 'element')
         const text = await getText(el).catch(() => '')
         const trimmed = text.length > 60 ? text.slice(0, 60) + '…' : text

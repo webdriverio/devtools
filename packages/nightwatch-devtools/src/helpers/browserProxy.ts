@@ -16,6 +16,7 @@ import type { TestManager } from './testManager.js'
 import type {
   CommandLog,
   NightwatchBrowser,
+  NightwatchCurrentTest,
   CommandStackFrame
 } from '../types.js'
 
@@ -37,7 +38,7 @@ export class BrowserProxy {
   constructor(
     private sessionCapturer: SessionCapturer,
     private testManager: TestManager,
-    private getCurrentTest: () => any
+    private getCurrentTest: () => { uid?: string } | null
   ) {}
 
   /**
@@ -75,10 +76,13 @@ export class BrowserProxy {
 
     // Cast once for dynamic method access — Nightwatch's typed surface
     // doesn't enumerate every command, but they all live on the same object.
-    // The return type stays `any` because wrapNav has to handle both
+    // Return type is `unknown` because wrapNav has to handle both
     // Nightwatch's chainable API (returns a chainable with `.perform`) and
-    // Cucumber async/await (returns a Promise) — typing it narrows wrongly.
-    const b = browser as unknown as Record<string, (...args: unknown[]) => any>
+    // Cucumber async/await (returns a Promise) — we narrow at each branch.
+    const b = browser as unknown as Record<
+      string,
+      (...args: unknown[]) => unknown
+    >
 
     const wrapNav = (methodName: string) => {
       if (typeof b[methodName] !== 'function') {
@@ -95,15 +99,18 @@ export class BrowserProxy {
             .injectScript(browser)
             .then(() => sessionCapturer.captureTrace(browser))
             .catch((err: Error) =>
-              log.error(`Failed to inject script: ${err.message}`)
+              log.error(`Failed to inject script: ${(err as Error).message}`)
             )
         }
 
-        if (result && typeof result.perform === 'function') {
+        const chainable = result as
+          | { perform?: (cb: (done: Function) => void) => void }
+          | undefined
+        if (chainable && typeof chainable.perform === 'function') {
           // Standard Nightwatch (chained API): queue inside perform so it
           // runs after navigation completes.  Always pass `done` so the
           // command queue is unblocked even if injection fails.
-          result.perform((done: Function) => {
+          chainable.perform((done: Function) => {
             injectAndCapture().finally(() => done && done())
           })
           return result
@@ -164,7 +171,7 @@ export class BrowserProxy {
 
       const originalMethod = browserAny[methodName].bind(browser)
 
-      browserAny[methodName] = (...args: any[]) => {
+      browserAny[methodName] = (...args: unknown[]) => {
         return this.handleCommandExecution(
           browser,
           browserAny,
@@ -184,8 +191,8 @@ export class BrowserProxy {
   private handleRetryReplacement(
     browser: NightwatchBrowser,
     methodName: string,
-    logArgs: any[],
-    serializedResult: any,
+    logArgs: unknown[],
+    serializedResult: unknown,
     effectiveUid: string,
     callSource: string | undefined,
     commandTimestamp: number
@@ -210,8 +217,8 @@ export class BrowserProxy {
   private captureFreshCommand(
     browser: NightwatchBrowser,
     methodName: string,
-    logArgs: any[],
-    serializedResult: any,
+    logArgs: unknown[],
+    serializedResult: unknown,
     effectiveUid: string,
     callSource: string | undefined,
     commandTimestamp: number,
@@ -235,8 +242,8 @@ export class BrowserProxy {
         callSource,
         commandTimestamp
       )
-      .catch((err: any) =>
-        log.error(`Failed to capture ${methodName}: ${err.message}`)
+      .catch((err) =>
+        log.error(`Failed to capture ${methodName}: ${(err as Error).message}`)
       )
     const lastCommand =
       this.sessionCapturer.commandsLog[
@@ -292,14 +299,14 @@ export class BrowserProxy {
   private makeCaptureCallback(
     browser: NightwatchBrowser,
     methodName: string,
-    logArgs: any[],
+    logArgs: unknown[],
     cmdSig: string,
     callSource: string | undefined,
     commandTimestamp: number,
     testUid: string | undefined,
     userCallback: Function | null
-  ): (callbackResult: any) => any {
-    return (callbackResult: any) => {
+  ): (callbackResult: unknown) => unknown {
+    return (callbackResult: unknown) => {
       this.popCommandStackIfMatches(methodName, cmdSig)
       const serializedResult = serializeCommandResult(
         callbackResult,
@@ -354,13 +361,15 @@ export class BrowserProxy {
 
   private handleCommandExecution(
     browser: NightwatchBrowser,
-    browserAny: any,
+    browserAny: Record<string, unknown>,
     methodName: string,
     originalMethod: Function,
-    args: any[]
-  ): any {
+    args: unknown[]
+  ): unknown {
     this.testManager.startTestIfPending(
-      this.testManager.detectTestBoundary(browserAny.currentTest)
+      this.testManager.detectTestBoundary(
+        browserAny.currentTest as NightwatchCurrentTest
+      )
     )
 
     const callInfo = getCallSourceFromStack()
@@ -404,8 +413,8 @@ export class BrowserProxy {
 
   private captureCommandError(
     methodName: string,
-    args: any[],
-    error: any,
+    args: unknown[],
+    error: unknown,
     callSource: string | undefined
   ): void {
     const currentTest = this.getCurrentTest()
@@ -425,8 +434,8 @@ export class BrowserProxy {
         currentTest.uid,
         callSource
       )
-      .catch((err: any) =>
-        log.error(`Failed to capture ${methodName}: ${err.message}`)
+      .catch((err) =>
+        log.error(`Failed to capture ${methodName}: ${(err as Error).message}`)
       )
 
     const lastCommand =

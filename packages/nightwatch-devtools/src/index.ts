@@ -29,14 +29,20 @@ import {
   TraceType,
   type DevToolsOptions,
   type NightwatchBrowser,
+  type NightwatchCurrentTest,
+  type NightwatchEventHub,
   type ScreencastOptions,
+  type SuiteStats,
   type TestStats
 } from './types.js'
 import {
   cucumberBefore as cucumberLifecycleBefore,
   cucumberAfter as cucumberLifecycleAfter,
   cucumberBeforeStep as cucumberLifecycleBeforeStep,
-  cucumberAfterStep as cucumberLifecycleAfterStep
+  cucumberAfterStep as cucumberLifecycleAfterStep,
+  type CucumberPickle,
+  type CucumberPickleStep,
+  type CucumberResult
 } from './cucumber-lifecycle.js'
 import {
   resolveSuiteMetadata,
@@ -66,9 +72,9 @@ class NightwatchDevToolsPlugin {
   private suiteManager!: SuiteManager
   private browserProxy!: BrowserProxy
   private isScriptInjected = false
-  #currentTest: any = null
-  #currentScenarioSuite: any = null
-  #currentStep: any = null
+  #currentTest: unknown = null
+  #currentScenarioSuite: SuiteStats | null = null
+  #currentStep: unknown = null
   #lastSessionId: string | null = null
   #devtoolsBrowser?: WebdriverIO.Browser
   #userDataDir?: string
@@ -283,18 +289,22 @@ class NightwatchDevToolsPlugin {
     await finalizeCurrentScreencast(this.#getInternals())
   }
 
-  async cucumberBefore(browser: NightwatchBrowser, pickle: any) {
+  async cucumberBefore(browser: NightwatchBrowser, pickle: CucumberPickle) {
     await cucumberLifecycleBefore(this.#getInternals(), browser, pickle)
   }
 
-  async cucumberAfter(browser: NightwatchBrowser, result: any, pickle: any) {
+  async cucumberAfter(
+    browser: NightwatchBrowser,
+    result: CucumberResult,
+    pickle: CucumberPickle
+  ) {
     await cucumberLifecycleAfter(this.#getInternals(), browser, result, pickle)
   }
 
   async cucumberBeforeStep(
     browser: NightwatchBrowser,
-    pickleStep: any,
-    pickle: any
+    pickleStep: CucumberPickleStep,
+    pickle: CucumberPickle
   ) {
     await cucumberLifecycleBeforeStep(
       this.#getInternals(),
@@ -306,9 +316,9 @@ class NightwatchDevToolsPlugin {
 
   async cucumberAfterStep(
     browser: NightwatchBrowser,
-    result: any,
-    pickleStep: any,
-    pickle: any
+    result: CucumberResult,
+    pickleStep: CucumberPickleStep,
+    pickle: CucumberPickle
   ) {
     await cucumberLifecycleAfterStep(
       this.#getInternals(),
@@ -319,12 +329,12 @@ class NightwatchDevToolsPlugin {
     )
   }
 
-  #resolveSuiteMetadata(currentTest: any) {
+  #resolveSuiteMetadata(currentTest: NightwatchCurrentTest) {
     return resolveSuiteMetadata(this.#getInternals(), currentTest)
   }
 
   #pickCurrentTestName(
-    currentTest: any,
+    currentTest: NightwatchCurrentTest,
     testNames: string[],
     processedTests: Set<string>
   ): string | undefined {
@@ -332,7 +342,7 @@ class NightwatchDevToolsPlugin {
   }
 
   async #startNextTest(
-    currentSuite: any,
+    currentSuite: SuiteStats,
     currentTestName: string,
     processedTests: Set<string>
   ): Promise<void> {
@@ -345,9 +355,9 @@ class NightwatchDevToolsPlugin {
   }
 
   async #closePreviousRunningTest(
-    currentSuite: any,
+    currentSuite: SuiteStats,
     testFile: string,
-    currentTest: any
+    currentTest: NightwatchCurrentTest
   ): Promise<void> {
     await closePreviousRunningTest(
       this.#getInternals(),
@@ -367,9 +377,7 @@ class NightwatchDevToolsPlugin {
     }
     await this.#ensureSessionInitialized(browser)
 
-    // Nightwatch's `currentTest` is loosely structured (module/results/name);
-    // keep it `any` here so per-field access stays terse.
-    const currentTest: any = (browser as { currentTest?: unknown }).currentTest
+    const currentTest = browser.currentTest as NightwatchCurrentTest | undefined
     if (!currentTest) {
       return
     }
@@ -477,17 +485,23 @@ class NightwatchDevToolsPlugin {
     return getTestIcon(state)
   }
 
-  registerEventHandlers(eventHub: any): void {
+  registerEventHandlers(eventHub: NightwatchEventHub): void {
     this.#isCucumberRunner = eventHub.runner === 'cucumber'
     if (this.#isCucumberRunner) {
       log.info('✓ Cucumber runner detected via NightwatchEventHub')
     }
     log.info('✓ NightwatchEventHub registered — enriched metadata enabled')
 
-    const handleSessionMetadata = (data: any) => {
+    const handleSessionMetadata = (data: unknown) => {
       try {
-        const { sessionCapabilities, sessionId, testEnv, host, modulePath } =
-          data?.metadata ?? {}
+        const metadata =
+          ((data as { metadata?: Record<string, unknown> } | undefined)
+            ?.metadata as Record<string, unknown> | undefined) ?? {}
+        const sessionCapabilities = metadata.sessionCapabilities
+        const sessionId = metadata.sessionId as string | undefined
+        const testEnv = metadata.testEnv as string | undefined
+        const host = metadata.host as string | undefined
+        const modulePath = metadata.modulePath as string | undefined
 
         if (this.sessionCapturer && (sessionCapabilities || sessionId)) {
           this.sessionCapturer.sendUpstream('metadata', {
@@ -522,20 +536,20 @@ export default function createNightwatchDevTools(options?: DevToolsOptions) {
     // The after() hook waits for the browser window to be closed
     asyncHookTimeout: 3600000,
 
-    before: async function (this: any) {
+    before: async function (this: unknown) {
       await plugin.before()
     },
-    beforeEach: async function (this: any, browser: NightwatchBrowser) {
+    beforeEach: async function (this: unknown, browser: NightwatchBrowser) {
       await plugin.beforeEach(browser)
     },
-    afterEach: async function (this: any, browser: NightwatchBrowser) {
+    afterEach: async function (this: unknown, browser: NightwatchBrowser) {
       await plugin.afterEach(browser)
     },
-    after: async function (this: any) {
+    after: async function (this: unknown) {
       await plugin.after()
     },
 
-    registerEventHandlers: function (eventHub: any) {
+    registerEventHandlers: function (eventHub: NightwatchEventHub) {
       plugin.registerEventHandlers(eventHub)
     }
   }

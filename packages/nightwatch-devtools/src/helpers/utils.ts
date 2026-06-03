@@ -72,7 +72,11 @@ export function buildPluginMetadataOptions(input: {
  * Hashing is delegated to @wdio/devtools-core; this wrapper preserves the
  * dual-signature convenience used by the Nightwatch suite/test managers.
  */
-export function generateStableUid(itemOrFile: any, name?: string): string {
+type StableUidSource = { file?: string; fullTitle?: string; title?: string }
+export function generateStableUid(
+  itemOrFile: string | StableUidSource,
+  name?: string
+): string {
   let file: string, testName: string
   if (
     typeof itemOrFile === 'object' &&
@@ -82,7 +86,7 @@ export function generateStableUid(itemOrFile: any, name?: string): string {
     file = itemOrFile.file || ''
     testName = String(itemOrFile.fullTitle || itemOrFile.title)
   } else {
-    file = itemOrFile || ''
+    file = (itemOrFile as string) || ''
     testName = String(name || '')
   }
   return generateStableUidByFileName(file, testName)

@@ -3,6 +3,7 @@ import { TEST_STATE, DEFAULTS } from '../constants.js'
 import {
   type TestStats,
   type SuiteStats,
+  type NightwatchCurrentTest,
   type NightwatchTestCase
 } from '../types.js'
 import { determineTestState } from './utils.js'
@@ -81,7 +82,7 @@ export class TestManager {
    * Detect test boundary and finalize previous test if needed
    * Returns the current test name
    */
-  detectTestBoundary(currentNightwatchTest: any): string {
+  detectTestBoundary(currentNightwatchTest: NightwatchCurrentTest): string {
     const currentTestName = currentNightwatchTest?.name || DEFAULTS.TEST_NAME
 
     // If test name changed, finalize previous test
@@ -156,7 +157,11 @@ export class TestManager {
     suite: SuiteStats,
     testcases: Record<string, NightwatchTestCase>
   ): void {
-    suite.tests.forEach((test: any) => {
+    suite.tests.forEach((entry) => {
+      if (typeof entry === 'string') {
+        return
+      }
+      const test = entry
       if (test.state === TEST_STATE.RUNNING && test.start) {
         // Test was started but never finished - assume passed
         test.state = TEST_STATE.PASSED
