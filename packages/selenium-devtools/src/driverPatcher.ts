@@ -44,7 +44,7 @@ function loadSeleniumWebdriver(): any | null {
   }
 }
 
-function isWebElementLike(v: any): boolean {
+export function isWebElementLike(v: any): boolean {
   return (
     v &&
     typeof v === 'object' &&
@@ -53,7 +53,7 @@ function isWebElementLike(v: any): boolean {
   )
 }
 
-function safeSerialize(value: any): any {
+export function safeSerialize(value: any): any {
   if (value === null || value === undefined) {
     return value
   }
@@ -87,7 +87,7 @@ function safeSerialize(value: any): any {
   return value
 }
 
-function webElementSummary(el: any): string {
+export function webElementSummary(el: any): string {
   // `id_` is a Promise; some selenium versions stash the resolved value sync.
   const peek = el?.id_?._value ?? el?.id_?.value ?? null
   return peek ? `<WebElement id=${peek}>` : '<WebElement>'
