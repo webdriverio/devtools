@@ -1,5 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { afterEach, describe, it, expect, vi, beforeEach } from 'vitest'
 import { SessionCapturer } from '../src/session.js'
+import { getDriverOriginals } from '../src/driverPatcher.js'
 
 function makeCapturer(driver?: unknown): SessionCapturer {
   return new SessionCapturer({}, driver as never)
@@ -137,6 +138,104 @@ describe('selenium SessionCapturer.captureTrace', () => {
   })
 
   it('no-ops when driver set but no executeScript stashed', async () => {
+    const cap = makeCapturer({ id: 'd' })
+    await expect(cap.captureTrace()).resolves.toBeUndefined()
+  })
+})
+
+// Direct mutation of the singleton driverOriginals bag is the
+// least-painful way to exercise the executeScript-dependent paths
+// without standing up a real selenium-webdriver. Always restore in
+// afterEach so we don't leak state between tests.
+describe('selenium SessionCapturer (with stashed executeScript)', () => {
+  let restoreExec: (() => void) | undefined
+
+  afterEach(() => {
+    restoreExec?.()
+    restoreExec = undefined
+  })
+
+  function stubExec(impl: (...args: unknown[]) => unknown) {
+    const originals = getDriverOriginals()
+    const prev = originals.executeScript
+    originals.executeScript = impl as (typeof originals)['executeScript']
+    restoreExec = () => {
+      if (prev) {
+        originals.executeScript = prev
+      } else {
+        delete originals.executeScript
+      }
+    }
+  }
+
+  it('injectScript runs to completion when collector becomes ready', async () => {
+    let scriptInjected = false
+    let collectorReadyCalls = 0
+    stubExec(async (_driver, script) => {
+      const s = String(script)
+      if (s.includes('createElement')) {
+        scriptInjected = true
+        return true
+      }
+      if (s.includes('wdioTraceCollector')) {
+        collectorReadyCalls++
+        return collectorReadyCalls >= 1
+      }
+      return undefined
+    })
+    const cap = makeCapturer({ id: 'd' })
+    await cap.injectScript()
+    expect(scriptInjected).toBe(true)
+    expect(collectorReadyCalls).toBeGreaterThanOrEqual(1)
+  })
+
+  it('injectScript swallows ECONNREFUSED / no-such-session errors silently', async () => {
+    stubExec(async () => {
+      throw new Error('ECONNREFUSED')
+    })
+    const cap = makeCapturer({ id: 'd' })
+    await expect(cap.injectScript()).resolves.toBeUndefined()
+  })
+
+  it('captureTrace early-returns when collector is not present', async () => {
+    stubExec(async () => false)
+    const cap = makeCapturer({ id: 'd' })
+    await expect(cap.captureTrace()).resolves.toBeUndefined()
+  })
+
+  it('captureTrace early-returns when getTraceData returns falsy', async () => {
+    let call = 0
+    stubExec(async () => {
+      call++
+      return call === 1 ? true : null
+    })
+    const cap = makeCapturer({ id: 'd' })
+    await expect(cap.captureTrace()).resolves.toBeUndefined()
+    expect(call).toBe(2)
+  })
+
+  it('captureTrace processes payload when collector returns data', async () => {
+    let call = 0
+    stubExec(async () => {
+      call++
+      if (call === 1) {
+        return true
+      }
+      return {
+        mutations: [],
+        networkRequests: [],
+        consoleLogs: []
+      }
+    })
+    const cap = makeCapturer({ id: 'd' })
+    await cap.captureTrace()
+    expect(call).toBe(2)
+  })
+
+  it('captureTrace swallows ECONNREFUSED / no-such-session errors silently', async () => {
+    stubExec(async () => {
+      throw new Error('invalid session id')
+    })
     const cap = makeCapturer({ id: 'd' })
     await expect(cap.captureTrace()).resolves.toBeUndefined()
   })
