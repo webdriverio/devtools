@@ -15,7 +15,7 @@ export interface WorkerMessageContext {
 
 // Returns true if the message was fully handled and shouldn't be forwarded.
 function tryHandleControlMessage(
-  parsed: { scope?: string; data?: any },
+  parsed: { scope?: string; data?: Record<string, unknown> },
   ctx: WorkerMessageContext
 ): boolean {
   if (parsed.scope === WS_SCOPE.clearCommands) {
@@ -34,14 +34,19 @@ function tryHandleControlMessage(
     return true
   }
   if (parsed.scope === 'config' && parsed.data?.configFile) {
-    ctx.testRunner.registerConfigFile(parsed.data.configFile)
-    log.info(`Registered config file for reruns: ${parsed.data.configFile}`)
+    const configFile = String(parsed.data.configFile)
+    ctx.testRunner.registerConfigFile(configFile)
+    log.info(`Registered config file for reruns: ${configFile}`)
     return true
   }
   // Screencast: store the absolute videoPath in the registry (backend-only),
   // then forward only the sessionId so the UI can fetch via /api/video/:sessionId.
   if (parsed.scope === 'screencast' && parsed.data?.sessionId) {
-    const { sessionId, videoPath } = parsed.data
+    const sessionId = String(parsed.data.sessionId)
+    const videoPath =
+      typeof parsed.data.videoPath === 'string'
+        ? parsed.data.videoPath
+        : undefined
     if (videoPath) {
       ctx.videoRegistry.set(sessionId, videoPath)
       log.info(`Screencast registered for session ${sessionId}: ${videoPath}`)

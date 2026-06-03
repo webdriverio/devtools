@@ -141,10 +141,8 @@ describe('handleBidiJsException', () => {
   it('truncates long messages with an ellipsis in the warn line', () => {
     const long = 'x'.repeat(500)
     const logs: Array<[string, string]> = []
-    handleBidiJsException(
-      { text: long },
-      makeSinks().sinks,
-      (lvl, msg) => logs.push([lvl, msg])
+    handleBidiJsException({ text: long }, makeSinks().sinks, (lvl, msg) =>
+      logs.push([lvl, msg])
     )
     const warning = logs.find(([, msg]) => msg.includes('JS error'))![1]
     expect(warning).toContain('…')
