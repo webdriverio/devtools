@@ -321,10 +321,8 @@ class NightwatchDevToolsPlugin {
   }
 
   async #ensureSessionInitialized(browser: NightwatchBrowser) {
-    await ensureSessionInitialized(
-      this.#getSessionCtx(),
-      browser,
-      () => this.#finalizeCurrentScreencast()
+    await ensureSessionInitialized(this.#getSessionCtx(), browser, () =>
+      this.#finalizeCurrentScreencast()
     )
   }
 

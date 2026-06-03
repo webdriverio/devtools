@@ -20,11 +20,7 @@ import type { TestReporter } from './reporter.js'
 import type { TestManager } from './helpers/testManager.js'
 import type { SuiteManager } from './helpers/suiteManager.js'
 import type { BrowserProxy } from './helpers/browserProxy.js'
-import type {
-  NightwatchBrowser,
-  SuiteStats,
-  TestStats
-} from './types.js'
+import type { NightwatchBrowser, SuiteStats, TestStats } from './types.js'
 import { TEST_STATE } from './constants.js'
 import {
   closeOpenSteps,
