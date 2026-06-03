@@ -20,7 +20,9 @@ export interface DriverMetadataResult {
   metadata: Record<string, unknown> | undefined
 }
 
-function makeCapGet(capabilities: unknown): (k: string) => any {
+type CapGet = (k: string) => unknown
+
+function makeCapGet(capabilities: unknown): CapGet {
   return (k: string) => {
     const caps = capabilities as
       | {
@@ -38,7 +40,7 @@ function makeCapGet(capabilities: unknown): (k: string) => any {
 }
 
 function logBrowserBoot(
-  capGet: (k: string) => any,
+  capGet: CapGet,
   sessionId: string | undefined,
   driverReadyTs: number
 ): void {
@@ -49,9 +51,10 @@ function logBrowserBoot(
     `🌐 Browser: ${browserName}${browserVersion ? ' ' + browserVersion : ''}${platform ? ' on ' + platform : ''} (sessionId: ${sessionId ?? 'unknown'})`
   )
   const webSocketUrl = capGet('webSocketUrl')
-  const chromeOpts = capGet('goog:chromeOptions') ?? {}
-  const chromeArgs: string[] = Array.isArray(chromeOpts?.args)
-    ? chromeOpts.args
+  const chromeOpts =
+    (capGet('goog:chromeOptions') as { args?: unknown } | undefined) ?? {}
+  const chromeArgs: string[] = Array.isArray(chromeOpts.args)
+    ? (chromeOpts.args as string[])
     : []
   const headlessArg = chromeArgs.find((a) => a.startsWith('--headless'))
   log.info(

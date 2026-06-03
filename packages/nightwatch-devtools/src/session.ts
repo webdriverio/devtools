@@ -38,6 +38,66 @@ function unwrapDriverValue<T = unknown>(result: unknown): T {
   return result as T
 }
 
+type LooseRec = Record<string, unknown>
+const getProp = (obj: unknown, key: string): unknown =>
+  obj && typeof obj === 'object' ? (obj as LooseRec)[key] : undefined
+const getPath = (obj: unknown, ...path: string[]): unknown =>
+  path.reduce<unknown>((acc, k) => getProp(acc, k), obj)
+const firstDefined = (obj: unknown, ...keys: string[]): unknown => {
+  if (!obj || typeof obj !== 'object') {
+    return undefined
+  }
+  const rec = obj as LooseRec
+  for (const k of keys) {
+    const v = rec[k]
+    if (v !== undefined && v !== null) {
+      return v
+    }
+  }
+  return undefined
+}
+
+/**
+ * Walks Nightwatch's internal config (transport / queue.transport /
+ * nightwatchInstance — none of which are on the public NightwatchBrowser
+ * type) to find the underlying WebDriver host+port for direct screenshot
+ * fetches that bypass the command queue.
+ */
+function resolveWebDriverAddress(browser: NightwatchBrowser): {
+  driverHost: string
+  driverPort: number
+} {
+  const transportSettings =
+    getPath(browser, 'transport', 'settings', 'webdriver') ||
+    getPath(browser, 'queue', 'transport', 'settings', 'webdriver') ||
+    getPath(
+      browser,
+      'nightwatchInstance',
+      'transport',
+      'settings',
+      'webdriver'
+    ) ||
+    {}
+  const opts = getProp(browser, 'options') ?? {}
+  const nightwatchSettings =
+    getPath(browser, 'nightwatchInstance', 'settings') ||
+    getPath(browser, 'globals', 'nightwatchInstance', 'settings') ||
+    {}
+  const driverHost = String(
+    firstDefined(transportSettings, 'host', 'server_address') ||
+      firstDefined(getProp(opts, 'webdriver'), 'host') ||
+      firstDefined(getProp(nightwatchSettings, 'webdriver'), 'host') ||
+      'localhost'
+  )
+  const driverPort = Number(
+    firstDefined(transportSettings, 'port') ||
+      firstDefined(getProp(opts, 'webdriver'), 'port') ||
+      firstDefined(getProp(nightwatchSettings, 'webdriver'), 'port') ||
+      9515
+  )
+  return { driverHost, driverPort }
+}
+
 export class SessionCapturer extends SessionCapturerBase {
   #browser: NightwatchBrowser | undefined
 
@@ -83,8 +143,8 @@ export class SessionCapturer extends SessionCapturerBase {
 
   async captureCommand(
     command: string,
-    args: any[],
-    result: any,
+    args: unknown[],
+    result: unknown,
     error: Error | undefined,
     testUid?: string,
     callSource?: string,
@@ -121,14 +181,18 @@ export class SessionCapturer extends SessionCapturerBase {
 
   async #capturePerformanceData(
     commandLogEntry: CommandLog & { _id?: number },
-    args: any[]
+    args: unknown[]
   ) {
     await new Promise((resolve) => setTimeout(resolve, 500))
     const raw = await this.#browser!.execute(CAPTURE_PERFORMANCE_SCRIPT)
     const payload = unwrapDriverValue<CapturedPerformancePayload | undefined>(
       raw
     )
-    applyPerformanceData(commandLogEntry, payload, args[0])
+    applyPerformanceData(
+      commandLogEntry,
+      payload,
+      typeof args[0] === 'string' ? args[0] : undefined
+    )
   }
 
   /**
@@ -141,8 +205,8 @@ export class SessionCapturer extends SessionCapturerBase {
   replaceCommand(
     oldId: number,
     command: string,
-    args: any[],
-    result: any,
+    args: unknown[],
+    result: unknown,
     error: Error | undefined,
     testUid?: string,
     callSource?: string,
@@ -188,44 +252,12 @@ export class SessionCapturer extends SessionCapturerBase {
     browser: NightwatchBrowser,
     sessionId: string
   ): string {
-    const browserAny = browser as unknown as Record<string, any>
-    const pick = (obj: any, ...keys: string[]): any => {
-      if (!obj || typeof obj !== 'object') {
-        return undefined
-      }
-      for (const k of keys) {
-        const val = obj[k]
-        if (val !== undefined && val !== null) {
-          return val
-        }
-      }
-      return undefined
-    }
-    const transportSettings =
-      browserAny.transport?.settings?.webdriver ||
-      browserAny.queue?.transport?.settings?.webdriver ||
-      browserAny.nightwatchInstance?.transport?.settings?.webdriver ||
-      {}
-    const opts = browserAny.options || {}
-    const nightwatchSettings =
-      browserAny.nightwatchInstance?.settings ||
-      browserAny.globals?.nightwatchInstance?.settings ||
-      {}
-    const driverHost: string =
-      pick(transportSettings, 'host', 'server_address') ||
-      pick(opts.webdriver, 'host') ||
-      pick(nightwatchSettings.webdriver, 'host') ||
-      'localhost'
-    const driverPort: number =
-      pick(transportSettings, 'port') ||
-      pick(opts.webdriver, 'port') ||
-      pick(nightwatchSettings.webdriver, 'port') ||
-      9515
+    const { driverHost, driverPort } = resolveWebDriverAddress(browser)
     return `http://${driverHost}:${driverPort}/session/${sessionId}/screenshot`
   }
 
   takeScreenshotViaHttp(browser: NightwatchBrowser): Promise<string | null> {
-    const sessionId = (browser as unknown as Record<string, any>).sessionId
+    const sessionId = (browser as unknown as { sessionId?: string }).sessionId
     if (!sessionId) {
       return Promise.resolve(null)
     }

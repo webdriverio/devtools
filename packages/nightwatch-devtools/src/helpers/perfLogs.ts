@@ -36,7 +36,29 @@ export interface NetworkEntry {
  * sees `requestWillBeSent` → `responseReceived` → `loadingFinished` events,
  * and emits the completed entry on the terminal event.
  */
-function applyResponseReceived(p: NetworkEntry, response: any): void {
+interface CdpResponse {
+  status?: number
+  statusText?: string
+  headers?: Record<string, unknown>
+  mimeType?: string
+}
+
+interface CdpRequest {
+  url: string
+  method: string
+  headers?: Record<string, string>
+}
+
+interface CdpEventParams {
+  requestId: string
+  request?: CdpRequest
+  response?: CdpResponse
+  timestamp?: number
+  encodedDataLength?: number
+  errorText?: string
+}
+
+function applyResponseReceived(p: NetworkEntry, response: CdpResponse): void {
   const responseHeaders: Record<string, string> = {}
   for (const [k, v] of Object.entries(response.headers || {})) {
     responseHeaders[k.toLowerCase()] = String(v)
@@ -48,28 +70,39 @@ function applyResponseReceived(p: NetworkEntry, response: any): void {
   p.type = getRequestType(p.url, response.mimeType)
 }
 
+function startPendingRequest(
+  params: CdpEventParams,
+  entry: PerfLogEntry,
+  pending: Map<string, NetworkEntry>
+): void {
+  const { requestId, request: req, timestamp } = params
+  if (!req || typeof timestamp !== 'number') {
+    return
+  }
+  pending.set(requestId, {
+    id: `${entry.timestamp}-${requestId}`,
+    url: req.url,
+    method: req.method,
+    requestHeaders: req.headers ?? {},
+    timestamp: Math.round(timestamp * 1000),
+    startTime: entry.timestamp
+  })
+}
+
 function handlePerfLogEvent(
   method: string,
-  params: any,
+  params: CdpEventParams,
   entry: PerfLogEntry,
   pending: Map<string, NetworkEntry>,
   completed: NetworkEntry[]
 ): void {
   if (method === 'Network.requestWillBeSent') {
-    const { requestId, request: req, timestamp } = params
-    pending.set(requestId, {
-      id: `${entry.timestamp}-${requestId}`,
-      url: req.url,
-      method: req.method,
-      requestHeaders: req.headers,
-      timestamp: Math.round(timestamp * 1000),
-      startTime: entry.timestamp
-    })
+    startPendingRequest(params, entry, pending)
     return
   }
   if (method === 'Network.responseReceived') {
     const p = pending.get(params.requestId)
-    if (p) {
+    if (p && params.response) {
       applyResponseReceived(p, params.response)
     }
     return
@@ -101,14 +134,18 @@ export function parseNetworkFromPerfLogs(logs: PerfLogEntry[]): NetworkEntry[] {
   const pending = new Map<string, NetworkEntry>()
   const completed: NetworkEntry[] = []
   for (const entry of logs) {
-    let parsed: any
+    let parsed: unknown
     try {
       parsed = JSON.parse(entry.message)
     } catch {
       continue
     }
-    const method: string | undefined = parsed?.message?.method
-    const params: any = parsed?.message?.params
+    type ParsedShape = {
+      message?: { method?: string; params?: CdpEventParams }
+    }
+    const message = (parsed as ParsedShape | undefined)?.message
+    const method = message?.method
+    const params = message?.params
     if (!method || !params) {
       continue
     }

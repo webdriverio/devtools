@@ -8,7 +8,7 @@ const log = logger('@wdio/selenium-devtools:runnerHooks:jest')
 // Jest/Vitest globals — kept as a local shape rather than a `declare global`
 // so consumers of this package don't pick up `describe`/`it` as ambient
 // globals when they may not actually be present.
-type JestFn = (...args: any[]) => any
+type JestFn = (...args: unknown[]) => unknown
 type JestGlobals = {
   describe?: JestFn
   test?: JestFn

@@ -145,17 +145,17 @@ export class DragController implements ReactiveController {
     const host = this.#host
 
     this.#pointerTracker = new PointerTracker(this.#draggableEl, {
-      start(pointer: any) {
+      start(pointer: Pointer) {
         onDragStart(pointer)
         updateState('dragging')
         host.requestUpdate()
         return true
       },
-      move(previousPointers: any, changedPointers: any) {
+      move(previousPointers: Pointer[], changedPointers: Pointer[]) {
         onDrag(previousPointers, changedPointers)
       },
-      end(pointer: any, ev: Event) {
-        onDragEnd(pointer, ev)
+      end(pointer: Pointer, ev: Event) {
+        onDragEnd(pointer, ev as InputEvent)
         updateState('idle')
         host.requestUpdate()
         adjustPosition()

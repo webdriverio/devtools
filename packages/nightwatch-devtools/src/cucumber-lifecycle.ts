@@ -32,6 +32,24 @@ import { parseCucumberScenario } from './helpers/utils.js'
 
 const log = logger('@wdio/nightwatch-devtools:cucumber')
 
+/** Minimal shapes for the Cucumber objects we touch. Cucumber's own types
+ *  vary across major versions; we pin only fields we read. */
+export interface CucumberPickleStep {
+  text?: string
+  astNodeIds?: string[]
+  location?: { line?: number }
+}
+export interface CucumberPickle {
+  uri?: string
+  name?: string
+  location?: { line?: number }
+  astNodeIds?: string[]
+  steps?: CucumberPickleStep[]
+}
+export interface CucumberResult {
+  status?: string
+}
+
 export interface CucumberLifecycleCtx {
   readonly sessionCapturer: SessionCapturer
   readonly testReporter: TestReporter
@@ -115,15 +133,21 @@ function createFeatureSuite(
   return { featureSuite, scenarioLine, stepLines, stepKeywords }
 }
 
+function normalizeSteps(
+  pickleSteps: CucumberPickleStep[] | undefined
+): Array<{ text: string }> {
+  return (pickleSteps ?? []).map((s) => ({ text: s.text ?? '' }))
+}
+
 export async function initCucumberScenario(
   ctx: CucumberLifecycleCtx,
   browser: NightwatchBrowser,
-  pickle: any
+  pickle: CucumberPickle
 ): Promise<void> {
   await ctx.ensureSessionInitialized(browser)
   const featureUri: string = pickle.uri ?? 'unknown.feature'
   const scenarioName: string = pickle.name ?? 'Unknown Scenario'
-  const steps: Array<{ text: string }> = pickle.steps ?? []
+  const steps = normalizeSteps(pickle.steps)
   const {
     featureName,
     featureContent,
@@ -168,8 +192,8 @@ export async function initCucumberScenario(
 export async function finalizeCucumberScenario(
   ctx: CucumberLifecycleCtx,
   browser: NightwatchBrowser,
-  result: any,
-  pickle: any
+  result: CucumberResult,
+  pickle: CucumberPickle | undefined
 ): Promise<void> {
   try {
     const scenarioState = cucumberResultToTestState(result)
@@ -212,8 +236,8 @@ export async function finalizeCucumberScenario(
 export async function cucumberBeforeStep(
   ctx: CucumberLifecycleCtx,
   _browser: NightwatchBrowser,
-  pickleStep: any,
-  _pickle: any
+  pickleStep: CucumberPickleStep,
+  _pickle: CucumberPickle
 ): Promise<void> {
   const scenario = ctx.getCurrentScenarioSuite()
   if (!scenario) {
@@ -241,9 +265,9 @@ export async function cucumberBeforeStep(
 export async function cucumberAfterStep(
   ctx: CucumberLifecycleCtx,
   _browser: NightwatchBrowser,
-  result: any,
-  pickleStep: any,
-  _pickle: any
+  result: CucumberResult,
+  pickleStep: CucumberPickleStep,
+  _pickle: CucumberPickle
 ): Promise<void> {
   const step = ctx.getCurrentStep() as MutStep | null
   if (!step) {
@@ -267,7 +291,7 @@ export async function cucumberAfterStep(
 export async function cucumberBefore(
   ctx: CucumberLifecycleCtx,
   browser: NightwatchBrowser,
-  pickle: any
+  pickle: CucumberPickle
 ): Promise<void> {
   ctx.setCucumberRunner(true)
   await initCucumberScenario(ctx, browser, pickle)
@@ -276,8 +300,8 @@ export async function cucumberBefore(
 export async function cucumberAfter(
   ctx: CucumberLifecycleCtx,
   browser: NightwatchBrowser,
-  result: any,
-  pickle: any
+  result: CucumberResult,
+  pickle: CucumberPickle
 ): Promise<void> {
   await finalizeCucumberScenario(ctx, browser, result, pickle)
 }

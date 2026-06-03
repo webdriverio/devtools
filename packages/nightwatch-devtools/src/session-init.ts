@@ -78,7 +78,7 @@ function initReporterChain(ctx: SessionInitCtx): void {
   // These must NOT be recreated on session change — doing so generates a
   // new feature suite with a fresh start timestamp, which DataManager sees
   // as a new run and wipes all accumulated commands.
-  ctx.testReporter = new TestReporter((suitesData: any) => {
+  ctx.testReporter = new TestReporter((suitesData) => {
     if (ctx.sessionCapturer) {
       ctx.sessionCapturer.sendUpstream('suites', suitesData)
     }
@@ -97,7 +97,7 @@ function rebindReporterToNewSession(ctx: SessionInitCtx): void {
   // WebSocket, update the proxy's capturer reference (avoids re-wrapping
   // already-wrapped browser methods which would double-capture commands),
   // then replay current suite state to the newly-connected UI.
-  ctx.testReporter.updateUpstream((suitesData: any) => {
+  ctx.testReporter.updateUpstream((suitesData) => {
     if (ctx.sessionCapturer) {
       ctx.sessionCapturer.sendUpstream('suites', suitesData)
     }

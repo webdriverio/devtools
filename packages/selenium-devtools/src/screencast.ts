@@ -6,6 +6,16 @@ import type { SeleniumDriverLike } from './types.js'
 
 const log = logger('@wdio/selenium-devtools:ScreencastRecorder')
 
+/** Selenium 4's CDP connection helper — shape stable across patch releases. */
+interface SeleniumCdpWebSocket {
+  on(event: 'message', listener: (data: unknown) => void): void
+  off?: (event: 'message', listener: (data: unknown) => void) => void
+}
+interface SeleniumCdpConnection {
+  _wsConnection?: SeleniumCdpWebSocket
+  execute(method: string, params?: Record<string, unknown>): unknown
+}
+
 /**
  * Selenium-specific screencast recorder. Inherits the frame buffer, polling
  * fallback, and public API from {@link ScreencastRecorderBase}; overrides the
@@ -13,8 +23,8 @@ const log = logger('@wdio/selenium-devtools:ScreencastRecorder')
  * listens directly on the underlying CDP WebSocket for `Page.screencastFrame`.
  */
 export class ScreencastRecorder extends ScreencastRecorderBase<SeleniumDriverLike> {
-  #cdp: any = undefined
-  #cdpFrameListener: ((data: any) => void) | undefined
+  #cdp: SeleniumCdpConnection | undefined
+  #cdpFrameListener: ((data: unknown) => void) | undefined
 
   protected override onPollingStarted(intervalMs: number): void {
     log.info(
@@ -41,15 +51,22 @@ export class ScreencastRecorder extends ScreencastRecorderBase<SeleniumDriverLik
     return takeShot(driver)
   }
 
-  #makeCdpFrameHandler(cdp: any): (raw: any) => void {
-    return (raw: any) => {
+  #makeCdpFrameHandler(cdp: SeleniumCdpConnection): (raw: unknown) => void {
+    return (raw: unknown) => {
       try {
-        const payload = JSON.parse(raw.toString())
+        const payload = JSON.parse(String(raw)) as {
+          method?: string
+          params?: {
+            data?: string
+            sessionId?: number
+            metadata?: { timestamp?: number }
+          }
+        }
         if (payload.method !== 'Page.screencastFrame') {
           return
         }
-        const params = payload.params || {}
-        this.pushCdpFrame(params.data, params.metadata?.timestamp)
+        const params = payload.params ?? {}
+        this.pushCdpFrame(params.data ?? '', params.metadata?.timestamp)
         // Anchor frame 0 at the first content-bearing frame to trim the
         // leading about:blank dead-air. Approximate decoded size: base64
         // expands by ~33%, so multiply by 0.75 for a rough decoded byte count.

@@ -45,26 +45,31 @@ export type { ScreencastFrame, ScreencastOptions } from '@wdio/devtools-shared'
  * minor versions and we only touch a small surface.
  */
 export interface SeleniumDriverLike {
-  executeScript: (script: string | Function, ...args: any[]) => Promise<any>
+  executeScript: (
+    script: string | Function,
+    ...args: unknown[]
+  ) => Promise<unknown>
   takeScreenshot?: () => Promise<string>
   getSession?: () => Promise<{ getId: () => string }>
-  getCapabilities?: () => Promise<any>
-  manage?: () => any
+  getCapabilities?: () => Promise<unknown>
+  manage?: () => unknown
   quit?: () => Promise<void>
   close?: () => Promise<void>
-  [key: string]: any
+  /** Selenium 4 helper used by the screencast recorder. */
+  createCDPConnection?: (target: string) => Promise<unknown>
+  [key: string]: unknown
 }
 
 // ─── driverPatcher ──────────────────────────────────────────────────────────
 
 export interface CapturedCommand {
   command: string
-  args: any[]
+  args: unknown[]
   // Sanitized result safe to JSON.stringify over the wire.
-  result: any
+  result: unknown
   // Raw selenium result kept by reference for in-process enrichment — must
   // NOT be sent upstream (contains non-serialisable WebElement state).
-  rawResult?: any
+  rawResult?: unknown
   error: Error | undefined
   callSource: string | undefined
   timestamp: number
@@ -72,7 +77,7 @@ export interface CapturedCommand {
 }
 
 export interface DriverPatcherHooks {
-  onBeforeBuild?: (builder: any) => void
+  onBeforeBuild?: (builder: unknown) => void
   onDriverCreated: (driver: SeleniumDriverLike) => void | Promise<void>
   onCommand: (cmd: CapturedCommand) => void
   // Awaited before delegating to the original `driver.quit()` so async
@@ -91,15 +96,15 @@ export interface DriverOriginals {
   executeScript?: (
     driver: SeleniumDriverLike,
     script: string,
-    ...args: any[]
-  ) => Promise<any>
-  manage?: (driver: SeleniumDriverLike) => any
+    ...args: unknown[]
+  ) => Promise<unknown>
+  manage?: (driver: SeleniumDriverLike) => unknown
 }
 
 // Unwrapped WebElement methods for internal enrichment paths.
 export interface ElementOriginals {
-  getText?: (element: any) => Promise<string>
-  getTagName?: (element: any) => Promise<string>
+  getText?: (element: unknown) => Promise<string>
+  getTagName?: (element: unknown) => Promise<string>
 }
 
 // ─── bidi ───────────────────────────────────────────────────────────────────
