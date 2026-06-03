@@ -11,7 +11,8 @@ import { TEST_FILE_PATTERN, CONFIG_FILENAMES } from '../constants.js'
 import type {
   NightwatchTestCase,
   TestFileMetadata,
-  StepLocation
+  StepLocation,
+  TestStats
 } from '../types.js'
 
 // These three are pure re-exports — adapters use the core implementations
@@ -30,6 +31,39 @@ export function determineTestState(
     return 'skipped'
   }
   return testcase.passed > 0 && testcase.failed === 0 ? 'passed' : 'failed'
+}
+
+export function getTestIcon(state: TestStats['state']): string {
+  return state === 'passed' ? '✅' : state === 'skipped' ? '⏭' : '❌'
+}
+
+export function incrementCounters(
+  counters: { passCount: number; failCount: number; skipCount: number },
+  state: TestStats['state']
+): void {
+  if (state === 'passed') {
+    counters.passCount++
+  } else if (state === 'skipped') {
+    counters.skipCount++
+  } else {
+    counters.failCount++
+  }
+}
+
+export function buildPluginMetadataOptions(input: {
+  isCucumberRunner: boolean
+  configPath: string | undefined
+}) {
+  return {
+    framework: input.isCucumberRunner ? 'nightwatch-cucumber' : 'nightwatch',
+    configFile: input.configPath,
+    baseDir: process.cwd(),
+    runCapabilities: {
+      canRunSuites: true,
+      canRunTests: !input.isCucumberRunner,
+      canRunAll: false
+    }
+  }
 }
 
 /**
