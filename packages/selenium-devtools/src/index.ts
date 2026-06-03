@@ -24,8 +24,7 @@ import {
   onDriverCreated as sessionOnDriverCreated,
   onDriverEnd as sessionOnDriverEnd,
   onSessionEnd as sessionOnSessionEnd,
-  setPluginRef,
-  type SessionLifecycleCtx
+  setPluginRef
 } from './session-lifecycle.js'
 import {
   startTest as tmStartTest,
@@ -33,10 +32,10 @@ import {
   startScenario as tmStartScenario,
   endScenario as tmEndScenario,
   flushPendingTestActions as tmFlushPendingTestActions,
-  type TestManagementCtx,
   type StartTestMeta,
   type StartScenarioMeta
 } from './test-management.js'
+import type { PluginInternals } from './plugin-internals.js'
 import {
   detectOwnVersion,
   detectRunner,
@@ -268,84 +267,15 @@ class SeleniumDevToolsPlugin {
     return this.#options
   }
 
-  #testMgmtCtx: TestManagementCtx | undefined
-  #getTestMgmtCtx(): TestManagementCtx {
-    if (this.#testMgmtCtx) {
-      return this.#testMgmtCtx
+  // Single internals "bag" — structurally satisfies both lifecycle ctx
+  // interfaces. Lifecycle modules cast it to their narrow type at call time.
+  #internals: PluginInternals | undefined
+  #getInternals(): PluginInternals {
+    if (this.#internals) {
+      return this.#internals
     }
     const self = this
-    this.#testMgmtCtx = {
-      get retryTracker() {
-        return self.#retryTracker
-      },
-      get testReporter() {
-        return self.#testReporter
-      },
-      get sessionCapturer() {
-        return self.#sessionCapturer
-      },
-      get suiteManager() {
-        return self.#suiteManager
-      },
-      set suiteManager(v) {
-        self.#suiteManager = v
-      },
-      get testManager() {
-        return self.#testManager
-      },
-      set testManager(v) {
-        self.#testManager = v
-      },
-      get testFileDir() {
-        return self.#testFileDir
-      },
-      set testFileDir(v) {
-        self.#testFileDir = v
-      },
-      get pendingTestActions() {
-        return self.#pendingTestActions
-      },
-      set pendingTestActions(v) {
-        self.#pendingTestActions = v
-      },
-      get pendingScenario() {
-        return self.#pendingScenario
-      },
-      set pendingScenario(v) {
-        self.#pendingScenario = v
-      }
-    }
-    return this.#testMgmtCtx
-  }
-
-  /** Public API: start a marked test. */
-  startTest(name: string, meta: StartTestMeta = {}) {
-    tmStartTest(this.#getTestMgmtCtx(), name, meta)
-  }
-
-  endTest(state: TestStats['state'] = 'passed') {
-    tmEndTest(this.#getTestMgmtCtx(), state)
-  }
-
-  startScenario(name: string, meta: StartScenarioMeta = {}) {
-    tmStartScenario(this.#getTestMgmtCtx(), name, meta)
-  }
-
-  endScenario(state: TestStats['state'] = 'passed') {
-    tmEndScenario(this.#getTestMgmtCtx(), state)
-  }
-
-  #flushPendingTestActions() {
-    tmFlushPendingTestActions(this.#getTestMgmtCtx())
-  }
-
-  #sessionCtx: SessionLifecycleCtx | undefined
-  #getSessionCtx(): SessionLifecycleCtx {
-    if (this.#sessionCtx) {
-      return this.#sessionCtx
-    }
-    const self = this
-    this.#sessionCtx = {
+    this.#internals = {
       get options() {
         return self.#options
       },
@@ -366,6 +296,9 @@ class SeleniumDevToolsPlugin {
       },
       get finalized() {
         return self.#finalized
+      },
+      get retryTracker() {
+        return self.#retryTracker
       },
       get driver() {
         return self.#driver
@@ -427,6 +360,18 @@ class SeleniumDevToolsPlugin {
       set keepAliveTimer(v) {
         self.#keepAliveTimer = v
       },
+      get pendingTestActions() {
+        return self.#pendingTestActions
+      },
+      set pendingTestActions(v) {
+        self.#pendingTestActions = v
+      },
+      get pendingScenario() {
+        return self.#pendingScenario
+      },
+      set pendingScenario(v) {
+        self.#pendingScenario = v
+      },
       setFinalized: (v) => {
         self.#finalized = v
       },
@@ -435,12 +380,33 @@ class SeleniumDevToolsPlugin {
       resetRetryTracker: () => self.#retryTracker.reset(),
       clearKeepAlive: () => self.clearKeepAlive()
     }
-    setPluginRef(this.#sessionCtx, this)
-    return this.#sessionCtx
+    setPluginRef(this.#internals, this)
+    return this.#internals
+  }
+
+  /** Public API: start a marked test. */
+  startTest(name: string, meta: StartTestMeta = {}) {
+    tmStartTest(this.#getInternals(), name, meta)
+  }
+
+  endTest(state: TestStats['state'] = 'passed') {
+    tmEndTest(this.#getInternals(), state)
+  }
+
+  startScenario(name: string, meta: StartScenarioMeta = {}) {
+    tmStartScenario(this.#getInternals(), name, meta)
+  }
+
+  endScenario(state: TestStats['state'] = 'passed') {
+    tmEndScenario(this.#getInternals(), state)
+  }
+
+  #flushPendingTestActions() {
+    tmFlushPendingTestActions(this.#getInternals())
   }
 
   async onDriverCreated(driver: SeleniumDriverLike) {
-    await sessionOnDriverCreated(this.#getSessionCtx(), driver)
+    await sessionOnDriverCreated(this.#getInternals(), driver)
   }
 
   async onCommand(cmd: CapturedCommand) {
@@ -514,11 +480,11 @@ class SeleniumDevToolsPlugin {
 
   /** Per-driver cleanup; keeps capturer/suite/testManager/backend alive. */
   async onDriverEnd() {
-    await sessionOnDriverEnd(this.#getSessionCtx())
+    await sessionOnDriverEnd(this.#getInternals())
   }
 
   async onSessionEnd() {
-    await sessionOnSessionEnd(this.#getSessionCtx())
+    await sessionOnSessionEnd(this.#getInternals())
   }
 
   async onProcessExit() {

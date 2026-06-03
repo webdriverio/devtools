@@ -13,14 +13,15 @@ import logger from '@wdio/logger'
 import { remote } from 'webdriverio'
 import { errorMessage } from '@wdio/devtools-core'
 import { REUSE_ENV } from '@wdio/devtools-shared'
-import { stop } from '@wdio/devtools-backend'
+import { start, stop } from '@wdio/devtools-backend'
 
 import type { SessionCapturer } from './session.js'
 import type { TestReporter } from './reporter.js'
 import type { SuiteManager } from './helpers/suiteManager.js'
 import type { TestManager } from './helpers/testManager.js'
 import type { NightwatchBrowser } from './types.js'
-import { TIMING } from './constants.js'
+import { TIMING, PLUGIN_GLOBAL_KEY } from './constants.js'
+import { findFreePort, resolveNightwatchConfig } from './helpers/utils.js'
 
 const log = logger('@wdio/nightwatch-devtools:run-lifecycle')
 
@@ -52,6 +53,56 @@ export function handleReuseMode(ctx: RunLifecycleCtx): void {
     ctx.failCount = 0
     ctx.skipCount = 0
     log.info('Cleared execution data for rerun')
+  }
+}
+
+export interface PluginBeforeCtx extends RunLifecycleCtx {
+  setConfigPath(v: string | undefined): void
+  openDevtoolsBrowserAt(url: string): Promise<void>
+  handleReuse(): void
+  // The plugin instance to assign to the global slot for cucumber hooks.
+  plugin: unknown
+}
+
+export async function runPluginBefore(ctx: PluginBeforeCtx): Promise<void> {
+  // When relaunched by the DevTools UI rerun button the backend is already
+  // running — skip startup and just connect the WebSocket worker.
+  const isReuse =
+    process.env[REUSE_ENV.REUSE] === '1' &&
+    !!process.env[REUSE_ENV.HOST] &&
+    !!process.env[REUSE_ENV.PORT]
+  if (isReuse) {
+    ctx.handleReuse()
+  }
+  const configPath = resolveNightwatchConfig()
+  ctx.setConfigPath(configPath)
+  if (configPath) {
+    log.info(`✓ Config: ${configPath}`)
+  } else {
+    log.warn(
+      'Could not find nightwatch config — test rerun will be unavailable'
+    )
+  }
+  if (isReuse) {
+    ;(globalThis as Record<string, unknown>)[PLUGIN_GLOBAL_KEY] = ctx.plugin
+    return
+  }
+  try {
+    ctx.options.port = await findFreePort(ctx.options.port, ctx.options.hostname)
+    log.info('🚀 Starting DevTools backend...')
+    const { port } = await start(ctx.options)
+    ctx.options.port = port
+    const url = `http://${ctx.options.hostname}:${ctx.options.port}`
+    log.info(`✓ Backend started on port ${ctx.options.port}`)
+    log.info(`  DevTools UI: ${url}`)
+    await ctx.openDevtoolsBrowserAt(url)
+    await new Promise((resolve) =>
+      setTimeout(resolve, TIMING.UI_CONNECTION_WAIT)
+    )
+    ;(globalThis as Record<string, unknown>)[PLUGIN_GLOBAL_KEY] = ctx.plugin
+  } catch (err) {
+    log.error(`Failed to start backend: ${errorMessage(err)}`)
+    throw err
   }
 }
 

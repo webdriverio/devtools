@@ -6,7 +6,6 @@
  */
 
 import { fileURLToPath } from 'node:url'
-import { start } from '@wdio/devtools-backend'
 import { errorMessage } from '@wdio/devtools-core'
 import { REUSE_ENV, SCREENCAST_DEFAULTS } from '@wdio/devtools-shared'
 import logger from '@wdio/logger'
@@ -16,8 +15,10 @@ import {
   finalizeAllSuites,
   logRunSummary,
   waitForDevtoolsBrowserClose,
-  type RunLifecycleCtx
+  runPluginBefore,
+  type PluginBeforeCtx
 } from './run-lifecycle.js'
+import type { PluginInternals } from './plugin-internals.js'
 import type { SessionCapturer } from './session.js'
 import type { TestReporter } from './reporter.js'
 import type { ScreencastRecorder } from './screencast.js'
@@ -35,8 +36,7 @@ import {
   cucumberBefore as cucumberLifecycleBefore,
   cucumberAfter as cucumberLifecycleAfter,
   cucumberBeforeStep as cucumberLifecycleBeforeStep,
-  cucumberAfterStep as cucumberLifecycleAfterStep,
-  type CucumberLifecycleCtx
+  cucumberAfterStep as cucumberLifecycleAfterStep
 } from './cucumber-lifecycle.js'
 import {
   resolveSuiteMetadata,
@@ -44,22 +44,17 @@ import {
   startNextTest,
   closePreviousRunningTest,
   wrapBrowserOnce,
-  closeOutTestcases,
-  type TestLifecycleCtx
+  closeOutTestcases
 } from './test-lifecycle.js'
 import {
   ensureSessionInitialized,
-  finalizeCurrentScreencast,
-  type SessionInitCtx
+  finalizeCurrentScreencast
 } from './session-init.js'
 import {
-  findFreePort,
-  resolveNightwatchConfig,
   getTestIcon,
   incrementCounters,
   buildPluginMetadataOptions
 } from './helpers/utils.js'
-import { TIMING, PLUGIN_GLOBAL_KEY } from './constants.js'
 
 const log = logger('@wdio/nightwatch-devtools')
 
@@ -110,131 +105,18 @@ class NightwatchDevToolsPlugin {
     this.#bidiEnabled = options.bidi === true
   }
 
-  #runCtx: RunLifecycleCtx | undefined
-  #getRunCtx(): RunLifecycleCtx {
-    if (this.#runCtx) {
-      return this.#runCtx
+  // Single internals "bag" — structurally satisfies all 4 lifecycle ctx
+  // interfaces. Lifecycle modules cast it to their narrow type at call time.
+  #internals: PluginInternals | undefined
+  #getInternals(): PluginInternals {
+    if (this.#internals) {
+      return this.#internals
     }
     const self = this
-    this.#runCtx = {
+    this.#internals = {
       get options() {
         return self.options
       },
-      get testReporter() {
-        return self.testReporter
-      },
-      get suiteManager() {
-        return self.suiteManager
-      },
-      get testManager() {
-        return self.testManager
-      },
-      get sessionCapturer() {
-        return self.sessionCapturer
-      },
-      get devtoolsBrowser() {
-        return self.#devtoolsBrowser
-      },
-      set devtoolsBrowser(v) {
-        self.#devtoolsBrowser = v
-      },
-      get userDataDir() {
-        return self.#userDataDir
-      },
-      set userDataDir(v) {
-        self.#userDataDir = v
-      },
-      get passCount() {
-        return self.#passCount
-      },
-      set passCount(v) {
-        self.#passCount = v
-      },
-      get failCount() {
-        return self.#failCount
-      },
-      set failCount(v) {
-        self.#failCount = v
-      },
-      get skipCount() {
-        return self.#skipCount
-      },
-      set skipCount(v) {
-        self.#skipCount = v
-      },
-      clearExecutionData: () => {
-        self.testReporter.clearExecutionData()
-        self.suiteManager.clearExecutionData()
-      }
-    }
-    return this.#runCtx
-  }
-
-  #handleReuseMode(): void {
-    handleReuseMode(this.#getRunCtx())
-  }
-
-  async #openDevtoolsBrowser(url: string): Promise<void> {
-    await openDevtoolsBrowser(this.#getRunCtx(), url)
-  }
-
-  async before() {
-    // When relaunched by the DevTools UI rerun button the backend is already
-    // running — skip startup and just connect the WebSocket worker.
-    const isReuse =
-      process.env[REUSE_ENV.REUSE] === '1' &&
-      process.env[REUSE_ENV.HOST] &&
-      process.env[REUSE_ENV.PORT]
-
-    if (isReuse) {
-      this.#handleReuseMode()
-    }
-
-    this.#configPath = resolveNightwatchConfig()
-    if (this.#configPath) {
-      log.info(`✓ Config: ${this.#configPath}`)
-    } else {
-      log.warn(
-        'Could not find nightwatch config — test rerun will be unavailable'
-      )
-    }
-
-    if (isReuse) {
-      // Register the plugin instance so Cucumber hooks can call back into it.
-      ;(globalThis as Record<string, unknown>)[PLUGIN_GLOBAL_KEY] = this
-      return
-    }
-
-    try {
-      this.options.port = await findFreePort(
-        this.options.port,
-        this.options.hostname
-      )
-      log.info('🚀 Starting DevTools backend...')
-      const { port } = await start(this.options)
-      this.options.port = port
-      const url = `http://${this.options.hostname}:${this.options.port}`
-      log.info(`✓ Backend started on port ${this.options.port}`)
-      log.info(`  DevTools UI: ${url}`)
-      await this.#openDevtoolsBrowser(url)
-      await new Promise((resolve) =>
-        setTimeout(resolve, TIMING.UI_CONNECTION_WAIT)
-      )
-      ;(globalThis as Record<string, unknown>)[PLUGIN_GLOBAL_KEY] = this
-    } catch (err) {
-      log.error(`Failed to start backend: ${errorMessage(err)}`)
-      throw err
-    }
-  }
-
-  #sessionCtx: SessionInitCtx | undefined
-
-  #getSessionCtx(): SessionInitCtx {
-    if (this.#sessionCtx) {
-      return this.#sessionCtx
-    }
-    const self = this
-    this.#sessionCtx = {
       get hostname() {
         return self.options.hostname
       },
@@ -283,6 +165,36 @@ class NightwatchDevToolsPlugin {
       set isScriptInjected(v) {
         self.isScriptInjected = v
       },
+      get devtoolsBrowser() {
+        return self.#devtoolsBrowser
+      },
+      set devtoolsBrowser(v) {
+        self.#devtoolsBrowser = v
+      },
+      get userDataDir() {
+        return self.#userDataDir
+      },
+      set userDataDir(v) {
+        self.#userDataDir = v
+      },
+      get passCount() {
+        return self.#passCount
+      },
+      set passCount(v) {
+        self.#passCount = v
+      },
+      get failCount() {
+        return self.#failCount
+      },
+      set failCount(v) {
+        self.#failCount = v
+      },
+      get skipCount() {
+        return self.#skipCount
+      },
+      set skipCount(v) {
+        self.#skipCount = v
+      },
       get lastSessionId() {
         return self.#lastSessionId
       },
@@ -315,79 +227,68 @@ class NightwatchDevToolsPlugin {
       },
       getCurrentTest: () => self.#currentTest,
       getCurrentScenarioSuite: () => self.#currentScenarioSuite,
-      buildMetadataOptions: () => self.#buildMetadataOptions()
+      getCurrentStep: () => self.#currentStep,
+      setCurrentTest: (t) => {
+        self.#currentTest = t
+      },
+      setCurrentScenarioSuite: (s) => {
+        self.#currentScenarioSuite = s
+      },
+      setCurrentStep: (s) => {
+        self.#currentStep = s
+      },
+      clearExecutionData: () => {
+        self.testReporter.clearExecutionData()
+        self.suiteManager.clearExecutionData()
+      },
+      buildMetadataOptions: () => self.#buildMetadataOptions(),
+      ensureSessionInitialized: (b) => self.#ensureSessionInitialized(b),
+      wrapBrowserOnce: (b) => self.#wrapBrowserOnce(b),
+      incrementCount: (s) => self.#incrementCount(s),
+      testIcon: (s) => self.#testIcon(s),
+      setCucumberRunner: (v) => {
+        self.#isCucumberRunner = v
+      },
+      getRerunLabel: () => self.#getRerunLabel()
     }
-    return this.#sessionCtx
+    return this.#internals
+  }
+
+  #handleReuseMode(): void {
+    handleReuseMode(this.#getInternals())
+  }
+
+  async #openDevtoolsBrowser(url: string): Promise<void> {
+    await openDevtoolsBrowser(this.#getInternals(), url)
+  }
+
+  async before() {
+    const internals = this.#getInternals() as unknown as PluginBeforeCtx
+    internals.setConfigPath = (v) => {
+      this.#configPath = v
+    }
+    internals.openDevtoolsBrowserAt = (url) => this.#openDevtoolsBrowser(url)
+    internals.handleReuse = () => this.#handleReuseMode()
+    internals.plugin = this
+    await runPluginBefore(internals)
   }
 
   async #ensureSessionInitialized(browser: NightwatchBrowser) {
-    await ensureSessionInitialized(this.#getSessionCtx(), browser, () =>
+    await ensureSessionInitialized(this.#getInternals(), browser, () =>
       this.#finalizeCurrentScreencast()
     )
   }
 
   async #finalizeCurrentScreencast(): Promise<void> {
-    await finalizeCurrentScreencast(this.#getSessionCtx())
-  }
-
-  #cucumberCtx: CucumberLifecycleCtx | undefined
-
-  #getCucumberCtx(): CucumberLifecycleCtx {
-    if (this.#cucumberCtx) {
-      return this.#cucumberCtx
-    }
-    // `self` reference lets the helper module reach plugin private fields
-    // — they're not accessible from outside the class even via `this`.
-    const self = this
-    this.#cucumberCtx = {
-      get sessionCapturer() {
-        return self.sessionCapturer
-      },
-      get testReporter() {
-        return self.testReporter
-      },
-      get testManager() {
-        return self.testManager
-      },
-      get suiteManager() {
-        return self.suiteManager
-      },
-      get browserProxy() {
-        return self.browserProxy
-      },
-      setCucumberRunner: (v) => {
-        self.#isCucumberRunner = v
-      },
-      ensureSessionInitialized: (b) => self.#ensureSessionInitialized(b),
-      wrapBrowserOnce: (b) => self.#wrapBrowserOnce(b),
-      incrementCount: (s) => self.#incrementCount(s),
-      testIcon: (s) => self.#testIcon(s),
-      getCurrentScenarioSuite: () => self.#currentScenarioSuite,
-      setCurrentScenarioSuite: (s) => {
-        self.#currentScenarioSuite = s
-      },
-      getCurrentStep: () => self.#currentStep,
-      setCurrentStep: (s) => {
-        self.#currentStep = s
-      },
-      setCurrentTest: (t) => {
-        self.#currentTest = t
-      }
-    }
-    return this.#cucumberCtx
+    await finalizeCurrentScreencast(this.#getInternals())
   }
 
   async cucumberBefore(browser: NightwatchBrowser, pickle: any) {
-    await cucumberLifecycleBefore(this.#getCucumberCtx(), browser, pickle)
+    await cucumberLifecycleBefore(this.#getInternals(), browser, pickle)
   }
 
   async cucumberAfter(browser: NightwatchBrowser, result: any, pickle: any) {
-    await cucumberLifecycleAfter(
-      this.#getCucumberCtx(),
-      browser,
-      result,
-      pickle
-    )
+    await cucumberLifecycleAfter(this.#getInternals(), browser, result, pickle)
   }
 
   async cucumberBeforeStep(
@@ -396,7 +297,7 @@ class NightwatchDevToolsPlugin {
     pickle: any
   ) {
     await cucumberLifecycleBeforeStep(
-      this.#getCucumberCtx(),
+      this.#getInternals(),
       browser,
       pickleStep,
       pickle
@@ -410,7 +311,7 @@ class NightwatchDevToolsPlugin {
     pickle: any
   ) {
     await cucumberLifecycleAfterStep(
-      this.#getCucumberCtx(),
+      this.#getInternals(),
       browser,
       result,
       pickleStep,
@@ -418,50 +319,8 @@ class NightwatchDevToolsPlugin {
     )
   }
 
-  #testCtx: TestLifecycleCtx | undefined
-
-  #getTestCtx(): TestLifecycleCtx {
-    if (this.#testCtx) {
-      return this.#testCtx
-    }
-    const self = this
-    this.#testCtx = {
-      get sessionCapturer() {
-        return self.sessionCapturer
-      },
-      get testReporter() {
-        return self.testReporter
-      },
-      get testManager() {
-        return self.testManager
-      },
-      get suiteManager() {
-        return self.suiteManager
-      },
-      get browserProxy() {
-        return self.browserProxy
-      },
-      get srcFolders() {
-        return self.#srcFolders
-      },
-      get isScriptInjected() {
-        return self.isScriptInjected
-      },
-      set isScriptInjected(v: boolean) {
-        self.isScriptInjected = v
-      },
-      getRerunLabel: () => self.#getRerunLabel(),
-      incrementCount: (s) => self.#incrementCount(s),
-      testIcon: (s) => self.#testIcon(s),
-      setCurrentTest: (t) => {
-        self.#currentTest = t
-      }
-    }
-    return this.#testCtx
-  }
-
   #resolveSuiteMetadata(currentTest: any) {
-    return resolveSuiteMetadata(this.#getTestCtx(), currentTest)
+    return resolveSuiteMetadata(this.#getInternals(), currentTest)
   }
 
   #pickCurrentTestName(
@@ -478,7 +337,7 @@ class NightwatchDevToolsPlugin {
     processedTests: Set<string>
   ): Promise<void> {
     await startNextTest(
-      this.#getTestCtx(),
+      this.#getInternals(),
       currentSuite,
       currentTestName,
       processedTests
@@ -491,7 +350,7 @@ class NightwatchDevToolsPlugin {
     currentTest: any
   ): Promise<void> {
     await closePreviousRunningTest(
-      this.#getTestCtx(),
+      this.#getInternals(),
       currentSuite,
       testFile,
       currentTest
@@ -499,7 +358,7 @@ class NightwatchDevToolsPlugin {
   }
 
   #wrapBrowserOnce(browser: NightwatchBrowser): void {
-    wrapBrowserOnce(this.#getTestCtx(), browser)
+    wrapBrowserOnce(this.#getInternals(), browser)
   }
 
   async beforeEach(browser: NightwatchBrowser) {
@@ -560,7 +419,7 @@ class NightwatchDevToolsPlugin {
   }
 
   async #closeOutTestcases(browser: NightwatchBrowser): Promise<void> {
-    await closeOutTestcases(this.#getTestCtx(), browser)
+    await closeOutTestcases(this.#getInternals(), browser)
   }
 
   async after(browser?: NightwatchBrowser) {
@@ -584,15 +443,15 @@ class NightwatchDevToolsPlugin {
   }
 
   async #finalizeAllSuites(browser?: NightwatchBrowser): Promise<void> {
-    await finalizeAllSuites(this.#getRunCtx(), browser)
+    await finalizeAllSuites(this.#getInternals(), browser)
   }
 
   #logRunSummary(): void {
-    logRunSummary(this.#getRunCtx())
+    logRunSummary(this.#getInternals())
   }
 
   async #waitForDevtoolsBrowserClose(): Promise<void> {
-    await waitForDevtoolsBrowserClose(this.#getRunCtx())
+    await waitForDevtoolsBrowserClose(this.#getInternals())
   }
 
   #buildMetadataOptions() {
