@@ -12,6 +12,6 @@
     "selenium-webdriver": "^4.44.0"
   },
   "devDependencies": {
-    "@cucumber/cucumber": "^11.3.0"
+    "@cucumber/cucumber": "^13.0.0"
   }
 }
