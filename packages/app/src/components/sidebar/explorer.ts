@@ -9,15 +9,20 @@ import type {
   SuiteStatsFragment,
   TestStatsFragment
 } from '../../controller/types.js'
-import type {
-  TestEntry,
-  RunCapabilities,
-  RunnerOptions,
-  TestRunDetail
-} from './types.js'
+import type { TestEntry, TestRunDetail } from './types.js'
 import { TestState } from './types.js'
-import { DEFAULT_CAPABILITIES, FRAMEWORK_CAPABILITIES } from './constants.js'
 import { getTestEntry } from './test-entry-state.js'
+import {
+  getCapabilityWarning,
+  getConfigPath,
+  getFramework,
+  getLaunchCommand,
+  getRerunCommand,
+  getRunCapabilities,
+  getRunDisabledReason,
+  isRunDisabled,
+  isRunDisabledDetail
+} from './runnerCapabilities.js'
 import {
   BASELINE_API,
   TESTS_API,
@@ -279,80 +284,34 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
     void this.#postToBackend(TESTS_API.stop, {})
   }
 
-  #getFramework(): string | undefined {
-    return this.#getRunnerOptions()?.framework
+  #getFramework() {
+    return getFramework(this.metadata)
   }
-
-  #getRunnerOptions(): RunnerOptions | undefined {
-    return this.metadata?.options as RunnerOptions | undefined
+  #getRunCapabilities() {
+    return getRunCapabilities(this.metadata)
   }
-
-  #getRunCapabilities(): RunCapabilities {
-    const options = this.#getRunnerOptions()
-    if (options?.runCapabilities) {
-      return {
-        ...DEFAULT_CAPABILITIES,
-        ...options.runCapabilities
-      }
-    }
-    const framework = options?.framework?.toLowerCase() ?? ''
-    return FRAMEWORK_CAPABILITIES[framework] || DEFAULT_CAPABILITIES
-  }
-
   #isRunDisabled(entry: TestEntry) {
-    const caps = this.#getRunCapabilities()
-    if (entry.type === 'test' && !caps.canRunTests) {
-      return true
-    }
-    if (entry.type === 'suite' && !caps.canRunSuites) {
-      return true
-    }
-    return false
+    return isRunDisabled(this.metadata, entry)
   }
-
   #isRunDisabledDetail(detail: TestRunDetail) {
-    const caps = this.#getRunCapabilities()
-    if (detail.entryType === 'test' && !caps.canRunTests) {
-      return true
-    }
-    if (detail.entryType === 'suite' && !caps.canRunSuites) {
-      return true
-    }
-    return false
+    return isRunDisabledDetail(this.metadata, detail)
   }
-
   #surfaceCapabilityWarning(detail: TestRunDetail) {
-    const message =
-      detail.entryType === 'test'
-        ? 'Single-test execution is not supported by this framework.'
-        : 'Suite execution is disabled by this framework.'
     window.dispatchEvent(
-      new CustomEvent('app-logs', {
-        detail: message
-      })
+      new CustomEvent('app-logs', { detail: getCapabilityWarning(detail) })
     )
   }
-
   #getRunDisabledReason(entry: TestEntry) {
-    if (!this.#isRunDisabled(entry)) {
-      return undefined
-    }
-    return entry.type === 'test'
-      ? 'Single-test execution is not supported by this framework.'
-      : 'Suite execution is not supported by this framework.'
+    return getRunDisabledReason(this.metadata, entry)
   }
-
-  #getConfigPath(): string | undefined {
-    const options = this.#getRunnerOptions()
-    return options?.configFilePath || options?.configFile
+  #getConfigPath() {
+    return getConfigPath(this.metadata)
   }
-
-  #getRerunCommand(): string | undefined {
-    return this.#getRunnerOptions()?.rerunCommand
+  #getRerunCommand() {
+    return getRerunCommand(this.metadata)
   }
-
-  #getLaunchCommand(): string | undefined {
-    return this.#getRunnerOptions()?.launchCommand
+  #getLaunchCommand() {
+    return getLaunchCommand(this.metadata)
   }
 
   #renderEntry(entry: TestEntry): TemplateResult {

@@ -1,5 +1,16 @@
 import { describe, it, expect, vi } from 'vitest'
-import { pollUntilReady } from '../src/script-loader.js'
+import { loadInjectableScript, pollUntilReady } from '../src/script-loader.js'
+
+describe('loadInjectableScript', () => {
+  it('wraps the @wdio/devtools-script payload in an async IIFE', async () => {
+    const wrapped = await loadInjectableScript()
+    expect(wrapped.startsWith('(async function() { ')).toBe(true)
+    expect(wrapped.endsWith(' })()')).toBe(true)
+    // Body must be non-empty — the actual script.js is shipped by the
+    // workspace build; this fails fast if the file is missing or empty.
+    expect(wrapped.length).toBeGreaterThan('(async function() {  })()'.length)
+  })
+})
 
 describe('pollUntilReady', () => {
   it('returns true as soon as the check succeeds', async () => {
