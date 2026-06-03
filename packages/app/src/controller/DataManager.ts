@@ -31,6 +31,7 @@ import {
   markRunningAsStopped
 } from './mark-running.js'
 import { shouldResetForNewRun } from './run-detection.js'
+import { mergeNetworkRequests, replaceCommand } from './contextUpdates.js'
 
 export class DataManagerController implements ReactiveController {
   #ws?: WebSocket
@@ -347,25 +348,13 @@ export class DataManagerController implements ReactiveController {
   }
 
   #handleReplaceCommand(oldTimestamp: number, newCommand: CommandLog) {
-    const current = this.commandsContextProvider.value || []
-    // Prefer stable `id` — chained selenium calls share a millisecond.
-    let idx = -1
-    const newId = (newCommand as CommandLog & { id?: number }).id
-    if (typeof newId === 'number') {
-      idx = current.findIndex(
-        (c) => (c as CommandLog & { id?: number }).id === newId
+    this.commandsContextProvider.setValue(
+      replaceCommand(
+        this.commandsContextProvider.value || [],
+        oldTimestamp,
+        newCommand
       )
-    }
-    if (idx === -1) {
-      idx = current.map((c) => c.timestamp).lastIndexOf(oldTimestamp)
-    }
-    if (idx !== -1) {
-      const updated = [...current]
-      updated[idx] = newCommand
-      this.commandsContextProvider.setValue(updated)
-    } else {
-      this.commandsContextProvider.setValue([...current, newCommand])
-    }
+    )
   }
 
   #handleConsoleLogsUpdate(data: string[]) {
@@ -376,28 +365,12 @@ export class DataManagerController implements ReactiveController {
   }
 
   #handleNetworkRequestsUpdate(data: NetworkRequest[]) {
-    const current = this.networkRequestsContextProvider.value || []
-    const byId = new Map<string, number>()
-    current.forEach((r, i) => {
-      if (r?.id) {
-        byId.set(r.id, i)
-      }
-    })
-    const next = [...current]
-    for (const incoming of data) {
-      if (!incoming?.id) {
-        next.push(incoming)
-        continue
-      }
-      const existingIdx = byId.get(incoming.id)
-      if (existingIdx !== undefined) {
-        next[existingIdx] = incoming
-      } else {
-        byId.set(incoming.id, next.length)
-        next.push(incoming)
-      }
-    }
-    this.networkRequestsContextProvider.setValue(next)
+    this.networkRequestsContextProvider.setValue(
+      mergeNetworkRequests(
+        this.networkRequestsContextProvider.value || [],
+        data
+      )
+    )
   }
 
   #handleMetadataUpdate(data: Metadata) {
