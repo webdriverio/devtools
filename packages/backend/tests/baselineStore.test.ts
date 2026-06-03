@@ -207,6 +207,144 @@ describe('baselineStore', () => {
     expect(snap.test.state).toBe('passed')
   })
 
+  it('filters consoleLogs to the test time window', () => {
+    baselineStore.recordEvent('consoleLogs', [
+      { type: 'log', args: ['before'], timestamp: 100 },
+      { type: 'log', args: ['inside'], timestamp: 250 },
+      { type: 'log', args: ['after'], timestamp: 900 }
+    ])
+    baselineStore.recordEvent('commands', [
+      { timestamp: 250, command: 'click', args: [] }
+    ])
+    baselineStore.recordEvent('suites', suite({ start: 200, end: 300 }))
+
+    const snap = baselineStore.snapshot(TEST_UID, 'test')!
+    expect(snap.consoleLogs.map((c) => c.args[0])).toEqual(['inside'])
+  })
+
+  it('filters mutations to the test time window', () => {
+    baselineStore.recordEvent('mutations', [
+      { type: 'attributes', timestamp: 100, addedNodes: [], removedNodes: [] },
+      { type: 'attributes', timestamp: 250, addedNodes: [], removedNodes: [] },
+      { type: 'attributes', timestamp: 900, addedNodes: [], removedNodes: [] }
+    ])
+    baselineStore.recordEvent('commands', [
+      { timestamp: 250, command: 'click', args: [] }
+    ])
+    baselineStore.recordEvent('suites', suite({ start: 200, end: 300 }))
+
+    const snap = baselineStore.snapshot(TEST_UID, 'test')!
+    expect(
+      snap.mutations.map((m) => (m as { timestamp: number }).timestamp)
+    ).toEqual([250])
+  })
+
+  it('filters networkRequests by span overlap with the window', () => {
+    baselineStore.recordEvent('networkRequests', [
+      // ends before window
+      {
+        id: '1',
+        startTime: 50,
+        endTime: 150,
+        url: '/a',
+        method: 'GET',
+        timestamp: 50,
+        type: 'fetch'
+      },
+      // overlaps window
+      {
+        id: '2',
+        startTime: 250,
+        endTime: 280,
+        url: '/b',
+        method: 'GET',
+        timestamp: 250,
+        type: 'fetch'
+      },
+      // starts after window
+      {
+        id: '3',
+        startTime: 500,
+        endTime: 600,
+        url: '/c',
+        method: 'GET',
+        timestamp: 500,
+        type: 'fetch'
+      }
+    ])
+    baselineStore.recordEvent('commands', [
+      { timestamp: 250, command: 'click', args: [] }
+    ])
+    baselineStore.recordEvent('suites', suite({ start: 200, end: 300 }))
+
+    const snap = baselineStore.snapshot(TEST_UID, 'test')!
+    expect(snap.networkRequests.map((r) => r.url)).toEqual(['/b'])
+  })
+
+  it('preserve returns undefined when the uid has no recorded node', () => {
+    expect(baselineStore.preserve('unknown-uid', 'test')).toBeUndefined()
+  })
+
+  it('preserve at suite scope captures the parent windowing leaf commands', () => {
+    baselineStore.recordEvent('commands', [
+      { timestamp: 150, command: 'one', args: [] },
+      { timestamp: 250, command: 'two', args: [] }
+    ])
+    baselineStore.recordEvent('suites', suite({ start: 100, end: 300 }))
+
+    const attempt = baselineStore.preserve(SUITE_UID, 'suite')!
+    expect(attempt.scope).toBe('suite')
+    expect(attempt.commands.map((c) => c.command)).toEqual(['one', 'two'])
+  })
+
+  it('recordEvent ignores falsy data', () => {
+    // No throw and no side effect
+    baselineStore.recordEvent('commands', null)
+    baselineStore.recordEvent('commands', undefined)
+    baselineStore.recordEvent('commands', 0 as never)
+
+    baselineStore.recordEvent('suites', suite({ start: 100, end: 200 }))
+    // Empty array also no-ops without throwing
+    baselineStore.recordEvent('commands', [])
+    expect(baselineStore.snapshot(TEST_UID, 'test')?.commands ?? []).toEqual([])
+  })
+
+  it('recordEvent merges sources via assign', () => {
+    baselineStore.recordEvent('sources', { '/a.ts': 'A' })
+    baselineStore.recordEvent('sources', { '/b.ts': 'B' })
+    baselineStore.recordEvent('commands', [
+      { timestamp: 150, command: 'click', args: [] }
+    ])
+    baselineStore.recordEvent('suites', suite({ start: 100, end: 200 }))
+
+    const snap = baselineStore.snapshot(TEST_UID, 'test')!
+    expect(snap.sources).toEqual({ '/a.ts': 'A', '/b.ts': 'B' })
+  })
+
+  it('networkRequests are deduped by id across multiple recordEvent calls', () => {
+    const base = {
+      startTime: 250,
+      endTime: 260,
+      method: 'GET',
+      timestamp: 250,
+      type: 'fetch'
+    }
+    baselineStore.recordEvent('networkRequests', [
+      { id: '1', url: '/a', ...base }
+    ])
+    baselineStore.recordEvent('networkRequests', [
+      { id: '1', url: '/a-updated', ...base },
+      { id: '2', url: '/b', ...base }
+    ])
+    baselineStore.recordEvent('commands', [
+      { timestamp: 250, command: 'click', args: [] }
+    ])
+    baselineStore.recordEvent('suites', suite({ start: 200, end: 300 }))
+
+    const snap = baselineStore.snapshot(TEST_UID, 'test')!
+    expect(snap.networkRequests.map((r) => r.url)).toEqual(['/a-updated', '/b'])
+  })
+
   it('rolls a running descendant up so a suite without explicit state shows running', () => {
     baselineStore.recordEvent('commands', [
       { timestamp: 150, command: 'go', args: [] }

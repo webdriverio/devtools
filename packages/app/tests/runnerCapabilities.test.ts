@@ -21,10 +21,10 @@ function md(options: Record<string, unknown> = {}): Metadata {
 }
 
 function entry(type: 'test' | 'suite'): TestEntry {
-  return { type, uid: 'u', title: 't' } as TestEntry
+  return { type, uid: 'u', label: 'u', children: [] }
 }
 function detail(entryType: 'test' | 'suite'): TestRunDetail {
-  return { entryType, uid: 'u' } as TestRunDetail
+  return { entryType, uid: 'u' }
 }
 
 describe('getFramework', () => {

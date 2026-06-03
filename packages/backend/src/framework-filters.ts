@@ -129,9 +129,21 @@ FRAMEWORK_FILTERS.set('nightwatch-cucumber', ({ payload }) => {
 const DEFAULT_FILTERS: FilterBuilder = ({ specArg }) =>
   specArg ? ['--spec', specArg] : []
 
-/** Resolve the filter builder for a given runner, falling back to spec-only. */
-export function getFilterBuilder(
-  runnerId: TestRunnerId | undefined
-): FilterBuilder {
-  return (runnerId && FRAMEWORK_FILTERS.get(runnerId)) || DEFAULT_FILTERS
+/**
+ * Resolve the filter builder for a given runner, falling back to spec-only.
+ *
+ * Takes `string | undefined` (not `TestRunnerId`) so callers can pass the
+ * raw HTTP-payload value without a cast — the lookup is validated against
+ * the Map's keys at runtime, which closes CodeQL's
+ * `unvalidated-dynamic-method-call` finding at the call boundary.
+ */
+export function getFilterBuilder(runnerId: string | undefined): FilterBuilder {
+  if (!runnerId) {
+    return DEFAULT_FILTERS
+  }
+  // Map.get on a string key is prototype-safe, and constraining the result
+  // to known TestRunnerId entries keeps untrusted input from dispatching
+  // to unexpected targets.
+  const entry = FRAMEWORK_FILTERS.get(runnerId as TestRunnerId)
+  return entry ?? DEFAULT_FILTERS
 }
