@@ -59,7 +59,7 @@ interface NetworkInspector {
   responseCompleted: (cb: (e: unknown) => void) => Promise<void>
 }
 
-function handleBidiConsoleEntry(
+export function handleBidiConsoleEntry(
   rawEntry: unknown,
   sinks: BidiHandlerSinks,
   log: BidiLogger
@@ -85,7 +85,7 @@ function handleBidiConsoleEntry(
   }
 }
 
-function handleBidiJsException(
+export function handleBidiJsException(
   rawExc: unknown,
   sinks: BidiHandlerSinks,
   log: BidiLogger
@@ -153,7 +153,7 @@ interface ResponseCompletedEvent {
   }
 }
 
-function handleBidiRequestSent(
+export function handleBidiRequestSent(
   rawEvent: unknown,
   pending: Map<string, NetworkRequest>,
   sinks: BidiHandlerSinks,
@@ -181,7 +181,7 @@ function handleBidiRequestSent(
   }
 }
 
-function handleBidiResponseCompleted(
+export function handleBidiResponseCompleted(
   rawEvent: unknown,
   pending: Map<string, NetworkRequest>,
   sinks: BidiHandlerSinks,
