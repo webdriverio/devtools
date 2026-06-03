@@ -9,7 +9,11 @@
  */
 
 import logger from '@wdio/logger'
-import { errorMessage, finalizeScreencast } from '@wdio/devtools-core'
+import {
+  errorMessage,
+  finalizeScreencast,
+  resolveAdapterOutputDir
+} from '@wdio/devtools-core'
 import { TIMING } from './constants.js'
 import { SessionCapturer } from './session.js'
 import { TestReporter } from './reporter.js'
@@ -46,7 +50,7 @@ export interface SessionLifecycleCtx {
   screencast: ScreencastRecorder | undefined
   sessionId: string | undefined
   scriptInjected: boolean
-  testFileDir: string | undefined
+  testFilePath: string | undefined
   keepAliveTimer: ReturnType<typeof setInterval> | undefined
 
   setFinalized(v: boolean): void
@@ -171,7 +175,9 @@ export async function onDriverEnd(ctx: SessionLifecycleCtx): Promise<void> {
       recorder: ctx.screencast,
       sessionId: ctx.sessionId,
       filenamePrefix: 'selenium-video',
-      outputDir: ctx.testFileDir,
+      outputDir: resolveAdapterOutputDir({
+        testFilePath: ctx.testFilePath
+      }),
       captureFormat: ctx.screencastOptions.captureFormat,
       sendUpstream: (scope, data) =>
         ctx.sessionCapturer?.sendUpstream(scope, data),

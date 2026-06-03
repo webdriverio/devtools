@@ -25,16 +25,16 @@ import type { ScreencastRecorder } from './screencast.js'
 import type { TestManager } from './helpers/testManager.js'
 import type { SuiteManager } from './helpers/suiteManager.js'
 import type { BrowserProxy } from './helpers/browserProxy.js'
-import {
-  TraceType,
-  type DevToolsOptions,
-  type NightwatchBrowser,
-  type NightwatchCurrentTest,
-  type NightwatchEventHub,
-  type ScreencastOptions,
-  type SuiteStats,
-  type TestStats
+import type {
+  DevToolsOptions,
+  NightwatchBrowser,
+  NightwatchCurrentTest,
+  NightwatchEventHub,
+  ScreencastOptions,
+  SuiteStats,
+  TestStats
 } from './types.js'
+import { registerEventHandlers as registerEventHandlersImpl } from './event-hub.js'
 import {
   cucumberBefore as cucumberLifecycleBefore,
   cucumberAfter as cucumberLifecycleAfter,
@@ -233,6 +233,9 @@ class NightwatchDevToolsPlugin {
       },
       set screencastSessionId(v) {
         self.#screencastSessionId = v
+      },
+      get configPath() {
+        return self.#configPath
       },
       getCurrentTest: () => self.#currentTest,
       getCurrentScenarioSuite: () => self.#currentScenarioSuite,
@@ -489,41 +492,13 @@ class NightwatchDevToolsPlugin {
   }
 
   registerEventHandlers(eventHub: NightwatchEventHub): void {
-    this.#isCucumberRunner = eventHub.runner === 'cucumber'
-    if (this.#isCucumberRunner) {
-      log.info('✓ Cucumber runner detected via NightwatchEventHub')
-    }
-    log.info('✓ NightwatchEventHub registered — enriched metadata enabled')
-
-    const handleSessionMetadata = (data: unknown) => {
-      try {
-        const metadata =
-          ((data as { metadata?: Record<string, unknown> } | undefined)
-            ?.metadata as Record<string, unknown> | undefined) ?? {}
-        const sessionCapabilities = metadata.sessionCapabilities
-        const sessionId = metadata.sessionId as string | undefined
-        const testEnv = metadata.testEnv as string | undefined
-        const host = metadata.host as string | undefined
-        const modulePath = metadata.modulePath as string | undefined
-
-        if (this.sessionCapturer && (sessionCapabilities || sessionId)) {
-          this.sessionCapturer.sendUpstream('metadata', {
-            type: TraceType.Testrunner,
-            capabilities: sessionCapabilities ?? {},
-            sessionId,
-            testEnv,
-            host,
-            modulePath,
-            options: this.#buildMetadataOptions()
-          })
-        }
-      } catch (err) {
-        log.error(`Error in event handler: ${errorMessage(err)}`)
+    registerEventHandlersImpl(eventHub, {
+      getSessionCapturer: () => this.sessionCapturer,
+      buildMetadataOptions: () => this.#buildMetadataOptions(),
+      setCucumberRunner: (v: boolean) => {
+        this.#isCucumberRunner = v
       }
-    }
-
-    eventHub.on('TestSuiteStarted', handleSessionMetadata)
-    eventHub.on('TestRunStarted', handleSessionMetadata)
+    })
   }
 }
 

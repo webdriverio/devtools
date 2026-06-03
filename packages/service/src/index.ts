@@ -14,7 +14,10 @@ import { DevToolsAppLauncher } from './launcher.js'
 import { getBrowserObject, isUserSpecFile } from './utils.js'
 import { ScreencastRecorder } from './screencast.js'
 import { attachBidiListeners } from './bidi-listeners.js'
-import { finalizeScreencast } from '@wdio/devtools-core'
+import {
+  finalizeScreencast,
+  resolveAdapterOutputDir
+} from '@wdio/devtools-core'
 import { parse } from 'stack-trace'
 import {
   type TraceLog,
@@ -353,22 +356,25 @@ export default class DevToolsHookService implements Services.ServiceInstance {
 
   /**
    * Resolves the directory where devtools output files (trace JSON, video WebM)
-   * should be written, using the following priority:
-   *  1. `outputDir` if the user explicitly set it in wdio.conf — respected as-is.
-   *  2. `rootDir`   — WDIO automatically sets this to the directory containing
-   *                   wdio.conf.ts, so files always land next to the config file
-   *                   regardless of where the `wdio` command is invoked from.
-   *  3. `process.cwd()` — last-resort fallback.
+   * should be written.
    *
-   * NOTE: Avoid setting `outputDir` in wdio.conf just to fix the output path —
-   * doing so redirects WDIO worker logs to files and silences the terminal.
+   * WDIO-specific quirk: `wdio.conf.ts`'s `outputDir` (or the auto-set
+   * `rootDir`) is the authoritative location — both are honored as-is via
+   * `userConfiguredDir`, bypassing the test-file fallback. This preserves
+   * the long-standing WDIO behavior of writing files next to the config.
+   * Falls back to `process.cwd()`.
+   *
+   * NOTE: Avoid setting `outputDir` in wdio.conf just to fix the output path
+   * — doing so redirects WDIO worker logs to files and silences the terminal.
    * Rely on `rootDir` instead (it is set automatically by WDIO).
    */
   get #outputDir(): string {
     const opts = this.#browser?.options as
       | { outputDir?: string; rootDir?: string }
       | undefined
-    return opts?.outputDir || opts?.rootDir || process.cwd()
+    return resolveAdapterOutputDir({
+      userConfiguredDir: opts?.outputDir || opts?.rootDir
+    })
   }
 
   /**
