@@ -10,7 +10,8 @@ import { getCallSourceFromStack } from './helpers/utils.js'
 import type {
   DriverOriginals,
   DriverPatcherHooks,
-  ElementOriginals
+  ElementOriginals,
+  SeleniumDriverLike
 } from './types.js'
 
 const log = logger('@wdio/selenium-devtools:driverPatcher')
@@ -232,7 +233,7 @@ function patchDriverQuit(
   driverProto.quit = async function patchedQuit(this: unknown) {
     if (hooks.onBeforeQuit) {
       try {
-        await hooks.onBeforeQuit(this)
+        await hooks.onBeforeQuit(this as SeleniumDriverLike)
       } catch (err) {
         log.warn(`onBeforeQuit hook threw: ${errorMessage(err)}`)
       }
@@ -290,32 +291,47 @@ function patchBuilder(
         log.warn(`onBeforeBuild hook threw: ${errorMessage(err)}`)
       }
     }
-    const driver = originalBuild.apply(this, args)
+    const driver = originalBuild.apply(this, args) as SeleniumDriverLike
+    let onDriverCreatedPromise: Promise<unknown> | undefined
     try {
       const result = hooks.onDriverCreated(driver)
       if (result && typeof (result as Promise<unknown>).then === 'function') {
-        ;(result as Promise<unknown>).catch((err) =>
+        // Capture so the `await new Builder().build()` thenable patch
+        // below can also wait on session setup (screencast / BiDi / metadata).
+        // Without this, the user's test body fires the moment waitForReady()
+        // resolves — which for the SECOND test is "immediately" because the
+        // dashboard UI is already connected — and races against an in-flight
+        // screencast.start(). Net effect: missing 2nd-test video.
+        const p = (result as Promise<unknown>).catch((err) => {
           log.warn(`onDriverCreated hook rejected: ${errorMessage(err)}`)
-        )
+        })
+        onDriverCreatedPromise = p
       }
     } catch (err) {
       log.warn(`onDriverCreated hook threw: ${errorMessage(err)}`)
     }
-    extendDriverThenable(driver, hooks)
+    extendDriverThenable(driver, hooks, onDriverCreatedPromise)
     return driver
   }
   log.info('Patched Builder.prototype.build')
 }
 
 // Selenium 4: WebDriver is thenable. Extend `.then` so `await Builder.build()`
-// also waits for the dashboard to connect. Selenium 3 may not be — cast once.
+// also waits for (a) the dashboard to connect AND (b) the in-flight session
+// setup from `onDriverCreated` (screencast + BiDi + metadata). Without (b),
+// the user's test body races against capture wiring on fast tests.
+// Selenium 3 may not be thenable — cast once.
 function extendDriverThenable(
   driver: unknown,
-  hooks: DriverPatcherHooks
+  hooks: DriverPatcherHooks,
+  onDriverCreatedPromise: Promise<unknown> | undefined
 ): void {
   const d = driver as Patchable
   const isThenable = driver && typeof d.then === 'function'
-  if (!isThenable || !hooks.waitForReady) {
+  if (!isThenable) {
+    return
+  }
+  if (!hooks.waitForReady && !onDriverCreatedPromise) {
     return
   }
   const originalThen = (d.then as (...args: unknown[]) => unknown).bind(driver)
@@ -324,11 +340,16 @@ function extendDriverThenable(
     onRejected?: (reason: unknown) => unknown
   ) {
     return originalThen(async (resolved: unknown) => {
-      try {
-        await hooks.waitForReady!()
-      } catch {
-        /* fall through — don't block forever on UI failures */
+      // Wait for both UI readiness and session-setup completion in parallel.
+      // Either can fail — don't block forever on UI or capture issues.
+      const waiters: Promise<unknown>[] = []
+      if (hooks.waitForReady) {
+        waiters.push(hooks.waitForReady().catch(() => {}))
       }
+      if (onDriverCreatedPromise) {
+        waiters.push(onDriverCreatedPromise.catch(() => {}))
+      }
+      await Promise.all(waiters)
       return onFulfilled ? onFulfilled(resolved) : resolved
     }, onRejected)
   }
@@ -349,7 +370,7 @@ export function patchSelenium(hooks: DriverPatcherHooks): boolean {
   }
 
   // Stash unwrapped originals before any patching.
-  stashDriverOriginals(WebDriver.prototype)
+  stashDriverOriginals(WebDriver.prototype as Patchable)
 
   const tracked = collectMethodNames(WebDriver.prototype).filter(
     (m) => !(INTERNAL_DRIVER_METHODS as readonly string[]).includes(m)
@@ -362,7 +383,7 @@ export function patchSelenium(hooks: DriverPatcherHooks): boolean {
   )
   log.info(`Wrapped ${wrappedDriver.length} WebDriver method(s)`)
 
-  patchDriverQuit(WebDriver.prototype, hooks)
+  patchDriverQuit(WebDriver.prototype as Patchable, hooks)
   if (WebElement) {
     patchWebElement(WebElement, hooks)
   }

@@ -297,7 +297,19 @@ export class SessionCapturer extends SessionCapturerBase {
       return
     }
     try {
-      const entries = await manage(driver).logs().get('browser')
+      // selenium-webdriver's Options.logs() chain is untyped at our boundary;
+      // narrow the result locally rather than typing the whole chain.
+      type RawBrowserLog = {
+        level: unknown
+        message: string
+        timestamp: number
+      }
+      const logs = (
+        manage(driver) as {
+          logs: () => { get: (t: string) => Promise<RawBrowserLog[]> }
+        }
+      ).logs()
+      const entries = await logs.get('browser')
       if (!Array.isArray(entries) || entries.length === 0) {
         return
       }
