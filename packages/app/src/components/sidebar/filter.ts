@@ -36,13 +36,14 @@ export class DevtoolsSidebarFilter extends Element {
   @query('input[name="filter"]')
   queryInput?: HTMLInputElement
 
-  #updateState(change: any) {
-    if (!change.target) {
+  #updateState(change: Event) {
+    const target = change.target as HTMLInputElement | null
+    if (!target) {
       return
     }
-    this.#filterState = change.target.checked
-      ? this.#filterState + Number(change.target.value)
-      : this.#filterState - Number(change.target.value)
+    this.#filterState = target.checked
+      ? this.#filterState + Number(target.value)
+      : this.#filterState - Number(target.value)
     this.requestUpdate()
     this.#emitState()
   }

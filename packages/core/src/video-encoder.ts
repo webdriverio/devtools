@@ -28,9 +28,24 @@ const require = createRequire(import.meta.url)
  * @throws If no frames are provided, fluent-ffmpeg is not installed, or
  *         the ffmpeg binary is not found on PATH.
  */
-function loadFfmpeg(): any {
+// fluent-ffmpeg is loaded lazily and its types aren't worth pinning — we
+// only call a tiny chained builder API on it. `unknown` at the boundary
+// + a single cast in the runner keeps the surface honest.
+type FfmpegBuilder = {
+  input(path: string): FfmpegBuilder
+  inputOptions(opts: string[]): FfmpegBuilder
+  videoCodec(name: string): FfmpegBuilder
+  outputOptions(opts: string[]): FfmpegBuilder
+  output(path: string): FfmpegBuilder
+  on(event: 'end', cb: () => void): FfmpegBuilder
+  on(event: 'error', cb: (err: Error) => void): FfmpegBuilder
+  run(): void
+}
+type FfmpegFactory = () => FfmpegBuilder
+
+function loadFfmpeg(): FfmpegFactory {
   try {
-    return require('fluent-ffmpeg')
+    return require('fluent-ffmpeg') as FfmpegFactory
   } catch {
     throw new Error(
       'VideoEncoder: fluent-ffmpeg is required for screencast encoding. ' +
@@ -83,7 +98,7 @@ function classifyFfmpegError(err: Error): Error {
 }
 
 function runFfmpeg(
-  ffmpeg: any,
+  ffmpeg: FfmpegFactory,
   manifestPath: string,
   outputPath: string
 ): Promise<void> {

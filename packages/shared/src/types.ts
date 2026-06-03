@@ -78,8 +78,8 @@ export interface DocumentInfo {
 
 export interface CommandLog {
   command: string
-  args: any[]
-  result?: any
+  args: unknown[]
+  result?: unknown
   error?: Error | { name: string; message: string; stack?: string }
   timestamp: number
   callSource?: string
@@ -105,7 +105,7 @@ export interface ReplaceCommandWsPayload {
 
 export interface ConsoleLog {
   type: LogLevel
-  args: any[]
+  args: unknown[]
   timestamp: number
   source?: LogSource
 }
@@ -115,7 +115,7 @@ export interface NetworkRequest {
   url: string
   method: string
   headers?: Record<string, string>
-  cookies?: any[]
+  cookies?: unknown[]
   status?: number
   statusText?: string
   timestamp: number
@@ -127,7 +127,7 @@ export interface NetworkRequest {
   requestHeaders?: Record<string, string>
   responseHeaders?: Record<string, string>
   navigation?: string
-  redirectChain?: any[]
+  redirectChain?: unknown[]
   children?: NetworkRequest[]
   response?: {
     fromCache: boolean

@@ -97,7 +97,7 @@ export function detectLogLevel(text: string): LogLevel {
 /** Build a ConsoleLog entry tagged with the supplied source. */
 export function createConsoleLogEntry(
   type: LogLevel,
-  args: any[],
+  args: unknown[],
   source: LogSource = LOG_SOURCES.TEST
 ): ConsoleLog {
   return { timestamp: Date.now(), type, args, source }

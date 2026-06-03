@@ -99,12 +99,20 @@ declare module '@wdio/reporter' {
   }
 }
 
+/** Minimal contract `findStepDefinitionLocation` uses when matching against
+ *  a Cucumber-expression step. The real instance comes from the optional
+ *  `@cucumber/cucumber-expressions` peer — its types are loose across
+ *  versions, so we pin only what's invoked. */
+export interface CucumberExpressionLike {
+  match(text: string): unknown
+}
+
 export type StepDef = {
   kind: 'regex' | 'string' | 'expression'
   keyword?: string
   text?: string
   regex?: RegExp
-  expr?: any
+  expr?: CucumberExpressionLike
   file: string
   line: number
   column: number

@@ -352,7 +352,7 @@ export abstract class SessionCapturerBase {
   protected patchConsole(): void {
     CONSOLE_METHODS.forEach((method) => {
       const original = this.#originalConsoleMethods[method]
-      console[method] = (...args: any[]) => {
+      console[method] = (...args: unknown[]) => {
         this.#isCapturingConsole = true
         const result = original.apply(console, args)
         this.#isCapturingConsole = false
@@ -409,16 +409,23 @@ export abstract class SessionCapturerBase {
       }
     }
 
+    // `stream.write` has Node's complex multi-overload signature that
+    // doesn't unify with a generic `unknown[]` rest type — keep the
+    // original ref typed by the stream itself.
     const wrap = (
       stream: NodeJS.WriteStream,
-      original: (...a: any[]) => boolean
+      original: NodeJS.WriteStream['write']
     ) => {
       const capturer = this
       // `stream.write` has Node's multi-overload signature that's hard to
       // satisfy with a single function expression — cast to the stream's
       // own `write` member type rather than `any`.
       stream.write = function (chunk: unknown, ...rest: unknown[]): boolean {
-        const result = original.call(stream, chunk, ...rest)
+        // Cast original to a permissive shape — Node's multi-overload
+        // signature for `stream.write` can't be unified with the `unknown`-
+        // typed chunk we receive at the wrap boundary.
+        const writeAny = original as unknown as (...a: unknown[]) => boolean
+        const result = writeAny.call(stream, chunk, ...rest)
         if (chunk && !capturer.#isCapturingConsole) {
           captureChunk(chunk as string | Uint8Array)
         }
