@@ -23,7 +23,6 @@ import {
   pairSteps,
   classifyDivergence,
   cleanErrorMessage,
-  safeJson,
   type ComparePairedStep,
   type DivergenceKind
 } from './compare/compareUtils.js'
@@ -43,9 +42,9 @@ import { compareStyles } from './compare/styles.js'
 import {
   liveStepsForUid,
   findStepFor,
-  isFailureSite,
-  computeDetailBlockData
+  isFailureSite
 } from './compare/stepResolution.js'
+import { renderDetailBlock } from './compare/renderDetailBlock.js'
 
 const COMPONENT = 'wdio-devtools-compare'
 
@@ -425,107 +424,16 @@ export class DevtoolsCompare extends Element {
     `
   }
 
-  #renderDetailStepBanner(step: PreservedStep | undefined, stepText: string) {
-    if (!step) {
-      return nothing
-    }
-    const color =
-      step.state === 'failed'
-        ? 'var(--vscode-charts-red,#f48771)'
-        : 'var(--vscode-charts-green,#73c373)'
-    return html`<pre
-      style="opacity:0.85; border-left:2px solid ${color}; padding-left:0.5rem;"
-    >
-step: ${stepText || step.uid}</pre
-    >`
-  }
-
-  #renderExpectedActualAssertion(
-    expected: unknown,
-    actual: unknown,
-    assertionMessage: string | undefined,
-    fallbackExpected: string | undefined
-  ) {
-    return html`
-      ${expected !== undefined
-        ? html`<pre
-            style="color:var(--vscode-charts-green,#73c373); white-space:pre-wrap; word-break:break-word;"
-          >
-expected: ${safeJson(expected)}</pre
-          >`
-        : fallbackExpected
-          ? html`<pre
-              style="color:var(--vscode-charts-green,#73c373); white-space:pre-wrap; word-break:break-word;"
-              title="Derived from the step text (the assertion library didn't surface a structured expected value)"
-            >
-expected (from step): ${fallbackExpected}</pre
-            >`
-          : nothing}
-      ${actual !== undefined
-        ? html`<pre
-            style="color:var(--vscode-charts-orange,#d19a66); white-space:pre-wrap; word-break:break-word;"
-          >
-actual:   ${safeJson(actual)}</pre
-          >`
-        : nothing}
-      ${assertionMessage
-        ? html`<pre
-            style="color:var(--vscode-charts-red,#f48771); white-space:pre-wrap; word-break:break-word; max-height:200px; overflow:auto;"
-          >
-assertion: ${assertionMessage}</pre
-          >`
-        : nothing}
-    `
-  }
-
   #renderDetailBlock(
     label: string,
     cmd: CommandLog | undefined,
     side: 'baseline' | 'latest'
   ) {
-    if (!cmd) {
-      return html`<div class="detail-block">
-        <h4>${label}</h4>
-        <em style="opacity:0.6;">No command at this step</em>
-      </div>`
-    }
-    // Only the failure-site command shows step-level expected/actual/assertion;
-    // other commands in the failed step succeeded individually.
-    const allCmdsThisSide =
-      side === 'baseline'
-        ? ((this.#getBaseline()?.commands ?? []) as CommandLog[])
-        : this.#liveCommandsForSelectedUid()
-    const data = computeDetailBlockData(
-      cmd,
-      this.#findStepFor(cmd, side),
-      allCmdsThisSide
-    )
-    return html`
-      <div class="detail-block">
-        <h4>${label} · ${cmd.command}</h4>
-        ${this.#renderDetailStepBanner(data.step, data.stepText)}
-        <pre>args: ${data.argsStr}</pre>
-        ${cmd.error
-          ? html`<pre style="color:var(--vscode-charts-red,#f48771);">
-error: ${cmd.error.message || String(cmd.error)}</pre
-            >`
-          : html`<pre>result: ${data.resultStr}</pre>`}
-        ${this.#renderExpectedActualAssertion(
-          data.expected,
-          data.actual,
-          data.assertionMessage,
-          data.fallbackExpected
-        )}
-        ${cmd.screenshot
-          ? html`<img
-              src="${cmd.screenshot.startsWith('data:')
-                ? cmd.screenshot
-                : `data:image/png;base64,${cmd.screenshot}`}"
-              style="max-width:100%; margin-top:0.25rem; border:1px solid var(--vscode-panel-border,#2a2a2a);"
-            />`
-          : nothing}
-      </div>
-    `
+    return renderDetailBlock(label, cmd, side, {
+      baseline: this.#getBaseline(),
+      liveCommandsForSelectedUid: () => this.#liveCommandsForSelectedUid(),
+      findStepFor: (c, s) => this.#findStepFor(c, s)
+    })
   }
 
   #toggleExpand(index: number) {
