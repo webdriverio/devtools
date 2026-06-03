@@ -75,10 +75,12 @@ When BiDi is active in Selenium or Nightwatch, the per-command Chrome performanc
 - **Status Indicators**: Visual feedback for test pass/fail states in the editor
 
 ### 🏗️ Architecture
-- **Frontend**: Lit web components with reactive state management (@lit/context)
+- **Frontend**: Lit web components with reactive state management (`@lit/context`)
 - **Backend**: Fastify server with WebSocket streaming for real-time updates
-- **Service**: WebdriverIO reporter integration with stable UID generation
+- **Shared core**: All three adapters share the same capture/reporting library (`@wdio/devtools-core`) — `SessionCapturerBase`, `TestReporterBase`, `ScreencastRecorderBase`, plus pure helpers for console/network/error/sourcemap/BiDi
 - **Process Management**: Tree-kill for proper cleanup of spawned processes
+
+See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full package map and data flow, and [CLAUDE.md](./CLAUDE.md) for the conventions in place across the repo.
 
 ## Demo
 
@@ -174,13 +176,17 @@ Using `selenium-webdriver` directly — under Mocha, Jest, Cucumber, or a plain 
 
 ```
 packages/
+├── shared/                # Types, constants, HTTP/WS contracts — single source of truth
+├── core/                  # Framework-agnostic capture/reporting library (SessionCapturerBase, etc.)
 ├── app/                   # Frontend Lit-based UI application
-├── backend/               # Fastify server with test runner management
-├── service/               # WebdriverIO service and reporter
-├── script/                # Browser-injected trace collection script
-├── nightwatch-devtools/   # Nightwatch adapter plugin
-└── selenium-devtools/     # Selenium WebDriver adapter plugin
+├── backend/               # Fastify server, WS gateway, baseline store, rerun spawner
+├── script/                # Browser-injected trace collection script (runs in the page under test)
+├── service/               # WebdriverIO adapter (@wdio/devtools-service)
+├── nightwatch-devtools/   # Nightwatch adapter (@wdio/nightwatch-devtools)
+└── selenium-devtools/     # Selenium WebDriver adapter (@wdio/selenium-devtools)
 ```
+
+`shared` and `core` are workspace-internal (`"private": true`) — every consumer bundles them into its own `dist/` at build time. The three adapter packages each translate framework-specific hooks into calls on `core`'s shared capture library; `backend` and `app` import only from `shared` and communicate via the WS/HTTP boundary.
 
 ## Contributing
 
