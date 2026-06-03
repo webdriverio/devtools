@@ -7,8 +7,7 @@ import { parse as shellParse, quote as shellQuote } from 'shell-quote'
 import {
   REUSE_ENV,
   RUNNER_ENV,
-  type RunnerRequestBody,
-  type TestRunnerId
+  type RunnerRequestBody
 } from '@wdio/devtools-shared'
 import { WDIO_CONFIG_FILENAMES, NIGHTWATCH_CONFIG_FILENAMES } from './types.js'
 import { getFilterBuilder } from './framework-filters.js'
@@ -234,10 +233,10 @@ class TestRunner {
         : specFile
       : undefined
 
-    // Cast: framework comes from an HTTP payload, so it's `string` at the
-    // boundary. getFilterBuilder() falls back to the default spec-only
-    // builder for unknown runners.
-    const builder = getFilterBuilder(framework as TestRunnerId)
+    // framework is `string` from the HTTP payload; getFilterBuilder
+    // validates it against its known-runner Map and falls back to the
+    // default spec-only builder for anything unrecognised.
+    const builder = getFilterBuilder(framework)
     const baseFilters = builder({ specArg, payload })
 
     // Scope "Run All" to the user's original --spec args. Nightwatch resolves specs via its own filter.
