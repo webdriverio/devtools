@@ -275,21 +275,25 @@ These are documented violations of this file's rules. They exist today; they are
 
 ### File-size debt (god-files to split as touched)
 
-- `packages/nightwatch-devtools/src/index.ts` (~892 lines, was 1091 — `cucumberResult` helpers extracted; remainder is the cucumber lifecycle + session-init + screencast wiring)
-- `packages/app/src/components/workbench/compare.ts` (~573 lines, was 888 — static styles extracted; remainder is Lit render methods tightly coupled to component state)
-- `packages/app/src/components/sidebar/explorer.ts` (~506 lines, was 670 — entry-state logic extracted, remainder is Lit render + runner-options getters coupled to component state)
-- `packages/app/src/controller/DataManager.ts` (~498 lines, was 986 — suite-merge logic + mark-running + run-detection extracted as pure functions; remainder is per-scope socket-message handlers tightly coupled to ContextProvider state)
-- `packages/nightwatch-devtools/src/session.ts` (~470 lines — captureNetworkFromPerformanceLogs + captureBrowserLogs + captureTrace tightly coupled to NightwatchBrowser state)
+Raw line counts; soft cap is 500 (blank+comment-skipped, so warnings only trip well above this).
+
+- `packages/nightwatch-devtools/src/index.ts` (~558 — cucumber/test/run-lifecycle modules extracted; remainder is the `PluginInternals` accessor bag + per-method delegators)
+- `packages/selenium-devtools/src/index.ts` (~557 — session/test-lifecycle extracted; remainder is the `PluginInternals` accessor bag + onCommand/onDriverCreated wiring)
+- `packages/app/src/components/workbench/compare.ts` (~540 — static styles extracted; remainder is Lit render methods tightly coupled to component state)
+- `packages/app/src/controller/DataManager.ts` (~509 — suite-merge, mark-running, run-detection extracted as pure functions; remainder is per-scope socket-message handlers tightly coupled to ContextProvider state)
+- `packages/app/src/components/sidebar/explorer.ts` (~499 — entry-state logic extracted; remainder is Lit render + runner-options getters coupled to component state)
+- `packages/nightwatch-devtools/src/session.ts` (~468 — captureNetworkFromPerformanceLogs + captureBrowserLogs + captureTrace tightly coupled to NightwatchBrowser state; also a coverage gap)
 
 ### Test coverage gaps (worst-risk-first)
 
 Genuine coverage gaps surfaced by `pnpm test:coverage`. Numbers reflect the current state:
 
-- `backend/src/bin-resolver.ts` — **22%**. Resolves the WDIO/Nightwatch CLI for spawned reruns. Bugs here break dashboard-initiated reruns.
-- `backend/src/worker-message-handler.ts` — now fully covered (was 3.8%).
-- `script/src/collectors/networkRequests.ts` — **15%**. Browser-side; needs happy-dom or jsdom setup.
-- `service/src/reporter.ts` — **37%**. WDIO Cucumber + Mocha reporter; lots of edge cases.
-- Adapter `index.ts` plugin entries — **40–60%**. Lifecycle wiring; hard to unit-test, partially exercised by demos.
+- `packages/nightwatch-devtools/src/session.ts` — **38%**. The biggest gap repo-wide; also one of the file-size debt items. Refactor + tests should land together.
+- `packages/script/src/logger.ts` — **20%**. Tiny file (~12 lines); guarded by `process.env.WDIO_DEVTOOLS_LOG`. Trivially testable.
+- `packages/backend/src/baselineStore.ts` — **68%**. Edge cases around blob deletion, baseline TTL, and disk-quota paths.
+- `packages/selenium-devtools/src/launcher.ts` — **66%**.
+- `packages/service/src/screencast.ts` — **76%**. CDP fast-path branches hard to exercise without a real Chrome.
+- `packages/core/src/script-loader.ts` — **67%**. fs-read error branches.
 
 Coverage threshold gate in `vitest.config.ts` enforces a floor — anything below the configured numbers fails CI. Adjust upward as gaps close; never adjust downward.
 
