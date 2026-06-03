@@ -431,19 +431,28 @@ class SeleniumDevToolsPlugin {
     return this.onSessionEnd()
   }
 
-  /** Mark suite finished on after-all so the dashboard updates pre-exit. */
-  finalizeTestRun() {
+  /**
+   * Cucumber / mocha / jest after-all hook. Mark the suite finished so the
+   * dashboard updates pre-exit, then run the session-wide teardown
+   * (`onSessionEnd`) — capturer cleanup, summary log, interactive shutdown
+   * path. `onBeforeQuit` already handled the PER-driver finalize for each
+   * scenario; this is the one-time finish.
+   *
+   * onTestRunComplete fires AFTER per-scenario `After` hooks, so any state
+   * updates queued in the cucumber lifecycle have already flushed by here.
+   */
+  async finalizeTestRun() {
     this.#testManager?.finalizeSession()
     this.#suiteManager?.finalize()
     this.#testReporter?.updateSuites()
-    // Reuse mode (rerun child): close the WS now so the child's event loop
-    // can drain and the process exits on its own. Outside reuse, the parent
-    // owns the WS lifecycle via the keep-alive + clientDisconnected handler.
-    // onTestRunComplete fires AFTER per-scenario `After` hooks, so any state
-    // updates queued in the cucumber lifecycle have already flushed.
     if (this.#isReuse) {
+      // Reuse mode (rerun child): close the WS now so the child's event
+      // loop can drain and the process exits on its own. Skip
+      // onSessionEnd's interactive shutdown branch.
       void this.#sessionCapturer?.closeWebSocket()
+      return
     }
+    await this.onSessionEnd()
   }
 
   get sessionCapturer() {
@@ -475,7 +484,14 @@ const patched = patchSelenium({
   },
   onDriverCreated: (driver) => plugin.onDriverCreated(driver),
   onCommand: (cmd) => plugin.onCommand(cmd),
-  onBeforeQuit: () => plugin.onSessionEnd(),
+  // Per-scenario cleanup ONLY here (finalizes that driver's screencast,
+  // clears per-driver state). The session-wide teardown — set-finalized,
+  // session summary, capturer cleanup, interactive shutdown — lives in
+  // `finalizeTestRun` (cucumber/mocha/jest `onTestRunComplete`) and the
+  // beforeExit/exit handlers in processHooks. Wiring `onSessionEnd` here
+  // broke multi-scenario runs: its `if (finalized) return` guard meant
+  // scenario 2+ never got their per-driver finalize → missing screencast.
+  onBeforeQuit: () => plugin.onDriverEnd(),
   // Block `await Builder.build()` until the dashboard is connected.
   waitForReady: () => plugin.waitForUiReady()
 })
@@ -532,7 +548,7 @@ function registerHooks() {
       plugin.endScenario(state === 'pending' ? 'skipped' : state)
     },
     onTestRunComplete: () => {
-      plugin.finalizeTestRun()
+      void plugin.finalizeTestRun()
     }
   })
 }

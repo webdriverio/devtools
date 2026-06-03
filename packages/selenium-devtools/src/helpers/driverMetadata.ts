@@ -88,7 +88,12 @@ export async function buildDriverMetadata(
       sessionId,
       metadata: {
         type: TraceType.Testrunner,
-        capabilities: capabilities?.serialize?.() ?? capabilities ?? {},
+        capabilities:
+          (
+            capabilities as { serialize?: () => unknown } | undefined
+          )?.serialize?.() ??
+          capabilities ??
+          {},
         sessionId,
         options: {
           framework: 'selenium-webdriver',
