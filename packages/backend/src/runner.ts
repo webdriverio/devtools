@@ -15,6 +15,31 @@ import { resolveNightwatchBin, resolveWdioBin } from './bin-resolver.js'
 
 const wdioBin = resolveWdioBin()
 
+/**
+ * Detect a `--name "{{testName}}"` slot anywhere in `template`, with optional
+ * surrounding whitespace. Uses linear-time string scanning (split/indexOf) so
+ * the user-supplied rerun template can't trigger backtracking regardless of
+ * how many spaces it contains. See CodeQL js/polynomial-redos for context.
+ */
+const NAME_SLOT = '--name "{{testName}}"'
+function hasNameTestNameSlot(template: string): boolean {
+  return template.includes(NAME_SLOT)
+}
+function stripNameTestNameSlot(template: string): string {
+  const idx = template.indexOf(NAME_SLOT)
+  if (idx === -1) {
+    return template
+  }
+  // Trim adjacent whitespace on the left of the slot so we don't leave a
+  // double space behind. The right side is left intact — the caller appends
+  // the feature path after this segment.
+  let leftEdge = idx
+  while (leftEdge > 0 && /\s/.test(template[leftEdge - 1])) {
+    leftEdge--
+  }
+  return template.slice(0, leftEdge) + template.slice(idx + NAME_SLOT.length)
+}
+
 class TestRunner {
   #child?: ChildProcess
   #lastPayload?: RunnerRequestBody
@@ -172,9 +197,9 @@ class TestRunner {
       payload.entryType === 'suite' &&
       payload.suiteType === 'feature' &&
       Boolean(featureSpec) &&
-      /--name\s+"\{\{testName\}\}"/.test(template)
+      hasNameTestNameSlot(template)
     if (isCucumberFeatureRerun && featureSpec) {
-      const stripped = template.replace(/\s*--name\s+"\{\{testName\}\}"/, '')
+      const stripped = stripNameTestNameSlot(template)
       return `${stripped} ${shellQuote([featureSpec])}`
     }
     const name = payload.label || payload.fullTitle || ''
