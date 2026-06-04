@@ -312,6 +312,31 @@ importers:
         specifier: ^8.21.0
         version: 8.21.0
 
+  packages/elements:
+    dependencies:
+      '@xmldom/xmldom':
+        specifier: ^0.9.8
+        version: 0.9.10
+      webdriverio:
+        specifier: ^9.0.0
+        version: 9.27.2(puppeteer-core@21.11.0)
+      xpath:
+        specifier: ^0.0.34
+        version: 0.0.34
+    devDependencies:
+      '@types/node':
+        specifier: 25.9.1
+        version: 25.9.1
+      '@wdio/globals':
+        specifier: 9.27.0
+        version: 9.27.0(expect-webdriverio@5.6.7)(webdriverio@9.27.2(puppeteer-core@21.11.0))
+      typescript:
+        specifier: 6.0.2
+        version: 6.0.2
+      vitest:
+        specifier: ^4.0.16
+        version: 4.1.8(@types/node@25.9.1)(@vitest/coverage-v8@4.1.8)(happy-dom@20.9.0)(jsdom@24.1.3)(vite@8.0.16(@types/node@25.9.1)(esbuild@0.28.0)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
+
   packages/nightwatch-devtools:
     dependencies:
       '@wdio/devtools-backend':
@@ -2570,6 +2595,13 @@ packages:
     resolution: {integrity: sha512-xoBgmACafV4L7e7e3DUN8UM1N+I225oms38JtxtfgrMfvHm8QtcmZWXfycxEGM28Gm2M3NmeV3oso7hZeBk6Ww==}
     engines: {node: '>=18.20.0'}
 
+  '@wdio/globals@9.27.0':
+    resolution: {integrity: sha512-yT6EAyvEqm+wFD11fg89BMxvFkYLgnIVCihfJx+k73Gm3utL/DfZQpSheQdwrlQzu5p7jHi/JwOD76740F5Peg==}
+    engines: {node: '>=18.20.0'}
+    peerDependencies:
+      expect-webdriverio: ^5.6.5
+      webdriverio: ^9.0.0
+
   '@wdio/globals@9.27.2':
     resolution: {integrity: sha512-Rx9bqD4/8iR3CNPMWYxywQSCqsR/WGwIYT2Q0uUmrvPxOdYFridDEhVRGO32kQ55UM5+JXzXppxgwGLRQ60fJg==}
     engines: {node: '>=18.20.0'}
@@ -2633,6 +2665,10 @@ packages:
   '@wdio/xvfb@9.27.2':
     resolution: {integrity: sha512-Rj8AP/VYVd5clZFKy+P7zzoXCKshjrog6lcV65nnUzATbUYT/PpUCy6OhEWHTSmLQY2Oc5ztY/IetLSg4nmB3w==}
     engines: {node: '>=18'}
+
+  '@xmldom/xmldom@0.9.10':
+    resolution: {integrity: sha512-A9gOqLdi6cV4ibazAjcQufGj0B1y/vDqYrcuP6d/6x8P27gRS8643Dj9o1dEKtB6O7fwxb2FgBmJS2mX7gpvdw==}
+    engines: {node: '>=14.6'}
 
   '@zip.js/zip.js@2.8.26':
     resolution: {integrity: sha512-RQ4h9F6DOiHxpdocUDrOl6xBM+yOtz+LkUol47AVWcfebGBDpZ7w7Xvz9PS24JgXvLGiXXzSAfdCdVy1tPlaFA==}
@@ -6739,6 +6775,11 @@ packages:
     engines: {node: '>=14.17'}
     hasBin: true
 
+  typescript@6.0.2:
+    resolution: {integrity: sha512-bGdAIrZ0wiGDo5l8c++HWtbaNCWTS4UTv7RaTH/ThVIgjkveJt83m74bBHMJkuCbslY8ixgLBVZJIOiQlQTjfQ==}
+    engines: {node: '>=14.17'}
+    hasBin: true
+
   typescript@6.0.3:
     resolution: {integrity: sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw==}
     engines: {node: '>=14.17'}
@@ -7196,6 +7237,10 @@ packages:
 
   xmlchars@2.2.0:
     resolution: {integrity: sha512-JZnDKK8B0RCDw84FNdDAIpZK+JuJw+s7Lz8nksI7SIuU3UXJJslUthsi+uWBUYOwPFwW7W7PRLRfUKpxjtjFCw==}
+
+  xpath@0.0.34:
+    resolution: {integrity: sha512-FxF6+rkr1rNSQrhUNYrAFJpRXNzlDoMxeXN5qI84939ylEv3qqPFKa85Oxr6tDaJKqwW6KKyo2v26TSv3k6LeA==}
+    engines: {node: '>=0.6.0'}
 
   y18n@5.0.8:
     resolution: {integrity: sha512-0pfFzegeDWJHJIAmTLRP2DwHjdF5s7jo9tuztdQxAhINCdvS+3nGINqPd00AphqJR/0LhANUS6/+7SCb98YOfA==}
@@ -9416,6 +9461,11 @@ snapshots:
       '@wdio/types': 9.27.2
       chalk: 5.6.2
 
+  '@wdio/globals@9.27.0(expect-webdriverio@5.6.7)(webdriverio@9.27.2(puppeteer-core@21.11.0))':
+    dependencies:
+      expect-webdriverio: 5.6.7(@wdio/globals@9.27.0)(@wdio/logger@9.18.0)(webdriverio@9.27.2(puppeteer-core@21.11.0))
+      webdriverio: 9.27.2(puppeteer-core@21.11.0)
+
   '@wdio/globals@9.27.2(expect-webdriverio@5.6.7)(webdriverio@9.27.2(puppeteer-core@21.11.0))':
     dependencies:
       expect-webdriverio: 5.6.7(@wdio/globals@9.27.2)(@wdio/logger@9.18.0)(webdriverio@9.27.2(puppeteer-core@21.11.0))
@@ -9557,6 +9607,8 @@ snapshots:
   '@wdio/xvfb@9.27.2':
     dependencies:
       '@wdio/logger': 9.18.0
+
+  '@xmldom/xmldom@0.9.10': {}
 
   '@zip.js/zip.js@2.8.26': {}
 
@@ -11081,6 +11133,16 @@ snapshots:
   exit-x@0.2.2: {}
 
   expect-type@1.3.0: {}
+
+  expect-webdriverio@5.6.7(@wdio/globals@9.27.0)(@wdio/logger@9.18.0)(webdriverio@9.27.2(puppeteer-core@21.11.0)):
+    dependencies:
+      '@vitest/snapshot': 4.1.8
+      '@wdio/globals': 9.27.0(expect-webdriverio@5.6.7)(webdriverio@9.27.2(puppeteer-core@21.11.0))
+      '@wdio/logger': 9.18.0
+      deep-eql: 5.0.2
+      expect: 30.4.1
+      jest-matcher-utils: 30.4.1
+      webdriverio: 9.27.2(puppeteer-core@21.11.0)
 
   expect-webdriverio@5.6.7(@wdio/globals@9.27.2)(@wdio/logger@9.18.0)(webdriverio@9.27.2(puppeteer-core@21.11.0)):
     dependencies:
@@ -14384,6 +14446,8 @@ snapshots:
   typescript@5.9.3:
     optional: true
 
+  typescript@6.0.2: {}
+
   typescript@6.0.3: {}
 
   ua-parser-js@1.0.41: {}
@@ -14832,6 +14896,8 @@ snapshots:
   xmlbuilder@15.1.1: {}
 
   xmlchars@2.2.0: {}
+
+  xpath@0.0.34: {}
 
   y18n@5.0.8: {}
 

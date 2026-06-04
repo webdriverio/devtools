@@ -2,6 +2,7 @@
 packages:
   - 'packages/shared'
   - 'packages/core'
+  - 'packages/elements'
   - 'packages/backend'
   - 'packages/script'
   - 'packages/service'
