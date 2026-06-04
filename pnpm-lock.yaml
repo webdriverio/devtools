@@ -490,6 +490,9 @@ importers:
       '@wdio/devtools-script':
         specifier: workspace:^
         version: link:../script
+      '@wdio/elements':
+        specifier: workspace:^
+        version: link:../elements
       '@wdio/logger':
         specifier: 9.18.0
         version: 9.18.0

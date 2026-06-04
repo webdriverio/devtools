@@ -247,6 +247,20 @@ export interface TraceMutation {
   url?: string
 }
 
+/**
+ * Captured at each user-facing action boundary in `trace` mode. Feeds the
+ * downstream trace.zip exporter (Phase 4). `screenshot` is base64-encoded JPEG.
+ */
+export interface ActionSnapshot {
+  timestamp: number
+  command: string
+  url?: string
+  title?: string
+  screenshot?: string
+  elements?: unknown[]
+  snapshotText?: string
+}
+
 export interface TraceLog {
   mutations: TraceMutation[]
   logs: string[]
