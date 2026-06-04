@@ -3,6 +3,9 @@
 
 export * from './action-mapping.js'
 export * from './assert-patcher.js'
+export * from './trace-exporter.js'
+export * from './trace-har.js'
+export * from './trace-zip-writer.js'
 export * from './bidi.js'
 export * from './console.js'
 export * from './uid.js'

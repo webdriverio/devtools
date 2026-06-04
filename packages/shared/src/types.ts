@@ -272,6 +272,8 @@ export interface TraceLog {
   suites?: Record<string, unknown>[]
   screencast?: ScreencastInfo
   config?: { configFile?: string }
+  /** Per-action snapshots captured in `mode: 'trace'` for the trace.zip exporter. */
+  actionSnapshots?: ActionSnapshot[]
 }
 
 // ─── Preserve-and-rerun ─────────────────────────────────────────────────────
