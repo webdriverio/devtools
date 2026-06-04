@@ -1,6 +1,6 @@
 {
   "name": "@wdio/devtools-shared",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "private": true,
   "description": "Shared types, constants, and HTTP/WS contracts for @wdio/devtools-* packages. Workspace-internal, never published — code is inlined into each consuming package at build time.",
   "repository": {
