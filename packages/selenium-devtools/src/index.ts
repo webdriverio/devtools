@@ -1,7 +1,6 @@
 // @wdio/selenium-devtools — runner-agnostic Selenium WebDriver adapter.
 // Side-effect import that patches selenium-webdriver and starts the backend.
 
-// MUST be the first import — see setupConsole.ts.
 import './setupConsole.js'
 import logger from '@wdio/logger'
 import { startDetachedBackend } from './helpers/detachedBackend.js'
@@ -116,11 +115,11 @@ class SeleniumDevToolsPlugin {
     this.#options = {
       port: options.port ?? 3000,
       hostname: options.hostname ?? 'localhost',
-      // Default true to match @wdio/devtools-service and @wdio/nightwatch-devtools.
       openUi: options.openUi ?? true,
       captureScreenshots: options.captureScreenshots ?? true,
       rerunCommand: options.rerunCommand,
-      headless: options.headless ?? false
+      headless: options.headless ?? false,
+      mode: options.mode ?? 'live'
     }
     this.#rerunManager = new RerunManager(RUNNER)
     if (options.rerunCommand) {
@@ -187,8 +186,8 @@ class SeleniumDevToolsPlugin {
           )
         }
         this.#backendStarted = true
-        // Skip when in REUSE mode — the rerun child reuses the parent's window.
-        if (this.#options.openUi && !this.#isReuse) {
+        const { mode, openUi } = this.#options
+        if (mode !== 'trace' && openUi && !this.#isReuse) {
           this.#openUiWindow()
         }
       } catch (err) {

@@ -14,6 +14,7 @@ import type { TestManager } from './helpers/testManager.js'
 import type { SuiteManager } from './helpers/suiteManager.js'
 import type { BrowserProxy } from './helpers/browserProxy.js'
 import type {
+  DevToolsMode,
   NightwatchBrowser,
   ScreencastOptions,
   SuiteStats,
@@ -22,7 +23,7 @@ import type {
 
 export interface PluginInternals {
   // Config + options
-  options: { hostname: string; port: number }
+  options: { hostname: string; port: number; mode?: DevToolsMode }
   readonly hostname: string
   readonly port: number
   readonly screencastOptions: ScreencastOptions

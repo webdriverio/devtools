@@ -19,14 +19,18 @@ import type { SessionCapturer } from './session.js'
 import type { TestReporter } from './reporter.js'
 import type { SuiteManager } from './helpers/suiteManager.js'
 import type { TestManager } from './helpers/testManager.js'
-import type { NightwatchBrowser, NightwatchCurrentTest } from './types.js'
+import type {
+  DevToolsMode,
+  NightwatchBrowser,
+  NightwatchCurrentTest
+} from './types.js'
 import { TIMING, PLUGIN_GLOBAL_KEY } from './constants.js'
 import { findFreePort, resolveNightwatchConfig } from './helpers/utils.js'
 
 const log = logger('@wdio/nightwatch-devtools:run-lifecycle')
 
 export interface RunLifecycleCtx {
-  options: { hostname: string; port: number }
+  options: { hostname: string; port: number; mode?: DevToolsMode }
   readonly testReporter: TestReporter | undefined
   readonly suiteManager: SuiteManager | undefined
   readonly testManager: TestManager
@@ -97,11 +101,15 @@ export async function runPluginBefore(ctx: PluginBeforeCtx): Promise<void> {
     ctx.options.port = port
     const url = `http://${ctx.options.hostname}:${ctx.options.port}`
     log.info(`✓ Backend started on port ${ctx.options.port}`)
-    log.info(`  DevTools UI: ${url}`)
-    await ctx.openDevtoolsBrowserAt(url)
-    await new Promise((resolve) =>
-      setTimeout(resolve, TIMING.UI_CONNECTION_WAIT)
-    )
+    if (ctx.options.mode === 'trace') {
+      log.info('trace mode: backend started, skipping UI window launch')
+    } else {
+      log.info(`  DevTools UI: ${url}`)
+      await ctx.openDevtoolsBrowserAt(url)
+      await new Promise((resolve) =>
+        setTimeout(resolve, TIMING.UI_CONNECTION_WAIT)
+      )
+    }
     ;(globalThis as Record<string, unknown>)[PLUGIN_GLOBAL_KEY] = ctx.plugin
   } catch (err) {
     log.error(`Failed to start backend: ${errorMessage(err)}`)

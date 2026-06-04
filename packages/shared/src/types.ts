@@ -16,6 +16,9 @@ export enum TraceType {
 
 export type TestStatus = 'passed' | 'failed' | 'skipped' | 'pending' | 'running'
 
+/** `live` opens the DevTools UI window; `trace` skips it and lets a downstream exporter consume captured state. */
+export type DevToolsMode = 'live' | 'trace'
+
 /**
  * Enum-style accessor for the canonical TestStatus values. Adapter code uses
  * this for readable comparisons (`state === TEST_STATE.PASSED`). The app's
