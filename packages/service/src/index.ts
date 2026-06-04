@@ -3,7 +3,11 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 
 import logger from '@wdio/logger'
-import { errorMessage, mapCommandToAction } from '@wdio/devtools-core'
+import {
+  errorMessage,
+  exportTraceZip,
+  mapCommandToAction
+} from '@wdio/devtools-core'
 import { captureActionSnapshot } from './action-snapshot.js'
 import type { ActionSnapshot } from '@wdio/devtools-shared'
 import { SevereServiceError } from 'webdriverio'
@@ -357,6 +361,18 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     )
     await fs.writeFile(traceFilePath, JSON.stringify(traceLog))
     log.info(`DevTools trace saved to ${traceFilePath}`)
+
+    if (this.#options.mode === 'trace') {
+      const zip = await exportTraceZip(traceLog, {
+        sessionId: this.#browser.sessionId
+      })
+      const zipPath = path.join(
+        outputDir,
+        `trace-${this.#browser.sessionId}.zip`
+      )
+      await fs.writeFile(zipPath, zip)
+      log.info(`Playwright v8 trace.zip saved to ${zipPath}`)
+    }
 
     // Clean up console patching
     this.#sessionCapturer.cleanup()
