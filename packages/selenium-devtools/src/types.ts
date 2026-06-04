@@ -4,6 +4,7 @@ export {
   TraceType,
   type CommandLog,
   type ConsoleLog,
+  type DevToolsMode,
   type DocumentInfo,
   type LogLevel,
   type Metadata,
@@ -19,6 +20,8 @@ export interface DevToolsOptions {
   hostname?: string
   /** Open a Chrome window pointing at the UI. Default true. */
   openUi?: boolean
+  /** `live` (default) launches the DevTools UI; `trace` skips it. Overrides `openUi`. */
+  mode?: DevToolsMode
   /** Capture screenshots after each command. Default true. */
   captureScreenshots?: boolean
   /** Command template for per-test rerun. {{testName}} is substituted. */
@@ -35,7 +38,7 @@ export interface DevToolsOptions {
 
 // ScreencastFrame, ScreencastOptions hoisted to @wdio/devtools-shared; re-exported
 // here for backwards compatibility with existing selenium-internal imports.
-import type { ScreencastOptions } from '@wdio/devtools-shared'
+import type { DevToolsMode, ScreencastOptions } from '@wdio/devtools-shared'
 export type { ScreencastFrame, ScreencastOptions } from '@wdio/devtools-shared'
 
 /**

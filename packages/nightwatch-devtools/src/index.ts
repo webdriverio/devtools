@@ -102,7 +102,8 @@ class NightwatchDevToolsPlugin {
       port: options.port ?? 3000,
       hostname: options.hostname ?? 'localhost',
       screencast: options.screencast ?? {},
-      bidi: options.bidi ?? false
+      bidi: options.bidi ?? false,
+      mode: options.mode ?? 'live'
     }
     this.#screencastOptions = {
       ...SCREENCAST_DEFAULTS,

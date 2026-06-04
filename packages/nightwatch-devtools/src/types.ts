@@ -4,6 +4,7 @@ export {
   TraceType,
   type CommandLog,
   type ConsoleLog,
+  type DevToolsMode,
   type DocumentInfo,
   type LogLevel,
   type Metadata,
@@ -17,7 +18,7 @@ export {
   type TraceLog
 } from '@wdio/devtools-shared'
 
-import type { ScreencastOptions } from '@wdio/devtools-shared'
+import type { DevToolsMode, ScreencastOptions } from '@wdio/devtools-shared'
 
 export interface CommandStackFrame {
   command: string
@@ -93,6 +94,8 @@ export interface DevToolsOptions {
    * entries. Defaults to `false` — opt-in.
    */
   bidi?: boolean
+  /** `live` (default) launches the DevTools UI; `trace` skips it. */
+  mode?: DevToolsMode
 }
 
 export interface NightwatchBrowser {

@@ -136,6 +136,10 @@ export class DevToolsAppLauncher {
         port,
         hostname: this.#options.hostname || 'localhost'
       })
+      if (this.#options.mode === 'trace') {
+        log.info('trace mode: backend started, skipping UI window launch')
+        return
+      }
       this.#browser = await remote({
         automationProtocol: 'devtools',
         capabilities: {
