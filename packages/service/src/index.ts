@@ -3,7 +3,9 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 
 import logger from '@wdio/logger'
-import { errorMessage } from '@wdio/devtools-core'
+import { errorMessage, mapCommandToAction } from '@wdio/devtools-core'
+import { captureActionSnapshot } from './action-snapshot.js'
+import type { ActionSnapshot } from '@wdio/devtools-shared'
 import { SevereServiceError } from 'webdriverio'
 import type { Services, Reporters, Capabilities, Options } from '@wdio/types'
 import type { WebDriverCommands } from '@wdio/protocols'
@@ -47,8 +49,12 @@ export default class DevToolsHookService implements Services.ServiceInstance {
   #bidiListenersSetup = false
   #screencastRecorder?: ScreencastRecorder
   #screencastOptions?: ScreencastOptions
+  #options: ServiceOptions
+  #actionSnapshots: ActionSnapshot[] = []
+  #snapshotCaptures: Promise<void>[] = []
 
   constructor(serviceOptions: ServiceOptions = {}) {
+    this.#options = serviceOptions
     this.#screencastOptions = serviceOptions.screencast
   }
 
@@ -275,7 +281,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     if (frame?.command === command) {
       this.#commandStack.pop()
       if (this.#browser) {
-        return this.#sessionCapturer.afterCommand(
+        const captured = this.#sessionCapturer.afterCommand(
           this.#browser,
           command,
           args,
@@ -283,6 +289,21 @@ export default class DevToolsHookService implements Services.ServiceInstance {
           error,
           frame.callSource
         )
+        if (
+          this.#options.mode === 'trace' &&
+          !error &&
+          mapCommandToAction(command)
+        ) {
+          const browser = this.#browser
+          this.#snapshotCaptures.push(
+            captureActionSnapshot(browser, command).then((snap) => {
+              if (snap) {
+                this.#actionSnapshots.push(snap)
+              }
+            })
+          )
+        }
+        return captured
       }
     }
 
@@ -304,6 +325,11 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     // Stop and encode the screencast for the current session.
     await this.#finalizeScreencast(this.#browser.sessionId)
 
+    // Drain in-flight per-action snapshots before writing the trace.
+    if (this.#snapshotCaptures.length) {
+      await Promise.allSettled(this.#snapshotCaptures)
+    }
+
     const outputDir = this.#outputDir
     const { ...options } = this.#browser.options
     const traceLog: TraceLog = {
@@ -319,7 +345,10 @@ export default class DevToolsHookService implements Services.ServiceInstance {
       },
       commands: this.#sessionCapturer.commandsLog,
       sources: Object.fromEntries(this.#sessionCapturer.sources),
-      suites: this.#testReporters.map((reporter) => reporter.report)
+      suites: this.#testReporters.map((reporter) => reporter.report),
+      ...(this.#actionSnapshots.length
+        ? { actionSnapshots: this.#actionSnapshots }
+        : {})
     }
 
     const traceFilePath = path.join(
