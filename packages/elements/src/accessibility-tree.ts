@@ -6,6 +6,8 @@
  * It must be self-contained with no external dependencies
  */
 
+import { CONTAINER_ROLES, INPUT_TYPE_ROLES } from './aria-roles.js'
+
 export interface AccessibilityNode {
   role: string
   name: string
@@ -23,44 +25,27 @@ export interface AccessibilityNode {
   isInViewport?: boolean
 }
 
-const accessibilityTreeScript = (inViewportOnly: boolean) =>
+// Page-injected script: WDIO's `browser.execute` stringifies the arrow body
+// and runs it in the browser. Module-level closure values are lost in
+// stringification, so ARIA tables defined in aria-roles.ts are passed in
+// as execute() args and re-bound here. Same constraint forces every helper
+// (getRole/getAccessibleName/getSelector/...) to live inside the IIFE.
+// eslint-disable-next-line max-lines-per-function
+const accessibilityTreeScript = (
+  inViewportOnly: boolean,
+  inputTypeRoles: Record<string, string>,
+  containerRolesArr: readonly string[]
+) =>
+  // eslint-disable-next-line max-lines-per-function -- see comment above
   (function () {
-    const INPUT_TYPE_ROLES: Record<string, string> = {
-      text: 'textbox',
-      search: 'searchbox',
-      email: 'textbox',
-      url: 'textbox',
-      tel: 'textbox',
-      password: 'textbox',
-      number: 'spinbutton',
-      checkbox: 'checkbox',
-      radio: 'radio',
-      range: 'slider',
-      submit: 'button',
-      reset: 'button',
-      image: 'button',
-      file: 'button',
-      color: 'button'
-    }
+    const INPUT_TYPE_ROLES = inputTypeRoles
+    const CONTAINER_ROLES = new Set(containerRolesArr)
 
-    // Container roles: named only via aria-label/aria-labelledby, not textContent
-    const CONTAINER_ROLES = new Set([
-      'navigation',
-      'banner',
-      'contentinfo',
-      'complementary',
-      'main',
-      'form',
-      'region',
-      'group',
-      'list',
-      'listitem',
-      'table',
-      'row',
-      'rowgroup',
-      'generic'
-    ])
-
+    // ARIA role-resolution decision tree: each `if (tag === ...)` branch
+    // maps an HTML element to its implicit role per the WAI-ARIA spec.
+    // Splitting per-tag would scatter spec-equivalence groups across
+    // helpers without improving clarity.
+    // eslint-disable-next-line max-lines-per-function
     function getRole(el: HTMLElement): string | null {
       const explicit = el.getAttribute('role')
       if (explicit) {
@@ -154,6 +139,13 @@ const accessibilityTreeScript = (inViewportOnly: boolean) =>
       return null
     }
 
+    // Implements the WAI-ARIA Accessible Name Computation algorithm.
+    // The 6 sequential fallback steps (aria-label → aria-labelledby →
+    // tag-specific → placeholder → title → childImg.alt) are spec-ordered;
+    // each step must run only if prior steps yielded nothing, so they don't
+    // factor into independent helpers without re-threading the "found"
+    // signal through every call.
+    // eslint-disable-next-line max-lines-per-function
     function getAccessibleName(el: HTMLElement, role: string | null): string {
       const ariaLabel = el.getAttribute('aria-label')
       if (ariaLabel) {
@@ -229,6 +221,11 @@ const accessibilityTreeScript = (inViewportOnly: boolean) =>
       return (el.textContent?.trim().replace(/\s+/g, ' ') || '').slice(0, 200)
     }
 
+    // Selector synthesis: tries 6 strategies in priority order (text → aria-label
+    // → data-testid → name attr → id → CSS path) and returns the first one that
+    // is unique on the page. Splitting per strategy would obscure the priority
+    // ordering and force re-uniqueness-checking across helpers.
+    // eslint-disable-next-line max-lines-per-function
     function getSelector(element: HTMLElement): string {
       const tag = element.tagName.toLowerCase()
 
@@ -468,13 +465,21 @@ const accessibilityTreeScript = (inViewportOnly: boolean) =>
  * @param options  {@link inViewportOnly} defaults to `true` — only nodes
  *                 whose bounding rect intersects the viewport are included.
  */
+// WDIO's typed Browser.execute overloads don't accept our generic injected
+// script — narrow to a permissive execute() shape at the boundary instead.
+type ExecuteLike = {
+  execute: (script: unknown, ...args: unknown[]) => Promise<unknown>
+}
+
 export async function getBrowserAccessibilityTree(
   browser: WebdriverIO.Browser,
   options: { inViewportOnly?: boolean } = {}
 ): Promise<AccessibilityNode[]> {
   const { inViewportOnly = true } = options
-  return (browser as any).execute(
+  return (browser as unknown as ExecuteLike).execute(
     accessibilityTreeScript,
-    inViewportOnly
-  ) as unknown as Promise<AccessibilityNode[]>
+    inViewportOnly,
+    INPUT_TYPE_ROLES,
+    CONTAINER_ROLES
+  ) as Promise<AccessibilityNode[]>
 }

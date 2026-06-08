@@ -254,11 +254,7 @@ export async function onSessionEnd(ctx: SessionLifecycleCtx): Promise<void> {
     logSessionSummary(ctx)
     ctx.sessionCapturer?.cleanup()
 
-    if (
-      ctx.options.openUi &&
-      ctx.options.mode !== 'trace' &&
-      !ctx.isReuse
-    ) {
+    if (ctx.options.openUi && ctx.options.mode !== 'trace' && !ctx.isReuse) {
       handleInteractivePath(ctx, shutdownStart)
       return
     }

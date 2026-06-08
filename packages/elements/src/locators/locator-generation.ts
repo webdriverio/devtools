@@ -94,7 +94,10 @@ function checkUniqueness(
     return checkXPathUniqueness(ctx.parsedDOM, xpath, targetNode)
   }
 
-  const match = xpath.match(/\/\/\*\[@([^=]+)="([^"]+)"\]/)
+  // Bounded + disjoint negated classes: attr names can never contain `=`,
+  // `"` or `]`; values can't contain `"`. Bounds prevent polynomial
+  // backtracking on adversarial input (CodeQL: js/polynomial-redos).
+  const match = xpath.match(/\/\/\*\[@([^="\]]{1,200})="([^"]{1,2000})"\]/)
   if (match) {
     const [, attr, value] = match
     return { isUnique: isAttributeUnique(ctx.sourceXML, attr, value) }
@@ -410,6 +413,101 @@ function buildXPath(
 /**
  * Get simple locators based on single attributes
  */
+function appendAndroidSimpleLocators(
+  attrs: JSONElement['attributes'],
+  ctx: LocatorContext,
+  inUiAutomatorScope: boolean,
+  results: [LocatorStrategy, string][],
+  targetNode?: XMLNode
+): void {
+  const resourceId = attrs['resource-id']
+  if (isValidValue(resourceId)) {
+    const uniqueness = checkUniqueness(
+      ctx,
+      `//*[@resource-id="${resourceId}"]`,
+      targetNode
+    )
+    const base = `android=new UiSelector().resourceId("${resourceId}")`
+    if (uniqueness.isUnique && inUiAutomatorScope) {
+      results.push(['id', base])
+    } else if (uniqueness.index && inUiAutomatorScope) {
+      results.push(['id', generateIndexedUiAutomator(base, uniqueness.index)])
+    }
+  }
+
+  const contentDesc = attrs['content-desc']
+  if (isValidValue(contentDesc)) {
+    const uniqueness = checkUniqueness(
+      ctx,
+      `//*[@content-desc="${contentDesc}"]`,
+      targetNode
+    )
+    if (uniqueness.isUnique) {
+      results.push(['accessibility-id', `~${contentDesc}`])
+    }
+  }
+
+  const text = attrs.text
+  if (isValidValue(text) && text.length < 100) {
+    const uniqueness = checkUniqueness(
+      ctx,
+      `//*[@text="${escapeText(text)}"]`,
+      targetNode
+    )
+    const base = `android=new UiSelector().text("${escapeText(text)}")`
+    if (uniqueness.isUnique && inUiAutomatorScope) {
+      results.push(['text', base])
+    } else if (uniqueness.index && inUiAutomatorScope) {
+      results.push(['text', generateIndexedUiAutomator(base, uniqueness.index)])
+    }
+  }
+}
+
+function appendIOSSimpleLocators(
+  attrs: JSONElement['attributes'],
+  ctx: LocatorContext,
+  results: [LocatorStrategy, string][],
+  targetNode?: XMLNode
+): void {
+  const name = attrs.name
+  if (isValidValue(name)) {
+    const uniqueness = checkUniqueness(ctx, `//*[@name="${name}"]`, targetNode)
+    if (uniqueness.isUnique) {
+      results.push(['accessibility-id', `~${name}`])
+    }
+  }
+
+  const label = attrs.label
+  if (isValidValue(label) && label !== attrs.name) {
+    const uniqueness = checkUniqueness(
+      ctx,
+      `//*[@label="${escapeText(label)}"]`,
+      targetNode
+    )
+    if (uniqueness.isUnique) {
+      results.push([
+        'predicate-string',
+        `-ios predicate string:label == "${escapeText(label)}"`
+      ])
+    }
+  }
+
+  const value = attrs.value
+  if (isValidValue(value)) {
+    const uniqueness = checkUniqueness(
+      ctx,
+      `//*[@value="${escapeText(value)}"]`,
+      targetNode
+    )
+    if (uniqueness.isUnique) {
+      results.push([
+        'predicate-string',
+        `-ios predicate string:value == "${escapeText(value)}"`
+      ])
+    }
+  }
+}
+
 function getSimpleSuggestedLocators(
   element: JSONElement,
   ctx: LocatorContext,
@@ -418,100 +516,20 @@ function getSimpleSuggestedLocators(
 ): [LocatorStrategy, string][] {
   const results: [LocatorStrategy, string][] = []
   const isAndroid = automationName.toLowerCase().includes('uiautomator')
-  const attrs = element.attributes
   const inUiAutomatorScope = isAndroid
     ? isInUiAutomatorScope(element, ctx.parsedDOM)
     : true
-
   if (isAndroid) {
-    // Resource ID
-    const resourceId = attrs['resource-id']
-    if (isValidValue(resourceId)) {
-      const xpath = `//*[@resource-id="${resourceId}"]`
-      const uniqueness = checkUniqueness(ctx, xpath, targetNode)
-
-      if (uniqueness.isUnique && inUiAutomatorScope) {
-        results.push([
-          'id',
-          `android=new UiSelector().resourceId("${resourceId}")`
-        ])
-      } else if (uniqueness.index && inUiAutomatorScope) {
-        const base = `android=new UiSelector().resourceId("${resourceId}")`
-        results.push(['id', generateIndexedUiAutomator(base, uniqueness.index)])
-      }
-    }
-
-    // Content Description
-    const contentDesc = attrs['content-desc']
-    if (isValidValue(contentDesc)) {
-      const xpath = `//*[@content-desc="${contentDesc}"]`
-      const uniqueness = checkUniqueness(ctx, xpath, targetNode)
-
-      if (uniqueness.isUnique) {
-        results.push(['accessibility-id', `~${contentDesc}`])
-      }
-    }
-
-    // Text
-    const text = attrs.text
-    if (isValidValue(text) && text.length < 100) {
-      const xpath = `//*[@text="${escapeText(text)}"]`
-      const uniqueness = checkUniqueness(ctx, xpath, targetNode)
-
-      if (uniqueness.isUnique && inUiAutomatorScope) {
-        results.push([
-          'text',
-          `android=new UiSelector().text("${escapeText(text)}")`
-        ])
-      } else if (uniqueness.index && inUiAutomatorScope) {
-        const base = `android=new UiSelector().text("${escapeText(text)}")`
-        results.push([
-          'text',
-          generateIndexedUiAutomator(base, uniqueness.index)
-        ])
-      }
-    }
+    appendAndroidSimpleLocators(
+      element.attributes,
+      ctx,
+      inUiAutomatorScope,
+      results,
+      targetNode
+    )
   } else {
-    // iOS: Accessibility ID (name)
-    const name = attrs.name
-    if (isValidValue(name)) {
-      const xpath = `//*[@name="${name}"]`
-      const uniqueness = checkUniqueness(ctx, xpath, targetNode)
-
-      if (uniqueness.isUnique) {
-        results.push(['accessibility-id', `~${name}`])
-      }
-    }
-
-    // iOS: Label
-    const label = attrs.label
-    if (isValidValue(label) && label !== attrs.name) {
-      const xpath = `//*[@label="${escapeText(label)}"]`
-      const uniqueness = checkUniqueness(ctx, xpath, targetNode)
-
-      if (uniqueness.isUnique) {
-        results.push([
-          'predicate-string',
-          `-ios predicate string:label == "${escapeText(label)}"`
-        ])
-      }
-    }
-
-    // iOS: Value
-    const value = attrs.value
-    if (isValidValue(value)) {
-      const xpath = `//*[@value="${escapeText(value)}"]`
-      const uniqueness = checkUniqueness(ctx, xpath, targetNode)
-
-      if (uniqueness.isUnique) {
-        results.push([
-          'predicate-string',
-          `-ios predicate string:value == "${escapeText(value)}"`
-        ])
-      }
-    }
+    appendIOSSimpleLocators(element.attributes, ctx, results, targetNode)
   }
-
   return results
 }
 

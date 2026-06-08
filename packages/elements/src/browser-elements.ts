@@ -6,6 +6,8 @@
  * It must be self-contained with no external dependencies
  */
 
+import { INTERACTABLE_SELECTORS } from './aria-roles.js'
+
 export interface BrowserElementInfo {
   tagName: string
   name: string // computed accessible name (ARIA spec)
@@ -23,30 +25,20 @@ export interface GetBrowserElementsOptions {
   inViewportOnly?: boolean
 }
 
-const elementsScript = (includeBounds: boolean, inViewportOnly: boolean) =>
+// Page-injected script: WDIO's `browser.execute` stringifies the arrow body
+// and runs it in the browser. The selector list lives in aria-roles.ts at
+// module scope so it stays type-checked, but it's passed in via execute()
+// args because module-level values don't survive script stringification.
+// Same constraint forces every helper below to live inside the IIFE.
+// eslint-disable-next-line max-lines-per-function
+const elementsScript = (
+  includeBounds: boolean,
+  inViewportOnly: boolean,
+  interactableSelectorsArr: readonly string[]
+) =>
+  // eslint-disable-next-line max-lines-per-function -- see comment above
   (function () {
-    const interactableSelectors = [
-      'a[href]',
-      'button',
-      'input:not([type="hidden"])',
-      'select',
-      'textarea',
-      '[role="button"]',
-      '[role="link"]',
-      '[role="checkbox"]',
-      '[role="radio"]',
-      '[role="tab"]',
-      '[role="menuitem"]',
-      '[role="combobox"]',
-      '[role="option"]',
-      '[role="switch"]',
-      '[role="slider"]',
-      '[role="textbox"]',
-      '[role="searchbox"]',
-      '[role="spinbutton"]',
-      '[contenteditable="true"]',
-      '[tabindex]:not([tabindex="-1"])'
-    ].join(',')
+    const interactableSelectors = interactableSelectorsArr.join(',')
 
     function isVisible(element: HTMLElement): boolean {
       if (typeof element.checkVisibility === 'function') {
@@ -66,6 +58,9 @@ const elementsScript = (includeBounds: boolean, inViewportOnly: boolean) =>
       )
     }
 
+    // WAI-ARIA Accessible Name Computation algorithm — see accessibility-tree.ts
+    // for the longer rationale. Sequential spec-ordered fallback steps.
+    // eslint-disable-next-line max-lines-per-function
     function getAccessibleName(el: HTMLElement): string {
       // 1. aria-label
       const ariaLabel = el.getAttribute('aria-label')
@@ -137,6 +132,9 @@ const elementsScript = (includeBounds: boolean, inViewportOnly: boolean) =>
       return (el.textContent?.trim().replace(/\s+/g, ' ') || '').slice(0, 200)
     }
 
+    // Selector synthesis — see accessibility-tree.ts for the longer rationale.
+    // Tries 6 priority-ordered strategies; each must re-check uniqueness.
+    // eslint-disable-next-line max-lines-per-function
     function getSelector(element: HTMLElement): string {
       const tag = element.tagName.toLowerCase()
 
@@ -295,9 +293,15 @@ export async function getInteractableBrowserElements(
   options: GetBrowserElementsOptions = {}
 ): Promise<BrowserElementInfo[]> {
   const { includeBounds = false, inViewportOnly = true } = options
-  return (browser as any).execute(
+  // WDIO's typed Browser.execute overloads don't accept the injected script —
+  // narrow to a permissive execute() shape at the boundary.
+  type ExecuteLike = {
+    execute: (script: unknown, ...args: unknown[]) => Promise<unknown>
+  }
+  return (browser as unknown as ExecuteLike).execute(
     elementsScript,
     includeBounds,
-    inViewportOnly
-  ) as unknown as Promise<BrowserElementInfo[]>
+    inViewportOnly,
+    INTERACTABLE_SELECTORS
+  ) as Promise<BrowserElementInfo[]>
 }
