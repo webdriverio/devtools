@@ -25,7 +25,20 @@ dist-ssr
 /*.ts
 /*.json
 *.tgz
-example/wdio-*.json
+examples/wdio/wdio-*.json
+examples/wdio/wdio-*.webm
+examples/nightwatch/logs/
+
+# Adapter-encoded screencasts (written next to the project root by default)
+selenium-video-*.webm
+nightwatch-video-*.webm
+packages/nightwatch-devtools/nightwatch-video-*.webm
+
+# trace.zip output (mode: 'trace')
+trace-*.zip
+
+# vitest --coverage output
+coverage/
 
 # pnpm state, cache, logs, and debug files
 /packages/**/*.mjs

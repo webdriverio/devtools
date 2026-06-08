@@ -372,6 +372,9 @@ importers:
       ws:
         specifier: ^8.21.0
         version: 8.21.0
+      yazl:
+        specifier: ^2.5.1
+        version: 2.5.1
     devDependencies:
       '@types/node':
         specifier: 25.9.1
@@ -437,6 +440,9 @@ importers:
       ws:
         specifier: ^8.21.0
         version: 8.21.0
+      yazl:
+        specifier: ^2.5.1
+        version: 2.5.1
     devDependencies:
       '@cucumber/cucumber':
         specifier: ^13.0.0

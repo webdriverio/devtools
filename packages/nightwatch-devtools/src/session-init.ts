@@ -124,7 +124,7 @@ function broadcastSessionMetadata(
     ctx.srcFolders = Array.isArray(sf) ? sf : sf ? [sf] : []
   }
 
-  ctx.sessionCapturer.sendUpstream('metadata', {
+  const metadata = {
     type: TraceType.Testrunner,
     capabilities,
     desiredCapabilities,
@@ -133,7 +133,9 @@ function broadcastSessionMetadata(
     host: opts.webdriver?.host,
     options: ctx.buildMetadataOptions(),
     url: ''
-  })
+  }
+  ctx.sessionCapturer.metadata = metadata
+  ctx.sessionCapturer.sendUpstream('metadata', metadata)
 
   const browserName =
     capabilities.browserName || desiredCapabilities.browserName || 'unknown'

@@ -1,4 +1,4 @@
-// Convert the existing NetworkRequest shape into Playwright v8
+// Convert the existing NetworkRequest shape into trace format
 // `resource-snapshot` NDJSON entries (HAR-flavoured) for trace.zip.
 
 import type { NetworkRequest } from '@wdio/devtools-shared'

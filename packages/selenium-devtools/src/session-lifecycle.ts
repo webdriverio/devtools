@@ -12,7 +12,8 @@ import logger from '@wdio/logger'
 import {
   errorMessage,
   finalizeScreencast,
-  resolveAdapterOutputDir
+  resolveAdapterOutputDir,
+  writeTraceZip
 } from '@wdio/devtools-core'
 import { TIMING } from './constants.js'
 import { SessionCapturer } from './session.js'
@@ -22,7 +23,12 @@ import { ScreencastRecorder } from './screencast.js'
 import { buildDriverMetadata } from './helpers/driverMetadata.js'
 import { attachBidiHandlers, buildBidiSinks } from './bidi.js'
 import { gracefulShutdown } from './helpers/processHooks.js'
-import type { ScreencastOptions, SeleniumDriverLike } from './types.js'
+import type {
+  DevToolsMode,
+  Metadata,
+  ScreencastOptions,
+  SeleniumDriverLike
+} from './types.js'
 import type { TestManager } from './helpers/testManager.js'
 
 const log = logger('@wdio/selenium-devtools:session-lifecycle')
@@ -34,6 +40,7 @@ export interface SessionLifecycleCtx {
     openUi: boolean
     captureScreenshots: boolean
     rerunCommand?: string
+    mode?: DevToolsMode
   }
   readonly screencastOptions: ScreencastOptions
   readonly runner: string
@@ -136,6 +143,10 @@ async function initPerDriverCapture(
   })
   ctx.sessionId = sessionId
   if (metadata) {
+    // buildDriverMetadata returns a Record-shaped payload; the relevant
+    // Metadata fields (sessionId, capabilities, viewport, ...) are present
+    // at runtime but TS can't prove the discriminant `type`.
+    ctx.sessionCapturer.metadata = metadata as unknown as Metadata
     ctx.sessionCapturer.sendUpstream('metadata', metadata)
   }
 
@@ -198,6 +209,9 @@ export async function onSessionEnd(ctx: SessionLifecycleCtx): Promise<void> {
   }
   ctx.setFinalized(true)
   const shutdownStart = Date.now()
+  // Capture for the trace.zip write before onDriverEnd clears ctx state.
+  const capturerAtStart = ctx.sessionCapturer
+  const testFilePathAtStart = ctx.testFilePath
   try {
     await onDriverEnd(ctx).catch(() => {})
 
@@ -211,11 +225,37 @@ export async function onSessionEnd(ctx: SessionLifecycleCtx): Promise<void> {
     ctx.testManager?.finalizeSession()
     ctx.testReporter?.updateSuites()
 
+    const sessionId = capturerAtStart?.metadata?.sessionId
+    if (ctx.options.mode === 'trace' && capturerAtStart && sessionId) {
+      try {
+        const zipPath = await writeTraceZip(capturerAtStart, {
+          outputDir: resolveAdapterOutputDir({
+            testFilePath: testFilePathAtStart
+          }),
+          sessionId
+        })
+        log.info(`Trace.zip saved to ${zipPath}`)
+      } catch (err) {
+        log.warn(`trace.zip write failed: ${errorMessage(err)}`)
+      }
+    }
+
     logSessionSummary(ctx)
     ctx.sessionCapturer?.cleanup()
 
-    if (ctx.options.openUi && !ctx.isReuse) {
+    if (
+      ctx.options.openUi &&
+      ctx.options.mode !== 'trace' &&
+      !ctx.isReuse
+    ) {
       handleInteractivePath(ctx, shutdownStart)
+      return
+    }
+
+    // trace mode: no UI to wait for; force-shutdown so the backend HTTP
+    // server stops keeping the event loop alive.
+    if (ctx.options.mode === 'trace' && !ctx.isReuse) {
+      await completeShutdown(ctx, shutdownStart)
       return
     }
 

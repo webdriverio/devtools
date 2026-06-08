@@ -47,7 +47,8 @@
     "@wdio/logger": "^9.18.0",
     "stacktrace-parser": "^0.1.11",
     "webdriverio": "^9.27.2",
-    "ws": "^8.21.0"
+    "ws": "^8.21.0",
+    "yazl": "^2.5.1"
   },
   "optionalDependencies": {
     "fluent-ffmpeg": "^2.1.3"

@@ -1,4 +1,4 @@
-// Thin yazl wrapper that packages a Playwright v8 trace into a single Buffer.
+// Thin yazl wrapper that packages a trace into a single Buffer.
 // Ported from Vince Graics' PR #209.
 
 import yazl from 'yazl'
