@@ -26,6 +26,7 @@ export interface PluginInternals {
   options: { hostname: string; port: number; mode?: DevToolsMode }
   readonly hostname: string
   readonly port: number
+  readonly mode: DevToolsMode
   readonly screencastOptions: ScreencastOptions
   readonly bidiEnabled: boolean
 

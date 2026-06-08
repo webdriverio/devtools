@@ -3,17 +3,21 @@ import {
   CAPTURE_PERFORMANCE_SCRIPT,
   applyPerformanceData,
   errorMessage,
+  mapCommandToAction,
   toError,
   type CapturedPerformancePayload,
   type RetryTracker
 } from '@wdio/devtools-core'
 import { getDriverOriginals, getElementOriginals } from '../driverPatcher.js'
 import { captureOrReplaceCommand } from './captureOrReplaceCommand.js'
+import { captureActionSnapshot } from '../action-snapshot.js'
 import type { SessionCapturer } from '../session.js'
 import type { TestManager } from './testManager.js'
 import type {
+  ActionSnapshot,
   CapturedCommand,
   CommandLog,
+  DevToolsMode,
   SeleniumDriverLike
 } from '../types.js'
 
@@ -144,10 +148,12 @@ export interface OnCommandCtx {
   readonly sessionCapturer: SessionCapturer | undefined
   readonly testManager: TestManager | undefined
   readonly retryTracker: RetryTracker
-  readonly options: { captureScreenshots: boolean }
+  readonly options: { captureScreenshots: boolean; mode?: DevToolsMode }
   readonly scriptInjected: boolean
   readonly finalized: boolean
   readonly driver: SeleniumDriverLike | undefined
+  readonly actionSnapshots: ActionSnapshot[]
+  readonly snapshotCaptures: Promise<void>[]
   setScriptInjected(v: boolean): void
 }
 
@@ -212,6 +218,21 @@ export async function handleOnCommand(
       entry,
       cmd.args,
       ctx.driver
+    )
+  }
+  if (
+    ctx.options.mode === 'trace' &&
+    !error &&
+    ctx.driver &&
+    mapCommandToAction(cmd.command)
+  ) {
+    const driver = ctx.driver
+    ctx.snapshotCaptures.push(
+      captureActionSnapshot(driver, cmd.command).then((snap) => {
+        if (snap) {
+          ctx.actionSnapshots.push(snap)
+        }
+      })
     )
   }
 }

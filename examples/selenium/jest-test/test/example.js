@@ -12,7 +12,7 @@ const VALID_USERNAME = 'tomsmith'
 const VALID_PASSWORD = 'SuperSecretPassword!'
 
 DevTools.configure({
-  screencast: { enabled: true, quality: 70, maxWidth: 1280, maxHeight: 720 },
+  mode: 'trace',
   headless: true
 })
 

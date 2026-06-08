@@ -48,6 +48,7 @@ import {
   NAVIGATION_COMMANDS
 } from './constants.js'
 import {
+  type ActionSnapshot,
   type CapturedCommand,
   type DevToolsMode,
   type DevToolsOptions,
@@ -86,6 +87,8 @@ class SeleniumDevToolsPlugin {
   #retryTracker = new RetryTracker()
   #screencast?: ScreencastRecorder
   #screencastOptions: ScreencastOptions
+  #actionSnapshots: ActionSnapshot[] = []
+  #snapshotCaptures: Promise<void>[] = []
   #sessionId?: string
   #uiUrlOpened = false
   #testFilePath?: string
@@ -374,6 +377,12 @@ class SeleniumDevToolsPlugin {
       },
       setScriptInjected: (v) => {
         self.#scriptInjected = v
+      },
+      get actionSnapshots() {
+        return self.#actionSnapshots
+      },
+      get snapshotCaptures() {
+        return self.#snapshotCaptures
       },
       ensureBackendStarted: () => self.ensureBackendStarted(),
       flushPendingTestActions: () => self.#flushPendingTestActions(),

@@ -25,6 +25,7 @@ import { SuiteManager } from './helpers/suiteManager.js'
 import { BrowserProxy } from './helpers/browserProxy.js'
 import { ScreencastRecorder } from './screencast.js'
 import type {
+  DevToolsMode,
   NightwatchBrowser,
   ScreencastOptions,
   SuiteStats
@@ -37,6 +38,7 @@ export interface SessionInitCtx {
   readonly port: number
   readonly screencastOptions: ScreencastOptions
   readonly bidiEnabled: boolean
+  readonly mode: DevToolsMode
 
   sessionCapturer: SessionCapturer
   testReporter: TestReporter
@@ -232,6 +234,7 @@ export async function ensureSessionInitialized(
     { port: ctx.port, hostname: ctx.hostname },
     browser
   )
+  ctx.sessionCapturer.traceMode = ctx.mode
   const connected = await ctx.sessionCapturer.waitForConnection(3000)
   if (!connected) {
     log.error('❌ Worker WebSocket failed to connect!')
