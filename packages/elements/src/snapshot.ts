@@ -69,6 +69,12 @@ export interface WebSnapshotOptions {
  * @param context  Optional page context for the header line
  * @param options  {@link WebSnapshotOptions}
  */
+// Single linear pass over the flat node list — per-node decisions (skip-by-
+// viewport, role classification, statictext echo dedup, interactive vs
+// structural rendering) must stay together so the inferred-purpose lookup
+// can see siblings. ROADMAP P2: collapse with mobile pipeline into one
+// `serializeSnapshot()`; until then this is the canonical web walker.
+// eslint-disable-next-line max-lines-per-function
 export function serializeWebSnapshot(
   nodes: AccessibilityNode[],
   context?: { url?: string; title?: string },
@@ -429,6 +435,12 @@ interface MobileFlatNode {
  * First pass: walk the JSONElement tree, apply viewport filtering and
  * collect every node into a flat array with semantic roles and selectors.
  */
+// Recursive tree walker — splitting the viewport filter, locator pipeline,
+// fallback, and node-emit branches would require threading the accumulator
+// + walk options through 4 helpers. ROADMAP P0/P1: this whole pipeline gets
+// merged with generateAllElementLocators; until that consolidation lands,
+// keep as one walker.
+// eslint-disable-next-line max-lines-per-function
 function collectMobileNodes(
   element: JSONElement,
   platform: 'android' | 'ios',
@@ -609,6 +621,11 @@ function countSelectors(nodes: MobileFlatNode[]): Map<string, number> {
   return counts
 }
 
+// Render pass mirrors serializeWebSnapshot's structure (linear node-by-node
+// emission with parent-context lookback, statictext echo dedup, layout-noise
+// collapse, .instance(N) indexing). Splitting per-decision would lose the
+// shared per-node state. ROADMAP P2: collapse with web pipeline.
+// eslint-disable-next-line max-lines-per-function
 function renderMobileNodes(nodes: MobileFlatNode[]): string[] {
   const lines: string[] = []
   const selectorCounts = countSelectors(nodes)

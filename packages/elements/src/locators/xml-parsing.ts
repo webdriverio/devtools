@@ -312,6 +312,10 @@ export function countAttributeOccurrences(
   value: string
 ): number {
   const escapedValue = value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  // `attribute` is a fixed set of XML attr names (resource-id, content-desc,
+  // text, name, label, value) controlled by the locator pipeline; `value`
+  // is regex-escaped above. No user-controlled regex source.
+  // eslint-disable-next-line security/detect-non-literal-regexp
   const pattern = new RegExp(`${attribute}=["']${escapedValue}["']`, 'g')
   const matches = sourceXML.match(pattern)
   return matches ? matches.length : 0
