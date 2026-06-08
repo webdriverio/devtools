@@ -9,6 +9,7 @@ import { Builder, By, until } from 'selenium-webdriver'
 import { DevTools } from '@wdio/selenium-devtools'
 
 DevTools.configure({
+  mode: 'trace',
   screencast: { enabled: true, quality: 70, maxWidth: 1280, maxHeight: 720 },
   headless: true
 })

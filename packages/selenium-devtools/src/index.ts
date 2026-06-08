@@ -49,6 +49,7 @@ import {
 } from './constants.js'
 import {
   type CapturedCommand,
+  type DevToolsMode,
   type DevToolsOptions,
   type ScreencastOptions,
   type SeleniumDriverLike,
@@ -228,23 +229,31 @@ class SeleniumDevToolsPlugin {
       screencast?: ScreencastOptions
       headless?: boolean
       openUi?: boolean
+      mode?: DevToolsMode
     } = {}
   ) {
     if ('rerunCommand' in opts) {
       this.#rerunManager.configure(opts.rerunCommand)
       this.#options.rerunCommand = opts.rerunCommand
     }
-    if (opts.screencast) {
-      this.#screencastOptions = {
-        ...this.#screencastOptions,
-        ...opts.screencast
-      }
-    }
     if (typeof opts.headless === 'boolean') {
       this.#options.headless = opts.headless
     }
     if (typeof opts.openUi === 'boolean') {
       this.#options.openUi = opts.openUi
+    }
+    if (opts.mode) {
+      this.#options.mode = opts.mode
+    }
+    if (opts.screencast) {
+      if (this.#options.mode === 'trace' && opts.screencast.enabled) {
+        log.warn('trace mode: ignoring screencast option (live-mode feature)')
+      } else {
+        this.#screencastOptions = {
+          ...this.#screencastOptions,
+          ...opts.screencast
+        }
+      }
     }
   }
 
@@ -564,7 +573,13 @@ if (!registerHooks()) {
 registerProcessHooks(plugin)
 
 export const DevTools = {
-  configure: (opts: { rerunCommand?: string }) => plugin.configure(opts),
+  configure: (opts: {
+    rerunCommand?: string
+    screencast?: ScreencastOptions
+    headless?: boolean
+    openUi?: boolean
+    mode?: DevToolsMode
+  }) => plugin.configure(opts),
   startTest: (name: string, meta?: { file?: string }) =>
     plugin.startTest(name, meta),
   endTest: (state: TestStats['state'] = 'passed') => plugin.endTest(state)

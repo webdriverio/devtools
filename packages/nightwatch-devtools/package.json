@@ -48,7 +48,8 @@
     "import-meta-resolve": "^4.2.0",
     "stacktrace-parser": "^0.1.11",
     "webdriverio": "^9.27.2",
-    "ws": "^8.21.0"
+    "ws": "^8.21.0",
+    "yazl": "^2.5.1"
   },
   "devDependencies": {
     "@types/node": "25.9.1",

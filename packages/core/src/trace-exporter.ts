@@ -1,11 +1,16 @@
-// Converts a captured TraceLog into a Playwright v8 trace.zip Buffer.
+// Converts a captured TraceLog into a trace.zip Buffer.
 // Stays runner-agnostic so the three adapters can call this directly.
 
+import fs from 'node:fs/promises'
+import path from 'node:path'
 import type {
   ActionSnapshot,
   CommandLog,
+  ConsoleLog,
+  Metadata,
   NetworkRequest,
-  TraceLog
+  TraceLog,
+  TraceMutation
 } from '@wdio/devtools-shared'
 import { formatActionTitle, mapCommandToAction } from './action-mapping.js'
 import { networkRequestToHar } from './trace-har.js'
@@ -49,7 +54,21 @@ interface AfterEvent {
   error?: { message: string }
 }
 
-type TraceEvent = ContextOptionsEvent | BeforeEvent | AfterEvent
+interface ScreencastFrameEvent {
+  type: 'screencast-frame'
+  pageId: string
+  sha1: string
+  elements?: string
+  width: number
+  height: number
+  timestamp: number
+}
+
+type TraceEvent =
+  | ContextOptionsEvent
+  | BeforeEvent
+  | AfterEvent
+  | ScreencastFrameEvent
 
 function shortId(sessionId?: string): string {
   return (sessionId ?? Math.random().toString(36).slice(2, 10)).slice(0, 8)
@@ -90,6 +109,9 @@ function buildActionEvents(
   wallTime: number
 ): TraceEvent[] {
   const events: TraceEvent[] = []
+  // cmd.timestamp records command completion, so the *previous* mapped
+  // command's timestamp is a usable startTime for the next one.
+  let prevEndMs = 0
   let callCounter = 0
   for (const cmd of commands) {
     const action = mapCommandToAction(cmd.command)
@@ -98,14 +120,14 @@ function buildActionEvents(
     }
     callCounter++
     const callId = `call@${callCounter}`
-    const relativeMs = Math.max(0, cmd.timestamp - wallTime)
+    const endMs = Math.max(prevEndMs, cmd.timestamp - wallTime)
     const params: Record<string, unknown> = Object.fromEntries(
       cmd.args.map((a, i) => [String(i), a])
     )
     events.push({
       type: 'before',
       callId,
-      startTime: relativeMs,
+      startTime: prevEndMs,
       class: action.class,
       method: action.method,
       pageId,
@@ -115,13 +137,14 @@ function buildActionEvents(
     const afterEvent: AfterEvent = {
       type: 'after',
       callId,
-      endTime: relativeMs
+      endTime: endMs
     }
     if (cmd.error) {
       const err = cmd.error as { message?: string }
       afterEvent.error = { message: err.message ?? String(cmd.error) }
     }
     events.push(afterEvent)
+    prevEndMs = endMs
   }
   return events
 }
@@ -163,9 +186,34 @@ function buildSnapshotResources(
   return out
 }
 
+function buildScreencastFrames(
+  snapshots: ActionSnapshot[],
+  pageId: string,
+  wallTime: number,
+  viewport: { width: number; height: number }
+): ScreencastFrameEvent[] {
+  return snapshots
+    .filter((s) => s.screenshot)
+    .map((s) => {
+      const base = `${pageId}-${s.timestamp}`
+      const frame: ScreencastFrameEvent = {
+        type: 'screencast-frame',
+        pageId,
+        sha1: `${base}.jpeg`,
+        width: viewport.width,
+        height: viewport.height,
+        timestamp: Math.max(0, s.timestamp - wallTime)
+      }
+      if (s.elements && s.elements.length) {
+        frame.elements = `elements-${base}.json`
+      }
+      return frame
+    })
+}
+
 /**
- * Build a Playwright v8 trace.zip buffer from the captured TraceLog.
- * Filters commands through ACTION_MAP and renames to Playwright vocabulary;
+ * Build a trace.zip buffer from the captured TraceLog.
+ * Filters commands through ACTION_MAP and renames to trace vocabulary;
  * network entries become HAR resource-snapshots; per-action screenshots,
  * element JSON, and snapshot text are written under `resources/`.
  */
@@ -173,16 +221,91 @@ export async function exportTraceZip(
   trace: TraceLog,
   opts: { sessionId?: string; wallTimeOverride?: number } = {}
 ): Promise<Buffer> {
-  const wallTime = opts.wallTimeOverride ?? Date.now()
+  // wallTime anchors monotonic offsets at the first captured command so
+  // subsequent actions render at positive deltas in the trace viewer.
+  const firstCommandTs = trace.commands[0]?.timestamp
+  const wallTime = opts.wallTimeOverride ?? firstCommandTs ?? Date.now()
   const idPrefix = shortId(opts.sessionId)
   const contextId = `context@${idPrefix}`
   const pageId = `page@${idPrefix}`
+  const viewport = trace.metadata.viewport ?? { width: 1280, height: 720 }
+  const snapshots = trace.actionSnapshots ?? []
   const events: TraceEvent[] = [
     buildContextOptions(trace, contextId, wallTime),
+    ...buildScreencastFrames(snapshots, pageId, wallTime, viewport),
     ...buildActionEvents(trace.commands, pageId, wallTime)
   ]
   const traceNdjson = events.map((e) => JSON.stringify(e)).join('\n')
   const networkNdjson = buildNetworkNdjson(trace.networkRequests)
-  const resources = buildSnapshotResources(trace.actionSnapshots ?? [], pageId)
+  const resources = buildSnapshotResources(snapshots, pageId)
   return buildTraceZip({ traceNdjson, networkNdjson, resources })
+}
+
+/** Minimum capturer surface needed to assemble a TraceLog. */
+export interface TraceCapturer {
+  mutations: TraceMutation[]
+  traceLogs: string[]
+  consoleLogs: ConsoleLog[]
+  networkRequests: NetworkRequest[]
+  commandsLog: CommandLog[]
+  sources: Map<string, string>
+  metadata?: Metadata
+}
+
+export interface WriteTraceZipOptions {
+  outputDir: string
+  sessionId: string
+  capabilities?: unknown
+  /**
+   * Per-action snapshots from a Phase-3-style hook. When omitted, snapshots
+   * are synthesized from CommandLog entries that carry a screenshot so the
+   * viewer still renders thumbnails for adapters without an action hook.
+   */
+  actionSnapshots?: ActionSnapshot[]
+}
+
+/**
+ * Build a TraceLog from a SessionCapturer-shaped source and write a
+ * Trace.zip. Returns the absolute path written.
+ */
+export async function writeTraceZip(
+  capturer: TraceCapturer,
+  opts: WriteTraceZipOptions
+): Promise<string> {
+  const baseMetadata = capturer.metadata ?? ({} as Metadata)
+  const actionSnapshots =
+    opts.actionSnapshots ??
+    synthesizeSnapshotsFromCommands(capturer.commandsLog)
+  const traceLog: TraceLog = {
+    mutations: capturer.mutations,
+    logs: capturer.traceLogs,
+    consoleLogs: capturer.consoleLogs,
+    networkRequests: capturer.networkRequests,
+    metadata: {
+      ...baseMetadata,
+      ...(opts.capabilities
+        ? { capabilities: opts.capabilities as Metadata['capabilities'] }
+        : {})
+    },
+    commands: capturer.commandsLog,
+    sources: Object.fromEntries(capturer.sources),
+    ...(actionSnapshots.length ? { actionSnapshots } : {})
+  }
+  const zip = await exportTraceZip(traceLog, { sessionId: opts.sessionId })
+  await fs.mkdir(opts.outputDir, { recursive: true })
+  const zipPath = path.join(opts.outputDir, `trace-${opts.sessionId}.zip`)
+  await fs.writeFile(zipPath, zip)
+  return zipPath
+}
+
+function synthesizeSnapshotsFromCommands(
+  commands: CommandLog[]
+): ActionSnapshot[] {
+  return commands
+    .filter((c) => c.screenshot && mapCommandToAction(c.command))
+    .map((c) => ({
+      timestamp: c.timestamp,
+      command: c.command,
+      screenshot: c.screenshot
+    }))
 }

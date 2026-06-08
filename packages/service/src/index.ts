@@ -5,8 +5,8 @@ import path from 'node:path'
 import logger from '@wdio/logger'
 import {
   errorMessage,
-  exportTraceZip,
-  mapCommandToAction
+  mapCommandToAction,
+  writeTraceZip
 } from '@wdio/devtools-core'
 import { captureActionSnapshot } from './action-snapshot.js'
 import type { ActionSnapshot } from '@wdio/devtools-shared'
@@ -59,7 +59,12 @@ export default class DevToolsHookService implements Services.ServiceInstance {
 
   constructor(serviceOptions: ServiceOptions = {}) {
     this.#options = serviceOptions
-    this.#screencastOptions = serviceOptions.screencast
+    if (serviceOptions.mode === 'trace' && serviceOptions.screencast?.enabled) {
+      log.warn('trace mode: ignoring screencast option (live-mode feature)')
+      this.#screencastOptions = undefined
+    } else {
+      this.#screencastOptions = serviceOptions.screencast
+    }
   }
 
   /**
@@ -363,15 +368,15 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     log.info(`DevTools trace saved to ${traceFilePath}`)
 
     if (this.#options.mode === 'trace') {
-      const zip = await exportTraceZip(traceLog, {
-        sessionId: this.#browser.sessionId
-      })
-      const zipPath = path.join(
+      const zipPath = await writeTraceZip(this.#sessionCapturer, {
         outputDir,
-        `trace-${this.#browser.sessionId}.zip`
-      )
-      await fs.writeFile(zipPath, zip)
-      log.info(`Playwright v8 trace.zip saved to ${zipPath}`)
+        sessionId: this.#browser.sessionId,
+        capabilities: this.#browser.capabilities,
+        actionSnapshots: this.#actionSnapshots.length
+          ? this.#actionSnapshots
+          : undefined
+      })
+      log.info(`Trace.zip saved to ${zipPath}`)
     }
 
     // Clean up console patching

@@ -45,6 +45,7 @@ module.exports = {
       //   off to avoid duplicate entries.
       globals: nightwatchDevtools({
         port: 3000,
+        mode: 'trace',
         screencast: { enabled: true, pollIntervalMs: 200 },
         bidi: true
       })
