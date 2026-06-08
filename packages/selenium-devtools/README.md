@@ -311,6 +311,15 @@ DevTools.configure({ captureScreenshots: false })
 DevTools.configure({ rerunCommand: 'npm test -- --grep "{{testName}}"' })
 ```
 
+#### `mode` — live UI vs. headless trace.zip
+**Default:** `'live'` (launches the dashboard window). Set to `'trace'` to skip the dashboard entirely and write a `trace-<sessionId>.zip` next to your test file at session end — meant for CI / offline replay / agentic diffing. `screencast` is ignored in trace mode (live-mode-only feature).
+
+```javascript
+DevTools.configure({ mode: 'trace' })
+```
+
+See [Trace mode](../../README.md#-trace-mode-tracezip) in the root README for the trace.zip layout and consumer notes.
+
 ---
 
 ## Common recipes

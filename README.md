@@ -68,6 +68,27 @@ Real-time capture of browser-side events through the WebDriver BiDi protocol —
 
 When BiDi is active in Selenium or Nightwatch, the per-command Chrome performance-log network-capture path is gated off so requests don't appear twice in the dashboard. The attach + sink logic lives in `@wdio/devtools-core`'s `bidi.ts` — same module both adapters consume.
 
+### 📦 Trace mode (trace.zip)
+
+Headless capture path — no DevTools UI window opens. At session end the adapter writes a `trace-<sessionId>.zip` next to the user's spec / config file, suitable for offline replay, AI-agent diffing, or any consumer that prefers a portable artifact over a live UI.
+
+| Adapter | How to enable |
+|---|---|
+| **WebdriverIO** | `services: [['devtools', { mode: 'trace' }]]` |
+| **Selenium** | `DevTools.configure({ mode: 'trace' })` (before importing `selenium-webdriver`) |
+| **Nightwatch** | `globals: nightwatchDevtools({ mode: 'trace' })` |
+
+The zip contains:
+- `trace.trace` — NDJSON `context-options` + `before`/`after` action events
+- `trace.network` — HAR-style network entries derived from the existing capture
+- `resources/page@<id>-<ts>.jpeg` — screenshot per user-facing action
+- `resources/elements-page@<id>-<ts>.json` — flat interactable element list from `@wdio/elements`
+- `resources/snapshot-page@<id>-<ts>.txt` — depth-indented accessibility-tree snapshot (AI-friendly)
+
+What counts as a user-facing action is filtered through an allow-list in `@wdio/devtools-core/action-mapping.ts` (`url`, `click`, `setValue`, `sendKeys`, `get`, etc.). Internal commands like `findElement`/`waitUntil`/`executeScript` don't produce trace entries.
+
+Trace mode and live mode are **mutually exclusive** — `screencast` options are ignored in trace mode (live-mode feature). Live and trace serve different audiences (humans debugging vs. agents diffing), and stacking them only costs perf.
+
 ### 🔍︎ TestLens
 - **Code Intelligence**: View test definitions directly in your editor
 - **Run/Debug Actions**: Execute individual tests or suites with inline CodeLens actions
