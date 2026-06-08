@@ -2,6 +2,7 @@
 
 export {
   TraceType,
+  type ActionSnapshot,
   type CommandLog,
   type ConsoleLog,
   type DevToolsMode,

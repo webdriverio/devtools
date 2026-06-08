@@ -10,6 +10,8 @@ import {
   serializeError,
   type LogSource
 } from '@wdio/devtools-core'
+import { mapCommandToAction } from '@wdio/devtools-core'
+import { captureActionSnapshot } from './action-snapshot.js'
 import { NAVIGATION_COMMANDS } from './constants.js'
 import {
   parseNetworkFromPerfLogs,
@@ -22,7 +24,13 @@ import {
   type CapturedPerformancePayload,
   applyPerformanceData
 } from '@wdio/devtools-core'
-import type { CommandLog, LogLevel, NightwatchBrowser } from './types.js'
+import type {
+  ActionSnapshot,
+  CommandLog,
+  DevToolsMode,
+  LogLevel,
+  NightwatchBrowser
+} from './types.js'
 
 const log = logger('@wdio/nightwatch-devtools:SessionCapturer')
 
@@ -105,6 +113,11 @@ export class SessionCapturer extends SessionCapturerBase {
   // capture path skips when set, so we don't double-emit network requests.
   bidiActive = false
 
+  // Populated by captureCommand when mode === 'trace' (set by the plugin).
+  traceMode: DevToolsMode = 'live'
+  readonly actionSnapshots: ActionSnapshot[] = []
+  readonly snapshotCaptures: Promise<void>[] = []
+
   constructor(
     devtoolsOptions: { hostname?: string; port?: number } = {},
     browser?: NightwatchBrowser
@@ -174,6 +187,24 @@ export class SessionCapturer extends SessionCapturerBase {
       this.#capturePerformanceData(commandLogEntry, args).catch((err) => {
         log.warn(`Failed to capture performance data: ${errorMessage(err)}`)
       })
+    }
+
+    if (
+      this.traceMode === 'trace' &&
+      !error &&
+      this.#browser &&
+      mapCommandToAction(command)
+    ) {
+      const browser = this.#browser
+      this.snapshotCaptures.push(
+        captureActionSnapshot(browser, command, () =>
+          this.takeScreenshotViaHttp(browser)
+        ).then((snap) => {
+          if (snap) {
+            this.actionSnapshots.push(snap)
+          }
+        })
+      )
     }
 
     return true

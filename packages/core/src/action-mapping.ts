@@ -35,13 +35,15 @@ const ACTION_MAP: Record<string, TraceAction> = {
   keys: { class: 'Keyboard', method: 'press' },
   execute: { class: 'Page', method: 'evaluate' },
   executeAsync: { class: 'Page', method: 'evaluate' },
-  executeScript: { class: 'Page', method: 'evaluate' },
   switchToFrame: { class: 'Frame', method: 'goto' },
   touchAction: { class: 'Element', method: 'tap' }
 }
 
-// clearValue / addValue are excluded: WDIO fires them internally inside setValue
-// and they would produce duplicate trace entries.
+// Excluded by design:
+//   clearValue / addValue — WDIO fires these inside setValue (duplicate events).
+//   executeScript — Selenium's `until` polling fires it ~50ms; also recurses
+//     because @wdio/elements uses executeScript inside captureActionSnapshot.
+//     WDIO's user-facing `execute`/`executeAsync` are still captured.
 
 export function mapCommandToAction(command: string): TraceAction | null {
   return ACTION_MAP[command] ?? null

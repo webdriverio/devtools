@@ -141,6 +141,9 @@ class NightwatchDevToolsPlugin {
       get port() {
         return self.options.port
       },
+      get mode() {
+        return self.options.mode
+      },
       get screencastOptions() {
         return self.#screencastOptions
       },
@@ -488,11 +491,16 @@ class NightwatchDevToolsPlugin {
       return
     }
     try {
+      if (this.sessionCapturer.snapshotCaptures.length) {
+        await Promise.allSettled(this.sessionCapturer.snapshotCaptures)
+      }
+      const snapshots = this.sessionCapturer.actionSnapshots
       const zipPath = await writeTraceZip(this.sessionCapturer, {
         outputDir: resolveAdapterOutputDir({
           configPath: this.#configPath
         }),
-        sessionId
+        sessionId,
+        actionSnapshots: snapshots.length ? snapshots : undefined
       })
       log.info(`Trace.zip saved to ${zipPath}`)
     } catch (err) {

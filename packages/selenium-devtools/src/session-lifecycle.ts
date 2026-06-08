@@ -24,6 +24,7 @@ import { buildDriverMetadata } from './helpers/driverMetadata.js'
 import { attachBidiHandlers, buildBidiSinks } from './bidi.js'
 import { gracefulShutdown } from './helpers/processHooks.js'
 import type {
+  ActionSnapshot,
   DevToolsMode,
   Metadata,
   ScreencastOptions,
@@ -59,6 +60,10 @@ export interface SessionLifecycleCtx {
   scriptInjected: boolean
   testFilePath: string | undefined
   keepAliveTimer: ReturnType<typeof setInterval> | undefined
+
+  // Populated by handleOnCommand when mode === 'trace'.
+  readonly actionSnapshots: ActionSnapshot[]
+  readonly snapshotCaptures: Promise<void>[]
 
   setFinalized(v: boolean): void
   ensureBackendStarted(): Promise<void>
@@ -228,11 +233,17 @@ export async function onSessionEnd(ctx: SessionLifecycleCtx): Promise<void> {
     const sessionId = capturerAtStart?.metadata?.sessionId
     if (ctx.options.mode === 'trace' && capturerAtStart && sessionId) {
       try {
+        if (ctx.snapshotCaptures.length) {
+          await Promise.allSettled(ctx.snapshotCaptures)
+        }
         const zipPath = await writeTraceZip(capturerAtStart, {
           outputDir: resolveAdapterOutputDir({
             testFilePath: testFilePathAtStart
           }),
-          sessionId
+          sessionId,
+          actionSnapshots: ctx.actionSnapshots.length
+            ? ctx.actionSnapshots
+            : undefined
         })
         log.info(`Trace.zip saved to ${zipPath}`)
       } catch (err) {
@@ -252,10 +263,16 @@ export async function onSessionEnd(ctx: SessionLifecycleCtx): Promise<void> {
       return
     }
 
-    // trace mode: no UI to wait for; force-shutdown so the backend HTTP
-    // server stops keeping the event loop alive.
+    // trace mode: no UI to wait for; close the WS so the backend can wind
+    // down naturally. process.exit is avoided — Jest/runners may treat
+    // forced exits as failures.
     if (ctx.options.mode === 'trace' && !ctx.isReuse) {
-      await completeShutdown(ctx, shutdownStart)
+      try {
+        await ctx.sessionCapturer?.closeWebSocket()
+      } catch {
+        /* best-effort */
+      }
+      log.info(`🛑 Shutdown complete (${Date.now() - shutdownStart}ms)`)
       return
     }
 
