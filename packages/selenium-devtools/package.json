@@ -44,7 +44,6 @@
   "dependencies": {
     "@wdio/devtools-backend": "workspace:*",
     "@wdio/devtools-script": "workspace:*",
-    "@wdio/elements": "workspace:^",
     "@wdio/logger": "^9.18.0",
     "stacktrace-parser": "^0.1.11",
     "webdriverio": "^9.27.2",

@@ -18,6 +18,22 @@
     "./*": {
       "types": "./src/*.ts",
       "default": "./src/*.ts"
+    },
+    "./locators": {
+      "types": "./src/locators/index.ts",
+      "default": "./src/locators/index.ts"
+    },
+    "./element-snapshot": {
+      "types": "./src/element-snapshot.ts",
+      "default": "./src/element-snapshot.ts"
+    },
+    "./element-scripts": {
+      "types": "./src/element-scripts.ts",
+      "default": "./src/element-scripts.ts"
+    },
+    "./element-types": {
+      "types": "./src/element-types.ts",
+      "default": "./src/element-types.ts"
     }
   },
   "types": "./src/index.ts",
@@ -30,8 +46,10 @@
     "@types/yazl": "^2.4.6",
     "@wdio/devtools-script": "workspace:*",
     "@wdio/devtools-shared": "workspace:^",
+    "@xmldom/xmldom": "^0.9.8",
     "stacktrace-parser": "^0.1.11",
     "ws": "^8.21.0",
+    "xpath": "^0.0.34",
     "yazl": "^2.5.1"
   }
 }

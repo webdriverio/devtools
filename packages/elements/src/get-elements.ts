@@ -1,6 +1,6 @@
 import { getInteractableBrowserElements } from './browser-elements.js'
 import { getMobileVisibleElementsWithTree } from './mobile-elements.js'
-import type { JSONElement } from './locators/types.js'
+import type { JSONElement } from './locators/index.js'
 
 export type VisibleElementsResult = {
   total: number

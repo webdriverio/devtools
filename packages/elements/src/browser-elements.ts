@@ -1,307 +1,34 @@
 /**
  * Browser element detection
- * Single browser.execute() call: querySelectorAll → flat interactable element list
+ * Single browser.execute() call: querySelectorAll → flat interactable element list.
  *
- * NOTE: This script runs in browser context via browser.execute()
- * It must be self-contained with no external dependencies
+ * The injected script lives in @wdio/devtools-core/element-scripts so it is
+ * the single source of truth for both the @wdio/elements wrappers and the
+ * framework-agnostic trace/snapshot pipeline.
  */
 
-import { INTERACTABLE_SELECTORS } from './aria-roles.js'
+import type {
+  BrowserElementInfo,
+  GetBrowserElementsOptions
+} from '@wdio/devtools-core/element-types'
+import { elementsScript as _elementsScript } from '@wdio/devtools-core/element-scripts'
 
-export interface BrowserElementInfo {
-  tagName: string
-  name: string // computed accessible name (ARIA spec)
-  type: string
-  value: string
-  href: string
-  selector: string
-  isInViewport: boolean
-  boundingBox?: { x: number; y: number; width: number; height: number }
-}
-
-export interface GetBrowserElementsOptions {
-  includeBounds?: boolean
-  /** Only return elements whose bounding rect intersects the viewport (default true). */
-  inViewportOnly?: boolean
-}
-
-// Page-injected script: WDIO's `browser.execute` stringifies the arrow body
-// and runs it in the browser. The selector list lives in aria-roles.ts at
-// module scope so it stays type-checked, but it's passed in via execute()
-// args because module-level values don't survive script stringification.
-// Same constraint forces every helper below to live inside the IIFE.
-// eslint-disable-next-line max-lines-per-function
-const elementsScript = (
-  includeBounds: boolean,
-  inViewportOnly: boolean,
-  interactableSelectorsArr: readonly string[]
-) =>
-  // eslint-disable-next-line max-lines-per-function -- see comment above
-  (function () {
-    const interactableSelectors = interactableSelectorsArr.join(',')
-
-    function isVisible(element: HTMLElement): boolean {
-      if (typeof element.checkVisibility === 'function') {
-        return element.checkVisibility({
-          opacityProperty: true,
-          visibilityProperty: true,
-          contentVisibilityAuto: true
-        })
-      }
-      const style = window.getComputedStyle(element)
-      return (
-        style.display !== 'none' &&
-        style.visibility !== 'hidden' &&
-        style.opacity !== '0' &&
-        element.offsetWidth > 0 &&
-        element.offsetHeight > 0
-      )
-    }
-
-    // WAI-ARIA Accessible Name Computation algorithm — see accessibility-tree.ts
-    // for the longer rationale. Sequential spec-ordered fallback steps.
-    // eslint-disable-next-line max-lines-per-function
-    function getAccessibleName(el: HTMLElement): string {
-      // 1. aria-label
-      const ariaLabel = el.getAttribute('aria-label')
-      if (ariaLabel) {
-        return ariaLabel.trim()
-      }
-
-      // 2. aria-labelledby — resolve referenced elements
-      const labelledBy = el.getAttribute('aria-labelledby')
-      if (labelledBy) {
-        const texts = labelledBy
-          .split(/\s+/)
-          .map((id) => document.getElementById(id)?.textContent?.trim() || '')
-          .filter(Boolean)
-        if (texts.length > 0) {
-          return texts.join(' ').slice(0, 200)
-        }
-      }
-
-      const tag = el.tagName.toLowerCase()
-
-      // 3. alt for images and input[type=image]
-      if (
-        tag === 'img' ||
-        (tag === 'input' && el.getAttribute('type') === 'image')
-      ) {
-        const alt = el.getAttribute('alt')
-        if (alt !== null) {
-          return alt.trim()
-        }
-      }
-
-      // 4. label[for=id] for form elements
-      if (['input', 'select', 'textarea'].includes(tag)) {
-        const id = el.getAttribute('id')
-        if (id) {
-          const label = document.querySelector(`label[for="${CSS.escape(id)}"]`)
-          if (label) {
-            return label.textContent?.trim() || ''
-          }
-        }
-        // 5. Wrapping label — clone, strip inputs, read text
-        const parentLabel = el.closest('label')
-        if (parentLabel) {
-          const clone = parentLabel.cloneNode(true) as HTMLElement
-          clone
-            .querySelectorAll('input,select,textarea')
-            .forEach((n) => n.remove())
-          const lt = clone.textContent?.trim()
-          if (lt) {
-            return lt
-          }
-        }
-      }
-
-      // 6. placeholder
-      const ph = el.getAttribute('placeholder')
-      if (ph) {
-        return ph.trim()
-      }
-
-      // 7. title
-      const title = el.getAttribute('title')
-      if (title) {
-        return title.trim()
-      }
-
-      // 8. text content (truncated, whitespace normalized)
-      return (el.textContent?.trim().replace(/\s+/g, ' ') || '').slice(0, 200)
-    }
-
-    // Selector synthesis — see accessibility-tree.ts for the longer rationale.
-    // Tries 6 priority-ordered strategies; each must re-check uniqueness.
-    // eslint-disable-next-line max-lines-per-function
-    function getSelector(element: HTMLElement): string {
-      const tag = element.tagName.toLowerCase()
-
-      // 1. tag*=Text — best per WebdriverIO docs
-      const text = element.textContent?.trim().replace(/\s+/g, ' ')
-      if (text && text.length > 0 && text.length <= 120) {
-        const sameTagElements = document.querySelectorAll(tag)
-        let matchCount = 0
-        sameTagElements.forEach((el) => {
-          if (el.textContent?.includes(text)) {
-            matchCount++
-          }
-        })
-        if (matchCount === 1) {
-          return `${tag}*=${text}`
-        }
-      }
-
-      // 2. aria/label
-      const ariaLabel = element.getAttribute('aria-label')
-      if (ariaLabel && ariaLabel.length <= 200) {
-        const sel = `[aria-label="${CSS.escape(ariaLabel)}"]`
-        if (document.querySelectorAll(sel).length === 1) {
-          return sel
-        }
-      }
-
-      // 3. data-testid
-      const testId = element.getAttribute('data-testid')
-      if (testId) {
-        const sel = `[data-testid="${CSS.escape(testId)}"]`
-        if (document.querySelectorAll(sel).length === 1) {
-          return sel
-        }
-      }
-
-      // 4. #id
-      if (element.id) {
-        return `#${CSS.escape(element.id)}`
-      }
-
-      // 5. [name] — form elements
-      const nameAttr = element.getAttribute('name')
-      if (nameAttr) {
-        const sel = `${tag}[name="${CSS.escape(nameAttr)}"]`
-        if (document.querySelectorAll(sel).length === 1) {
-          return sel
-        }
-      }
-
-      // 6. tag.class — try each class individually, then first-two combination
-      if (element.className && typeof element.className === 'string') {
-        const classes = element.className.trim().split(/\s+/).filter(Boolean)
-        for (const cls of classes) {
-          const sel = `${tag}.${CSS.escape(cls)}`
-          if (document.querySelectorAll(sel).length === 1) {
-            return sel
-          }
-        }
-        if (classes.length >= 2) {
-          const sel = `${tag}${classes
-            .slice(0, 2)
-            .map((c) => `.${CSS.escape(c)}`)
-            .join('')}`
-          if (document.querySelectorAll(sel).length === 1) {
-            return sel
-          }
-        }
-      }
-
-      // 7. CSS path fallback
-      let current: HTMLElement | null = element
-      const path: string[] = []
-      while (current && current !== document.documentElement) {
-        let seg = current.tagName.toLowerCase()
-        if (current.id) {
-          path.unshift(`#${CSS.escape(current.id)}`)
-          break
-        }
-        const parent = current.parentElement
-        if (parent) {
-          const siblings = Array.from(parent.children).filter(
-            (c) => c.tagName === current!.tagName
-          )
-          if (siblings.length > 1) {
-            seg += `:nth-of-type(${siblings.indexOf(current) + 1})`
-          }
-        }
-        path.unshift(seg)
-        current = current.parentElement
-        if (path.length >= 4) {
-          break
-        }
-      }
-      return path.join(' > ')
-    }
-
-    const elements: Record<string, unknown>[] = []
-    const seen = new Set<Element>()
-
-    document.querySelectorAll(interactableSelectors).forEach((el) => {
-      if (seen.has(el)) {
-        return
-      }
-      seen.add(el)
-
-      const htmlEl = el as HTMLElement
-      if (!isVisible(htmlEl)) {
-        return
-      }
-
-      const inputEl = htmlEl as HTMLInputElement
-      const rect = htmlEl.getBoundingClientRect()
-      const isInViewport =
-        rect.top >= 0 &&
-        rect.left >= 0 &&
-        rect.bottom <=
-          (window.innerHeight || document.documentElement.clientHeight) &&
-        rect.right <=
-          (window.innerWidth || document.documentElement.clientWidth)
-
-      if (inViewportOnly && !isInViewport) {
-        return
-      }
-
-      const entry: Record<string, unknown> = {
-        tagName: htmlEl.tagName.toLowerCase(),
-        name: getAccessibleName(htmlEl),
-        type: htmlEl.getAttribute('type') || '',
-        value: inputEl.value || '',
-        href: htmlEl.getAttribute('href') || '',
-        selector: getSelector(htmlEl),
-        isInViewport
-      }
-
-      if (includeBounds) {
-        entry.boundingBox = {
-          x: rect.x + window.scrollX,
-          y: rect.y + window.scrollY,
-          width: rect.width,
-          height: rect.height
-        }
-      }
-
-      elements.push(entry)
-    })
-
-    return elements
-  })()
+export type { BrowserElementInfo, GetBrowserElementsOptions }
 
 /**
  * Get interactable browser elements via querySelectorAll.
+ *
+ * The script body lives in core but is converted back to a function for
+ * WDIO's `browser.execute(fn, args)` serialization. Passing a raw string
+ * to execute() invokes a different code path that may not preserve scope.
  */
 export async function getInteractableBrowserElements(
   browser: WebdriverIO.Browser,
   options: GetBrowserElementsOptions = {}
 ): Promise<BrowserElementInfo[]> {
   const { includeBounds = false, inViewportOnly = true } = options
-  // WDIO's typed Browser.execute overloads don't accept the injected script —
-  // narrow to a permissive execute() shape at the boundary.
-  type ExecuteLike = {
-    execute: (script: unknown, ...args: unknown[]) => Promise<unknown>
-  }
-  return (browser as unknown as ExecuteLike).execute(
-    elementsScript,
-    includeBounds,
-    inViewportOnly,
-    INTERACTABLE_SELECTORS
-  ) as Promise<BrowserElementInfo[]>
+  const fn = new Function(
+    `return (${_elementsScript(includeBounds, inViewportOnly)})`
+  ) as () => unknown
+  return browser.execute(fn) as unknown as Promise<BrowserElementInfo[]>
 }

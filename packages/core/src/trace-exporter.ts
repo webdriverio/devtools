@@ -143,7 +143,10 @@ function buildActionEvents(
     }
     callCounter++
     const callId = `call@${callCounter}`
-    const endMs = Math.max(prevEndMs, cmd.timestamp - wallTime)
+    // +1ms minimum duration guarantees endTime > startTime so the viewer
+    // never sees an `after` whose matching `before` hasn't been parsed yet
+    // (its action-map lookup crashes on undefined and aborts trace load).
+    const endMs = Math.max(prevEndMs + 1, cmd.timestamp - wallTime)
     const params: Record<string, unknown> = Object.fromEntries(
       cmd.args.map((a, i) => [String(i), a])
     )
