@@ -54,7 +54,7 @@
   },
   "devDependencies": {
     "@cucumber/cucumber": "^13.0.0",
-    "@types/node": "25.9.1",
+    "@types/node": "25.9.2",
     "@types/ws": "^8.18.1",
     "@wdio/devtools-core": "workspace:^",
     "@wdio/devtools-shared": "workspace:^",
