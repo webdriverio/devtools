@@ -19,6 +19,12 @@ export type TestStatus = 'passed' | 'failed' | 'skipped' | 'pending' | 'running'
 /** `live` opens the DevTools UI window; `trace` skips it and lets a downstream exporter consume captured state. */
 export type DevToolsMode = 'live' | 'trace'
 
+/** `zip` (default) writes a single `trace-<id>.zip`; `ndjson-directory` writes
+ *  the same `trace.trace` + `trace.network` + `resources/` layout unpacked
+ *  into `trace-<id>/`. Both are consumable by `playwright show-trace` — the
+ *  unpacked form skips the unzip step for agentic / scripted consumers. */
+export type TraceFormat = 'zip' | 'ndjson-directory'
+
 /**
  * Enum-style accessor for the canonical TestStatus values. Adapter code uses
  * this for readable comparisons (`state === TEST_STATE.PASSED`). The app's

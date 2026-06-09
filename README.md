@@ -89,6 +89,25 @@ What counts as a user-facing action is filtered through an allow-list in `@wdio/
 
 Trace mode and live mode are **mutually exclusive** — `screencast` options are ignored in trace mode (live-mode feature). Live and trace serve different audiences (humans debugging vs. agents diffing), and stacking them only costs perf.
 
+#### Output layout — `traceFormat`
+
+`{ mode: 'trace', traceFormat: 'zip' | 'ndjson-directory' }`. Default `'zip'` writes a single `trace-<sessionId>.zip`; `'ndjson-directory'` unpacks the same `trace.trace` + `trace.network` + `resources/` files into a `trace-<sessionId>/` folder. Both render in `npx playwright show-trace <path>`. The unpacked form skips the unzip step for scripted / agentic consumers.
+
+#### 📱 Mobile testing
+
+Adapters detect mobile sessions via `platformName: 'android' | 'ios'` (and Appium `bstack:options`) and adjust the per-action snapshot to extract elements from the mobile XML tree instead of the DOM. The trace's `context-options` records `title: 'android'` / `'ios'` so the viewer labels frames correctly.
+
+A reference WDIO config is at [examples/wdio/wdio.mobile.conf.ts](examples/wdio/wdio.mobile.conf.ts). Prereqs to run it end-to-end with a local emulator:
+
+1. **Java JDK** — `brew install --cask temurin`
+2. **Android SDK** — `brew install --cask android-commandlinetools` then `yes | sdkmanager --licenses && sdkmanager "platform-tools" "emulator" "system-images;android-34;google_apis_playstore;arm64-v8a"`. The brew cask installs sdkmanager under `/opt/homebrew/share/android-commandlinetools/`, and sdkmanager downloads other SDK pieces alongside it — set `ANDROID_HOME` to that path (not `~/Library/Android/sdk/`).
+3. **AVD + emulator** — `avdmanager create avd -n devtools-test -k "system-images;android-34;google_apis_playstore;arm64-v8a" -d "pixel_7"`, then `emulator -avd devtools-test &` + `adb wait-for-device`.
+4. **Appium + UiAutomator2 driver** — `sudo npm i -g appium && appium driver install uiautomator2`.
+5. **Chromedriver pinning** — Appium's autodownload doesn't reach back far enough for the Chrome version that ships with most Android system images (e.g. Chrome 113 on Android 14). Manually download the matching Chromedriver and start Appium with `--default-capabilities '{"appium:chromedriverExecutableDir": "<path>"}'` plus `--allow-insecure=uiautomator2:chromedriver_autodownload`.
+6. **Classic WebDriver protocol** — Appium 3's BiDi shim for UiAutomator2 doesn't implement every BiDi command (e.g. `script.addPreloadScript`). Set `'wdio:enforceWebDriverClassic': true` in the capability block so WDIO doesn't attempt the BiDi handshake.
+
+These are emulator-specific issues; on a physical phone with USB debugging only steps 1, 4, 6 (and the Chromedriver pin if Chrome on the device is old) apply.
+
 ### 🔍︎ TestLens
 - **Code Intelligence**: View test definitions directly in your editor
 - **Run/Debug Actions**: Execute individual tests or suites with inline CodeLens actions

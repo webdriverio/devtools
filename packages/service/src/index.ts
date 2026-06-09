@@ -368,15 +368,16 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     log.info(`DevTools trace saved to ${traceFilePath}`)
 
     if (this.#options.mode === 'trace') {
-      const zipPath = await writeTraceZip(this.#sessionCapturer, {
+      const tracePath = await writeTraceZip(this.#sessionCapturer, {
         outputDir,
         sessionId: this.#browser.sessionId,
         capabilities: this.#browser.capabilities,
         actionSnapshots: this.#actionSnapshots.length
           ? this.#actionSnapshots
-          : undefined
+          : undefined,
+        format: this.#options.traceFormat
       })
-      log.info(`Trace.zip saved to ${zipPath}`)
+      log.info(`Trace saved to ${tracePath}`)
     }
 
     // Clean up console patching

@@ -114,7 +114,8 @@ class NightwatchDevToolsPlugin {
       hostname: options.hostname ?? 'localhost',
       screencast,
       bidi: options.bidi ?? false,
-      mode
+      mode,
+      traceFormat: options.traceFormat ?? 'zip'
     }
     this.#screencastOptions = { ...SCREENCAST_DEFAULTS, ...screencast }
     this.#bidiEnabled = options.bidi === true
@@ -495,16 +496,17 @@ class NightwatchDevToolsPlugin {
         await Promise.allSettled(this.sessionCapturer.snapshotCaptures)
       }
       const snapshots = this.sessionCapturer.actionSnapshots
-      const zipPath = await writeTraceZip(this.sessionCapturer, {
+      const tracePath = await writeTraceZip(this.sessionCapturer, {
         outputDir: resolveAdapterOutputDir({
           configPath: this.#configPath
         }),
         sessionId,
-        actionSnapshots: snapshots.length ? snapshots : undefined
+        actionSnapshots: snapshots.length ? snapshots : undefined,
+        format: this.options.traceFormat
       })
-      log.info(`Trace.zip saved to ${zipPath}`)
+      log.info(`Trace saved to ${tracePath}`)
     } catch (err) {
-      log.warn(`trace.zip write failed: ${errorMessage(err)}`)
+      log.warn(`trace write failed: ${errorMessage(err)}`)
     }
   }
 

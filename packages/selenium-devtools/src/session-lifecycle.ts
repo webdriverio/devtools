@@ -28,7 +28,8 @@ import type {
   DevToolsMode,
   Metadata,
   ScreencastOptions,
-  SeleniumDriverLike
+  SeleniumDriverLike,
+  TraceFormat
 } from './types.js'
 import type { TestManager } from './helpers/testManager.js'
 
@@ -42,6 +43,7 @@ export interface SessionLifecycleCtx {
     captureScreenshots: boolean
     rerunCommand?: string
     mode?: DevToolsMode
+    traceFormat?: TraceFormat
   }
   readonly screencastOptions: ScreencastOptions
   readonly runner: string
@@ -230,26 +232,7 @@ export async function onSessionEnd(ctx: SessionLifecycleCtx): Promise<void> {
     ctx.testManager?.finalizeSession()
     ctx.testReporter?.updateSuites()
 
-    const sessionId = capturerAtStart?.metadata?.sessionId
-    if (ctx.options.mode === 'trace' && capturerAtStart && sessionId) {
-      try {
-        if (ctx.snapshotCaptures.length) {
-          await Promise.allSettled(ctx.snapshotCaptures)
-        }
-        const zipPath = await writeTraceZip(capturerAtStart, {
-          outputDir: resolveAdapterOutputDir({
-            testFilePath: testFilePathAtStart
-          }),
-          sessionId,
-          actionSnapshots: ctx.actionSnapshots.length
-            ? ctx.actionSnapshots
-            : undefined
-        })
-        log.info(`Trace.zip saved to ${zipPath}`)
-      } catch (err) {
-        log.warn(`trace.zip write failed: ${errorMessage(err)}`)
-      }
-    }
+    await maybeWriteTrace(ctx, capturerAtStart, testFilePathAtStart)
 
     logSessionSummary(ctx)
     ctx.sessionCapturer?.cleanup()
@@ -281,6 +264,33 @@ export async function onSessionEnd(ctx: SessionLifecycleCtx): Promise<void> {
     log.info(`🛑 Session ended (${Date.now() - shutdownStart}ms)`)
   } catch (err) {
     log.warn(`Cleanup error: ${errorMessage(err)}`)
+  }
+}
+
+async function maybeWriteTrace(
+  ctx: SessionLifecycleCtx,
+  capturer: SessionCapturer | undefined,
+  testFilePath: string | undefined
+): Promise<void> {
+  const sessionId = capturer?.metadata?.sessionId
+  if (ctx.options.mode !== 'trace' || !capturer || !sessionId) {
+    return
+  }
+  try {
+    if (ctx.snapshotCaptures.length) {
+      await Promise.allSettled(ctx.snapshotCaptures)
+    }
+    const tracePath = await writeTraceZip(capturer, {
+      outputDir: resolveAdapterOutputDir({ testFilePath }),
+      sessionId,
+      actionSnapshots: ctx.actionSnapshots.length
+        ? ctx.actionSnapshots
+        : undefined,
+      format: ctx.options.traceFormat
+    })
+    log.info(`Trace saved to ${tracePath}`)
+  } catch (err) {
+    log.warn(`trace write failed: ${errorMessage(err)}`)
   }
 }
 
