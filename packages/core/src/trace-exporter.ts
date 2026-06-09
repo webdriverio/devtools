@@ -74,6 +74,29 @@ function shortId(sessionId?: string): string {
   return (sessionId ?? Math.random().toString(36).slice(2, 10)).slice(0, 8)
 }
 
+function resolveContextNaming(caps: Record<string, unknown> | undefined): {
+  browserName: string
+  title: string
+} {
+  const platformName =
+    typeof caps?.platformName === 'string'
+      ? caps.platformName.toLowerCase()
+      : undefined
+  const deviceName =
+    typeof caps?.['appium:deviceName'] === 'string'
+      ? (caps['appium:deviceName'] as string)
+      : undefined
+  if (platformName === 'android' || platformName === 'ios') {
+    return {
+      browserName: 'chromium',
+      title: deviceName ? `${platformName} — ${deviceName}` : platformName
+    }
+  }
+  const browserName =
+    typeof caps?.browserName === 'string' ? caps.browserName : 'chromium'
+  return { browserName, title: browserName }
+}
+
 function buildContextOptions(
   trace: TraceLog,
   contextId: string,
@@ -82,7 +105,7 @@ function buildContextOptions(
   const caps = trace.metadata.capabilities as
     | Record<string, unknown>
     | undefined
-  const browserName = (caps?.browserName as string) ?? 'chromium'
+  const { browserName, title } = resolveContextNaming(caps)
   const viewport = trace.metadata.viewport ?? { width: 1280, height: 720 }
   return {
     version: TRACE_VERSION,
@@ -95,7 +118,7 @@ function buildContextOptions(
     wallTime,
     monotonicTime: 0,
     sdkLanguage: 'javascript',
-    title: browserName,
+    title,
     contextId,
     options: {
       viewport: { width: viewport.width, height: viewport.height }
@@ -217,6 +240,42 @@ function buildScreencastFrames(
  * network entries become HAR resource-snapshots; per-action screenshots,
  * element JSON, and snapshot text are written under `resources/`.
  */
+/** Chronological sort key — see `compareEvents` for the tie-breaker rationale. */
+function eventTime(e: TraceEvent): number {
+  switch (e.type) {
+    case 'context-options':
+      return -Infinity
+    case 'before':
+      return e.startTime
+    case 'after':
+      return e.endTime
+    case 'screencast-frame':
+      return e.timestamp
+  }
+}
+
+/** At the same timestamp T: an action's `after` ends first, then the
+ *  snapshot captured at the action boundary, then the next action's `before`.
+ *  Matches the viewer's expectation that the screencast frame shows the
+ *  state between the previous action's completion and the next one's start. */
+function eventOrder(e: TraceEvent): number {
+  switch (e.type) {
+    case 'context-options':
+      return 0
+    case 'after':
+      return 1
+    case 'screencast-frame':
+      return 2
+    case 'before':
+      return 3
+  }
+}
+
+function compareEvents(a: TraceEvent, b: TraceEvent): number {
+  const dt = eventTime(a) - eventTime(b)
+  return dt !== 0 ? dt : eventOrder(a) - eventOrder(b)
+}
+
 export async function exportTraceZip(
   trace: TraceLog,
   opts: { sessionId?: string; wallTimeOverride?: number } = {}
@@ -234,7 +293,7 @@ export async function exportTraceZip(
     buildContextOptions(trace, contextId, wallTime),
     ...buildScreencastFrames(snapshots, pageId, wallTime, viewport),
     ...buildActionEvents(trace.commands, pageId, wallTime)
-  ]
+  ].sort(compareEvents)
   const traceNdjson = events.map((e) => JSON.stringify(e)).join('\n')
   const networkNdjson = buildNetworkNdjson(trace.networkRequests)
   const resources = buildSnapshotResources(snapshots, pageId)

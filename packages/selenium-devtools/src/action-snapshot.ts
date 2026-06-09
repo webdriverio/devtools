@@ -9,6 +9,7 @@ import {
   getInteractableBrowserElements,
   serializeWebSnapshot
 } from '@wdio/elements'
+import { SNAPSHOT_PROBE_TIMEOUT_MS, withTimeout } from '@wdio/devtools-core'
 import type { ActionSnapshot } from '@wdio/devtools-shared'
 import type { SeleniumDriverLike } from './types.js'
 
@@ -39,12 +40,20 @@ export async function captureActionSnapshot(
       d.takeScreenshot?.().catch(() => undefined) ?? Promise.resolve(undefined),
       d.getCurrentUrl?.().catch(() => undefined) ?? Promise.resolve(undefined),
       d.getTitle?.().catch(() => undefined) ?? Promise.resolve(undefined),
-      getBrowserAccessibilityTree(browserLike, { inViewportOnly: true }).catch(
-        () => []
+      withTimeout(
+        getBrowserAccessibilityTree(browserLike, {
+          inViewportOnly: true
+        }).catch(() => []),
+        SNAPSHOT_PROBE_TIMEOUT_MS,
+        []
       ),
-      getInteractableBrowserElements(browserLike, {
-        inViewportOnly: true
-      }).catch(() => [])
+      withTimeout(
+        getInteractableBrowserElements(browserLike, {
+          inViewportOnly: true
+        }).catch(() => []),
+        SNAPSHOT_PROBE_TIMEOUT_MS,
+        []
+      )
     ])
     const snapshotText = serializeWebSnapshot(tree, { url, title })
     return {

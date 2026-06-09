@@ -2,6 +2,7 @@
 // adapters. See ARCHITECTURE.md §2 and CLAUDE.md §2.2.
 
 export * from './action-mapping.js'
+export * from './with-timeout.js'
 export * from './assert-patcher.js'
 export * from './trace-exporter.js'
 export * from './trace-har.js'
