@@ -1,15 +1,6 @@
-// Per-action snapshot capture for Selenium — fires only in `mode: 'trace'`
-// for commands in ACTION_MAP. Wraps the SeleniumDriverLike in a minimal
-// WebdriverIO.Browser-shaped shim so @wdio/elements can run its in-page
-// scripts via driver.executeScript. Returns null on failure; capture errors
-// must not break the user's test.
+// Selenium adapter: wires SeleniumDriverLike into core's captureActionSnapshot.
 
-import {
-  getBrowserAccessibilityTree,
-  getInteractableBrowserElements,
-  serializeWebSnapshot
-} from '@wdio/elements'
-import { SNAPSHOT_PROBE_TIMEOUT_MS, withTimeout } from '@wdio/devtools-core'
+import { captureActionSnapshot as coreCapture } from '@wdio/devtools-core'
 import type { ActionSnapshot } from '@wdio/devtools-shared'
 import type { SeleniumDriverLike } from './types.js'
 
@@ -18,54 +9,25 @@ interface DriverWithUrl extends SeleniumDriverLike {
   getTitle?: () => Promise<string>
 }
 
-function shimAsWdioBrowser(driver: SeleniumDriverLike): unknown {
-  return {
-    capabilities: {},
-    isAndroid: false,
-    isIOS: false,
-    execute: (script: unknown, ...args: unknown[]) =>
-      driver.executeScript(script as string, ...args)
-  }
-}
-
-export async function captureActionSnapshot(
+export function captureActionSnapshot(
   driver: SeleniumDriverLike,
   command: string
 ): Promise<ActionSnapshot | null> {
-  try {
-    const timestamp = Date.now()
-    const d = driver as DriverWithUrl
-    const browserLike = shimAsWdioBrowser(driver) as WebdriverIO.Browser
-    const [screenshot, url, title, tree, elements] = await Promise.all([
-      d.takeScreenshot?.().catch(() => undefined) ?? Promise.resolve(undefined),
-      d.getCurrentUrl?.().catch(() => undefined) ?? Promise.resolve(undefined),
-      d.getTitle?.().catch(() => undefined) ?? Promise.resolve(undefined),
-      withTimeout(
-        getBrowserAccessibilityTree(browserLike, {
-          inViewportOnly: true
-        }).catch(() => []),
-        SNAPSHOT_PROBE_TIMEOUT_MS,
-        []
-      ),
-      withTimeout(
-        getInteractableBrowserElements(browserLike, {
-          inViewportOnly: true
-        }).catch(() => []),
-        SNAPSHOT_PROBE_TIMEOUT_MS,
-        []
-      )
-    ])
-    const snapshotText = serializeWebSnapshot(tree, { url, title })
-    return {
-      timestamp,
-      command,
-      url,
-      title,
-      screenshot,
-      elements,
-      snapshotText
-    }
-  } catch {
-    return null
-  }
+  const d = driver as DriverWithUrl
+  return coreCapture({
+    command,
+    runScript: (src) => driver.executeScript(`return (${src})`),
+    takeScreenshot: () =>
+      d.takeScreenshot
+        ? d.takeScreenshot().catch(() => undefined)
+        : Promise.resolve(undefined),
+    getUrl: () =>
+      d.getCurrentUrl
+        ? d.getCurrentUrl().catch(() => undefined)
+        : Promise.resolve(undefined),
+    getTitle: () =>
+      d.getTitle
+        ? d.getTitle().catch(() => undefined)
+        : Promise.resolve(undefined)
+  })
 }
