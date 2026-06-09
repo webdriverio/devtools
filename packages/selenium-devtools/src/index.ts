@@ -123,7 +123,8 @@ class SeleniumDevToolsPlugin {
       captureScreenshots: options.captureScreenshots ?? true,
       rerunCommand: options.rerunCommand,
       headless: options.headless ?? false,
-      mode: options.mode ?? 'live'
+      mode: options.mode ?? 'live',
+      traceFormat: options.traceFormat ?? 'zip'
     }
     this.#rerunManager = new RerunManager(RUNNER)
     if (options.rerunCommand) {

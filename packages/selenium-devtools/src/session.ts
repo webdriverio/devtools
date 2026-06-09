@@ -256,16 +256,13 @@ export class SessionCapturer extends SessionCapturerBase {
       return
     }
     try {
-      const ready = await exec(
-        driver,
-        'return typeof window.wdioTraceCollector !== "undefined";'
-      )
-      if (ready !== true) {
-        return
-      }
+      // Atomic check+read in one script eval so the collector can't disappear
+      // (page navigation) between the existence check and the getTraceData
+      // call. Two round-trips left a TOCTOU race that logged spurious
+      // "Cannot read properties of undefined (reading 'getTraceData')" errors.
       const traceData = await exec(
         driver,
-        'return window.wdioTraceCollector.getTraceData();'
+        'return typeof window.wdioTraceCollector !== "undefined" ? window.wdioTraceCollector.getTraceData() : null;'
       )
       if (!traceData) {
         return

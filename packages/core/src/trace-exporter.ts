@@ -9,6 +9,7 @@ import type {
   ConsoleLog,
   Metadata,
   NetworkRequest,
+  TraceFormat,
   TraceLog,
   TraceMutation
 } from '@wdio/devtools-shared'
@@ -279,10 +280,16 @@ function compareEvents(a: TraceEvent, b: TraceEvent): number {
   return dt !== 0 ? dt : eventOrder(a) - eventOrder(b)
 }
 
-export async function exportTraceZip(
+interface TraceBundle {
+  traceNdjson: string
+  networkNdjson: Buffer
+  resources: TraceZipResource[]
+}
+
+function buildTraceBundle(
   trace: TraceLog,
   opts: { sessionId?: string; wallTimeOverride?: number } = {}
-): Promise<Buffer> {
+): TraceBundle {
   // wallTime anchors monotonic offsets at the first captured command so
   // subsequent actions render at positive deltas in the trace viewer.
   const firstCommandTs = trace.commands[0]?.timestamp
@@ -297,10 +304,39 @@ export async function exportTraceZip(
     ...buildScreencastFrames(snapshots, pageId, wallTime, viewport),
     ...buildActionEvents(trace.commands, pageId, wallTime)
   ].sort(compareEvents)
-  const traceNdjson = events.map((e) => JSON.stringify(e)).join('\n')
-  const networkNdjson = buildNetworkNdjson(trace.networkRequests)
-  const resources = buildSnapshotResources(snapshots, pageId)
-  return buildTraceZip({ traceNdjson, networkNdjson, resources })
+  return {
+    traceNdjson: events.map((e) => JSON.stringify(e)).join('\n'),
+    networkNdjson: buildNetworkNdjson(trace.networkRequests),
+    resources: buildSnapshotResources(snapshots, pageId)
+  }
+}
+
+export async function exportTraceZip(
+  trace: TraceLog,
+  opts: { sessionId?: string; wallTimeOverride?: number } = {}
+): Promise<Buffer> {
+  return buildTraceZip(buildTraceBundle(trace, opts))
+}
+
+async function exportTraceDirectory(
+  trace: TraceLog,
+  targetDir: string,
+  opts: { sessionId?: string; wallTimeOverride?: number } = {}
+): Promise<void> {
+  const bundle = buildTraceBundle(trace, opts)
+  await fs.mkdir(path.join(targetDir, 'resources'), { recursive: true })
+  await Promise.all([
+    fs.writeFile(path.join(targetDir, 'trace.trace'), bundle.traceNdjson),
+    bundle.networkNdjson.length
+      ? fs.writeFile(
+          path.join(targetDir, 'trace.network'),
+          bundle.networkNdjson
+        )
+      : Promise.resolve(),
+    ...bundle.resources.map((r) =>
+      fs.writeFile(path.join(targetDir, 'resources', r.resourceName), r.data)
+    )
+  ])
 }
 
 /** Minimum capturer surface needed to assemble a TraceLog. */
@@ -324,11 +360,14 @@ export interface WriteTraceZipOptions {
    * viewer still renders thumbnails for adapters without an action hook.
    */
   actionSnapshots?: ActionSnapshot[]
+  /** Output layout — `zip` (default) writes a single archive, `directory`
+   *  unpacks the same files into `trace-<id>/`. */
+  format?: TraceFormat
 }
 
 /**
- * Build a TraceLog from a SessionCapturer-shaped source and write a
- * Trace.zip. Returns the absolute path written.
+ * Build a TraceLog from a SessionCapturer-shaped source and write the trace
+ * artifact (zip file or directory). Returns the absolute path written.
  */
 export async function writeTraceZip(
   capturer: TraceCapturer,
@@ -353,8 +392,14 @@ export async function writeTraceZip(
     sources: Object.fromEntries(capturer.sources),
     ...(actionSnapshots.length ? { actionSnapshots } : {})
   }
-  const zip = await exportTraceZip(traceLog, { sessionId: opts.sessionId })
   await fs.mkdir(opts.outputDir, { recursive: true })
+  if (opts.format === 'ndjson-directory') {
+    const dir = path.join(opts.outputDir, `trace-${opts.sessionId}`)
+    await fs.mkdir(dir, { recursive: true })
+    await exportTraceDirectory(traceLog, dir, { sessionId: opts.sessionId })
+    return dir
+  }
+  const zip = await exportTraceZip(traceLog, { sessionId: opts.sessionId })
   const zipPath = path.join(opts.outputDir, `trace-${opts.sessionId}.zip`)
   await fs.writeFile(zipPath, zip)
   return zipPath

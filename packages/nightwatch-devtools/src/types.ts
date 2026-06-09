@@ -16,10 +16,15 @@ export {
   type SuiteStats,
   type TestStats,
   type TestStatus,
+  type TraceFormat,
   type TraceLog
 } from '@wdio/devtools-shared'
 
-import type { DevToolsMode, ScreencastOptions } from '@wdio/devtools-shared'
+import type {
+  DevToolsMode,
+  ScreencastOptions,
+  TraceFormat
+} from '@wdio/devtools-shared'
 
 export interface CommandStackFrame {
   command: string
@@ -97,6 +102,9 @@ export interface DevToolsOptions {
   bidi?: boolean
   /** `live` (default) launches the DevTools UI; `trace` skips it. */
   mode?: DevToolsMode
+  /** Trace output layout — `zip` (default) writes a single archive,
+   *  `ndjson-directory` unpacks into `trace-<id>/`. Only applies in trace mode. */
+  traceFormat?: TraceFormat
 }
 
 export interface NightwatchBrowser {

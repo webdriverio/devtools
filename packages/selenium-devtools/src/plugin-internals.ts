@@ -16,7 +16,8 @@ import type {
   ActionSnapshot,
   DevToolsMode,
   ScreencastOptions,
-  SeleniumDriverLike
+  SeleniumDriverLike,
+  TraceFormat
 } from './types.js'
 import type { RetryTracker } from '@wdio/devtools-core'
 import type { PendingTestAction, PendingScenario } from './test-management.js'
@@ -30,6 +31,7 @@ export interface PluginInternals {
     captureScreenshots: boolean
     rerunCommand?: string
     mode?: DevToolsMode
+    traceFormat?: TraceFormat
   }
   readonly screencastOptions: ScreencastOptions
   readonly runner: string

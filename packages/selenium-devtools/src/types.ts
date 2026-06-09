@@ -13,7 +13,8 @@ export {
   type PerformanceData,
   type SuiteStats,
   type TestStats,
-  type TestStatus
+  type TestStatus,
+  type TraceFormat
 } from '@wdio/devtools-shared'
 
 export interface DevToolsOptions {
@@ -23,6 +24,9 @@ export interface DevToolsOptions {
   openUi?: boolean
   /** `live` (default) launches the DevTools UI; `trace` skips it. Overrides `openUi`. */
   mode?: DevToolsMode
+  /** Trace output layout — `zip` (default) writes a single archive,
+   *  `ndjson-directory` unpacks into `trace-<id>/`. Only applies in trace mode. */
+  traceFormat?: TraceFormat
   /** Capture screenshots after each command. Default true. */
   captureScreenshots?: boolean
   /** Command template for per-test rerun. {{testName}} is substituted. */
@@ -39,7 +43,11 @@ export interface DevToolsOptions {
 
 // ScreencastFrame, ScreencastOptions hoisted to @wdio/devtools-shared; re-exported
 // here for backwards compatibility with existing selenium-internal imports.
-import type { DevToolsMode, ScreencastOptions } from '@wdio/devtools-shared'
+import type {
+  DevToolsMode,
+  ScreencastOptions,
+  TraceFormat
+} from '@wdio/devtools-shared'
 export type { ScreencastFrame, ScreencastOptions } from '@wdio/devtools-shared'
 
 /**
