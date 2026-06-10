@@ -57,7 +57,6 @@ export default class DevToolsHookService implements Services.ServiceInstance {
   #screencastOptions?: ScreencastOptions
   #options: ServiceOptions
   #actionSnapshots: ActionSnapshot[] = []
-  #snapshotCaptures: Promise<ActionSnapshot | null>[] = []
 
   constructor(serviceOptions: ServiceOptions = {}) {
     this.#options = serviceOptions
@@ -208,6 +207,34 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     this.resetStack()
   }
 
+  async afterScenario() {
+    await this.#finalizePerScenario()
+  }
+
+  async afterTest() {
+    await this.#finalizePerScenario()
+  }
+
+  async #finalizePerScenario() {
+    if (this.#options.mode !== 'trace' || !this.#browser) {
+      return
+    }
+    const commands = this.#sessionCapturer.commandsLog
+    let stamp = Date.now()
+    for (let i = commands.length - 1; i >= 0; i--) {
+      const cmd = commands[i]!
+      if (mapCommandToAction(cmd.command)) {
+        stamp = cmd.timestamp
+        break
+      }
+    }
+    const snap = await captureActionSnapshot(this.#browser, '__final__')
+    if (snap) {
+      snap.timestamp = stamp
+      this.#actionSnapshots.push(snap)
+    }
+  }
+
   private resetStack() {
     this.#lastCommandSig = null
     this.#commandStack = []
@@ -283,24 +310,28 @@ export default class DevToolsHookService implements Services.ServiceInstance {
         this.#resolveCallSourceFromFrame(source)
       )
 
-      // MCP-style: capture pre-action screenshot (state BEFORE this
-      // action executes).  The screenshot is pushed now and drained in
-      // afterCommand — which stamps it at the previous action's end time
-      // (or 0 for the first action).  This way N+1's pre-screenshot
-      // naturally becomes N's post-screenshot in the timeline.
-      //
-      // Only capture commands that pass the stack filter — internal commands
-      // like execute never match in afterCommand, so their captures would
-      // leak into the next action's drain and produce a duplicate frame.
+      // Pre-action capture: state BEFORE this action executes.  Will be
+      // stamped at the previous action's end time (or 0 for the first).
       if (
         this.#options.mode === 'trace' &&
         this.#browser &&
         mapCommandToAction(command) &&
         !INTERNAL_COMMANDS.includes(command)
       ) {
-        this.#snapshotCaptures.push(
-          captureActionSnapshot(this.#browser, command)
-        )
+        const snap = await captureActionSnapshot(this.#browser, command)
+        if (snap) {
+          const commands = this.#sessionCapturer.commandsLog
+          let stamp = 0
+          for (let i = commands.length - 1; i >= 0; i--) {
+            const cmd = commands[i]!
+            if (mapCommandToAction(cmd.command)) {
+              stamp = cmd.timestamp
+              break
+            }
+          }
+          snap.timestamp = stamp
+          this.#actionSnapshots.push(snap)
+        }
       }
     }
   }
@@ -332,26 +363,6 @@ export default class DevToolsHookService implements Services.ServiceInstance {
           frame.callSource,
           frame.startTimestamp
         )
-        // MCP drain: stamp the pre-action screenshot at the previous
-        // action's end time (or 0 for the first action).  Walk the
-        // command log backwards skipping non-action entries to find the
-        // true previous action boundary.
-        if (
-          this.#options.mode === 'trace' &&
-          !error &&
-          mapCommandToAction(command)
-        ) {
-          const commands = this.#sessionCapturer.commandsLog
-          let prevTimestamp = 0
-          for (let i = commands.length - 2; i >= 0; i--) {
-            const cmd = commands[i]!
-            if (mapCommandToAction(cmd.command)) {
-              prevTimestamp = cmd.timestamp
-              break
-            }
-          }
-          await this.#drainSnapshots(prevTimestamp)
-        }
         return captured
       }
     }
@@ -359,21 +370,6 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     // Re-inject AFTER context-changing commands complete so new documents/frames are instrumented
     if (CONTEXT_CHANGE_COMMANDS.includes(command)) {
       void this.#ensureInjected(`context-change:${command}`)
-    }
-  }
-
-  /** Drain in-flight snapshot captures, stamping each at the given timestamp. */
-  async #drainSnapshots(stampTimestamp: number) {
-    if (!this.#snapshotCaptures.length) {
-      return
-    }
-    const results = await Promise.allSettled(this.#snapshotCaptures)
-    this.#snapshotCaptures = []
-    for (const r of results) {
-      if (r.status === 'fulfilled' && r.value) {
-        r.value.timestamp = stampTimestamp
-        this.#actionSnapshots.push(r.value)
-      }
     }
   }
 
@@ -388,27 +384,6 @@ export default class DevToolsHookService implements Services.ServiceInstance {
 
     // Stop and encode the screencast for the current session.
     await this.#finalizeScreencast(this.#browser.sessionId)
-
-    // MCP captureTraceScreenshot: the final screen state after the last
-    // action.  The pre-action screenshot for the last action was already
-    // drained in afterCommand (stamped at the second-to-last action's end),
-    // but there's no next action to capture the last action's result.
-    // This explicit capture fills that gap.
-    if (this.#options.mode === 'trace' && this.#browser) {
-      const commands = this.#sessionCapturer.commandsLog
-      let lastActionTs = Date.now()
-      for (let i = commands.length - 1; i >= 0; i--) {
-        const cmd = commands[i]!
-        if (mapCommandToAction(cmd.command)) {
-          lastActionTs = cmd.timestamp
-          break
-        }
-      }
-      this.#snapshotCaptures.push(
-        captureActionSnapshot(this.#browser, '__final__')
-      )
-      await this.#drainSnapshots(lastActionTs)
-    }
 
     const outputDir = this.#outputDir
     const { ...options } = this.#browser.options
