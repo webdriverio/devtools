@@ -17,6 +17,7 @@
   },
   "scripts": {
     "wdio": "wdio run ./wdio.conf.ts",
-    "mobile": "wdio run ./wdio.mobile.conf.ts"
+    "mobile": "wdio run ./wdio.mobile.conf.ts",
+    "trace": "wdio run ./wdio.trace.conf.ts"
   }
 }

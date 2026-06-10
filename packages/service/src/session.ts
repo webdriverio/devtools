@@ -25,6 +25,8 @@ const log = logger('@wdio/devtools-service:SessionCapturer')
 
 export class SessionCapturer extends SessionCapturerBase {
   #isScriptInjected = false
+  /** Last find-element selector — carried forward to the next element command. */
+  #lastSelector: string | undefined
   #pendingNetworkRequests = new Map<
     string,
     {
@@ -132,6 +134,62 @@ export class SessionCapturer extends SessionCapturerBase {
         `failed to capture screenshot: ${(screenshotError as Error).message}`
       )
     }
+    const cmd = String(command)
+
+    // Track last find-element selector so element commands (click, setValue, …)
+    // carry a human-readable selector in trace events even though WDIO doesn't
+    // pass it in their args.
+    if (
+      cmd === '$' ||
+      cmd === '$$' ||
+      cmd === 'findElement' ||
+      cmd === 'findElements'
+    ) {
+      const sel = args[0]
+      if (typeof sel === 'string' && sel.length > 0) {
+        this.#lastSelector = sel
+      }
+    }
+
+    // For element-scoped commands without meaningful args, inject the last
+    // selector so the trace event shows what element was acted upon.
+    if (
+      this.#lastSelector &&
+      (cmd === 'click' ||
+        cmd === 'doubleClick' ||
+        cmd === 'moveTo' ||
+        cmd === 'scrollIntoView' ||
+        cmd === 'touchAction' ||
+        cmd === 'dragAndDrop' ||
+        cmd === 'getText' ||
+        cmd === 'getAttribute' ||
+        cmd === 'clearValue' ||
+        cmd === 'waitForExist' ||
+        cmd === 'waitForDisplayed' ||
+        cmd === 'waitForEnabled' ||
+        cmd === 'waitForClickable')
+    ) {
+      const hasNoSelector =
+        args.length === 0 ||
+        (args.length === 1 &&
+          typeof args[0] === 'object' &&
+          args[0] !== null &&
+          !Array.isArray(args[0]) &&
+          Object.keys(args[0] as object).some((k) => k.startsWith('element-')))
+      if (hasNoSelector) {
+        commandLogEntry.args = [this.#lastSelector]
+      }
+    }
+
+    // For setValue / addValue, prepend the last selector so trace params
+    // carry both {selector, value} like the MCP set_value tool does.
+    if (this.#lastSelector && (cmd === 'setValue' || cmd === 'addValue')) {
+      const hasNoSelector = args.length >= 1 && typeof args[0] !== 'object'
+      if (hasNoSelector) {
+        commandLogEntry.args = [this.#lastSelector, ...args]
+      }
+    }
+
     this.commandsLog.push(commandLogEntry)
     this.sendUpstream('commands', [commandLogEntry])
     // Capture trace + perf on commands that could trigger a page transition.

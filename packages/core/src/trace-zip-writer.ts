@@ -14,6 +14,8 @@ export interface TraceZipInputs {
   traceNdjson: string
   /** NDJSON HAR resource-snapshot entries. Empty buffer when omitted. */
   networkNdjson: Buffer
+  /** Human/LLM-readable Markdown transcript. */
+  transcriptMd?: string
   /** Files written under `resources/` — typically screenshots + element snapshots. */
   resources: TraceZipResource[]
 }
@@ -23,6 +25,12 @@ export function buildTraceZip(inputs: TraceZipInputs): Promise<Buffer> {
     const zipFile = new yazl.ZipFile()
     zipFile.addBuffer(Buffer.from(inputs.traceNdjson, 'utf8'), 'trace.trace')
     zipFile.addBuffer(inputs.networkNdjson, 'trace.network')
+    if (inputs.transcriptMd) {
+      zipFile.addBuffer(
+        Buffer.from(inputs.transcriptMd, 'utf8'),
+        'transcript.md'
+      )
+    }
     for (const resource of inputs.resources) {
       zipFile.addBuffer(resource.data, `resources/${resource.resourceName}`)
     }

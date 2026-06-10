@@ -272,7 +272,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     }
   }
 
-  afterCommand(
+  async afterCommand(
     command: keyof WebDriverCommands,
     args: unknown[],
     result: unknown,
@@ -303,6 +303,12 @@ export default class DevToolsHookService implements Services.ServiceInstance {
           !error &&
           mapCommandToAction(command)
         ) {
+          // Drain the previous capture before starting the next so the
+          // screenshot for command N represents the post-N, pre-N+1 boundary.
+          if (this.#snapshotCaptures.length) {
+            await Promise.allSettled(this.#snapshotCaptures)
+            this.#snapshotCaptures = []
+          }
           const browser = this.#browser
           this.#snapshotCaptures.push(
             captureActionSnapshot(browser, command).then((snap) => {
@@ -360,13 +366,6 @@ export default class DevToolsHookService implements Services.ServiceInstance {
         : {})
     }
 
-    const traceFilePath = path.join(
-      outputDir,
-      `wdio-trace-${this.#browser.sessionId}.json`
-    )
-    await fs.writeFile(traceFilePath, JSON.stringify(traceLog))
-    log.info(`DevTools trace saved to ${traceFilePath}`)
-
     if (this.#options.mode === 'trace') {
       const tracePath = await writeTraceZip(this.#sessionCapturer, {
         outputDir,
@@ -378,6 +377,13 @@ export default class DevToolsHookService implements Services.ServiceInstance {
         format: this.#options.traceFormat
       })
       log.info(`Trace saved to ${tracePath}`)
+    } else {
+      const traceFilePath = path.join(
+        outputDir,
+        `wdio-trace-${this.#browser.sessionId}.json`
+      )
+      await fs.writeFile(traceFilePath, JSON.stringify(traceLog))
+      log.info(`DevTools trace saved to ${traceFilePath}`)
     }
 
     // Clean up console patching
