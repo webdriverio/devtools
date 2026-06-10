@@ -114,7 +114,8 @@ export class SessionCapturer extends SessionCapturerBase {
     args: unknown[],
     result: unknown,
     error: Error | undefined,
-    callSource?: string
+    callSource?: string,
+    commandStartTime?: number
   ) {
     const { sourceFileLocation, absolutePath } = this.#resolveUserStackFrame()
     const sourceFilePath = absolutePath.split(':')[0]
@@ -127,6 +128,7 @@ export class SessionCapturer extends SessionCapturerBase {
       result,
       error,
       timestamp: Date.now(),
+      startTime: commandStartTime,
       callSource: callSource ?? absolutePath
     }
     try {

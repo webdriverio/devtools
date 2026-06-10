@@ -143,8 +143,6 @@ function buildActionEvents(
   wallTime: number
 ): TraceEvent[] {
   const events: TraceEvent[] = []
-  // cmd.timestamp records command completion, so the *previous* mapped
-  // command's timestamp is a usable startTime for the next one.
   let prevEndMs = 0
   let callCounter = 0
   for (const cmd of commands) {
@@ -154,10 +152,15 @@ function buildActionEvents(
     }
     callCounter++
     const callId = `call@${callCounter}`
-    // +1ms minimum duration guarantees endTime > startTime so the viewer
-    // never sees an `after` whose matching `before` hasn't been parsed yet
-    // (its action-map lookup crashes on undefined and aborts trace load).
-    const endMs = Math.max(prevEndMs + 1, cmd.timestamp - wallTime)
+    // Use the command's actual invocation timestamp for the start, falling
+    // back to the completion timestamp when startTime isn't recorded.
+    const rawStartMs = (cmd.startTime ?? cmd.timestamp) - wallTime
+    const rawEndMs = cmd.timestamp - wallTime
+    // Floor at prevEndMs to prevent visual overlap with previous action.
+    const startMs = Math.max(prevEndMs, rawStartMs)
+    // +1ms minimum duration so the viewer never sees an `after` whose
+    // matching `before` hasn't been parsed yet.
+    const endMs = Math.max(startMs + 1, rawEndMs)
     const rawArgs = cmd.args as unknown[]
     let params: Record<string, unknown>
     if (
@@ -186,7 +189,7 @@ function buildActionEvents(
     events.push({
       type: 'before',
       callId,
-      startTime: prevEndMs,
+      startTime: startMs,
       class: action.class,
       method: action.method,
       pageId,
