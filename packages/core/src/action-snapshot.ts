@@ -12,17 +12,22 @@ export type ScriptRunner = (scriptSrc: string) => Promise<unknown>
 
 export interface CaptureActionSnapshotInput {
   command: string
-  runScript: ScriptRunner
+  /** Browser script runner — omit on native mobile where Appium can't execute JS. */
+  runScript?: ScriptRunner
   takeScreenshot?: () => Promise<string | null | undefined>
   getUrl?: () => Promise<string | undefined>
   getTitle?: () => Promise<string | undefined>
 }
 
 async function runWith<T>(
-  runScript: ScriptRunner,
+  runScript: ScriptRunner | undefined,
   scriptSrc: string,
   fallback: T
 ): Promise<T> {
+  if (!runScript) {
+    return fallback
+  }
+
   return withTimeout(
     runScript(scriptSrc).then((r) => r as T),
     SNAPSHOT_PROBE_TIMEOUT_MS,

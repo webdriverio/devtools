@@ -22,11 +22,26 @@ export function captureActionSnapshot(
   browser: WebdriverIO.Browser,
   command: string
 ): Promise<ActionSnapshot | null> {
+  // Element scripts don't work on native mobile — Appium can't execute
+  // JavaScript in a native app context. Skip to avoid 2× 2500ms timeouts.
+  const isNativeMobile = Boolean(
+    (browser as unknown as Record<string, unknown>).isMobile ||
+    (browser as unknown as Record<string, unknown>).isAndroid ||
+    (browser as unknown as Record<string, unknown>).isIOS
+  )
   return coreCapture({
     command,
-    runScript: (src) => browser.execute(reviveScript(src)),
+    runScript: isNativeMobile
+      ? undefined
+      : (src) => browser.execute(reviveScript(src)),
     takeScreenshot: () => browser.takeScreenshot().catch(() => undefined),
-    getUrl: () => browser.getUrl().catch(() => undefined),
-    getTitle: () => browser.getTitle().catch(() => undefined)
+    // url/title are browser-only concepts — they fail with "Method has not
+    // yet been implemented" on native mobile, costing a round-trip each.
+    getUrl: isNativeMobile
+      ? undefined
+      : () => browser.getUrl().catch(() => undefined),
+    getTitle: isNativeMobile
+      ? undefined
+      : () => browser.getTitle().catch(() => undefined)
   })
 }
