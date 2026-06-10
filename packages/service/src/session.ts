@@ -25,6 +25,8 @@ const log = logger('@wdio/devtools-service:SessionCapturer')
 
 export class SessionCapturer extends SessionCapturerBase {
   #isScriptInjected = false
+  /** Session start wall time for trace event timestamps. */
+  readonly startWallTime = Date.now()
   /** Last find-element selector — carried forward to the next element command. */
   #lastSelector: string | undefined
   #pendingNetworkRequests = new Map<

@@ -36,6 +36,7 @@ packages/nightwatch-devtools/nightwatch-video-*.webm
 
 # trace.zip output (mode: 'trace')
 trace-*.zip
+trace-*/
 
 # vitest --coverage output
 coverage/
