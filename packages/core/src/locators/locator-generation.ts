@@ -94,7 +94,11 @@ function checkUniqueness(
     return checkXPathUniqueness(ctx.parsedDOM, xpath, targetNode)
   }
 
-  const match = xpath.match(/\/\/\*\[@([^=]+)="([^"]+)"\]/)
+  // Bounded quantifiers ({1,200} for attr names, {1,2000} for values) prevent
+  // polynomial-time backtracking on near-misses like `//[@<` repeated — CodeQL's
+  // js/polynomial-redos query flagged the unbounded form. The bounds are well
+  // above any realistic XPath attribute name/value length.
+  const match = xpath.match(/\/\/\*\[@([^=]{1,200})="([^"]{1,2000})"\]/)
   if (match) {
     const [, attr, value] = match
     return { isUnique: isAttributeUnique(ctx.sourceXML, attr, value) }
