@@ -314,11 +314,8 @@ describe('SessionCapturer.captureTrace', () => {
       getLog: vi.fn(async () => []),
       execute: vi.fn(async () => {
         call++
-        if (call === 1) {
-          // collector check
-          return { value: true }
-        }
-        // getTraceData
+        // Single atomic check+read — the inline `typeof === 'undefined' → null`
+        // guard in the script body avoids the navigation TOCTOU race.
         return {
           value: {
             mutations: [
@@ -332,6 +329,6 @@ describe('SessionCapturer.captureTrace', () => {
     })
     const cap = makeCapturer(browser)
     await cap.captureTrace(browser)
-    expect(call).toBe(2)
+    expect(call).toBe(1)
   })
 })

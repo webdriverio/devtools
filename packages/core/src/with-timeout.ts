@@ -12,15 +12,14 @@ export function withTimeout<T>(
   const timeout = new Promise<T>((resolve) => {
     timer = setTimeout(() => resolve(fallback), ms)
   })
-  return Promise.race([
-    promise.then((v) => {
-      if (timer) {
-        clearTimeout(timer)
-      }
-      return v
-    }),
-    timeout
-  ])
+  // .finally on the race result clears the timer in BOTH the resolved AND
+  // rejected branch — earlier code only cleared on fulfillment, leaving a
+  // dangling timer per failed probe that delayed process exit by up to `ms`.
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timer) {
+      clearTimeout(timer)
+    }
+  })
 }
 
 /** Default ceiling for a single in-page snapshot probe. */
