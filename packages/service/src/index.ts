@@ -32,6 +32,7 @@ import {
   type ScreencastOptions
 } from './types.js'
 import { INTERNAL_COMMANDS, CONTEXT_CHANGE_COMMANDS } from './constants.js'
+import { isNativeMobile } from './mobile.js'
 
 export * from './types.js'
 export const launcher = DevToolsAppLauncher
@@ -56,7 +57,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
   #screencastOptions?: ScreencastOptions
   #options: ServiceOptions
   #actionSnapshots: ActionSnapshot[] = []
-  #snapshotCaptures: Promise<void>[] = []
+  #snapshotCaptures: Promise<ActionSnapshot | null>[] = []
 
   constructor(serviceOptions: ServiceOptions = {}) {
     this.#options = serviceOptions
@@ -104,21 +105,11 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     )
 
     /**
-     * propagate session metadata at the beginning of the session.
-     * Skip on mobile — Appium sessions don't have a browser DOM context.
-     */
-    const isMobile = Boolean(
-      (browser as unknown as Record<string, unknown>).isMobile ||
-      (browser as unknown as Record<string, unknown>).isAndroid ||
-      (browser as unknown as Record<string, unknown>).isIOS
-    )
-
-    /**
      * Block until injection completes BEFORE any test commands.
      * Skip on native mobile — Appium sessions don't support WebDriver BiDi
      * and the injection always fails with SevereServiceError.
      */
-    if (!isMobile) {
+    if (!isNativeMobile(browser)) {
       try {
         await this.#injectScriptSync(browser)
       } catch (err) {
@@ -138,7 +129,11 @@ export default class DevToolsHookService implements Services.ServiceInstance {
       await this.#screencastRecorder.start(browser)
     }
 
-    if (!isMobile) {
+    /**
+     * propagate session metadata at the beginning of the session.
+     * Skip on mobile — Appium sessions don't have a browser DOM context.
+     */
+    if (!isNativeMobile(browser)) {
       browser
         .execute(() => window.visualViewport)
         .then((viewport) =>
@@ -287,6 +282,21 @@ export default class DevToolsHookService implements Services.ServiceInstance {
         args,
         this.#resolveCallSourceFromFrame(source)
       )
+
+      // MCP-style: capture pre-action screenshot (state BEFORE this
+      // action executes).  The screenshot is pushed now and drained in
+      // afterCommand — which stamps it at the previous action's end time
+      // (or 0 for the first action).  This way N+1's pre-screenshot
+      // naturally becomes N's post-screenshot in the timeline.
+      if (
+        this.#options.mode === 'trace' &&
+        this.#browser &&
+        mapCommandToAction(command)
+      ) {
+        this.#snapshotCaptures.push(
+          captureActionSnapshot(this.#browser, command)
+        )
+      }
     }
   }
 
@@ -308,7 +318,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     if (frame?.command === command) {
       this.#commandStack.pop()
       if (this.#browser) {
-        const captured = this.#sessionCapturer.afterCommand(
+        const captured = await this.#sessionCapturer.afterCommand(
           this.#browser,
           command,
           args,
@@ -317,25 +327,25 @@ export default class DevToolsHookService implements Services.ServiceInstance {
           frame.callSource,
           frame.startTimestamp
         )
+        // MCP drain: stamp the pre-action screenshot at the previous
+        // action's end time (or 0 for the first action).  Walk the
+        // command log backwards skipping non-action entries to find the
+        // true previous action boundary.
         if (
           this.#options.mode === 'trace' &&
           !error &&
           mapCommandToAction(command)
         ) {
-          // Drain the previous capture before starting the next so the
-          // screenshot for command N represents the post-N, pre-N+1 boundary.
-          if (this.#snapshotCaptures.length) {
-            await Promise.allSettled(this.#snapshotCaptures)
-            this.#snapshotCaptures = []
+          const commands = this.#sessionCapturer.commandsLog
+          let prevTimestamp = 0
+          for (let i = commands.length - 2; i >= 0; i--) {
+            const cmd = commands[i]!
+            if (mapCommandToAction(cmd.command)) {
+              prevTimestamp = cmd.timestamp
+              break
+            }
           }
-          const browser = this.#browser
-          this.#snapshotCaptures.push(
-            captureActionSnapshot(browser, command).then((snap) => {
-              if (snap) {
-                this.#actionSnapshots.push(snap)
-              }
-            })
-          )
+          await this.#drainSnapshots(prevTimestamp)
         }
         return captured
       }
@@ -344,6 +354,21 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     // Re-inject AFTER context-changing commands complete so new documents/frames are instrumented
     if (CONTEXT_CHANGE_COMMANDS.includes(command)) {
       void this.#ensureInjected(`context-change:${command}`)
+    }
+  }
+
+  /** Drain in-flight snapshot captures, stamping each at the given timestamp. */
+  async #drainSnapshots(stampTimestamp: number) {
+    if (!this.#snapshotCaptures.length) {
+      return
+    }
+    const results = await Promise.allSettled(this.#snapshotCaptures)
+    this.#snapshotCaptures = []
+    for (const r of results) {
+      if (r.status === 'fulfilled' && r.value) {
+        r.value.timestamp = stampTimestamp
+        this.#actionSnapshots.push(r.value)
+      }
     }
   }
 
@@ -359,9 +384,25 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     // Stop and encode the screencast for the current session.
     await this.#finalizeScreencast(this.#browser.sessionId)
 
-    // Drain in-flight per-action snapshots before writing the trace.
-    if (this.#snapshotCaptures.length) {
-      await Promise.allSettled(this.#snapshotCaptures)
+    // MCP captureTraceScreenshot: the final screen state after the last
+    // action.  The pre-action screenshot for the last action was already
+    // drained in afterCommand (stamped at the second-to-last action's end),
+    // but there's no next action to capture the last action's result.
+    // This explicit capture fills that gap.
+    if (this.#options.mode === 'trace' && this.#browser) {
+      const commands = this.#sessionCapturer.commandsLog
+      let lastActionTs = Date.now()
+      for (let i = commands.length - 1; i >= 0; i--) {
+        const cmd = commands[i]!
+        if (mapCommandToAction(cmd.command)) {
+          lastActionTs = cmd.timestamp
+          break
+        }
+      }
+      this.#snapshotCaptures.push(
+        captureActionSnapshot(this.#browser, '__final__')
+      )
+      await this.#drainSnapshots(lastActionTs)
     }
 
     const outputDir = this.#outputDir
