@@ -288,10 +288,15 @@ export default class DevToolsHookService implements Services.ServiceInstance {
       // afterCommand — which stamps it at the previous action's end time
       // (or 0 for the first action).  This way N+1's pre-screenshot
       // naturally becomes N's post-screenshot in the timeline.
+      //
+      // Only capture commands that pass the stack filter — internal commands
+      // like execute never match in afterCommand, so their captures would
+      // leak into the next action's drain and produce a duplicate frame.
       if (
         this.#options.mode === 'trace' &&
         this.#browser &&
-        mapCommandToAction(command)
+        mapCommandToAction(command) &&
+        !INTERNAL_COMMANDS.includes(command)
       ) {
         this.#snapshotCaptures.push(
           captureActionSnapshot(this.#browser, command)
