@@ -41,6 +41,7 @@ const log = logger('@wdio/devtools-service')
 type CommandFrame = {
   command: string
   callSource?: string
+  startTimestamp: number
 }
 
 export { setupForDevtools } from './standalone.js'
@@ -238,7 +239,11 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     }
     const cmdSig = JSON.stringify({ command, args, src: callSource })
     if (this.#lastCommandSig !== cmdSig) {
-      this.#commandStack.push({ command, callSource })
+      this.#commandStack.push({
+        command,
+        callSource,
+        startTimestamp: Date.now()
+      })
       this.#lastCommandSig = cmdSig
     }
   }
@@ -296,7 +301,8 @@ export default class DevToolsHookService implements Services.ServiceInstance {
           args,
           result,
           error,
-          frame.callSource
+          frame.callSource,
+          frame.startTimestamp
         )
         if (
           this.#options.mode === 'trace' &&
