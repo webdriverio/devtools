@@ -110,6 +110,14 @@ export class DevToolsAppLauncher {
   }
 
   async onPrepare(_: never, caps: ExtendedCapabilities[]) {
+    if (this.#options.mode === 'trace' || this.#options.disableDebugger) {
+      log.info(
+        this.#options.mode === 'trace'
+          ? 'Trace mode — skipping backend and Chrome window'
+          : 'Debugger disabled — skipping backend and Chrome window'
+      )
+      return
+    }
     try {
       this.#captureRerunEnv()
       const reusePort = process.env[REUSE_ENV.PORT]
@@ -136,10 +144,6 @@ export class DevToolsAppLauncher {
         port,
         hostname: this.#options.hostname || 'localhost'
       })
-      if (this.#options.mode === 'trace') {
-        log.info('trace mode: backend started, skipping UI window launch')
-        return
-      }
       this.#browser = await remote({
         automationProtocol: 'devtools',
         capabilities: {
