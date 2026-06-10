@@ -91,6 +91,8 @@ export interface CommandLog {
   result?: unknown
   error?: Error | { name: string; message: string; stack?: string }
   timestamp: number
+  /** Wall-clock ms when the command was invoked (before execution). */
+  startTime?: number
   callSource?: string
   screenshot?: string
   testUid?: string
