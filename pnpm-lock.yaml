@@ -499,6 +499,9 @@ importers:
       '@babel/types':
         specifier: ^7.29.7
         version: 7.29.7
+      '@types/yazl':
+        specifier: ^2.4.6
+        version: 2.4.6
       '@wdio/devtools-backend':
         specifier: workspace:^
         version: link:../backend
@@ -544,6 +547,9 @@ importers:
       xpath:
         specifier: ^0.0.34
         version: 0.0.34
+      yazl:
+        specifier: ^2.5.1
+        version: 2.5.1
     devDependencies:
       '@types/babel__core':
         specifier: ^7.20.5
