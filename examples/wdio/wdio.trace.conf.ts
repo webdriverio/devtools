@@ -36,8 +36,8 @@ export const config: WebdriverIO.Config = {
     [
       'devtools',
       {
-        mode: 'trace' as const,
-        traceFormat: 'zip'
+        mode: 'trace' as const
+        // traceFormat: 'ndjson-directory'
       }
     ]
   ],

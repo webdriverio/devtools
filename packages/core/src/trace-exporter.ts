@@ -18,6 +18,7 @@ import {
   mapCommandToAction,
   FILL_METHODS
 } from './action-mapping.js'
+import { networkRequestToHar } from './trace-har.js'
 import { buildTraceZip, type TraceZipResource } from './trace-zip-writer.js'
 
 const TRACE_VERSION = 8
@@ -207,11 +208,25 @@ function buildActionEvents(
   return events
 }
 
-function buildNetworkNdjson(requests: NetworkRequest[]): Buffer {
+function buildNetworkNdjson(
+  requests: NetworkRequest[],
+  wallTime: number,
+  pageId: string
+): Buffer {
   if (!requests.length) {
     return Buffer.alloc(0)
   }
-  const lines = requests.map((r) => JSON.stringify(r))
+  const lines = requests.map((r) => {
+    const entry = networkRequestToHar(r) as unknown as Record<string, unknown>
+    entry.snapshot = {
+      ...(entry.snapshot as Record<string, unknown>),
+      // Monotonic offset so the viewer positions bars on the timeline.
+      _monotonicTime: Math.max(0, r.timestamp - wallTime),
+      // Browsing context ID so the viewer associates requests with the page.
+      _frameref: pageId
+    }
+    return JSON.stringify(entry)
+  })
   return Buffer.from(lines.join('\n'), 'utf8')
 }
 
@@ -366,7 +381,10 @@ interface TraceBundle {
 
 function buildTraceBundle(
   trace: TraceLog,
-  opts: { sessionId?: string; wallTimeOverride?: number } = {}
+  opts: {
+    sessionId?: string
+    wallTimeOverride?: number
+  } = {}
 ): TraceBundle {
   // wallTime anchors monotonic offsets at the first captured command so
   // subsequent actions render at positive deltas in the trace viewer.
@@ -418,8 +436,12 @@ function buildTraceBundle(
     | undefined
   const ctxBName = resolveContextNaming(caps).title
   return {
-    traceNdjson: events.map((e) => JSON.stringify(e)).join('\n'),
-    networkNdjson: buildNetworkNdjson(trace.networkRequests),
+    traceNdjson: events.map((e) => JSON.stringify(e)).join('\n') + '\n',
+    networkNdjson: buildNetworkNdjson(
+      trace.networkRequests,
+      wallTime,
+      pageId
+    ),
     transcriptMd: generateTranscript(trace.commands, wallTime, ctxBName),
     resources: buildSnapshotResources(snapshots, pageId)
   }
@@ -427,7 +449,10 @@ function buildTraceBundle(
 
 export async function exportTraceZip(
   trace: TraceLog,
-  opts: { sessionId?: string; wallTimeOverride?: number } = {}
+  opts: {
+    sessionId?: string
+    wallTimeOverride?: number
+  } = {}
 ): Promise<Buffer> {
   const bundle = buildTraceBundle(trace, opts)
   return buildTraceZip({
@@ -441,7 +466,10 @@ export async function exportTraceZip(
 async function exportTraceDirectory(
   trace: TraceLog,
   targetDir: string,
-  opts: { sessionId?: string; wallTimeOverride?: number } = {}
+  opts: {
+    sessionId?: string
+    wallTimeOverride?: number
+  } = {}
 ): Promise<void> {
   const bundle = buildTraceBundle(trace, opts)
   await fs.mkdir(path.join(targetDir, 'resources'), { recursive: true })
@@ -473,6 +501,7 @@ export interface TraceCapturer {
   commandsLog: CommandLog[]
   sources: Map<string, string>
   metadata?: Metadata
+  startWallTime?: number
 }
 
 export interface WriteTraceZipOptions {
@@ -518,13 +547,17 @@ export async function writeTraceZip(
     ...(actionSnapshots.length ? { actionSnapshots } : {})
   }
   await fs.mkdir(opts.outputDir, { recursive: true })
+  const exportOpts = {
+    sessionId: opts.sessionId,
+    wallTimeOverride: capturer.startWallTime
+  }
   if (opts.format === 'ndjson-directory') {
     const dir = path.join(opts.outputDir, `trace-${opts.sessionId}`)
     await fs.mkdir(dir, { recursive: true })
-    await exportTraceDirectory(traceLog, dir, { sessionId: opts.sessionId })
+    await exportTraceDirectory(traceLog, dir, exportOpts)
     return dir
   }
-  const zip = await exportTraceZip(traceLog, { sessionId: opts.sessionId })
+  const zip = await exportTraceZip(traceLog, exportOpts)
   const zipPath = path.join(opts.outputDir, `trace-${opts.sessionId}.zip`)
   await fs.writeFile(zipPath, zip)
   return zipPath

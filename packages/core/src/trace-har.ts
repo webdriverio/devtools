@@ -91,9 +91,9 @@ export function networkRequestToHar(
       },
       cache: {},
       timings: {
-        send: -1,
+        send: 0,
         wait: Math.max(0, duration),
-        receive: -1
+        receive: 0
       }
     }
   }
