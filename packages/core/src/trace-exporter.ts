@@ -242,7 +242,7 @@ function buildSnapshotResources(
     const base = `${pageId}-${snap.timestamp}`
     if (snap.screenshot) {
       out.push({
-        resourceName: `${base}.png`,
+        resourceName: `${base}.jpeg`,
         data: Buffer.from(snap.screenshot, 'base64')
       })
     }
@@ -275,7 +275,7 @@ function buildScreencastFrames(
       const frame: ScreencastFrameEvent = {
         type: 'screencast-frame',
         pageId,
-        sha1: `${base}.png`,
+        sha1: `${base}.jpeg`,
         width: viewport.width,
         height: viewport.height,
         timestamp: Math.max(0, s.timestamp - wallTime)
@@ -408,7 +408,7 @@ function buildTraceBundle(
     const initFrame: ScreencastFrameEvent = {
       type: 'screencast-frame',
       pageId,
-      sha1: `${base}.png`,
+      sha1: `${base}.jpeg`,
       width: viewport.width,
       height: viewport.height,
       timestamp: 0
@@ -440,11 +440,7 @@ function buildTraceBundle(
   const ctxBName = resolveContextNaming(caps).title
   return {
     traceNdjson: events.map((e) => JSON.stringify(e)).join('\n') + '\n',
-    networkNdjson: buildNetworkNdjson(
-      trace.networkRequests,
-      wallTime,
-      pageId
-    ),
+    networkNdjson: buildNetworkNdjson(trace.networkRequests, wallTime, pageId),
     transcriptMd: generateTranscript(trace.commands, wallTime, ctxBName),
     resources: buildSnapshotResources(snapshots, pageId)
   }

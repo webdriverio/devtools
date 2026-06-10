@@ -131,12 +131,19 @@ export class SessionCapturer extends SessionCapturerBase {
       startTime: commandStartTime,
       callSource: callSource ?? absolutePath
     }
-    try {
-      commandLogEntry.screenshot = await browser.takeScreenshot()
-    } catch (screenshotError) {
-      log.warn(
-        `failed to capture screenshot: ${(screenshotError as Error).message}`
-      )
+    const isNativeMobile = Boolean(
+      (browser as unknown as Record<string, unknown>).isMobile ||
+      (browser as unknown as Record<string, unknown>).isAndroid ||
+      (browser as unknown as Record<string, unknown>).isIOS
+    )
+    if (!isNativeMobile) {
+      try {
+        commandLogEntry.screenshot = await browser.takeScreenshot()
+      } catch (screenshotError) {
+        log.warn(
+          `failed to capture screenshot: ${(screenshotError as Error).message}`
+        )
+      }
     }
     const cmd = String(command)
 
@@ -197,7 +204,8 @@ export class SessionCapturer extends SessionCapturerBase {
     this.commandsLog.push(commandLogEntry)
     this.sendUpstream('commands', [commandLogEntry])
     // Capture trace + perf on commands that could trigger a page transition.
-    if (PAGE_TRANSITION_COMMANDS.includes(command)) {
+    // Skip on native mobile — scripts can't execute in a native app context.
+    if (!isNativeMobile && PAGE_TRANSITION_COMMANDS.includes(command)) {
       await this.#capturePerformance(browser, commandLogEntry, args)
       await this.#captureTrace(browser)
     }
@@ -471,8 +479,32 @@ export class SessionCapturer extends SessionCapturerBase {
     }
   }
 
-  handleNetworkFetchError(event: { request: { request: string } }) {
+  handleNetworkFetchError(event: {
+    request: { request: string }
+    errorText?: string
+  }) {
     const requestId = event.request.request
-    this.#pendingNetworkRequests.delete(requestId)
+    const pending = this.#pendingNetworkRequests.get(requestId)
+    if (pending) {
+      // Emit a HAR resource-snapshot with status 0 and failure text so the
+      // trace viewer shows the failed request rather than silently dropping it.
+      this.#pendingNetworkRequests.delete(requestId)
+      const endTime = performance.now()
+      const networkRequest: NetworkRequest = {
+        id: `${Date.now()}-${requestId}`,
+        url: pending.url,
+        method: pending.method,
+        status: 0,
+        statusText: event.errorText ?? 'Failed',
+        type: 'other',
+        timestamp: pending.timestamp,
+        startTime: pending.startTime,
+        endTime,
+        time: endTime - pending.startTime,
+        requestHeaders: pending.requestHeaders
+      }
+      this.networkRequests.push(networkRequest)
+      this.sendUpstream('networkRequests', [networkRequest])
+    }
   }
 }
