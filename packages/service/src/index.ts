@@ -104,14 +104,28 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     )
 
     /**
-     * Block until injection completes BEFORE any test commands
+     * propagate session metadata at the beginning of the session.
+     * Skip on mobile — Appium sessions don't have a browser DOM context.
      */
-    try {
-      await this.#injectScriptSync(browser)
-    } catch (err) {
-      log.error(
-        `Failed to inject script at session start: ${errorMessage(err)}`
-      )
+    const isMobile = Boolean(
+      (browser as unknown as Record<string, unknown>).isMobile ||
+      (browser as unknown as Record<string, unknown>).isAndroid ||
+      (browser as unknown as Record<string, unknown>).isIOS
+    )
+
+    /**
+     * Block until injection completes BEFORE any test commands.
+     * Skip on native mobile — Appium sessions don't support WebDriver BiDi
+     * and the injection always fails with SevereServiceError.
+     */
+    if (!isMobile) {
+      try {
+        await this.#injectScriptSync(browser)
+      } catch (err) {
+        log.error(
+          `Failed to inject script at session start: ${errorMessage(err)}`
+        )
+      }
     }
 
     /**
@@ -124,19 +138,18 @@ export default class DevToolsHookService implements Services.ServiceInstance {
       await this.#screencastRecorder.start(browser)
     }
 
-    /**
-     * propagate session metadata at the beginning of the session
-     */
-    browser
-      .execute(() => window.visualViewport)
-      .then((viewport) =>
-        this.#sessionCapturer.sendUpstream('metadata', {
-          viewport: viewport || undefined,
-          type: this.captureType,
-          options: browser.options,
-          capabilities: browser.capabilities as Capabilities.W3CCapabilities
-        })
-      )
+    if (!isMobile) {
+      browser
+        .execute(() => window.visualViewport)
+        .then((viewport) =>
+          this.#sessionCapturer.sendUpstream('metadata', {
+            viewport: viewport || undefined,
+            type: this.captureType,
+            options: browser.options,
+            capabilities: browser.capabilities as Capabilities.W3CCapabilities
+          })
+        )
+    }
   }
 
   // The method signature is corrected to use W3CCapabilities
