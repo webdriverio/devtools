@@ -8,6 +8,7 @@ import { SevereServiceError } from 'webdriverio'
 import type { WebDriverCommands } from '@wdio/protocols'
 
 import { PAGE_TRANSITION_COMMANDS } from './constants.js'
+import { isNativeMobile } from './mobile.js'
 import {
   CAPTURE_PERFORMANCE_SCRIPT,
   LOG_SOURCES,
@@ -131,12 +132,7 @@ export class SessionCapturer extends SessionCapturerBase {
       startTime: commandStartTime,
       callSource: callSource ?? absolutePath
     }
-    const isNativeMobile = Boolean(
-      (browser as unknown as Record<string, unknown>).isMobile ||
-      (browser as unknown as Record<string, unknown>).isAndroid ||
-      (browser as unknown as Record<string, unknown>).isIOS
-    )
-    if (!isNativeMobile) {
+    if (!isNativeMobile(browser)) {
       try {
         commandLogEntry.screenshot = await browser.takeScreenshot()
       } catch (screenshotError) {
@@ -205,7 +201,10 @@ export class SessionCapturer extends SessionCapturerBase {
     this.sendUpstream('commands', [commandLogEntry])
     // Capture trace + perf on commands that could trigger a page transition.
     // Skip on native mobile — scripts can't execute in a native app context.
-    if (!isNativeMobile && PAGE_TRANSITION_COMMANDS.includes(command)) {
+    if (
+      !isNativeMobile(browser) &&
+      PAGE_TRANSITION_COMMANDS.includes(command)
+    ) {
       await this.#capturePerformance(browser, commandLogEntry, args)
       await this.#captureTrace(browser)
     }

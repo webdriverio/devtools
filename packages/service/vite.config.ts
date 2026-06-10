@@ -50,6 +50,19 @@ export default defineConfig({
         if (isPrivateWorkspaceDep) {
           return false
         }
+        // Core's transitive deps (@xmldom/xmldom, xpath, yazl, ws) are in
+        // core's devDependencies and not listed in the service's own deps.
+        // They must be bundled into the service dist rather than externalized.
+        if (
+          id === '@xmldom/xmldom' ||
+          id.startsWith('@xmldom/') ||
+          id === 'xpath' ||
+          id.startsWith('xpath/') ||
+          id === 'yazl' ||
+          id.startsWith('yazl/')
+        ) {
+          return false
+        }
         // Any relative import (`./foo.js` from top-level, OR `../foo.js`
         // from a subfolder like utils/) and any absolute path under src/
         // must be bundled, not externalized. The `../` case was missing

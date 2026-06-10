@@ -50,6 +50,8 @@ interface BeforeEvent {
   pageId: string
   params: Record<string, unknown>
   title: string
+  /** Playwright-compatible API name (e.g. 'page.goBack', 'element.click'). */
+  apiName: string
 }
 
 interface AfterEvent {
@@ -194,7 +196,8 @@ function buildActionEvents(
       method: action.method,
       pageId,
       params,
-      title: formatActionTitle(action, cmd.args, params)
+      title: formatActionTitle(action, cmd.args, params),
+      apiName: `${action.class.toLowerCase()}.${action.method}`
     })
     const afterEvent: AfterEvent = {
       type: 'after',
