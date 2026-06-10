@@ -13,8 +13,11 @@ import type {
   TraceLog,
   TraceMutation
 } from '@wdio/devtools-shared'
-import { formatActionTitle, mapCommandToAction } from './action-mapping.js'
-import { networkRequestToHar } from './trace-har.js'
+import {
+  formatActionTitle,
+  mapCommandToAction,
+  FILL_METHODS
+} from './action-mapping.js'
 import { buildTraceZip, type TraceZipResource } from './trace-zip-writer.js'
 
 const TRACE_VERSION = 8
@@ -60,6 +63,7 @@ interface ScreencastFrameEvent {
   pageId: string
   sha1: string
   elements?: string
+  snapshot?: string
   width: number
   height: number
   timestamp: number
@@ -115,7 +119,12 @@ function buildContextOptions(
     libraryName: LIBRARY_NAME,
     libraryVersion: LIBRARY_VERSION,
     browserName,
-    platform: process.platform,
+    platform:
+      process.platform === 'darwin'
+        ? 'darwin'
+        : process.platform === 'win32'
+          ? 'windows'
+          : 'linux',
     wallTime,
     monotonicTime: 0,
     sdkLanguage: 'javascript',
@@ -148,9 +157,31 @@ function buildActionEvents(
     // never sees an `after` whose matching `before` hasn't been parsed yet
     // (its action-map lookup crashes on undefined and aborts trace load).
     const endMs = Math.max(prevEndMs + 1, cmd.timestamp - wallTime)
-    const params: Record<string, unknown> = Object.fromEntries(
-      cmd.args.map((a, i) => [String(i), a])
-    )
+    const rawArgs = cmd.args as unknown[]
+    let params: Record<string, unknown>
+    if (
+      action.class === 'Element' &&
+      action.method === 'fill' &&
+      rawArgs.length >= 2
+    ) {
+      params = { selector: rawArgs[0], value: rawArgs[1] }
+    } else if (
+      action.class === 'Element' &&
+      action.method === 'fill' &&
+      rawArgs.length === 1
+    ) {
+      params = { value: rawArgs[0] }
+    } else if (
+      action.class === 'Element' &&
+      rawArgs.length === 1 &&
+      typeof rawArgs[0] === 'string'
+    ) {
+      params = { selector: rawArgs[0] }
+    } else if (rawArgs.length === 1 && typeof rawArgs[0] === 'string') {
+      params = { url: rawArgs[0] }
+    } else {
+      params = Object.fromEntries(rawArgs.map((a, i) => [String(i), a]))
+    }
     events.push({
       type: 'before',
       callId,
@@ -180,7 +211,7 @@ function buildNetworkNdjson(requests: NetworkRequest[]): Buffer {
   if (!requests.length) {
     return Buffer.alloc(0)
   }
-  const lines = requests.map((r) => JSON.stringify(networkRequestToHar(r)))
+  const lines = requests.map((r) => JSON.stringify(r))
   return Buffer.from(lines.join('\n'), 'utf8')
 }
 
@@ -193,19 +224,19 @@ function buildSnapshotResources(
     const base = `${pageId}-${snap.timestamp}`
     if (snap.screenshot) {
       out.push({
-        resourceName: `${base}.jpeg`,
+        resourceName: `${base}.png`,
         data: Buffer.from(snap.screenshot, 'base64')
       })
     }
     if (snap.elements && snap.elements.length) {
       out.push({
-        resourceName: `elements-${base}.json`,
+        resourceName: `${base}-elements.json`,
         data: Buffer.from(JSON.stringify(snap.elements), 'utf8')
       })
     }
     if (snap.snapshotText) {
       out.push({
-        resourceName: `snapshot-${base}.txt`,
+        resourceName: `${base}-snapshot.txt`,
         data: Buffer.from(snap.snapshotText, 'utf8')
       })
     }
@@ -226,13 +257,16 @@ function buildScreencastFrames(
       const frame: ScreencastFrameEvent = {
         type: 'screencast-frame',
         pageId,
-        sha1: `${base}.jpeg`,
+        sha1: `${base}.png`,
         width: viewport.width,
         height: viewport.height,
         timestamp: Math.max(0, s.timestamp - wallTime)
       }
       if (s.elements && s.elements.length) {
-        frame.elements = `elements-${base}.json`
+        frame.elements = `${base}-elements.json`
+      }
+      if (s.snapshotText) {
+        frame.snapshot = `${base}-snapshot.txt`
       }
       return frame
     })
@@ -280,9 +314,53 @@ function compareEvents(a: TraceEvent, b: TraceEvent): number {
   return dt !== 0 ? dt : eventOrder(a) - eventOrder(b)
 }
 
+/**
+ * Generate a human/LLM-readable Markdown transcript from captured commands.
+ */
+function generateTranscript(
+  commands: CommandLog[],
+  startWallTime: number,
+  title?: string
+): string {
+  const wallTimeISO = new Date(startWallTime).toISOString()
+  const lines: string[] = [`# ${title ?? 'Session'} — ${wallTimeISO}`, '']
+
+  const captured = commands.filter(
+    (c) => mapCommandToAction(String(c.command)) !== null
+  )
+
+  captured.forEach((entry, idx) => {
+    const action = mapCommandToAction(String(entry.command))!
+    const label = formatActionTitle(action, entry.args as unknown[])
+
+    const rawArgs = entry.args as unknown[]
+    const parts: string[] = [`${idx + 1}. ${label}`]
+
+    if (FILL_METHODS.has(action.method) && rawArgs) {
+      const valueIdx = rawArgs.length >= 2 ? 1 : 0
+      if (rawArgs[valueIdx] !== undefined) {
+        parts.push(`value="${String(rawArgs[valueIdx]).slice(0, 50)}"`)
+      }
+    }
+
+    if (entry.error) {
+      const msg =
+        typeof entry.error === 'object' && 'message' in entry.error
+          ? (entry.error as { message: string }).message
+          : String(entry.error)
+      parts.push(`ERROR: ${msg}`)
+    }
+
+    lines.push(parts.join('  '))
+  })
+
+  return lines.join('\n')
+}
+
 interface TraceBundle {
   traceNdjson: string
   networkNdjson: Buffer
+  transcriptMd: string
   resources: TraceZipResource[]
 }
 
@@ -299,14 +377,50 @@ function buildTraceBundle(
   const pageId = `page@${idPrefix}`
   const viewport = trace.metadata.viewport ?? { width: 1280, height: 720 }
   const snapshots = trace.actionSnapshots ?? []
-  const events: TraceEvent[] = [
-    buildContextOptions(trace, contextId, wallTime),
-    ...buildScreencastFrames(snapshots, pageId, wallTime, viewport),
+  const events: TraceEvent[] = [buildContextOptions(trace, contextId, wallTime)]
+
+  // Emit initial screencast-frame (timestamp=0) using the first snapshot's
+  // resources so trace viewers show the page state before any interaction.
+  const firstSnap = snapshots.find((s) => s.screenshot)
+  if (firstSnap) {
+    const base = `${pageId}-${firstSnap.timestamp}`
+    const initFrame: ScreencastFrameEvent = {
+      type: 'screencast-frame',
+      pageId,
+      sha1: `${base}.png`,
+      width: viewport.width,
+      height: viewport.height,
+      timestamp: 0
+    }
+    if (firstSnap.elements && firstSnap.elements.length) {
+      initFrame.elements = `${base}-elements.json`
+    }
+    if (firstSnap.snapshotText) {
+      initFrame.snapshot = `${base}-snapshot.txt`
+    }
+    events.push(initFrame)
+  }
+
+  events.push(
+    // Skip the first snapshot in buildScreencastFrames — it was already emitted
+    // as the initial t=0 frame above.
+    ...buildScreencastFrames(
+      firstSnap ? snapshots.filter((s) => s !== firstSnap) : snapshots,
+      pageId,
+      wallTime,
+      viewport
+    ),
     ...buildActionEvents(trace.commands, pageId, wallTime)
-  ].sort(compareEvents)
+  )
+  events.sort(compareEvents)
+  const caps = trace.metadata.capabilities as
+    | Record<string, unknown>
+    | undefined
+  const ctxBName = resolveContextNaming(caps).title
   return {
     traceNdjson: events.map((e) => JSON.stringify(e)).join('\n'),
     networkNdjson: buildNetworkNdjson(trace.networkRequests),
+    transcriptMd: generateTranscript(trace.commands, wallTime, ctxBName),
     resources: buildSnapshotResources(snapshots, pageId)
   }
 }
@@ -315,7 +429,13 @@ export async function exportTraceZip(
   trace: TraceLog,
   opts: { sessionId?: string; wallTimeOverride?: number } = {}
 ): Promise<Buffer> {
-  return buildTraceZip(buildTraceBundle(trace, opts))
+  const bundle = buildTraceBundle(trace, opts)
+  return buildTraceZip({
+    traceNdjson: bundle.traceNdjson,
+    networkNdjson: bundle.networkNdjson,
+    resources: bundle.resources,
+    transcriptMd: bundle.transcriptMd
+  })
 }
 
 async function exportTraceDirectory(
@@ -327,6 +447,11 @@ async function exportTraceDirectory(
   await fs.mkdir(path.join(targetDir, 'resources'), { recursive: true })
   await Promise.all([
     fs.writeFile(path.join(targetDir, 'trace.trace'), bundle.traceNdjson),
+    fs.writeFile(
+      path.join(targetDir, 'transcript.md'),
+      bundle.transcriptMd,
+      'utf8'
+    ),
     bundle.networkNdjson.length
       ? fs.writeFile(
           path.join(targetDir, 'trace.network'),

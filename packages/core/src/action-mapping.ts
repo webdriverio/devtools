@@ -63,3 +63,9 @@ export function formatActionTitle(
   ).slice(0, 80)
   return `${action.class}.${action.method}("${label}")`
 }
+
+/**
+ * Methods where the first positional argument should render as value= in the
+ * transcript line (e.g. setValue, selectByVisibleText).
+ */
+export const FILL_METHODS = new Set(['fill', 'selectOption'])
