@@ -10,6 +10,7 @@
 
 import { captureActionSnapshot as coreCapture } from '@wdio/devtools-core'
 import type { ActionSnapshot } from '@wdio/devtools-shared'
+import { isNativeMobile, mobilePlatform } from './mobile.js'
 
 function reviveScript(src: string): () => unknown {
   // `src` from core/element-scripts is already a self-invoking IIFE
@@ -22,26 +23,22 @@ export function captureActionSnapshot(
   browser: WebdriverIO.Browser,
   command: string
 ): Promise<ActionSnapshot | null> {
-  // Element scripts don't work on native mobile — Appium can't execute
-  // JavaScript in a native app context. Skip to avoid 2× 2500ms timeouts.
-  const isNativeMobile = Boolean(
-    (browser as unknown as Record<string, unknown>).isMobile ||
-    (browser as unknown as Record<string, unknown>).isAndroid ||
-    (browser as unknown as Record<string, unknown>).isIOS
-  )
+  const native = isNativeMobile(browser)
   return coreCapture({
     command,
-    runScript: isNativeMobile
-      ? undefined
-      : (src) => browser.execute(reviveScript(src)),
+    runScript: native ? undefined : (src) => browser.execute(reviveScript(src)),
     takeScreenshot: () => browser.takeScreenshot().catch(() => undefined),
     // url/title are browser-only concepts — they fail with "Method has not
     // yet been implemented" on native mobile, costing a round-trip each.
-    getUrl: isNativeMobile
+    getUrl: native ? undefined : () => browser.getUrl().catch(() => undefined),
+    getTitle: native
       ? undefined
-      : () => browser.getUrl().catch(() => undefined),
-    getTitle: isNativeMobile
-      ? undefined
-      : () => browser.getTitle().catch(() => undefined)
+      : () => browser.getTitle().catch(() => undefined),
+    // On native mobile, use page-source XML to produce structured element
+    // data and an AI-readable snapshot (same approach as @wdio/elements).
+    getPageSource: native
+      ? () => browser.getPageSource().catch(() => undefined)
+      : undefined,
+    platform: native ? mobilePlatform(browser) : undefined
   })
 }
