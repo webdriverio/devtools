@@ -221,20 +221,18 @@ describe('selenium SessionCapturer (with stashed executeScript)', () => {
     let call = 0
     stubExec(async () => {
       call++
-      return call === 1 ? true : null
+      return null
     })
     const cap = makeCapturer({ id: 'd' })
     await expect(cap.captureTrace()).resolves.toBeUndefined()
-    expect(call).toBe(2)
+    // Single atomic check+read in one executeScript — see session.ts comment.
+    expect(call).toBe(1)
   })
 
   it('captureTrace processes payload when collector returns data', async () => {
     let call = 0
     stubExec(async () => {
       call++
-      if (call === 1) {
-        return true
-      }
       return {
         mutations: [],
         networkRequests: [],
@@ -243,7 +241,7 @@ describe('selenium SessionCapturer (with stashed executeScript)', () => {
     })
     const cap = makeCapturer({ id: 'd' })
     await cap.captureTrace()
-    expect(call).toBe(2)
+    expect(call).toBe(1)
   })
 
   it('captureTrace swallows ECONNREFUSED / no-such-session errors silently', async () => {

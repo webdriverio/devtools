@@ -456,17 +456,11 @@ export class SessionCapturer extends SessionCapturerBase {
     // Capture network requests from Chrome performance logs
     await this.captureNetworkFromPerformanceLogs(browser)
 
-    // Also try the injected wdioTraceCollector script for XHR/fetch and mutations
+    // Also try the injected wdioTraceCollector script for XHR/fetch and mutations.
+    // Atomic check+read — the inline `typeof === 'undefined' → null` guard is
+    // the only safe form; a separate existence check would race page navigation
+    // (the collector can disappear between the two round-trips).
     try {
-      const checkResult = await browser.execute(
-        'return typeof window.wdioTraceCollector !== "undefined"'
-      )
-      const collectorExists = unwrapDriverValue<unknown>(checkResult) === true
-
-      if (!collectorExists) {
-        return
-      }
-
       const result = await browser.execute(`
         if (typeof window.wdioTraceCollector === 'undefined') {
           return null;

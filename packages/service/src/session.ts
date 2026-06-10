@@ -207,20 +207,21 @@ export class SessionCapturer extends SessionCapturerBase {
     }
 
     try {
-      const collectorExists = await browser.execute(
-        () => typeof window.wdioTraceCollector !== 'undefined'
+      // Atomic check+read in a single browser.execute so the collector can't
+      // disappear (page navigation) between the existence check and the
+      // getTraceData call. Two round-trips left a TOCTOU race that surfaced
+      // spurious "Cannot read properties of undefined" errors.
+      const payload = await browser.execute(() =>
+        typeof window.wdioTraceCollector !== 'undefined'
+          ? window.wdioTraceCollector.getTraceData()
+          : null
       )
-
-      if (!collectorExists) {
+      if (!payload) {
         log.warn(
           'wdioTraceCollector not loaded yet - page loaded before preload script took effect'
         )
         return
       }
-
-      const payload = await browser.execute(() =>
-        window.wdioTraceCollector.getTraceData()
-      )
       this.processTracePayload(payload as Record<string, unknown>)
     } catch (err) {
       log.error(`Failed to capture trace: ${errorMessage(err)}`)
