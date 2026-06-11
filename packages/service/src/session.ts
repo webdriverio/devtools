@@ -205,8 +205,10 @@ export class SessionCapturer extends SessionCapturerBase {
       !isNativeMobile(browser) &&
       PAGE_TRANSITION_COMMANDS.includes(command)
     ) {
-      await this.#capturePerformance(browser, commandLogEntry, args)
-      await this.#captureTrace(browser)
+      await Promise.all([
+        this.#capturePerformance(browser, commandLogEntry, args),
+        this.#captureTrace(browser)
+      ])
     }
   }
 
@@ -369,26 +371,7 @@ export class SessionCapturer extends SessionCapturerBase {
     try {
       const { request, timestamp } = event
       const requestId = request.request
-      const requestHeaders: Record<string, string> = {}
-      if (request.headers) {
-        request.headers.forEach(
-          (h: {
-            name: string
-            value: { type?: string; value?: string } | string
-          }) => {
-            const name = typeof h.name === 'string' ? h.name.toLowerCase() : ''
-            const value =
-              typeof h.value === 'string'
-                ? h.value
-                : typeof h.value === 'object' && h.value?.value
-                  ? h.value.value
-                  : ''
-            if (name) {
-              requestHeaders[name] = value
-            }
-          }
-        )
-      }
+      const requestHeaders = this.#flattenBidiHeaders(request.headers)
 
       this.#pendingNetworkRequests.set(requestId, {
         url: request.url,
