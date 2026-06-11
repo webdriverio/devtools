@@ -22,15 +22,21 @@
     "directory": "packages/elements"
   },
   "scripts": {
-    "build": "tsc -p ./tsconfig.json",
+    "build": "tsup src/index.ts src/locators/index.ts --format esm --experimental-dts --sourcemap --clean --out-dir dist",
+    "watch": "tsup src/index.ts src/locators/index.ts --format esm --experimental-dts --sourcemap --watch --out-dir dist",
     "lint": "eslint . --fix",
-    "test": "vitest run"
+    "test": "vitest run",
+    "prepublishOnly": "pnpm build"
   },
-  "dependencies": {},
+  "dependencies": {
+    "@xmldom/xmldom": "^0.9.8",
+    "xpath": "^0.0.34"
+  },
   "devDependencies": {
     "@types/node": "25.5.2",
     "@wdio/devtools-core": "workspace:^",
     "@wdio/globals": "9.27.0",
+    "tsup": "^8.5.1",
     "typescript": "6.0.2",
     "vitest": "^4.0.16"
   },
