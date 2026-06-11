@@ -84,6 +84,7 @@ The zip contains:
 - `resources/page@<id>-<ts>.jpeg` — screenshot per user-facing action
 - `resources/elements-page@<id>-<ts>.json` — flat interactable element list extracted by the page-injected scripts in `@wdio/devtools-core/element-scripts`
 - `resources/snapshot-page@<id>-<ts>.txt` — depth-indented accessibility-tree snapshot (AI-friendly)
+- `transcript.md` — human/LLM-readable Markdown transcript of the captured actions, with timing, selectors, and value annotations
 
 What counts as a user-facing action is filtered through an allow-list in `@wdio/devtools-core/action-mapping.ts` (`url`, `click`, `setValue`, `sendKeys`, `get`, etc.). Internal commands like `findElement`/`waitUntil`/`executeScript` don't produce trace entries.
 
