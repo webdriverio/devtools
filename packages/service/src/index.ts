@@ -74,9 +74,6 @@ export default class DevToolsHookService implements Services.ServiceInstance {
    */
   #commandStack: CommandFrame[] = []
 
-  // This is used to capture the last command signature to avoid duplicate captures
-  #lastCommandSig: string | null = null
-
   /**
    * allows to define the type of data being captured to hint the
    * devtools app which data to expect
@@ -239,7 +236,6 @@ export default class DevToolsHookService implements Services.ServiceInstance {
   }
 
   private resetStack() {
-    this.#lastCommandSig = null
     this.#commandStack = []
   }
 
@@ -269,20 +265,18 @@ export default class DevToolsHookService implements Services.ServiceInstance {
 
   #pushTopLevelCommandFrame(
     command: string,
-    args: string[],
     callSource: string | undefined
   ): void {
     if (INTERNAL_COMMANDS.includes(command)) {
       return
     }
-    const cmdSig = JSON.stringify({ command, args, src: callSource })
-    if (this.#lastCommandSig !== cmdSig) {
+    const top = this.#commandStack[this.#commandStack.length - 1]
+    if (!top || top.command !== command || top.callSource !== callSource) {
       this.#commandStack.push({
         command,
         callSource,
         startTimestamp: Date.now()
       })
-      this.#lastCommandSig = cmdSig
     }
   }
 
@@ -309,7 +303,6 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     if (source && this.#commandStack.length === 0) {
       this.#pushTopLevelCommandFrame(
         command,
-        args,
         this.#resolveCallSourceFromFrame(source)
       )
 
