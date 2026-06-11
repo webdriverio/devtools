@@ -110,12 +110,8 @@ export class DevToolsAppLauncher {
   }
 
   async onPrepare(_: never, caps: ExtendedCapabilities[]) {
-    if (this.#options.mode === 'trace' || this.#options.disableDebugger) {
-      log.info(
-        this.#options.mode === 'trace'
-          ? 'Trace mode — skipping backend and Chrome window'
-          : 'Debugger disabled — skipping backend and Chrome window'
-      )
+    if (this.#options.mode === 'trace') {
+      log.info('Trace mode — skipping backend and Chrome window')
       return
     }
     try {

@@ -34,9 +34,9 @@ selenium-video-*.webm
 nightwatch-video-*.webm
 packages/nightwatch-devtools/nightwatch-video-*.webm
 
-# trace.zip output (mode: 'trace')
+# trace output (mode: 'trace')
 trace-*.zip
-trace-*/
+examples/**/trace-*/
 
 # vitest --coverage output
 coverage/
