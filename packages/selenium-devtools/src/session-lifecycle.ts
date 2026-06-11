@@ -95,8 +95,12 @@ export async function onDriverCreated(
   }
 
   ctx.driver = driver
+  // In trace mode there's no backend to forward events to — pass an empty
+  // opts bag so SessionCapturerBase skips its WS init.
   ctx.sessionCapturer = new SessionCapturer(
-    { hostname: ctx.options.hostname, port: ctx.options.port },
+    ctx.options.mode === 'trace'
+      ? {}
+      : { hostname: ctx.options.hostname, port: ctx.options.port },
     driver
   )
   // Dashboard closed AFTER tests finished → wind the runner down so the user

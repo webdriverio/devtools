@@ -230,14 +230,18 @@ export async function ensureSessionInitialized(
   await new Promise((resolve) =>
     setTimeout(resolve, TIMING.INITIAL_CONNECTION_WAIT)
   )
+  // Trace mode: empty opts skip SessionCapturerBase's WS init — no backend
+  // to forward events to anyway.
   ctx.sessionCapturer = new SessionCapturer(
-    { port: ctx.port, hostname: ctx.hostname },
+    ctx.mode === 'trace' ? {} : { port: ctx.port, hostname: ctx.hostname },
     browser
   )
   ctx.sessionCapturer.traceMode = ctx.mode
-  const connected = await ctx.sessionCapturer.waitForConnection(3000)
-  if (!connected) {
-    log.error('❌ Worker WebSocket failed to connect!')
+  if (ctx.mode !== 'trace') {
+    const connected = await ctx.sessionCapturer.waitForConnection(3000)
+    if (!connected) {
+      log.error('❌ Worker WebSocket failed to connect!')
+    }
   }
   if (!ctx.testReporter) {
     initReporterChain(ctx)

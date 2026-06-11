@@ -92,18 +92,21 @@ export async function runPluginBefore(ctx: PluginBeforeCtx): Promise<void> {
     return
   }
   try {
-    ctx.options.port = await findFreePort(
-      ctx.options.port,
-      ctx.options.hostname
-    )
-    log.info('🚀 Starting DevTools backend...')
-    const { port } = await start(ctx.options)
-    ctx.options.port = port
-    const url = `http://${ctx.options.hostname}:${ctx.options.port}`
-    log.info(`✓ Backend started on port ${ctx.options.port}`)
+    // Trace mode: skip backend port-bind and UI entirely — matches the WDIO
+    // launcher gate. SessionCapturer construction in session-init also gates
+    // its WS init off in trace mode.
     if (ctx.options.mode === 'trace') {
-      log.info('trace mode: backend started, skipping UI window launch')
+      log.info('Trace mode — skipping backend port-bind and UI window')
     } else {
+      ctx.options.port = await findFreePort(
+        ctx.options.port,
+        ctx.options.hostname
+      )
+      log.info('🚀 Starting DevTools backend...')
+      const { port } = await start(ctx.options)
+      ctx.options.port = port
+      const url = `http://${ctx.options.hostname}:${ctx.options.port}`
+      log.info(`✓ Backend started on port ${ctx.options.port}`)
       log.info(`  DevTools UI: ${url}`)
       await ctx.openDevtoolsBrowserAt(url)
       await new Promise((resolve) =>
