@@ -130,9 +130,20 @@ class SeleniumDevToolsPlugin {
     if (options.rerunCommand) {
       this.#rerunManager.configure(options.rerunCommand)
     }
-    this.#screencastOptions = {
-      ...SCREENCAST_DEFAULTS,
-      ...(options.screencast ?? {})
+    // Same gate as DevTools.configure() — direct construction with
+    // `{ mode: 'trace', screencast: { enabled: true } }` would otherwise
+    // bypass the runtime check.
+    if (
+      this.#options.mode === 'trace' &&
+      options.screencast?.enabled === true
+    ) {
+      log.warn('trace mode: ignoring screencast option (live-mode feature)')
+      this.#screencastOptions = { ...SCREENCAST_DEFAULTS }
+    } else {
+      this.#screencastOptions = {
+        ...SCREENCAST_DEFAULTS,
+        ...(options.screencast ?? {})
+      }
     }
     // Reuse mode: rerun child inherits the parent's backend host/port.
     if (
@@ -175,6 +186,14 @@ class SeleniumDevToolsPlugin {
     this.#backendStartPromise = (async () => {
       try {
         this.#logConfigSummary()
+        // Trace mode parity with WDIO launcher gate: skip backend port-bind
+        // entirely — no UI to serve, SessionCapturer WS init is also gated
+        // off in session-lifecycle.ts.
+        if (this.#options.mode === 'trace') {
+          log.info('Trace mode — skipping backend port-bind and UI window')
+          this.#backendStarted = true
+          return
+        }
         if (!this.#isReuse) {
           this.#options.port = await findFreePort(
             this.#options.port,
@@ -191,8 +210,8 @@ class SeleniumDevToolsPlugin {
           )
         }
         this.#backendStarted = true
-        const { mode, openUi } = this.#options
-        if (mode !== 'trace' && openUi && !this.#isReuse) {
+        // mode==='trace' returned early above; only live mode reaches here.
+        if (this.#options.openUi && !this.#isReuse) {
           this.#openUiWindow()
         }
       } catch (err) {
