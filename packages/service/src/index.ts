@@ -219,20 +219,23 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     if (this.#options.mode !== 'trace' || !this.#browser) {
       return
     }
-    const commands = this.#sessionCapturer.commandsLog
-    let stamp = Date.now()
-    for (let i = commands.length - 1; i >= 0; i--) {
-      const cmd = commands[i]!
-      if (mapCommandToAction(cmd.command)) {
-        stamp = cmd.timestamp
-        break
-      }
-    }
+    const stamp = this.#lastActionTimestamp()
     const snap = await captureActionSnapshot(this.#browser, '__final__')
     if (snap) {
       snap.timestamp = stamp
       this.#actionSnapshots.push(snap)
     }
+  }
+
+  #lastActionTimestamp(): number {
+    const commands = this.#sessionCapturer.commandsLog
+    for (let i = commands.length - 1; i >= 0; i--) {
+      const cmd = commands[i]!
+      if (mapCommandToAction(cmd.command)) {
+        return cmd.timestamp
+      }
+    }
+    return Date.now()
   }
 
   private resetStack() {
@@ -320,16 +323,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
       ) {
         const snap = await captureActionSnapshot(this.#browser, command)
         if (snap) {
-          const commands = this.#sessionCapturer.commandsLog
-          let stamp = 0
-          for (let i = commands.length - 1; i >= 0; i--) {
-            const cmd = commands[i]!
-            if (mapCommandToAction(cmd.command)) {
-              stamp = cmd.timestamp
-              break
-            }
-          }
-          snap.timestamp = stamp
+          snap.timestamp = this.#lastActionTimestamp()
           this.#actionSnapshots.push(snap)
         }
       }
