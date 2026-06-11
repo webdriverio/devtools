@@ -38,7 +38,7 @@
   },
   "types": "./src/index.ts",
   "scripts": {
-    "lint": "eslint ."
+    "lint": "eslint . --fix"
   },
   "license": "MIT",
   "devDependencies": {

@@ -69,12 +69,6 @@ export interface ServiceOptions {
   screencast?: ScreencastOptions
   /** `live` (default) launches the DevTools UI; `trace` skips it. */
   mode?: DevToolsMode
-  /**
-   * Skip launching the devtools dashboard backend and Chrome UI window
-   * (default: false). Use when only trace recording is needed — no
-   * debug dashboard, no extra Chrome window, no backend server.
-   */
-  disableDebugger?: boolean
   /** Trace output layout — `zip` (default) writes a single archive,
    *  `ndjson-directory` unpacks into `trace-<id>/`. Only applies in trace mode. */
   traceFormat?: TraceFormat

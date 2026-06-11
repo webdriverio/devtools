@@ -165,15 +165,12 @@ function buildActionEvents(
     const endMs = Math.max(startMs + 1, rawEndMs)
     const rawArgs = cmd.args as unknown[]
     let params: Record<string, unknown>
-    if (
-      action.class === 'Element' &&
-      action.method === 'fill' &&
-      rawArgs.length >= 2
-    ) {
+    const isValueMethod = FILL_METHODS.has(action.method)
+    if (action.class === 'Element' && isValueMethod && rawArgs.length >= 2) {
       params = { selector: rawArgs[0], value: rawArgs[1] }
     } else if (
       action.class === 'Element' &&
-      action.method === 'fill' &&
+      isValueMethod &&
       rawArgs.length === 1
     ) {
       params = { value: rawArgs[0] }
