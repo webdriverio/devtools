@@ -58,9 +58,8 @@ export function formatActionTitle(
   if (firstArg === undefined) {
     return `${action.class}.${action.method}()`
   }
-  const label = (
+  const label =
     typeof firstArg === 'object' ? JSON.stringify(firstArg) : String(firstArg)
-  ).slice(0, 80)
   return `${action.class}.${action.method}("${label}")`
 }
 

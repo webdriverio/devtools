@@ -55,13 +55,12 @@ export async function captureActionSnapshot(
     const isNativeMobile = !input.runScript && !!input.getPageSource
 
     const [shot, url, title, pageSource, tree, elements] = await Promise.all([
-      input.takeScreenshot?.().catch(() => null) ?? Promise.resolve(null),
-      input.getUrl?.().catch(() => undefined) ?? Promise.resolve(undefined),
-      input.getTitle?.().catch(() => undefined) ?? Promise.resolve(undefined),
+      input.takeScreenshot?.().catch(() => null),
+      input.getUrl?.().catch(() => undefined),
+      input.getTitle?.().catch(() => undefined),
       isNativeMobile
-        ? (input.getPageSource?.().catch(() => undefined) ??
-          Promise.resolve(undefined))
-        : Promise.resolve(undefined),
+        ? input.getPageSource?.().catch(() => undefined)
+        : undefined,
       runWith<AccessibilityNode[]>(
         input.runScript,
         accessibilityTreeScript(true),

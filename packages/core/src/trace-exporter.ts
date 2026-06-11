@@ -16,7 +16,8 @@ import type {
 import {
   formatActionTitle,
   mapCommandToAction,
-  FILL_METHODS
+  FILL_METHODS,
+  type TraceAction
 } from './action-mapping.js'
 import { networkRequestToHar } from './trace-har.js'
 import { buildTraceZip, type TraceZipResource } from './trace-zip-writer.js'
@@ -343,12 +344,15 @@ function generateTranscript(
   const wallTimeISO = new Date(startWallTime).toISOString()
   const lines: string[] = [`# ${title ?? 'Session'} — ${wallTimeISO}`, '']
 
-  const captured = commands.filter(
-    (c) => mapCommandToAction(String(c.command)) !== null
-  )
+  const captured: { entry: CommandLog; action: TraceAction }[] = []
+  for (const c of commands) {
+    const action = mapCommandToAction(String(c.command))
+    if (action) {
+      captured.push({ entry: c, action })
+    }
+  }
 
-  captured.forEach((entry, idx) => {
-    const action = mapCommandToAction(String(entry.command))!
+  captured.forEach(({ entry, action }, idx) => {
     const label = formatActionTitle(action, entry.args as unknown[])
 
     const rawArgs = entry.args as unknown[]
@@ -357,7 +361,7 @@ function generateTranscript(
     if (FILL_METHODS.has(action.method) && rawArgs) {
       const valueIdx = rawArgs.length >= 2 ? 1 : 0
       if (rawArgs[valueIdx] !== undefined) {
-        parts.push(`value="${String(rawArgs[valueIdx]).slice(0, 50)}"`)
+        parts.push(`value="${String(rawArgs[valueIdx])}"`)
       }
     }
 
