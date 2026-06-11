@@ -33,6 +33,7 @@
     "xpath": "^0.0.34"
   },
   "devDependencies": {
+    "@microsoft/api-extractor": "^7.58.7",
     "@types/node": "25.5.2",
     "@wdio/devtools-core": "workspace:^",
     "@wdio/globals": "9.27.0",
