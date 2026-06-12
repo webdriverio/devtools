@@ -36,7 +36,6 @@ export class DevtoolsSidebarSummary extends Element {
     css`
       :host {
         display: block;
-        padding: 0 0.75rem 0.75rem;
         font-size: 0.8em;
       }
 
@@ -44,7 +43,8 @@ export class DevtoolsSidebarSummary extends Element {
         border: 1px solid var(--vscode-panel-border);
         border-radius: 8px;
         padding: 0.625rem 0.75rem;
-        background: var(--vscode-editorWidget-background);
+        background: var(--vscode-input-background);
+        box-shadow: 0 1px 2px var(--vscode-widget-shadow);
       }
 
       .row {
@@ -118,13 +118,13 @@ export class DevtoolsSidebarSummary extends Element {
       .legend {
         display: flex;
         flex-wrap: wrap;
-        gap: 0.4rem 0.7rem;
+        gap: 0.4rem 0.5rem;
         margin-top: 0.625rem;
       }
       .legend button {
         display: inline-flex;
         align-items: center;
-        gap: 0.3rem;
+        gap: 0.25rem;
         padding: 0;
         border: none;
         background: none;

@@ -415,7 +415,7 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
       .map(this.#getTestEntry.bind(this))
       .filter(this.#filterEntry.bind(this))
     return html`
-      <header class="pl-4 py-2 flex shadow-md pr-2">
+      <header class="px-3 py-2 flex shadow-md">
         <h3 class="flex content-center flex-wrap uppercase font-bold text-sm">
           Tests
         </h3>

@@ -9,6 +9,7 @@ import { mutationContext, commandContext } from '../../controller/context.js'
 import '../placeholder.js'
 import './actionItems/command.js'
 import './actionItems/mutation.js'
+import { stepDurations } from './actionItems/duration.js'
 
 const SOURCE_COMPONENT = 'wdio-devtools-actions'
 
@@ -47,14 +48,17 @@ export class DevtoolsActions extends Element {
       return html`<wdio-devtools-placeholder></wdio-devtools-placeholder>`
     }
     const baselineTimestamp = entries[0]?.timestamp ?? 0
+    const durations = stepDurations(entries.map((entry) => entry.timestamp))
 
-    return entries.map((entry) => {
+    return entries.map((entry, index) => {
       const elapsedTime = entry.timestamp - baselineTimestamp
+      const duration = durations[index]
 
       if ('command' in entry) {
         return html`
           <wdio-devtools-command-item
             elapsedTime=${elapsedTime}
+            .duration=${duration}
             .entry=${entry}
           ></wdio-devtools-command-item>
         `
@@ -63,6 +67,7 @@ export class DevtoolsActions extends Element {
       return html`
         <wdio-devtools-mutation-item
           elapsedTime=${elapsedTime}
+          .duration=${duration}
           .entry=${entry}
         ></wdio-devtools-mutation-item>
       `
