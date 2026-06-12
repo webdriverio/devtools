@@ -37,10 +37,10 @@ export class DevtoolsTabs extends Element {
     return html`
       <button
         @click="${() => this.activateTab(tabId)}"
-        class="transition-colors px-4 py-2 hover:bg-toolbarHoverBackground ${this
+        class="transition-colors px-4 py-2 border-b-2 flex items-center gap-2 ${this
           .#activeTab === tabId
-          ? 'bg-toolbarHoverBackground'
-          : ''} flex items-center gap-2"
+          ? 'border-accent text-accent'
+          : 'border-transparent hover:bg-toolbarHoverBackground'}"
       >
         <span>${tabId}</span>
         ${showBadge

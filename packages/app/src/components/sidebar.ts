@@ -3,6 +3,7 @@ import { html, css } from 'lit'
 import { customElement } from 'lit/decorators.js'
 
 import './sidebar/filter.js'
+import './sidebar/summary.js'
 import './sidebar/explorer.js'
 
 @customElement('wdio-devtools-sidebar')
@@ -25,6 +26,7 @@ export class DevtoolsSidebar extends Element {
   render() {
     return html`
       <wdio-devtools-sidebar-filter></wdio-devtools-sidebar-filter>
+      <wdio-devtools-sidebar-summary></wdio-devtools-sidebar-summary>
       <wdio-devtools-sidebar-explorer></wdio-devtools-sidebar-explorer>
     `
   }

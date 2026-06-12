@@ -1085,3 +1085,17 @@
     --vscode-gitDecoration-submoduleResourceForeground: #8db9e2;
   }
 }
+
+/* WebdriverIO brand accent, layered over the VSCode palette for active/interactive states; switches with the .dark theme class. */
+@layer base {
+  :host {
+    --accent: #e8590c;
+    --accent-hover: #c2410c;
+    --accent-foreground: #ffffff;
+  }
+  :host-context(.dark) {
+    --accent: #ff7a3c;
+    --accent-hover: #ff5e1f;
+    --accent-foreground: #1a0d05;
+  }
+}
