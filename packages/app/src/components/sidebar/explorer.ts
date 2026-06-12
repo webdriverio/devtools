@@ -9,9 +9,10 @@ import type {
   SuiteStatsFragment,
   TestStatsFragment
 } from '../../controller/types.js'
-import type { TestEntry, TestRunDetail } from './types.js'
-import { TestState } from './types.js'
+import type { TestEntry, TestRunDetail, StatusFilterDetail } from './types.js'
+import type { TestStatus } from '@wdio/devtools-shared'
 import { getTestEntry } from './test-entry-state.js'
+import { entryPassesFilter } from './tree-filter.js'
 import {
   getCapabilityWarning,
   getConfigPath,
@@ -44,8 +45,10 @@ const EXPLORER = 'wdio-devtools-sidebar-explorer'
 
 @customElement(EXPLORER)
 export class DevtoolsSidebarExplorer extends CollapseableEntry {
-  #testFilter: DevtoolsSidebarFilter | undefined
+  #query = ''
+  #statusFilter: TestStatus | null = null
   #filterListener = this.#filterTests.bind(this)
+  #statusFilterListener = this.#applyStatusFilter.bind(this)
   #runListener = this.#handleTestRun.bind(this)
   #stopListener = this.#handleTestStop.bind(this)
   #preserveRerunListener = this.#handlePreserveAndRerun.bind(this)
@@ -89,6 +92,7 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
   connectedCallback(): void {
     super.connectedCallback()
     window.addEventListener('app-test-filter', this.#filterListener)
+    window.addEventListener('app-status-filter', this.#statusFilterListener)
     this.addEventListener('app-test-run', this.#runListener as EventListener)
     this.addEventListener('app-test-stop', this.#stopListener as EventListener)
     this.addEventListener(
@@ -100,6 +104,7 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
   disconnectedCallback(): void {
     super.disconnectedCallback()
     window.removeEventListener('app-test-filter', this.#filterListener)
+    window.removeEventListener('app-status-filter', this.#statusFilterListener)
     this.removeEventListener('app-test-run', this.#runListener as EventListener)
     this.removeEventListener(
       'app-test-stop',
@@ -112,7 +117,12 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
   }
 
   #filterTests({ detail }: { detail: DevtoolsSidebarFilter }) {
-    this.#testFilter = detail
+    this.#query = detail.filterQuery
+    this.requestUpdate()
+  }
+
+  #applyStatusFilter({ detail }: { detail: StatusFilterDetail }) {
+    this.#statusFilter = detail.status
     this.requestUpdate()
   }
 
@@ -348,25 +358,7 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
   }
 
   #filterEntry(entry: TestEntry): boolean {
-    if (!this.#testFilter) {
-      return true
-    }
-
-    const entryLabelIncludingChildren = getSearchableLabel(entry)
-      .flat(Infinity)
-      .join(' ')
-    return (
-      Boolean(
-        ['all', 'none'].includes(this.#testFilter.filterStatus) ||
-        (entry.state === TestState.PASSED && this.#testFilter.filtersPassed) ||
-        (entry.state === TestState.FAILED && this.#testFilter.filtersFailed) ||
-        (entry.state === TestState.SKIPPED && this.#testFilter.filtersSkipped)
-      ) &&
-      (!this.#testFilter.filterQuery ||
-        entryLabelIncludingChildren
-          .toLowerCase()
-          .includes(this.#testFilter.filterQuery.toLowerCase()))
-    )
+    return entryPassesFilter(entry, this.#query, this.#statusFilter)
   }
 
   #getTestEntry(entry: TestStatsFragment | SuiteStatsFragment): TestEntry {
@@ -448,11 +440,4 @@ declare global {
   interface HTMLElementTagNameMap {
     [EXPLORER]: DevtoolsSidebarExplorer
   }
-}
-
-function getSearchableLabel(entry: TestEntry): string[] {
-  if (entry.children.length === 0) {
-    return [entry.label]
-  }
-  return entry.children.flatMap(getSearchableLabel)
 }

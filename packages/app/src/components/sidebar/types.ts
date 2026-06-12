@@ -43,6 +43,12 @@ export interface TestRunDetail {
 
 import type { TestStatus } from '@wdio/devtools-shared'
 
+/** Detail for the `app-status-filter` event: the single status the tree is
+ *  narrowed to, or null when no status filter is active. */
+export interface StatusFilterDetail {
+  status: TestStatus | null
+}
+
 /**
  * Enum-style accessor for the canonical TestStatus values. Use the
  * shared TestStatus type for type annotations; this object is for

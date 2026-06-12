@@ -16,4 +16,7 @@
   --color-chartsBlue: var(--vscode-charts-blue);
   --color-input-background: var(--vscode-input-background);
   --color-debugTokenExpressionName: var(--vscode-debugTokenExpression-name);
+  --color-accent: var(--accent);
+  --color-accentHover: var(--accent-hover);
+  --color-accentForeground: var(--accent-foreground);
 }
