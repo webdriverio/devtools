@@ -22,11 +22,18 @@ export class DevtoolsActions extends Element {
         display: flex;
         flex-direction: column;
         width: 100%;
+      }
+
+      /* Wraps the rows so the rail spans the full content height — the host
+         itself is stretched to the viewport by the row-flex tab. */
+      .timeline {
         position: relative;
+        display: flex;
+        flex-direction: column;
       }
 
       /* Vertical rail threading the action icon chips. */
-      :host::before {
+      .timeline::before {
         content: '';
         position: absolute;
         left: 20px;
@@ -90,10 +97,9 @@ export class DevtoolsActions extends Element {
     const baselineTimestamp = entries[0]?.timestamp ?? 0
     const durations = stepDurations(entries.map((entry) => entry.timestamp))
 
-    return entries.map((entry, index) => {
+    const rows = entries.map((entry, index) => {
       const elapsedTime = entry.timestamp - baselineTimestamp
       const duration = durations[index]
-
       const active = entry.timestamp === this.activeTimestamp
 
       if ('command' in entry) {
@@ -116,6 +122,8 @@ export class DevtoolsActions extends Element {
         ></wdio-devtools-mutation-item>
       `
     })
+
+    return html`<div class="timeline">${rows}</div>`
   }
 }
 
