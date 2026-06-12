@@ -14,6 +14,7 @@
   --color-chartsRed: var(--vscode-charts-red);
   --color-chartsYellow: var(--vscode-charts-yellow);
   --color-chartsBlue: var(--vscode-charts-blue);
+  --color-chartsPurple: var(--vscode-charts-purple);
   --color-input-background: var(--vscode-input-background);
   --color-debugTokenExpressionName: var(--vscode-debugTokenExpression-name);
   --color-accent: var(--accent);

@@ -1,6 +1,6 @@
 import { Element } from '@core/element'
 import { html, css } from 'lit'
-import { customElement } from 'lit/decorators.js'
+import { customElement, state } from 'lit/decorators.js'
 import { consume } from '@lit/context'
 
 import type { CommandLog } from '@wdio/devtools-shared'
@@ -22,6 +22,19 @@ export class DevtoolsActions extends Element {
         display: flex;
         flex-direction: column;
         width: 100%;
+        position: relative;
+      }
+
+      /* Vertical rail threading the action icon chips. */
+      :host::before {
+        content: '';
+        position: absolute;
+        left: 20px;
+        top: 18px;
+        bottom: 18px;
+        width: 1px;
+        background: var(--vscode-panel-border);
+        pointer-events: none;
       }
     `
   ]
@@ -31,6 +44,33 @@ export class DevtoolsActions extends Element {
 
   @consume({ context: commandContext, subscribe: true })
   commands: CommandLog[] = []
+
+  @state()
+  private activeTimestamp?: number
+
+  #onShowCommand = (event: Event) => {
+    this.activeTimestamp = (
+      event as CustomEvent<{ command?: CommandLog }>
+    ).detail?.command?.timestamp
+  }
+
+  #onSelectMutation = (event: Event) => {
+    this.activeTimestamp = (
+      event as CustomEvent<TraceMutation>
+    ).detail?.timestamp
+  }
+
+  connectedCallback(): void {
+    super.connectedCallback()
+    window.addEventListener('show-command', this.#onShowCommand)
+    window.addEventListener('app-mutation-select', this.#onSelectMutation)
+  }
+
+  disconnectedCallback(): void {
+    super.disconnectedCallback()
+    window.removeEventListener('show-command', this.#onShowCommand)
+    window.removeEventListener('app-mutation-select', this.#onSelectMutation)
+  }
 
   render() {
     const mutations = this.mutations || []
@@ -54,12 +94,15 @@ export class DevtoolsActions extends Element {
       const elapsedTime = entry.timestamp - baselineTimestamp
       const duration = durations[index]
 
+      const active = entry.timestamp === this.activeTimestamp
+
       if ('command' in entry) {
         return html`
           <wdio-devtools-command-item
             elapsedTime=${elapsedTime}
             .duration=${duration}
             .entry=${entry}
+            ?active=${active}
           ></wdio-devtools-command-item>
         `
       }
@@ -69,6 +112,7 @@ export class DevtoolsActions extends Element {
           elapsedTime=${elapsedTime}
           .duration=${duration}
           .entry=${entry}
+          ?active=${active}
         ></wdio-devtools-mutation-item>
       `
     })

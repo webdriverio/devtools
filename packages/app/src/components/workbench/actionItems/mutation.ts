@@ -25,7 +25,9 @@ export class MutationItem extends ActionItem {
 
   #getAttributeMutationLabel(mutation: TraceMutation) {
     return html`
-      <icon-mdi-pencil class="${ICON_CLASS}"></icon-mdi-pencil>
+      ${this.iconChip(
+        html`<icon-mdi-pencil class="${ICON_CLASS}"></icon-mdi-pencil>`
+      )}
       <span class="flex-grow text-left"
         >element attribute "<code>${mutation.attributeName}</code>"
         changed</span
@@ -37,13 +39,19 @@ export class MutationItem extends ActionItem {
   #getChildListMutationLabel(mutation: TraceMutation) {
     if (mutation.addedNodes.length === 1 && Boolean(mutation.url)) {
       return html`
-        <icon-mdi-document class="${ICON_CLASS}"></icon-mdi-document>
+        ${this.iconChip(
+          html`<icon-mdi-document class="${ICON_CLASS}"></icon-mdi-document>`
+        )}
         <span class="flex-grow text-left">Document loaded</span>
         ${this.renderTime()}
       `
     }
     return html`
-      <icon-mdi-family-tree class="${ICON_CLASS}"></icon-mdi-family-tree>
+      ${this.iconChip(
+        html`<icon-mdi-family-tree
+          class="${ICON_CLASS}"
+        ></icon-mdi-family-tree>`
+      )}
       <span class="flex-grow text-left">
         ${this.#renderNodeAmount(mutation.addedNodes, 'added')}
         ${mutation.addedNodes.length && mutation.removedNodes.length
