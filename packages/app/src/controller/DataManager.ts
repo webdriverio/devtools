@@ -225,9 +225,15 @@ export class DataManagerController implements ReactiveController {
       return true
     }
     if (scope === 'screencast') {
-      const { sessionId } = data as { sessionId: string }
+      const { sessionId, startTime, duration } = data as {
+        sessionId: string
+        startTime?: number
+        duration?: number
+      }
       window.dispatchEvent(
-        new CustomEvent('screencast-ready', { detail: { sessionId } })
+        new CustomEvent('screencast-ready', {
+          detail: { sessionId, startTime, duration }
+        })
       )
       return true
     }

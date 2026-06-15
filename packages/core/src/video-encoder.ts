@@ -116,6 +116,15 @@ function runFfmpeg(
         'cfr',
         '-r',
         '10',
+        // Force a keyframe every frame. VP8 can only seek to keyframes, and
+        // libvpx's default GOP places a single keyframe on near-static
+        // screencast content — so scrubber/marker seeks snap back to the
+        // start. At 10fps over short recordings, all-intra keeps seeking
+        // frame-accurate at an acceptable size.
+        '-g',
+        '1',
+        '-keyint_min',
+        '1',
         '-auto-alt-ref',
         '0',
         '-disposition:v',
