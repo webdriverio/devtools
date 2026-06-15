@@ -35,3 +35,43 @@ svg {
   width: 100%;
   height: 100%;
 }
+
+/* Resize sliders (DragController): a hairline that highlights with the accent
+   on hover/drag, like the mockup's gutters. The static pane border shows
+   underneath; this only adds the accent highlight. */
+button[data-draggable-id]::after {
+  content: '';
+  position: absolute;
+  background: transparent;
+  transition:
+    background 0.12s,
+    width 0.12s,
+    height 0.12s;
+  pointer-events: none;
+}
+button[data-draggable-id].cursor-col-resize::after {
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  transform: translateX(-50%);
+}
+button[data-draggable-id].cursor-row-resize::after {
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 1px;
+  transform: translateY(-50%);
+}
+button[data-draggable-id]:hover::after,
+button[data-draggable-id][data-dragging='dragging']::after {
+  background: var(--accent);
+}
+button[data-draggable-id].cursor-col-resize:hover::after,
+button[data-draggable-id].cursor-col-resize[data-dragging='dragging']::after {
+  width: 2px;
+}
+button[data-draggable-id].cursor-row-resize:hover::after,
+button[data-draggable-id].cursor-row-resize[data-dragging='dragging']::after {
+  height: 2px;
+}

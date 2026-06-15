@@ -33,7 +33,6 @@ import {
 
 import '~icons/mdi/play.js'
 import '~icons/mdi/stop.js'
-import '~icons/mdi/eye.js'
 import '~icons/mdi/collapse-all.js'
 import '~icons/mdi/expand-all.js'
 
@@ -47,8 +46,10 @@ const EXPLORER = 'wdio-devtools-sidebar-explorer'
 export class DevtoolsSidebarExplorer extends CollapseableEntry {
   #query = ''
   #statusFilter: TestStatus | null = null
+  #selectedUid?: string
   #filterListener = this.#filterTests.bind(this)
   #statusFilterListener = this.#applyStatusFilter.bind(this)
+  #selectListener = this.#handleSelect.bind(this)
   #runListener = this.#handleTestRun.bind(this)
   #stopListener = this.#handleTestStop.bind(this)
   #preserveRerunListener = this.#handlePreserveAndRerun.bind(this)
@@ -93,6 +94,10 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
     super.connectedCallback()
     window.addEventListener('app-test-filter', this.#filterListener)
     window.addEventListener('app-status-filter', this.#statusFilterListener)
+    this.addEventListener(
+      'app-test-select',
+      this.#selectListener as EventListener
+    )
     this.addEventListener('app-test-run', this.#runListener as EventListener)
     this.addEventListener('app-test-stop', this.#stopListener as EventListener)
     this.addEventListener(
@@ -105,6 +110,10 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
     super.disconnectedCallback()
     window.removeEventListener('app-test-filter', this.#filterListener)
     window.removeEventListener('app-status-filter', this.#statusFilterListener)
+    this.removeEventListener(
+      'app-test-select',
+      this.#selectListener as EventListener
+    )
     this.removeEventListener('app-test-run', this.#runListener as EventListener)
     this.removeEventListener(
       'app-test-stop',
@@ -123,6 +132,11 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
 
   #applyStatusFilter({ detail }: { detail: StatusFilterDetail }) {
     this.#statusFilter = detail.status
+    this.requestUpdate()
+  }
+
+  #handleSelect(event: CustomEvent<string>) {
+    this.#selectedUid = event.detail
     this.requestUpdate()
   }
 
@@ -324,7 +338,7 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
     return getLaunchCommand(this.metadata)
   }
 
-  #renderEntry(entry: TestEntry): TemplateResult {
+  #renderEntry(entry: TestEntry, isRoot = false): TemplateResult {
     return html`
       <wdio-test-entry
         uid="${entry.uid}"
@@ -338,6 +352,8 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
         feature-line="${entry.featureLine ?? ''}"
         suite-type="${entry.suiteType || ''}"
         ?has-children="${entry.children && entry.children.length > 0}"
+        ?selected="${entry.uid === this.#selectedUid}"
+        ?root="${isRoot}"
         .runDisabled=${this.#isRunDisabled(entry)}
         .runDisabledReason=${this.#getRunDisabledReason(entry)}
       >
@@ -372,28 +388,26 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
       : 'opacity-30 cursor-not-allowed'
     const iconCls = (color: string) => (canRunAll ? `group-hover:${color}` : '')
     return html`
-      <nav class="flex ml-auto">
+      <nav class="flex ml-auto gap-0.5 text-[16px] text-descriptionForeground">
         <button
-          class="p-1 rounded text-sm group ${runBtnCls}"
+          class="p-1 rounded group ${runBtnCls}"
           ?disabled=${!canRunAll}
+          title="Run all"
           @click="${() => this.#runAllSuites()}"
         >
           <icon-mdi-play class="${iconCls('text-chartsGreen')}"></icon-mdi-play>
         </button>
         <button
-          class="p-1 rounded text-sm group ${runBtnCls}"
+          class="p-1 rounded group ${runBtnCls}"
           ?disabled=${!canRunAll}
+          title="Stop"
           @click="${() => this.#stopActiveRun()}"
         >
           <icon-mdi-stop class="${iconCls('text-chartsRed')}"></icon-mdi-stop>
         </button>
         <button
-          class="p-1 rounded hover:bg-toolbarHoverBackground text-sm group"
-        >
-          <icon-mdi-eye class="group-hover:text-chartsYellow"></icon-mdi-eye>
-        </button>
-        <button
-          class="p-1 rounded hover:bg-toolbarHoverBackground text-sm group"
+          class="p-1 rounded hover:bg-toolbarHoverBackground group"
+          title="Collapse / expand all"
         >
           ${this.renderCollapseOrExpandIcon('group-hover:text-chartsBlue')}
         </button>
@@ -416,7 +430,9 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
       .filter(this.#filterEntry.bind(this))
     return html`
       <header class="px-3 py-2 flex shadow-md">
-        <h3 class="flex content-center flex-wrap uppercase font-bold text-sm">
+        <h3
+          class="flex content-center flex-wrap uppercase font-bold text-[11px] tracking-[0.8px] text-disabledForeground"
+        >
           Tests
         </h3>
         ${this.#renderHeaderToolbar()}
@@ -426,7 +442,7 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
           ? repeat(
               suites,
               (suite) => suite.uid,
-              (suite) => this.#renderEntry(suite)
+              (suite) => this.#renderEntry(suite, true)
             )
           : html`<div class="text-sm px-4 py-2">
               <p class="text-disabledForeground">No tests to display</p>

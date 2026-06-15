@@ -14,7 +14,7 @@ export class DevtoolsSidebarFilter extends Element {
       :host {
         display: block;
         width: 100%;
-        font-size: 0.8em;
+        font-size: 12px;
       }
 
       .field {

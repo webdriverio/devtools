@@ -5,10 +5,10 @@
 
 @layer base {
   :host {
-    --vscode-font-family: system-ui, "Ubuntu", "Droid Sans", sans-serif;
+    --vscode-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, "Ubuntu", "Droid Sans", sans-serif;
     --vscode-font-weight: normal;
     --vscode-font-size: 13px;
-    --vscode-editor-font-family: "Droid Sans Mono", "monospace", monospace;
+    --vscode-editor-font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, "Droid Sans Mono", monospace;
     --vscode-editor-font-weight: normal;
     --vscode-editor-font-size: 14px;
     --vscode-foreground: #616161;
@@ -546,10 +546,10 @@
   }
 
   :host-context(.dark) {
-    --vscode-font-family: system-ui, "Ubuntu", "Droid Sans", sans-serif;
+    --vscode-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, "Ubuntu", "Droid Sans", sans-serif;
     --vscode-font-weight: normal;
     --vscode-font-size: 13px;
-    --vscode-editor-font-family: "Droid Sans Mono", "monospace", monospace;
+    --vscode-editor-font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, "Droid Sans Mono", monospace;
     --vscode-editor-font-weight: normal;
     --vscode-editor-font-size: 14px;
     --vscode-foreground: #cccccc;
@@ -566,7 +566,7 @@
     --vscode-textBlockQuote-border: rgba(0, 122, 204, 0.5);
     --vscode-textCodeBlock-background: rgba(10, 10, 10, 0.4);
     --vscode-widget-shadow: rgba(0, 0, 0, 0.36);
-    --vscode-input-background: #3c3c3c;
+    --vscode-input-background: #1c2128;
     --vscode-input-foreground: #cccccc;
     --vscode-inputOption-activeBorder: #007acc;
     --vscode-inputOption-hoverBackground: rgba(90, 93, 94, 0.5);
@@ -604,11 +604,11 @@
     --vscode-editorInfo-foreground: #3794ff;
     --vscode-editorHint-foreground: rgba(238, 238, 238, 0.7);
     --vscode-sash-hoverBorder: #007fd4;
-    --vscode-editor-background: #1e1e1e;
+    --vscode-editor-background: #0d0f12;
     --vscode-editor-foreground: #d4d4d4;
     --vscode-editorStickyScroll-background: #1e1e1e;
     --vscode-editorStickyScrollHover-background: #2a2d2e;
-    --vscode-editorWidget-background: #252526;
+    --vscode-editorWidget-background: #1c2128;
     --vscode-editorWidget-foreground: #cccccc;
     --vscode-editorWidget-border: #454545;
     --vscode-quickInput-background: #252526;
@@ -852,8 +852,8 @@
     --vscode-editorGroup-dropIntoPromptBackground: #252526;
     --vscode-sideBySideEditor-horizontalBorder: #444444;
     --vscode-sideBySideEditor-verticalBorder: #444444;
-    --vscode-panel-background: #1e1e1e;
-    --vscode-panel-border: rgba(128, 128, 128, 0.35);
+    --vscode-panel-background: #0d0f12;
+    --vscode-panel-border: #262b33;
     --vscode-panelTitle-activeForeground: #e7e7e7;
     --vscode-panelTitle-inactiveForeground: rgba(231, 231, 231, 0.6);
     --vscode-panelTitle-activeBorder: #e7e7e7;
@@ -891,7 +891,7 @@
     --vscode-statusBarItem-remoteForeground: #ffffff;
     --vscode-extensionBadge-remoteBackground: #007acc;
     --vscode-extensionBadge-remoteForeground: #ffffff;
-    --vscode-sideBar-background: #252526;
+    --vscode-sideBar-background: #14171c;
     --vscode-sideBarTitle-foreground: #bbbbbb;
     --vscode-sideBar-dropBackground: rgba(83, 89, 93, 0.5);
     --vscode-sideBarSectionHeader-background: rgba(0, 0, 0, 0);

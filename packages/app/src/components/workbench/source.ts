@@ -30,6 +30,8 @@ export class DevtoolsSource extends Element {
         padding: 10px 0px;
         flex: 1;
         min-height: 0;
+        /* CodeMirror sets its own font size; match the mockup's 12.5px. */
+        font-size: 12.5px;
       }
       .cm-content {
         padding: 0 !important;

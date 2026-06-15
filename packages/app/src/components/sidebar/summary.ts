@@ -36,7 +36,7 @@ export class DevtoolsSidebarSummary extends Element {
     css`
       :host {
         display: block;
-        font-size: 0.8em;
+        font-size: 12px;
       }
 
       .card {
@@ -120,6 +120,7 @@ export class DevtoolsSidebarSummary extends Element {
         flex-wrap: wrap;
         gap: 0.4rem 0.5rem;
         margin-top: 0.625rem;
+        font-size: 0.85em;
       }
       .legend button {
         display: inline-flex;
