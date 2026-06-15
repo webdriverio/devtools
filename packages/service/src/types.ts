@@ -23,8 +23,17 @@ export {
 
 // ScreencastFrame, ScreencastOptions hoisted to @wdio/devtools-shared; re-exported
 // here for backwards compatibility with existing service-internal imports.
-import type { ScreencastOptions } from '@wdio/devtools-shared'
-export type { ScreencastFrame, ScreencastOptions } from '@wdio/devtools-shared'
+import type {
+  DevToolsMode,
+  ScreencastOptions,
+  TraceFormat
+} from '@wdio/devtools-shared'
+export type {
+  DevToolsMode,
+  ScreencastFrame,
+  ScreencastOptions,
+  TraceFormat
+} from '@wdio/devtools-shared'
 
 export interface ExtendedCapabilities extends WebdriverIO.Capabilities {
   'wdio:devtoolsOptions'?: ServiceOptions
@@ -58,6 +67,11 @@ export interface ServiceOptions {
    * uses CDP push mode; all other browsers fall back to screenshot polling.
    */
   screencast?: ScreencastOptions
+  /** `live` (default) launches the DevTools UI; `trace` skips it. */
+  mode?: DevToolsMode
+  /** Trace output layout — `zip` (default) writes a single archive,
+   *  `ndjson-directory` unpacks into `trace-<id>/`. Only applies in trace mode. */
+  traceFormat?: TraceFormat
 }
 
 declare namespace WebdriverIO {

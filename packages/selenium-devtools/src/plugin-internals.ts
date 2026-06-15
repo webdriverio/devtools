@@ -12,7 +12,13 @@ import type { TestReporter } from './reporter.js'
 import type { SuiteManager } from './helpers/suiteManager.js'
 import type { TestManager } from './helpers/testManager.js'
 import type { ScreencastRecorder } from './screencast.js'
-import type { ScreencastOptions, SeleniumDriverLike } from './types.js'
+import type {
+  ActionSnapshot,
+  DevToolsMode,
+  ScreencastOptions,
+  SeleniumDriverLike,
+  TraceFormat
+} from './types.js'
 import type { RetryTracker } from '@wdio/devtools-core'
 import type { PendingTestAction, PendingScenario } from './test-management.js'
 
@@ -24,6 +30,8 @@ export interface PluginInternals {
     openUi: boolean
     captureScreenshots: boolean
     rerunCommand?: string
+    mode?: DevToolsMode
+    traceFormat?: TraceFormat
   }
   readonly screencastOptions: ScreencastOptions
   readonly runner: string
@@ -48,6 +56,10 @@ export interface PluginInternals {
   // Test management buffers
   pendingTestActions: PendingTestAction[]
   pendingScenario: PendingScenario | null
+
+  // trace-mode snapshot accumulators (mode === 'trace' only)
+  readonly actionSnapshots: ActionSnapshot[]
+  readonly snapshotCaptures: Promise<void>[]
 
   // Plugin-side delegates
   setFinalized(v: boolean): void

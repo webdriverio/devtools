@@ -3,7 +3,13 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 
 import logger from '@wdio/logger'
-import { errorMessage } from '@wdio/devtools-core'
+import {
+  errorMessage,
+  mapCommandToAction,
+  writeTraceZip
+} from '@wdio/devtools-core'
+import { captureActionSnapshot } from './action-snapshot.js'
+import type { ActionSnapshot } from '@wdio/devtools-shared'
 import { SevereServiceError } from 'webdriverio'
 import type { Services, Reporters, Capabilities, Options } from '@wdio/types'
 import type { WebDriverCommands } from '@wdio/protocols'
@@ -26,6 +32,7 @@ import {
   type ScreencastOptions
 } from './types.js'
 import { INTERNAL_COMMANDS, CONTEXT_CHANGE_COMMANDS } from './constants.js'
+import { isNativeMobile } from './mobile.js'
 
 export * from './types.js'
 export const launcher = DevToolsAppLauncher
@@ -35,6 +42,7 @@ const log = logger('@wdio/devtools-service')
 type CommandFrame = {
   command: string
   callSource?: string
+  startTimestamp: number
 }
 
 export { setupForDevtools } from './standalone.js'
@@ -47,9 +55,17 @@ export default class DevToolsHookService implements Services.ServiceInstance {
   #bidiListenersSetup = false
   #screencastRecorder?: ScreencastRecorder
   #screencastOptions?: ScreencastOptions
+  #options: ServiceOptions
+  #actionSnapshots: ActionSnapshot[] = []
 
   constructor(serviceOptions: ServiceOptions = {}) {
-    this.#screencastOptions = serviceOptions.screencast
+    this.#options = serviceOptions
+    if (serviceOptions.mode === 'trace' && serviceOptions.screencast?.enabled) {
+      log.warn('trace mode: ignoring screencast option (live-mode feature)')
+      this.#screencastOptions = undefined
+    } else {
+      this.#screencastOptions = serviceOptions.screencast
+    }
   }
 
   /**
@@ -57,9 +73,6 @@ export default class DevToolsHookService implements Services.ServiceInstance {
    * commands that are top-level user commands.
    */
   #commandStack: CommandFrame[] = []
-
-  // This is used to capture the last command signature to avoid duplicate captures
-  #lastCommandSig: string | null = null
 
   /**
    * allows to define the type of data being captured to hint the
@@ -88,14 +101,18 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     )
 
     /**
-     * Block until injection completes BEFORE any test commands
+     * Block until injection completes BEFORE any test commands.
+     * Skip on native mobile — Appium sessions don't support WebDriver BiDi
+     * and the injection always fails with SevereServiceError.
      */
-    try {
-      await this.#injectScriptSync(browser)
-    } catch (err) {
-      log.error(
-        `Failed to inject script at session start: ${errorMessage(err)}`
-      )
+    if (!isNativeMobile(browser)) {
+      try {
+        await this.#injectScriptSync(browser)
+      } catch (err) {
+        log.error(
+          `Failed to inject script at session start: ${errorMessage(err)}`
+        )
+      }
     }
 
     /**
@@ -109,18 +126,21 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     }
 
     /**
-     * propagate session metadata at the beginning of the session
+     * propagate session metadata at the beginning of the session.
+     * Skip on mobile — Appium sessions don't have a browser DOM context.
      */
-    browser
-      .execute(() => window.visualViewport)
-      .then((viewport) =>
-        this.#sessionCapturer.sendUpstream('metadata', {
-          viewport: viewport || undefined,
-          type: this.captureType,
-          options: browser.options,
-          capabilities: browser.capabilities as Capabilities.W3CCapabilities
-        })
-      )
+    if (!isNativeMobile(browser)) {
+      browser
+        .execute(() => window.visualViewport)
+        .then((viewport) =>
+          this.#sessionCapturer.sendUpstream('metadata', {
+            viewport: viewport || undefined,
+            type: this.captureType,
+            options: browser.options,
+            capabilities: browser.capabilities as Capabilities.W3CCapabilities
+          })
+        )
+    }
   }
 
   // The method signature is corrected to use W3CCapabilities
@@ -184,8 +204,38 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     this.resetStack()
   }
 
+  async afterScenario() {
+    await this.#finalizePerScenario()
+  }
+
+  async afterTest() {
+    await this.#finalizePerScenario()
+  }
+
+  async #finalizePerScenario() {
+    if (this.#options.mode !== 'trace' || !this.#browser) {
+      return
+    }
+    const stamp = this.#lastActionTimestamp()
+    const snap = await captureActionSnapshot(this.#browser, '__final__')
+    if (snap) {
+      snap.timestamp = stamp
+      this.#actionSnapshots.push(snap)
+    }
+  }
+
+  #lastActionTimestamp(): number {
+    const commands = this.#sessionCapturer.commandsLog
+    for (let i = commands.length - 1; i >= 0; i--) {
+      const cmd = commands[i]!
+      if (mapCommandToAction(cmd.command)) {
+        return cmd.timestamp
+      }
+    }
+    return Date.now()
+  }
+
   private resetStack() {
-    this.#lastCommandSig = null
     this.#commandStack = []
   }
 
@@ -215,16 +265,18 @@ export default class DevToolsHookService implements Services.ServiceInstance {
 
   #pushTopLevelCommandFrame(
     command: string,
-    args: string[],
     callSource: string | undefined
   ): void {
     if (INTERNAL_COMMANDS.includes(command)) {
       return
     }
-    const cmdSig = JSON.stringify({ command, args, src: callSource })
-    if (this.#lastCommandSig !== cmdSig) {
-      this.#commandStack.push({ command, callSource })
-      this.#lastCommandSig = cmdSig
+    const top = this.#commandStack[this.#commandStack.length - 1]
+    if (!top || top.command !== command || top.callSource !== callSource) {
+      this.#commandStack.push({
+        command,
+        callSource,
+        startTimestamp: Date.now()
+      })
     }
   }
 
@@ -251,13 +303,27 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     if (source && this.#commandStack.length === 0) {
       this.#pushTopLevelCommandFrame(
         command,
-        args,
         this.#resolveCallSourceFromFrame(source)
       )
+
+      // Pre-action capture: state BEFORE this action executes.  Will be
+      // stamped at the previous action's end time (or 0 for the first).
+      if (
+        this.#options.mode === 'trace' &&
+        this.#browser &&
+        mapCommandToAction(command) &&
+        !INTERNAL_COMMANDS.includes(command)
+      ) {
+        const snap = await captureActionSnapshot(this.#browser, command)
+        if (snap) {
+          snap.timestamp = this.#lastActionTimestamp()
+          this.#actionSnapshots.push(snap)
+        }
+      }
     }
   }
 
-  afterCommand(
+  async afterCommand(
     command: keyof WebDriverCommands,
     args: unknown[],
     result: unknown,
@@ -275,14 +341,16 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     if (frame?.command === command) {
       this.#commandStack.pop()
       if (this.#browser) {
-        return this.#sessionCapturer.afterCommand(
+        const captured = await this.#sessionCapturer.afterCommand(
           this.#browser,
           command,
           args,
           result,
           error,
-          frame.callSource
+          frame.callSource,
+          frame.startTimestamp
         )
+        return captured
       }
     }
 
@@ -319,15 +387,31 @@ export default class DevToolsHookService implements Services.ServiceInstance {
       },
       commands: this.#sessionCapturer.commandsLog,
       sources: Object.fromEntries(this.#sessionCapturer.sources),
-      suites: this.#testReporters.map((reporter) => reporter.report)
+      suites: this.#testReporters.map((reporter) => reporter.report),
+      ...(this.#actionSnapshots.length
+        ? { actionSnapshots: this.#actionSnapshots }
+        : {})
     }
 
-    const traceFilePath = path.join(
-      outputDir,
-      `wdio-trace-${this.#browser.sessionId}.json`
-    )
-    await fs.writeFile(traceFilePath, JSON.stringify(traceLog))
-    log.info(`DevTools trace saved to ${traceFilePath}`)
+    if (this.#options.mode === 'trace') {
+      const tracePath = await writeTraceZip(this.#sessionCapturer, {
+        outputDir,
+        sessionId: this.#browser.sessionId,
+        capabilities: this.#browser.capabilities,
+        actionSnapshots: this.#actionSnapshots.length
+          ? this.#actionSnapshots
+          : undefined,
+        format: this.#options.traceFormat
+      })
+      log.info(`Trace saved to ${tracePath}`)
+    } else {
+      const traceFilePath = path.join(
+        outputDir,
+        `wdio-trace-${this.#browser.sessionId}.json`
+      )
+      await fs.writeFile(traceFilePath, JSON.stringify(traceLog))
+      log.info(`DevTools trace saved to ${traceFilePath}`)
+    }
 
     // Clean up console patching
     this.#sessionCapturer.cleanup()

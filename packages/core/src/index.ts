@@ -1,7 +1,16 @@
 // Framework-agnostic capture/reporter logic shared by @wdio/devtools-*
 // adapters. See ARCHITECTURE.md §2 and CLAUDE.md §2.2.
 
+export * from './action-mapping.js'
+export * from './action-snapshot.js'
+export * from './with-timeout.js'
 export * from './assert-patcher.js'
+export * from './element-snapshot.js'
+export * from './element-scripts.js'
+export * from './element-types.js'
+export * from './trace-exporter.js'
+export * from './trace-har.js'
+export * from './trace-zip-writer.js'
 export * from './bidi.js'
 export * from './console.js'
 export * from './uid.js'

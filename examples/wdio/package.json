@@ -16,6 +16,8 @@
     "typescript": "^6.0.3"
   },
   "scripts": {
-    "wdio": "wdio run ./wdio.conf.ts"
+    "wdio": "wdio run ./wdio.conf.ts",
+    "mobile": "wdio run ./wdio.mobile.conf.ts",
+    "trace": "wdio run ./wdio.trace.conf.ts"
   }
 }

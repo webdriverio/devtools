@@ -16,6 +16,15 @@ export enum TraceType {
 
 export type TestStatus = 'passed' | 'failed' | 'skipped' | 'pending' | 'running'
 
+/** `live` opens the DevTools UI window; `trace` skips it and lets a downstream exporter consume captured state. */
+export type DevToolsMode = 'live' | 'trace'
+
+/** `zip` (default) writes a single `trace-<id>.zip`; `ndjson-directory` writes
+ *  the same `trace.trace` + `trace.network` + `resources/` layout unpacked
+ *  into `trace-<id>/`. Both are consumable by `playwright show-trace` — the
+ *  unpacked form skips the unzip step for agentic / scripted consumers. */
+export type TraceFormat = 'zip' | 'ndjson-directory'
+
 /**
  * Enum-style accessor for the canonical TestStatus values. Adapter code uses
  * this for readable comparisons (`state === TEST_STATE.PASSED`). The app's
@@ -82,6 +91,8 @@ export interface CommandLog {
   result?: unknown
   error?: Error | { name: string; message: string; stack?: string }
   timestamp: number
+  /** Wall-clock ms when the command was invoked (before execution). */
+  startTime?: number
   callSource?: string
   screenshot?: string
   testUid?: string
@@ -244,6 +255,20 @@ export interface TraceMutation {
   url?: string
 }
 
+/**
+ * Captured at each user-facing action boundary in `trace` mode. Feeds the
+ * downstream trace.zip exporter (Phase 4). `screenshot` is base64-encoded JPEG.
+ */
+export interface ActionSnapshot {
+  timestamp: number
+  command: string
+  url?: string
+  title?: string
+  screenshot?: string
+  elements?: unknown[]
+  snapshotText?: string
+}
+
 export interface TraceLog {
   mutations: TraceMutation[]
   logs: string[]
@@ -255,6 +280,8 @@ export interface TraceLog {
   suites?: Record<string, unknown>[]
   screencast?: ScreencastInfo
   config?: { configFile?: string }
+  /** Per-action snapshots captured in `mode: 'trace'` for the trace.zip exporter. */
+  actionSnapshots?: ActionSnapshot[]
 }
 
 // ─── Preserve-and-rerun ─────────────────────────────────────────────────────

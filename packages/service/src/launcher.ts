@@ -110,6 +110,10 @@ export class DevToolsAppLauncher {
   }
 
   async onPrepare(_: never, caps: ExtendedCapabilities[]) {
+    if (this.#options.mode === 'trace') {
+      log.info('Trace mode — skipping backend and Chrome window')
+      return
+    }
     try {
       this.#captureRerunEnv()
       const reusePort = process.env[REUSE_ENV.PORT]

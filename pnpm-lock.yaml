@@ -299,18 +299,64 @@ importers:
       '@types/ws':
         specifier: ^8.18.1
         version: 8.18.1
+      '@types/yazl':
+        specifier: ^2.4.6
+        version: 2.4.6
       '@wdio/devtools-script':
         specifier: workspace:*
         version: link:../script
       '@wdio/devtools-shared':
         specifier: workspace:^
         version: link:../shared
+      '@xmldom/xmldom':
+        specifier: ^0.9.8
+        version: 0.9.10
       stacktrace-parser:
         specifier: ^0.1.11
         version: 0.1.11
       ws:
         specifier: ^8.21.0
         version: 8.21.0
+      xpath:
+        specifier: ^0.0.34
+        version: 0.0.34
+      yazl:
+        specifier: ^2.5.1
+        version: 2.5.1
+
+  packages/elements:
+    dependencies:
+      '@xmldom/xmldom':
+        specifier: ^0.9.8
+        version: 0.9.10
+      webdriverio:
+        specifier: ^9.0.0
+        version: 9.27.2(puppeteer-core@21.11.0)
+      xpath:
+        specifier: ^0.0.34
+        version: 0.0.34
+    devDependencies:
+      '@microsoft/api-extractor':
+        specifier: ^7.58.7
+        version: 7.58.7(@types/node@25.9.1)
+      '@types/node':
+        specifier: 25.9.1
+        version: 25.9.1
+      '@wdio/devtools-core':
+        specifier: workspace:^
+        version: link:../core
+      '@wdio/globals':
+        specifier: 9.27.0
+        version: 9.27.0(expect-webdriverio@5.6.7)(webdriverio@9.27.2(puppeteer-core@21.11.0))
+      tsup:
+        specifier: ^8.5.1
+        version: 8.5.1(@microsoft/api-extractor@7.58.7(@types/node@25.9.1))(jiti@2.7.0)(postcss@8.5.15)(tsx@4.22.4)(typescript@6.0.2)(yaml@2.9.0)
+      typescript:
+        specifier: 6.0.2
+        version: 6.0.2
+      vitest:
+        specifier: ^4.0.16
+        version: 4.1.8(@types/node@25.9.1)(@vitest/coverage-v8@4.1.8)(happy-dom@20.9.0)(jsdom@24.1.3)(vite@8.0.16(@types/node@25.9.1)(esbuild@0.28.0)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
 
   packages/nightwatch-devtools:
     dependencies:
@@ -323,6 +369,9 @@ importers:
       '@wdio/logger':
         specifier: ^9.18.0
         version: 9.18.0
+      '@xmldom/xmldom':
+        specifier: ^0.9.8
+        version: 0.9.10
       devtools:
         specifier: ^8.42.0
         version: 8.42.0
@@ -341,6 +390,12 @@ importers:
       ws:
         specifier: ^8.21.0
         version: 8.21.0
+      xpath:
+        specifier: ^0.0.34
+        version: 0.0.34
+      yazl:
+        specifier: ^2.5.1
+        version: 2.5.1
     devDependencies:
       '@types/node':
         specifier: 25.9.1
@@ -397,6 +452,9 @@ importers:
       '@wdio/logger':
         specifier: ^9.18.0
         version: 9.18.0
+      '@xmldom/xmldom':
+        specifier: ^0.9.8
+        version: 0.9.10
       stacktrace-parser:
         specifier: ^0.1.11
         version: 0.1.11
@@ -406,6 +464,12 @@ importers:
       ws:
         specifier: ^8.21.0
         version: 8.21.0
+      xpath:
+        specifier: ^0.0.34
+        version: 0.0.34
+      yazl:
+        specifier: ^2.5.1
+        version: 2.5.1
     devDependencies:
       '@cucumber/cucumber':
         specifier: ^13.0.0
@@ -459,12 +523,18 @@ importers:
       '@babel/types':
         specifier: ^7.29.7
         version: 7.29.7
+      '@types/yazl':
+        specifier: ^2.4.6
+        version: 2.4.6
       '@wdio/devtools-backend':
         specifier: workspace:^
         version: link:../backend
       '@wdio/devtools-script':
         specifier: workspace:^
         version: link:../script
+      '@wdio/elements':
+        specifier: workspace:^
+        version: link:../elements
       '@wdio/logger':
         specifier: 9.18.0
         version: 9.18.0
@@ -474,6 +544,9 @@ importers:
       '@wdio/types':
         specifier: 9.27.2
         version: 9.27.2
+      '@xmldom/xmldom':
+        specifier: ^0.9.8
+        version: 0.9.10
       devtools:
         specifier: ^8.42.0
         version: 8.42.0
@@ -495,6 +568,12 @@ importers:
       ws:
         specifier: ^8.21.0
         version: 8.21.0
+      xpath:
+        specifier: ^0.0.34
+        version: 0.0.34
+      yazl:
+        specifier: ^2.5.1
+        version: 2.5.1
     devDependencies:
       '@types/babel__core':
         specifier: ^7.20.5
@@ -2319,6 +2398,9 @@ packages:
   '@types/yauzl@2.10.3':
     resolution: {integrity: sha512-oJoftv0LSuaDZE3Le4DbKX+KS9G36NzOeSap90UIK0yMA/NhKJhqlSGtNDORNRaIbQfzjXDrQa0ytJ6mNRGz/Q==}
 
+  '@types/yazl@2.4.6':
+    resolution: {integrity: sha512-/ifFjQtcKaoZOjl5NNCQRR0fAKafB3Foxd7J/WvFPTMea46zekapcR30uzkwIkKAAuq5T6d0dkwz754RFH27hg==}
+
   '@typescript-eslint/eslint-plugin@8.60.1':
     resolution: {integrity: sha512-JQ4S5GB0tfjO8BuJ4fcX+HodkzJjYBV+7OJ+wLygaX7OGQ7FudyHL4NSCA6ob+w3Yn+5MkKIozOwQhXeM7opVg==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
@@ -2570,6 +2652,13 @@ packages:
     resolution: {integrity: sha512-xoBgmACafV4L7e7e3DUN8UM1N+I225oms38JtxtfgrMfvHm8QtcmZWXfycxEGM28Gm2M3NmeV3oso7hZeBk6Ww==}
     engines: {node: '>=18.20.0'}
 
+  '@wdio/globals@9.27.0':
+    resolution: {integrity: sha512-yT6EAyvEqm+wFD11fg89BMxvFkYLgnIVCihfJx+k73Gm3utL/DfZQpSheQdwrlQzu5p7jHi/JwOD76740F5Peg==}
+    engines: {node: '>=18.20.0'}
+    peerDependencies:
+      expect-webdriverio: ^5.6.5
+      webdriverio: ^9.0.0
+
   '@wdio/globals@9.27.2':
     resolution: {integrity: sha512-Rx9bqD4/8iR3CNPMWYxywQSCqsR/WGwIYT2Q0uUmrvPxOdYFridDEhVRGO32kQ55UM5+JXzXppxgwGLRQ60fJg==}
     engines: {node: '>=18.20.0'}
@@ -2633,6 +2722,10 @@ packages:
   '@wdio/xvfb@9.27.2':
     resolution: {integrity: sha512-Rj8AP/VYVd5clZFKy+P7zzoXCKshjrog6lcV65nnUzATbUYT/PpUCy6OhEWHTSmLQY2Oc5ztY/IetLSg4nmB3w==}
     engines: {node: '>=18'}
+
+  '@xmldom/xmldom@0.9.10':
+    resolution: {integrity: sha512-A9gOqLdi6cV4ibazAjcQufGj0B1y/vDqYrcuP6d/6x8P27gRS8643Dj9o1dEKtB6O7fwxb2FgBmJS2mX7gpvdw==}
+    engines: {node: '>=14.6'}
 
   '@zip.js/zip.js@2.8.26':
     resolution: {integrity: sha512-RQ4h9F6DOiHxpdocUDrOl6xBM+yOtz+LkUol47AVWcfebGBDpZ7w7Xvz9PS24JgXvLGiXXzSAfdCdVy1tPlaFA==}
@@ -6739,6 +6832,11 @@ packages:
     engines: {node: '>=14.17'}
     hasBin: true
 
+  typescript@6.0.2:
+    resolution: {integrity: sha512-bGdAIrZ0wiGDo5l8c++HWtbaNCWTS4UTv7RaTH/ThVIgjkveJt83m74bBHMJkuCbslY8ixgLBVZJIOiQlQTjfQ==}
+    engines: {node: '>=14.17'}
+    hasBin: true
+
   typescript@6.0.3:
     resolution: {integrity: sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw==}
     engines: {node: '>=14.17'}
@@ -7197,6 +7295,10 @@ packages:
   xmlchars@2.2.0:
     resolution: {integrity: sha512-JZnDKK8B0RCDw84FNdDAIpZK+JuJw+s7Lz8nksI7SIuU3UXJJslUthsi+uWBUYOwPFwW7W7PRLRfUKpxjtjFCw==}
 
+  xpath@0.0.34:
+    resolution: {integrity: sha512-FxF6+rkr1rNSQrhUNYrAFJpRXNzlDoMxeXN5qI84939ylEv3qqPFKa85Oxr6tDaJKqwW6KKyo2v26TSv3k6LeA==}
+    engines: {node: '>=0.6.0'}
+
   y18n@5.0.8:
     resolution: {integrity: sha512-0pfFzegeDWJHJIAmTLRP2DwHjdF5s7jo9tuztdQxAhINCdvS+3nGINqPd00AphqJR/0LhANUS6/+7SCb98YOfA==}
     engines: {node: '>=10'}
@@ -7234,6 +7336,9 @@ packages:
 
   yauzl@2.10.0:
     resolution: {integrity: sha512-p4a9I6X6nu6IhoGmBqAcbJy1mlC4j27vEPZX9F4L4/vZT3Lyq1VkFHw/V/PUcB9Buo+DG3iHkT0x3Qya58zc3g==}
+
+  yazl@2.5.1:
+    resolution: {integrity: sha512-phENi2PLiHnHb6QBVot+dJnaAZ0xosj7p3fWl+znIjBDlnMI2PsZCJZ306BPTFOaHf5qdDEI8x5qFrSOBN5vrw==}
 
   yn@3.1.1:
     resolution: {integrity: sha512-Ux4ygGWsu2c7isFWe8Yu1YluJmqVhxqK2cLXNQA5AcC3QfbGNpM7fu0Y8b/z16pXLnFxZYvWhd3fhBY9DLmC6Q==}
@@ -8502,7 +8607,6 @@ snapshots:
       '@rushstack/node-core-library': 5.23.1(@types/node@25.9.1)
     transitivePeerDependencies:
       - '@types/node'
-    optional: true
 
   '@microsoft/api-extractor@7.58.7(@types/node@25.9.1)':
     dependencies:
@@ -8521,7 +8625,6 @@ snapshots:
       typescript: 5.9.3
     transitivePeerDependencies:
       - '@types/node'
-    optional: true
 
   '@microsoft/tsdoc-config@0.18.1':
     dependencies:
@@ -8529,10 +8632,8 @@ snapshots:
       ajv: 8.18.0
       jju: 1.4.0
       resolve: 1.22.12
-    optional: true
 
-  '@microsoft/tsdoc@0.16.0':
-    optional: true
+  '@microsoft/tsdoc@0.16.0': {}
 
   '@napi-rs/nice-android-arm-eabi@1.1.1':
     optional: true
@@ -8835,18 +8936,15 @@ snapshots:
       semver: 7.7.4
     optionalDependencies:
       '@types/node': 25.9.1
-    optional: true
 
   '@rushstack/problem-matcher@0.2.1(@types/node@25.9.1)':
     optionalDependencies:
       '@types/node': 25.9.1
-    optional: true
 
   '@rushstack/rig-package@0.7.3':
     dependencies:
       jju: 1.4.0
       resolve: 1.22.12
-    optional: true
 
   '@rushstack/terminal@0.24.0(@types/node@25.9.1)':
     dependencies:
@@ -8855,7 +8953,6 @@ snapshots:
       supports-color: 8.1.1
     optionalDependencies:
       '@types/node': 25.9.1
-    optional: true
 
   '@rushstack/ts-command-line@5.3.9(@types/node@25.9.1)':
     dependencies:
@@ -8865,7 +8962,6 @@ snapshots:
       string-argv: 0.3.2
     transitivePeerDependencies:
       - '@types/node'
-    optional: true
 
   '@sec-ant/readable-stream@0.4.1': {}
 
@@ -8971,8 +9067,7 @@ snapshots:
       tslib: 2.8.1
     optional: true
 
-  '@types/argparse@1.0.38':
-    optional: true
+  '@types/argparse@1.0.38': {}
 
   '@types/babel__core@7.20.5':
     dependencies:
@@ -9069,6 +9164,10 @@ snapshots:
     dependencies:
       '@types/node': 25.9.1
     optional: true
+
+  '@types/yazl@2.4.6':
+    dependencies:
+      '@types/node': 25.9.1
 
   '@typescript-eslint/eslint-plugin@8.60.1(@typescript-eslint/parser@8.60.1(eslint@10.4.1(jiti@2.7.0))(typescript@6.0.3))(eslint@10.4.1(jiti@2.7.0))(typescript@6.0.3)':
     dependencies:
@@ -9416,6 +9515,11 @@ snapshots:
       '@wdio/types': 9.27.2
       chalk: 5.6.2
 
+  '@wdio/globals@9.27.0(expect-webdriverio@5.6.7)(webdriverio@9.27.2(puppeteer-core@21.11.0))':
+    dependencies:
+      expect-webdriverio: 5.6.7(@wdio/globals@9.27.0)(@wdio/logger@9.18.0)(webdriverio@9.27.2(puppeteer-core@21.11.0))
+      webdriverio: 9.27.2(puppeteer-core@21.11.0)
+
   '@wdio/globals@9.27.2(expect-webdriverio@5.6.7)(webdriverio@9.27.2(puppeteer-core@21.11.0))':
     dependencies:
       expect-webdriverio: 5.6.7(@wdio/globals@9.27.2)(@wdio/logger@9.18.0)(webdriverio@9.27.2(puppeteer-core@21.11.0))
@@ -9558,6 +9662,8 @@ snapshots:
     dependencies:
       '@wdio/logger': 9.18.0
 
+  '@xmldom/xmldom@0.9.10': {}
+
   '@zip.js/zip.js@2.8.26': {}
 
   abort-controller@3.0.0:
@@ -9591,12 +9697,10 @@ snapshots:
   ajv-draft-04@1.0.0(ajv@8.18.0):
     optionalDependencies:
       ajv: 8.18.0
-    optional: true
 
   ajv-formats@3.0.1(ajv@8.18.0):
     optionalDependencies:
       ajv: 8.18.0
-    optional: true
 
   ajv-formats@3.0.1(ajv@8.20.0):
     optionalDependencies:
@@ -9615,7 +9719,6 @@ snapshots:
       fast-uri: 3.1.2
       json-schema-traverse: 1.0.0
       require-from-string: 2.0.2
-    optional: true
 
   ajv@8.20.0:
     dependencies:
@@ -11082,6 +11185,16 @@ snapshots:
 
   expect-type@1.3.0: {}
 
+  expect-webdriverio@5.6.7(@wdio/globals@9.27.0)(@wdio/logger@9.18.0)(webdriverio@9.27.2(puppeteer-core@21.11.0)):
+    dependencies:
+      '@vitest/snapshot': 4.1.8
+      '@wdio/globals': 9.27.0(expect-webdriverio@5.6.7)(webdriverio@9.27.2(puppeteer-core@21.11.0))
+      '@wdio/logger': 9.18.0
+      deep-eql: 5.0.2
+      expect: 30.4.1
+      jest-matcher-utils: 30.4.1
+      webdriverio: 9.27.2(puppeteer-core@21.11.0)
+
   expect-webdriverio@5.6.7(@wdio/globals@9.27.2)(@wdio/logger@9.18.0)(webdriverio@9.27.2(puppeteer-core@21.11.0)):
     dependencies:
       '@vitest/snapshot': 4.1.8
@@ -11315,7 +11428,6 @@ snapshots:
       graceful-fs: 4.2.11
       jsonfile: 6.2.1
       universalify: 2.0.1
-    optional: true
 
   fs.realpath@1.0.0: {}
 
@@ -11675,8 +11787,7 @@ snapshots:
       parent-module: 1.0.1
       resolve-from: 4.0.0
 
-  import-lazy@4.0.0:
-    optional: true
+  import-lazy@4.0.0: {}
 
   import-local@3.2.0:
     dependencies:
@@ -12268,8 +12379,7 @@ snapshots:
 
   jiti@2.7.0: {}
 
-  jju@1.4.0:
-    optional: true
+  jju@1.4.0: {}
 
   joycon@3.1.1: {}
 
@@ -12345,7 +12455,6 @@ snapshots:
       universalify: 2.0.1
     optionalDependencies:
       graceful-fs: 4.2.11
-    optional: true
 
   jszip@3.10.1:
     dependencies:
@@ -12621,7 +12730,6 @@ snapshots:
   minimatch@10.2.3:
     dependencies:
       brace-expansion: 5.0.6
-    optional: true
 
   minimatch@10.2.5:
     dependencies:
@@ -13706,8 +13814,7 @@ snapshots:
     dependencies:
       lru-cache: 6.0.0
 
-  semver@7.7.4:
-    optional: true
+  semver@7.7.4: {}
 
   semver@7.8.1: {}
 
@@ -14285,6 +14392,35 @@ snapshots:
 
   tslib@2.8.1: {}
 
+  tsup@8.5.1(@microsoft/api-extractor@7.58.7(@types/node@25.9.1))(jiti@2.7.0)(postcss@8.5.15)(tsx@4.22.4)(typescript@6.0.2)(yaml@2.9.0):
+    dependencies:
+      bundle-require: 5.1.0(esbuild@0.27.7)
+      cac: 6.7.14
+      chokidar: 4.0.3
+      consola: 3.4.2
+      debug: 4.4.3(supports-color@5.5.0)
+      esbuild: 0.27.7
+      fix-dts-default-cjs-exports: 1.0.1
+      joycon: 3.1.1
+      picocolors: 1.1.1
+      postcss-load-config: 6.0.1(jiti@2.7.0)(postcss@8.5.15)(tsx@4.22.4)(yaml@2.9.0)
+      resolve-from: 5.0.0
+      rollup: 4.61.0
+      source-map: 0.7.6
+      sucrase: 3.35.1
+      tinyexec: 0.3.2
+      tinyglobby: 0.2.17
+      tree-kill: 1.2.2
+    optionalDependencies:
+      '@microsoft/api-extractor': 7.58.7(@types/node@25.9.1)
+      postcss: 8.5.15
+      typescript: 6.0.2
+    transitivePeerDependencies:
+      - jiti
+      - supports-color
+      - tsx
+      - yaml
+
   tsup@8.5.1(@microsoft/api-extractor@7.58.7(@types/node@25.9.1))(jiti@2.7.0)(postcss@8.5.15)(tsx@4.22.4)(typescript@6.0.3)(yaml@2.9.0):
     dependencies:
       bundle-require: 5.1.0(esbuild@0.27.7)
@@ -14381,8 +14517,9 @@ snapshots:
       possible-typed-array-names: 1.1.0
       reflect.getprototypeof: 1.0.10
 
-  typescript@5.9.3:
-    optional: true
+  typescript@5.9.3: {}
+
+  typescript@6.0.2: {}
 
   typescript@6.0.3: {}
 
@@ -14416,8 +14553,7 @@ snapshots:
 
   universalify@0.2.0: {}
 
-  universalify@2.0.1:
-    optional: true
+  universalify@2.0.1: {}
 
   unplugin-dts@1.0.2(@microsoft/api-extractor@7.58.7(@types/node@25.9.1))(esbuild@0.28.0)(rolldown@1.0.3)(rollup@4.61.0)(typescript@6.0.3)(vite@8.0.16(@types/node@25.9.1)(esbuild@0.28.0)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)):
     dependencies:
@@ -14833,6 +14969,8 @@ snapshots:
 
   xmlchars@2.2.0: {}
 
+  xpath@0.0.34: {}
+
   y18n@5.0.8: {}
 
   yallist@3.1.1: {}
@@ -14876,6 +15014,10 @@ snapshots:
     dependencies:
       buffer-crc32: 0.2.13
       fd-slicer: 1.1.0
+
+  yazl@2.5.1:
+    dependencies:
+      buffer-crc32: 0.2.13
 
   yn@3.1.1: {}
 

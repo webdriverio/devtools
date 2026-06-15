@@ -128,19 +128,13 @@ export const config: Options.Testrunner = {
   // your test setup with almost no effort. Unlike plugins, they don't add new
   // commands. Instead, they hook themselves up into the test process.
   services: [
-    'devtools'
-    // [
-    //   'devtools',
-    //   {
-    //     screencast: {
-    //       enabled: true,
-    //       captureFormat: 'jpeg', // 'jpeg' or 'png' — frame format sent by Chrome over CDP
-    //       quality: 70, // JPEG quality 0–100
-    //       maxWidth: 1280, // max frame width in px
-    //       maxHeight: 720 // max frame height in px
-    //     }
-    //   }
-    // ]
+    [
+      'devtools',
+      {
+        mode: 'live' as const,
+        screencast: { enabled: true, pollIntervalMs: 200 }
+      }
+    ]
   ],
   //
   // Framework you want to run your specs with.

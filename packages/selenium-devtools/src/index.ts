@@ -1,7 +1,6 @@
 // @wdio/selenium-devtools — runner-agnostic Selenium WebDriver adapter.
 // Side-effect import that patches selenium-webdriver and starts the backend.
 
-// MUST be the first import — see setupConsole.ts.
 import './setupConsole.js'
 import logger from '@wdio/logger'
 import { startDetachedBackend } from './helpers/detachedBackend.js'
@@ -49,7 +48,9 @@ import {
   NAVIGATION_COMMANDS
 } from './constants.js'
 import {
+  type ActionSnapshot,
   type CapturedCommand,
+  type DevToolsMode,
   type DevToolsOptions,
   type ScreencastOptions,
   type SeleniumDriverLike,
@@ -86,6 +87,8 @@ class SeleniumDevToolsPlugin {
   #retryTracker = new RetryTracker()
   #screencast?: ScreencastRecorder
   #screencastOptions: ScreencastOptions
+  #actionSnapshots: ActionSnapshot[] = []
+  #snapshotCaptures: Promise<void>[] = []
   #sessionId?: string
   #uiUrlOpened = false
   #testFilePath?: string
@@ -116,19 +119,31 @@ class SeleniumDevToolsPlugin {
     this.#options = {
       port: options.port ?? 3000,
       hostname: options.hostname ?? 'localhost',
-      // Default true to match @wdio/devtools-service and @wdio/nightwatch-devtools.
       openUi: options.openUi ?? true,
       captureScreenshots: options.captureScreenshots ?? true,
       rerunCommand: options.rerunCommand,
-      headless: options.headless ?? false
+      headless: options.headless ?? false,
+      mode: options.mode ?? 'live',
+      traceFormat: options.traceFormat ?? 'zip'
     }
     this.#rerunManager = new RerunManager(RUNNER)
     if (options.rerunCommand) {
       this.#rerunManager.configure(options.rerunCommand)
     }
-    this.#screencastOptions = {
-      ...SCREENCAST_DEFAULTS,
-      ...(options.screencast ?? {})
+    // Same gate as DevTools.configure() — direct construction with
+    // `{ mode: 'trace', screencast: { enabled: true } }` would otherwise
+    // bypass the runtime check.
+    if (
+      this.#options.mode === 'trace' &&
+      options.screencast?.enabled === true
+    ) {
+      log.warn('trace mode: ignoring screencast option (live-mode feature)')
+      this.#screencastOptions = { ...SCREENCAST_DEFAULTS }
+    } else {
+      this.#screencastOptions = {
+        ...SCREENCAST_DEFAULTS,
+        ...(options.screencast ?? {})
+      }
     }
     // Reuse mode: rerun child inherits the parent's backend host/port.
     if (
@@ -171,6 +186,14 @@ class SeleniumDevToolsPlugin {
     this.#backendStartPromise = (async () => {
       try {
         this.#logConfigSummary()
+        // Trace mode parity with WDIO launcher gate: skip backend port-bind
+        // entirely — no UI to serve, SessionCapturer WS init is also gated
+        // off in session-lifecycle.ts.
+        if (this.#options.mode === 'trace') {
+          log.info('Trace mode — skipping backend port-bind and UI window')
+          this.#backendStarted = true
+          return
+        }
         if (!this.#isReuse) {
           this.#options.port = await findFreePort(
             this.#options.port,
@@ -187,7 +210,7 @@ class SeleniumDevToolsPlugin {
           )
         }
         this.#backendStarted = true
-        // Skip when in REUSE mode — the rerun child reuses the parent's window.
+        // mode==='trace' returned early above; only live mode reaches here.
         if (this.#options.openUi && !this.#isReuse) {
           this.#openUiWindow()
         }
@@ -229,23 +252,31 @@ class SeleniumDevToolsPlugin {
       screencast?: ScreencastOptions
       headless?: boolean
       openUi?: boolean
+      mode?: DevToolsMode
     } = {}
   ) {
     if ('rerunCommand' in opts) {
       this.#rerunManager.configure(opts.rerunCommand)
       this.#options.rerunCommand = opts.rerunCommand
     }
-    if (opts.screencast) {
-      this.#screencastOptions = {
-        ...this.#screencastOptions,
-        ...opts.screencast
-      }
-    }
     if (typeof opts.headless === 'boolean') {
       this.#options.headless = opts.headless
     }
     if (typeof opts.openUi === 'boolean') {
       this.#options.openUi = opts.openUi
+    }
+    if (opts.mode) {
+      this.#options.mode = opts.mode
+    }
+    if (opts.screencast) {
+      if (this.#options.mode === 'trace' && opts.screencast.enabled) {
+        log.warn('trace mode: ignoring screencast option (live-mode feature)')
+      } else {
+        this.#screencastOptions = {
+          ...this.#screencastOptions,
+          ...opts.screencast
+        }
+      }
     }
   }
 
@@ -366,6 +397,12 @@ class SeleniumDevToolsPlugin {
       },
       setScriptInjected: (v) => {
         self.#scriptInjected = v
+      },
+      get actionSnapshots() {
+        return self.#actionSnapshots
+      },
+      get snapshotCaptures() {
+        return self.#snapshotCaptures
       },
       ensureBackendStarted: () => self.ensureBackendStarted(),
       flushPendingTestActions: () => self.#flushPendingTestActions(),
@@ -565,7 +602,13 @@ if (!registerHooks()) {
 registerProcessHooks(plugin)
 
 export const DevTools = {
-  configure: (opts: { rerunCommand?: string }) => plugin.configure(opts),
+  configure: (opts: {
+    rerunCommand?: string
+    screencast?: ScreencastOptions
+    headless?: boolean
+    openUi?: boolean
+    mode?: DevToolsMode
+  }) => plugin.configure(opts),
   startTest: (name: string, meta?: { file?: string }) =>
     plugin.startTest(name, meta),
   endTest: (state: TestStats['state'] = 'passed') => plugin.endTest(state)

@@ -1,0 +1,70 @@
+// Allow-list mapping from runner-native command names to trace
+// vocabulary. Ported from Vince Graics' PR #209 (`@wdio/tracing-service`); the
+// existing devtools UI uses its own denylist (`INTERNAL_COMMANDS`) — this map
+// is for the trace.zip exporter to filter + rename in one step.
+
+export interface TraceAction {
+  class: string
+  method: string
+}
+
+const ACTION_MAP: Record<string, TraceAction> = {
+  // WDIO browser-level
+  url: { class: 'Page', method: 'navigate' },
+  navigateTo: { class: 'Page', method: 'navigate' },
+  back: { class: 'Page', method: 'goBack' },
+  forward: { class: 'Page', method: 'goForward' },
+  refresh: { class: 'Page', method: 'reload' },
+  newWindow: { class: 'Page', method: 'goto' },
+  // Selenium WebDriver navigation (driver.get, driver.navigate().to/back/forward/refresh)
+  get: { class: 'Page', method: 'navigate' },
+  to: { class: 'Page', method: 'navigate' },
+  // WDIO element-level
+  click: { class: 'Element', method: 'click' },
+  doubleClick: { class: 'Element', method: 'dblclick' },
+  setValue: { class: 'Element', method: 'fill' },
+  selectByVisibleText: { class: 'Element', method: 'selectOption' },
+  moveTo: { class: 'Element', method: 'hover' },
+  scrollIntoView: { class: 'Element', method: 'scrollIntoViewIfNeeded' },
+  dragAndDrop: { class: 'Element', method: 'dragTo' },
+  // Selenium WebElement actions
+  sendKeys: { class: 'Element', method: 'fill' },
+  clear: { class: 'Element', method: 'clear' },
+  submit: { class: 'Element', method: 'submit' },
+  // Cross-runner
+  keys: { class: 'Keyboard', method: 'press' },
+  execute: { class: 'Page', method: 'evaluate' },
+  executeAsync: { class: 'Page', method: 'evaluate' },
+  switchToFrame: { class: 'Frame', method: 'goto' },
+  touchAction: { class: 'Element', method: 'tap' }
+}
+
+// Excluded by design:
+//   clearValue / addValue — WDIO fires these inside setValue (duplicate events).
+//   executeScript — Selenium's `until` polling fires it ~50ms; also recurses
+//     because @wdio/elements uses executeScript inside captureActionSnapshot.
+//     WDIO's user-facing `execute`/`executeAsync` are still captured.
+
+export function mapCommandToAction(command: string): TraceAction | null {
+  return ACTION_MAP[command] ?? null
+}
+
+export function formatActionTitle(
+  action: TraceAction,
+  args: unknown[],
+  params?: Record<string, unknown>
+): string {
+  const firstArg = args[0] ?? params?.selector
+  if (firstArg === undefined) {
+    return `${action.class}.${action.method}()`
+  }
+  const label =
+    typeof firstArg === 'object' ? JSON.stringify(firstArg) : String(firstArg)
+  return `${action.class}.${action.method}("${label}")`
+}
+
+/**
+ * Methods where the first positional argument should render as value= in the
+ * transcript line (e.g. setValue, selectByVisibleText).
+ */
+export const FILL_METHODS = new Set(['fill', 'selectOption'])

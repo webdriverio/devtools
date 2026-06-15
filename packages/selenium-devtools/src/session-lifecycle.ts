@@ -12,7 +12,8 @@ import logger from '@wdio/logger'
 import {
   errorMessage,
   finalizeScreencast,
-  resolveAdapterOutputDir
+  resolveAdapterOutputDir,
+  writeTraceZip
 } from '@wdio/devtools-core'
 import { TIMING } from './constants.js'
 import { SessionCapturer } from './session.js'
@@ -22,7 +23,14 @@ import { ScreencastRecorder } from './screencast.js'
 import { buildDriverMetadata } from './helpers/driverMetadata.js'
 import { attachBidiHandlers, buildBidiSinks } from './bidi.js'
 import { gracefulShutdown } from './helpers/processHooks.js'
-import type { ScreencastOptions, SeleniumDriverLike } from './types.js'
+import type {
+  ActionSnapshot,
+  DevToolsMode,
+  Metadata,
+  ScreencastOptions,
+  SeleniumDriverLike,
+  TraceFormat
+} from './types.js'
 import type { TestManager } from './helpers/testManager.js'
 
 const log = logger('@wdio/selenium-devtools:session-lifecycle')
@@ -34,6 +42,8 @@ export interface SessionLifecycleCtx {
     openUi: boolean
     captureScreenshots: boolean
     rerunCommand?: string
+    mode?: DevToolsMode
+    traceFormat?: TraceFormat
   }
   readonly screencastOptions: ScreencastOptions
   readonly runner: string
@@ -52,6 +62,10 @@ export interface SessionLifecycleCtx {
   scriptInjected: boolean
   testFilePath: string | undefined
   keepAliveTimer: ReturnType<typeof setInterval> | undefined
+
+  // Populated by handleOnCommand when mode === 'trace'.
+  readonly actionSnapshots: ActionSnapshot[]
+  readonly snapshotCaptures: Promise<void>[]
 
   setFinalized(v: boolean): void
   ensureBackendStarted(): Promise<void>
@@ -81,8 +95,12 @@ export async function onDriverCreated(
   }
 
   ctx.driver = driver
+  // In trace mode there's no backend to forward events to — pass an empty
+  // opts bag so SessionCapturerBase skips its WS init.
   ctx.sessionCapturer = new SessionCapturer(
-    { hostname: ctx.options.hostname, port: ctx.options.port },
+    ctx.options.mode === 'trace'
+      ? {}
+      : { hostname: ctx.options.hostname, port: ctx.options.port },
     driver
   )
   // Dashboard closed AFTER tests finished → wind the runner down so the user
@@ -136,6 +154,10 @@ async function initPerDriverCapture(
   })
   ctx.sessionId = sessionId
   if (metadata) {
+    // buildDriverMetadata returns a Record-shaped payload; the relevant
+    // Metadata fields (sessionId, capabilities, viewport, ...) are present
+    // at runtime but TS can't prove the discriminant `type`.
+    ctx.sessionCapturer.metadata = metadata as unknown as Metadata
     ctx.sessionCapturer.sendUpstream('metadata', metadata)
   }
 
@@ -198,6 +220,9 @@ export async function onSessionEnd(ctx: SessionLifecycleCtx): Promise<void> {
   }
   ctx.setFinalized(true)
   const shutdownStart = Date.now()
+  // Capture for the trace.zip write before onDriverEnd clears ctx state.
+  const capturerAtStart = ctx.sessionCapturer
+  const testFilePathAtStart = ctx.testFilePath
   try {
     await onDriverEnd(ctx).catch(() => {})
 
@@ -211,11 +236,26 @@ export async function onSessionEnd(ctx: SessionLifecycleCtx): Promise<void> {
     ctx.testManager?.finalizeSession()
     ctx.testReporter?.updateSuites()
 
+    await maybeWriteTrace(ctx, capturerAtStart, testFilePathAtStart)
+
     logSessionSummary(ctx)
     ctx.sessionCapturer?.cleanup()
 
-    if (ctx.options.openUi && !ctx.isReuse) {
+    if (ctx.options.openUi && ctx.options.mode !== 'trace' && !ctx.isReuse) {
       handleInteractivePath(ctx, shutdownStart)
+      return
+    }
+
+    // trace mode: no UI to wait for; close the WS so the backend can wind
+    // down naturally. process.exit is avoided — Jest/runners may treat
+    // forced exits as failures.
+    if (ctx.options.mode === 'trace' && !ctx.isReuse) {
+      try {
+        await ctx.sessionCapturer?.closeWebSocket()
+      } catch {
+        /* best-effort */
+      }
+      log.info(`🛑 Shutdown complete (${Date.now() - shutdownStart}ms)`)
       return
     }
 
@@ -228,6 +268,33 @@ export async function onSessionEnd(ctx: SessionLifecycleCtx): Promise<void> {
     log.info(`🛑 Session ended (${Date.now() - shutdownStart}ms)`)
   } catch (err) {
     log.warn(`Cleanup error: ${errorMessage(err)}`)
+  }
+}
+
+async function maybeWriteTrace(
+  ctx: SessionLifecycleCtx,
+  capturer: SessionCapturer | undefined,
+  testFilePath: string | undefined
+): Promise<void> {
+  const sessionId = capturer?.metadata?.sessionId
+  if (ctx.options.mode !== 'trace' || !capturer || !sessionId) {
+    return
+  }
+  try {
+    if (ctx.snapshotCaptures.length) {
+      await Promise.allSettled(ctx.snapshotCaptures)
+    }
+    const tracePath = await writeTraceZip(capturer, {
+      outputDir: resolveAdapterOutputDir({ testFilePath }),
+      sessionId,
+      actionSnapshots: ctx.actionSnapshots.length
+        ? ctx.actionSnapshots
+        : undefined,
+      format: ctx.options.traceFormat
+    })
+    log.info(`Trace saved to ${tracePath}`)
+  } catch (err) {
+    log.warn(`trace write failed: ${errorMessage(err)}`)
   }
 }
 

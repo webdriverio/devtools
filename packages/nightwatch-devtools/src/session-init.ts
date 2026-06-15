@@ -25,6 +25,7 @@ import { SuiteManager } from './helpers/suiteManager.js'
 import { BrowserProxy } from './helpers/browserProxy.js'
 import { ScreencastRecorder } from './screencast.js'
 import type {
+  DevToolsMode,
   NightwatchBrowser,
   ScreencastOptions,
   SuiteStats
@@ -37,6 +38,7 @@ export interface SessionInitCtx {
   readonly port: number
   readonly screencastOptions: ScreencastOptions
   readonly bidiEnabled: boolean
+  readonly mode: DevToolsMode
 
   sessionCapturer: SessionCapturer
   testReporter: TestReporter
@@ -124,7 +126,7 @@ function broadcastSessionMetadata(
     ctx.srcFolders = Array.isArray(sf) ? sf : sf ? [sf] : []
   }
 
-  ctx.sessionCapturer.sendUpstream('metadata', {
+  const metadata = {
     type: TraceType.Testrunner,
     capabilities,
     desiredCapabilities,
@@ -133,7 +135,9 @@ function broadcastSessionMetadata(
     host: opts.webdriver?.host,
     options: ctx.buildMetadataOptions(),
     url: ''
-  })
+  }
+  ctx.sessionCapturer.metadata = metadata
+  ctx.sessionCapturer.sendUpstream('metadata', metadata)
 
   const browserName =
     capabilities.browserName || desiredCapabilities.browserName || 'unknown'
@@ -226,13 +230,18 @@ export async function ensureSessionInitialized(
   await new Promise((resolve) =>
     setTimeout(resolve, TIMING.INITIAL_CONNECTION_WAIT)
   )
+  // Trace mode: empty opts skip SessionCapturerBase's WS init — no backend
+  // to forward events to anyway.
   ctx.sessionCapturer = new SessionCapturer(
-    { port: ctx.port, hostname: ctx.hostname },
+    ctx.mode === 'trace' ? {} : { port: ctx.port, hostname: ctx.hostname },
     browser
   )
-  const connected = await ctx.sessionCapturer.waitForConnection(3000)
-  if (!connected) {
-    log.error('❌ Worker WebSocket failed to connect!')
+  ctx.sessionCapturer.traceMode = ctx.mode
+  if (ctx.mode !== 'trace') {
+    const connected = await ctx.sessionCapturer.waitForConnection(3000)
+    if (!connected) {
+      log.error('❌ Worker WebSocket failed to connect!')
+    }
   }
   if (!ctx.testReporter) {
     initReporterChain(ctx)

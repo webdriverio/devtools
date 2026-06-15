@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { SessionCapturer } from '../src/session.js'
-import type { NightwatchBrowser } from '../src/types.js'
+import type { CommandLog, NightwatchBrowser } from '../src/types.js'
+
+type CommandLogWithId = CommandLog & { _id: number }
 
 function makeMockBrowser(
   overrides: Partial<Record<string, unknown>> = {}
@@ -31,8 +33,8 @@ describe('SessionCapturer.captureCommand', () => {
       args: ['#btn'],
       result: { ok: true }
     })
-    expect((cap.commandsLog[0] as { _id: number })._id).not.toBe(
-      (cap.commandsLog[1] as { _id: number })._id
+    expect((cap.commandsLog[0] as CommandLogWithId)._id).not.toBe(
+      (cap.commandsLog[1] as CommandLogWithId)._id
     )
   })
 
@@ -83,7 +85,7 @@ describe('SessionCapturer.replaceCommand', () => {
   it('splices the old entry and reissues with a new _id', async () => {
     const cap = makeCapturer()
     await cap.captureCommand('click', ['#a'], undefined, undefined)
-    const oldId = (cap.commandsLog[0] as { _id: number })._id
+    const oldId = (cap.commandsLog[0] as CommandLogWithId)._id
     const oldTs = cap.commandsLog[0].timestamp
     const { entry, oldTimestamp } = cap.replaceCommand(
       oldId,
@@ -94,7 +96,7 @@ describe('SessionCapturer.replaceCommand', () => {
     )
     expect(oldTimestamp).toBe(oldTs)
     expect(cap.commandsLog).toHaveLength(1)
-    expect((cap.commandsLog[0] as { _id: number })._id).not.toBe(oldId)
+    expect((cap.commandsLog[0] as CommandLogWithId)._id).not.toBe(oldId)
     expect(entry.result).toEqual({ ok: true })
   })
 
@@ -312,11 +314,8 @@ describe('SessionCapturer.captureTrace', () => {
       getLog: vi.fn(async () => []),
       execute: vi.fn(async () => {
         call++
-        if (call === 1) {
-          // collector check
-          return { value: true }
-        }
-        // getTraceData
+        // Single atomic check+read — the inline `typeof === 'undefined' → null`
+        // guard in the script body avoids the navigation TOCTOU race.
         return {
           value: {
             mutations: [
@@ -330,6 +329,6 @@ describe('SessionCapturer.captureTrace', () => {
     })
     const cap = makeCapturer(browser)
     await cap.captureTrace(browser)
-    expect(call).toBe(2)
+    expect(call).toBe(1)
   })
 })

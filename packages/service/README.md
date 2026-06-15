@@ -46,7 +46,8 @@ services: [['devtools', options]]
 | `port` | `number` | random | Port the DevTools UI server listens on |
 | `hostname` | `string` | `'localhost'` | Hostname the DevTools UI server binds to |
 | `devtoolsCapabilities` | `Capabilities` | Chrome 1600×1200 | Capabilities used to open the DevTools UI window |
-| `screencast` | `ScreencastOptions` | — | Session video recording (see below) |
+| `screencast` | `ScreencastOptions` | — | Session video recording (live mode only — see below) |
+| `mode` | `'live' \| 'trace'` | `'live'` | `'live'` opens the DevTools UI window; `'trace'` skips the UI and writes a `trace-<sessionId>.zip` at session end. See [Trace mode](../../README.md#-trace-mode-tracezip) |
 
 ## Screencast Recording
 

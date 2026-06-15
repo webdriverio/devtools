@@ -6,7 +6,12 @@
  */
 
 import { fileURLToPath } from 'node:url'
-import { errorMessage } from '@wdio/devtools-core'
+import {
+  errorMessage,
+  resolveAdapterOutputDir,
+  writeTraceZip
+} from '@wdio/devtools-core'
+import { stop as stopBackend } from '@wdio/devtools-backend'
 import { REUSE_ENV, SCREENCAST_DEFAULTS } from '@wdio/devtools-shared'
 import logger from '@wdio/logger'
 import {
@@ -98,16 +103,21 @@ class NightwatchDevToolsPlugin {
   #bidiAttachAttempted = false
 
   constructor(options: DevToolsOptions = {}) {
+    const mode = options.mode ?? 'live'
+    const ignore = mode === 'trace' && options.screencast?.enabled === true
+    if (ignore) {
+      log.warn('trace mode: ignoring screencast option (live-mode feature)')
+    }
+    const screencast = ignore ? {} : (options.screencast ?? {})
     this.options = {
       port: options.port ?? 3000,
       hostname: options.hostname ?? 'localhost',
-      screencast: options.screencast ?? {},
-      bidi: options.bidi ?? false
+      screencast,
+      bidi: options.bidi ?? false,
+      mode,
+      traceFormat: options.traceFormat ?? 'zip'
     }
-    this.#screencastOptions = {
-      ...SCREENCAST_DEFAULTS,
-      ...(options.screencast ?? {})
-    }
+    this.#screencastOptions = { ...SCREENCAST_DEFAULTS, ...screencast }
     this.#bidiEnabled = options.bidi === true
   }
 
@@ -131,6 +141,9 @@ class NightwatchDevToolsPlugin {
       },
       get port() {
         return self.options.port
+      },
+      get mode() {
+        return self.options.mode
       },
       get screencastOptions() {
         return self.#screencastOptions
@@ -441,6 +454,12 @@ class NightwatchDevToolsPlugin {
     try {
       await this.#finalizeAllSuites(browser)
       this.#logRunSummary()
+      if (this.options.mode === 'trace') {
+        await this.#writeTraceZipIfNeeded()
+        await this.sessionCapturer?.closeWebSocket()
+        await stopBackend()
+        return
+      }
       if (!this.#devtoolsBrowser) {
         // Reuse mode: force one final suites broadcast so the UI reflects the
         // actual outcome before the process exits.
@@ -462,6 +481,33 @@ class NightwatchDevToolsPlugin {
 
   #logRunSummary(): void {
     logRunSummary(this.#getInternals())
+  }
+
+  async #writeTraceZipIfNeeded(): Promise<void> {
+    if (this.options.mode !== 'trace' || !this.sessionCapturer) {
+      return
+    }
+    const sessionId = this.sessionCapturer.metadata?.sessionId
+    if (!sessionId) {
+      return
+    }
+    try {
+      if (this.sessionCapturer.snapshotCaptures.length) {
+        await Promise.allSettled(this.sessionCapturer.snapshotCaptures)
+      }
+      const snapshots = this.sessionCapturer.actionSnapshots
+      const tracePath = await writeTraceZip(this.sessionCapturer, {
+        outputDir: resolveAdapterOutputDir({
+          configPath: this.#configPath
+        }),
+        sessionId,
+        actionSnapshots: snapshots.length ? snapshots : undefined,
+        format: this.options.traceFormat
+      })
+      log.info(`Trace saved to ${tracePath}`)
+    } catch (err) {
+      log.warn(`trace write failed: ${errorMessage(err)}`)
+    }
   }
 
   async #waitForDevtoolsBrowserClose(): Promise<void> {

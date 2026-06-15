@@ -82,8 +82,9 @@ module.exports = {
 |--------|------|---------|-------------|
 | `port` | `number` | `3000` | Port for the DevTools backend server. Auto-incremented if already in use. |
 | `hostname` | `string` | `'localhost'` | Hostname the backend server binds to. |
-| `screencast` | `ScreencastOptions` | `{ enabled: false }` | Session video recording (see [Screencast](#screencast)). |
+| `screencast` | `ScreencastOptions` | `{ enabled: false }` | Session video recording — live mode only (see [Screencast](#screencast)). |
 | `bidi` | `boolean` | `false` | Opt into WebDriver BiDi capture for browser console + JS exceptions + network. Requires `webSocketUrl: true` in your capabilities and a BiDi-capable chromedriver. When attached, the per-command Chrome perf-log network path is gated off so requests don't duplicate. |
+| `mode` | `'live' \| 'trace'` | `'live'` | `'live'` opens the DevTools UI window; `'trace'` skips the UI and writes a `trace-<sessionId>.zip` next to your `nightwatch.conf.cjs` at run end. See [Trace mode](../../README.md#-trace-mode-tracezip). |
 
 ```javascript
 globals: nightwatchDevtools({

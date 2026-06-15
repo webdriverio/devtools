@@ -8,6 +8,7 @@ import { SevereServiceError } from 'webdriverio'
 import type { WebDriverCommands } from '@wdio/protocols'
 
 import { PAGE_TRANSITION_COMMANDS } from './constants.js'
+import { isNativeMobile } from './mobile.js'
 import {
   CAPTURE_PERFORMANCE_SCRIPT,
   LOG_SOURCES,
@@ -25,6 +26,10 @@ const log = logger('@wdio/devtools-service:SessionCapturer')
 
 export class SessionCapturer extends SessionCapturerBase {
   #isScriptInjected = false
+  /** Session start wall time for trace event timestamps. */
+  readonly startWallTime = Date.now()
+  /** Last find-element selector — carried forward to the next element command. */
+  #lastSelector: string | undefined
   #pendingNetworkRequests = new Map<
     string,
     {
@@ -110,7 +115,8 @@ export class SessionCapturer extends SessionCapturerBase {
     args: unknown[],
     result: unknown,
     error: Error | undefined,
-    callSource?: string
+    callSource?: string,
+    commandStartTime?: number
   ) {
     const { sourceFileLocation, absolutePath } = this.#resolveUserStackFrame()
     const sourceFilePath = absolutePath.split(':')[0]
@@ -123,21 +129,86 @@ export class SessionCapturer extends SessionCapturerBase {
       result,
       error,
       timestamp: Date.now(),
+      startTime: commandStartTime,
       callSource: callSource ?? absolutePath
     }
-    try {
-      commandLogEntry.screenshot = await browser.takeScreenshot()
-    } catch (screenshotError) {
-      log.warn(
-        `failed to capture screenshot: ${(screenshotError as Error).message}`
-      )
+    if (!isNativeMobile(browser)) {
+      try {
+        commandLogEntry.screenshot = await browser.takeScreenshot()
+      } catch (screenshotError) {
+        log.warn(
+          `failed to capture screenshot: ${(screenshotError as Error).message}`
+        )
+      }
     }
+    const cmd = String(command)
+
+    // Track last find-element selector so element commands (click, setValue, …)
+    // carry a human-readable selector in trace events even though WDIO doesn't
+    // pass it in their args.
+    if (
+      cmd === '$' ||
+      cmd === '$$' ||
+      cmd === 'findElement' ||
+      cmd === 'findElements'
+    ) {
+      const sel = args[0]
+      if (typeof sel === 'string' && sel.length > 0) {
+        this.#lastSelector = sel
+      }
+    }
+
+    // For element-scoped commands without meaningful args, inject the last
+    // selector so the trace event shows what element was acted upon.
+    if (
+      this.#lastSelector &&
+      (cmd === 'click' ||
+        cmd === 'doubleClick' ||
+        cmd === 'moveTo' ||
+        cmd === 'scrollIntoView' ||
+        cmd === 'touchAction' ||
+        cmd === 'dragAndDrop' ||
+        cmd === 'getText' ||
+        cmd === 'getAttribute' ||
+        cmd === 'clearValue' ||
+        cmd === 'waitForExist' ||
+        cmd === 'waitForDisplayed' ||
+        cmd === 'waitForEnabled' ||
+        cmd === 'waitForClickable')
+    ) {
+      const hasNoSelector =
+        args.length === 0 ||
+        (args.length === 1 &&
+          typeof args[0] === 'object' &&
+          args[0] !== null &&
+          !Array.isArray(args[0]) &&
+          Object.keys(args[0] as object).some((k) => k.startsWith('element-')))
+      if (hasNoSelector) {
+        commandLogEntry.args = [this.#lastSelector]
+      }
+    }
+
+    // For setValue / addValue, prepend the last selector so trace params
+    // carry both {selector, value} like the MCP set_value tool does.
+    if (this.#lastSelector && (cmd === 'setValue' || cmd === 'addValue')) {
+      const hasNoSelector = args.length >= 1 && typeof args[0] !== 'object'
+      if (hasNoSelector) {
+        commandLogEntry.args = [this.#lastSelector, ...args]
+      }
+    }
+
     this.commandsLog.push(commandLogEntry)
     this.sendUpstream('commands', [commandLogEntry])
     // Capture trace + perf on commands that could trigger a page transition.
-    if (PAGE_TRANSITION_COMMANDS.includes(command)) {
-      await this.#capturePerformance(browser, commandLogEntry, args)
-      await this.#captureTrace(browser)
+    // Skip on native mobile — scripts can't execute in a native app context.
+    if (
+      !isNativeMobile(browser) &&
+      PAGE_TRANSITION_COMMANDS.includes(command)
+    ) {
+      await Promise.all([
+        this.#capturePerformance(browser, commandLogEntry, args),
+        this.#captureTrace(browser)
+      ])
     }
   }
 
@@ -207,20 +278,21 @@ export class SessionCapturer extends SessionCapturerBase {
     }
 
     try {
-      const collectorExists = await browser.execute(
-        () => typeof window.wdioTraceCollector !== 'undefined'
+      // Atomic check+read in a single browser.execute so the collector can't
+      // disappear (page navigation) between the existence check and the
+      // getTraceData call. Two round-trips left a TOCTOU race that surfaced
+      // spurious "Cannot read properties of undefined" errors.
+      const payload = await browser.execute(() =>
+        typeof window.wdioTraceCollector !== 'undefined'
+          ? window.wdioTraceCollector.getTraceData()
+          : null
       )
-
-      if (!collectorExists) {
+      if (!payload) {
         log.warn(
           'wdioTraceCollector not loaded yet - page loaded before preload script took effect'
         )
         return
       }
-
-      const payload = await browser.execute(() =>
-        window.wdioTraceCollector.getTraceData()
-      )
       this.processTracePayload(payload as Record<string, unknown>)
     } catch (err) {
       log.error(`Failed to capture trace: ${errorMessage(err)}`)
@@ -299,26 +371,7 @@ export class SessionCapturer extends SessionCapturerBase {
     try {
       const { request, timestamp } = event
       const requestId = request.request
-      const requestHeaders: Record<string, string> = {}
-      if (request.headers) {
-        request.headers.forEach(
-          (h: {
-            name: string
-            value: { type?: string; value?: string } | string
-          }) => {
-            const name = typeof h.name === 'string' ? h.name.toLowerCase() : ''
-            const value =
-              typeof h.value === 'string'
-                ? h.value
-                : typeof h.value === 'object' && h.value?.value
-                  ? h.value.value
-                  : ''
-            if (name) {
-              requestHeaders[name] = value
-            }
-          }
-        )
-      }
+      const requestHeaders = this.#flattenBidiHeaders(request.headers)
 
       this.#pendingNetworkRequests.set(requestId, {
         url: request.url,
@@ -408,8 +461,32 @@ export class SessionCapturer extends SessionCapturerBase {
     }
   }
 
-  handleNetworkFetchError(event: { request: { request: string } }) {
+  handleNetworkFetchError(event: {
+    request: { request: string }
+    errorText?: string
+  }) {
     const requestId = event.request.request
-    this.#pendingNetworkRequests.delete(requestId)
+    const pending = this.#pendingNetworkRequests.get(requestId)
+    if (pending) {
+      // Emit a HAR resource-snapshot with status 0 and failure text so the
+      // trace viewer shows the failed request rather than silently dropping it.
+      this.#pendingNetworkRequests.delete(requestId)
+      const endTime = performance.now()
+      const networkRequest: NetworkRequest = {
+        id: `${Date.now()}-${requestId}`,
+        url: pending.url,
+        method: pending.method,
+        status: 0,
+        statusText: event.errorText ?? 'Failed',
+        type: 'other',
+        timestamp: pending.timestamp,
+        startTime: pending.startTime,
+        endTime,
+        time: endTime - pending.startTime,
+        requestHeaders: pending.requestHeaders
+      }
+      this.networkRequests.push(networkRequest)
+      this.sendUpstream('networkRequests', [networkRequest])
+    }
   }
 }

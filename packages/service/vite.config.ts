@@ -50,6 +50,7 @@ export default defineConfig({
         if (isPrivateWorkspaceDep) {
           return false
         }
+
         // Any relative import (`./foo.js` from top-level, OR `../foo.js`
         // from a subfolder like utils/) and any absolute path under src/
         // must be bundled, not externalized. The `../` case was missing

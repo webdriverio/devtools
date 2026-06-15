@@ -1,6 +1,6 @@
 {
   "name": "@wdio/selenium-devtools",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Selenium WebDriver adapter for WebdriverIO DevTools — runner-agnostic, reuses existing backend, UI, and capture infrastructure",
   "type": "module",
   "main": "dist/index.js",
@@ -45,9 +45,12 @@
     "@wdio/devtools-backend": "workspace:*",
     "@wdio/devtools-script": "workspace:*",
     "@wdio/logger": "^9.18.0",
+    "@xmldom/xmldom": "^0.9.8",
     "stacktrace-parser": "^0.1.11",
     "webdriverio": "^9.27.2",
-    "ws": "^8.21.0"
+    "ws": "^8.21.0",
+    "xpath": "^0.0.34",
+    "yazl": "^2.5.1"
   },
   "optionalDependencies": {
     "fluent-ffmpeg": "^2.1.3"

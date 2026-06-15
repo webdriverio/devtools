@@ -10,6 +10,7 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+.tsup
 *.local
 
 # Editor directories and files
@@ -25,7 +26,21 @@ dist-ssr
 /*.ts
 /*.json
 *.tgz
-example/wdio-*.json
+examples/wdio/wdio-*.json
+examples/wdio/wdio-*.webm
+examples/nightwatch/logs/
+
+# Adapter-encoded screencasts (written next to the project root by default)
+selenium-video-*.webm
+nightwatch-video-*.webm
+packages/nightwatch-devtools/nightwatch-video-*.webm
+
+# trace output (mode: 'trace')
+trace-*.zip
+examples/**/trace-*/
+
+# vitest --coverage output
+coverage/
 
 # pnpm state, cache, logs, and debug files
 /packages/**/*.mjs
