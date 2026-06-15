@@ -35,6 +35,14 @@ export class DevtoolsSource extends Element {
       .cm-content {
         padding: 0 !important;
       }
+      /* Blend the editor with the dock panel (overrides oneDark/basicSetup,
+         which paint their own background). !important beats the theme's
+         injected rules regardless of order; token-based so light mode matches. */
+      .cm-editor,
+      .cm-gutters {
+        background-color: var(--vscode-sideBar-background) !important;
+        border: none !important;
+      }
 
       .source-container {
         display: flex;
@@ -53,9 +61,16 @@ export class DevtoolsSource extends Element {
   #editorView?: EditorView
   #activeFile?: string
   #tabObserver?: MutationObserver
+  #themeObserver?: MutationObserver
+  /** Theme the live editor was built with, so we can rebuild on toggle. */
+  #editorIsDark = false
 
   #onHighlight = (ev: Event) => this.#highlightCallSource(ev)
   #onTrack = (ev: Event) => this.#trackCallSource(ev)
+
+  #isDark(): boolean {
+    return document.body.classList.contains('dark')
+  }
 
   connectedCallback(): void {
     super.connectedCallback()
@@ -82,6 +97,21 @@ export class DevtoolsSource extends Element {
         })
       }
     })
+    // Rebuild the editor when the app theme toggles so it isn't stuck on the
+    // dark CodeMirror theme in light mode (and vice versa).
+    this.#themeObserver = new MutationObserver(() => {
+      if (
+        this.#editorView &&
+        this.#activeFile &&
+        this.#editorIsDark !== this.#isDark()
+      ) {
+        this.#mountEditor(this.#activeFile)
+      }
+    })
+    this.#themeObserver.observe(document.body, {
+      attributes: true,
+      attributeFilter: ['class']
+    })
   }
 
   disconnectedCallback(): void {
@@ -92,6 +122,8 @@ export class DevtoolsSource extends Element {
     this.#editorView = undefined
     this.#tabObserver?.disconnect()
     this.#tabObserver = undefined
+    this.#themeObserver?.disconnect()
+    this.#themeObserver = undefined
   }
 
   updated(_changedProperties: PropertyValues<this>) {
@@ -119,8 +151,12 @@ export class DevtoolsSource extends Element {
       return
     }
 
-    // Reuse the existing editor if the file hasn't changed
-    if (this.#editorView && this.#activeFile === filePath) {
+    // Reuse the existing editor when the file and theme are unchanged.
+    if (
+      this.#editorView &&
+      this.#activeFile === filePath &&
+      this.#editorIsDark === this.#isDark()
+    ) {
       if (highlightLine && highlightLine > 0) {
         this.#scrollToLine(this.#editorView, highlightLine)
       }
@@ -130,13 +166,17 @@ export class DevtoolsSource extends Element {
     // Destroy previous editor instance before creating a new one
     this.#editorView?.destroy()
 
+    // oneDark only in dark mode; basicSetup's default light theme otherwise so
+    // the editor tracks the app theme instead of staying dark in light mode.
+    const dark = this.#isDark()
     const opts: EditorViewConfig = {
       root: this.shadowRoot!,
-      extensions: [basicSetup, javascript(), oneDark],
+      extensions: [basicSetup, javascript(), ...(dark ? [oneDark] : [])],
       doc: source,
       parent: container
     }
     this.#editorView = new EditorView(opts)
+    this.#editorIsDark = dark
     this.#activeFile = filePath
 
     // Force a measure on the next frame so CodeMirror can calculate heights

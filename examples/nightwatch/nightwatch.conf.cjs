@@ -32,7 +32,7 @@ module.exports = {
             '--headless',
             '--no-sandbox',
             '--disable-dev-shm-usage',
-            '--window-size=1600,1200'
+            '--window-size=1600,900'
           ]
         },
         'goog:loggingPrefs': { performance: 'ALL' }

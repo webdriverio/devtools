@@ -50,7 +50,9 @@ export class ScreencastPlayer extends Element {
         min-height: 0;
         width: 100%;
         object-fit: contain;
-        background: #111;
+        /* Letterbox bars track the theme (near-black in dark, light in light)
+           instead of a fixed #111 that looked wrong in light mode. */
+        background: var(--vscode-editor-background, #111);
         display: block;
         cursor: pointer;
       }
@@ -112,10 +114,12 @@ export class ScreencastPlayer extends Element {
         right: 0;
         height: 5px;
         border-radius: 999px;
+        /* Foreground-tinted so the unfilled track reads on both themes
+           (light track on dark, grey track on light). */
         background: color-mix(
           in srgb,
-          var(--vscode-panel-border, #262b33) 70%,
-          #000
+          var(--vscode-foreground) 14%,
+          transparent
         );
       }
 
@@ -138,8 +142,12 @@ export class ScreencastPlayer extends Element {
         height: 13px;
         border-radius: 50%;
         background: #fff;
-        box-shadow: 0 0 0 4px
-          color-mix(in srgb, var(--accent, #ff7a3c) 35%, transparent);
+        /* Inner ring gives the white knob an edge on light tracks; outer ring
+           is the accent halo. */
+        box-shadow:
+          0 0 0 1px
+            color-mix(in srgb, var(--vscode-foreground) 35%, transparent),
+          0 0 0 4px color-mix(in srgb, var(--accent, #ff7a3c) 35%, transparent);
         transform: translateX(-50%);
         pointer-events: none;
       }
@@ -198,7 +206,12 @@ export class ScreencastPlayer extends Element {
 
   #onTime = () => {
     this.currentTime = this.video?.currentTime ?? 0
-    this.#emitProgress()
+    // Only follow during actual playback — the browser fires a timeupdate at
+    // 0:00 when the video first loads, which would otherwise highlight the
+    // first action the moment a recording appears (e.g. on run completion).
+    if (this.playing) {
+      this.#emitProgress()
+    }
   }
 
   /**
@@ -234,6 +247,10 @@ export class ScreencastPlayer extends Element {
     }
     const clamped = Math.max(0, Math.min(1, fraction))
     video.currentTime = clamped * video.duration
+    // Update the timeline highlight immediately on an explicit seek, even while
+    // paused (timeupdate only emits during playback now).
+    this.currentTime = video.currentTime
+    this.#emitProgress()
   }
 
   #seekFromPointer(ev: PointerEvent) {
