@@ -57,9 +57,12 @@ export class ActionItem extends Element {
         z-index: 1;
       }
 
+      button {
+        border-radius: 8px;
+      }
       :host([active]) button {
-        background: var(--vscode-list-inactiveSelectionBackground);
-        box-shadow: inset 2px 0 0 var(--accent);
+        background: var(--vscode-editorWidget-background);
+        box-shadow: inset 0 0 0 1px var(--vscode-panel-border);
       }
       :host([active]) .ic {
         border-color: var(--accent);

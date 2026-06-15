@@ -7,10 +7,15 @@ export const snapshotStyles = css`
     width: 100%;
     height: 100%;
     display: flex;
-    padding: 2rem !important;
+    padding: 1.25rem !important;
     align-items: center;
     justify-content: center;
     box-sizing: border-box !important;
+    background: radial-gradient(
+      120% 120% at 50% 0%,
+      var(--vscode-editorWidget-background),
+      var(--vscode-editor-background)
+    );
   }
 
   section {
@@ -23,6 +28,9 @@ export const snapshotStyles = css`
     background: var(--vscode-sideBar-background);
     padding: 0.5rem;
     gap: 0;
+    box-shadow:
+      0 12px 40px rgba(0, 0, 0, 0.45),
+      0 0 60px color-mix(in srgb, var(--accent) 12%, transparent);
   }
 
   .frame-dot {
@@ -54,7 +62,7 @@ export const snapshotStyles = css`
     top: 0;
     left: 0;
     border: none;
-    border-radius: 0 0 0.5rem 0.5rem;
+    border-radius: 0 0 14px 14px;
   }
 
   .screenshot-overlay {
@@ -64,7 +72,7 @@ export const snapshotStyles = css`
     display: flex;
     align-items: flex-start;
     justify-content: center;
-    border-radius: 0 0 0.5rem 0.5rem;
+    border-radius: 0 0 14px 14px;
     overflow: hidden;
   }
 
@@ -106,8 +114,8 @@ export const snapshotStyles = css`
   }
 
   .view-toggle button.active {
-    background: var(--vscode-button-background, #0e639c);
-    color: var(--vscode-button-foreground, #fff);
+    background: var(--accent, #ff7a3c);
+    color: var(--accent-foreground, #0d0f12);
     border-color: transparent;
   }
 

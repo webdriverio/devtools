@@ -12,8 +12,6 @@ body {
   place-items: center;
   min-width: 320px;
   min-height: 100vh;
-  /* Match the mockup's 13px text base. Set on body (not html) so it only
-     scales inherited font size, leaving rem-based spacing at the 16px root. */
   font-size: 13px;
 }
 

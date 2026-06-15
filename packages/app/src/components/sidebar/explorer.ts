@@ -47,6 +47,7 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
   #query = ''
   #statusFilter: TestStatus | null = null
   #selectedUid?: string
+  #autoSelectedUid?: string
   #filterListener = this.#filterTests.bind(this)
   #statusFilterListener = this.#applyStatusFilter.bind(this)
   #selectListener = this.#handleSelect.bind(this)
@@ -138,6 +139,24 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
   #handleSelect(event: CustomEvent<string>) {
     this.#selectedUid = event.detail
     this.requestUpdate()
+  }
+
+  // Deepest running entry (a running step/test), so the highlight tracks the
+  // most specific in-progress row rather than its parent suite.
+  #findRunningUid(entries: TestEntry[]): string | undefined {
+    for (const entry of entries) {
+      const child =
+        entry.children && entry.children.length
+          ? this.#findRunningUid(entry.children)
+          : undefined
+      if (child) {
+        return child
+      }
+      if (entry.state === 'running') {
+        return entry.uid
+      }
+    }
+    return undefined
   }
 
   async #handleTestRun(event: Event) {
@@ -352,7 +371,8 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
         feature-line="${entry.featureLine ?? ''}"
         suite-type="${entry.suiteType || ''}"
         ?has-children="${entry.children && entry.children.length > 0}"
-        ?selected="${entry.uid === this.#selectedUid}"
+        ?selected="${entry.uid ===
+        (this.#selectedUid ?? this.#autoSelectedUid)}"
         ?root="${isRoot}"
         .runDisabled=${this.#isRunDisabled(entry)}
         .runDisabledReason=${this.#getRunDisabledReason(entry)}
@@ -428,6 +448,7 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
     const suites = uniqueSuites
       .map(this.#getTestEntry.bind(this))
       .filter(this.#filterEntry.bind(this))
+    this.#autoSelectedUid = this.#findRunningUid(suites)
     return html`
       <header class="px-3 py-2 flex shadow-md">
         <h3

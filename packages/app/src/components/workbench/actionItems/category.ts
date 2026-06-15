@@ -95,11 +95,6 @@ export function commandCategory(command: string): ActionCategory {
   return 'other'
 }
 
-/**
- * The mockup uses a distinct glyph per command intent — finer than the colour
- * category (e.g. `$` and `getText` are both "query"-coloured but get a target
- * vs. text icon). This maps a command to that glyph; unknowns fall to 'execute'.
- */
 export type ActionIcon =
   | 'navigate'
   | 'reload'

@@ -63,7 +63,7 @@ export class ScreencastPlayer extends Element {
         padding: 10px 14px;
         background: var(--vscode-sideBar-background);
         border-top: 1px solid var(--vscode-panel-border, #262b33);
-        border-radius: 0 0 0.5rem 0.5rem;
+        border-radius: 0 0 14px 14px;
       }
 
       .scrub-play {

@@ -6,7 +6,11 @@ import { TraceType, type TraceLog } from '@wdio/devtools-shared'
 import { Element } from '@core/element'
 import { DataManagerController } from './controller/DataManager.js'
 import { DragController, Direction } from './utils/DragController.js'
-import { SIDEBAR_MIN_WIDTH, DARK_MODE_KEY } from './controller/constants.js'
+import {
+  SIDEBAR_MIN_WIDTH,
+  SIDEBAR_DEFAULT_WIDTH,
+  DARK_MODE_KEY
+} from './controller/constants.js'
 import { POPOUT_QUERY } from './components/workbench/compare/constants.js'
 
 // Bootstrap the dark-mode class on <body> as early as possible so popout
@@ -65,7 +69,7 @@ export class WebdriverIODevtoolsApplication extends Element {
   #drag = new DragController(this, {
     localStorageKey: 'sidebarWidth',
     minPosition: SIDEBAR_MIN_WIDTH,
-    initialPosition: window.innerWidth * 0.2,
+    initialPosition: SIDEBAR_DEFAULT_WIDTH,
     getContainerEl: () => this.#getWindow(),
     direction: Direction.horizontal
   })

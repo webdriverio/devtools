@@ -107,8 +107,6 @@ export class ExplorerTestEntry extends CollapseableEntry {
         box-shadow: inset 2px 0 0 var(--accent);
       }
 
-      /* Leaf rows (steps / test cases) are muted; running/failed/selected
-         pop — so the in-progress step stands out, like the mockup. */
       :host(:not([has-children])) ::slotted(label) {
         color: var(--vscode-descriptionForeground);
       }
@@ -124,7 +122,6 @@ export class ExplorerTestEntry extends CollapseableEntry {
       :host([selected]) ::slotted(label) {
         color: var(--vscode-foreground);
       }
-      /* Top-level feature/suite stays a neutral, bold heading like the mockup. */
       :host([root]) ::slotted(label) {
         color: var(--vscode-foreground);
         font-weight: 600;
