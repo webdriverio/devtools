@@ -10,6 +10,8 @@ interface GlobalEventHandlersEventMap {
   'app-mutation-highlight': CustomEvent<TraceMutation | null>
   'app-mutation-select': CustomEvent<TraceMutation>
   'app-source-highlight': CustomEvent<string>
+  'app-source-track': CustomEvent<{ callSource: string }>
+  'app-screencast-progress': CustomEvent<{ time: number }>
 
   'app-test-filter': CustomEvent<
     import('./components/sidebar/filter').DevtoolsSidebarFilter
