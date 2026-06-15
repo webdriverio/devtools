@@ -22,9 +22,21 @@ export class DevtoolsTabs extends Element {
         display: flex;
         flex-direction: column;
         color: var(--vscode-foreground);
-        /* Panel shade — sits a step above the darker screencast/editor canvas
-           so the pane dividers read clearly, like the mockup. */
         background-color: var(--vscode-sideBar-background);
+      }
+
+      /* Token-based utilities (text-*Foreground) don't generate CSS in this
+         Tailwind setup, so tab colours live here. */
+      .tab-btn {
+        color: var(--vscode-descriptionForeground);
+        cursor: pointer;
+      }
+      .tab-btn:hover {
+        color: var(--vscode-foreground);
+      }
+      .tab-btn--active {
+        color: var(--vscode-foreground);
+        font-weight: 600;
       }
     `
   ]
@@ -39,10 +51,10 @@ export class DevtoolsTabs extends Element {
     return html`
       <button
         @click="${() => this.activateTab(tabId)}"
-        class="transition-colors px-4 py-2 border-b-2 flex items-center gap-2 ${this
+        class="tab-btn transition-colors px-4 py-2 border-b-2 flex items-center gap-2 ${this
           .#activeTab === tabId
-          ? 'border-accent text-accent'
-          : 'border-transparent hover:bg-toolbarHoverBackground'}"
+          ? 'tab-btn--active border-accent'
+          : 'border-transparent'}"
       >
         <span>${tabId}</span>
         ${showBadge

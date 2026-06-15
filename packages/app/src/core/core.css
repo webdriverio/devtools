@@ -36,9 +36,6 @@ svg {
   height: 100%;
 }
 
-/* Resize sliders (DragController): a hairline that highlights with the accent
-   on hover/drag, like the mockup's gutters. The static pane border shows
-   underneath; this only adds the accent highlight. */
 button[data-draggable-id]::after {
   content: '';
   position: absolute;

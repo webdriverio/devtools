@@ -58,10 +58,7 @@ export class DevtoolsSidebarSummary extends Element {
         display: inline-flex;
         align-items: center;
         gap: 0.375rem;
-        padding: 0.125rem 0.5rem;
-        border-radius: 999px;
         font-weight: 700;
-        background: color-mix(in srgb, var(--status) 18%, transparent);
         color: var(--status);
       }
 
@@ -118,8 +115,8 @@ export class DevtoolsSidebarSummary extends Element {
       .legend {
         display: flex;
         flex-wrap: wrap;
-        gap: 0.4rem 0.5rem;
-        margin-top: 0.625rem;
+        gap: 0.5rem 0.875rem;
+        margin-top: 0.75rem;
         font-size: 0.85em;
       }
       .legend button {

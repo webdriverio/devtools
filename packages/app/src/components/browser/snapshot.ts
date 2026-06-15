@@ -16,6 +16,7 @@ import {
 import type { Metadata } from '@wdio/devtools-shared'
 
 import '~icons/mdi/world.js'
+import '~icons/mdi/lock.js'
 import '../placeholder.js'
 import './screencast-player.js'
 
@@ -137,6 +138,22 @@ export class DevtoolsBrowser extends Element {
   }
 
   #setIframeSize() {
+    if (!this.section || !this.header) {
+      return
+    }
+    // Screencast: let the device frame fill the pane and the video object-fit
+    // inside it, so the frame spans the column like the mockup regardless of
+    // the captured window's aspect ratio. Snapshot mode keeps its aspect-lock
+    // (the DOM-replay iframe is scaled to the captured viewport).
+    if (this.#viewMode === 'video') {
+      this.section.style.width = '100%'
+      this.section.style.height = '100%'
+      return
+    }
+    this.#sizeSnapshotToViewport()
+  }
+
+  #sizeSnapshotToViewport() {
     const metadata = this.metadata
     if (!this.section || !this.header || !metadata) {
       return
@@ -560,10 +577,10 @@ export class DevtoolsBrowser extends Element {
     const hasMutations = this.mutations && this.mutations.length
     return html`
       <section
-        class="w-full h-full bg-sideBarBackground rounded-lg border-2 border-panelBorder shadow-xl"
+        class="w-full h-full bg-sideBarBackground rounded-[14px] border-2 border-panelBorder"
       >
         <header
-          class="flex items-center mx-2 bg-sideBarBackground rounded-t-lg"
+          class="flex items-center mx-2 bg-sideBarBackground rounded-t-[14px]"
         >
           <div class="frame-dot bg-notificationsErrorIconForeground"></div>
           <div class="frame-dot bg-notificationsWarningIconForeground"></div>
@@ -571,9 +588,13 @@ export class DevtoolsBrowser extends Element {
           <div
             class="flex items-center mx-4 my-2 pr-2 bg-input-background text-inputForeground border border-editorSuggestWidgetBorder rounded leading-7 flex-1 min-w-0 overflow-hidden"
           >
-            <icon-mdi-world
-              class="w-[20px] h-[20px] m-1 mr-2 flex-shrink-0"
-            ></icon-mdi-world>
+            ${this.#activeUrl?.startsWith('https')
+              ? html`<icon-mdi-lock
+                  class="w-[16px] h-[16px] m-1 mr-2 flex-shrink-0 text-chartsGreen"
+                ></icon-mdi-lock>`
+              : html`<icon-mdi-world
+                  class="w-[20px] h-[20px] m-1 mr-2 flex-shrink-0"
+                ></icon-mdi-world>`}
             <span class="truncate">${this.#activeUrl}</span>
           </div>
           ${this.#renderViewToggle()}

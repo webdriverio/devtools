@@ -28,6 +28,8 @@ import './browser/snapshot.js'
 import {
   MIN_WORKBENCH_HEIGHT,
   MIN_METATAB_WIDTH,
+  ACTIONS_DEFAULT_WIDTH,
+  BROWSER_HEIGHT_RATIO,
   RERENDER_TIMEOUT
 } from '../controller/constants.js'
 
@@ -57,7 +59,9 @@ export class DevtoolsWorkbench extends Element {
         display: flex;
         flex-direction: column;
         flex-grow: 1;
-        height: 100vh;
+        /* Fill the parent (calc(100% - header)); 100vh overflowed by the 40px
+           header height and clipped the bottom of the right column. */
+        height: 100%;
         min-height: 0;
         overflow: hidden;
         color: var(--vscode-foreground);
@@ -71,15 +75,20 @@ export class DevtoolsWorkbench extends Element {
     localStorageKey: 'toolbarHeight',
     minPosition: MIN_WORKBENCH_HEIGHT,
     maxPosition: window.innerHeight * 0.7,
-    initialPosition: window.innerHeight * 0.7, // initial height of browser window is 70% of window
-    getContainerEl: () => this as unknown as Element,
+    initialPosition: window.innerHeight * BROWSER_HEIGHT_RATIO,
+    getContainerEl: () => this.#getVerticalWindow(),
     direction: Direction.vertical
   })
+
+  async #getVerticalWindow() {
+    await this.updateComplete
+    return this.verticalResizerWindow as Element
+  }
 
   #dragHorizontal = new DragController(this, {
     localStorageKey: 'workbenchSidebarWidth',
     minPosition: MIN_METATAB_WIDTH,
-    initialPosition: MIN_METATAB_WIDTH,
+    initialPosition: ACTIONS_DEFAULT_WIDTH,
     getContainerEl: () => this.#getHorizontalWindow(),
     direction: Direction.horizontal
   })
@@ -120,12 +129,17 @@ export class DevtoolsWorkbench extends Element {
   @query('section[data-horizontal-resizer-window]')
   horizontalResizerWindow?: HTMLElement
 
-  #computeWorkbenchPaneStyle(): string {
+  @query('section[data-vertical-resizer-window]')
+  verticalResizerWindow?: HTMLElement
+
+  // Height of the screencast pane; the dock fills the rest of the right column.
+  // Collapsed dock → empty string so the browser flex-grows to fill.
+  #computeBrowserPaneStyle(): string {
     if (this.#toolbarCollapsed) {
       return ''
     }
     const m = this.#dragVertical.getPosition().match(/(\d+(?:\.\d+)?)px/)
-    const raw = m ? parseFloat(m[1]) : window.innerHeight * 0.7
+    const raw = m ? parseFloat(m[1]) : window.innerHeight * BROWSER_HEIGHT_RATIO
     const capped = Math.min(raw, window.innerHeight * 0.7)
     const paneHeight = Math.max(MIN_WORKBENCH_HEIGHT, capped)
     return `flex:0 0 ${paneHeight}px; height:${paneHeight}px; max-height:70vh; min-height:0;`
@@ -165,16 +179,20 @@ export class DevtoolsWorkbench extends Element {
           </button>
         </nav>
       </wdio-devtools-tabs>
-      ${this.#workbenchSidebarCollapsed
-        ? html`
-            <button
-              @click="${() => this.#toggle('workbenchSidebar')}"
-              class="absolute top-2 left-2 bg-sideBarBackground flex h-10 w-10 items-center justify-center cursor-pointer rounded-md shadow hover:bg-toolbarHoverBackground border border-panelBorder"
-            >
-              <icon-mdi-arrow-collapse-right></icon-mdi-arrow-collapse-right>
-            </button>
-          `
-        : nothing}
+    `
+  }
+
+  #renderSidebarRestoreButton() {
+    if (!this.#workbenchSidebarCollapsed) {
+      return nothing
+    }
+    return html`
+      <button
+        @click="${() => this.#toggle('workbenchSidebar')}"
+        class="absolute z-20 top-2 left-2 bg-sideBarBackground flex h-10 w-10 items-center justify-center cursor-pointer rounded-md shadow hover:bg-toolbarHoverBackground border border-panelBorder"
+      >
+        <icon-mdi-arrow-collapse-right></icon-mdi-arrow-collapse-right>
+      </button>
     `
   }
 
@@ -212,7 +230,7 @@ export class DevtoolsWorkbench extends Element {
         class="relative z-10 border-t-[1px] border-t-panelBorder ${this
           .#toolbarCollapsed
           ? 'hidden'
-          : ''} flex-1 min-h-0 pb-10"
+          : ''} flex-1 min-h-0"
       >
         <wdio-devtools-tab label="Source">
           <wdio-devtools-source></wdio-devtools-source>
@@ -251,12 +269,10 @@ export class DevtoolsWorkbench extends Element {
   }
 
   render() {
-    const heightWorkbench = this.#toolbarCollapsed ? 'h-full flex-1' : ''
     return html`
       <section
         data-horizontal-resizer-window
-        class="flex relative w-full ${heightWorkbench} min-h-0 overflow-hidden"
-        style="${this.#computeWorkbenchPaneStyle()}"
+        class="flex relative w-full h-full min-h-0 overflow-hidden"
       >
         <section
           data-sidebar
@@ -265,19 +281,28 @@ export class DevtoolsWorkbench extends Element {
         >
           ${this.#renderActionsSidebar()}
         </section>
+        ${this.#renderSidebarRestoreButton()}
         ${!this.#workbenchSidebarCollapsed
           ? this.#dragHorizontal.getSlider('z-30')
           : nothing}
         <section
-          class="basis-auto text-gray-500 flex items-center justify-center flex-grow"
+          data-vertical-resizer-window
+          class="relative flex flex-col flex-grow min-w-0 min-h-0 overflow-hidden"
         >
-          <wdio-devtools-browser></wdio-devtools-browser>
+          <section
+            class="basis-auto text-gray-500 flex items-center justify-center flex-1 min-h-0"
+            style="${this.#computeBrowserPaneStyle()}"
+          >
+            <wdio-devtools-browser></wdio-devtools-browser>
+          </section>
+          ${!this.#toolbarCollapsed
+            ? this.#dragVertical.getSlider(
+                'z-[999] -mt-[5px] pointer-events-auto'
+              )
+            : nothing}
+          ${this.#renderWorkbenchTabs()}
         </section>
       </section>
-      ${!this.#toolbarCollapsed
-        ? this.#dragVertical.getSlider('z-[999] -mt-[5px] pointer-events-auto')
-        : nothing}
-      ${this.#renderWorkbenchTabs()}
     `
   }
 }

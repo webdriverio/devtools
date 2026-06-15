@@ -39,7 +39,6 @@ describe('commandCategory', () => {
 
 describe('commandIcon', () => {
   it('distinguishes icons within the query category', () => {
-    // both are query-coloured, but get different glyphs like the mockup
     expect(commandIcon('$')).toBe('select')
     expect(commandIcon('getText')).toBe('read')
   })
