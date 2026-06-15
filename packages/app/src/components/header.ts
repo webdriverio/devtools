@@ -34,7 +34,13 @@ export class DevtoolsHeader extends Element {
         align-items: center;
         gap: 10px;
         box-sizing: border-box;
-        background: linear-gradient(180deg, #16191f, #101216);
+        /* Token-based so the header tracks the theme (dark bar in dark mode,
+           light bar in light mode). */
+        background: linear-gradient(
+          180deg,
+          var(--vscode-sideBar-background),
+          var(--vscode-editor-background)
+        );
         border-bottom: 1px solid var(--vscode-panel-border) !important;
         height: 40px;
         width: 100%;
@@ -56,7 +62,7 @@ export class DevtoolsHeader extends Element {
         font-size: 15px;
         font-weight: 700;
         letter-spacing: 0.2px;
-        color: #fff;
+        color: var(--vscode-foreground);
       }
     `
   ]

@@ -501,7 +501,7 @@ export class DevtoolsBrowser extends Element {
         >
           Screencast
         </button>
-        ${this.#videos.length > 1
+        ${this.#videos.length > 1 && this.#viewMode === 'video'
           ? html`<select
               class="video-select"
               @change=${(e: Event) => {

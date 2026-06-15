@@ -68,7 +68,7 @@ export const snapshotStyles = css`
   .screenshot-overlay {
     position: absolute;
     inset: 0;
-    background: #111;
+    background: var(--vscode-editor-background, #111);
     display: flex;
     align-items: flex-start;
     justify-content: center;
@@ -91,44 +91,58 @@ export const snapshotStyles = css`
     flex-direction: column;
   }
 
+  /* Segmented control like the mockup: the border lives on the group; the
+     buttons are borderless pills inside a small inset. */
   .view-toggle {
     display: flex;
-    gap: 2px;
+    gap: 0;
     margin-left: 0.5rem;
     flex-shrink: 0;
+    padding: 2px;
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: 8px;
+    background: var(--vscode-input-background);
   }
 
   .view-toggle button {
-    padding: 2px 10px;
+    padding: 5px 11px;
     font-size: 11px;
+    font-weight: 600;
     font-family: inherit;
-    border: 1px solid var(--vscode-editorSuggestWidget-border, #454545);
+    border: none;
     background: transparent;
-    color: var(--vscode-input-foreground, #ccc);
+    color: var(--vscode-descriptionForeground, #ccc);
     cursor: pointer;
-    border-radius: 3px;
-    line-height: 20px;
+    border-radius: 6px;
+    line-height: 1;
     transition:
-      background 0.1s,
-      color 0.1s;
+      background-color 0.18s ease,
+      color 0.18s ease;
+  }
+
+  .view-toggle button:hover {
+    color: var(--vscode-foreground);
   }
 
   .view-toggle button.active {
     background: var(--accent, #ff7a3c);
     color: var(--accent-foreground, #0d0f12);
-    border-color: transparent;
+  }
+
+  .view-toggle button.active:hover {
+    color: var(--accent-foreground, #0d0f12);
   }
 
   .video-select {
     font-size: 11px;
     font-family: inherit;
-    padding: 2px 4px;
-    border: 1px solid var(--vscode-dropdown-border, #454545);
-    border-radius: 3px;
-    background: var(--vscode-dropdown-background, #3c3c3c);
-    color: var(--vscode-dropdown-foreground, #ccc);
+    padding: 5px 8px;
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: 8px;
+    background: var(--vscode-input-background);
+    color: var(--vscode-foreground);
     cursor: pointer;
-    line-height: 20px;
-    margin-left: 4px;
+    line-height: 1;
+    margin-left: 6px;
   }
 `
