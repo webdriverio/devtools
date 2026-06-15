@@ -55,12 +55,14 @@ export class DevtoolsSource extends Element {
   #activeFile?: string
   #tabObserver?: MutationObserver
 
+  #onHighlight = (ev: Event) => this.#highlightCallSource(ev)
+  #onTrack = (ev: Event) => this.#trackCallSource(ev)
+
   connectedCallback(): void {
     super.connectedCallback()
-    window.addEventListener(
-      'app-source-highlight',
-      this.#highlightCallSource.bind(this)
-    )
+    window.addEventListener('app-source-highlight', this.#onHighlight)
+    // Passive line-follow during screencast playback — scroll only, no tab flip.
+    window.addEventListener('app-source-track', this.#onTrack)
     // Observe when the containing tab becomes active so CodeMirror can remeasure
     // after having been initialized while the tab was hidden (display:none).
     requestAnimationFrame(() => {
@@ -85,6 +87,8 @@ export class DevtoolsSource extends Element {
 
   disconnectedCallback(): void {
     super.disconnectedCallback()
+    window.removeEventListener('app-source-highlight', this.#onHighlight)
+    window.removeEventListener('app-source-track', this.#onTrack)
     this.#editorView?.destroy()
     this.#editorView = undefined
     this.#tabObserver?.disconnect()
@@ -161,7 +165,20 @@ export class DevtoolsSource extends Element {
   }
 
   #highlightCallSource(ev: Event) {
-    const [filePath, line] = (ev as CustomEvent<string>).detail.split(':')
+    this.#applyCallSource((ev as CustomEvent<string>).detail)
+    this.closest('wdio-devtools-tabs')?.activateTab('Source')
+  }
+
+  // Passive variant for screencast playback: follow the line without stealing
+  // the active tab, so watching the video doesn't yank you off Console/Network.
+  #trackCallSource(ev: Event) {
+    this.#applyCallSource(
+      (ev as CustomEvent<{ callSource: string }>).detail.callSource
+    )
+  }
+
+  #applyCallSource(callSource: string) {
+    const [filePath, line] = callSource.split(':')
     // If the source for this file is already loaded, mount and scroll immediately
     if (this.sources?.[filePath]) {
       this.#mountEditor(filePath, parseInt(line, 10))
@@ -170,7 +187,6 @@ export class DevtoolsSource extends Element {
       // store desired highlight so we can apply it then.
       this.#activeFile = filePath
     }
-    this.closest('wdio-devtools-tabs')?.activateTab('Source')
   }
 
   render() {

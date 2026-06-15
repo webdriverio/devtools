@@ -10,6 +10,9 @@ import '../placeholder.js'
 import './actionItems/command.js'
 import './actionItems/mutation.js'
 import { stepDurations } from './actionItems/duration.js'
+import { activeTimestampAt } from './active-entry.js'
+
+type TimelineEntry = TraceMutation | CommandLog
 
 const SOURCE_COMPONENT = 'wdio-devtools-actions'
 
@@ -56,9 +59,15 @@ export class DevtoolsActions extends Element {
   private activeTimestamp?: number
 
   #onShowCommand = (event: Event) => {
-    this.activeTimestamp = (
-      event as CustomEvent<{ command?: CommandLog }>
-    ).detail?.command?.timestamp
+    const command = (event as CustomEvent<{ command?: CommandLog }>).detail
+      ?.command
+    this.activeTimestamp = command?.timestamp
+    // Explicit click → jump to the call site and surface the Source tab.
+    if (command?.callSource) {
+      window.dispatchEvent(
+        new CustomEvent('app-source-highlight', { detail: command.callSource })
+      )
+    }
   }
 
   #onSelectMutation = (event: Event) => {
@@ -67,29 +76,73 @@ export class DevtoolsActions extends Element {
     ).detail?.timestamp
   }
 
+  // Screencast playback drives the highlight to the action at the current frame.
+  // Only acts when the active action changes, so the editor isn't re-scrolled on
+  // every timeupdate tick.
+  #onScreencastProgress = (event: Event) => {
+    const { time } = (event as CustomEvent<{ time: number }>).detail
+    const entries = this.#sortedEntries()
+    const timestamp = activeTimestampAt(
+      entries.map((entry) => entry.timestamp),
+      time
+    )
+    if (timestamp === this.activeTimestamp) {
+      return
+    }
+    this.activeTimestamp = timestamp
+    const active = entries.find((entry) => entry.timestamp === timestamp)
+    if (active && 'command' in active && active.callSource) {
+      window.dispatchEvent(
+        new CustomEvent('app-source-track', {
+          detail: { callSource: active.callSource }
+        })
+      )
+    }
+  }
+
   connectedCallback(): void {
     super.connectedCallback()
     window.addEventListener('show-command', this.#onShowCommand)
     window.addEventListener('app-mutation-select', this.#onSelectMutation)
+    window.addEventListener(
+      'app-screencast-progress',
+      this.#onScreencastProgress
+    )
   }
 
   disconnectedCallback(): void {
     super.disconnectedCallback()
     window.removeEventListener('show-command', this.#onShowCommand)
     window.removeEventListener('app-mutation-select', this.#onSelectMutation)
+    window.removeEventListener(
+      'app-screencast-progress',
+      this.#onScreencastProgress
+    )
+  }
+
+  // Mutations + commands merged and ordered by time — the timeline's rows.
+  // Only document-load mutations (childList with a url) are shown; individual
+  // node add/remove mutations are too noisy.
+  #sortedEntries(): TimelineEntry[] {
+    const visibleMutations = (this.mutations || []).filter(
+      (m) => m.type === 'childList' && Boolean(m.url)
+    )
+    return [...visibleMutations, ...(this.commands || [])].sort(
+      (a, b) => a.timestamp - b.timestamp
+    )
+  }
+
+  // Keep the action that's playing in view as the screencast scrubs.
+  updated(changed: Map<string, unknown>): void {
+    if (changed.has('activeTimestamp') && this.activeTimestamp !== undefined) {
+      this.renderRoot
+        .querySelector('[active]')
+        ?.scrollIntoView({ block: 'nearest' })
+    }
   }
 
   render() {
-    const mutations = this.mutations || []
-    const commands = this.commands || []
-    // Only show document-load mutations (childList with a url) in the actions
-    // list — individual node add/remove mutations are too noisy.
-    const visibleMutations = mutations.filter(
-      (m) => m.type === 'childList' && Boolean(m.url)
-    )
-    const entries = [...visibleMutations, ...commands].sort(
-      (a, b) => a.timestamp - b.timestamp
-    )
+    const entries = this.#sortedEntries()
 
     if (!entries.length) {
       return html`<wdio-devtools-placeholder></wdio-devtools-placeholder>`

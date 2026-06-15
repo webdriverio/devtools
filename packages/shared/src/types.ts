@@ -168,8 +168,6 @@ export interface ScreencastInfo {
   videoFile?: string
   frameCount?: number
   duration?: number
-  /** Unix ms timestamp of the first recorded frame — lets the UI map action
-   *  timestamps onto the video timeline. */
   startTime?: number
 }
 

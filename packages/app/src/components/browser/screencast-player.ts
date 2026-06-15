@@ -198,6 +198,28 @@ export class ScreencastPlayer extends Element {
 
   #onTime = () => {
     this.currentTime = this.video?.currentTime ?? 0
+    this.#emitProgress()
+  }
+
+  /**
+   * Broadcast the current playback position as a wall-clock ms timestamp so the
+   * action timeline can highlight the action playing at this frame. Mapped via
+   * the recording window rather than raw video time so it stays correct even if
+   * the encoded video's duration drifts slightly from the captured span.
+   */
+  #emitProgress() {
+    if (
+      typeof this.startTime !== 'number' ||
+      !this.duration ||
+      !this.videoDuration
+    ) {
+      return
+    }
+    const fraction = this.currentTime / this.videoDuration
+    const time = this.startTime + fraction * this.duration
+    window.dispatchEvent(
+      new CustomEvent('app-screencast-progress', { detail: { time } })
+    )
   }
 
   #onPlayState = () => {
@@ -263,6 +285,7 @@ export class ScreencastPlayer extends Element {
         >
           <div class="scrub-rail"></div>
           <div class="scrub-fill" style="width: ${pct}%"></div>
+          <div class="scrub-head" style="left: ${pct}%"></div>
           ${markers.map(
             (m) =>
               html`<span
@@ -275,7 +298,6 @@ export class ScreencastPlayer extends Element {
                 }}
               ></span>`
           )}
-          <div class="scrub-head" style="left: ${pct}%"></div>
         </div>
       </div>
     `
