@@ -40,7 +40,8 @@ function tryHandleControlMessage(
     return true
   }
   // Screencast: store the absolute videoPath in the registry (backend-only),
-  // then forward only the sessionId so the UI can fetch via /api/video/:sessionId.
+  // then forward the sessionId plus recording timing (startTime/duration) so
+  // the UI can fetch via /api/video/:sessionId and map actions onto the video.
   if (parsed.scope === 'screencast' && parsed.data?.sessionId) {
     const sessionId = String(parsed.data.sessionId)
     const videoPath =
@@ -51,8 +52,19 @@ function tryHandleControlMessage(
       ctx.videoRegistry.set(sessionId, videoPath)
       log.info(`Screencast registered for session ${sessionId}: ${videoPath}`)
     }
+    const startTime =
+      typeof parsed.data.startTime === 'number'
+        ? parsed.data.startTime
+        : undefined
+    const duration =
+      typeof parsed.data.duration === 'number'
+        ? parsed.data.duration
+        : undefined
     ctx.broadcastToClients(
-      JSON.stringify({ scope: 'screencast', data: { sessionId } })
+      JSON.stringify({
+        scope: 'screencast',
+        data: { sessionId, startTime, duration }
+      })
     )
     return true
   }

@@ -75,7 +75,8 @@ export async function finalizeScreencast({
       videoPath,
       videoFile: fileName,
       frameCount: frames.length,
-      duration: recorder.duration
+      duration: recorder.duration,
+      startTime: frames[0]?.timestamp
     })
   } catch (err) {
     log('warn', `Screencast encode failed: ${errorMessage(err)}`)

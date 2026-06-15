@@ -17,12 +17,17 @@ import type { Metadata } from '@wdio/devtools-shared'
 
 import '~icons/mdi/world.js'
 import '../placeholder.js'
+import './screencast-player.js'
 
 const MUTATION_SELECTOR = '__mutation-highlight__'
 
 declare global {
   interface WindowEventMap {
-    'screencast-ready': CustomEvent<{ sessionId: string }>
+    'screencast-ready': CustomEvent<{
+      sessionId: string
+      startTime?: number
+      duration?: number
+    }>
   }
 }
 
@@ -69,11 +74,17 @@ export class DevtoolsBrowser extends Element {
   /** Base64 PNG of the screenshot for the currently selected command, or null. */
   #screenshotData: string | null = null
   /**
-   * All recorded videos received from the backend, in arrival order.
-   * Each entry is { sessionId, url } — a new entry is pushed for every
-   * browser session (initial + after every reloadSession() call).
+   * All recorded videos received from the backend, in arrival order. A new
+   * entry is pushed for every browser session (initial + after every
+   * reloadSession() call). `startTime`/`duration` (recording first-frame
+   * timestamp and total span in ms) drive the scrubber's action markers.
    */
-  #videos: Array<{ sessionId: string; url: string }> = []
+  #videos: Array<{
+    sessionId: string
+    url: string
+    startTime?: number
+    duration?: number
+  }> = []
   /** Index into #videos of the currently displayed video. */
   #activeVideoIdx = 0
   /**
@@ -191,8 +202,19 @@ export class DevtoolsBrowser extends Element {
     )
 
   #handleScreencastReady = (event: Event) => {
-    const { sessionId } = (event as CustomEvent<{ sessionId: string }>).detail
-    this.#videos.push({ sessionId, url: `/api/video/${sessionId}` })
+    const { sessionId, startTime, duration } = (
+      event as CustomEvent<{
+        sessionId: string
+        startTime?: number
+        duration?: number
+      }>
+    ).detail
+    this.#videos.push({
+      sessionId,
+      url: `/api/video/${sessionId}`,
+      startTime,
+      duration
+    })
     // Always show the latest video and switch to video mode automatically
     this.#activeVideoIdx = this.#videos.length - 1
     this.#viewMode = 'video'
@@ -212,6 +234,12 @@ export class DevtoolsBrowser extends Element {
   /** URL of the currently selected video, or null when no videos exist. */
   get #activeVideoUrl(): string | null {
     return this.#videos[this.#activeVideoIdx]?.url ?? null
+  }
+
+  /** Recording window of the active video — feeds the scrubber's markers. */
+  get #activeRecording(): { startTime?: number; duration?: number } {
+    const v = this.#videos[this.#activeVideoIdx]
+    return { startTime: v?.startTime, duration: v?.duration }
   }
 
   async #renderCommandScreenshot(command?: CommandLog) {
@@ -483,12 +511,13 @@ export class DevtoolsBrowser extends Element {
 
   #renderViewport(hasMutations: number | null) {
     if (this.#viewMode === 'video' && this.#activeVideoUrl) {
+      const rec = this.#activeRecording
       return html`<div class="iframe-wrapper">
-        <video
-          class="screencast-player"
-          src="${this.#activeVideoUrl}"
-          controls
-        ></video>
+        <wdio-devtools-screencast-player
+          src=${this.#activeVideoUrl}
+          .startTime=${rec.startTime}
+          .duration=${rec.duration}
+        ></wdio-devtools-screencast-player>
       </div>`
     }
     if (this.#screenshotData) {

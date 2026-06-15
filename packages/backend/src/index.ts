@@ -18,6 +18,7 @@ import { DEFAULT_PORT } from './constants.js'
 import { testRunner } from './runner.js'
 import { baselineStore } from './baselineStore.js'
 import { createWorkerMessageHandler } from './worker-message-handler.js'
+import { resolveByteRange } from './video-range.js'
 import {
   BASELINE_API,
   BASELINE_WS_SCOPE,
@@ -82,7 +83,11 @@ function replayBufferedMessages(socket: WebSocket) {
   }
 }
 
-function serveVideo(sessionId: string, reply: FastifyReply) {
+function serveVideo(
+  sessionId: string,
+  request: FastifyRequest,
+  reply: FastifyReply
+) {
   const videoPath = videoRegistry.get(sessionId)
   if (!videoPath) {
     return reply.code(404).send({ error: 'Video not found' })
@@ -90,9 +95,27 @@ function serveVideo(sessionId: string, reply: FastifyReply) {
   if (!fs.existsSync(videoPath)) {
     return reply.code(404).send({ error: 'Video file missing from disk' })
   }
+  const total = fs.statSync(videoPath).size
+  reply.header('Content-Type', 'video/webm')
+  // Range support is what makes the <video> seekable — without a 206 the
+  // browser plays linearly but `video.seekable` stays empty and any
+  // currentTime set snaps back to 0. The scrubber/markers depend on it.
+  reply.header('Accept-Ranges', 'bytes')
+
+  const range = resolveByteRange(request.headers.range, total)
+  if (range.kind === 'unsatisfiable') {
+    return reply.code(416).header('Content-Range', `bytes */${total}`).send()
+  }
+  if (range.kind === 'full') {
+    reply.header('Content-Length', total)
+    return reply.send(fs.createReadStream(videoPath))
+  }
+  const { start, end } = range
   return reply
-    .header('Content-Type', 'video/webm')
-    .send(fs.createReadStream(videoPath))
+    .code(206)
+    .header('Content-Range', `bytes ${start}-${end}/${total}`)
+    .header('Content-Length', end - start + 1)
+    .send(fs.createReadStream(videoPath, { start, end }))
 }
 
 async function handleTestRun(
@@ -325,7 +348,7 @@ function registerVideoRoute(s: FastifyInstance): void {
       request: FastifyRequest<{ Params: { sessionId: string } }>,
       reply
     ) => {
-      return serveVideo(request.params.sessionId, reply)
+      return serveVideo(request.params.sessionId, request, reply)
     }
   )
 }

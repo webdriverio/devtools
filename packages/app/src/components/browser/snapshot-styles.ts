@@ -74,15 +74,6 @@ export const snapshotStyles = css`
     display: block;
   }
 
-  .screencast-player {
-    width: 100%;
-    height: 100%;
-    object-fit: contain;
-    background: #111;
-    border-radius: 0 0 0.5rem 0.5rem;
-    display: block;
-  }
-
   .iframe-wrapper {
     position: relative;
     flex: 1;
