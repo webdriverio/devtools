@@ -22,7 +22,9 @@ export class DevtoolsTabs extends Element {
         display: flex;
         flex-direction: column;
         color: var(--vscode-foreground);
-        background-color: var(--vscode-editor-background);
+        /* Panel shade — sits a step above the darker screencast/editor canvas
+           so the pane dividers read clearly, like the mockup. */
+        background-color: var(--vscode-sideBar-background);
       }
     `
   ]

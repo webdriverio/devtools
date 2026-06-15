@@ -6,17 +6,15 @@ import { CollapseableEntry } from './collapseableEntry.js'
 import type { TestRunDetail, TestStatus } from './types.js'
 import { TestState } from './types.js'
 
-import '~icons/mdi/chevron-right.js'
+import '~icons/mdi/menu-down.js'
 import '~icons/mdi/play.js'
 import '~icons/mdi/stop.js'
-import '~icons/mdi/eye.js'
 import '~icons/mdi/collapse-all.js'
 import '~icons/mdi/expand-all.js'
-import '~icons/mdi/autorenew.js'
-import '~icons/mdi/window-close.js'
+import '~icons/mdi/close.js'
 import '~icons/mdi/debug-step-over.js'
 import '~icons/mdi/check.js'
-import '~icons/mdi/checkbox-blank-circle-outline.js'
+import '~icons/mdi/circle-outline.js'
 import '~icons/mdi/bug-play.js'
 
 const TEST_SUITE = 'wdio-test-suite'
@@ -84,12 +82,71 @@ export class ExplorerTestEntry extends CollapseableEntry {
   @property({ type: Boolean, attribute: 'has-children' })
   hasChildren = false
 
+  @property({ type: Boolean, reflect: true })
+  selected = false
+
+  @property({ type: Boolean, reflect: true })
+  root = false
+
   static styles = [
     ...Element.styles,
     css`
       :host {
         display: block;
-        font-size: 0.8em;
+        font-size: 12.5px;
+      }
+
+      /* The label is slotted, so its size must be set on the slotted node
+         directly — :host font-size doesn't reach it. */
+      ::slotted(label) {
+        font-size: 12.5px;
+      }
+
+      :host([selected]) .row {
+        background: color-mix(in srgb, var(--accent) 14%, transparent);
+        box-shadow: inset 2px 0 0 var(--accent);
+      }
+
+      /* Leaf rows (steps / test cases) are muted; running/failed/selected
+         pop — so the in-progress step stands out, like the mockup. */
+      :host(:not([has-children])) ::slotted(label) {
+        color: var(--vscode-descriptionForeground);
+      }
+      :host([state='running']) ::slotted(label) {
+        color: var(--vscode-charts-blue);
+      }
+      :host([state='failed']) ::slotted(label) {
+        color: var(--vscode-charts-red);
+      }
+      :host([state='skipped']) ::slotted(label) {
+        color: var(--vscode-charts-yellow);
+      }
+      :host([selected]) ::slotted(label) {
+        color: var(--vscode-foreground);
+      }
+      /* Top-level feature/suite stays a neutral, bold heading like the mockup. */
+      :host([root]) ::slotted(label) {
+        color: var(--vscode-foreground);
+        font-weight: 600;
+      }
+
+      .run-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--vscode-charts-blue);
+        animation: run-pulse 1.5s ease-in-out infinite;
+      }
+      @keyframes run-pulse {
+        0%,
+        100% {
+          opacity: 1;
+          transform: scale(1);
+        }
+        50% {
+          opacity: 0.4;
+          transform: scale(0.7);
+        }
       }
     `
   ]
@@ -121,6 +178,19 @@ export class ExplorerTestEntry extends CollapseableEntry {
         detail: this.callSource
       })
     )
+  }
+
+  #selectEntry() {
+    if (this.uid) {
+      this.dispatchEvent(
+        new CustomEvent('app-test-select', {
+          detail: this.uid,
+          bubbles: true,
+          composed: true
+        })
+      )
+    }
+    this.#viewSource()
   }
 
   #runEntry(event: Event) {
@@ -209,9 +279,10 @@ export class ExplorerTestEntry extends CollapseableEntry {
   }
   get testStateIcon() {
     if (this.isRunning) {
-      return html`<icon-mdi-autorenew
-        class="w-4 mt-2 shrink-0 animate-spin"
-      ></icon-mdi-autorenew>`
+      return html`<span
+        class="w-4 mt-2 shrink-0 flex items-center justify-center"
+        ><span class="run-dot"></span
+      ></span>`
     }
     if (this.hasPassed) {
       return html`<icon-mdi-check
@@ -219,9 +290,9 @@ export class ExplorerTestEntry extends CollapseableEntry {
       ></icon-mdi-check>`
     }
     if (this.hasFailed) {
-      return html`<icon-mdi-window-close
+      return html`<icon-mdi-close
         class="w-4 mt-2 shrink-0 text-chartsRed"
-      ></icon-mdi-window-close>`
+      ></icon-mdi-close>`
     }
     if (this.hasSkipped) {
       return html`<icon-mdi-debug-step-over
@@ -229,9 +300,9 @@ export class ExplorerTestEntry extends CollapseableEntry {
       ></icon-mdi-debug-step-over>`
     }
 
-    return html`<icon-mdi-checkbox-blank-circle-outline
-      class="w-4 mt-2 shrink-0"
-    ></icon-mdi-checkbox-blank-circle-outline>`
+    return html`<icon-mdi-circle-outline
+      class="w-4 mt-2 shrink-0 text-disabledForeground"
+    ></icon-mdi-circle-outline>`
   }
 
   #renderStopButton() {
@@ -300,12 +371,6 @@ export class ExplorerTestEntry extends CollapseableEntry {
         class="flex-none ml-auto mr-1 transition-opacity opacity-0 group-hover/sidebar:opacity-100"
       >
         ${this.#renderRunStopButtons()}
-        <button
-          class="p-1 rounded hover:bg-toolbarHoverBackground my-1 group"
-          @click="${() => this.#viewSource()}"
-        >
-          <icon-mdi-eye class="group-hover:text-chartsYellow"></icon-mdi-eye>
-        </button>
         ${!hasNoChildren
           ? html`
               <button
@@ -326,28 +391,35 @@ export class ExplorerTestEntry extends CollapseableEntry {
     const hasNoChildren = !this.hasChildren
     const isCollapsed = this.isCollapsed === 'true'
     return html`
-      <section class="block mt-2 text-sm flex w-full group/sidebar">
+      <section
+        class="row flex w-full items-start text-sm group/sidebar rounded-md my-0.5 px-1 cursor-pointer hover:bg-toolbarHoverBackground"
+      >
         <button
           class="flex-none pointer px-2 h-8 ${hasNoChildren ? 'hidden' : ''}"
           @click="${() => this.#toggleEntry()}"
         >
-          <icon-mdi-chevron-right
-            class="text-base transition-transform block ${!isCollapsed
-              ? 'block rotate-90'
+          <icon-mdi-menu-down
+            class="text-[11px] transition-transform block text-disabledForeground ${isCollapsed
+              ? '-rotate-90'
               : ''}"
-          ></icon-mdi-chevron-right>
+          ></icon-mdi-menu-down>
         </button>
         <span
           class="flex items-start shrink flex-nowrap min-w-0 ${hasNoChildren
             ? 'pl-9'
             : ''}"
+          @click="${() => this.#selectEntry()}"
         >
-          ${this.testStateIcon}
+          ${this.root ? nothing : this.testStateIcon}
           <slot name="label" class="mx-2 mt-1 block flex-initial shrink"></slot>
         </span>
         ${this.#renderToolbar(hasNoChildren)}
       </section>
-      <section class="block ml-4 ${!isCollapsed ? '' : 'hidden'}">
+      <section
+        class="ml-3 border-l border-panelBorder pl-1 ${!isCollapsed
+          ? ''
+          : 'hidden'}"
+      >
         <slot name="children"></slot>
       </section>
     `

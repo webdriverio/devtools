@@ -1,5 +1,5 @@
 export const CACHE_ID = 'wdio-trace-cache'
-export const SIDEBAR_MIN_WIDTH = 320
+export const SIDEBAR_MIN_WIDTH = 250
 export const DARK_MODE_KEY = 'darkMode'
 export const MIN_WORKBENCH_HEIGHT = Math.min(300, window.innerHeight * 0.3)
 export const MIN_METATAB_WIDTH = 260

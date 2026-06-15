@@ -99,7 +99,7 @@ export class MutationItem extends ActionItem {
       <button
         @mouseenter="${() => this.#showMutationTarget()}"
         @click="${() => this.#selectMutation()}"
-        class="px-1 flex items-center justify-center text-sm w-full hover:bg-toolbarHoverBackground"
+        class="px-1 flex items-center justify-center text-[12.5px] w-full hover:bg-toolbarHoverBackground"
       >
         ${this.#getLabel(this.entry)}
       </button>

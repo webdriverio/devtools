@@ -32,18 +32,40 @@ export class DevtoolsHeader extends Element {
       :host {
         display: flex;
         align-items: center;
-        background: black;
+        gap: 10px;
+        box-sizing: border-box;
+        background: linear-gradient(180deg, #16191f, #101216);
+        border-bottom: 1px solid var(--vscode-panel-border) !important;
         height: 40px;
         width: 100%;
+      }
+
+      icon-custom-logo {
+        flex: none;
+        width: 28px;
+        height: 28px;
+        /* Left inset set on the element itself (deterministic) rather than
+           :host padding. */
+        margin-left: 16px;
+        border-radius: 8px;
+        overflow: hidden;
+        box-shadow: 0 2px 12px rgba(255, 122, 60, 0.4);
+      }
+
+      h1 {
+        font-size: 15px;
+        font-weight: 700;
+        letter-spacing: 0.2px;
+        color: #fff;
       }
     `
   ]
 
   render() {
     return html`
-      <icon-custom-logo class="p-2 dark:p-2 h-full"></icon-custom-logo>
-      <h1 class="font-bold text-white">WebdriverIO Devtools</h1>
-      <nav class="ml-auto mr-2">
+      <icon-custom-logo></icon-custom-logo>
+      <h1>WebdriverIO Devtools</h1>
+      <nav class="ml-auto mr-3">
         <wdio-devtools-trace-loader as="button"></wdio-devtools-trace-loader>
         <button class="p-2" @click="${this.#switchMode}">
           <icon-mdi-moon-waning-crescent

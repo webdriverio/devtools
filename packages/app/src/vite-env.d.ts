@@ -17,6 +17,7 @@ interface GlobalEventHandlersEventMap {
   'app-status-filter': CustomEvent<
     import('./components/sidebar/types').StatusFilterDetail
   >
+  'app-test-select': CustomEvent<string>
   'app-test-run': CustomEvent<
     import('./components/sidebar/test-suite').TestRunDetail
   >

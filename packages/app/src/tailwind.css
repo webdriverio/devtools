@@ -20,4 +20,13 @@
   --color-accent: var(--accent);
   --color-accentHover: var(--accent-hover);
   --color-accentForeground: var(--accent-foreground);
+
+  /* Match the mockup's text sizes without touching the spacing scale, so
+     font size and padding/gaps stay independent. */
+  --text-xs: 11px;
+  --text-xs--line-height: 1.4;
+  --text-sm: 12.5px;
+  --text-sm--line-height: 1.45;
+  --text-base: 13px;
+  --text-base--line-height: 1.5;
 }

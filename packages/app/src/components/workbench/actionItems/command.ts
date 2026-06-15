@@ -85,7 +85,7 @@ export class CommandItem extends ActionItem {
         @click="${() => this.#highlightLine()}"
       >
         ${this.iconChip(this.#renderIcon(entry.command))}
-        <code class="text-sm flex-wrap text-left break-all"
+        <code class="text-[12.5px] flex-wrap text-left break-all"
           >${entry.command}</code
         >
         ${this.renderTime()}
