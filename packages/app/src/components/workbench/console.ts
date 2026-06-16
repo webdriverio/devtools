@@ -8,17 +8,9 @@ import { LOG_ICONS, CONSOLE_SOURCE_BADGE } from '../../controller/constants.js'
 import {
   filterConsoleLogs,
   formatConsoleArgs,
+  CONSOLE_LEVEL_FILTERS,
   type ConsoleLevelFilter
 } from './console-filter.js'
-
-const LEVEL_FILTERS: ReadonlyArray<{ key: ConsoleLevelFilter; label: string }> =
-  [
-    { key: 'all', label: 'All' },
-    { key: 'error', label: 'Errors' },
-    { key: 'warn', label: 'Warnings' },
-    { key: 'info', label: 'Info' },
-    { key: 'log', label: 'Logs' }
-  ]
 
 const SOURCE_COMPONENT = 'wdio-devtools-console-logs'
 @customElement(SOURCE_COMPONENT)
@@ -215,10 +207,6 @@ export class DevtoolsConsoleLogs extends Element {
   @state()
   private activeLevel: ConsoleLevelFilter = 'all'
 
-  get logCount(): number {
-    return this.logs?.length || 0
-  }
-
   #startTime?: number
 
   #formatElapsedTime(timestamp: number): string {
@@ -242,7 +230,7 @@ export class DevtoolsConsoleLogs extends Element {
           }}
         />
         <div class="filter-tabs">
-          ${LEVEL_FILTERS.map(
+          ${CONSOLE_LEVEL_FILTERS.map(
             ({ key, label }) => html`
               <button
                 class="filter-tab ${this.activeLevel === key ? 'active' : ''}"
