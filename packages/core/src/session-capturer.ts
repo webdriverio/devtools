@@ -33,6 +33,13 @@ import {
 export interface SessionCapturerOptions {
   hostname?: string
   port?: number
+  /**
+   * Set when this capturer reconnects mid-run (e.g. after `browser.end()` opens
+   * a new session). Tells the backend to keep the accumulated run state instead
+   * of resetting it — otherwise earlier tests' commands are wiped and Preserve
+   * & Rerun on those tests finds nothing.
+   */
+  reconnect?: boolean
 }
 
 type ConsoleMethod = (typeof CONSOLE_METHODS)[number]
@@ -81,9 +88,12 @@ export abstract class SessionCapturerBase {
 
   // ── Construction ────────────────────────────────────────────────────────
   constructor(opts: SessionCapturerOptions = {}) {
-    const { hostname, port } = opts
+    const { hostname, port, reconnect } = opts
     if (hostname && port) {
-      this.ws = new WebSocket(`ws://${hostname}:${port}${WS_PATHS.worker}`)
+      const query = reconnect ? '?reconnect=1' : ''
+      this.ws = new WebSocket(
+        `ws://${hostname}:${port}${WS_PATHS.worker}${query}`
+      )
       this.ws.on('open', () => {
         this.#hasConnected = true
         this.onWsOpen()

@@ -233,7 +233,15 @@ export async function ensureSessionInitialized(
   // Trace mode: empty opts skip SessionCapturerBase's WS init — no backend
   // to forward events to anyway.
   ctx.sessionCapturer = new SessionCapturer(
-    ctx.mode === 'trace' ? {} : { port: ctx.port, hostname: ctx.hostname },
+    ctx.mode === 'trace'
+      ? {}
+      : {
+          port: ctx.port,
+          hostname: ctx.hostname,
+          // A session change reopens the WS mid-run — tell the backend to keep
+          // the accumulated run state so earlier tests' commands survive.
+          reconnect: Boolean(isSessionChange)
+        },
     browser
   )
   ctx.sessionCapturer.traceMode = ctx.mode

@@ -57,6 +57,156 @@ describe('baselineStore', () => {
     expect(baselineStore.snapshot('does-not-exist', 'test')).toBeUndefined()
   })
 
+  it('attributes commands by call-site line when testUid is mis-tagged (multi-test file)', () => {
+    const file = '/spec.js'
+    // Two tests in one file; nightwatch's per-file hooks mis-tag both tests'
+    // commands with the FIRST test's uid. Source location must still split them.
+    baselineStore.recordEvent('suites', [
+      {
+        [SUITE_UID]: {
+          uid: SUITE_UID,
+          title: 'Suite',
+          file,
+          start: 100,
+          end: 400,
+          tests: [
+            {
+              uid: 'test-A',
+              title: 'A',
+              fullTitle: 'Suite A',
+              file,
+              callSource: `${file}:5`,
+              start: 100,
+              end: 200
+            },
+            {
+              uid: 'test-B',
+              title: 'B',
+              fullTitle: 'Suite B',
+              file,
+              callSource: `${file}:20`,
+              start: 250,
+              end: 350
+            }
+          ],
+          suites: []
+        }
+      }
+    ])
+    baselineStore.recordEvent('commands', [
+      {
+        timestamp: 110,
+        command: 'a1',
+        args: [],
+        testUid: 'test-A',
+        callSource: `${file}:7:3`
+      },
+      {
+        timestamp: 120,
+        command: 'a2',
+        args: [],
+        testUid: 'test-A',
+        callSource: `${file}:9:3`
+      },
+      // test B's commands are mis-tagged test-A but live below test B's line.
+      {
+        timestamp: 260,
+        command: 'b1',
+        args: [],
+        testUid: 'test-A',
+        callSource: `${file}:22:3`
+      },
+      {
+        timestamp: 270,
+        command: 'b2',
+        args: [],
+        testUid: 'test-A',
+        callSource: `${file}:24:3`
+      }
+    ])
+
+    const a = baselineStore.snapshot('test-A', 'test')!
+    expect(a.commands.map((c) => c.command)).toEqual(['a1', 'a2'])
+    const b = baselineStore.snapshot('test-B', 'test')!
+    expect(b.commands.map((c) => c.command)).toEqual(['b1', 'b2'])
+  })
+
+  it('applies replaceCommand so late-attached fields (e.g. screenshots) survive into the snapshot', () => {
+    baselineStore.recordEvent('commands', [
+      { timestamp: 250, command: 'getText', args: ['#flash'] }
+    ])
+    // The adapter re-sends the command once a screenshot is attached.
+    baselineStore.recordEvent('replaceCommand', {
+      oldTimestamp: 250,
+      command: {
+        timestamp: 250,
+        command: 'getText',
+        args: ['#flash'],
+        screenshot: 'data:image/png;base64,AAAA'
+      }
+    })
+    baselineStore.recordEvent('suites', suite({ start: 200, end: 300 }))
+
+    const snap = baselineStore.snapshot(TEST_UID, 'test')!
+    expect(snap.commands).toHaveLength(1)
+    expect(snap.commands[0].screenshot).toBe('data:image/png;base64,AAAA')
+  })
+
+  it('keeps an indirectly-issued command (no call site) via the time window', () => {
+    const file = '/spec.js'
+    baselineStore.recordEvent('suites', [
+      {
+        [SUITE_UID]: {
+          uid: SUITE_UID,
+          title: 'Suite',
+          file,
+          start: 100,
+          end: 300,
+          tests: [
+            {
+              uid: TEST_UID,
+              title: 'A',
+              fullTitle: 'Suite A',
+              file,
+              callSource: `${file}:5`,
+              start: 100,
+              end: 300
+            }
+          ],
+          suites: []
+        }
+      }
+    ])
+    baselineStore.recordEvent('commands', [
+      { timestamp: 120, command: 'click', args: [], callSource: `${file}:7` },
+      // assertion-internal getText: no resolvable call site, but in-window.
+      { timestamp: 150, command: 'getText', args: [] }
+    ])
+
+    const snap = baselineStore.snapshot(TEST_UID, 'test')!
+    expect(snap.commands.map((c) => c.command)).toEqual(['click', 'getText'])
+  })
+
+  it('drops a re-executed test’s previous commands so only the latest attempt is kept', () => {
+    // First attempt: 2 commands tagged with the test uid.
+    baselineStore.recordEvent('commands', [
+      { timestamp: 100, command: 'url', args: [], testUid: TEST_UID },
+      { timestamp: 110, command: 'getText', args: [], testUid: TEST_UID }
+    ])
+    baselineStore.recordEvent('suites', suite({ start: 100, end: 200 }))
+
+    // The test re-executes (new run: start strictly after the previous end),
+    // then sends its second attempt's commands.
+    baselineStore.recordEvent('suites', suite({ start: 500, end: 600 }))
+    baselineStore.recordEvent('commands', [
+      { timestamp: 510, command: 'url', args: [], testUid: TEST_UID },
+      { timestamp: 520, command: 'getText', args: [], testUid: TEST_UID }
+    ])
+
+    const snap = baselineStore.snapshot(TEST_UID, 'test')!
+    expect(snap.commands.map((c) => c.timestamp)).toEqual([510, 520])
+  })
+
   it('replaces (not unions) the time window when a new run is detected', () => {
     baselineStore.recordEvent(
       'suites',
