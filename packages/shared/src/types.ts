@@ -230,6 +230,11 @@ export interface Metadata {
   desiredCapabilities?: Record<string, unknown>
 }
 
+/** Captured metadata keyed by browser `sessionId` — lets the UI keep each
+ *  session's metadata instead of overwriting on a new session. Record (not Map)
+ *  so it stays JSON-serializable across the WS boundary and in contexts. */
+export type MetadataBySession = Record<string, Metadata>
+
 /**
  * Node-safe shape of a captured DOM mutation. The browser-side script
  * (packages/script) extends this with the real `MutationRecordType` union

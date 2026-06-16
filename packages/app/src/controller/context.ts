@@ -1,6 +1,7 @@
 import { createContext } from '@lit/context'
 import type {
   Metadata,
+  MetadataBySession,
   CommandLog,
   PreservedAttempt
 } from '@wdio/devtools-shared'
@@ -18,6 +19,9 @@ export const networkRequestContext = createContext<NetworkRequest[]>(
 )
 export const metadataContext = createContext<Metadata>(
   Symbol('metadataContext')
+)
+export const metadataBySessionContext = createContext<MetadataBySession>(
+  Symbol('metadataBySessionContext')
 )
 export const commandContext = createContext<CommandLog[]>(
   Symbol('commandContext')
