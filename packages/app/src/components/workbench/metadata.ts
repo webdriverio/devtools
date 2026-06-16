@@ -1,10 +1,14 @@
 import { Element } from '@core/element'
 import { html, css, nothing, type TemplateResult } from 'lit'
-import { customElement } from 'lit/decorators.js'
+import { customElement, state } from 'lit/decorators.js'
 import { consume } from '@lit/context'
 
-import type { Metadata } from '@wdio/devtools-shared'
-import { metadataContext } from '../../controller/context.js'
+import type { Metadata, MetadataBySession } from '@wdio/devtools-shared'
+import {
+  metadataContext,
+  metadataBySessionContext
+} from '../../controller/context.js'
+import { PENDING_SESSION_KEY } from '../../controller/contextUpdates.js'
 
 import '../placeholder.js'
 import '~icons/mdi/chevron-right.js'
@@ -12,8 +16,17 @@ import '~icons/mdi/chevron-right.js'
 const SOURCE_COMPONENT = 'wdio-devtools-metadata'
 @customElement(SOURCE_COMPONENT)
 export class DevtoolsMetadata extends Element {
+  /** Latest/active session metadata — fallback when no per-session map exists
+   *  (e.g. a loaded single-session trace without a sessionId). */
   @consume({ context: metadataContext, subscribe: true })
   metadata: Partial<Metadata> | undefined = undefined
+
+  @consume({ context: metadataBySessionContext, subscribe: true })
+  metadataBySession: MetadataBySession | undefined = undefined
+
+  /** sessionId the user picked in the dropdown; falls back to the latest. */
+  @state()
+  private selectedSessionId?: string
 
   /** Section labels the user has collapsed. */
   #collapsed = new Set<string>()
@@ -34,6 +47,19 @@ export class DevtoolsMetadata extends Element {
         display: flex;
         flex-direction: column;
         gap: 16px;
+      }
+
+      .session-select {
+        align-self: flex-start;
+        font-size: 11px;
+        font-family: inherit;
+        padding: 5px 8px;
+        border: 1px solid var(--vscode-panel-border);
+        border-radius: 8px;
+        background: var(--vscode-input-background);
+        color: var(--vscode-foreground);
+        cursor: pointer;
+        line-height: 1;
       }
 
       .meta-sec h4 {
@@ -202,17 +228,87 @@ export class DevtoolsMetadata extends Element {
     `
   }
 
+  /** Captured sessions in arrival order (the pending buffer is never shown). */
+  #sessions(): Array<[string, Metadata]> {
+    return Object.entries(this.metadataBySession ?? {}).filter(
+      ([id]) => id !== PENDING_SESSION_KEY
+    )
+  }
+
+  /** Map key of the session to display: the picked one (when still present),
+   *  else the latest. Selection is by map key throughout — never the metadata's
+   *  `sessionId` field — so the highlighted option and shown content can't drift. */
+  #activeKey(sessions: Array<[string, Metadata]>): string | undefined {
+    if (
+      this.selectedSessionId &&
+      sessions.some(([id]) => id === this.selectedSessionId)
+    ) {
+      return this.selectedSessionId
+    }
+    return sessions.length ? sessions[sessions.length - 1][0] : undefined
+  }
+
+  /** Metadata to display: the active session, else the single active value
+   *  (loaded trace with no sessionId). */
+  #activeMetadata(sessions: Array<[string, Metadata]>): Metadata | undefined {
+    const key = this.#activeKey(sessions)
+    const found = key && sessions.find(([id]) => id === key)
+    return found ? found[1] : (this.metadata as Metadata | undefined)
+  }
+
+  /** Label a session by its index and (when known) its URL host, so the
+   *  options are distinguishable — e.g. "Session 2 · www.google.com". */
+  #sessionLabel(meta: Metadata, index: number): string {
+    let host = ''
+    try {
+      if (meta.url) {
+        host = new URL(meta.url).host
+      }
+    } catch {
+      /* non-URL value — fall back to just the index */
+    }
+    return host ? `Session ${index + 1} · ${host}` : `Session ${index + 1}`
+  }
+
+  #renderSessionSelect(sessions: Array<[string, Metadata]>) {
+    if (sessions.length < 2) {
+      return nothing
+    }
+    const selectedKey = this.#activeKey(sessions)
+    return html`
+      <select
+        class="session-select"
+        .value=${selectedKey ?? ''}
+        @change=${(e: Event) => {
+          this.selectedSessionId = (e.target as HTMLSelectElement).value
+        }}
+      >
+        ${sessions.map(
+          ([id, meta], i) =>
+            html`<option value=${id} ?selected=${id === selectedKey}>
+              ${this.#sessionLabel(meta, i)}
+            </option>`
+        )}
+      </select>
+    `
+  }
+
   render() {
-    if (!this.metadata) {
+    const sessions = this.#sessions()
+    const active = this.#activeMetadata(sessions) as MetadataShape | undefined
+    if (!active) {
       return html`<wdio-devtools-placeholder></wdio-devtools-placeholder>`
     }
-    const m = this.metadata as MetadataShape
     return html`
       <div class="meta">
-        ${this.#renderSection('Session', this.#buildSessionInfo(m))}
-        ${this.#renderSection('Capabilities', m.capabilities)}
-        ${this.#renderSection('Desired Capabilities', m.desiredCapabilities)}
-        ${this.#renderSection('Options', m.options)}
+        ${this.#renderSessionSelect(sessions)}
+        ${this.#renderSection('Session', this.#buildSessionInfo(active))}
+        ${this.#renderSection('Capabilities', active.capabilities)}
+        ${this.#renderSection(
+          'Desired Capabilities',
+          active.desiredCapabilities
+        )}
+        ${this.#renderSection('Options', active.options)}
       </div>
     `
   }

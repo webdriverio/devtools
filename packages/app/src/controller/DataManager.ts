@@ -13,6 +13,7 @@ import {
   consoleLogContext,
   networkRequestContext,
   metadataContext,
+  metadataBySessionContext,
   commandContext,
   sourceContext,
   suiteContext,
@@ -31,19 +32,29 @@ import {
   markRunningAsStopped
 } from './mark-running.js'
 import { shouldResetForNewRun } from './run-detection.js'
-import { mergeNetworkRequests, replaceCommand } from './contextUpdates.js'
+import {
+  mergeNetworkRequests,
+  replaceCommand,
+  mergeSessionMetadata
+} from './contextUpdates.js'
 
 export class DataManagerController implements ReactiveController {
   #ws?: WebSocket
   #host: ReactiveControllerHost & HTMLElement
   #lastSeenRunTimestamp = 0
   #activeRerunTestUid?: string
+  /** Most-recently-seen browser sessionId — target for metadata messages
+   *  that arrive without their own sessionId (e.g. url updates). */
+  #currentSessionId?: string
 
   mutationsContextProvider: ContextProvider<typeof mutationContext>
   logsContextProvider: ContextProvider<typeof logContext>
   consoleLogsContextProvider: ContextProvider<typeof consoleLogContext>
   networkRequestsContextProvider: ContextProvider<typeof networkRequestContext>
   metadataContextProvider: ContextProvider<typeof metadataContext>
+  metadataBySessionContextProvider: ContextProvider<
+    typeof metadataBySessionContext
+  >
   commandsContextProvider: ContextProvider<typeof commandContext>
   sourcesContextProvider: ContextProvider<typeof sourceContext>
   suitesContextProvider: ContextProvider<typeof suiteContext>
@@ -71,6 +82,10 @@ export class DataManagerController implements ReactiveController {
     })
     this.metadataContextProvider = new ContextProvider(this.#host, {
       context: metadataContext
+    })
+    this.metadataBySessionContextProvider = new ContextProvider(this.#host, {
+      context: metadataBySessionContext,
+      initialValue: {}
     })
     this.commandsContextProvider = new ContextProvider(this.#host, {
       context: commandContext,
@@ -380,10 +395,16 @@ export class DataManagerController implements ReactiveController {
   }
 
   #handleMetadataUpdate(data: Metadata) {
-    this.metadataContextProvider.setValue({
-      ...this.metadataContextProvider.value,
-      ...data
-    })
+    const { bySession, currentSessionId, active } = mergeSessionMetadata(
+      {
+        bySession: this.metadataBySessionContextProvider.value || {},
+        currentSessionId: this.#currentSessionId
+      },
+      data
+    )
+    this.#currentSessionId = currentSessionId
+    this.metadataBySessionContextProvider.setValue(bySession)
+    this.metadataContextProvider.setValue(active)
   }
 
   #handleSourcesUpdate(data: Record<string, string>) {
@@ -479,6 +500,13 @@ export class DataManagerController implements ReactiveController {
       traceFile.networkRequests || []
     )
     this.metadataContextProvider.setValue(traceFile.metadata)
+    // Trace files hold a single session; seed the per-session map so the
+    // Metadata tab shows it (keyed by sessionId when present).
+    const traceSessionId = traceFile.metadata?.sessionId
+    this.metadataBySessionContextProvider.setValue(
+      traceSessionId ? { [traceSessionId]: traceFile.metadata } : {}
+    )
+    this.#currentSessionId = traceSessionId
     this.commandsContextProvider.setValue(traceFile.commands)
     this.sourcesContextProvider.setValue(traceFile.sources)
     this.suitesContextProvider.setValue(

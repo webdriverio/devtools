@@ -1,8 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import type { CommandLog, NetworkRequest } from '@wdio/devtools-shared'
+import type {
+  CommandLog,
+  NetworkRequest,
+  Metadata
+} from '@wdio/devtools-shared'
 import {
   mergeNetworkRequests,
-  replaceCommand
+  replaceCommand,
+  mergeSessionMetadata,
+  PENDING_SESSION_KEY
 } from '../src/controller/contextUpdates.js'
 
 function cmd(
@@ -88,5 +94,96 @@ describe('mergeNetworkRequests', () => {
     const next = mergeNetworkRequests(current, [req('2', '/b')])
     expect(next).not.toBe(current)
     expect(current).toHaveLength(1)
+  })
+})
+
+const meta = (m: Partial<Metadata>): Metadata => m as Metadata
+
+describe('mergeSessionMetadata', () => {
+  it('creates an entry for a message carrying a sessionId', () => {
+    const r = mergeSessionMetadata(
+      { bySession: {} },
+      meta({ sessionId: 's1', url: '/a' })
+    )
+    expect(r.currentSessionId).toBe('s1')
+    expect(r.bySession).toEqual({ s1: { sessionId: 's1', url: '/a' } })
+    expect(r.active).toEqual({ sessionId: 's1', url: '/a' })
+  })
+
+  it('merges a sessionId-less update into the current session', () => {
+    const first = mergeSessionMetadata(
+      { bySession: {} },
+      meta({ sessionId: 's1', url: '/a', capabilities: { browserName: 'chrome' } })
+    )
+    const next = mergeSessionMetadata(first, meta({ url: '/secure' }))
+    // url updates, capabilities preserved (the overwrite regression)
+    expect(next.bySession.s1).toEqual({
+      sessionId: 's1',
+      url: '/secure',
+      capabilities: { browserName: 'chrome' }
+    })
+    expect(next.currentSessionId).toBe('s1')
+  })
+
+  it('keeps a second session independent of the first', () => {
+    const first = mergeSessionMetadata(
+      { bySession: {} },
+      meta({ sessionId: 's1', url: '/a' })
+    )
+    const second = mergeSessionMetadata(first, meta({ sessionId: 's2', url: '/b' }))
+    expect(second.bySession.s1).toEqual({ sessionId: 's1', url: '/a' })
+    expect(second.bySession.s2).toEqual({ sessionId: 's2', url: '/b' })
+    expect(second.active).toEqual({ sessionId: 's2', url: '/b' })
+  })
+
+  it('buffers under PENDING_SESSION_KEY then folds into the first session', () => {
+    const pending = mergeSessionMetadata({ bySession: {} }, meta({ url: '/early' }))
+    expect(pending.bySession[PENDING_SESSION_KEY]).toEqual({ url: '/early' })
+    expect(pending.currentSessionId).toBeUndefined()
+
+    const resolved = mergeSessionMetadata(
+      pending,
+      meta({ sessionId: 's1', capabilities: { browserName: 'chrome' } })
+    )
+    expect(resolved.bySession[PENDING_SESSION_KEY]).toBeUndefined()
+    expect(resolved.bySession.s1).toEqual({
+      url: '/early',
+      sessionId: 's1',
+      capabilities: { browserName: 'chrome' }
+    })
+  })
+
+  it('does not let an empty url clobber a real one (re-broadcast)', () => {
+    const withUrl = mergeSessionMetadata(
+      { bySession: {} },
+      meta({ sessionId: 's1', url: 'https://example.com' })
+    )
+    // session-start re-broadcast carries url: '' — must not wipe the real url
+    const after = mergeSessionMetadata(
+      withUrl,
+      meta({ sessionId: 's1', url: '', capabilities: { browserName: 'chrome' } })
+    )
+    expect(after.bySession.s1.url).toBe('https://example.com')
+    expect(after.bySession.s1.capabilities).toEqual({ browserName: 'chrome' })
+  })
+
+  it('treats an empty-string sessionId as absent (no ghost entry)', () => {
+    const first = mergeSessionMetadata(
+      { bySession: {} },
+      meta({ sessionId: 's1', url: 'https://a' })
+    )
+    // boundary broadcast carries sessionId: '' — must attribute to current,
+    // not forge a '' key
+    const after = mergeSessionMetadata(first, meta({ sessionId: '' }))
+    expect(Object.keys(after.bySession)).toEqual(['s1'])
+    expect(after.currentSessionId).toBe('s1')
+    expect(after.bySession.s1.url).toBe('https://a')
+  })
+
+  it('does not mutate the input map', () => {
+    const state = { bySession: { s1: meta({ sessionId: 's1', url: '/a' }) } }
+    const next = mergeSessionMetadata(state, meta({ sessionId: 's2', url: '/b' }))
+    expect(next.bySession).not.toBe(state.bySession)
+    expect(Object.keys(state.bySession)).toEqual(['s1'])
   })
 })
