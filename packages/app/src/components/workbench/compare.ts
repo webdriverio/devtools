@@ -293,11 +293,11 @@ export class DevtoolsCompare extends Element {
             <div class="error-banner-message">${errorMessage}</div>
           </div>`
         : nothing}
+      <div class="cmp-colhead">
+        <div class="col-header">${this.swapped ? 'Latest' : 'Baseline'}</div>
+        <div class="col-header">${this.swapped ? 'Baseline' : 'Latest'}</div>
+      </div>
       <div class="cmp-body">
-        <div class="cmp-colhead">
-          <div class="col-header">${this.swapped ? 'Latest' : 'Baseline'}</div>
-          <div class="col-header">${this.swapped ? 'Baseline' : 'Latest'}</div>
-        </div>
         <div class="cmp-rows">
           ${visiblePairs.map((pair) =>
             this.#renderPair(pair, leftCommands, rightCommands, firstDivergent)
