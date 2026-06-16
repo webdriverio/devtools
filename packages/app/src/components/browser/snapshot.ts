@@ -2,6 +2,8 @@ import { Element } from '@core/element'
 import { html, nothing } from 'lit'
 import { consume } from '@lit/context'
 import { snapshotStyles } from './snapshot-styles.js'
+import { renderBrowserChrome } from './browser-chrome.js'
+import { commandPageUrl } from './url-at-timestamp.js'
 
 import { type ComponentChildren, h, render, type VNode } from 'preact'
 import { customElement, query } from 'lit/decorators.js'
@@ -11,12 +13,11 @@ import type { CommandLog } from '@wdio/devtools-shared'
 import {
   mutationContext,
   metadataContext,
+  metadataBySessionContext,
   commandContext
 } from '../../controller/context.js'
-import type { Metadata } from '@wdio/devtools-shared'
+import type { Metadata, MetadataBySession } from '@wdio/devtools-shared'
 
-import '~icons/mdi/world.js'
-import '~icons/mdi/lock.js'
 import '../placeholder.js'
 import './screencast-player.js'
 
@@ -97,6 +98,9 @@ export class DevtoolsBrowser extends Element {
 
   @consume({ context: metadataContext, subscribe: true })
   metadata: Metadata | undefined = undefined
+
+  @consume({ context: metadataBySessionContext, subscribe: true })
+  metadataBySession: MetadataBySession | undefined = undefined
 
   @consume({ context: mutationContext, subscribe: true })
   mutations: TraceMutation[] = []
@@ -259,8 +263,27 @@ export class DevtoolsBrowser extends Element {
     return { startTime: v?.startTime, duration: v?.duration }
   }
 
+  /** URL for the address bar: in video mode the selected recording's page URL
+   *  (looked up by its sessionId), else the snapshot's resolved URL. */
+  get #displayUrl(): string | undefined {
+    if (this.#viewMode === 'video') {
+      const sessionId = this.#videos[this.#activeVideoIdx]?.sessionId
+      const sessionUrl = sessionId
+        ? this.metadataBySession?.[sessionId]?.url
+        : undefined
+      return sessionUrl ?? this.#activeUrl ?? this.metadata?.url
+    }
+    return this.#activeUrl
+  }
+
   async #renderCommandScreenshot(command?: CommandLog) {
     this.#screenshotData = command?.screenshot ?? null
+    // Follow the selected command's page in the address bar — commands carry no
+    // URL, so resolve it from the navigation active at the command's time.
+    if (command) {
+      this.#activeUrl =
+        commandPageUrl(command, this.mutations ?? []) ?? this.#activeUrl
+    }
     // Switch to snapshot mode so the command screenshot is visible instead of the video.
     this.#viewMode = 'snapshot'
     this.requestUpdate()
@@ -579,26 +602,7 @@ export class DevtoolsBrowser extends Element {
       <section
         class="w-full h-full bg-sideBarBackground rounded-[14px] border-2 border-panelBorder"
       >
-        <header
-          class="flex items-center mx-2 bg-sideBarBackground rounded-t-[14px]"
-        >
-          <div class="frame-dot bg-notificationsErrorIconForeground"></div>
-          <div class="frame-dot bg-notificationsWarningIconForeground"></div>
-          <div class="frame-dot bg-portsIconRunningProcessForeground"></div>
-          <div
-            class="flex items-center mx-4 my-2 pr-2 bg-input-background text-inputForeground border border-editorSuggestWidgetBorder rounded leading-7 flex-1 min-w-0 overflow-hidden"
-          >
-            ${this.#activeUrl?.startsWith('https')
-              ? html`<icon-mdi-lock
-                  class="w-[16px] h-[16px] m-1 mr-2 flex-shrink-0 text-chartsGreen"
-                ></icon-mdi-lock>`
-              : html`<icon-mdi-world
-                  class="w-[20px] h-[20px] m-1 mr-2 flex-shrink-0"
-                ></icon-mdi-world>`}
-            <span class="truncate">${this.#activeUrl}</span>
-          </div>
-          ${this.#renderViewToggle()}
-        </header>
+        ${renderBrowserChrome(this.#displayUrl, this.#renderViewToggle())}
         ${this.#renderViewport(hasMutations)}
       </section>
     `
