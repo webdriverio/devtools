@@ -76,6 +76,7 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
         overflow-x: hidden;
         min-height: 0;
         scrollbar-width: none;
+        padding-bottom: 24px;
       }
     `
   ]

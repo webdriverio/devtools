@@ -4,13 +4,17 @@ import { networkStyles } from './network/styles.js'
 import { customElement, state } from 'lit/decorators.js'
 import { consume } from '@lit/context'
 import { networkRequestContext } from '../../controller/context.js'
-import { RESOURCE_TYPES } from '../../utils/network-constants.js'
+import {
+  RESOURCE_TYPES,
+  TYPE_DOT_CLASS
+} from '../../utils/network-constants.js'
 import {
   formatBytes,
   formatTime,
-  getStatusClass,
+  statusKind,
   getResourceType,
-  getFileName
+  getFileName,
+  contentType
 } from '../../utils/network-helpers.js'
 
 import '../placeholder.js'
@@ -93,7 +97,9 @@ export class DevtoolsNetwork extends Element {
   }
 
   #selectRequest(request: NetworkRequest) {
-    this.selectedRequest = request
+    // Clicking the already-selected row again closes the detail panel.
+    this.selectedRequest =
+      this.selectedRequest?.id === request.id ? undefined : request
   }
 
   #renderNetworkHeader() {
@@ -124,29 +130,31 @@ export class DevtoolsNetwork extends Element {
   }
 
   #renderRequestRow(request: NetworkRequest) {
+    const kind = statusKind(request.status, Boolean(request.error))
+    const dotClass = TYPE_DOT_CLASS[getResourceType(request)]
     return html`
       <div
-        class="request-row ${this.selectedRequest?.id === request.id
+        class="grid request-row ${this.selectedRequest?.id === request.id
           ? 'selected'
-          : ''} ${request.error ? 'error' : ''}"
+          : ''}"
         @click="${() => this.#selectRequest(request)}"
       >
-        <span class="truncate" title="${request.url}"
-          >${getFileName(request.url)}</span
+        <span class="req-name">
+          <i class="type-dot ${dotClass}"></i>
+          <span class="truncate" title="${request.url}"
+            >${getFileName(request.url)}</span
+          >
+        </span>
+        <span class="req-method">${request.method}</span>
+        <span class="req-status kind-${kind}">
+          <i class="status-dot"></i>
+          ${request.status || (request.error ? 'ERR' : '—')}
+        </span>
+        <span class="req-type truncate" title="${contentType(request)}"
+          >${contentType(request)}</span
         >
-        <span>${request.method}</span>
-        <span class="${getStatusClass(request.status)}"
-          >${request.status || (request.error ? 'ERR' : '-')}</span
-        >
-        <span class="truncate text-muted"
-          >${request.responseHeaders?.['content-type']?.split(';')[0] ||
-          '-'}</span
-        >
-        <span>${formatTime(request.time)}</span>
-        <span>${formatBytes(request.size)}</span>
-        <span class="text-muted"
-          >${request.startTime ? `${request.startTime.toFixed(1)}s` : '-'}</span
-        >
+        <span class="req-dur">${formatTime(request.time)}</span>
+        <span class="req-size">${formatBytes(request.size)}</span>
       </div>
     `
   }
@@ -166,17 +174,16 @@ export class DevtoolsNetwork extends Element {
       ${this.#renderNetworkHeader()}
       <div class="network-content">
         <div class="requests-list">
-          <div class="requests-header">
+          <div class="grid requests-header">
             <div>Name</div>
             <div>Method</div>
             <div>Status</div>
-            <div>Content Type</div>
-            <div>Duration</div>
-            <div>Size</div>
-            <div>Start</div>
+            <div>Type</div>
+            <div class="col-num">Duration</div>
+            <div class="col-num">Size</div>
           </div>
           ${filteredRequests.length === 0
-            ? html`<div class="p-4 text-center text-sm text-muted">
+            ? html`<div class="filter-empty">
                 No requests match your filter
               </div>`
             : filteredRequests.map((r) => this.#renderRequestRow(r))}
@@ -186,11 +193,11 @@ export class DevtoolsNetwork extends Element {
     `
   }
 
-  #renderHeaderRow(key: string, value: unknown, valueClass = '') {
+  #renderKv(key: string, value: unknown, valueClass = '') {
     return html`
-      <div class="header-row">
-        <span class="header-key">${key}:</span>
-        <span class="header-value ${valueClass}">${value}</span>
+      <div class="kv">
+        <span class="k">${key}</span>
+        <span class="v ${valueClass}">${value}</span>
       </div>
     `
   }
@@ -205,10 +212,8 @@ export class DevtoolsNetwork extends Element {
     return html`
       <div class="detail-section">
         <div class="detail-title">${title}</div>
-        <div class="detail-content">
-          ${Object.entries(headers).map(([k, v]) =>
-            this.#renderHeaderRow(k, v)
-          )}
+        <div class="kv-card">
+          ${Object.entries(headers).map(([k, v]) => this.#renderKv(k, v))}
         </div>
       </div>
     `
@@ -221,34 +226,33 @@ export class DevtoolsNetwork extends Element {
     return html`
       <div class="detail-section">
         <div class="detail-title">${title}</div>
-        <div class="detail-content">
-          <pre>${this.#formatBody(body)}</pre>
+        <div class="kv-card">
+          <div class="kv">
+            <span class="v"><pre>${this.#formatBody(body)}</pre></span>
+          </div>
         </div>
       </div>
     `
   }
 
   #renderGeneralSection(req: NetworkRequest) {
+    const kind = statusKind(req.status, Boolean(req.error))
     return html`
       <div class="detail-section">
         <div class="detail-title">General</div>
-        <div class="detail-content">
-          ${this.#renderHeaderRow('URL', req.url)}
-          ${this.#renderHeaderRow('Method', req.method)}
-          ${this.#renderHeaderRow(
+        <div class="kv-card">
+          ${this.#renderKv('Request URL', req.url)}
+          ${this.#renderKv('Method', req.method)}
+          ${this.#renderKv(
             'Status',
-            html`${req.status || '-'} ${req.statusText || ''}`,
-            getStatusClass(req.status)
+            html`${req.status || '—'} ${req.statusText || ''}`,
+            `kind-${kind}`
           )}
-          ${this.#renderHeaderRow('Type', req.type)}
-          ${req.time
-            ? this.#renderHeaderRow('Time', formatTime(req.time))
-            : nothing}
-          ${req.size
-            ? this.#renderHeaderRow('Size', formatBytes(req.size))
-            : nothing}
+          ${this.#renderKv('Type', contentType(req))}
+          ${req.time ? this.#renderKv('Time', formatTime(req.time)) : nothing}
+          ${req.size ? this.#renderKv('Size', formatBytes(req.size)) : nothing}
           ${req.error
-            ? this.#renderHeaderRow('Error', req.error, 'text-red-500')
+            ? this.#renderKv('Error', req.error, 'kind-error')
             : nothing}
         </div>
       </div>

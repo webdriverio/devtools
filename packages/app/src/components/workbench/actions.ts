@@ -33,9 +33,7 @@ export class DevtoolsActions extends Element {
         position: relative;
         display: flex;
         flex-direction: column;
-        /* Gutter so the active row's rounded box is inset from the edges,
-           like the mockup, rather than spanning edge to edge. */
-        padding: 0 8px;
+        padding: 8px 8px 12px;
       }
 
       /* Vertical rail threading the action icon chips. */

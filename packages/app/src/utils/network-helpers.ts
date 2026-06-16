@@ -1,4 +1,11 @@
-import { RESOURCE_TYPE_PATTERNS } from './network-constants.js'
+import {
+  RESOURCE_TYPE_PATTERNS,
+  OTHER_RESOURCE_TYPE,
+  HTTP_STATUS,
+  STATUS_KIND,
+  type StatusKind,
+  type ResourceType
+} from './network-constants.js'
 
 /**
  * Format bytes to human-readable format
@@ -33,41 +40,68 @@ export function formatTime(ms?: number): string {
 }
 
 /**
- * Get CSS class based on HTTP status code
+ * Bucket an HTTP status into a coarse {@link StatusKind}. The single source of
+ * truth for status ranges — both the dot colour and the text colour derive
+ * from it.
+ */
+export function statusKind(status?: number, hasError?: boolean): StatusKind {
+  if (hasError) {
+    return STATUS_KIND.ERROR
+  }
+  if (typeof status !== 'number') {
+    return STATUS_KIND.PENDING
+  }
+  if (status >= HTTP_STATUS.SUCCESS_MIN && status < HTTP_STATUS.REDIRECT_MIN) {
+    return STATUS_KIND.OK
+  }
+  if (
+    status >= HTTP_STATUS.REDIRECT_MIN &&
+    status < HTTP_STATUS.CLIENT_ERROR_MIN
+  ) {
+    return STATUS_KIND.REDIRECT
+  }
+  if (status >= HTTP_STATUS.CLIENT_ERROR_MIN) {
+    return STATUS_KIND.ERROR
+  }
+  return STATUS_KIND.PENDING
+}
+
+const STATUS_TEXT_CLASS: Record<StatusKind, string> = {
+  [STATUS_KIND.OK]: 'text-green-500',
+  [STATUS_KIND.REDIRECT]: 'text-yellow-500',
+  [STATUS_KIND.ERROR]: 'text-red-500',
+  [STATUS_KIND.PENDING]: 'text-gray-500'
+}
+
+/**
+ * Tailwind text-colour class for an HTTP status code — derived from
+ * {@link statusKind} so the thresholds live in one place.
  */
 export function getStatusClass(status?: number): string {
-  if (!status) {
-    return 'text-gray-500'
-  }
-  if (status >= 200 && status < 300) {
-    return 'text-green-500'
-  }
-  if (status >= 300 && status < 400) {
-    return 'text-yellow-500'
-  }
-  if (status >= 400) {
-    return 'text-red-500'
-  }
-  return 'text-gray-500'
+  return STATUS_TEXT_CLASS[statusKind(status)]
 }
 
 /**
  * Determine resource type from network request
  */
-export function getResourceType(request: NetworkRequest): string {
+export function getResourceType(request: NetworkRequest): ResourceType {
   const url = request.url.toLowerCase()
   const contentType =
     request.responseHeaders?.['content-type']?.toLowerCase() || ''
+  const entries = Object.entries(RESOURCE_TYPE_PATTERNS) as [
+    keyof typeof RESOURCE_TYPE_PATTERNS,
+    (typeof RESOURCE_TYPE_PATTERNS)[keyof typeof RESOURCE_TYPE_PATTERNS]
+  ][]
 
   // Check by content-type first
-  for (const [type, patterns] of Object.entries(RESOURCE_TYPE_PATTERNS)) {
+  for (const [type, patterns] of entries) {
     if (patterns.contentTypes.some((ct) => contentType.includes(ct))) {
       return type
     }
   }
 
   // Fallback to URL extension
-  for (const [type, patterns] of Object.entries(RESOURCE_TYPE_PATTERNS)) {
+  for (const [type, patterns] of entries) {
     if (patterns.extensions.some((ext) => url.endsWith(ext))) {
       return type
     }
@@ -78,7 +112,17 @@ export function getResourceType(request: NetworkRequest): string {
     return 'Fetch'
   }
 
-  return 'Other'
+  return OTHER_RESOURCE_TYPE
+}
+
+/** Short content-type label for a request (response content-type, then the
+ *  captured `type`, else a dash placeholder). */
+export function contentType(request: NetworkRequest): string {
+  return (
+    request.responseHeaders?.['content-type']?.split(';')[0] ||
+    request.type ||
+    '-'
+  )
 }
 
 /**
