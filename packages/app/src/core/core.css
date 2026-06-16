@@ -46,19 +46,20 @@ button[data-draggable-id]::after {
     height 0.12s;
   pointer-events: none;
 }
+/* The handle is positioned at `position - 3px` (see DragController), so the
+   real pane boundary is 3px in. Place the line there — centering it (50%)
+   leaves it ~2px off the boundary, creating a gap where it meets a border. */
 button[data-draggable-id].cursor-col-resize::after {
   top: 0;
   bottom: 0;
-  left: 50%;
+  left: 3px;
   width: 1px;
-  transform: translateX(-50%);
 }
 button[data-draggable-id].cursor-row-resize::after {
   left: 0;
   right: 0;
-  top: 50%;
+  top: 3px;
   height: 1px;
-  transform: translateY(-50%);
 }
 button[data-draggable-id]:hover::after,
 button[data-draggable-id][data-dragging='dragging']::after {

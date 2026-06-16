@@ -129,23 +129,21 @@ export const compareStyles = css`
   }
 
   /* ── Diff body ── */
+  /* Header sits OUTSIDE the scroll container so rows can't scroll above it. */
+  .cmp-colhead {
+    flex: none;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    padding: 10px 14px 8px;
+    background: var(--vscode-editor-background);
+    border-bottom: 1px solid var(--vscode-panel-border);
+  }
   .cmp-body {
     flex: 1 1 auto;
     min-height: 0;
     overflow: auto;
     padding: 12px 14px;
-  }
-  .cmp-colhead {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 12px;
-    position: sticky;
-    top: 0;
-    z-index: 2;
-    margin-bottom: 6px;
-    padding: 2px 0 8px;
-    background: var(--vscode-editor-background);
-    border-bottom: 1px solid var(--vscode-panel-border);
   }
   .col-header {
     font-size: 11px;
