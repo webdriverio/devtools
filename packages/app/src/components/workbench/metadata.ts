@@ -149,7 +149,7 @@ export class DevtoolsMetadata extends Element {
     `
   ]
 
-  #buildSessionInfo(m: MetadataShape): Record<string, unknown> {
+  #buildSessionInfo(m: Metadata): Record<string, unknown> {
     const sessionInfo: Record<string, unknown> = {}
     if (m.sessionId) {
       sessionInfo['Session ID'] = m.sessionId
@@ -205,8 +205,10 @@ export class DevtoolsMetadata extends Element {
     `
   }
 
-  #renderSection(label: string, data: Record<string, unknown> | undefined) {
-    const entries = Object.entries(data ?? {})
+  #renderSection(label: string, data: unknown) {
+    // Metadata's capability/option bags are typed `unknown` upstream; narrow to
+    // a record here so the section can iterate their key/value pairs.
+    const entries = Object.entries((data ?? {}) as Record<string, unknown>)
     if (entries.length === 0) {
       return nothing
     }
@@ -295,7 +297,7 @@ export class DevtoolsMetadata extends Element {
 
   render() {
     const sessions = this.#sessions()
-    const active = this.#activeMetadata(sessions) as MetadataShape | undefined
+    const active = this.#activeMetadata(sessions)
     if (!active) {
       return html`<wdio-devtools-placeholder></wdio-devtools-placeholder>`
     }
@@ -312,17 +314,6 @@ export class DevtoolsMetadata extends Element {
       </div>
     `
   }
-}
-
-interface MetadataShape {
-  sessionId?: string
-  testEnv?: string
-  host?: string
-  modulePath?: string
-  url?: string
-  capabilities?: Record<string, unknown>
-  desiredCapabilities?: Record<string, unknown>
-  options?: Record<string, unknown>
 }
 
 declare global {
