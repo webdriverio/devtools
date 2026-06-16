@@ -1,81 +1,169 @@
-# @wdio/elements Roadmap
+# Roadmap
 
-## Current state (May 2026)
+Prioritized work items for the devtools monorepo. Items are ordered by priority
+within each phase; dependencies are noted inline.
 
-The package delivers LLM-readable element snapshots for both web and mobile:
+---
 
-| Capability | Web | Mobile |
-|---|---|---|
-| Interactable element list | `getInteractableBrowserElements()` | `getMobileVisibleElements()` |
-| Semantic tree | `getBrowserAccessibilityTree()` | *(raw `JSONElement` only)* |
-| Snapshot serialization | `serializeWebSnapshot()` | `serializeMobileSnapshot()` |
-| Unified API | `getElements()` returns both | `getElements()` returns both |
-| Viewport filtering | `inViewportOnly` (default true) | `inViewportOnly` (default true) |
-| Role classification | Computed in-browser from tag/ARIA | `ANDROID_ROLE_MAP` / `IOS_ROLE_MAP` in snapshot.ts |
-| Locator generation | CSS selectors in browser script | `getSuggestedLocators()` from locator-generation.ts |
-| Context disambiguation | `∈` via `inferPurpose()` | `∈` via `mobileInferPurpose()` |
-| Duplicate selector indexing | N/A (selectors are unique) | `.instance(N)` suffix |
+## Phase 1 — Foundation (tests + safe extractions)
 
-## Architectural concerns
+Before touching the hot paths, add coverage and extract non-breaking helpers.
 
-### 1. Two independent mobile pipelines
+### 1.1 Locator-generation unit tests
 
-`serializeMobileSnapshot` in `snapshot.ts` has its own copies of:
+`packages/core/src/locators/` has zero tests. Every item downstream (XML parse
+dedup, interactive-element merge, `isInUiAutomatorScope` fix) needs this safety
+net first.
 
-- **Role classification** — `ANDROID_ROLE_MAP` / `IOS_ROLE_MAP` duplicate logic from `locators/constants.ts` and `locators/element-filter.ts`.
-- **Interactivity detection** — `isMobileInteractive()` shadows `isInteractableElement()` from `element-filter.ts`. They use different criteria (tag-based vs attribute-based) and can disagree.
-- **Locator generation** — `getBestAndroidLocator()` / `getBestIOSLocator()` are simplified fallbacks. The full pipeline (`getSuggestedLocators()`) is now wired in when source XML is available, but the fallback still exists and the two paths can produce different selectors for the same element.
+**Effort:** ~3 hours. **Depends on:** nothing.
 
-These should be collapsed: `serializeMobileSnapshot` should consume pre-computed roles, interactivity flags, and selectors from the locator pipeline, not recompute them.
+### 1.2 Snapshot-output golden tests
 
-### 2. No mobile equivalent of `getBrowserAccessibilityTree()`
+`serializeMobileSnapshot` and `serializeWebSnapshot` need output-fidelity tests
+before the interactive-element dedup or mobile pipeline unification. Without
+them, any change to the snapshot format is a blind regression risk for LLM
+consumers.
 
-The web path returns a flat `AccessibilityNode[]` with roles, names, selectors, depths, and state. The mobile path returns a raw `JSONElement` tree — the snapshot does all enrichment internally via `collectMobileNodes()` → `MobileFlatNode[]` (a private interface). There is no public function to get an enriched flat node list for mobile.
+**Effort:** ~2 hours. **Depends on:** nothing.
 
-**Proposal:** Extract `collectMobileNodes()` into a public `getMobileAccessibilityTree()` that returns `MobileFlatNode[]` (or a shared type). `serializeMobileSnapshot()` becomes a pure formatting pass — like `serializeWebSnapshot()` already is.
+### 1.3 Extract `getMobileAccessibilityTree()`
 
-### 3. Layout noise in mobile snapshots
+Expose `collectMobileNodes()` as a public `getMobileAccessibilityTree()`
+returning `MobileFlatNode[]`. `serializeMobileSnapshot()` becomes a pure
+formatting pass — matching `serializeWebSnapshot()`'s shape.
 
-The Android view hierarchy includes every layout container (`FrameLayout`, `LinearLayout`, `ViewGroup`, etc.). The current noise filter (`NOISY_ROLES`) collapses anonymous containers at depth ≥ 2, but named containers and depth 0-1 scaffolding still appear. The web a11y tree doesn't have this problem because the browser's accessibility computation already skips layout-only `<div>`s.
+**Effort:** ~2 hours. **Depends on:** 1.2 (golden tests). **Unblocks:** 2.1, 2.2.
 
-**Proposal:** A `collapseContainers` option on the snapshot (default `true`) that skips any container without an interactive descendant. Alternatively, the tree collection pass could flag "informative" vs "structural" containers and let the renderer decide.
+---
 
-### 4. Selector format for mobile
+## Phase 2 — Core dedup & unification
 
-Mobile selectors are Appium/WDIO-specific strings (`~Accessibility`, `android=new UiSelector()...`, `id:com.example:id/foo`). The web path outputs CSS selectors (`a*=Highlights`, `#cart-icon-bubble`). An LLM/agent needs different selector parsing logic per platform. There's no common selector abstraction.
+### 2.1 Merge interactive-element checks
 
-**Proposal:** A `SelectorString` type with platform-aware parsing, or at minimum consistent prefix conventions documented for LLM consumption.
+`element-snapshot.ts` duplicates `locators/element-filter.ts`:
+- `isMobileInteractive` / `isExplicitlyInteractive` → use
+  `isInteractableElement`
+- `isMobileInViewport` → use shared `isWithinViewport`
+- `inferPurpose` / `mobileInferPurpose` → parameterize the role-skip
+  predicate
+- Static-text echo dedup → extract shared helper
 
-### 5. The raw tree doesn't carry locators unless processed
+**Effort:** ~3 hours. **Depends on:** 1.2, 1.3.
 
-`getMobileVisibleElementsWithTree()` returns `{ elements, tree }` where `tree` is the raw `xmlToJSON()` output. Locators are only on `elements` (from `generateAllElementLocators()`). The snapshot reads locators by running `getSuggestedLocators()` again (or falling back). If a consumer wants to annotate the tree themselves, they must re-run the locator pipeline.
+### 2.2 Unify mobile pipeline role classification
 
-**Proposal:** Enrich the tree in-place during `generateAllElementLocators()` — attach `_selector`, `_role`, and `_interactive` attributes to each `JSONElement` node that passes the filter. The raw tree becomes self-describing.
+`serializeMobileSnapshot` has its own copies of `ANDROID_ROLE_MAP` /
+`IOS_ROLE_MAP`, interactivity detection, and locator fallbacks
+(`getBestAndroidLocator` / `getBestIOSLocator`). Thread `_role`, `_interactive`,
+and `_selector` through via the shared tree so `serializeMobileSnapshot` doesn't
+re-classify what `generateAllElementLocators` already computed.
 
-## Improvement backlog
+**Effort:** ~4 hours. **Depends on:** 1.3, 2.1. **Unblocks:** 2.3.
 
-| Priority | What | Effort |
-|---|---|---|
-| P0 | Merge `isMobileInteractive` + role classification into `generateAllElementLocators` — one source of truth | Medium |
-| P1 | Extract `getMobileAccessibilityTree()` as a public API returning enriched flat nodes | Medium |
-| P1 | Enrich `JSONElement` tree nodes with locators during `generateAllElementLocators()` | Small |
-| P2 | `collapseContainers` option on `serializeMobileSnapshot` | Small |
-| P2 | Unify web + mobile serialization into a single `serializeSnapshot()` function | Large |
-| P3 | Document selector format conventions for LLM consumption | Small |
-| P3 | Add `checked`/`selected`/`expanded` state rendering to mobile snapshot (parity with web) | Small |
+### 2.3 Thread parsed XML through to both consumers
 
-## Verified capabilities
+`pageSource` XML is parsed 3× per mobile snapshot (`xmlToJSON` twice,
+`xmlToDOM` once). Pass the initial `jsonTree` through to both
+`serializeMobileSnapshot` and `generateAllElementLocators`. Also removes the
+redundant second `getSuggestedLocators` call per element.
 
-- [x] Web: viewport-only snapshot with semantic roles and unique CSS selectors
-- [x] Web: `∈` disambiguation for duplicate selectors (6 "Add to Wishlist" buttons → each with book title context)
-- [x] Web: `statictext` role capturing visible text (book titles, promo copy, cookie text)
-- [x] Web: deduplication of echoed text (child text already in parent name → skipped)
-- [x] Mobile: semantic role mapping (TextView→statictext, ImageView→img, Button→button, etc.)
-- [x] Mobile: full-pipeline selectors via `getSuggestedLocators()` wired into snapshot
-- [x] Mobile: `~` prefix for accessibility-id, `id:` for resource-id, `android=new UiSelector()...` for compound
-- [x] Mobile: `.instance(N)` indexing for duplicate selectors
-- [x] Mobile: explicit tap-target promotion (clickable parent carries `→`, label children provide `∈` context)
-- [x] Mobile: layout noise collapse for anonymous containers
-- [x] Mobile: `∈` context from actual parent, not previous list-item sibling
-- [x] Unified `getElements()` API returning `{ elements, tree }` for both platforms
-- [x] `inViewportOnly` default `true` across all entry points with per-function toggles
+**Effort:** ~1 day. **Depends on:** 1.1, 2.2.
+
+---
+
+## Phase 3 — Hot-path & trace fixes
+
+### 3.1 `isInUiAutomatorScope` computed once per element
+
+Both `getSimpleSuggestedLocators` and `getComplexSuggestedLocators` call it for
+the same element. Compute once in `getSuggestedLocators`, pass as parameter.
+
+**Effort:** ~15 min. **Depends on:** 1.1.
+
+### 3.2 `resolveContextNaming(caps)` called once
+
+`buildContextOptions` and `buildTraceBundle` both call it with the same args.
+The title is already available on `events[0]`. Thread it through.
+
+**Effort:** ~15 min. **Depends on:** nothing.
+
+### 3.3 Extract `makeScreencastFrame` helper
+
+The initial t=0 frame manually duplicates `buildScreencastFrames`'s
+construction logic. Extract a shared `makeScreencastFrame` helper; use for both
+t=0 and subsequent frames.
+
+**Effort:** ~20 min. **Depends on:** nothing.
+
+### 3.4 Mobile layout-noise filter made configurable
+
+Add `collapseContainers` option to `MobileSnapshotOptions` so consumers can
+adjust the `NOISY_ROLES` threshold or disable the filter.
+
+**Effort:** ~30 min. **Depends on:** nothing.
+
+### 3.5 `selectBestLocators` in elements wrapper delegates to core
+
+`mobile-elements.ts`'s `LOCATOR_PRIORITY` and `selectBestLocators` duplicate
+`getBestLocator` from core. Route through the re-export. Verify no external
+consumers break.
+
+**Effort:** ~30 min. **Depends on:** nothing.
+
+---
+
+## Phase 4 — Adapter convergence
+
+### 4.1 `onLine` override unified in base class
+
+All three adapters duplicate the same `onLine` override. Move the
+`consoleLogs.push` into `SessionCapturerBase.onLine` after resolving the type
+mismatch between `createConsoleLogEntry`'s return type and the stored array.
+
+**Effort:** ~30 min. **Depends on:** nothing.
+
+### 4.2 `CommandLog.startTime` populated in nightwatch + selenium
+
+Nightwatch and selenium never set `startTime`, so command durations are always
+0ms in their traces. Add start-timestamp capture to the nightwatch
+`browserProxy` and selenium `onCommand` hooks.
+
+**Effort:** ~2 hours. **Depends on:** nothing (framework-specific wiring).
+
+### 4.3 Nightwatch `traceMode` moved off capturer field
+
+`SessionCapturer.traceMode` is a mutable public field set from
+`session-init.ts`. Neither service nor selenium store it on the capturer. Thread
+`mode` through an options bag to `captureCommand()`. Watch for breaking changes
+to the nightwatch browser proxy signature.
+
+**Effort:** ~1 hour. **Depends on:** nothing.
+
+### 4.4 Unify `replaceCommand` logic
+
+Nightwatch and selenium both implement ~35 lines of entry-find, error-serialize,
+command-counter-increment, and push logic. Unify under
+`SessionCapturerBase` with a parameterized splice-vs-mutate policy.
+
+**Effort:** ~1.5 hours. **Depends on:** nothing.
+
+---
+
+## Completed
+
+- **Snapshot promise drain** — Nightwatch and selenium now drain
+  `snapshotCaptures` via `Promise.allSettled` before writing the trace zip
+  (2026-06-16).
+
+---
+
+## Deferred
+
+Items considered but not prioritized:
+
+- **`INTERNAL_COMMANDS` extraction** — only `'execute'` overlaps across all
+  three adapters. Not worth extracting.
+- **`SelectorString` type** — no concrete consumer exists. Revisit if an LLM
+  consumer needs to parse selector strings.
+- **Unify web + mobile serialization** — blocked on 1.3. The renderers are too
+  different in input types and passes to unify directly; revisit after Phase 2.

@@ -2,13 +2,11 @@ import http from 'node:http'
 import logger from '@wdio/logger'
 import {
   SessionCapturerBase,
-  createConsoleLogEntry,
   errorMessage,
   loadInjectableScript,
   mapChromeBrowserLogs,
   pollUntilReady,
-  serializeError,
-  type LogSource
+  serializeError
 } from '@wdio/devtools-core'
 import { mapCommandToAction } from '@wdio/devtools-core'
 import { captureActionSnapshot } from './action-snapshot.js'
@@ -28,7 +26,6 @@ import type {
   ActionSnapshot,
   CommandLog,
   DevToolsMode,
-  LogLevel,
   NightwatchBrowser
 } from './types.js'
 
@@ -138,20 +135,6 @@ export class SessionCapturer extends SessionCapturerBase {
 
   protected override onWsClose(): void {
     log.info('Worker WebSocket disconnected')
-  }
-
-  /**
-   * Push every captured line into the local `consoleLogs` array so it ends up
-   * in any future trace export, in addition to the live WS broadcast.
-   */
-  protected override onLine(
-    type: LogLevel,
-    args: string[],
-    source: LogSource
-  ): void {
-    const entry = createConsoleLogEntry(type, args, source)
-    this.consoleLogs.push(entry)
-    this.sendUpstream('consoleLogs', [entry])
   }
 
   async captureCommand(
