@@ -293,14 +293,19 @@ function registerWorkerWebSocket(s: FastifyInstance): void {
   s.get(
     WS_PATHS.worker,
     { websocket: true },
-    (socket: WebSocket, _req: FastifyRequest) => {
+    (socket: WebSocket, req: FastifyRequest) => {
       // Don't drop the message buffer for rerun-child connects (the dashboard
       // tree dedupes by uid and stale state must survive). Same applies to
       // baselineStore.activeRun — keep it across reruns so Preserve & Rerun on
       // a different failed test still finds data; #updateNode handles window
       // expansion across reruns of the same test.
       const isRerunChild = testRunner.consumeRerunChildFlag()
-      if (!isRerunChild) {
+      // A mid-run session-change reconnect (e.g. after `browser.end()`) reopens
+      // this socket; keep the accumulated run state so earlier tests' commands
+      // survive for Preserve & Rerun instead of being wiped.
+      const isReconnect =
+        (req.query as { reconnect?: string })?.reconnect === '1'
+      if (!isRerunChild && !isReconnect) {
         messageBuffer.length = 0
         baselineStore.resetActiveRun()
       }

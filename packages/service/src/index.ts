@@ -237,6 +237,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
 
   private resetStack() {
     this.#commandStack = []
+    this.#sessionCapturer.resetRetryTracker()
   }
 
   #resolveCallSourceFromFrame(

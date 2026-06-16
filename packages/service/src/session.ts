@@ -12,6 +12,7 @@ import { isNativeMobile } from './mobile.js'
 import {
   CAPTURE_PERFORMANCE_SCRIPT,
   LOG_SOURCES,
+  RetryTracker,
   SessionCapturerBase,
   applyPerformanceData,
   createConsoleLogEntry,
@@ -30,6 +31,8 @@ export class SessionCapturer extends SessionCapturerBase {
   readonly startWallTime = Date.now()
   /** Last find-element selector — carried forward to the next element command. */
   #lastSelector: string | undefined
+  /** Collapses internal command retries onto a single entry (see #captureOrReplace). */
+  #retryTracker = new RetryTracker()
   #pendingNetworkRequests = new Map<
     string,
     {
@@ -197,8 +200,7 @@ export class SessionCapturer extends SessionCapturerBase {
       }
     }
 
-    this.commandsLog.push(commandLogEntry)
-    this.sendUpstream('commands', [commandLogEntry])
+    this.#captureOrReplace(commandLogEntry)
     // Capture trace + perf on commands that could trigger a page transition.
     // Skip on native mobile — scripts can't execute in a native app context.
     if (
@@ -210,6 +212,46 @@ export class SessionCapturer extends SessionCapturerBase {
         this.#captureTrace(browser)
       ])
     }
+  }
+
+  /**
+   * Send a command, collapsing internal framework retries onto one entry. WDIO
+   * polls some commands (e.g. an assertion repeatedly calling `getText`); each
+   * poll fires `afterCommand`, so without this the UI fills with duplicate
+   * rows. A matching signature (same command + args + call site) replaces the
+   * previous entry in place — mirroring the nightwatch and selenium adapters.
+   */
+  #captureOrReplace(entry: CommandLog & { _id?: number }) {
+    const sig = RetryTracker.signature(
+      entry.command,
+      entry.args,
+      entry.callSource
+    )
+    if (this.#retryTracker.isRetry(sig)) {
+      const prev = this.commandsLog.find(
+        (c) =>
+          (c as CommandLog & { _id?: number })._id === this.#retryTracker.lastId
+      ) as (CommandLog & { _id?: number }) | undefined
+      const oldTimestamp = prev?.timestamp ?? entry.timestamp
+      if (prev) {
+        entry._id = prev._id
+        Object.assign(prev, entry)
+      } else {
+        this.commandsLog.push(entry)
+      }
+      this.sendReplaceCommand(oldTimestamp, entry)
+      this.#retryTracker.recordCapture(sig, entry._id ?? null)
+      return
+    }
+    this.commandsLog.push(entry)
+    const id = this.sendCommand(entry)
+    this.#retryTracker.recordCapture(sig, id)
+  }
+
+  /** Drop retry state at test/scenario boundaries so a deliberate re-issue of
+   *  the same call in the next test counts as fresh, not a retry. */
+  resetRetryTracker(): void {
+    this.#retryTracker.reset()
   }
 
   /**

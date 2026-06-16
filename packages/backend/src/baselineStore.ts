@@ -17,6 +17,7 @@ import type {
   TimeWindowNode
 } from './baseline/types.js'
 import { freshRun, toMs, pickMin, pickMax } from './baseline/utils.js'
+import { commandsForNode } from './baseline/command-attribution.js'
 
 export type { PreservedAttempt, PreservedStep } from './baseline/types.js'
 
@@ -41,6 +42,19 @@ class BaselineStore {
           this.#activeRun.commands.push(...(data as CommandLogLike[]))
         }
         return
+      case 'replaceCommand': {
+        // A command is sent first, then re-sent with late-attached fields
+        // (e.g. a per-command screenshot). Apply the replacement so preserved
+        // baselines carry those fields instead of the initial bare command.
+        const payload = data as {
+          oldTimestamp?: number
+          command?: CommandLogLike
+        }
+        if (payload?.command) {
+          this.#replaceCommand(payload.oldTimestamp, payload.command)
+        }
+        return
+      }
       case 'consoleLogs':
         if (Array.isArray(data)) {
           this.#activeRun.consoleLogs.push(...(data as ConsoleLogLike[]))
@@ -62,6 +76,25 @@ class BaselineStore {
       case 'suites':
         this.#ingestSuites(data)
         return
+    }
+  }
+
+  // Mirrors the app's command replacement: match by stable `id`, then by the
+  // old timestamp, appending only when neither locates the original.
+  #replaceCommand(oldTimestamp: number | undefined, command: CommandLogLike) {
+    const cmds = this.#activeRun.commands
+    const newId = (command as { id?: number }).id
+    let idx = -1
+    if (typeof newId === 'number') {
+      idx = cmds.findIndex((c) => (c as { id?: number }).id === newId)
+    }
+    if (idx === -1 && oldTimestamp !== undefined) {
+      idx = cmds.map((c) => c.timestamp).lastIndexOf(oldTimestamp)
+    }
+    if (idx === -1) {
+      cmds.push(command)
+    } else {
+      cmds[idx] = command
     }
   }
 
@@ -153,6 +186,16 @@ class BaselineStore {
       existing?.end !== undefined &&
       incomingStart !== undefined &&
       incomingStart > existing.end
+
+    // A test re-executing (rerun, or a framework retry of a failed test) starts
+    // a new attempt. Drop its previous attempt's commands so a preserve keeps
+    // only the latest run — other tests' commands (accumulated across session
+    // changes within one run) are left intact.
+    if (isNewRun && kind === 'test') {
+      this.#activeRun.commands = this.#activeRun.commands.filter(
+        (c) => c.testUid !== uid
+      )
+    }
 
     const nextStart = isNewRun
       ? incomingStart
@@ -303,12 +346,36 @@ class BaselineStore {
     }
   }
 
+  /** Tight [min,max] window from a command set's timestamps. */
+  #spanOf(
+    commands: CommandLogLike[]
+  ): { start: number; end: number } | undefined {
+    const ts = commands
+      .map((c) => c.timestamp)
+      .filter((t): t is number => t !== undefined)
+    if (ts.length === 0) {
+      return undefined
+    }
+    return { start: Math.min(...ts), end: Math.max(...ts) }
+  }
+
   snapshot(uid: string, scope: 'test' | 'suite'): PreservedAttempt | undefined {
     const node = this.#activeRun.nodes.get(uid)
     if (!node) {
       return undefined
     }
-    const window = this.#windowFor(uid)
+    const nodeWindow = this.#windowFor(uid)
+    const commands = commandsForNode(
+      node,
+      this.#activeRun.nodes,
+      this.#activeRun.commands,
+      nodeWindow
+    )
+
+    // Window for the non-uid streams: the matched commands' span, expanded by
+    // the node window only when they overlap (a stale node window from a
+    // previous run must not pull in unrelated events).
+    const window = this.#resolveWindow(this.#spanOf(commands), nodeWindow)
     if (!window) {
       return undefined
     }
@@ -328,7 +395,7 @@ class BaselineStore {
       window,
       test: this.#buildTestSnapshot(node),
       steps: steps.length > 0 ? steps : undefined,
-      commands: this.#activeRun.commands.filter((c) => inWindow(c.timestamp)),
+      commands,
       consoleLogs: this.#activeRun.consoleLogs.filter((c) =>
         inWindow(c.timestamp)
       ),
@@ -337,6 +404,30 @@ class BaselineStore {
       ),
       mutations: this.#activeRun.mutations.filter((m) => inWindow(m.timestamp)),
       sources: { ...this.#activeRun.sources }
+    }
+  }
+
+  /** Window for the non-uid event streams: the command span, expanded by the
+   *  node window only when the two overlap (same run). A disjoint node window
+   *  is stale — ignore it so the snapshot tracks the run the commands came from. */
+  #resolveWindow(
+    commandSpan: { start: number; end: number } | undefined,
+    nodeWindow: { start: number; end: number } | undefined
+  ): { start: number; end: number } | undefined {
+    if (!commandSpan) {
+      return nodeWindow
+    }
+    if (!nodeWindow) {
+      return commandSpan
+    }
+    const overlap =
+      nodeWindow.start <= commandSpan.end && nodeWindow.end >= commandSpan.start
+    if (!overlap) {
+      return commandSpan
+    }
+    return {
+      start: Math.min(commandSpan.start, nodeWindow.start),
+      end: Math.max(commandSpan.end, nodeWindow.end)
     }
   }
 

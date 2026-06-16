@@ -224,38 +224,45 @@ export class DevtoolsCompare extends Element {
     return html`
       <div class="topbar">
         <span class="pill ${baseline.test.state || ''}">
+          <i class="dot"></i>
           Baseline · ${baseline.test.state || 'unknown'} · ${baselineCount}
           commands
         </span>
-        <span>⇄</span>
-        <span class="pill"> Latest · ${latestCount} commands </span>
-        <span style="opacity:0.6; font-size:0.85em;">
+        <span class="swap-ico">⇄</span>
+        <span class="pill">
+          <i class="dot"></i> Latest · ${latestCount} commands
+        </span>
+        <span class="scope">
           ${baseline.scope === 'suite' ? 'suite scope' : 'test scope'}
         </span>
-        <label class="toggle-label" style="margin-left:auto;">
-          <input
-            type="checkbox"
-            .checked=${this.differencesOnly}
-            @change="${(e: Event) =>
-              (this.differencesOnly = (e.target as HTMLInputElement).checked)}"
-          />
-          Differences only
-        </label>
-        <button
-          class="action"
-          @click="${() => (this.swapped = !this.swapped)}"
-          title="Swap sides"
-        >
-          Swap
-        </button>
-        <button
-          class="action"
-          @click="${() => this.#clearBaseline()}"
-          title="Drop this baseline"
-        >
-          Clear
-        </button>
-        ${this.#renderPopoutButton()}
+        <div class="actions-group">
+          <label class="toggle-label">
+            <input
+              type="checkbox"
+              .checked=${this.differencesOnly}
+              @change="${(e: Event) =>
+                (this.differencesOnly = (
+                  e.target as HTMLInputElement
+                ).checked)}"
+            />
+            Differences only
+          </label>
+          <button
+            class="action"
+            @click="${() => (this.swapped = !this.swapped)}"
+            title="Swap sides"
+          >
+            Swap
+          </button>
+          <button
+            class="action"
+            @click="${() => this.#clearBaseline()}"
+            title="Drop this baseline"
+          >
+            Clear
+          </button>
+          ${this.#renderPopoutButton()}
+        </div>
       </div>
     `
   }
@@ -286,12 +293,16 @@ export class DevtoolsCompare extends Element {
             <div class="error-banner-message">${errorMessage}</div>
           </div>`
         : nothing}
-      <div class="compare-grid">
-        <div class="col-header">${this.swapped ? 'Latest' : 'Baseline'}</div>
-        <div class="col-header">${this.swapped ? 'Baseline' : 'Latest'}</div>
-        ${visiblePairs.map((pair) =>
-          this.#renderPair(pair, leftCommands, rightCommands, firstDivergent)
-        )}
+      <div class="cmp-body">
+        <div class="cmp-colhead">
+          <div class="col-header">${this.swapped ? 'Latest' : 'Baseline'}</div>
+          <div class="col-header">${this.swapped ? 'Baseline' : 'Latest'}</div>
+        </div>
+        <div class="cmp-rows">
+          ${visiblePairs.map((pair) =>
+            this.#renderPair(pair, leftCommands, rightCommands, firstDivergent)
+          )}
+        </div>
       </div>
     `
   }

@@ -119,7 +119,11 @@ export class SessionCapturer extends SessionCapturerBase {
   readonly snapshotCaptures: Promise<void>[] = []
 
   constructor(
-    devtoolsOptions: { hostname?: string; port?: number } = {},
+    devtoolsOptions: {
+      hostname?: string
+      port?: number
+      reconnect?: boolean
+    } = {},
     browser?: NightwatchBrowser
   ) {
     super(devtoolsOptions)
