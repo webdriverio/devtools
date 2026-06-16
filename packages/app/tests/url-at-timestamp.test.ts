@@ -55,21 +55,35 @@ function cmd(command: string, timestamp: number, args: unknown[]): CommandLog {
 }
 
 describe('commandPageUrl', () => {
-  // The destination nav mutation lands *after* the navigation command's time.
-  const mutations = [nav(100, 'https://a.com'), nav(300, 'https://b.com')]
+  const urlA = cmd('url', 100, ['https://a.com'])
+  const urlB = cmd('url', 300, ['https://b.com'])
+  const typeOnB = cmd('setValue', 400, ['#q', 'hello'])
+  const commands = [urlA, urlB, typeOnB]
 
-  it('uses a navigation command argument (mutation lands after its time)', () => {
-    const urlCmd = cmd('url', 200, ['https://b.com'])
-    expect(commandPageUrl(urlCmd, mutations)).toBe('https://b.com')
+  it('a navigation command resolves to its own destination', () => {
+    expect(commandPageUrl(urlB, commands, [])).toBe('https://b.com')
   })
 
-  it('falls back to the active page for non-navigation commands', () => {
+  it('a later command resolves to the most recent navigation before it', () => {
+    // setValue ran on page B even when B was never captured as a mutation
+    expect(commandPageUrl(typeOnB, commands, [])).toBe('https://b.com')
+  })
+
+  it('a command before any later navigation keeps the earlier page', () => {
+    const typeOnA = cmd('setValue', 200, ['#q', 'hi'])
+    expect(commandPageUrl(typeOnA, [urlA, urlB, typeOnA], [])).toBe(
+      'https://a.com'
+    )
+  })
+
+  it('falls back to the mutation stream when no navigation command exists', () => {
     const getText = cmd('getText', 200, ['#flash'])
-    expect(commandPageUrl(getText, mutations)).toBe('https://a.com')
+    const mutations = [nav(100, 'https://a.com')]
+    expect(commandPageUrl(getText, [getText], mutations)).toBe('https://a.com')
   })
 
   it('ignores non-URL navigation args (e.g. back/switchWindow)', () => {
-    const back = cmd('back', 200, [])
-    expect(commandPageUrl(back, mutations)).toBe('https://a.com')
+    const back = cmd('back', 500, [])
+    expect(commandPageUrl(back, [urlB, back], [])).toBe('https://b.com')
   })
 })

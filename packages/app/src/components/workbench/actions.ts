@@ -56,13 +56,16 @@ export class DevtoolsActions extends Element {
   @consume({ context: commandContext, subscribe: true })
   commands: CommandLog[] = []
 
+  // The selected timeline row, tracked by object reference — timestamps aren't
+  // unique (commands logged in the same millisecond would all match), so
+  // reference identity is what highlights exactly one row.
   @state()
-  private activeTimestamp?: number
+  private activeEntry?: TimelineEntry
 
   #onShowCommand = (event: Event) => {
     const command = (event as CustomEvent<{ command?: CommandLog }>).detail
       ?.command
-    this.activeTimestamp = command?.timestamp
+    this.activeEntry = command
     // Follow the call site in the Source editor passively — the Log tab is what
     // surfaces on a command click, so stealing focus to Source would flash.
     if (command?.callSource) {
@@ -75,9 +78,7 @@ export class DevtoolsActions extends Element {
   }
 
   #onSelectMutation = (event: Event) => {
-    this.activeTimestamp = (
-      event as CustomEvent<TraceMutation>
-    ).detail?.timestamp
+    this.activeEntry = (event as CustomEvent<TraceMutation>).detail
   }
 
   // Screencast playback drives the highlight to the action at the current frame.
@@ -90,11 +91,11 @@ export class DevtoolsActions extends Element {
       entries.map((entry) => entry.timestamp),
       time
     )
-    if (timestamp === this.activeTimestamp) {
+    const active = entries.find((entry) => entry.timestamp === timestamp)
+    if (active === this.activeEntry) {
       return
     }
-    this.activeTimestamp = timestamp
-    const active = entries.find((entry) => entry.timestamp === timestamp)
+    this.activeEntry = active
     if (active && 'command' in active && active.callSource) {
       window.dispatchEvent(
         new CustomEvent('app-source-track', {
@@ -138,7 +139,7 @@ export class DevtoolsActions extends Element {
 
   // Keep the action that's playing in view as the screencast scrubs.
   updated(changed: Map<string, unknown>): void {
-    if (changed.has('activeTimestamp') && this.activeTimestamp !== undefined) {
+    if (changed.has('activeEntry') && this.activeEntry !== undefined) {
       this.renderRoot
         .querySelector('[active]')
         ?.scrollIntoView({ block: 'nearest' })
@@ -157,7 +158,7 @@ export class DevtoolsActions extends Element {
     const rows = entries.map((entry, index) => {
       const elapsedTime = entry.timestamp - baselineTimestamp
       const duration = durations[index]
-      const active = entry.timestamp === this.activeTimestamp
+      const active = entry === this.activeEntry
 
       if ('command' in entry) {
         return html`

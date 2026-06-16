@@ -282,7 +282,8 @@ export class DevtoolsBrowser extends Element {
     // URL, so resolve it from the navigation active at the command's time.
     if (command) {
       this.#activeUrl =
-        commandPageUrl(command, this.mutations ?? []) ?? this.#activeUrl
+        commandPageUrl(command, this.commands ?? [], this.mutations ?? []) ??
+        this.#activeUrl
     }
     // Switch to snapshot mode so the command screenshot is visible instead of the video.
     this.#viewMode = 'snapshot'
