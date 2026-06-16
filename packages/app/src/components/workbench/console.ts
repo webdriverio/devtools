@@ -101,7 +101,7 @@ export class DevtoolsConsoleLogs extends Element {
       .log-entry {
         display: grid;
         grid-template-columns: 46px 16px auto 1fr;
-        align-items: baseline;
+        align-items: start;
         gap: 10px;
         padding: 4px 14px;
         border-bottom: 1px solid var(--vscode-panel-border);
@@ -134,6 +134,7 @@ export class DevtoolsConsoleLogs extends Element {
       }
       .log-icon {
         text-align: center;
+        line-height: 1.55;
         color: var(--vscode-descriptionForeground);
       }
       .log-entry.log-type-error .log-icon,
@@ -149,9 +150,9 @@ export class DevtoolsConsoleLogs extends Element {
       }
 
       .log-badge {
-        align-self: center;
         justify-self: start;
         font-size: 9.5px;
+        line-height: 1.55;
         font-weight: 700;
         letter-spacing: 0.4px;
         padding: 2px 6px;
