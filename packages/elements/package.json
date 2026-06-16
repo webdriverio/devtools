@@ -30,7 +30,6 @@
   },
   "scripts": {
     "build": "tsup",
-    "postbuild": "pnpm pack",
     "watch": "tsup --watch",
     "lint": "eslint . --fix",
     "test": "vitest run",

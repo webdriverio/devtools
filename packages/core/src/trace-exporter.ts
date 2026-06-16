@@ -402,7 +402,8 @@ function buildTraceBundle(
   const pageId = `page@${idPrefix}`
   const viewport = trace.metadata.viewport ?? { width: 1280, height: 720 }
   const snapshots = trace.actionSnapshots ?? []
-  const events: TraceEvent[] = [buildContextOptions(trace, contextId, wallTime)]
+  const ctxOptions = buildContextOptions(trace, contextId, wallTime)
+  const events: TraceEvent[] = [ctxOptions]
 
   // Emit initial screencast-frame (timestamp=0) using the first snapshot's
   // resources so trace viewers show the page state before any interaction.
@@ -438,10 +439,7 @@ function buildTraceBundle(
     ...buildActionEvents(trace.commands, pageId, wallTime)
   )
   events.sort(compareEvents)
-  const caps = trace.metadata.capabilities as
-    | Record<string, unknown>
-    | undefined
-  const ctxBName = resolveContextNaming(caps).title
+  const ctxBName = ctxOptions.title
   return {
     traceNdjson: events.map((e) => JSON.stringify(e)).join('\n') + '\n',
     networkNdjson: buildNetworkNdjson(trace.networkRequests, wallTime, pageId),

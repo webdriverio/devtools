@@ -1,18 +1,16 @@
 import logger from '@wdio/logger'
 import {
   SessionCapturerBase,
-  createConsoleLogEntry,
   errorMessage,
   loadInjectableScript,
   mapChromeBrowserLogs,
   pollUntilReady,
-  serializeError,
-  type LogSource
+  serializeError
 } from '@wdio/devtools-core'
 import { WS_SCOPE } from '@wdio/devtools-shared'
 import { NAVIGATION_COMMANDS } from './constants.js'
 import { getDriverOriginals } from './driverPatcher.js'
-import type { CommandLog, LogLevel, SeleniumDriverLike } from './types.js'
+import type { CommandLog, SeleniumDriverLike } from './types.js'
 
 const log = logger('@wdio/selenium-devtools:SessionCapturer')
 
@@ -75,20 +73,6 @@ export class SessionCapturer extends SessionCapturerBase {
     } else if (parsed?.scope === WS_SCOPE.clientDisconnected) {
       this.#onClientDisconnected?.()
     }
-  }
-
-  /**
-   * Push every captured line into the local `consoleLogs` array so it ends up
-   * in any future trace export, in addition to the live WS broadcast.
-   */
-  protected override onLine(
-    type: LogLevel,
-    args: string[],
-    source: LogSource
-  ): void {
-    const entry = createConsoleLogEntry(type, args, source)
-    this.consoleLogs.push(entry)
-    this.sendUpstream('consoleLogs', [entry])
   }
 
   setDriver(driver: SeleniumDriverLike) {
