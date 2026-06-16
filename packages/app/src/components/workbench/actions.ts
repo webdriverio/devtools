@@ -63,10 +63,13 @@ export class DevtoolsActions extends Element {
     const command = (event as CustomEvent<{ command?: CommandLog }>).detail
       ?.command
     this.activeTimestamp = command?.timestamp
-    // Explicit click → jump to the call site and surface the Source tab.
+    // Follow the call site in the Source editor passively — the Log tab is what
+    // surfaces on a command click, so stealing focus to Source would flash.
     if (command?.callSource) {
       window.dispatchEvent(
-        new CustomEvent('app-source-highlight', { detail: command.callSource })
+        new CustomEvent('app-source-track', {
+          detail: { callSource: command.callSource }
+        })
       )
     }
   }

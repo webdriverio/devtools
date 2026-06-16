@@ -1,10 +1,24 @@
 import { Element } from '@core/element'
-import { html, css, nothing } from 'lit'
-import { customElement } from 'lit/decorators.js'
+import { html, css } from 'lit'
+import { customElement, state } from 'lit/decorators.js'
 import { consume } from '@lit/context'
 
 import { consoleLogContext } from '../../controller/context.js'
-import { LOG_ICONS } from '../../controller/constants.js'
+import { LOG_ICONS, CONSOLE_SOURCE_BADGE } from '../../controller/constants.js'
+import {
+  filterConsoleLogs,
+  formatConsoleArgs,
+  type ConsoleLevelFilter
+} from './console-filter.js'
+
+const LEVEL_FILTERS: ReadonlyArray<{ key: ConsoleLevelFilter; label: string }> =
+  [
+    { key: 'all', label: 'All' },
+    { key: 'error', label: 'Errors' },
+    { key: 'warn', label: 'Warnings' },
+    { key: 'info', label: 'Info' },
+    { key: 'log', label: 'Logs' }
+  ]
 
 const SOURCE_COMPONENT = 'wdio-devtools-console-logs'
 @customElement(SOURCE_COMPONENT)
@@ -21,107 +35,153 @@ export class DevtoolsConsoleLogs extends Element {
         position: relative;
       }
 
+      /* ── Toolbar: filter input + segmented level filter ── */
+      .console-header {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 14px;
+        flex-shrink: 0;
+      }
+      .search-input {
+        flex: 1;
+        max-width: 280px;
+        padding: 6px 10px;
+        border: 1px solid var(--vscode-panel-border);
+        background: var(--vscode-input-background);
+        color: var(--vscode-foreground);
+        border-radius: 8px;
+        font-size: 12px;
+      }
+      .search-input::placeholder {
+        color: var(--vscode-descriptionForeground);
+      }
+      .search-input:focus {
+        outline: none;
+        border-color: var(--accent);
+      }
+      .filter-tabs {
+        display: flex;
+        gap: 2px;
+        padding: 2px;
+        border: 1px solid var(--vscode-panel-border);
+        border-radius: 8px;
+        background: var(--vscode-input-background);
+      }
+      .filter-tab {
+        border: none;
+        background: transparent;
+        color: var(--vscode-descriptionForeground);
+        cursor: pointer;
+        font-size: 11px;
+        font-weight: 600;
+        padding: 4px 10px;
+        border-radius: 6px;
+        transition:
+          background-color 0.15s ease,
+          color 0.15s ease;
+      }
+      .filter-tab:hover {
+        color: var(--vscode-foreground);
+      }
+      .filter-tab.active {
+        background: var(--accent);
+        color: var(--accent-foreground);
+      }
+
+      /* ── Log list ── */
       .console-container {
         flex: 1;
         overflow-y: auto;
-        font-family:
-          'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas,
-          'Courier New', monospace;
-        font-size: 13px;
-        line-height: 1.6;
+        font-family: var(--vscode-editor-font-family);
+        font-size: 12px;
+        padding: 4px 0;
       }
 
       .log-entry {
-        display: flex;
-        align-items: flex-start;
-        padding: 2px 8px;
-        border-bottom: 1px solid rgba(128, 128, 128, 0.05);
-        min-height: 22px;
+        display: grid;
+        grid-template-columns: 46px 16px auto 1fr;
+        align-items: baseline;
+        gap: 10px;
+        padding: 4px 14px;
+        border-bottom: 1px solid var(--vscode-panel-border);
+        line-height: 1.55;
       }
-
       .log-entry:hover {
-        background-color: rgba(255, 255, 255, 0.02);
+        background-color: var(--vscode-list-hoverBackground);
       }
-
       .log-entry.log-type-error {
-        background-color: rgba(244, 135, 113, 0.03);
+        background-color: color-mix(
+          in srgb,
+          var(--vscode-charts-red) 6%,
+          transparent
+        );
       }
-
       .log-entry.log-type-warn {
-        background-color: rgba(205, 151, 49, 0.03);
-      }
-
-      .log-entry.log-type-info {
-        background-color: rgba(14, 99, 156, 0.03);
-      }
-
-      .log-time,
-      .log-icon {
-        flex-shrink: 0;
+        background-color: color-mix(
+          in srgb,
+          var(--vscode-charts-yellow) 6%,
+          transparent
+        );
       }
 
       .log-time {
-        width: 45px;
         text-align: right;
-        margin-right: 12px;
-        font-size: 11px;
-        opacity: 0.5;
-        user-select: none;
+        font-size: 10.5px;
         color: var(--vscode-editorLineNumber-foreground);
-        line-height: 18px;
+        font-variant-numeric: tabular-nums;
+        user-select: none;
       }
-
       .log-icon {
-        margin-right: 8px;
-        font-size: 14px;
-        line-height: 18px;
+        text-align: center;
+        color: var(--vscode-descriptionForeground);
+      }
+      .log-entry.log-type-error .log-icon,
+      .log-entry.log-type-error .log-message {
+        color: var(--vscode-charts-red);
+      }
+      .log-entry.log-type-warn .log-icon,
+      .log-entry.log-type-warn .log-message {
+        color: var(--vscode-charts-yellow);
+      }
+      .log-entry.log-type-info .log-icon {
+        color: var(--vscode-charts-blue);
       }
 
-      .log-prefix {
-        flex-shrink: 0;
-        color: var(--vscode-foreground);
-        opacity: 0.8;
-        margin-right: 4px;
-        font-weight: 600;
+      .log-badge {
+        align-self: center;
+        justify-self: start;
+        font-size: 9.5px;
+        font-weight: 700;
+        letter-spacing: 0.4px;
+        padding: 2px 6px;
+        border-radius: 5px;
       }
-
-      .log-prefix.source-test {
-        color: #4ec9b0;
+      .b-test {
+        color: var(--vscode-charts-green);
+        background: color-mix(
+          in srgb,
+          var(--vscode-charts-green) 14%,
+          transparent
+        );
       }
-
-      .log-prefix.source-terminal {
-        color: #ce9178;
+      .b-runner {
+        color: var(--accent);
+        background: color-mix(in srgb, var(--accent) 14%, transparent);
       }
-
-      .log-prefix.source-browser {
-        color: #569cd6;
-      }
-
-      .log-content {
-        flex: 1;
-        min-width: 0;
-        word-break: break-word;
-        line-height: 18px;
-        display: flex;
-        align-items: baseline;
+      .b-browser {
+        color: var(--vscode-charts-blue);
+        background: color-mix(
+          in srgb,
+          var(--vscode-charts-blue) 14%,
+          transparent
+        );
       }
 
       .log-message {
         color: var(--vscode-foreground);
         white-space: pre-wrap;
         word-break: break-word;
-      }
-
-      .log-entry.log-type-error .log-message {
-        color: #f48771;
-      }
-
-      .log-entry.log-type-warn .log-message {
-        color: #cd9731;
-      }
-
-      .log-entry.log-type-info .log-message {
-        color: #75beff;
       }
 
       .empty-state {
@@ -134,12 +194,10 @@ export class DevtoolsConsoleLogs extends Element {
         gap: 12px;
         color: var(--vscode-descriptionForeground);
       }
-
       .empty-state-icon {
         font-size: 48px;
         opacity: 0.3;
       }
-
       .empty-state-text {
         font-size: 14px;
         opacity: 0.6;
@@ -149,6 +207,12 @@ export class DevtoolsConsoleLogs extends Element {
 
   @consume({ context: consoleLogContext, subscribe: true })
   logs: ConsoleLogs[] | undefined = undefined
+
+  @state()
+  private searchText = ''
+
+  @state()
+  private activeLevel: ConsoleLevelFilter = 'all'
 
   get logCount(): number {
     return this.logs?.length || 0
@@ -164,22 +228,34 @@ export class DevtoolsConsoleLogs extends Element {
     return `${elapsed.toFixed(1)}s`
   }
 
-  #formatArgs(args: unknown): string {
-    if (Array.isArray(args)) {
-      return args
-        .map((arg) => {
-          if (typeof arg === 'string') {
-            return arg
-          }
-          try {
-            return JSON.stringify(arg, null, 2)
-          } catch {
-            return String(arg)
-          }
-        })
-        .join(' ')
-    }
-    return String(args)
+  #renderToolbar() {
+    return html`
+      <div class="console-header">
+        <input
+          class="search-input"
+          type="text"
+          placeholder="Filter logs"
+          .value=${this.searchText}
+          @input=${(e: Event) => {
+            this.searchText = (e.target as HTMLInputElement).value
+          }}
+        />
+        <div class="filter-tabs">
+          ${LEVEL_FILTERS.map(
+            ({ key, label }) => html`
+              <button
+                class="filter-tab ${this.activeLevel === key ? 'active' : ''}"
+                @click=${() => {
+                  this.activeLevel = key
+                }}
+              >
+                ${label}
+              </button>
+            `
+          )}
+        </div>
+      </div>
+    `
   }
 
   #renderEmptyState() {
@@ -193,31 +269,17 @@ export class DevtoolsConsoleLogs extends Element {
 
   #renderLogEntry(log: ConsoleLogs) {
     const icon = LOG_ICONS[log.type] || LOG_ICONS.log
-    const sourceLabel =
-      log.source === 'test'
-        ? '[TEST]'
-        : log.source === 'terminal'
-          ? '[WDIO]'
-          : log.source === 'browser'
-            ? '[BROWSER]'
-            : ''
-    const sourceClass = log.source ? `source-${log.source}` : ''
+    const badge = log.source ? CONSOLE_SOURCE_BADGE[log.source] : undefined
     return html`
       <div class="log-entry log-type-${log.type || 'log'}">
-        ${log.timestamp
-          ? html`<div class="log-time">
-              ${this.#formatElapsedTime(log.timestamp)}
-            </div>`
-          : nothing}
-        <div class="log-icon">${icon}</div>
-        <div class="log-content">
-          ${sourceLabel
-            ? html`<span class="log-prefix ${sourceClass}"
-                >${sourceLabel}</span
-              >`
-            : nothing}
-          <span class="log-message">${this.#formatArgs(log.args)}</span>
+        <div class="log-time">
+          ${log.timestamp ? this.#formatElapsedTime(log.timestamp) : ''}
         </div>
+        <div class="log-icon">${icon}</div>
+        ${badge
+          ? html`<span class="log-badge ${badge.class}">${badge.label}</span>`
+          : html`<span></span>`}
+        <span class="log-message">${formatConsoleArgs(log.args)}</span>
       </div>
     `
   }
@@ -226,9 +288,19 @@ export class DevtoolsConsoleLogs extends Element {
     if (!this.logs || this.logs.length === 0) {
       return this.#renderEmptyState()
     }
+    const visible = filterConsoleLogs(
+      this.logs,
+      this.activeLevel,
+      this.searchText
+    )
     return html`
+      ${this.#renderToolbar()}
       <div class="console-container">
-        ${this.logs.map((log) => this.#renderLogEntry(log))}
+        ${visible.length
+          ? visible.map((log) => this.#renderLogEntry(log))
+          : html`<div class="empty-state-text" style="padding: 16px 14px">
+              No logs match the current filter.
+            </div>`}
       </div>
     `
   }

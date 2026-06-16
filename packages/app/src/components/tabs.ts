@@ -38,6 +38,18 @@ export class DevtoolsTabs extends Element {
         color: var(--vscode-foreground);
         font-weight: 600;
       }
+      .tab-badge {
+        font-size: 11px;
+        line-height: 1.4;
+        padding: 1px 7px;
+        border-radius: 999px;
+        background: color-mix(
+          in srgb,
+          var(--vscode-foreground) 10%,
+          transparent
+        );
+        color: var(--vscode-descriptionForeground);
+      }
     `
   ]
 
@@ -57,13 +69,7 @@ export class DevtoolsTabs extends Element {
           : 'border-transparent'}"
       >
         <span>${tabId}</span>
-        ${showBadge
-          ? html`<span
-              class="inline-flex items-center justify-center min-w-[20px] px-1.5 py-0.5 text-xs font-semibold rounded-full"
-              style="background-color: #5a5a5a; color: #ffffff;"
-              >${badge}</span
-            >`
-          : nothing}
+        ${showBadge ? html`<span class="tab-badge">${badge}</span>` : nothing}
       </button>
     `
   }
