@@ -26,19 +26,39 @@ export function urlAtTimestamp(
   return url
 }
 
-/** The page URL a command's screenshot shows. A navigation command changes the
- *  page — the new URL only appears in the mutation stream *after* the command's
- *  timestamp, so use its destination argument; every other command runs on the
- *  page already active at its time. */
+/** First argument of a navigation command when it's an absolute URL — `url`,
+ *  `navigateTo` etc. carry their destination there. */
+function navigationTarget(command: CommandLog): string | undefined {
+  if (commandCategory(command.command) !== 'navigation') {
+    return undefined
+  }
+  const target = command.args?.[0]
+  return typeof target === 'string' && ABSOLUTE_URL.test(target)
+    ? target
+    : undefined
+}
+
+/** The page URL a command's screenshot shows: the destination of the most
+ *  recent navigation command at or before it (the command itself when it
+ *  navigates). The command stream is authoritative — unlike the DOM mutation
+ *  stream it captures every navigation even on pages that block DOM capture —
+ *  so mutations are only a fallback for traces without command navigations. */
 export function commandPageUrl(
   command: CommandLog,
+  commands: CommandLog[],
   mutations: TraceMutation[]
 ): string | undefined {
-  if (commandCategory(command.command) === 'navigation') {
-    const target = command.args?.[0]
-    if (typeof target === 'string' && ABSOLUTE_URL.test(target)) {
-      return target
+  let url: string | undefined
+  let best = -Infinity
+  for (const candidate of commands) {
+    if (candidate.timestamp > command.timestamp || candidate.timestamp < best) {
+      continue
+    }
+    const target = navigationTarget(candidate)
+    if (target) {
+      best = candidate.timestamp
+      url = target
     }
   }
-  return urlAtTimestamp(mutations, command.timestamp)
+  return url ?? urlAtTimestamp(mutations, command.timestamp)
 }
