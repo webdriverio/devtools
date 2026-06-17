@@ -201,12 +201,18 @@ export const compareStyles = css`
   }
 
   /* ── Per-cell status markers ── */
+  /* Only the first marker pushes the group to the right edge; any following
+     marker (e.g. the ✓ after an "only here" tag) sits adjacent, so the ✓
+     stays in the same right-edge column across rows. */
   .marker {
-    margin-left: auto;
+    margin-left: 8px;
     font-family: var(--vscode-font-family, sans-serif);
     font-size: 10px;
     padding: 1px 7px;
     border-radius: 5px;
+  }
+  .step-cell .marker:first-of-type {
+    margin-left: auto;
   }
   .marker.ok {
     padding: 0;
