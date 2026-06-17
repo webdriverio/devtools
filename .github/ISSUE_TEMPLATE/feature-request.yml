@@ -1,0 +1,75 @@
+name: 💡 Feature request
+description: Propose a new capability or improvement for DevTools.
+title: "[💡 Feature]: <title>"
+labels: [Idea 💡, Needs Triaging ⏳]
+body:
+
+  - type: markdown
+    attributes:
+      value: |
+        DevTools aims to give the same debugging experience across WebdriverIO, Nightwatch, and Selenium. Ideas that work for all three (or clearly belong to one) are the easiest for us to plan — tell us what you're trying to do and we'll figure out where it fits.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      description: Describe the workflow or pain point behind the request, not just the feature.
+      placeholder: |
+        e.g. "When a test fails I can see the network calls, but I can't tell which one
+        the failing assertion was waiting on, so I jump back to the terminal to correlate timestamps."
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: What would you like DevTools to do?
+      description: How should this work from your point of view?
+    validations:
+      required: true
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Which part of DevTools would this touch?
+      description: Best guess is fine — it helps us route the idea.
+      multiple: true
+      options:
+        - Dashboard UI
+        - Capture / reporting core
+        - WebdriverIO adapter
+        - Nightwatch adapter
+        - Selenium adapter
+        - Backend / server
+        - Not sure
+    validations:
+      required: false
+
+  - type: dropdown
+    id: frameworks
+    attributes:
+      label: Which frameworks should this apply to?
+      multiple: true
+      options:
+        - WebdriverIO
+        - Nightwatch
+        - Selenium
+        - All of them
+    validations:
+      required: false
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Anything you've tried or considered?
+      description: Workarounds you currently use, or alternative designs you weighed.
+    validations:
+      required: false
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Anything else?
+      description: Mockups, screenshots, links, or related issues.
+    validations:
+      required: false
