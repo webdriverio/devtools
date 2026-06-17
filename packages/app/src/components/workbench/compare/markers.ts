@@ -98,11 +98,13 @@ export function renderMarker(
   }
   const statusMarker = renderStatusMarker(cmd, step, allCmdsThisSide)
   if (kind === 'missing' && !oneSideEntirelyEmpty) {
-    return html`${statusMarker}<span
+    // `only here` before the status so the ✓ stays in the right-edge column,
+    // aligned with rows that show only a ✓.
+    return html`<span
         class="marker info"
         title="Only present on this side — the other run ended before this step"
         >only here</span
-      >`
+      >${statusMarker}`
   }
   return statusMarker
 }
