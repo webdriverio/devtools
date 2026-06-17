@@ -296,9 +296,7 @@ export class DevtoolsWorkbench extends Element {
             <wdio-devtools-browser></wdio-devtools-browser>
           </section>
           ${!this.#toolbarCollapsed
-            ? this.#dragVertical.getSlider(
-                'z-[999] -mt-[5px] pointer-events-auto'
-              )
+            ? this.#dragVertical.getSlider('z-[999] pointer-events-auto')
             : nothing}
           ${this.#renderWorkbenchTabs()}
         </section>
