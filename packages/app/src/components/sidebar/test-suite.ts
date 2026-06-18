@@ -106,6 +106,10 @@ export class ExplorerTestEntry extends CollapseableEntry {
         background: color-mix(in srgb, var(--accent) 14%, transparent);
         box-shadow: inset 2px 0 0 var(--accent);
       }
+      /* a selected row keeps its action buttons visible without hover */
+      :host([selected]) .row-actions {
+        opacity: 1;
+      }
 
       :host(:not([has-children])) ::slotted(label) {
         color: var(--vscode-descriptionForeground);
@@ -365,7 +369,7 @@ export class ExplorerTestEntry extends CollapseableEntry {
   #renderToolbar(hasNoChildren: boolean) {
     return html`
       <nav
-        class="flex-none ml-auto mr-1 transition-opacity opacity-0 group-hover/sidebar:opacity-100"
+        class="row-actions flex-none ml-auto mr-1 transition-opacity opacity-0 group-hover/sidebar:opacity-100"
       >
         ${this.#renderRunStopButtons()}
         ${!hasNoChildren

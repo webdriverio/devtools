@@ -129,19 +129,31 @@ async function attachLogInspector(
   }
 }
 
+/** Subset of WebDriver BiDi `FetchTimingInfo` (selenium exposes these via
+ *  getters). Values are ms offsets from the request baseline `requestTime`
+ *  (usually 0), so `responseEnd - requestTime` is the request duration. */
+interface FetchTimings {
+  requestTime?: number
+  responseEnd?: number
+}
+
+const isFiniteNumber = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isFinite(value)
+
 interface BeforeRequestSentEvent {
   request?: {
     request?: string
     url?: string
     method?: string
     headers?: unknown
+    timings?: FetchTimings
   }
   id?: string
   timestamp?: number
 }
 
 interface ResponseCompletedEvent {
-  request?: { request?: string }
+  request?: { request?: string; timings?: FetchTimings }
   id?: string
   timestamp?: number
   response?: {
@@ -151,6 +163,29 @@ interface ResponseCompletedEvent {
     mimeType?: string
     bytesReceived?: number
   }
+}
+
+/** Request duration (ms) from the browser's FetchTimingInfo, plus a derived
+ *  endTime anchored to `startTime`. The browser timings are immune to BiDi
+ *  events arriving batched in one tick (which collapses the event-level
+ *  `timestamp`/`Date.now()` to a single value and yields 0-duration requests).
+ *  Falls back to the timestamp diff only when timings are unavailable. */
+function bidiResponseTiming(
+  timings: FetchTimings | undefined,
+  startTime: number,
+  timestamp?: number
+): { endTime: number; time: number } {
+  if (
+    timings &&
+    isFiniteNumber(timings.requestTime) &&
+    isFiniteNumber(timings.responseEnd) &&
+    timings.responseEnd > timings.requestTime
+  ) {
+    const time = Math.round(timings.responseEnd - timings.requestTime)
+    return { endTime: startTime + time, time }
+  }
+  const endTime = Number(timestamp ?? Date.now())
+  return { endTime, time: Math.max(0, endTime - startTime) }
 }
 
 export function handleBidiRequestSent(
@@ -194,14 +229,19 @@ export function handleBidiResponseCompleted(
     if (!previous) {
       return
     }
+    const { endTime, time } = bidiResponseTiming(
+      event?.request?.timings,
+      previous.startTime,
+      event?.timestamp
+    )
     const finalized: NetworkRequest = {
       ...previous,
       status: Number(event?.response?.status) || previous.status,
       statusText: event?.response?.statusText ?? previous.statusText,
       responseHeaders: arrayHeadersToObject(event?.response?.headers),
       type: getRequestType(previous.url, event?.response?.mimeType),
-      endTime: Number(event?.timestamp ?? Date.now()),
-      time: Number(event?.timestamp ?? Date.now()) - previous.startTime,
+      endTime,
+      time,
       size: Number(event?.response?.bytesReceived) || undefined
     }
     pending.delete(requestId)

@@ -247,6 +247,43 @@ describe('handleBidiResponseCompleted', () => {
     expect(networkRequests).toHaveLength(1)
   })
 
+  it('derives duration from FetchTimingInfo even when event timestamps are identical (batched delivery)', () => {
+    const { sinks, replacements } = makeSinks()
+    const pending = new Map<string, NetworkRequest>()
+    // Both events share timestamp 500 — as happens when BiDi delivers them in
+    // one tick. The timestamp diff is 0, but the timings give the real duration
+    // (responseEnd - requestTime), anchored to the start time.
+    const timings = { requestTime: 0, responseEnd: 150 }
+    handleBidiRequestSent(
+      {
+        request: {
+          request: 'req-t',
+          url: 'https://x/a',
+          method: 'GET',
+          timings
+        },
+        timestamp: 500
+      },
+      pending,
+      sinks,
+      silentLog
+    )
+    handleBidiResponseCompleted(
+      {
+        request: { request: 'req-t', timings },
+        timestamp: 500,
+        response: { status: 200 }
+      },
+      pending,
+      sinks,
+      silentLog
+    )
+    const entry = replacements[0].entry
+    expect(entry.startTime).toBe(500) // beforeRequestSent event timestamp
+    expect(entry.time).toBe(150) // responseEnd - requestTime
+    expect(entry.endTime).toBe(650) // startTime + duration
+  })
+
   it('is a no-op when the requestId is not in the pending map', () => {
     const { sinks, replacements } = makeSinks()
     handleBidiResponseCompleted(
