@@ -1,75 +1,106 @@
 import { Element } from '@core/element'
-import { html, css, type PropertyValues } from 'lit'
+import { html, nothing, type PropertyValues } from 'lit'
 import { customElement, state } from 'lit/decorators.js'
 import { consume } from '@lit/context'
 
 import { EditorView, basicSetup } from 'codemirror'
-import type { EditorViewConfig } from '@codemirror/view'
+import { Decoration, type DecorationSet } from '@codemirror/view'
+import { StateField, StateEffect, type EditorState } from '@codemirror/state'
 import { javascript } from '@codemirror/lang-javascript'
 import { oneDark } from '@codemirror/theme-one-dark'
 
-import { sourceContext } from '../../controller/context.js'
+import type { CommandLog } from '@wdio/devtools-shared'
+
+import { sourceContext, commandContext } from '../../controller/context.js'
+import { commandCategory, type ActionCategory } from './actionItems/category.js'
+import { parseCallSource, fileBasename, pathSegments } from './call-source.js'
+import { sourceStyles } from './source/styles.js'
 
 import '../placeholder.js'
+
+/** Category → theme token for the call-site accent (`--cs`). */
+const CATEGORY_VAR: Record<ActionCategory, string> = {
+  navigation: 'var(--vscode-charts-blue)',
+  input: 'var(--vscode-charts-purple)',
+  assertion: 'var(--vscode-charts-green)',
+  query: 'var(--vscode-charts-yellow)',
+  other: 'var(--vscode-descriptionForeground)'
+}
+
+/** Sets/clears the highlighted call-site line (1-based, or null to clear). */
+const setCallSite = StateEffect.define<number | null>()
+
+function lineDecoration(state: EditorState, line: number): DecorationSet {
+  try {
+    const info = state.doc.line(line)
+    return Decoration.set([
+      Decoration.line({ class: 'cm-callsite' }).range(info.from)
+    ])
+  } catch {
+    return Decoration.none
+  }
+}
+
+const callSiteField = StateField.define<DecorationSet>({
+  create: () => Decoration.none,
+  update(deco, tr) {
+    let next = deco.map(tr.changes)
+    for (const effect of tr.effects) {
+      if (effect.is(setCallSite)) {
+        next =
+          effect.value === null
+            ? Decoration.none
+            : lineDecoration(tr.state, effect.value)
+      }
+    }
+    return next
+  },
+  provide: (field) => EditorView.decorations.from(field)
+})
 
 const SOURCE_COMPONENT = 'wdio-devtools-source'
 @customElement(SOURCE_COMPONENT)
 export class DevtoolsSource extends Element {
-  static styles = [
-    ...Element.styles,
-    css`
-      :host {
-        display: flex;
-        width: 100%;
-        height: 100%;
-      }
-
-      .cm-editor {
-        width: 100%;
-        height: 100%;
-        padding: 10px 0px;
-        flex: 1;
-        min-height: 0;
-        font-size: 12.5px;
-      }
-      .cm-content {
-        padding: 0 !important;
-      }
-      /* Blend the editor with the dock panel (overrides oneDark/basicSetup,
-         which paint their own background). !important beats the theme's
-         injected rules regardless of order; token-based so light mode matches. */
-      .cm-editor,
-      .cm-gutters {
-        background-color: var(--vscode-sideBar-background) !important;
-        border: none !important;
-      }
-
-      .source-container {
-        display: flex;
-        flex-direction: column;
-        width: 100%;
-        height: 100%;
-        overflow: hidden;
-      }
-    `
-  ]
+  static styles = [...Element.styles, sourceStyles]
 
   @consume({ context: sourceContext, subscribe: true })
   @state()
   sources: Record<string, string> = {}
 
+  @consume({ context: commandContext, subscribe: true })
+  @state()
+  commands: CommandLog[] = []
+
+  @state() private activeFile?: string
+  @state() private callSiteFile?: string
+  @state() private callSiteLine?: number
+  @state() private callSiteCommand?: string
+  @state() private callSiteCategory: ActionCategory = 'other'
+
   #editorView?: EditorView
-  #activeFile?: string
+  #mountedFile?: string
+  #editorIsDark = false
   #tabObserver?: MutationObserver
   #themeObserver?: MutationObserver
-  /** Theme the live editor was built with, so we can rebuild on toggle. */
-  #editorIsDark = false
 
-  #onHighlight = (ev: Event) => this.#highlightCallSource(ev)
-  #onTrack = (ev: Event) => this.#trackCallSource(ev)
+  #onHighlight = (ev: Event) =>
+    this.#applyCallSource((ev as CustomEvent<string>).detail, true)
+  #onTrack = (ev: Event) =>
+    this.#applyCallSource(
+      (ev as CustomEvent<{ callSource: string }>).detail.callSource,
+      false
+    )
 
   #isDark(): boolean {
     return document.body.classList.contains('dark')
+  }
+
+  /** File to show: an explicit selection/call-site, else the first available. */
+  get #effectiveFile(): string | undefined {
+    if (this.activeFile && this.sources?.[this.activeFile]) {
+      return this.activeFile
+    }
+    return Object.keys(this.sources || {})[0]
   }
 
   connectedCallback(): void {
@@ -77,14 +108,11 @@ export class DevtoolsSource extends Element {
     window.addEventListener('app-source-highlight', this.#onHighlight)
     // Passive line-follow during screencast playback — scroll only, no tab flip.
     window.addEventListener('app-source-track', this.#onTrack)
-    // Observe when the containing tab becomes active so CodeMirror can remeasure
-    // after having been initialized while the tab was hidden (display:none).
     requestAnimationFrame(() => {
       const tab = this.closest('wdio-devtools-tab')
       if (tab) {
         this.#tabObserver = new MutationObserver(() => {
           if (tab.hasAttribute('active') && this.#editorView) {
-            // Force CodeMirror to remeasure and re-render after becoming visible
             requestAnimationFrame(() => {
               this.#editorView?.requestMeasure()
               this.#editorView?.dom.dispatchEvent(new Event('resize'))
@@ -97,15 +125,14 @@ export class DevtoolsSource extends Element {
         })
       }
     })
-    // Rebuild the editor when the app theme toggles so it isn't stuck on the
-    // dark CodeMirror theme in light mode (and vice versa).
     this.#themeObserver = new MutationObserver(() => {
       if (
         this.#editorView &&
-        this.#activeFile &&
+        this.#mountedFile &&
         this.#editorIsDark !== this.#isDark()
       ) {
-        this.#mountEditor(this.#activeFile)
+        this.#mountEditor(this.#mountedFile)
+        this.#refreshCallSite()
       }
     })
     this.#themeObserver.observe(document.body, {
@@ -126,115 +153,188 @@ export class DevtoolsSource extends Element {
     this.#themeObserver = undefined
   }
 
-  updated(_changedProperties: PropertyValues<this>) {
-    const sourceFileNames = Object.keys(this.sources || {})
-    if (sourceFileNames.length === 0) {
+  updated(_changed: PropertyValues<this>) {
+    const target = this.#effectiveFile
+    if (!target) {
       return
     }
-    // Respect an explicitly highlighted file; otherwise show the first available
-    const targetFile =
-      this.#activeFile && this.sources?.[this.#activeFile]
-        ? this.#activeFile
-        : sourceFileNames[0]
-    this.#mountEditor(targetFile)
+    this.#mountEditor(target)
+    this.#refreshCallSite()
   }
 
-  #mountEditor(filePath: string, highlightLine?: number) {
+  #applyCallSource(callSource: string, activateTab: boolean) {
+    const parsed = parseCallSource(callSource)
+    if (!parsed) {
+      return
+    }
+    this.activeFile = parsed.file
+    this.callSiteFile = parsed.file
+    this.callSiteLine = parsed.line
+    const cmd = this.#commandAt(parsed.file, parsed.line)
+    this.callSiteCommand = cmd?.command
+    this.callSiteCategory = cmd ? commandCategory(cmd.command) : 'other'
+    if (activateTab) {
+      this.closest('wdio-devtools-tabs')?.activateTab('Source')
+    }
+  }
+
+  #commandAt(file: string, line: number): CommandLog | undefined {
+    return this.commands?.find((c) => {
+      if (!c.callSource) {
+        return false
+      }
+      const parsed = parseCallSource(c.callSource)
+      return parsed?.file === file && parsed.line === line
+    })
+  }
+
+  #selectFile(file: string) {
+    this.activeFile = file
+  }
+
+  #mountEditor(filePath: string) {
     const source = this.sources?.[filePath]
     if (!source) {
       return
     }
-
     const container =
       this.shadowRoot?.querySelector<HTMLElement>('.source-container')
     if (!container) {
       return
     }
-
-    // Reuse the existing editor when the file and theme are unchanged.
+    // Reuse the editor when file + theme are unchanged.
     if (
       this.#editorView &&
-      this.#activeFile === filePath &&
+      this.#mountedFile === filePath &&
       this.#editorIsDark === this.#isDark()
     ) {
-      if (highlightLine && highlightLine > 0) {
-        this.#scrollToLine(this.#editorView, highlightLine)
-      }
       return
     }
 
-    // Destroy previous editor instance before creating a new one
     this.#editorView?.destroy()
-
-    // oneDark only in dark mode; basicSetup's default light theme otherwise so
-    // the editor tracks the app theme instead of staying dark in light mode.
     const dark = this.#isDark()
-    const opts: EditorViewConfig = {
+    this.#editorView = new EditorView({
       root: this.shadowRoot!,
-      extensions: [basicSetup, javascript(), ...(dark ? [oneDark] : [])],
+      extensions: [
+        basicSetup,
+        javascript(),
+        callSiteField,
+        ...(dark ? [oneDark] : [])
+      ],
       doc: source,
       parent: container
-    }
-    this.#editorView = new EditorView(opts)
+    })
     this.#editorIsDark = dark
-    this.#activeFile = filePath
-
-    // Force a measure on the next frame so CodeMirror can calculate heights
-    // correctly — needed when the editor was created while the panel was hidden
-    // or before layout was complete.
+    this.#mountedFile = filePath
     requestAnimationFrame(() => this.#editorView?.requestMeasure())
+  }
 
-    if (highlightLine && highlightLine > 0) {
-      this.#scrollToLine(this.#editorView, highlightLine)
+  /** Apply (or clear) the call-site decoration + scroll for the mounted file. */
+  #refreshCallSite() {
+    const view = this.#editorView
+    if (!view) {
+      return
     }
-  }
+    const onThisFile =
+      !!this.callSiteFile && this.callSiteFile === this.#mountedFile
+    const line = onThisFile ? this.callSiteLine : undefined
+    this.style.setProperty(
+      '--cs',
+      onThisFile ? CATEGORY_VAR[this.callSiteCategory] : CATEGORY_VAR.other
+    )
 
-  #scrollToLine(editorView: EditorView, line: number) {
-    try {
-      const lineInfo = editorView.state.doc.line(line)
-      requestAnimationFrame(() => {
-        editorView.dispatch({
-          selection: { anchor: lineInfo.from },
-          effects: EditorView.scrollIntoView(lineInfo.from, { y: 'center' })
-        })
-      })
-    } catch {
-      /* ignore out-of-range line numbers */
+    const effects: StateEffect<unknown>[] = [setCallSite.of(line ?? null)]
+    if (line && line > 0) {
+      try {
+        const info = view.state.doc.line(line)
+        effects.push(EditorView.scrollIntoView(info.from, { y: 'center' }))
+      } catch {
+        /* out-of-range line — leave decoration cleared */
+      }
     }
+    view.dispatch({ effects })
   }
 
-  #highlightCallSource(ev: Event) {
-    this.#applyCallSource((ev as CustomEvent<string>).detail)
-    this.closest('wdio-devtools-tabs')?.activateTab('Source')
-  }
-
-  // Passive variant for screencast playback: follow the line without stealing
-  // the active tab, so watching the video doesn't yank you off Console/Network.
-  #trackCallSource(ev: Event) {
-    this.#applyCallSource(
-      (ev as CustomEvent<{ callSource: string }>).detail.callSource
+  #renderFileTabs(active: string) {
+    return Object.keys(this.sources || {}).map(
+      (file) =>
+        html`<button
+          class="src-file ${file === active ? 'active' : ''}"
+          title=${file}
+          @click=${() => this.#selectFile(file)}
+        >
+          ${fileBasename(file)}
+        </button>`
     )
   }
 
-  #applyCallSource(callSource: string) {
-    const [filePath, line] = callSource.split(':')
-    // If the source for this file is already loaded, mount and scroll immediately
-    if (this.sources?.[filePath]) {
-      this.#mountEditor(filePath, parseInt(line, 10))
-    } else {
-      // Source not yet available — will be mounted in updated() once it arrives;
-      // store desired highlight so we can apply it then.
-      this.#activeFile = filePath
-    }
+  #renderToolbar(active: string) {
+    const segments = pathSegments(active)
+    // Show only the tail of the path; the full path stays in the hover title
+    // and is what "Copy path" copies.
+    const shown = segments.slice(-3)
+    const truncated = segments.length > shown.length
+    const dirSegments = shown.slice(0, -1)
+    const base = shown[shown.length - 1] || active
+    const showChip =
+      this.callSiteFile === active && this.callSiteCommand && this.callSiteLine
+
+    return html`<div class="src-toolbar">
+      <div class="src-files">${this.#renderFileTabs(active)}</div>
+      <div class="src-meta">
+        <div class="src-path" title=${active}>
+          ${truncated
+            ? html`<span class="sep">…/</span>`
+            : nothing}${dirSegments.map(
+            (seg) => html`<span>${seg}</span><span class="sep">/</span>`
+          )}<span class="base">${base}</span>
+        </div>
+        ${showChip
+          ? html`<button
+              class="cs-chip"
+              title="Jump to the line that triggered this command"
+              @click=${() => this.#refreshCallSite()}
+            >
+              <span class="dot"></span
+              ><span class="cmd">${this.callSiteCommand}</span
+              ><span class="ln">L${this.callSiteLine}</span>
+            </button>`
+          : nothing}
+        <div class="src-actions">
+          <button class="src-act" @click=${() => this.#copyPath(active)}>
+            Copy path
+          </button>
+          <a
+            class="src-act"
+            href=${this.#editorLink(active)}
+            title="Open in editor"
+            >Open in editor</a
+          >
+        </div>
+      </div>
+    </div>`
+  }
+
+  #copyPath(file: string) {
+    navigator.clipboard?.writeText(file).catch(() => {
+      /* clipboard unavailable — non-fatal */
+    })
+  }
+
+  #editorLink(file: string): string {
+    const onThisFile = this.callSiteFile === file && this.callSiteLine
+    return `vscode://file/${file}${onThisFile ? `:${this.callSiteLine}` : ''}`
   }
 
   render() {
-    const sourceFileNames = Object.keys(this.sources || {})
-    if (sourceFileNames.length === 0) {
+    const active = this.#effectiveFile
+    if (!active) {
       return html`<wdio-devtools-placeholder></wdio-devtools-placeholder>`
     }
-
-    return html`<div class="source-container"></div>`
+    return html`<div class="source-root">
+      ${this.#renderToolbar(active)}
+      <div class="source-container"></div>
+    </div>`
   }
 }
 
