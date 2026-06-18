@@ -17,6 +17,7 @@ import type { CommandLogLike, TimeWindowNode } from './types.js'
 type SourceRange = { file: string; start: number; end: number }
 type TimeWindow = { start: number; end: number }
 type NodeMap = Map<string, TimeWindowNode>
+type Location = { file: string; line: number }
 
 /** Split a `callSource` (`file:line` or `file:line:col`) into file + line. */
 export function lineOf(
@@ -114,11 +115,35 @@ function inRanges(
 }
 
 /**
+ * Effective call site per command (parallel to `commands`). Commands with no
+ * resolvable call site of their own — Nightwatch assertions like
+ * `assert.titleContains`/`assert.visible` surface as `title`/`isVisible` with
+ * `callSource: unknown:0` — inherit the most recent command that had one. They
+ * run in the same test immediately after it, so the preceding call site is the
+ * correct owner (the time window can't separate sibling tests in one file).
+ */
+function effectiveLocations(
+  commands: CommandLogLike[]
+): (Location | undefined)[] {
+  let last: Location | undefined
+  return commands.map((c) => {
+    const loc = lineOf(c.callSource)
+    // `unknown:0` parses to line 0 — treat it (and any non-positive line) as
+    // no call site, so it inherits the preceding command's instead.
+    const resolved = loc && loc.line > 0 ? loc : undefined
+    if (resolved) {
+      last = resolved
+    }
+    return resolved ?? last
+  })
+}
+
+/**
  * Commands belonging to `node`:
- *   - call site inside this test's source range → include;
+ *   - (effective) call site inside this test's source range → include;
  *   - call site inside a *different* test's range → exclude;
- *   - no resolvable call site (e.g. assertion-internal getText) → include when
- *     it falls in the node's time window.
+ *   - still no call site (nothing before it had one) → include when it falls in
+ *     the node's time window.
  */
 export function commandsForNode(
   node: TimeWindowNode,
@@ -128,13 +153,14 @@ export function commandsForNode(
 ): CommandLogLike[] {
   const nodeRanges = rangesForSubtree(node, nodes)
   const allRanges = allTestRanges(nodes)
+  const locations = effectiveLocations(commands)
   const inWindow = (t: number | undefined) =>
     nodeWindow !== undefined &&
     t !== undefined &&
     t >= nodeWindow.start &&
     t <= nodeWindow.end
-  return commands.filter((c) => {
-    const loc = lineOf(c.callSource)
+  return commands.filter((c, i) => {
+    const loc = locations[i]
     if (inRanges(loc, nodeRanges)) {
       return true
     }
