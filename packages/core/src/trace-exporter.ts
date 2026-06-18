@@ -53,6 +53,8 @@ interface BeforeEvent {
   title: string
   /** Playwright-compatible API name (e.g. 'page.goBack', 'element.click'). */
   apiName: string
+  /** CallId of the Tracing.tracingGroup that wraps this action (if any). */
+  parentId?: string
 }
 
 interface AfterEvent {
@@ -60,6 +62,8 @@ interface AfterEvent {
   callId: string
   endTime: number
   error?: { message: string }
+  /** CallId of the Tracing.tracingGroup that wraps this action (if any). */
+  parentId?: string
 }
 
 interface ScreencastFrameEvent {
@@ -143,16 +147,59 @@ function buildContextOptions(
 function buildActionEvents(
   commands: CommandLog[],
   pageId: string,
-  wallTime: number
+  wallTime: number,
+  testMetadata?: Map<string, { title: string; specFile: string }>
 ): TraceEvent[] {
   const events: TraceEvent[] = []
   let prevEndMs = 0
   let callCounter = 0
+  let lastTestUid: string | undefined
+  let groupCallId: string | undefined
+
   for (const cmd of commands) {
     const action = mapCommandToAction(cmd.command)
     if (!action) {
       continue
     }
+
+    // ── Test boundary detection ──
+    // When the testUid changes, close the previous Tracing.tracingGroup
+    // and open a new one. Child actions inside the group reference it via
+    // parentId so trace viewers render them as labelled spans.
+    if (cmd.testUid && cmd.testUid !== lastTestUid) {
+      // Close the previous group.
+      if (lastTestUid && groupCallId) {
+        callCounter++
+        events.push({
+          type: 'after',
+          callId: groupCallId,
+          endTime: prevEndMs
+        } satisfies AfterEvent)
+      }
+
+      // Open a new group for this test.
+      callCounter++
+      groupCallId = `call@${callCounter}`
+      const meta = testMetadata?.get(cmd.testUid)
+      const groupName = meta?.title ?? cmd.testUid
+      events.push({
+        type: 'before',
+        callId: groupCallId,
+        startTime: Math.max(
+          prevEndMs,
+          (cmd.startTime ?? cmd.timestamp) - wallTime
+        ),
+        class: 'Tracing',
+        method: 'tracingGroup',
+        pageId,
+        params: { name: groupName },
+        title: groupName,
+        apiName: 'tracing.tracingGroup'
+      } satisfies BeforeEvent)
+      lastTestUid = cmd.testUid
+    }
+
+    // ── Regular action (child of the current group) ──
     callCounter++
     const callId = `call@${callCounter}`
     // Use the command's actual invocation timestamp for the start, falling
@@ -195,7 +242,8 @@ function buildActionEvents(
       pageId,
       params,
       title: formatActionTitle(action, cmd.args, params),
-      apiName: `${action.class.toLowerCase()}.${action.method}`
+      apiName: `${action.class.toLowerCase()}.${action.method}`,
+      parentId: groupCallId
     })
     const afterEvent: AfterEvent = {
       type: 'after',
@@ -209,6 +257,17 @@ function buildActionEvents(
     events.push(afterEvent)
     prevEndMs = endMs
   }
+
+  // Close the final group after the last action.
+  if (lastTestUid && groupCallId) {
+    callCounter++
+    events.push({
+      type: 'after',
+      callId: groupCallId,
+      endTime: prevEndMs
+    } satisfies AfterEvent)
+  }
+
   return events
 }
 
@@ -391,6 +450,7 @@ function buildTraceBundle(
   opts: {
     sessionId?: string
     wallTimeOverride?: number
+    testMetadata?: Map<string, { title: string; specFile: string }>
   } = {}
 ): TraceBundle {
   // wallTime anchors monotonic offsets at the first captured command so
@@ -436,7 +496,7 @@ function buildTraceBundle(
       wallTime,
       viewport
     ),
-    ...buildActionEvents(trace.commands, pageId, wallTime)
+    ...buildActionEvents(trace.commands, pageId, wallTime, opts.testMetadata)
   )
   events.sort(compareEvents)
   const ctxBName = ctxOptions.title
@@ -453,6 +513,7 @@ export async function exportTraceZip(
   opts: {
     sessionId?: string
     wallTimeOverride?: number
+    testMetadata?: Map<string, { title: string; specFile: string }>
   } = {}
 ): Promise<Buffer> {
   const bundle = buildTraceBundle(trace, opts)
@@ -470,6 +531,7 @@ async function exportTraceDirectory(
   opts: {
     sessionId?: string
     wallTimeOverride?: number
+    testMetadata?: Map<string, { title: string; specFile: string }>
   } = {}
 ): Promise<void> {
   const bundle = buildTraceBundle(trace, opts)
@@ -518,6 +580,8 @@ export interface WriteTraceZipOptions {
   /** Output layout — `zip` (default) writes a single archive, `directory`
    *  unpacks the same files into `trace-<id>/`. */
   format?: TraceFormat
+  /** Test metadata keyed by testUid for Tracing.tracingGroup events. */
+  testMetadata?: Map<string, { title: string; specFile: string }>
 }
 
 /**
@@ -550,7 +614,8 @@ export async function writeTraceZip(
   await fs.mkdir(opts.outputDir, { recursive: true })
   const exportOpts = {
     sessionId: opts.sessionId,
-    wallTimeOverride: capturer.startWallTime
+    wallTimeOverride: capturer.startWallTime,
+    testMetadata: opts.testMetadata
   }
   if (opts.format === 'ndjson-directory') {
     const dir = path.join(opts.outputDir, `trace-${opts.sessionId}`)

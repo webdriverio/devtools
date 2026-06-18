@@ -48,6 +48,14 @@ export class SessionCapturer extends SessionCapturerBase {
     this.patchStreams()
   }
 
+  /**
+   * Reset the last-captured selector so element-scoped commands in the next
+   * test don't inherit a stale selector from a previous test.
+   */
+  resetLastSelector(): void {
+    this.#lastSelector = undefined
+  }
+
   protected override onWsError(err: unknown): void {
     log.error(`Couldn't connect to devtools backend: ${errorMessage(err)}`)
   }
@@ -103,7 +111,8 @@ export class SessionCapturer extends SessionCapturerBase {
     result: unknown,
     error: Error | undefined,
     callSource?: string,
-    commandStartTime?: number
+    commandStartTime?: number,
+    testUid?: string
   ) {
     const { sourceFileLocation, absolutePath } = this.#resolveUserStackFrame()
     const sourceFilePath = absolutePath.split(':')[0]
@@ -117,7 +126,8 @@ export class SessionCapturer extends SessionCapturerBase {
       error,
       timestamp: Date.now(),
       startTime: commandStartTime,
-      callSource: callSource ?? absolutePath
+      callSource: callSource ?? absolutePath,
+      testUid
     }
     if (!isNativeMobile(browser)) {
       try {

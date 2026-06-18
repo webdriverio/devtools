@@ -26,13 +26,15 @@ export {
 import type {
   DevToolsMode,
   ScreencastOptions,
-  TraceFormat
+  TraceFormat,
+  TraceGranularity
 } from '@wdio/devtools-shared'
 export type {
   DevToolsMode,
   ScreencastFrame,
   ScreencastOptions,
-  TraceFormat
+  TraceFormat,
+  TraceGranularity
 } from '@wdio/devtools-shared'
 
 export interface ExtendedCapabilities extends WebdriverIO.Capabilities {
@@ -72,6 +74,10 @@ export interface ServiceOptions {
   /** Trace output layout — `zip` (default) writes a single archive,
    *  `ndjson-directory` unpacks into `trace-<id>/`. Only applies in trace mode. */
   traceFormat?: TraceFormat
+  /** Trace output granularity — `session` (default) writes one trace per
+   *  worker session; `spec` writes one trace per spec file. Only applies in
+   *  trace mode. */
+  traceGranularity?: TraceGranularity
 }
 
 declare namespace WebdriverIO {

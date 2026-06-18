@@ -70,7 +70,7 @@ When BiDi is active in Selenium or Nightwatch, the per-command Chrome performanc
 
 ### 📦 Trace mode (trace.zip)
 
-Headless capture path — no DevTools UI window opens. At session end the adapter writes a `trace-<sessionId>.zip` next to the user's spec / config file, suitable for offline replay, AI-agent diffing, or any consumer that prefers a portable artifact over a live UI.
+Headless capture path — no DevTools UI window opens. At session end the adapter writes a trace artifact next to the user's output directory, suitable for offline replay, AI-agent diffing, or any consumer that prefers a portable artifact over a live UI.
 
 | Adapter | How to enable |
 |---|---|
@@ -78,8 +78,8 @@ Headless capture path — no DevTools UI window opens. At session end the adapte
 | **Selenium** | `DevTools.configure({ mode: 'trace' })` (before importing `selenium-webdriver`) |
 | **Nightwatch** | `globals: nightwatchDevtools({ mode: 'trace' })` |
 
-The zip contains:
-- `trace.trace` — NDJSON `context-options` + `before`/`after` action events
+The trace artifact contains:
+- `trace.trace` — NDJSON `context-options` + `before`/`after` action events. When test hooks are available (Mocha's `it()` / Cucumber's `Scenario()`), each test becomes a [`Tracing.tracingGroup`](https://github.com/VibiumDev/vibium/blob/main/docs/explanation/recording-format.md#action-groups-user-defined) span — an open/close `before`/`after` pair with `method: "tracingGroup"` and `params.name` set to the test title. Child actions inside the group carry `parentId` pointing back to the group's `callId`, so timeline viewers render tests as labelled spans wrapping their commands.
 - `trace.network` — HAR-style network entries derived from the existing capture
 - `resources/page@<id>-<ts>.jpeg` — screenshot per user-facing action
 - `resources/elements-page@<id>-<ts>.json` — flat interactable element list extracted by the page-injected scripts in `@wdio/devtools-core/element-scripts`
@@ -90,9 +90,29 @@ What counts as a user-facing action is filtered through an allow-list in `@wdio/
 
 Trace mode and live mode are **mutually exclusive** — `screencast` options are ignored in trace mode (live-mode feature). Live and trace serve different audiences (humans debugging vs. agents diffing), and stacking them only costs perf.
 
-#### Output layout — `traceFormat`
+#### Viewing traces
 
-`{ mode: 'trace', traceFormat: 'zip' | 'ndjson-directory' }`. Default `'zip'` writes a single `trace-<sessionId>.zip`; `'ndjson-directory'` unpacks the same `trace.trace` + `trace.network` + `resources/` files into a `trace-<sessionId>/` folder. Both render in `npx playwright show-trace <path>`. The unpacked form skips the unzip step for scripted / agentic consumers.
+Drop the `.zip` into [player.vibium.dev](https://player.vibium.dev) or run `npx playwright show-trace <path>`. The format follows the [Vibium recording format](https://github.com/VibiumDev/vibium/blob/main/docs/explanation/recording-format.md) spec — a Playwright-compatible NDJSON schema that the ecosystem already renders. This is the same format [`@wdio/mcp`](https://webdriver.io/docs/mcp) uses for AI-driven session recording.
+
+#### Options
+
+| Option | Values | Default | Description |
+|--------|--------|---------|-------------|
+| `mode` | `'live'` \| `'trace'` | `'live'` | `'live'` launches the DevTools UI; `'trace'` writes an offline artifact. |
+| `traceFormat` | `'zip'` \| `'ndjson-directory'` | `'zip'` | Output layout. `'zip'` writes a single archive; `'ndjson-directory'` unpacks into `trace-<id>/`. |
+| `traceGranularity` | `'session'` \| `'spec'` | `'session'` | `'session'` writes one trace per worker; `'spec'` writes one trace per spec file — smaller artifacts, easier to navigate. |
+
+WDIO config example:
+
+```js
+services: [[DevToolsHookService, {
+    mode: 'trace',
+    traceFormat: 'zip',
+    traceGranularity: 'spec'     // one trace per spec file
+}]]
+```
+
+> **Requires BiDi.** Trace mode uses a WebDriver BiDi preload script. Both Chrome (≥114) and Firefox (≥130) enable BiDi automatically — no capability flags needed.
 
 #### 📱 Mobile testing
 
