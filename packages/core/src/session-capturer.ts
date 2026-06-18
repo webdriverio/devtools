@@ -465,17 +465,17 @@ export abstract class SessionCapturerBase {
 
   // ── Hooks (subclasses override) ─────────────────────────────────────────
   /**
-   * Default: forward a single ConsoleLog via the `consoleLogs` scope.
-   * Args is passed as an array (matching the original console.* call shape:
-   * `console.log('a', 'b')` → `args = ['a', 'b']`) so subclasses can preserve
-   * the multi-argument structure for the UI.
+   * Build a ConsoleLog entry from the captured line, push it into the local
+   * `consoleLogs` array (so it ends up in any future trace export), and
+   * broadcast it live via the `consoleLogs` WS scope.
    *
-   * Subclasses that need to maintain local capture state (for the rerun/
-   * replay flow) should override to also push the entry into their own
-   * array — see service's onLine override.
+   * Args is passed as an array (matching the original console.* call shape:
+   * `console.log('a', 'b')` → `args = ['a', 'b']`) so the multi-argument
+   * structure is preserved for the UI.
    */
   protected onLine(type: LogLevel, args: string[], source: LogSource): void {
     const entry = createConsoleLogEntry(type, args, source)
+    this.consoleLogs.push(entry)
     this.sendUpstream('consoleLogs', [entry])
   }
 

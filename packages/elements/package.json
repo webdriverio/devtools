@@ -1,8 +1,11 @@
 {
   "name": "@wdio/elements",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Element detection scripts for WebdriverIO",
   "author": "Vince Graics",
+  "publishConfig": {
+    "access": "public"
+  },
   "license": "MIT",
   "type": "module",
   "exports": {
@@ -16,14 +19,18 @@
     }
   },
   "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/webdriverio/devtools.git",
     "directory": "packages/elements"
   },
   "scripts": {
-    "build": "tsup src/index.ts src/locators/index.ts --format esm --experimental-dts --sourcemap --clean --out-dir dist",
-    "watch": "tsup src/index.ts src/locators/index.ts --format esm --experimental-dts --sourcemap --watch --out-dir dist",
+    "build": "tsup",
+    "watch": "tsup --watch",
     "lint": "eslint . --fix",
     "test": "vitest run",
     "prepublishOnly": "pnpm build"
@@ -34,11 +41,11 @@
   },
   "devDependencies": {
     "@microsoft/api-extractor": "^7.58.7",
-    "@types/node": "25.5.2",
+    "@types/node": "25.9.3",
     "@wdio/devtools-core": "workspace:^",
-    "@wdio/globals": "9.27.0",
+    "@wdio/globals": "9.28.0",
     "tsup": "^8.5.1",
-    "typescript": "6.0.2",
+    "typescript": "6.0.3",
     "vitest": "^4.0.16"
   },
   "peerDependencies": {

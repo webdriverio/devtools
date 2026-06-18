@@ -418,14 +418,12 @@ function getSimpleSuggestedLocators(
   element: JSONElement,
   ctx: LocatorContext,
   automationName: string,
+  inUiAutomatorScope: boolean,
   targetNode?: XMLNode
 ): [LocatorStrategy, string][] {
   const results: [LocatorStrategy, string][] = []
   const isAndroid = automationName.toLowerCase().includes('uiautomator')
   const attrs = element.attributes
-  const inUiAutomatorScope = isAndroid
-    ? isInUiAutomatorScope(element, ctx.parsedDOM)
-    : true
 
   if (isAndroid) {
     // Resource ID
@@ -526,13 +524,11 @@ function getComplexSuggestedLocators(
   element: JSONElement,
   ctx: LocatorContext,
   automationName: string,
+  inUiAutomatorScope: boolean,
   targetNode?: XMLNode
 ): [LocatorStrategy, string][] {
   const results: [LocatorStrategy, string][] = []
   const isAndroid = automationName.toLowerCase().includes('uiautomator')
-  const inUiAutomatorScope = isAndroid
-    ? isInUiAutomatorScope(element, ctx.parsedDOM)
-    : true
 
   if (isAndroid) {
     if (inUiAutomatorScope) {
@@ -594,16 +590,22 @@ export function getSuggestedLocators(
     isAndroid: automationName.toLowerCase().includes('uiautomator')
   }
 
+  const inUiAutomatorScope = locatorCtx.isAndroid
+    ? isInUiAutomatorScope(element, locatorCtx.parsedDOM)
+    : true
+
   const simpleLocators = getSimpleSuggestedLocators(
     element,
     locatorCtx,
     automationName,
+    inUiAutomatorScope,
     targetNode
   )
   const complexLocators = getComplexSuggestedLocators(
     element,
     locatorCtx,
     automationName,
+    inUiAutomatorScope,
     targetNode
   )
 

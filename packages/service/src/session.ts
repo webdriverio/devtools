@@ -15,13 +15,11 @@ import {
   RetryTracker,
   SessionCapturerBase,
   applyPerformanceData,
-  createConsoleLogEntry,
   errorMessage,
   getRequestType,
-  type CapturedPerformancePayload,
-  type LogSource
+  type CapturedPerformancePayload
 } from '@wdio/devtools-core'
-import type { CommandLog, LogLevel } from './types.js'
+import type { CommandLog } from './types.js'
 
 const log = logger('@wdio/devtools-service:SessionCapturer')
 
@@ -52,20 +50,6 @@ export class SessionCapturer extends SessionCapturerBase {
 
   protected override onWsError(err: unknown): void {
     log.error(`Couldn't connect to devtools backend: ${errorMessage(err)}`)
-  }
-
-  /**
-   * Push every captured line into the local `consoleLogs` array so it ends up
-   * in the final trace payload, in addition to the live WS broadcast.
-   */
-  protected override onLine(
-    type: LogLevel,
-    args: string[],
-    source: LogSource
-  ): void {
-    const entry = createConsoleLogEntry(type, args, source)
-    this.consoleLogs.push(entry as ConsoleLogs)
-    this.sendUpstream('consoleLogs', [entry])
   }
 
   // Cucumber step files never appear on the WebDriver call stack;
