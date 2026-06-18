@@ -17,6 +17,12 @@ import {
   contentType
 } from '../../utils/network-helpers.js'
 
+import {
+  networkWindow,
+  waterfallBar,
+  type WaterfallScale
+} from './network/waterfall.js'
+
 import '../placeholder.js'
 
 const COMPONENT = 'wdio-devtools-network'
@@ -129,9 +135,13 @@ export class DevtoolsNetwork extends Element {
     `
   }
 
-  #renderRequestRow(request: NetworkRequest) {
+  #renderRequestRow(request: NetworkRequest, range: WaterfallScale) {
     const kind = statusKind(request.status, Boolean(request.error))
     const dotClass = TYPE_DOT_CLASS[getResourceType(request)]
+    // Only draw a bar when we have a real duration; missing/zero timing shows
+    // an empty track + a dash instead of a stray sliver.
+    const hasTiming = typeof request.time === 'number' && request.time > 0
+    const bar = waterfallBar(request, range)
     return html`
       <div
         class="grid request-row ${this.selectedRequest?.id === request.id
@@ -153,7 +163,19 @@ export class DevtoolsNetwork extends Element {
         <span class="req-type truncate" title="${contentType(request)}"
           >${contentType(request)}</span
         >
-        <span class="req-dur">${formatTime(request.time)}</span>
+        <span class="req-wf">
+          <span class="wf-track">
+            ${hasTiming
+              ? html`<span
+                  class="wf-bar kind-${kind}"
+                  style="left:${bar.offset}%;width:${bar.width}%"
+                ></span>`
+              : nothing}
+          </span>
+        </span>
+        <span class="req-dur ${hasTiming ? '' : 'req-dur-empty'}"
+          >${hasTiming ? formatTime(request.time) : '—'}</span
+        >
         <span class="req-size">${formatBytes(request.size)}</span>
       </div>
     `
@@ -170,6 +192,7 @@ export class DevtoolsNetwork extends Element {
       `
     }
     const filteredRequests = this.#filterRequests()
+    const range = networkWindow(filteredRequests)
     return html`
       ${this.#renderNetworkHeader()}
       <div class="network-content">
@@ -179,6 +202,7 @@ export class DevtoolsNetwork extends Element {
             <div>Method</div>
             <div>Status</div>
             <div>Type</div>
+            <div>Waterfall</div>
             <div class="col-num">Duration</div>
             <div class="col-num">Size</div>
           </div>
@@ -186,7 +210,7 @@ export class DevtoolsNetwork extends Element {
             ? html`<div class="filter-empty">
                 No requests match your filter
               </div>`
-            : filteredRequests.map((r) => this.#renderRequestRow(r))}
+            : filteredRequests.map((r) => this.#renderRequestRow(r, range))}
         </div>
         ${this.selectedRequest ? this.#renderRequestDetail() : nothing}
       </div>

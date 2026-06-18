@@ -87,13 +87,13 @@ export const networkStyles = css`
     display: grid;
     grid-template-columns:
       minmax(160px, 2fr) 64px 76px minmax(110px, 1.2fr)
-      76px 76px;
+      minmax(90px, 0.8fr) 76px 76px;
     align-items: center;
     gap: 14px;
     /* Keep the row box wide enough to contain every column (incl. the row's
        own 10px padding) when the detail panel narrows the list — so the
        highlight spans full width, Size isn't clipped, and it scrolls instead. */
-    min-width: 660px;
+    min-width: 800px;
   }
   .requests-header {
     position: sticky;
@@ -213,6 +213,48 @@ export const networkStyles = css`
     font-family: var(--vscode-editor-font-family);
     font-variant-numeric: tabular-nums;
     text-align: right;
+  }
+  .req-dur-empty {
+    color: var(--vscode-disabledForeground);
+  }
+
+  /* ── waterfall column: thin track + duration-proportional bar ── */
+  .req-wf {
+    position: relative;
+    min-width: 0;
+    height: 16px;
+  }
+  /* fixed-height pill, vertically centred (never derived from the row height) */
+  .wf-track {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    height: 5px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--vscode-foreground) 8%, transparent);
+    overflow: hidden;
+  }
+  .wf-bar {
+    position: absolute;
+    top: 0;
+    height: 100%;
+    min-width: 2px;
+    border-radius: 999px;
+    /* accent gradient like the mock; errors/pending recolour via --wf-color */
+    --wf-color: var(--accent, var(--vscode-charts-blue));
+    background: linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--wf-color) 50%, transparent),
+      var(--wf-color)
+    );
+  }
+  .wf-bar.kind-error {
+    --wf-color: var(--vscode-charts-red);
+  }
+  .wf-bar.kind-pending {
+    --wf-color: var(--vscode-descriptionForeground);
   }
 
   .filter-empty {

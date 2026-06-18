@@ -32,6 +32,14 @@ window.addEventListener('storage', (e) => {
     document.body.classList.toggle('dark', e.newValue === 'true')
   }
 })
+// Follow live OS theme changes while the user hasn't set an explicit override.
+window
+  .matchMedia('(prefers-color-scheme: dark)')
+  .addEventListener('change', (e) => {
+    if (localStorage.getItem(DARK_MODE_KEY) === null) {
+      document.body.classList.toggle('dark', e.matches)
+    }
+  })
 
 import './components/header.js'
 import './components/sidebar.js'

@@ -70,6 +70,16 @@ function applyResponseReceived(p: NetworkEntry, response: CdpResponse): void {
   p.type = getRequestType(p.url, response.mimeType)
 }
 
+/** CDP event time in ms. Uses the event's own monotonic `params.timestamp`
+ *  (what Chrome DevTools times requests with) rather than the perf-log wrapper
+ *  timestamp, which WebDriver stamps per batch — so request/response diffs in
+ *  the same batch would otherwise be 0. */
+function eventTimeMs(params: CdpEventParams, entry: PerfLogEntry): number {
+  return typeof params.timestamp === 'number'
+    ? Math.round(params.timestamp * 1000)
+    : entry.timestamp
+}
+
 function startPendingRequest(
   params: CdpEventParams,
   entry: PerfLogEntry,
@@ -79,13 +89,14 @@ function startPendingRequest(
   if (!req || typeof timestamp !== 'number') {
     return
   }
+  const startTime = eventTimeMs(params, entry)
   pending.set(requestId, {
     id: `${entry.timestamp}-${requestId}`,
     url: req.url,
     method: req.method,
     requestHeaders: req.headers ?? {},
-    timestamp: Math.round(timestamp * 1000),
-    startTime: entry.timestamp
+    timestamp: startTime,
+    startTime
   })
 }
 
@@ -111,8 +122,8 @@ function handlePerfLogEvent(
     const p = pending.get(params.requestId)
     if (p && p.status !== undefined) {
       p.size = params.encodedDataLength
-      p.endTime = entry.timestamp
-      p.time = entry.timestamp - p.startTime
+      p.endTime = eventTimeMs(params, entry)
+      p.time = Math.max(0, p.endTime - p.startTime)
       completed.push({ ...p })
       pending.delete(params.requestId)
     }
@@ -122,8 +133,8 @@ function handlePerfLogEvent(
     const p = pending.get(params.requestId)
     if (p) {
       p.error = params.errorText
-      p.endTime = entry.timestamp
-      p.time = entry.timestamp - p.startTime
+      p.endTime = eventTimeMs(params, entry)
+      p.time = Math.max(0, p.endTime - p.startTime)
       completed.push({ ...p })
       pending.delete(params.requestId)
     }
