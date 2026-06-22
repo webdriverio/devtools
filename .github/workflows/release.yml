@@ -47,11 +47,25 @@ jobs:
           # The root is private (never published) and drives the v* tag.
           npm version minor --no-git-tag-version
           git commit --amend --no-edit
-      - name: Publish to npm
+
+      - name: Publish
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           DIST_TAG: ${{ inputs.distTag }}
         run: npx changeset publish --tag "${DIST_TAG}" --no-git-tag
+
       - name: Push version commit
         run: git push origin main
+
+      - name: GitHub Release & Tag
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="v$(jq -r '.version' package.json)"
+          git tag "$TAG"
+          git push origin "$TAG"
+          gh release create "$TAG" \
+            --title "$TAG" \
+            --generate-notes \
+            --verify-tag
