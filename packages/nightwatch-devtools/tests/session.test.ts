@@ -79,6 +79,24 @@ describe('SessionCapturer.captureCommand', () => {
     await new Promise((r) => setTimeout(r, 50))
     expect(execute).not.toHaveBeenCalled()
   })
+
+  it('stores testUid on the captured entry', async () => {
+    const cap = makeCapturer()
+    await cap.captureCommand(
+      'click',
+      ['.btn'],
+      undefined,
+      undefined,
+      'uid-nightwatch-1'
+    )
+    expect(cap.commandsLog[0].testUid).toBe('uid-nightwatch-1')
+  })
+
+  it('leaves testUid undefined when not provided', async () => {
+    const cap = makeCapturer()
+    await cap.captureCommand('click', ['.btn'])
+    expect(cap.commandsLog[0].testUid).toBeUndefined()
+  })
 })
 
 describe('SessionCapturer.replaceCommand', () => {

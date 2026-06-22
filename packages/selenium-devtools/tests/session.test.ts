@@ -53,6 +53,25 @@ describe('selenium SessionCapturer.captureCommand', () => {
     )
     expect(entry.timestamp).toBe(9999)
   })
+
+  it('stores testUid on the captured entry', async () => {
+    const cap = makeCapturer()
+    const entry = await cap.captureCommand(
+      'click',
+      ['.btn'],
+      undefined,
+      undefined,
+      'uid-selenium-1'
+    )
+    expect(entry.testUid).toBe('uid-selenium-1')
+    expect(cap.commandsLog[0].testUid).toBe('uid-selenium-1')
+  })
+
+  it('leaves testUid undefined when not provided', async () => {
+    const cap = makeCapturer()
+    const entry = await cap.captureCommand('click', ['.btn'])
+    expect(entry.testUid).toBeUndefined()
+  })
 })
 
 describe('selenium SessionCapturer.replaceCommand', () => {

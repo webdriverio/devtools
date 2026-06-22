@@ -683,4 +683,90 @@ describe('SessionCapturer', () => {
       ])
     })
   })
+
+  describe('resetLastSelector', () => {
+    it('clears the cached selector so the next test does not inherit it', async () => {
+      const capturer = new SessionCapturer()
+      mockBrowser.takeScreenshot.mockResolvedValue('screenshot')
+
+      // Step 1: findElement caches '.stale-selector' internally.
+      await capturer.afterCommand(
+        mockBrowser,
+        'findElement' as any,
+        ['.stale-selector'],
+        {},
+        undefined
+      )
+
+      // Step 2: a bare click inherits the cached selector.
+      await capturer.afterCommand(
+        mockBrowser,
+        'click' as any,
+        [],
+        undefined,
+        undefined
+      )
+      expect(capturer.commandsLog[1].args).toEqual(['.stale-selector'])
+
+      // Step 3: reset between tests.
+      capturer.resetLastSelector()
+
+      // Step 4: a bare click after reset does NOT inherit the stale selector.
+      await capturer.afterCommand(
+        mockBrowser,
+        'click' as any,
+        [],
+        undefined,
+        undefined
+      )
+      expect(capturer.commandsLog[2].args).toEqual([])
+    })
+
+    it('is idempotent — safe to call multiple times', () => {
+      const capturer = new SessionCapturer()
+      capturer.resetLastSelector()
+      capturer.resetLastSelector()
+      // No throw = pass. Private #lastSelector is undefined after each call.
+      expect(capturer).toBeDefined()
+    })
+  })
+
+  describe('afterCommand — testUid propagation', () => {
+    it('stores testUid on the captured CommandLog entry', async () => {
+      const capturer = new SessionCapturer()
+      mockBrowser.takeScreenshot.mockResolvedValueOnce('screenshot')
+
+      await capturer.afterCommand(
+        mockBrowser,
+        'click' as any,
+        ['.btn'],
+        undefined,
+        undefined,
+        '/test/spec.ts:10:5',
+        Date.now(),
+        'uid-test-123'
+      )
+
+      expect(capturer.commandsLog).toHaveLength(1)
+      expect(capturer.commandsLog[0].testUid).toBe('uid-test-123')
+    })
+
+    it('leaves testUid undefined when not provided', async () => {
+      const capturer = new SessionCapturer()
+      mockBrowser.takeScreenshot.mockResolvedValueOnce('screenshot')
+
+      await capturer.afterCommand(
+        mockBrowser,
+        'click' as any,
+        ['.btn'],
+        undefined,
+        undefined,
+        '/test/spec.ts:10:5',
+        Date.now()
+      )
+
+      expect(capturer.commandsLog).toHaveLength(1)
+      expect(capturer.commandsLog[0].testUid).toBeUndefined()
+    })
+  })
 })

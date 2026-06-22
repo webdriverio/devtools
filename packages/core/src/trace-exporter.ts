@@ -144,7 +144,7 @@ function buildContextOptions(
   }
 }
 
-function buildActionEvents(
+export function buildActionEvents(
   commands: CommandLog[],
   pageId: string,
   wallTime: number,
