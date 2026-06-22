@@ -1,5 +1,7 @@
 {
   "name": "examples",
+  "version": "0.0.0",
+  "private": true,
   "type": "module",
   "devDependencies": {
     "@wdio/cli": "9.28.0",
