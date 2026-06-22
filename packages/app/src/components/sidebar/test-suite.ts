@@ -38,6 +38,12 @@ export class ExplorerTestSuite extends Element {
 }
 
 const TEST_ENTRY = 'wdio-test-entry'
+
+/** Compact action button sized to the row's line-height so it never inflates
+ *  the row or sits below the title. */
+const ACTION_BTN =
+  'shrink-0 grid place-items-center w-6 h-[18px] rounded hover:bg-toolbarHoverBackground group/button'
+const ACTION_ICON = 'w-[15px] h-[15px]'
 @customElement(TEST_ENTRY)
 export class ExplorerTestEntry extends CollapseableEntry {
   @property({ attribute: 'is-collapsed' })
@@ -100,6 +106,8 @@ export class ExplorerTestEntry extends CollapseableEntry {
          directly — :host font-size doesn't reach it. */
       ::slotted(label) {
         font-size: 12.5px;
+        /* matches the icon box height so the icon aligns with the first line */
+        line-height: 18px;
       }
 
       :host([selected]) .row {
@@ -279,42 +287,46 @@ export class ExplorerTestEntry extends CollapseableEntry {
     return this.state === TestState.RUNNING
   }
   get testStateIcon() {
+    // Fixed-height box (= the label's line-height) centred so the icon aligns
+    // with the first line of the title whether it wraps or not — no margin hacks.
+    const box = (inner: unknown) =>
+      html`<span class="w-4 h-[18px] shrink-0 flex items-center justify-center"
+        >${inner}</span
+      >`
     if (this.isRunning) {
-      return html`<span
-        class="w-4 mt-2 shrink-0 flex items-center justify-center"
-        ><span class="run-dot"></span
-      ></span>`
+      return box(html`<span class="run-dot"></span>`)
     }
     if (this.hasPassed) {
-      return html`<icon-mdi-check
-        class="w-4 mt-2 shrink-0 text-chartsGreen"
-      ></icon-mdi-check>`
+      return box(
+        html`<icon-mdi-check class="text-chartsGreen"></icon-mdi-check>`
+      )
     }
     if (this.hasFailed) {
-      return html`<icon-mdi-close
-        class="w-4 mt-2 shrink-0 text-chartsRed"
-      ></icon-mdi-close>`
+      return box(html`<icon-mdi-close class="text-chartsRed"></icon-mdi-close>`)
     }
     if (this.hasSkipped) {
-      return html`<icon-mdi-debug-step-over
-        class="w-4 mt-2 shrink-0 text-chartsYellow"
-      ></icon-mdi-debug-step-over>`
+      return box(
+        html`<icon-mdi-debug-step-over
+          class="text-chartsYellow"
+        ></icon-mdi-debug-step-over>`
+      )
     }
-
-    return html`<icon-mdi-circle-outline
-      class="w-4 mt-2 shrink-0 text-disabledForeground"
-    ></icon-mdi-circle-outline>`
+    return box(
+      html`<icon-mdi-circle-outline
+        class="text-disabledForeground"
+      ></icon-mdi-circle-outline>`
+    )
   }
 
   #renderStopButton() {
     return html`
       <button
-        class="p-1 rounded hover:bg-toolbarHoverBackground my-1 group/button"
+        class="${ACTION_BTN}"
         title="Stop run"
         @click="${(event: Event) => this.#stopEntry(event)}"
       >
         <icon-mdi-stop
-          class="group-hover/button:text-chartsRed"
+          class="${ACTION_ICON} group-hover/button:text-chartsRed"
         ></icon-mdi-stop>
       </button>
     `
@@ -327,8 +339,7 @@ export class ExplorerTestEntry extends CollapseableEntry {
       : 'Run this entry'
     return html`
       <button
-        class="p-1 rounded hover:bg-toolbarHoverBackground my-1 group/button ${this
-          .runDisabled
+        class="${ACTION_BTN} ${this.runDisabled
           ? 'opacity-60 cursor-not-allowed hover:bg-transparent'
           : ''}"
         title="${runTooltip}"
@@ -336,7 +347,7 @@ export class ExplorerTestEntry extends CollapseableEntry {
         @click="${(event: Event) => this.#runEntry(event)}"
       >
         <icon-mdi-play
-          class="${this.runDisabled
+          class="${ACTION_ICON} ${this.runDisabled
             ? ''
             : 'group-hover/button:text-chartsGreen'}"
         ></icon-mdi-play>
@@ -353,12 +364,12 @@ export class ExplorerTestEntry extends CollapseableEntry {
       ${this.hasFailed && !this.runDisabled
         ? html`
             <button
-              class="p-1 rounded hover:bg-toolbarHoverBackground my-1 group/button"
+              class="${ACTION_BTN}"
               title="Preserve current run and rerun for comparison"
               @click="${(event: Event) => this.#preserveAndRerun(event)}"
             >
               <icon-mdi-bug-play
-                class="group-hover/button:text-chartsBlue"
+                class="${ACTION_ICON} group-hover/button:text-chartsBlue"
               ></icon-mdi-bug-play>
             </button>
           `
@@ -369,17 +380,17 @@ export class ExplorerTestEntry extends CollapseableEntry {
   #renderToolbar(hasNoChildren: boolean) {
     return html`
       <nav
-        class="row-actions flex-none ml-auto mr-1 transition-opacity opacity-0 group-hover/sidebar:opacity-100"
+        class="row-actions flex items-center gap-0.5 flex-none self-center ml-auto mr-1 transition-opacity opacity-0 group-hover/sidebar:opacity-100"
       >
         ${this.#renderRunStopButtons()}
         ${!hasNoChildren
           ? html`
               <button
-                class="p-1 rounded hover:bg-toolbarHoverBackground my-1 group"
+                class="${ACTION_BTN}"
                 @click="${() => this.#toggleEntry()}"
               >
                 ${this.renderCollapseOrExpandIcon(
-                  'group-hover:text-chartsBlue'
+                  `${ACTION_ICON} group-hover:text-chartsBlue`
                 )}
               </button>
             `
@@ -393,7 +404,7 @@ export class ExplorerTestEntry extends CollapseableEntry {
     const isCollapsed = this.isCollapsed === 'true'
     return html`
       <section
-        class="row flex w-full items-start text-sm group/sidebar rounded-md my-0.5 px-1 cursor-pointer hover:bg-toolbarHoverBackground"
+        class="row flex w-full items-start text-sm group/sidebar rounded-md my-0.5 px-1 py-1 cursor-pointer hover:bg-toolbarHoverBackground"
       >
         <button
           class="flex-none pointer px-2 h-8 ${hasNoChildren ? 'hidden' : ''}"
@@ -406,13 +417,13 @@ export class ExplorerTestEntry extends CollapseableEntry {
           ></icon-mdi-menu-down>
         </button>
         <span
-          class="flex items-start shrink flex-nowrap min-w-0 ${hasNoChildren
+          class="flex items-start shrink flex-nowrap min-w-0 leading-[18px] ${hasNoChildren
             ? 'pl-9'
             : ''}"
           @click="${() => this.#selectEntry()}"
         >
           ${this.root ? nothing : this.testStateIcon}
-          <slot name="label" class="mx-2 mt-1 block flex-initial shrink"></slot>
+          <slot name="label" class="mx-2 block flex-initial shrink"></slot>
         </span>
         ${this.#renderToolbar(hasNoChildren)}
       </section>
