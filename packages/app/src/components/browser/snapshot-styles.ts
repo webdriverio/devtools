@@ -106,10 +106,13 @@ export const snapshotStyles = css`
 
   .view-toggle button {
     padding: 5px 11px;
+    min-width: 78px;
+    text-align: center;
     font-size: 11px;
     font-weight: 600;
     font-family: inherit;
     border: none;
+    outline: none;
     background: transparent;
     color: var(--vscode-descriptionForeground, #ccc);
     cursor: pointer;
@@ -144,5 +147,11 @@ export const snapshotStyles = css`
     cursor: pointer;
     line-height: 1;
     margin-left: 6px;
+  }
+  /* kept visible (greyed) in snapshot mode so the toggle cluster doesn't change
+     width when switching modes */
+  .video-select:disabled {
+    opacity: 0.4;
+    cursor: default;
   }
 `

@@ -204,8 +204,11 @@ export class DevtoolsBrowser extends Element {
         Math.min(availW / viewportWidth, availH / effectiveViewportH)
       )
 
-      this.section.style.width = `${viewportWidth * scale}px`
-      this.section.style.height = `${effectiveViewportH * scale + headerSize.height}px`
+      // Keep the frame at full pane size (same as screencast) so toggling
+      // between the two modes never resizes it; the replay iframe is scaled to
+      // fit and centred horizontally inside the stable frame.
+      this.section.style.width = '100%'
+      this.section.style.height = '100%'
 
       // Iframe absent in screenshot/video modes — section sizing above still runs.
       if (this.iframe) {
@@ -213,6 +216,8 @@ export class DevtoolsBrowser extends Element {
         this.iframe.style.height = `${viewportHeight}px`
         this.iframe.style.transformOrigin = '0 0'
         this.iframe.style.transform = `scale(${scale})`
+        this.iframe.style.left = `${Math.max(0, (availW - viewportWidth * scale) / 2)}px`
+        this.iframe.style.top = '0px'
       }
     })
   }
@@ -525,9 +530,10 @@ export class DevtoolsBrowser extends Element {
         >
           Screencast
         </button>
-        ${this.#videos.length > 1 && this.#viewMode === 'video'
+        ${this.#videos.length > 1
           ? html`<select
               class="video-select"
+              ?disabled=${this.#viewMode !== 'video'}
               @change=${(e: Event) => {
                 this.#setActiveVideo(
                   Number((e.target as HTMLSelectElement).value)
