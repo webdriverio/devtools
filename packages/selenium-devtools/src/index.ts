@@ -23,7 +23,7 @@ import {
   setPluginRef,
   recordSpecBoundary
 } from './session-lifecycle.js'
-import type { SpecRange } from './session-lifecycle.js'
+import type { SpecRange } from '@wdio/devtools-core'
 import {
   startTest as tmStartTest,
   endTest as tmEndTest,

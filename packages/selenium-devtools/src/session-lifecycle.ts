@@ -10,12 +10,13 @@
 
 import logger from '@wdio/logger'
 import {
-  deterministicUid,
   errorMessage,
   finalizeScreencast,
+  recordSpecBoundary as coreRecordSpecBoundary,
   resolveAdapterOutputDir,
+  writeSpecTrace,
   writeTraceZip,
-  type TraceCapturer
+  type SpecRange
 } from '@wdio/devtools-core'
 import { TIMING } from './constants.js'
 import { SessionCapturer } from './session.js'
@@ -32,22 +33,13 @@ import type {
   ScreencastOptions,
   SeleniumDriverLike,
   SuiteStats,
+  TestMetadataMap,
   TraceFormat,
   TraceGranularity
 } from './types.js'
 import type { TestManager } from './helpers/testManager.js'
 
 const log = logger('@wdio/selenium-devtools:session-lifecycle')
-
-export interface SpecRange {
-  specFile: string
-  commandStartIdx: number
-  consoleStartIdx: number
-  networkStartIdx: number
-  mutationStartIdx: number
-  traceLogStartIdx: number
-  snapshotCount: number
-}
 
 export interface SessionLifecycleCtx {
   readonly options: {
@@ -299,27 +291,25 @@ export function recordSpecBoundary(
   ctx: SessionLifecycleCtx,
   specFile: string
 ): void {
-  if (!ctx.sessionCapturer || ctx.options.traceGranularity !== 'spec') {
+  if (!ctx.sessionCapturer) {
     return
   }
-  const lastRange = ctx.specRanges[ctx.specRanges.length - 1]
-  if (!lastRange || lastRange.specFile !== specFile) {
-    if (lastRange && !ctx.flushedSpecs.has(lastRange.specFile)) {
-      void flushOneSpecTrace(ctx, lastRange).catch((err) =>
-        log.warn(
-          `Failed to flush trace for spec "${lastRange.specFile}": ${errorMessage(err)}`
-        )
+  const prevRange = coreRecordSpecBoundary(
+    {
+      specRanges: ctx.specRanges,
+      flushedSpecs: ctx.flushedSpecs,
+      capturer: ctx.sessionCapturer,
+      actionSnapshots: ctx.actionSnapshots
+    },
+    specFile,
+    ctx.options.traceGranularity
+  )
+  if (prevRange) {
+    void flushOneSpecTrace(ctx, prevRange).catch((err) =>
+      log.warn(
+        `Failed to flush trace for spec "${prevRange.specFile}": ${errorMessage(err)}`
       )
-    }
-    ctx.specRanges.push({
-      specFile,
-      commandStartIdx: ctx.sessionCapturer.commandsLog.length,
-      consoleStartIdx: ctx.sessionCapturer.consoleLogs.length,
-      networkStartIdx: ctx.sessionCapturer.networkRequests.length,
-      mutationStartIdx: ctx.sessionCapturer.mutations.length,
-      traceLogStartIdx: ctx.sessionCapturer.traceLogs.length,
-      snapshotCount: ctx.actionSnapshots.length
-    })
+    )
   }
 }
 
@@ -339,79 +329,15 @@ async function flushOneSpecTrace(
     return undefined
   }
 
-  const end = nextRange
-    ? {
-        commands: nextRange.commandStartIdx,
-        console: nextRange.consoleStartIdx,
-        network: nextRange.networkStartIdx,
-        mutations: nextRange.mutationStartIdx,
-        traceLogs: nextRange.traceLogStartIdx
-      }
-    : undefined
-
-  const slice = <T>(arr: T[], start: number, endIdx?: number): T[] =>
-    arr.slice(start, endIdx)
-
-  const specCapturer: TraceCapturer = {
-    mutations: slice(
-      capturer.mutations,
-      range.mutationStartIdx,
-      end?.mutations
-    ),
-    traceLogs: slice(
-      capturer.traceLogs,
-      range.traceLogStartIdx,
-      end?.traceLogs
-    ),
-    consoleLogs: slice(
-      capturer.consoleLogs,
-      range.consoleStartIdx,
-      end?.console
-    ),
-    networkRequests: slice(
-      capturer.networkRequests,
-      range.networkStartIdx,
-      end?.network
-    ),
-    commandsLog: slice(
-      capturer.commandsLog,
-      range.commandStartIdx,
-      end?.commands
-    ),
-    sources: capturer.sources,
-    metadata: capturer.metadata
-  }
-
-  const specSnapshots = ctx.actionSnapshots.slice(
-    range.snapshotCount,
-    nextRange?.snapshotCount ?? ctx.actionSnapshots.length
-  )
-
-  const sanitizedSpec =
-    range.specFile
-      .replace(/^.*[/\\]/, '')
-      .replace(/\.[^.]+$/, '')
-      .replace(/[^a-zA-Z0-9_-]/g, '_')
-      .replace(/^_+|_+$/g, '') || 'unknown-spec'
-
-  const hash = deterministicUid(range.specFile).split('-').pop()!.slice(0, 8)
-  const specSessionId = `${sanitizedSpec}-${hash}-${sessionId.slice(0, 8)}`
-
-  // Collect test metadata scoped to this spec file.
-  const testMetadata = new Map<string, { title: string; specFile: string }>()
-  const allMetadata = collectTestMetadata(ctx.suiteManager)
-  for (const [uid, meta] of allMetadata) {
-    if (meta.specFile === range.specFile) {
-      testMetadata.set(uid, meta)
-    }
-  }
-
-  const tracePath = await writeTraceZip(specCapturer, {
+  const tracePath = await writeSpecTrace({
+    range,
+    nextRange,
+    capturer,
+    actionSnapshots: ctx.actionSnapshots,
+    sessionId,
     outputDir: resolveAdapterOutputDir({ testFilePath: range.specFile }),
-    sessionId: specSessionId,
-    actionSnapshots: specSnapshots.length > 0 ? specSnapshots : undefined,
     format: ctx.options.traceFormat,
-    testMetadata
+    testMetadata: collectTestMetadata(ctx.suiteManager)
   })
   log.info(`Trace for spec "${range.specFile}" saved to ${tracePath}`)
   return tracePath
@@ -427,8 +353,8 @@ async function flushSpecTraces(ctx: SessionLifecycleCtx): Promise<void> {
 
 function collectTestMetadata(
   suiteManager: SuiteManager | undefined
-): Map<string, { title: string; specFile: string }> {
-  const metadata = new Map<string, { title: string; specFile: string }>()
+): TestMetadataMap {
+  const metadata: TestMetadataMap = new Map()
   const root = suiteManager?.getRootSuite()
   if (!root) {
     return metadata

@@ -9,6 +9,7 @@ import type {
   ConsoleLog,
   Metadata,
   NetworkRequest,
+  TestMetadataMap,
   TraceFormat,
   TraceLog,
   TraceMutation
@@ -148,7 +149,7 @@ export function buildActionEvents(
   commands: CommandLog[],
   pageId: string,
   wallTime: number,
-  testMetadata?: Map<string, { title: string; specFile: string }>
+  testMetadata?: TestMetadataMap
 ): TraceEvent[] {
   const events: TraceEvent[] = []
   let prevEndMs = 0
@@ -450,7 +451,7 @@ function buildTraceBundle(
   opts: {
     sessionId?: string
     wallTimeOverride?: number
-    testMetadata?: Map<string, { title: string; specFile: string }>
+    testMetadata?: TestMetadataMap
   } = {}
 ): TraceBundle {
   // wallTime anchors monotonic offsets at the first captured command so
@@ -513,7 +514,7 @@ export async function exportTraceZip(
   opts: {
     sessionId?: string
     wallTimeOverride?: number
-    testMetadata?: Map<string, { title: string; specFile: string }>
+    testMetadata?: TestMetadataMap
   } = {}
 ): Promise<Buffer> {
   const bundle = buildTraceBundle(trace, opts)
@@ -531,7 +532,7 @@ async function exportTraceDirectory(
   opts: {
     sessionId?: string
     wallTimeOverride?: number
-    testMetadata?: Map<string, { title: string; specFile: string }>
+    testMetadata?: TestMetadataMap
   } = {}
 ): Promise<void> {
   const bundle = buildTraceBundle(trace, opts)
@@ -581,7 +582,7 @@ export interface WriteTraceZipOptions {
    *  unpacks the same files into `trace-<id>/`. */
   format?: TraceFormat
   /** Test metadata keyed by testUid for Tracing.tracingGroup events. */
-  testMetadata?: Map<string, { title: string; specFile: string }>
+  testMetadata?: TestMetadataMap
 }
 
 /**

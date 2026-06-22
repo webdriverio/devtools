@@ -7,11 +7,13 @@ import {
   deterministicUid,
   errorMessage,
   mapCommandToAction,
+  recordSpecBoundary,
+  writeSpecTrace,
   writeTraceZip,
-  type TraceCapturer
+  type SpecRange
 } from '@wdio/devtools-core'
 import { captureActionSnapshot } from './action-snapshot.js'
-import type { ActionSnapshot } from '@wdio/devtools-shared'
+import type { ActionSnapshot, TestMetadataMap } from '@wdio/devtools-shared'
 import { SevereServiceError } from 'webdriverio'
 import type { Services, Reporters, Capabilities, Options } from '@wdio/types'
 import type { WebDriverCommands } from '@wdio/protocols'
@@ -47,16 +49,6 @@ type CommandFrame = {
   startTimestamp: number
 }
 
-interface SpecRange {
-  specFile: string
-  commandStartIdx: number
-  consoleStartIdx: number
-  networkStartIdx: number
-  mutationStartIdx: number
-  traceLogStartIdx: number
-  snapshotCount: number
-}
-
 export { setupForDevtools } from './standalone.js'
 import { detectInvocationConfigPath } from './standalone.js'
 
@@ -90,7 +82,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
   #currentTestUid?: string
 
   /** Map of testUid → metadata for trace group events and per-spec partitioning. */
-  #testMetadata = new Map<string, { title: string; specFile: string }>()
+  #testMetadata: TestMetadataMap = new Map()
 
   /** Index ranges into the session capturer's flat arrays, one per spec file. */
   #specRanges: SpecRange[] = []
@@ -232,26 +224,25 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     // ── Per-spec boundary detection ──
     // Only tracked when traceGranularity is 'spec'. Records array index
     // ranges so #flushSpecTrace can slice the accumulated data per spec.
-    if (newSpec && this.#options.traceGranularity === 'spec') {
-      const lastRange = this.#specRanges[this.#specRanges.length - 1]
-      if (!lastRange || lastRange.specFile !== newSpec) {
-        // Flush the previous spec's trace if it hasn't been flushed yet.
-        if (lastRange && !this.#flushedSpecs.has(lastRange.specFile)) {
-          void this.#flushSpecTrace(lastRange).catch((err) =>
-            log.warn(
-              `Failed to flush trace for spec "${lastRange.specFile}": ${errorMessage(err)}`
-            )
+    if (newSpec) {
+      const prevRange = recordSpecBoundary(
+        {
+          specRanges: this.#specRanges,
+          flushedSpecs: this.#flushedSpecs,
+          capturer: this.#sessionCapturer,
+          actionSnapshots: this.#actionSnapshots
+        },
+        newSpec,
+        this.#options.traceGranularity
+      )
+      // Fire-and-forget: blocking the test runner on disk I/O between
+      // specs would slow the run. Errors surface via log.warn below.
+      if (prevRange) {
+        void this.#flushSpecTrace(prevRange).catch((err) =>
+          log.warn(
+            `Failed to flush trace for spec "${prevRange.specFile}": ${errorMessage(err)}`
           )
-        }
-        this.#specRanges.push({
-          specFile: newSpec,
-          commandStartIdx: this.#sessionCapturer.commandsLog.length,
-          consoleStartIdx: this.#sessionCapturer.consoleLogs.length,
-          networkStartIdx: this.#sessionCapturer.networkRequests.length,
-          mutationStartIdx: this.#sessionCapturer.mutations.length,
-          traceLogStartIdx: this.#sessionCapturer.traceLogs.length,
-          snapshotCount: this.#actionSnapshots.length
-        })
+        )
       }
     }
 
@@ -450,81 +441,16 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     }
     this.#flushedSpecs.add(range.specFile)
 
-    const end = nextRange
-      ? {
-          commands: nextRange.commandStartIdx,
-          console: nextRange.consoleStartIdx,
-          network: nextRange.networkStartIdx,
-          mutations: nextRange.mutationStartIdx,
-          traceLogs: nextRange.traceLogStartIdx
-        }
-      : undefined
-
-    const slice = <T>(arr: T[], start: number, endIdx?: number): T[] =>
-      arr.slice(start, endIdx)
-
-    const specCapturer: TraceCapturer = {
-      mutations: slice(
-        this.#sessionCapturer.mutations,
-        range.mutationStartIdx,
-        end?.mutations
-      ),
-      traceLogs: slice(
-        this.#sessionCapturer.traceLogs,
-        range.traceLogStartIdx,
-        end?.traceLogs
-      ),
-      consoleLogs: slice(
-        this.#sessionCapturer.consoleLogs,
-        range.consoleStartIdx,
-        end?.console
-      ),
-      networkRequests: slice(
-        this.#sessionCapturer.networkRequests,
-        range.networkStartIdx,
-        end?.network
-      ),
-      commandsLog: slice(
-        this.#sessionCapturer.commandsLog,
-        range.commandStartIdx,
-        end?.commands
-      ),
-      sources: this.#sessionCapturer.sources,
-      metadata: this.#sessionCapturer.metadata,
-      startWallTime: this.#sessionCapturer.startWallTime
-    }
-
-    const specSnapshots = this.#actionSnapshots.slice(
-      range.snapshotCount,
-      nextRange?.snapshotCount ?? this.#actionSnapshots.length
-    )
-
-    // Sanitize the spec file path for use as a directory-safe identifier.
-    const sanitizedSpec =
-      range.specFile
-        .replace(/^.*[/\\]/, '') // strip directory prefix
-        .replace(/\.[^.]+$/, '') // strip extension
-        .replace(/[^a-zA-Z0-9_-]/g, '_') // replace unsafe chars
-        .replace(/^_+|_+$/g, '') || // trim leading/trailing underscores
-      'unknown-spec'
-
-    const hash = deterministicUid(range.specFile).split('-').pop()!.slice(0, 8)
-    const specSessionId = `${sanitizedSpec}-${hash}-${this.#browser.sessionId.slice(0, 8)}`
-
-    // Derive spec-scoped test metadata from the global map so there is one
-    // source of truth — #testMetadata — shared by session-level and
-    // spec-level trace paths.
-    const specTestMetadata = new Map(
-      [...this.#testMetadata].filter(([_, v]) => v.specFile === range.specFile)
-    )
-
-    const tracePath = await writeTraceZip(specCapturer, {
+    const tracePath = await writeSpecTrace({
+      range,
+      nextRange,
+      capturer: this.#sessionCapturer,
+      actionSnapshots: this.#actionSnapshots,
+      sessionId: this.#browser.sessionId,
       outputDir: this.#outputDir,
-      sessionId: specSessionId,
-      capabilities: this.#browser.capabilities,
-      actionSnapshots: specSnapshots.length > 0 ? specSnapshots : undefined,
       format: this.#options.traceFormat,
-      testMetadata: specTestMetadata
+      testMetadata: this.#testMetadata,
+      capabilities: this.#browser.capabilities
     })
     log.info(`Trace for spec "${range.specFile}" saved to ${tracePath}`)
     return tracePath

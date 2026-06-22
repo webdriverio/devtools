@@ -17,6 +17,7 @@ export {
   type TestStats,
   type TestStatus,
   type TraceFormat,
+  type TestMetadataMap,
   type TraceGranularity,
   type TraceLog
 } from '@wdio/devtools-shared'

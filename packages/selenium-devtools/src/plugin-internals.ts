@@ -22,7 +22,7 @@ import type {
 } from './types.js'
 import type { RetryTracker } from '@wdio/devtools-core'
 import type { PendingTestAction, PendingScenario } from './test-management.js'
-import type { SpecRange } from './session-lifecycle.js'
+import type { SpecRange } from '@wdio/devtools-core'
 
 export interface PluginInternals {
   // Config

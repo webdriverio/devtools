@@ -7,11 +7,12 @@
 
 import { fileURLToPath } from 'node:url'
 import {
-  deterministicUid,
   errorMessage,
+  recordSpecBoundary,
   resolveAdapterOutputDir,
+  writeSpecTrace,
   writeTraceZip,
-  type TraceCapturer
+  type SpecRange
 } from '@wdio/devtools-core'
 import { stop as stopBackend } from '@wdio/devtools-backend'
 import { REUSE_ENV, SCREENCAST_DEFAULTS } from '@wdio/devtools-shared'
@@ -39,7 +40,8 @@ import type {
   NightwatchEventHub,
   ScreencastOptions,
   SuiteStats,
-  TestStats
+  TestStats,
+  TestMetadataMap
 } from './types.js'
 import { registerEventHandlers as registerEventHandlersImpl } from './event-hub.js'
 import {
@@ -70,16 +72,6 @@ import {
 } from './helpers/utils.js'
 
 const log = logger('@wdio/nightwatch-devtools')
-
-interface SpecRange {
-  specFile: string
-  commandStartIdx: number
-  consoleStartIdx: number
-  networkStartIdx: number
-  mutationStartIdx: number
-  traceLogStartIdx: number
-  snapshotCount: number
-}
 
 class NightwatchDevToolsPlugin {
   private options: Required<DevToolsOptions>
@@ -435,25 +427,23 @@ class NightwatchDevToolsPlugin {
     }
 
     // ── Per-spec boundary detection ──
-    if (fullPath && this.options.traceGranularity === 'spec') {
-      const lastRange = this.#specRanges[this.#specRanges.length - 1]
-      if (!lastRange || lastRange.specFile !== fullPath) {
-        if (lastRange && !this.#flushedSpecs.has(lastRange.specFile)) {
-          void this.#flushSpecTrace(lastRange).catch((err) =>
-            log.warn(
-              `Failed to flush trace for spec "${lastRange.specFile}": ${errorMessage(err)}`
-            )
+    if (fullPath) {
+      const prevRange = recordSpecBoundary(
+        {
+          specRanges: this.#specRanges,
+          flushedSpecs: this.#flushedSpecs,
+          capturer: this.sessionCapturer,
+          actionSnapshots: this.sessionCapturer.actionSnapshots
+        },
+        fullPath,
+        this.options.traceGranularity
+      )
+      if (prevRange) {
+        void this.#flushSpecTrace(prevRange).catch((err) =>
+          log.warn(
+            `Failed to flush trace for spec "${prevRange.specFile}": ${errorMessage(err)}`
           )
-        }
-        this.#specRanges.push({
-          specFile: fullPath,
-          commandStartIdx: this.sessionCapturer.commandsLog.length,
-          consoleStartIdx: this.sessionCapturer.consoleLogs.length,
-          networkStartIdx: this.sessionCapturer.networkRequests.length,
-          mutationStartIdx: this.sessionCapturer.mutations.length,
-          traceLogStartIdx: this.sessionCapturer.traceLogs.length,
-          snapshotCount: this.sessionCapturer.actionSnapshots.length
-        })
+        )
       }
     }
 
@@ -539,91 +529,34 @@ class NightwatchDevToolsPlugin {
       return undefined
     }
 
-    const end = nextRange
-      ? {
-          commands: nextRange.commandStartIdx,
-          console: nextRange.consoleStartIdx,
-          network: nextRange.networkStartIdx,
-          mutations: nextRange.mutationStartIdx,
-          traceLogs: nextRange.traceLogStartIdx
-        }
-      : undefined
-
-    const slice = <T>(arr: T[], start: number, endIdx?: number): T[] =>
-      arr.slice(start, endIdx)
-
-    const specCapturer: TraceCapturer = {
-      mutations: slice(
-        this.sessionCapturer.mutations,
-        range.mutationStartIdx,
-        end?.mutations
-      ),
-      traceLogs: slice(
-        this.sessionCapturer.traceLogs,
-        range.traceLogStartIdx,
-        end?.traceLogs
-      ),
-      consoleLogs: slice(
-        this.sessionCapturer.consoleLogs,
-        range.consoleStartIdx,
-        end?.console
-      ),
-      networkRequests: slice(
-        this.sessionCapturer.networkRequests,
-        range.networkStartIdx,
-        end?.network
-      ),
-      commandsLog: slice(
-        this.sessionCapturer.commandsLog,
-        range.commandStartIdx,
-        end?.commands
-      ),
-      sources: this.sessionCapturer.sources,
-      metadata: this.sessionCapturer.metadata
-    }
-
-    const specSnapshots = this.sessionCapturer.actionSnapshots.slice(
-      range.snapshotCount,
-      nextRange?.snapshotCount ?? this.sessionCapturer.actionSnapshots.length
-    )
-
-    // Sanitize the spec file path for use as a directory-safe identifier.
-    const sanitizedSpec =
-      range.specFile
-        .replace(/^.*[/\\]/, '')
-        .replace(/\.[^.]+$/, '')
-        .replace(/[^a-zA-Z0-9_-]/g, '_')
-        .replace(/^_+|_+$/g, '') || 'unknown-spec'
-
-    const hash = deterministicUid(range.specFile).split('-').pop()!.slice(0, 8)
-    const specSessionId = `${sanitizedSpec}-${hash}-${sessionId.slice(0, 8)}`
-
-    // Collect test metadata for this spec by filtering the suite tree.
-    const testMetadata = new Map<string, { title: string; specFile: string }>()
+    // Collect test metadata from the suite tree. Nightwatch stores one suite
+    // per spec file (flat data model) — a flat iteration is correct. If
+    // child suites are ever introduced, this must switch to a recursive walk
+    // matching the selenium adapter.
+    const allMetadata: TestMetadataMap = new Map()
     if (this.suiteManager) {
       for (const suite of this.suiteManager.getAllSuites().values()) {
         for (const entry of suite.tests) {
           if (typeof entry === 'string') {
             continue
           }
-          if (entry.file === range.specFile) {
-            testMetadata.set(entry.uid, {
-              title: entry.fullTitle,
-              specFile: entry.file
-            })
-          }
+          allMetadata.set(entry.uid, {
+            title: entry.fullTitle,
+            specFile: entry.file
+          })
         }
       }
     }
 
-    const tracePath = await writeTraceZip(specCapturer, {
-      outputDir: resolveAdapterOutputDir({
-        configPath: this.#configPath
-      }),
-      sessionId: specSessionId,
-      actionSnapshots: specSnapshots.length > 0 ? specSnapshots : undefined,
+    const tracePath = await writeSpecTrace({
+      range,
+      nextRange,
+      capturer: this.sessionCapturer,
+      actionSnapshots: this.sessionCapturer.actionSnapshots,
+      sessionId,
+      outputDir: resolveAdapterOutputDir({ configPath: this.#configPath }),
       format: this.options.traceFormat,
-      testMetadata
+      testMetadata: allMetadata
     })
     log.info(`Trace for spec "${range.specFile}" saved to ${tracePath}`)
     return tracePath
@@ -655,10 +588,7 @@ class NightwatchDevToolsPlugin {
 
       // Session-level trace (default) — single artifact for the
       // entire worker session.
-      const testMetadata = new Map<
-        string,
-        { title: string; specFile: string }
-      >()
+      const testMetadata: TestMetadataMap = new Map()
       if (this.suiteManager) {
         for (const suite of this.suiteManager.getAllSuites().values()) {
           for (const entry of suite.tests) {

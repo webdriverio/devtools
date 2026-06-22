@@ -14,6 +14,7 @@ export {
   type SuiteStats,
   type TestStats,
   type TestStatus,
+  type TestMetadataMap,
   type TraceFormat,
   type TraceGranularity
 } from '@wdio/devtools-shared'
