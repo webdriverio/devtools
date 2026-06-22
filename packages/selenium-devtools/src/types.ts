@@ -14,7 +14,9 @@ export {
   type SuiteStats,
   type TestStats,
   type TestStatus,
-  type TraceFormat
+  type TestMetadataMap,
+  type TraceFormat,
+  type TraceGranularity
 } from '@wdio/devtools-shared'
 
 export interface DevToolsOptions {
@@ -27,6 +29,10 @@ export interface DevToolsOptions {
   /** Trace output layout — `zip` (default) writes a single archive,
    *  `ndjson-directory` unpacks into `trace-<id>/`. Only applies in trace mode. */
   traceFormat?: TraceFormat
+  /** Trace output granularity — `session` (default) writes one trace per
+   *  worker session; `spec` writes one trace per spec file. Only applies in
+   *  trace mode. */
+  traceGranularity?: TraceGranularity
   /** Capture screenshots after each command. Default true. */
   captureScreenshots?: boolean
   /** Command template for per-test rerun. {{testName}} is substituted. */
@@ -46,7 +52,8 @@ export interface DevToolsOptions {
 import type {
   DevToolsMode,
   ScreencastOptions,
-  TraceFormat
+  TraceFormat,
+  TraceGranularity
 } from '@wdio/devtools-shared'
 export type { ScreencastFrame, ScreencastOptions } from '@wdio/devtools-shared'
 

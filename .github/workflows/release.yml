@@ -3,18 +3,10 @@ name: Manual NPM Publish
 on:
   workflow_dispatch:
     inputs:
-      releaseType:
-        description: "Release Type"
-        required: true
-        type: choice
-        default: "patch"
-        options:
-          - patch
-          - minor
-          - major
       distTag:
         description: 'NPM tag (e.g. use "next" to release a test version)'
-        required: true
+        required: false
+        type: string
         default: 'latest'
 
 env:
@@ -47,7 +39,13 @@ jobs:
         run: pnpm install
       - name: Build
         run: pnpm -r build
-      - name: Release
-        run: pnpm -r publish --access public --no-git-checks
+      - name: Consume changesets and publish
+        run: |
+          npx changeset version
+          npx changeset publish --tag "$DIST_TAG"
+          git push origin main --follow-tags
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          DIST_TAG: ${{ inputs.distTag }}

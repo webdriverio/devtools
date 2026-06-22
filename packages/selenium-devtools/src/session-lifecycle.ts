@@ -12,8 +12,11 @@ import logger from '@wdio/logger'
 import {
   errorMessage,
   finalizeScreencast,
+  recordSpecBoundary as coreRecordSpecBoundary,
   resolveAdapterOutputDir,
-  writeTraceZip
+  writeSpecTrace,
+  writeTraceZip,
+  type SpecRange
 } from '@wdio/devtools-core'
 import { TIMING } from './constants.js'
 import { SessionCapturer } from './session.js'
@@ -29,7 +32,10 @@ import type {
   Metadata,
   ScreencastOptions,
   SeleniumDriverLike,
-  TraceFormat
+  SuiteStats,
+  TestMetadataMap,
+  TraceFormat,
+  TraceGranularity
 } from './types.js'
 import type { TestManager } from './helpers/testManager.js'
 
@@ -44,6 +50,7 @@ export interface SessionLifecycleCtx {
     rerunCommand?: string
     mode?: DevToolsMode
     traceFormat?: TraceFormat
+    traceGranularity?: TraceGranularity
   }
   readonly screencastOptions: ScreencastOptions
   readonly runner: string
@@ -66,6 +73,10 @@ export interface SessionLifecycleCtx {
   // Populated by handleOnCommand when mode === 'trace'.
   readonly actionSnapshots: ActionSnapshot[]
   readonly snapshotCaptures: Promise<void>[]
+
+  // Per-spec trace tracking (populated at spec file boundaries).
+  readonly specRanges: SpecRange[]
+  readonly flushedSpecs: Set<string>
 
   setFinalized(v: boolean): void
   ensureBackendStarted(): Promise<void>
@@ -271,6 +282,101 @@ export async function onSessionEnd(ctx: SessionLifecycleCtx): Promise<void> {
   }
 }
 
+/**
+ * Record a spec-file boundary in the session lifecycle context. Called from
+ * the plugin's startTest / startScenario when `traceGranularity` is `'spec'`.
+ * Flushes the previous spec's trace if it hasn't been written yet.
+ */
+export function recordSpecBoundary(
+  ctx: SessionLifecycleCtx,
+  specFile: string
+): void {
+  if (!ctx.sessionCapturer) {
+    return
+  }
+  const prevRange = coreRecordSpecBoundary(
+    {
+      specRanges: ctx.specRanges,
+      flushedSpecs: ctx.flushedSpecs,
+      capturer: ctx.sessionCapturer,
+      actionSnapshots: ctx.actionSnapshots
+    },
+    specFile,
+    ctx.options.traceGranularity
+  )
+  if (prevRange) {
+    void flushOneSpecTrace(ctx, prevRange).catch((err) =>
+      log.warn(
+        `Failed to flush trace for spec "${prevRange.specFile}": ${errorMessage(err)}`
+      )
+    )
+  }
+}
+
+async function flushOneSpecTrace(
+  ctx: SessionLifecycleCtx,
+  range: SpecRange,
+  nextRange?: SpecRange
+): Promise<string | undefined> {
+  const capturer = ctx.sessionCapturer
+  if (!capturer || ctx.flushedSpecs.has(range.specFile)) {
+    return undefined
+  }
+  ctx.flushedSpecs.add(range.specFile)
+
+  const sessionId = capturer.metadata?.sessionId
+  if (!sessionId) {
+    return undefined
+  }
+
+  const tracePath = await writeSpecTrace({
+    range,
+    nextRange,
+    capturer,
+    actionSnapshots: ctx.actionSnapshots,
+    sessionId,
+    outputDir: resolveAdapterOutputDir({ testFilePath: range.specFile }),
+    format: ctx.options.traceFormat,
+    testMetadata: collectTestMetadata(ctx.suiteManager)
+  })
+  log.info(`Trace for spec "${range.specFile}" saved to ${tracePath}`)
+  return tracePath
+}
+
+async function flushSpecTraces(ctx: SessionLifecycleCtx): Promise<void> {
+  for (const range of ctx.specRanges) {
+    if (!ctx.flushedSpecs.has(range.specFile)) {
+      await flushOneSpecTrace(ctx, range)
+    }
+  }
+}
+
+function collectTestMetadata(
+  suiteManager: SuiteManager | undefined
+): TestMetadataMap {
+  const metadata: TestMetadataMap = new Map()
+  const root = suiteManager?.getRootSuite()
+  if (!root) {
+    return metadata
+  }
+  const walk = (suite: SuiteStats) => {
+    for (const entry of suite.tests) {
+      if (typeof entry === 'string') {
+        continue
+      }
+      metadata.set(entry.uid, {
+        title: entry.fullTitle,
+        specFile: entry.file
+      })
+    }
+    for (const child of suite.suites) {
+      walk(child)
+    }
+  }
+  walk(root)
+  return metadata
+}
+
 async function maybeWriteTrace(
   ctx: SessionLifecycleCtx,
   capturer: SessionCapturer | undefined,
@@ -284,13 +390,21 @@ async function maybeWriteTrace(
     if (ctx.snapshotCaptures.length) {
       await Promise.allSettled(ctx.snapshotCaptures)
     }
+
+    if (ctx.options.traceGranularity === 'spec') {
+      await flushSpecTraces(ctx)
+      return
+    }
+
+    const testMetadata = collectTestMetadata(ctx.suiteManager)
     const tracePath = await writeTraceZip(capturer, {
       outputDir: resolveAdapterOutputDir({ testFilePath }),
       sessionId,
       actionSnapshots: ctx.actionSnapshots.length
         ? ctx.actionSnapshots
         : undefined,
-      format: ctx.options.traceFormat
+      format: ctx.options.traceFormat,
+      testMetadata
     })
     log.info(`Trace saved to ${tracePath}`)
   } catch (err) {

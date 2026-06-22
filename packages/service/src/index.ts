@@ -4,14 +4,20 @@ import path from 'node:path'
 
 import logger from '@wdio/logger'
 import {
+  deterministicUid,
   errorMessage,
+  finalizeScreencast,
   mapCommandToAction,
+  recordSpecBoundary,
+  resolveAdapterOutputDir,
+  type SpecRange,
+  writeSpecTrace,
   writeTraceZip
 } from '@wdio/devtools-core'
 import { captureActionSnapshot } from './action-snapshot.js'
-import type { ActionSnapshot } from '@wdio/devtools-shared'
+import type { ActionSnapshot, TestMetadataMap } from '@wdio/devtools-shared'
 import { SevereServiceError } from 'webdriverio'
-import type { Services, Reporters, Capabilities, Options } from '@wdio/types'
+import type { Services, Capabilities, Options, Reporters } from '@wdio/types'
 import type { WebDriverCommands } from '@wdio/protocols'
 
 import { SessionCapturer } from './session.js'
@@ -20,19 +26,16 @@ import { DevToolsAppLauncher } from './launcher.js'
 import { getBrowserObject, isUserSpecFile } from './utils.js'
 import { ScreencastRecorder } from './screencast.js'
 import { attachBidiListeners } from './bidi-listeners.js'
-import {
-  finalizeScreencast,
-  resolveAdapterOutputDir
-} from '@wdio/devtools-core'
 import { parse } from 'stack-trace'
 import {
-  type TraceLog,
-  TraceType,
+  type ScreencastOptions,
   type ServiceOptions,
-  type ScreencastOptions
+  type TraceLog,
+  TraceType
 } from './types.js'
-import { INTERNAL_COMMANDS, CONTEXT_CHANGE_COMMANDS } from './constants.js'
+import { CONTEXT_CHANGE_COMMANDS, INTERNAL_COMMANDS } from './constants.js'
 import { isNativeMobile } from './mobile.js'
+import { detectInvocationConfigPath } from './standalone.js'
 
 export * from './types.js'
 export const launcher = DevToolsAppLauncher
@@ -46,7 +49,6 @@ type CommandFrame = {
 }
 
 export { setupForDevtools } from './standalone.js'
-import { detectInvocationConfigPath } from './standalone.js'
 
 export default class DevToolsHookService implements Services.ServiceInstance {
   #testReporters: TestReporter[] = []
@@ -73,6 +75,39 @@ export default class DevToolsHookService implements Services.ServiceInstance {
    * commands that are top-level user commands.
    */
   #commandStack: CommandFrame[] = []
+
+  /** Current test UID, set in beforeTest(), used by afterCommand() to tag commands. */
+  #currentTestUid?: string
+
+  /** Map of testUid → metadata for trace group events and per-spec partitioning. */
+  #testMetadata: TestMetadataMap = new Map()
+
+  /** Index ranges into the session capturer's flat arrays, one per spec file. */
+  #specRanges: SpecRange[] = []
+
+  /** Set of spec files already flushed to disk. */
+  #flushedSpecs = new Set<string>()
+
+  /** Build the boundary context for recordSpecBoundary — the same shape is
+   *  needed in both beforeTest and beforeScenario. */
+  get #boundaryContext() {
+    return {
+      specRanges: this.#specRanges,
+      flushedSpecs: this.#flushedSpecs,
+      capturer: this.#sessionCapturer,
+      actionSnapshots: this.#actionSnapshots
+    }
+  }
+
+  /** Fire-and-forget flush of a previous spec's trace. The error log is
+   *  inline so the spec-file reference stays precise. */
+  #fireAndForgetFlush(prevRange: SpecRange): void {
+    void this.#flushSpecTrace(prevRange).catch((err) =>
+      log.warn(
+        `Failed to flush trace for spec "${prevRange.specFile}": ${errorMessage(err)}`
+      )
+    )
+  }
 
   /**
    * allows to define the type of data being captured to hint the
@@ -189,19 +224,81 @@ export default class DevToolsHookService implements Services.ServiceInstance {
 
   /**
    * Hook for Cucumber framework.
-   * beforeScenario is triggered at the beginning of every worker session, therefore
-   * we can use it to reset the command stack and last command signature
+   * Detects feature-file boundaries for per-spec tracing and tags commands
+   * with a stable testUid so tracingGroup spans render in the trace output.
+   * WDIO passes the Cucumber World as the first argument.
    */
-  beforeScenario() {
+  beforeScenario(world?: { pickle?: { uri?: string; name?: string } }) {
     this.resetStack()
+
+    const featureFile = world?.pickle?.uri
+    const scenarioName = world?.pickle?.name
+
+    // ── Per-spec boundary detection (Cucumber) ──
+    if (featureFile) {
+      const prevRange = recordSpecBoundary(
+        this.#boundaryContext,
+        featureFile,
+        this.#options.traceGranularity
+      )
+      if (prevRange) {
+        this.#fireAndForgetFlush(prevRange)
+      }
+    }
+
+    // ── Test identity for command tagging ──
+    if (featureFile && scenarioName) {
+      const uid = deterministicUid(featureFile, scenarioName)
+      this.#currentTestUid = uid
+      this.#testMetadata.set(uid, {
+        title: scenarioName,
+        specFile: featureFile
+      })
+    }
   }
 
   /**
    * Hook for Mocha/Jasmine frameworks.
    * It does the exact same thing as beforeScenario.
    */
-  beforeTest() {
+  beforeTest(test?: { file?: string; title?: string; fullTitle?: string }) {
     this.resetStack()
+
+    const newSpec = test?.file
+
+    // ── Per-spec boundary detection ──
+    // Only tracked when traceGranularity is 'spec'. Records array index
+    // ranges so #flushSpecTrace can slice the accumulated data per spec.
+    if (newSpec) {
+      const prevRange = recordSpecBoundary(
+        this.#boundaryContext,
+        newSpec,
+        this.#options.traceGranularity
+      )
+      if (prevRange) {
+        this.#fireAndForgetFlush(prevRange)
+      }
+    }
+
+    // Track test identity for command tagging. Generate a stable UID
+    // from file + title so commands can be partitioned across reruns.
+    // WDIO's Test type always provides `fullTitle`; `title` is a
+    // fallback for non-WDIO frameworks.
+    const testTitle = test?.fullTitle || test?.title
+    if (test?.file && testTitle) {
+      const uid = deterministicUid(test.file, testTitle)
+      this.#currentTestUid = uid
+      this.#testMetadata.set(uid, {
+        title: testTitle,
+        specFile: test.file
+      })
+    } else if (testTitle) {
+      this.#currentTestUid = testTitle
+      this.#testMetadata.set(testTitle, {
+        title: testTitle,
+        specFile: test.file ?? ''
+      })
+    }
   }
 
   async afterScenario() {
@@ -237,6 +334,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
 
   private resetStack() {
     this.#commandStack = []
+    this.#sessionCapturer.resetLastSelector()
     this.#sessionCapturer.resetRetryTracker()
   }
 
@@ -342,16 +440,16 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     if (frame?.command === command) {
       this.#commandStack.pop()
       if (this.#browser) {
-        const captured = await this.#sessionCapturer.afterCommand(
+        return await this.#sessionCapturer.afterCommand(
           this.#browser,
           command,
           args,
           result,
           error,
           frame.callSource,
-          frame.startTimestamp
+          frame.startTimestamp,
+          this.#currentTestUid
         )
-        return captured
       }
     }
 
@@ -359,6 +457,35 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     if (CONTEXT_CHANGE_COMMANDS.includes(command)) {
       void this.#ensureInjected(`context-change:${command}`)
     }
+  }
+
+  /**
+   * Slice the session capturer's accumulated arrays for a single spec file
+   * and write a standalone trace artifact. Called at spec boundaries and
+   * from after() for the final spec.
+   */
+  async #flushSpecTrace(
+    range: SpecRange,
+    nextRange?: SpecRange
+  ): Promise<string | undefined> {
+    if (!this.#browser || this.#flushedSpecs.has(range.specFile)) {
+      return undefined
+    }
+    this.#flushedSpecs.add(range.specFile)
+
+    const tracePath = await writeSpecTrace({
+      range,
+      nextRange,
+      capturer: this.#sessionCapturer,
+      actionSnapshots: this.#actionSnapshots,
+      sessionId: this.#browser.sessionId,
+      outputDir: this.#outputDir,
+      format: this.#options.traceFormat,
+      testMetadata: this.#testMetadata,
+      capabilities: this.#browser.capabilities
+    })
+    log.info(`Trace for spec "${range.specFile}" saved to ${tracePath}`)
+    return tracePath
   }
 
   /**
@@ -395,16 +522,51 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     }
 
     if (this.#options.mode === 'trace') {
-      const tracePath = await writeTraceZip(this.#sessionCapturer, {
-        outputDir,
-        sessionId: this.#browser.sessionId,
-        capabilities: this.#browser.capabilities,
-        actionSnapshots: this.#actionSnapshots.length
-          ? this.#actionSnapshots
-          : undefined,
-        format: this.#options.traceFormat
-      })
-      log.info(`Trace saved to ${tracePath}`)
+      if (this.#options.traceGranularity === 'spec') {
+        // Per-spec traces — flush any remaining unfilled ranges, or
+        // fall back to session-level if no boundaries were detected
+        // (e.g. an unsupported runner or standalone session).
+        if (this.#specRanges.length > 0) {
+          for (const range of this.#specRanges) {
+            await this.#flushSpecTrace(range)
+          }
+        } else {
+          log.warn(
+            'traceGranularity is "spec" but no spec boundaries were ' +
+              'detected (framework may not support service-level test ' +
+              'hooks). Falling back to session-level trace.'
+          )
+          try {
+            const tracePath = await writeTraceZip(this.#sessionCapturer, {
+              outputDir,
+              sessionId: this.#browser.sessionId,
+              capabilities: this.#browser.capabilities,
+              actionSnapshots: this.#actionSnapshots.length
+                ? this.#actionSnapshots
+                : undefined,
+              format: this.#options.traceFormat,
+              testMetadata: this.#testMetadata
+            })
+            log.info(`Trace saved to ${tracePath}`)
+          } catch (err) {
+            log.error(`Trace write failed: ${errorMessage(err)}`)
+          }
+        }
+      } else {
+        // Session-level trace (default) — single artifact for the
+        // entire worker session.
+        const tracePath = await writeTraceZip(this.#sessionCapturer, {
+          outputDir,
+          sessionId: this.#browser.sessionId,
+          capabilities: this.#browser.capabilities,
+          actionSnapshots: this.#actionSnapshots.length
+            ? this.#actionSnapshots
+            : undefined,
+          format: this.#options.traceFormat,
+          testMetadata: this.#testMetadata
+        })
+        log.info(`Trace saved to ${tracePath}`)
+      }
     } else {
       const traceFilePath = path.join(
         outputDir,

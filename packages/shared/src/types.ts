@@ -25,6 +25,14 @@ export type DevToolsMode = 'live' | 'trace'
  *  unpacked form skips the unzip step for agentic / scripted consumers. */
 export type TraceFormat = 'zip' | 'ndjson-directory'
 
+/** `session` (default) writes one trace per worker session; `spec` writes one
+ *  trace per spec file, keyed on the spec's filename. Only applies in trace mode. */
+export type TraceGranularity = 'session' | 'spec'
+
+/** Test metadata keyed by testUid — maps stable test IDs to human-readable
+ *  title + specFile for Tracing.tracingGroup events in trace output. */
+export type TestMetadataMap = Map<string, { title: string; specFile: string }>
+
 /**
  * Enum-style accessor for the canonical TestStatus values. Adapter code uses
  * this for readable comparisons (`state === TEST_STATE.PASSED`). The app's

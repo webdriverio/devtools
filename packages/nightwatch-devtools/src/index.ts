@@ -8,8 +8,11 @@
 import { fileURLToPath } from 'node:url'
 import {
   errorMessage,
+  recordSpecBoundary,
   resolveAdapterOutputDir,
-  writeTraceZip
+  writeSpecTrace,
+  writeTraceZip,
+  type SpecRange
 } from '@wdio/devtools-core'
 import { stop as stopBackend } from '@wdio/devtools-backend'
 import { REUSE_ENV, SCREENCAST_DEFAULTS } from '@wdio/devtools-shared'
@@ -37,7 +40,8 @@ import type {
   NightwatchEventHub,
   ScreencastOptions,
   SuiteStats,
-  TestStats
+  TestStats,
+  TestMetadataMap
 } from './types.js'
 import { registerEventHandlers as registerEventHandlersImpl } from './event-hub.js'
 import {
@@ -90,6 +94,12 @@ class NightwatchDevToolsPlugin {
   #configPath: string | undefined
   #srcFolders: string[] = []
 
+  /** Index ranges into the session capturer's flat arrays, one per spec file. */
+  #specRanges: SpecRange[] = []
+
+  /** Set of spec files already flushed to disk. */
+  #flushedSpecs = new Set<string>()
+
   #getRerunLabel() {
     return process.env[REUSE_ENV.RERUN_ENTRY_TYPE] === 'test'
       ? process.env[REUSE_ENV.RERUN_LABEL]?.trim()
@@ -115,7 +125,8 @@ class NightwatchDevToolsPlugin {
       screencast,
       bidi: options.bidi ?? false,
       mode,
-      traceFormat: options.traceFormat ?? 'zip'
+      traceFormat: options.traceFormat ?? 'zip',
+      traceGranularity: options.traceGranularity ?? 'session'
     }
     this.#screencastOptions = { ...SCREENCAST_DEFAULTS, ...screencast }
     this.#bidiEnabled = options.bidi === true
@@ -415,6 +426,27 @@ class NightwatchDevToolsPlugin {
       this.sessionCapturer.captureSource(fullPath).catch(() => {})
     }
 
+    // ── Per-spec boundary detection ──
+    if (fullPath) {
+      const prevRange = recordSpecBoundary(
+        {
+          specRanges: this.#specRanges,
+          flushedSpecs: this.#flushedSpecs,
+          capturer: this.sessionCapturer,
+          actionSnapshots: this.sessionCapturer.actionSnapshots
+        },
+        fullPath,
+        this.options.traceGranularity
+      )
+      if (prevRange) {
+        void this.#flushSpecTrace(prevRange).catch((err) =>
+          log.warn(
+            `Failed to flush trace for spec "${prevRange.specFile}": ${errorMessage(err)}`
+          )
+        )
+      }
+    }
+
     await this.#closePreviousRunningTest(currentSuite, testFile, currentTest)
 
     const processedTests = this.testManager.getProcessedTests(testFile)
@@ -483,6 +515,53 @@ class NightwatchDevToolsPlugin {
     logRunSummary(this.#getInternals())
   }
 
+  async #flushSpecTrace(
+    range: SpecRange,
+    nextRange?: SpecRange
+  ): Promise<string | undefined> {
+    if (this.#flushedSpecs.has(range.specFile)) {
+      return undefined
+    }
+    this.#flushedSpecs.add(range.specFile)
+
+    const sessionId = this.sessionCapturer.metadata?.sessionId
+    if (!sessionId) {
+      return undefined
+    }
+
+    // Collect test metadata from the suite tree. Nightwatch stores one suite
+    // per spec file (flat data model) — a flat iteration is correct. If
+    // child suites are ever introduced, this must switch to a recursive walk
+    // matching the selenium adapter.
+    const allMetadata: TestMetadataMap = new Map()
+    if (this.suiteManager) {
+      for (const suite of this.suiteManager.getAllSuites().values()) {
+        for (const entry of suite.tests) {
+          if (typeof entry === 'string') {
+            continue
+          }
+          allMetadata.set(entry.uid, {
+            title: entry.fullTitle,
+            specFile: entry.file
+          })
+        }
+      }
+    }
+
+    const tracePath = await writeSpecTrace({
+      range,
+      nextRange,
+      capturer: this.sessionCapturer,
+      actionSnapshots: this.sessionCapturer.actionSnapshots,
+      sessionId,
+      outputDir: resolveAdapterOutputDir({ configPath: this.#configPath }),
+      format: this.options.traceFormat,
+      testMetadata: allMetadata
+    })
+    log.info(`Trace for spec "${range.specFile}" saved to ${tracePath}`)
+    return tracePath
+  }
+
   async #writeTraceZipIfNeeded(): Promise<void> {
     if (this.options.mode !== 'trace' || !this.sessionCapturer) {
       return
@@ -495,6 +574,35 @@ class NightwatchDevToolsPlugin {
       if (this.sessionCapturer.snapshotCaptures.length) {
         await Promise.allSettled(this.sessionCapturer.snapshotCaptures)
       }
+
+      if (this.options.traceGranularity === 'spec') {
+        // Per-spec traces — flush any remaining ranges that weren't
+        // flushed at spec boundaries (the last spec in the run).
+        for (const range of this.#specRanges) {
+          if (!this.#flushedSpecs.has(range.specFile)) {
+            await this.#flushSpecTrace(range)
+          }
+        }
+        return
+      }
+
+      // Session-level trace (default) — single artifact for the
+      // entire worker session.
+      const testMetadata: TestMetadataMap = new Map()
+      if (this.suiteManager) {
+        for (const suite of this.suiteManager.getAllSuites().values()) {
+          for (const entry of suite.tests) {
+            if (typeof entry === 'string') {
+              continue
+            }
+            testMetadata.set(entry.uid, {
+              title: entry.fullTitle,
+              specFile: entry.file
+            })
+          }
+        }
+      }
+
       const snapshots = this.sessionCapturer.actionSnapshots
       const tracePath = await writeTraceZip(this.sessionCapturer, {
         outputDir: resolveAdapterOutputDir({
@@ -502,7 +610,8 @@ class NightwatchDevToolsPlugin {
         }),
         sessionId,
         actionSnapshots: snapshots.length ? snapshots : undefined,
-        format: this.options.traceFormat
+        format: this.options.traceFormat,
+        testMetadata
       })
       log.info(`Trace saved to ${tracePath}`)
     } catch (err) {

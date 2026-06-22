@@ -20,8 +20,10 @@ import {
   onDriverCreated as sessionOnDriverCreated,
   onDriverEnd as sessionOnDriverEnd,
   onSessionEnd as sessionOnSessionEnd,
-  setPluginRef
+  setPluginRef,
+  recordSpecBoundary
 } from './session-lifecycle.js'
+import type { SpecRange } from '@wdio/devtools-core'
 import {
   startTest as tmStartTest,
   endTest as tmEndTest,
@@ -53,6 +55,8 @@ import {
   type DevToolsMode,
   type DevToolsOptions,
   type ScreencastOptions,
+  type TraceFormat,
+  type TraceGranularity,
   type SeleniumDriverLike,
   type TestStats
 } from './types.js'
@@ -115,6 +119,12 @@ class SeleniumDevToolsPlugin {
     featureCallSource?: string
   } | null = null
 
+  /** Index ranges into the session capturer's flat arrays, one per spec file. */
+  #specRanges: SpecRange[] = []
+
+  /** Set of spec files already flushed to disk. */
+  #flushedSpecs = new Set<string>()
+
   constructor(options: DevToolsOptions = {}) {
     this.#options = {
       port: options.port ?? 3000,
@@ -124,7 +134,8 @@ class SeleniumDevToolsPlugin {
       rerunCommand: options.rerunCommand,
       headless: options.headless ?? false,
       mode: options.mode ?? 'live',
-      traceFormat: options.traceFormat ?? 'zip'
+      traceFormat: options.traceFormat ?? 'zip',
+      traceGranularity: options.traceGranularity ?? 'session'
     }
     this.#rerunManager = new RerunManager(RUNNER)
     if (options.rerunCommand) {
@@ -253,6 +264,8 @@ class SeleniumDevToolsPlugin {
       headless?: boolean
       openUi?: boolean
       mode?: DevToolsMode
+      traceFormat?: TraceFormat
+      traceGranularity?: TraceGranularity
     } = {}
   ) {
     if ('rerunCommand' in opts) {
@@ -267,6 +280,12 @@ class SeleniumDevToolsPlugin {
     }
     if (opts.mode) {
       this.#options.mode = opts.mode
+    }
+    if (opts.traceFormat) {
+      this.#options.traceFormat = opts.traceFormat
+    }
+    if (opts.traceGranularity) {
+      this.#options.traceGranularity = opts.traceGranularity
     }
     if (opts.screencast) {
       if (this.#options.mode === 'trace' && opts.screencast.enabled) {
@@ -392,6 +411,12 @@ class SeleniumDevToolsPlugin {
       set pendingScenario(v) {
         self.#pendingScenario = v
       },
+      get specRanges() {
+        return self.#specRanges
+      },
+      get flushedSpecs() {
+        return self.#flushedSpecs
+      },
       setFinalized: (v) => {
         self.#finalized = v
       },
@@ -416,6 +441,9 @@ class SeleniumDevToolsPlugin {
   /** Public API: start a marked test. */
   startTest(name: string, meta: StartTestMeta = {}) {
     tmStartTest(this.#getInternals(), name, meta)
+    if (meta.file) {
+      recordSpecBoundary(this.#getInternals(), meta.file)
+    }
   }
 
   endTest(state: TestStats['state'] = 'passed') {
@@ -424,6 +452,9 @@ class SeleniumDevToolsPlugin {
 
   startScenario(name: string, meta: StartScenarioMeta = {}) {
     tmStartScenario(this.#getInternals(), name, meta)
+    if (meta.file) {
+      recordSpecBoundary(this.#getInternals(), meta.file)
+    }
   }
 
   endScenario(state: TestStats['state'] = 'passed') {
@@ -608,6 +639,8 @@ export const DevTools = {
     headless?: boolean
     openUi?: boolean
     mode?: DevToolsMode
+    traceFormat?: TraceFormat
+    traceGranularity?: TraceGranularity
   }) => plugin.configure(opts),
   startTest: (name: string, meta?: { file?: string }) =>
     plugin.startTest(name, meta),

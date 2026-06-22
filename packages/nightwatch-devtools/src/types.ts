@@ -17,13 +17,16 @@ export {
   type TestStats,
   type TestStatus,
   type TraceFormat,
+  type TestMetadataMap,
+  type TraceGranularity,
   type TraceLog
 } from '@wdio/devtools-shared'
 
 import type {
   DevToolsMode,
   ScreencastOptions,
-  TraceFormat
+  TraceFormat,
+  TraceGranularity
 } from '@wdio/devtools-shared'
 
 export interface CommandStackFrame {
@@ -105,6 +108,10 @@ export interface DevToolsOptions {
   /** Trace output layout — `zip` (default) writes a single archive,
    *  `ndjson-directory` unpacks into `trace-<id>/`. Only applies in trace mode. */
   traceFormat?: TraceFormat
+  /** Trace output granularity — `session` (default) writes one trace per
+   *  worker session; `spec` writes one trace per spec file. Only applies in
+   *  trace mode. */
+  traceGranularity?: TraceGranularity
 }
 
 export interface NightwatchBrowser {
