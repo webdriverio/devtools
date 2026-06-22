@@ -39,13 +39,15 @@ jobs:
         run: pnpm install
       - name: Build
         run: pnpm -r build
-      - name: Consume changesets and publish
-        run: |
-          npx changeset version
-          npx changeset publish --tag "$DIST_TAG"
-          git push origin main --follow-tags
+      - name: Consume changesets
+        run: npx changeset version
+
+      - name: Publish to npm
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           DIST_TAG: ${{ inputs.distTag }}
+        run: npx changeset publish --tag "${DIST_TAG}" --no-git-tag
+
+      - name: Push version commit
+        run: git push origin main
