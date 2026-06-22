@@ -10,10 +10,12 @@
 
 import logger from '@wdio/logger'
 import {
+  deterministicUid,
   errorMessage,
   finalizeScreencast,
   resolveAdapterOutputDir,
-  writeTraceZip
+  writeTraceZip,
+  type TraceCapturer
 } from '@wdio/devtools-core'
 import { TIMING } from './constants.js'
 import { SessionCapturer } from './session.js'
@@ -29,11 +31,23 @@ import type {
   Metadata,
   ScreencastOptions,
   SeleniumDriverLike,
-  TraceFormat
+  SuiteStats,
+  TraceFormat,
+  TraceGranularity
 } from './types.js'
 import type { TestManager } from './helpers/testManager.js'
 
 const log = logger('@wdio/selenium-devtools:session-lifecycle')
+
+export interface SpecRange {
+  specFile: string
+  commandStartIdx: number
+  consoleStartIdx: number
+  networkStartIdx: number
+  mutationStartIdx: number
+  traceLogStartIdx: number
+  snapshotCount: number
+}
 
 export interface SessionLifecycleCtx {
   readonly options: {
@@ -44,6 +58,7 @@ export interface SessionLifecycleCtx {
     rerunCommand?: string
     mode?: DevToolsMode
     traceFormat?: TraceFormat
+    traceGranularity?: TraceGranularity
   }
   readonly screencastOptions: ScreencastOptions
   readonly runner: string
@@ -66,6 +81,10 @@ export interface SessionLifecycleCtx {
   // Populated by handleOnCommand when mode === 'trace'.
   readonly actionSnapshots: ActionSnapshot[]
   readonly snapshotCaptures: Promise<void>[]
+
+  // Per-spec trace tracking (populated at spec file boundaries).
+  readonly specRanges: SpecRange[]
+  readonly flushedSpecs: Set<string>
 
   setFinalized(v: boolean): void
   ensureBackendStarted(): Promise<void>
@@ -271,6 +290,167 @@ export async function onSessionEnd(ctx: SessionLifecycleCtx): Promise<void> {
   }
 }
 
+/**
+ * Record a spec-file boundary in the session lifecycle context. Called from
+ * the plugin's startTest / startScenario when `traceGranularity` is `'spec'`.
+ * Flushes the previous spec's trace if it hasn't been written yet.
+ */
+export function recordSpecBoundary(
+  ctx: SessionLifecycleCtx,
+  specFile: string
+): void {
+  if (!ctx.sessionCapturer || ctx.options.traceGranularity !== 'spec') {
+    return
+  }
+  const lastRange = ctx.specRanges[ctx.specRanges.length - 1]
+  if (!lastRange || lastRange.specFile !== specFile) {
+    if (lastRange && !ctx.flushedSpecs.has(lastRange.specFile)) {
+      void flushOneSpecTrace(ctx, lastRange).catch((err) =>
+        log.warn(
+          `Failed to flush trace for spec "${lastRange.specFile}": ${errorMessage(err)}`
+        )
+      )
+    }
+    ctx.specRanges.push({
+      specFile,
+      commandStartIdx: ctx.sessionCapturer.commandsLog.length,
+      consoleStartIdx: ctx.sessionCapturer.consoleLogs.length,
+      networkStartIdx: ctx.sessionCapturer.networkRequests.length,
+      mutationStartIdx: ctx.sessionCapturer.mutations.length,
+      traceLogStartIdx: ctx.sessionCapturer.traceLogs.length,
+      snapshotCount: ctx.actionSnapshots.length
+    })
+  }
+}
+
+async function flushOneSpecTrace(
+  ctx: SessionLifecycleCtx,
+  range: SpecRange,
+  nextRange?: SpecRange
+): Promise<string | undefined> {
+  const capturer = ctx.sessionCapturer
+  if (!capturer || ctx.flushedSpecs.has(range.specFile)) {
+    return undefined
+  }
+  ctx.flushedSpecs.add(range.specFile)
+
+  const sessionId = capturer.metadata?.sessionId
+  if (!sessionId) {
+    return undefined
+  }
+
+  const end = nextRange
+    ? {
+        commands: nextRange.commandStartIdx,
+        console: nextRange.consoleStartIdx,
+        network: nextRange.networkStartIdx,
+        mutations: nextRange.mutationStartIdx,
+        traceLogs: nextRange.traceLogStartIdx
+      }
+    : undefined
+
+  const slice = <T>(arr: T[], start: number, endIdx?: number): T[] =>
+    arr.slice(start, endIdx)
+
+  const specCapturer: TraceCapturer = {
+    mutations: slice(
+      capturer.mutations,
+      range.mutationStartIdx,
+      end?.mutations
+    ),
+    traceLogs: slice(
+      capturer.traceLogs,
+      range.traceLogStartIdx,
+      end?.traceLogs
+    ),
+    consoleLogs: slice(
+      capturer.consoleLogs,
+      range.consoleStartIdx,
+      end?.console
+    ),
+    networkRequests: slice(
+      capturer.networkRequests,
+      range.networkStartIdx,
+      end?.network
+    ),
+    commandsLog: slice(
+      capturer.commandsLog,
+      range.commandStartIdx,
+      end?.commands
+    ),
+    sources: capturer.sources,
+    metadata: capturer.metadata
+  }
+
+  const specSnapshots = ctx.actionSnapshots.slice(
+    range.snapshotCount,
+    nextRange?.snapshotCount ?? ctx.actionSnapshots.length
+  )
+
+  const sanitizedSpec =
+    range.specFile
+      .replace(/^.*[/\\]/, '')
+      .replace(/\.[^.]+$/, '')
+      .replace(/[^a-zA-Z0-9_-]/g, '_')
+      .replace(/^_+|_+$/g, '') || 'unknown-spec'
+
+  const hash = deterministicUid(range.specFile).split('-').pop()!.slice(0, 8)
+  const specSessionId = `${sanitizedSpec}-${hash}-${sessionId.slice(0, 8)}`
+
+  // Collect test metadata scoped to this spec file.
+  const testMetadata = new Map<string, { title: string; specFile: string }>()
+  const allMetadata = collectTestMetadata(ctx.suiteManager)
+  for (const [uid, meta] of allMetadata) {
+    if (meta.specFile === range.specFile) {
+      testMetadata.set(uid, meta)
+    }
+  }
+
+  const tracePath = await writeTraceZip(specCapturer, {
+    outputDir: resolveAdapterOutputDir({ testFilePath: range.specFile }),
+    sessionId: specSessionId,
+    actionSnapshots: specSnapshots.length > 0 ? specSnapshots : undefined,
+    format: ctx.options.traceFormat,
+    testMetadata
+  })
+  log.info(`Trace for spec "${range.specFile}" saved to ${tracePath}`)
+  return tracePath
+}
+
+async function flushSpecTraces(ctx: SessionLifecycleCtx): Promise<void> {
+  for (const range of ctx.specRanges) {
+    if (!ctx.flushedSpecs.has(range.specFile)) {
+      await flushOneSpecTrace(ctx, range)
+    }
+  }
+}
+
+function collectTestMetadata(
+  suiteManager: SuiteManager | undefined
+): Map<string, { title: string; specFile: string }> {
+  const metadata = new Map<string, { title: string; specFile: string }>()
+  const root = suiteManager?.getRootSuite()
+  if (!root) {
+    return metadata
+  }
+  const walk = (suite: SuiteStats) => {
+    for (const entry of suite.tests) {
+      if (typeof entry === 'string') {
+        continue
+      }
+      metadata.set(entry.uid, {
+        title: entry.fullTitle,
+        specFile: entry.file
+      })
+    }
+    for (const child of suite.suites) {
+      walk(child)
+    }
+  }
+  walk(root)
+  return metadata
+}
+
 async function maybeWriteTrace(
   ctx: SessionLifecycleCtx,
   capturer: SessionCapturer | undefined,
@@ -284,13 +464,21 @@ async function maybeWriteTrace(
     if (ctx.snapshotCaptures.length) {
       await Promise.allSettled(ctx.snapshotCaptures)
     }
+
+    if (ctx.options.traceGranularity === 'spec') {
+      await flushSpecTraces(ctx)
+      return
+    }
+
+    const testMetadata = collectTestMetadata(ctx.suiteManager)
     const tracePath = await writeTraceZip(capturer, {
       outputDir: resolveAdapterOutputDir({ testFilePath }),
       sessionId,
       actionSnapshots: ctx.actionSnapshots.length
         ? ctx.actionSnapshots
         : undefined,
-      format: ctx.options.traceFormat
+      format: ctx.options.traceFormat,
+      testMetadata
     })
     log.info(`Trace saved to ${tracePath}`)
   } catch (err) {

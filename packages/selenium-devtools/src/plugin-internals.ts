@@ -17,10 +17,12 @@ import type {
   DevToolsMode,
   ScreencastOptions,
   SeleniumDriverLike,
-  TraceFormat
+  TraceFormat,
+  TraceGranularity
 } from './types.js'
 import type { RetryTracker } from '@wdio/devtools-core'
 import type { PendingTestAction, PendingScenario } from './test-management.js'
+import type { SpecRange } from './session-lifecycle.js'
 
 export interface PluginInternals {
   // Config
@@ -32,6 +34,7 @@ export interface PluginInternals {
     rerunCommand?: string
     mode?: DevToolsMode
     traceFormat?: TraceFormat
+    traceGranularity?: TraceGranularity
   }
   readonly screencastOptions: ScreencastOptions
   readonly runner: string
@@ -60,6 +63,10 @@ export interface PluginInternals {
   // trace-mode snapshot accumulators (mode === 'trace' only)
   readonly actionSnapshots: ActionSnapshot[]
   readonly snapshotCaptures: Promise<void>[]
+
+  // Per-spec trace tracking (populated at spec file boundaries).
+  readonly specRanges: SpecRange[]
+  readonly flushedSpecs: Set<string>
 
   // Plugin-side delegates
   setFinalized(v: boolean): void
