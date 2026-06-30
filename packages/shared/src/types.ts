@@ -96,8 +96,11 @@ export interface DocumentInfo {
 export interface CommandLog {
   command: string
   args: unknown[]
+  /** Optional display label (e.g. trace-player's `Element.fill("x")`). Falls
+   *  back to `command` when absent. */
+  title?: string
   result?: unknown
-  error?: Error | { name: string; message: string; stack?: string }
+  error?: Error | SerializedError
   timestamp: number
   /** Wall-clock ms when the command was invoked (before execution). */
   startTime?: number
@@ -353,13 +356,20 @@ export interface PreservedAttempt {
 // ─── Test reporter stats (nightwatch + selenium adapters) ───────────────────
 
 /**
- * Serialized form of an `Error`, used after capture so the payload survives
- * `JSON.stringify` over the WS bridge. The capture-time shape (raw `Error`
- * instance) is also accepted for callers that haven't serialized yet.
+ * Serialized form of an `Error` — a plain object that survives
+ * `JSON.stringify` over the WS bridge.
  */
-export type ReporterError =
-  | Error
-  | { name: string; message: string; stack?: string }
+export interface SerializedError {
+  name: string
+  message: string
+  stack?: string
+}
+
+/**
+ * An error payload as it flows through capture: the raw `Error` instance at
+ * capture time, or its serialized form once it has crossed the WS bridge.
+ */
+export type ReporterError = Error | SerializedError
 
 export interface TestStats {
   uid: string

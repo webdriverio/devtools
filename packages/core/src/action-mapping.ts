@@ -1,43 +1,12 @@
-// Allow-list mapping from runner-native command names to trace
-// vocabulary. Ported from Vince Graics' PR #209 (`@wdio/tracing-service`); the
+// Helpers over the trace action vocabulary. ACTION_MAP itself lives in
+// @wdio/devtools-shared so the reader (backend) can derive its inverse from the
+// same source. Ported from Vince Graics' PR #209 (`@wdio/tracing-service`); the
 // existing devtools UI uses its own denylist (`INTERNAL_COMMANDS`) — this map
 // is for the trace.zip exporter to filter + rename in one step.
 
-export interface TraceAction {
-  class: string
-  method: string
-}
+import { ACTION_MAP, type TraceAction } from '@wdio/devtools-shared'
 
-const ACTION_MAP: Record<string, TraceAction> = {
-  // WDIO browser-level
-  url: { class: 'Page', method: 'navigate' },
-  navigateTo: { class: 'Page', method: 'navigate' },
-  back: { class: 'Page', method: 'goBack' },
-  forward: { class: 'Page', method: 'goForward' },
-  refresh: { class: 'Page', method: 'reload' },
-  newWindow: { class: 'Page', method: 'goto' },
-  // Selenium WebDriver navigation (driver.get, driver.navigate().to/back/forward/refresh)
-  get: { class: 'Page', method: 'navigate' },
-  to: { class: 'Page', method: 'navigate' },
-  // WDIO element-level
-  click: { class: 'Element', method: 'click' },
-  doubleClick: { class: 'Element', method: 'dblclick' },
-  setValue: { class: 'Element', method: 'fill' },
-  selectByVisibleText: { class: 'Element', method: 'selectOption' },
-  moveTo: { class: 'Element', method: 'hover' },
-  scrollIntoView: { class: 'Element', method: 'scrollIntoViewIfNeeded' },
-  dragAndDrop: { class: 'Element', method: 'dragTo' },
-  // Selenium WebElement actions
-  sendKeys: { class: 'Element', method: 'fill' },
-  clear: { class: 'Element', method: 'clear' },
-  submit: { class: 'Element', method: 'submit' },
-  // Cross-runner
-  keys: { class: 'Keyboard', method: 'press' },
-  execute: { class: 'Page', method: 'evaluate' },
-  executeAsync: { class: 'Page', method: 'evaluate' },
-  switchToFrame: { class: 'Frame', method: 'goto' },
-  touchAction: { class: 'Element', method: 'tap' }
-}
+export type { TraceAction }
 
 // Excluded by design:
 //   clearValue / addValue — WDIO fires these inside setValue (duplicate events).

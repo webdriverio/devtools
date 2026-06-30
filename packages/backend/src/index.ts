@@ -22,6 +22,7 @@ import { resolveByteRange } from './video-range.js'
 import {
   BASELINE_API,
   BASELINE_WS_SCOPE,
+  TRACE_API,
   WS_PATHS,
   WS_SCOPE,
   type BaselinePreserveRequest,
@@ -29,7 +30,8 @@ import {
   type BaselineGetParams,
   type BaselineGetQuery,
   type BaselineSavedWsPayload,
-  type BaselineClearedWsPayload
+  type BaselineClearedWsPayload,
+  type TracePlayerData
 } from '@wdio/devtools-shared'
 import type { RunnerRequestBody } from './types.js'
 
@@ -38,6 +40,10 @@ let server: FastifyInstance | undefined
 interface DevtoolsBackendOptions {
   port?: number
   hostname?: string
+  /** When set, the server runs in trace-serve mode: it exposes the
+   *  reconstructed trace at TRACE_API.get for `pnpm show-trace` and no worker
+   *  ever connects. */
+  trace?: TracePlayerData
 }
 
 const log = logger('@wdio/devtools-backend')
@@ -358,6 +364,18 @@ function registerVideoRoute(s: FastifyInstance): void {
   )
 }
 
+function registerTraceRoute(
+  s: FastifyInstance,
+  trace: TracePlayerData | undefined
+): void {
+  // Always registered so live mode gets a definitive 204 here instead of a 404
+  // from the static handler — the app probes this on boot to choose between
+  // player and live-WS mode, and a 204 keeps the common (live) path quiet.
+  s.get(TRACE_API.get, async (_request, reply) =>
+    trace ? reply.send(trace) : reply.code(204).send()
+  )
+}
+
 export async function start(
   opts: DevtoolsBackendOptions = {}
 ): Promise<{ server: FastifyInstance; port: number }> {
@@ -374,6 +392,7 @@ export async function start(
   await server.register(websocket)
   await server.register(staticServer, { root: appPath })
 
+  registerTraceRoute(server, opts.trace)
   registerTestRoutes(server, host, port)
   registerBaselineRoutes(server)
   registerClientWebSocket(server)

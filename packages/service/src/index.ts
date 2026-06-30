@@ -1,7 +1,4 @@
 /// <reference types="../../script/types.d.ts" />
-import fs from 'node:fs/promises'
-import path from 'node:path'
-
 import logger from '@wdio/logger'
 import {
   deterministicUid,
@@ -15,6 +12,7 @@ import {
   writeTraceZip
 } from '@wdio/devtools-core'
 import { captureActionSnapshot } from './action-snapshot.js'
+import { dedupeSnapshotsByTimestamp } from './snapshot-dedupe.js'
 import type { ActionSnapshot, TestMetadataMap } from '@wdio/devtools-shared'
 import { SevereServiceError } from 'webdriverio'
 import type { Services, Capabilities, Options, Reporters } from '@wdio/types'
@@ -30,7 +28,6 @@ import { parse } from 'stack-trace'
 import {
   type ScreencastOptions,
   type ServiceOptions,
-  type TraceLog,
   TraceType
 } from './types.js'
 import { CONTEXT_CHANGE_COMMANDS, INTERNAL_COMMANDS } from './constants.js'
@@ -332,6 +329,67 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     return Date.now()
   }
 
+  // Post-action capture: the state RESULTING from the action just completed.
+  // The pre-action capture in beforeCommand only records the state before the
+  // NEXT mapped action — when intervening commands (assertions, reloadSession)
+  // change the page first, an action's result (e.g. the page a click navigated
+  // to) is never captured.
+  //
+  // readyState alone is unreliable: right after a click the OLD document still
+  // reports 'complete', so a naive wait snapshots a blank mid-navigation frame.
+  // Instead, beforeCommand tags the document; if the tag is gone the action
+  // navigated, so we wait for the NEW document to finish loading AND render
+  // content before screenshotting its destination. Stamped at this command's
+  // own end (the latest logged action).
+  async #captureActionResult(command: string): Promise<void> {
+    if (
+      this.#options.mode !== 'trace' ||
+      !this.#browser ||
+      !mapCommandToAction(command) ||
+      INTERNAL_COMMANDS.includes(command)
+    ) {
+      return
+    }
+    const browser = this.#browser
+    if (!isNativeMobile(browser)) {
+      await this.#waitForResult(browser)
+    }
+    const snap = await captureActionSnapshot(browser, command)
+    if (snap) {
+      snap.timestamp = this.#lastActionTimestamp()
+      this.#actionSnapshots.push(snap)
+    }
+  }
+
+  async #waitForResult(browser: WebdriverIO.Browser): Promise<void> {
+    const navigated = await browser
+      .execute(
+        () => !(window as Window & { __wdioSnapMark?: boolean }).__wdioSnapMark
+      )
+      .catch(() => true)
+    if (!navigated) {
+      return
+    }
+    // Action triggered a navigation — wait for the destination document to load
+    // and render content so we screenshot the result page, not a blank frame.
+    await browser
+      .waitUntil(
+        async () =>
+          (await browser
+            .execute(
+              () =>
+                document.readyState === 'complete' &&
+                !!document.body &&
+                document.body.childElementCount > 0
+            )
+            .catch(() => false)) === true,
+        { timeout: 8000, interval: 150 }
+      )
+      .catch(() => undefined)
+    // Headless renderers can return a blank shot right after load; let it paint.
+    await browser.pause(250).catch(() => undefined)
+  }
+
   private resetStack() {
     this.#commandStack = []
     this.#sessionCapturer.resetLastSelector()
@@ -418,8 +476,22 @@ export default class DevToolsHookService implements Services.ServiceInstance {
           snap.timestamp = this.#lastActionTimestamp()
           this.#actionSnapshots.push(snap)
         }
+        // Tag the current document so the post-action capture can tell whether
+        // this action navigated (a new document drops the tag).
+        await this.#markDocument()
       }
     }
+  }
+
+  #markDocument(): Promise<unknown> {
+    if (!this.#browser || isNativeMobile(this.#browser)) {
+      return Promise.resolve()
+    }
+    return this.#browser
+      .execute(() => {
+        ;(window as Window & { __wdioSnapMark?: boolean }).__wdioSnapMark = true
+      })
+      .catch(() => undefined)
   }
 
   async afterCommand(
@@ -440,7 +512,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     if (frame?.command === command) {
       this.#commandStack.pop()
       if (this.#browser) {
-        return await this.#sessionCapturer.afterCommand(
+        const captured = await this.#sessionCapturer.afterCommand(
           this.#browser,
           command,
           args,
@@ -450,6 +522,8 @@ export default class DevToolsHookService implements Services.ServiceInstance {
           frame.startTimestamp,
           this.#currentTestUid
         )
+        await this.#captureActionResult(command)
+        return captured
       }
     }
 
@@ -500,80 +574,46 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     // Stop and encode the screencast for the current session.
     await this.#finalizeScreencast(this.#browser.sessionId)
 
-    const outputDir = this.#outputDir
-    const { ...options } = this.#browser.options
-    const traceLog: TraceLog = {
-      mutations: this.#sessionCapturer.mutations,
-      logs: this.#sessionCapturer.traceLogs,
-      consoleLogs: this.#sessionCapturer.consoleLogs,
-      networkRequests: this.#sessionCapturer.networkRequests,
-      metadata: {
-        ...this.#sessionCapturer.metadata!,
-        type: this.captureType,
-        options,
-        capabilities: this.#browser.capabilities as Capabilities.W3CCapabilities
-      },
-      commands: this.#sessionCapturer.commandsLog,
-      sources: Object.fromEntries(this.#sessionCapturer.sources),
-      suites: this.#testReporters.map((reporter) => reporter.report),
-      ...(this.#actionSnapshots.length
-        ? { actionSnapshots: this.#actionSnapshots }
-        : {})
-    }
-
+    // `trace` mode writes the shareable trace.zip (opened via `pnpm
+    // show-trace`); `live` mode streams to the dashboard over WS and persists
+    // nothing to disk.
     if (this.#options.mode === 'trace') {
-      if (this.#options.traceGranularity === 'spec') {
-        // Per-spec traces — flush any remaining unfilled ranges, or
-        // fall back to session-level if no boundaries were detected
-        // (e.g. an unsupported runner or standalone session).
-        if (this.#specRanges.length > 0) {
-          for (const range of this.#specRanges) {
-            await this.#flushSpecTrace(range)
-          }
-        } else {
+      if (
+        this.#options.traceGranularity === 'spec' &&
+        this.#specRanges.length > 0
+      ) {
+        // Per-spec traces — flush each detected spec range.
+        for (const range of this.#specRanges) {
+          await this.#flushSpecTrace(range)
+        }
+      } else {
+        if (this.#options.traceGranularity === 'spec') {
           log.warn(
             'traceGranularity is "spec" but no spec boundaries were ' +
               'detected (framework may not support service-level test ' +
               'hooks). Falling back to session-level trace.'
           )
-          try {
-            const tracePath = await writeTraceZip(this.#sessionCapturer, {
-              outputDir,
-              sessionId: this.#browser.sessionId,
-              capabilities: this.#browser.capabilities,
-              actionSnapshots: this.#actionSnapshots.length
-                ? this.#actionSnapshots
-                : undefined,
-              format: this.#options.traceFormat,
-              testMetadata: this.#testMetadata
-            })
-            log.info(`Trace saved to ${tracePath}`)
-          } catch (err) {
-            log.error(`Trace write failed: ${errorMessage(err)}`)
-          }
         }
-      } else {
-        // Session-level trace (default) — single artifact for the
-        // entire worker session.
-        const tracePath = await writeTraceZip(this.#sessionCapturer, {
-          outputDir,
-          sessionId: this.#browser.sessionId,
-          capabilities: this.#browser.capabilities,
-          actionSnapshots: this.#actionSnapshots.length
-            ? this.#actionSnapshots
-            : undefined,
-          format: this.#options.traceFormat,
-          testMetadata: this.#testMetadata
-        })
-        log.info(`Trace saved to ${tracePath}`)
+        // Session-level trace. Snapshots can share a timestamp (an action's
+        // post-action result plus the next action's pre-capture and the
+        // per-scenario final capture); the writer keys resources by timestamp,
+        // so keep the richest per timestamp — a navigated action's result wins
+        // over a blank mid-navigation frame.
+        const snapshots = dedupeSnapshotsByTimestamp(this.#actionSnapshots)
+        try {
+          const tracePath = await writeTraceZip(this.#sessionCapturer, {
+            outputDir: this.#outputDir,
+            sessionId: this.#browser.sessionId,
+            capabilities: this.#browser.capabilities,
+            actionSnapshots: snapshots.length ? snapshots : undefined,
+            format: this.#options.traceFormat,
+            testMetadata: this.#testMetadata
+          })
+          log.info(`Trace saved to ${tracePath}`)
+        } catch (err) {
+          log.error(`Trace write failed: ${errorMessage(err)}`)
+        }
       }
-    } else {
-      const traceFilePath = path.join(
-        outputDir,
-        `wdio-trace-${this.#browser.sessionId}.json`
-      )
-      await fs.writeFile(traceFilePath, JSON.stringify(traceLog))
-      log.info(`DevTools trace saved to ${traceFilePath}`)
     }
 
     // Clean up console patching

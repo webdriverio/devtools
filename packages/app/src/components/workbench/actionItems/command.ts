@@ -86,7 +86,7 @@ export class CommandItem extends ActionItem {
       >
         ${this.iconChip(this.#renderIcon(entry.command))}
         <code class="text-[12.5px] flex-wrap text-left break-all"
-          >${entry.command}</code
+          >${entry.title ?? entry.command}</code
         >
         ${this.renderTime()}
       </button>
