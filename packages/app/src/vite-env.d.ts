@@ -2,7 +2,7 @@
 /// <reference types="vite/client" />
 
 interface CommandEventProps {
-  command: import('@wdio/devtools-service/types').CommandLog
+  command: import('@wdio/devtools-shared').CommandLog
   elapsedTime: number
 }
 
@@ -27,7 +27,6 @@ interface GlobalEventHandlersEventMap {
     import('./components/sidebar/test-suite').TestRunDetail
   >
   'app-logs': CustomEvent<string>
-  'load-trace': CustomEvent<TraceLog>
   'show-command': CustomEvent<CommandEventProps>
   'clear-execution-data': CustomEvent<{
     uid?: string

@@ -1,6 +1,6 @@
 import { Element } from '@core/element'
 import { html, css, nothing } from 'lit'
-import { customElement, query, state } from 'lit/decorators.js'
+import { customElement, property, query, state } from 'lit/decorators.js'
 import { consume } from '@lit/context'
 
 import { DragController, Direction } from '../utils/DragController.js'
@@ -25,6 +25,7 @@ import './workbench/metadata.js'
 import './workbench/network.js'
 import './workbench/compare.js'
 import './browser/snapshot.js'
+import './browser/trace-timeline.js'
 import {
   MIN_WORKBENCH_HEIGHT,
   MIN_METATAB_WIDTH,
@@ -39,6 +40,11 @@ export class DevtoolsWorkbench extends Element {
   #toolbarCollapsed = localStorage.getItem('toolbar') === 'true'
   #workbenchSidebarCollapsed =
     localStorage.getItem('workbenchSidebar') === 'true'
+
+  // Trace-player mode (`pnpm show-trace`): hide the Metadata tab and swap the
+  // workbench tabs for the timeline player.
+  @property({ type: Boolean })
+  playerMode = false
 
   @consume({ context: consoleLogContext, subscribe: true })
   @state()
@@ -167,9 +173,11 @@ export class DevtoolsWorkbench extends Element {
         <wdio-devtools-tab label="Actions">
           <wdio-devtools-actions></wdio-devtools-actions>
         </wdio-devtools-tab>
-        <wdio-devtools-tab label="Metadata">
-          <wdio-devtools-metadata></wdio-devtools-metadata>
-        </wdio-devtools-tab>
+        ${this.playerMode
+          ? nothing
+          : html`<wdio-devtools-tab label="Metadata">
+              <wdio-devtools-metadata></wdio-devtools-metadata>
+            </wdio-devtools-tab>`}
         <nav class="ml-auto" slot="actions">
           <button
             @click="${() => this.#toggle('workbenchSidebar')}"
@@ -298,7 +306,11 @@ export class DevtoolsWorkbench extends Element {
           ${!this.#toolbarCollapsed
             ? this.#dragVertical.getSlider('z-[999] pointer-events-auto')
             : nothing}
-          ${this.#renderWorkbenchTabs()}
+          ${this.playerMode
+            ? html`<wdio-devtools-trace-timeline
+                class="relative z-10 border-t-[1px] border-t-panelBorder flex-1 min-h-0"
+              ></wdio-devtools-trace-timeline>`
+            : this.#renderWorkbenchTabs()}
         </section>
       </section>
     `

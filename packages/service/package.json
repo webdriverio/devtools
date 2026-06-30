@@ -9,6 +9,9 @@
     "directory": "packages/devtools-service"
   },
   "type": "module",
+  "bin": {
+    "show-trace": "./bin/show-trace.mjs"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",

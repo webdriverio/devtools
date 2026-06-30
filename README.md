@@ -92,7 +92,18 @@ Trace mode and live mode are **mutually exclusive** — `screencast` options are
 
 #### Viewing traces
 
-Drop the `.zip` into [player.vibium.dev](https://player.vibium.dev) or run `npx playwright show-trace <path>`. The format follows the [Vibium recording format](https://github.com/VibiumDev/vibium/blob/main/docs/explanation/recording-format.md) spec — a Playwright-compatible NDJSON schema that the ecosystem already renders. This is the same format [`@wdio/mcp`](https://webdriver.io/docs/mcp) uses for AI-driven session recording.
+**First-party player — `show-trace`.** Open a `.zip` in the WebdriverIO DevTools UI itself:
+
+```sh
+pnpm show-trace path/to/trace.zip     # from this repo
+npx show-trace path/to/trace.zip      # in a project that installs an adapter
+```
+
+`show-trace` reconstructs the trace and serves the same DevTools UI in a dedicated **player** mode: the action list on the left, the page snapshot in the browser pane, and a bottom timeline with a filmstrip, action/network tracks, a draggable playhead, and playback controls (play/step/speed). Click a **Network** bar to open its request detail; press **`?`** for keyboard shortcuts (`Space` play/pause, `←`/`→` step, `Home`/`End`, `,`/`.` speed).
+
+The `show-trace` bin is exposed by each adapter (`@wdio/devtools-service`, `@wdio/nightwatch-devtools`, `@wdio/selenium-devtools`), so `pnpm show-trace <zip>` / `npx show-trace <zip>` work in any project that installs one — no extra dependency.
+
+**Other viewers.** Because the format is unchanged, the same `.zip` also drops into [player.vibium.dev](https://player.vibium.dev) or `npx playwright show-trace <path>`. The format follows the [Vibium recording format](https://github.com/VibiumDev/vibium/blob/main/docs/explanation/recording-format.md) spec — a Playwright-compatible NDJSON schema that the ecosystem already renders. This is the same format [`@wdio/mcp`](https://webdriver.io/docs/mcp) uses for AI-driven session recording.
 
 #### Options
 

@@ -2,8 +2,6 @@ import { Element } from '@core/element'
 import { html, css } from 'lit'
 import { customElement } from 'lit/decorators.js'
 
-import '../inputs/traceLoader.js'
-
 const CONFIG_CODE_EXAMPLE = `export const config = {
   // ...
   services: ['devtools'],
@@ -31,10 +29,6 @@ export class DevtoolsStart extends Element {
         </h1>
         <section>
           <h2 class="text-4xl font-bold">WebdriverIO Devtools</h2>
-          <p class="py-4">
-            <h3 class="font-bold text-xl">Load Trace File</h3>
-            <wdio-devtools-trace-loader></wdio-devtools-trace-loader>
-          </p>
           <p class="py-4">
             <h3 class="font-bold text-xl">Embed into Project</h3>
             First install WebdriverIO Devtools via:

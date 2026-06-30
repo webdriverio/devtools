@@ -22,6 +22,13 @@ import type {
 
 const log = logger('@wdio/nightwatch-devtools:browserProxy')
 
+/** Nightwatch's chainable command result — exposes `.perform` to queue work
+ *  after the command completes. Cucumber async/await mode returns a Promise
+ *  instead, so callers narrow on `.perform` before using it. */
+type NightwatchChainable = {
+  perform?: (cb: (done: Function) => void) => void
+}
+
 export class BrowserProxy {
   /** Tracks which browser *instances* have already been proxied to avoid double-wrapping. */
   private proxiedBrowsers = new WeakSet<object>()
@@ -103,9 +110,7 @@ export class BrowserProxy {
             )
         }
 
-        const chainable = result as
-          | { perform?: (cb: (done: Function) => void) => void }
-          | undefined
+        const chainable = result as NightwatchChainable | undefined
         if (chainable && typeof chainable.perform === 'function') {
           // Standard Nightwatch (chained API): queue inside perform so it
           // runs after navigation completes.  Always pass `done` so the

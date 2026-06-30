@@ -3,7 +3,8 @@ import type {
   Metadata,
   MetadataBySession,
   CommandLog,
-  PreservedAttempt
+  PreservedAttempt,
+  TracePlayerFrame
 } from '@wdio/devtools-shared'
 import type { SuiteStatsFragment } from './types.js'
 
@@ -43,4 +44,10 @@ export const baselineContext = createContext<Map<string, PreservedAttempt>>(
 )
 export const selectedTestUidContext = createContext<string | undefined>(
   Symbol('selectedTestUidContext')
+)
+
+/** Screenshot filmstrip reconstructed from a trace.zip — populated only in
+ *  trace-player mode (`pnpm show-trace`). */
+export const framesContext = createContext<TracePlayerFrame[]>(
+  Symbol('framesContext')
 )
