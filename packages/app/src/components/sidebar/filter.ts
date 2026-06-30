@@ -2,6 +2,7 @@ import { Element } from '@core/element'
 import { html, css } from 'lit'
 import { customElement, query } from 'lit/decorators.js'
 
+import { KBD } from '../../controller/keyboard.js'
 import '~icons/mdi/magnify.js'
 
 @customElement('wdio-devtools-sidebar-filter')
@@ -53,6 +54,18 @@ export class DevtoolsSidebarFilter extends Element {
 
   @query('input[name="filter"]')
   queryInput?: HTMLInputElement
+
+  #onFocusFilter = () => this.queryInput?.focus()
+
+  connectedCallback(): void {
+    super.connectedCallback()
+    window.addEventListener(KBD.focusFilter, this.#onFocusFilter)
+  }
+
+  disconnectedCallback(): void {
+    super.disconnectedCallback()
+    window.removeEventListener(KBD.focusFilter, this.#onFocusFilter)
+  }
 
   #updateQuery() {
     if (!this.queryInput) {

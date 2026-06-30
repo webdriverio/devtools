@@ -4,9 +4,11 @@ import { consume } from '@lit/context'
 import { snapshotStyles } from './snapshot-styles.js'
 import { renderBrowserChrome } from './browser-chrome.js'
 import { commandPageUrl } from './url-at-timestamp.js'
+import { imageMime } from './trace-timeline-utils.js'
 
 import { type ComponentChildren, h, render, type VNode } from 'preact'
 import { customElement, query } from 'lit/decorators.js'
+import { transform } from './vnode-transform.js'
 import type { SimplifiedVNode } from '../../../../script/types'
 import type { CommandLog } from '@wdio/devtools-shared'
 
@@ -31,41 +33,6 @@ declare global {
       duration?: number
     }>
   }
-}
-
-interface SerializedVNode {
-  type?: string
-  props?: {
-    children?: SerializedVNode | SerializedVNode[] | string | number
-  } & Record<string, unknown>
-}
-type TransformInput = SerializedVNode | string | number | null
-
-function transform(node: TransformInput): VNode<{}> {
-  if (typeof node !== 'object' || node === null) {
-    // Plain string/number text node — return as-is for Preact to render as text.
-    return node as unknown as VNode<{}>
-  }
-
-  const { children, ...props } = node.props ?? {}
-  /**
-   * ToDo(Christian): fix way we collect data on added nodes in script
-   */
-  if (
-    !node.type &&
-    children &&
-    typeof children === 'object' &&
-    !Array.isArray(children) &&
-    children.type
-  ) {
-    return transform(children)
-  }
-
-  const childrenRequired = children || []
-  const c = Array.isArray(childrenRequired)
-    ? childrenRequired
-    : [childrenRequired]
-  return h(node.type as string, props, ...c.map(transform)) as VNode<{}>
 }
 
 const COMPONENT = 'wdio-devtools-browser'
@@ -573,7 +540,10 @@ export class DevtoolsBrowser extends Element {
           class="screenshot-overlay"
           style="position:relative;flex:1;min-height:0;"
         >
-          <img src="data:image/png;base64,${this.#screenshotData}" />
+          <img
+            src="data:${imageMime(this.#screenshotData)};base64,${this
+              .#screenshotData}"
+          />
         </div>
       </div>`
     }
@@ -589,7 +559,9 @@ export class DevtoolsBrowser extends Element {
           class="screenshot-overlay"
           style="position:relative;flex:1;min-height:0;"
         >
-          <img src="data:image/png;base64,${autoScreenshot}" />
+          <img
+            src="data:${imageMime(autoScreenshot)};base64,${autoScreenshot}"
+          />
         </div>
       </div>`
     }

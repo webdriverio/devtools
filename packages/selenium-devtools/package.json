@@ -5,6 +5,9 @@
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "bin": {
+    "show-trace": "./bin/show-trace.mjs"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/webdriverio/devtools.git",
@@ -19,6 +22,7 @@
   },
   "files": [
     "dist",
+    "bin",
     "README.md"
   ],
   "scripts": {

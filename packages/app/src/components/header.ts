@@ -5,9 +5,7 @@ import { customElement } from 'lit/decorators.js'
 import '~icons/custom/logo.svg'
 import '~icons/mdi/white-balance-sunny.js'
 import '~icons/mdi/moon-waning-crescent.js'
-import '~icons/mdi/file-upload-outline.js'
 
-import './inputs/traceLoader.js'
 import { DARK_MODE_KEY } from '../controller/constants.js'
 
 const darkModeInitValue = localStorage.getItem(DARK_MODE_KEY)
@@ -72,7 +70,6 @@ export class DevtoolsHeader extends Element {
       <icon-custom-logo></icon-custom-logo>
       <h1>WebdriverIO Devtools</h1>
       <nav class="ml-auto mr-3">
-        <wdio-devtools-trace-loader as="button"></wdio-devtools-trace-loader>
         <button class="p-2" @click="${this.#switchMode}">
           <icon-mdi-moon-waning-crescent
             class="${this.#darkMode ? 'hidden' : 'show'}"

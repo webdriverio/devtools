@@ -4,7 +4,8 @@ import type {
   Metadata,
   CommandLog,
   TraceLog,
-  PreservedAttempt
+  PreservedAttempt,
+  TracePlayerData
 } from '@wdio/devtools-shared'
 
 import {
@@ -19,9 +20,10 @@ import {
   suiteContext,
   hasConnectionContext,
   baselineContext,
-  selectedTestUidContext
+  selectedTestUidContext,
+  framesContext
 } from './context.js'
-import { BASELINE_WS_SCOPE, WS_SCOPE } from '@wdio/devtools-shared'
+import { BASELINE_WS_SCOPE, TRACE_API, WS_SCOPE } from '@wdio/devtools-shared'
 import { CACHE_ID } from './constants.js'
 import { rerunState } from './rerunState.js'
 import type { SuiteStatsFragment, SocketMessage } from './types.js'
@@ -61,6 +63,9 @@ export class DataManagerController implements ReactiveController {
   hasConnectionProvider: ContextProvider<typeof hasConnectionContext>
   baselineContextProvider: ContextProvider<typeof baselineContext>
   selectedTestUidContextProvider: ContextProvider<typeof selectedTestUidContext>
+  framesContextProvider: ContextProvider<typeof framesContext>
+
+  #playerMode = false
 
   constructor(host: ReactiveControllerHost & HTMLElement) {
     ;(this.#host = host).addController(this)
@@ -109,6 +114,14 @@ export class DataManagerController implements ReactiveController {
       context: selectedTestUidContext,
       initialValue: undefined
     })
+    this.framesContextProvider = new ContextProvider(this.#host, {
+      context: framesContext,
+      initialValue: []
+    })
+  }
+
+  get playerMode() {
+    return this.#playerMode
   }
 
   setSelectedTestUid(uid: string | undefined) {
@@ -190,6 +203,35 @@ export class DataManagerController implements ReactiveController {
   }
 
   hostConnected() {
+    void this.#bootstrap()
+  }
+
+  // Trace-player mode (`pnpm show-trace`) serves the reconstructed trace at
+  // TRACE_API.get. Probe it first; if present, load it and skip the live WS.
+  async #bootstrap() {
+    try {
+      const response = await fetch(TRACE_API.get)
+      // 204 = live mode (the route is always registered but serves no trace);
+      // any 2xx with a body is a reconstructed trace to play.
+      if (response.ok && response.status !== 204) {
+        this.loadPlayerData((await response.json()) as TracePlayerData)
+        return
+      }
+    } catch {
+      // Not serving a trace — fall through to the live WS connection.
+    }
+    this.#connectWebSocket()
+  }
+
+  loadPlayerData(data: TracePlayerData) {
+    this.#playerMode = true
+    this.framesContextProvider.setValue(data.frames)
+    this.loadTraceFile(data.trace)
+    this.hasConnectionProvider.setValue(true)
+    this.#host.requestUpdate()
+  }
+
+  #connectWebSocket() {
     const wsUrl = `ws://${window.location.host}/client`
     const ws = (this.#ws = new WebSocket(wsUrl))
 
@@ -490,7 +532,14 @@ export class DataManagerController implements ReactiveController {
   }
 
   loadTraceFile(traceFile: TraceLog) {
-    localStorage.setItem(CACHE_ID, JSON.stringify(traceFile))
+    try {
+      localStorage.setItem(CACHE_ID, JSON.stringify(traceFile))
+    } catch (err) {
+      console.warn(
+        'Trace too large to cache in localStorage; skipping cache.',
+        err
+      )
+    }
     this.mutationsContextProvider.setValue(
       traceFile.mutations as TraceMutation[]
     )

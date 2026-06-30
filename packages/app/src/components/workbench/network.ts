@@ -22,6 +22,7 @@ import {
   waterfallBar,
   type WaterfallScale
 } from './network/waterfall.js'
+import { renderNetworkRequestDetail } from './network/request-detail.js'
 
 import '../placeholder.js'
 
@@ -212,97 +213,11 @@ export class DevtoolsNetwork extends Element {
               </div>`
             : filteredRequests.map((r) => this.#renderRequestRow(r, range))}
         </div>
-        ${this.selectedRequest ? this.#renderRequestDetail() : nothing}
+        ${this.selectedRequest
+          ? renderNetworkRequestDetail(this.selectedRequest)
+          : nothing}
       </div>
     `
-  }
-
-  #renderKv(key: string, value: unknown, valueClass = '') {
-    return html`
-      <div class="kv">
-        <span class="k">${key}</span>
-        <span class="v ${valueClass}">${value}</span>
-      </div>
-    `
-  }
-
-  #renderHeadersSection(
-    title: string,
-    headers: Record<string, string> | undefined
-  ) {
-    if (!headers || Object.keys(headers).length === 0) {
-      return nothing
-    }
-    return html`
-      <div class="detail-section">
-        <div class="detail-title">${title}</div>
-        <div class="kv-card">
-          ${Object.entries(headers).map(([k, v]) => this.#renderKv(k, v))}
-        </div>
-      </div>
-    `
-  }
-
-  #renderBodySection(title: string, body: string | undefined) {
-    if (!body) {
-      return nothing
-    }
-    return html`
-      <div class="detail-section">
-        <div class="detail-title">${title}</div>
-        <div class="kv-card">
-          <div class="kv">
-            <span class="v"><pre>${this.#formatBody(body)}</pre></span>
-          </div>
-        </div>
-      </div>
-    `
-  }
-
-  #renderGeneralSection(req: NetworkRequest) {
-    const kind = statusKind(req.status, Boolean(req.error))
-    return html`
-      <div class="detail-section">
-        <div class="detail-title">General</div>
-        <div class="kv-card">
-          ${this.#renderKv('Request URL', req.url)}
-          ${this.#renderKv('Method', req.method)}
-          ${this.#renderKv(
-            'Status',
-            html`${req.status || '—'} ${req.statusText || ''}`,
-            `kind-${kind}`
-          )}
-          ${this.#renderKv('Type', contentType(req))}
-          ${req.time ? this.#renderKv('Time', formatTime(req.time)) : nothing}
-          ${req.size ? this.#renderKv('Size', formatBytes(req.size)) : nothing}
-          ${req.error
-            ? this.#renderKv('Error', req.error, 'kind-error')
-            : nothing}
-        </div>
-      </div>
-    `
-  }
-
-  #renderRequestDetail() {
-    const req = this.selectedRequest!
-    return html`
-      <div class="request-detail">
-        ${this.#renderGeneralSection(req)}
-        ${this.#renderHeadersSection('Request Headers', req.requestHeaders)}
-        ${this.#renderBodySection('Request Body', req.requestBody)}
-        ${this.#renderHeadersSection('Response Headers', req.responseHeaders)}
-        ${this.#renderBodySection('Response Body', req.responseBody)}
-      </div>
-    `
-  }
-
-  #formatBody(body: string): string {
-    try {
-      const parsed = JSON.parse(body)
-      return JSON.stringify(parsed, null, 2)
-    } catch {
-      return body
-    }
   }
 }
 
