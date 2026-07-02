@@ -4,8 +4,7 @@
 Run against a running backend (set DEVTOOLS_PORT if not 3000):
     DEVTOOLS_PORT=63763 PYTHONPATH=src python3 e2e_check.py
 
-Pair with examples/python-spike/verify-client.mjs to confirm the captured
-commands fan out to a dashboard client. Uses a data: URL so it needs no network.
+Uses a data: URL so it needs no network.
 """
 
 import sys
