@@ -20,9 +20,23 @@ class TestBackendResolution(unittest.TestCase):
             else:
                 os.environ[k] = v
 
-    def test_port_regex(self):
+    def test_port_regex_uses_actual_listening_port(self):
+        # The preferred "Starting … on port 3000" line must NOT match — it's not
+        # the bound port when 3000 is busy.
+        self.assertIsNone(
+            backend._PORT_RE.search("Starting application on port 3000")
+        )
+        # The Fastify "Server listening at …:PORT" line is the real port,
+        # including the IPv6 form.
         self.assertEqual(
-            backend._PORT_RE.search("… application on port 63763").group(1), "63763"
+            backend._PORT_RE.search(
+                '{"msg":"Server listening at http://[::1]:63763"}'
+            ).group(1),
+            "63763",
+        )
+        self.assertEqual(
+            backend._PORT_RE.search("Server listening at http://127.0.0.1:3000").group(1),
+            "3000",
         )
 
     def test_attaches_when_port_env_set_without_spawning(self):

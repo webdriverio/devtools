@@ -82,8 +82,11 @@ class WSClient:
                 sock.close()
             except OSError:
                 pass
-        if self._reader is not None:
-            self._reader.join(timeout=2.0)
+        reader = self._reader
+        # Don't join the reader from within itself — close() can be called on the
+        # reader thread (a clientDisconnected control frame triggering shutdown).
+        if reader is not None and reader is not threading.current_thread():
+            reader.join(timeout=2.0)
         self.connected = False
 
     # ── sending ──────────────────────────────────────────────────────────────

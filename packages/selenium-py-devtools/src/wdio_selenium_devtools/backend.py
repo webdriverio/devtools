@@ -35,7 +35,12 @@ from .constants import (
     ENV_PORT,
 )
 
-_PORT_RE = re.compile(r"on port (\d+)")
+# Match the ACTUAL bound port from Fastify's "Server listening at http://…:PORT"
+# line — NOT the earlier "Starting … on port 3000" line, which is only the
+# *preferred* port. When 3000 is busy the backend negotiates a different port,
+# so keying off the preferred port connects to the wrong (or a dead) socket.
+# Greedy `.*` so the IPv6 form (http://[::1]:PORT) resolves to the final :PORT.
+_PORT_RE = re.compile(r"listening at .*:(\d+)")
 
 
 def _find_monorepo_backend(start: Optional[Path] = None) -> Optional[Path]:
