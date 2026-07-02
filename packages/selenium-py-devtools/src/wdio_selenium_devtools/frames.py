@@ -1,8 +1,7 @@
 """Builders for the wire frames the dashboard renders.
 
 Each function returns the ``data`` payload for a ``{scope, data}`` frame.
-Shapes mirror ``packages/shared/src/types.ts`` and are pinned by the Phase-0
-golden frames (see examples/python-spike). Keeping them here — pure and
+Shapes mirror ``packages/shared/src/types.ts``. Keeping them here — pure and
 side-effect free — makes them unit-testable and the single place the contract
 lives on the Python side.
 """
@@ -11,7 +10,15 @@ from __future__ import annotations
 
 from typing import Any, List, Optional
 
-from .types import CommandLog, ConsoleLog, Metadata, NetworkRequest, SuiteStats, TestStats
+from .types import (
+    CommandLog,
+    ConsoleLog,
+    Metadata,
+    NetworkRequest,
+    ScreencastInfo,
+    SuiteStats,
+    TestStats,
+)
 from .utils import iso
 
 
@@ -41,6 +48,7 @@ def command_log(
     start_time: int,
     call_source: Optional[str],
     command_id: int,
+    screenshot: Optional[str] = None,
 ) -> CommandLog:
     entry: CommandLog = {
         "command": command,
@@ -56,6 +64,8 @@ def command_log(
             "name": type(error).__name__,
             "message": str(error),
         }
+    if screenshot:
+        entry["screenshot"] = screenshot
     return entry
 
 
@@ -70,13 +80,18 @@ def network_request(
     request_id: str,
     url: str,
     method: str,
-    status: Optional[int],
     timestamp: int,
     start_time: int,
+    status: Optional[int] = None,
     request_type: str = "fetch",
     end_time: Optional[int] = None,
+    status_text: Optional[str] = None,
+    time: Optional[int] = None,
+    size: Optional[int] = None,
+    request_headers: Optional[dict] = None,
+    response_headers: Optional[dict] = None,
 ) -> NetworkRequest:
-    return {
+    entry: NetworkRequest = {
         "id": request_id,
         "url": url,
         "method": method,
@@ -86,6 +101,40 @@ def network_request(
         "endTime": end_time,
         "type": request_type,
     }
+    # Response-phase fields are absent on the initial request frame; omit rather
+    # than send nulls so the dashboard's "pending" state renders correctly.
+    if status_text is not None:
+        entry["statusText"] = status_text
+    if time is not None:
+        entry["time"] = time
+    if size is not None:
+        entry["size"] = size
+    if request_headers is not None:
+        entry["requestHeaders"] = request_headers
+    if response_headers is not None:
+        entry["responseHeaders"] = response_headers
+    return entry
+
+
+def screencast(
+    *,
+    session_id: str,
+    video_path: str,
+    video_file: str,
+    frame_count: int,
+    duration: int,
+    start_time: Optional[int],
+) -> ScreencastInfo:
+    info: ScreencastInfo = {
+        "sessionId": session_id,
+        "videoPath": video_path,
+        "videoFile": video_file,
+        "frameCount": frame_count,
+        "duration": duration,
+    }
+    if start_time is not None:
+        info["startTime"] = start_time
+    return info
 
 
 def test_stats(

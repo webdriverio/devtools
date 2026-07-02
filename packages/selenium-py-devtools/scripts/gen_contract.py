@@ -26,6 +26,9 @@ REQUIRED_DATA_SCOPES = {
     "SCOPE_CONSOLE_LOGS": "consoleLogs",
     "SCOPE_NETWORK_REQUESTS": "networkRequests",
     "SCOPE_SUITES": "suites",
+    "SCOPE_SCREENCAST": "screencast",
+    "SCOPE_SOURCES": "sources",
+    "SCOPE_MUTATIONS": "mutations",
 }
 
 

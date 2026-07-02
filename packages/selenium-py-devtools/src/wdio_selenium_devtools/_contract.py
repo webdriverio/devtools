@@ -7,6 +7,9 @@ SCOPE_COMMANDS = "commands"
 SCOPE_CONSOLE_LOGS = "consoleLogs"
 SCOPE_NETWORK_REQUESTS = "networkRequests"
 SCOPE_SUITES = "suites"
+SCOPE_SCREENCAST = "screencast"
+SCOPE_SOURCES = "sources"
+SCOPE_MUTATIONS = "mutations"
 
 DATA_SCOPES = frozenset(['actionSnapshots', 'commands', 'config', 'consoleLogs', 'logs', 'metadata', 'mutations', 'networkRequests', 'screencast', 'sources', 'suites'])
 CONTROL_SCOPES = frozenset(['clearCommands', 'clearExecutionData', 'clientConnected', 'clientDisconnected', 'config', 'replaceCommand', 'testStopped'])

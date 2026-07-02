@@ -49,9 +49,15 @@ class TestSessionCapturer(unittest.TestCase):
         cmd = [d for s, d in self.tx.sent if s == "commands"][0][0]
         self.assertEqual(cmd["error"]["name"], "RuntimeError")
 
-    def test_suites_passthrough(self):
-        self.cap.send_suites([{"uid": "s"}])
-        self.assertIn(("suites", [{"uid": "s"}]), self.tx.sent)
+    def test_suites_sent_as_uid_keyed_records(self):
+        # UI expects Record<uid, SuiteStats>[], not a plain array of suites.
+        suite = {"uid": "suite-1", "title": "S", "tests": []}
+        self.cap.send_suites([suite])
+        self.assertIn(("suites", [{"suite-1": suite}]), self.tx.sent)
+
+    def test_suites_empty_payload_not_sent(self):
+        self.cap.send_suites([{"title": "no uid"}])
+        self.assertEqual([s for s, _ in self.tx.sent if s == "suites"], [])
 
 
 if __name__ == "__main__":

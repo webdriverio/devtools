@@ -32,6 +32,7 @@ class CommandLog(TypedDict, total=False):
     startTime: int
     callSource: Optional[str]
     id: int
+    screenshot: str
 
 
 class ConsoleLog(TypedDict):
@@ -46,10 +47,31 @@ class NetworkRequest(TypedDict, total=False):
     url: str
     method: str
     status: Optional[int]
+    statusText: str
     timestamp: int
     startTime: int
     endTime: Optional[int]
+    time: int
+    size: int
     type: str
+    requestHeaders: Dict[str, str]
+    responseHeaders: Dict[str, str]
+
+
+class ScreencastFrame(TypedDict):
+    #: Base64-encoded image (PNG in polling mode). No data URI prefix.
+    data: str
+    #: Capture time, epoch milliseconds.
+    timestamp: int
+
+
+class ScreencastInfo(TypedDict, total=False):
+    sessionId: str
+    videoPath: str
+    videoFile: str
+    frameCount: int
+    duration: int
+    startTime: int
 
 
 class Metadata(TypedDict, total=False):

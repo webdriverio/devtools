@@ -16,9 +16,13 @@ from ._contract import (
     SCOPE_COMMANDS,
     SCOPE_CONSOLE_LOGS,
     SCOPE_METADATA,
+    SCOPE_MUTATIONS,
     SCOPE_NETWORK_REQUESTS,
+    SCOPE_SCREENCAST,
+    SCOPE_SOURCES,
     SCOPE_SUITES,
 )
+from .types import SuiteStats
 from .utils import now_ms, to_jsonable
 
 
@@ -62,6 +66,7 @@ class SessionCapturer:
         error: Optional[BaseException] = None,
         start_time: int,
         call_source: Optional[str],
+        screenshot: Optional[str] = None,
     ) -> None:
         with self._lock:
             self._command_counter += 1
@@ -76,6 +81,7 @@ class SessionCapturer:
             start_time=start_time,
             call_source=call_source,
             command_id=command_id,
+            screenshot=screenshot,
         )
         self._tx.send_json(SCOPE_COMMANDS, [entry])
 
@@ -91,10 +97,56 @@ class SessionCapturer:
     def capture_network(self, **kwargs: Any) -> None:
         self._tx.send_json(SCOPE_NETWORK_REQUESTS, [frames.network_request(**kwargs)])
 
+    # ── screencast ─────────────────────────────────────────────────────────────
+
+    def send_screencast(
+        self,
+        *,
+        video_path: str,
+        video_file: str,
+        frame_count: int,
+        duration: int,
+        start_time: Optional[int],
+    ) -> None:
+        # Screencast is a single post-run frame keyed to the session; skip if
+        # metadata never resolved a session id (nothing for the UI to attach to).
+        if not self.session_id:
+            return
+        self._tx.send_json(
+            SCOPE_SCREENCAST,
+            frames.screencast(
+                session_id=self.session_id,
+                video_path=video_path,
+                video_file=video_file,
+                frame_count=frame_count,
+                duration=duration,
+                start_time=start_time,
+            ),
+        )
+
+    # ── sources / mutations ──────────────────────────────────────────────────────
+
+    def send_sources(self, sources: dict) -> None:
+        """Send a ``{absolute_path: source_text}`` map — the Source tab shows the
+        file a command's ``callSource`` points at. Empty map is a no-op."""
+        if sources:
+            self._tx.send_json(SCOPE_SOURCES, sources)
+
+    def send_mutations(self, mutations: List[Any]) -> None:
+        """Forward DOM mutations captured by the injected browser script
+        (packages/script) — the UI renders them into the snapshot iframe."""
+        if mutations:
+            self._tx.send_json(SCOPE_MUTATIONS, mutations)
+
     # ── suites ───────────────────────────────────────────────────────────────────
 
-    def send_suites(self, suites: List[dict]) -> None:
-        self._tx.send_json(SCOPE_SUITES, suites)
+    def send_suites(self, suites: List[SuiteStats]) -> None:
+        # The UI expects Record<uid, SuiteStats>[] — one single-key record per
+        # suite — mirroring core's TestReporterBase.sendUpstream. A plain array
+        # of suites won't render. Empty-payload guard matches the JS behavior.
+        payload = [{s["uid"]: s} for s in suites if s.get("uid")]
+        if payload:
+            self._tx.send_json(SCOPE_SUITES, payload)
 
     def close(self) -> None:
         self._tx.close()
