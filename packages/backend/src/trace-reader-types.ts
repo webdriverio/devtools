@@ -24,6 +24,22 @@ export interface ScreencastFrameEvent {
   timestamp: number
 }
 
+export interface ConsoleEvent {
+  type: 'console'
+  time: number
+  messageType: string
+  text: string
+  args?: { preview: string; value: unknown }[]
+}
+
+export interface StdioEvent {
+  type: 'stdout' | 'stderr'
+  timestamp: number
+  text?: string
+  /** Extension field restoring the test-vs-terminal origin; absent in foreign zips. */
+  source?: 'test' | 'terminal'
+}
+
 export interface ContextOptionsEvent {
   type: 'context-options'
   wallTime: number
@@ -54,4 +70,5 @@ export interface CategorizedEvents {
   befores: Map<string, BeforeEvent>
   afters: Map<string, AfterEvent>
   frameEvents: ScreencastFrameEvent[]
+  consoleEvents: (ConsoleEvent | StdioEvent)[]
 }

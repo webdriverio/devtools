@@ -1,10 +1,11 @@
 // Reads a trace.zip produced by core/trace-exporter.ts back into a player
 // payload. The writer is the inverse: this reconstructs commands from
 // before/after events, the frame filmstrip from screencast-frame events +
-// resources/*.jpeg, and network requests from the HAR resource-snapshot
-// entries. Fields the zip never carried (console logs, mutations, sources,
-// suites) come back empty. Constants, event types, and pure helpers live in the
-// sibling trace-reader-{constants,types,utils}.ts files.
+// resources/*.jpeg, console logs from console/stdout/stderr events, and
+// network requests from the HAR resource-snapshot entries. Fields the zip
+// never carried (mutations, sources, suites) come back empty. Constants,
+// event types, and pure helpers live in the sibling
+// trace-reader-{constants,types,utils}.ts files.
 
 import fs from 'node:fs/promises'
 import { unzipSync, strFromU8 } from 'fflate'
@@ -20,12 +21,15 @@ import type {
   AfterEvent,
   BeforeEvent,
   CategorizedEvents,
+  ConsoleEvent,
   ContextOptionsEvent,
   HarSnapshot,
-  ScreencastFrameEvent
+  ScreencastFrameEvent,
+  StdioEvent
 } from './trace-reader-types.js'
 import {
   actionLabel,
+  buildConsoleLogs,
   buildMetadata,
   harToNetworkRequest,
   nearestFrame,
@@ -39,6 +43,7 @@ function categorizeEvents(
   const befores = new Map<string, BeforeEvent>()
   const afters = new Map<string, AfterEvent>()
   const frameEvents: ScreencastFrameEvent[] = []
+  const consoleEvents: (ConsoleEvent | StdioEvent)[] = []
   let ctx: ContextOptionsEvent | undefined
   for (const event of events) {
     switch (event.type) {
@@ -58,9 +63,14 @@ function categorizeEvents(
       case 'screencast-frame':
         frameEvents.push(event as unknown as ScreencastFrameEvent)
         break
+      case 'console':
+      case 'stdout':
+      case 'stderr':
+        consoleEvents.push(event as unknown as ConsoleEvent | StdioEvent)
+        break
     }
   }
-  return { ctx, befores, afters, frameEvents }
+  return { ctx, befores, afters, frameEvents, consoleEvents }
 }
 
 function buildFrames(
@@ -100,7 +110,7 @@ function buildCommands(
       command:
         REVERSE_ACTION_MAP[`${before.class}.${before.method}`] ?? before.method,
       args: paramsToArgs(before.params),
-      // Show the Playwright/vibium label (`Element.fill("x")`); the command
+      // Show the trace-style label (`Element.fill("x")`); the command
       // name above still drives the UI's category colour and icon.
       title: actionLabel(before.class, before.method, before.params),
       startTime: wallTime + before.startTime,
@@ -143,7 +153,7 @@ export function parseTraceZip(zip: Uint8Array): TracePlayerData {
   const trace: TraceLog = {
     mutations: [],
     logs: [],
-    consoleLogs: [],
+    consoleLogs: buildConsoleLogs(categorized.consoleEvents, wallTime),
     networkRequests,
     metadata: buildMetadata(categorized.ctx),
     commands,

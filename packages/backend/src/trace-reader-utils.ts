@@ -3,13 +3,20 @@
 
 import {
   TraceType,
+  type ConsoleLog,
+  type LogLevel,
   type Metadata,
   type NetworkRequest,
   type TracePlayerFrame,
   type Viewport
 } from '@wdio/devtools-shared'
 
-import type { ContextOptionsEvent, HarSnapshot } from './trace-reader-types.js'
+import type {
+  ConsoleEvent,
+  ContextOptionsEvent,
+  HarSnapshot,
+  StdioEvent
+} from './trace-reader-types.js'
 
 export function parseNdjson(text: string): Record<string, unknown>[] {
   return text
@@ -44,9 +51,9 @@ export function paramsToArgs(
   return indexKeys.map((key) => params[key])
 }
 
-// Playwright/vibium-style action label, built from class.method + the most
-// meaningful param (value for fill/type, url for navigate, nothing for click) —
-// matching what `playwright show-trace` renders for the same trace.
+// Trace-viewer action label, built from class.method + the most meaningful
+// param (value for fill/type, url for navigate, nothing for click) —
+// matching what standard trace viewers render for the same trace.
 export function actionLabel(
   cls: string,
   method: string,
@@ -109,7 +116,7 @@ export function harToNetworkRequest(
 ): NetworkRequest {
   const started = Date.parse(snapshot.startedDateTime)
   const startTime = Number.isFinite(started) ? started : 0
-  // A foreign trace.zip (the reader accepts any Vibium/Playwright zip) can carry
+  // A foreign trace.zip (the reader accepts any standard-format zip) can carry
   // a pending or failed request with no response or content; default those.
   const response = snapshot.response
   const content = response?.content
@@ -135,6 +142,47 @@ export function harToNetworkRequest(
       status: response?.status ?? 0
     }
   }
+}
+
+const LOG_LEVELS: ReadonlySet<string> = new Set([
+  'trace',
+  'debug',
+  'log',
+  'info',
+  'warn',
+  'error'
+])
+
+// Reverse of the writer's level mapping ('warn' → 'warning'); a foreign
+// trace zip can carry levels outside our union, which default to 'log'.
+function fromTraceLevel(messageType: string): LogLevel {
+  if (messageType === 'warning') {
+    return 'warn'
+  }
+  return LOG_LEVELS.has(messageType) ? (messageType as LogLevel) : 'log'
+}
+
+export function buildConsoleLogs(
+  consoleEvents: (ConsoleEvent | StdioEvent)[],
+  wallTime: number
+): ConsoleLog[] {
+  return consoleEvents.map((event) => {
+    if (event.type === 'console') {
+      return {
+        type: fromTraceLevel(event.messageType),
+        args: event.args?.map((arg) => arg.value) ?? [event.text],
+        timestamp: wallTime + event.time,
+        source: 'browser' as const
+      }
+    }
+    return {
+      type: event.type === 'stderr' ? ('error' as const) : ('log' as const),
+      args: [event.text ?? ''],
+      timestamp: wallTime + event.timestamp,
+      // Our zips carry the origin; foreign stdio events default to terminal.
+      source: event.source ?? ('terminal' as const)
+    }
+  })
 }
 
 export function nearestFrame(

@@ -73,7 +73,18 @@ function fixtureZip(): Uint8Array {
       width: 1024,
       height: 768,
       timestamp: 260
-    }
+    },
+    {
+      type: 'console',
+      time: 120,
+      pageId: 'page@abcd1234',
+      messageType: 'warning',
+      text: 'low disk',
+      args: [{ preview: 'low disk', value: 'low disk' }],
+      location: { url: '', lineNumber: 0, columnNumber: 0 }
+    },
+    { type: 'stdout', timestamp: 130, text: 'spec started', source: 'test' },
+    { type: 'stderr', timestamp: 140, text: 'worker warning' }
   ]
   const networkEntry = {
     type: 'resource-snapshot',
@@ -159,9 +170,32 @@ describe('parseTraceZip', () => {
       (trace.metadata.capabilities as { browserName: string }).browserName
     ).toBe('chrome')
     expect(trace.metadata.sessionId).toBe('abcd1234')
-    expect(trace.consoleLogs).toEqual([])
     expect(trace.mutations).toEqual([])
     expect(trace.suites).toEqual([])
     expect(trace.sources).toEqual({})
+  })
+
+  it('reconstructs console logs from console and stdio events', () => {
+    const { trace } = parseTraceZip(fixtureZip())
+    expect(trace.consoleLogs).toEqual([
+      {
+        type: 'warn',
+        args: ['low disk'],
+        timestamp: WALL_TIME + 120,
+        source: 'browser'
+      },
+      {
+        type: 'log',
+        args: ['spec started'],
+        timestamp: WALL_TIME + 130,
+        source: 'test'
+      },
+      {
+        type: 'error',
+        args: ['worker warning'],
+        timestamp: WALL_TIME + 140,
+        source: 'terminal'
+      }
+    ])
   })
 })
