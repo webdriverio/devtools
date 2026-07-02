@@ -1,41 +1,30 @@
 import { Element } from '@core/element'
-import { html, nothing, type TemplateResult } from 'lit'
+import { html, type TemplateResult } from 'lit'
 import { customElement, state, query } from 'lit/decorators.js'
 import { consume } from '@lit/context'
 import type { CommandLog, TracePlayerFrame } from '@wdio/devtools-shared'
 
-import {
-  commandContext,
-  framesContext,
-  networkRequestContext
-} from '../../controller/context.js'
-import { commandCategory } from '../workbench/actionItems/category.js'
+import { commandContext, framesContext } from '../../controller/context.js'
 import { activeTimestampAt } from '../workbench/active-entry.js'
-import { networkStyles } from '../workbench/network/styles.js'
-import { renderNetworkRequestDetail } from '../workbench/network/request-detail.js'
 import { KBD } from '../../controller/keyboard.js'
 import {
-  CATEGORY_BG,
-  GUTTER,
-  INSET,
-  SPEEDS
+  PLAYER_RESTART_EVENT,
+  PLAYER_SPEED_EVENT,
+  PLAYER_STATE_EVENT,
+  SPEEDS,
+  type PlayerState
 } from './trace-timeline-constants.js'
 import { formatTimecode, imageMime } from './trace-timeline-utils.js'
 import { timelineStyles } from './trace-timeline-styles.js'
 
-import '~icons/mdi/play.js'
-import '~icons/mdi/pause.js'
-import '~icons/mdi/skip-previous.js'
-import '~icons/mdi/skip-next.js'
-import '~icons/mdi/restart.js'
-
 const COMPONENT = 'wdio-devtools-trace-timeline'
 
 /**
- * Trace-player timeline (replaces the workbench dock in `pnpm show-trace`
- * mode). Owns the playback clock, the screenshot filmstrip, the per-track
- * timeline (actions / network / console), and the playhead. Advancing the
- * clock dispatches `show-command` so the reused browser pane swaps screenshots.
+ * Trace-player timeline strip, docked above the workbench in `pnpm show-trace`
+ * mode. Owns the playback clock, the screenshot filmstrip, and the playhead;
+ * the controls bar (trace-player-controls) and keyboard drive it via window
+ * events, and it broadcasts its state back the same way. Advancing the clock
+ * dispatches `show-command` so the reused browser pane and actions list follow.
  */
 @customElement(COMPONENT)
 export class TraceTimeline extends Element {
@@ -47,10 +36,6 @@ export class TraceTimeline extends Element {
   @state()
   frames: TracePlayerFrame[] = []
 
-  @consume({ context: networkRequestContext, subscribe: true })
-  @state()
-  networkRequests: NetworkRequest[] = []
-
   /** Playback position in ms relative to the recording start. */
   @state() currentMs = 0
   @state() playing = false
@@ -61,14 +46,11 @@ export class TraceTimeline extends Element {
   #activeTimestamp?: number
   #started = false
 
-  @query('[data-lanes]') lanesEl?: HTMLElement
+  @query('[data-scrub]') scrubEl?: HTMLElement
 
   #dragging = false
 
-  /** Network request whose detail drawer is open, or undefined. */
-  @state() selectedRequest?: NetworkRequest
-
-  static styles = [...Element.styles, networkStyles, timelineStyles]
+  static styles = [...Element.styles, timelineStyles]
 
   connectedCallback(): void {
     super.connectedCallback()
@@ -76,6 +58,8 @@ export class TraceTimeline extends Element {
     window.addEventListener(KBD.step, this.#onKbdStep)
     window.addEventListener(KBD.jump, this.#onKbdJump)
     window.addEventListener(KBD.speed, this.#onKbdSpeed)
+    window.addEventListener(PLAYER_RESTART_EVENT, this.#onRestartEvent)
+    window.addEventListener(PLAYER_SPEED_EVENT, this.#onSpeedEvent)
   }
 
   disconnectedCallback(): void {
@@ -87,6 +71,13 @@ export class TraceTimeline extends Element {
     window.removeEventListener(KBD.step, this.#onKbdStep)
     window.removeEventListener(KBD.jump, this.#onKbdJump)
     window.removeEventListener(KBD.speed, this.#onKbdSpeed)
+    window.removeEventListener(PLAYER_RESTART_EVENT, this.#onRestartEvent)
+    window.removeEventListener(PLAYER_SPEED_EVENT, this.#onSpeedEvent)
+  }
+
+  #onRestartEvent = (): void => this.#restart()
+  #onSpeedEvent = (event: Event): void => {
+    this.speed = (event as CustomEvent<{ value: number }>).detail.value
   }
 
   #onKbdTogglePlay = (): void => this.#togglePlay()
@@ -152,6 +143,17 @@ export class TraceTimeline extends Element {
     if (!this.#started && this.commands.length) {
       this.#syncActiveCommand()
     }
+    // Mirror playback state to the controls bar on the tab-header line.
+    window.dispatchEvent(
+      new CustomEvent<PlayerState>(PLAYER_STATE_EVENT, {
+        detail: {
+          currentMs: this.currentMs,
+          duration: this.#duration,
+          playing: this.playing,
+          speed: this.speed
+        }
+      })
+    )
   }
 
   #stopRaf(): void {
@@ -243,23 +245,14 @@ export class TraceTimeline extends Element {
     }
   }
 
-  #onSpeedChange(event: Event): void {
-    this.speed = Number((event.target as HTMLSelectElement).value)
-  }
-
-  // ─── scrubbing (free-flow playhead drag) ───────────────────────────────────
+  // ─── scrubbing (drag anywhere on the strip) ───────────────────────────────
 
   #fractionFromClientX(clientX: number): number {
-    const rect = this.lanesEl?.getBoundingClientRect()
-    if (!rect) {
+    const rect = this.scrubEl?.getBoundingClientRect()
+    if (!rect || rect.width <= 0) {
       return 0
     }
-    const laneStart = rect.left + GUTTER
-    const laneWidth = rect.width - GUTTER - INSET
-    if (laneWidth <= 0) {
-      return 0
-    }
-    return Math.min(1, Math.max(0, (clientX - laneStart) / laneWidth))
+    return Math.min(1, Math.max(0, (clientX - rect.left) / rect.width))
   }
 
   #onPointerDown = (event: PointerEvent): void => {
@@ -290,72 +283,6 @@ export class TraceTimeline extends Element {
 
   // ─── render ───────────────────────────────────────────────────────────────
 
-  #ctrlButton(
-    title: string,
-    icon: TemplateResult,
-    onClick: () => void,
-    extra = ''
-  ): TemplateResult {
-    return html`<button
-      class="p-1 hover:bg-toolbarHoverBackground rounded ${extra}"
-      title="${title}"
-      @click="${onClick}"
-    >
-      ${icon}
-    </button>`
-  }
-
-  #renderControls(): TemplateResult {
-    return html`
-      <div
-        class="flex items-center gap-1 px-2 h-9 border-b border-panelBorder flex-none text-[12px]"
-      >
-        ${this.#ctrlButton(
-          'Restart',
-          html`<icon-mdi-restart></icon-mdi-restart>`,
-          () => this.#restart()
-        )}
-        ${this.#ctrlButton(
-          'Previous action',
-          html`<icon-mdi-skip-previous></icon-mdi-skip-previous>`,
-          () => this.#step(-1)
-        )}
-        ${this.#ctrlButton(
-          this.playing ? 'Pause' : 'Play',
-          this.playing
-            ? html`<icon-mdi-pause></icon-mdi-pause>`
-            : html`<icon-mdi-play></icon-mdi-play>`,
-          () => this.#togglePlay(),
-          'text-chartsBlue'
-        )}
-        ${this.#ctrlButton(
-          'Next action',
-          html`<icon-mdi-skip-next></icon-mdi-skip-next>`,
-          () => this.#step(1)
-        )}
-        <code class="ml-2 tabular-nums text-chartsYellow"
-          >${formatTimecode(this.currentMs)}</code
-        >
-        <span class="opacity-60">/</span>
-        <code class="tabular-nums opacity-80"
-          >${formatTimecode(this.#duration)}</code
-        >
-        <select
-          class="ml-auto bg-sideBarBackground border border-panelBorder rounded px-1 py-0.5"
-          title="Playback speed"
-          @change="${this.#onSpeedChange}"
-        >
-          ${SPEEDS.map(
-            (speed) =>
-              html`<option value="${speed}" ?selected="${speed === this.speed}">
-                ${speed}×
-              </option>`
-          )}
-        </select>
-      </div>
-    `
-  }
-
   /** Timestamp of the frame nearest the playhead — drives filmstrip highlight. */
   get #activeFrameTimestamp(): number | undefined {
     const clock = this.#start + this.currentMs
@@ -371,16 +298,10 @@ export class TraceTimeline extends Element {
     return best
   }
 
-  // CSS left for a marker inside a track body (which starts after the gutter),
-  // leaving INSET of right margin so end-of-timeline markers don't hug the edge.
-  #laneLeft(fraction: number): string {
-    return `calc(${fraction} * (100% - ${INSET}px))`
-  }
-
   #renderFilmstrip(): TemplateResult {
     if (!this.frames.length) {
       return html`<div
-        class="flex-none h-16 border-b border-panelBorder flex items-center justify-center text-[11px] opacity-50"
+        class="flex-1 min-h-0 flex items-center justify-center text-[11px] opacity-50"
       >
         No frames captured
       </div>`
@@ -388,150 +309,64 @@ export class TraceTimeline extends Element {
     const activeFrame = this.#activeFrameTimestamp
     return html`
       <div
-        class="flex-none h-16 border-b border-panelBorder flex items-stretch"
+        class="no-scrollbar flex-1 min-h-0 flex items-stretch gap-1 px-1 py-1 overflow-x-auto"
       >
-        <div class="flex-none w-20 border-r border-panelBorder"></div>
-        <div
-          class="no-scrollbar flex-1 min-w-0 flex items-stretch gap-1 px-1 py-1 overflow-x-auto"
-        >
-          ${this.frames.map(
-            (frame) =>
-              html`<button
-                class="h-full aspect-video flex-none border rounded overflow-hidden hover:border-chartsBlue ${frame.timestamp ===
-                activeFrame
-                  ? 'border-chartsBlue ring-1 ring-chartsBlue'
-                  : 'border-panelBorder'}"
-                title="${formatTimecode(frame.timestamp - this.#start)}"
-                @click="${() => this.#seekToTimestamp(frame.timestamp)}"
-              >
-                <img
-                  class="h-full w-full object-cover"
-                  src="data:${imageMime(
-                    frame.screenshot
-                  )};base64,${frame.screenshot}"
-                />
-              </button>`
-          )}
-        </div>
+        ${this.frames.map(
+          (frame) =>
+            html`<button
+              class="h-full aspect-video flex-none border rounded overflow-hidden hover:border-chartsBlue ${frame.timestamp ===
+              activeFrame
+                ? 'border-chartsBlue ring-1 ring-chartsBlue'
+                : 'border-panelBorder'}"
+              title="${formatTimecode(frame.timestamp - this.#start)}"
+              @click="${() => this.#seekToTimestamp(frame.timestamp)}"
+            >
+              <img
+                class="h-full w-full object-cover"
+                src="data:${imageMime(
+                  frame.screenshot
+                )};base64,${frame.screenshot}"
+              />
+            </button>`
+        )}
       </div>
     `
   }
 
-  #renderTrack(
-    label: string,
-    body: TemplateResult | typeof nothing
-  ): TemplateResult {
+  // Slim full-width ruler under the controls: action ticks + drag-to-scrub.
+  #renderRuler(): TemplateResult {
     return html`
-      <div class="flex items-stretch h-7 border-b border-panelBorder/50">
-        <div
-          class="flex-none w-20 px-2 flex items-center text-[11px] opacity-60 border-r border-panelBorder"
-        >
-          ${label}
-        </div>
-        <div class="relative flex-1 overflow-hidden">${body}</div>
-      </div>
-    `
-  }
-
-  #renderActionsTrack(): TemplateResult {
-    const body = html`${this.#sortedCommands.map((command) => {
-      const ts = command.timestamp ?? 0
-      const fraction = this.#fraction(ts)
-      const active = ts === this.#activeTimestamp
-      const color = CATEGORY_BG[commandCategory(command.command)]
-      // Track chips stay compact with the short command name; the full
-      // Playwright label is the hover tooltip (and the left Actions list).
-      return html`<button
-        class="absolute top-1 bottom-1 ${color} rounded-sm px-1 text-[10px] leading-none text-black/80 whitespace-nowrap max-w-[140px] overflow-hidden text-ellipsis ${active
-          ? 'ring-1 ring-white'
-          : ''}"
-        style="left:${this.#laneLeft(
-          fraction
-        )}; transform:translateX(-${fraction * 100}%);"
-        title="${command.title ?? command.command}"
-        @click="${(event: MouseEvent) => {
-          event.stopPropagation()
-          this.#seekToTimestamp(ts)
-        }}"
-      >
-        ${command.command}
-      </button>`
-    })}`
-    return this.#renderTrack('Actions', body)
-  }
-
-  #renderNetworkTrack(): TemplateResult {
-    if (!this.networkRequests.length) {
-      return this.#renderTrack('Network', nothing)
-    }
-    const body = html`${this.networkRequests.map((request) => {
-      const leftFr = this.#fraction(request.startTime)
-      const rawFr = Math.max(0.004, (request.time ?? 0) / this.#duration)
-      const widthFr = Math.min(rawFr, 1 - leftFr)
-      const selected = this.selectedRequest?.id === request.id
-      // stopPropagation so a click selects the request rather than scrubbing the
-      // playhead (the lanes container owns the pointerdown drag handler).
-      return html`<div
-        class="absolute top-2 bottom-2 rounded-sm cursor-pointer ${selected
-          ? 'bg-chartsBlue ring-1 ring-white'
-          : 'bg-chartsBlue/60 hover:bg-chartsBlue'}"
-        style="left:${this.#laneLeft(leftFr)}; width:${this.#laneLeft(
-          widthFr
-        )}; min-width:3px;"
-        title="${request.method} ${request.url}"
-        @pointerdown="${(e: PointerEvent) => e.stopPropagation()}"
-        @click="${(e: MouseEvent) => {
-          e.stopPropagation()
-          this.selectedRequest = selected ? undefined : request
-        }}"
-      ></div>`
-    })}`
-    return this.#renderTrack('Network', body)
-  }
-
-  #renderNetworkDrawer(): TemplateResult | typeof nothing {
-    const req = this.selectedRequest
-    if (!req) {
-      return nothing
-    }
-    return html`
-      <div class="net-drawer">
-        <div class="net-drawer-head">
-          <span class="url" title="${req.url}">${req.method} ${req.url}</span>
-          <span
-            class="close"
-            title="Close"
-            @click="${() => (this.selectedRequest = undefined)}"
-            >✕</span
-          >
-        </div>
-        <div class="net-drawer-body">${renderNetworkRequestDetail(req)}</div>
+      <div class="relative h-4 flex-none border-b border-panelBorder/50">
+        ${this.#sortedCommands.map((command) => {
+          const ts = command.timestamp ?? 0
+          return html`<div
+            class="absolute top-1 bottom-1 w-0.5 rounded bg-chartsBlue/60"
+            style="left:${this.#fraction(ts) * 100}%;"
+            title="${command.title ?? command.command}"
+          ></div>`
+        })}
       </div>
     `
   }
 
   #renderPlayhead(): TemplateResult {
     const fraction = Math.min(1, Math.max(0, this.currentMs / this.#duration))
-    // Anchored at the gutter and inset on the right so it tracks the same lane
-    // coordinates as the action/network markers.
     return html`<div
       class="absolute top-0 bottom-0 w-0.5 bg-chartsRed z-20 pointer-events-none"
-      style="left:calc(${GUTTER}px + ${fraction} * (100% - ${GUTTER}px - ${INSET}px));"
+      style="left:${fraction * 100}%;"
     ></div>`
   }
 
   render() {
     return html`
-      ${this.#renderControls()} ${this.#renderFilmstrip()}
       <div
-        data-lanes
-        class="relative flex-1 min-h-0 overflow-y-auto overflow-x-hidden cursor-ew-resize select-none"
+        data-scrub
+        class="relative flex-1 min-h-0 flex flex-col cursor-ew-resize select-none"
         @pointerdown="${this.#onPointerDown}"
       >
-        ${this.#renderActionsTrack()} ${this.#renderNetworkTrack()}
-        ${this.#renderTrack('Console', nothing)} ${this.#renderPlayhead()}
+        ${this.#renderRuler()} ${this.#renderFilmstrip()}
+        ${this.#renderPlayhead()}
       </div>
-      ${this.#renderNetworkDrawer()}
     `
   }
 }
