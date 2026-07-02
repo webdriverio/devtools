@@ -20,6 +20,16 @@ import {
   FILL_METHODS,
   type TraceAction
 } from './action-mapping.js'
+import {
+  buildConsoleEvents,
+  type ConsoleEvent,
+  type StdioEvent
+} from './trace-console.js'
+import {
+  buildFilmstripEvents,
+  buildSnapshotResources,
+  type ScreencastFrameEvent
+} from './trace-snapshots.js'
 import { networkRequestToHar } from './trace-har.js'
 import { buildTraceZip, type TraceZipResource } from './trace-zip-writer.js'
 
@@ -52,7 +62,7 @@ interface BeforeEvent {
   pageId: string
   params: Record<string, unknown>
   title: string
-  /** Playwright-compatible API name (e.g. 'page.goBack', 'element.click'). */
+  /** Trace-viewer API name (e.g. 'page.goBack', 'element.click'). */
   apiName: string
   /** CallId of the Tracing.tracingGroup that wraps this action (if any). */
   parentId?: string
@@ -67,22 +77,13 @@ interface AfterEvent {
   parentId?: string
 }
 
-interface ScreencastFrameEvent {
-  type: 'screencast-frame'
-  pageId: string
-  sha1: string
-  elements?: string
-  snapshot?: string
-  width: number
-  height: number
-  timestamp: number
-}
-
 type TraceEvent =
   | ContextOptionsEvent
   | BeforeEvent
   | AfterEvent
   | ScreencastFrameEvent
+  | ConsoleEvent
+  | StdioEvent
 
 function shortId(sessionId?: string): string {
   return (sessionId ?? Math.random().toString(36).slice(2, 10)).slice(0, 8)
@@ -294,63 +295,6 @@ function buildNetworkNdjson(
   return Buffer.from(lines.join('\n'), 'utf8')
 }
 
-function buildSnapshotResources(
-  snapshots: ActionSnapshot[],
-  pageId: string
-): TraceZipResource[] {
-  const out: TraceZipResource[] = []
-  for (const snap of snapshots) {
-    const base = `${pageId}-${snap.timestamp}`
-    if (snap.screenshot) {
-      out.push({
-        resourceName: `${base}.jpeg`,
-        data: Buffer.from(snap.screenshot, 'base64')
-      })
-    }
-    if (snap.elements && snap.elements.length) {
-      out.push({
-        resourceName: `${base}-elements.json`,
-        data: Buffer.from(JSON.stringify(snap.elements), 'utf8')
-      })
-    }
-    if (snap.snapshotText) {
-      out.push({
-        resourceName: `${base}-snapshot.txt`,
-        data: Buffer.from(snap.snapshotText, 'utf8')
-      })
-    }
-  }
-  return out
-}
-
-function buildScreencastFrames(
-  snapshots: ActionSnapshot[],
-  pageId: string,
-  wallTime: number,
-  viewport: { width: number; height: number }
-): ScreencastFrameEvent[] {
-  return snapshots
-    .filter((s) => s.screenshot)
-    .map((s) => {
-      const base = `${pageId}-${s.timestamp}`
-      const frame: ScreencastFrameEvent = {
-        type: 'screencast-frame',
-        pageId,
-        sha1: `${base}.jpeg`,
-        width: viewport.width,
-        height: viewport.height,
-        timestamp: Math.max(0, s.timestamp - wallTime)
-      }
-      if (s.elements && s.elements.length) {
-        frame.elements = `${base}-elements.json`
-      }
-      if (s.snapshotText) {
-        frame.snapshot = `${base}-snapshot.txt`
-      }
-      return frame
-    })
-}
-
 /**
  * Build a trace.zip buffer from the captured TraceLog.
  * Filters commands through ACTION_MAP and renames to trace vocabulary;
@@ -368,13 +312,19 @@ function eventTime(e: TraceEvent): number {
       return e.endTime
     case 'screencast-frame':
       return e.timestamp
+    case 'console':
+      return e.time
+    case 'stdout':
+    case 'stderr':
+      return e.timestamp
   }
 }
 
 /** At the same timestamp T: an action's `after` ends first, then the
- *  snapshot captured at the action boundary, then the next action's `before`.
- *  Matches the viewer's expectation that the screencast frame shows the
- *  state between the previous action's completion and the next one's start. */
+ *  snapshot captured at the action boundary, then console output observed
+ *  at the boundary, then the next action's `before`. Matches the viewer's
+ *  expectation that the screencast frame shows the state between the
+ *  previous action's completion and the next one's start. */
 function eventOrder(e: TraceEvent): number {
   switch (e.type) {
     case 'context-options':
@@ -383,8 +333,12 @@ function eventOrder(e: TraceEvent): number {
       return 1
     case 'screencast-frame':
       return 2
-    case 'before':
+    case 'console':
+    case 'stdout':
+    case 'stderr':
       return 3
+    case 'before':
+      return 4
   }
 }
 
@@ -464,41 +418,12 @@ function buildTraceBundle(
   const viewport = trace.metadata.viewport ?? { width: 1280, height: 720 }
   const snapshots = trace.actionSnapshots ?? []
   const ctxOptions = buildContextOptions(trace, contextId, wallTime)
-  const events: TraceEvent[] = [ctxOptions]
-
-  // Emit initial screencast-frame (timestamp=0) using the first snapshot's
-  // resources so trace viewers show the page state before any interaction.
-  const firstSnap = snapshots.find((s) => s.screenshot)
-  if (firstSnap) {
-    const base = `${pageId}-${firstSnap.timestamp}`
-    const initFrame: ScreencastFrameEvent = {
-      type: 'screencast-frame',
-      pageId,
-      sha1: `${base}.jpeg`,
-      width: viewport.width,
-      height: viewport.height,
-      timestamp: 0
-    }
-    if (firstSnap.elements && firstSnap.elements.length) {
-      initFrame.elements = `${base}-elements.json`
-    }
-    if (firstSnap.snapshotText) {
-      initFrame.snapshot = `${base}-snapshot.txt`
-    }
-    events.push(initFrame)
-  }
-
-  events.push(
-    // Skip the first snapshot in buildScreencastFrames — it was already emitted
-    // as the initial t=0 frame above.
-    ...buildScreencastFrames(
-      firstSnap ? snapshots.filter((s) => s !== firstSnap) : snapshots,
-      pageId,
-      wallTime,
-      viewport
-    ),
-    ...buildActionEvents(trace.commands, pageId, wallTime, opts.testMetadata)
-  )
+  const events: TraceEvent[] = [
+    ctxOptions,
+    ...buildFilmstripEvents(snapshots, pageId, wallTime, viewport),
+    ...buildActionEvents(trace.commands, pageId, wallTime, opts.testMetadata),
+    ...buildConsoleEvents(trace.consoleLogs, pageId, wallTime)
+  ]
   events.sort(compareEvents)
   const ctxBName = ctxOptions.title
   return {
