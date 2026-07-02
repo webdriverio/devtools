@@ -64,10 +64,21 @@ class _SuiteRegistry:
 
 _registry = _SuiteRegistry()
 
+# Note: test-file source capture for the Source tab lives in instrumentation.py
+# (keyed by each command's callSource path), so it works for plain scripts too —
+# not just pytest. The plugin only owns the suite/test tree.
+
 
 def pytest_configure(config) -> None:  # noqa: ANN001
     if _opted_in():
-        devtools.enable()
+        capturer = devtools.enable()
+        # pytest owns the suite tree — suppress the adapter's default script suite.
+        from . import instrumentation
+
+        instrumentation.set_external_suites(True)
+        url = devtools.dashboard_url()
+        if capturer is not None and url:
+            print(f"\n[wdio-devtools] dashboard live at {url}\n")
 
 
 def pytest_runtest_logstart(nodeid, location) -> None:  # noqa: ANN001
@@ -99,4 +110,15 @@ def pytest_sessionfinish(session, exitstatus) -> None:  # noqa: ANN001
     capturer = devtools.get_capturer()
     if capturer is not None:
         capturer.send_suites(_registry.snapshot())
+    # Keep the dashboard open for inspection after the run — exit when the user
+    # closes the window (clientDisconnected). Only when we actually opened a
+    # window; CI (WDIO_DEVTOOLS_OPEN=0) tears down immediately.
+    from . import lifecycle
+
+    if lifecycle.dashboard_window_open():
+        print(
+            "\n[wdio-devtools] dashboard is live — close the window to finish "
+            "(Ctrl-C also works).\n"
+        )
+        lifecycle.wait_for_shutdown()
     devtools.disable()
