@@ -26,23 +26,36 @@ import './workbench/network.js'
 import './workbench/compare.js'
 import './browser/snapshot.js'
 import './browser/trace-timeline.js'
+import './browser/trace-player-controls.js'
 import {
+  HEADER_HEIGHT,
   MIN_WORKBENCH_HEIGHT,
   MIN_METATAB_WIDTH,
   ACTIONS_DEFAULT_WIDTH,
   BROWSER_HEIGHT_RATIO,
-  RERENDER_TIMEOUT
+  PLAYER_CONTROLS_HEIGHT,
+  PLAYER_DOCK_DEFAULT_HEIGHT,
+  PLAYER_DOCK_MIN_HEIGHT,
+  RERENDER_TIMEOUT,
+  TRACE_TIMELINE_MIN_HEIGHT,
+  TRACE_TIMELINE_DEFAULT_HEIGHT
 } from '../controller/constants.js'
 
 const COMPONENT = 'wdio-devtools-workbench'
+
+/** Pixel value from a DragController position string (`flex-basis: 123px`). */
+function basisPx(position: string): number | undefined {
+  const value = parseFloat(position.split(':')[1] ?? '')
+  return Number.isFinite(value) ? value : undefined
+}
 @customElement(COMPONENT)
 export class DevtoolsWorkbench extends Element {
   #toolbarCollapsed = localStorage.getItem('toolbar') === 'true'
   #workbenchSidebarCollapsed =
     localStorage.getItem('workbenchSidebar') === 'true'
 
-  // Trace-player mode (`pnpm show-trace`): hide the Metadata tab and swap the
-  // workbench tabs for the timeline player.
+  // Trace-player mode (`pnpm show-trace`): the full workbench renders as in
+  // live mode, plus the playback timeline docked above the browser pane.
   @property({ type: Boolean })
   playerMode = false
 
@@ -99,6 +112,33 @@ export class DevtoolsWorkbench extends Element {
     direction: Direction.horizontal
   })
 
+  #dragTimeline = new DragController(this, {
+    localStorageKey: 'traceTimelineHeight',
+    minPosition: TRACE_TIMELINE_MIN_HEIGHT,
+    maxPosition: window.innerHeight * 0.4,
+    initialPosition: TRACE_TIMELINE_DEFAULT_HEIGHT,
+    getContainerEl: () => this.#getVerticalWindow(),
+    direction: Direction.vertical
+  })
+
+  // Player-mode browser-pane height. Separate controller + storage key so
+  // resizing the player never disturbs the live-mode split.
+  #dragVerticalPlayer = new DragController(this, {
+    localStorageKey: 'playerBrowserHeight',
+    minPosition: MIN_WORKBENCH_HEIGHT,
+    maxPosition: window.innerHeight * 0.8,
+    initialPosition: Math.max(
+      MIN_WORKBENCH_HEIGHT,
+      window.innerHeight -
+        HEADER_HEIGHT -
+        PLAYER_CONTROLS_HEIGHT -
+        TRACE_TIMELINE_DEFAULT_HEIGHT -
+        PLAYER_DOCK_DEFAULT_HEIGHT
+    ),
+    getContainerEl: () => this.#getVerticalWindow(),
+    direction: Direction.vertical
+  })
+
   async #getHorizontalWindow() {
     await this.updateComplete
     return this.horizontalResizerWindow as Element
@@ -144,11 +184,41 @@ export class DevtoolsWorkbench extends Element {
     if (this.#toolbarCollapsed) {
       return ''
     }
-    const m = this.#dragVertical.getPosition().match(/(\d+(?:\.\d+)?)px/)
-    const raw = m ? parseFloat(m[1]) : window.innerHeight * BROWSER_HEIGHT_RATIO
+    if (this.playerMode) {
+      // Player proportions: the snapshot dominates — pane gets everything the
+      // timeline, controls bar, and a compact dock don't need, clamped in CSS
+      // so the dock never drops below its minimum inside the viewport.
+      const fallback =
+        window.innerHeight -
+        HEADER_HEIGHT -
+        PLAYER_CONTROLS_HEIGHT -
+        this.#timelinePaneHeight() -
+        PLAYER_DOCK_DEFAULT_HEIGHT
+      const raw = basisPx(this.#dragVerticalPlayer.getPosition()) ?? fallback
+      const paneHeight = Math.max(MIN_WORKBENCH_HEIGHT, raw)
+      const maxHeight = `calc(100vh - ${
+        HEADER_HEIGHT + PLAYER_CONTROLS_HEIGHT + PLAYER_DOCK_MIN_HEIGHT
+      }px - ${this.#timelinePaneHeight()}px)`
+      return `flex:0 0 ${paneHeight}px; height:${paneHeight}px; max-height:${maxHeight}; min-height:0;`
+    }
+    const raw =
+      basisPx(this.#dragVertical.getPosition()) ??
+      window.innerHeight * BROWSER_HEIGHT_RATIO
     const capped = Math.min(raw, window.innerHeight * 0.7)
     const paneHeight = Math.max(MIN_WORKBENCH_HEIGHT, capped)
     return `flex:0 0 ${paneHeight}px; height:${paneHeight}px; max-height:70vh; min-height:0;`
+  }
+
+  #timelinePaneHeight(): number {
+    const raw =
+      basisPx(this.#dragTimeline.getPosition()) ?? TRACE_TIMELINE_DEFAULT_HEIGHT
+    const capped = Math.min(raw, window.innerHeight * 0.4)
+    return Math.max(TRACE_TIMELINE_MIN_HEIGHT, capped)
+  }
+
+  #computeTimelinePaneStyle(): string {
+    const paneHeight = this.#timelinePaneHeight()
+    return `flex:0 0 ${paneHeight}px; height:${paneHeight}px; max-height:40vh; min-height:0;`
   }
 
   #computeSidebarStyle(): string {
@@ -173,11 +243,9 @@ export class DevtoolsWorkbench extends Element {
         <wdio-devtools-tab label="Actions">
           <wdio-devtools-actions></wdio-devtools-actions>
         </wdio-devtools-tab>
-        ${this.playerMode
-          ? nothing
-          : html`<wdio-devtools-tab label="Metadata">
-              <wdio-devtools-metadata></wdio-devtools-metadata>
-            </wdio-devtools-tab>`}
+        <wdio-devtools-tab label="Metadata">
+          <wdio-devtools-metadata></wdio-devtools-metadata>
+        </wdio-devtools-tab>
         <nav class="ml-auto" slot="actions">
           <button
             @click="${() => this.#toggle('workbenchSidebar')}"
@@ -276,11 +344,26 @@ export class DevtoolsWorkbench extends Element {
     `
   }
 
+  // Full-width playback strip above the workbench row — player mode only.
+  #renderTimelineStrip() {
+    if (!this.playerMode) {
+      return nothing
+    }
+    return html`
+      <wdio-devtools-trace-timeline
+        class="relative z-10 flex-none border-b-[1px] border-b-panelBorder"
+        style="${this.#computeTimelinePaneStyle()}"
+      ></wdio-devtools-trace-timeline>
+      ${this.#dragTimeline.getSlider('z-[999] pointer-events-auto')}
+    `
+  }
+
   render() {
     return html`
+      ${this.#renderTimelineStrip()}
       <section
         data-horizontal-resizer-window
-        class="flex relative w-full h-full min-h-0 overflow-hidden"
+        class="flex relative w-full flex-1 min-h-0 overflow-hidden"
       >
         <section
           data-sidebar
@@ -297,20 +380,28 @@ export class DevtoolsWorkbench extends Element {
           data-vertical-resizer-window
           class="relative flex flex-col flex-grow min-w-0 min-h-0 overflow-hidden"
         >
-          <section
-            class="basis-auto text-gray-500 flex items-center justify-center flex-1 min-h-0"
-            style="${this.#computeBrowserPaneStyle()}"
-          >
-            <wdio-devtools-browser></wdio-devtools-browser>
-          </section>
-          ${!this.#toolbarCollapsed
-            ? this.#dragVertical.getSlider('z-[999] pointer-events-auto')
-            : nothing}
           ${this.playerMode
-            ? html`<wdio-devtools-trace-timeline
-                class="relative z-10 border-t-[1px] border-t-panelBorder flex-1 min-h-0"
-              ></wdio-devtools-trace-timeline>`
-            : this.#renderWorkbenchTabs()}
+            ? html`<wdio-devtools-trace-player-controls
+                class="flex-none h-10 border-b-[1px] border-b-panelBorder"
+              ></wdio-devtools-trace-player-controls>`
+            : nothing}
+          <section
+            class="relative flex flex-col flex-1 min-w-0 min-h-0 overflow-hidden"
+          >
+            <section
+              class="basis-auto text-gray-500 flex items-center justify-center flex-1 min-h-0"
+              style="${this.#computeBrowserPaneStyle()}"
+            >
+              <wdio-devtools-browser></wdio-devtools-browser>
+            </section>
+            ${!this.#toolbarCollapsed
+              ? (this.playerMode
+                  ? this.#dragVerticalPlayer
+                  : this.#dragVertical
+                ).getSlider('z-[999] pointer-events-auto')
+              : nothing}
+            ${this.#renderWorkbenchTabs()}
+          </section>
         </section>
       </section>
     `
