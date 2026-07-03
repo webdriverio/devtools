@@ -2,7 +2,7 @@ import { Element } from '@core/element'
 import { html, css, type TemplateResult } from 'lit'
 import { customElement, state } from 'lit/decorators.js'
 
-import { KBD } from '../../controller/keyboard.js'
+import { emit, KBD } from '../../controller/keyboard.js'
 import {
   PLAYER_RESTART_EVENT,
   PLAYER_SPEED_EVENT,
@@ -20,11 +20,7 @@ import '~icons/mdi/restart.js'
 
 const COMPONENT = 'wdio-devtools-trace-player-controls'
 
-/**
- * Playback controls bar, rendered on the tab-header line of the workbench in
- * player mode. Talks to the timeline strip purely via window events (KBD +
- * trace-player events) and mirrors its state from the timeline's broadcasts.
- */
+/** Playback controls bar; drives the timeline via window events and mirrors its broadcast state. */
 @customElement(COMPONENT)
 export class TracePlayerControls extends Element {
   @state() playerState: PlayerState = {
@@ -60,10 +56,6 @@ export class TracePlayerControls extends Element {
     this.playerState = (event as CustomEvent<PlayerState>).detail
   }
 
-  #emit(name: string, detail?: unknown): void {
-    window.dispatchEvent(new CustomEvent(name, { detail }))
-  }
-
   #button(
     title: string,
     icon: TemplateResult,
@@ -85,7 +77,7 @@ export class TracePlayerControls extends Element {
         class="ml-1 bg-sideBarBackground border border-panelBorder rounded px-1 py-0.5"
         title="Playback speed"
         @change="${(event: Event) =>
-          this.#emit(PLAYER_SPEED_EVENT, {
+          emit(PLAYER_SPEED_EVENT, {
             value: Number((event.target as HTMLSelectElement).value)
           })}"
       >
@@ -112,25 +104,25 @@ export class TracePlayerControls extends Element {
         ${this.#button(
           'Restart',
           html`<icon-mdi-restart></icon-mdi-restart>`,
-          () => this.#emit(PLAYER_RESTART_EVENT)
+          () => emit(PLAYER_RESTART_EVENT)
         )}
         ${this.#button(
           'Previous action',
           html`<icon-mdi-skip-previous></icon-mdi-skip-previous>`,
-          () => this.#emit(KBD.step, { dir: -1 })
+          () => emit(KBD.step, { dir: -1 })
         )}
         ${this.#button(
           playing ? 'Pause' : 'Play',
           playing
             ? html`<icon-mdi-pause></icon-mdi-pause>`
             : html`<icon-mdi-play></icon-mdi-play>`,
-          () => this.#emit(KBD.togglePlay),
+          () => emit(KBD.togglePlay),
           'text-chartsBlue'
         )}
         ${this.#button(
           'Next action',
           html`<icon-mdi-skip-next></icon-mdi-skip-next>`,
-          () => this.#emit(KBD.step, { dir: 1 })
+          () => emit(KBD.step, { dir: 1 })
         )}
         ${this.#renderSpeedSelect(speed)}
       </div>

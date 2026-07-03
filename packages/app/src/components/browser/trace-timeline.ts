@@ -14,18 +14,17 @@ import {
   SPEEDS,
   type PlayerState
 } from './trace-timeline-constants.js'
-import { formatTimecode, imageMime } from './trace-timeline-utils.js'
+import {
+  formatTickLabel,
+  formatTimecode,
+  imageMime,
+  tickStep
+} from './trace-timeline-utils.js'
 import { timelineStyles } from './trace-timeline-styles.js'
 
 const COMPONENT = 'wdio-devtools-trace-timeline'
 
-/**
- * Trace-player timeline strip, docked above the workbench in `pnpm show-trace`
- * mode. Owns the playback clock, the screenshot filmstrip, and the playhead;
- * the controls bar (trace-player-controls) and keyboard drive it via window
- * events, and it broadcasts its state back the same way. Advancing the clock
- * dispatches `show-command` so the reused browser pane and actions list follow.
- */
+/** Player timeline strip: owns the playback clock, filmstrip, and playhead; wired to the controls bar and keyboard via window events, and drives the workbench via `show-command`. */
 @customElement(COMPONENT)
 export class TraceTimeline extends Element {
   @consume({ context: commandContext, subscribe: true })
@@ -298,7 +297,45 @@ export class TraceTimeline extends Element {
     return best
   }
 
-  #renderFilmstrip(): TemplateResult {
+  get #ticks(): number[] {
+    const step = tickStep(this.#duration)
+    const out: number[] = []
+    for (let t = step; t < this.#duration; t += step) {
+      out.push(t)
+    }
+    return out
+  }
+
+  // Faint vertical gridlines at each ruler tick, spanning the whole strip.
+  #renderGridlines(): TemplateResult {
+    return html`${this.#ticks.map(
+      (tick) =>
+        html`<div
+          class="absolute top-0 bottom-0 w-px bg-panelBorder/60 pointer-events-none"
+          style="left:${(tick / this.#duration) * 100}%;"
+        ></div>`
+    )}`
+  }
+
+  // Ruler labels stay inside the strip via the bounded translateX trick.
+  #renderRulerLabels(): TemplateResult {
+    return html`
+      <div class="relative h-5 flex-none text-[10px] opacity-70">
+        ${this.#ticks.map((tick) => {
+          const fraction = tick / this.#duration
+          return html`<span
+            class="absolute top-0.5 whitespace-nowrap"
+            style="left:${fraction * 100}%; transform:translateX(-${fraction *
+            100}%);"
+            >${formatTickLabel(tick)}</span
+          >`
+        })}
+      </div>
+    `
+  }
+
+  // Thumbnails sit at their wall-clock position along the axis.
+  #renderThumbTrack(): TemplateResult {
     if (!this.frames.length) {
       return html`<div
         class="flex-1 min-h-0 flex items-center justify-center text-[11px] opacity-50"
@@ -308,53 +345,53 @@ export class TraceTimeline extends Element {
     }
     const activeFrame = this.#activeFrameTimestamp
     return html`
-      <div
-        class="no-scrollbar flex-1 min-h-0 flex items-stretch gap-1 px-1 py-1 overflow-x-auto"
-      >
-        ${this.frames.map(
-          (frame) =>
-            html`<button
-              class="h-full aspect-video flex-none border rounded overflow-hidden hover:border-chartsBlue ${frame.timestamp ===
-              activeFrame
-                ? 'border-chartsBlue ring-1 ring-chartsBlue'
-                : 'border-panelBorder'}"
-              title="${formatTimecode(frame.timestamp - this.#start)}"
-              @click="${() => this.#seekToTimestamp(frame.timestamp)}"
-            >
-              <img
-                class="h-full w-full object-cover"
-                src="data:${imageMime(
-                  frame.screenshot
-                )};base64,${frame.screenshot}"
-              />
-            </button>`
-        )}
-      </div>
-    `
-  }
-
-  // Slim full-width ruler under the controls: action ticks + drag-to-scrub.
-  #renderRuler(): TemplateResult {
-    return html`
-      <div class="relative h-4 flex-none border-b border-panelBorder/50">
-        ${this.#sortedCommands.map((command) => {
-          const ts = command.timestamp ?? 0
-          return html`<div
-            class="absolute top-1 bottom-1 w-0.5 rounded bg-chartsBlue/60"
-            style="left:${this.#fraction(ts) * 100}%;"
-            title="${command.title ?? command.command}"
-          ></div>`
+      <div class="relative flex-1 min-h-0">
+        ${this.frames.map((frame) => {
+          const fraction = this.#fraction(frame.timestamp)
+          const active = frame.timestamp === activeFrame
+          return html`<button
+            class="absolute top-0.5 bottom-0.5 aspect-video border rounded overflow-hidden hover:border-chartsBlue hover:z-10 ${active
+              ? 'border-chartsBlue ring-1 ring-chartsBlue z-10'
+              : 'border-panelBorder'}"
+            style="left:${fraction * 100}%; transform:translateX(-${fraction *
+            100}%);"
+            title="${formatTimecode(frame.timestamp - this.#start)}"
+            @click="${() => this.#seekToTimestamp(frame.timestamp)}"
+          >
+            <img
+              class="h-full w-full object-cover"
+              src="data:${imageMime(
+                frame.screenshot
+              )};base64,${frame.screenshot}"
+            />
+          </button>`
         })}
       </div>
     `
   }
 
-  #renderPlayhead(): TemplateResult {
+  // Bottom scrub bar: full-width line, action tick marks, draggable knob.
+  #renderScrubBar(): TemplateResult {
     const fraction = Math.min(1, Math.max(0, this.currentMs / this.#duration))
-    return html`<div
-      class="absolute top-0 bottom-0 w-0.5 bg-chartsRed z-20 pointer-events-none"
-      style="left:${fraction * 100}%;"
-    ></div>`
+    return html`
+      <div class="relative h-6 flex-none">
+        <div
+          class="absolute left-0 right-0 top-1/2 -translate-y-1/2 h-0.5 bg-chartsBlue/50 rounded"
+        ></div>
+        ${this.#sortedCommands.map((command) => {
+          const tickFraction = this.#fraction(command.timestamp ?? 0)
+          return html`<div
+            class="absolute top-1/2 -translate-y-1/2 h-2.5 w-px bg-white/80"
+            style="left:${tickFraction * 100}%;"
+            title="${command.title ?? command.command}"
+          ></div>`
+        })}
+        <div
+          class="absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-chartsBlue ring-1 ring-white/70 pointer-events-none"
+          style="left:calc(${fraction * 100}% - 6px);"
+        ></div>
+      </div>
+    `
   }
 
   render() {
@@ -364,8 +401,8 @@ export class TraceTimeline extends Element {
         class="relative flex-1 min-h-0 flex flex-col cursor-ew-resize select-none"
         @pointerdown="${this.#onPointerDown}"
       >
-        ${this.#renderRuler()} ${this.#renderFilmstrip()}
-        ${this.#renderPlayhead()}
+        ${this.#renderGridlines()} ${this.#renderRulerLabels()}
+        ${this.#renderThumbTrack()} ${this.#renderScrubBar()}
       </div>
     `
   }
