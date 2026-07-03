@@ -18,6 +18,25 @@ export interface TracePlayerFrame {
   screenshot: string
 }
 
+/** A structural step reconstructed from a trace.zip — a runner hook, step
+ *  wrapper, or tracing group marker — rendered as a collapsible tree row. */
+export interface TraceActionGroupNode {
+  callId: string
+  title: string
+  /** Absolute wall-clock ms when the step opened. */
+  startTime: number
+  /** Absolute wall-clock ms when the step closed. */
+  endTime: number
+  /** Set when the step's own after errored or any descendant failed. */
+  failed?: boolean
+  children: TraceActionChild[]
+}
+
+/** One tree slot: a nested group or an index into `trace.commands`. */
+export type TraceActionChild =
+  | { group: TraceActionGroupNode }
+  | { commandIndex: number }
+
 /** Payload served at `TRACE_API.get`. Carries the reconstructed TraceLog plus
  *  the frame filmstrip and clock window the player's timeline needs. */
 export interface TracePlayerData {
@@ -27,4 +46,7 @@ export interface TracePlayerData {
   startTime: number
   /** Total span in ms from the first event to the last. */
   duration: number
+  /** Root children of the action tree, chronological. Absent when the zip
+   *  carried no structural steps — the player then renders the flat list. */
+  groups?: TraceActionChild[]
 }

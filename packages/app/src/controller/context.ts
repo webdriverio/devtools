@@ -4,6 +4,7 @@ import type {
   MetadataBySession,
   CommandLog,
   PreservedAttempt,
+  TraceActionChild,
   TracePlayerFrame
 } from '@wdio/devtools-shared'
 import type { SuiteStatsFragment } from './types.js'
@@ -51,3 +52,9 @@ export const selectedTestUidContext = createContext<string | undefined>(
 export const framesContext = createContext<TracePlayerFrame[]>(
   Symbol('framesContext')
 )
+
+/** Root children of the trace player's action tree — populated only in player
+ *  mode when the zip carried structural steps; absent means flat list. */
+export const actionGroupsContext = createContext<
+  TraceActionChild[] | undefined
+>(Symbol('actionGroupsContext'))

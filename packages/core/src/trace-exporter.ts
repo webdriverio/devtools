@@ -30,6 +30,13 @@ import {
   buildSnapshotResources,
   type ScreencastFrameEvent
 } from './trace-snapshots.js'
+import {
+  buildImageFrameSnapshots,
+  FrameSnapshotIndex,
+  type FrameSnapshotEvent
+} from './trace-frame-snapshots.js'
+import { buildActionEvents, type ActionEvent } from './trace-action-events.js'
+import { buildSourceResources } from './trace-sources.js'
 import { networkRequestToHar } from './trace-har.js'
 import { buildTraceZip, type TraceZipResource } from './trace-zip-writer.js'
 
@@ -53,37 +60,13 @@ interface ContextOptionsEvent {
   options: { viewport: { width: number; height: number } }
 }
 
-interface BeforeEvent {
-  type: 'before'
-  callId: string
-  startTime: number
-  class: string
-  method: string
-  pageId: string
-  params: Record<string, unknown>
-  title: string
-  /** Trace-viewer API name (e.g. 'page.goBack', 'element.click'). */
-  apiName: string
-  /** CallId of the Tracing.tracingGroup that wraps this action (if any). */
-  parentId?: string
-}
-
-interface AfterEvent {
-  type: 'after'
-  callId: string
-  endTime: number
-  error?: { message: string }
-  /** CallId of the Tracing.tracingGroup that wraps this action (if any). */
-  parentId?: string
-}
-
 type TraceEvent =
   | ContextOptionsEvent
-  | BeforeEvent
-  | AfterEvent
+  | ActionEvent
   | ScreencastFrameEvent
   | ConsoleEvent
   | StdioEvent
+  | FrameSnapshotEvent
 
 function shortId(sessionId?: string): string {
   return (sessionId ?? Math.random().toString(36).slice(2, 10)).slice(0, 8)
@@ -146,133 +129,6 @@ function buildContextOptions(
   }
 }
 
-export function buildActionEvents(
-  commands: CommandLog[],
-  pageId: string,
-  wallTime: number,
-  testMetadata?: TestMetadataMap
-): TraceEvent[] {
-  const events: TraceEvent[] = []
-  let prevEndMs = 0
-  let callCounter = 0
-  let lastTestUid: string | undefined
-  let groupCallId: string | undefined
-
-  for (const cmd of commands) {
-    const action = mapCommandToAction(cmd.command)
-    if (!action) {
-      continue
-    }
-
-    // ── Test boundary detection ──
-    // When the testUid changes, close the previous Tracing.tracingGroup
-    // and open a new one. Child actions inside the group reference it via
-    // parentId so trace viewers render them as labelled spans.
-    if (cmd.testUid && cmd.testUid !== lastTestUid) {
-      // Close the previous group.
-      if (lastTestUid && groupCallId) {
-        callCounter++
-        events.push({
-          type: 'after',
-          callId: groupCallId,
-          endTime: prevEndMs
-        } satisfies AfterEvent)
-      }
-
-      // Open a new group for this test.
-      callCounter++
-      groupCallId = `call@${callCounter}`
-      const meta = testMetadata?.get(cmd.testUid)
-      const groupName = meta?.title ?? cmd.testUid
-      events.push({
-        type: 'before',
-        callId: groupCallId,
-        startTime: Math.max(
-          prevEndMs,
-          (cmd.startTime ?? cmd.timestamp) - wallTime
-        ),
-        class: 'Tracing',
-        method: 'tracingGroup',
-        pageId,
-        params: { name: groupName },
-        title: groupName,
-        apiName: 'tracing.tracingGroup'
-      } satisfies BeforeEvent)
-      lastTestUid = cmd.testUid
-    }
-
-    // ── Regular action (child of the current group) ──
-    callCounter++
-    const callId = `call@${callCounter}`
-    // Use the command's actual invocation timestamp for the start, falling
-    // back to the completion timestamp when startTime isn't recorded.
-    const rawStartMs = (cmd.startTime ?? cmd.timestamp) - wallTime
-    const rawEndMs = cmd.timestamp - wallTime
-    // Floor at prevEndMs to prevent visual overlap with previous action.
-    const startMs = Math.max(prevEndMs, rawStartMs)
-    // +1ms minimum duration so the viewer never sees an `after` whose
-    // matching `before` hasn't been parsed yet.
-    const endMs = Math.max(startMs + 1, rawEndMs)
-    const rawArgs = cmd.args as unknown[]
-    let params: Record<string, unknown>
-    const isValueMethod = FILL_METHODS.has(action.method)
-    if (action.class === 'Element' && isValueMethod && rawArgs.length >= 2) {
-      params = { selector: rawArgs[0], value: rawArgs[1] }
-    } else if (
-      action.class === 'Element' &&
-      isValueMethod &&
-      rawArgs.length === 1
-    ) {
-      params = { value: rawArgs[0] }
-    } else if (
-      action.class === 'Element' &&
-      rawArgs.length === 1 &&
-      typeof rawArgs[0] === 'string'
-    ) {
-      params = { selector: rawArgs[0] }
-    } else if (rawArgs.length === 1 && typeof rawArgs[0] === 'string') {
-      params = { url: rawArgs[0] }
-    } else {
-      params = Object.fromEntries(rawArgs.map((a, i) => [String(i), a]))
-    }
-    events.push({
-      type: 'before',
-      callId,
-      startTime: startMs,
-      class: action.class,
-      method: action.method,
-      pageId,
-      params,
-      title: formatActionTitle(action, cmd.args, params),
-      apiName: `${action.class.toLowerCase()}.${action.method}`,
-      parentId: groupCallId
-    })
-    const afterEvent: AfterEvent = {
-      type: 'after',
-      callId,
-      endTime: endMs
-    }
-    if (cmd.error) {
-      const err = cmd.error as { message?: string }
-      afterEvent.error = { message: err.message ?? String(cmd.error) }
-    }
-    events.push(afterEvent)
-    prevEndMs = endMs
-  }
-
-  // Close the final group after the last action.
-  if (lastTestUid && groupCallId) {
-    callCounter++
-    events.push({
-      type: 'after',
-      callId: groupCallId,
-      endTime: prevEndMs
-    } satisfies AfterEvent)
-  }
-
-  return events
-}
-
 function buildNetworkNdjson(
   requests: NetworkRequest[],
   wallTime: number,
@@ -312,6 +168,8 @@ function eventTime(e: TraceEvent): number {
       return e.endTime
     case 'screencast-frame':
       return e.timestamp
+    case 'frame-snapshot':
+      return e.snapshot.timestamp
     case 'console':
       return e.time
     case 'stdout':
@@ -332,6 +190,7 @@ function eventOrder(e: TraceEvent): number {
     case 'after':
       return 1
     case 'screencast-frame':
+    case 'frame-snapshot':
       return 2
     case 'console':
     case 'stdout':
@@ -418,10 +277,24 @@ function buildTraceBundle(
   const viewport = trace.metadata.viewport ?? { width: 1280, height: 720 }
   const snapshots = trace.actionSnapshots ?? []
   const ctxOptions = buildContextOptions(trace, contextId, wallTime)
+  const snapshotIndex = new FrameSnapshotIndex(snapshots)
+  const actionEvents = buildActionEvents(
+    trace.commands,
+    pageId,
+    wallTime,
+    opts.testMetadata,
+    snapshotIndex
+  )
   const events: TraceEvent[] = [
     ctxOptions,
     ...buildFilmstripEvents(snapshots, pageId, wallTime, viewport),
-    ...buildActionEvents(trace.commands, pageId, wallTime, opts.testMetadata),
+    ...actionEvents,
+    ...buildImageFrameSnapshots(
+      snapshotIndex.refs(),
+      pageId,
+      wallTime,
+      viewport
+    ),
     ...buildConsoleEvents(trace.consoleLogs, pageId, wallTime)
   ]
   events.sort(compareEvents)
@@ -430,7 +303,10 @@ function buildTraceBundle(
     traceNdjson: events.map((e) => JSON.stringify(e)).join('\n') + '\n',
     networkNdjson: buildNetworkNdjson(trace.networkRequests, wallTime, pageId),
     transcriptMd: generateTranscript(trace.commands, wallTime, ctxBName),
-    resources: buildSnapshotResources(snapshots, pageId)
+    resources: [
+      ...buildSnapshotResources(snapshots, pageId),
+      ...buildSourceResources(trace.sources)
+    ]
   }
 }
 

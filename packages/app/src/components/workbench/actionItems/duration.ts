@@ -3,17 +3,19 @@ export type DurationHeat = 'fast' | 'mid' | 'slow'
 const ONE_SECOND = 1000
 const ONE_MINUTE = ONE_SECOND * 60
 
-/** Human-readable duration: `ms` under a second, `s` under a minute, `m s` above. */
+/** Human-readable duration: `ms` under a second, `s` under a minute, `m s`
+ *  above. Rounds first — reconstructed traces carry fractional-ms clocks. */
 export function formatDuration(ms: number): string {
-  if (ms > ONE_MINUTE) {
-    const minutes = Math.floor(ms / ONE_MINUTE)
-    const seconds = Math.floor((ms - minutes * ONE_MINUTE) / ONE_SECOND)
+  const rounded = Math.round(ms)
+  if (rounded > ONE_MINUTE) {
+    const minutes = Math.floor(rounded / ONE_MINUTE)
+    const seconds = Math.floor((rounded - minutes * ONE_MINUTE) / ONE_SECOND)
     return `${minutes}m ${seconds}s`
   }
-  if (ms > ONE_SECOND) {
-    return `${(ms / ONE_SECOND).toFixed(2)}s`
+  if (rounded > ONE_SECOND) {
+    return `${(rounded / ONE_SECOND).toFixed(2)}s`
   }
-  return `${ms}ms`
+  return `${rounded}ms`
 }
 
 /** Bucket a step duration so slow steps stand out: fast < 500ms ≤ mid < 2s ≤ slow. */

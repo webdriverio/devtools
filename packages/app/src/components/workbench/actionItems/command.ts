@@ -33,6 +33,10 @@ export class CommandItem extends ActionItem {
   @property({ type: Object, attribute: true })
   entry?: CommandLog
 
+  willUpdate(): void {
+    this.failed = Boolean(this.entry?.error)
+  }
+
   #highlightLine() {
     const event = new CustomEvent('show-command', {
       detail: {
@@ -85,7 +89,10 @@ export class CommandItem extends ActionItem {
         @click="${() => this.#highlightLine()}"
       >
         ${this.iconChip(this.#renderIcon(entry.command))}
-        <code class="text-[12.5px] flex-wrap text-left break-all"
+        <code
+          class="text-[12.5px] flex-wrap text-left break-all ${this.failed
+            ? 'text-chartsRed'
+            : ''}"
           >${entry.title ?? entry.command}</code
         >
         ${this.renderTime()}

@@ -3,6 +3,18 @@ import { ACTION_MAP, LOG_LEVELS } from '@wdio/devtools-shared'
 /** Runtime lookup for narrowing foreign trace levels to the shared union. */
 export const LOG_LEVEL_SET: ReadonlySet<string> = new Set(LOG_LEVELS)
 
+/** Every zip entry ending in this suffix is an NDJSON action-event stream. */
+export const TRACE_STREAM_SUFFIX = '.trace'
+
+/** Every zip entry ending in this suffix is an NDJSON HAR-snapshot stream. */
+export const NETWORK_STREAM_SUFFIX = '.network'
+
+/** Sidecar entries holding call stacks keyed by numeric call id. */
+export const STACKS_STREAM_SUFFIX = '.stacks'
+
+/** Foreign screencast refs may be a bare sha1; probe image extensions too. */
+export const FRAME_RESOURCE_SUFFIXES = ['', '.jpeg', '.png'] as const
+
 // Inverse of ACTION_MAP, derived so it can never drift from the forward map.
 // The forward map is many-to-one (url/navigateTo/get all → Page.navigate); the
 // first runner command listed for each trace action wins, matching the command
