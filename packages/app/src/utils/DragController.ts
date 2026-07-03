@@ -14,13 +14,20 @@ export enum Direction {
 type DragControllerHost = HTMLElement & ReactiveControllerHost
 type AsyncGetElFn = () => Element | Promise<Element | null>
 
+/** Bounds accept getters so panes with a layout-dependent budget clamp live. */
+type Bound = number | (() => number)
+
 interface DragControllerOptions {
   initialPosition: number
   direction: Direction
   localStorageKey?: string
-  minPosition?: number
-  maxPosition?: number
+  minPosition?: Bound
+  maxPosition?: Bound
   getContainerEl: AsyncGetElFn
+}
+
+function resolveBound(bound: Bound | undefined): number | undefined {
+  return typeof bound === 'function' ? bound() : bound
 }
 
 type State = 'dragging' | 'idle'
@@ -107,16 +114,18 @@ export class DragController implements ReactiveController {
   }
 
   #setPosition(x: number, y: number) {
+    const min = resolveBound(this.#options.minPosition) ?? 0
+    const max = resolveBound(this.#options.maxPosition)
     if (this.#options.direction === Direction.horizontal) {
-      let nx = Math.max(x, this.#options.minPosition || 0)
-      if (this.#options.maxPosition !== undefined) {
-        nx = Math.min(nx, this.#options.maxPosition)
+      let nx = Math.max(x, min)
+      if (max !== undefined) {
+        nx = Math.min(nx, max)
       }
       this.#x = nx
     } else {
-      let ny = Math.max(y, this.#options.minPosition || 0)
-      if (this.#options.maxPosition !== undefined) {
-        ny = Math.min(ny, this.#options.maxPosition)
+      let ny = Math.max(y, min)
+      if (max !== undefined) {
+        ny = Math.min(ny, max)
       }
       this.#y = ny
     }

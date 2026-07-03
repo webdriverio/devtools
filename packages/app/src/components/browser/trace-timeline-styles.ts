@@ -1,6 +1,6 @@
 import { css } from 'lit'
 
-/** Styles for the trace-player timeline strip: host layout + hidden scrollbars. */
+/** Host layout for the trace-player timeline strip. */
 export const timelineStyles = css`
   :host {
     position: relative;
@@ -10,12 +10,5 @@ export const timelineStyles = css`
     overflow: hidden;
     background-color: var(--vscode-editor-background);
     color: var(--vscode-foreground);
-  }
-  .no-scrollbar {
-    scrollbar-width: none;
-    -ms-overflow-style: none;
-  }
-  .no-scrollbar::-webkit-scrollbar {
-    display: none;
   }
 `

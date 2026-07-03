@@ -6,10 +6,11 @@ import { consume } from '@lit/context'
 import { DragController, Direction } from '../utils/DragController.js'
 import {
   consoleLogContext,
+  metadataContext,
   networkRequestContext,
   baselineContext
 } from '../controller/context.js'
-import type { PreservedAttempt } from '@wdio/devtools-shared'
+import type { Metadata, PreservedAttempt } from '@wdio/devtools-shared'
 
 import '~icons/mdi/arrow-collapse-down.js'
 import '~icons/mdi/arrow-collapse-up.js'
@@ -28,6 +29,7 @@ import './browser/snapshot.js'
 import './browser/trace-timeline.js'
 import './browser/trace-player-controls.js'
 import {
+  BROWSER_BACKDROP_GRADIENT,
   HEADER_HEIGHT,
   MIN_WORKBENCH_HEIGHT,
   MIN_METATAB_WIDTH,
@@ -36,6 +38,7 @@ import {
   PLAYER_CONTROLS_HEIGHT,
   PLAYER_DOCK_DEFAULT_HEIGHT,
   PLAYER_DOCK_MIN_HEIGHT,
+  PLAYER_SNAPSHOT_WIDTH_RATIO,
   RERENDER_TIMEOUT,
   TRACE_TIMELINE_MIN_HEIGHT,
   TRACE_TIMELINE_DEFAULT_HEIGHT
@@ -54,8 +57,7 @@ export class DevtoolsWorkbench extends Element {
   #workbenchSidebarCollapsed =
     localStorage.getItem('workbenchSidebar') === 'true'
 
-  // Trace-player mode (`pnpm show-trace`): the full workbench renders as in
-  // live mode, plus the playback timeline docked above the browser pane.
+  // Trace-player mode: full workbench plus the timeline strip and controls bar.
   @property({ type: Boolean })
   playerMode = false
 
@@ -70,6 +72,10 @@ export class DevtoolsWorkbench extends Element {
   @consume({ context: baselineContext, subscribe: true })
   @state()
   baselines: Map<string, PreservedAttempt> | undefined = undefined
+
+  @consume({ context: metadataContext, subscribe: true })
+  @state()
+  metadata: Metadata | undefined = undefined
 
   static styles = [
     ...Element.styles,
@@ -115,18 +121,18 @@ export class DevtoolsWorkbench extends Element {
   #dragTimeline = new DragController(this, {
     localStorageKey: 'traceTimelineHeight',
     minPosition: TRACE_TIMELINE_MIN_HEIGHT,
-    maxPosition: window.innerHeight * 0.4,
+    maxPosition: () => window.innerHeight * 0.4,
     initialPosition: TRACE_TIMELINE_DEFAULT_HEIGHT,
     getContainerEl: () => this.#getVerticalWindow(),
     direction: Direction.vertical
   })
 
-  // Player-mode browser-pane height. Separate controller + storage key so
-  // resizing the player never disturbs the live-mode split.
+  // Player-mode pane height; own storage key so it never disturbs the live split.
+  // The live max bound keeps the handle (and pane) inside the current budget.
   #dragVerticalPlayer = new DragController(this, {
-    localStorageKey: 'playerBrowserHeight',
+    localStorageKey: 'playerPaneHeight',
     minPosition: MIN_WORKBENCH_HEIGHT,
-    maxPosition: window.innerHeight * 0.8,
+    maxPosition: () => this.#playerPaneBudget(),
     initialPosition: Math.max(
       MIN_WORKBENCH_HEIGHT,
       window.innerHeight -
@@ -138,6 +144,27 @@ export class DevtoolsWorkbench extends Element {
     getContainerEl: () => this.#getVerticalWindow(),
     direction: Direction.vertical
   })
+
+  // Player snapshot keeps the recorded viewport's shape, slightly narrowed.
+  #playerAspectRatio(): string {
+    const viewport = this.metadata?.viewport
+    const width = Math.round(
+      (viewport?.width || 1280) * PLAYER_SNAPSHOT_WIDTH_RATIO
+    )
+    return `${width} / ${viewport?.height || 800}`
+  }
+
+  // Space left for the snapshot pane once the fixed rows and dock minimum eat theirs.
+  #playerPaneBudget(): number {
+    return Math.max(
+      MIN_WORKBENCH_HEIGHT,
+      window.innerHeight -
+        HEADER_HEIGHT -
+        PLAYER_CONTROLS_HEIGHT -
+        PLAYER_DOCK_MIN_HEIGHT -
+        this.#timelinePaneHeight()
+    )
+  }
 
   async #getHorizontalWindow() {
     await this.updateComplete
@@ -185,21 +212,12 @@ export class DevtoolsWorkbench extends Element {
       return ''
     }
     if (this.playerMode) {
-      // Player proportions: the snapshot dominates — pane gets everything the
-      // timeline, controls bar, and a compact dock don't need, clamped in CSS
-      // so the dock never drops below its minimum inside the viewport.
-      const fallback =
-        window.innerHeight -
-        HEADER_HEIGHT -
-        PLAYER_CONTROLS_HEIGHT -
-        this.#timelinePaneHeight() -
-        PLAYER_DOCK_DEFAULT_HEIGHT
-      const raw = basisPx(this.#dragVerticalPlayer.getPosition()) ?? fallback
-      const paneHeight = Math.max(MIN_WORKBENCH_HEIGHT, raw)
+      // Snapshot pane dominates; the CSS clamp keeps the dock minimum in view.
+      // Literal getPosition() basis lets adjustPosition sync slider ↔ clamped height.
       const maxHeight = `calc(100vh - ${
         HEADER_HEIGHT + PLAYER_CONTROLS_HEIGHT + PLAYER_DOCK_MIN_HEIGHT
       }px - ${this.#timelinePaneHeight()}px)`
-      return `flex:0 0 ${paneHeight}px; height:${paneHeight}px; max-height:${maxHeight}; min-height:0;`
+      return `flex-grow:0; flex-shrink:0; ${this.#dragVerticalPlayer.getPosition()}; max-height:${maxHeight}; min-height:${MIN_WORKBENCH_HEIGHT}px;`
     }
     const raw =
       basisPx(this.#dragVertical.getPosition()) ??
@@ -344,6 +362,31 @@ export class DevtoolsWorkbench extends Element {
     `
   }
 
+  #renderBrowserPane() {
+    // Player: the boxed host goes transparent and the pane carries the shared
+    // backdrop, so the aspect box blends instead of showing a gradient seam.
+    const playerPaneExtra = this.playerMode
+      ? ` background:${BROWSER_BACKDROP_GRADIENT};`
+      : ''
+    return html`
+      <section
+        class="basis-auto text-gray-500 flex items-center justify-center flex-1 min-h-0"
+        style="${this.#computeBrowserPaneStyle()}${playerPaneExtra}"
+      >
+        ${this.playerMode
+          ? html`<div
+              class="h-full max-w-full mx-auto"
+              style="aspect-ratio:${this.#playerAspectRatio()};"
+            >
+              <wdio-devtools-browser
+                style="background:transparent"
+              ></wdio-devtools-browser>
+            </div>`
+          : html`<wdio-devtools-browser></wdio-devtools-browser>`}
+      </section>
+    `
+  }
+
   // Full-width playback strip above the workbench row — player mode only.
   #renderTimelineStrip() {
     if (!this.playerMode) {
@@ -388,12 +431,7 @@ export class DevtoolsWorkbench extends Element {
           <section
             class="relative flex flex-col flex-1 min-w-0 min-h-0 overflow-hidden"
           >
-            <section
-              class="basis-auto text-gray-500 flex items-center justify-center flex-1 min-h-0"
-              style="${this.#computeBrowserPaneStyle()}"
-            >
-              <wdio-devtools-browser></wdio-devtools-browser>
-            </section>
+            ${this.#renderBrowserPane()}
             ${!this.#toolbarCollapsed
               ? (this.playerMode
                   ? this.#dragVerticalPlayer
