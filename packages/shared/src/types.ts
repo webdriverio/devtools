@@ -4,7 +4,15 @@
 // these shapes. The backend stores and forwards them. The app consumes them.
 // See ARCHITECTURE.md §2 and CLAUDE.md §2.1.
 
-export type LogLevel = 'trace' | 'debug' | 'log' | 'info' | 'warn' | 'error'
+export const LOG_LEVELS = [
+  'trace',
+  'debug',
+  'log',
+  'info',
+  'warn',
+  'error'
+] as const
+export type LogLevel = (typeof LOG_LEVELS)[number]
 
 /** Where a captured ConsoleLog entry originated. */
 export type LogSource = 'browser' | 'test' | 'terminal'

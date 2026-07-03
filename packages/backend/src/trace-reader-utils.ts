@@ -11,6 +11,7 @@ import {
   type Viewport
 } from '@wdio/devtools-shared'
 
+import { LOG_LEVEL_SET } from './trace-reader-constants.js'
 import type {
   ConsoleEvent,
   ContextOptionsEvent,
@@ -144,22 +145,12 @@ export function harToNetworkRequest(
   }
 }
 
-const LOG_LEVELS: ReadonlySet<string> = new Set([
-  'trace',
-  'debug',
-  'log',
-  'info',
-  'warn',
-  'error'
-])
-
-// Reverse of the writer's level mapping ('warn' → 'warning'); a foreign
-// trace zip can carry levels outside our union, which default to 'log'.
+// Reverse level mapping; foreign levels outside our union default to 'log'.
 function fromTraceLevel(messageType: string): LogLevel {
   if (messageType === 'warning') {
     return 'warn'
   }
-  return LOG_LEVELS.has(messageType) ? (messageType as LogLevel) : 'log'
+  return LOG_LEVEL_SET.has(messageType) ? (messageType as LogLevel) : 'log'
 }
 
 export function buildConsoleLogs(

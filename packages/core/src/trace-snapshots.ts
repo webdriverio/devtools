@@ -69,11 +69,7 @@ function frameForSnapshot(
   return frame
 }
 
-/**
- * Full filmstrip for the trace: the first snapshot is re-anchored to t=0 so
- * viewers show the page state before any interaction; the rest keep their
- * wall-time offsets.
- */
+/** Filmstrip events; the first snapshot is re-anchored to t=0 for pre-interaction state. */
 export function buildFilmstripEvents(
   snapshots: ActionSnapshot[],
   pageId: string,

@@ -1,4 +1,7 @@
-import { ACTION_MAP } from '@wdio/devtools-shared'
+import { ACTION_MAP, LOG_LEVELS } from '@wdio/devtools-shared'
+
+/** Runtime lookup for narrowing foreign trace levels to the shared union. */
+export const LOG_LEVEL_SET: ReadonlySet<string> = new Set(LOG_LEVELS)
 
 // Inverse of ACTION_MAP, derived so it can never drift from the forward map.
 // The forward map is many-to-one (url/navigateTo/get all → Page.navigate); the
