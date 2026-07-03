@@ -131,7 +131,7 @@ export const config: Options.Testrunner = {
     [
       'devtools',
       {
-        mode: 'live' as const,
+        mode: 'trace' as const,
         screencast: { enabled: true, pollIntervalMs: 200 }
       }
     ]

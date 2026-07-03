@@ -22,6 +22,15 @@ describe('formatDuration', () => {
     expect(formatDuration(60001)).toBe('1m 0s')
     expect(formatDuration(150000)).toBe('2m 30s')
   })
+
+  it('rounds fractional milliseconds from reconstructed traces', () => {
+    expect(formatDuration(1.02978515625)).toBe('1ms')
+    expect(formatDuration(22.4)).toBe('22ms')
+    expect(formatDuration(0.4)).toBe('0ms')
+    expect(formatDuration(999.7)).toBe('1000ms')
+    expect(formatDuration(5049.9)).toBe('5.05s')
+    expect(formatDuration(60000.6)).toBe('1m 0s')
+  })
 })
 
 describe('durationHeat', () => {

@@ -9,6 +9,12 @@ export interface BeforeEvent {
   class: string
   method: string
   params?: Record<string, unknown>
+  stack?: { file: string; line?: number; column?: number }[]
+  title?: string
+  /** Foreign runner streams: the runner step a library call renders under. */
+  stepId?: string
+  /** Group/container step this event nests under. */
+  parentId?: string
 }
 
 export interface AfterEvent {
@@ -43,9 +49,17 @@ export interface StdioEvent {
 export interface ContextOptionsEvent {
   type: 'context-options'
   wallTime: number
+  /** Monotonic clock reading taken at `wallTime`; anchors monotonic event times. */
+  monotonicTime?: number
   browserName?: string
   contextId?: string
   options?: { viewport?: { width: number; height: number } }
+}
+
+/** Sidecar `.stacks` shape: file table + per-call [fileIndex, line, column, function] frames. */
+export interface SidecarStacks {
+  files: string[]
+  stacks: [number, [number, number, number, string][]][]
 }
 
 export interface HarSnapshot {
@@ -64,11 +78,16 @@ export interface HarSnapshot {
   }
 }
 
-/** Trace events grouped by kind for the reconstruction pipeline. */
+/** One stream's trace events grouped by kind for the reconstruction pipeline. */
 export interface CategorizedEvents {
   ctx?: ContextOptionsEvent
   befores: Map<string, BeforeEvent>
   afters: Map<string, AfterEvent>
   frameEvents: ScreencastFrameEvent[]
   consoleEvents: (ConsoleEvent | StdioEvent)[]
+}
+
+/** All streams' events combined; a zip may carry one context per stream. */
+export interface MergedEvents extends Omit<CategorizedEvents, 'ctx'> {
+  ctxs: ContextOptionsEvent[]
 }
