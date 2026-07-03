@@ -19,17 +19,14 @@ export interface StdioEvent {
   type: 'stdout' | 'stderr'
   timestamp: number
   text?: string
-  /** Extension field: preserves the test-vs-terminal origin the standard
-   *  stdio vocabulary can't express. Foreign viewers ignore it. */
+  /** Extension field: test-vs-terminal origin; foreign viewers ignore it. */
   source?: Extract<LogSource, 'test' | 'terminal'>
 }
 
-// Keeps a pathological run (console.log in a tight loop) from producing a
-// trace.trace the viewer can't open.
+// Caps pathological runs (console.log in a loop) so the trace stays openable.
 const MAX_CONSOLE_EVENTS = 10_000
 
-/** The trace format's console vocabulary uses 'warning'; 'trace' has no
- *  equivalent — 'debug' is the nearest severity. */
+/** Trace vocabulary uses 'warning'; 'trace' maps to the nearest severity, 'debug'. */
 function toTraceLevel(level: ConsoleLog['type']): string {
   if (level === 'warn') {
     return 'warning'
@@ -69,8 +66,7 @@ export function buildConsoleEvents(
         messageType: toTraceLevel(log.type),
         text,
         args: log.args.map((arg) => ({ preview: previewArg(arg), value: arg })),
-        // Location isn't captured at the console patch site; the event
-        // shape requires the field, so it ships zeroed.
+        // Location isn't captured at the patch site; the required field ships zeroed.
         location: { url: '', lineNumber: 0, columnNumber: 0 }
       } satisfies ConsoleEvent
     }
