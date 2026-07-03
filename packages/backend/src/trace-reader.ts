@@ -103,6 +103,11 @@ function buildCommands(
   const commands: CommandLog[] = []
   let maxOffset = 0
   for (const [callId, before] of events.befores) {
+    // Group markers are structure, not actions — as command rows their end
+    // timestamp ties with the last action and steals the active highlight.
+    if (before.class === 'Tracing') {
+      continue
+    }
     const after = events.afters.get(callId)
     const endOffset = after?.endTime ?? before.startTime
     maxOffset = Math.max(maxOffset, endOffset)

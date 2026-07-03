@@ -38,6 +38,14 @@ function fixtureZip(): Uint8Array {
     { type: 'after', callId: 'call@2', endTime: 160 },
     {
       type: 'before',
+      callId: 'call@0',
+      startTime: 0,
+      class: 'Tracing',
+      method: 'tracingGroup',
+      params: { name: 'my test' }
+    },
+    {
+      type: 'before',
       callId: 'call@3',
       startTime: 200,
       class: 'Element',
@@ -50,6 +58,7 @@ function fixtureZip(): Uint8Array {
       endTime: 260,
       error: { message: 'boom' }
     },
+    { type: 'after', callId: 'call@0', endTime: 260 },
     {
       type: 'screencast-frame',
       pageId: 'page@abcd1234',
@@ -173,6 +182,12 @@ describe('parseTraceZip', () => {
     expect(trace.mutations).toEqual([])
     expect(trace.suites).toEqual([])
     expect(trace.sources).toEqual({})
+  })
+
+  it('skips tracing group markers so the last command stays the last action', () => {
+    const { trace } = parseTraceZip(fixtureZip())
+    expect(trace.commands.some((c) => c.command === 'tracingGroup')).toBe(false)
+    expect(trace.commands[trace.commands.length - 1].command).toBe('click')
   })
 
   it('reconstructs console logs from console and stdio events', () => {
