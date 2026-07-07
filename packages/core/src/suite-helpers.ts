@@ -1,4 +1,10 @@
-import type { SuiteStats, TestStats, TestStatus } from '@wdio/devtools-shared'
+import type {
+  SuiteStats,
+  TestAncestor,
+  TestMetadataMap,
+  TestStats,
+  TestStatus
+} from '@wdio/devtools-shared'
 import { TEST_STATE } from '@wdio/devtools-shared'
 
 /**
@@ -161,4 +167,65 @@ export function stampSuiteEnd(suite: SuiteStats, end: Date = new Date()): void {
 export function stampTestEnd(test: TestStats, end: Date = new Date()): void {
   test.end = end
   test._duration = end.getTime() - (test.start?.getTime() ?? end.getTime())
+}
+
+function deriveAncestorKind(
+  suite: SuiteStats,
+  parentKind: TestAncestor['kind'] | undefined
+): TestAncestor['kind'] {
+  if (parentKind === 'feature') {
+    return 'scenario'
+  }
+  // Cucumber scenario suites carry the same .feature file as their parent —
+  // only a suite not already under a feature/scenario counts as the feature.
+  if (suite.file?.endsWith('.feature') && parentKind !== 'scenario') {
+    return 'feature'
+  }
+  return 'suite'
+}
+
+/**
+ * Recursive walk over suite trees collecting every test's metadata entry —
+ * uid → title/specFile/state/attempt plus the ancestor chain (outermost
+ * first, the test's own node excluded). Consolidates the per-adapter
+ * collectTestMetadata walks.
+ */
+export function collectSuiteTestMetadata(
+  suites: Iterable<SuiteStats>
+): TestMetadataMap {
+  const metadata: TestMetadataMap = new Map()
+  const walk = (suite: SuiteStats, ancestors: TestAncestor[]): void => {
+    const parentKind = ancestors[ancestors.length - 1]?.kind
+    const chain: TestAncestor[] = [
+      ...ancestors,
+      {
+        uid: suite.uid,
+        title: suite.title,
+        kind: deriveAncestorKind(suite, parentKind)
+      }
+    ]
+    for (const entry of suite.tests ?? []) {
+      // Trees can contain string placeholders for tests not yet reconciled.
+      if (typeof entry !== 'object' || entry === null) {
+        continue
+      }
+      metadata.set(entry.uid, {
+        title: entry.fullTitle || entry.title,
+        specFile: entry.file ?? suite.file,
+        state: entry.state,
+        attempt: entry.retries ?? 0,
+        ancestry: chain
+      })
+    }
+    for (const child of suite.suites ?? []) {
+      walk(child, chain)
+    }
+  }
+  for (const suite of suites) {
+    if (typeof suite !== 'object' || suite === null) {
+      continue
+    }
+    walk(suite, [])
+  }
+  return metadata
 }
