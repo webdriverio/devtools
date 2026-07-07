@@ -252,7 +252,7 @@ function parseNetworkStreams(
     .flatMap((name) => parseNdjson(strFromU8(files[name])))
     .filter((entry) => typeof entry.snapshot === 'object' && entry.snapshot)
     .map((entry, index) =>
-      harToNetworkRequest(entry.snapshot as HarSnapshot, index)
+      harToNetworkRequest(entry.snapshot as HarSnapshot, index, files)
     )
 }
 

@@ -18,6 +18,7 @@ import type {
   BeforeEvent,
   ConsoleEvent,
   ContextOptionsEvent,
+  HarContent,
   HarSnapshot,
   SidecarStacks,
   StdioEvent
@@ -115,9 +116,33 @@ function mimeToType(mimeType: string): string {
   return 'other'
 }
 
+const TEXTUAL_MIME_RE = /json|xml|javascript|ecmascript|^text\//
+
+// Restore the body from inline `text`, else the content-addressed
+// `resources/<_sha1>` entry (the `_sha1` value is the resource filename,
+// extension included when the writer added one). Textual mimes only —
+// binary bodies stay out of the string field.
+function restoreResponseBody(
+  content: HarContent | undefined,
+  files: Record<string, Uint8Array> | undefined
+): string | undefined {
+  if (!content || !TEXTUAL_MIME_RE.test(content.mimeType)) {
+    return undefined
+  }
+  if (typeof content.text === 'string' && content.encoding !== 'base64') {
+    return content.text
+  }
+  if (!content._sha1 || !files) {
+    return undefined
+  }
+  const data = files[`resources/${content._sha1}`]
+  return data ? strFromU8(data) : undefined
+}
+
 export function harToNetworkRequest(
   snapshot: HarSnapshot,
-  index: number
+  index: number,
+  files?: Record<string, Uint8Array>
 ): NetworkRequest {
   const started = Date.parse(snapshot.startedDateTime)
   const startTime = Number.isFinite(started) ? started : 0
@@ -126,6 +151,7 @@ export function harToNetworkRequest(
   const response = snapshot.response
   const content = response?.content
   const responseHeaders = headerArrayToRecord(response?.headers)
+  const responseBody = restoreResponseBody(content, files)
   return {
     id: String(index),
     url: snapshot.request.url,
@@ -140,6 +166,7 @@ export function harToNetworkRequest(
     requestHeaders: headerArrayToRecord(snapshot.request.headers),
     responseHeaders,
     size: content?.size ?? 0,
+    ...(responseBody !== undefined ? { responseBody } : {}),
     response: {
       fromCache: false,
       headers: responseHeaders,
