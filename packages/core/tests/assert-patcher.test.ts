@@ -3,6 +3,7 @@ import assert from 'node:assert'
 import {
   ASSERT_PATCHED_SYMBOL,
   TRACKED_ASSERT_METHODS,
+  capturedAssertToCommandLog,
   patchNodeAssert,
   safeSerializeAssertArg,
   type CapturedAssert
@@ -85,5 +86,102 @@ describe('patchNodeAssert', () => {
     patchNodeAssert((c) => captured.push(c))
     assert.match('hello', /hello/)
     expect(captured[0].args).toEqual(['hello', '/hello/'])
+  })
+
+  // Regression: node:assert dispatches match/doesNotMatch on a function
+  // identity check against the module binding (`fn === assert.match` on
+  // Node ≤20). A wrapper left installed during the call inverted `match`
+  // into `doesNotMatch` — passing regexes threw and failing ones passed.
+  describe('match/doesNotMatch inversion regression', () => {
+    it('records a failed capture when match does not match', () => {
+      const captured: CapturedAssert[] = []
+      patchNodeAssert((c) => captured.push(c))
+      expect(() => assert.match('a', /b/)).toThrow()
+      expect(captured[0].command).toBe('assert.match')
+      expect(captured[0].result).toBeUndefined()
+      expect(captured[0].error).toBeInstanceOf(Error)
+    })
+
+    it('records a passed capture when match matches', () => {
+      const captured: CapturedAssert[] = []
+      patchNodeAssert((c) => captured.push(c))
+      expect(() => assert.match('a', /a/)).not.toThrow()
+      expect(captured[0].result).toBe('passed')
+      expect(captured[0].error).toBeUndefined()
+    })
+
+    it('records a failed capture when doesNotMatch matches', () => {
+      const captured: CapturedAssert[] = []
+      patchNodeAssert((c) => captured.push(c))
+      expect(() => assert.doesNotMatch('a', /a/)).toThrow()
+      expect(captured[0].command).toBe('assert.doesNotMatch')
+      expect(captured[0].result).toBeUndefined()
+      expect(captured[0].error).toBeInstanceOf(Error)
+    })
+
+    it('records a passed capture when doesNotMatch does not match', () => {
+      const captured: CapturedAssert[] = []
+      patchNodeAssert((c) => captured.push(c))
+      expect(() => assert.doesNotMatch('a', /b/)).not.toThrow()
+      expect(captured[0].result).toBe('passed')
+      expect(captured[0].error).toBeUndefined()
+    })
+
+    it('restores the original binding during the call and the wrapper after', () => {
+      patchNodeAssert(() => {})
+      const wrapped = ASSERT_MUT['throws']
+      let duringCall: unknown
+      assert.throws(() => {
+        duringCall = ASSERT_MUT['throws']
+        throw new Error('boom')
+      })
+      expect(duringCall).toBe(originals['throws'])
+      expect(ASSERT_MUT['throws']).toBe(wrapped)
+    })
+
+    it('re-installs the wrapper after a failing call', () => {
+      patchNodeAssert(() => {})
+      const wrapped = ASSERT_MUT['equal']
+      expect(() => assert.equal(1, 2)).toThrow()
+      expect(ASSERT_MUT['equal']).toBe(wrapped)
+    })
+  })
+})
+
+describe('capturedAssertToCommandLog', () => {
+  const base: CapturedAssert = {
+    command: 'assert.strictEqual',
+    args: ['a', 'b'],
+    result: undefined,
+    error: undefined,
+    callSource: '/specs/login.ts:12:3',
+    timestamp: 1234
+  }
+
+  it('maps the captured shape onto CommandLog with startTime = timestamp', () => {
+    const entry = capturedAssertToCommandLog(
+      { ...base, result: 'passed', error: undefined },
+      'test-1'
+    )
+    expect(entry).toEqual({
+      command: 'assert.strictEqual',
+      args: ['a', 'b'],
+      result: 'passed',
+      timestamp: 1234,
+      startTime: 1234,
+      callSource: '/specs/login.ts:12:3',
+      testUid: 'test-1'
+    })
+  })
+
+  it('serializes the error to a plain {name, message, stack} object', () => {
+    const error = new Error('expected a to be b')
+    const entry = capturedAssertToCommandLog({ ...base, error })
+    expect(entry.error).toEqual({
+      name: 'Error',
+      message: 'expected a to be b',
+      stack: error.stack
+    })
+    expect(entry.testUid).toBeUndefined()
   })
 })

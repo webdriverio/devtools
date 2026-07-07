@@ -71,6 +71,9 @@ export interface ServiceOptions {
    * uses CDP push mode; all other browsers fall back to screenshot polling.
    */
   screencast?: ScreencastOptions
+  /** Capture node:assert assertions (and failing `expect` matchers) as
+   *  first-class commands. Default true. */
+  captureAssertions?: boolean
   /** `live` (default) launches the DevTools UI; `trace` skips it. */
   mode?: DevToolsMode
   /** Trace output layout — `zip` (default) writes a single archive,

@@ -4,13 +4,16 @@ import {
   deterministicUid,
   errorMessage,
   finalizeScreencast,
+  finalizeTraceExport,
+  flushRangeTrace,
   mapCommandToAction,
   recordSpecBoundary,
   resolveAdapterOutputDir,
   type SpecRange,
-  writeSpecTrace,
-  writeTraceZip
+  type TraceExportContext
 } from '@wdio/devtools-core'
+import { synthesizeExpectFailure, wireAssertCapture } from './assert-capture.js'
+import { resolveCallSourceFromFrame } from './call-source.js'
 import { captureActionSnapshot } from './action-snapshot.js'
 import { dedupeSnapshotsByTimestamp } from './snapshot-dedupe.js'
 import type { ActionSnapshot, TestMetadataMap } from '@wdio/devtools-shared'
@@ -99,11 +102,35 @@ export default class DevToolsHookService implements Services.ServiceInstance {
   /** Fire-and-forget flush of a previous spec's trace. The error log is
    *  inline so the spec-file reference stays precise. */
   #fireAndForgetFlush(prevRange: SpecRange): void {
-    void this.#flushSpecTrace(prevRange).catch((err) =>
-      log.warn(
-        `Failed to flush trace for spec "${prevRange.specFile}": ${errorMessage(err)}`
-      )
+    if (!this.#browser) {
+      return
+    }
+    void flushRangeTrace(this.#traceContext(this.#browser), prevRange).catch(
+      (err) =>
+        log.warn(
+          `Failed to flush trace for spec "${prevRange.specFile}": ${errorMessage(err)}`
+        )
     )
+  }
+
+  /** Assemble the framework-agnostic trace-export context from this service's
+   *  state. Output dir ignores the spec range — WDIO writes next to config. */
+  #traceContext(browser: WebdriverIO.Browser): TraceExportContext {
+    return {
+      mode: this.#options.mode,
+      granularity: this.#options.traceGranularity,
+      format: this.#options.traceFormat,
+      capturer: this.#sessionCapturer,
+      actionSnapshots: this.#actionSnapshots,
+      sessionId: browser.sessionId,
+      capabilities: browser.capabilities,
+      testMetadata: this.#testMetadata,
+      ranges: this.#specRanges,
+      flushed: this.#flushedSpecs,
+      resolveOutputDir: () => this.#outputDir,
+      prepareSnapshots: dedupeSnapshotsByTimestamp,
+      log: (level, msg) => log[level](msg)
+    }
   }
 
   /**
@@ -131,6 +158,13 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     this.#sessionCapturer = new SessionCapturer(
       wdioCaps['wdio:devtoolsOptions']
     )
+
+    if (this.#options.captureAssertions !== false) {
+      wireAssertCapture(
+        () => this.#sessionCapturer,
+        () => this.#currentTestUid
+      )
+    }
 
     /**
      * Block until injection completes BEFORE any test commands.
@@ -319,7 +353,17 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     await this.#finalizePerScenario()
   }
 
-  async afterTest() {
+  async afterTest(
+    _test?: unknown,
+    _context?: unknown,
+    result?: { error?: unknown }
+  ) {
+    if (this.#options.captureAssertions !== false) {
+      const entry = synthesizeExpectFailure(result?.error, this.#currentTestUid)
+      if (entry) {
+        this.#sessionCapturer.captureAssertCommand(entry)
+      }
+    }
     await this.#finalizePerScenario()
   }
 
@@ -413,30 +457,6 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     this.#sessionCapturer.resetRetryTracker()
   }
 
-  #resolveCallSourceFromFrame(
-    frame: ReturnType<typeof parse>[number]
-  ): string | undefined {
-    const rawFile = frame.getFileName() ?? undefined
-    let absPath = rawFile
-    if (rawFile?.startsWith('file://')) {
-      try {
-        const url = new URL(rawFile)
-        absPath = decodeURIComponent(url.pathname)
-      } catch {
-        absPath = rawFile
-      }
-    }
-    if (absPath?.includes('?')) {
-      absPath = absPath.split('?')[0]
-    }
-    if (absPath === undefined) {
-      return undefined
-    }
-    const line = frame.getLineNumber() ?? undefined
-    const column = frame.getColumnNumber() ?? undefined
-    return `${absPath}:${line ?? 0}:${column ?? 0}`
-  }
-
   #pushTopLevelCommandFrame(
     command: string,
     callSource: string | undefined
@@ -477,7 +497,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     if (source && this.#commandStack.length === 0) {
       this.#pushTopLevelCommandFrame(
         command,
-        this.#resolveCallSourceFromFrame(source)
+        resolveCallSourceFromFrame(source)
       )
 
       // Pre-action capture: state BEFORE this action executes.  Will be
@@ -551,37 +571,10 @@ export default class DevToolsHookService implements Services.ServiceInstance {
   }
 
   /**
-   * Slice the session capturer's accumulated arrays for a single spec file
-   * and write a standalone trace artifact. Called at spec boundaries and
-   * from after() for the final spec.
-   */
-  async #flushSpecTrace(
-    range: SpecRange,
-    nextRange?: SpecRange
-  ): Promise<string | undefined> {
-    if (!this.#browser || this.#flushedSpecs.has(range.specFile)) {
-      return undefined
-    }
-    this.#flushedSpecs.add(range.specFile)
-
-    const tracePath = await writeSpecTrace({
-      range,
-      nextRange,
-      capturer: this.#sessionCapturer,
-      actionSnapshots: this.#actionSnapshots,
-      sessionId: this.#browser.sessionId,
-      outputDir: this.#outputDir,
-      format: this.#options.traceFormat,
-      testMetadata: this.#testMetadata,
-      capabilities: this.#browser.capabilities
-    })
-    log.info(`Trace for spec "${range.specFile}" saved to ${tracePath}`)
-    return tracePath
-  }
-
-  /**
    * after hook is triggered at the end of every worker session, therefore
-   * we can use it to write all trace information to a file
+   * we can use it to write all trace information to a file. `trace` mode
+   * writes the shareable trace.zip (opened via `pnpm show-trace`); `live`
+   * mode streams to the dashboard over WS and persists nothing to disk.
    */
   async after() {
     if (!this.#browser) {
@@ -591,47 +584,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     // Stop and encode the screencast for the current session.
     await this.#finalizeScreencast(this.#browser.sessionId)
 
-    // `trace` mode writes the shareable trace.zip (opened via `pnpm
-    // show-trace`); `live` mode streams to the dashboard over WS and persists
-    // nothing to disk.
-    if (this.#options.mode === 'trace') {
-      if (
-        this.#options.traceGranularity === 'spec' &&
-        this.#specRanges.length > 0
-      ) {
-        // Per-spec traces — flush each detected spec range.
-        for (const range of this.#specRanges) {
-          await this.#flushSpecTrace(range)
-        }
-      } else {
-        if (this.#options.traceGranularity === 'spec') {
-          log.warn(
-            'traceGranularity is "spec" but no spec boundaries were ' +
-              'detected (framework may not support service-level test ' +
-              'hooks). Falling back to session-level trace.'
-          )
-        }
-        // Session-level trace. Snapshots can share a timestamp (an action's
-        // post-action result plus the next action's pre-capture and the
-        // per-scenario final capture); the writer keys resources by timestamp,
-        // so keep the richest per timestamp — a navigated action's result wins
-        // over a blank mid-navigation frame.
-        const snapshots = dedupeSnapshotsByTimestamp(this.#actionSnapshots)
-        try {
-          const tracePath = await writeTraceZip(this.#sessionCapturer, {
-            outputDir: this.#outputDir,
-            sessionId: this.#browser.sessionId,
-            capabilities: this.#browser.capabilities,
-            actionSnapshots: snapshots.length ? snapshots : undefined,
-            format: this.#options.traceFormat,
-            testMetadata: this.#testMetadata
-          })
-          log.info(`Trace saved to ${tracePath}`)
-        } catch (err) {
-          log.error(`Trace write failed: ${errorMessage(err)}`)
-        }
-      }
-    }
+    await finalizeTraceExport(this.#traceContext(this.#browser))
 
     // Clean up console patching
     this.#sessionCapturer.cleanup()
