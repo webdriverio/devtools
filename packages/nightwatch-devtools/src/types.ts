@@ -103,6 +103,9 @@ export interface DevToolsOptions {
    * entries. Defaults to `false` — opt-in.
    */
   bidi?: boolean
+  /** Capture node:assert assertions as first-class commands (Nightwatch's
+   *  built-in asserts already flow as commands). Default true. */
+  captureAssertions?: boolean
   /** `live` (default) launches the DevTools UI; `trace` skips it. */
   mode?: DevToolsMode
   /** Trace output layout — `zip` (default) writes a single archive,

@@ -10,13 +10,15 @@
 
 import logger from '@wdio/logger'
 import {
+  collectSuiteTestMetadata,
   errorMessage,
   finalizeScreencast,
+  finalizeTraceExport,
+  flushRangeTrace,
   recordSpecBoundary as coreRecordSpecBoundary,
   resolveAdapterOutputDir,
-  writeSpecTrace,
-  writeTraceZip,
-  type SpecRange
+  type SpecRange,
+  type TraceExportContext
 } from '@wdio/devtools-core'
 import { TIMING } from './constants.js'
 import { SessionCapturer } from './session.js'
@@ -32,8 +34,6 @@ import type {
   Metadata,
   ScreencastOptions,
   SeleniumDriverLike,
-  SuiteStats,
-  TestMetadataMap,
   TraceFormat,
   TraceGranularity
 } from './types.js'
@@ -247,7 +247,7 @@ export async function onSessionEnd(ctx: SessionLifecycleCtx): Promise<void> {
     ctx.testManager?.finalizeSession()
     ctx.testReporter?.updateSuites()
 
-    await maybeWriteTrace(ctx, capturerAtStart, testFilePathAtStart)
+    await writeTraceIfNeeded(ctx, capturerAtStart, testFilePathAtStart)
 
     logSessionSummary(ctx)
     ctx.sessionCapturer?.cleanup()
@@ -283,6 +283,38 @@ export async function onSessionEnd(ctx: SessionLifecycleCtx): Promise<void> {
 }
 
 /**
+ * Assemble the framework-agnostic trace-export context from the selenium
+ * session state. `resolveOutputDir` writes per-spec traces next to the spec
+ * file and the session trace next to the run's first test file. Test metadata
+ * is recomputed from the suite tree so a boundary flush sees the current tree.
+ */
+function buildTraceExportContext(
+  ctx: SessionLifecycleCtx,
+  capturer: SessionCapturer,
+  sessionId: string,
+  testFilePath: string | undefined
+): TraceExportContext {
+  const root = ctx.suiteManager?.getRootSuite()
+  return {
+    mode: ctx.options.mode,
+    granularity: ctx.options.traceGranularity,
+    format: ctx.options.traceFormat,
+    capturer,
+    actionSnapshots: ctx.actionSnapshots,
+    sessionId,
+    testMetadata: collectSuiteTestMetadata(root ? [root] : []),
+    ranges: ctx.specRanges,
+    flushed: ctx.flushedSpecs,
+    resolveOutputDir: (range) =>
+      resolveAdapterOutputDir({
+        testFilePath: range ? range.specFile : testFilePath
+      }),
+    awaitPending: ctx.snapshotCaptures,
+    log: (level, msg) => log[level](msg)
+  }
+}
+
+/**
  * Record a spec-file boundary in the session lifecycle context. Called from
  * the plugin's startTest / startScenario when `traceGranularity` is `'spec'`.
  * Flushes the previous spec's trace if it hasn't been written yet.
@@ -304,80 +336,26 @@ export function recordSpecBoundary(
     specFile,
     ctx.options.traceGranularity
   )
-  if (prevRange) {
-    void flushOneSpecTrace(ctx, prevRange).catch((err) =>
-      log.warn(
-        `Failed to flush trace for spec "${prevRange.specFile}": ${errorMessage(err)}`
-      )
+  const sessionId = ctx.sessionCapturer.metadata?.sessionId
+  if (!prevRange || !sessionId) {
+    return
+  }
+  void flushRangeTrace(
+    buildTraceExportContext(
+      ctx,
+      ctx.sessionCapturer,
+      sessionId,
+      ctx.testFilePath
+    ),
+    prevRange
+  ).catch((err) =>
+    log.warn(
+      `Failed to flush trace for spec "${prevRange.specFile}": ${errorMessage(err)}`
     )
-  }
+  )
 }
 
-async function flushOneSpecTrace(
-  ctx: SessionLifecycleCtx,
-  range: SpecRange,
-  nextRange?: SpecRange
-): Promise<string | undefined> {
-  const capturer = ctx.sessionCapturer
-  if (!capturer || ctx.flushedSpecs.has(range.specFile)) {
-    return undefined
-  }
-  ctx.flushedSpecs.add(range.specFile)
-
-  const sessionId = capturer.metadata?.sessionId
-  if (!sessionId) {
-    return undefined
-  }
-
-  const tracePath = await writeSpecTrace({
-    range,
-    nextRange,
-    capturer,
-    actionSnapshots: ctx.actionSnapshots,
-    sessionId,
-    outputDir: resolveAdapterOutputDir({ testFilePath: range.specFile }),
-    format: ctx.options.traceFormat,
-    testMetadata: collectTestMetadata(ctx.suiteManager)
-  })
-  log.info(`Trace for spec "${range.specFile}" saved to ${tracePath}`)
-  return tracePath
-}
-
-async function flushSpecTraces(ctx: SessionLifecycleCtx): Promise<void> {
-  for (const range of ctx.specRanges) {
-    if (!ctx.flushedSpecs.has(range.specFile)) {
-      await flushOneSpecTrace(ctx, range)
-    }
-  }
-}
-
-function collectTestMetadata(
-  suiteManager: SuiteManager | undefined
-): TestMetadataMap {
-  const metadata: TestMetadataMap = new Map()
-  const root = suiteManager?.getRootSuite()
-  if (!root) {
-    return metadata
-  }
-  const walk = (suite: SuiteStats) => {
-    for (const entry of suite.tests) {
-      if (typeof entry === 'string') {
-        continue
-      }
-      metadata.set(entry.uid, {
-        title: entry.fullTitle,
-        specFile: entry.file
-      })
-    }
-    for (const child of suite.suites) {
-      walk(child)
-    }
-  }
-  walk(root)
-  return metadata
-}
-
-async function maybeWriteTrace(
+async function writeTraceIfNeeded(
   ctx: SessionLifecycleCtx,
   capturer: SessionCapturer | undefined,
   testFilePath: string | undefined
@@ -386,30 +364,9 @@ async function maybeWriteTrace(
   if (ctx.options.mode !== 'trace' || !capturer || !sessionId) {
     return
   }
-  try {
-    if (ctx.snapshotCaptures.length) {
-      await Promise.allSettled(ctx.snapshotCaptures)
-    }
-
-    if (ctx.options.traceGranularity === 'spec') {
-      await flushSpecTraces(ctx)
-      return
-    }
-
-    const testMetadata = collectTestMetadata(ctx.suiteManager)
-    const tracePath = await writeTraceZip(capturer, {
-      outputDir: resolveAdapterOutputDir({ testFilePath }),
-      sessionId,
-      actionSnapshots: ctx.actionSnapshots.length
-        ? ctx.actionSnapshots
-        : undefined,
-      format: ctx.options.traceFormat,
-      testMetadata
-    })
-    log.info(`Trace saved to ${tracePath}`)
-  } catch (err) {
-    log.warn(`trace write failed: ${errorMessage(err)}`)
-  }
+  await finalizeTraceExport(
+    buildTraceExportContext(ctx, capturer, sessionId, testFilePath)
+  )
 }
 
 function logSessionSummary(ctx: SessionLifecycleCtx): void {
