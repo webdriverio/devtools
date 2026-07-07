@@ -62,6 +62,17 @@ export interface SidecarStacks {
   stacks: [number, [number, number, number, string][]][]
 }
 
+export interface HarContent {
+  size: number
+  mimeType: string
+  /** Inline body; absent when the body lives in a `resources/` entry. */
+  text?: string
+  /** HAR body encoding — `base64` marks binary inline text. */
+  encoding?: string
+  /** Body resource name under `resources/` — sha1 hex, in foreign zips suffixed with a mime extension. */
+  _sha1?: string
+}
+
 export interface HarSnapshot {
   startedDateTime: string
   time: number
@@ -74,7 +85,7 @@ export interface HarSnapshot {
     status: number
     statusText: string
     headers?: { name: string; value: string }[]
-    content?: { size: number; mimeType: string }
+    content?: HarContent
   }
 }
 

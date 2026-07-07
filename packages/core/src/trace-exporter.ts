@@ -39,10 +39,63 @@ import { buildActionEvents, type ActionEvent } from './trace-action-events.js'
 import { buildSourceResources } from './trace-sources.js'
 import { networkRequestToHar } from './trace-har.js'
 import { buildTraceZip, type TraceZipResource } from './trace-zip-writer.js'
+import { sha1Hex } from './sha1.js'
 
 const TRACE_VERSION = 8
 const LIBRARY_NAME = '@wdio/devtools-core'
 const LIBRARY_VERSION = '1.0.0'
+
+/** Response bodies above this size are not embedded in the trace. */
+const MAX_BODY_RESOURCE_BYTES = 1024 * 1024
+/** Per-trace ceiling on total embedded response-body bytes. */
+const MAX_TOTAL_BODY_RESOURCE_BYTES = 20 * 1024 * 1024
+
+export interface NetworkBodyCaps {
+  maxBodyBytes: number
+  maxTotalBytes: number
+}
+
+export interface NetworkBodyResources {
+  resources: TraceZipResource[]
+  sha1ByRequestId: Map<string, string>
+}
+
+/** Content-addressed `resources/<sha1>` entries for captured response bodies. */
+export function buildNetworkBodyResources(
+  requests: NetworkRequest[],
+  caps: NetworkBodyCaps = {
+    maxBodyBytes: MAX_BODY_RESOURCE_BYTES,
+    maxTotalBytes: MAX_TOTAL_BODY_RESOURCE_BYTES
+  }
+): NetworkBodyResources {
+  const resources: TraceZipResource[] = []
+  const sha1ByRequestId = new Map<string, string>()
+  const stored = new Set<string>()
+  let totalBytes = 0
+  // Cap skips are silent by design; a warn hook would slot into these branches.
+  for (const request of requests) {
+    if (request.responseBody === undefined) {
+      continue
+    }
+    const data = Buffer.from(request.responseBody, 'utf8')
+    if (data.byteLength > caps.maxBodyBytes) {
+      continue
+    }
+    const sha1 = sha1Hex(data)
+    if (stored.has(sha1)) {
+      sha1ByRequestId.set(request.id, sha1)
+      continue
+    }
+    if (totalBytes + data.byteLength > caps.maxTotalBytes) {
+      continue
+    }
+    stored.add(sha1)
+    totalBytes += data.byteLength
+    resources.push({ resourceName: sha1, data })
+    sha1ByRequestId.set(request.id, sha1)
+  }
+  return { resources, sha1ByRequestId }
+}
 
 interface ContextOptionsEvent {
   version: number
@@ -132,13 +185,16 @@ function buildContextOptions(
 function buildNetworkNdjson(
   requests: NetworkRequest[],
   wallTime: number,
-  pageId: string
+  pageId: string,
+  sha1ByRequestId: Map<string, string>
 ): Buffer {
   if (!requests.length) {
     return Buffer.alloc(0)
   }
   const lines = requests.map((r) => {
-    const entry = networkRequestToHar(r) as unknown as Record<string, unknown>
+    const entry = networkRequestToHar(r, {
+      bodySha1: sha1ByRequestId.get(r.id)
+    }) as unknown as Record<string, unknown>
     entry.snapshot = {
       ...(entry.snapshot as Record<string, unknown>),
       // Monotonic offset so the viewer positions bars on the timeline.
@@ -259,6 +315,38 @@ interface TraceBundle {
   resources: TraceZipResource[]
 }
 
+function buildEventStream(
+  trace: TraceLog,
+  ctxOptions: ContextOptionsEvent,
+  pageId: string,
+  wallTime: number,
+  testMetadata?: TestMetadataMap
+): TraceEvent[] {
+  const viewport = trace.metadata.viewport ?? { width: 1280, height: 720 }
+  const snapshots = trace.actionSnapshots ?? []
+  const snapshotIndex = new FrameSnapshotIndex(snapshots)
+  const events: TraceEvent[] = [
+    ctxOptions,
+    ...buildFilmstripEvents(snapshots, pageId, wallTime, viewport),
+    ...buildActionEvents(
+      trace.commands,
+      pageId,
+      wallTime,
+      testMetadata,
+      snapshotIndex
+    ),
+    ...buildImageFrameSnapshots(
+      snapshotIndex.refs(),
+      pageId,
+      wallTime,
+      viewport
+    ),
+    ...buildConsoleEvents(trace.consoleLogs, pageId, wallTime)
+  ]
+  events.sort(compareEvents)
+  return events
+}
+
 function buildTraceBundle(
   trace: TraceLog,
   opts: {
@@ -274,38 +362,32 @@ function buildTraceBundle(
   const idPrefix = shortId(opts.sessionId)
   const contextId = `context@${idPrefix}`
   const pageId = `page@${idPrefix}`
-  const viewport = trace.metadata.viewport ?? { width: 1280, height: 720 }
-  const snapshots = trace.actionSnapshots ?? []
   const ctxOptions = buildContextOptions(trace, contextId, wallTime)
-  const snapshotIndex = new FrameSnapshotIndex(snapshots)
-  const actionEvents = buildActionEvents(
-    trace.commands,
+  const events = buildEventStream(
+    trace,
+    ctxOptions,
     pageId,
     wallTime,
-    opts.testMetadata,
-    snapshotIndex
+    opts.testMetadata
   )
-  const events: TraceEvent[] = [
-    ctxOptions,
-    ...buildFilmstripEvents(snapshots, pageId, wallTime, viewport),
-    ...actionEvents,
-    ...buildImageFrameSnapshots(
-      snapshotIndex.refs(),
-      pageId,
-      wallTime,
-      viewport
-    ),
-    ...buildConsoleEvents(trace.consoleLogs, pageId, wallTime)
-  ]
-  events.sort(compareEvents)
-  const ctxBName = ctxOptions.title
+  const networkBodies = buildNetworkBodyResources(trace.networkRequests)
   return {
     traceNdjson: events.map((e) => JSON.stringify(e)).join('\n') + '\n',
-    networkNdjson: buildNetworkNdjson(trace.networkRequests, wallTime, pageId),
-    transcriptMd: generateTranscript(trace.commands, wallTime, ctxBName),
+    networkNdjson: buildNetworkNdjson(
+      trace.networkRequests,
+      wallTime,
+      pageId,
+      networkBodies.sha1ByRequestId
+    ),
+    transcriptMd: generateTranscript(
+      trace.commands,
+      wallTime,
+      ctxOptions.title
+    ),
     resources: [
-      ...buildSnapshotResources(snapshots, pageId),
-      ...buildSourceResources(trace.sources)
+      ...buildSnapshotResources(trace.actionSnapshots ?? [], pageId),
+      ...buildSourceResources(trace.sources),
+      ...networkBodies.resources
     ]
   }
 }
