@@ -131,6 +131,7 @@ class SeleniumDevToolsPlugin {
       hostname: options.hostname ?? 'localhost',
       openUi: options.openUi ?? true,
       captureScreenshots: options.captureScreenshots ?? true,
+      captureAssertions: options.captureAssertions ?? true,
       rerunCommand: options.rerunCommand,
       headless: options.headless ?? false,
       mode: options.mode ?? 'live',
@@ -263,6 +264,7 @@ class SeleniumDevToolsPlugin {
       screencast?: ScreencastOptions
       headless?: boolean
       openUi?: boolean
+      captureAssertions?: boolean
       mode?: DevToolsMode
       traceFormat?: TraceFormat
       traceGranularity?: TraceGranularity
@@ -274,6 +276,9 @@ class SeleniumDevToolsPlugin {
     }
     if (typeof opts.headless === 'boolean') {
       this.#options.headless = opts.headless
+    }
+    if (typeof opts.captureAssertions === 'boolean') {
+      this.#options.captureAssertions = opts.captureAssertions
     }
     if (typeof opts.openUi === 'boolean') {
       this.#options.openUi = opts.openUi
@@ -568,8 +573,13 @@ if (patched) {
   log.info('✓ selenium-devtools attached — waiting for driver creation')
 }
 
-// node:assert wrappers silently invert match/doesNotMatch — kept disabled.
-void patchNodeAssert
+// Patch eagerly (user specs must see the wrappers before they import assert);
+// the gate runs at capture time because DevTools.configure() may arrive later.
+patchNodeAssert((cmd) => {
+  if (plugin.options.captureAssertions) {
+    void plugin.onCommand(cmd)
+  }
+})
 
 // Runner globals are published after `--require`, so retry briefly.
 function registerHooks() {
@@ -638,6 +648,7 @@ export const DevTools = {
     screencast?: ScreencastOptions
     headless?: boolean
     openUi?: boolean
+    captureAssertions?: boolean
     mode?: DevToolsMode
     traceFormat?: TraceFormat
     traceGranularity?: TraceGranularity

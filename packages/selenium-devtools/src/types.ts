@@ -35,6 +35,8 @@ export interface DevToolsOptions {
   traceGranularity?: TraceGranularity
   /** Capture screenshots after each command. Default true. */
   captureScreenshots?: boolean
+  /** Capture node:assert assertions as first-class commands. Default true. */
+  captureAssertions?: boolean
   /** Command template for per-test rerun. {{testName}} is substituted. */
   rerunCommand?: string
   /** Per-session screencast recording. Disabled by default. */

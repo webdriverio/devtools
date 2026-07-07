@@ -7,13 +7,17 @@
 
 import { fileURLToPath } from 'node:url'
 import {
+  collectSuiteTestMetadata,
   errorMessage,
+  finalizeTraceExport,
+  flushRangeTrace,
   recordSpecBoundary,
   resolveAdapterOutputDir,
-  writeSpecTrace,
-  writeTraceZip,
-  type SpecRange
+  type SpecRange,
+  type TraceArtifact,
+  type TraceExportContext
 } from '@wdio/devtools-core'
+import { wireAssertCapture } from './helpers/assertCapture.js'
 import { stop as stopBackend } from '@wdio/devtools-backend'
 import { REUSE_ENV, SCREENCAST_DEFAULTS } from '@wdio/devtools-shared'
 import logger from '@wdio/logger'
@@ -40,8 +44,7 @@ import type {
   NightwatchEventHub,
   ScreencastOptions,
   SuiteStats,
-  TestStats,
-  TestMetadataMap
+  TestStats
 } from './types.js'
 import { registerEventHandlers as registerEventHandlersImpl } from './event-hub.js'
 import {
@@ -124,6 +127,7 @@ class NightwatchDevToolsPlugin {
       hostname: options.hostname ?? 'localhost',
       screencast,
       bidi: options.bidi ?? false,
+      captureAssertions: options.captureAssertions ?? true,
       mode,
       traceFormat: options.traceFormat ?? 'zip',
       traceGranularity: options.traceGranularity ?? 'session'
@@ -307,6 +311,13 @@ class NightwatchDevToolsPlugin {
     internals.handleReuse = () => this.#handleReuseMode()
     internals.plugin = this
     await runPluginBefore(internals)
+    if (this.options.captureAssertions) {
+      wireAssertCapture(
+        () => this.sessionCapturer,
+        // Boundary cast: currentTest is Nightwatch's loose bag; only uid is read.
+        () => (this.#currentTest as { uid?: string } | null)?.uid
+      )
+    }
   }
 
   async #ensureSessionInitialized(browser: NightwatchBrowser) {
@@ -487,7 +498,7 @@ class NightwatchDevToolsPlugin {
       await this.#finalizeAllSuites(browser)
       this.#logRunSummary()
       if (this.options.mode === 'trace') {
-        await this.#writeTraceZipIfNeeded()
+        await this.#writeTraceIfNeeded()
         await this.sessionCapturer?.closeWebSocket()
         await stopBackend()
         return
@@ -515,108 +526,43 @@ class NightwatchDevToolsPlugin {
     logRunSummary(this.#getInternals())
   }
 
-  async #flushSpecTrace(
-    range: SpecRange,
-    nextRange?: SpecRange
-  ): Promise<string | undefined> {
-    if (this.#flushedSpecs.has(range.specFile)) {
-      return undefined
-    }
-    this.#flushedSpecs.add(range.specFile)
-
+  /** Thin wrapper so boundary flushes and the final flush share one path. */
+  #flushSpecTrace(range: SpecRange): Promise<TraceArtifact | undefined> {
     const sessionId = this.sessionCapturer.metadata?.sessionId
     if (!sessionId) {
-      return undefined
+      return Promise.resolve(undefined)
     }
+    return flushRangeTrace(this.#traceContext(sessionId), range)
+  }
 
-    // Collect test metadata from the suite tree. Nightwatch stores one suite
-    // per spec file (flat data model) — a flat iteration is correct. If
-    // child suites are ever introduced, this must switch to a recursive walk
-    // matching the selenium adapter.
-    const allMetadata: TestMetadataMap = new Map()
-    if (this.suiteManager) {
-      for (const suite of this.suiteManager.getAllSuites().values()) {
-        for (const entry of suite.tests) {
-          if (typeof entry === 'string') {
-            continue
-          }
-          allMetadata.set(entry.uid, {
-            title: entry.fullTitle,
-            specFile: entry.file
-          })
-        }
-      }
-    }
-
-    const tracePath = await writeSpecTrace({
-      range,
-      nextRange,
+  /** Assemble the framework-agnostic trace-export context from plugin state.
+   *  Output dir ignores the spec range — nightwatch writes next to config. */
+  #traceContext(sessionId: string): TraceExportContext {
+    return {
+      mode: this.options.mode,
+      granularity: this.options.traceGranularity,
+      format: this.options.traceFormat,
       capturer: this.sessionCapturer,
       actionSnapshots: this.sessionCapturer.actionSnapshots,
       sessionId,
-      outputDir: resolveAdapterOutputDir({ configPath: this.#configPath }),
-      format: this.options.traceFormat,
-      testMetadata: allMetadata
-    })
-    log.info(`Trace for spec "${range.specFile}" saved to ${tracePath}`)
-    return tracePath
+      testMetadata: collectSuiteTestMetadata(
+        this.suiteManager.getAllSuites().values()
+      ),
+      ranges: this.#specRanges,
+      flushed: this.#flushedSpecs,
+      resolveOutputDir: () =>
+        resolveAdapterOutputDir({ configPath: this.#configPath }),
+      awaitPending: this.sessionCapturer.snapshotCaptures,
+      log: (level, msg) => log[level](msg)
+    }
   }
 
-  async #writeTraceZipIfNeeded(): Promise<void> {
-    if (this.options.mode !== 'trace' || !this.sessionCapturer) {
+  async #writeTraceIfNeeded(): Promise<void> {
+    const sessionId = this.sessionCapturer?.metadata?.sessionId
+    if (this.options.mode !== 'trace' || !this.sessionCapturer || !sessionId) {
       return
     }
-    const sessionId = this.sessionCapturer.metadata?.sessionId
-    if (!sessionId) {
-      return
-    }
-    try {
-      if (this.sessionCapturer.snapshotCaptures.length) {
-        await Promise.allSettled(this.sessionCapturer.snapshotCaptures)
-      }
-
-      if (this.options.traceGranularity === 'spec') {
-        // Per-spec traces — flush any remaining ranges that weren't
-        // flushed at spec boundaries (the last spec in the run).
-        for (const range of this.#specRanges) {
-          if (!this.#flushedSpecs.has(range.specFile)) {
-            await this.#flushSpecTrace(range)
-          }
-        }
-        return
-      }
-
-      // Session-level trace (default) — single artifact for the
-      // entire worker session.
-      const testMetadata: TestMetadataMap = new Map()
-      if (this.suiteManager) {
-        for (const suite of this.suiteManager.getAllSuites().values()) {
-          for (const entry of suite.tests) {
-            if (typeof entry === 'string') {
-              continue
-            }
-            testMetadata.set(entry.uid, {
-              title: entry.fullTitle,
-              specFile: entry.file
-            })
-          }
-        }
-      }
-
-      const snapshots = this.sessionCapturer.actionSnapshots
-      const tracePath = await writeTraceZip(this.sessionCapturer, {
-        outputDir: resolveAdapterOutputDir({
-          configPath: this.#configPath
-        }),
-        sessionId,
-        actionSnapshots: snapshots.length ? snapshots : undefined,
-        format: this.options.traceFormat,
-        testMetadata
-      })
-      log.info(`Trace saved to ${tracePath}`)
-    } catch (err) {
-      log.warn(`trace write failed: ${errorMessage(err)}`)
-    }
+    await finalizeTraceExport(this.#traceContext(sessionId))
   }
 
   async #waitForDevtoolsBrowserClose(): Promise<void> {

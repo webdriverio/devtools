@@ -3,6 +3,7 @@
 
 import type { CommandLog, TestMetadataMap } from '@wdio/devtools-shared'
 import {
+  ASSERT_ACTION_CLASS,
   formatActionTitle,
   mapCommandToAction,
   FILL_METHODS,
@@ -49,6 +50,46 @@ interface ActionStream {
   callCounter: number
   lastTestUid?: string
   groupCallId?: string
+}
+
+// Nightwatch built-in assertions collapse {passed, actual, expected, message}
+// into the command result on failure — surface those over positional args.
+interface CollapsedAssertResult {
+  passed?: unknown
+  actual?: unknown
+  expected?: unknown
+  message?: unknown
+}
+
+function collapsedAssertResult(
+  result: unknown
+): CollapsedAssertResult | undefined {
+  if (typeof result === 'object' && result !== null && 'passed' in result) {
+    return result as CollapsedAssertResult
+  }
+  return undefined
+}
+
+// Assert params: node:assert positional order (actual, expected, message?),
+// plus a numeric echo of the raw args so the reader's paramsToArgs inverse
+// reconstructs the original arg list without assert-specific knowledge.
+function buildAssertParams(cmd: CommandLog): Record<string, unknown> {
+  const params: Record<string, unknown> = Object.fromEntries(
+    cmd.args.map((arg, index) => [String(index), arg])
+  )
+  const [actual, expected, message] = cmd.args
+  const collapsed = collapsedAssertResult(cmd.result)
+  const semantic = {
+    actual: collapsed?.actual ?? actual,
+    expected: collapsed?.expected ?? expected,
+    message: collapsed?.message ?? message
+  }
+  for (const [key, value] of Object.entries(semantic)) {
+    if (value !== undefined) {
+      params[key] = value
+    }
+  }
+  return params
 }
 
 // Semantic params from positional args (selector/value/url), falling back to
@@ -122,6 +163,43 @@ function handleTestBoundary(
   stream.lastTestUid = cmd.testUid
 }
 
+function buildParamsAndTitle(
+  action: TraceAction,
+  cmd: CommandLog
+): { params: Record<string, unknown>; title: string } {
+  const isAssert = action.class === ASSERT_ACTION_CLASS
+  const params = isAssert
+    ? buildAssertParams(cmd)
+    : buildActionParams(action, cmd.args)
+  return {
+    params,
+    title: formatActionTitle(
+      action,
+      cmd.args,
+      params,
+      isAssert ? cmd.command : undefined
+    )
+  }
+}
+
+function actionError(
+  cmd: CommandLog,
+  isAssert: boolean
+): { message: string } | undefined {
+  if (cmd.error) {
+    const err = cmd.error as { message?: string }
+    return { message: err.message ?? String(cmd.error) }
+  }
+  if (isAssert) {
+    // Nightwatch assert failures carry no Error — only the collapsed result.
+    const collapsed = collapsedAssertResult(cmd.result)
+    if (collapsed && collapsed.passed === false) {
+      return { message: String(collapsed.message ?? 'Assertion failed') }
+    }
+  }
+  return undefined
+}
+
 function pushActionPair(
   stream: ActionStream,
   cmd: CommandLog,
@@ -139,7 +217,7 @@ function pushActionPair(
   const startMs = Math.max(stream.prevEndMs, rawStartMs)
   // +1ms minimum duration so an `after` never precedes its parsed `before`.
   const endMs = Math.max(startMs + 1, rawEndMs)
-  const params = buildActionParams(action, cmd.args)
+  const { params, title } = buildParamsAndTitle(action, cmd)
   const beforeEvent: BeforeEvent = {
     type: 'before',
     callId,
@@ -148,7 +226,7 @@ function pushActionPair(
     method: action.method,
     pageId,
     params,
-    title: formatActionTitle(action, cmd.args, params),
+    title,
     apiName: `${action.class.toLowerCase()}.${action.method}`,
     parentId: stream.groupCallId
   }
@@ -162,9 +240,9 @@ function pushActionPair(
   }
   stream.events.push(beforeEvent)
   const afterEvent: AfterEvent = { type: 'after', callId, endTime: endMs }
-  if (cmd.error) {
-    const err = cmd.error as { message?: string }
-    afterEvent.error = { message: err.message ?? String(cmd.error) }
+  const error = actionError(cmd, action.class === ASSERT_ACTION_CLASS)
+  if (error) {
+    afterEvent.error = error
   }
   const afterName = snapshotIndex?.claimAfter(cmd.timestamp, callId)
   if (afterName) {

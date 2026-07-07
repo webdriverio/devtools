@@ -7,6 +7,39 @@ export interface TraceAction {
   method: string
 }
 
+/** Trace action class assertion commands map to. */
+export const ASSERT_ACTION_CLASS = 'Assert'
+
+/** node:assert methods the core assert patcher wraps; the reader derives its
+ *  `Assert.<m>` → `assert.<m>` reverse entries from the same list. */
+export const TRACKED_ASSERT_METHODS = [
+  'equal',
+  'strictEqual',
+  'deepEqual',
+  'deepStrictEqual',
+  'notEqual',
+  'notStrictEqual',
+  'notDeepEqual',
+  'notDeepStrictEqual',
+  'ok',
+  'fail',
+  'throws',
+  'doesNotThrow',
+  'rejects',
+  'doesNotReject',
+  'match',
+  'doesNotMatch'
+] as const
+
+// assert.<m> (node:assert), verify.<m> (nightwatch soft variants), and
+// expect.<m> (synthesized failing-matcher entries) all render as Assert.
+const ASSERT_COMMAND_RE = /^(?:assert|verify|expect)\.(\w+)$/
+
+export function mapAssertCommand(command: string): TraceAction | null {
+  const match = ASSERT_COMMAND_RE.exec(command)
+  return match ? { class: ASSERT_ACTION_CLASS, method: match[1] } : null
+}
+
 export const ACTION_MAP: Record<string, TraceAction> = {
   // WDIO browser-level
   url: { class: 'Page', method: 'navigate' },

@@ -1,6 +1,9 @@
 import { createRequire } from 'node:module'
+import { TRACKED_ASSERT_METHODS, type CommandLog } from '@wdio/devtools-shared'
 import { getCallSourceFromStack } from './stack.js'
 import { toError } from './error.js'
+
+export { TRACKED_ASSERT_METHODS }
 
 const require = createRequire(import.meta.url)
 
@@ -8,26 +11,6 @@ const require = createRequire(import.meta.url)
 export const ASSERT_PATCHED_SYMBOL = Symbol.for(
   '@wdio/devtools-core/assert-patched'
 )
-
-/** node:assert methods the patcher wraps. */
-export const TRACKED_ASSERT_METHODS = [
-  'equal',
-  'strictEqual',
-  'deepEqual',
-  'deepStrictEqual',
-  'notEqual',
-  'notStrictEqual',
-  'notDeepEqual',
-  'notDeepStrictEqual',
-  'ok',
-  'fail',
-  'throws',
-  'doesNotThrow',
-  'rejects',
-  'doesNotReject',
-  'match',
-  'doesNotMatch'
-] as const
 
 /**
  * Minimum shape `patchNodeAssert` emits. Adapters that need extra bookkeeping
@@ -68,57 +51,100 @@ export function safeSerializeAssertArg(value: unknown): unknown {
   return value
 }
 
+function makeAssertEmitters(
+  methodName: string,
+  args: unknown[],
+  onCommand: (cmd: CapturedAssert) => void
+): { passed: () => void; failed: (err: unknown) => void } {
+  const callInfo = getCallSourceFromStack()
+  const startedAt = Date.now()
+  const sanitizedArgs = args.map(safeSerializeAssertArg)
+  const emit = (result: 'passed' | undefined, error: Error | undefined) =>
+    onCommand({
+      command: `assert.${methodName}`,
+      args: sanitizedArgs,
+      result,
+      error,
+      callSource: callInfo.callSource,
+      timestamp: startedAt
+    })
+  return {
+    passed: () => emit('passed', undefined),
+    failed: (err: unknown) => emit(undefined, toError(err))
+  }
+}
+
 function makePatchedAssertMethod(
   methodName: string,
+  assertObj: Record<string | symbol, unknown>,
   original: (...a: unknown[]) => unknown,
   onCommand: (cmd: CapturedAssert) => void
 ): (...args: unknown[]) => unknown {
   return function patchedAssert(this: unknown, ...args: unknown[]) {
-    const callInfo = getCallSourceFromStack()
-    const startedAt = Date.now()
-    const sanitizedArgs = args.map(safeSerializeAssertArg)
-    const passed = () =>
-      onCommand({
-        command: `assert.${methodName}`,
-        args: sanitizedArgs,
-        result: 'passed',
-        error: undefined,
-        callSource: callInfo.callSource,
-        timestamp: startedAt
-      })
-    const failed = (err: unknown) =>
-      onCommand({
-        command: `assert.${methodName}`,
-        args: sanitizedArgs,
-        result: undefined,
-        error: toError(err),
-        callSource: callInfo.callSource,
-        timestamp: startedAt
-      })
-
+    const { passed, failed } = makeAssertEmitters(methodName, args, onCommand)
+    let result: unknown
+    // Node's internalMatch dispatches on `fn === assert.match` (Node ≤20), so
+    // a wrapper installed on that property silently inverts `match` into
+    // `doesNotMatch`. Restore the original binding for the call so identity
+    // checks inside node:assert see the real method.
+    assertObj[methodName] = original
     try {
-      const result = original.apply(this, args)
-      // Async assert methods (rejects/doesNotReject) return a Promise.
-      const maybe = result as { then?: unknown } | null | undefined
-      if (maybe && typeof maybe.then === 'function') {
-        return (result as Promise<unknown>).then(
-          (v) => {
-            passed()
-            return v
-          },
-          (err) => {
-            failed(err)
-            throw err
-          }
-        )
-      }
-      passed()
-      return result
+      result = original.apply(this, args)
     } catch (err) {
       failed(err)
       throw err
+    } finally {
+      assertObj[methodName] = patchedAssert
+    }
+    // Async assert methods (rejects/doesNotReject) return a Promise.
+    const maybe = result as { then?: unknown } | null | undefined
+    if (maybe && typeof maybe.then === 'function') {
+      return (result as Promise<unknown>).then(
+        (v) => {
+          passed()
+          return v
+        },
+        (err) => {
+          failed(err)
+          throw err
+        }
+      )
+    }
+    passed()
+    return result
+  }
+}
+
+/**
+ * Convert a `CapturedAssert` into the shared `CommandLog` shape adapters push
+ * into their session capturer. Asserts are effectively instantaneous, so the
+ * capture timestamp doubles as `startTime`.
+ */
+export function capturedAssertToCommandLog(
+  cmd: CapturedAssert,
+  testUid?: string
+): CommandLog {
+  const entry: CommandLog = {
+    command: cmd.command,
+    args: cmd.args,
+    result: cmd.result,
+    timestamp: cmd.timestamp,
+    startTime: cmd.timestamp
+  }
+  if (cmd.error) {
+    entry.error = {
+      name: cmd.error.name,
+      message: cmd.error.message,
+      stack: cmd.error.stack
     }
   }
+  if (cmd.callSource) {
+    entry.callSource = cmd.callSource
+  }
+  if (testUid) {
+    entry.testUid = testUid
+  }
+  return entry
 }
 
 /**
@@ -167,6 +193,7 @@ export function patchNodeAssert(
     }
     assertObj[methodName] = makePatchedAssertMethod(
       methodName,
+      assertObj,
       original as (...a: unknown[]) => unknown,
       onCommand
     )

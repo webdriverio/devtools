@@ -248,6 +248,12 @@ export class SessionCapturer extends SessionCapturerBase {
     this.#retryTracker.reset()
   }
 
+  /** Ingest an assertion entry (node:assert capture or synthesized expect
+   *  failure) through the same retry-collapsing path driver commands use. */
+  captureAssertCommand(entry: CommandLog): void {
+    this.#captureOrReplace(entry)
+  }
+
   /**
    * Run the shared Performance API capture script and attach the result to
    * the given CommandLog entry. Same `CAPTURE_PERFORMANCE_SCRIPT` +
