@@ -29,17 +29,64 @@ export type DevToolsMode = 'live' | 'trace'
 
 /** `zip` (default) writes a single `trace-<id>.zip`; `ndjson-directory` writes
  *  the same `trace.trace` + `trace.network` + `resources/` layout unpacked
- *  into `trace-<id>/`. Both are consumable by `playwright show-trace` — the
- *  unpacked form skips the unzip step for agentic / scripted consumers. */
+ *  into `trace-<id>/`. Both open in any standard trace viewer — the unpacked
+ *  form skips the unzip step for agentic / scripted consumers. */
 export type TraceFormat = 'zip' | 'ndjson-directory'
 
 /** `session` (default) writes one trace per worker session; `spec` writes one
- *  trace per spec file, keyed on the spec's filename. Only applies in trace mode. */
-export type TraceGranularity = 'session' | 'spec'
+ *  trace per spec file, keyed on the spec's filename; `test` writes one trace
+ *  per test. Only applies in trace mode. */
+export type TraceGranularity = 'session' | 'spec' | 'test'
+
+/** Retention policy for written traces. Only applies in trace mode; `on` is
+ *  the current always-write behavior (there is no `off` — that's simply not
+ *  using trace mode). */
+export type TraceRetentionPolicy =
+  | 'on'
+  | 'retain-on-failure'
+  | 'retain-on-first-failure'
+  | 'on-first-retry'
+  | 'on-all-retries'
+  | 'retain-on-failure-and-retries'
+
+/** Video retention — video has no separate mode switch, so `off` is valid
+ *  (and the default). */
+export type TraceVideoPolicy = 'off' | TraceRetentionPolicy
+
+/** One node in a test's ancestor chain, outermost first. */
+export interface TestAncestor {
+  uid: string
+  title: string
+  kind: 'feature' | 'scenario' | 'suite' | 'test' | 'step' | 'hook'
+}
+
+/** Per-test metadata for Tracing.tracingGroup events in trace output. */
+export interface TestMetadataEntry {
+  title: string
+  specFile: string
+  state?: TestStatus
+  attempt?: number
+  ancestry?: TestAncestor[]
+}
 
 /** Test metadata keyed by testUid — maps stable test IDs to human-readable
  *  title + specFile for Tracing.tracingGroup events in trace output. */
-export type TestMetadataMap = Map<string, { title: string; specFile: string }>
+export type TestMetadataMap = Map<string, TestMetadataEntry>
+
+/** Defaults for trace-mode options when not specified by the user. */
+export const TRACE_DEFAULTS = {
+  mode: 'live',
+  traceFormat: 'zip',
+  traceGranularity: 'session',
+  tracePolicy: 'on',
+  video: 'off'
+} as const satisfies {
+  mode: DevToolsMode
+  traceFormat: TraceFormat
+  traceGranularity: TraceGranularity
+  tracePolicy: TraceRetentionPolicy
+  video: TraceVideoPolicy
+}
 
 /**
  * Enum-style accessor for the canonical TestStatus values. Adapter code uses
