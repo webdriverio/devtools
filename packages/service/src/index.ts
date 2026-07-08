@@ -173,6 +173,18 @@ export default class DevToolsHookService implements Services.ServiceInstance {
           })
         )
     }
+
+    /**
+     * Runtime DOM snapshot for agent auto-healing loops. Calls into
+     * @wdio/elements' getSnapshot() directly — no trace-mode overhead,
+     * no screenshot round-trip, no page-settling.
+     *
+     * Returns { text, elements } — see @wdio/elements SnapshotResult.
+     */
+    browser.addCommand('getSnapshot', async (options?: { inViewportOnly?: boolean }) => {
+      const { getSnapshot } = await import('@wdio/elements')
+      return getSnapshot(browser, options ?? { inViewportOnly: true })
+    })
   }
 
   // The method signature is corrected to use W3CCapabilities

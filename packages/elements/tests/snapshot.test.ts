@@ -1,10 +1,14 @@
 import { describe, it, expect } from 'vitest'
 import {
   serializeWebSnapshot,
-  serializeMobileSnapshot
+  serializeMobileSnapshot,
+  buildSnapshot,
+  accessibilityNodesToSnapshotNodes,
+  jsonElementToSnapshotNodes
 } from '../src/snapshot.js'
 import type { AccessibilityNode } from '../src/accessibility-tree.js'
 import type { JSONElement } from '../src/locators/types.js'
+import type { SnapshotNode } from '@wdio/devtools-core/element-types'
 
 // ---------------------------------------------------------------------------
 // serializeWebSnapshot
@@ -246,5 +250,429 @@ describe('serializeMobileSnapshot', () => {
     const out = serializeMobileSnapshot(root, { platform: 'android' })
     expect(out).toContain('FrameLayout')
     expect(out).not.toContain('→')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// buildSnapshot
+// ---------------------------------------------------------------------------
+
+function snapNode(overrides: Partial<SnapshotNode>): SnapshotNode {
+  return {
+    role: 'button',
+    name: '',
+    selector: '',
+    depth: 0,
+    isInteractive: false,
+    tagName: 'button',
+    ...overrides
+  }
+}
+
+describe('buildSnapshot', () => {
+  it('returns empty elements map for empty nodes', () => {
+    const result = buildSnapshot('[Page]', [])
+    expect(result.text).toBe('[Page]')
+    expect(result.elements).toEqual({})
+  })
+
+  it('renders structural nodes without eN IDs', () => {
+    const nodes = [
+      snapNode({
+        role: 'navigation',
+        depth: 0,
+        name: 'Main',
+        isInteractive: false,
+        tagName: 'nav'
+      })
+    ]
+    const result = buildSnapshot('[Page]', nodes)
+    expect(result.text).toContain('navigation "Main"')
+    expect(result.text).not.toContain('e1')
+    expect(result.text).not.toContain('→')
+    expect(result.elements).toEqual({})
+  })
+
+  it('assigns e1 to first interactive element', () => {
+    const nodes = [
+      snapNode({
+        role: 'button',
+        depth: 0,
+        name: 'Submit',
+        selector: 'button*=Submit',
+        isInteractive: true,
+        tagName: 'button'
+      })
+    ]
+    const result = buildSnapshot('[Page]', nodes)
+    expect(result.text).toContain('e1  button "Submit"  →  button*=Submit')
+    expect(result.elements).toEqual({
+      e1: {
+        selector: 'button*=Submit',
+        tagName: 'button',
+        role: 'button',
+        text: 'Submit'
+      }
+    })
+  })
+
+  it('skips eN for non-interactive nodes and continues numbering', () => {
+    const nodes = [
+      snapNode({
+        role: 'navigation',
+        depth: 0,
+        name: 'Nav',
+        isInteractive: false,
+        tagName: 'nav'
+      }),
+      snapNode({
+        role: 'link',
+        depth: 1,
+        name: 'Home',
+        selector: 'a*=Home',
+        isInteractive: true,
+        tagName: 'a'
+      }),
+      snapNode({
+        role: 'button',
+        depth: 0,
+        name: 'Submit',
+        selector: 'button*=Submit',
+        isInteractive: true,
+        tagName: 'button'
+      })
+    ]
+    const result = buildSnapshot('[Page]', nodes)
+    expect(result.text).toContain('navigation "Nav"')
+    // link at depth 1 has "Nav" as its structural ancestor → ∈ context
+    expect(result.text).toContain('e1  link "Home" ∈ "Nav"  →  a*=Home')
+    // button at depth 0 also gets ∈ "Nav" — Nav is a same-depth structural sibling
+    expect(result.text).toContain(
+      'e2  button "Submit" ∈ "Nav"  →  button*=Submit'
+    )
+    expect(Object.keys(result.elements)).toEqual(['e1', 'e2'])
+  })
+
+  it('renders heading with level suffix', () => {
+    const nodes = [
+      snapNode({
+        role: 'heading',
+        depth: 0,
+        name: 'Welcome',
+        level: 2,
+        isInteractive: false,
+        tagName: 'h2'
+      })
+    ]
+    const result = buildSnapshot('[Page]', nodes)
+    expect(result.text).toContain('heading[2] "Welcome"')
+  })
+
+  it('renders ∈ ancestor context for interactive nodes', () => {
+    const nodes = [
+      snapNode({
+        role: 'form',
+        depth: 0,
+        name: 'Login',
+        isInteractive: false,
+        tagName: 'form'
+      }),
+      snapNode({
+        role: 'textbox',
+        depth: 1,
+        name: 'Email',
+        selector: '#email',
+        isInteractive: true,
+        tagName: 'input'
+      })
+    ]
+    const result = buildSnapshot('[Page]', nodes)
+    expect(result.text).toContain('e1  textbox "Email" ∈ "Login"  →  #email')
+  })
+
+  it('omits ∈ context when same-depth sibling is interactive', () => {
+    const nodes = [
+      snapNode({
+        role: 'button',
+        depth: 0,
+        name: 'Cancel',
+        selector: 'button*=Cancel',
+        isInteractive: true,
+        tagName: 'button'
+      }),
+      snapNode({
+        role: 'button',
+        depth: 0,
+        name: 'Submit',
+        selector: 'button*=Submit',
+        isInteractive: true,
+        tagName: 'button'
+      })
+    ]
+    const result = buildSnapshot('[Page]', nodes)
+    // Second button should NOT have ∈ "Cancel" context (same-depth interactive isn't context)
+    expect(result.text).toContain('e2  button "Submit"  →  button*=Submit')
+    expect(result.text).not.toContain('∈ "Cancel"')
+  })
+
+  it('appends .instance(N) for duplicate selectors', () => {
+    const nodes = [
+      snapNode({
+        role: 'button',
+        depth: 0,
+        name: 'Add',
+        selector: 'button*=Add',
+        isInteractive: true,
+        tagName: 'button'
+      }),
+      snapNode({
+        role: 'button',
+        depth: 0,
+        name: 'Add',
+        selector: 'button*=Add',
+        isInteractive: true,
+        tagName: 'button'
+      })
+    ]
+    const result = buildSnapshot('[Page]', nodes)
+    expect(result.text).toContain('button*=Add.instance(0)')
+    expect(result.text).toContain('button*=Add.instance(1)')
+    // Elements map stores the raw selector without .instance(N)
+    expect(result.elements['e1']!.selector).toBe('button*=Add')
+    expect(result.elements['e2']!.selector).toBe('button*=Add')
+  })
+
+  it('handles interactive node with no name but context ancestor', () => {
+    const nodes = [
+      snapNode({
+        role: 'form',
+        depth: 0,
+        name: 'Search',
+        isInteractive: false,
+        tagName: 'form'
+      }),
+      snapNode({
+        role: 'textbox',
+        depth: 1,
+        name: '',
+        selector: '#q',
+        isInteractive: true,
+        tagName: 'input'
+      })
+    ]
+    const result = buildSnapshot('[Page]', nodes)
+    expect(result.text).toContain('e1  textbox ∈ "Search"  →  #q')
+    expect(result.elements['e1']!.text).toBe('')
+  })
+
+  it('indents according to depth', () => {
+    const nodes = [
+      snapNode({
+        role: 'main',
+        depth: 0,
+        name: '',
+        isInteractive: false,
+        tagName: 'main'
+      }),
+      snapNode({
+        role: 'button',
+        depth: 1,
+        name: 'Click',
+        selector: '#btn',
+        isInteractive: true,
+        tagName: 'button'
+      })
+    ]
+    const lines = buildSnapshot('[Page]', nodes).text.split('\n')
+    expect(lines[1]).toMatch(/^  main/)
+    expect(lines[2]).toMatch(/^    e1/)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// accessibilityNodesToSnapshotNodes
+// ---------------------------------------------------------------------------
+
+describe('accessibilityNodesToSnapshotNodes', () => {
+  it('converts interactive node and derives tagName from selector', () => {
+    const input = [
+      node({
+        role: 'button',
+        depth: 0,
+        name: 'Submit',
+        selector: 'button*=Submit'
+      })
+    ]
+    const result = accessibilityNodesToSnapshotNodes(input)
+    expect(result).toHaveLength(1)
+    expect(result[0]).toMatchObject({
+      role: 'button',
+      name: 'Submit',
+      selector: 'button*=Submit',
+      isInteractive: true,
+      tagName: 'button'
+    })
+  })
+
+  it('filters out off-screen nodes when inViewportOnly is true', () => {
+    const input = [
+      node({
+        role: 'button',
+        depth: 0,
+        name: 'Submit',
+        selector: 'button*=Submit',
+        isInViewport: false
+      })
+    ]
+    const result = accessibilityNodesToSnapshotNodes(input, {
+      inViewportOnly: true
+    })
+    expect(result).toHaveLength(0)
+  })
+
+  it('keeps off-screen nodes when inViewportOnly is false', () => {
+    const input = [
+      node({
+        role: 'button',
+        depth: 0,
+        name: 'Submit',
+        selector: 'button*=Submit',
+        isInViewport: false
+      })
+    ]
+    const result = accessibilityNodesToSnapshotNodes(input, {
+      inViewportOnly: false
+    })
+    expect(result).toHaveLength(1)
+  })
+
+  it('sets isInteractive false for structural roles', () => {
+    const input = [node({ role: 'navigation', depth: 0, name: 'Nav' })]
+    const result = accessibilityNodesToSnapshotNodes(input)
+    expect(result[0]!.isInteractive).toBe(false)
+    expect(result[0]!.tagName).toBe('navigation') // fallback to role
+  })
+
+  it('suppresses statictext echoed by interactive parent', () => {
+    const input = [
+      node({
+        role: 'button',
+        depth: 0,
+        name: 'Submit',
+        selector: 'button*=Submit'
+      }),
+      node({ role: 'statictext', depth: 1, name: 'Submit' })
+    ]
+    const result = accessibilityNodesToSnapshotNodes(input)
+    expect(result).toHaveLength(1) // statictext suppressed
+    expect(result[0]!.role).toBe('button')
+  })
+
+  it('derives tagName from link selector', () => {
+    const input = [
+      node({ role: 'link', depth: 0, name: 'Home', selector: 'a*=Home' })
+    ]
+    const result = accessibilityNodesToSnapshotNodes(input)
+    expect(result[0]!.tagName).toBe('a')
+  })
+
+  it('falls back to role for selectorless tag extraction', () => {
+    const input = [
+      node({ role: 'textbox', depth: 0, name: 'Email', selector: '#email' })
+    ]
+    const result = accessibilityNodesToSnapshotNodes(input)
+    // #email doesn't start with a tag prefix → falls back to role
+    expect(result[0]!.tagName).toBe('textbox')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// jsonElementToSnapshotNodes
+// ---------------------------------------------------------------------------
+
+describe('jsonElementToSnapshotNodes', () => {
+  it('flattens a simple tree', () => {
+    const root = mobileEl('hierarchy', {}, [
+      mobileEl('android.widget.Button', {
+        clickable: 'true',
+        'content-desc': 'Submit',
+        text: ''
+      })
+    ])
+    const result = jsonElementToSnapshotNodes(root, 'android')
+    // Root hierarchy element + one button = 2 nodes
+    expect(result.length).toBeGreaterThanOrEqual(2)
+    const button = result.find((n) => n.role === 'button')
+    expect(button).toBeDefined()
+    expect(button).toMatchObject({
+      role: 'button',
+      name: 'Submit',
+      isInteractive: true,
+      tagName: 'android.widget.Button'
+    })
+  })
+
+  it('includes structural containers', () => {
+    const root = mobileEl('hierarchy', {}, [
+      mobileEl(
+        'android.widget.LinearLayout',
+        {
+          'content-desc': ''
+        },
+        [
+          mobileEl('android.widget.Button', {
+            clickable: 'true',
+            'content-desc': 'OK',
+            text: ''
+          })
+        ]
+      )
+    ])
+    const result = jsonElementToSnapshotNodes(root, 'android')
+    // LinearLayout is not in INTERACTIVE_ROLES, not clickable → structural
+    expect(result.length).toBeGreaterThanOrEqual(2)
+    const structNode = result.find((n) => n.role === 'LinearLayout')
+    expect(structNode).toBeDefined()
+    expect(structNode!.isInteractive).toBe(false)
+  })
+
+  it('suppresses tag-only-interactive children of explicit parents', () => {
+    const root = mobileEl('hierarchy', {}, [
+      mobileEl(
+        'android.widget.LinearLayout',
+        {
+          clickable: 'true',
+          'content-desc': 'Row'
+        },
+        [
+          // TextView is in ANDROID_INTERACTABLE_TAGS (tag-interactive),
+          // but not explicitly clickable → suppressed by suppressTagOnlyChildren
+          mobileEl('android.widget.TextView', {
+            clickable: 'false',
+            'content-desc': '',
+            text: 'Label'
+          })
+        ]
+      )
+    ])
+    const result = jsonElementToSnapshotNodes(root, 'android')
+    const textView = result.find((n) => n.role === 'statictext')
+    expect(textView).toBeDefined()
+    expect(textView!.isInteractive).toBe(false) // suppressed
+  })
+
+  it('propagates tagName from the mobile element', () => {
+    const root = mobileEl('hierarchy', {}, [
+      mobileEl('android.widget.EditText', {
+        clickable: 'true',
+        'content-desc': '',
+        'resource-id': 'com.example:id/email',
+        text: ''
+      })
+    ])
+    const result = jsonElementToSnapshotNodes(root, 'android')
+    const editText = result.find((n) => n.role === 'textbox')
+    expect(editText).toBeDefined()
+    expect(editText!.tagName).toBe('android.widget.EditText')
   })
 })

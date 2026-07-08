@@ -43,3 +43,32 @@ export interface GetBrowserElementsOptions {
 // Re-export mobile types from locators for convenience.
 // Downstream consumers can also import directly from @wdio/devtools-core/locators.
 export type { JSONElement } from './locators/types.js'
+
+/**
+ * Flat intermediate node shared by both web and mobile snapshot pipelines.
+ * Both adapters (web: AccessibilityNode[], mobile: JSONElement tree) convert
+ * to this shape before buildSnapshot() renders them.
+ */
+export interface SnapshotNode {
+  role: string
+  name: string
+  selector: string
+  depth: number
+  isInteractive: boolean
+  tagName: string
+  level?: number | string
+}
+
+/** Entry in the elements map returned by getSnapshot(). */
+export interface SnapshotElement {
+  selector: string
+  tagName: string
+  role: string
+  text: string
+}
+
+/** Return type of getSnapshot(). */
+export interface SnapshotResult {
+  text: string
+  elements: Record<string, SnapshotElement>
+}

@@ -74,6 +74,7 @@ describe('DevtoolsService - Internal Command Filtering', () => {
   const mockBrowser = {
     isBidi: true,
     sessionId: 'test-session',
+    addCommand: vi.fn(),
     scriptAddPreloadScript: vi.fn().mockResolvedValue(undefined),
     takeScreenshot: vi.fn().mockResolvedValue('screenshot'),
     execute: vi.fn().mockResolvedValue({
@@ -175,6 +176,7 @@ describe('DevtoolsService - Screencast Integration', () => {
   const mockBrowser = {
     isBidi: true,
     sessionId: 'session-123',
+    addCommand: vi.fn(),
     scriptAddPreloadScript: vi.fn().mockResolvedValue(undefined),
     takeScreenshot: vi.fn().mockResolvedValue('screenshot'),
     execute: vi.fn().mockResolvedValue({
