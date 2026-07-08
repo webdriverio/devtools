@@ -54,7 +54,9 @@ export const config: Options.Testrunner = {
   // and 30 processes will get spawned. The property handles how many capabilities
   // from the same test should run tests.
   //
-  maxInstances: 10,
+  // Live mode drives a single-session dashboard; >1 worker streams two feature
+  // files into it at once and neither renders cleanly. One instance = readable demo.
+  maxInstances: 1,
   //
   // If you have trouble getting all important capabilities together, check out the
   // Sauce Labs platform configurator - a great tool to configure your capabilities:
@@ -131,7 +133,7 @@ export const config: Options.Testrunner = {
     [
       'devtools',
       {
-        mode: 'trace' as const,
+        mode: 'live' as const,
         screencast: { enabled: true, pollIntervalMs: 200 }
       }
     ]

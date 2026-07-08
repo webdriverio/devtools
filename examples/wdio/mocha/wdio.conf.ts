@@ -13,7 +13,9 @@ export const config: Options.Testrunner = {
   },
   specs: ['./specs/**/*.e2e.ts'],
   exclude: [],
-  maxInstances: 10,
+  // Live mode drives a single-session dashboard; >1 worker streams two sessions
+  // into it at once and neither renders cleanly. One instance = readable demo.
+  maxInstances: 1,
   capabilities: [
     {
       browserName: 'chrome',
@@ -37,7 +39,7 @@ export const config: Options.Testrunner = {
     [
       'devtools',
       {
-        mode: 'trace' as const,
+        mode: 'live' as const,
         traceGranularity: 'spec' as const
         // tracePolicy: 'retain-on-failure' as const
         // screencast: { enabled: true, pollIntervalMs: 200 }
