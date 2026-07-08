@@ -7,9 +7,11 @@ import type {
   LogSource,
   Metadata,
   NetworkRequest,
+  SerializedError,
   TraceMutation
 } from '@wdio/devtools-shared'
 import { WS_PATHS, WS_SCOPE } from '@wdio/devtools-shared'
+import { mapCommandToAction } from './action-mapping.js'
 import {
   CONSOLE_METHODS,
   LOG_SOURCES,
@@ -204,6 +206,28 @@ export abstract class SessionCapturerBase {
       oldTimestamp,
       command: toSend
     })
+  }
+
+  /**
+   * Mark the most recent user action of a test as failed. Assertion and step
+   * failures aren't their own command, so the action that ran (e.g. the query
+   * an expectation read) carries the error; broadcasts the swap so live mode
+   * highlights it too. Returns false when no eligible action is found.
+   */
+  failLastAction(testUid: string | undefined, error: SerializedError): boolean {
+    for (let i = this.commandsLog.length - 1; i >= 0; i--) {
+      const command = this.commandsLog[i]
+      if (command.error || !mapCommandToAction(command.command)) {
+        continue
+      }
+      if (testUid && command.testUid !== testUid) {
+        continue
+      }
+      command.error = error
+      this.sendReplaceCommand(command.timestamp, command)
+      return true
+    }
+    return false
   }
 
   /**

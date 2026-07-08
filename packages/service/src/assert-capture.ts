@@ -1,13 +1,13 @@
 // Assertion capture wiring for the WDIO worker: node:assert patching plus
-// synthesis of a failing `expect` matcher into a CommandLog entry.
+// marking the failing action when an expect-webdriverio matcher throws.
 
 import logger from '@wdio/logger'
 import {
   capturedAssertToCommandLog,
   patchNodeAssert,
-  safeSerializeAssertArg
+  stripAnsi
 } from '@wdio/devtools-core'
-import type { CommandLog } from './types.js'
+import type { SerializedError } from '@wdio/devtools-shared'
 import type { SessionCapturer } from './session.js'
 
 const log = logger('@wdio/devtools-service:assert-capture')
@@ -31,49 +31,51 @@ export function wireAssertCapture(
 }
 
 /**
- * Build a synthetic `expect.<matcher>` entry from a failed test's error so
- * the failing matcher appears in the trace timeline. Returns null when the
- * error isn't matcher-shaped, or when it's a node:assert AssertionError —
- * the assert patcher already captured those (double-capture guard).
+ * Normalize a framework failure into a SerializedError. Cucumber hands a plain
+ * message string (@wdio/cucumber-framework getResultObject → world.result.message);
+ * Mocha/Jasmine hand an Error object. Returns undefined when there's nothing to
+ * show, or for a node:assert AssertionError (the patcher already made that its
+ * own command). ANSI is stripped so every consumer gets a clean message.
  */
-export function synthesizeExpectFailure(
-  error: unknown,
-  testUid: string | undefined
-): CommandLog | null {
-  if (!error || typeof error !== 'object') {
-    return null
+export function toCommandError(error: unknown): SerializedError | undefined {
+  if (!error) {
+    return undefined
   }
-  // Boundary cast: WDIO hands the framework error as unknown; only the
-  // assertion-library extras are read, by name.
-  const err = error as Error & {
-    expected?: unknown
-    actual?: unknown
-    matcherResult?: {
-      matcherName?: string
-      expected?: unknown
-      actual?: unknown
-    }
+  if (typeof error === 'string') {
+    const message = stripAnsi(error).trim()
+    return message ? { name: 'Error', message } : undefined
   }
+  if (typeof error !== 'object') {
+    return undefined
+  }
+  const err = error as { name?: string; message?: string; stack?: string }
   if (err.name === 'AssertionError') {
-    return null
+    return undefined
   }
-  const matcher = err.matcherResult
-  if (!matcher && err.expected === undefined && err.actual === undefined) {
-    return null
+  return {
+    name: err.name || 'Error',
+    message: stripAnsi(err.message || String(error)),
+    ...(err.stack ? { stack: stripAnsi(err.stack) } : {})
   }
-  const actual = matcher?.actual ?? err.actual
-  const expected = matcher?.expected ?? err.expected
-  const entry: CommandLog = {
-    command: `expect.${matcher?.matcherName || 'assertion'}`,
-    args: [actual, expected].map(safeSerializeAssertArg),
-    error: {
-      name: err.name || 'Error',
-      message: err.message || String(error)
-    },
-    timestamp: Date.now()
+}
+
+/**
+ * Mark the action that was running when an expect-webdriverio matcher failed
+ * (the assertion isn't its own command, so its query carries the error). No-op
+ * when assertion capture is disabled. Mocha calls from afterTest, Cucumber from
+ * afterStep.
+ */
+export function captureExpectFailure(
+  capturer: SessionCapturer,
+  testUid: string | undefined,
+  error: unknown,
+  enabled: boolean
+): void {
+  if (!enabled) {
+    return
   }
-  if (testUid) {
-    entry.testUid = testUid
+  const commandError = toCommandError(error)
+  if (commandError) {
+    capturer.failLastAction(testUid, commandError)
   }
-  return entry
 }

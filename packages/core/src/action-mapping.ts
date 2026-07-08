@@ -19,6 +19,10 @@ export { ASSERT_ACTION_CLASS, mapAssertCommand }
 //   executeScript — Selenium's `until` polling fires it ~50ms; also recurses
 //     because @wdio/elements uses executeScript inside captureActionSnapshot.
 //     WDIO's user-facing `execute`/`executeAsync` are still captured.
+//   $ / $$ / findElement(s) / getElement(s) — locator resolution fires on every
+//     element access; high-frequency internal machinery, not a timeline step.
+//   Passing expect-webdriverio matchers — never reach the command log (only
+//     failures do, via the reporter); surfacing them is a per-adapter change.
 
 export function mapCommandToAction(command: string): TraceAction | null {
   return ACTION_MAP[command] ?? mapAssertCommand(command)
