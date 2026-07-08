@@ -19,3 +19,23 @@ export function dedupeSnapshotsByTimestamp(
   }
   return [...best.values()].sort((a, b) => a.timestamp - b.timestamp)
 }
+
+/** Insert a snapshot, or — when one already shares its timestamp — keep only
+ *  the richer screenshot, replacing in place to preserve any index ranges into
+ *  the list. Applies the dedupe heuristic at capture time so a blank
+ *  end-of-scenario frame can't clobber the last action's real result on export
+ *  paths that don't run dedupeSnapshotsByTimestamp (e.g. per-spec traces). */
+export function upsertRichestSnapshot(
+  snapshots: ActionSnapshot[],
+  snap: ActionSnapshot
+): void {
+  const idx = snapshots.findIndex((s) => s.timestamp === snap.timestamp)
+  if (idx === -1) {
+    snapshots.push(snap)
+    return
+  }
+  const existing = snapshots[idx]!
+  if ((snap.screenshot?.length ?? 0) > (existing.screenshot?.length ?? 0)) {
+    snapshots[idx] = snap
+  }
+}
