@@ -22,6 +22,8 @@ export interface AfterEvent {
   callId: string
   endTime: number
   error?: { message: string }
+  /** Command return value, restored onto CommandLog.result. */
+  result?: unknown
 }
 
 export interface ScreencastFrameEvent {
