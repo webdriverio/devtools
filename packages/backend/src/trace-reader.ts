@@ -191,6 +191,43 @@ function commandError(
   return undefined
 }
 
+/** Reconstruct one CommandLog from its before/after events + nearest frame. */
+function reconstructCommand(
+  before: BeforeEvent,
+  after: AfterEvent | undefined,
+  afters: Map<string, AfterEvent>,
+  frames: TracePlayerFrame[]
+): CommandLog {
+  const endTime = after?.endTime ?? before.startTime
+  const command: CommandLog = {
+    command:
+      REVERSE_ACTION_MAP[`${before.class}.${before.method}`] ?? before.method,
+    args: paramsToArgs(before.params),
+    // Show the trace-style label (`Element.fill("x")`); the command name above
+    // still drives the UI's category colour and icon.
+    title:
+      before.title ?? actionLabel(before.class, before.method, before.params),
+    startTime: before.startTime,
+    timestamp: endTime
+  }
+  const error = commandError(before, after, afters)
+  if (error) {
+    command.error = { name: 'Error', message: error.message }
+  }
+  if (after?.result !== undefined) {
+    command.result = after.result
+  }
+  const callSource = stackToCallSource(before.stack)
+  if (callSource) {
+    command.callSource = callSource
+  }
+  const frame = nearestFrame(frames, command.timestamp)
+  if (frame) {
+    command.screenshot = frame.screenshot
+  }
+  return command
+}
+
 function buildCommands(
   events: MergedEvents,
   frames: TracePlayerFrame[]
@@ -209,31 +246,8 @@ function buildCommands(
       continue
     }
     const after = events.afters.get(callId)
-    const endTime = after?.endTime ?? before.startTime
-    maxTime = Math.max(maxTime, endTime)
-    const command: CommandLog = {
-      command:
-        REVERSE_ACTION_MAP[`${before.class}.${before.method}`] ?? before.method,
-      args: paramsToArgs(before.params),
-      // Show the trace-style label (`Element.fill("x")`); the command
-      // name above still drives the UI's category colour and icon.
-      title:
-        before.title ?? actionLabel(before.class, before.method, before.params),
-      startTime: before.startTime,
-      timestamp: endTime
-    }
-    const error = commandError(before, after, events.afters)
-    if (error) {
-      command.error = { name: 'Error', message: error.message }
-    }
-    const callSource = stackToCallSource(before.stack)
-    if (callSource) {
-      command.callSource = callSource
-    }
-    const frame = nearestFrame(frames, command.timestamp)
-    if (frame) {
-      command.screenshot = frame.screenshot
-    }
+    const command = reconstructCommand(before, after, events.afters, frames)
+    maxTime = Math.max(maxTime, command.timestamp)
     entries.push({ callId, command })
   }
   entries.sort((a, b) => a.command.timestamp - b.command.timestamp)

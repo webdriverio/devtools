@@ -54,7 +54,7 @@ function fixtureZip(): Uint8Array {
       method: 'navigate',
       params: { url: 'https://example.com' }
     },
-    { type: 'after', callId: 'call@1', endTime: 50 },
+    { type: 'after', callId: 'call@1', endTime: 50, result: 'example.com' },
     {
       type: 'before',
       callId: 'call@2',
@@ -223,6 +223,13 @@ describe('parseTraceZip', () => {
     expect(trace.sources).toEqual({
       [SPEC_PATH]: 'it("logs in", () => {})'
     })
+  })
+
+  it('restores the command result from the after event', () => {
+    const { trace } = parseTraceZip(fixtureZip())
+    expect(trace.commands.find((c) => c.command === 'url')?.result).toBe(
+      'example.com'
+    )
   })
 
   it('skips tracing group markers so the last command stays the last action', () => {

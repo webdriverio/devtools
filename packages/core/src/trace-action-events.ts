@@ -36,10 +36,33 @@ export interface AfterEvent {
   callId: string
   endTime: number
   error?: { message: string }
+  /** Command return value (e.g. the text getText resolved to). */
+  result?: unknown
   /** CallId of the Tracing.tracingGroup that wraps this action (if any). */
   parentId?: string
   /** Frame-snapshot name rendered as the action's after state. */
   afterSnapshot?: string
+}
+
+// Serialized command results over this size are dropped from the trace — a
+// huge execute() return shouldn't bloat every action line.
+const MAX_RESULT_BYTES = 64 * 1024
+
+/** JSON-safe command result within the size cap; undefined when absent,
+ *  oversized, or not serializable. */
+function serializableResult(result: unknown): unknown {
+  if (result === undefined) {
+    return undefined
+  }
+  try {
+    const json = JSON.stringify(result)
+    if (json === undefined || json.length > MAX_RESULT_BYTES) {
+      return undefined
+    }
+    return JSON.parse(json)
+  } catch {
+    return undefined
+  }
 }
 
 export type ActionEvent = BeforeEvent | AfterEvent
@@ -200,6 +223,29 @@ function actionError(
   return undefined
 }
 
+function buildAfterEvent(
+  cmd: CommandLog,
+  action: TraceAction,
+  callId: string,
+  endMs: number,
+  snapshotIndex?: FrameSnapshotIndex
+): AfterEvent {
+  const afterEvent: AfterEvent = { type: 'after', callId, endTime: endMs }
+  const error = actionError(cmd, action.class === ASSERT_ACTION_CLASS)
+  if (error) {
+    afterEvent.error = error
+  }
+  const result = serializableResult(cmd.result)
+  if (result !== undefined) {
+    afterEvent.result = result
+  }
+  const afterName = snapshotIndex?.claimAfter(cmd.timestamp, callId)
+  if (afterName) {
+    afterEvent.afterSnapshot = afterName
+  }
+  return afterEvent
+}
+
 function pushActionPair(
   stream: ActionStream,
   cmd: CommandLog,
@@ -239,16 +285,7 @@ function pushActionPair(
     beforeEvent.beforeSnapshot = beforeName
   }
   stream.events.push(beforeEvent)
-  const afterEvent: AfterEvent = { type: 'after', callId, endTime: endMs }
-  const error = actionError(cmd, action.class === ASSERT_ACTION_CLASS)
-  if (error) {
-    afterEvent.error = error
-  }
-  const afterName = snapshotIndex?.claimAfter(cmd.timestamp, callId)
-  if (afterName) {
-    afterEvent.afterSnapshot = afterName
-  }
-  stream.events.push(afterEvent)
+  stream.events.push(buildAfterEvent(cmd, action, callId, endMs, snapshotIndex))
   stream.prevEndMs = endMs
 }
 

@@ -39,12 +39,28 @@ describe('buildActionEvents', () => {
     expect(befores[1]!.stack).toBeUndefined()
   })
 
+  it('stamps the command result on the after event', () => {
+    const commands = [cmd('execute', { result: 'flash text' })]
+    const after = buildActionEvents(commands, pageId, wallTime).find(
+      (e) => e.type === 'after'
+    )!
+    expect(after.result).toBe('flash text')
+  })
+
+  it('drops oversized command results from the after event', () => {
+    const commands = [cmd('execute', { result: 'x'.repeat(70 * 1024) })]
+    const after = buildActionEvents(commands, pageId, wallTime).find(
+      (e) => e.type === 'after'
+    )!
+    expect(after.result).toBeUndefined()
+  })
+
   it('returns empty array for no commands', () => {
     expect(buildActionEvents([], pageId, wallTime)).toEqual([])
   })
 
   it('returns empty array when no commands map to actions', () => {
-    const commands = [cmd('getTitle'), cmd('executeScript')]
+    const commands = [cmd('clearValue'), cmd('executeScript')]
     expect(buildActionEvents(commands, pageId, wallTime)).toEqual([])
   })
 
@@ -245,7 +261,7 @@ describe('buildActionEvents — tracingGroup (testUid boundaries)', () => {
 
   it('skips non-action commands but still handles group boundaries', () => {
     const commands = [
-      cmd('getTitle', { testUid: 'uid-1' }), // non-action — skipped
+      cmd('clearValue', { testUid: 'uid-1' }), // non-action — skipped
       cmd('url', { testUid: 'uid-2', timestamp: 1200, startTime: 1150 })
     ]
     const events = buildActionEvents(commands, pageId, wallTime, testMeta)
