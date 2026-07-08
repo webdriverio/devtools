@@ -19,6 +19,7 @@ export {
   type TraceFormat,
   type TestMetadataMap,
   type TraceGranularity,
+  type TraceRetentionPolicy,
   type TraceLog
 } from '@wdio/devtools-shared'
 
@@ -26,7 +27,8 @@ import type {
   DevToolsMode,
   ScreencastOptions,
   TraceFormat,
-  TraceGranularity
+  TraceGranularity,
+  TraceRetentionPolicy
 } from '@wdio/devtools-shared'
 
 export interface CommandStackFrame {
@@ -115,6 +117,9 @@ export interface DevToolsOptions {
    *  worker session; `spec` writes one trace per spec file. Only applies in
    *  trace mode. */
   traceGranularity?: TraceGranularity
+  /** Trace retention policy — gates which traces are kept (e.g.
+   *  `retain-on-failure`). Default `on` (keep all). Only applies in trace mode. */
+  tracePolicy?: TraceRetentionPolicy
 }
 
 export interface NightwatchBrowser {

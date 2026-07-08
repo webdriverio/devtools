@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { shouldRetainTrace } from '../src/trace-retention.js'
+import {
+  shouldRetainTrace,
+  tracePolicyModeWarning
+} from '../src/trace-retention.js'
 import type { TestOutcome } from '../src/trace-retention.js'
 import type { TraceRetentionPolicy } from '@wdio/devtools-shared'
 
@@ -189,5 +192,42 @@ describe('shouldRetainTrace degradation without attempt info', () => {
         attemptInfoAvailable: false
       })
     ).toEqual({ retain: true })
+  })
+})
+
+describe('shouldRetainTrace unknown policy (fail open)', () => {
+  // A JS config can pass a string TS never validated. It must retain (treated
+  // as `on`) rather than silently drop traces the user might need.
+  const unknown = 'retain-on-tuesdays' as TraceRetentionPolicy
+
+  it('retains all-passing outcomes', () => {
+    expect(retain(unknown, allPass)).toBe(true)
+    expect(retain(unknown, allPass, false)).toBe(true)
+  })
+
+  it('retains failing outcomes', () => {
+    expect(retain(unknown, oneFail)).toBe(true)
+  })
+
+  it('retains with no outcomes', () => {
+    expect(
+      shouldRetainTrace(unknown, { outcomes: [], attemptInfoAvailable: false })
+    ).toEqual({ retain: true })
+  })
+})
+
+describe('tracePolicyModeWarning', () => {
+  it('warns when a policy is set outside trace mode', () => {
+    expect(tracePolicyModeWarning('retain-on-failure', 'live')).toMatch(
+      /trace mode/
+    )
+    expect(tracePolicyModeWarning('retain-on-failure', undefined)).toMatch(
+      /trace mode/
+    )
+  })
+
+  it('stays silent in trace mode or when no policy is set', () => {
+    expect(tracePolicyModeWarning('retain-on-failure', 'trace')).toBeUndefined()
+    expect(tracePolicyModeWarning(undefined, 'live')).toBeUndefined()
   })
 })

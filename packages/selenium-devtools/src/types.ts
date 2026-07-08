@@ -16,7 +16,8 @@ export {
   type TestStatus,
   type TestMetadataMap,
   type TraceFormat,
-  type TraceGranularity
+  type TraceGranularity,
+  type TraceRetentionPolicy
 } from '@wdio/devtools-shared'
 
 export interface DevToolsOptions {
@@ -33,6 +34,9 @@ export interface DevToolsOptions {
    *  worker session; `spec` writes one trace per spec file. Only applies in
    *  trace mode. */
   traceGranularity?: TraceGranularity
+  /** Trace retention policy — gates which traces are kept (e.g.
+   *  `retain-on-failure`). Default `on` (keep all). Only applies in trace mode. */
+  tracePolicy?: TraceRetentionPolicy
   /** Capture screenshots after each command. Default true. */
   captureScreenshots?: boolean
   /** Capture node:assert assertions as first-class commands. Default true. */
@@ -55,7 +59,8 @@ import type {
   DevToolsMode,
   ScreencastOptions,
   TraceFormat,
-  TraceGranularity
+  TraceGranularity,
+  TraceRetentionPolicy
 } from '@wdio/devtools-shared'
 export type { ScreencastFrame, ScreencastOptions } from '@wdio/devtools-shared'
 
