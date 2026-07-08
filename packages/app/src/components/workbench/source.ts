@@ -110,13 +110,11 @@ export class DevtoolsSource extends Element {
     )
   }
 
-  /** File to show: an explicit selection/call-site, else the first available. */
+  /** File to show: an explicit selection/call-site wins even when it wasn't
+   *  captured as a source (the toolbar then shows a not-captured state instead
+   *  of silently falling back to a different file), else the first available. */
   get #effectiveFile(): string | undefined {
-    const files = this.#fileList
-    if (this.activeFile && files.includes(this.activeFile)) {
-      return this.activeFile
-    }
-    return files[0]
+    return this.activeFile ?? this.#fileList[0]
   }
 
   #contentFor(file: string): string | undefined {
