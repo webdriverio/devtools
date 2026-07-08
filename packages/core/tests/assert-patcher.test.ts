@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import assert from 'node:assert'
 import {
   ASSERT_PATCHED_SYMBOL,
@@ -8,6 +8,19 @@ import {
   safeSerializeAssertArg,
   type CapturedAssert
 } from '../src/assert-patcher.js'
+import { getCallSourceFromStack } from '../src/stack.js'
+
+// Stub the call-source resolver so tests choose whether an assert looks like
+// it originated in user code (a frame) or a dependency/internal (no frame).
+vi.mock('../src/stack.js', () => ({
+  getCallSourceFromStack: vi.fn()
+}))
+
+const USER_FRAME = {
+  filePath: '/specs/login.ts',
+  callSource: '/specs/login.ts:12:3'
+}
+const INTERNAL_FRAME = { filePath: undefined, callSource: 'unknown:0' }
 
 // Snapshot real methods once so each test starts from a fresh assert.
 const ASSERT_MUT = assert as unknown as Record<string | symbol, unknown>
@@ -21,6 +34,8 @@ beforeEach(() => {
   for (const m of TRACKED_ASSERT_METHODS) {
     ASSERT_MUT[m] = originals[m]
   }
+  // Default: every assert looks like it came from user code so captures fire.
+  vi.mocked(getCallSourceFromStack).mockReturnValue(USER_FRAME)
 })
 
 describe('safeSerializeAssertArg', () => {
@@ -66,6 +81,51 @@ describe('patchNodeAssert', () => {
     await expect(assert.rejects(async () => 1)).rejects.toThrow()
     const results = captured.map((c) => c.result)
     expect(results).toEqual(['passed', undefined]) // first resolved, second rejected
+  })
+
+  // Only assertions that originate in user test code should reach the trace.
+  // Dependency/framework-internal asserts have no user-code frame on the
+  // stack (getCallSourceFromStack yields 'unknown:0') and must be dropped.
+  describe('user-origin filtering', () => {
+    it('drops a passing assert that has no user-code frame', () => {
+      vi.mocked(getCallSourceFromStack).mockReturnValue(INTERNAL_FRAME)
+      const captured: CapturedAssert[] = []
+      patchNodeAssert((c) => captured.push(c))
+      assert.equal(1, 1)
+      expect(captured).toHaveLength(0)
+    })
+
+    it('drops a failing internal assert but still re-throws', () => {
+      vi.mocked(getCallSourceFromStack).mockReturnValue(INTERNAL_FRAME)
+      const captured: CapturedAssert[] = []
+      patchNodeAssert((c) => captured.push(c))
+      expect(() => assert.equal(1, 2)).toThrow()
+      expect(captured).toHaveLength(0)
+    })
+
+    it('drops an internal async assert (rejects/doesNotReject)', async () => {
+      vi.mocked(getCallSourceFromStack).mockReturnValue(INTERNAL_FRAME)
+      const captured: CapturedAssert[] = []
+      patchNodeAssert((c) => captured.push(c))
+      await assert.doesNotReject(async () => 1)
+      await expect(assert.rejects(async () => 1)).rejects.toThrow()
+      expect(captured).toHaveLength(0)
+    })
+
+    it('keeps a user-origin assert and carries its callSource through', () => {
+      vi.mocked(getCallSourceFromStack).mockReturnValue(USER_FRAME)
+      const captured: CapturedAssert[] = []
+      patchNodeAssert((c) => captured.push(c))
+      assert.equal(1, 1)
+      expect(() => assert.equal(1, 2)).toThrow()
+      expect(captured).toHaveLength(2)
+      expect(captured[0]).toMatchObject({
+        result: 'passed',
+        callSource: USER_FRAME.callSource
+      })
+      expect(captured[1].result).toBeUndefined()
+      expect(captured[1].error).toBeInstanceOf(Error)
+    })
   })
 
   it('is idempotent — second patch is a no-op and sets the guard symbol', () => {

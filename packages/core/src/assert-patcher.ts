@@ -57,6 +57,11 @@ function makeAssertEmitters(
   onCommand: (cmd: CapturedAssert) => void
 ): { passed: () => void; failed: (err: unknown) => void } {
   const callInfo = getCallSourceFromStack()
+  // No user-code frame means the assert came from a dependency or framework
+  // internal, not the user's test — drop it so it never reaches the trace.
+  if (callInfo.filePath === undefined) {
+    return { passed: () => {}, failed: () => {} }
+  }
   const startedAt = Date.now()
   const sanitizedArgs = args.map(safeSerializeAssertArg)
   const emit = (result: 'passed' | undefined, error: Error | undefined) =>
