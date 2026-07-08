@@ -324,4 +324,76 @@ describe('TestReporter - Rerun & Stable UID', () => {
       expect(() => reporter.report).not.toThrow()
     })
   })
+
+  describe('Cucumber step uid scoping (no cross-scenario collision)', () => {
+    const FEATURE = '/proj/features/login.feature'
+    const STEP =
+      'I should see a flash message saying You logged into a secure area!'
+
+    const scenario = (title: string, line: number): SuiteStats =>
+      ({
+        uid: `raw-${title}`,
+        title,
+        fullTitle: `Login ${title}`,
+        file: FEATURE,
+        type: 'scenario',
+        argument: { uri: FEATURE, line }
+      }) as unknown as SuiteStats
+
+    const step = (line: number): TestStats =>
+      ({
+        uid: 'raw-step',
+        title: STEP,
+        fullTitle: STEP,
+        file: FEATURE,
+        type: 'test',
+        argument: { uri: FEATURE, line }
+      }) as unknown as TestStats
+
+    // Drive a scenario's step through the reporter and return the assigned uid.
+    const runStep = (
+      r: TestReporter,
+      scen: SuiteStats,
+      stepStats: TestStats
+    ): string => {
+      r.onSuiteStart(scen)
+      r.onTestStart(stepStats)
+      r.onTestEnd(stepStats)
+      r.onSuiteEnd(scen)
+      return stepStats.uid
+    }
+
+    it('gives identical step text in sibling scenarios distinct uids', () => {
+      const scenA = scenario('Scenario A', 5)
+      const scenB = scenario('Scenario B', 20)
+      const uidA = runStep(reporter, scenA, step(8))
+      const uidB = runStep(reporter, scenB, step(23))
+      expect(uidA).not.toBe(uidB)
+    })
+
+    it('keeps a step uid stable when its scenario is rerun alone', () => {
+      // Full run: scenario A then B.
+      const uidBFull = (() => {
+        runStep(reporter, scenario('Scenario A', 5), step(8))
+        return runStep(reporter, scenario('Scenario B', 20), step(23))
+      })()
+
+      // Rerun scenario B on its own (fresh reporter resets the counter). A
+      // run-order-counter uid would shift to A's slot here; scoping by the
+      // scenario keeps it stable.
+      const reporter2 = new TestReporter(
+        { logFile: '/tmp/test.log' },
+        sendUpstream as any
+      )
+      const uidBAlone = runStep(reporter2, scenario('Scenario B', 20), step(23))
+
+      expect(uidBAlone).toBe(uidBFull)
+    })
+
+    it('distinguishes scenario-outline example rows (same title, different line)', () => {
+      const row1 = runStep(reporter, scenario('greet <name>', 10), step(11))
+      const row2 = runStep(reporter, scenario('greet <name>', 14), step(15))
+      expect(row1).not.toBe(row2)
+    })
+  })
 })
