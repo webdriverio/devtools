@@ -13,6 +13,19 @@ export function testMetadataUid(
   return file ? deterministicUid(file, title) : title
 }
 
+/** Scenario key that separates scenario-outline example rows: they share a
+ *  name, so the pickle's astNodeIds (distinct per row, stable across reruns)
+ *  are folded in. beforeScenario and afterScenario derive it identically. */
+export function cucumberScenarioUid(
+  uri: string,
+  name: string,
+  astNodeIds?: readonly string[]
+): string {
+  return astNodeIds?.length
+    ? deterministicUid(uri, name, astNodeIds.join(':'))
+    : deterministicUid(uri, name)
+}
+
 /** Canonical test state from a WDIO afterTest/afterScenario result. */
 export function resultToState(result: {
   passed?: boolean

@@ -8,9 +8,13 @@
 // library. No external input reaches new Function() — the lint flag here is
 // a false positive given the closed input set.
 
-import { captureActionSnapshot as coreCapture } from '@wdio/devtools-core'
+import {
+  captureActionSnapshot as coreCapture,
+  mapCommandToAction
+} from '@wdio/devtools-core'
 import type { ActionSnapshot } from '@wdio/devtools-shared'
 import { isNativeMobile, mobilePlatform } from './mobile.js'
+import { INTERNAL_COMMANDS } from './constants.js'
 
 function reviveScript(src: string): () => unknown {
   // `src` from core/element-scripts is already a self-invoking IIFE
@@ -53,6 +57,28 @@ export async function waitForActionResult(
     .catch(() => undefined)
   // Headless renderers can return a blank shot right after load; let it paint.
   await browser.pause(250).catch(() => undefined)
+}
+
+/** Post-action capture: settle the resulting page, screenshot it, and push the
+ *  snapshot stamped at the latest logged action. No-op for internal/non-mapped
+ *  commands. Skipped by the caller outside trace mode. */
+export async function captureActionResult(
+  browser: WebdriverIO.Browser,
+  command: string,
+  actionSnapshots: ActionSnapshot[],
+  stampTimestamp: () => number
+): Promise<void> {
+  if (!mapCommandToAction(command) || INTERNAL_COMMANDS.includes(command)) {
+    return
+  }
+  if (!isNativeMobile(browser)) {
+    await waitForActionResult(browser)
+  }
+  const snap = await captureActionSnapshot(browser, command)
+  if (snap) {
+    snap.timestamp = stampTimestamp()
+    actionSnapshots.push(snap)
+  }
 }
 
 export function captureActionSnapshot(
