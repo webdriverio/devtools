@@ -106,13 +106,7 @@ describe('DevtoolsService - Internal Command Filtering', () => {
 
   describe('beforeCommand', () => {
     it('should not add internal commands to command stack', () => {
-      const internalCommands = [
-        'getTitle',
-        'waitUntil',
-        'getUrl',
-        'execute',
-        'findElement'
-      ]
+      const internalCommands = ['getTitle', 'getUrl', 'execute', 'findElement']
       internalCommands.forEach((cmd) => service.beforeCommand(cmd as any, []))
       expect(true).toBe(true)
     })
@@ -138,19 +132,34 @@ describe('DevtoolsService - Internal Command Filtering', () => {
       executeCommand('url', ['https://example.com'])
       executeCommand('getTitle', [], 'Page Title') // internal
       executeCommand('click', ['.button'])
-      executeCommand('waitUntil', [expect.any(Function)], true) // internal
+      executeCommand('waitUntil', [expect.any(Function)], true) // a user wait
       executeCommand('getText', ['.result'], 'Success')
 
-      // Only user commands (url, click, getText) should be captured
-      expect(mockSessionCapturerInstance.afterCommand).toHaveBeenCalledTimes(3)
+      // getTitle is internal; the rest — including the wait — are user actions.
+      expect(mockSessionCapturerInstance.afterCommand).toHaveBeenCalledTimes(4)
 
       const capturedCommands =
         mockSessionCapturerInstance.afterCommand.mock.calls.map(
           (call) => call[1]
         )
-      expect(capturedCommands).toEqual(['url', 'click', 'getText'])
+      expect(capturedCommands).toEqual(['url', 'click', 'waitUntil', 'getText'])
       expect(capturedCommands).not.toContain('getTitle')
-      expect(capturedCommands).not.toContain('waitUntil')
+    })
+
+    it('captures a wait once and suppresses the commands it polls', () => {
+      // waitUntil opens; its predicate polls isDisplayed while the wait is
+      // still on the stack, so those polls are top-level-suppressed.
+      service.beforeCommand('waitUntil' as any, [expect.any(Function)])
+      service.beforeCommand('isDisplayed' as any, [])
+      service.afterCommand('isDisplayed' as any, [], false)
+      service.beforeCommand('isDisplayed' as any, [])
+      service.afterCommand('isDisplayed' as any, [], true)
+      service.afterCommand('waitUntil' as any, [expect.any(Function)], true)
+
+      const captured = mockSessionCapturerInstance.afterCommand.mock.calls.map(
+        (call) => call[1]
+      )
+      expect(captured).toEqual(['waitUntil'])
     })
 
     // Service-fired commands (preload injection, Puppeteer handle for CDP,
