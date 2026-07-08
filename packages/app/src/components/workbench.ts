@@ -8,9 +8,17 @@ import {
   consoleLogContext,
   metadataContext,
   networkRequestContext,
-  baselineContext
+  baselineContext,
+  commandContext,
+  suiteContext
 } from '../controller/context.js'
-import type { Metadata, PreservedAttempt } from '@wdio/devtools-shared'
+import type {
+  CommandLog,
+  Metadata,
+  PreservedAttempt
+} from '@wdio/devtools-shared'
+import type { SuiteStatsFragment } from '../controller/types.js'
+import { collectErrors } from './workbench/errors/collect.js'
 
 import '~icons/mdi/arrow-collapse-down.js'
 import '~icons/mdi/arrow-collapse-up.js'
@@ -24,6 +32,7 @@ import './workbench/logs.js'
 import './workbench/console.js'
 import './workbench/metadata.js'
 import './workbench/network.js'
+import './workbench/errors.js'
 import './workbench/compare.js'
 import './browser/snapshot.js'
 import './browser/trace-timeline.js'
@@ -72,6 +81,14 @@ export class DevtoolsWorkbench extends Element {
   @consume({ context: baselineContext, subscribe: true })
   @state()
   baselines: Map<string, PreservedAttempt> | undefined = undefined
+
+  @consume({ context: commandContext, subscribe: true })
+  @state()
+  commands: CommandLog[] | undefined = undefined
+
+  @consume({ context: suiteContext, subscribe: true })
+  @state()
+  suites: Record<string, SuiteStatsFragment>[] | undefined = undefined
 
   @consume({ context: metadataContext, subscribe: true })
   @state()
@@ -317,6 +334,44 @@ export class DevtoolsWorkbench extends Element {
     `
   }
 
+  #errorCount(): number {
+    return collectErrors(this.commands, this.suites).length
+  }
+
+  // Dock tab list — extracted so #renderWorkbenchTabs stays under the size cap.
+  #renderDockTabItems() {
+    return html`
+      <wdio-devtools-tab label="Source">
+        <wdio-devtools-source></wdio-devtools-source>
+      </wdio-devtools-tab>
+      <wdio-devtools-tab label="Log">
+        <wdio-devtools-logs></wdio-devtools-logs>
+      </wdio-devtools-tab>
+      <wdio-devtools-tab
+        label="Console"
+        .badge="${this.consoleLogs?.length || 0}"
+      >
+        <wdio-devtools-console-logs
+          id="console-logs-tab"
+        ></wdio-devtools-console-logs>
+      </wdio-devtools-tab>
+      <wdio-devtools-tab
+        label="Network"
+        .badge="${this.networkRequests?.length || 0}"
+      >
+        <wdio-devtools-network></wdio-devtools-network>
+      </wdio-devtools-tab>
+      <wdio-devtools-tab
+        label="Errors"
+        badgeTone="danger"
+        .badge="${this.#errorCount()}"
+      >
+        <wdio-devtools-errors></wdio-devtools-errors>
+      </wdio-devtools-tab>
+      ${this.#renderCompareTabIfAvailable()}
+    `
+  }
+
   #renderWorkbenchTabs() {
     return html`
       <wdio-devtools-tabs
@@ -326,27 +381,7 @@ export class DevtoolsWorkbench extends Element {
           ? 'hidden'
           : ''} flex-1 min-h-0"
       >
-        <wdio-devtools-tab label="Source">
-          <wdio-devtools-source></wdio-devtools-source>
-        </wdio-devtools-tab>
-        <wdio-devtools-tab label="Log">
-          <wdio-devtools-logs></wdio-devtools-logs>
-        </wdio-devtools-tab>
-        <wdio-devtools-tab
-          label="Console"
-          .badge="${this.consoleLogs?.length || 0}"
-        >
-          <wdio-devtools-console-logs
-            id="console-logs-tab"
-          ></wdio-devtools-console-logs>
-        </wdio-devtools-tab>
-        <wdio-devtools-tab
-          label="Network"
-          .badge="${this.networkRequests?.length || 0}"
-        >
-          <wdio-devtools-network></wdio-devtools-network>
-        </wdio-devtools-tab>
-        ${this.#renderCompareTabIfAvailable()}
+        ${this.#renderDockTabItems()}
         <nav class="ml-auto" slot="actions">
           <button
             @click="${() => this.#toggle('toolbar')}"
