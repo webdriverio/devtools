@@ -40,7 +40,11 @@ import {
   detectSeleniumVersion
 } from './helpers/runtime.js'
 import { findFreePort } from './helpers/utils.js'
-import { RetryTracker, errorMessage } from '@wdio/devtools-core'
+import {
+  RetryTracker,
+  errorMessage,
+  tracePolicyModeWarning
+} from '@wdio/devtools-core'
 import { tryRegisterRunnerHooks } from './runnerHooks.js'
 import { patchNodeAssert } from './assertPatcher.js'
 import {
@@ -136,7 +140,15 @@ class SeleniumDevToolsPlugin {
       headless: options.headless ?? false,
       mode: options.mode ?? 'live',
       traceFormat: options.traceFormat ?? 'zip',
-      traceGranularity: options.traceGranularity ?? 'session'
+      traceGranularity: options.traceGranularity ?? 'session',
+      tracePolicy: options.tracePolicy ?? 'on'
+    }
+    const policyWarning = tracePolicyModeWarning(
+      options.tracePolicy,
+      this.#options.mode
+    )
+    if (policyWarning) {
+      log.warn(policyWarning)
     }
     this.#rerunManager = new RerunManager(RUNNER)
     if (options.rerunCommand) {

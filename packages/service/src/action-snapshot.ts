@@ -19,6 +19,42 @@ function reviveScript(src: string): () => unknown {
   return new Function(`return (${src})`) as () => unknown
 }
 
+/**
+ * After a mapped action, wait for the resulting page to settle before the
+ * post-action screenshot. readyState alone is unreliable — right after a click
+ * the OLD document still reports 'complete'. beforeCommand tags the document;
+ * if the tag is gone the action navigated, so we wait for the NEW document to
+ * finish loading AND render content before the destination is screenshotted.
+ */
+export async function waitForActionResult(
+  browser: WebdriverIO.Browser
+): Promise<void> {
+  const navigated = await browser
+    .execute(
+      () => !(window as Window & { __wdioSnapMark?: boolean }).__wdioSnapMark
+    )
+    .catch(() => true)
+  if (!navigated) {
+    return
+  }
+  await browser
+    .waitUntil(
+      async () =>
+        (await browser
+          .execute(
+            () =>
+              document.readyState === 'complete' &&
+              !!document.body &&
+              document.body.childElementCount > 0
+          )
+          .catch(() => false)) === true,
+      { timeout: 8000, interval: 150 }
+    )
+    .catch(() => undefined)
+  // Headless renderers can return a blank shot right after load; let it paint.
+  await browser.pause(250).catch(() => undefined)
+}
+
 export function captureActionSnapshot(
   browser: WebdriverIO.Browser,
   command: string

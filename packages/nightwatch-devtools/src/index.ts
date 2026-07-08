@@ -13,6 +13,7 @@ import {
   flushRangeTrace,
   recordSpecBoundary,
   resolveAdapterOutputDir,
+  tracePolicyModeWarning,
   type SpecRange,
   type TraceArtifact,
   type TraceExportContext
@@ -130,7 +131,12 @@ class NightwatchDevToolsPlugin {
       captureAssertions: options.captureAssertions ?? true,
       mode,
       traceFormat: options.traceFormat ?? 'zip',
-      traceGranularity: options.traceGranularity ?? 'session'
+      traceGranularity: options.traceGranularity ?? 'session',
+      tracePolicy: options.tracePolicy ?? 'on'
+    }
+    const policyWarning = tracePolicyModeWarning(options.tracePolicy, mode)
+    if (policyWarning) {
+      log.warn(policyWarning)
     }
     this.#screencastOptions = { ...SCREENCAST_DEFAULTS, ...screencast }
     this.#bidiEnabled = options.bidi === true
@@ -540,6 +546,7 @@ class NightwatchDevToolsPlugin {
   #traceContext(sessionId: string): TraceExportContext {
     return {
       mode: this.options.mode,
+      policy: this.options.tracePolicy,
       granularity: this.options.traceGranularity,
       format: this.options.traceFormat,
       capturer: this.sessionCapturer,

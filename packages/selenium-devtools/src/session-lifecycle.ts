@@ -35,7 +35,8 @@ import type {
   ScreencastOptions,
   SeleniumDriverLike,
   TraceFormat,
-  TraceGranularity
+  TraceGranularity,
+  TraceRetentionPolicy
 } from './types.js'
 import type { TestManager } from './helpers/testManager.js'
 
@@ -51,6 +52,7 @@ export interface SessionLifecycleCtx {
     mode?: DevToolsMode
     traceFormat?: TraceFormat
     traceGranularity?: TraceGranularity
+    tracePolicy?: TraceRetentionPolicy
   }
   readonly screencastOptions: ScreencastOptions
   readonly runner: string
@@ -297,6 +299,7 @@ function buildTraceExportContext(
   const root = ctx.suiteManager?.getRootSuite()
   return {
     mode: ctx.options.mode,
+    policy: ctx.options.tracePolicy,
     granularity: ctx.options.traceGranularity,
     format: ctx.options.traceFormat,
     capturer,

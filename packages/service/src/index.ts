@@ -9,13 +9,21 @@ import {
   mapCommandToAction,
   recordSpecBoundary,
   resolveAdapterOutputDir,
+  tracePolicyModeWarning,
   type SpecRange,
   type TraceExportContext
 } from '@wdio/devtools-core'
-import { synthesizeExpectFailure, wireAssertCapture } from './assert-capture.js'
+import { captureExpectFailure, wireAssertCapture } from './assert-capture.js'
+import { stampTestState, testMetadataUid } from './test-metadata.js'
 import { resolveCallSourceFromFrame } from './call-source.js'
-import { captureActionSnapshot } from './action-snapshot.js'
-import { dedupeSnapshotsByTimestamp } from './snapshot-dedupe.js'
+import {
+  captureActionSnapshot,
+  waitForActionResult
+} from './action-snapshot.js'
+import {
+  dedupeSnapshotsByTimestamp,
+  upsertRichestSnapshot
+} from './snapshot-dedupe.js'
 import type { ActionSnapshot, TestMetadataMap } from '@wdio/devtools-shared'
 import { SevereServiceError } from 'webdriverio'
 import type { Services, Capabilities, Options, Reporters } from '@wdio/types'
@@ -62,6 +70,13 @@ export default class DevToolsHookService implements Services.ServiceInstance {
 
   constructor(serviceOptions: ServiceOptions = {}) {
     this.#options = serviceOptions
+    const policyWarning = tracePolicyModeWarning(
+      serviceOptions.tracePolicy,
+      serviceOptions.mode
+    )
+    if (policyWarning) {
+      log.warn(policyWarning)
+    }
     if (serviceOptions.mode === 'trace' && serviceOptions.screencast?.enabled) {
       log.warn('trace mode: ignoring screencast option (live-mode feature)')
       this.#screencastOptions = undefined
@@ -118,6 +133,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
   #traceContext(browser: WebdriverIO.Browser): TraceExportContext {
     return {
       mode: this.#options.mode,
+      policy: this.#options.tracePolicy,
       granularity: this.#options.traceGranularity,
       format: this.#options.traceFormat,
       capturer: this.#sessionCapturer,
@@ -333,36 +349,61 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     // WDIO's Test type always provides `fullTitle`; `title` is a
     // fallback for non-WDIO frameworks.
     const testTitle = test?.fullTitle || test?.title
-    if (test?.file && testTitle) {
-      const uid = deterministicUid(test.file, testTitle)
+    if (testTitle) {
+      const uid = testMetadataUid(test?.file, testTitle)
       this.#currentTestUid = uid
       this.#testMetadata.set(uid, {
         title: testTitle,
-        specFile: test.file
-      })
-    } else if (testTitle) {
-      this.#currentTestUid = testTitle
-      this.#testMetadata.set(testTitle, {
-        title: testTitle,
-        specFile: test.file ?? ''
+        specFile: test?.file ?? ''
       })
     }
   }
 
-  async afterScenario() {
+  // afterStep fires right after each step, so the failing assertion lands next
+  // to the step's actions rather than after reloadSession at scenario end.
+  afterStep(
+    _step?: unknown,
+    _scenario?: unknown,
+    result?: { error?: unknown }
+  ) {
+    this.#captureExpectFailure(result?.error)
+  }
+
+  /** Mark the failing action from a matcher error (afterStep for Cucumber,
+   *  afterTest for Mocha route here). */
+  #captureExpectFailure(error: unknown): void {
+    captureExpectFailure(
+      this.#sessionCapturer,
+      this.#currentTestUid,
+      error,
+      this.#options.captureAssertions !== false
+    )
+  }
+
+  async afterScenario(
+    world?: { pickle?: { uri?: string; name?: string } },
+    result?: { error?: unknown; passed?: boolean; skipped?: boolean }
+  ) {
+    const { uri, name } = world?.pickle ?? {}
+    if (uri && name) {
+      stampTestState(this.#testMetadata, deterministicUid(uri, name), result)
+    }
     await this.#finalizePerScenario()
   }
 
   async afterTest(
-    _test?: unknown,
+    test?: { file?: string; title?: string; fullTitle?: string },
     _context?: unknown,
-    result?: { error?: unknown }
+    result?: { error?: unknown; passed?: boolean; skipped?: boolean }
   ) {
-    if (this.#options.captureAssertions !== false) {
-      const entry = synthesizeExpectFailure(result?.error, this.#currentTestUid)
-      if (entry) {
-        this.#sessionCapturer.captureAssertCommand(entry)
-      }
+    this.#captureExpectFailure(result?.error)
+    const testTitle = test?.fullTitle || test?.title
+    if (testTitle) {
+      stampTestState(
+        this.#testMetadata,
+        testMetadataUid(test?.file, testTitle),
+        result
+      )
     }
     await this.#finalizePerScenario()
   }
@@ -375,7 +416,10 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     const snap = await captureActionSnapshot(this.#browser, '__final__')
     if (snap) {
       snap.timestamp = stamp
-      this.#actionSnapshots.push(snap)
+      // The last action's post-capture shares this timestamp and resources are
+      // named by timestamp, so keep only the richer screenshot — a blank
+      // end-of-scenario frame must not clobber the action's real result.
+      upsertRichestSnapshot(this.#actionSnapshots, snap)
     }
   }
 
@@ -413,42 +457,13 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     }
     const browser = this.#browser
     if (!isNativeMobile(browser)) {
-      await this.#waitForResult(browser)
+      await waitForActionResult(browser)
     }
     const snap = await captureActionSnapshot(browser, command)
     if (snap) {
       snap.timestamp = this.#lastActionTimestamp()
       this.#actionSnapshots.push(snap)
     }
-  }
-
-  async #waitForResult(browser: WebdriverIO.Browser): Promise<void> {
-    const navigated = await browser
-      .execute(
-        () => !(window as Window & { __wdioSnapMark?: boolean }).__wdioSnapMark
-      )
-      .catch(() => true)
-    if (!navigated) {
-      return
-    }
-    // Action triggered a navigation — wait for the destination document to load
-    // and render content so we screenshot the result page, not a blank frame.
-    await browser
-      .waitUntil(
-        async () =>
-          (await browser
-            .execute(
-              () =>
-                document.readyState === 'complete' &&
-                !!document.body &&
-                document.body.childElementCount > 0
-            )
-            .catch(() => false)) === true,
-        { timeout: 8000, interval: 150 }
-      )
-      .catch(() => undefined)
-    // Headless renderers can return a blank shot right after load; let it paint.
-    await browser.pause(250).catch(() => undefined)
   }
 
   private resetStack() {

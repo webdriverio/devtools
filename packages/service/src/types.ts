@@ -29,14 +29,16 @@ import type {
   DevToolsMode,
   ScreencastOptions,
   TraceFormat,
-  TraceGranularity
+  TraceGranularity,
+  TraceRetentionPolicy
 } from '@wdio/devtools-shared'
 export type {
   DevToolsMode,
   ScreencastFrame,
   ScreencastOptions,
   TraceFormat,
-  TraceGranularity
+  TraceGranularity,
+  TraceRetentionPolicy
 } from '@wdio/devtools-shared'
 
 export interface ExtendedCapabilities extends WebdriverIO.Capabilities {
@@ -83,6 +85,9 @@ export interface ServiceOptions {
    *  worker session; `spec` writes one trace per spec file. Only applies in
    *  trace mode. */
   traceGranularity?: TraceGranularity
+  /** Trace retention policy — gates which traces are kept (e.g.
+   *  `retain-on-failure`). Default `on` (keep all). Only applies in trace mode. */
+  tracePolicy?: TraceRetentionPolicy
 }
 
 declare namespace WebdriverIO {

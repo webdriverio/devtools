@@ -265,6 +265,64 @@ describe('finalizeTraceExport', () => {
         true
       )
     })
+
+    // Session slice = OR over every test: one failure keeps the whole trace.
+    it('session slice retains when ANY test failed under retain-on-failure', async () => {
+      const result = await finalizeTraceExport(
+        baseCtx({
+          policy: 'retain-on-failure',
+          testMetadata: meta([
+            [
+              'u1',
+              { title: 'T1', specFile: '/a.js', state: 'passed', attempt: 0 }
+            ],
+            [
+              'u2',
+              { title: 'T2', specFile: '/a.js', state: 'failed', attempt: 0 }
+            ]
+          ])
+        })
+      )
+      expect(result[0]!.retained).toBe(true)
+      expect(await exists(path.join(outputDir, 'trace-abcd1234.zip'))).toBe(
+        true
+      )
+    })
+
+    // Spec slice = per-spec decision: the failing spec writes, the clean one
+    // does not — proving the retention gate runs against each spec's own tests.
+    it('spec slices retain per-spec failure under retain-on-failure', async () => {
+      const result = await finalizeTraceExport(
+        baseCtx({
+          granularity: 'spec',
+          policy: 'retain-on-failure',
+          ranges: [range('/a.js', 0), range('/b.js', 2)],
+          testMetadata: meta([
+            [
+              'a1',
+              { title: 'A1', specFile: '/a.js', state: 'failed', attempt: 0 }
+            ],
+            [
+              'b1',
+              { title: 'B1', specFile: '/b.js', state: 'passed', attempt: 0 }
+            ]
+          ])
+        })
+      )
+      expect(result).toHaveLength(2)
+      const a = result.find((r) => r.key === '/a.js')!
+      const b = result.find((r) => r.key === '/b.js')!
+      expect(a.retained).toBe(true)
+      expect(b.retained).toBe(false)
+      const nameA = buildSpecSessionId('/a.js', 'abcd1234')
+      const nameB = buildSpecSessionId('/b.js', 'abcd1234')
+      expect(await exists(path.join(outputDir, `trace-${nameA}.zip`))).toBe(
+        true
+      )
+      expect(await exists(path.join(outputDir, `trace-${nameB}.zip`))).toBe(
+        false
+      )
+    })
   })
 
   it('applies prepareSnapshots only to the session write', async () => {
