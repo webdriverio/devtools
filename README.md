@@ -129,7 +129,7 @@ services: [[DevToolsHookService, {
 
 Adapters detect mobile sessions via `platformName: 'android' | 'ios'` (case-insensitive) and adjust the per-action snapshot to extract elements from the mobile XML tree instead of the DOM. The trace's `context-options` records `title: 'android' — <deviceName>` / `'ios' — <deviceName>` so the viewer labels frames correctly.
 
-A reference WDIO config is at [examples/wdio/wdio.mobile.conf.ts](examples/wdio/wdio.mobile.conf.ts). Prereqs to run it end-to-end with a local emulator:
+A reference WDIO config is at [examples/wdio/cucumber/wdio.mobile.conf.ts](examples/wdio/cucumber/wdio.mobile.conf.ts). Prereqs to run it end-to-end with a local emulator:
 
 1. **Java JDK** — `brew install --cask temurin`
 2. **Android SDK** — `brew install --cask android-commandlinetools` then `yes | sdkmanager --licenses && sdkmanager "platform-tools" "emulator" "system-images;android-34;google_apis_playstore;arm64-v8a"`. The brew cask installs sdkmanager under `/opt/homebrew/share/android-commandlinetools/`, and sdkmanager downloads other SDK pieces alongside it — set `ANDROID_HOME` to that path (not `~/Library/Android/sdk/`).
