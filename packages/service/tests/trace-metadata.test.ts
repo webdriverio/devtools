@@ -1,7 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type * as DevtoolsCore from '@wdio/devtools-core'
 import { deterministicUid } from '@wdio/devtools-core'
-import { resultToState, testMetadataUid } from '../src/test-metadata.js'
+import {
+  cucumberScenarioUid,
+  resultToState,
+  testMetadataUid
+} from '../src/test-metadata.js'
 
 // Captures the ctx handed to finalizeTraceExport so the test can inspect the
 // state stamped onto testMetadata and the policy that flowed in.
@@ -36,6 +40,7 @@ vi.mock('../src/session.js', () => ({
 // Keep the after* hooks from touching a real browser/CDP.
 vi.mock('../src/action-snapshot.js', () => ({
   captureActionSnapshot: vi.fn().mockResolvedValue(null),
+  captureActionResult: vi.fn().mockResolvedValue(undefined),
   waitForActionResult: vi.fn().mockResolvedValue(undefined)
 }))
 
@@ -65,6 +70,20 @@ describe('test-metadata helpers', () => {
       deterministicUid(file, 'renders')
     )
     expect(testMetadataUid(undefined, 'renders')).toBe('renders')
+  })
+
+  it('cucumberScenarioUid separates outline rows sharing a name by astNodeIds', () => {
+    const uri = '/proj/features/login.feature'
+    const row1 = cucumberScenarioUid(uri, 'log in', ['node-1'])
+    const row2 = cucumberScenarioUid(uri, 'log in', ['node-2'])
+    // Distinct example rows → distinct uids (so they render as separate groups).
+    expect(row1).not.toBe(row2)
+    // A rerun of the same row → same uid (retry-coalescing stays intact).
+    expect(cucumberScenarioUid(uri, 'log in', ['node-1'])).toBe(row1)
+    // No astNodeIds → plain name-based uid.
+    expect(cucumberScenarioUid(uri, 'log in')).toBe(
+      deterministicUid(uri, 'log in')
+    )
   })
 })
 

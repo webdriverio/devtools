@@ -1,7 +1,6 @@
 /// <reference types="../../script/types.d.ts" />
 import logger from '@wdio/logger'
 import {
-  deterministicUid,
   errorMessage,
   finalizeScreencast,
   finalizeTraceExport,
@@ -14,11 +13,15 @@ import {
   type TraceExportContext
 } from '@wdio/devtools-core'
 import { captureExpectFailure, wireAssertCapture } from './assert-capture.js'
-import { stampTestState, testMetadataUid } from './test-metadata.js'
+import {
+  cucumberScenarioUid,
+  stampTestState,
+  testMetadataUid
+} from './test-metadata.js'
 import { resolveCallSourceFromFrame } from './call-source.js'
 import {
-  captureActionSnapshot,
-  waitForActionResult
+  captureActionResult,
+  captureActionSnapshot
 } from './action-snapshot.js'
 import {
   dedupeSnapshotsByTimestamp,
@@ -126,6 +129,21 @@ export default class DevToolsHookService implements Services.ServiceInstance {
           `Failed to flush trace for spec "${prevRange.specFile}": ${errorMessage(err)}`
         )
     )
+  }
+
+  /** Record a spec boundary (spec granularity) and flush the previous spec. */
+  #recordBoundary(specFile: string | undefined): void {
+    if (!specFile) {
+      return
+    }
+    const prevRange = recordSpecBoundary(
+      this.#boundaryContext,
+      specFile,
+      this.#options.traceGranularity
+    )
+    if (prevRange) {
+      this.#fireAndForgetFlush(prevRange)
+    }
   }
 
   /** Assemble the framework-agnostic trace-export context from this service's
@@ -286,33 +304,24 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     }
   }
 
-  /**
-   * Hook for Cucumber framework.
-   * Detects feature-file boundaries for per-spec tracing and tags commands
-   * with a stable testUid so tracingGroup spans render in the trace output.
-   * WDIO passes the Cucumber World as the first argument.
-   */
-  beforeScenario(world?: { pickle?: { uri?: string; name?: string } }) {
+  /** Cucumber hook: records feature-file boundaries and tags commands with a stable testUid. */
+  beforeScenario(world?: {
+    pickle?: { uri?: string; name?: string; astNodeIds?: readonly string[] }
+  }) {
     this.resetStack()
 
     const featureFile = world?.pickle?.uri
     const scenarioName = world?.pickle?.name
 
-    // ── Per-spec boundary detection (Cucumber) ──
-    if (featureFile) {
-      const prevRange = recordSpecBoundary(
-        this.#boundaryContext,
-        featureFile,
-        this.#options.traceGranularity
-      )
-      if (prevRange) {
-        this.#fireAndForgetFlush(prevRange)
-      }
-    }
+    this.#recordBoundary(featureFile)
 
     // ── Test identity for command tagging ──
     if (featureFile && scenarioName) {
-      const uid = deterministicUid(featureFile, scenarioName)
+      const uid = cucumberScenarioUid(
+        featureFile,
+        scenarioName,
+        world?.pickle?.astNodeIds
+      )
       this.#currentTestUid = uid
       this.#testMetadata.set(uid, {
         title: scenarioName,
@@ -321,28 +330,11 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     }
   }
 
-  /**
-   * Hook for Mocha/Jasmine frameworks.
-   * It does the exact same thing as beforeScenario.
-   */
+  /** Mocha/Jasmine hook: the beforeScenario equivalent for file-based specs. */
   beforeTest(test?: { file?: string; title?: string; fullTitle?: string }) {
     this.resetStack()
 
-    const newSpec = test?.file
-
-    // ── Per-spec boundary detection ──
-    // Only tracked when traceGranularity is 'spec'. Records array index
-    // ranges so #flushSpecTrace can slice the accumulated data per spec.
-    if (newSpec) {
-      const prevRange = recordSpecBoundary(
-        this.#boundaryContext,
-        newSpec,
-        this.#options.traceGranularity
-      )
-      if (prevRange) {
-        this.#fireAndForgetFlush(prevRange)
-      }
-    }
+    this.#recordBoundary(test?.file)
 
     // Track test identity for command tagging. Generate a stable UID
     // from file + title so commands can be partitioned across reruns.
@@ -381,12 +373,15 @@ export default class DevToolsHookService implements Services.ServiceInstance {
   }
 
   async afterScenario(
-    world?: { pickle?: { uri?: string; name?: string } },
+    world?: {
+      pickle?: { uri?: string; name?: string; astNodeIds?: readonly string[] }
+    },
     result?: { error?: unknown; passed?: boolean; skipped?: boolean }
   ) {
-    const { uri, name } = world?.pickle ?? {}
+    const { uri, name, astNodeIds } = world?.pickle ?? {}
     if (uri && name) {
-      stampTestState(this.#testMetadata, deterministicUid(uri, name), result)
+      const uid = cucumberScenarioUid(uri, name, astNodeIds)
+      stampTestState(this.#testMetadata, uid, result)
     }
     await this.#finalizePerScenario()
   }
@@ -432,38 +427,6 @@ export default class DevToolsHookService implements Services.ServiceInstance {
       }
     }
     return Date.now()
-  }
-
-  // Post-action capture: the state RESULTING from the action just completed.
-  // The pre-action capture in beforeCommand only records the state before the
-  // NEXT mapped action — when intervening commands (assertions, reloadSession)
-  // change the page first, an action's result (e.g. the page a click navigated
-  // to) is never captured.
-  //
-  // readyState alone is unreliable: right after a click the OLD document still
-  // reports 'complete', so a naive wait snapshots a blank mid-navigation frame.
-  // Instead, beforeCommand tags the document; if the tag is gone the action
-  // navigated, so we wait for the NEW document to finish loading AND render
-  // content before screenshotting its destination. Stamped at this command's
-  // own end (the latest logged action).
-  async #captureActionResult(command: string): Promise<void> {
-    if (
-      this.#options.mode !== 'trace' ||
-      !this.#browser ||
-      !mapCommandToAction(command) ||
-      INTERNAL_COMMANDS.includes(command)
-    ) {
-      return
-    }
-    const browser = this.#browser
-    if (!isNativeMobile(browser)) {
-      await waitForActionResult(browser)
-    }
-    const snap = await captureActionSnapshot(browser, command)
-    if (snap) {
-      snap.timestamp = this.#lastActionTimestamp()
-      this.#actionSnapshots.push(snap)
-    }
   }
 
   private resetStack() {
@@ -574,7 +537,14 @@ export default class DevToolsHookService implements Services.ServiceInstance {
           frame.startTimestamp,
           this.#currentTestUid
         )
-        await this.#captureActionResult(command)
+        if (this.#options.mode === 'trace') {
+          await captureActionResult(
+            this.#browser,
+            command,
+            this.#actionSnapshots,
+            () => this.#lastActionTimestamp()
+          )
+        }
         return captured
       }
     }
