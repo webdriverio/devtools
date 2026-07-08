@@ -106,28 +106,8 @@ export function serializeWebSnapshot(
     const indent = '  '.repeat(node.depth + 1) // +1 indents everything under the header
     const isInteractive = INTERACTIVE_ROLES.has(node.role)
 
-    // Skip statictext that merely echoes the parent link/button name.
-    // Example: link "Highlights" → a*=Highlights doesn't need
-    //   statictext "Highlights" as a child because it adds no information.
-    if (node.role === 'statictext' && node.name) {
-      let echoedByParent = false
-      for (let j = i - 1; j >= 0; j--) {
-        if (nodes[j].depth < node.depth) {
-          const parentRole = nodes[j].role
-          const parentName = nodes[j].name
-          if (
-            INTERACTIVE_ROLES.has(parentRole) &&
-            parentName &&
-            parentName.includes(node.name)
-          ) {
-            echoedByParent = true
-          }
-          break // only check the immediate structural parent
-        }
-      }
-      if (echoedByParent) {
-        continue
-      }
+    if (isStatictextEchoedByParent(nodes, i)) {
+      continue
     }
 
     // Heading gets level suffix: heading[2]
@@ -171,6 +151,35 @@ export function serializeWebSnapshot(
 // ---------------------------------------------------------------------------
 // Mobile snapshot helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Returns true when `nodes[index]` is a statictext whose accessible name
+ * is already echoed by its immediate interactive parent — such a node
+ * adds no information and should be suppressed from the output.
+ */
+function isStatictextEchoedByParent(
+  nodes: AccessibilityNode[],
+  index: number
+): boolean {
+  const node = nodes[index]!
+  if (node.role !== 'statictext' || !node.name) {
+    return false
+  }
+  for (let j = index - 1; j >= 0; j--) {
+    if (nodes[j]!.depth < node.depth) {
+      const parent = nodes[j]!
+      if (
+        INTERACTIVE_ROLES.has(parent.role) &&
+        parent.name &&
+        parent.name.includes(node.name)
+      ) {
+        return true
+      }
+      break
+    }
+  }
+  return false
+}
 
 /** Shorten fully-qualified Android/iOS class names to the last segment. */
 function simplifyTag(tagName: string): string {
@@ -771,11 +780,13 @@ export function serializeMobileSnapshot(
 
 /** Derive a tag name from a CSS selector prefix (e.g. "button*=Submit" → "button"). */
 function extractTagFromSelector(selector: string, fallback: string): string {
-  const match = selector.match(/^([a-z][a-z0-9]*)[*.#\[]/)
+  // Matches tag name followed by a CSS selector combinator or operator.
+  // Supports hyphenated custom elements (my-component) and pseudo-classes (:nth-of-type).
+  const match = selector.match(/^([a-z][a-z0-9]*(?:-[a-z][a-z0-9]*)*)[*.#\[:=(^$~]/)
   if (match) {
     return match[1]
   }
-  const spaceMatch = selector.match(/^([a-z][a-z0-9]*)\s/)
+  const spaceMatch = selector.match(/^([a-z][a-z0-9]*(?:-[a-z][a-z0-9]*)*)\s/)
   if (spaceMatch) {
     return spaceMatch[1]
   }
@@ -788,6 +799,14 @@ function findContextName(nodes: SnapshotNode[], index: number): string | undefin
   for (let i = index - 1; i >= 0; i--) {
     if (nodes[i].depth <= myDepth && nodes[i].name) {
       if (nodes[i].depth === myDepth && nodes[i].isInteractive) {
+        continue
+      }
+      // Suppressed tag-interactive nodes (isInteractive=false but role is a
+      // mobile-interactable label like 'statictext') shouldn't provide context
+      // at same depth — their name is label text, not a container identity.
+      // Mirrors mobileInferPurpose which skips same-depth nodes not in
+      // MOBILE_STRUCTURAL_ROLES (which excludes 'statictext').
+      if (nodes[i].depth === myDepth && nodes[i].role === 'statictext') {
         continue
       }
       return nodes[i].name
@@ -857,6 +876,7 @@ export function buildSnapshot(
 
       elements[eId] = {
         selector: node.selector,
+        ...(selector !== node.selector ? { qualifiedSelector: selector } : {}),
         tagName: node.tagName,
         role: node.role,
         text: node.name
@@ -898,24 +918,15 @@ export function accessibilityNodesToSnapshotNodes(
 
     const isInteractive = INTERACTIVE_ROLES.has(node.role)
 
-    // Skip statictext that merely echoes the parent interactive name
-    if (node.role === 'statictext' && node.name) {
-      let echoedByParent = false
-      for (let j = i - 1; j >= 0; j--) {
-        if (nodes[j].depth < node.depth) {
-          if (
-            INTERACTIVE_ROLES.has(nodes[j].role) &&
-            nodes[j].name &&
-            nodes[j].name.includes(node.name)
-          ) {
-            echoedByParent = true
-          }
-          break
-        }
-      }
-      if (echoedByParent) {
-        continue
-      }
+    if (isStatictextEchoedByParent(nodes, i)) {
+      continue
+    }
+
+    // Interactive nodes without a selector can't be acted on — skip them
+    // so they don't leak as non-actionable entries in the text tree.
+    // Matches the guard in serializeWebSnapshot (line 141).
+    if (isInteractive && !node.selector) {
+      continue
     }
 
     const tagName = isInteractive && node.selector

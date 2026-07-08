@@ -182,8 +182,13 @@ export default class DevToolsHookService implements Services.ServiceInstance {
      * Returns { text, elements } — see @wdio/elements SnapshotResult.
      */
     browser.addCommand('getSnapshot', async (options?: { inViewportOnly?: boolean }) => {
-      const { getSnapshot } = await import('@wdio/elements')
-      return getSnapshot(browser, options ?? { inViewportOnly: true })
+      try {
+        const { getSnapshot } = await import('@wdio/elements')
+        return await getSnapshot(browser, options ?? { inViewportOnly: true })
+      } catch (err) {
+        log.warn(`getSnapshot failed: ${errorMessage(err)}`)
+        return { text: '[Snapshot unavailable]', elements: {} }
+      }
     })
   }
 

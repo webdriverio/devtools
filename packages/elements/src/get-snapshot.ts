@@ -97,13 +97,18 @@ async function getMobileSnapshot(
     return { text: '[No elements found]', elements: {} }
   }
 
+  // A zero-dimension viewport (minimized app, broken ADB connection) would
+  // silently clip every element. Treat it as unavailable instead.
+  const safeViewport =
+    viewportSize?.width && viewportSize?.height ? viewportSize : undefined
+
   const deviceName = getDeviceName(browser)
 
-  const header = buildMobileHeader(platform, deviceName, viewportSize)
+  const header = buildMobileHeader(platform, deviceName, safeViewport)
 
   const snapshotNodes = jsonElementToSnapshotNodes(root, platform, {
     inViewportOnly,
-    viewport: viewportSize ?? undefined,
+    viewport: safeViewport,
     sourceXML: pageSource
   })
 

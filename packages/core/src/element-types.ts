@@ -61,7 +61,10 @@ export interface SnapshotNode {
 
 /** Entry in the elements map returned by getSnapshot(). */
 export interface SnapshotElement {
+  /** Raw selector — may need .instance(N) on mobile when duplicates exist. */
   selector: string
+  /** Selector with .instance(N) suffix — only set when it differs from `selector` (duplicate disambiguation). */
+  qualifiedSelector?: string
   tagName: string
   role: string
   text: string
