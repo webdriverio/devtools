@@ -5,51 +5,65 @@ import {
   TRACKED_ASSERT_METHODS
 } from '@wdio/devtools-core'
 import {
-  synthesizeExpectFailure,
+  captureExpectFailure,
+  toCommandError,
   wireAssertCapture
 } from '../src/assert-capture.js'
 import type { SessionCapturer } from '../src/session.js'
-import type { CommandLog } from '../src/types.js'
 
-describe('synthesizeExpectFailure', () => {
-  it('builds an expect.<matcher> entry from a matcherResult error', () => {
-    const error = Object.assign(new Error('expected 1 to be 2'), {
+describe('toCommandError', () => {
+  it('normalizes a matcher Error object (ANSI stripped)', () => {
+    const error = Object.assign(new Error('[31mexpected 1 to be 2[39m'), {
       matcherResult: { matcherName: 'toBe', actual: 1, expected: 2 }
     })
-    const entry = synthesizeExpectFailure(error, 'test-1')
-    expect(entry).toMatchObject({
-      command: 'expect.toBe',
-      args: [1, 2],
-      error: { name: 'Error', message: 'expected 1 to be 2' },
-      testUid: 'test-1'
+    expect(toCommandError(error)).toMatchObject({
+      name: 'Error',
+      message: 'expected 1 to be 2'
     })
-    expect(typeof entry?.timestamp).toBe('number')
   })
 
-  it('falls back to expect.assertion for bare expected/actual errors', () => {
-    const error = Object.assign(new Error('nope'), {
-      expected: 'a',
-      actual: 'b'
+  it('wraps a Cucumber string message, stripping ANSI', () => {
+    const raw = 'Expect to have text\n\nExpected: [32m"a"[39m'
+    expect(toCommandError(raw)).toEqual({
+      name: 'Error',
+      message: 'Expect to have text\n\nExpected: "a"'
     })
-    const entry = synthesizeExpectFailure(error, undefined)
-    expect(entry?.command).toBe('expect.assertion')
-    expect(entry?.args).toEqual(['b', 'a'])
-    expect(entry?.testUid).toBeUndefined()
   })
 
-  it('skips node:assert AssertionErrors (already captured by the patcher)', () => {
-    const error = Object.assign(new Error('a !== b'), {
-      name: 'AssertionError',
-      expected: 'b',
-      actual: 'a'
+  it('returns undefined for node:assert AssertionError, empties and non-errors', () => {
+    const assertionError = Object.assign(new Error('a !== b'), {
+      name: 'AssertionError'
     })
-    expect(synthesizeExpectFailure(error, 'test-1')).toBeNull()
+    expect(toCommandError(assertionError)).toBeUndefined()
+    expect(toCommandError('   ')).toBeUndefined()
+    expect(toCommandError(undefined)).toBeUndefined()
+    expect(toCommandError(42)).toBeUndefined()
+  })
+})
+
+describe('captureExpectFailure', () => {
+  function fakeCapturer() {
+    return {
+      failLastAction: vi.fn().mockReturnValue(true)
+    } as unknown as SessionCapturer & {
+      failLastAction: ReturnType<typeof vi.fn>
+    }
+  }
+
+  it('marks the last action with the normalized error', () => {
+    const capturer = fakeCapturer()
+    captureExpectFailure(capturer, 'test-1', 'boom', true)
+    expect(capturer.failLastAction).toHaveBeenCalledWith('test-1', {
+      name: 'Error',
+      message: 'boom'
+    })
   })
 
-  it('skips errors without a matcher shape and empty results', () => {
-    expect(synthesizeExpectFailure(new Error('timeout'), 'test-1')).toBeNull()
-    expect(synthesizeExpectFailure(undefined, 'test-1')).toBeNull()
-    expect(synthesizeExpectFailure('string error', 'test-1')).toBeNull()
+  it('is a no-op when disabled or when there is no error', () => {
+    const capturer = fakeCapturer()
+    captureExpectFailure(capturer, 'test-1', 'boom', false)
+    captureExpectFailure(capturer, 'test-1', undefined, true)
+    expect(capturer.failLastAction).not.toHaveBeenCalled()
   })
 })
 
