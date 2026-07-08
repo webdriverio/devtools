@@ -144,7 +144,7 @@ The execution environment is the browser, not Node, so this package cannot impor
 
 Per-framework demo projects used for manual verification.
 
-- `examples/wdio/` — WebdriverIO with Mocha (default). Run via `pnpm demo:wdio`.
+- `examples/wdio/` — WebdriverIO, split into `cucumber/` and `mocha/` (shared page objects in `pageobjects/`). Run via `pnpm demo:wdio` (Cucumber) or `pnpm demo:wdio:mocha`.
 - `examples/nightwatch/` — Nightwatch (both vanilla and Cucumber). Run via `pnpm demo:nightwatch`.
 - `examples/selenium/` — Selenium with subdirs for `mocha-test/`, `jest-test/`, `cucumber-test/`, `jasmine-test/`, `vitest-test/`. `pnpm demo:selenium` runs mocha; `pnpm --filter @wdio/selenium-devtools example:<runner>` runs the others.
 
