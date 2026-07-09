@@ -1,12 +1,11 @@
 import { createHash } from 'node:crypto'
-import { existsSync } from 'node:fs'
 import { describe, it, expect } from 'vitest'
 import { zipSync, strToU8 } from 'fflate'
 import type {
   TraceActionChild,
   TraceActionGroupNode
 } from '@wdio/devtools-shared'
-import { parseTraceZip, readTraceZip } from '../src/trace-reader.js'
+import { parseTraceZip } from '../src/trace-reader.js'
 import { buildSources, stackToCallSource } from '../src/trace-reader-utils.js'
 import type { BeforeEvent } from '../src/trace-reader-types.js'
 
@@ -597,44 +596,4 @@ describe('glued callSource recovery from older zips', () => {
     })
     expect(sources).toEqual({ [clean]: 'glued source' })
   })
-})
-
-// Manual verification against a real foreign zip; skipped where absent.
-const FOREIGN_ZIP_PATH =
-  process.env.FOREIGN_TRACE_ZIP ??
-  '/Users/vishnu.p@browserstack.com/Documents/Test projects/Test-playwright/test-results/trace-features-trace-feature-showcase-chromium/trace.zip'
-
-describe('readTraceZip against a real foreign zip', () => {
-  it.skipIf(!existsSync(FOREIGN_ZIP_PATH))(
-    'renders actions, filmstrip, network and a sane duration',
-    async () => {
-      const { trace, frames, startTime, duration, groups } =
-        await readTraceZip(FOREIGN_ZIP_PATH)
-      expect(trace.commands.length).toBeGreaterThan(10)
-      expect(frames.length).toBeGreaterThan(10)
-      expect(frames.every((f) => f.screenshot.length > 0)).toBe(true)
-      expect(startTime).toBeGreaterThan(1_700_000_000_000)
-      expect(duration).toBeGreaterThan(5_000)
-      expect(duration).toBeLessThan(60_000)
-      for (const frame of frames) {
-        expect(frame.timestamp).toBeGreaterThanOrEqual(startTime)
-        expect(frame.timestamp).toBeLessThanOrEqual(startTime + duration)
-      }
-      expect(trace.networkRequests.length).toBeGreaterThan(0)
-      expect(trace.consoleLogs.length).toBeGreaterThanOrEqual(3)
-      expect(Object.keys(trace.sources).length).toBeGreaterThan(0)
-      expect(trace.commands.some((c) => c.error)).toBe(true)
-      // The action tree covers every command exactly once and flags failures.
-      const tree = allGroups(groups ?? [])
-      expect(tree.length).toBeGreaterThan(5)
-      expect([...commandIndices(groups ?? [])].sort((a, b) => a - b)).toEqual(
-        trace.commands.map((_, index) => index)
-      )
-      const failed = tree.filter((group) => group.failed)
-      expect(failed.length).toBeGreaterThan(0)
-      expect(failed.some((g) => g.title.startsWith('Soft assertion'))).toBe(
-        true
-      )
-    }
-  )
 })
