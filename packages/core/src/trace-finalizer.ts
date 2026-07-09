@@ -17,7 +17,9 @@ import type {
 import { errorMessage } from './error.js'
 import {
   filterTestMetadataBySpec,
+  filterTestMetadataByUid,
   writeSpecTrace,
+  writeTestSliceTrace,
   type SpecRange
 } from './spec-trace-helpers.js'
 import { shouldRetainTrace, type TestOutcome } from './trace-retention.js'
@@ -69,6 +71,22 @@ const SPEC_WITHOUT_BOUNDARIES_WARNING =
   '(the runner may not expose per-test hooks). Falling back to ' +
   'session-level trace.'
 
+const TEST_WITHOUT_BOUNDARIES_WARNING =
+  'traceGranularity is "test" but no test boundaries were detected ' +
+  '(the runner may not expose per-test hooks). Falling back to ' +
+  'session-level trace.'
+
+/** Above this many slices, warn to pair granularity with a retention policy. */
+const SLICE_COUNT_WARN_THRESHOLD = 200
+
+function sliceCountWarning(count: number): string {
+  return (
+    `traceGranularity produced ${count} trace slices. Consider pairing it ` +
+    'with a retention policy (e.g. tracePolicy: "retain-on-failure") to ' +
+    'avoid writing hundreds of trace archives.'
+  )
+}
+
 /** Project a metadata slice onto the retention evaluator's outcome shape. */
 function toOutcomes(metadata: TestMetadataMap): TestOutcome[] {
   return Array.from(metadata.values(), (m) => ({
@@ -93,30 +111,31 @@ function shouldRetain(
 }
 
 /**
- * Policy-aware single-range flush: dedupes via `ctx.flushed`, applies the
- * retention decision, and delegates the byte-level slicing/naming to
- * `writeSpecTrace`. Returns the artifact, or undefined when the range was
- * already flushed.
+ * Policy-aware single-range flush: dedupes via `ctx.flushed` on the slice
+ * `key`, applies the retention decision, and delegates the byte-level
+ * slicing/naming to `writeSpecTrace` (spec slices) or `writeTestSliceTrace`
+ * (test slices, distinguished by `range.testUid`). Returns the artifact, or
+ * undefined when the range was already flushed.
  */
 export async function flushRangeTrace(
   ctx: TraceExportContext,
   range: SpecRange,
   nextRange?: SpecRange
 ): Promise<TraceArtifact | undefined> {
-  if (ctx.flushed.has(range.specFile)) {
+  if (ctx.flushed.has(range.key)) {
     return undefined
   }
-  ctx.flushed.add(range.specFile)
+  ctx.flushed.add(range.key)
 
-  const sliceMetadata = filterTestMetadataBySpec(
-    ctx.testMetadata,
-    range.specFile
-  )
+  const isTestSlice = range.testUid !== undefined
+  const sliceMetadata = isTestSlice
+    ? filterTestMetadataByUid(ctx.testMetadata, range.testUid!)
+    : filterTestMetadataBySpec(ctx.testMetadata, range.specFile)
   const artifact: TraceArtifact = {
     kind: 'trace',
     path: '',
-    scope: 'spec',
-    key: range.specFile,
+    scope: isTestSlice ? 'test' : 'spec',
+    key: range.key,
     testUids: Array.from(sliceMetadata.keys()),
     retained: shouldRetain(ctx, sliceMetadata)
   }
@@ -125,7 +144,8 @@ export async function flushRangeTrace(
     return artifact
   }
 
-  artifact.path = await writeSpecTrace({
+  const writeSlice = isTestSlice ? writeTestSliceTrace : writeSpecTrace
+  artifact.path = await writeSlice({
     range,
     nextRange,
     capturer: ctx.capturer,
@@ -138,7 +158,7 @@ export async function flushRangeTrace(
   })
   ctx.log?.(
     'info',
-    `Trace for spec "${range.specFile}" saved to ${artifact.path}`
+    `Trace for ${isTestSlice ? 'test' : 'spec'} "${range.key}" saved to ${artifact.path}`
   )
   ctx.onArtifact?.(artifact)
   return artifact
@@ -202,9 +222,9 @@ async function flushAllRanges(
 
 /**
  * Entry point for the after/end-of-run hook. No-op outside trace mode. Awaits
- * any pending snapshot captures, then fans out to per-spec or session writes.
- * `spec` granularity with no recorded boundaries warns and falls back to a
- * single session-level trace.
+ * any pending snapshot captures, then fans out to per-spec, per-test, or
+ * session writes. `spec`/`test` granularity with no recorded boundaries warns
+ * and falls back to a single session-level trace.
  */
 export async function finalizeTraceExport(
   ctx: TraceExportContext
@@ -215,11 +235,17 @@ export async function finalizeTraceExport(
   if (ctx.awaitPending?.length) {
     await Promise.allSettled(ctx.awaitPending)
   }
-  if (ctx.granularity === 'spec' && ctx.ranges.length > 0) {
+  const sliced = ctx.granularity === 'spec' || ctx.granularity === 'test'
+  if (sliced && ctx.ranges.length > 0) {
+    if (ctx.ranges.length > SLICE_COUNT_WARN_THRESHOLD) {
+      ctx.log?.('warn', sliceCountWarning(ctx.ranges.length))
+    }
     return flushAllRanges(ctx)
   }
   if (ctx.granularity === 'spec') {
     ctx.log?.('warn', SPEC_WITHOUT_BOUNDARIES_WARNING)
+  } else if (ctx.granularity === 'test') {
+    ctx.log?.('warn', TEST_WITHOUT_BOUNDARIES_WARNING)
   }
   const artifact = await safely(ctx, () => writeSessionTrace(ctx))
   return artifact ? [artifact] : []
