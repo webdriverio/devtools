@@ -290,7 +290,7 @@ export async function onSessionEnd(ctx: SessionLifecycleCtx): Promise<void> {
  * file and the session trace next to the run's first test file. Test metadata
  * is recomputed from the suite tree so a boundary flush sees the current tree.
  */
-function buildTraceExportContext(
+export function buildTraceExportContext(
   ctx: SessionLifecycleCtx,
   capturer: SessionCapturer,
   sessionId: string,
@@ -306,6 +306,9 @@ function buildTraceExportContext(
     actionSnapshots: ctx.actionSnapshots,
     sessionId,
     testMetadata: collectSuiteTestMetadata(root ? [root] : []),
+    // TestStats.retries carries the per-test attempt (Mocha authoritative,
+    // other runners heuristic), so retry-aware policies can trust it.
+    attemptInfoAvailable: true,
     ranges: ctx.specRanges,
     flushed: ctx.flushedSpecs,
     resolveOutputDir: (range) =>

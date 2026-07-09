@@ -57,6 +57,7 @@ export interface SessionInitCtx {
   getCurrentTest(): unknown
   getCurrentScenarioSuite(): SuiteStats | null
   buildMetadataOptions(): unknown
+  attemptFor(uid: string): number | undefined
 }
 
 async function handleSessionChange(
@@ -84,11 +85,14 @@ function initReporterChain(ctx: SessionInitCtx): void {
   // These must NOT be recreated on session change — doing so generates a
   // new feature suite with a fresh start timestamp, which DataManager sees
   // as a new run and wipes all accumulated commands.
-  ctx.testReporter = new TestReporter((suitesData) => {
-    if (ctx.sessionCapturer) {
-      ctx.sessionCapturer.sendUpstream('suites', suitesData)
-    }
-  })
+  ctx.testReporter = new TestReporter(
+    (suitesData) => {
+      if (ctx.sessionCapturer) {
+        ctx.sessionCapturer.sendUpstream('suites', suitesData)
+      }
+    },
+    (uid) => ctx.attemptFor(uid)
+  )
   ctx.testManager = new TestManager(ctx.testReporter)
   ctx.suiteManager = new SuiteManager(ctx.testReporter)
   ctx.browserProxy = new BrowserProxy(

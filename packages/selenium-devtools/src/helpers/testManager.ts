@@ -1,5 +1,9 @@
 import logger from '@wdio/logger'
-import { createTestStats, stampTestEnd } from '@wdio/devtools-core'
+import {
+  createTestStats,
+  stampTestEnd,
+  TestAttemptTracker
+} from '@wdio/devtools-core'
 import { DEFAULTS, TEST_STATE } from '../constants.js'
 import type { SuiteStats, TestStats } from '../types.js'
 import type { TestReporter } from '../reporter.js'
@@ -19,6 +23,9 @@ export class TestManager {
   #currentTest: TestStats | null = null
   #lastMarkedTest: TestStats | null = null
   #mode: 'session' | 'marked' = 'session'
+  // Per-test attempt counter. Persists for the whole in-process session so
+  // same-process retries (Mocha/Jest/etc re-entering the start hook) accumulate.
+  #attemptTracker = new TestAttemptTracker()
   /** Set true the first time the user calls startMarkedTest. Once true we
    * never auto-create the synthetic session test — orphan commands attach
    * to the most-recently-marked test instead. */
@@ -90,7 +97,7 @@ export class TestManager {
    */
   startMarkedTest(
     name: string,
-    opts: { file?: string; callSource?: string } = {}
+    opts: { file?: string; callSource?: string; attempt?: number } = {}
   ): TestStats {
     if (!this.#userTookOver) {
       this.#userTookOver = true
@@ -115,14 +122,22 @@ export class TestManager {
     const file = opts.file || this.suite.file
     // Scope by parent so two suites with the same test/step name don't
     // collide on signatureCounter disambiguation across rerun processes.
+    const signature = `${this.suite.uid}::${name}`
     const test = createTestStats({
-      uid: generateStableUid(file, `${this.suite.uid}::${name}`),
+      uid: generateStableUid(file, signature),
       cid: DEFAULTS.CID,
       title: name,
       file,
       parent: this.suite.uid,
       callSource: opts.callSource
     })
+    // deterministicUid is retry-stable (no counter), so re-entering with the
+    // same logical test increments the heuristic. Mocha supplies an
+    // authoritative per-test retry index via opts.attempt; prefer it.
+    const heuristicAttempt = this.#attemptTracker.recordStart(
+      deterministicUid(file, signature)
+    )
+    test.retries = opts.attempt ?? heuristicAttempt
     log.info(
       `Started marked test "${name}" (callSource: ${opts.callSource || 'n/a'})`
     )

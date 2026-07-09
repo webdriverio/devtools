@@ -24,7 +24,7 @@ export type PendingTestAction =
   | {
       kind: 'start'
       name: string
-      meta: { file?: string; callSource?: string }
+      meta: { file?: string; callSource?: string; attempt?: number }
       suiteName?: string
       suiteCallSource?: string
     }
@@ -54,6 +54,8 @@ export interface StartTestMeta {
   callSource?: string
   suiteName?: string
   suiteCallSource?: string
+  /** Authoritative per-test retry index when the runner exposes one (Mocha). */
+  attempt?: number
 }
 
 export interface StartScenarioMeta {
@@ -61,6 +63,53 @@ export interface StartScenarioMeta {
   callSource?: string
   featureName?: string
   featureCallSource?: string
+}
+
+/** Assemble a StartTestMeta from a runner hook's positional callback args. */
+export function buildStartTestMeta(
+  file?: string,
+  callSource?: string,
+  suiteName?: string,
+  suiteCallSource?: string,
+  attempt?: number
+): StartTestMeta {
+  const meta: StartTestMeta = {}
+  if (file) {
+    meta.file = file
+  }
+  if (callSource) {
+    meta.callSource = callSource
+  }
+  if (suiteName) {
+    meta.suiteName = suiteName
+  }
+  if (suiteCallSource) {
+    meta.suiteCallSource = suiteCallSource
+  }
+  if (typeof attempt === 'number') {
+    meta.attempt = attempt
+  }
+  return meta
+}
+
+type ResolvedTestMeta = { file?: string; callSource?: string; attempt?: number }
+
+function resolveStartMeta(
+  meta: StartTestMeta,
+  file: string | undefined,
+  callSource: string | undefined
+): ResolvedTestMeta {
+  const resolved: ResolvedTestMeta = {}
+  if (file) {
+    resolved.file = file
+  }
+  if (callSource && callSource !== 'unknown:0') {
+    resolved.callSource = callSource
+  }
+  if (typeof meta.attempt === 'number') {
+    resolved.attempt = meta.attempt
+  }
+  return resolved
 }
 
 export function startTest(
@@ -74,13 +123,7 @@ export function startTest(
   const stackInfo = getCallSourceFromStack()
   const file = meta.file || stackInfo.filePath
   const callSource = meta.callSource || stackInfo.callSource
-  const resolvedMeta: { file?: string; callSource?: string } = {}
-  if (file) {
-    resolvedMeta.file = file
-  }
-  if (callSource && callSource !== 'unknown:0') {
-    resolvedMeta.callSource = callSource
-  }
+  const resolvedMeta = resolveStartMeta(meta, file, callSource)
   if (!ctx.suiteManager || !ctx.testReporter) {
     ctx.pendingTestActions.push({
       kind: 'start',

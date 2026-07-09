@@ -40,6 +40,9 @@ export interface TraceExportContext {
   mode?: DevToolsMode
   /** undefined → treated as `on` (always retain) by the retention evaluator. */
   policy?: TraceRetentionPolicy
+  /** True when the adapter fed real per-test attempt numbers (B4); retry-aware
+   *  policies degrade to retain-on-failure when this is false. */
+  attemptInfoAvailable?: boolean
   granularity?: TraceGranularity
   format?: TraceFormat
   capturer: TraceCapturer
@@ -75,9 +78,9 @@ function toOutcomes(metadata: TestMetadataMap): TestOutcome[] {
 }
 
 /**
- * Evaluate the retention policy for one trace slice. B4 supplies real attempt
- * info; today `attemptInfoAvailable` is false and the default `on` policy
- * always retains — but the decision is wired now so B3 only flips the option.
+ * Evaluate the retention policy for one trace slice. Adapters that feed real
+ * per-test attempt numbers also set `attemptInfoAvailable`; when they don't,
+ * retry-aware policies degrade to retain-on-failure (see trace-retention.ts).
  */
 function shouldRetain(
   ctx: TraceExportContext,
@@ -85,7 +88,7 @@ function shouldRetain(
 ): boolean {
   return shouldRetainTrace(ctx.policy, {
     outcomes: toOutcomes(metadata),
-    attemptInfoAvailable: false
+    attemptInfoAvailable: ctx.attemptInfoAvailable ?? false
   }).retain
 }
 

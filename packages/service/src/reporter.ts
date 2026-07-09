@@ -314,6 +314,10 @@ export class TestReporter extends WebdriverIOReporter {
         matcherResult: rawErr.matcherResult
       } as Error
     }
+    // WDIO stamps the 0-based attempt on each test:start, so the final attempt's
+    // stat already carries the retry count; the field is optional upstream, so
+    // pin it to a number for the shared TestStats.retries contract.
+    testStats.retries = testStats.retries ?? 0
     this.#sendUpstream()
   }
 

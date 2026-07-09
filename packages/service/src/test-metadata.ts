@@ -4,6 +4,15 @@
 import { deterministicUid } from '@wdio/devtools-core'
 import type { TestMetadataMap, TestStatus } from '@wdio/devtools-shared'
 
+/** The subset of a WDIO afterTest/afterScenario hook result this adapter reads:
+ *  pass/skip state, the error, and WDIO's authoritative 0-based retry count. */
+export interface TestOutcomeResult {
+  error?: unknown
+  passed?: boolean
+  skipped?: boolean
+  retries?: { attempts?: number }
+}
+
 /** Stable per-test key. beforeTest and afterTest derive it identically so keys
  *  match. File-less runners (some non-WDIO frameworks) key on the title alone. */
 export function testMetadataUid(
@@ -37,15 +46,32 @@ export function resultToState(result: {
   return result.passed ? 'passed' : 'failed'
 }
 
-/** Stamp the final state onto the metadata entry beforeTest/beforeScenario
- *  created, so retention can gate its trace. No-op when there's no entry. */
+/** Stamp the final state (and, when known, the 0-based attempt) onto the
+ *  metadata entry beforeTest/beforeScenario created, so retention can gate its
+ *  trace per attempt. No-op when there's no entry. */
 export function stampTestState(
   metadata: TestMetadataMap,
   uid: string,
-  result?: { passed?: boolean; skipped?: boolean }
+  result?: Pick<TestOutcomeResult, 'passed' | 'skipped'>,
+  attempt?: number
 ): void {
   const entry = result && metadata.get(uid)
   if (entry) {
     entry.state = resultToState(result)
+    if (attempt !== undefined) {
+      entry.attempt = attempt
+    }
   }
+}
+
+/** Resolve the 0-based attempt for a test. WDIO's mocha framework reports
+ *  `retries.attempts` as 0 even on a retry, so it can't override the in-process
+ *  tracker — take the max so a present-but-zero runner field never clobbers a
+ *  real retry count, while a genuine runner value still wins when it's higher. */
+export function resolveTestAttempt(
+  result: Pick<TestOutcomeResult, 'retries'> | undefined,
+  fallback: number
+): number {
+  const attempts = result?.retries?.attempts
+  return Math.max(typeof attempts === 'number' ? attempts : 0, fallback)
 }

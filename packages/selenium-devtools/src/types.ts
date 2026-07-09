@@ -20,31 +20,13 @@ export {
   type TraceRetentionPolicy
 } from '@wdio/devtools-shared'
 
-export interface DevToolsOptions {
-  port?: number
-  hostname?: string
+export interface DevToolsOptions extends BaseDevToolsOptions {
   /** Open a Chrome window pointing at the UI. Default true. */
   openUi?: boolean
-  /** `live` (default) launches the DevTools UI; `trace` skips it. Overrides `openUi`. */
-  mode?: DevToolsMode
-  /** Trace output layout — `zip` (default) writes a single archive,
-   *  `ndjson-directory` unpacks into `trace-<id>/`. Only applies in trace mode. */
-  traceFormat?: TraceFormat
-  /** Trace output granularity — `session` (default) writes one trace per
-   *  worker session; `spec` writes one trace per spec file. Only applies in
-   *  trace mode. */
-  traceGranularity?: TraceGranularity
-  /** Trace retention policy — gates which traces are kept (e.g.
-   *  `retain-on-failure`). Default `on` (keep all). Only applies in trace mode. */
-  tracePolicy?: TraceRetentionPolicy
   /** Capture screenshots after each command. Default true. */
   captureScreenshots?: boolean
-  /** Capture node:assert assertions as first-class commands. Default true. */
-  captureAssertions?: boolean
   /** Command template for per-test rerun. {{testName}} is substituted. */
   rerunCommand?: string
-  /** Per-session screencast recording. Disabled by default. */
-  screencast?: ScreencastOptions
   /**
    * Force the *test* browser into headless mode by injecting --headless=new
    * into Chrome capabilities. The dashboard window (auto-opened by openUi)
@@ -55,13 +37,7 @@ export interface DevToolsOptions {
 
 // ScreencastFrame, ScreencastOptions hoisted to @wdio/devtools-shared; re-exported
 // here for backwards compatibility with existing selenium-internal imports.
-import type {
-  DevToolsMode,
-  ScreencastOptions,
-  TraceFormat,
-  TraceGranularity,
-  TraceRetentionPolicy
-} from '@wdio/devtools-shared'
+import type { BaseDevToolsOptions, TestStatus } from '@wdio/devtools-shared'
 export type { ScreencastFrame, ScreencastOptions } from '@wdio/devtools-shared'
 
 /**
@@ -133,24 +109,16 @@ export interface ElementOriginals {
   getTagName?: (element: unknown) => Promise<string>
 }
 
-// ─── bidi ───────────────────────────────────────────────────────────────────
-
-import type { ConsoleLog, NetworkRequest } from '@wdio/devtools-shared'
-
-export interface BidiHandlerSinks {
-  pushConsoleLog: (entry: ConsoleLog) => void
-  pushNetworkRequest: (entry: NetworkRequest) => void
-  replaceNetworkRequest: (id: string, entry: NetworkRequest) => void
-}
-
 // ─── runnerHooks ────────────────────────────────────────────────────────────
 
 export interface MochaTestCtx {
   title?: string
   file?: string
-  state?: 'passed' | 'failed' | 'pending' | 'running' | 'skipped'
+  state?: TestStatus
   duration?: number
   parent?: { title?: string }
+  /** Mocha's authoritative retry index — 0 on the first run, +1 per retry. */
+  _currentRetry?: number
 }
 
 export interface RunnerHookCallbacks {
@@ -159,9 +127,12 @@ export interface RunnerHookCallbacks {
     file?: string,
     callSource?: string,
     suiteName?: string,
-    suiteCallSource?: string
+    suiteCallSource?: string,
+    // Authoritative per-test retry index when the runner exposes one (Mocha's
+    // `_currentRetry`); undefined leaves the heuristic tracker to decide.
+    attempt?: number
   ) => void
-  onTestEnd: (state: 'passed' | 'failed' | 'skipped' | 'pending') => void
+  onTestEnd: (state: Exclude<TestStatus, 'running'>) => void
   // Cucumber-only: scenario boundary creates a sub-suite under the feature
   // rootSuite; subsequent onTestStart/onTestEnd attach as Gherkin steps inside.
   onScenarioStart?: (
@@ -171,7 +142,7 @@ export interface RunnerHookCallbacks {
     featureName?: string,
     featureCallSource?: string
   ) => void
-  onScenarioEnd?: (state: 'passed' | 'failed' | 'skipped' | 'pending') => void
+  onScenarioEnd?: (state: Exclude<TestStatus, 'running'>) => void
   // Fires from the runner's after-all hook so the dashboard suite header
   // updates without waiting for process exit.
   onTestRunComplete?: (summary: {

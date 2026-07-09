@@ -8,15 +8,23 @@ import {
   mapCommandToAction,
   recordSpecBoundary,
   resolveAdapterOutputDir,
+  TestAttemptTracker,
   tracePolicyModeWarning,
   type SpecRange,
   type TraceExportContext
 } from '@wdio/devtools-core'
-import { captureExpectFailure, wireAssertCapture } from './assert-capture.js'
+import {
+  captureExpectFailure,
+  expectAssertionToCommandLog,
+  wireAssertCapture,
+  type ExpectAssertion
+} from './assert-capture.js'
 import {
   cucumberScenarioUid,
+  resolveTestAttempt,
   stampTestState,
-  testMetadataUid
+  testMetadataUid,
+  type TestOutcomeResult
 } from './test-metadata.js'
 import { resolveCallSourceFromFrame } from './call-source.js'
 import {
@@ -100,6 +108,11 @@ export default class DevToolsHookService implements Services.ServiceInstance {
   /** Map of testUid → metadata for trace group events and per-spec partitioning. */
   #testMetadata: TestMetadataMap = new Map()
 
+  /** Per-test attempt counter. specFileRetries spawns a fresh worker (hence a
+   *  fresh instance) per retry, so this only reflects same-process retries
+   *  (Mocha this.retries(n)); cross-worker attempts rely on the WDIO result. */
+  #attemptTracker = new TestAttemptTracker()
+
   /** Index ranges into the session capturer's flat arrays, one per spec file. */
   #specRanges: SpecRange[] = []
 
@@ -159,6 +172,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
       sessionId: browser.sessionId,
       capabilities: browser.capabilities,
       testMetadata: this.#testMetadata,
+      attemptInfoAvailable: true,
       ranges: this.#specRanges,
       flushed: this.#flushedSpecs,
       resolveOutputDir: () => this.#outputDir,
@@ -323,6 +337,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
         world?.pickle?.astNodeIds
       )
       this.#currentTestUid = uid
+      this.#attemptTracker.recordStart(uid)
       this.#testMetadata.set(uid, {
         title: scenarioName,
         specFile: featureFile
@@ -344,6 +359,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     if (testTitle) {
       const uid = testMetadataUid(test?.file, testTitle)
       this.#currentTestUid = uid
+      this.#attemptTracker.recordStart(uid)
       this.#testMetadata.set(uid, {
         title: testTitle,
         specFile: test?.file ?? ''
@@ -372,16 +388,23 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     )
   }
 
+  /** Stamp final state + the resolved 0-based attempt onto the test's metadata
+   *  entry, taking the max of the tracker count and WDIO's retry field. */
+  #stampOutcome(uid: string, result?: TestOutcomeResult): void {
+    const fallback = this.#attemptTracker.attemptFor(uid) ?? 0
+    const attempt = resolveTestAttempt(result, fallback)
+    stampTestState(this.#testMetadata, uid, result, attempt)
+  }
+
   async afterScenario(
     world?: {
       pickle?: { uri?: string; name?: string; astNodeIds?: readonly string[] }
     },
-    result?: { error?: unknown; passed?: boolean; skipped?: boolean }
+    result?: TestOutcomeResult
   ) {
     const { uri, name, astNodeIds } = world?.pickle ?? {}
     if (uri && name) {
-      const uid = cucumberScenarioUid(uri, name, astNodeIds)
-      stampTestState(this.#testMetadata, uid, result)
+      this.#stampOutcome(cucumberScenarioUid(uri, name, astNodeIds), result)
     }
     await this.#finalizePerScenario()
   }
@@ -389,18 +412,26 @@ export default class DevToolsHookService implements Services.ServiceInstance {
   async afterTest(
     test?: { file?: string; title?: string; fullTitle?: string },
     _context?: unknown,
-    result?: { error?: unknown; passed?: boolean; skipped?: boolean }
+    result?: TestOutcomeResult
   ) {
     this.#captureExpectFailure(result?.error)
     const testTitle = test?.fullTitle || test?.title
     if (testTitle) {
-      stampTestState(
-        this.#testMetadata,
-        testMetadataUid(test?.file, testTitle),
-        result
-      )
+      this.#stampOutcome(testMetadataUid(test?.file, testTitle), result)
     }
     await this.#finalizePerScenario()
+  }
+
+  /** expect-webdriverio fires this per matcher (pass or fail) via WDIO's
+   *  assertion hook — capture it as an `expect.<matcher>` action so passing
+   *  assertions show in the trace, not just failures. */
+  afterAssertion(params: ExpectAssertion): void {
+    if (this.#options.captureAssertions === false) {
+      return
+    }
+    this.#sessionCapturer.captureAssertCommand(
+      expectAssertionToCommandLog(params, this.#currentTestUid)
+    )
   }
 
   async #finalizePerScenario() {

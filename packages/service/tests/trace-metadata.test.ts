@@ -161,6 +161,57 @@ describe('DevtoolsService - afterTest state stamping', () => {
     ).toBe('failed')
   })
 
+  it('flags attemptInfoAvailable so retry-aware policies use per-test attempt', async () => {
+    const ctx = (await runTest('trace opts', { passed: true })) as {
+      attemptInfoAvailable?: boolean
+    }
+    expect(ctx.attemptInfoAvailable).toBe(true)
+  })
+
+  it('uses the tracker attempt even when WDIO reports retries.attempts:0', async () => {
+    const service = new DevToolsHookService({
+      mode: 'trace',
+      tracePolicy: 'retain-on-failure-and-retries'
+    })
+    await service.before({} as never, [], mockBrowser)
+    const title = 'flaky login'
+    // Two starts before a single end simulate a same-process (Mocha) retry.
+    // WDIO's mocha framework reports retries.attempts:0 even on the retry, so
+    // the runner field must NOT clobber the tracker's real count of 1.
+    service.beforeTest({ file, fullTitle: title })
+    service.beforeTest({ file, fullTitle: title })
+    await service.afterTest(
+      { file, fullTitle: title },
+      {},
+      { passed: true, retries: { attempts: 0 } }
+    )
+    await service.after()
+    const ctx = finalizeTraceExport.mock.calls.at(-1)?.[0] as {
+      testMetadata: Map<string, { attempt?: number }>
+    }
+    expect(ctx.testMetadata.get(deterministicUid(file, title))?.attempt).toBe(1)
+  })
+
+  it('uses the runner attempts count when it exceeds the tracker', async () => {
+    const service = new DevToolsHookService({
+      mode: 'trace',
+      tracePolicy: 'retain-on-failure-and-retries'
+    })
+    await service.before({} as never, [], mockBrowser)
+    const title = 'checkout retries'
+    service.beforeTest({ file, fullTitle: title })
+    await service.afterTest(
+      { file, fullTitle: title },
+      {},
+      { passed: true, retries: { attempts: 3 } }
+    )
+    await service.after()
+    const ctx = finalizeTraceExport.mock.calls.at(-1)?.[0] as {
+      testMetadata: Map<string, { attempt?: number }>
+    }
+    expect(ctx.testMetadata.get(deterministicUid(file, title))?.attempt).toBe(3)
+  })
+
   it('stamps a Cucumber scenario state in afterScenario', async () => {
     const service = new DevToolsHookService({
       mode: 'trace',
