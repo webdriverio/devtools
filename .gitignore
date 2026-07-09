@@ -44,3 +44,5 @@ coverage/
 
 # pnpm state, cache, logs, and debug files
 /packages/**/*.mjs
+
+.claude
