@@ -2,6 +2,7 @@ import { createRequire } from 'node:module'
 import { TRACKED_ASSERT_METHODS, type CommandLog } from '@wdio/devtools-shared'
 import { getCallSourceFromStack } from './stack.js'
 import { toError } from './error.js'
+import { stripAnsi } from './console.js'
 
 export { TRACKED_ASSERT_METHODS }
 
@@ -150,6 +151,45 @@ export function capturedAssertToCommandLog(
     entry.testUid = testUid
   }
   return entry
+}
+
+/**
+ * Params any adapter's matcher tap produces. `prefix` selects the command
+ * namespace (`expect` / `assert` / `verify`), all of which map to an `Assert`
+ * action via the shared action map. Adapters do the thin framework-specific
+ * extraction (matcher name, args, pass flag, message); this conversion is the
+ * single shared path — the generic counterpart to `capturedAssertToCommandLog`
+ * for libraries that aren't node:assert (expect-webdriverio, chai, Nightwatch).
+ */
+export interface MatcherAssertion {
+  prefix?: string
+  method: string
+  args?: unknown[]
+  passed: boolean
+  message?: string | (() => string)
+  callSource?: string
+}
+
+export function matcherAssertionToCommandLog(
+  input: MatcherAssertion,
+  testUid?: string
+): CommandLog {
+  const command = `${input.prefix ?? 'expect'}.${input.method}`
+  const message =
+    typeof input.message === 'function' ? input.message() : input.message
+  return capturedAssertToCommandLog(
+    {
+      command,
+      args: (input.args ?? []).map(safeSerializeAssertArg),
+      result: input.passed ? 'passed' : undefined,
+      error: input.passed
+        ? undefined
+        : new Error(stripAnsi(message ?? `${command} failed`)),
+      callSource: input.callSource,
+      timestamp: Date.now()
+    },
+    testUid
+  )
 }
 
 /**
