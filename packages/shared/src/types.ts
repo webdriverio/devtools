@@ -283,6 +283,53 @@ export const SCREENCAST_DEFAULTS: Required<ScreencastOptions> = {
   pollIntervalMs: 200
 }
 
+/**
+ * Options every framework adapter accepts. Each adapter's own options interface
+ * extends this and adds only its framework-specific fields (e.g. WDIO's
+ * devtoolsCapabilities, Selenium's openUi, Nightwatch's bidi).
+ */
+export interface BaseDevToolsOptions {
+  /** Port to launch the application on (default: random). */
+  port?: number
+  /** Hostname to launch the application on. @default localhost */
+  hostname?: string
+  /** Screencast recording options. When enabled, a continuous video of the
+   *  browser session is recorded and saved as a .webm file. */
+  screencast?: ScreencastOptions
+  /** Capture node:assert assertions (and framework `expect` matchers where
+   *  supported) as first-class commands. Default true. */
+  captureAssertions?: boolean
+  /** `live` (default) launches the DevTools UI; `trace` skips it. */
+  mode?: DevToolsMode
+  /** Trace output layout — `zip` (default) writes a single archive,
+   *  `ndjson-directory` unpacks into `trace-<id>/`. Only applies in trace mode. */
+  traceFormat?: TraceFormat
+  /** Trace output granularity — `session` (default) writes one trace per
+   *  worker session; `spec` writes one per spec file. Only applies in trace mode. */
+  traceGranularity?: TraceGranularity
+  /** Trace retention policy — gates which traces are kept (e.g.
+   *  `retain-on-failure`). Default `on` (keep all). Only applies in trace mode. */
+  tracePolicy?: TraceRetentionPolicy
+}
+
+/** Minimal Cucumber pickle-step shape — only the fields the adapters read.
+ *  Cucumber's own types vary across versions, so we pin just these. */
+export interface CucumberPickleStep {
+  text?: string
+  astNodeIds?: string[]
+  location?: { line?: number }
+}
+
+/** Minimal Cucumber pickle shape — only the fields the adapters read. `steps`
+ *  is present only where the adapter walks step boundaries (Nightwatch). */
+export interface CucumberPickle {
+  name?: string
+  uri?: string
+  location?: { line?: number }
+  astNodeIds?: string[]
+  steps?: CucumberPickleStep[]
+}
+
 export interface Metadata {
   type: TraceType
   url?: string

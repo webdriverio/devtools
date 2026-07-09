@@ -1,6 +1,11 @@
 import { createRequire } from 'node:module'
 import logger from '@wdio/logger'
 import { errorMessage } from '@wdio/devtools-core'
+import type {
+  CucumberPickle,
+  CucumberPickleStep,
+  TestStatus
+} from '@wdio/devtools-shared'
 import type { RunnerHookCallbacks } from '../types.js'
 
 const log = logger('@wdio/selenium-devtools:runnerHooks:cucumber')
@@ -178,17 +183,6 @@ interface GherkinFeature {
   location?: { line?: number }
   children?: GherkinFeatureChild[]
 }
-interface CucumberPickleStep {
-  text?: string
-  astNodeIds?: string[]
-  location?: { line?: number }
-}
-interface CucumberPickle {
-  name?: string
-  uri?: string
-  location?: { line?: number }
-  astNodeIds?: string[]
-}
 interface CucumberTestCase {
   gherkinDocument?: { feature?: GherkinFeature }
   pickle?: CucumberPickle
@@ -227,7 +221,7 @@ function populateGherkinIndex(
   }
 }
 
-type ScenarioState = 'passed' | 'failed' | 'pending'
+type ScenarioState = Extract<TestStatus, 'passed' | 'failed' | 'pending'>
 
 function mapCucumberStatus(status: string): ScenarioState | 'skipped' {
   const s = status.toUpperCase()

@@ -23,15 +23,10 @@ export {
   type Viewport
 } from '@wdio/devtools-shared'
 
+import type { BaseDevToolsOptions } from '@wdio/devtools-shared'
+
 // ScreencastFrame, ScreencastOptions hoisted to @wdio/devtools-shared; re-exported
 // here for backwards compatibility with existing service-internal imports.
-import type {
-  DevToolsMode,
-  ScreencastOptions,
-  TraceFormat,
-  TraceGranularity,
-  TraceRetentionPolicy
-} from '@wdio/devtools-shared'
 export type {
   DevToolsMode,
   ScreencastFrame,
@@ -45,16 +40,7 @@ export interface ExtendedCapabilities extends WebdriverIO.Capabilities {
   'wdio:devtoolsOptions'?: ServiceOptions
 }
 
-export interface ServiceOptions {
-  /**
-   * port to launch the application on (default: random)
-   */
-  port?: number
-  /**
-   * hostname to launch the application on
-   * @default localhost
-   */
-  hostname?: string
+export interface ServiceOptions extends BaseDevToolsOptions {
   /**
    * capabilities used to launch the devtools application
    * @default
@@ -67,27 +53,6 @@ export interface ServiceOptions {
    * }
    */
   devtoolsCapabilities?: WebdriverIO.Capabilities
-  /**
-   * Screencast recording options. When enabled, a continuous video of the
-   * browser session is recorded and saved as a .webm file. Chrome/Chromium
-   * uses CDP push mode; all other browsers fall back to screenshot polling.
-   */
-  screencast?: ScreencastOptions
-  /** Capture node:assert assertions (and failing `expect` matchers) as
-   *  first-class commands. Default true. */
-  captureAssertions?: boolean
-  /** `live` (default) launches the DevTools UI; `trace` skips it. */
-  mode?: DevToolsMode
-  /** Trace output layout — `zip` (default) writes a single archive,
-   *  `ndjson-directory` unpacks into `trace-<id>/`. Only applies in trace mode. */
-  traceFormat?: TraceFormat
-  /** Trace output granularity — `session` (default) writes one trace per
-   *  worker session; `spec` writes one trace per spec file. Only applies in
-   *  trace mode. */
-  traceGranularity?: TraceGranularity
-  /** Trace retention policy — gates which traces are kept (e.g.
-   *  `retain-on-failure`). Default `on` (keep all). Only applies in trace mode. */
-  tracePolicy?: TraceRetentionPolicy
 }
 
 declare namespace WebdriverIO {

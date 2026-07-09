@@ -23,13 +23,7 @@ export {
   type TraceLog
 } from '@wdio/devtools-shared'
 
-import type {
-  DevToolsMode,
-  ScreencastOptions,
-  TraceFormat,
-  TraceGranularity,
-  TraceRetentionPolicy
-} from '@wdio/devtools-shared'
+import type { BaseDevToolsOptions } from '@wdio/devtools-shared'
 
 export interface CommandStackFrame {
   command: string
@@ -87,16 +81,7 @@ export interface StepLocation {
   line: number
 }
 
-export interface DevToolsOptions {
-  port?: number
-  hostname?: string
-  /**
-   * Screencast recording options. When enabled, a continuous video of the
-   * browser session is recorded and saved as a .webm file at the end of the
-   * test run. Polling mode only on Nightwatch (no CDP push); works on every
-   * browser Nightwatch supports.
-   */
-  screencast?: ScreencastOptions
+export interface DevToolsOptions extends BaseDevToolsOptions {
   /**
    * Enable WebDriver BiDi capture (browser console + JS exceptions + network
    * via `selenium-webdriver/bidi`). Requires `webSocketUrl: true` in your
@@ -105,21 +90,6 @@ export interface DevToolsOptions {
    * entries. Defaults to `false` — opt-in.
    */
   bidi?: boolean
-  /** Capture node:assert assertions as first-class commands (Nightwatch's
-   *  built-in asserts already flow as commands). Default true. */
-  captureAssertions?: boolean
-  /** `live` (default) launches the DevTools UI; `trace` skips it. */
-  mode?: DevToolsMode
-  /** Trace output layout — `zip` (default) writes a single archive,
-   *  `ndjson-directory` unpacks into `trace-<id>/`. Only applies in trace mode. */
-  traceFormat?: TraceFormat
-  /** Trace output granularity — `session` (default) writes one trace per
-   *  worker session; `spec` writes one trace per spec file. Only applies in
-   *  trace mode. */
-  traceGranularity?: TraceGranularity
-  /** Trace retention policy — gates which traces are kept (e.g.
-   *  `retain-on-failure`). Default `on` (keep all). Only applies in trace mode. */
-  tracePolicy?: TraceRetentionPolicy
 }
 
 export interface NightwatchBrowser {
@@ -144,12 +114,7 @@ export interface NightwatchBrowser {
     webdriver?: { host?: string }
     [key: string]: unknown
   }
-  currentTest?: {
-    name?: string
-    module?: string
-    group?: string
-    [key: string]: unknown
-  }
+  currentTest?: NightwatchCurrentTest
   results?: unknown
   queue?: unknown
 }
