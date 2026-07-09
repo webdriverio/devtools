@@ -4,6 +4,7 @@ import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   buildSpecSessionId,
+  buildTestSliceSessionId,
   finalizeTraceExport,
   flushRangeTrace,
   type SpecRange,
@@ -51,6 +52,7 @@ function meta(entries: Array<[string, TestMetadataEntry]>): TestMetadataMap {
 function range(specFile: string, startIdx: number): SpecRange {
   return {
     specFile,
+    key: specFile,
     commandStartIdx: startIdx,
     consoleStartIdx: 0,
     networkStartIdx: 0,
@@ -58,6 +60,15 @@ function range(specFile: string, startIdx: number): SpecRange {
     traceLogStartIdx: 0,
     snapshotCount: 0
   }
+}
+
+function testRange(
+  specFile: string,
+  testUid: string,
+  startIdx: number,
+  key = testUid
+): SpecRange {
+  return { ...range(specFile, startIdx), key, testUid }
 }
 
 describe('finalizeTraceExport', () => {
@@ -154,6 +165,99 @@ describe('finalizeTraceExport', () => {
       logs.some(
         ([level, msg]) =>
           level === 'warn' && msg.includes('no spec boundaries were detected')
+      )
+    ).toBe(true)
+  })
+
+  it('fans out one trace per recorded test range', async () => {
+    const result = await finalizeTraceExport(
+      baseCtx({
+        granularity: 'test',
+        ranges: [testRange('/a.js', 'a1', 0), testRange('/a.js', 'a2', 2)],
+        testMetadata: meta([
+          ['a1', { title: 'A1', specFile: '/a.js' }],
+          ['a2', { title: 'A2', specFile: '/a.js' }]
+        ])
+      })
+    )
+    expect(result).toHaveLength(2)
+    expect(result.map((a) => a.scope)).toEqual(['test', 'test'])
+    expect(result.map((a) => a.key)).toEqual(['a1', 'a2'])
+    // Each test slice carries only its own test's metadata.
+    expect(result[0]!.testUids).toEqual(['a1'])
+    expect(result[1]!.testUids).toEqual(['a2'])
+    const nameA1 = buildTestSliceSessionId('/a.js', 'a1', 'abcd1234')
+    const nameA2 = buildTestSliceSessionId('/a.js', 'a2', 'abcd1234')
+    expect(nameA1).not.toBe(nameA2)
+    expect(await exists(path.join(outputDir, `trace-${nameA1}.zip`))).toBe(true)
+    expect(await exists(path.join(outputDir, `trace-${nameA2}.zip`))).toBe(true)
+  })
+
+  it('treats a retry-keyed range as its own test slice', async () => {
+    const result = await finalizeTraceExport(
+      baseCtx({
+        granularity: 'test',
+        ranges: [
+          testRange('/a.js', 'a1', 0),
+          testRange('/a.js', 'a1', 2, 'a1-retry1')
+        ],
+        testMetadata: meta([['a1', { title: 'A1', specFile: '/a.js' }]])
+      })
+    )
+    expect(result).toHaveLength(2)
+    expect(result.map((a) => a.key)).toEqual(['a1', 'a1-retry1'])
+    const first = buildTestSliceSessionId('/a.js', 'a1', 'abcd1234')
+    const retry = buildTestSliceSessionId('/a.js', 'a1-retry1', 'abcd1234')
+    expect(first).not.toBe(retry)
+    expect(await exists(path.join(outputDir, `trace-${first}.zip`))).toBe(true)
+    expect(await exists(path.join(outputDir, `trace-${retry}.zip`))).toBe(true)
+  })
+
+  it('warns and falls back to a session trace when test has no boundaries', async () => {
+    const result = await finalizeTraceExport(
+      baseCtx({ granularity: 'test', ranges: [] })
+    )
+    expect(result).toHaveLength(1)
+    expect(result[0]!.scope).toBe('session')
+    expect(await exists(path.join(outputDir, 'trace-abcd1234.zip'))).toBe(true)
+    expect(
+      logs.some(
+        ([level, msg]) =>
+          level === 'warn' && msg.includes('no test boundaries were detected')
+      )
+    ).toBe(true)
+  })
+
+  it('warns to pair with a retention policy above the slice-count threshold', async () => {
+    const ranges = Array.from({ length: 201 }, (_, i) =>
+      testRange('/a.js', `u${i}`, i)
+    )
+    const result = await finalizeTraceExport(
+      baseCtx({
+        granularity: 'test',
+        // retain-on-failure + all-passing declines every write, so the guard
+        // is exercised without emitting 201 archives.
+        policy: 'retain-on-failure',
+        ranges,
+        testMetadata: meta(
+          ranges.map((r) => [
+            r.testUid!,
+            {
+              title: r.testUid!,
+              specFile: '/a.js',
+              state: 'passed',
+              attempt: 0
+            }
+          ])
+        )
+      })
+    )
+    expect(result).toHaveLength(201)
+    expect(result.every((a) => !a.retained)).toBe(true)
+    expect(await fs.readdir(outputDir)).toEqual([])
+    expect(
+      logs.some(
+        ([level, msg]) => level === 'warn' && msg.includes('retention policy')
       )
     ).toBe(true)
   })
