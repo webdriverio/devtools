@@ -4,6 +4,7 @@ import {
   ASSERT_PATCHED_SYMBOL,
   TRACKED_ASSERT_METHODS,
   capturedAssertToCommandLog,
+  matcherAssertionToCommandLog,
   patchNodeAssert,
   safeSerializeAssertArg,
   type CapturedAssert
@@ -243,5 +244,44 @@ describe('capturedAssertToCommandLog', () => {
       stack: error.stack
     })
     expect(entry.testUid).toBeUndefined()
+  })
+})
+
+describe('matcherAssertionToCommandLog', () => {
+  it('builds a passing expect.<method> command (default prefix)', () => {
+    const entry = matcherAssertionToCommandLog(
+      { method: 'toHaveTitle', args: ['The Internet'], passed: true },
+      'uid-1'
+    )
+    expect(entry).toMatchObject({
+      command: 'expect.toHaveTitle',
+      args: ['The Internet'],
+      result: 'passed',
+      testUid: 'uid-1'
+    })
+    expect(entry.error).toBeUndefined()
+  })
+
+  it('carries the ANSI-stripped message as the error when failed', () => {
+    const entry = matcherAssertionToCommandLog({
+      method: 'toHaveText',
+      args: ['foo'],
+      passed: false,
+      message: () => '[31mexpected foo[39m'
+    })
+    expect(entry.result).toBeUndefined()
+    expect(entry.error).toMatchObject({ message: 'expected foo' })
+  })
+
+  it('honors a non-default prefix and sanitizes args', () => {
+    const entry = matcherAssertionToCommandLog({
+      prefix: 'verify',
+      method: 'equal',
+      args: [/re/, () => 1],
+      passed: true
+    })
+    expect(entry.command).toBe('verify.equal')
+    // RegExp → string, function → '[Function]' (via safeSerializeAssertArg).
+    expect(entry.args).toEqual(['/re/', '[Function]'])
   })
 })

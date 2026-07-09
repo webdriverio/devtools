@@ -4,10 +4,11 @@
 import logger from '@wdio/logger'
 import {
   capturedAssertToCommandLog,
+  matcherAssertionToCommandLog,
   patchNodeAssert,
   stripAnsi
 } from '@wdio/devtools-core'
-import type { SerializedError } from '@wdio/devtools-shared'
+import type { CommandLog, SerializedError } from '@wdio/devtools-shared'
 import type { SessionCapturer } from './session.js'
 
 const log = logger('@wdio/devtools-service:assert-capture')
@@ -34,8 +35,10 @@ export function wireAssertCapture(
  * Normalize a framework failure into a SerializedError. Cucumber hands a plain
  * message string (@wdio/cucumber-framework getResultObject → world.result.message);
  * Mocha/Jasmine hand an Error object. Returns undefined when there's nothing to
- * show, or for a node:assert AssertionError (the patcher already made that its
- * own command). ANSI is stripped so every consumer gets a clean message.
+ * show, or when the failure was already captured as its own command: a
+ * node:assert AssertionError (via the patcher) or an expect-webdriverio matcher
+ * error (via afterAssertion — it carries `matcherResult`). Skipping those keeps
+ * `failLastAction` from double-marking a passing command. ANSI is stripped.
  */
 export function toCommandError(error: unknown): SerializedError | undefined {
   if (!error) {
@@ -48,8 +51,13 @@ export function toCommandError(error: unknown): SerializedError | undefined {
   if (typeof error !== 'object') {
     return undefined
   }
-  const err = error as { name?: string; message?: string; stack?: string }
-  if (err.name === 'AssertionError') {
+  const err = error as {
+    name?: string
+    message?: string
+    stack?: string
+    matcherResult?: unknown
+  }
+  if (err.name === 'AssertionError' || err.matcherResult !== undefined) {
     return undefined
   }
   return {
@@ -78,4 +86,40 @@ export function captureExpectFailure(
   if (commandError) {
     capturer.failLastAction(testUid, commandError)
   }
+}
+
+/** The subset of expect-webdriverio's afterAssertion hook params we read to
+ *  turn a matcher call into a trace command. The matcher passes `{ pass }` at
+ *  runtime, but @wdio/types declares `{ result }`, so we accept and read both. */
+export interface ExpectAssertion {
+  matcherName: string
+  expectedValue?: unknown
+  result: { pass?: boolean; result?: boolean; message?: () => string }
+}
+
+/**
+ * Adapt expect-webdriverio's afterAssertion params to the shared matcher
+ * converter. Framework-specific extraction only (matcher name, expectedValue →
+ * args, the runtime `pass` vs typed `result` flag); the actual CommandLog
+ * shaping lives once in core's `matcherAssertionToCommandLog`.
+ */
+export function expectAssertionToCommandLog(
+  params: ExpectAssertion,
+  testUid: string | undefined
+): CommandLog {
+  const { matcherName, expectedValue, result } = params
+  return matcherAssertionToCommandLog(
+    {
+      method: matcherName,
+      args:
+        expectedValue === undefined
+          ? []
+          : Array.isArray(expectedValue)
+            ? expectedValue
+            : [expectedValue],
+      passed: result.pass ?? result.result ?? false,
+      message: result.message
+    },
+    testUid
+  )
 }
