@@ -1,8 +1,7 @@
 import { createHash } from 'node:crypto'
-import { existsSync } from 'node:fs'
 import { describe, it, expect } from 'vitest'
 import { zipSync, strToU8 } from 'fflate'
-import { parseTraceZip, readTraceZip } from '../src/trace-reader.js'
+import { parseTraceZip } from '../src/trace-reader.js'
 
 const sha1 = (data: string): string =>
   createHash('sha1').update(data).digest('hex')
@@ -141,28 +140,4 @@ describe('trace-reader response bodies', () => {
   it('leaves the body undefined when the resource is missing', () => {
     expect(bodyByUrl('https://example.com/missing')).toBeUndefined()
   })
-})
-
-// Machine-local foreign zip; exercises the extension-suffixed _sha1 convention
-// against a real archive when present.
-const REAL_FOREIGN_ZIP =
-  '/Users/vishnu.p@browserstack.com/Documents/Test projects/Test-playwright/test-results/trace-features-trace-feature-showcase-chromium-retry2/trace.zip'
-
-describe('foreign zip response bodies', () => {
-  it.skipIf(!existsSync(REAL_FOREIGN_ZIP))(
-    'restores bodies referenced via extension-suffixed _sha1 entries',
-    async () => {
-      const data = await readTraceZip(REAL_FOREIGN_ZIP)
-      const requests = data.trace.networkRequests
-      const apiRequest = requests.find((r) =>
-        r.url.startsWith('https://api.github.com/')
-      )
-      expect(apiRequest?.responseBody).toContain('"full_name"')
-      const css = requests.find((r) => r.url.endsWith('base.css'))
-      expect(css?.responseBody?.length).toBeGreaterThan(0)
-      // Entries without a _sha1 ref stay body-less.
-      const script = requests.find((r) => r.url.endsWith('.js'))
-      expect(script?.responseBody).toBeUndefined()
-    }
-  )
 })
