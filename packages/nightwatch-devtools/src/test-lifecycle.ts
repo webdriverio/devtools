@@ -41,6 +41,7 @@ export interface TestLifecycleCtx {
   incrementCount(state: TestStats['state']): void
   testIcon(state: TestStats['state']): string
   setCurrentTest(t: unknown): void
+  recordAttempt(uid: string): number
 }
 
 interface SuiteMetadata {
@@ -124,6 +125,8 @@ export async function startNextTest(
   }
   const test = ctx.testManager.findTestInSuite(currentSuite, currentTestName)
   if (test) {
+    // Nightwatch has no per-test retry index; the tracker is the retry signal.
+    test.retries = ctx.recordAttempt(test.uid)
     test.state = TEST_STATE.RUNNING as TestStats['state']
     test.start = new Date()
     test.end = null

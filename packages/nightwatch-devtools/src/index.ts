@@ -7,20 +7,25 @@
 
 import { fileURLToPath } from 'node:url'
 import {
-  collectSuiteTestMetadata,
   errorMessage,
   finalizeTraceExport,
   flushRangeTrace,
   recordSpecBoundary,
-  resolveAdapterOutputDir,
+  TestAttemptTracker,
   tracePolicyModeWarning,
   type SpecRange,
   type TraceArtifact,
   type TraceExportContext
 } from '@wdio/devtools-core'
+import { buildTraceContext } from './trace-context.js'
 import { wireAssertCapture } from './helpers/assertCapture.js'
 import { stop as stopBackend } from '@wdio/devtools-backend'
-import { REUSE_ENV, SCREENCAST_DEFAULTS } from '@wdio/devtools-shared'
+import {
+  REUSE_ENV,
+  SCREENCAST_DEFAULTS,
+  type CucumberPickle,
+  type CucumberPickleStep
+} from '@wdio/devtools-shared'
 import logger from '@wdio/logger'
 import {
   handleReuseMode,
@@ -53,8 +58,6 @@ import {
   cucumberAfter as cucumberLifecycleAfter,
   cucumberBeforeStep as cucumberLifecycleBeforeStep,
   cucumberAfterStep as cucumberLifecycleAfterStep,
-  type CucumberPickle,
-  type CucumberPickleStep,
   type CucumberResult
 } from './cucumber-lifecycle.js'
 import {
@@ -115,6 +118,10 @@ class NightwatchDevToolsPlugin {
   #screencastSessionId?: string
   #bidiEnabled = false
   #bidiAttachAttempted = false
+
+  // Nightwatch `--retries` and cross-worker reruns may reset this in-process
+  // tracker; only retries that re-enter this process's start hook are counted.
+  #attemptTracker = new TestAttemptTracker()
 
   constructor(options: DevToolsOptions = {}) {
     const mode = options.mode ?? 'live'
@@ -286,7 +293,10 @@ class NightwatchDevToolsPlugin {
       clearExecutionData: () => {
         self.testReporter.clearExecutionData()
         self.suiteManager.clearExecutionData()
+        self.#attemptTracker.reset()
       },
+      recordAttempt: (uid) => self.#attemptTracker.recordStart(uid),
+      attemptFor: (uid) => self.#attemptTracker.attemptFor(uid),
       buildMetadataOptions: () => self.#buildMetadataOptions(),
       ensureSessionInitialized: (b) => self.#ensureSessionInitialized(b),
       wrapBrowserOnce: (b) => self.#wrapBrowserOnce(b),
@@ -544,24 +554,21 @@ class NightwatchDevToolsPlugin {
   /** Assemble the framework-agnostic trace-export context from plugin state.
    *  Output dir ignores the spec range — nightwatch writes next to config. */
   #traceContext(sessionId: string): TraceExportContext {
-    return {
-      mode: this.options.mode,
-      policy: this.options.tracePolicy,
-      granularity: this.options.traceGranularity,
-      format: this.options.traceFormat,
-      capturer: this.sessionCapturer,
-      actionSnapshots: this.sessionCapturer.actionSnapshots,
-      sessionId,
-      testMetadata: collectSuiteTestMetadata(
-        this.suiteManager.getAllSuites().values()
-      ),
-      ranges: this.#specRanges,
-      flushed: this.#flushedSpecs,
-      resolveOutputDir: () =>
-        resolveAdapterOutputDir({ configPath: this.#configPath }),
-      awaitPending: this.sessionCapturer.snapshotCaptures,
-      log: (level, msg) => log[level](msg)
-    }
+    return buildTraceContext(
+      {
+        mode: this.options.mode,
+        policy: this.options.tracePolicy,
+        granularity: this.options.traceGranularity,
+        format: this.options.traceFormat,
+        capturer: this.sessionCapturer,
+        suites: this.suiteManager.getAllSuites().values(),
+        ranges: this.#specRanges,
+        flushed: this.#flushedSpecs,
+        configPath: this.#configPath,
+        log: (level, msg) => log[level](msg)
+      },
+      sessionId
+    )
   }
 
   async #writeTraceIfNeeded(): Promise<void> {

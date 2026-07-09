@@ -87,7 +87,8 @@ function makeMochaBeforeEach(
       parentTitle,
       parentTitle
         ? resolveCallSource(test.file, parentTitle, 'suite')
-        : undefined
+        : undefined,
+      typeof test._currentRetry === 'number' ? test._currentRetry : undefined
     )
   }
 }

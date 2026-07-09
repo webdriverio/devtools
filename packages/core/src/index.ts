@@ -3,6 +3,7 @@
 
 export * from './action-mapping.js'
 export * from './action-snapshot.js'
+export * from './attempt-tracker.js'
 export * from './with-timeout.js'
 export * from './assert-patcher.js'
 export * from './element-snapshot.js'

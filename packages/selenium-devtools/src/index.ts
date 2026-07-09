@@ -30,8 +30,10 @@ import {
   startScenario as tmStartScenario,
   endScenario as tmEndScenario,
   flushPendingTestActions as tmFlushPendingTestActions,
+  buildStartTestMeta,
   type StartTestMeta,
-  type StartScenarioMeta
+  type StartScenarioMeta,
+  type PendingTestAction
 } from './test-management.js'
 import type { PluginInternals } from './plugin-internals.js'
 import {
@@ -104,16 +106,7 @@ class SeleniumDevToolsPlugin {
   #uiReadyPromise?: Promise<void>
   // First it() body fires before onDriverCreated's async setup completes —
   // buffer startTest/endTest until testManager exists.
-  #pendingTestActions: Array<
-    | {
-        kind: 'start'
-        name: string
-        meta: { file?: string; callSource?: string }
-        suiteName?: string
-        suiteCallSource?: string
-      }
-    | { kind: 'end'; state: TestStats['state'] }
-  > = []
+  #pendingTestActions: PendingTestAction[] = []
   // Cucumber Before fires before the driver-build Before — stash and replay.
   #pendingScenario: {
     name: string
@@ -596,27 +589,24 @@ patchNodeAssert((cmd) => {
 // Runner globals are published after `--require`, so retry briefly.
 function registerHooks() {
   return tryRegisterRunnerHooks({
-    onTestStart: (name, file, callSource, suiteName, suiteCallSource) => {
-      const meta: {
-        file?: string
-        callSource?: string
-        suiteName?: string
-        suiteCallSource?: string
-      } = {}
-      if (file) {
-        meta.file = file
-      }
-      if (callSource) {
-        meta.callSource = callSource
-      }
-      if (suiteName) {
-        meta.suiteName = suiteName
-      }
-      if (suiteCallSource) {
-        meta.suiteCallSource = suiteCallSource
-      }
-      plugin.startTest(name, meta)
-    },
+    onTestStart: (
+      name,
+      file,
+      callSource,
+      suiteName,
+      suiteCallSource,
+      attempt
+    ) =>
+      plugin.startTest(
+        name,
+        buildStartTestMeta(
+          file,
+          callSource,
+          suiteName,
+          suiteCallSource,
+          attempt
+        )
+      ),
     onTestEnd: (state) => {
       plugin.endTest(state === 'pending' ? 'skipped' : state)
     },

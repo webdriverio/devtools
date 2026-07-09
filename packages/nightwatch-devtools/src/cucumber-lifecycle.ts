@@ -13,7 +13,11 @@
 
 import logger from '@wdio/logger'
 import { errorMessage } from '@wdio/devtools-core'
-import { WS_SCOPE } from '@wdio/devtools-shared'
+import {
+  WS_SCOPE,
+  type CucumberPickle,
+  type CucumberPickleStep
+} from '@wdio/devtools-shared'
 
 import type { SessionCapturer } from './session.js'
 import type { TestReporter } from './reporter.js'
@@ -32,20 +36,8 @@ import { parseCucumberScenario } from './helpers/utils.js'
 
 const log = logger('@wdio/nightwatch-devtools:cucumber')
 
-/** Minimal shapes for the Cucumber objects we touch. Cucumber's own types
- *  vary across major versions; we pin only fields we read. */
-export interface CucumberPickleStep {
-  text?: string
-  astNodeIds?: string[]
-  location?: { line?: number }
-}
-export interface CucumberPickle {
-  uri?: string
-  name?: string
-  location?: { line?: number }
-  astNodeIds?: string[]
-  steps?: CucumberPickleStep[]
-}
+/** Cucumber's result shape varies across major versions; we pin only the
+ *  status field we read. Pickle shapes come from shared. */
 export interface CucumberResult {
   status?: string
 }
@@ -66,6 +58,7 @@ export interface CucumberLifecycleCtx {
   setCurrentStep(s: unknown): void
   getCurrentStep(): unknown
   setCurrentTest(t: unknown): void
+  recordAttempt(uid: string): number
 }
 
 type MutStep = {
@@ -178,7 +171,8 @@ export async function initCucumberScenario(
     stepLines,
     stepKeywords,
     scenarioLine,
-    parentFeatureSuiteUid: featureSuite.uid
+    parentFeatureSuiteUid: featureSuite.uid,
+    recordAttempt: (uid) => ctx.recordAttempt(uid)
   })
   attachScenarioToFeature(ctx, featureSuite, scenarioSuite)
   ctx.setCurrentScenarioSuite(scenarioSuite)

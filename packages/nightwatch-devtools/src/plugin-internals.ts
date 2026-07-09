@@ -73,4 +73,10 @@ export interface PluginInternals {
   testIcon(state: TestStats['state']): string
   setCucumberRunner(v: boolean): void
   getRerunLabel(): string | undefined
+
+  /** Records a test/scenario start under its retry-stable uid; returns the
+   *  0-based attempt number (0 first run, +1 per rerun). */
+  recordAttempt(uid: string): number
+  /** Latest attempt recorded for `uid`, or undefined if it never started. */
+  attemptFor(uid: string): number | undefined
 }
