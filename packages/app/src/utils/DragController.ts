@@ -256,6 +256,17 @@ export class DragController implements ReactiveController {
     // if slider was removed (collapsed) and re-added, re-init pointer tracker
     if (this.#draggableEl !== draggableEl) {
       this.#draggableEl = draggableEl as HTMLElement
+      // The container often doesn't exist at construction (the sidebar renders
+      // only after a connection), so it must be resolved here too — otherwise
+      // the tracker attaches but #handleWindowMove bails on a null container
+      // and the drag silently no-ops.
+      if (!this.#containerEl) {
+        const containerEl = await this.#options.getContainerEl()
+        if (containerEl) {
+          this.#containerEl = containerEl as HTMLElement
+          window.onresize = () => this.#adjustPosition()
+        }
+      }
       this.#init()
     }
   }
