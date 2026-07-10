@@ -109,7 +109,7 @@ importers:
         version: link:../../packages/nightwatch-devtools
       nightwatch:
         specifier: ^3.16.0
-        version: 3.16.0(@cucumber/cucumber@13.0.0)(chromedriver@148.0.4)
+        version: 3.16.0(@cucumber/cucumber@13.0.0)(chromedriver@150.0.1)
 
   examples/selenium:
     dependencies:
@@ -422,11 +422,11 @@ importers:
         specifier: workspace:^
         version: link:../shared
       chromedriver:
-        specifier: ^148.0.4
-        version: 148.0.4
+        specifier: ^150.0.0
+        version: 150.0.1
       nightwatch:
         specifier: ^3.16.0
-        version: 3.16.0(@cucumber/cucumber@13.0.0)(chromedriver@148.0.4)
+        version: 3.16.0(@cucumber/cucumber@13.0.0)(chromedriver@150.0.1)
       tsup:
         specifier: ^8.5.1
         version: 8.5.1(@microsoft/api-extractor@7.58.9(@types/node@25.9.3))(jiti@2.7.0)(postcss@8.5.15)(tsx@4.22.4)(typescript@6.0.3)(yaml@2.9.0)
@@ -3335,6 +3335,11 @@ packages:
 
   chromedriver@148.0.4:
     resolution: {integrity: sha512-3UyptFDG4YF1Pyv3fzn95s1CN4K3zCpHSmE6g+6J4f2u9KxxOYzrwN2GApVyM2z02hlbSqzo9Ajn2hMi7LnvCw==}
+    engines: {node: '>=22'}
+    hasBin: true
+
+  chromedriver@150.0.1:
+    resolution: {integrity: sha512-vpYskeQFyZGPNMEwc/5fuvfnxzfjljCO1EvwuF0dZGQ8KE0repYQar7eThTlT1IjznwVrirYRgXrRsJts7DRIQ==}
     engines: {node: '>=22'}
     hasBin: true
 
@@ -10656,6 +10661,19 @@ snapshots:
       - debug
       - supports-color
 
+  chromedriver@150.0.1:
+    dependencies:
+      '@testim/chrome-version': 1.1.4
+      adm-zip: 0.5.17
+      axios: 1.16.1
+      compare-versions: 6.1.1
+      proxy-agent: 8.0.1
+      proxy-from-env: 2.1.0
+      tcp-port-used: 1.0.2
+    transitivePeerDependencies:
+      - debug
+      - supports-color
+
   chromium-bidi@0.5.8(devtools-protocol@0.0.1232444):
     dependencies:
       devtools-protocol: 0.0.1232444
@@ -13280,7 +13298,7 @@ snapshots:
     dependencies:
       axe-core: 4.12.0
 
-  nightwatch@3.16.0(@cucumber/cucumber@13.0.0)(chromedriver@148.0.4):
+  nightwatch@3.16.0(@cucumber/cucumber@13.0.0)(chromedriver@150.0.1):
     dependencies:
       '@nightwatch/chai': 5.0.3
       '@nightwatch/html-reporter-template': 0.3.0
@@ -13318,7 +13336,7 @@ snapshots:
       uuid: 8.3.2
     optionalDependencies:
       '@cucumber/cucumber': 13.0.0
-      chromedriver: 148.0.4
+      chromedriver: 150.0.1
     transitivePeerDependencies:
       - bufferutil
       - canvas

@@ -26,9 +26,9 @@ When(/^I login with (\w+) and (.+)$/, async (username, password) => {
 
 Then(/^I should see a flash message saying (.*)$/, async (message) => {
   console.log(`[TEST] Verifying flash message: ${message}`)
-  const el = await SecurePage.flashAlert
-  await expect(el).toBeExisting()
-  await expect(el).toHaveText(expect.stringContaining(message))
+  await expect(SecurePage.flashAlert).toBeExisting()
+  await expect(SecurePage.flashAlert).toHaveText(
+    expect.stringContaining(message)
+  )
   console.log('[TEST] Flash message verified successfully')
-  // await browser.pause(15000)
 })
