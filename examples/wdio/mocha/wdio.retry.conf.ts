@@ -42,8 +42,8 @@ export const config: Options.Testrunner = {
       'devtools',
       {
         mode: 'trace' as const,
-        traceGranularity: 'spec' as const,
-        tracePolicy: 'on-first-retry' as const
+        traceGranularity: 'test' as const,
+        tracePolicy: 'retain-on-failure' as const
       }
     ]
   ],
