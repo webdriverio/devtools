@@ -4,7 +4,7 @@ import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   buildSpecSessionId,
-  buildTestSliceSessionId,
+  buildTestSliceFolder,
   finalizeTraceExport,
   flushRangeTrace,
   type SpecRange,
@@ -186,11 +186,13 @@ describe('finalizeTraceExport', () => {
     // Each test slice carries only its own test's metadata.
     expect(result[0]!.testUids).toEqual(['a1'])
     expect(result[1]!.testUids).toEqual(['a2'])
-    const nameA1 = buildTestSliceSessionId('/a.js', 'a1', 'abcd1234')
-    const nameA2 = buildTestSliceSessionId('/a.js', 'a2', 'abcd1234')
-    expect(nameA1).not.toBe(nameA2)
-    expect(await exists(path.join(outputDir, `trace-${nameA1}.zip`))).toBe(true)
-    expect(await exists(path.join(outputDir, `trace-${nameA2}.zip`))).toBe(true)
+    // Each slice lands in its own <spec>--<title>-<browser>/trace.zip folder.
+    const folderA1 = buildTestSliceFolder('/a.js', 'A1', undefined, 'a1')
+    const folderA2 = buildTestSliceFolder('/a.js', 'A2', undefined, 'a2')
+    expect(folderA1).not.toBe(folderA2)
+    expect(result[0]!.path).toBe(path.join(outputDir, folderA1, 'trace.zip'))
+    expect(await exists(path.join(outputDir, folderA1, 'trace.zip'))).toBe(true)
+    expect(await exists(path.join(outputDir, folderA2, 'trace.zip'))).toBe(true)
   })
 
   it('treats a retry-keyed range as its own test slice', async () => {
@@ -206,11 +208,13 @@ describe('finalizeTraceExport', () => {
     )
     expect(result).toHaveLength(2)
     expect(result.map((a) => a.key)).toEqual(['a1', 'a1-retry1'])
-    const first = buildTestSliceSessionId('/a.js', 'a1', 'abcd1234')
-    const retry = buildTestSliceSessionId('/a.js', 'a1-retry1', 'abcd1234')
+    // The retry attempt gets a distinct folder via the -retry<N> suffix.
+    const first = buildTestSliceFolder('/a.js', 'A1', undefined, 'a1')
+    const retry = buildTestSliceFolder('/a.js', 'A1', undefined, 'a1-retry1')
     expect(first).not.toBe(retry)
-    expect(await exists(path.join(outputDir, `trace-${first}.zip`))).toBe(true)
-    expect(await exists(path.join(outputDir, `trace-${retry}.zip`))).toBe(true)
+    expect(retry.endsWith('-retry1')).toBe(true)
+    expect(await exists(path.join(outputDir, first, 'trace.zip'))).toBe(true)
+    expect(await exists(path.join(outputDir, retry, 'trace.zip'))).toBe(true)
   })
 
   it('warns and falls back to a session trace when test has no boundaries', async () => {

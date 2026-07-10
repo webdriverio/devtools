@@ -1,16 +1,23 @@
-import { describe, it, expect } from 'vitest'
+import fs from 'node:fs/promises'
+import os from 'node:os'
+import path from 'node:path'
+import { afterEach, beforeEach, describe, it, expect } from 'vitest'
 import {
   buildSpecCapturer,
   buildSpecSessionId,
+  buildTestSliceFolder,
   buildTestSliceSessionId,
   filterTestMetadataBySpec,
   filterTestMetadataByUid,
   recordSliceBoundary,
   recordSpecBoundary,
   sanitizeSpecName,
+  writeSpecTrace,
+  writeTestSliceTrace,
   type SpecBoundaryContext,
   type SpecRange,
-  type TraceCapturer
+  type TraceCapturer,
+  type WriteSpecTraceInput
 } from '@wdio/devtools-core'
 import { TraceType, type TestMetadataMap } from '@wdio/devtools-shared'
 
@@ -194,6 +201,114 @@ describe('recordSliceBoundary (test granularity)', () => {
     recordSliceBoundary(ctx, 'test', '/a.js', 'u1')
     ctx.flushedSpecs.add('u1')
     expect(recordSliceBoundary(ctx, 'test', '/a.js', 'u2')).toBeNull()
+  })
+})
+
+describe('buildTestSliceFolder', () => {
+  it('combines sanitized spec, title slug, and browser slug', () => {
+    expect(
+      buildTestSliceFolder(
+        '/tests/login.e2e.js',
+        'shows an error message for an invalid username',
+        'chrome',
+        'u1'
+      )
+    ).toBe('login_e2e-shows-an-error-message-for-an-invalid-username-chrome')
+  })
+
+  it('appends a -retry<N> suffix when the key is a retry key', () => {
+    expect(
+      buildTestSliceFolder('/a.js', 'My Test', 'chrome', 'u1-retry2')
+    ).toBe('a-my-test-chrome-retry2')
+  })
+
+  it('defaults the browser slug to "browser" when the browser is absent', () => {
+    expect(buildTestSliceFolder('/a.js', 'My Test', undefined, 'u1')).toBe(
+      'a-my-test-browser'
+    )
+  })
+
+  it('falls back to a stable short hash of the key when the title is empty', () => {
+    const folder = buildTestSliceFolder('/a.js', '', 'chrome', 'u1')
+    expect(folder).toMatch(/^a-[a-z0-9]+-chrome$/)
+    expect(buildTestSliceFolder('/a.js', undefined, 'chrome', 'u1')).toBe(
+      folder
+    )
+  })
+
+  it('lowercases, collapses non-alphanumerics, and caps the slug length', () => {
+    const folder = buildTestSliceFolder(
+      '/a.js',
+      `${'A'.repeat(80)} !!! End`,
+      'Chrome',
+      'u1'
+    )
+    const titleSlug = folder.slice('a-'.length, folder.lastIndexOf('-chrome'))
+    expect(titleSlug.length).toBeLessThanOrEqual(60)
+    expect(titleSlug).toMatch(/^[a-z0-9-]+$/)
+    expect(titleSlug.endsWith('-')).toBe(false)
+  })
+})
+
+describe('writeTestSliceTrace / writeSpecTrace output layout', () => {
+  let outputDir: string
+  beforeEach(async () => {
+    outputDir = await fs.mkdtemp(path.join(os.tmpdir(), 'slice-layout-'))
+  })
+  afterEach(async () => {
+    await fs.rm(outputDir, { recursive: true, force: true })
+  })
+
+  const writableCapturer = (): TraceCapturer => ({
+    mutations: [],
+    traceLogs: [],
+    consoleLogs: [],
+    networkRequests: [],
+    commandsLog: [
+      { command: 'url', args: ['https://example.test'], timestamp: 1000 }
+    ],
+    sources: new Map(),
+    metadata: { type: TraceType.Standalone },
+    startWallTime: 1000
+  })
+
+  const input = (
+    over: Partial<WriteSpecTraceInput> = {}
+  ): WriteSpecTraceInput => ({
+    range: range({ specFile: '/tests/login.js', key: 'u1', testUid: 'u1' }),
+    capturer: writableCapturer(),
+    actionSnapshots: [],
+    sessionId: 'sess1234',
+    outputDir,
+    testMetadata: new Map([
+      ['u1', { title: 'My Test', specFile: '/tests/login.js' }]
+    ]),
+    capabilities: { browserName: 'firefox' },
+    ...over
+  })
+
+  it('writes a test slice into <folder>/trace.zip', async () => {
+    const written = await writeTestSliceTrace(input())
+    const folder = buildTestSliceFolder(
+      '/tests/login.js',
+      'My Test',
+      'firefox',
+      'u1'
+    )
+    expect(folder).toBe('login-my-test-firefox')
+    expect(written).toBe(path.join(outputDir, folder, 'trace.zip'))
+    await expect(fs.access(written)).resolves.toBeUndefined()
+  })
+
+  it('keeps the spec write flat as trace-<id>.zip (unchanged layout)', async () => {
+    const written = await writeSpecTrace(
+      input({
+        range: range({ specFile: '/tests/login.js', key: '/tests/login.js' })
+      })
+    )
+    const name = buildSpecSessionId('/tests/login.js', 'sess1234')
+    expect(written).toBe(path.join(outputDir, `trace-${name}.zip`))
+    await expect(fs.access(written)).resolves.toBeUndefined()
   })
 })
 

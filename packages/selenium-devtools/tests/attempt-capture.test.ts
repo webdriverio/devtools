@@ -77,6 +77,7 @@ describe('retry/attempt capture', () => {
         actionSnapshots: [],
         specRanges: [],
         flushedSpecs: new Set<string>(),
+        traceFlushes: [],
         snapshotCaptures: []
       } as unknown as SessionLifecycleCtx
 

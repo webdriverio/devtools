@@ -19,7 +19,6 @@ import {
   type CucumberPickleStep
 } from '@wdio/devtools-shared'
 
-import type { SessionCapturer } from './session.js'
 import type { TestReporter } from './reporter.js'
 import type { TestManager } from './helpers/testManager.js'
 import type { SuiteManager } from './helpers/suiteManager.js'
@@ -33,6 +32,11 @@ import {
 import { buildCucumberScenarioSuite } from './helpers/cucumberScenarioBuilder.js'
 import { scanFeatureFile } from './helpers/featureFileScan.js'
 import { parseCucumberScenario } from './helpers/utils.js'
+import {
+  recordTestSliceBoundary,
+  flushTestSlice,
+  type TestSliceCtx
+} from './trace-slices.js'
 
 const log = logger('@wdio/nightwatch-devtools:cucumber')
 
@@ -42,8 +46,7 @@ export interface CucumberResult {
   status?: string
 }
 
-export interface CucumberLifecycleCtx {
-  readonly sessionCapturer: SessionCapturer
+export interface CucumberLifecycleCtx extends TestSliceCtx {
   readonly testReporter: TestReporter
   readonly testManager: TestManager
   readonly suiteManager: SuiteManager
@@ -132,6 +135,15 @@ function normalizeSteps(
   return (pickleSteps ?? []).map((s) => ({ text: s.text ?? '' }))
 }
 
+function captureFeatureSources(
+  ctx: CucumberLifecycleCtx,
+  paths: string[]
+): void {
+  for (const p of paths) {
+    ctx.sessionCapturer.captureSource(p).catch(() => {})
+  }
+}
+
 export async function initCucumberScenario(
   ctx: CucumberLifecycleCtx,
   browser: NightwatchBrowser,
@@ -148,9 +160,7 @@ export async function initCucumberScenario(
     stepDefFiles,
     capturedPaths
   } = scanFeatureFile(featureUri)
-  for (const p of capturedPaths) {
-    ctx.sessionCapturer.captureSource(p).catch(() => {})
-  }
+  captureFeatureSources(ctx, capturedPaths)
   const { featureSuite, scenarioLine, stepLines, stepKeywords } =
     createFeatureSuite(
       ctx,
@@ -175,6 +185,8 @@ export async function initCucumberScenario(
     recordAttempt: (uid) => ctx.recordAttempt(uid)
   })
   attachScenarioToFeature(ctx, featureSuite, scenarioSuite)
+  // The scenario is the `test` unit; its steps are the leaf metadata entries.
+  recordTestSliceBoundary(ctx, featureUri, scenarioSuite.uid)
   ctx.setCurrentScenarioSuite(scenarioSuite)
   ctx.setCurrentStep(null)
   ctx.setCurrentTest(null)
@@ -222,6 +234,9 @@ export async function finalizeCucumberScenario(
       ctx.setCurrentTest(null)
     }
     await ctx.sessionCapturer.captureTrace(browser)
+    // Flush before the next attempt's attachScenarioToFeature overwrites this
+    // scenario's suite (and thus its outcome) in the tree.
+    flushTestSlice(ctx)
   } catch (err) {
     log.error(`Failed to finalize Cucumber scenario: ${errorMessage(err)}`)
   }

@@ -7,6 +7,7 @@
  * four) while still letting each lifecycle module narrow its dependencies.
  */
 
+import type { SpecRange, TraceArtifact } from '@wdio/devtools-core'
 import type { SessionCapturer } from './session.js'
 import type { TestReporter } from './reporter.js'
 import type { ScreencastRecorder } from './screencast.js'
@@ -18,7 +19,8 @@ import type {
   NightwatchBrowser,
   ScreencastOptions,
   SuiteStats,
-  TestStats
+  TestStats,
+  TraceGranularity
 } from './types.js'
 
 export interface PluginInternals {
@@ -29,6 +31,7 @@ export interface PluginInternals {
   readonly mode: DevToolsMode
   readonly screencastOptions: ScreencastOptions
   readonly bidiEnabled: boolean
+  readonly captureAssertions: boolean
 
   // Runtime instances (mutable — bringup/session-change replaces them)
   sessionCapturer: SessionCapturer
@@ -79,4 +82,12 @@ export interface PluginInternals {
   recordAttempt(uid: string): number
   /** Latest attempt recorded for `uid`, or undefined if it never started. */
   attemptFor(uid: string): number | undefined
+
+  // Per-test trace slicing (`test` granularity). Boundary state is shared with
+  // the finalizer; flushTraceRange writes one slice via the plugin's context.
+  readonly traceMode: boolean
+  readonly traceGranularity: TraceGranularity
+  readonly specRanges: SpecRange[]
+  readonly flushedSpecs: Set<string>
+  flushTraceRange(range: SpecRange): Promise<TraceArtifact | undefined>
 }

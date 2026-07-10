@@ -466,6 +466,9 @@ export interface WriteTraceZipOptions {
   format?: TraceFormat
   /** Test metadata keyed by testUid for Tracing.tracingGroup events. */
   testMetadata?: TestMetadataMap
+  /** Base name for the artifact (zip file stem / directory name). Defaults to
+   *  `trace-<sessionId>`; per-test slices pass `'trace'` inside a named folder. */
+  fileStem?: string
 }
 
 /**
@@ -501,14 +504,15 @@ export async function writeTraceZip(
     wallTimeOverride: capturer.startWallTime,
     testMetadata: opts.testMetadata
   }
+  const stem = opts.fileStem ?? `trace-${opts.sessionId}`
   if (opts.format === 'ndjson-directory') {
-    const dir = path.join(opts.outputDir, `trace-${opts.sessionId}`)
+    const dir = path.join(opts.outputDir, stem)
     await fs.mkdir(dir, { recursive: true })
     await exportTraceDirectory(traceLog, dir, exportOpts)
     return dir
   }
   const zip = await exportTraceZip(traceLog, exportOpts)
-  const zipPath = path.join(opts.outputDir, `trace-${opts.sessionId}.zip`)
+  const zipPath = path.join(opts.outputDir, `${stem}.zip`)
   await fs.writeFile(zipPath, zip)
   return zipPath
 }
