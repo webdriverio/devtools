@@ -1,3 +1,5 @@
+import type { CommandLog, TraceMutation } from '@wdio/devtools-shared'
+
 export type DurationHeat = 'fast' | 'mid' | 'slow'
 
 const ONE_SECOND = 1000
@@ -27,6 +29,24 @@ export function durationHeat(ms: number): DurationHeat {
     return 'mid'
   }
   return 'fast'
+}
+
+/**
+ * True per-action duration: a command's own execution span (`timestamp −
+ * startTime`) when it has one, else the inter-action `gapFallback`. Prefer the
+ * span — the gap over-counts idle time before an action, so e.g. an assertion
+ * whose internal polling commands are suppressed would otherwise report the
+ * navigation gap that preceded it rather than its own runtime. Used by both the
+ * flat (live) and grouped (trace-player) action views so they agree.
+ */
+export function entryDuration(
+  entry: CommandLog | TraceMutation,
+  gapFallback: number | undefined
+): number | undefined {
+  if ('command' in entry && entry.startTime !== undefined) {
+    return entry.timestamp - entry.startTime
+  }
+  return gapFallback
 }
 
 /**
