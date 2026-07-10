@@ -18,8 +18,8 @@ import '../placeholder.js'
 import './actionItems/command.js'
 import './actionItems/group.js'
 import './actionItems/mutation.js'
-import { stepDurations } from './actionItems/duration.js'
-import { activeTimestampAt } from './active-entry.js'
+import { entryDuration, stepDurations } from './actionItems/duration.js'
+import { activeSpanAt } from './active-entry.js'
 import {
   defaultExpanded,
   flattenActionTree,
@@ -128,12 +128,7 @@ export class DevtoolsActions extends Element {
   // every timeupdate tick.
   #onScreencastProgress = (event: Event) => {
     const { time } = (event as CustomEvent<{ time: number }>).detail
-    const entries = this.#sortedEntries()
-    const timestamp = activeTimestampAt(
-      entries.map((entry) => entry.timestamp),
-      time
-    )
-    const active = entries.find((entry) => entry.timestamp === timestamp)
+    const active = activeSpanAt(this.#sortedEntries(), time)
     if (active === this.activeEntry) {
       return
     }
@@ -228,10 +223,7 @@ export class DevtoolsActions extends Element {
       return nothing
     }
     // Reconstructed zips carry the real invocation span; gap is the fallback.
-    const duration =
-      entry.startTime !== undefined
-        ? entry.timestamp - entry.startTime
-        : gaps[row.commandIndex]
+    const duration = entryDuration(entry, gaps[row.commandIndex])
     return html`
       <wdio-devtools-command-item
         style=${indent}
@@ -257,7 +249,7 @@ export class DevtoolsActions extends Element {
 
     const rows = entries.map((entry, index) => {
       const elapsedTime = entry.timestamp - baselineTimestamp
-      const duration = durations[index]
+      const duration = entryDuration(entry, durations[index])
       const active = entry === this.activeEntry
 
       if ('command' in entry) {

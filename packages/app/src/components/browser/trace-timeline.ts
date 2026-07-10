@@ -5,7 +5,7 @@ import { consume } from '@lit/context'
 import type { CommandLog, TracePlayerFrame } from '@wdio/devtools-shared'
 
 import { commandContext, framesContext } from '../../controller/context.js'
-import { activeTimestampAt } from '../workbench/active-entry.js'
+import { activeSpanAt } from '../workbench/active-entry.js'
 import { KBD } from '../../controller/keyboard.js'
 import {
   PLAYER_RESTART_EVENT,
@@ -42,7 +42,7 @@ export class TraceTimeline extends Element {
 
   #rafId?: number
   #rafLast = 0
-  #activeTimestamp?: number
+  #activeCommand?: CommandLog
   #started = false
 
   @query('[data-scrub]') scrubEl?: HTMLElement
@@ -229,19 +229,15 @@ export class TraceTimeline extends Element {
       return
     }
     const clock = this.#start + this.currentMs
-    const timestamps = sorted.map((c) => c.timestamp ?? 0)
-    const activeTs = activeTimestampAt(timestamps, clock) ?? timestamps[0]
-    if (this.#started && activeTs === this.#activeTimestamp) {
+    const command = activeSpanAt(sorted, clock) ?? sorted[0]
+    if (this.#started && command === this.#activeCommand) {
       return
     }
     this.#started = true
-    this.#activeTimestamp = activeTs
-    const command = sorted.find((c) => (c.timestamp ?? 0) === activeTs)
-    if (command) {
-      window.dispatchEvent(
-        new CustomEvent('show-command', { detail: { command } })
-      )
-    }
+    this.#activeCommand = command
+    window.dispatchEvent(
+      new CustomEvent('show-command', { detail: { command } })
+    )
   }
 
   // ─── scrubbing (drag anywhere on the strip) ───────────────────────────────
