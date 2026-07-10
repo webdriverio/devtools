@@ -89,10 +89,10 @@ describe('regular test retry attempt via startNextTest', () => {
       recordAttempt: (uid: string) => tracker.recordStart(uid)
     } as unknown as TestLifecycleCtx
 
-    await startNextTest(ctx, suite, 'my test', new Set())
+    await startNextTest(ctx, suite, 'my test', new Set(), null)
     expect(test.retries).toBe(0)
 
-    await startNextTest(ctx, suite, 'my test', new Set(['my test']))
+    await startNextTest(ctx, suite, 'my test', new Set(['my test']), null)
     expect(test.retries).toBe(1)
   })
 })

@@ -39,6 +39,7 @@ export interface SessionInitCtx {
   readonly screencastOptions: ScreencastOptions
   readonly bidiEnabled: boolean
   readonly mode: DevToolsMode
+  readonly captureAssertions: boolean
 
   sessionCapturer: SessionCapturer
   testReporter: TestReporter
@@ -98,7 +99,8 @@ function initReporterChain(ctx: SessionInitCtx): void {
   ctx.browserProxy = new BrowserProxy(
     ctx.sessionCapturer,
     ctx.testManager,
-    () => ctx.getCurrentTest() ?? ctx.getCurrentScenarioSuite()
+    () => ctx.getCurrentTest() ?? ctx.getCurrentScenarioSuite(),
+    ctx.captureAssertions
   )
 }
 
