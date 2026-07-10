@@ -23,12 +23,26 @@ export {
   type TraceLog
 } from '@wdio/devtools-shared'
 
-import type { BaseDevToolsOptions } from '@wdio/devtools-shared'
+import type { BaseDevToolsOptions, CommandLog } from '@wdio/devtools-shared'
 
 export interface CommandStackFrame {
   command: string
   callSource?: string
   signature: string
+}
+
+/** One explicit `browser.assert.*` / `browser.verify.*` call, recorded at call
+ *  time by BrowserProxy. A neutral "pending" row (`entry`) is streamed live at
+ *  call time; `captureNativeAssertions` finalizes its pass/fail at test-end. */
+export interface NativeAssertCall {
+  prefix: 'assert' | 'verify'
+  method: string
+  args: unknown[]
+  callSource?: string
+  /** Wall-clock at call time; also the streamed row's timestamp/startTime. */
+  timestamp: number
+  /** The pending row emitted at call time, updated in place when finalized. */
+  entry?: CommandLog
 }
 
 export interface NightwatchTestCase {

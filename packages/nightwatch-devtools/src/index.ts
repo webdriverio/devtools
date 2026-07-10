@@ -9,8 +9,7 @@ import { fileURLToPath } from 'node:url'
 import {
   errorMessage,
   finalizeTraceExport,
-  flushRangeTrace,
-  recordSpecBoundary,
+  flushRangeLogged,
   TestAttemptTracker,
   tracePolicyModeWarning,
   type SpecRange,
@@ -72,6 +71,8 @@ import {
   ensureSessionInitialized,
   finalizeCurrentScreencast
 } from './session-init.js'
+import { captureNativeAssertions } from './helpers/nativeAssertions.js'
+import { flushTestSlice, recordSpecSliceBoundary } from './trace-slices.js'
 import {
   getTestIcon,
   incrementCounters,
@@ -178,6 +179,9 @@ class NightwatchDevToolsPlugin {
       },
       get bidiEnabled() {
         return self.#bidiEnabled
+      },
+      get captureAssertions() {
+        return self.options.captureAssertions
       },
       get sessionCapturer() {
         return self.sessionCapturer
@@ -305,9 +309,27 @@ class NightwatchDevToolsPlugin {
       setCucumberRunner: (v) => {
         self.#isCucumberRunner = v
       },
-      getRerunLabel: () => self.#getRerunLabel()
+      getRerunLabel: () => self.#getRerunLabel(),
+      get traceMode() {
+        return self.options.mode === 'trace'
+      },
+      get traceGranularity() {
+        return self.options.traceGranularity
+      },
+      get specRanges() {
+        return self.#specRanges
+      },
+      get flushedSpecs() {
+        return self.#flushedSpecs
+      },
+      flushTraceRange: (range) => self.#flushSpecTrace(range)
     }
     return this.#internals
+  }
+
+  /** Boundary cast: currentTest is Nightwatch's loose bag; only uid is read. */
+  #currentTestUid(): string | undefined {
+    return (this.#currentTest as { uid?: string } | null)?.uid
   }
 
   #handleReuseMode(): void {
@@ -330,8 +352,7 @@ class NightwatchDevToolsPlugin {
     if (this.options.captureAssertions) {
       wireAssertCapture(
         () => this.sessionCapturer,
-        // Boundary cast: currentTest is Nightwatch's loose bag; only uid is read.
-        () => (this.#currentTest as { uid?: string } | null)?.uid
+        () => this.#currentTestUid()
       )
     }
   }
@@ -401,13 +422,15 @@ class NightwatchDevToolsPlugin {
   async #startNextTest(
     currentSuite: SuiteStats,
     currentTestName: string,
-    processedTests: Set<string>
+    processedTests: Set<string>,
+    specFile: string | null
   ): Promise<void> {
     await startNextTest(
       this.#getInternals(),
       currentSuite,
       currentTestName,
-      processedTests
+      processedTests,
+      specFile
     )
   }
 
@@ -453,25 +476,8 @@ class NightwatchDevToolsPlugin {
       this.sessionCapturer.captureSource(fullPath).catch(() => {})
     }
 
-    // ── Per-spec boundary detection ──
     if (fullPath) {
-      const prevRange = recordSpecBoundary(
-        {
-          specRanges: this.#specRanges,
-          flushedSpecs: this.#flushedSpecs,
-          capturer: this.sessionCapturer,
-          actionSnapshots: this.sessionCapturer.actionSnapshots
-        },
-        fullPath,
-        this.options.traceGranularity
-      )
-      if (prevRange) {
-        void this.#flushSpecTrace(prevRange).catch((err) =>
-          log.warn(
-            `Failed to flush trace for spec "${prevRange.specFile}": ${errorMessage(err)}`
-          )
-        )
-      }
+      recordSpecSliceBoundary(this.#getInternals(), fullPath)
     }
 
     await this.#closePreviousRunningTest(currentSuite, testFile, currentTest)
@@ -483,7 +489,12 @@ class NightwatchDevToolsPlugin {
       processedTests
     )
     if (currentTestName) {
-      await this.#startNextTest(currentSuite, currentTestName, processedTests)
+      await this.#startNextTest(
+        currentSuite,
+        currentTestName,
+        processedTests,
+        fullPath
+      )
     }
     this.#wrapBrowserOnce(browser)
   }
@@ -497,7 +508,18 @@ class NightwatchDevToolsPlugin {
     if (browser && this.sessionCapturer) {
       try {
         await this.#closeOutTestcases(browser)
+        if (this.options.captureAssertions) {
+          await captureNativeAssertions(
+            this.sessionCapturer,
+            browser,
+            browser.currentTest as NightwatchCurrentTest | undefined,
+            this.#currentTestUid(),
+            this.browserProxy.drainNativeAssertCalls()
+          )
+        }
         await this.sessionCapturer.captureTrace(browser)
+        // Flush this test's slice before the next test overwrites its outcome.
+        flushTestSlice(this.#getInternals())
       } catch (err) {
         log.error(`Failed to capture trace: ${errorMessage(err)}`)
       }
@@ -542,13 +564,15 @@ class NightwatchDevToolsPlugin {
     logRunSummary(this.#getInternals())
   }
 
-  /** Thin wrapper so boundary flushes and the final flush share one path. */
+  /** Thin wrapper so boundary flushes and the final flush share one path.
+   *  flushRangeLogged logs+swallows a failed flush (shared spec/test string) so
+   *  the fire-and-forget boundary callers don't each re-implement the guard. */
   #flushSpecTrace(range: SpecRange): Promise<TraceArtifact | undefined> {
     const sessionId = this.sessionCapturer.metadata?.sessionId
     if (!sessionId) {
       return Promise.resolve(undefined)
     }
-    return flushRangeTrace(this.#traceContext(sessionId), range)
+    return flushRangeLogged(this.#traceContext(sessionId), range)
   }
 
   /** Assemble the framework-agnostic trace-export context from plugin state.

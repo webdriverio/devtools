@@ -214,6 +214,41 @@ export class SessionCapturer extends SessionCapturerBase {
   }
 
   /**
+   * Ingest a pre-built assertion entry (native `browser.assert`/`verify`
+   * synthesized from Nightwatch's results, or a node:assert capture) into the
+   * same command stream driver commands use. Unlike {@link captureCommand} this
+   * preserves the entry's `title` (the human assertion message) and never
+   * dedups — each call is a distinct action row. Assigns a fresh `_id` and a
+   * matching stable public `id` (so a later `sendReplaceCommand` can update
+   * this exact row in place — native asserts stream a pending row at call time,
+   * then finalize their pass/fail), pushes, and broadcasts.
+   */
+  captureAssertCommand(entry: CommandLog): void {
+    const withId = entry as CommandLog & { _id?: number }
+    withId._id = this.commandCounter++
+    withId.id = withId._id
+    this.commandsLog.push(withId)
+    if (
+      this.traceMode === 'trace' &&
+      !entry.error &&
+      this.#browser &&
+      mapCommandToAction(entry.command)
+    ) {
+      const browser = this.#browser
+      this.snapshotCaptures.push(
+        captureActionSnapshot(browser, entry.command, () =>
+          this.takeScreenshotViaHttp(browser)
+        ).then((snap) => {
+          if (snap) {
+            this.actionSnapshots.push(snap)
+          }
+        })
+      )
+    }
+    this.sendCommand(withId)
+  }
+
+  /**
    * Replace an already-captured command entry (used for retried commands so
    * only the final execution result is shown in the UI).
    * Removes the old entry from commandsLog, revokes its sent-status so the
