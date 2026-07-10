@@ -15,6 +15,8 @@ const mockSessionCapturerInstance = {
   afterCommand: vi.fn(),
   sendUpstream: vi.fn(),
   injectScript: vi.fn().mockResolvedValue(undefined),
+  captureSource: vi.fn(),
+  captureAssertCommand: vi.fn(),
   cleanup: vi.fn(),
   commandsLog: [],
   sources: new Map(),
@@ -278,5 +280,67 @@ describe('DevtoolsService - Screencast Integration', () => {
     expect(mockScreencastRecorder.stop).toHaveBeenCalled()
     expect(ScreencastRecorder).toHaveBeenCalled()
     expect(mockScreencastRecorder.start).toHaveBeenCalledWith(mockBrowser)
+  })
+})
+
+describe('DevtoolsService - assertion suppression self-heal', () => {
+  let service: DevToolsHookService
+  const mockBrowser = {
+    isBidi: true,
+    sessionId: 'heal-session',
+    scriptAddPreloadScript: vi.fn().mockResolvedValue(undefined),
+    takeScreenshot: vi.fn().mockResolvedValue('screenshot'),
+    execute: vi.fn().mockResolvedValue({
+      width: 1200,
+      height: 800,
+      offsetLeft: 0,
+      offsetTop: 0
+    }),
+    on: vi.fn(),
+    emit: vi.fn()
+  } as any
+
+  const capturedCommands = () =>
+    mockSessionCapturerInstance.afterCommand.mock.calls.map((call) => call[1])
+
+  beforeEach(async () => {
+    vi.clearAllMocks()
+    service = new DevToolsHookService()
+    await service.before({} as any, [], mockBrowser)
+    vi.clearAllMocks()
+  })
+
+  // expect-webdriverio doesn't wrap afterAssertion in try/finally, so a matcher
+  // whose internal command hard-throws runs beforeAssertion but skips
+  // afterAssertion, leaving #assertionDepth stuck ≥ 1. Without the self-heal
+  // that stuck depth suppresses every later user command in the test.
+  it('captures a top-level command after a matcher throw left the assertion depth stuck', async () => {
+    service.beforeAssertion()
+    service.beforeAssertion() // depth now 2, no matching afterAssertion
+
+    // The mocked stack is a user-spec frame with no expect-webdriverio frame,
+    // so the command is recognised as top-level and the leftover depth resets.
+    service.beforeCommand('click' as any, ['.button'])
+    await service.afterCommand('click' as any, ['.button'], undefined)
+
+    expect(capturedCommands()).toEqual(['click'])
+  })
+
+  it('a fresh beforeAssertion resets a stuck depth so the window stays balanced', async () => {
+    service.beforeAssertion()
+    service.beforeAssertion() // leftover depth from a prior throw
+
+    // A new matcher starts (resetting the stuck depth) and completes normally.
+    service.beforeAssertion()
+    await service.afterAssertion({
+      matcherName: 'toBeDisplayed',
+      result: { pass: true }
+    } as any)
+
+    // Depth is balanced again, so the next top-level command is captured.
+    service.beforeCommand('setValue' as any, ['.input', 'hi'])
+    await service.afterCommand('setValue' as any, ['.input', 'hi'], undefined)
+
+    expect(capturedCommands()).toEqual(['setValue'])
   })
 })

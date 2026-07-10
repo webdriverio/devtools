@@ -4,9 +4,8 @@ import {
   errorMessage,
   finalizeScreencast,
   finalizeTraceExport,
-  flushRangeTrace,
   mapCommandToAction,
-  recordSpecBoundary,
+  recordSliceBoundary,
   resolveAdapterOutputDir,
   TestAttemptTracker,
   tracePolicyModeWarning,
@@ -16,6 +15,7 @@ import {
 import {
   captureExpectFailure,
   expectAssertionToCommandLog,
+  resolveAssertionCallSource,
   wireAssertCapture,
   type ExpectAssertion
 } from './assert-capture.js'
@@ -27,9 +27,11 @@ import {
   type TestOutcomeResult
 } from './test-metadata.js'
 import { resolveCallSourceFromFrame } from './call-source.js'
+import { flushPrevSlice, flushTestSlice } from './trace-slices.js'
 import {
   captureActionResult,
-  captureActionSnapshot
+  captureActionSnapshot,
+  pushActionSnapshotAt
 } from './action-snapshot.js'
 import {
   dedupeSnapshotsByTimestamp,
@@ -102,6 +104,24 @@ export default class DevToolsHookService implements Services.ServiceInstance {
    */
   #commandStack: CommandFrame[] = []
 
+  /** Depth of the current expect-webdriverio matcher evaluation. While > 0, the
+   *  matcher's internal WebDriver commands (getText/isExisting polling) are
+   *  suppressed so only the `expect.<matcher>` assertion row is captured —
+   *  matching Playwright and the Nightwatch native-assert behaviour. */
+  #assertionDepth = 0
+
+  /** Matcher start timestamps (stack, paired with #assertionDepth) so a captured
+   *  assertion spans [matcher start → end] — its poll duration — instead of
+   *  collapsing to a zero-width point at completion, which left the screencast
+   *  tracking the preceding command during the poll. */
+  #assertionStartTimes: number[] = []
+
+  /** User `expect()` call sites (stack, paired with #assertionStartTimes),
+   *  captured in beforeAssertion while a user frame is still synchronous. The
+   *  matcher runs async, so afterAssertion's own stack resolves to the service
+   *  bundle — this parallel stack lets each row keep its spec-file callSource. */
+  #assertionCallSources: (string | undefined)[] = []
+
   /** Current test UID, set in beforeTest(), used by afterCommand() to tag commands. */
   #currentTestUid?: string
 
@@ -119,7 +139,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
   /** Set of spec files already flushed to disk. */
   #flushedSpecs = new Set<string>()
 
-  /** Build the boundary context for recordSpecBoundary — the same shape is
+  /** Build the boundary context for recordSliceBoundary — the same shape is
    *  needed in both beforeTest and beforeScenario. */
   get #boundaryContext() {
     return {
@@ -130,33 +150,41 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     }
   }
 
-  /** Fire-and-forget flush of a previous spec's trace. The error log is
-   *  inline so the spec-file reference stays precise. */
-  #fireAndForgetFlush(prevRange: SpecRange): void {
-    if (!this.#browser) {
-      return
-    }
-    void flushRangeTrace(this.#traceContext(this.#browser), prevRange).catch(
-      (err) =>
-        log.warn(
-          `Failed to flush trace for spec "${prevRange.specFile}": ${errorMessage(err)}`
-        )
-    )
-  }
-
-  /** Record a spec boundary (spec granularity) and flush the previous spec. */
-  #recordBoundary(specFile: string | undefined): void {
+  /** Record a trace-slice boundary. `spec` slices per file; `test` per test
+   *  (retries keyed per attempt by core); `session` records nothing. The
+   *  previous-slice flush fires for `spec`; `test` slices eager-flush at their
+   *  own test end (see #eagerFlushTestSlice) so this is only a missed-slice net. */
+  #recordBoundary(specFile: string | undefined, testUid?: string): void {
     if (!specFile) {
       return
     }
-    const prevRange = recordSpecBoundary(
+    const prevRange = recordSliceBoundary(
       this.#boundaryContext,
+      this.#options.traceGranularity,
       specFile,
-      this.#options.traceGranularity
+      testUid
     )
-    if (prevRange) {
-      this.#fireAndForgetFlush(prevRange)
+    if (prevRange && this.#browser) {
+      flushPrevSlice(this.#traceContext(this.#browser), prevRange)
     }
+  }
+
+  /** Eager per-test flush at test end (test granularity only), run after the
+   *  outcome is stamped so this attempt's metadata is written before a retry
+   *  overwrites it; the end-of-run finalizer then dedupes it via the key set. */
+  async #eagerFlushTestSlice(testUid: string): Promise<void> {
+    if (
+      this.#options.traceGranularity !== 'test' ||
+      this.#options.mode !== 'trace' ||
+      !this.#browser
+    ) {
+      return
+    }
+    await flushTestSlice(
+      this.#traceContext(this.#browser),
+      this.#specRanges,
+      testUid
+    )
   }
 
   /** Assemble the framework-agnostic trace-export context from this service's
@@ -326,16 +354,21 @@ export default class DevToolsHookService implements Services.ServiceInstance {
 
     const featureFile = world?.pickle?.uri
     const scenarioName = world?.pickle?.name
+    // Derived before recording the boundary so `test` granularity keys the
+    // slice on the same uid the metadata map uses.
+    const uid =
+      featureFile && scenarioName
+        ? cucumberScenarioUid(
+            featureFile,
+            scenarioName,
+            world?.pickle?.astNodeIds
+          )
+        : undefined
 
-    this.#recordBoundary(featureFile)
+    this.#recordBoundary(featureFile, uid)
 
     // ── Test identity for command tagging ──
-    if (featureFile && scenarioName) {
-      const uid = cucumberScenarioUid(
-        featureFile,
-        scenarioName,
-        world?.pickle?.astNodeIds
-      )
+    if (uid && scenarioName && featureFile) {
       this.#currentTestUid = uid
       this.#attemptTracker.recordStart(uid)
       this.#testMetadata.set(uid, {
@@ -349,15 +382,17 @@ export default class DevToolsHookService implements Services.ServiceInstance {
   beforeTest(test?: { file?: string; title?: string; fullTitle?: string }) {
     this.resetStack()
 
-    this.#recordBoundary(test?.file)
-
     // Track test identity for command tagging. Generate a stable UID
     // from file + title so commands can be partitioned across reruns.
     // WDIO's Test type always provides `fullTitle`; `title` is a
-    // fallback for non-WDIO frameworks.
+    // fallback for non-WDIO frameworks. Derived before the boundary so
+    // `test` granularity keys the slice on the metadata-map uid.
     const testTitle = test?.fullTitle || test?.title
-    if (testTitle) {
-      const uid = testMetadataUid(test?.file, testTitle)
+    const uid = testTitle ? testMetadataUid(test?.file, testTitle) : undefined
+
+    this.#recordBoundary(test?.file, uid)
+
+    if (uid && testTitle) {
       this.#currentTestUid = uid
       this.#attemptTracker.recordStart(uid)
       this.#testMetadata.set(uid, {
@@ -403,10 +438,16 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     result?: TestOutcomeResult
   ) {
     const { uri, name, astNodeIds } = world?.pickle ?? {}
-    if (uri && name) {
-      this.#stampOutcome(cucumberScenarioUid(uri, name, astNodeIds), result)
+    const uid =
+      uri && name ? cucumberScenarioUid(uri, name, astNodeIds) : undefined
+    if (uid) {
+      this.#stampOutcome(uid, result)
     }
     await this.#finalizePerScenario()
+    // Flush now so this slice includes the final snapshot and stamped outcome.
+    if (uid) {
+      await this.#eagerFlushTestSlice(uid)
+    }
   }
 
   async afterTest(
@@ -416,22 +457,81 @@ export default class DevToolsHookService implements Services.ServiceInstance {
   ) {
     this.#captureExpectFailure(result?.error)
     const testTitle = test?.fullTitle || test?.title
-    if (testTitle) {
-      this.#stampOutcome(testMetadataUid(test?.file, testTitle), result)
+    const uid = testTitle ? testMetadataUid(test?.file, testTitle) : undefined
+    if (uid) {
+      this.#stampOutcome(uid, result)
     }
     await this.#finalizePerScenario()
+    // Flush now so this slice includes the final snapshot and stamped outcome.
+    if (uid) {
+      await this.#eagerFlushTestSlice(uid)
+    }
   }
 
-  /** expect-webdriverio fires this per matcher (pass or fail) via WDIO's
-   *  assertion hook — capture it as an `expect.<matcher>` action so passing
-   *  assertions show in the trace, not just failures. */
-  afterAssertion(params: ExpectAssertion): void {
+  /** expect-webdriverio fires this before each matcher evaluates. The matcher's
+   *  internal polling commands run inside the before→after window and must not
+   *  surface as their own rows — only the `expect.<matcher>` assertion should. */
+  beforeAssertion(): void {
+    // Matchers don't nest, so any residual depth here is a prior matcher whose
+    // afterAssertion was skipped by a hard throw. Reset before pushing so the
+    // suppression window can't stay stuck open across assertions.
+    if (this.#assertionDepth > 0) {
+      this.#assertionDepth = 0
+      this.#assertionStartTimes = []
+      this.#assertionCallSources = []
+    }
+    this.#assertionDepth++
+    this.#assertionStartTimes.push(Date.now())
+    // Capture the user's expect() call site now — see #assertionCallSources.
+    this.#assertionCallSources.push(
+      resolveAssertionCallSource(
+        (file) => void this.#sessionCapturer.captureSource(file)
+      )
+    )
+  }
+
+  async afterAssertion(params: ExpectAssertion): Promise<void> {
+    // Decrement first (even when capture is off) so the window stays balanced.
+    const startTime = this.#assertionStartTimes.pop()
+    const callSource = this.#assertionCallSources.pop()
+    if (this.#assertionDepth > 0) {
+      this.#assertionDepth--
+    }
     if (this.#options.captureAssertions === false) {
       return
     }
-    this.#sessionCapturer.captureAssertCommand(
-      expectAssertionToCommandLog(params, this.#currentTestUid)
+    const entry = expectAssertionToCommandLog(
+      params,
+      this.#currentTestUid,
+      callSource
     )
+    // Span the matcher's poll window so the row's duration is real and the
+    // screencast tracks the assertion (not the preceding command) during it.
+    if (startTime !== undefined) {
+      entry.startTime = startTime
+    }
+    // The suppressed matcher-internal command carried the DOM screenshot;
+    // capture one here so the assertion row's Snapshot panel isn't blank.
+    if (this.#browser && !isNativeMobile(this.#browser)) {
+      try {
+        entry.screenshot = await this.#browser.takeScreenshot()
+      } catch (err) {
+        // best-effort: a missing screenshot must not fail the assertion hook
+        log.debug(`assertion screenshot skipped: ${errorMessage(err)}`)
+      }
+    }
+    // Trace mode: push a DOM action-snapshot stamped at this row's timestamp so
+    // the trace player's Snapshot tab renders it, exactly like a regular
+    // command's post-action snapshot (captureActionResult).
+    if (this.#options.mode === 'trace' && this.#browser) {
+      await pushActionSnapshotAt(
+        this.#browser,
+        entry.command,
+        entry.timestamp,
+        this.#actionSnapshots
+      )
+    }
+    this.#sessionCapturer.captureAssertCommand(entry)
   }
 
   async #finalizePerScenario() {
@@ -462,6 +562,9 @@ export default class DevToolsHookService implements Services.ServiceInstance {
 
   private resetStack() {
     this.#commandStack = []
+    this.#assertionDepth = 0
+    this.#assertionStartTimes = []
+    this.#assertionCallSources = []
     this.#sessionCapturer.resetLastSelector()
     this.#sessionCapturer.resetRetryTracker()
   }
@@ -503,7 +606,30 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     Error.stackTraceLimit = 20
     const stack = parse(new Error('')).reverse()
     const source = stack.find((frame) => isUserSpecFile(frame.getFileName()))
-    if (source && this.#commandStack.length === 0) {
+    // #assertionDepth > 0 → we believe we're inside an expect matcher; its
+    // internal commands trace back to the user's expect() line but must not
+    // become their own rows (only the expect.<matcher> assertion should).
+    // expect-webdriverio doesn't wrap afterAssertion in try/finally, though, so
+    // a matcher whose internal command hard-throws skips it and leaves the depth
+    // stuck ≥1 — which would then suppress every later user command. When a
+    // top-level user command arrives with the depth stuck but no live
+    // expect-webdriverio frame on the stack, the matcher already ended: self-heal
+    // the leftover depth + parallel stacks so this command captures normally.
+    if (source && this.#commandStack.length === 0 && this.#assertionDepth > 0) {
+      const inMatcher = stack.some((frame) =>
+        frame.getFileName()?.includes('expect-webdriverio')
+      )
+      if (!inMatcher) {
+        this.#assertionDepth = 0
+        this.#assertionStartTimes = []
+        this.#assertionCallSources = []
+      }
+    }
+    if (
+      source &&
+      this.#commandStack.length === 0 &&
+      this.#assertionDepth === 0
+    ) {
       this.#pushTopLevelCommandFrame(
         command,
         resolveCallSourceFromFrame(source)

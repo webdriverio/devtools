@@ -2,8 +2,8 @@ import type { parse } from 'stack-trace'
 
 type StackFrame = ReturnType<typeof parse>[number]
 
-/** `<file>:<line>:<column>` from a parsed stack frame; strips file:// and query. */
-export function resolveCallSourceFromFrame(
+/** Absolute file path from a parsed stack frame; strips file:// and query. */
+export function resolveFilePathFromFrame(
   frame: StackFrame
 ): string | undefined {
   const rawFile = frame.getFileName() ?? undefined
@@ -18,6 +18,14 @@ export function resolveCallSourceFromFrame(
   if (absPath?.includes('?')) {
     absPath = absPath.split('?')[0]
   }
+  return absPath
+}
+
+/** `<file>:<line>:<column>` from a parsed stack frame; strips file:// and query. */
+export function resolveCallSourceFromFrame(
+  frame: StackFrame
+): string | undefined {
+  const absPath = resolveFilePathFromFrame(frame)
   if (absPath === undefined) {
     return undefined
   }

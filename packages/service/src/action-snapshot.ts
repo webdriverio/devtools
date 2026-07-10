@@ -81,6 +81,24 @@ export async function captureActionResult(
   }
 }
 
+/** Capture a DOM snapshot for a synthesized action row (e.g. an `expect.*`
+ *  assertion) and push it stamped at the row's OWN timestamp — the trace
+ *  player's Snapshot tab claims it by timestamp the same way it claims a
+ *  regular command's post-action snapshot (see FrameSnapshotIndex.claimAfter).
+ *  Mirrors the tail of `captureActionResult` for a command with no page-settle. */
+export async function pushActionSnapshotAt(
+  browser: WebdriverIO.Browser,
+  command: string,
+  timestamp: number,
+  actionSnapshots: ActionSnapshot[]
+): Promise<void> {
+  const snap = await captureActionSnapshot(browser, command)
+  if (snap) {
+    snap.timestamp = timestamp
+    actionSnapshots.push(snap)
+  }
+}
+
 export function captureActionSnapshot(
   browser: WebdriverIO.Browser,
   command: string
