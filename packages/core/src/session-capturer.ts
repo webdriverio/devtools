@@ -21,6 +21,7 @@ import {
   isInternalStreamLine,
   stripAnsi
 } from './console.js'
+import { TerminalLineThrottle } from './terminal-throttle.js'
 
 /**
  * Foundation class for adapter SessionCapturers. Owns the cross-framework
@@ -62,6 +63,11 @@ export abstract class SessionCapturerBase {
   // stdout, OR when stream forwarding wants to log via console.
   #isCapturingConsole = false
   #isCapturingStream = false
+  // Collapses high-frequency identical terminal lines (e.g. WDIO's per-command
+  // COMMAND/RESULT logger frames reprinted every ~100ms during an expect poll)
+  // so they don't flood the console lane. Terminal-source only — user
+  // console.* is source='test' and never throttled.
+  #terminalThrottle = new TerminalLineThrottle()
 
   // Command bookkeeping — used by adapters that emit commands themselves
   // (nightwatch, selenium). The WDIO service adapter doesn't call sendCommand
@@ -209,19 +215,26 @@ export abstract class SessionCapturerBase {
   }
 
   /**
-   * Mark the most recent user action of a test as failed. Assertion and step
-   * failures aren't their own command, so the action that ran (e.g. the query
-   * an expectation read) carries the error; broadcasts the swap so live mode
-   * highlights it too. Returns false when no eligible action is found.
+   * Mark the most recent user action of a test as failed — for framework
+   * failures that aren't captured as their own command. Broadcasts the swap so
+   * live mode highlights it too. Returns false when no eligible action is found,
+   * OR when that most-recent action already carries an error: the failure is
+   * then already represented (e.g. an expect matcher captured as its own row via
+   * afterAssertion), so it must not bleed onto an earlier *passing* action.
    */
   failLastAction(testUid: string | undefined, error: SerializedError): boolean {
     for (let i = this.commandsLog.length - 1; i >= 0; i--) {
       const command = this.commandsLog[i]
-      if (command.error || !mapCommandToAction(command.command)) {
+      if (!mapCommandToAction(command.command)) {
         continue
       }
       if (testUid && command.testUid !== testUid) {
         continue
+      }
+      // First (most-recent) action for this test. If it's already failed, the
+      // failure is captured — stop rather than marking an earlier passing one.
+      if (command.error) {
+        return false
       }
       command.error = error
       this.sendReplaceCommand(command.timestamp, command)
@@ -432,7 +445,8 @@ export abstract class SessionCapturerBase {
           if (
             !clean ||
             this.isInternalStreamLine(clean) ||
-            SPINNER_RE.test(clean)
+            SPINNER_RE.test(clean) ||
+            !this.#terminalThrottle.shouldEmit(clean)
           ) {
             continue
           }
