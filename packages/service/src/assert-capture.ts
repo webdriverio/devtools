@@ -9,9 +9,43 @@ import {
   stripAnsi
 } from '@wdio/devtools-core'
 import type { CommandLog, SerializedError } from '@wdio/devtools-shared'
+import { parse } from 'stack-trace'
+import {
+  resolveCallSourceFromFrame,
+  resolveFilePathFromFrame
+} from './call-source.js'
+import { isUserSpecFile } from './utils.js'
 import type { SessionCapturer } from './session.js'
 
 const log = logger('@wdio/devtools-service:assert-capture')
+
+/**
+ * Capture the user's `expect()` call site from the SYNCHRONOUS stack at matcher
+ * entry (call from `beforeAssertion`). The matcher then runs async, so this is
+ * the only point a user frame is still on the stack — reading it in
+ * `afterAssertion` resolves to the service bundle instead. Mirrors
+ * `beforeCommand`'s resolver (`parse(new Error()).reverse()` → first user-spec
+ * frame → `resolveCallSourceFromFrame`) so assertion rows share regular
+ * commands' Source-tab behaviour. Also loads that file's source via
+ * `captureSource` so the tab renders. Returns `undefined` when no user frame is
+ * present (row falls back to no callSource, exactly as before this fix).
+ */
+export function resolveAssertionCallSource(
+  captureSource: (filePath: string) => void
+): string | undefined {
+  Error.stackTraceLimit = 20
+  const frame = parse(new Error(''))
+    .reverse()
+    .find((f) => isUserSpecFile(f.getFileName()))
+  if (!frame) {
+    return undefined
+  }
+  const filePath = resolveFilePathFromFrame(frame)
+  if (filePath) {
+    captureSource(filePath)
+  }
+  return resolveCallSourceFromFrame(frame)
+}
 
 /**
  * Patch node:assert so every tracked assertion lands in the session capturer
@@ -101,11 +135,15 @@ export interface ExpectAssertion {
  * Adapt expect-webdriverio's afterAssertion params to the shared matcher
  * converter. Framework-specific extraction only (matcher name, expectedValue →
  * args, the runtime `pass` vs typed `result` flag); the actual CommandLog
- * shaping lives once in core's `matcherAssertionToCommandLog`.
+ * shaping lives once in core's `matcherAssertionToCommandLog`. `callSource` is
+ * the user's `expect()` call site captured in `beforeAssertion` (the matcher
+ * runs async, so afterAssertion's own stack no longer holds a user frame) — it
+ * makes the row's Source tab point at the spec, not the service bundle.
  */
 export function expectAssertionToCommandLog(
   params: ExpectAssertion,
-  testUid: string | undefined
+  testUid: string | undefined,
+  callSource?: string
 ): CommandLog {
   const { matcherName, expectedValue, result } = params
   return matcherAssertionToCommandLog(
@@ -118,7 +156,8 @@ export function expectAssertionToCommandLog(
             ? expectedValue
             : [expectedValue],
       passed: result.pass ?? result.result ?? false,
-      message: result.message
+      message: result.message,
+      callSource
     },
     testUid
   )

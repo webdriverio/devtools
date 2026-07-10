@@ -168,6 +168,10 @@ export interface MatcherAssertion {
   passed: boolean
   message?: string | (() => string)
   callSource?: string
+  /** Explicit display label for the action row. Falls back to `command` when
+   *  absent — set it when the framework carries a richer human message than
+   *  `prefix.method` (e.g. Nightwatch's "Testing if the page title contains …"). */
+  title?: string
 }
 
 export function matcherAssertionToCommandLog(
@@ -177,7 +181,7 @@ export function matcherAssertionToCommandLog(
   const command = `${input.prefix ?? 'expect'}.${input.method}`
   const message =
     typeof input.message === 'function' ? input.message() : input.message
-  return capturedAssertToCommandLog(
+  const entry = capturedAssertToCommandLog(
     {
       command,
       args: (input.args ?? []).map(safeSerializeAssertArg),
@@ -190,6 +194,10 @@ export function matcherAssertionToCommandLog(
     },
     testUid
   )
+  if (input.title) {
+    entry.title = input.title
+  }
+  return entry
 }
 
 /**
