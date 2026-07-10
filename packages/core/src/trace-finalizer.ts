@@ -164,6 +164,36 @@ export async function flushRangeTrace(
   return artifact
 }
 
+/**
+ * Flush one slice via {@link flushRangeTrace}, logging the shared spec/test
+ * error string on failure so a failed boundary flush can't abort the next test.
+ * All three adapters wrapped this identically; the label + identity are derived
+ * from `range.testUid` (test slice → `test "<key>"`, else `spec "<specFile>"`),
+ * so each call site keeps its exact message. Errors are logged and swallowed
+ * (resolves `undefined`), so callers `await` it when the write must land before
+ * a retry overwrites metadata, or fire-and-forget (`void`, or tracked in an
+ * in-flight list) otherwise. Callers keep their own find-current-range strategy
+ * and pass the resolved range in.
+ */
+export async function flushRangeLogged(
+  ctx: TraceExportContext,
+  range: SpecRange
+): Promise<TraceArtifact | undefined> {
+  try {
+    return await flushRangeTrace(ctx, range)
+  } catch (err) {
+    const label =
+      range.testUid !== undefined
+        ? `test "${range.key}"`
+        : `spec "${range.specFile}"`
+    ctx.log?.(
+      'warn',
+      `Failed to flush trace for ${label}: ${errorMessage(err)}`
+    )
+    return undefined
+  }
+}
+
 async function writeSessionTrace(
   ctx: TraceExportContext
 ): Promise<TraceArtifact | undefined> {
@@ -211,8 +241,15 @@ async function flushAllRanges(
   ctx: TraceExportContext
 ): Promise<TraceArtifact[]> {
   const artifacts: TraceArtifact[] = []
-  for (const range of ctx.ranges) {
-    const artifact = await safely(ctx, () => flushRangeTrace(ctx, range))
+  // Bound each slice by the next range's start indices; the final range (no
+  // nextRange) runs to the end of the arrays. Without this, every slice would
+  // run to the end and each test slice would swallow all later tests.
+  for (let i = 0; i < ctx.ranges.length; i++) {
+    const range = ctx.ranges[i]!
+    const nextRange = ctx.ranges[i + 1]
+    const artifact = await safely(ctx, () =>
+      flushRangeTrace(ctx, range, nextRange)
+    )
     if (artifact) {
       artifacts.push(artifact)
     }

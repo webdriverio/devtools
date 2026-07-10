@@ -67,6 +67,8 @@ export interface PluginInternals {
   // Per-spec trace tracking (populated at spec file boundaries).
   readonly specRanges: SpecRange[]
   readonly flushedSpecs: Set<string>
+  // In-flight per-test eager flushes (test granularity), awaited at finalize.
+  readonly traceFlushes: Promise<unknown>[]
 
   // Plugin-side delegates
   setFinalized(v: boolean): void

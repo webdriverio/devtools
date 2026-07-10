@@ -21,7 +21,8 @@ import {
   onDriverEnd as sessionOnDriverEnd,
   onSessionEnd as sessionOnSessionEnd,
   setPluginRef,
-  recordSpecBoundary
+  recordTraceBoundary,
+  flushCurrentTestTrace
 } from './session-lifecycle.js'
 import type { SpecRange } from '@wdio/devtools-core'
 import {
@@ -121,6 +122,9 @@ class SeleniumDevToolsPlugin {
 
   /** Set of spec files already flushed to disk. */
   #flushedSpecs = new Set<string>()
+
+  /** In-flight per-test eager flushes (test granularity), awaited at finalize. */
+  #traceFlushes: Promise<unknown>[] = []
 
   constructor(options: DevToolsOptions = {}) {
     this.#options = {
@@ -427,6 +431,9 @@ class SeleniumDevToolsPlugin {
       get flushedSpecs() {
         return self.#flushedSpecs
       },
+      get traceFlushes() {
+        return self.#traceFlushes
+      },
       setFinalized: (v) => {
         self.#finalized = v
       },
@@ -451,20 +458,17 @@ class SeleniumDevToolsPlugin {
   /** Public API: start a marked test. */
   startTest(name: string, meta: StartTestMeta = {}) {
     tmStartTest(this.#getInternals(), name, meta)
-    if (meta.file) {
-      recordSpecBoundary(this.#getInternals(), meta.file)
-    }
+    recordTraceBoundary(this.#getInternals(), meta.file)
   }
 
   endTest(state: TestStats['state'] = 'passed') {
     tmEndTest(this.#getInternals(), state)
+    flushCurrentTestTrace(this.#getInternals())
   }
 
   startScenario(name: string, meta: StartScenarioMeta = {}) {
     tmStartScenario(this.#getInternals(), name, meta)
-    if (meta.file) {
-      recordSpecBoundary(this.#getInternals(), meta.file)
-    }
+    recordTraceBoundary(this.#getInternals(), meta.file)
   }
 
   endScenario(state: TestStats['state'] = 'passed') {
@@ -473,6 +477,11 @@ class SeleniumDevToolsPlugin {
 
   #flushPendingTestActions() {
     tmFlushPendingTestActions(this.#getInternals())
+    // The first test's startTest fires before the driver/capturer exists, so
+    // its per-test boundary is recorded here once capture is live.
+    if (this.#options.traceGranularity === 'test') {
+      recordTraceBoundary(this.#getInternals(), this.#testFilePath)
+    }
   }
 
   async onDriverCreated(driver: SeleniumDriverLike) {

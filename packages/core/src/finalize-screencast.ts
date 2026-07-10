@@ -62,6 +62,9 @@ export async function finalizeScreencast({
   const candidate = outputDir || process.cwd()
   let videoPath = path.join(candidate, fileName)
   try {
+    // Create the (test-results) dir if absent, then confirm it's writable;
+    // fall back to tmpdir on any failure so a bad path never aborts the run.
+    fs.mkdirSync(candidate, { recursive: true })
     fs.accessSync(candidate, fs.constants.W_OK)
   } catch {
     videoPath = path.join(os.tmpdir(), fileName)

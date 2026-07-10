@@ -6,6 +6,7 @@
  * is the single source of truth — adapters import from here.
  */
 
+import path from 'node:path'
 import type {
   ActionSnapshot,
   TestMetadataMap,
@@ -86,6 +87,44 @@ export function buildTestSliceSessionId(
   const base = sanitizeSpecName(specFile)
   const hash = deterministicUid(key).split('-').pop()!.slice(0, 8)
   return `${base}-${hash}-${sessionId.slice(0, 8)}`
+}
+
+// ─── Test slice output folder ────────────────────────────────────────────────
+
+/** Max slug length so a title doesn't blow past filesystem path limits. */
+const MAX_SLUG_LENGTH = 60
+
+/** Lowercase, collapse runs of non-alphanumerics to `-`, trim edge dashes,
+ *  and cap length (trimming a dash the cut may leave behind). */
+function slugify(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, MAX_SLUG_LENGTH)
+    .replace(/-+$/g, '')
+}
+
+/**
+ * Build the per-test output folder name: `<spec>-<title>-<browser>[-retryN]`.
+ * The spec basename is sanitized via {@link sanitizeSpecName}; title and browser
+ * are slugified. An empty title falls back to a short hash of `key`, and a
+ * `${uid}-retry${n}` key appends a `-retry<N>` suffix so retries don't collide.
+ */
+export function buildTestSliceFolder(
+  specFile: string,
+  testTitle: string | undefined,
+  browser: string | undefined,
+  key: string
+): string {
+  const specBase = sanitizeSpecName(path.basename(specFile))
+  const titleSlug =
+    slugify(testTitle ?? '') ||
+    deterministicUid(key).split('-').pop()!.slice(0, 8)
+  const browserSlug = slugify(browser ?? '') || 'browser'
+  const retryMatch = key.match(/-retry(\d+)$/)
+  const retrySuffix = retryMatch ? `-retry${retryMatch[1]}` : ''
+  return `${specBase}-${titleSlug}-${browserSlug}${retrySuffix}`
 }
 
 // ─── TraceCapturer slice ─────────────────────────────────────────────────────
@@ -288,11 +327,13 @@ export interface WriteSpecTraceInput {
 
 /** Slice the parent capturer/snapshots for one range and write the artifact
  *  under `sliceSessionId` with the pre-filtered `testMetadata`. Shared by the
- *  spec and test write paths so both slice identically. */
+ *  spec and test write paths so both slice identically. `overrides` lets the
+ *  test path redirect into a named folder with a fixed `trace` file stem. */
 async function writeSliceTrace(
   input: WriteSpecTraceInput,
   sliceSessionId: string,
-  testMetadata: TestMetadataMap
+  testMetadata: TestMetadataMap,
+  overrides: { outputDir?: string; fileStem?: string } = {}
 ): Promise<string> {
   const sliceCapturer = buildSpecCapturer(
     input.capturer,
@@ -306,8 +347,9 @@ async function writeSliceTrace(
   )
 
   return writeTraceZip(sliceCapturer, {
-    outputDir: input.outputDir,
+    outputDir: overrides.outputDir ?? input.outputDir,
     sessionId: sliceSessionId,
+    fileStem: overrides.fileStem,
     capabilities: input.capabilities,
     actionSnapshots: sliceSnapshots.length > 0 ? sliceSnapshots : undefined,
     format: input.format,
@@ -331,14 +373,27 @@ export async function writeSpecTrace(
 }
 
 /**
- * Write a standalone trace artifact for a single test slice. Reuses
- * {@link WriteSpecTraceInput}; the slice identity comes from `range.key`
- * (retry-aware) and its metadata from the base `range.testUid`.
+ * Write a standalone trace artifact for a single test slice into its own
+ * folder: `<outputDir>/<specBasename>-<titleSlug>-<browserSlug>[-retryN]/trace.zip`.
+ * Reuses {@link WriteSpecTraceInput}; the folder is the slice's external
+ * identity (title/browser/retry), while {@link buildTestSliceSessionId} names
+ * the sessionId embedded inside the archive.
  */
 export async function writeTestSliceTrace(
   input: WriteSpecTraceInput
 ): Promise<string> {
   const testUid = input.range.testUid ?? input.range.key
+  const title = input.testMetadata.get(testUid)?.title
+  // capabilities is framework-typed unknown; read only browserName here.
+  const browserName = (
+    input.capabilities as { browserName?: string } | undefined
+  )?.browserName
+  const folder = buildTestSliceFolder(
+    input.range.specFile,
+    title,
+    browserName,
+    input.range.key
+  )
   return writeSliceTrace(
     input,
     buildTestSliceSessionId(
@@ -346,6 +401,7 @@ export async function writeTestSliceTrace(
       input.range.key,
       input.sessionId
     ),
-    filterTestMetadataByUid(input.testMetadata, testUid)
+    filterTestMetadataByUid(input.testMetadata, testUid),
+    { outputDir: path.join(input.outputDir, folder), fileStem: 'trace' }
   )
 }
