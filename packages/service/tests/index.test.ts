@@ -2,14 +2,26 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type * as DevtoolsCore from '@wdio/devtools-core'
 import DevToolsHookService from '../src/index.js'
 
-const fakeFrame = {
-  getFileName: () => '/test/specs/fake.spec.ts',
-  getLineNumber: () => 1,
-  getColumnNumber: () => 1
-}
+// Controllable stack: `frames` defaults to a single user-spec frame (commands
+// read as top-level). A test can splice in `matcherFrame` to simulate a command
+// issued from inside an expect-webdriverio matcher.
+const stackMock = vi.hoisted(() => {
+  const userFrame = {
+    getFileName: () => '/test/specs/fake.spec.ts',
+    getLineNumber: () => 1,
+    getColumnNumber: () => 1
+  }
+  const matcherFrame = {
+    getFileName: () =>
+      '/node_modules/expect-webdriverio/lib/matchers/toHaveText.js',
+    getLineNumber: () => 1,
+    getColumnNumber: () => 1
+  }
+  return { frames: [userFrame], userFrame, matcherFrame }
+})
 // Create mock instance that will be returned by SessionCapturer constructor
 vi.mock('stack-trace', () => ({
-  parse: () => [fakeFrame]
+  parse: () => stackMock.frames
 }))
 const mockSessionCapturerInstance = {
   afterCommand: vi.fn(),
@@ -305,6 +317,7 @@ describe('DevtoolsService - assertion suppression self-heal', () => {
 
   beforeEach(async () => {
     vi.clearAllMocks()
+    stackMock.frames = [stackMock.userFrame]
     service = new DevToolsHookService()
     await service.before({} as any, [], mockBrowser)
     vi.clearAllMocks()
@@ -314,16 +327,31 @@ describe('DevtoolsService - assertion suppression self-heal', () => {
   // whose internal command hard-throws runs beforeAssertion but skips
   // afterAssertion, leaving #assertionDepth stuck ≥ 1. Without the self-heal
   // that stuck depth suppresses every later user command in the test.
-  it('captures a top-level command after a matcher throw left the assertion depth stuck', async () => {
-    service.beforeAssertion()
-    service.beforeAssertion() // depth now 2, no matching afterAssertion
-
-    // The mocked stack is a user-spec frame with no expect-webdriverio frame,
-    // so the command is recognised as top-level and the leftover depth resets.
+  it('captures a top-level command after a matcher that started then threw left the assertion depth stuck', async () => {
+    service.beforeAssertion() // depth 1
+    // The matcher issues an internal command (stack shows an expect-webdriverio
+    // frame) → marks the matcher started, then hard-throws (afterAssertion
+    // skipped), leaving the depth stuck.
+    stackMock.frames = [stackMock.userFrame, stackMock.matcherFrame]
+    service.beforeCommand('getText' as any, ['#el'])
+    // A later top-level user command with no matcher frame self-heals the depth.
+    stackMock.frames = [stackMock.userFrame]
     service.beforeCommand('click' as any, ['.button'])
     await service.afterCommand('click' as any, ['.button'], undefined)
 
     expect(capturedCommands()).toEqual(['click'])
+  })
+
+  it('keeps suppressing the matcher’s own leading command (no premature self-heal)', async () => {
+    service.beforeAssertion() // depth 1
+    // The matcher's FIRST internal command is an element re-lookup whose sync
+    // stack has no expect-webdriverio frame yet. It must NOT reset the depth —
+    // otherwise the subsequent matcher commands would surface as duplicate rows.
+    stackMock.frames = [stackMock.userFrame]
+    service.beforeCommand('$' as any, ['#el'])
+    await service.afterCommand('$' as any, ['#el'], undefined)
+
+    expect(capturedCommands()).toEqual([])
   })
 
   it('a fresh beforeAssertion resets a stuck depth so the window stays balanced', async () => {

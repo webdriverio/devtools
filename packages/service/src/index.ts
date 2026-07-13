@@ -110,6 +110,14 @@ export default class DevToolsHookService implements Services.ServiceInstance {
    *  matching Playwright and the Nightwatch native-assert behaviour. */
   #assertionDepth = 0
 
+  /** True once the current matcher has issued an internal command whose stack
+   *  shows an expect-webdriverio frame. Gates the stuck-depth self-heal: the
+   *  matcher's FIRST internal command (an element re-lookup) traces to the
+   *  user's expect() line but its sync stack has no matcher frame yet, which
+   *  would otherwise be misread as "matcher ended" and reset the depth mid-run
+   *  — capturing every later matcher command as a duplicate row. */
+  #matcherStarted = false
+
   /** Matcher start timestamps (stack, paired with #assertionDepth) so a captured
    *  assertion spans [matcher start → end] — its poll duration — instead of
    *  collapsing to a zero-width point at completion, which left the screencast
@@ -481,6 +489,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
       this.#assertionCallSources = []
     }
     this.#assertionDepth++
+    this.#matcherStarted = false
     this.#assertionStartTimes.push(Date.now())
     // Capture the user's expect() call site now — see #assertionCallSources.
     this.#assertionCallSources.push(
@@ -497,6 +506,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     if (this.#assertionDepth > 0) {
       this.#assertionDepth--
     }
+    this.#matcherStarted = false
     if (this.#options.captureAssertions === false) {
       return
     }
@@ -563,6 +573,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
   private resetStack() {
     this.#commandStack = []
     this.#assertionDepth = 0
+    this.#matcherStarted = false
     this.#assertionStartTimes = []
     this.#assertionCallSources = []
     this.#sessionCapturer.resetLastSelector()
@@ -586,6 +597,30 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     }
   }
 
+  /** Maintain the expect-matcher suppression window for an incoming command.
+   *  `inMatcher` marks the matcher as started (so its trailing internal
+   *  commands stay suppressed); otherwise self-heal a depth left stuck by a
+   *  matcher that hard-threw (skipping afterAssertion) — but only once the
+   *  matcher has actually started, so its own leading element re-lookup (no
+   *  matcher frame on the sync stack yet) can't reset the depth mid-run. */
+  #trackAssertionWindow(inMatcher: boolean, hasSource: boolean): void {
+    if (inMatcher) {
+      this.#matcherStarted = true
+      return
+    }
+    if (
+      hasSource &&
+      this.#commandStack.length === 0 &&
+      this.#assertionDepth > 0 &&
+      this.#matcherStarted
+    ) {
+      this.#assertionDepth = 0
+      this.#assertionStartTimes = []
+      this.#assertionCallSources = []
+      this.#matcherStarted = false
+    }
+  }
+
   async beforeCommand(command: string, args: string[]) {
     if (!this.#browser) {
       return
@@ -606,25 +641,10 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     Error.stackTraceLimit = 20
     const stack = parse(new Error('')).reverse()
     const source = stack.find((frame) => isUserSpecFile(frame.getFileName()))
-    // #assertionDepth > 0 → we believe we're inside an expect matcher; its
-    // internal commands trace back to the user's expect() line but must not
-    // become their own rows (only the expect.<matcher> assertion should).
-    // expect-webdriverio doesn't wrap afterAssertion in try/finally, though, so
-    // a matcher whose internal command hard-throws skips it and leaves the depth
-    // stuck ≥1 — which would then suppress every later user command. When a
-    // top-level user command arrives with the depth stuck but no live
-    // expect-webdriverio frame on the stack, the matcher already ended: self-heal
-    // the leftover depth + parallel stacks so this command captures normally.
-    if (source && this.#commandStack.length === 0 && this.#assertionDepth > 0) {
-      const inMatcher = stack.some((frame) =>
-        frame.getFileName()?.includes('expect-webdriverio')
-      )
-      if (!inMatcher) {
-        this.#assertionDepth = 0
-        this.#assertionStartTimes = []
-        this.#assertionCallSources = []
-      }
-    }
+    const inMatcher =
+      this.#assertionDepth > 0 &&
+      stack.some((frame) => frame.getFileName()?.includes('expect-webdriverio'))
+    this.#trackAssertionWindow(inMatcher, Boolean(source))
     if (
       source &&
       this.#commandStack.length === 0 &&
