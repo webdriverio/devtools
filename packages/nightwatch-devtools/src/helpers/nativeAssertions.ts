@@ -1,19 +1,22 @@
 // Native-assertion capture: turns explicit `browser.assert.*` /
 // `browser.verify.*` calls into concise trace/UI action rows with real args,
-// a clickable source location, and pass/fail colour — streamed LIVE.
+// a clickable source location, and pass/fail colour.
 //
-// Nightwatch exposes no per-assertion hook, and its test-end
-// `currentTest.results` carries no source location for PASSING assertions
-// (results.assertions[i].stackTrace is '' on pass) and only stringified args.
-// So each explicit call is intercepted at CALL TIME
-// (BrowserProxy.wrapAssertionNamespaces): a neutral "pending" row is emitted
-// immediately (concise title, real args, callSource) so rows stream in one by
-// one like normal commands. At TEST END the pass/fail truth + verbose failure
-// message are read from results.assertions and the already-emitted row is
-// UPDATED IN PLACE (same stable id) — never re-created, so no duplicates.
-// Iterating the recorded calls (not results.assertions) also excludes
+// Nightwatch exposes no per-assertion hook. Each explicit call is intercepted
+// at CALL TIME (BrowserProxy.wrapAssertionNamespaces) and BUFFERED — concise
+// title, real args, callSource, the per-test testUid, and the preceding
+// screenshot — but NOT streamed, because streaming a neutral row mid-run would
+// render every assert green before its outcome is known. At test-end
+// `captureNativeAssertions` reads the pass/fail truth + verbose failure message
+// from the results bag and emits each row once, positioned on its real
+// execution window (the exporter re-sorts by the buffered call timestamp).
+// Correlating the recorded calls (not the raw results) also excludes
 // Nightwatch's implicit command-generated assertions (e.g.
 // waitForElementVisible's "element was visible" entry).
+//
+// The plugin `afterEach` fires once per describe-suite (not per `it`), so the
+// finalize reads assertions from `results.testcases` (all tests) — see
+// gatherResultAssertions.
 
 import logger from '@wdio/logger'
 import {
@@ -94,6 +97,39 @@ function messageMatchesArgs(entry: NwAssertionEntry, args: unknown[]): boolean {
 interface Outcome {
   passed: boolean
   message: string
+}
+
+/**
+ * All assertion entries for the suite, in declaration order. Nightwatch's
+ * plugin `afterEach` fires once per describe-suite (not per `it`), so the flat
+ * `results.assertions` reflects only the last testcase; the full per-test
+ * breakdown lives in `results.testcases[title].assertions`. Flattening every
+ * testcase's entries lets each buffered call correlate to its own test's
+ * outcome (without this, only the last test's asserts get a pass/fail and the
+ * rest render neutral). Falls back to the flat list for single-test modules or
+ * older Nightwatch that doesn't populate `testcases`.
+ */
+function gatherResultAssertions(
+  results:
+    | {
+        assertions?: NwAssertionEntry[]
+        testcases?: Record<string, { assertions?: unknown[] }>
+      }
+    | undefined
+): NwAssertionEntry[] {
+  const testcases = results?.testcases
+  if (testcases && typeof testcases === 'object') {
+    const all: NwAssertionEntry[] = []
+    for (const tc of Object.values(testcases)) {
+      if (Array.isArray(tc?.assertions)) {
+        all.push(...(tc.assertions as NwAssertionEntry[]))
+      }
+    }
+    if (all.length > 0) {
+      return all
+    }
+  }
+  return Array.isArray(results?.assertions) ? results.assertions : []
 }
 
 /**
@@ -206,8 +242,55 @@ export function pendingAssertionCommand(
   return entry
 }
 
-/** Update one streamed pending row in place: apply pass/fail + verbose error,
- *  a screenshot, and its real execution window, then re-broadcast by stable id. */
+/** Collapsed pass/fail result core's `collapsedAssertResult` reads. */
+interface CollapsedAssertResult {
+  passed: boolean
+  expected?: unknown
+  actual?: unknown
+  message?: string
+}
+
+/** Nightwatch failure messages end with `… but got: "<actual>"`. Pull out the
+ *  real observed value: Nightwatch passes only the EXPECTED as an arg, so the
+ *  actual lives in the message (and only on failure). Undefined when absent.
+ *  Uses indexOf + slice (no backtracking-prone regex) on the message tail. */
+function parseActualFromMessage(message: string): string | undefined {
+  const marker = 'but got:'
+  const idx = message.lastIndexOf(marker)
+  if (idx === -1) {
+    return undefined
+  }
+  let rest = message.slice(idx + marker.length).trim()
+  rest = rest.replace(/ \(\d+ms\)$/, '').trim() // drop trailing "(123ms)"
+  rest = rest.replace(/^["']/, '').replace(/["']$/, '').trim() // strip quotes
+  return rest || undefined
+}
+
+/** Build the collapsed `{passed, expected, actual?, message}` result core's
+ *  `buildAssertParams` prefers over the positional `[actual, expected]` arg
+ *  convention — which is wrong for Nightwatch, whose asserts pass only the
+ *  expected value (`titleContains('x')`), never the actual. */
+function collapsedAssertResult(
+  call: NativeAssertCall,
+  outcome: Outcome
+): CollapsedAssertResult {
+  const result: CollapsedAssertResult = {
+    passed: outcome.passed,
+    expected: call.args.length <= 1 ? call.args[0] : call.args,
+    message: outcome.message
+  }
+  const actual = outcome.passed
+    ? undefined
+    : parseActualFromMessage(outcome.message)
+  if (actual !== undefined) {
+    result.actual = actual
+  }
+  return result
+}
+
+/** Emit one assertion row at test-end: apply pass/fail + verbose error, a
+ *  screenshot, and its real execution window, then send it. Rows are NOT
+ *  streamed at call time, so this is the single emit (no neutral pending row). */
 function finalizeAssertionRow(
   capturer: SessionCapturer,
   call: NativeAssertCall,
@@ -229,32 +312,34 @@ function finalizeAssertionRow(
     },
     testUid
   )
-  entry.result = finalized.result
+  // Collapsed object result (not the plain 'passed' string) so the trace's
+  // action params show a true actual-vs-expected diff instead of mislabelling
+  // Nightwatch's single expected-arg as the actual.
+  entry.result = collapsedAssertResult(call, outcome)
   entry.error = finalized.error
   if (!entry.screenshot && screenshot) {
     entry.screenshot = screenshot
   }
-  // Reposition the row on its REAL execution window (Nightwatch enqueues all
-  // asserts at once, so the emit/enqueue timestamp clustered them). The row is
-  // matched for replacement by its stable id, so the old enqueue timestamp is
-  // what the UI still keys on until this swap lands.
-  const oldTimestamp = entry.timestamp
+  // Position the row on its REAL execution window (Nightwatch enqueues all
+  // asserts at once, so the call-time timestamp clustered them). The row was
+  // never streamed, so send it now — a single emit with the final outcome.
   if (timing) {
     entry.startTime = timing.startTime
     entry.timestamp =
       timing.endTime > timing.startTime ? timing.endTime : timing.startTime
   }
-  capturer.sendReplaceCommand(oldTimestamp, entry)
+  capturer.captureAssertCommand(entry)
   log.info(`[assert] ${entry.title} → ${outcome.passed ? 'pass' : 'fail'}`)
 }
 
 /**
- * Finalize the streamed pending rows at test-end: correlate the recorded calls
- * with `results.assertions`, then UPDATE each row's `entry` in place with
- * pass/fail (`result`) + the verbose failure message (`error`, failures only)
- * + a screenshot + its real execution window, and re-broadcast via
- * `sendReplaceCommand` keyed on the row's stable id. No new rows are created
- * (no duplicates); a call with no matching result is left pending (defensive).
+ * Emit the native assertion rows at test-end: correlate the recorded calls with
+ * `results.assertions`, then send each row with pass/fail (`result`) + the
+ * verbose failure message (`error`, failures only) + a screenshot + its real
+ * execution window. Rows are buffered (not streamed) at call time — Nightwatch
+ * has no per-assertion result hook, so streaming them during the run would show
+ * every assert as a neutral (green) row before its outcome is known. A call with
+ * no matching result is skipped (defensive).
  */
 export async function captureNativeAssertions(
   capturer: SessionCapturer,
@@ -269,11 +354,13 @@ export async function captureNativeAssertions(
   // Boundary cast: `results` is Nightwatch's loosely-typed per-test bag; we read
   // only the assertions + commands arrays whose shapes are documented above.
   const results = currentTest?.results as
-    | { assertions?: NwAssertionEntry[]; commands?: NwCommandEntry[] }
+    | {
+        assertions?: NwAssertionEntry[]
+        commands?: NwCommandEntry[]
+        testcases?: Record<string, { assertions?: unknown[] }>
+      }
     | undefined
-  const assertions = Array.isArray(results?.assertions)
-    ? results.assertions
-    : []
+  const assertions = gatherResultAssertions(results)
   const outcomes = correlate(calls, assertions)
   const timings = assertCommandTimings(
     Array.isArray(results?.commands) ? results.commands : [],
@@ -283,9 +370,11 @@ export async function captureNativeAssertions(
   const screenshot = await resolveAssertionScreenshot(capturer, browser)
 
   calls.forEach((call, index) => {
+    if (!call.entry) {
+      return
+    }
     const outcome = outcomes[index]
-    // Leave an unmatched (or never-emitted) row in its last state.
-    if (call.entry && outcome) {
+    if (outcome) {
       finalizeAssertionRow(
         capturer,
         call,
@@ -294,6 +383,15 @@ export async function captureNativeAssertions(
         screenshot,
         testUid
       )
+      return
     }
+    // No execution outcome correlated to this call (defensive): emit the
+    // buffered row in its neutral state so the assertion still appears — never
+    // dropped, never mis-coloured as passed/failed. Rows are only buffered at
+    // call time, so without this an uncorrelated assert would vanish.
+    if (!call.entry.screenshot && screenshot) {
+      call.entry.screenshot = screenshot
+    }
+    capturer.captureAssertCommand(call.entry)
   })
 }

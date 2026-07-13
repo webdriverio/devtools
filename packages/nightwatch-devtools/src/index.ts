@@ -589,6 +589,8 @@ class NightwatchDevToolsPlugin {
         ranges: this.#specRanges,
         flushed: this.#flushedSpecs,
         configPath: this.#configPath,
+        testFilePath:
+          this.browserProxy?.getCurrentTestFullPath?.() ?? undefined,
         log: (level, msg) => log[level](msg)
       },
       sessionId

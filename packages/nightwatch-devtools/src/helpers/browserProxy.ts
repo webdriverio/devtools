@@ -134,9 +134,12 @@ export class BrowserProxy {
     })
   }
 
-  /** Stream a neutral pending row for an explicit assert/verify call the moment
-   *  it's invoked, and buffer the call (with its emitted row) for `afterEach`
-   *  to finalize pass/fail in place. */
+  /** Buffer an explicit assert/verify call at invocation time (prebuilding its
+   *  row with args/callSource/screenshot), but do NOT stream it yet. Nightwatch
+   *  exposes no per-assertion result hook, so streaming here would show every
+   *  assert as a neutral (green) row while the test is still Running — before
+   *  its pass/fail is known. `captureNativeAssertions` emits the rows at test-end
+   *  with real outcomes + execution timing instead. */
   private emitPendingAssertion(call: NativeAssertCall): void {
     const testUid = this.getCurrentTest()?.uid
     const entry = pendingAssertionCommand(
@@ -144,7 +147,6 @@ export class BrowserProxy {
       testUid,
       latestResolvedScreenshot(this.sessionCapturer)
     )
-    this.sessionCapturer.captureAssertCommand(entry)
     call.entry = entry
     this.nativeAssertCalls.push(call)
   }

@@ -31,6 +31,7 @@ export interface TraceContextInput {
   ranges: SpecRange[]
   flushed: Set<string>
   configPath: string | undefined
+  testFilePath: string | undefined
   log: (level: 'info' | 'warn', msg: string) => void
 }
 
@@ -50,7 +51,10 @@ export function buildTraceContext(
     ranges: input.ranges,
     flushed: input.flushed,
     resolveOutputDir: () =>
-      resolveAdapterOutputDir({ configPath: input.configPath }),
+      resolveAdapterOutputDir({
+        testFilePath: input.testFilePath,
+        configPath: input.configPath
+      }),
     awaitPending: input.capturer.snapshotCaptures,
     // Nightwatch feeds real per-test attempt numbers via TestAttemptTracker
     // (B4), so retry-aware policies use per-test attempts, not the fallback.
