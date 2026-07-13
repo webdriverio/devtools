@@ -255,6 +255,50 @@ export class SessionCapturer extends SessionCapturerBase {
   }
 
   /**
+   * Fold an expect-matcher assertion into the matcher's value-read command when
+   * that read is the most recent captured command (per `isRead`). The read
+   * already carries the correct callSource, screenshot, and timeline position —
+   * the DOM the matcher evaluated — so replace it in place with the assertion
+   * row: one row, no duplicate, and no timing/stack heuristics. WDIO's
+   * RetryTracker already collapses a matcher's repeated polls to that one read.
+   * Returns false when the last command isn't a matcher read (a value matcher),
+   * so the caller emits a fresh assertion row instead.
+   *
+   * `foldErrored` folds even when the read carries an error — used by the
+   * hard-throw path (element never resolved, so afterAssertion never fired and
+   * the read threw): relabel the throwing read as the failing expect row rather
+   * than leave a raw `getText`. The normal path keeps the guard so a value
+   * matcher can't accidentally swallow an unrelated errored command.
+   */
+  coalesceAssertionIntoLastRead(
+    entry: CommandLog,
+    isRead: (command: string) => boolean,
+    foldErrored = false
+  ): boolean {
+    const log = this.commandsLog as (CommandLog & { _id?: number })[]
+    const last = log[log.length - 1]
+    if (!last || !isRead(last.command) || (last.error && !foldErrored)) {
+      return false
+    }
+    // Inherit the read's `_id` (local dedup bookkeeping) and timestamp, but do
+    // NOT stamp a public `id`: WDIO replaces by timestamp (like #captureOrReplace),
+    // and `commandCounter` resets per worker/spec, so a bare `id` collides across
+    // specs and the app's id-first replaceCommand would swap the wrong row.
+    const merged: CommandLog & { _id?: number } = {
+      ...entry,
+      _id: last._id,
+      timestamp: last.timestamp,
+      startTime: last.startTime,
+      callSource: entry.callSource ?? last.callSource,
+      screenshot: entry.screenshot ?? last.screenshot,
+      error: entry.error ?? last.error
+    }
+    log[log.length - 1] = merged
+    this.sendReplaceCommand(last.timestamp, merged)
+    return true
+  }
+
+  /**
    * Run the shared Performance API capture script and attach the result to
    * the given CommandLog entry. Same `CAPTURE_PERFORMANCE_SCRIPT` +
    * `applyPerformanceData` selenium and nightwatch use, so the dashboard
