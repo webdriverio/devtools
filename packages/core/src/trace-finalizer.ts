@@ -79,6 +79,57 @@ const TEST_WITHOUT_BOUNDARIES_WARNING =
 /** Above this many slices, warn to pair granularity with a retention policy. */
 const SLICE_COUNT_WARN_THRESHOLD = 200
 
+/** Cap on how long finalize waits for still-in-flight snapshot captures. A
+ *  fire-and-forget capture against a tearing-down session can hang forever
+ *  (never resolves nor rejects); blocking the export on it would deadlock the
+ *  whole run (finalize never returns → the runner never tears the session down
+ *  → the capture stays stuck). Past this bound we write whatever snapshots
+ *  resolved in time — the same "flush from what exists" rule slices use. */
+const PENDING_SETTLE_TIMEOUT_MS = 5000
+
+/**
+ * `Promise.allSettled` bounded by a timeout. Resolves when every pending
+ * capture settles OR the cap elapses, whichever comes first — a stuck capture
+ * can never hang the export. Returns whether it timed out so the caller can
+ * warn. The timer is unref'd so it can't itself keep the process alive.
+ */
+async function settlePending(
+  pending: Promise<unknown>[],
+  timeoutMs: number
+): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timedOut = new Promise<true>((resolve) => {
+    timer = setTimeout(() => resolve(true), timeoutMs)
+    timer.unref?.()
+  })
+  const settled = Promise.allSettled(pending).then(() => false)
+  const result = await Promise.race([settled, timedOut])
+  if (timer) {
+    clearTimeout(timer)
+  }
+  return result
+}
+
+/** Settle in-flight snapshot captures under the timeout cap, warning if the
+ *  bound elapses. Never throws; never hangs. */
+async function awaitPendingCaptures(ctx: TraceExportContext): Promise<void> {
+  if (!ctx.awaitPending?.length) {
+    return
+  }
+  const timedOut = await settlePending(
+    ctx.awaitPending,
+    PENDING_SETTLE_TIMEOUT_MS
+  )
+  if (timedOut) {
+    ctx.log?.(
+      'warn',
+      `One or more of ${ctx.awaitPending.length} snapshot capture(s) did not ` +
+        `settle within ${PENDING_SETTLE_TIMEOUT_MS}ms; writing trace with the ` +
+        'snapshots captured so far.'
+    )
+  }
+}
+
 function sliceCountWarning(count: number): string {
   return (
     `traceGranularity produced ${count} trace slices. Consider pairing it ` +
@@ -269,9 +320,7 @@ export async function finalizeTraceExport(
   if (ctx.mode !== 'trace') {
     return []
   }
-  if (ctx.awaitPending?.length) {
-    await Promise.allSettled(ctx.awaitPending)
-  }
+  await awaitPendingCaptures(ctx)
   const sliced = ctx.granularity === 'spec' || ctx.granularity === 'test'
   if (sliced && ctx.ranges.length > 0) {
     if (ctx.ranges.length > SLICE_COUNT_WARN_THRESHOLD) {
