@@ -217,6 +217,16 @@ function stashDriverOriginals(driverProto: Patchable): void {
     originals.manage = (driver) =>
       orig.call(driver) as ReturnType<typeof orig> & object
   }
+  const url = driverProto.getCurrentUrl
+  if (typeof url === 'function') {
+    const orig = url as (this: unknown) => unknown
+    originals.getCurrentUrl = (driver) => orig.call(driver) as Promise<string>
+  }
+  const title = driverProto.getTitle
+  if (typeof title === 'function') {
+    const orig = title as (this: unknown) => unknown
+    originals.getTitle = (driver) => orig.call(driver) as Promise<string>
+  }
 }
 
 // Lets onBeforeQuit flush async cleanup before runners that `process.exit()`
