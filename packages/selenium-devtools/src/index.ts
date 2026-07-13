@@ -64,6 +64,7 @@ import {
   type ScreencastOptions,
   type TraceFormat,
   type TraceGranularity,
+  type TraceRetentionPolicy,
   type SeleniumDriverLike,
   type TestStats
 } from './types.js'
@@ -277,6 +278,7 @@ class SeleniumDevToolsPlugin {
       mode?: DevToolsMode
       traceFormat?: TraceFormat
       traceGranularity?: TraceGranularity
+      tracePolicy?: TraceRetentionPolicy
     } = {}
   ) {
     if ('rerunCommand' in opts) {
@@ -300,6 +302,9 @@ class SeleniumDevToolsPlugin {
     }
     if (opts.traceGranularity) {
       this.#options.traceGranularity = opts.traceGranularity
+    }
+    if (opts.tracePolicy) {
+      this.#options.tracePolicy = opts.tracePolicy
     }
     if (opts.screencast) {
       if (this.#options.mode === 'trace' && opts.screencast.enabled) {

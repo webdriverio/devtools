@@ -101,6 +101,8 @@ export interface DriverOriginals {
     ...args: unknown[]
   ) => Promise<unknown>
   manage?: (driver: SeleniumDriverLike) => unknown
+  getCurrentUrl?: (driver: SeleniumDriverLike) => Promise<string>
+  getTitle?: (driver: SeleniumDriverLike) => Promise<string>
 }
 
 // Unwrapped WebElement methods for internal enrichment paths.
