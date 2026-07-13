@@ -46,8 +46,12 @@ function formatAssertValue(value: unknown): string {
     : text
 }
 
-// Prefer normalized actual/expected params (nightwatch collapses them into
-// the result); fall back to the first two positional args (node:assert order).
+// The label mirrors the CALL the user wrote — its positional args
+// (`assert.equal(a, b)`, `titleContains('x')`). The normalized actual/expected
+// params drive the result diff, NOT the label: a single-arg assert like
+// titleContains passes only the expected, so labelling it with the derived
+// actual would misrepresent the call. Fall back to actual/expected only when
+// no args survived (reader round-trips that dropped them).
 function formatAssertTitle(
   action: TraceAction,
   args: unknown[],
@@ -55,9 +59,7 @@ function formatAssertTitle(
   command?: string
 ): string {
   const values =
-    params && ('actual' in params || 'expected' in params)
-      ? [params.actual, params.expected]
-      : args.slice(0, 2)
+    args.length > 0 ? args.slice(0, 2) : [params?.actual, params?.expected]
   const label = values
     .filter((value) => value !== undefined)
     .map(formatAssertValue)

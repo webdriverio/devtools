@@ -200,6 +200,29 @@ export function matcherAssertionToCommandLog(
   return entry
 }
 
+/** Wrap every tracked method on one assert namespace object in place; returns
+ *  how many were patched. Used for both `assert.*` and `assert.strict.*`. */
+function patchAssertNamespace(
+  nsObj: Record<string | symbol, unknown>,
+  onCommand: (cmd: CapturedAssert) => void
+): number {
+  let count = 0
+  for (const methodName of TRACKED_ASSERT_METHODS) {
+    const original = nsObj[methodName]
+    if (typeof original !== 'function') {
+      continue
+    }
+    nsObj[methodName] = makePatchedAssertMethod(
+      methodName,
+      nsObj,
+      original as (...a: unknown[]) => unknown,
+      onCommand
+    )
+    count++
+  }
+  return count
+}
+
 /**
  * Patch `node:assert` so each tracked method emits a `CapturedAssert` to the
  * supplied hook. Idempotent across calls (guarded by `ASSERT_PATCHED_SYMBOL`).
@@ -239,19 +262,20 @@ export function patchNodeAssert(
   }
   assertObj[ASSERT_PATCHED_SYMBOL] = true
 
-  for (const methodName of TRACKED_ASSERT_METHODS) {
-    const original = assertObj[methodName]
-    if (typeof original !== 'function') {
-      continue
-    }
-    assertObj[methodName] = makePatchedAssertMethod(
-      methodName,
-      assertObj,
-      original as (...a: unknown[]) => unknown,
+  let patched = patchAssertNamespace(assertObj, onCommand)
+  // `import { strict as assert }` and `assert.strict.*` reference a separate
+  // object with its own method identities; patch it too so strict-mode
+  // assertions are captured the same as the default ones. `assert.strict` is a
+  // callable (strict-mode `assert()`) with the methods hung off it, so it's a
+  // function, not a plain object.
+  const strict = assertObj.strict
+  if (strict && (typeof strict === 'object' || typeof strict === 'function')) {
+    patched += patchAssertNamespace(
+      strict as Record<string | symbol, unknown>,
       onCommand
     )
   }
 
-  log('info', `Patched ${TRACKED_ASSERT_METHODS.length} node:assert method(s)`)
+  log('info', `Patched ${patched} node:assert method(s)`)
   return true
 }
