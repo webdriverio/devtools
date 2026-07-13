@@ -37,16 +37,22 @@ module.exports = {
         },
         'goog:loggingPrefs': { performance: 'ALL' }
       },
-      // Simple configuration - just call the function to get globals.
-      // - screencast: polling-mode .webm written to cwd as
-      //   nightwatch-video-<sessionId>.webm.
-      // - bidi: opt-in WebDriver BiDi capture for console + network. When
-      //   attached, the per-command Chrome perf-log network path is gated
-      //   off to avoid duplicate entries.
+      // bidi: opt-in WebDriver BiDi capture for console + network. When
+      // attached, the per-command Chrome perf-log network path is gated off to
+      // avoid duplicate entries.
       globals: nightwatchDevtools({
         port: 3000,
-        mode: 'live',
-        screencast: { enabled: true, pollIntervalMs: 200 },
+        // ── Config ladder — change ONLY this block per rung ───────────────
+        // 1 live:     mode: 'live'
+        // 2 trace:    mode: 'trace'
+        // 3 per-test: mode: 'trace', traceGranularity: 'test'
+        // 4 fail:     mode: 'trace', traceGranularity: 'test', tracePolicy: 'retain-on-failure'
+        // 5 retry:    mode: 'trace', traceGranularity: 'test', tracePolicy: 'on-first-retry'
+        //             (rung 5 needs retries → run `pnpm demo:nightwatch:retry`)
+        // NOTE: the BDD describe/it interface fires the plugin's beforeEach once
+        // per module (no per-`it` hook), so traceGranularity:'test' collapses to
+        // a single session-scoped slice here. See CLAUDE.md § Known debt.
+        mode: 'trace',
         bidi: true
       })
     }
