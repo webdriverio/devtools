@@ -26,6 +26,7 @@ import {
 } from '@wdio/devtools-core'
 import type { SessionCapturer } from '../session.js'
 import type {
+  CollapsedAssertResult,
   CommandLog,
   NativeAssertCall,
   NightwatchBrowser,
@@ -240,14 +241,6 @@ export function pendingAssertionCommand(
     entry.screenshot = screenshot
   }
   return entry
-}
-
-/** Collapsed pass/fail result core's `collapsedAssertResult` reads. */
-interface CollapsedAssertResult {
-  passed: boolean
-  expected?: unknown
-  actual?: unknown
-  message?: string
 }
 
 /** Nightwatch failure messages end with `… but got: "<actual>"`. Pull out the

@@ -3,6 +3,7 @@
 export {
   TraceType,
   type ActionSnapshot,
+  type CollapsedAssertResult,
   type CommandLog,
   type ConsoleLog,
   type DevToolsMode,

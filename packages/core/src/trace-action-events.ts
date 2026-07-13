@@ -1,7 +1,11 @@
 // Builds the before/after action events of the exported trace stream,
 // including tracingGroup test boundaries and frame-snapshot ref stamping.
 
-import type { CommandLog, TestMetadataMap } from '@wdio/devtools-shared'
+import type {
+  CollapsedAssertResult,
+  CommandLog,
+  TestMetadataMap
+} from '@wdio/devtools-shared'
 import {
   ASSERT_ACTION_CLASS,
   formatActionTitle,
@@ -75,15 +79,9 @@ interface ActionStream {
   groupCallId?: string
 }
 
-// Nightwatch built-in assertions collapse {passed, actual, expected, message}
-// into the command result on failure — surface those over positional args.
-interface CollapsedAssertResult {
-  passed?: unknown
-  actual?: unknown
-  expected?: unknown
-  message?: unknown
-}
-
+// An adapter may attach a normalized CollapsedAssertResult (see shared) to an
+// assertion command — prefer its actual/expected over the positional args,
+// which are only correct for node:assert-style `[actual, expected]` calls.
 function collapsedAssertResult(
   result: unknown
 ): CollapsedAssertResult | undefined {
