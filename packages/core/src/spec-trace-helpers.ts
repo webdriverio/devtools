@@ -36,6 +36,30 @@ export interface SpecRange {
   snapshotCount: number
 }
 
+/**
+ * The slice range to eager-flush for a just-ended test. When the caller knows
+ * the test's uid (e.g. WDIO's `afterTest`), reverse-scan for it — retries push
+ * a new range under the same uid, and the next test's boundary may already be
+ * recorded, so the last range isn't reliably this test's. When the uid isn't
+ * independently known (Nightwatch/Selenium discover it from the range itself),
+ * the last recorded range is the just-ended test's. Undefined when there is no
+ * range to flush. One helper for what the three adapters each open-coded.
+ */
+export function findFlushableRange(
+  ranges: readonly SpecRange[],
+  testUid?: string
+): SpecRange | undefined {
+  if (testUid !== undefined) {
+    for (let i = ranges.length - 1; i >= 0; i--) {
+      if (ranges[i]!.testUid === testUid) {
+        return ranges[i]
+      }
+    }
+    return undefined
+  }
+  return ranges[ranges.length - 1]
+}
+
 // ─── Spec name sanitization ───────────────────────────────────────────────────
 
 /**

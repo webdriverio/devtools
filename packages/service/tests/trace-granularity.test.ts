@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type * as DevtoolsCore from '@wdio/devtools-core'
 import { deterministicUid, type SpecRange } from '@wdio/devtools-core'
-import { findCurrentTestRange } from '../src/trace-slices.js'
 
 // Records the key/state observed at each per-slice flush and replays the real
 // dedupe (flushed.add) so recordSliceBoundary's prev-slice logic behaves as in
@@ -86,34 +85,6 @@ vi.mock('@wdio/devtools-core', async (importOriginal) => {
 
 // Imported after the mocks are declared so the mocked core module is used.
 const { default: DevToolsHookService } = await import('../src/index.js')
-
-describe('findCurrentTestRange', () => {
-  const mk = (key: string, testUid?: string): SpecRange => ({
-    specFile: 'f',
-    key,
-    testUid,
-    commandStartIdx: 0,
-    consoleStartIdx: 0,
-    networkStartIdx: 0,
-    mutationStartIdx: 0,
-    traceLogStartIdx: 0,
-    snapshotCount: 0
-  })
-
-  it('returns the most recent range recorded under the base testUid', () => {
-    const ranges = [mk('a', 'a'), mk('b', 'b'), mk('b-retry1', 'b')]
-    // A retry pushes a new range under the same testUid; the latest one wins.
-    expect(findCurrentTestRange(ranges, 'b')?.key).toBe('b-retry1')
-    expect(findCurrentTestRange(ranges, 'a')?.key).toBe('a')
-  })
-
-  it('returns undefined when no range matches (spec/session slices)', () => {
-    expect(
-      findCurrentTestRange([mk('spec.ts', undefined)], 'x')
-    ).toBeUndefined()
-    expect(findCurrentTestRange([], 'x')).toBeUndefined()
-  })
-})
 
 describe('DevtoolsService - trace granularity slicing', () => {
   const file = '/proj/specs/login.spec.ts'
