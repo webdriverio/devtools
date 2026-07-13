@@ -9,42 +9,45 @@ import {
   stripAnsi
 } from '@wdio/devtools-core'
 import type { CommandLog, SerializedError } from '@wdio/devtools-shared'
-import { parse } from 'stack-trace'
-import {
-  resolveCallSourceFromFrame,
-  resolveFilePathFromFrame
-} from './call-source.js'
-import { isUserSpecFile } from './utils.js'
 import type { SessionCapturer } from './session.js'
 
 const log = logger('@wdio/devtools-service:assert-capture')
 
 /**
- * Capture the user's `expect()` call site from the SYNCHRONOUS stack at matcher
- * entry (call from `beforeAssertion`). The matcher then runs async, so this is
- * the only point a user frame is still on the stack — reading it in
- * `afterAssertion` resolves to the service bundle instead. Mirrors
- * `beforeCommand`'s resolver (`parse(new Error()).reverse()` → first user-spec
- * frame → `resolveCallSourceFromFrame`) so assertion rows share regular
- * commands' Source-tab behaviour. Also loads that file's source via
- * `captureSource` so the tab renders. Returns `undefined` when no user frame is
- * present (row falls back to no callSource, exactly as before this fix).
+ * The WDIO element/browser query commands an expect-webdriverio matcher issues
+ * to read the value it asserts on (`toHaveText`→`getText`, `toExist`→
+ * `isExisting`, …). The matcher's read is captured as a normal command; on
+ * `afterAssertion` the synthesized `expect.*` row is coalesced into it (it
+ * already carries the correct callSource, screenshot, and timeline position),
+ * so only one row remains — no timing/stack heuristics. Not exhaustive: an
+ * unlisted matcher just leaves its read visible plus the assertion row.
  */
-export function resolveAssertionCallSource(
-  captureSource: (filePath: string) => void
-): string | undefined {
-  Error.stackTraceLimit = 20
-  const frame = parse(new Error(''))
-    .reverse()
-    .find((f) => isUserSpecFile(f.getFileName()))
-  if (!frame) {
-    return undefined
-  }
-  const filePath = resolveFilePathFromFrame(frame)
-  if (filePath) {
-    captureSource(filePath)
-  }
-  return resolveCallSourceFromFrame(frame)
+const MATCHER_READ_COMMANDS = new Set([
+  'getText',
+  'getHTML',
+  'isExisting',
+  'isDisplayed',
+  'isDisplayedInViewport',
+  'getValue',
+  'getAttribute',
+  'getProperty',
+  'getComputedRole',
+  'getComputedLabel',
+  'isEnabled',
+  'isClickable',
+  'isSelected',
+  'isFocused',
+  'getSize',
+  'getLocation',
+  'getCSSProperty',
+  'getTagName',
+  'getUrl',
+  'getTitle'
+])
+
+/** True when a command is a matcher's value-read (see MATCHER_READ_COMMANDS). */
+export function isMatcherReadCommand(command: string): boolean {
+  return MATCHER_READ_COMMANDS.has(command)
 }
 
 /**
@@ -131,33 +134,48 @@ export interface ExpectAssertion {
   result: { pass?: boolean; result?: boolean; message?: () => string }
 }
 
+/** `expect.stringContaining(x)` / `objectContaining` etc. are jest asymmetric
+ *  matchers — objects carrying a `sample` payload and an `asymmetricMatch`
+ *  method. Surface the payload so a row reads `toHaveText("x")` instead of
+ *  `toHaveText({"sample":"x"})`; non-matchers pass through unchanged. */
+function unwrapAsymmetricMatcher(value: unknown): unknown {
+  if (
+    value !== null &&
+    typeof value === 'object' &&
+    'sample' in value &&
+    typeof (value as { asymmetricMatch?: unknown }).asymmetricMatch ===
+      'function'
+  ) {
+    return (value as { sample: unknown }).sample
+  }
+  return value
+}
+
 /**
  * Adapt expect-webdriverio's afterAssertion params to the shared matcher
  * converter. Framework-specific extraction only (matcher name, expectedValue →
- * args, the runtime `pass` vs typed `result` flag); the actual CommandLog
- * shaping lives once in core's `matcherAssertionToCommandLog`. `callSource` is
- * the user's `expect()` call site captured in `beforeAssertion` (the matcher
- * runs async, so afterAssertion's own stack no longer holds a user frame) — it
- * makes the row's Source tab point at the spec, not the service bundle.
+ * args, the runtime `pass` vs typed `result` flag); the CommandLog shaping
+ * lives once in core's `matcherAssertionToCommandLog`. The row's callSource +
+ * screenshot come from the matcher's read command it's coalesced into (see
+ * `coalesceAssertionIntoLastRead`), not from a stack walk here.
  */
 export function expectAssertionToCommandLog(
   params: ExpectAssertion,
-  testUid: string | undefined,
-  callSource?: string
+  testUid: string | undefined
 ): CommandLog {
   const { matcherName, expectedValue, result } = params
+  const rawArgs =
+    expectedValue === undefined
+      ? []
+      : Array.isArray(expectedValue)
+        ? expectedValue
+        : [expectedValue]
   return matcherAssertionToCommandLog(
     {
       method: matcherName,
-      args:
-        expectedValue === undefined
-          ? []
-          : Array.isArray(expectedValue)
-            ? expectedValue
-            : [expectedValue],
+      args: rawArgs.map(unwrapAsymmetricMatcher),
       passed: result.pass ?? result.result ?? false,
-      message: result.message,
-      callSource
+      message: result.message
     },
     testUid
   )

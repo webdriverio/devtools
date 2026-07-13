@@ -15,7 +15,7 @@ import {
 import {
   captureExpectFailure,
   expectAssertionToCommandLog,
-  resolveAssertionCallSource,
+  isMatcherReadCommand,
   wireAssertCapture,
   type ExpectAssertion
 } from './assert-capture.js'
@@ -104,34 +104,22 @@ export default class DevToolsHookService implements Services.ServiceInstance {
    */
   #commandStack: CommandFrame[] = []
 
-  /** Depth of the current expect-webdriverio matcher evaluation. While > 0, the
-   *  matcher's internal WebDriver commands (getText/isExisting polling) are
-   *  suppressed so only the `expect.<matcher>` assertion row is captured —
-   *  matching Playwright and the Nightwatch native-assert behaviour. */
-  #assertionDepth = 0
-
-  /** True once the current matcher has issued an internal command whose stack
-   *  shows an expect-webdriverio frame. Gates the stuck-depth self-heal: the
-   *  matcher's FIRST internal command (an element re-lookup) traces to the
-   *  user's expect() line but its sync stack has no matcher frame yet, which
-   *  would otherwise be misread as "matcher ended" and reset the depth mid-run
-   *  — capturing every later matcher command as a duplicate row. */
-  #matcherStarted = false
-
-  /** Matcher start timestamps (stack, paired with #assertionDepth) so a captured
-   *  assertion spans [matcher start → end] — its poll duration — instead of
-   *  collapsing to a zero-width point at completion, which left the screencast
-   *  tracking the preceding command during the poll. */
-  #assertionStartTimes: number[] = []
-
-  /** User `expect()` call sites (stack, paired with #assertionStartTimes),
-   *  captured in beforeAssertion while a user frame is still synchronous. The
-   *  matcher runs async, so afterAssertion's own stack resolves to the service
-   *  bundle — this parallel stack lets each row keep its spec-file callSource. */
-  #assertionCallSources: (string | undefined)[] = []
-
   /** Current test UID, set in beforeTest(), used by afterCommand() to tag commands. */
   #currentTestUid?: string
+
+  /** expect-webdriverio matcher nesting depth. Aliases fire before/afterAssertion
+   *  twice (toBeChecked→toBeSelected), so only the outermost pair owns the row. */
+  #assertionDepth = 0
+
+  /** Matcher armed at beforeAssertion, cleared at its afterAssertion. It survives
+   *  to test end only when the matcher hard-threw (element never resolved, so
+   *  waitUntil rethrew and afterAssertion never fired) — then it's synthesized as
+   *  a failing expect.<matcher> row instead of leaving a raw read. */
+  #pendingAssertion?: {
+    matcherName: string
+    expectedValue?: unknown
+    testUid?: string
+  }
 
   /** Map of testUid → metadata for trace group events and per-spec partitioning. */
   #testMetadata: TestMetadataMap = new Map()
@@ -417,7 +405,54 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     _scenario?: unknown,
     result?: { error?: unknown }
   ) {
-    this.#captureExpectFailure(result?.error)
+    this.#handleAssertionOutcome(result?.error)
+  }
+
+  /** Route a test/step failure to assertion capture. A matcher that hard-threw
+   *  (element never resolved) left an armed #pendingAssertion because
+   *  afterAssertion never fired — synthesize its failing expect row. Any other
+   *  failure just marks the last action with the error. */
+  #handleAssertionOutcome(error: unknown): void {
+    if (this.#options.captureAssertions === false) {
+      return
+    }
+    if (this.#pendingAssertion) {
+      this.#finalizePendingAssertion(error)
+      return
+    }
+    this.#captureExpectFailure(error)
+  }
+
+  /** Synthesize the failing expect.<matcher> row for a hard-thrown matcher: fold
+   *  it into the throwing read (relabel `getText`→`expect.toHaveText`, keeping
+   *  the error) so the assertion renders consistently whether or not the element
+   *  resolved; fall back to a fresh row when there is no read to fold. */
+  #finalizePendingAssertion(error: unknown): void {
+    const pending = this.#pendingAssertion
+    this.#pendingAssertion = undefined
+    this.#assertionDepth = 0
+    if (!pending) {
+      return
+    }
+    const message = errorMessage(error) || `${pending.matcherName} failed`
+    const entry = expectAssertionToCommandLog(
+      {
+        matcherName: pending.matcherName,
+        expectedValue: pending.expectedValue,
+        result: { pass: false, message: () => message }
+      },
+      pending.testUid
+    )
+    if (
+      this.#sessionCapturer.coalesceAssertionIntoLastRead(
+        entry,
+        isMatcherReadCommand,
+        true
+      )
+    ) {
+      return
+    }
+    this.#sessionCapturer.captureAssertCommand(entry)
   }
 
   /** Mark the failing action from a matcher error (afterStep for Cucumber,
@@ -463,7 +498,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     _context?: unknown,
     result?: TestOutcomeResult
   ) {
-    this.#captureExpectFailure(result?.error)
+    this.#handleAssertionOutcome(result?.error)
     const testTitle = test?.fullTitle || test?.title
     const uid = testTitle ? testMetadataUid(test?.file, testTitle) : undefined
     if (uid) {
@@ -476,52 +511,63 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     }
   }
 
-  /** expect-webdriverio fires this before each matcher evaluates. The matcher's
-   *  internal polling commands run inside the before→after window and must not
-   *  surface as their own rows — only the `expect.<matcher>` assertion should. */
-  beforeAssertion(): void {
-    // Matchers don't nest, so any residual depth here is a prior matcher whose
-    // afterAssertion was skipped by a hard throw. Reset before pushing so the
-    // suppression window can't stay stuck open across assertions.
-    if (this.#assertionDepth > 0) {
-      this.#assertionDepth = 0
-      this.#assertionStartTimes = []
-      this.#assertionCallSources = []
-    }
-    this.#assertionDepth++
-    this.#matcherStarted = false
-    this.#assertionStartTimes.push(Date.now())
-    // Capture the user's expect() call site now — see #assertionCallSources.
-    this.#assertionCallSources.push(
-      resolveAssertionCallSource(
-        (file) => void this.#sessionCapturer.captureSource(file)
-      )
-    )
-  }
-
-  async afterAssertion(params: ExpectAssertion): Promise<void> {
-    // Decrement first (even when capture is off) so the window stays balanced.
-    const startTime = this.#assertionStartTimes.pop()
-    const callSource = this.#assertionCallSources.pop()
-    if (this.#assertionDepth > 0) {
-      this.#assertionDepth--
-    }
-    this.#matcherStarted = false
+  /**
+   * expect-webdriverio fires this after each matcher evaluates, with the matcher
+   * name + pass/fail + expected value. The matcher's value-read (getText /
+   * isExisting / …) was captured as a normal command; fold this assertion into
+   * that read so one `expect.<matcher>` row remains — inheriting the read's real
+   * callSource, screenshot, and timeline position. Deterministic and anchored to
+   * this reliable hook: no `#assertionDepth`, no stack-frame detection.
+   */
+  /**
+   * expect-webdriverio fires this at the START of every matcher, before it polls
+   * — so it fires even for a matcher that later hard-throws (element never
+   * resolved), unlike afterAssertion. Arm the pending matcher here so test-end
+   * can synthesize its expect row if afterAssertion never comes. Depth-counted:
+   * aliases (toBeChecked→toBeSelected) fire this twice, so only the outermost
+   * arms the row.
+   */
+  beforeAssertion(params: {
+    matcherName: string
+    expectedValue?: unknown
+  }): void {
     if (this.#options.captureAssertions === false) {
       return
     }
-    const entry = expectAssertionToCommandLog(
-      params,
-      this.#currentTestUid,
-      callSource
-    )
-    // Span the matcher's poll window so the row's duration is real and the
-    // screencast tracks the assertion (not the preceding command) during it.
-    if (startTime !== undefined) {
-      entry.startTime = startTime
+    if (this.#assertionDepth === 0) {
+      this.#pendingAssertion = {
+        matcherName: params.matcherName,
+        expectedValue: params.expectedValue,
+        testUid: this.#currentTestUid
+      }
     }
-    // The suppressed matcher-internal command carried the DOM screenshot;
-    // capture one here so the assertion row's Snapshot panel isn't blank.
+    this.#assertionDepth++
+  }
+
+  async afterAssertion(params: ExpectAssertion): Promise<void> {
+    if (this.#options.captureAssertions === false) {
+      return
+    }
+    this.#assertionDepth = Math.max(0, this.#assertionDepth - 1)
+    // Inner matcher of a nested pair (toBeChecked→toBeSelected): the outer
+    // afterAssertion owns the row.
+    if (this.#assertionDepth > 0) {
+      return
+    }
+    // Reached afterAssertion → the matcher resolved (pass or value-fail), so no
+    // hard-throw synthesis is needed at test end.
+    this.#pendingAssertion = undefined
+    const entry = expectAssertionToCommandLog(params, this.#currentTestUid)
+    if (
+      this.#sessionCapturer.coalesceAssertionIntoLastRead(
+        entry,
+        isMatcherReadCommand
+      )
+    ) {
+      return
+    }
+    // No matcher read to fold into (a value matcher like toBe(x), or the read
+    // hard-threw): emit a fresh row with its own screenshot + trace snapshot.
     if (this.#browser && !isNativeMobile(this.#browser)) {
       try {
         entry.screenshot = await this.#browser.takeScreenshot()
@@ -530,9 +576,6 @@ export default class DevToolsHookService implements Services.ServiceInstance {
         log.debug(`assertion screenshot skipped: ${errorMessage(err)}`)
       }
     }
-    // Trace mode: push a DOM action-snapshot stamped at this row's timestamp so
-    // the trace player's Snapshot tab renders it, exactly like a regular
-    // command's post-action snapshot (captureActionResult).
     if (this.#options.mode === 'trace' && this.#browser) {
       await pushActionSnapshotAt(
         this.#browser,
@@ -573,9 +616,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
   private resetStack() {
     this.#commandStack = []
     this.#assertionDepth = 0
-    this.#matcherStarted = false
-    this.#assertionStartTimes = []
-    this.#assertionCallSources = []
+    this.#pendingAssertion = undefined
     this.#sessionCapturer.resetLastSelector()
     this.#sessionCapturer.resetRetryTracker()
   }
@@ -594,30 +635,6 @@ export default class DevToolsHookService implements Services.ServiceInstance {
         callSource,
         startTimestamp: Date.now()
       })
-    }
-  }
-
-  /** Maintain the expect-matcher suppression window for an incoming command.
-   *  `inMatcher` marks the matcher as started (so its trailing internal
-   *  commands stay suppressed); otherwise self-heal a depth left stuck by a
-   *  matcher that hard-threw (skipping afterAssertion) — but only once the
-   *  matcher has actually started, so its own leading element re-lookup (no
-   *  matcher frame on the sync stack yet) can't reset the depth mid-run. */
-  #trackAssertionWindow(inMatcher: boolean, hasSource: boolean): void {
-    if (inMatcher) {
-      this.#matcherStarted = true
-      return
-    }
-    if (
-      hasSource &&
-      this.#commandStack.length === 0 &&
-      this.#assertionDepth > 0 &&
-      this.#matcherStarted
-    ) {
-      this.#assertionDepth = 0
-      this.#assertionStartTimes = []
-      this.#assertionCallSources = []
-      this.#matcherStarted = false
     }
   }
 
@@ -641,15 +658,10 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     Error.stackTraceLimit = 20
     const stack = parse(new Error('')).reverse()
     const source = stack.find((frame) => isUserSpecFile(frame.getFileName()))
-    const inMatcher =
-      this.#assertionDepth > 0 &&
-      stack.some((frame) => frame.getFileName()?.includes('expect-webdriverio'))
-    this.#trackAssertionWindow(inMatcher, Boolean(source))
-    if (
-      source &&
-      this.#commandStack.length === 0 &&
-      this.#assertionDepth === 0
-    ) {
+    // A matcher's value-read (getText/isExisting) is captured normally like any
+    // command; afterAssertion later folds it into the expect.<matcher> row (see
+    // coalesceAssertionIntoLastRead) — no suppression window needed here.
+    if (source && this.#commandStack.length === 0) {
       this.#pushTopLevelCommandFrame(
         command,
         resolveCallSourceFromFrame(source)

@@ -7,29 +7,10 @@ import {
 import {
   captureExpectFailure,
   expectAssertionToCommandLog,
-  resolveAssertionCallSource,
   toCommandError,
   wireAssertCapture
 } from '../src/assert-capture.js'
 import type { SessionCapturer } from '../src/session.js'
-
-const stackFrames = vi.hoisted(() => ({
-  value: [] as Array<{
-    getFileName: () => string | null
-    getLineNumber: () => number | null
-    getColumnNumber: () => number | null
-  }>
-}))
-
-// Only resolveAssertionCallSource reads 'stack-trace'; node:assert capture uses
-// core's stacktrace-parser path, so mocking here doesn't affect those tests.
-vi.mock('stack-trace', () => ({ parse: () => stackFrames.value }))
-
-const frame = (file: string | null, line = 1, column = 1) => ({
-  getFileName: () => file,
-  getLineNumber: () => line,
-  getColumnNumber: () => column
-})
 
 describe('toCommandError', () => {
   it('normalizes a plain Error object (ANSI stripped)', () => {
@@ -178,6 +159,23 @@ describe('expectAssertionToCommandLog', () => {
     expect(entry.error).toBeUndefined()
   })
 
+  it('unwraps a jest asymmetric matcher (stringContaining) to its payload', () => {
+    const entry = expectAssertionToCommandLog(
+      {
+        matcherName: 'toHaveText',
+        // expect.stringContaining('You logged in') shape.
+        expectedValue: {
+          sample: 'You logged in',
+          asymmetricMatch: () => true
+        },
+        result: { pass: true, message: () => 'ok' }
+      },
+      'uid-2'
+    )
+    // Label reads toHaveText("You logged in"), not toHaveText({"sample":…}).
+    expect(entry.args).toEqual(['You logged in'])
+  })
+
   it('captures a failing matcher with its ANSI-stripped message as the error', () => {
     const entry = expectAssertionToCommandLog(
       {
@@ -214,42 +212,5 @@ describe('expectAssertionToCommandLog', () => {
       undefined
     )
     expect(entry).toMatchObject({ command: 'expect.toBeClickable', args: [] })
-  })
-
-  it('forwards the captured callSource onto the assertion row', () => {
-    const entry = expectAssertionToCommandLog(
-      { matcherName: 'toExist', result: { pass: true } },
-      'uid-1',
-      '/proj/specs/login.e2e.ts:30:7'
-    )
-    expect(entry.callSource).toBe('/proj/specs/login.e2e.ts:30:7')
-  })
-})
-
-describe('resolveAssertionCallSource', () => {
-  it('returns the outermost user-spec frame and loads its source', () => {
-    // innermost → outermost: service bundle, expect-webdriverio matcher, the
-    // user spec, then node internals. The user spec must win, not the bundle.
-    stackFrames.value = [
-      frame('/repo/packages/service/dist/index.js', 4045, 12),
-      frame('/repo/node_modules/expect-webdriverio/lib/matchers.js', 9, 3),
-      frame('/proj/specs/login.e2e.ts', 30, 7),
-      frame('node:internal/process/task_queues', 95, 5)
-    ]
-    const captured: string[] = []
-    const callSource = resolveAssertionCallSource((f) => captured.push(f))
-    expect(callSource).toBe('/proj/specs/login.e2e.ts:30:7')
-    expect(callSource).not.toContain('/dist/')
-    expect(captured).toEqual(['/proj/specs/login.e2e.ts'])
-  })
-
-  it('returns undefined and loads nothing when only dependency frames exist', () => {
-    stackFrames.value = [
-      frame('/repo/node_modules/expect-webdriverio/lib/matchers.js', 9, 3),
-      frame('node:internal/process/task_queues', 95, 5)
-    ]
-    const captured: string[] = []
-    expect(resolveAssertionCallSource((f) => captured.push(f))).toBeUndefined()
-    expect(captured).toEqual([])
   })
 })
