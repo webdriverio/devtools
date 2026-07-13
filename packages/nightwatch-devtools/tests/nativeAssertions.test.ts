@@ -56,21 +56,20 @@ function makeFakeCapturer(
 
 const browser = {} as unknown as NightwatchBrowser
 
-/** Mimic BrowserProxy.emitPendingAssertion: stream a neutral pending row at
- *  call time and attach it to the call for later finalization. */
+/** Mimic BrowserProxy.emitPendingAssertion: build the row and buffer it on the
+ *  call, but do NOT stream it — rows are emitted at test-end by
+ *  captureNativeAssertions once their pass/fail is known. */
 function emitPending(
   capturer: SessionCapturer,
   calls: NativeAssertCall[],
   testUid: string | undefined
 ) {
   for (const call of calls) {
-    const entry = pendingAssertionCommand(
+    call.entry = pendingAssertionCommand(
       call,
       testUid,
       latestResolvedScreenshot(capturer)
     )
-    capturer.captureAssertCommand(entry)
-    call.entry = entry
   }
 }
 
@@ -104,8 +103,8 @@ function call(
   return { prefix, method, args, callSource, timestamp: clock++ }
 }
 
-describe('captureNativeAssertions (live pending → finalize)', () => {
-  it('streams neutral pending rows at call time, then finalizes pass/fail in place with a stable id and no duplicates', async () => {
+describe('captureNativeAssertions (buffer → finalize at test-end)', () => {
+  it('buffers rows at call time (nothing streamed), then emits pass/fail once at test-end with no duplicates', async () => {
     // Preceding real commands: the last with a resolved screenshot is the DOM
     // the assertions evaluated against — reused for the pending rows.
     const precedingCommands: CommandLog[] = [
@@ -120,7 +119,6 @@ describe('captureNativeAssertions (live pending → finalize)', () => {
     const {
       capturer,
       sent,
-      replaced,
       commandsLog,
       captureAssertCommand,
       sendReplaceCommand,
@@ -133,23 +131,23 @@ describe('captureNativeAssertions (live pending → finalize)', () => {
       call('assert', 'titleContains', ['HARD_FAIL_ME'], 'spec.js:16')
     ]
 
-    // 1) CALL TIME: each call streams one neutral pending row.
+    // 1) CALL TIME: rows are buffered, NOT streamed — nothing is sent, so no
+    // assert shows as a neutral (green) row before its outcome is known.
     emitPending(capturer, calls, 'test-uid')
-    expect(captureAssertCommand).toHaveBeenCalledTimes(4)
-    expect(sent).toHaveLength(4)
-    for (const row of sent) {
+    expect(captureAssertCommand).not.toHaveBeenCalled()
+    expect(sent).toHaveLength(0)
+    const buffered = calls.map((c) => c.entry!)
+    for (const row of buffered) {
       expect(row.result).toBeUndefined() // neutral — not green
       expect(row.error).toBeUndefined() // neutral — not red
       expect(row.testUid).toBe('test-uid')
       expect(row.screenshot).toBe('BODY_SHOT') // reused preceding DOM
-      expect(typeof (row as { id?: number }).id).toBe('number')
     }
-    expect(sent[0].title).toBe("verify.titleContains('Example')")
-    expect(sent[0].command).toBe('verify.titleContains')
-    expect(sent[0].args).toEqual(['Example'])
-    expect(sent[0].callSource).toBe('spec.js:11')
-    expect(sent[0].timestamp).toBe(sent[0].startTime)
-    const pendingIds = sent.map((r) => (r as { id?: number }).id)
+    expect(buffered[0].title).toBe("verify.titleContains('Example')")
+    expect(buffered[0].command).toBe('verify.titleContains')
+    expect(buffered[0].args).toEqual(['Example'])
+    expect(buffered[0].callSource).toBe('spec.js:11')
+    expect(buffered[0].timestamp).toBe(buffered[0].startTime)
 
     // 2) TEST END: results.assertions includes the implicit waitForElementVisible
     // assertion (first entry) which must NOT create/finalize a row.
@@ -168,46 +166,45 @@ describe('captureNativeAssertions (live pending → finalize)', () => {
       calls
     )
 
-    // Each row updated exactly once, in place — no new rows, no duplicates.
+    // Rows emitted exactly once at test-end — no call-time stream, no replace.
     expect(captureAssertCommand).toHaveBeenCalledTimes(4)
-    expect(sendReplaceCommand).toHaveBeenCalledTimes(4)
+    expect(sendReplaceCommand).not.toHaveBeenCalled()
+    expect(sent).toHaveLength(4)
     expect(commandsLog).toHaveLength(2 + 4)
     expect(takeScreenshotViaHttp).not.toHaveBeenCalled()
 
-    // Same row objects, same stable ids (updated, not recreated).
     const finalized = calls.map((c) => c.entry!)
-    expect(finalized.map((r) => (r as { id?: number }).id)).toEqual(pendingIds)
 
-    // Pass/fail applied; failures carry the verbose message as error.
-    expect(finalized[0].result).toBe('passed')
+    // Pass/fail applied as a collapsed { passed, expected, actual? } result;
+    // failures also carry the verbose message as error.
+    expect(finalized[0].result).toMatchObject({ passed: true })
     expect(finalized[0].error).toBeUndefined()
-    expect(finalized[1].result).toBeUndefined()
+    expect(finalized[1].result).toMatchObject({ passed: false })
     expect((finalized[1].error as { message: string }).message).toContain(
       'SOFT_FAIL_ME'
     )
-    expect(finalized[2].result).toBe('passed') // duplicate 'Example' → 2nd entry
+    expect(finalized[2].result).toMatchObject({ passed: true }) // 2nd 'Example'
     expect(finalized[3].error).toBeDefined()
 
     // Labels/args/callSource preserved from the pending row.
     expect(finalized[3].title).toBe("assert.titleContains('HARD_FAIL_ME')")
     expect(finalized[3].callSource).toBe('spec.js:16')
 
-    // With no results.commands timing, rows keep their enqueue timestamp, so
-    // the replace is keyed on that same timestamp.
-    replaced.forEach(({ oldTimestamp, command }) => {
-      expect(oldTimestamp).toBe(command.timestamp)
+    // With no results.commands timing, rows keep their call-time timestamp.
+    finalized.forEach((row) => {
+      expect(row.timestamp).toBe(row.startTime)
     })
   })
 
   it('repositions each row on its real execution window from results.commands (not enqueue time)', async () => {
-    const { capturer, sent, replaced } = makeFakeCapturer()
+    const { capturer, sent } = makeFakeCapturer()
     const calls = [
       call('verify', 'titleContains', ['Example']),
       call('assert', 'titleContains', ['SOFT_FAIL_ME'])
     ]
     emitPending(capturer, calls, 'uid')
-    // Both enqueued ~together (clock++), clustered.
-    const enqueue = sent.map((r) => r.timestamp)
+    // Buffered ~together (clock++), clustered at call time — nothing sent yet.
+    expect(sent).toHaveLength(0)
 
     // Nightwatch ran them ~29ms apart; results.commands carries the real window.
     const assertions = [
@@ -234,10 +231,10 @@ describe('captureNativeAssertions (live pending → finalize)', () => {
     expect(finalized[1].startTime).toBe(6100)
     expect(finalized[1].timestamp).toBe(6132)
     expect(finalized[1].timestamp - finalized[0].timestamp).toBeGreaterThan(50)
-    // The replace is keyed on the ORIGINAL enqueue timestamp (stable id also
-    // matches), while the row now carries its real execution timestamp.
-    expect(replaced[0].oldTimestamp).toBe(enqueue[0])
-    expect(replaced[0].command.timestamp).toBe(6029)
+    // Rows are sent (not replaced) at test-end, each carrying its real window.
+    expect(sent).toHaveLength(2)
+    expect(sent[0].timestamp).toBe(6029)
+    expect(sent[1].timestamp).toBe(6132)
   })
 
   it('finalizes with a fresh screenshot when no preceding one has resolved yet', async () => {
@@ -246,13 +243,13 @@ describe('captureNativeAssertions (live pending → finalize)', () => {
     const pending: CommandLog[] = [
       { command: 'waitForElementVisible', args: ['body'], timestamp: 2 }
     ]
-    const { capturer, sent, takeScreenshotViaHttp } = makeFakeCapturer(
+    const { capturer, takeScreenshotViaHttp } = makeFakeCapturer(
       pending,
       'FRESH_SHOT'
     )
     const calls = [call('verify', 'titleContains', ['Example'])]
     emitPending(capturer, calls, 'uid')
-    expect(sent[0].screenshot).toBeUndefined()
+    expect(calls[0].entry!.screenshot).toBeUndefined()
 
     await captureNativeAssertions(
       capturer,
@@ -265,15 +262,15 @@ describe('captureNativeAssertions (live pending → finalize)', () => {
     )
     expect(takeScreenshotViaHttp).toHaveBeenCalledTimes(1)
     expect(calls[0].entry!.screenshot).toBe('FRESH_SHOT')
-    expect(calls[0].entry!.result).toBe('passed')
+    expect(calls[0].entry!.result).toMatchObject({ passed: true })
   })
 
   it('preserves real multi-arg assertions (no faked args)', async () => {
-    const { capturer, sent, replaced } = makeFakeCapturer()
+    const { capturer, sent } = makeFakeCapturer()
     const calls = [call('assert', 'containsText', ['#btn', 'Save'])]
     emitPending(capturer, calls, 'uid')
-    expect(sent[0].args).toEqual(['#btn', 'Save'])
-    expect(sent[0].title).toBe("assert.containsText('#btn', 'Save')")
+    expect(calls[0].entry!.args).toEqual(['#btn', 'Save'])
+    expect(calls[0].entry!.title).toBe("assert.containsText('#btn', 'Save')")
 
     await captureNativeAssertions(
       capturer,
@@ -284,17 +281,17 @@ describe('captureNativeAssertions (live pending → finalize)', () => {
       'uid',
       calls
     )
-    expect(replaced).toHaveLength(1)
+    expect(sent).toHaveLength(1)
     expect(calls[0].entry!.error).toBeDefined()
   })
 
   it('falls back to positional correlation when args are not literals', async () => {
-    const { capturer, sent } = makeFakeCapturer()
+    const { capturer } = makeFakeCapturer()
     // Element-object arg won't substring-match; positional order still pairs
     // the single call with the single explicit assertion outcome.
     const calls = [call('assert', 'elementPresent', [{ selector: 'body' }])]
     emitPending(capturer, calls, 'uid')
-    expect(sent[0].title).toBe('assert.elementPresent(…)')
+    expect(calls[0].entry!.title).toBe('assert.elementPresent(…)')
 
     await captureNativeAssertions(
       capturer,
@@ -322,6 +319,38 @@ describe('captureNativeAssertions (live pending → finalize)', () => {
     expect(sendReplaceCommand).not.toHaveBeenCalled()
     expect(calls[0].entry!.result).toBeUndefined()
     expect(calls[0].entry!.error).toBeUndefined()
+  })
+
+  it('surfaces a real actual-vs-expected from the failure message (not the expected-only arg)', async () => {
+    const { capturer, sent } = makeFakeCapturer()
+    const calls = [call('assert', 'titleContains', ['This Is Not The Title'])]
+    emitPending(capturer, calls, 'uid')
+
+    await captureNativeAssertions(
+      capturer,
+      browser,
+      currentTestWith([
+        failing(
+          "Testing if the page title contains 'This Is Not The Title' in " +
+            '5000ms - expected "contains \'This Is Not The Title\'" but got: ' +
+            '"Example Domain"'
+        )
+      ]),
+      'uid',
+      calls
+    )
+
+    // Nightwatch passes only the EXPECTED as an arg; the real actual lives in
+    // the "but got: …" clause of the message. The collapsed result must carry
+    // the true diff, not mislabel the expected arg as the actual.
+    const result = sent[0].result as {
+      passed: boolean
+      expected: unknown
+      actual: unknown
+    }
+    expect(result.passed).toBe(false)
+    expect(result.expected).toBe('This Is Not The Title')
+    expect(result.actual).toBe('Example Domain')
   })
 
   it('is a no-op when there are no recorded calls (implicit assertions ignored)', async () => {
