@@ -78,6 +78,11 @@ const QUERY = new Set([
   'findElements'
 ])
 
+/** assert.* (node:assert), expect.* (expect-webdriverio), verify.* (Nightwatch)
+ *  — assertion rows across every framework, so they get the check icon + green
+ *  like the WDIO state matchers above instead of the generic fallback. */
+const ASSERTION_PREFIX_RE = /^(?:assert|expect|verify)\./
+
 /** Group a command by intent so the timeline can colour it consistently. */
 export function commandCategory(command: string): ActionCategory {
   if (NAVIGATION.has(command)) {
@@ -86,7 +91,7 @@ export function commandCategory(command: string): ActionCategory {
   if (INPUT.has(command)) {
     return 'input'
   }
-  if (ASSERTION.has(command)) {
+  if (ASSERTION.has(command) || ASSERTION_PREFIX_RE.test(command)) {
     return 'assertion'
   }
   if (QUERY.has(command)) {
@@ -133,7 +138,7 @@ export function commandIcon(command: string): ActionIcon {
   if (INPUT.has(command)) {
     return 'click'
   }
-  if (ASSERTION.has(command)) {
+  if (ASSERTION.has(command) || ASSERTION_PREFIX_RE.test(command)) {
     return 'assert'
   }
   if (QUERY.has(command)) {

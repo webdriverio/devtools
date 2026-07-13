@@ -50,13 +50,29 @@ function displayValue(value: unknown): string | undefined {
   }
 }
 
-/** Assertion commands carry `[actual, expected]` in args (see the exporter's
- *  Assert params + synthesizeExpectFailure). */
+/** Actual/expected for an assertion row. Prefer a collapsed `{actual, expected}`
+ *  result (Nightwatch native asserts, and any framework that surfaces a
+ *  structured result) over the positional `[actual, expected]` arg convention —
+ *  the latter is wrong for asserts that pass only an expected value
+ *  (`titleContains('x')`), which would mislabel the expected as the actual. */
 function assertionValues(command: CommandLog): {
   actual?: string
   expected?: string
 } {
-  if (!ASSERTION_COMMAND_RE.test(command.command) || command.args.length < 2) {
+  if (!ASSERTION_COMMAND_RE.test(command.command)) {
+    return {}
+  }
+  const result = command.result
+  if (result && typeof result === 'object') {
+    const r = result as { actual?: unknown; expected?: unknown }
+    if ('actual' in r || 'expected' in r) {
+      return {
+        actual: displayValue(r.actual),
+        expected: displayValue(r.expected)
+      }
+    }
+  }
+  if (command.args.length < 2) {
     return {}
   }
   return {

@@ -16,6 +16,11 @@ function shortSource(callSource: string): string {
   return callSource.split(/[\\/]/).slice(-3).join('/')
 }
 
+/** Show assertion values readably: quote strings, stringify everything else. */
+function fmtValue(value: unknown): string {
+  return typeof value === 'string' ? `'${value}'` : String(value)
+}
+
 @customElement(COMPONENT)
 export class DevtoolsErrors extends Element {
   @consume({ context: commandContext, subscribe: true })
@@ -155,13 +160,13 @@ export class DevtoolsErrors extends Element {
       return nothing
     }
     return html`<div class="error-diff">
+      ${error.actual !== undefined
+        ? html`<span class="label">Actual</span
+            ><span class="received">${fmtValue(error.actual)}</span>`
+        : nothing}
       ${error.expected !== undefined
         ? html`<span class="label">Expected</span
-            ><span class="expected">${error.expected}</span>`
-        : nothing}
-      ${error.actual !== undefined
-        ? html`<span class="label">Received</span
-            ><span class="received">${error.actual}</span>`
+            ><span class="expected">${fmtValue(error.expected)}</span>`
         : nothing}
     </div>`
   }
@@ -178,7 +183,9 @@ export class DevtoolsErrors extends Element {
               @${shortSource(error.callSource)}
             </button>`
           : nothing}
-        <div class="error-title">${error.message}</div>
+        ${error.expected === undefined && error.actual === undefined
+          ? html`<div class="error-title">${error.message}</div>`
+          : nothing}
         ${this.#renderDiff(error)}
         ${error.stack
           ? html`<details class="error-stack">
