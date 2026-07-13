@@ -297,7 +297,18 @@ export function buildActionEvents(
   snapshotIndex?: FrameSnapshotIndex
 ): ActionEvent[] {
   const stream: ActionStream = { events: [], prevEndMs: 0, callCounter: 0 }
-  for (const cmd of commands) {
+  // Process in chronological order, not insertion order. Deferred rows (e.g.
+  // Nightwatch native asserts, finalized in one batch at test-end) are appended
+  // late but carry their real call-time `startTime`; since pushActionPair floors
+  // each start at the running prevEndMs, out-of-order input would clamp those
+  // late rows to the end of the timeline (clustering them after the last real
+  // command). A stable sort by start time restores true positions and keeps
+  // equal-time rows in insertion order (each command owns its own before/after
+  // pair, so pairing is unaffected).
+  const ordered = [...commands].sort(
+    (a, b) => (a.startTime ?? a.timestamp) - (b.startTime ?? b.timestamp)
+  )
+  for (const cmd of ordered) {
     const action = mapCommandToAction(cmd.command)
     if (!action) {
       continue
