@@ -49,10 +49,6 @@ export type TraceRetentionPolicy =
   | 'on-all-retries'
   | 'retain-on-failure-and-retries'
 
-/** Video retention — video has no separate mode switch, so `off` is valid
- *  (and the default). */
-export type TraceVideoPolicy = 'off' | TraceRetentionPolicy
-
 /** One node in a test's ancestor chain, outermost first. */
 export interface TestAncestor {
   uid: string
@@ -73,19 +69,19 @@ export interface TestMetadataEntry {
  *  title + specFile for Tracing.tracingGroup events in trace output. */
 export type TestMetadataMap = Map<string, TestMetadataEntry>
 
-/** Defaults for trace-mode options when not specified by the user. */
-export const TRACE_DEFAULTS = {
-  mode: 'live',
-  traceFormat: 'zip',
-  traceGranularity: 'session',
-  tracePolicy: 'on',
-  video: 'off'
-} as const satisfies {
-  mode: DevToolsMode
-  traceFormat: TraceFormat
-  traceGranularity: TraceGranularity
-  tracePolicy: TraceRetentionPolicy
-  video: TraceVideoPolicy
+/**
+ * Normalized assertion result an adapter may attach to `CommandLog.result` for
+ * an assertion command. The trace exporter's assert-param builder prefers this
+ * over the positional `[actual, expected]` arg convention — correct for
+ * frameworks whose asserts pass only an expected value (a matcher like
+ * `titleContains('x')`), where args[0] is the expected, not the actual.
+ * Cross-package contract: adapters produce it, core's exporter consumes it.
+ */
+export interface CollapsedAssertResult {
+  passed: boolean
+  actual?: unknown
+  expected?: unknown
+  message?: string
 }
 
 /**
