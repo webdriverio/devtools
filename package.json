@@ -9,6 +9,7 @@
     "demo:wdio:mocha": "wdio run ./examples/wdio/mocha/wdio.conf.ts",
     "demo:wdio:retry": "wdio run ./examples/wdio/mocha/wdio.retry.conf.ts",
     "demo:nightwatch": "pnpm --filter @wdio/nightwatch-devtools example",
+    "demo:nightwatch:retry": "pnpm --filter @wdio/nightwatch-devtools example:retry",
     "demo:selenium": "pnpm --filter @wdio/selenium-devtools example",
     "dev": "pnpm --parallel dev",
     "preview": "pnpm --parallel preview",

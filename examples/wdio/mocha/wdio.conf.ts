@@ -39,10 +39,13 @@ export const config: Options.Testrunner = {
     [
       'devtools',
       {
-        mode: 'live' as const,
-        traceGranularity: 'spec' as const
-        // tracePolicy: 'retain-on-failure' as const
-        // screencast: { enabled: true, pollIntervalMs: 200 }
+        // ── Config ladder — change ONLY this block per rung ──────────────
+        // 1 live:     mode: 'live'
+        // 2 trace:    mode: 'trace'
+        // 3 per-test: mode: 'trace', traceGranularity: 'test'
+        // 4 fail:     mode: 'trace', traceGranularity: 'test', tracePolicy: 'retain-on-failure'
+        // 5 retry:    use `pnpm demo:wdio:retry` (adds retries:1 + on-first-retry)
+        mode: 'live' as const
       }
     ]
   ],
