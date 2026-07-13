@@ -67,11 +67,25 @@ describe('formatActionTitle for asserts', () => {
     ).toBe('assert.strictEqual("a", "b")')
   })
 
-  it('prefers normalized actual/expected params over positional args', () => {
+  it('labels from the call args, not the derived actual/expected', () => {
+    // textContains('#el', 'foo') passes the selector + expected as args; the
+    // real "actual" ('bar') lives in params for the result diff and must NOT
+    // leak into the concise label, which mirrors the call the user wrote.
     expect(
       formatActionTitle(
         action,
         ['#el', 'foo'],
+        { actual: 'bar', expected: 'foo' },
+        'verify.textContains'
+      )
+    ).toBe('verify.textContains("#el", "foo")')
+  })
+
+  it('falls back to actual/expected params only when no args survive', () => {
+    expect(
+      formatActionTitle(
+        action,
+        [],
         { actual: 'bar', expected: 'foo' },
         'verify.textContains'
       )
@@ -169,7 +183,8 @@ describe('buildActionEvents with assert commands', () => {
       expected: 'foo',
       message: 'nope'
     })
-    expect(before.title).toBe('verify.textContains("bar", "foo")')
+    // Label mirrors the call args; actual/expected stay in params for the diff.
+    expect(before.title).toBe('verify.textContains("#el", "foo")')
     // No Error instance on the entry — the failure comes from the collapsed result.
     expect(afterOf(events, before.callId)?.error).toEqual({ message: 'nope' })
   })

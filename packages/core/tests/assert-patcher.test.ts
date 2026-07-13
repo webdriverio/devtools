@@ -23,17 +23,24 @@ const USER_FRAME = {
 }
 const INTERNAL_FRAME = { filePath: undefined, callSource: 'unknown:0' }
 
-// Snapshot real methods once so each test starts from a fresh assert.
+// Snapshot real methods once so each test starts from a fresh assert. Both the
+// default namespace and `assert.strict` are patched, so restore both.
 const ASSERT_MUT = assert as unknown as Record<string | symbol, unknown>
+const STRICT_MUT = (
+  assert as unknown as { strict: Record<string | symbol, unknown> }
+).strict
 const originals: Record<string, unknown> = {}
+const strictOriginals: Record<string, unknown> = {}
 for (const m of TRACKED_ASSERT_METHODS) {
   originals[m] = ASSERT_MUT[m]
+  strictOriginals[m] = STRICT_MUT[m]
 }
 
 beforeEach(() => {
   delete ASSERT_MUT[ASSERT_PATCHED_SYMBOL]
   for (const m of TRACKED_ASSERT_METHODS) {
     ASSERT_MUT[m] = originals[m]
+    STRICT_MUT[m] = strictOriginals[m]
   }
   // Default: every assert looks like it came from user code so captures fire.
   vi.mocked(getCallSourceFromStack).mockReturnValue(USER_FRAME)
@@ -82,6 +89,19 @@ describe('patchNodeAssert', () => {
     await expect(assert.rejects(async () => 1)).rejects.toThrow()
     const results = captured.map((c) => c.result)
     expect(results).toEqual(['passed', undefined]) // first resolved, second rejected
+  })
+
+  // `import { strict as assert }` (and `assert.strict.*`) reference a separate
+  // object; without patching it, strict-mode assertions were never captured.
+  it('captures assertions on the strict namespace too', () => {
+    const captured: CapturedAssert[] = []
+    patchNodeAssert((c) => captured.push(c))
+    assert.strict.equal(1, 1)
+    expect(() => assert.strict.equal(1, 2)).toThrow()
+    expect(captured.map((c) => [c.command, c.result])).toEqual([
+      ['assert.equal', 'passed'],
+      ['assert.equal', undefined]
+    ])
   })
 
   // Only assertions that originate in user test code should reach the trace.
