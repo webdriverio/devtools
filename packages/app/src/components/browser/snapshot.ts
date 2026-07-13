@@ -249,7 +249,7 @@ export class DevtoolsBrowser extends Element {
   }
 
   async #renderCommandScreenshot(command?: CommandLog) {
-    this.#screenshotData = command?.screenshot ?? null
+    this.#screenshotData = this.#screenshotForCommand(command)
     // Follow the selected command's page in the address bar — commands carry no
     // URL, so resolve it from the navigation active at the command's time.
     if (command) {
@@ -464,6 +464,26 @@ export class DevtoolsBrowser extends Element {
     }
 
     this.requestUpdate()
+  }
+
+  /** Screenshot for the selected command. Assertions (and other snapshot-less
+   *  commands) carry none, so fall back to the nearest PRECEDING command's frame
+   *  — the page state the assertion observed — instead of a blank preview. */
+  #screenshotForCommand(command?: CommandLog): string | null {
+    if (!command) {
+      return null
+    }
+    if (command.screenshot) {
+      return command.screenshot
+    }
+    const cmds = this.commands ?? []
+    const idx = cmds.indexOf(command)
+    for (let i = (idx === -1 ? cmds.length : idx) - 1; i >= 0; i--) {
+      if (cmds[i].screenshot) {
+        return cmds[i].screenshot!
+      }
+    }
+    return null
   }
 
   /** Latest screenshot from any command — auto-updates the preview as tests run. */

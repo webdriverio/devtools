@@ -10,8 +10,34 @@ import type {
   PreservedAttempt,
   PreservedStep
 } from '@wdio/devtools-shared'
-import { safeJson } from './compareUtils.js'
+import { cleanErrorMessage, safeJson } from './compareUtils.js'
 import { computeDetailBlockData } from './stepResolution.js'
+
+/** Assertion commands carry `[actual, expected]` in args (mirrors the Errors
+ *  tab). Surfacing those instead of the raw node:assert message keeps the
+ *  detail free of the "+ actual - expected" diff noise + ANSI. */
+const ASSERTION_CMD_RE = /^(?:assert|expect|verify)\./
+
+function assertionArgs(
+  cmd: CommandLog
+): { actual: unknown; expected: unknown } | undefined {
+  if (!ASSERTION_CMD_RE.test(cmd.command)) {
+    return undefined
+  }
+  // Prefer a collapsed { actual, expected } result (Nightwatch native asserts)
+  // over positional args, which mislabel a single expected-only arg as actual.
+  const result = cmd.result
+  if (result && typeof result === 'object') {
+    const r = result as { actual?: unknown; expected?: unknown }
+    if ('actual' in r || 'expected' in r) {
+      return { actual: r.actual, expected: r.expected }
+    }
+  }
+  if ((cmd.args?.length ?? 0) < 2) {
+    return undefined
+  }
+  return { actual: cmd.args![0], expected: cmd.args![1] }
+}
 
 /** Hooks the detail-block renderers need to reach component state. */
 export interface DetailBlockCtx {
@@ -102,22 +128,32 @@ export function renderDetailBlock(
     ctx.findStepFor(cmd, side),
     allCmdsThisSide
   )
+  const assertVals = assertionArgs(cmd)
   return html`
     <div class="detail-block">
       <h4>${label} · ${cmd.command}</h4>
       ${renderDetailStepBanner(data.step, data.stepText)}
       <pre>args: ${data.argsStr}</pre>
-      ${cmd.error
-        ? html`<pre style="color:var(--vscode-charts-red,#f48771);">
-error: ${cmd.error.message || String(cmd.error)}</pre
-          >`
-        : html`<pre>result: ${data.resultStr}</pre>`}
-      ${renderExpectedActualAssertion(
-        data.expected,
-        data.actual,
-        data.assertionMessage,
-        data.fallbackExpected
-      )}
+      ${assertVals
+        ? renderExpectedActualAssertion(
+            assertVals.expected,
+            assertVals.actual,
+            undefined,
+            undefined
+          )
+        : html`
+            ${cmd.error
+              ? html`<pre style="color:var(--vscode-charts-red,#f48771);">
+error: ${cleanErrorMessage(cmd.error.message || String(cmd.error))}</pre
+                >`
+              : html`<pre>result: ${data.resultStr}</pre>`}
+            ${renderExpectedActualAssertion(
+              data.expected,
+              data.actual,
+              data.assertionMessage,
+              data.fallbackExpected
+            )}
+          `}
       ${cmd.screenshot
         ? html`<img
             src="${cmd.screenshot.startsWith('data:')

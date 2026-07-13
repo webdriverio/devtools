@@ -15,10 +15,19 @@ import '~icons/mdi/target.js'
 import '~icons/mdi/keyboard-outline.js'
 import '~icons/mdi/cursor-default-click-outline.js'
 import '~icons/mdi/check-circle-outline.js'
+import '~icons/mdi/close-circle-outline.js'
 import '~icons/mdi/text.js'
 import '~icons/mdi/code-tags.js'
 
 const SOURCE_COMPONENT = 'wdio-devtools-command-item'
+
+function capitalizeAssertLabel(label: string): string {
+  return label.replace(
+    /^(assert|expect|verify)\./,
+    (_m, prefix: string) =>
+      prefix.charAt(0).toUpperCase() + prefix.slice(1) + '.'
+  )
+}
 
 const CATEGORY_COLOR: Record<ActionCategory, string> = {
   navigation: 'text-chartsBlue',
@@ -48,8 +57,18 @@ export class CommandItem extends ActionItem {
   }
 
   #renderIcon(command: string): TemplateResult {
-    const cls = `${ICON_CLASS} ${CATEGORY_COLOR[commandCategory(command)]}`
-    switch (commandIcon(command)) {
+    // Failed commands render red (matching the label); a failed assertion also
+    // swaps its green ✓-circle for a red ✗-circle so it never reads as passed.
+    const cls = `${ICON_CLASS} ${
+      this.failed ? 'text-chartsRed' : CATEGORY_COLOR[commandCategory(command)]
+    }`
+    const icon = commandIcon(command)
+    if (this.failed && icon === 'assert') {
+      return html`<icon-mdi-close-circle-outline
+        class="${cls}"
+      ></icon-mdi-close-circle-outline>`
+    }
+    switch (icon) {
       case 'navigate':
         return html`<icon-mdi-arrow-top-right
           class="${cls}"
@@ -93,7 +112,7 @@ export class CommandItem extends ActionItem {
           class="text-[12.5px] flex-wrap text-left break-all ${this.failed
             ? 'text-chartsRed'
             : ''}"
-          >${entry.title ?? entry.command}</code
+          >${capitalizeAssertLabel(entry.title ?? entry.command)}</code
         >
         ${this.renderTime()}
       </button>

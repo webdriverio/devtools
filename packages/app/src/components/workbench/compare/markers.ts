@@ -75,6 +75,14 @@ function renderStatusMarker(
       >✗ in failed step</span
     >`
   }
+  // A command that itself errored is a failure even when its step state didn't
+  // resolve — e.g. the rerun/latest side, whose live step state isn't tracked
+  // the way the baseline's PreservedStep is. Without this it shows a green ✓.
+  if (cmd.error?.message) {
+    return html`<span class="marker error" title="Failed: ${cmd.error.message}"
+      >✗ failed</span
+    >`
+  }
   if (step?.state === 'passed') {
     return html`<span
       class="marker ok"
