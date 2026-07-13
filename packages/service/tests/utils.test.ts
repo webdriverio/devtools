@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { fileURLToPath } from 'node:url'
 import {
   getBrowserObject,
   isUserSpecFile,
@@ -81,6 +82,21 @@ describe('service utils', () => {
         isUserSpecFile('C:\\proj\\node_modules\\some-lib\\dist\\index.js')
       ).toBe(false)
       expect(isUserSpecFile('C:\\proj\\test\\login.spec.ts')).toBe(true)
+    })
+
+    it('decodes file:// URLs (incl. percent-encoding) before matching', () => {
+      expect(isUserSpecFile('file:///proj/test/login%20spec.ts')).toBe(true)
+      expect(isUserSpecFile('file:///proj/node_modules/lib/index.js')).toBe(
+        false
+      )
+    })
+
+    it("excludes the service's own bundle dir, plain and as a file:// frame", () => {
+      // SELF_DIR is the dir this module resolves from; at test time that's
+      // packages/service/src. A frame from there is instrumentation, not a spec.
+      const selfDir = fileURLToPath(new URL('../src/', import.meta.url))
+      expect(isUserSpecFile(`${selfDir}index.js`)).toBe(false)
+      expect(isUserSpecFile(`file://${selfDir}session.js`)).toBe(false)
     })
   })
 })
