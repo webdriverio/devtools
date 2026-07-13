@@ -499,8 +499,8 @@ importers:
         specifier: workspace:^
         version: link:../shared
       chromedriver:
-        specifier: ^148.0.4
-        version: 148.0.4
+        specifier: ^150.0.0
+        version: 150.0.1
       jest:
         specifier: ^30.4.2
         version: 30.4.2(@types/node@25.9.3)(ts-node@10.9.2(@types/node@25.9.3)(typescript@6.0.3))
@@ -3331,11 +3331,6 @@ packages:
   chrome-launcher@1.2.1:
     resolution: {integrity: sha512-qmFR5PLMzHyuNJHwOloHPAHhbaNglkfeV/xDtt5b7xiFFyU1I+AZZX0PYseMuhenJSSirgxELYIbswcoc+5H4A==}
     engines: {node: '>=12.13.0'}
-    hasBin: true
-
-  chromedriver@148.0.4:
-    resolution: {integrity: sha512-3UyptFDG4YF1Pyv3fzn95s1CN4K3zCpHSmE6g+6J4f2u9KxxOYzrwN2GApVyM2z02hlbSqzo9Ajn2hMi7LnvCw==}
-    engines: {node: '>=22'}
     hasBin: true
 
   chromedriver@150.0.1:
@@ -10646,19 +10641,6 @@ snapshots:
       is-wsl: 2.2.0
       lighthouse-logger: 2.0.2
     transitivePeerDependencies:
-      - supports-color
-
-  chromedriver@148.0.4:
-    dependencies:
-      '@testim/chrome-version': 1.1.4
-      adm-zip: 0.5.17
-      axios: 1.16.1
-      compare-versions: 6.1.1
-      proxy-agent: 8.0.1
-      proxy-from-env: 2.1.0
-      tcp-port-used: 1.0.2
-    transitivePeerDependencies:
-      - debug
       - supports-color
 
   chromedriver@150.0.1:

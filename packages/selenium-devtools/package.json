@@ -65,7 +65,7 @@
     "@types/ws": "^8.18.1",
     "@wdio/devtools-core": "workspace:^",
     "@wdio/devtools-shared": "workspace:^",
-    "chromedriver": "^148.0.4",
+    "chromedriver": "^150.0.0",
     "jest": "^30.4.2",
     "mocha": "^11.7.6",
     "selenium-webdriver": "^4.44.0",
