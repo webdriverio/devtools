@@ -8,6 +8,7 @@ import {
   buildTestSliceFolder,
   buildTestSliceSessionId,
   filterTestMetadataBySpec,
+  findFlushableRange,
   filterTestMetadataByUid,
   recordSliceBoundary,
   recordSpecBoundary,
@@ -333,5 +334,36 @@ describe('recordSliceBoundary / recordSpecBoundary (spec granularity)', () => {
     recordSpecBoundary(ctx, '/a.js', 'spec')
     expect(ctx.specRanges).toHaveLength(1)
     expect(ctx.specRanges[0]!.key).toBe('/a.js')
+  })
+})
+
+describe('findFlushableRange', () => {
+  const mk = (key: string, testUid?: string): SpecRange => ({
+    specFile: 'f',
+    key,
+    testUid,
+    commandStartIdx: 0,
+    consoleStartIdx: 0,
+    networkStartIdx: 0,
+    mutationStartIdx: 0,
+    traceLogStartIdx: 0,
+    snapshotCount: 0
+  })
+
+  it('reverse-scans for the given testUid (latest retry attempt wins)', () => {
+    const ranges = [mk('a', 'a'), mk('b', 'b'), mk('b-retry1', 'b')]
+    expect(findFlushableRange(ranges, 'b')?.key).toBe('b-retry1')
+    expect(findFlushableRange(ranges, 'a')?.key).toBe('a')
+  })
+
+  it('returns undefined when no range matches the testUid', () => {
+    expect(findFlushableRange([mk('spec.ts', undefined)], 'x')).toBeUndefined()
+    expect(findFlushableRange([], 'x')).toBeUndefined()
+  })
+
+  it('falls back to the last recorded range when no testUid is given', () => {
+    const ranges = [mk('a', 'a'), mk('b', 'b')]
+    expect(findFlushableRange(ranges)?.key).toBe('b')
+    expect(findFlushableRange([])).toBeUndefined()
   })
 })

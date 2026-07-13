@@ -12,6 +12,7 @@
  */
 
 import {
+  findFlushableRange,
   recordSliceBoundary,
   recordSpecBoundary,
   type SpecBoundaryContext,
@@ -93,7 +94,7 @@ export function flushTestSlice(ctx: TestSliceCtx): void {
   if (!sliceActive(ctx)) {
     return
   }
-  const range = ctx.specRanges[ctx.specRanges.length - 1]
+  const range = findFlushableRange(ctx.specRanges)
   if (!range) {
     return
   }

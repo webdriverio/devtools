@@ -14,6 +14,7 @@ import {
   errorMessage,
   finalizeScreencast,
   finalizeTraceExport,
+  findFlushableRange,
   flushRangeLogged,
   recordSliceBoundary as coreRecordSliceBoundary,
   recordSpecBoundary as coreRecordSpecBoundary,
@@ -425,7 +426,7 @@ export function flushCurrentTestTrace(ctx: SessionLifecycleCtx): void {
     return
   }
   const sessionId = ctx.sessionCapturer.metadata?.sessionId
-  const currentRange = ctx.specRanges[ctx.specRanges.length - 1]
+  const currentRange = findFlushableRange(ctx.specRanges)
   if (!sessionId || currentRange?.testUid === undefined) {
     return
   }
