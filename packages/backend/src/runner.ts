@@ -40,6 +40,14 @@ function stripNameTestNameSlot(template: string): string {
   return template.slice(0, leftEdge) + template.slice(idx + NAME_SLOT.length)
 }
 
+// Grep-style rerun filters (mocha --grep, jest/vitest -t, cucumber --name) treat
+// the value as a REGEX, so a test name containing (), [], ., etc. matches
+// nothing unless escaped. The slot is double-quoted in the template, so the
+// added backslashes survive shell parsing and reach the runner as literals.
+function escapeRerunName(name: string): string {
+  return name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
 class TestRunner {
   #child?: ChildProcess
   #lastPayload?: RunnerRequestBody
@@ -203,7 +211,7 @@ class TestRunner {
       return `${stripped} ${shellQuote([featureSpec])}`
     }
     const name = payload.label || payload.fullTitle || ''
-    return template.replace(/\{\{testName\}\}/g, name)
+    return template.replace(/\{\{testName\}\}/g, escapeRerunName(name))
   }
 
   #parseGenericCommand(command: string): { file: string; args: string[] } {
