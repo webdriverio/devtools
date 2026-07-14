@@ -57,13 +57,27 @@ describe('TestAttemptTracker', () => {
       ])
     })
 
-    it('recordOutcome stamps only the latest attempt slot', () => {
+    it('recordOutcome stamps the latest slot', () => {
       const t = new TestAttemptTracker()
       t.recordStart('a')
       t.recordOutcome('a', 'passed')
+      expect(t.forTest('a')).toEqual([
+        { uid: 'a', attempt: 0, state: 'passed' }
+      ])
+    })
+
+    it('a retry stamps the prior attempt failed (swallowed-failure runners)', () => {
+      // Mocha via a --require plugin reports the retried attempt as passed; the
+      // retry starting is the reliable failure signal, so attempt 0 is corrected.
+      const t = new TestAttemptTracker()
       t.recordStart('a')
-      t.recordOutcome('a', 'failed')
-      expect(t.forTest('a').map((o) => o.state)).toEqual(['passed', 'failed'])
+      t.recordOutcome('a', 'passed') // outcome hook couldn't see the failure
+      t.recordStart('a') // retry ⟹ attempt 0 must have failed
+      t.recordOutcome('a', 'passed') // attempt 1 genuinely passed
+      expect(t.forTest('a')).toEqual([
+        { uid: 'a', attempt: 0, state: 'failed' },
+        { uid: 'a', attempt: 1, state: 'passed' }
+      ])
     })
 
     it('recordOutcome can override the slot attempt (authoritative retry #)', () => {

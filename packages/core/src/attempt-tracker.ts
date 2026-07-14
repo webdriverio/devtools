@@ -27,10 +27,15 @@ export class TestAttemptTracker implements RetryOutcomeView {
    *  `specFile` (optional) enables spec-scoped retention lookups. */
   recordStart(uid: string, specFile?: string): number {
     const entry = this.#ledger.get(uid)
-    const attempt = entry ? entry.attempts.length : 0
-    if (attempt > 0) {
+    if (entry && entry.attempts.length > 0) {
       this.#sawRetry = true
+      // A retry only follows a failure. Some runners (e.g. Mocha through a
+      // --require plugin) can't observe the failed attempt's state from their
+      // outcome hook and report it as passed — the retry starting IS the
+      // reliable failure signal, so stamp the prior attempt failed here.
+      entry.attempts[entry.attempts.length - 1].state = 'failed'
     }
+    const attempt = entry ? entry.attempts.length : 0
     const slot: TestOutcome = { uid, attempt }
     if (entry) {
       entry.attempts.push(slot)
