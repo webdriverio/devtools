@@ -12,13 +12,8 @@ import {
   type SpecRange,
   type TraceExportContext
 } from '@wdio/devtools-core'
-import {
-  captureExpectFailure,
-  expectAssertionToCommandLog,
-  isMatcherReadCommand,
-  wireAssertCapture,
-  type ExpectAssertion
-} from './assert-capture.js'
+import { wireAssertCapture, type ExpectAssertion } from './assert-capture.js'
+import { AssertionTracker } from './assertion-tracker.js'
 import {
   cucumberScenarioUid,
   resolveTestAttempt,
@@ -30,8 +25,7 @@ import { resolveCallSourceFromFrame } from './call-source.js'
 import { flushPrevSlice, flushTestSlice } from './trace-slices.js'
 import {
   captureActionResult,
-  captureActionSnapshot,
-  pushActionSnapshotAt
+  captureActionSnapshot
 } from './action-snapshot.js'
 import {
   dedupeSnapshotsByTimestamp,
@@ -80,9 +74,17 @@ export default class DevToolsHookService implements Services.ServiceInstance {
   #screencastOptions?: ScreencastOptions
   #options: ServiceOptions
   #actionSnapshots: ActionSnapshot[] = []
+  #assertionTracker: AssertionTracker
 
   constructor(serviceOptions: ServiceOptions = {}) {
     this.#options = serviceOptions
+    this.#assertionTracker = new AssertionTracker({
+      getCapturer: () => this.#sessionCapturer,
+      getBrowser: () => this.#browser,
+      getTestUid: () => this.#currentTestUid,
+      options: this.#options,
+      actionSnapshots: this.#actionSnapshots
+    })
     const policyWarning = tracePolicyModeWarning(
       serviceOptions.tracePolicy,
       serviceOptions.mode
@@ -106,20 +108,6 @@ export default class DevToolsHookService implements Services.ServiceInstance {
 
   /** Current test UID, set in beforeTest(), used by afterCommand() to tag commands. */
   #currentTestUid?: string
-
-  /** expect-webdriverio matcher nesting depth. Aliases fire before/afterAssertion
-   *  twice (toBeChecked→toBeSelected), so only the outermost pair owns the row. */
-  #assertionDepth = 0
-
-  /** Matcher armed at beforeAssertion, cleared at its afterAssertion. It survives
-   *  to test end only when the matcher hard-threw (element never resolved, so
-   *  waitUntil rethrew and afterAssertion never fired) — then it's synthesized as
-   *  a failing expect.<matcher> row instead of leaving a raw read. */
-  #pendingAssertion?: {
-    matcherName: string
-    expectedValue?: unknown
-    testUid?: string
-  }
 
   /** Map of testUid → metadata for trace group events and per-spec partitioning. */
   #testMetadata: TestMetadataMap = new Map()
@@ -405,65 +393,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     _scenario?: unknown,
     result?: { error?: unknown }
   ) {
-    this.#handleAssertionOutcome(result?.error)
-  }
-
-  /** Route a test/step failure to assertion capture. A matcher that hard-threw
-   *  (element never resolved) left an armed #pendingAssertion because
-   *  afterAssertion never fired — synthesize its failing expect row. Any other
-   *  failure just marks the last action with the error. */
-  #handleAssertionOutcome(error: unknown): void {
-    if (this.#options.captureAssertions === false) {
-      return
-    }
-    if (this.#pendingAssertion) {
-      this.#finalizePendingAssertion(error)
-      return
-    }
-    this.#captureExpectFailure(error)
-  }
-
-  /** Synthesize the failing expect.<matcher> row for a hard-thrown matcher: fold
-   *  it into the throwing read (relabel `getText`→`expect.toHaveText`, keeping
-   *  the error) so the assertion renders consistently whether or not the element
-   *  resolved; fall back to a fresh row when there is no read to fold. */
-  #finalizePendingAssertion(error: unknown): void {
-    const pending = this.#pendingAssertion
-    this.#pendingAssertion = undefined
-    this.#assertionDepth = 0
-    if (!pending) {
-      return
-    }
-    const message = errorMessage(error) || `${pending.matcherName} failed`
-    const entry = expectAssertionToCommandLog(
-      {
-        matcherName: pending.matcherName,
-        expectedValue: pending.expectedValue,
-        result: { pass: false, message: () => message }
-      },
-      pending.testUid
-    )
-    if (
-      this.#sessionCapturer.coalesceAssertionIntoLastRead(
-        entry,
-        isMatcherReadCommand,
-        true
-      )
-    ) {
-      return
-    }
-    this.#sessionCapturer.captureAssertCommand(entry)
-  }
-
-  /** Mark the failing action from a matcher error (afterStep for Cucumber,
-   *  afterTest for Mocha route here). */
-  #captureExpectFailure(error: unknown): void {
-    captureExpectFailure(
-      this.#sessionCapturer,
-      this.#currentTestUid,
-      error,
-      this.#options.captureAssertions !== false
-    )
+    this.#assertionTracker.handleOutcome(result?.error)
   }
 
   /** Stamp final state + the resolved 0-based attempt onto the test's metadata
@@ -498,7 +428,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     _context?: unknown,
     result?: TestOutcomeResult
   ) {
-    this.#handleAssertionOutcome(result?.error)
+    this.#assertionTracker.handleOutcome(result?.error)
     const testTitle = test?.fullTitle || test?.title
     const uid = testTitle ? testMetadataUid(test?.file, testTitle) : undefined
     if (uid) {
@@ -511,80 +441,16 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     }
   }
 
-  /**
-   * expect-webdriverio fires this after each matcher evaluates, with the matcher
-   * name + pass/fail + expected value. The matcher's value-read (getText /
-   * isExisting / …) was captured as a normal command; fold this assertion into
-   * that read so one `expect.<matcher>` row remains — inheriting the read's real
-   * callSource, screenshot, and timeline position. Deterministic and anchored to
-   * this reliable hook: no `#assertionDepth`, no stack-frame detection.
-   */
-  /**
-   * expect-webdriverio fires this at the START of every matcher, before it polls
-   * — so it fires even for a matcher that later hard-throws (element never
-   * resolved), unlike afterAssertion. Arm the pending matcher here so test-end
-   * can synthesize its expect row if afterAssertion never comes. Depth-counted:
-   * aliases (toBeChecked→toBeSelected) fire this twice, so only the outermost
-   * arms the row.
-   */
+  /** expect-webdriverio matcher hooks — delegated to the assertion tracker. */
   beforeAssertion(params: {
     matcherName: string
     expectedValue?: unknown
   }): void {
-    if (this.#options.captureAssertions === false) {
-      return
-    }
-    if (this.#assertionDepth === 0) {
-      this.#pendingAssertion = {
-        matcherName: params.matcherName,
-        expectedValue: params.expectedValue,
-        testUid: this.#currentTestUid
-      }
-    }
-    this.#assertionDepth++
+    this.#assertionTracker.beforeAssertion(params)
   }
 
-  async afterAssertion(params: ExpectAssertion): Promise<void> {
-    if (this.#options.captureAssertions === false) {
-      return
-    }
-    this.#assertionDepth = Math.max(0, this.#assertionDepth - 1)
-    // Inner matcher of a nested pair (toBeChecked→toBeSelected): the outer
-    // afterAssertion owns the row.
-    if (this.#assertionDepth > 0) {
-      return
-    }
-    // Reached afterAssertion → the matcher resolved (pass or value-fail), so no
-    // hard-throw synthesis is needed at test end.
-    this.#pendingAssertion = undefined
-    const entry = expectAssertionToCommandLog(params, this.#currentTestUid)
-    if (
-      this.#sessionCapturer.coalesceAssertionIntoLastRead(
-        entry,
-        isMatcherReadCommand
-      )
-    ) {
-      return
-    }
-    // No matcher read to fold into (a value matcher like toBe(x), or the read
-    // hard-threw): emit a fresh row with its own screenshot + trace snapshot.
-    if (this.#browser && !isNativeMobile(this.#browser)) {
-      try {
-        entry.screenshot = await this.#browser.takeScreenshot()
-      } catch (err) {
-        // best-effort: a missing screenshot must not fail the assertion hook
-        log.debug(`assertion screenshot skipped: ${errorMessage(err)}`)
-      }
-    }
-    if (this.#options.mode === 'trace' && this.#browser) {
-      await pushActionSnapshotAt(
-        this.#browser,
-        entry.command,
-        entry.timestamp,
-        this.#actionSnapshots
-      )
-    }
-    this.#sessionCapturer.captureAssertCommand(entry)
+  afterAssertion(params: ExpectAssertion): Promise<void> {
+    return this.#assertionTracker.afterAssertion(params)
   }
 
   async #finalizePerScenario() {
@@ -615,8 +481,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
 
   private resetStack() {
     this.#commandStack = []
-    this.#assertionDepth = 0
-    this.#pendingAssertion = undefined
+    this.#assertionTracker.reset()
     this.#sessionCapturer.resetLastSelector()
     this.#sessionCapturer.resetRetryTracker()
   }
