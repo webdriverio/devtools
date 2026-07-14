@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import type { CommandLog, NightwatchBrowser } from '../src/types.js'
+import type {
+  CommandLog,
+  NightwatchBrowser,
+  NightwatchCurrentTest
+} from '../src/types.js'
 
 // browserProxy resolves the caller's source via this helper; stub it so each
 // test can decide whether the command looks user-issued or framework-internal.
@@ -10,6 +14,7 @@ const { getCallSourceFromStack } = vi.hoisted(() => ({
 vi.mock('../src/helpers/utils.js', () => ({ getCallSourceFromStack }))
 
 import { BrowserProxy } from '../src/helpers/browserProxy.js'
+import { captureNativeAssertions } from '../src/helpers/nativeAssertions.js'
 import type { SessionCapturer } from '../src/session.js'
 import type { TestManager } from '../src/helpers/testManager.js'
 
@@ -39,16 +44,24 @@ function makeCapturer() {
       return true
     }
   )
+  const captureAssertCommand = vi.fn(
+    (entry: CommandLog & { _id?: number; id?: number }) => {
+      entry._id = counter++
+      entry.id = entry._id
+      commandsLog.push(entry)
+    }
+  )
   const capturer = {
     commandsLog,
     captureCommand,
+    captureAssertCommand,
     replaceCommand: vi.fn(),
     sendCommand: vi.fn(),
     sendReplaceCommand: vi.fn(),
     takeScreenshotViaHttp: vi.fn(async () => null),
     captureTrace: vi.fn(async () => {})
   } as unknown as SessionCapturer
-  return { capturer, commandsLog, captureCommand }
+  return { capturer, commandsLog, captureCommand, captureAssertCommand }
 }
 
 function makeTestManager() {
@@ -164,5 +177,88 @@ describe('BrowserProxy captureAssertions gating', () => {
     // Replaced with a recording Proxy → no longer the original object.
     expect(browser.assert).not.toBe(originalAssert)
     expect(browser.verify).not.toBe(originalVerify)
+  })
+})
+
+describe('BrowserProxy negated native assertions (assert.not.* / verify.not.*)', () => {
+  beforeEach(() => {
+    getCallSourceFromStack.mockReset()
+  })
+
+  /** Browser whose assert/verify mirror Nightwatch's structure: a positive
+   *  namespace plus a nested `not` namespace object (Nightwatch exposes the
+   *  negation as its own Proxy). Each leaf method records so the test can assert
+   *  the wrapper still delegates to the real negated method. */
+  function makeNegatableAssertBrowser() {
+    const record: string[] = []
+    const ns = (label: string) => ({
+      titleContains: vi.fn(() => {
+        record.push(`${label}titleContains`)
+      })
+    })
+    const browser = {
+      assert: { ...ns(''), not: ns('not.') },
+      verify: { ...ns(''), not: ns('not.') }
+    } as unknown as NightwatchBrowser
+    return { browser, record }
+  }
+
+  it('buffers a negated assert with a negation-reflecting label and finalizes its outcome', async () => {
+    const { capturer, commandsLog } = makeCapturer()
+    getCallSourceFromStack.mockReturnValue({
+      filePath: '/tests/spec.js',
+      callSource: '/tests/spec.js:9'
+    })
+    const proxy = new BrowserProxy(capturer, makeTestManager(), () => ({
+      uid: 't1'
+    }))
+    const { browser, record } = makeNegatableAssertBrowser()
+    proxy.wrapBrowserCommands(browser)
+
+    // browser.assert.not.titleContains('Example') — a negated call from user code.
+    ;(
+      browser as unknown as {
+        assert: { not: { titleContains: (a: unknown) => unknown } }
+      }
+    ).assert.not.titleContains('Example')
+
+    // Delegated to the ORIGINAL negated method (Nightwatch semantics unchanged).
+    expect(record).toEqual(['not.titleContains'])
+
+    // Buffered exactly one recorded call, keyed by its full dotted path — so the
+    // negation is captured through the SAME mechanism as positive asserts.
+    const calls = proxy.drainNativeAssertCalls()
+    expect(calls).toHaveLength(1)
+    expect(calls[0].prefix).toBe('assert')
+    expect(calls[0].method).toBe('not.titleContains')
+    expect(calls[0].args).toEqual(['Example'])
+    expect(calls[0].callSource).toBe('/tests/spec.js:9')
+    expect(calls[0].entry?.command).toBe('assert.not.titleContains')
+    expect(calls[0].entry?.title).toBe("assert.not.titleContains('Example')")
+
+    // Reconciled at test-end through the same finalize path as positive asserts:
+    // a failing negated entry yields one row with the negated label + fail outcome.
+    const results = {
+      assertions: [
+        {
+          message: "Testing if the page title doesn't contain 'Example'",
+          fullMsg: "Testing if the page title doesn't contain 'Example'",
+          failure:
+            "Testing if the page title doesn't contain 'Example' — failed"
+        }
+      ],
+      commands: []
+    }
+    const currentTest = {
+      name: 't',
+      results
+    } as unknown as NightwatchCurrentTest
+    await captureNativeAssertions(capturer, browser, currentTest, 't1', calls)
+
+    const row = commandsLog[commandsLog.length - 1]
+    expect(row.command).toBe('assert.not.titleContains')
+    expect(row.title).toBe("assert.not.titleContains('Example')")
+    expect(row.result).toMatchObject({ passed: false })
+    expect(row.error).toBeDefined()
   })
 })
