@@ -1,5 +1,8 @@
 import { describe, it, expect, vi } from 'vitest'
-import { collectSuiteTestMetadata } from '@wdio/devtools-core'
+import {
+  collectSuiteTestMetadata,
+  shouldRetainTrace
+} from '@wdio/devtools-core'
 
 import { resetSignatureCounters } from '../src/helpers/utils.js'
 import { TestManager } from '../src/helpers/testManager.js'
@@ -89,6 +92,82 @@ describe('retry/attempt capture', () => {
       )
       expect(traceCtx.attemptInfoAvailable).toBe(true)
       expect(traceCtx.testMetadata.get(retry.uid)?.attempt).toBe(1)
+    } finally {
+      capturer.cleanup()
+    }
+  })
+})
+
+describe('retry outcome ledger feeds retry-aware retention', () => {
+  it('groups a fail-then-pass retry under one retry-stable uid', () => {
+    const { mgr } = makeManager()
+
+    const first = mgr.startMarkedTest('flaky')
+    mgr.endCurrent('failed')
+    const retry = mgr.startMarkedTest('flaky')
+    mgr.endCurrent('passed')
+
+    // Selenium gives each attempt its own suite-node uid…
+    expect(first.uid).not.toBe(retry.uid)
+
+    // …but the ledger records both attempts under ONE retry-stable uid.
+    const ledger = mgr.attemptOutcomes.all()
+    expect(ledger).toHaveLength(2)
+    expect(ledger[0]).toMatchObject({ attempt: 0, state: 'failed' })
+    expect(ledger[1]).toMatchObject({ attempt: 1, state: 'passed' })
+    expect(ledger[0].uid).toBe(ledger[1].uid)
+  })
+
+  it('exposes outcomes on the ctx so retain-on-failure drops a fail-then-pass but retain-on-first-failure keeps it', () => {
+    const { mgr, suiteManager } = makeManager()
+
+    mgr.startMarkedTest('flaky')
+    mgr.endCurrent('failed')
+    mgr.startMarkedTest('flaky')
+    mgr.endCurrent('passed')
+
+    const capturer = new SessionCapturer()
+    try {
+      const ctx = {
+        options: {
+          mode: 'trace',
+          traceGranularity: 'session',
+          traceFormat: 'zip'
+        },
+        testManager: mgr,
+        suiteManager,
+        actionSnapshots: [],
+        specRanges: [],
+        flushedSpecs: new Set<string>(),
+        traceFlushes: [],
+        snapshotCaptures: []
+      } as unknown as SessionLifecycleCtx
+
+      const traceCtx = buildTraceExportContext(
+        ctx,
+        capturer,
+        'sess-1',
+        '/spec.ts'
+      )
+      expect(traceCtx.outcomes).toBe(mgr.attemptOutcomes)
+
+      const outcomes = [...traceCtx.outcomes!.all()]
+      const retainOnFailure = shouldRetainTrace('retain-on-failure', {
+        outcomes,
+        attemptInfoAvailable: true
+      })
+      const retainOnFirstFailure = shouldRetainTrace(
+        'retain-on-first-failure',
+        {
+          outcomes,
+          attemptInfoAvailable: true
+        }
+      )
+
+      // Final attempt passed → retain-on-failure drops it (no over-retention).
+      expect(retainOnFailure.retain).toBe(false)
+      // Attempt 0 failed → retain-on-first-failure still keeps it.
+      expect(retainOnFirstFailure.retain).toBe(true)
     } finally {
       capturer.cleanup()
     }

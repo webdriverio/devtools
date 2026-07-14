@@ -315,6 +315,11 @@ export function buildTraceExportContext(
     // TestStats.retries carries the per-test attempt (Mocha authoritative,
     // other runners heuristic), so retry-aware policies can trust it.
     attemptInfoAvailable: true,
+    // Per-attempt outcome ledger, retry-stable-keyed so a test's attempts
+    // group as one test. Without it, session/spec retention reads the
+    // per-attempt suite-node metadata — which sees a fail-then-pass as two
+    // separate one-shot tests and over-retains it under retain-on-failure.
+    outcomes: ctx.testManager?.attemptOutcomes,
     ranges: ctx.specRanges,
     flushed: ctx.flushedSpecs,
     resolveOutputDir: (range) =>
