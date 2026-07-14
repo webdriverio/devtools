@@ -23,6 +23,7 @@ import {
   type SpecRange
 } from './spec-trace-helpers.js'
 import { shouldRetainTrace, type TestOutcome } from './trace-retention.js'
+import type { RetryOutcomeView } from './attempt-tracker.js'
 import { writeTraceZip, type TraceCapturer } from './trace-exporter.js'
 
 /** One artifact produced (or, when `retained` is false, decided-against) by a
@@ -45,6 +46,13 @@ export interface TraceExportContext {
   /** True when the adapter fed real per-test attempt numbers (B4); retry-aware
    *  policies degrade to retain-on-failure when this is false. */
   attemptInfoAvailable?: boolean
+  /** Per-attempt outcome ledger. When present, retention is evaluated against
+   *  real per-attempt outcomes (scoped per session/spec/test) instead of the
+   *  collapsed final-attempt state in `testMetadata` — this is what lets
+   *  retain-on-first-failure see a failed-then-passed first attempt and stops
+   *  retain-on-failure over-retaining it. Absent → falls back to `testMetadata`
+   *  (unchanged behavior). */
+  outcomes?: RetryOutcomeView
   granularity?: TraceGranularity
   format?: TraceFormat
   capturer: TraceCapturer
@@ -153,12 +161,20 @@ function toOutcomes(metadata: TestMetadataMap): TestOutcome[] {
  */
 function shouldRetain(
   ctx: TraceExportContext,
-  metadata: TestMetadataMap
+  metadata: TestMetadataMap,
+  ledgerOutcomes?: TestOutcome[]
 ): boolean {
   return shouldRetainTrace(ctx.policy, {
-    outcomes: toOutcomes(metadata),
+    outcomes: ledgerOutcomes ?? toOutcomes(metadata),
     attemptInfoAvailable: ctx.attemptInfoAvailable ?? false
   }).retain
+}
+
+/** Attempt number encoded in a test-slice key (`<uid>-retry<n>`); 0 when the
+ *  key is the base uid (the first attempt / no retry suffix). */
+function attemptFromKey(key: string): number {
+  const match = /-retry(\d+)$/.exec(key)
+  return match ? Number(match[1]) : 0
 }
 
 /**
@@ -182,13 +198,21 @@ export async function flushRangeTrace(
   const sliceMetadata = isTestSlice
     ? filterTestMetadataByUid(ctx.testMetadata, range.testUid!)
     : filterTestMetadataBySpec(ctx.testMetadata, range.specFile)
+  // Scope the per-attempt ledger to this slice: a test slice sees only its own
+  // attempt (so a passing retry's slice isn't retained on first-failure), a spec
+  // slice sees every attempt of its tests.
+  const sliceOutcomes = ctx.outcomes
+    ? isTestSlice
+      ? ctx.outcomes.forTest(range.testUid!, attemptFromKey(range.key))
+      : ctx.outcomes.forSpec(range.specFile)
+    : undefined
   const artifact: TraceArtifact = {
     kind: 'trace',
     path: '',
     scope: isTestSlice ? 'test' : 'spec',
     key: range.key,
     testUids: Array.from(sliceMetadata.keys()),
-    retained: shouldRetain(ctx, sliceMetadata)
+    retained: shouldRetain(ctx, sliceMetadata, sliceOutcomes)
   }
   if (!artifact.retained) {
     ctx.onArtifact?.(artifact)
@@ -255,7 +279,7 @@ async function writeSessionTrace(
     path: '',
     scope: 'session',
     testUids: Array.from(ctx.testMetadata.keys()),
-    retained: shouldRetain(ctx, ctx.testMetadata)
+    retained: shouldRetain(ctx, ctx.testMetadata, ctx.outcomes?.all())
   }
   if (!artifact.retained) {
     ctx.onArtifact?.(artifact)
