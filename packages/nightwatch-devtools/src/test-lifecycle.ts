@@ -40,7 +40,7 @@ export interface TestLifecycleCtx extends TestSliceCtx {
   incrementCount(state: TestStats['state']): void
   testIcon(state: TestStats['state']): string
   setCurrentTest(t: unknown): void
-  recordAttempt(uid: string): number
+  recordAttempt(uid: string, specFile?: string): number
 }
 
 interface SuiteMetadata {
@@ -126,7 +126,7 @@ export async function startNextTest(
   const test = ctx.testManager.findTestInSuite(currentSuite, currentTestName)
   if (test) {
     // Nightwatch has no per-test retry index; the tracker is the retry signal.
-    test.retries = ctx.recordAttempt(test.uid)
+    test.retries = ctx.recordAttempt(test.uid, specFile ?? undefined)
     if (specFile) {
       recordTestSliceBoundary(ctx, specFile, test.uid)
     }

@@ -21,9 +21,9 @@ export interface CucumberScenarioBuildInput {
   scenarioLine: number
   /** Parent feature-suite uid — scenarios nest under this. */
   parentFeatureSuiteUid: string
-  /** Records the scenario start under its (retry-stable) uid and returns the
-   *  0-based attempt number stamped on every step. Omitted → attempt 0. */
-  recordAttempt?: (scenarioUid: string) => number
+  /** Records the scenario start under its (retry-stable) uid + feature file and
+   *  returns the 0-based attempt number stamped on every step. Omitted → 0. */
+  recordAttempt?: (scenarioUid: string, specFile?: string) => number
 }
 
 /**
@@ -101,7 +101,7 @@ export function buildCucumberScenarioSuite(
     featureUri,
     `scenario:${scenarioName}:${scenarioLine}`
   )
-  const attempt = input.recordAttempt?.(scenarioUid) ?? 0
+  const attempt = input.recordAttempt?.(scenarioUid, featureUri) ?? 0
   const scenarioSuite: SuiteStats = {
     uid: scenarioUid,
     cid: DEFAULTS.CID,

@@ -61,7 +61,8 @@ export interface CucumberLifecycleCtx extends TestSliceCtx {
   setCurrentStep(s: unknown): void
   getCurrentStep(): unknown
   setCurrentTest(t: unknown): void
-  recordAttempt(uid: string): number
+  recordAttempt(uid: string, specFile?: string): number
+  recordOutcome(uid: string, state: TestStats['state']): void
 }
 
 type MutStep = {
@@ -182,7 +183,7 @@ export async function initCucumberScenario(
     stepKeywords,
     scenarioLine,
     parentFeatureSuiteUid: featureSuite.uid,
-    recordAttempt: (uid) => ctx.recordAttempt(uid)
+    recordAttempt: (uid, specFile) => ctx.recordAttempt(uid, specFile)
   })
   attachScenarioToFeature(ctx, featureSuite, scenarioSuite)
   // The scenario is the `test` unit; its steps are the leaf metadata entries.
@@ -211,6 +212,9 @@ export async function finalizeCucumberScenario(
       scenario.state = scenarioState
       scenario.end = now
       scenario._duration = duration
+      // Stamp this attempt's real outcome so spec/session retention doesn't
+      // collapse to the retry-stable suite's last-overwritten state.
+      ctx.recordOutcome(scenario.uid, scenarioState)
       closeOpenSteps(scenario, scenarioState, now)
 
       const featureUri: string = pickle?.uri ?? 'unknown.feature'
