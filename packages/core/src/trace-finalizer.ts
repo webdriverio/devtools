@@ -164,8 +164,11 @@ function shouldRetain(
   metadata: TestMetadataMap,
   ledgerOutcomes?: TestOutcome[]
 ): boolean {
+  // An empty scoped ledger view (adapter fed outcomes but not for this scope)
+  // falls back to metadata rather than fail-opening the evaluator into retaining
+  // everything — only a genuinely empty metadata slice fails open.
   return shouldRetainTrace(ctx.policy, {
-    outcomes: ledgerOutcomes ?? toOutcomes(metadata),
+    outcomes: ledgerOutcomes?.length ? ledgerOutcomes : toOutcomes(metadata),
     attemptInfoAvailable: ctx.attemptInfoAvailable ?? false
   }).retain
 }
