@@ -109,28 +109,52 @@ export class BrowserProxy {
       if (!original || typeof original !== 'object') {
         return
       }
-      b[prefix] = new Proxy(original as object, {
-        get: (target, name, receiver) => {
-          const orig = Reflect.get(target, name, receiver)
-          // `not` (negation Proxy) and non-method props pass through untouched.
-          if (typeof orig !== 'function' || typeof name !== 'string') {
-            return orig
-          }
-          return (...args: unknown[]) => {
-            const callInfo = getCallSourceFromStack()
-            if (callInfo.filePath !== undefined) {
-              this.emitPendingAssertion({
-                prefix,
-                method: name,
-                args,
-                callSource: callInfo.callSource,
-                timestamp: Date.now()
-              })
-            }
-            return (orig as (...a: unknown[]) => unknown)(...args)
-          }
+      b[prefix] = this.recordingNamespaceProxy(original, prefix, [])
+    })
+  }
+
+  /**
+   * Recording Proxy over one assert/verify namespace. A function property
+   * becomes a call-time recorder keyed by its full dotted path
+   * (`titleContains`, `not.titleContains`); a nested namespace object recurses
+   * through the SAME wrapper — Nightwatch exposes `assert.not` as its own Proxy,
+   * so negated asserts are recorded via the identical mechanism as positive
+   * ones instead of a parallel path. The recorder buffers a pending row, then
+   * delegates to the ORIGINAL method so Nightwatch's queue, chaining, and
+   * abort/negate semantics stay byte-for-byte unchanged. Non-method,
+   * non-namespace props pass through untouched.
+   */
+  private recordingNamespaceProxy(
+    target: object,
+    prefix: 'assert' | 'verify',
+    path: readonly string[]
+  ): object {
+    return new Proxy(target, {
+      get: (t, name, receiver) => {
+        const orig = Reflect.get(t, name, receiver)
+        if (typeof name !== 'string') {
+          return orig
         }
-      })
+        if (orig !== null && typeof orig === 'object') {
+          return this.recordingNamespaceProxy(orig, prefix, [...path, name])
+        }
+        if (typeof orig !== 'function') {
+          return orig
+        }
+        return (...args: unknown[]) => {
+          const callInfo = getCallSourceFromStack()
+          if (callInfo.filePath !== undefined) {
+            this.emitPendingAssertion({
+              prefix,
+              method: [...path, name].join('.'),
+              args,
+              callSource: callInfo.callSource,
+              timestamp: Date.now()
+            })
+          }
+          return (orig as (...a: unknown[]) => unknown)(...args)
+        }
+      }
     })
   }
 
