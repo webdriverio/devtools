@@ -11,6 +11,7 @@ import {
   resolveAdapterOutputDir,
   type RetryOutcomeView,
   type SpecRange,
+  type TraceArtifact,
   type TraceExportContext
 } from '@wdio/devtools-core'
 import type { SessionCapturer } from './session.js'
@@ -32,6 +33,8 @@ export interface TraceContextInput {
   outcomes?: RetryOutcomeView
   ranges: SpecRange[]
   flushed: Set<string>
+  artifacts: TraceArtifact[]
+  traceFlushes: Promise<unknown>[]
   configPath: string | undefined
   testFilePath: string | undefined
   log: (level: 'info' | 'warn', msg: string) => void
@@ -58,10 +61,13 @@ export function buildTraceContext(
         testFilePath: input.testFilePath,
         configPath: input.configPath
       }),
-    awaitPending: input.capturer.snapshotCaptures,
+    awaitPending: [...input.capturer.snapshotCaptures, ...input.traceFlushes],
     // Nightwatch feeds real per-test attempt numbers via TestAttemptTracker
     // (B4), so retry-aware policies use per-test attempts, not the fallback.
     attemptInfoAvailable: true,
+    emitManifest: true,
+    collectedArtifacts: input.artifacts,
+    onArtifact: (a) => input.artifacts.push(a),
     log: input.log
   }
 }

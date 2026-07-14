@@ -21,6 +21,7 @@ import {
   resolveAdapterOutputDir,
   type SpecBoundaryContext,
   type SpecRange,
+  type TraceArtifact,
   type TraceExportContext
 } from '@wdio/devtools-core'
 import { TIMING } from './constants.js'
@@ -85,6 +86,8 @@ export interface SessionLifecycleCtx {
   // In-flight per-test eager flushes (test granularity); awaited at finalize
   // so the last test's write completes before the process exits.
   readonly traceFlushes: Promise<unknown>[]
+  // Every trace/video artifact seen this run, for the end-of-run manifest.
+  readonly artifacts: TraceArtifact[]
 
   setFinalized(v: boolean): void
   ensureBackendStarted(): Promise<void>
@@ -327,7 +330,10 @@ export function buildTraceExportContext(
         testFilePath: range ? range.specFile : testFilePath
       }),
     awaitPending: [...ctx.snapshotCaptures, ...ctx.traceFlushes],
-    log: (level, msg) => log[level](msg)
+    log: (level, msg) => log[level](msg),
+    emitManifest: true,
+    collectedArtifacts: ctx.artifacts,
+    onArtifact: (a) => ctx.artifacts.push(a)
   }
 }
 

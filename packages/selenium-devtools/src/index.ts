@@ -24,7 +24,7 @@ import {
   recordTraceBoundary,
   flushCurrentTestTrace
 } from './session-lifecycle.js'
-import type { SpecRange } from '@wdio/devtools-core'
+import type { SpecRange, TraceArtifact } from '@wdio/devtools-core'
 import {
   startTest as tmStartTest,
   endTest as tmEndTest,
@@ -126,6 +126,10 @@ class SeleniumDevToolsPlugin {
 
   /** In-flight per-test eager flushes (test granularity), awaited at finalize. */
   #traceFlushes: Promise<unknown>[] = []
+
+  /** Every trace/video artifact seen this run (retained or not), for the
+   *  end-of-run artifacts manifest. Populated via the context's onArtifact. */
+  #artifacts: TraceArtifact[] = []
 
   constructor(options: DevToolsOptions = {}) {
     this.#options = {
@@ -438,6 +442,9 @@ class SeleniumDevToolsPlugin {
       },
       get traceFlushes() {
         return self.#traceFlushes
+      },
+      get artifacts() {
+        return self.#artifacts
       },
       setFinalized: (v) => {
         self.#finalized = v

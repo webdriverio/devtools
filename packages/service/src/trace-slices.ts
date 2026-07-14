@@ -6,6 +6,7 @@ import {
   findFlushableRange,
   flushRangeLogged,
   type SpecRange,
+  type TraceArtifact,
   type TraceExportContext
 } from '@wdio/devtools-core'
 
@@ -21,15 +22,16 @@ export function flushPrevSlice(
 
 /** Awaited flush of the just-ended test's slice (test granularity), so this
  *  attempt's just-stamped metadata is written before a retry's beforeTest
- *  overwrites the entry. No-op when the test recorded no range. */
+ *  overwrites the entry. Returns the produced artifact (for same-hook Allure
+ *  attach); undefined when the test recorded no range. */
 export async function flushTestSlice(
   ctx: TraceExportContext,
   ranges: readonly SpecRange[],
   testUid: string
-): Promise<void> {
+): Promise<TraceArtifact | undefined> {
   const range = findFlushableRange(ranges, testUid)
   if (!range) {
-    return
+    return undefined
   }
-  await flushRangeLogged(ctx, range)
+  return flushRangeLogged(ctx, range)
 }

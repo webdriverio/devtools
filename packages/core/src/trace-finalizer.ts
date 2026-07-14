@@ -16,6 +16,10 @@ import type {
 } from '@wdio/devtools-shared'
 import { errorMessage } from './error.js'
 import {
+  buildArtifactsManifest,
+  writeArtifactsManifest
+} from './artifacts-manifest.js'
+import {
   filterTestMetadataBySpec,
   filterTestMetadataByUid,
   writeSpecTrace,
@@ -72,6 +76,15 @@ export interface TraceExportContext {
   awaitPending?: Promise<unknown>[]
   log?: (level: 'info' | 'warn', msg: string) => void
   onArtifact?: (a: TraceArtifact) => void
+  /** When true, finalize writes a `devtools-artifacts-<sessionId>.json` manifest
+   *  enumerating every artifact (retained or not) plus per-test states, for
+   *  ecosystem reporters (Allure, CI collectors) to consume. */
+  emitManifest?: boolean
+  /** Every artifact seen via `onArtifact` across the run (including eager
+   *  mid-run test-slice flushes, which the end-of-run fan-out dedupes away).
+   *  Pass the same list the adapter accumulates so the manifest is complete;
+   *  finalize falls back to its own fan-out results when this is omitted. */
+  collectedArtifacts?: readonly TraceArtifact[]
 }
 
 const SPEC_WITHOUT_BOUNDARIES_WARNING =
@@ -336,10 +349,11 @@ async function flushAllRanges(
 }
 
 /**
- * Entry point for the after/end-of-run hook. No-op outside trace mode. Awaits
- * any pending snapshot captures, then fans out to per-spec, per-test, or
- * session writes. `spec`/`test` granularity with no recorded boundaries warns
- * and falls back to a single session-level trace.
+ * Entry point for the after/end-of-run hook. No-op outside trace mode. Settles
+ * in-flight captures and eager flushes, then fans out to per-spec, per-test, or
+ * session writes and finally the artifacts manifest. `spec`/`test` granularity
+ * with no recorded boundaries warns and falls back to a single session-level
+ * trace.
  */
 export async function finalizeTraceExport(
   ctx: TraceExportContext
@@ -347,7 +361,22 @@ export async function finalizeTraceExport(
   if (ctx.mode !== 'trace') {
     return []
   }
+  // Settle in-flight snapshot captures AND the adapters' tracked fire-and-forget
+  // eager flushes (Selenium/Nightwatch put both in awaitPending) before writing
+  // anything: every eager-flushed range is a synchronous dedupe-hit in the
+  // fan-out below, so this is the one place that awaits those eager-flush
+  // promises. Without it the last eager write can race teardown and its artifact
+  // can miss the manifest. A no-op for WDIO (awaits eager flushes inline).
   await awaitPendingCaptures(ctx)
+  const artifacts = await fanOutTraceWrites(ctx)
+  await maybeWriteManifest(ctx, artifacts)
+  return artifacts
+}
+
+/** Session vs per-slice fan-out (with the no-boundaries fallback). */
+async function fanOutTraceWrites(
+  ctx: TraceExportContext
+): Promise<TraceArtifact[]> {
   const sliced = ctx.granularity === 'spec' || ctx.granularity === 'test'
   if (sliced && ctx.ranges.length > 0) {
     if (ctx.ranges.length > SLICE_COUNT_WARN_THRESHOLD) {
@@ -362,4 +391,34 @@ export async function finalizeTraceExport(
   }
   const artifact = await safely(ctx, () => writeSessionTrace(ctx))
   return artifact ? [artifact] : []
+}
+
+/** Write the artifacts manifest when enabled, preferring the adapter's full
+ *  collected list (includes eager slices) over this pass's fan-out results.
+ *  Never throws — a manifest failure must not abort the run. */
+async function maybeWriteManifest(
+  ctx: TraceExportContext,
+  fanOutArtifacts: readonly TraceArtifact[]
+): Promise<void> {
+  if (!ctx.emitManifest) {
+    return
+  }
+  const artifacts = ctx.collectedArtifacts ?? fanOutArtifacts
+  try {
+    const path = await writeArtifactsManifest(
+      ctx.resolveOutputDir(),
+      buildArtifactsManifest({
+        sessionId: ctx.sessionId,
+        format: ctx.format ?? 'zip',
+        artifacts,
+        testMetadata: ctx.testMetadata
+      })
+    )
+    ctx.log?.('info', `Artifacts manifest written to ${path}`)
+  } catch (err) {
+    ctx.log?.(
+      'warn',
+      `Failed to write artifacts manifest: ${errorMessage(err)}`
+    )
+  }
 }
