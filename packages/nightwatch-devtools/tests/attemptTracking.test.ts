@@ -142,6 +142,8 @@ describe('buildTraceContext', () => {
         suites: [suite],
         ranges: [],
         flushed: new Set(),
+        artifacts: [],
+        traceFlushes: [],
         configPath: undefined,
         log: () => {}
       },
@@ -173,6 +175,8 @@ describe('buildTraceContext', () => {
         outcomes: tracker,
         ranges: [],
         flushed: new Set(),
+        artifacts: [],
+        traceFlushes: [],
         configPath: undefined,
         log: () => {}
       },

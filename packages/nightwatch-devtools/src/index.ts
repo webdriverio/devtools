@@ -108,6 +108,14 @@ class NightwatchDevToolsPlugin {
   /** Set of spec files already flushed to disk. */
   #flushedSpecs = new Set<string>()
 
+  /** Every trace/video artifact seen this run (retained or not), for the
+   *  end-of-run artifacts manifest. Populated via the context's onArtifact. */
+  #artifacts: TraceArtifact[] = []
+
+  /** In-flight fire-and-forget eager/boundary slice flushes, awaited at finalize
+   *  so the last slice's write + its manifest entry land before teardown. */
+  #traceFlushes: Promise<unknown>[] = []
+
   #getRerunLabel() {
     return process.env[REUSE_ENV.RERUN_ENTRY_TYPE] === 'test'
       ? process.env[REUSE_ENV.RERUN_LABEL]?.trim()
@@ -575,7 +583,11 @@ class NightwatchDevToolsPlugin {
     if (!sessionId) {
       return Promise.resolve(undefined)
     }
-    return flushRangeLogged(this.#traceContext(sessionId), range)
+    // Track the promise (before it's added to awaitPending) so finalize awaits
+    // this fire-and-forget flush — its context snapshot already excludes it.
+    const flush = flushRangeLogged(this.#traceContext(sessionId), range)
+    this.#traceFlushes.push(flush)
+    return flush
   }
 
   /** Assemble the framework-agnostic trace-export context from plugin state.
@@ -592,6 +604,8 @@ class NightwatchDevToolsPlugin {
         outcomes: this.#attemptTracker,
         ranges: this.#specRanges,
         flushed: this.#flushedSpecs,
+        artifacts: this.#artifacts,
+        traceFlushes: this.#traceFlushes,
         configPath: this.#configPath,
         testFilePath:
           this.browserProxy?.getCurrentTestFullPath?.() ?? undefined,

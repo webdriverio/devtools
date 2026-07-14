@@ -10,8 +10,10 @@ import {
   TestAttemptTracker,
   tracePolicyModeWarning,
   type SpecRange,
+  type TraceArtifact,
   type TraceExportContext
 } from '@wdio/devtools-core'
+import { attachArtifactToAllure } from './allure.js'
 import { wireAssertCapture, type ExpectAssertion } from './assert-capture.js'
 import { AssertionTracker } from './assertion-tracker.js'
 import {
@@ -123,6 +125,10 @@ export default class DevToolsHookService implements Services.ServiceInstance {
   /** Set of spec files already flushed to disk. */
   #flushedSpecs = new Set<string>()
 
+  /** Every trace/video artifact seen this run (retained or not), for the
+   *  end-of-run artifacts manifest. Populated via the context's onArtifact. */
+  #artifacts: TraceArtifact[] = []
+
   /** Build the boundary context for recordSliceBoundary — the same shape is
    *  needed in both beforeTest and beforeScenario. */
   get #boundaryContext() {
@@ -156,15 +162,17 @@ export default class DevToolsHookService implements Services.ServiceInstance {
   /** Eager per-test flush at test end (test granularity only), run after the
    *  outcome is stamped so this attempt's metadata is written before a retry
    *  overwrites it; the end-of-run finalizer then dedupes it via the key set. */
-  async #eagerFlushTestSlice(testUid: string): Promise<void> {
+  async #eagerFlushTestSlice(
+    testUid: string
+  ): Promise<TraceArtifact | undefined> {
     if (
       this.#options.traceGranularity !== 'test' ||
       this.#options.mode !== 'trace' ||
       !this.#browser
     ) {
-      return
+      return undefined
     }
-    await flushTestSlice(
+    return flushTestSlice(
       this.#traceContext(this.#browser),
       this.#specRanges,
       testUid
@@ -190,7 +198,10 @@ export default class DevToolsHookService implements Services.ServiceInstance {
       flushed: this.#flushedSpecs,
       resolveOutputDir: () => this.#outputDir,
       prepareSnapshots: dedupeSnapshotsByTimestamp,
-      log: (level, msg) => log[level](msg)
+      log: (level, msg) => log[level](msg),
+      emitManifest: true,
+      collectedArtifacts: this.#artifacts,
+      onArtifact: (a) => this.#artifacts.push(a)
     }
   }
 
@@ -425,10 +436,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
       this.#stampOutcome(uid, result)
     }
     await this.#finalizePerScenario()
-    // Flush now so this slice includes the final snapshot and stamped outcome.
-    if (uid) {
-      await this.#eagerFlushTestSlice(uid)
-    }
+    await this.#eagerFlushAndAttach(uid)
   }
 
   async afterTest(
@@ -443,9 +451,19 @@ export default class DevToolsHookService implements Services.ServiceInstance {
       this.#stampOutcome(uid, result)
     }
     await this.#finalizePerScenario()
-    // Flush now so this slice includes the final snapshot and stamped outcome.
-    if (uid) {
-      await this.#eagerFlushTestSlice(uid)
+    await this.#eagerFlushAndAttach(uid)
+  }
+
+  /** Flush this test's slice (so it captures the final snapshot + stamped
+   *  outcome), then attach the retained artifact to Allure while the per-test
+   *  hook is still open. No-op outside `test`-granularity trace mode. */
+  async #eagerFlushAndAttach(uid: string | undefined): Promise<void> {
+    if (!uid) {
+      return
+    }
+    const artifact = await this.#eagerFlushTestSlice(uid)
+    if (artifact) {
+      await attachArtifactToAllure(artifact)
     }
   }
 

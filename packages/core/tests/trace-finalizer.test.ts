@@ -6,6 +6,7 @@ import {
   buildSpecSessionId,
   buildTestSliceFolder,
   finalizeTraceExport,
+  flushRangeLogged,
   flushRangeTrace,
   TestAttemptTracker,
   type SpecRange,
@@ -313,6 +314,69 @@ describe('finalizeTraceExport', () => {
     await finalizeTraceExport(baseCtx({ awaitPending: [pending] }))
     expect(settled).toBe(true)
     expect(await exists(path.join(outputDir, 'trace-abcd1234.zip'))).toBe(true)
+  })
+
+  describe('artifacts manifest', () => {
+    const manifestPath = () =>
+      path.join(outputDir, 'devtools-artifacts-abcd1234.json')
+
+    it('is not written unless emitManifest is set', async () => {
+      await finalizeTraceExport(
+        baseCtx({
+          testMetadata: meta([['u1', { title: 'T1', specFile: '/a.js' }]])
+        })
+      )
+      expect(await exists(manifestPath())).toBe(false)
+    })
+
+    it('enumerates collected artifacts and per-test states when enabled', async () => {
+      await finalizeTraceExport(
+        baseCtx({
+          emitManifest: true,
+          collectedArtifacts: artifacts,
+          testMetadata: meta([
+            [
+              'u1',
+              { title: 'T1', specFile: '/a.js', state: 'passed', attempt: 0 }
+            ]
+          ])
+        })
+      )
+      const manifest = JSON.parse(await fs.readFile(manifestPath(), 'utf8'))
+      expect(manifest.sessionId).toBe('abcd1234')
+      expect(manifest.format).toBe('zip')
+      // The session write pushed one artifact through onArtifact into the list.
+      expect(manifest.artifacts).toHaveLength(1)
+      expect(manifest.artifacts[0].scope).toBe('session')
+      expect(manifest.tests).toEqual([
+        {
+          uid: 'u1',
+          title: 'T1',
+          specFile: '/a.js',
+          state: 'passed',
+          attempt: 0
+        }
+      ])
+    })
+
+    it('includes eager-flushed slices the fan-out deduped away', async () => {
+      const ctx = baseCtx({
+        granularity: 'test',
+        emitManifest: true,
+        collectedArtifacts: artifacts,
+        ranges: [testRange('/a.js', 'u1', 0)],
+        testMetadata: meta([['u1', { title: 'T1', specFile: '/a.js' }]])
+      })
+      // Eager mid-run flush: writes the slice and records it via onArtifact.
+      await flushRangeLogged(ctx, ctx.ranges[0]!)
+      // Finalize: the range is already flushed, so fan-out returns nothing new,
+      // but the manifest must still list the eager artifact.
+      await finalizeTraceExport(ctx)
+      const manifest = JSON.parse(await fs.readFile(manifestPath(), 'utf8'))
+      expect(manifest.artifacts).toHaveLength(1)
+      expect(manifest.artifacts[0].scope).toBe('test')
+      expect(manifest.artifacts[0].key).toBe('u1')
+    })
   })
 
   describe('retention wiring', () => {

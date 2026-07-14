@@ -22,7 +22,7 @@ import type {
 } from './types.js'
 import type { RetryTracker } from '@wdio/devtools-core'
 import type { PendingTestAction, PendingScenario } from './test-management.js'
-import type { SpecRange } from '@wdio/devtools-core'
+import type { SpecRange, TraceArtifact } from '@wdio/devtools-core'
 
 export interface PluginInternals {
   // Config
@@ -69,6 +69,8 @@ export interface PluginInternals {
   readonly flushedSpecs: Set<string>
   // In-flight per-test eager flushes (test granularity), awaited at finalize.
   readonly traceFlushes: Promise<unknown>[]
+  // Every trace/video artifact seen this run, for the end-of-run manifest.
+  readonly artifacts: TraceArtifact[]
 
   // Plugin-side delegates
   setFinalized(v: boolean): void
