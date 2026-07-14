@@ -23,6 +23,10 @@ const KNOWN_POLICIES = new Set<TraceRetentionPolicy>([
 ])
 
 export interface TestOutcome {
+  /** Retry-stable test identity. Outcomes sharing a uid are one test's attempts
+   *  (attempt 0, 1, …); an outcome with no uid is its own single-attempt group,
+   *  so a flat/uid-less feed evaluates exactly as one-outcome-per-test. */
+  uid?: string
   state?: TestStatus
   attempt?: number
 }
@@ -56,24 +60,66 @@ export function shouldRetainTrace(
   if (!input.attemptInfoAvailable && policy !== 'retain-on-failure') {
     return { retain: anyFailed, degradedToFailure: true }
   }
+  // Group a test's attempts so failure policies key on the RIGHT attempt: the
+  // *final* attempt (retain-on-failure — a fail-then-pass ends passed) vs the
+  // *first* attempt (retain-on-first-failure). A uid-less feed makes every
+  // outcome its own group, so this reduces to the flat one-outcome-per-test
+  // logic and is byte-identical for callers that don't supply per-attempt uids.
+  const groups = groupByTest(outcomes)
   switch (policy) {
     case 'retain-on-failure':
-      return { retain: anyFailed }
+      return { retain: groups.some((g) => finalAttempt(g).state === 'failed') }
     case 'retain-on-first-failure':
       return {
-        retain: outcomes.some(
-          (o) => o.state === 'failed' && (o.attempt ?? 0) === 0
-        )
+        retain: groups.some((g) => firstAttempt(g)?.state === 'failed')
       }
     case 'on-first-retry':
-      return { retain: outcomes.some((o) => o.attempt === 1) }
+      return { retain: groups.some((g) => g.some((o) => o.attempt === 1)) }
     case 'on-all-retries':
-      return { retain: outcomes.some((o) => (o.attempt ?? 0) >= 1) }
+      return { retain: groups.some((g) => g.some((o) => attemptOf(o) >= 1)) }
     case 'retain-on-failure-and-retries':
       return {
-        retain: anyFailed || outcomes.some((o) => (o.attempt ?? 0) >= 1)
+        retain: groups.some(
+          (g) =>
+            finalAttempt(g).state === 'failed' ||
+            g.some((o) => attemptOf(o) >= 1)
+        )
       }
   }
+}
+
+const attemptOf = (o: TestOutcome): number => o.attempt ?? 0
+
+/** Group outcomes by `uid`; a uid-less outcome becomes its own singleton group
+ *  (preserving flat, one-outcome-per-test evaluation for callers without uids). */
+function groupByTest(outcomes: TestOutcome[]): TestOutcome[][] {
+  const byUid = new Map<string, TestOutcome[]>()
+  const groups: TestOutcome[][] = []
+  for (const outcome of outcomes) {
+    if (outcome.uid === undefined) {
+      groups.push([outcome])
+      continue
+    }
+    const existing = byUid.get(outcome.uid)
+    if (existing) {
+      existing.push(outcome)
+    } else {
+      const group = [outcome]
+      byUid.set(outcome.uid, group)
+      groups.push(group)
+    }
+  }
+  return groups
+}
+
+/** The highest-numbered attempt's outcome — the test's final result. */
+function finalAttempt(group: TestOutcome[]): TestOutcome {
+  return group.reduce((best, o) => (attemptOf(o) >= attemptOf(best) ? o : best))
+}
+
+/** The attempt-0 outcome, if the group recorded one. */
+function firstAttempt(group: TestOutcome[]): TestOutcome | undefined {
+  return group.find((o) => attemptOf(o) === 0)
 }
 
 /**

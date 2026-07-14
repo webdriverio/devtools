@@ -216,6 +216,50 @@ describe('shouldRetainTrace unknown policy (fail open)', () => {
   })
 })
 
+describe('shouldRetainTrace groups a test’s attempts by uid', () => {
+  // One test, failed then passed on retry.
+  const failThenPass: TestOutcome[] = [
+    { uid: 't', state: 'failed', attempt: 0 },
+    { uid: 't', state: 'passed', attempt: 1 }
+  ]
+  // One test, passed then failed on retry.
+  const passThenFail: TestOutcome[] = [
+    { uid: 't', state: 'passed', attempt: 0 },
+    { uid: 't', state: 'failed', attempt: 1 }
+  ]
+
+  it('retain-on-failure keys on the FINAL attempt, not any attempt', () => {
+    // Ends passed → not retained (flat any-failed logic over-retained here).
+    expect(retain('retain-on-failure', failThenPass)).toBe(false)
+    // Ends failed → retained.
+    expect(retain('retain-on-failure', passThenFail)).toBe(true)
+  })
+
+  it('retain-on-first-failure keys on attempt 0', () => {
+    // First attempt failed → retained even though it later passed.
+    expect(retain('retain-on-first-failure', failThenPass)).toBe(true)
+    // First attempt passed → not retained.
+    expect(retain('retain-on-first-failure', passThenFail)).toBe(false)
+  })
+
+  it('treats distinct uids as independent groups', () => {
+    const mixed: TestOutcome[] = [
+      { uid: 'a', state: 'failed', attempt: 0 },
+      { uid: 'a', state: 'passed', attempt: 1 },
+      { uid: 'b', state: 'passed', attempt: 0 }
+    ]
+    // a ends passed, b passed → nothing to retain on final-attempt failure.
+    expect(retain('retain-on-failure', mixed)).toBe(false)
+    // a's first attempt failed → retained.
+    expect(retain('retain-on-first-failure', mixed)).toBe(true)
+  })
+
+  it('retry-count policies see the grouped attempts', () => {
+    expect(retain('on-first-retry', failThenPass)).toBe(true)
+    expect(retain('on-all-retries', passThenFail)).toBe(true)
+  })
+})
+
 describe('tracePolicyModeWarning', () => {
   it('warns when a policy is set outside trace mode', () => {
     expect(tracePolicyModeWarning('retain-on-failure', 'live')).toMatch(

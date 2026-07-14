@@ -7,6 +7,7 @@ import {
   buildTestSliceFolder,
   finalizeTraceExport,
   flushRangeTrace,
+  TestAttemptTracker,
   type SpecRange,
   type TraceArtifact,
   type TraceCapturer,
@@ -372,6 +373,49 @@ describe('finalizeTraceExport', () => {
       expect(await exists(path.join(outputDir, 'trace-abcd1234.zip'))).toBe(
         true
       )
+    })
+
+    // The ledger fix: collapsed testMetadata carries only the final (passed)
+    // attempt, so a metadata-only feed can't see the failed first attempt. The
+    // per-attempt ledger supplies both, so the failure policies key correctly.
+    function failThenPassLedger(): TestAttemptTracker {
+      const ledger = new TestAttemptTracker()
+      ledger.recordStart('u1', '/a.js')
+      ledger.recordOutcome('u1', 'failed')
+      ledger.recordStart('u1', '/a.js')
+      ledger.recordOutcome('u1', 'passed')
+      return ledger
+    }
+    const finalPassedMeta = meta([
+      ['u1', { title: 'T', specFile: '/a.js', state: 'passed', attempt: 1 }]
+    ])
+
+    it('retain-on-first-failure retains a fail-then-pass via the ledger', async () => {
+      const result = await finalizeTraceExport(
+        baseCtx({
+          policy: 'retain-on-first-failure',
+          attemptInfoAvailable: true,
+          outcomes: failThenPassLedger(),
+          testMetadata: finalPassedMeta
+        })
+      )
+      expect(result[0]!.retained).toBe(true)
+      expect(await exists(path.join(outputDir, 'trace-abcd1234.zip'))).toBe(
+        true
+      )
+    })
+
+    it('retain-on-failure does NOT retain a fail-then-pass (final attempt passed)', async () => {
+      const result = await finalizeTraceExport(
+        baseCtx({
+          policy: 'retain-on-failure',
+          attemptInfoAvailable: true,
+          outcomes: failThenPassLedger(),
+          testMetadata: finalPassedMeta
+        })
+      )
+      expect(result[0]!.retained).toBe(false)
+      expect(result[0]!.path).toBe('')
     })
 
     // Session slice = OR over every test: one failure keeps the whole trace.
