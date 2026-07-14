@@ -418,6 +418,27 @@ describe('finalizeTraceExport', () => {
       expect(result[0]!.path).toBe('')
     })
 
+    it('falls back to metadata when the scoped ledger view is empty', async () => {
+      // outcomes present but this scope's view is empty (e.g. an adapter that
+      // didn't feed this scope): must use metadata, not fail-open into retaining
+      // a passing test.
+      const emptyView = { all: () => [], forSpec: () => [], forTest: () => [] }
+      const result = await finalizeTraceExport(
+        baseCtx({
+          policy: 'retain-on-failure',
+          attemptInfoAvailable: true,
+          outcomes: emptyView,
+          testMetadata: meta([
+            [
+              'u1',
+              { title: 'T', specFile: '/a.js', state: 'passed', attempt: 0 }
+            ]
+          ])
+        })
+      )
+      expect(result[0]!.retained).toBe(false)
+    })
+
     // Session slice = OR over every test: one failure keeps the whole trace.
     it('session slice retains when ANY test failed under retain-on-failure', async () => {
       const result = await finalizeTraceExport(
