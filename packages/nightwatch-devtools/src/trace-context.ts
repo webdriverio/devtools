@@ -9,6 +9,7 @@
 import {
   collectSuiteTestMetadata,
   resolveAdapterOutputDir,
+  type RetryOutcomeView,
   type SpecRange,
   type TraceExportContext
 } from '@wdio/devtools-core'
@@ -28,6 +29,7 @@ export interface TraceContextInput {
   format: TraceFormat
   capturer: SessionCapturer
   suites: Iterable<SuiteStats>
+  outcomes?: RetryOutcomeView
   ranges: SpecRange[]
   flushed: Set<string>
   configPath: string | undefined
@@ -48,6 +50,7 @@ export function buildTraceContext(
     actionSnapshots: input.capturer.actionSnapshots,
     sessionId,
     testMetadata: collectSuiteTestMetadata(input.suites),
+    outcomes: input.outcomes,
     ranges: input.ranges,
     flushed: input.flushed,
     resolveOutputDir: () =>

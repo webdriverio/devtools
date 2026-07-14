@@ -77,9 +77,13 @@ export interface PluginInternals {
   setCucumberRunner(v: boolean): void
   getRerunLabel(): string | undefined
 
-  /** Records a test/scenario start under its retry-stable uid; returns the
-   *  0-based attempt number (0 first run, +1 per rerun). */
-  recordAttempt(uid: string): number
+  /** Records a test/scenario start under its retry-stable uid; `specFile`
+   *  (when known) enables spec-scoped retention. Returns the 0-based attempt
+   *  number (0 first run, +1 per rerun). */
+  recordAttempt(uid: string, specFile?: string): number
+  /** Stamps the resolved terminal state onto uid's latest attempt slot so the
+   *  retry-aware retention policies see real per-attempt outcomes. */
+  recordOutcome(uid: string, state: TestStats['state']): void
   /** Latest attempt recorded for `uid`, or undefined if it never started. */
   attemptFor(uid: string): number | undefined
 

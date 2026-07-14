@@ -28,7 +28,8 @@ import type {
   DevToolsMode,
   NightwatchBrowser,
   ScreencastOptions,
-  SuiteStats
+  SuiteStats,
+  TestStats
 } from './types.js'
 
 const log = logger('@wdio/nightwatch-devtools:session-init')
@@ -59,6 +60,7 @@ export interface SessionInitCtx {
   getCurrentScenarioSuite(): SuiteStats | null
   buildMetadataOptions(): unknown
   attemptFor(uid: string): number | undefined
+  recordOutcome(uid: string, state: TestStats['state']): void
 }
 
 async function handleSessionChange(
@@ -94,7 +96,9 @@ function initReporterChain(ctx: SessionInitCtx): void {
     },
     (uid) => ctx.attemptFor(uid)
   )
-  ctx.testManager = new TestManager(ctx.testReporter)
+  ctx.testManager = new TestManager(ctx.testReporter, (uid, state) =>
+    ctx.recordOutcome(uid, state)
+  )
   ctx.suiteManager = new SuiteManager(ctx.testReporter)
   ctx.browserProxy = new BrowserProxy(
     ctx.sessionCapturer,

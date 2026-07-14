@@ -299,7 +299,10 @@ class NightwatchDevToolsPlugin {
         self.suiteManager.clearExecutionData()
         self.#attemptTracker.reset()
       },
-      recordAttempt: (uid) => self.#attemptTracker.recordStart(uid),
+      recordAttempt: (uid, specFile) =>
+        self.#attemptTracker.recordStart(uid, specFile),
+      recordOutcome: (uid, state) =>
+        self.#attemptTracker.recordOutcome(uid, state),
       attemptFor: (uid) => self.#attemptTracker.attemptFor(uid),
       buildMetadataOptions: () => self.#buildMetadataOptions(),
       ensureSessionInitialized: (b) => self.#ensureSessionInitialized(b),
@@ -586,6 +589,7 @@ class NightwatchDevToolsPlugin {
         format: this.options.traceFormat,
         capturer: this.sessionCapturer,
         suites: this.suiteManager.getAllSuites().values(),
+        outcomes: this.#attemptTracker,
         ranges: this.#specRanges,
         flushed: this.#flushedSpecs,
         configPath: this.#configPath,
