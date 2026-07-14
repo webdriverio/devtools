@@ -185,6 +185,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
       capabilities: browser.capabilities,
       testMetadata: this.#testMetadata,
       attemptInfoAvailable: true,
+      outcomes: this.#attemptTracker,
       ranges: this.#specRanges,
       flushed: this.#flushedSpecs,
       resolveOutputDir: () => this.#outputDir,
@@ -354,7 +355,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     // ── Test identity for command tagging ──
     if (uid && scenarioName && featureFile) {
       this.#currentTestUid = uid
-      this.#attemptTracker.recordStart(uid)
+      this.#attemptTracker.recordStart(uid, featureFile)
       this.#testMetadata.set(uid, {
         title: scenarioName,
         specFile: featureFile
@@ -378,7 +379,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
 
     if (uid && testTitle) {
       this.#currentTestUid = uid
-      this.#attemptTracker.recordStart(uid)
+      this.#attemptTracker.recordStart(uid, test?.file)
       this.#testMetadata.set(uid, {
         title: testTitle,
         specFile: test?.file ?? ''
@@ -402,6 +403,13 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     const fallback = this.#attemptTracker.attemptFor(uid) ?? 0
     const attempt = resolveTestAttempt(result, fallback)
     stampTestState(this.#testMetadata, uid, result, attempt)
+    // Feed the per-attempt ledger so session/spec retention sees this attempt's
+    // real outcome, not just the final state that overwrites #testMetadata.
+    this.#attemptTracker.recordOutcome(
+      uid,
+      this.#testMetadata.get(uid)?.state,
+      attempt
+    )
   }
 
   async afterScenario(
