@@ -456,4 +456,70 @@ describe('exported trace stream — dense filmstrip', () => {
     }
     await fs.rm(outputDir, { recursive: true, force: true })
   })
+
+  it('drops the sparse per-action filmstrip when dense frames are present', async () => {
+    const outputDir = await fs.mkdtemp(
+      path.join(os.tmpdir(), 'trace-dense-sparse-')
+    )
+    const capturer: TraceCapturer = {
+      mutations: [],
+      traceLogs: [],
+      consoleLogs: [],
+      networkRequests: [],
+      commandsLog: [
+        {
+          command: 'url',
+          args: ['https://example.test'],
+          timestamp: 1200,
+          startTime: 1150
+        },
+        { command: 'click', args: ['#go'], timestamp: 1500, startTime: 1450 }
+      ],
+      sources: new Map(),
+      metadata: { type: TraceType.Standalone },
+      startWallTime: 1000
+    }
+    const dir = await writeTraceZip(capturer, {
+      outputDir,
+      sessionId: 'abc12345',
+      format: 'ndjson-directory',
+      // Action snapshots carry the DOM refs the sparse filmstrip used to fold in.
+      actionSnapshots: [
+        {
+          timestamp: 1200,
+          command: 'url',
+          screenshot: 'AAAA',
+          elements: [{ selector: '#go' }],
+          snapshotText: '<html></html>'
+        },
+        { timestamp: 1500, command: 'click', screenshot: 'BBBB' }
+      ],
+      screencastFrames: [
+        { data: Buffer.from('paint-1').toString('base64'), timestamp: 1000 },
+        { data: Buffer.from('paint-2').toString('base64'), timestamp: 1400 }
+      ]
+    })
+    const lines = (await fs.readFile(path.join(dir, 'trace.trace'), 'utf8'))
+      .trim()
+      .split('\n')
+      .map((l) => JSON.parse(l) as Record<string, unknown>)
+
+    // Every filmstrip frame is a content-addressed dense frame; no sparse
+    // `page@…-<ts>.jpeg` frames survive, so there is no duplication.
+    const frames = lines.filter((l) => l.type === 'screencast-frame')
+    expect(frames).toHaveLength(2)
+    for (const f of frames) {
+      expect(String(f.sha1)).toMatch(/^[0-9a-f]{40}\.jpeg$/)
+    }
+
+    // Per-action DOM survives: frame-snapshot events + after-snapshot refs stay.
+    const frameSnaps = lines.filter((l) => l.type === 'frame-snapshot')
+    expect(frameSnaps).toHaveLength(2)
+    const afterSnaps = lines
+      .filter((l) => l.type === 'after')
+      .map((l) => l.afterSnapshot)
+      .filter(Boolean)
+    expect(afterSnaps).toEqual(['after@call@1', 'after@call@2'])
+    await fs.rm(outputDir, { recursive: true, force: true })
+  })
 })
