@@ -364,8 +364,7 @@ function boundaryContext(
   return {
     specRanges: ctx.specRanges,
     flushedSpecs: ctx.flushedSpecs,
-    capturer,
-    actionSnapshots: ctx.actionSnapshots
+    capturer
   }
 }
 

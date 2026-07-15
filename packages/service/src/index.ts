@@ -164,8 +164,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     return {
       specRanges: this.#specRanges,
       flushedSpecs: this.#flushedSpecs,
-      capturer: this.#sessionCapturer,
-      actionSnapshots: this.#actionSnapshots
+      capturer: this.#sessionCapturer
     }
   }
 

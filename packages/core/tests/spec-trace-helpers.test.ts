@@ -49,7 +49,6 @@ const range = (over: Partial<SpecRange> = {}): SpecRange => ({
   networkStartIdx: 0,
   mutationStartIdx: 0,
   traceLogStartIdx: 0,
-  snapshotCount: 0,
   ...over
 })
 
@@ -66,7 +65,6 @@ function boundaryCtx(
       mutations: [],
       traceLogs: []
     },
-    actionSnapshots: [],
     ...over
   }
 }
@@ -162,15 +160,13 @@ describe('recordSliceBoundary (test granularity)', () => {
         networkRequests: [],
         mutations: [1, 2, 3],
         traceLogs: []
-      },
-      actionSnapshots: [1, 1]
+      }
     })
     expect(recordSliceBoundary(ctx, 'test', '/a.js', 'u1')).toBeNull()
     expect(ctx.specRanges).toHaveLength(1)
     expect(ctx.specRanges[0]!.key).toBe('u1')
     expect(ctx.specRanges[0]!.testUid).toBe('u1')
     expect(ctx.specRanges[0]!.commandStartIdx).toBe(2)
-    expect(ctx.specRanges[0]!.snapshotCount).toBe(2)
 
     const prev = recordSliceBoundary(ctx, 'test', '/a.js', 'u2')
     expect(prev?.key).toBe('u1')
@@ -365,6 +361,67 @@ describe('writeTestSliceTrace / writeSpecTrace output layout', () => {
     expect(frameOffsets).toEqual([100, 400, 1400])
   })
 
+  it('windows a command-less slice by its own console/network and rebases', async () => {
+    // An assertion-only test records no commands, so there is no command to
+    // anchor the wall-clock window on. The slice must anchor on the earliest of
+    // its own console/network *epoch* timestamps and rebase to it. The network
+    // request carries a small performance.now `startTime` (50) alongside its
+    // epoch `timestamp` (2000) — the fallback MUST use `.timestamp`; using
+    // `.startTime` would anchor the window at 50 and sweep the pre-window 1500
+    // snapshot in with a garbage cross-clock offset.
+    const capturer: TraceCapturer = {
+      mutations: [],
+      traceLogs: [],
+      consoleLogs: [{ type: 'info', args: ['hi'], timestamp: 2600 }],
+      networkRequests: [
+        {
+          id: 'r1',
+          url: 'https://example.test',
+          method: 'GET',
+          type: 'fetch',
+          startTime: 50,
+          timestamp: 2000
+        }
+      ],
+      commandsLog: [],
+      sources: new Map(),
+      metadata: { type: TraceType.Standalone },
+      startWallTime: 1000
+    }
+    const snapshots = [
+      { command: 'assert', timestamp: 1500, screenshot: 'QQ==' },
+      { command: 'assert', timestamp: 2200, screenshot: 'QkI=' },
+      { command: 'assert', timestamp: 2500, screenshot: 'Q0M=' }
+    ]
+    const dir = await writeTestSliceTrace(
+      input({
+        range: range({ specFile: '/t.js', key: 'A', testUid: 'A' }),
+        capturer,
+        actionSnapshots: snapshots,
+        format: 'ndjson-directory',
+        testMetadata: new Map([['A', { title: 'Test A', specFile: '/t.js' }]])
+      })
+    )
+    const events = (await fs.readFile(path.join(dir, 'trace.trace'), 'utf8'))
+      .trim()
+      .split('\n')
+      .map((l) => JSON.parse(l) as Record<string, unknown>)
+    // Window anchors on the earliest epoch timestamp (network .timestamp 2000):
+    // the pre-window 1500 snapshot is excluded; the sparse filmstrip re-anchors
+    // its first in-window frame (2200) to 0 and 2500 lands at 500. (Using the
+    // perf.now .startTime of 50 would instead admit 1500 → [0, 2150, 2450].)
+    const frameOffsets = events
+      .filter((e) => e.type === 'screencast-frame')
+      .map((e) => e.timestamp as number)
+      .sort((x, y) => x - y)
+    expect(frameOffsets).toEqual([0, 500])
+    // Console (2600) rebased to the same window start (2000), not the session offset.
+    const consoleTimes = events
+      .filter((e) => e.type === 'console')
+      .map((e) => e.time as number)
+    expect(consoleTimes).toEqual([600])
+  })
+
   it('keeps the spec write flat as trace-<id>.zip (unchanged layout)', async () => {
     const written = await writeSpecTrace(
       input({
@@ -410,8 +467,7 @@ describe('findFlushableRange', () => {
     consoleStartIdx: 0,
     networkStartIdx: 0,
     mutationStartIdx: 0,
-    traceLogStartIdx: 0,
-    snapshotCount: 0
+    traceLogStartIdx: 0
   })
 
   it('reverse-scans for the given testUid (latest retry attempt wins)', () => {

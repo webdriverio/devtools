@@ -36,7 +36,6 @@ export interface SpecRange {
   networkStartIdx: number
   mutationStartIdx: number
   traceLogStartIdx: number
-  snapshotCount: number
 }
 
 /**
@@ -256,7 +255,6 @@ export interface SpecBoundaryContext {
     mutations: ArrayLike<unknown>
     traceLogs: ArrayLike<unknown>
   }
-  actionSnapshots: ArrayLike<unknown>
 }
 
 /** Push a new slice range and return the previous (unflushed) range to flush.
@@ -285,8 +283,7 @@ function pushSliceRange(
     consoleStartIdx: ctx.capturer.consoleLogs.length,
     networkStartIdx: ctx.capturer.networkRequests.length,
     mutationStartIdx: ctx.capturer.mutations.length,
-    traceLogStartIdx: ctx.capturer.traceLogs.length,
-    snapshotCount: ctx.actionSnapshots.length
+    traceLogStartIdx: ctx.capturer.traceLogs.length
   })
 
   return prevRange
@@ -359,7 +356,7 @@ export interface WriteSpecTraceInput {
 }
 
 /** Timestamped items inside a slice's wall-clock window `[start, end)`. An
- *  undefined `start` (a slice with no commands to anchor on) yields nothing; an
+ *  undefined `start` (a slice with nothing to anchor on) yields nothing; an
  *  undefined `end` (the last slice) is open-ended, so a trailing assertion-wait
  *  stays with its test. Used for both action snapshots and screencast frames so
  *  they partition on the same reliable boundary as the sliced commands. */
@@ -404,7 +401,22 @@ async function writeSliceTrace(
   // the previous one.
   const commandStart = (c: CommandLog | undefined): number | undefined =>
     c ? (c.startTime ?? c.timestamp) : undefined
-  const windowStart = commandStart(sliceCapturer.commandsLog[0])
+  // A command-less slice (assertion-only test) has no command to anchor on; fall
+  // back to the earliest of its own index-sliced console/network timestamps so
+  // its snapshots/frames still window+rebase rather than drop to the session
+  // offset. Empty of both keeps today's undefined → no-window behavior.
+  // Both are epoch ms (Date.now), matching the command anchor and the frame/
+  // snapshot clock — NOT NetworkRequest.startTime, which is performance.now
+  // (relative ms) and would anchor the window ~54,000 years off.
+  const fallbackStart = (): number | undefined => {
+    const times = [
+      ...sliceCapturer.consoleLogs.map((c) => c.timestamp),
+      ...sliceCapturer.networkRequests.map((n) => n.timestamp)
+    ]
+    return times.length ? Math.min(...times) : undefined
+  }
+  const windowStart =
+    commandStart(sliceCapturer.commandsLog[0]) ?? fallbackStart()
   const windowEnd = input.nextRange
     ? commandStart(input.capturer.commandsLog[input.nextRange.commandStartIdx])
     : undefined
