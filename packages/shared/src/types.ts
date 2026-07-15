@@ -317,6 +317,12 @@ export interface BaseDevToolsOptions {
   /** Trace retention policy — gates which traces are kept (e.g.
    *  `retain-on-failure`). Default `on` (keep all). Only applies in trace mode. */
   tracePolicy?: TraceRetentionPolicy
+  /** Record a dense, continuous screencast filmstrip into the trace for
+   *  scrubbable playback in the trace player — not just one frame per action.
+   *  The dense frames are added alongside the per-action frames (which carry the
+   *  DOM snapshots). Runs the screencast recorder (CDP push on Chrome, polling
+   *  elsewhere). Default false. Only applies in trace mode. */
+  filmstrip?: boolean
 }
 
 /** Minimal Cucumber pickle-step shape — only the fields the adapters read.
@@ -408,6 +414,10 @@ export interface TraceLog {
   config?: { configFile?: string }
   /** Per-action snapshots captured in `mode: 'trace'` for the trace.zip exporter. */
   actionSnapshots?: ActionSnapshot[]
+  /** Dense screencast frames (continuous recorder buffer) for the trace-mode
+   *  filmstrip. Present only when `filmstrip` is enabled; thinned + content-
+   *  addressed at export time. */
+  screencastFrames?: ScreencastFrame[]
 }
 
 // ─── Preserve-and-rerun ─────────────────────────────────────────────────────

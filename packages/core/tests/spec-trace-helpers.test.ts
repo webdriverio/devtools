@@ -206,7 +206,7 @@ describe('recordSliceBoundary (test granularity)', () => {
 })
 
 describe('buildTestSliceFolder', () => {
-  it('combines sanitized spec, title slug, and browser slug', () => {
+  it('combines sanitized spec, title slug, browser slug, and key hash', () => {
     expect(
       buildTestSliceFolder(
         '/tests/login.e2e.js',
@@ -214,24 +214,32 @@ describe('buildTestSliceFolder', () => {
         'chrome',
         'u1'
       )
-    ).toBe('login_e2e-shows-an-error-message-for-an-invalid-username-chrome')
+    ).toMatch(
+      /^login_e2e-shows-an-error-message-for-an-invalid-username-chrome-[a-z0-9]{1,8}$/
+    )
   })
 
-  it('appends a -retry<N> suffix when the key is a retry key', () => {
+  it('gives two same-title tests distinct folders (no collision)', () => {
+    const a = buildTestSliceFolder('/login.feature', 'As a user', 'chrome', 'A')
+    const b = buildTestSliceFolder('/login.feature', 'As a user', 'chrome', 'B')
+    expect(a).not.toBe(b)
+  })
+
+  it('appends a -retry<N> suffix after the key hash on a retry key', () => {
     expect(
       buildTestSliceFolder('/a.js', 'My Test', 'chrome', 'u1-retry2')
-    ).toBe('a-my-test-chrome-retry2')
+    ).toMatch(/^a-my-test-chrome-[a-z0-9]{1,8}-retry2$/)
   })
 
   it('defaults the browser slug to "browser" when the browser is absent', () => {
-    expect(buildTestSliceFolder('/a.js', 'My Test', undefined, 'u1')).toBe(
-      'a-my-test-browser'
+    expect(buildTestSliceFolder('/a.js', 'My Test', undefined, 'u1')).toMatch(
+      /^a-my-test-browser-[a-z0-9]{1,8}$/
     )
   })
 
   it('falls back to a stable short hash of the key when the title is empty', () => {
     const folder = buildTestSliceFolder('/a.js', '', 'chrome', 'u1')
-    expect(folder).toMatch(/^a-[a-z0-9]+-chrome$/)
+    expect(folder).toMatch(/^a-[a-z0-9]+-chrome-[a-z0-9]+$/)
     expect(buildTestSliceFolder('/a.js', undefined, 'chrome', 'u1')).toBe(
       folder
     )
@@ -296,9 +304,65 @@ describe('writeTestSliceTrace / writeSpecTrace output layout', () => {
       'firefox',
       'u1'
     )
-    expect(folder).toBe('login-my-test-firefox')
+    expect(folder).toMatch(/^login-my-test-firefox-[a-z0-9]{1,8}$/)
     expect(written).toBe(path.join(outputDir, folder, 'trace.zip'))
     await expect(fs.access(written)).resolves.toBeUndefined()
+  })
+
+  it('windows a test slice to its own commands and rebases to its start', async () => {
+    // Two tests in one session; the second's slice must exclude the first's
+    // frames (the reloadSession-desync bug) and rebase to its own start, not
+    // the session start (the huge-empty-prefix bug).
+    const capturer: TraceCapturer = {
+      mutations: [],
+      traceLogs: [],
+      consoleLogs: [],
+      networkRequests: [],
+      commandsLog: [
+        { command: 'url', args: ['a'], timestamp: 1000 },
+        { command: 'click', args: [], timestamp: 2000 },
+        // B's opening url: invoked at 4800, completes at 5000 — its load frames
+        // land in [4800, 5000) and must belong to B, not A.
+        { command: 'url', args: ['b'], timestamp: 5000, startTime: 4800 },
+        { command: 'click', args: [], timestamp: 6000 }
+      ],
+      sources: new Map(),
+      metadata: { type: TraceType.Standalone },
+      startWallTime: 1000
+    }
+    const frames = [
+      { data: Buffer.from('a1').toString('base64'), timestamp: 1500 },
+      { data: Buffer.from('a2').toString('base64'), timestamp: 2500 },
+      { data: Buffer.from('bload').toString('base64'), timestamp: 4900 },
+      { data: Buffer.from('b1').toString('base64'), timestamp: 5200 },
+      { data: Buffer.from('b2').toString('base64'), timestamp: 6200 }
+    ]
+    const dir = await writeTestSliceTrace(
+      input({
+        range: range({
+          specFile: '/t.js',
+          key: 'B',
+          testUid: 'B',
+          commandStartIdx: 2
+        }),
+        capturer,
+        screencastFrames: frames,
+        format: 'ndjson-directory',
+        testMetadata: new Map([['B', { title: 'Test B', specFile: '/t.js' }]])
+      })
+    )
+    const events = (await fs.readFile(path.join(dir, 'trace.trace'), 'utf8'))
+      .trim()
+      .split('\n')
+      .map((l) => JSON.parse(l) as Record<string, unknown>)
+    const frameOffsets = events
+      .filter((e) => e.type === 'screencast-frame')
+      .map((e) => e.timestamp as number)
+      .sort((x, y) => x - y)
+    // Rebased against B's first-command invocation (startTime 4800), and B's
+    // in-flight load frame is kept: 4900→100, 5200→400, 6200→1400. Test A's
+    // frames (1500/2500) are excluded, not bled in.
+    expect(frameOffsets).toEqual([100, 400, 1400])
   })
 
   it('keeps the spec write flat as trace-<id>.zip (unchanged layout)', async () => {

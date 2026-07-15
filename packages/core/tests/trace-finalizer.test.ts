@@ -611,6 +611,19 @@ describe('flushRangeTrace', () => {
     ).resolves.toBeUndefined()
   })
 
+  it('is a no-op in live mode — a granularity set outside trace never writes', async () => {
+    const flushed = new Set<string>()
+    const seen: unknown[] = []
+    const artifact = await flushRangeTrace(
+      ctx({ mode: 'live', flushed, onArtifact: (a) => seen.push(a) }),
+      range('/spec.js', 0)
+    )
+    expect(artifact).toBeUndefined()
+    expect(seen).toEqual([])
+    expect(flushed.size).toBe(0)
+    await expect(fs.readdir(outputDir)).resolves.toEqual([])
+  })
+
   it('returns undefined for an already-flushed spec', async () => {
     const flushed = new Set<string>(['/spec.js'])
     const artifact = await flushRangeTrace(

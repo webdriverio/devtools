@@ -9,6 +9,7 @@ import type {
   ConsoleLog,
   Metadata,
   NetworkRequest,
+  ScreencastFrame,
   TestMetadataMap,
   TraceFormat,
   TraceLog,
@@ -30,6 +31,7 @@ import {
   buildSnapshotResources,
   type ScreencastFrameEvent
 } from './trace-snapshots.js'
+import { buildDenseScreencast } from './screencast-trace.js'
 import {
   buildImageFrameSnapshots,
   FrameSnapshotIndex,
@@ -320,7 +322,8 @@ function buildEventStream(
   ctxOptions: ContextOptionsEvent,
   pageId: string,
   wallTime: number,
-  testMetadata?: TestMetadataMap
+  testMetadata?: TestMetadataMap,
+  denseFrameEvents: ScreencastFrameEvent[] = []
 ): TraceEvent[] {
   const viewport = trace.metadata.viewport ?? { width: 1280, height: 720 }
   const snapshots = trace.actionSnapshots ?? []
@@ -328,6 +331,7 @@ function buildEventStream(
   const events: TraceEvent[] = [
     ctxOptions,
     ...buildFilmstripEvents(snapshots, pageId, wallTime, viewport),
+    ...denseFrameEvents,
     ...buildActionEvents(
       trace.commands,
       pageId,
@@ -363,12 +367,19 @@ function buildTraceBundle(
   const contextId = `context@${idPrefix}`
   const pageId = `page@${idPrefix}`
   const ctxOptions = buildContextOptions(trace, contextId, wallTime)
+  const dense = buildDenseScreencast(
+    trace.screencastFrames ?? [],
+    pageId,
+    wallTime,
+    trace.metadata.viewport ?? { width: 1280, height: 720 }
+  )
   const events = buildEventStream(
     trace,
     ctxOptions,
     pageId,
     wallTime,
-    opts.testMetadata
+    opts.testMetadata,
+    dense.events
   )
   const networkBodies = buildNetworkBodyResources(trace.networkRequests)
   return {
@@ -386,6 +397,7 @@ function buildTraceBundle(
     ),
     resources: [
       ...buildSnapshotResources(trace.actionSnapshots ?? [], pageId),
+      ...dense.resources,
       ...buildSourceResources(trace.sources),
       ...networkBodies.resources
     ]
@@ -461,6 +473,10 @@ export interface WriteTraceZipOptions {
    * viewer still renders thumbnails for adapters without an action hook.
    */
   actionSnapshots?: ActionSnapshot[]
+  /** Dense screencast frames for the filmstrip. Thinned + content-addressed at
+   *  export time; adapters pass the slice's windowed frames (or all, session
+   *  scope). Omitted → no dense filmstrip (byte-stable with today's output). */
+  screencastFrames?: readonly ScreencastFrame[]
   /** Output layout — `zip` (default) writes a single archive, `directory`
    *  unpacks the same files into `trace-<id>/`. */
   format?: TraceFormat
@@ -496,7 +512,10 @@ export async function writeTraceZip(
     },
     commands: capturer.commandsLog,
     sources: Object.fromEntries(capturer.sources),
-    ...(actionSnapshots.length ? { actionSnapshots } : {})
+    ...(actionSnapshots.length ? { actionSnapshots } : {}),
+    ...(opts.screencastFrames?.length
+      ? { screencastFrames: [...opts.screencastFrames] }
+      : {})
   }
   await fs.mkdir(opts.outputDir, { recursive: true })
   const exportOpts = {

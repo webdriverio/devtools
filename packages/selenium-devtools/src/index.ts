@@ -61,6 +61,7 @@ import {
   type CapturedCommand,
   type DevToolsMode,
   type DevToolsOptions,
+  type ScreencastFrame,
   type ScreencastOptions,
   type TraceFormat,
   type TraceGranularity,
@@ -131,6 +132,10 @@ class SeleniumDevToolsPlugin {
    *  end-of-run artifacts manifest. Populated via the context's onArtifact. */
   #artifacts: TraceArtifact[] = []
 
+  /** Filmstrip frames accumulated across drivers, appended at each driver end
+   *  before the recorder is nulled so the finalize context is never blank. */
+  #filmstripFrames: ScreencastFrame[] = []
+
   constructor(options: DevToolsOptions = {}) {
     this.#options = {
       port: options.port ?? 3000,
@@ -143,7 +148,8 @@ class SeleniumDevToolsPlugin {
       mode: options.mode ?? 'live',
       traceFormat: options.traceFormat ?? 'zip',
       traceGranularity: options.traceGranularity ?? 'session',
-      tracePolicy: options.tracePolicy ?? 'on'
+      tracePolicy: options.tracePolicy ?? 'on',
+      filmstrip: options.filmstrip ?? false
     }
     const policyWarning = tracePolicyModeWarning(
       options.tracePolicy,
@@ -445,6 +451,9 @@ class SeleniumDevToolsPlugin {
       },
       get artifacts() {
         return self.#artifacts
+      },
+      get filmstripFrames() {
+        return self.#filmstripFrames
       },
       setFinalized: (v) => {
         self.#finalized = v

@@ -9,6 +9,7 @@
 import type {
   ActionSnapshot,
   DevToolsMode,
+  ScreencastFrame,
   TestMetadataMap,
   TraceFormat,
   TraceGranularity,
@@ -62,6 +63,9 @@ export interface TraceExportContext {
   format?: TraceFormat
   capturer: TraceCapturer
   actionSnapshots?: ActionSnapshot[]
+  /** Continuous screencast frame buffer for the dense filmstrip (filmstrip
+   *  option on). Session write uses all; slice writes window per test. */
+  screencastFrames?: readonly ScreencastFrame[]
   sessionId: string
   capabilities?: unknown
   testMetadata: TestMetadataMap
@@ -194,6 +198,22 @@ function attemptFromKey(key: string): number {
   return match ? Number(match[1]) : 0
 }
 
+/** Scope the per-attempt ledger to a slice: a test slice sees only its own
+ *  attempt (so a passing retry isn't retained on first-failure); a spec slice
+ *  sees every attempt of its tests. */
+function sliceOutcomeView(
+  ctx: TraceExportContext,
+  range: SpecRange,
+  isTestSlice: boolean
+): TestOutcome[] | undefined {
+  if (!ctx.outcomes) {
+    return undefined
+  }
+  return isTestSlice
+    ? ctx.outcomes.forTest(range.testUid!, attemptFromKey(range.key))
+    : ctx.outcomes.forSpec(range.specFile)
+}
+
 /**
  * Policy-aware single-range flush: dedupes via `ctx.flushed` on the slice
  * `key`, applies the retention decision, and delegates the byte-level
@@ -206,6 +226,11 @@ export async function flushRangeTrace(
   range: SpecRange,
   nextRange?: SpecRange
 ): Promise<TraceArtifact | undefined> {
+  // Eager mid-run flushes reach here directly, bypassing finalizeTraceExport's
+  // gate, so enforce trace-mode here too — a live run must not write slices.
+  if (ctx.mode !== 'trace') {
+    return undefined
+  }
   if (ctx.flushed.has(range.key)) {
     return undefined
   }
@@ -215,21 +240,14 @@ export async function flushRangeTrace(
   const sliceMetadata = isTestSlice
     ? filterTestMetadataByUid(ctx.testMetadata, range.testUid!)
     : filterTestMetadataBySpec(ctx.testMetadata, range.specFile)
-  // Scope the per-attempt ledger to this slice: a test slice sees only its own
-  // attempt (so a passing retry's slice isn't retained on first-failure), a spec
-  // slice sees every attempt of its tests.
-  const sliceOutcomes = ctx.outcomes
-    ? isTestSlice
-      ? ctx.outcomes.forTest(range.testUid!, attemptFromKey(range.key))
-      : ctx.outcomes.forSpec(range.specFile)
-    : undefined
+  const outcomes = sliceOutcomeView(ctx, range, isTestSlice)
   const artifact: TraceArtifact = {
     kind: 'trace',
     path: '',
     scope: isTestSlice ? 'test' : 'spec',
     key: range.key,
     testUids: Array.from(sliceMetadata.keys()),
-    retained: shouldRetain(ctx, sliceMetadata, sliceOutcomes)
+    retained: shouldRetain(ctx, sliceMetadata, outcomes)
   }
   if (!artifact.retained) {
     ctx.onArtifact?.(artifact)
@@ -242,6 +260,7 @@ export async function flushRangeTrace(
     nextRange,
     capturer: ctx.capturer,
     actionSnapshots: ctx.actionSnapshots ?? [],
+    screencastFrames: ctx.screencastFrames,
     sessionId: ctx.sessionId,
     outputDir: ctx.resolveOutputDir(range),
     format: ctx.format,
@@ -308,6 +327,7 @@ async function writeSessionTrace(
     sessionId: ctx.sessionId,
     capabilities: ctx.capabilities,
     actionSnapshots: snapshots.length ? snapshots : undefined,
+    screencastFrames: ctx.screencastFrames,
     format: ctx.format,
     testMetadata: ctx.testMetadata
   })
