@@ -39,8 +39,7 @@ function boundaryContext(ctx: TestSliceCtx): SpecBoundaryContext {
   return {
     specRanges: ctx.specRanges,
     flushedSpecs: ctx.flushedSpecs,
-    capturer: ctx.sessionCapturer,
-    actionSnapshots: ctx.sessionCapturer.actionSnapshots
+    capturer: ctx.sessionCapturer
   }
 }
 

@@ -59,8 +59,7 @@ function range(specFile: string, startIdx: number): SpecRange {
     consoleStartIdx: 0,
     networkStartIdx: 0,
     mutationStartIdx: 0,
-    traceLogStartIdx: 0,
-    snapshotCount: 0
+    traceLogStartIdx: 0
   }
 }
 
