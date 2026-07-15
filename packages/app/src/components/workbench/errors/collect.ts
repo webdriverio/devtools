@@ -212,24 +212,65 @@ function commandErrors(commands: CommandLog[] | undefined): CollectedError[] {
     .sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0))
 }
 
+/** Collapse whitespace and drop a leading `…Error:` name prefix so a failed
+ *  test that only re-reports a command failure compares equal despite framework
+ *  wrapping: `@wdio/cucumber-framework` rebuilds a failed step's error from the
+ *  first line of the error's *stack* (`new Error(stack.split('\n')[0])`), which
+ *  prefixes `Error: `, while the command carries the same headline without it. */
+function normalizeMessage(message: string): string {
+  return message
+    .replace(/^[A-Za-z]*Error:\s*/, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+/** True when a command's assertion diff is echoed inside a failed test's raw
+ *  text. Cucumber keeps the full matcher output (`Expected:`/`Received:`) in the
+ *  step error's stack even when its headline was truncated to the first line, so
+ *  matching on both distinctive values catches the duplicate without depending
+ *  on the headline wording — which diverges from the command's. */
+function isAssertionEcho(
+  command: CollectedError,
+  test: { message: string; stack?: string }
+): boolean {
+  if (!command.expected || !command.actual) {
+    return false
+  }
+  const haystack = `${test.message}\n${test.stack ?? ''}`
+  return (
+    haystack.includes(command.expected) && haystack.includes(command.actual)
+  )
+}
+
 /**
  * Build the Errors-tab list from the live/player contexts.
  *
  * Command failures come first (time-ordered) because they carry the clickable
- * action; a failed test that only echoes a command's message is dropped so the
+ * action; a failed test that only echoes a command's failure is dropped so the
  * same failure isn't listed twice (e.g. a Cucumber `Then` fails as both the
- * assertion command and the scenario).
+ * assertion command and the step). The echo is detected two ways because the
+ * frameworks reword the test-level message: a normalized-message match (robust
+ * to the `Error:` prefix Cucumber adds), and — for assertions — the command's
+ * expected+actual both appearing in the test error's raw text.
  */
 export function collectErrors(
   commands: CommandLog[] | undefined,
   suites: Record<string, SuiteStatsFragment>[] | undefined
 ): CollectedError[] {
   const fromCommands = commandErrors(commands)
-  const seenMessages = new Set(fromCommands.map((e) => e.message))
+  const seenMessages = new Set(
+    fromCommands.map((e) => normalizeMessage(e.message))
+  )
 
   const fromTests = collectFailedTests(suites).flatMap((test) => {
     const read = readError(test.error ?? test.errors?.[0])
-    if (!read || seenMessages.has(read.message)) {
+    if (!read) {
+      return []
+    }
+    if (seenMessages.has(normalizeMessage(read.message))) {
+      return []
+    }
+    if (fromCommands.some((command) => isAssertionEcho(command, read))) {
       return []
     }
     return [
