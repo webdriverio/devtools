@@ -36,6 +36,7 @@ import type {
   ActionSnapshot,
   DevToolsMode,
   Metadata,
+  ScreencastFrame,
   ScreencastOptions,
   SeleniumDriverLike,
   TraceFormat,
@@ -57,6 +58,7 @@ export interface SessionLifecycleCtx {
     traceFormat?: TraceFormat
     traceGranularity?: TraceGranularity
     tracePolicy?: TraceRetentionPolicy
+    filmstrip?: boolean
   }
   readonly screencastOptions: ScreencastOptions
   readonly runner: string
@@ -88,6 +90,8 @@ export interface SessionLifecycleCtx {
   readonly traceFlushes: Promise<unknown>[]
   // Every trace/video artifact seen this run, for the end-of-run manifest.
   readonly artifacts: TraceArtifact[]
+  // Dense filmstrip frames accumulated across drivers (filmstrip option only).
+  readonly filmstripFrames: ScreencastFrame[]
 
   setFinalized(v: boolean): void
   ensureBackendStarted(): Promise<void>
@@ -183,8 +187,12 @@ async function initPerDriverCapture(
     ctx.sessionCapturer.sendUpstream('metadata', metadata)
   }
 
-  // Parallel — serial attach misses frames on fast tests.
-  const screencastPromise = ctx.screencastOptions.enabled
+  // Parallel — serial attach misses frames on fast tests. Trace-mode filmstrip
+  // needs the same recorder even though live screencast is off in trace mode.
+  const wantScreencast =
+    ctx.screencastOptions.enabled ||
+    (ctx.options.mode === 'trace' && !!ctx.options.filmstrip)
+  const screencastPromise = wantScreencast
     ? (async () => {
         try {
           ctx.screencast = new ScreencastRecorder(ctx.screencastOptions)
@@ -227,6 +235,11 @@ export async function onDriverEnd(ctx: SessionLifecycleCtx): Promise<void> {
         ctx.sessionCapturer?.sendUpstream(scope, data),
       onLog: (level, message) => log[level](message)
     })
+  }
+  // Drain this driver's frames into the run-wide buffer while the recorder is
+  // still alive — the finalize context is built after screencast is nulled.
+  if (ctx.options.filmstrip && ctx.screencast) {
+    ctx.filmstripFrames.push(...ctx.screencast.frames)
   }
   ctx.driver = undefined
   ctx.screencast = undefined
@@ -313,6 +326,12 @@ export function buildTraceExportContext(
     format: ctx.options.traceFormat,
     capturer,
     actionSnapshots: ctx.actionSnapshots,
+    // Accumulated (ended-driver) frames plus the live recorder's — a mid-run
+    // per-spec/per-test flush fires before onDriverEnd drains the recorder, so
+    // its frames aren't in filmstripFrames yet; the core windows per slice.
+    screencastFrames: ctx.options.filmstrip
+      ? [...ctx.filmstripFrames, ...(ctx.screencast?.frames ?? [])]
+      : undefined,
     sessionId,
     testMetadata: collectSuiteTestMetadata(root ? [root] : []),
     // TestStats.retries carries the per-test attempt (Mocha authoritative,

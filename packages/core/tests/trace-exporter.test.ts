@@ -404,3 +404,56 @@ describe('exported trace stream — frame-snapshot events', () => {
     await fs.rm(outputDir, { recursive: true, force: true })
   })
 })
+
+describe('exported trace stream — dense filmstrip', () => {
+  it('emits content-addressed screencast-frame events + resources', async () => {
+    const outputDir = await fs.mkdtemp(path.join(os.tmpdir(), 'trace-dense-'))
+    const capturer: TraceCapturer = {
+      mutations: [],
+      traceLogs: [],
+      consoleLogs: [],
+      networkRequests: [],
+      commandsLog: [
+        {
+          command: 'url',
+          args: ['https://example.test'],
+          timestamp: 1200,
+          startTime: 1150
+        }
+      ],
+      sources: new Map(),
+      metadata: { type: TraceType.Standalone },
+      startWallTime: 1000
+    }
+    const dir = await writeTraceZip(capturer, {
+      outputDir,
+      sessionId: 'abc12345',
+      format: 'ndjson-directory',
+      screencastFrames: [
+        { data: Buffer.from('paint-1').toString('base64'), timestamp: 1000 },
+        { data: Buffer.from('paint-1').toString('base64'), timestamp: 1050 },
+        { data: Buffer.from('paint-2').toString('base64'), timestamp: 1400 }
+      ]
+    })
+    const raw = await fs.readFile(path.join(dir, 'trace.trace'), 'utf8')
+    const frames = raw
+      .trim()
+      .split('\n')
+      .map((l) => JSON.parse(l) as Record<string, unknown>)
+      .filter((l) => l.type === 'screencast-frame')
+
+    // Two identical bytes 50ms apart collapse to one kept frame; the second
+    // distinct paint is the other. Both rebased against wallTime 1000.
+    expect(frames).toHaveLength(2)
+    expect(frames.map((f) => f.timestamp)).toEqual([0, 400])
+    for (const f of frames) {
+      expect(String(f.sha1)).toMatch(/^[0-9a-f]{40}\.jpeg$/)
+    }
+
+    const resourceNames = await fs.readdir(path.join(dir, 'resources'))
+    for (const f of frames) {
+      expect(resourceNames).toContain(f.sha1)
+    }
+    await fs.rm(outputDir, { recursive: true, force: true })
+  })
+})

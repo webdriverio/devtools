@@ -134,6 +134,12 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     frames: ScreencastFrame[]
   }
 
+  /** Filmstrip frames accumulated across reloadSession() boundaries — the
+   *  recorder's buffer resets per session, so this persists earlier sessions'
+   *  frames (like #actionSnapshots) and is concatenated with the live recorder's
+   *  frames at export, then windowed per slice in core. Filmstrip mode only. */
+  #filmstripFrames: ScreencastFrame[] = []
+
   /** Map of testUid → metadata for trace group events and per-spec partitioning. */
   #testMetadata: TestMetadataMap = new Map()
 
@@ -202,12 +208,29 @@ export default class DevToolsHookService implements Services.ServiceInstance {
   }
 
   /** Record a screencast this session? Live mode: `screencast.enabled`. Trace
-   *  mode: a non-`off` `video` policy (frames are sliced per test at flush). */
+   *  mode: a non-`off` `video` policy (frames sliced per test at flush) or
+   *  `filmstrip` (dense frames written into the trace itself). */
   #shouldRecordScreencast(): boolean {
     if (this.#options.mode === 'trace') {
-      return !!this.#options.video && this.#options.video !== 'off'
+      return (
+        (!!this.#options.video && this.#options.video !== 'off') ||
+        !!this.#options.filmstrip
+      )
     }
     return !!this.#screencastOptions?.enabled
+  }
+
+  /** Whole-run filmstrip frames for the export context: earlier sessions'
+   *  accumulated frames plus the live recorder's, or undefined when filmstrip
+   *  is off (so the trace stays byte-stable with today's output). */
+  #filmstripFramesForExport(): ScreencastFrame[] | undefined {
+    if (!this.#options.filmstrip) {
+      return undefined
+    }
+    return [
+      ...this.#filmstripFrames,
+      ...(this.#screencastRecorder?.frames ?? [])
+    ]
   }
 
   /** Eager per-test flush at test end (test granularity only), run after the
@@ -240,6 +263,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
       format: this.#options.traceFormat,
       capturer: this.#sessionCapturer,
       actionSnapshots: this.#actionSnapshots,
+      screencastFrames: this.#filmstripFramesForExport(),
       sessionId: browser.sessionId,
       capabilities: browser.capabilities,
       testMetadata: this.#testMetadata,
@@ -306,8 +330,9 @@ export default class DevToolsHookService implements Services.ServiceInstance {
 
     /**
      * Start screencast recording when enabled — `screencast.enabled` in live
-     * mode, or a non-`off` `video` policy in trace mode (per-test slicing at
-     * flush time). Failures are non-fatal — logged, session continues.
+     * mode, or a non-`off` `video` policy (per-test slicing at flush) or
+     * `filmstrip` (dense frames into the trace) in trace mode. Failures are
+     * non-fatal — logged, session continues.
      */
     if (this.#shouldRecordScreencast()) {
       this.#screencastRecorder = new ScreencastRecorder(
@@ -767,10 +792,16 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     // point the recorder below has replaced these frames. Snapshot them now,
     // keyed to the ending test, so afterScenario can still slice its video.
     if (this.#options.mode === 'trace' && this.#screencastRecorder) {
+      const frames = [...this.#screencastRecorder.frames]
       this.#pendingVideoFrames = {
         testUid: this.#currentTestUid,
         startWallTime: this.#currentTestStartWallTime,
-        frames: [...this.#screencastRecorder.frames]
+        frames
+      }
+      // Persist for the filmstrip too — the recorder below resets the buffer,
+      // so a session/spec trace spanning this reload keeps its earlier frames.
+      if (this.#options.filmstrip) {
+        this.#filmstripFrames.push(...frames)
       }
     }
 

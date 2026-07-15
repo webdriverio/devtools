@@ -17,6 +17,7 @@ import {
 import type { SessionCapturer } from './session.js'
 import type {
   DevToolsMode,
+  ScreencastFrame,
   SuiteStats,
   TraceFormat,
   TraceGranularity,
@@ -35,6 +36,7 @@ export interface TraceContextInput {
   flushed: Set<string>
   artifacts: TraceArtifact[]
   traceFlushes: Promise<unknown>[]
+  screencastFrames?: readonly ScreencastFrame[]
   configPath: string | undefined
   testFilePath: string | undefined
   log: (level: 'info' | 'warn', msg: string) => void
@@ -56,6 +58,7 @@ export function buildTraceContext(
     outcomes: input.outcomes,
     ranges: input.ranges,
     flushed: input.flushed,
+    screencastFrames: input.screencastFrames,
     resolveOutputDir: () =>
       resolveAdapterOutputDir({
         testFilePath: input.testFilePath,

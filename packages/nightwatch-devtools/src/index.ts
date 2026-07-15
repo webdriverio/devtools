@@ -23,7 +23,8 @@ import {
   REUSE_ENV,
   SCREENCAST_DEFAULTS,
   type CucumberPickle,
-  type CucumberPickleStep
+  type CucumberPickleStep,
+  type ScreencastFrame
 } from '@wdio/devtools-shared'
 import logger from '@wdio/logger'
 import {
@@ -125,6 +126,9 @@ class NightwatchDevToolsPlugin {
   #screencastOptions: ScreencastOptions
   #screencastRecorder?: ScreencastRecorder
   #screencastSessionId?: string
+
+  // Snapshotted before each recorder is nulled, so the export isn't blank.
+  #filmstripFrames: ScreencastFrame[] = []
   #bidiEnabled = false
   #bidiAttachAttempted = false
 
@@ -134,11 +138,17 @@ class NightwatchDevToolsPlugin {
 
   constructor(options: DevToolsOptions = {}) {
     const mode = options.mode ?? 'live'
-    const ignore = mode === 'trace' && options.screencast?.enabled === true
+    // Filmstrip drives the recorder in trace mode; bare screencast stays live-only.
+    const filmstrip = mode === 'trace' && options.filmstrip === true
+    const ignore =
+      mode === 'trace' && !filmstrip && options.screencast?.enabled === true
     if (ignore) {
       log.warn('trace mode: ignoring screencast option (live-mode feature)')
     }
-    const screencast = ignore ? {} : (options.screencast ?? {})
+    let screencast = ignore ? {} : (options.screencast ?? {})
+    if (filmstrip) {
+      screencast = { ...(options.screencast ?? {}), enabled: true }
+    }
     this.options = {
       port: options.port ?? 3000,
       hostname: options.hostname ?? 'localhost',
@@ -148,7 +158,8 @@ class NightwatchDevToolsPlugin {
       mode,
       traceFormat: options.traceFormat ?? 'zip',
       traceGranularity: options.traceGranularity ?? 'session',
-      tracePolicy: options.tracePolicy ?? 'on'
+      tracePolicy: options.tracePolicy ?? 'on',
+      filmstrip: options.filmstrip ?? false
     }
     const policyWarning = tracePolicyModeWarning(options.tracePolicy, mode)
     if (policyWarning) {
@@ -375,6 +386,9 @@ class NightwatchDevToolsPlugin {
   }
 
   async #finalizeCurrentScreencast(): Promise<void> {
+    if (this.options.filmstrip && this.#screencastRecorder) {
+      this.#filmstripFrames.push(...this.#screencastRecorder.frames)
+    }
     await finalizeCurrentScreencast(this.#getInternals())
   }
 
@@ -606,6 +620,16 @@ class NightwatchDevToolsPlugin {
         flushed: this.#flushedSpecs,
         artifacts: this.#artifacts,
         traceFlushes: this.#traceFlushes,
+        // Accumulated (finalized-session) frames plus the live recorder's — a
+        // mid-run per-spec/per-test flush fires before the recorder is drained
+        // into #filmstripFrames, so its frames live only on the recorder still;
+        // at the final write the recorder is already nulled, so no double-count.
+        screencastFrames: this.options.filmstrip
+          ? [
+              ...this.#filmstripFrames,
+              ...(this.#screencastRecorder?.frames ?? [])
+            ]
+          : undefined,
         configPath: this.#configPath,
         testFilePath:
           this.browserProxy?.getCurrentTestFullPath?.() ?? undefined,

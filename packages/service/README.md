@@ -52,6 +52,7 @@ services: [['devtools', options]]
 | `tracePolicy` | `TraceRetentionPolicy` | `'on'` | Trace mode only. Which traces to keep — e.g. `'retain-on-failure'`, `'retain-on-first-failure'`. |
 | `screenshot` | `'off' \| 'on' \| 'only-on-failure'` | `'off'` | Trace mode + `traceGranularity: 'test'`. Per-test screenshot, attached inline to Allure (`image/png`). |
 | `video` | `'off' \| TraceRetentionPolicy` | `'off'` | Trace mode + `traceGranularity: 'test'`. Per-test screencast video, retained per the given policy, attached inline to Allure (`video/webm`). |
+| `filmstrip` | `boolean` | `false` | Trace mode only. Records a dense, continuous screencast filmstrip *into* the trace so the player scrubs smooth playback — dense frames are added alongside the per-action frames (not one frame per action). Frames are thinned (≥100 ms apart, ~600 max) and content-addressed (identical frames — a static wait — collapse to one resource); windowed per slice at any `traceGranularity`. Runs the screencast recorder (CDP push on Chrome, polling elsewhere). |
 
 ## Allure integration
 

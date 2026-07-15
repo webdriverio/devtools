@@ -9,6 +9,8 @@
 import path from 'node:path'
 import type {
   ActionSnapshot,
+  CommandLog,
+  ScreencastFrame,
   TestMetadataMap,
   TraceFormat,
   TraceGranularity
@@ -144,13 +146,16 @@ export function buildTestSliceFolder(
   key: string
 ): string {
   const specBase = sanitizeSpecName(path.basename(specFile))
-  const titleSlug =
-    slugify(testTitle ?? '') ||
-    deterministicUid(key).split('-').pop()!.slice(0, 8)
+  // A short hash of the slice key disambiguates two tests that share a title
+  // (Scenario Outline examples with a placeholder-free name, or duplicate `it`
+  // titles) — without it their folders collide and one trace overwrites the
+  // other. Mirrors buildTestSliceSessionId, which hashes the key for the id.
+  const keyHash = deterministicUid(key).split('-').pop()!.slice(0, 8)
+  const titleSlug = slugify(testTitle ?? '') || keyHash
   const browserSlug = slugify(browser ?? '') || 'browser'
   const retryMatch = key.match(/-retry(\d+)$/)
   const retrySuffix = retryMatch ? `-retry${retryMatch[1]}` : ''
-  return `${specBase}-${titleSlug}-${browserSlug}${retrySuffix}`
+  return `${specBase}-${titleSlug}-${browserSlug}-${keyHash}${retrySuffix}`
 }
 
 // ─── TraceCapturer slice ─────────────────────────────────────────────────────
@@ -343,12 +348,32 @@ export interface WriteSpecTraceInput {
   /** Shape-compatible with `buildSpecCapturer`'s first parameter. */
   capturer: Parameters<typeof buildSpecCapturer>[0]
   actionSnapshots: ActionSnapshot[]
+  /** Full session frame buffer; windowed to this slice's wall-clock span. */
+  screencastFrames?: readonly ScreencastFrame[]
   sessionId: string
   outputDir: string
   format?: TraceFormat
   /** Full test-metadata map (all specs); filtered to `range.specFile` internally. */
   testMetadata: TestMetadataMap
   capabilities?: unknown
+}
+
+/** Timestamped items inside a slice's wall-clock window `[start, end)`. An
+ *  undefined `start` (a slice with no commands to anchor on) yields nothing; an
+ *  undefined `end` (the last slice) is open-ended, so a trailing assertion-wait
+ *  stays with its test. Used for both action snapshots and screencast frames so
+ *  they partition on the same reliable boundary as the sliced commands. */
+function sliceByWindow<T extends { timestamp: number }>(
+  items: readonly T[],
+  start: number | undefined,
+  end: number | undefined
+): T[] {
+  if (start === undefined) {
+    return []
+  }
+  return items.filter(
+    (i) => i.timestamp >= start && (end === undefined || i.timestamp < end)
+  )
 }
 
 /** Slice the parent capturer/snapshots for one range and write the artifact
@@ -367,10 +392,35 @@ async function writeSliceTrace(
     input.nextRange
   )
 
-  const sliceSnapshots = input.actionSnapshots.slice(
-    input.range.snapshotCount,
-    input.nextRange?.snapshotCount ?? input.actionSnapshots.length
+  // Anchor the slice on its own commands, which buildSpecCapturer index-slices
+  // reliably — parent-array index lookups desync under reloadSession and would
+  // sweep an earlier test's snapshots/frames in. Snapshots and frames are then
+  // windowed by that wall-clock span, and the slice is rebased to its own start
+  // (start === wallTime) so a per-test trace begins at 0, not the session
+  // offset. `windowEnd` is the next slice's start; open for the last. Anchor on
+  // the command's `startTime` (invocation), not `timestamp` (completion), so the
+  // frames captured *during* the first action — e.g. the page load of an opening
+  // `url()` — fall inside this slice rather than being dropped or bleeding into
+  // the previous one.
+  const commandStart = (c: CommandLog | undefined): number | undefined =>
+    c ? (c.startTime ?? c.timestamp) : undefined
+  const windowStart = commandStart(sliceCapturer.commandsLog[0])
+  const windowEnd = input.nextRange
+    ? commandStart(input.capturer.commandsLog[input.nextRange.commandStartIdx])
+    : undefined
+
+  const sliceSnapshots = sliceByWindow(
+    input.actionSnapshots,
+    windowStart,
+    windowEnd
   )
+  const sliceFrames = input.screencastFrames
+    ? sliceByWindow(input.screencastFrames, windowStart, windowEnd)
+    : undefined
+
+  if (windowStart !== undefined) {
+    sliceCapturer.startWallTime = windowStart
+  }
 
   return writeTraceZip(sliceCapturer, {
     outputDir: overrides.outputDir ?? input.outputDir,
@@ -378,6 +428,7 @@ async function writeSliceTrace(
     fileStem: overrides.fileStem,
     capabilities: input.capabilities,
     actionSnapshots: sliceSnapshots.length > 0 ? sliceSnapshots : undefined,
+    screencastFrames: sliceFrames?.length ? sliceFrames : undefined,
     format: input.format,
     testMetadata
   })

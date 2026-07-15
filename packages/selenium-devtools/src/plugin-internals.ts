@@ -15,6 +15,7 @@ import type { ScreencastRecorder } from './screencast.js'
 import type {
   ActionSnapshot,
   DevToolsMode,
+  ScreencastFrame,
   ScreencastOptions,
   SeleniumDriverLike,
   TraceFormat,
@@ -71,6 +72,8 @@ export interface PluginInternals {
   readonly traceFlushes: Promise<unknown>[]
   // Every trace/video artifact seen this run, for the end-of-run manifest.
   readonly artifacts: TraceArtifact[]
+  // Dense filmstrip frames accumulated across drivers (filmstrip option only).
+  readonly filmstripFrames: ScreencastFrame[]
 
   // Plugin-side delegates
   setFinalized(v: boolean): void
