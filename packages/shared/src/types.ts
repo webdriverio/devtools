@@ -278,6 +278,8 @@ export interface ScreencastOptions {
    * (default: 200 ms ≈ 5 fps). Lower = smoother, more WebDriver round-trips.
    */
   pollIntervalMs?: number
+  /** Cap on frames held in memory (default: 2000 ≈ several minutes at ~5 fps); the buffer is decimated in place past this. */
+  maxBufferFrames?: number
 }
 
 /** Defaults applied to ScreencastOptions when not specified by the user. */
@@ -287,7 +289,8 @@ export const SCREENCAST_DEFAULTS: Required<ScreencastOptions> = {
   quality: 70,
   maxWidth: 1280,
   maxHeight: 720,
-  pollIntervalMs: 200
+  pollIntervalMs: 200,
+  maxBufferFrames: 2000
 }
 
 /**
