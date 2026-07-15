@@ -21,8 +21,8 @@ import { DevTools } from '@wdio/selenium-devtools'
 // 5 retry:   { mode: 'trace', traceGranularity: 'test', tracePolicy: 'on-first-retry' }
 DevTools.configure({
   mode: 'trace',
-  // traceGranularity: 'test',
-  // tracePolicy: 'on-first-retry',
+  traceGranularity: 'session',
+  tracePolicy: 'retain-on-first-failure',
   headless: true
 })
 

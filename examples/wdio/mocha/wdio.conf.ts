@@ -19,6 +19,7 @@ export const config: Options.Testrunner = {
   capabilities: [
     {
       browserName: 'chrome',
+      // browserVersion: '147.0.7727.56',
       'goog:chromeOptions': {
         args: [
           '--headless',
@@ -45,7 +46,9 @@ export const config: Options.Testrunner = {
         // 3 per-test: mode: 'trace', traceGranularity: 'test'
         // 4 fail:     mode: 'trace', traceGranularity: 'test', tracePolicy: 'retain-on-failure'
         // 5 retry:    use `pnpm demo:wdio:retry` (adds retries:1 + on-first-retry)
-        mode: 'live' as const
+        mode: 'live' as const,
+        traceGranularity: 'test' as const,
+        tracePolicy: 'retain-on-failure' as const
       }
     ]
   ],

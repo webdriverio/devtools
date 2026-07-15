@@ -14,10 +14,13 @@ import {
   type TraceExportContext
 } from '@wdio/devtools-core'
 import { attachArtifactToAllure } from './allure.js'
+import { captureAndAttachScreenshot } from './screenshot-capture.js'
+import { captureAndAttachVideo } from './video-capture.js'
 import { wireAssertCapture, type ExpectAssertion } from './assert-capture.js'
 import { AssertionTracker } from './assertion-tracker.js'
 import {
   cucumberScenarioUid,
+  isFailedResult,
   resolveTestAttempt,
   stampTestState,
   testMetadataUid,
@@ -33,7 +36,11 @@ import {
   dedupeSnapshotsByTimestamp,
   upsertRichestSnapshot
 } from './snapshot-dedupe.js'
-import type { ActionSnapshot, TestMetadataMap } from '@wdio/devtools-shared'
+import type {
+  ActionSnapshot,
+  ScreencastFrame,
+  TestMetadataMap
+} from '@wdio/devtools-shared'
 import { SevereServiceError } from 'webdriverio'
 import type { Services, Capabilities, Options, Reporters } from '@wdio/types'
 import type { WebDriverCommands } from '@wdio/protocols'
@@ -95,11 +102,14 @@ export default class DevToolsHookService implements Services.ServiceInstance {
       log.warn(policyWarning)
     }
     if (serviceOptions.mode === 'trace' && serviceOptions.screencast?.enabled) {
-      log.warn('trace mode: ignoring screencast option (live-mode feature)')
-      this.#screencastOptions = undefined
-    } else {
-      this.#screencastOptions = serviceOptions.screencast
+      log.warn(
+        'trace mode: `screencast.enabled` is ignored — use `video` to record; ' +
+          'the tuning fields (quality/interval) still apply'
+      )
     }
+    // Tuning is kept for both modes; whether we actually record is decided by
+    // #shouldRecordScreencast (screencast.enabled in live, `video` in trace).
+    this.#screencastOptions = serviceOptions.screencast
   }
 
   /**
@@ -110,6 +120,19 @@ export default class DevToolsHookService implements Services.ServiceInstance {
 
   /** Current test UID, set in beforeTest(), used by afterCommand() to tag commands. */
   #currentTestUid?: string
+
+  /** Wall-clock ms at the current test's start, set in beforeTest/beforeScenario;
+   *  the lower bound of that test's video frame window (per-test slicing). */
+  #currentTestStartWallTime = 0
+
+  /** Recorder frames snapshotted in onReload before reloadSession replaces the
+   *  recorder — so the ending test's per-test video can still be sliced in
+   *  afterScenario (which runs AFTER the cucumber After hook's reloadSession). */
+  #pendingVideoFrames?: {
+    testUid: string | undefined
+    startWallTime: number
+    frames: ScreencastFrame[]
+  }
 
   /** Map of testUid → metadata for trace group events and per-spec partitioning. */
   #testMetadata: TestMetadataMap = new Map()
@@ -157,6 +180,34 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     if (prevRange && this.#browser) {
       flushPrevSlice(this.#traceContext(this.#browser), prevRange)
     }
+  }
+
+  /** Base64 of the last rendered action snapshot for the current test, skipping
+   *  the end-of-scenario `__final__` frame — that one is captured post-teardown
+   *  and can come back blank when a reloadSession runs before afterScenario.
+   *  Used as the per-test screenshot so it's the real failure-moment frame,
+   *  reload-immune. Scoped to this test's window (>= its start) so a test that
+   *  captured nothing doesn't borrow the previous test's frame. */
+  #lastRenderedScreenshot(): string | undefined {
+    for (let i = this.#actionSnapshots.length - 1; i >= 0; i--) {
+      const snap = this.#actionSnapshots[i]!
+      if (snap.timestamp < this.#currentTestStartWallTime) {
+        return undefined
+      }
+      if (snap.command !== '__final__' && snap.screenshot) {
+        return snap.screenshot
+      }
+    }
+    return undefined
+  }
+
+  /** Record a screencast this session? Live mode: `screencast.enabled`. Trace
+   *  mode: a non-`off` `video` policy (frames are sliced per test at flush). */
+  #shouldRecordScreencast(): boolean {
+    if (this.#options.mode === 'trace') {
+      return !!this.#options.video && this.#options.video !== 'off'
+    }
+    return !!this.#screencastOptions?.enabled
   }
 
   /** Eager per-test flush at test end (test granularity only), run after the
@@ -254,12 +305,14 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     }
 
     /**
-     * Start screencast recording if the user has enabled it.
-     * Options come from the service constructor (services: [['devtools', { screencast: { enabled: true } }]]).
-     * Failures are non-fatal — a warning is logged and the session continues.
+     * Start screencast recording when enabled — `screencast.enabled` in live
+     * mode, or a non-`off` `video` policy in trace mode (per-test slicing at
+     * flush time). Failures are non-fatal — logged, session continues.
      */
-    if (this.#screencastOptions?.enabled) {
-      this.#screencastRecorder = new ScreencastRecorder(this.#screencastOptions)
+    if (this.#shouldRecordScreencast()) {
+      this.#screencastRecorder = new ScreencastRecorder(
+        this.#screencastOptions ?? {}
+      )
       await this.#screencastRecorder.start(browser)
     }
 
@@ -347,6 +400,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     pickle?: { uri?: string; name?: string; astNodeIds?: readonly string[] }
   }) {
     this.resetStack()
+    this.#currentTestStartWallTime = Date.now()
 
     const featureFile = world?.pickle?.uri
     const scenarioName = world?.pickle?.name
@@ -377,6 +431,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
   /** Mocha/Jasmine hook: the beforeScenario equivalent for file-based specs. */
   beforeTest(test?: { file?: string; title?: string; fullTitle?: string }) {
     this.resetStack()
+    this.#currentTestStartWallTime = Date.now()
 
     // Track test identity for command tagging. Generate a stable UID
     // from file + title so commands can be partitioned across reruns.
@@ -436,7 +491,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
       this.#stampOutcome(uid, result)
     }
     await this.#finalizePerScenario()
-    await this.#eagerFlushAndAttach(uid)
+    await this.#emitTestArtifacts(uid, isFailedResult(result))
   }
 
   async afterTest(
@@ -451,20 +506,60 @@ export default class DevToolsHookService implements Services.ServiceInstance {
       this.#stampOutcome(uid, result)
     }
     await this.#finalizePerScenario()
-    await this.#eagerFlushAndAttach(uid)
+    await this.#emitTestArtifacts(uid, isFailedResult(result))
   }
 
-  /** Flush this test's slice (so it captures the final snapshot + stamped
-   *  outcome), then attach the retained artifact to Allure while the per-test
-   *  hook is still open. No-op outside `test`-granularity trace mode. */
-  async #eagerFlushAndAttach(uid: string | undefined): Promise<void> {
-    if (!uid) {
-      return
+  /** At test end, while the per-test hook is still open: eager-flush this test's
+   *  slice (so it captures the final snapshot + stamped outcome) and attach the
+   *  retained trace to Allure, then capture the per-test screenshot per policy
+   *  and attach it too. Each part no-ops when its feature is off. */
+  async #emitTestArtifacts(
+    uid: string | undefined,
+    failed: boolean
+  ): Promise<void> {
+    if (uid) {
+      const artifact = await this.#eagerFlushTestSlice(uid)
+      if (artifact) {
+        await attachArtifactToAllure(artifact)
+      }
     }
-    const artifact = await this.#eagerFlushTestSlice(uid)
-    if (artifact) {
-      await attachArtifactToAllure(artifact)
-    }
+    await captureAndAttachScreenshot({
+      mode: this.#options.mode,
+      granularity: this.#options.traceGranularity,
+      policy: this.#options.screenshot,
+      failed,
+      screenshotBase64: this.#lastRenderedScreenshot(),
+      sessionId: this.#browser?.sessionId,
+      outputDir: this.#outputDir,
+      testUid: uid,
+      onArtifact: (a) => this.#artifacts.push(a)
+    })
+    // Authoritative attempt for this test (stamped into metadata by
+    // #stampOutcome, which ran just before this). Scopes retention + the video
+    // filename to this attempt so retries don't overwrite each other.
+    const attempt = uid ? this.#testMetadata.get(uid)?.attempt : undefined
+    // Prefer frames snapshotted in onReload (reloadSession tears the recorder
+    // down before this hook); fall back to the live recorder otherwise.
+    const pending =
+      this.#pendingVideoFrames?.testUid === uid
+        ? this.#pendingVideoFrames
+        : undefined
+    this.#pendingVideoFrames = undefined
+    await captureAndAttachVideo({
+      mode: this.#options.mode,
+      granularity: this.#options.traceGranularity,
+      policy: this.#options.video,
+      frames: pending?.frames ?? this.#screencastRecorder?.frames,
+      startWallTime: pending?.startWallTime ?? this.#currentTestStartWallTime,
+      outcomes: uid ? this.#attemptTracker.forTest(uid, attempt) : [],
+      attempt,
+      outputDir: this.#outputDir,
+      testUid: uid,
+      sessionId: this.#browser?.sessionId,
+      captureFormat: this.#screencastOptions?.captureFormat,
+      onArtifact: (a) => this.#artifacts.push(a),
+      onLog: (level, msg) => log[level](msg)
+    })
   }
 
   /** expect-webdriverio matcher hooks — delegated to the assertion tracker. */
@@ -663,8 +758,20 @@ export default class DevToolsHookService implements Services.ServiceInstance {
    * on the new session so the second scenario is also covered.
    */
   async onReload(oldSessionId: string, _newSessionId: string) {
-    if (!this.#screencastOptions?.enabled || !this.#browser) {
+    if (!this.#shouldRecordScreencast() || !this.#browser) {
       return
+    }
+
+    // Trace mode: the ending test's afterScenario runs AFTER this reload (a
+    // cucumber `After(() => reloadSession())` is WDIO boilerplate), by which
+    // point the recorder below has replaced these frames. Snapshot them now,
+    // keyed to the ending test, so afterScenario can still slice its video.
+    if (this.#options.mode === 'trace' && this.#screencastRecorder) {
+      this.#pendingVideoFrames = {
+        testUid: this.#currentTestUid,
+        startWallTime: this.#currentTestStartWallTime,
+        frames: [...this.#screencastRecorder.frames]
+      }
     }
 
     // Finalize the recording from the old session (CDP is already gone, so
@@ -672,7 +779,9 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     await this.#finalizeScreencast(oldSessionId)
 
     // Start a new recorder for the new session.
-    this.#screencastRecorder = new ScreencastRecorder(this.#screencastOptions)
+    this.#screencastRecorder = new ScreencastRecorder(
+      this.#screencastOptions ?? {}
+    )
     await this.#screencastRecorder.start(this.#browser)
   }
 
@@ -706,6 +815,13 @@ export default class DevToolsHookService implements Services.ServiceInstance {
    */
   async #finalizeScreencast(sessionId: string) {
     if (!this.#screencastRecorder) {
+      return
+    }
+    // Trace mode: the video is emitted per-test (sliced in #emitTestArtifacts),
+    // and there's no dashboard to receive a session recording — so just stop the
+    // recorder to release resources; never encode an orphan session-wide webm.
+    if (this.#options.mode === 'trace') {
+      await this.#screencastRecorder.stop()
       return
     }
     // Skip ghost sessions: browser.reloadSession() creates a new session at

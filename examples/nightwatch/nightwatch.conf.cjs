@@ -53,6 +53,8 @@ module.exports = {
         // per module (no per-`it` hook), so traceGranularity:'test' collapses to
         // a single session-scoped slice here. See CLAUDE.md § Known debt.
         mode: 'trace',
+        traceGranularity: 'session',
+        tracePolicy: 'retain-on-first-failure',
         bidi: true
       })
     }

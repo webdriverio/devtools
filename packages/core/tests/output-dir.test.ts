@@ -4,7 +4,7 @@ import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { resolveAdapterOutputDir } from '../src/output-dir.js'
 
-/** Every resolved dir is grouped under this subfolder (Playwright-style). */
+/** Every resolved dir is grouped under this subfolder */
 const grouped = (base: string) => path.join(base, 'test-results')
 
 describe('resolveAdapterOutputDir', () => {

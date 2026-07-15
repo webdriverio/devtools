@@ -46,6 +46,14 @@ export function resultToState(result: {
   return result.passed ? 'passed' : 'failed'
 }
 
+/** True when a result represents a failed test (not passed, not skipped).
+ *  Absent result → not failed (nothing ran to fail). */
+export function isFailedResult(
+  result?: Pick<TestOutcomeResult, 'passed' | 'skipped'>
+): boolean {
+  return result ? resultToState(result) === 'failed' : false
+}
+
 /** Stamp the final state (and, when known, the 0-based attempt) onto the
  *  metadata entry beforeTest/beforeScenario created, so retention can gate its
  *  trace per attempt. No-op when there's no entry. */

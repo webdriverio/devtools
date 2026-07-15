@@ -3,8 +3,11 @@
 
 export * from './action-mapping.js'
 export * from './action-snapshot.js'
+export * from './artifact-naming.js'
 export * from './artifacts-manifest.js'
 export * from './attempt-tracker.js'
+export * from './screenshot-artifact.js'
+export * from './video-slice.js'
 export * from './with-timeout.js'
 export * from './assert-patcher.js'
 export * from './element-snapshot.js'
