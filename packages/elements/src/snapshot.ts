@@ -4,9 +4,17 @@
 
 export {
   serializeWebSnapshot,
-  serializeMobileSnapshot
+  serializeMobileSnapshot,
+  buildSnapshot,
+  accessibilityNodesToSnapshotNodes,
+  jsonElementToSnapshotNodes
 } from '@wdio/devtools-core/element-snapshot'
 export type {
   WebSnapshotOptions,
   MobileSnapshotOptions
 } from '@wdio/devtools-core/element-snapshot'
+export type {
+  SnapshotNode,
+  SnapshotElement,
+  SnapshotResult
+} from '@wdio/devtools-core/element-types'

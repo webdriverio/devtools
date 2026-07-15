@@ -4,6 +4,8 @@
 // @wdio/devtools-service/types. New code should import directly from
 // @wdio/devtools-shared.
 
+import type { SnapshotResult } from '@wdio/devtools-core/element-types'
+
 export {
   TraceType,
   type CommandLog,
@@ -90,6 +92,9 @@ declare namespace WebdriverIO {
     getPuppeteer?: () => Promise<unknown>
     // BiDi-specific WDIO method, present at runtime when BiDi is active.
     sessionSubscribe?: (opts: { events: string[] }) => Promise<unknown>
+    // Runtime DOM snapshot for agent auto-healing. Added by
+    // @wdio/devtools-service in the before hook.
+    getSnapshot(options?: { inViewportOnly?: boolean }): Promise<SnapshotResult>
   }
 }
 
