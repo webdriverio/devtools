@@ -16,6 +16,7 @@ import type {
 import type { TraceCapturer } from './trace-exporter.js'
 import { writeTraceZip } from './trace-exporter.js'
 import { deterministicUid } from './uid.js'
+import { trimChar } from './artifact-naming.js'
 
 // ─── SpecRange ────────────────────────────────────────────────────────────────
 
@@ -68,13 +69,14 @@ export function findFlushableRange(
  * Falls back to `'unknown-spec'` when the result is empty.
  */
 export function sanitizeSpecName(specFile: string): string {
-  return (
+  const cleaned = trimChar(
     specFile
       .replace(/^.*[/\\]/, '')
       .replace(/\.[^.]+$/, '')
-      .replace(/[^a-zA-Z0-9_-]/g, '_')
-      .replace(/^_+|_+$/g, '') || 'unknown-spec'
+      .replace(/[^a-zA-Z0-9_-]/g, '_'),
+    '_'
   )
+  return cleaned || 'unknown-spec'
 }
 
 // ─── Spec session ID ──────────────────────────────────────────────────────────
@@ -121,12 +123,12 @@ const MAX_SLUG_LENGTH = 60
 /** Lowercase, collapse runs of non-alphanumerics to `-`, trim edge dashes,
  *  and cap length (trimming a dash the cut may leave behind). */
 function slugify(text: string): string {
-  return text
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, MAX_SLUG_LENGTH)
-    .replace(/-+$/g, '')
+  const collapsed = trimChar(
+    text.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+    '-'
+  )
+  // Trim again after the length cap in case it sliced mid-dash-run.
+  return trimChar(collapsed.slice(0, MAX_SLUG_LENGTH), '-')
 }
 
 /**
