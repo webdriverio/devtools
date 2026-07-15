@@ -46,8 +46,58 @@ services: [['devtools', options]]
 | `port` | `number` | random | Port the DevTools UI server listens on |
 | `hostname` | `string` | `'localhost'` | Hostname the DevTools UI server binds to |
 | `devtoolsCapabilities` | `Capabilities` | Chrome 1600×1200 | Capabilities used to open the DevTools UI window |
-| `screencast` | `ScreencastOptions` | — | Session video recording (live mode only — see below) |
+| `screencast` | `ScreencastOptions` | — | Session video recording (live mode only — see below; for trace mode use `video`) |
 | `mode` | `'live' \| 'trace'` | `'live'` | `'live'` opens the DevTools UI window; `'trace'` skips the UI and writes a `trace-<sessionId>.zip` at session end. See [Trace mode](../../README.md#-trace-mode-tracezip) |
+| `traceGranularity` | `'session' \| 'spec' \| 'test'` | `'session'` | Trace mode only. How traces are partitioned. `'test'` is required for per-test Allure attachments (trace, screenshot, video). |
+| `tracePolicy` | `TraceRetentionPolicy` | `'on'` | Trace mode only. Which traces to keep — e.g. `'retain-on-failure'`, `'retain-on-first-failure'`. |
+| `screenshot` | `'off' \| 'on' \| 'only-on-failure'` | `'off'` | Trace mode + `traceGranularity: 'test'`. Per-test screenshot, attached inline to Allure (`image/png`). |
+| `video` | `'off' \| TraceRetentionPolicy` | `'off'` | Trace mode + `traceGranularity: 'test'`. Per-test screencast video, retained per the given policy, attached inline to Allure (`video/webm`). |
+
+## Allure integration
+
+When `@wdio/allure-reporter` is installed, trace-mode artifacts are attached to
+the Allure report automatically:
+
+- **`traceGranularity: 'test'`** — each test's trace (`application/zip`, a
+  download that opens in `pnpm show-trace`), screenshot (`image/png`, inline)
+  and video (`video/webm`, inline) attach to that test's card. This is the mode
+  to use for a per-test Allure report.
+- **`traceGranularity: 'session'` / `'spec'`** — a session/spec-spanning
+  `trace.zip` is written to disk and enumerated in
+  `devtools-artifacts-<sessionId>.json` (the artifacts manifest, listing every
+  artifact + each test's state), but it is **not** attached to individual test
+  cards.
+
+### Why session/spec traces aren't attached per test
+
+The reporter's `addAttachment` targets the **currently-running test**. A
+session/spec trace is only finalized **after** all its tests have run — by which
+point their Allure cards are already closed — so there is no open test to attach
+it to. Per-test attachment therefore requires `traceGranularity: 'test'`, where
+each slice is written during its own test hook while the card is still open.
+
+To surface a session/spec trace in Allure anyway, post-process the manifest in
+your **own** `onComplete` hook (copying the `trace.zip` into `allure-results/`
+and appending it to the result files). This is deliberately left to userland —
+baking it into the adapter would couple it to Allure's on-disk result format.
+
+### Report noise
+
+In trace mode the service captures a per-action snapshot (a `takeScreenshot`
+WebDriver command) to build the trace timeline; `@wdio/allure-reporter` logs
+every WebDriver command as a step and attaches a screenshot per `takeScreenshot`.
+Silence that flood with the reporter's own options — the `trace.zip` /
+screenshot / video attachments are unaffected:
+
+```ts
+reporters: [
+  ['allure', {
+    outputDir: 'allure-results',
+    disableWebdriverStepsReporting: true,
+    disableWebdriverScreenshotsReporting: true
+  }]
+]
+```
 
 ## Screencast Recording
 

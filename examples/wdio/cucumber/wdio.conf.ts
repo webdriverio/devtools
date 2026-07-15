@@ -69,7 +69,6 @@ export const config: Options.Testrunner = {
       'goog:chromeOptions': {
         args: [
           '--headless',
-          '--disable-gpu',
           '--remote-allow-origins=*',
           '--window-size=1600,900'
         ]
@@ -134,7 +133,13 @@ export const config: Options.Testrunner = {
       'devtools',
       {
         mode: 'trace' as const,
-        screencast: { enabled: true, pollIntervalMs: 200 }
+        // tracePolicy: 'retain-on-failure',
+        traceGranularity: 'test' as const,
+        // NEW: per-test screenshot + video, attached inline to Allure.
+        // Both require traceGranularity:'test' (the uniform rule).
+        screenshot: 'only-on-failure' as const, // 'off' | 'on' | 'only-on-failure'
+        video: 'on' as const // 'off' | retention policy
+        // screencast: { enabled: true, pollIntervalMs: 200 }
       }
     ]
   ],
@@ -160,7 +165,22 @@ export const config: Options.Testrunner = {
   // Test reporter for stdout.
   // The only one supported by default is 'dot'
   // see also: https://webdriver.io/docs/dot-reporter
-  reporters: ['spec'],
+  reporters: [
+    'spec',
+    [
+      'allure',
+      {
+        outputDir: path.resolve(__dirname, 'allure-results'),
+        // Trace mode issues a takeScreenshot (+ reads) per action to build the
+        // trace snapshots; @wdio/allure-reporter logs every WebDriver command as
+        // a step and attaches a screenshot per takeScreenshot, which floods the
+        // report. Silence both — the trace.zip attachment is unaffected, and the
+        // gherkin Given/When/Then steps still show.
+        disableWebdriverStepsReporting: true,
+        disableWebdriverScreenshotsReporting: true
+      }
+    ]
+  ],
 
   // If you are using Cucumber you need to specify the location of your step definitions.
   cucumberOpts: {

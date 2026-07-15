@@ -16,6 +16,13 @@ const log = logger('@wdio/devtools-service')
 // uses video/webm so Allure renders it inline.
 const TRACE_CONTENT_TYPE = 'application/zip'
 const VIDEO_CONTENT_TYPE = 'video/webm'
+const SCREENSHOT_CONTENT_TYPE = 'image/png'
+
+const CONTENT_TYPE_BY_KIND: Record<TraceArtifact['kind'], string> = {
+  trace: TRACE_CONTENT_TYPE,
+  video: VIDEO_CONTENT_TYPE,
+  screenshot: SCREENSHOT_CONTENT_TYPE
+}
 
 /** The one @wdio/allure-reporter method we use. Typed locally so the optional
  *  peer dependency never becomes a build-time type dependency. */
@@ -75,8 +82,7 @@ export async function attachArtifactToAllure(
       return
     }
     const content = await fs.readFile(artifact.path)
-    const type =
-      artifact.kind === 'video' ? VIDEO_CONTENT_TYPE : TRACE_CONTENT_TYPE
+    const type = CONTENT_TYPE_BY_KIND[artifact.kind]
     reporter.addAttachment(basename(artifact.path), content, type)
   } catch (err) {
     // A missing/unreadable artifact must never reject the test hook.

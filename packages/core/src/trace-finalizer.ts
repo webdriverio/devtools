@@ -31,9 +31,10 @@ import type { RetryOutcomeView } from './attempt-tracker.js'
 import { writeTraceZip, type TraceCapturer } from './trace-exporter.js'
 
 /** One artifact produced (or, when `retained` is false, decided-against) by a
- *  trace-mode finalize pass. */
+ *  trace-mode run — a trace slice, a screencast video, or a per-test
+ *  screenshot. */
 export interface TraceArtifact {
-  kind: 'trace' | 'video'
+  kind: 'trace' | 'video' | 'screenshot'
   path: string
   scope: 'session' | 'spec' | 'test'
   /** specFile for spec scope, testUid for test scope. */

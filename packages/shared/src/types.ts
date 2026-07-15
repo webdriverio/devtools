@@ -49,6 +49,17 @@ export type TraceRetentionPolicy =
   | 'on-all-retries'
   | 'retain-on-failure-and-retries'
 
+/** Per-test screenshot capture policy, mirroring Playwright's `screenshot`
+ *  option. `only-on-failure` shoots after a failing test; `on` after every
+ *  test; `off` (default) never. Only applies in trace mode. */
+export type TraceScreenshotPolicy = 'off' | 'on' | 'only-on-failure'
+
+/** Per-test video capture policy. `off` (default) records nothing; any other
+ *  value records the screencast and keeps each test's video slice per the same
+ *  retention semantics as `tracePolicy`. Only applies in trace mode at
+ *  `traceGranularity: 'test'` (the per-test scope videos attach to). */
+export type TraceVideoPolicy = 'off' | TraceRetentionPolicy
+
 /** One node in a test's ancestor chain, outermost first. */
 export interface TestAncestor {
   uid: string
@@ -306,6 +317,14 @@ export interface BaseDevToolsOptions {
   /** Trace retention policy — gates which traces are kept (e.g.
    *  `retain-on-failure`). Default `on` (keep all). Only applies in trace mode. */
   tracePolicy?: TraceRetentionPolicy
+  /** Per-test screenshot capture, attached to the trace artifacts and to Allure
+   *  inline. `off` (default) | `on` | `only-on-failure`. Only applies in trace
+   *  mode. */
+  screenshot?: TraceScreenshotPolicy
+  /** Per-test video (screencast) capture, retained per the given policy and
+   *  attached to Allure inline. `off` (default) or a retention policy. Only
+   *  applies in trace mode at `traceGranularity: 'test'`. */
+  video?: TraceVideoPolicy
 }
 
 /** Minimal Cucumber pickle-step shape — only the fields the adapters read.

@@ -56,7 +56,7 @@ describe('attachArtifactToAllure', () => {
     expect(addAttachment).not.toHaveBeenCalled()
   })
 
-  it('attaches a trace zip with the Allure Playwright content type', async () => {
+  it('attaches a trace zip as a plain application/zip download', async () => {
     const path = await tempZip('trace-abc.zip')
     await attachArtifactToAllure(artifact({ path }))
     expect(addAttachment).toHaveBeenCalledOnce()
@@ -71,6 +71,13 @@ describe('attachArtifactToAllure', () => {
     await attachArtifactToAllure(artifact({ kind: 'video', path }))
     const [, , type] = addAttachment.mock.calls[0]!
     expect(type).toBe('video/webm')
+  })
+
+  it('attaches a screenshot artifact as image/png', async () => {
+    const path = await tempZip('screenshot-u1.png')
+    await attachArtifactToAllure(artifact({ kind: 'screenshot', path }))
+    const [, , type] = addAttachment.mock.calls[0]!
+    expect(type).toBe('image/png')
   })
 
   it('skips a directory-format artifact without throwing (ndjson-directory)', async () => {
