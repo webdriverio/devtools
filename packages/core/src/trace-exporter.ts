@@ -328,10 +328,15 @@ function buildEventStream(
   const viewport = trace.metadata.viewport ?? { width: 1280, height: 720 }
   const snapshots = trace.actionSnapshots ?? []
   const snapshotIndex = new FrameSnapshotIndex(snapshots)
+  // Dense frames supersede the sparse per-action filmstrip; per-action DOM is
+  // carried by the frame-snapshot events, so sparse frames would only duplicate.
+  const filmstrip =
+    denseFrameEvents.length > 0
+      ? denseFrameEvents
+      : buildFilmstripEvents(snapshots, pageId, wallTime, viewport)
   const events: TraceEvent[] = [
     ctxOptions,
-    ...buildFilmstripEvents(snapshots, pageId, wallTime, viewport),
-    ...denseFrameEvents,
+    ...filmstrip,
     ...buildActionEvents(
       trace.commands,
       pageId,
