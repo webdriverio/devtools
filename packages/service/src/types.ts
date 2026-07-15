@@ -23,7 +23,11 @@ export {
   type Viewport
 } from '@wdio/devtools-shared'
 
-import type { BaseDevToolsOptions } from '@wdio/devtools-shared'
+import type {
+  BaseDevToolsOptions,
+  TraceScreenshotPolicy,
+  TraceVideoPolicy
+} from '@wdio/devtools-shared'
 
 // ScreencastFrame, ScreencastOptions hoisted to @wdio/devtools-shared; re-exported
 // here for backwards compatibility with existing service-internal imports.
@@ -41,6 +45,14 @@ export interface ExtendedCapabilities extends WebdriverIO.Capabilities {
 }
 
 export interface ServiceOptions extends BaseDevToolsOptions {
+  /** Per-test screenshot capture, attached to the trace artifacts and inline to
+   *  Allure. `off` (default) | `on` | `only-on-failure`. Trace mode +
+   *  `traceGranularity: 'test'` only. WDIO-service-specific for now. */
+  screenshot?: TraceScreenshotPolicy
+  /** Per-test video (screencast) capture, retained per the given policy and
+   *  attached inline to Allure. `off` (default) or a retention policy. Trace
+   *  mode + `traceGranularity: 'test'` only. WDIO-service-specific for now. */
+  video?: TraceVideoPolicy
   /**
    * capabilities used to launch the devtools application
    * @default

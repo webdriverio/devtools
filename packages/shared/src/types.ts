@@ -317,14 +317,6 @@ export interface BaseDevToolsOptions {
   /** Trace retention policy — gates which traces are kept (e.g.
    *  `retain-on-failure`). Default `on` (keep all). Only applies in trace mode. */
   tracePolicy?: TraceRetentionPolicy
-  /** Per-test screenshot capture, attached to the trace artifacts and to Allure
-   *  inline. `off` (default) | `on` | `only-on-failure`. Only applies in trace
-   *  mode. */
-  screenshot?: TraceScreenshotPolicy
-  /** Per-test video (screencast) capture, retained per the given policy and
-   *  attached to Allure inline. `off` (default) or a retention policy. Only
-   *  applies in trace mode at `traceGranularity: 'test'`. */
-  video?: TraceVideoPolicy
 }
 
 /** Minimal Cucumber pickle-step shape — only the fields the adapters read.
