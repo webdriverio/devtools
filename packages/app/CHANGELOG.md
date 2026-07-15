@@ -1,5 +1,17 @@
 # @wdio/devtools-app
 
+## 1.8.0
+
+### Minor Changes
+
+- 66309cf: Add the trace player. `show-trace <trace.zip>` reconstructs a recorded trace and plays it back in the dashboard with a timeline dock, filmstrip, interactive network panel, and keyboard navigation. In trace mode the adapters export a `trace.zip`; the backend reconstructs it and serves it to the player.
+
+### Patch Changes
+
+- Updated dependencies [e1e859b]
+- Updated dependencies [66309cf]
+  - @wdio/devtools-service@10.7.0
+
 ## 1.7.0
 
 ### Minor Changes

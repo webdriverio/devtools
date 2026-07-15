@@ -1,5 +1,31 @@
 # @wdio/devtools-service
 
+## 10.7.0
+
+### Minor Changes
+
+- e1e859b: ### 🚀 Features
+
+  - **`getSnapshot()`** — single call for web and mobile that returns an AI-readable text tree with embedded `e1`, `e2`, … virtual element IDs plus an elements map for direct selector resolution. No post-processing required.
+  - **`browser.getSnapshot()`** — WDIO runtime accessor registered by `@wdio/devtools-service` in the `before` hook, calling `getSnapshot()` directly with zero trace-mode overhead (no screenshot round-trip, no page-settling).
+
+  ### 🛠 Core additions (`@wdio/devtools-core` — private)
+  - `buildSnapshot()` — platform-agnostic formatter converting flat `SnapshotNode[]` into text + elements map.
+  - `accessibilityNodesToSnapshotNodes()` — web adapter from `AccessibilityNode[]`.
+  - `jsonElementToSnapshotNodes()` — mobile adapter from `JSONElement` tree.
+  - `isStatictextEchoedByParent()` — shared statictext echo-suppression helper.
+  - New types: `SnapshotNode`, `SnapshotElement` (with `qualifiedSelector` for `.instance(N)` disambiguation), `SnapshotResult`.
+  - `tagName` field on internal `MobileFlatNode`.
+
+- 66309cf: Add the trace player. `show-trace <trace.zip>` reconstructs a recorded trace and plays it back in the dashboard with a timeline dock, filmstrip, interactive network panel, and keyboard navigation. In trace mode the adapters export a `trace.zip`; the backend reconstructs it and serves it to the player.
+
+### Patch Changes
+
+- Updated dependencies [e1e859b]
+- Updated dependencies [66309cf]
+  - @wdio/elements@1.1.0
+  - @wdio/devtools-backend@1.8.0
+
 ## 10.6.1
 
 ### Patch Changes

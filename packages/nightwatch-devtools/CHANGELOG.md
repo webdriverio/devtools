@@ -1,5 +1,16 @@
 # @wdio/nightwatch-devtools
 
+## 1.5.0
+
+### Minor Changes
+
+- 66309cf: Add the trace player. `show-trace <trace.zip>` reconstructs a recorded trace and plays it back in the dashboard with a timeline dock, filmstrip, interactive network panel, and keyboard navigation. In trace mode the adapters export a `trace.zip`; the backend reconstructs it and serves it to the player.
+
+### Patch Changes
+
+- Updated dependencies [66309cf]
+  - @wdio/devtools-backend@1.8.0
+
 ## 1.4.0
 
 ### Minor Changes
