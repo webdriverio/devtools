@@ -193,6 +193,80 @@ describe('collectErrors', () => {
     expect(errors[0].command?.command).toBe('expect')
   })
 
+  it('dedupes a Cucumber assertion listed as both a command and a reworded test error', () => {
+    // The matcher failure that expect-webdriverio reports: headline + diff.
+    const matcherMessage =
+      'Expect $(`#flash`) to have text\n\n' +
+      'Expected: StringContaining "You logged into a secure area!"\n' +
+      'Received: "Your username is invalid!"'
+    const errors = collectErrors(
+      [
+        command({
+          command: 'expect.toHaveText',
+          title: 'expect.toHaveText',
+          callSource: 'steps.ts:34:3',
+          error: { name: 'Error', message: matcherMessage },
+          timestamp: 50
+        })
+      ],
+      suiteMap({
+        uid: 'scenario',
+        state: 'failed',
+        tests: [
+          failedTest({
+            uid: 'step',
+            title: 'Then I should see a flash message',
+            callSource: 'steps.ts:31',
+            // Cucumber rebuilds the failed step's error from the first line of
+            // the error's stack (so the headline gains an `Error:` prefix and
+            // loses the diff) but keeps the full matcher output in `.stack`.
+            error: {
+              name: 'Error',
+              message: 'Error: Expect to have text',
+              stack: `Error: ${matcherMessage}\n    at World.<anonymous> (/steps.ts:34:3)`
+            } as unknown as Error
+          })
+        ]
+      })
+    )
+    expect(errors).toHaveLength(1)
+    expect(errors[0].command?.command).toBe('expect.toHaveText')
+    expect(errors[0].actual).toBe('"Your username is invalid!"')
+    expect(errors[0].expected).toBe(
+      'StringContaining "You logged into a secure area!"'
+    )
+  })
+
+  it('dedupes a Cucumber command failure whose test error only adds an Error: prefix', () => {
+    const errors = collectErrors(
+      [
+        command({
+          command: 'click',
+          error: {
+            name: 'Error',
+            message: "Can't call click on element, it wasn't found"
+          },
+          timestamp: 5
+        })
+      ],
+      suiteMap({
+        uid: 'scenario',
+        state: 'failed',
+        tests: [
+          failedTest({
+            uid: 'step',
+            error: {
+              name: 'Error',
+              message: "Error: Can't call click on element, it wasn't found"
+            }
+          })
+        ]
+      })
+    )
+    expect(errors).toHaveLength(1)
+    expect(errors[0].command?.command).toBe('click')
+  })
+
   it('keeps a distinct test failure alongside command failures', () => {
     const errors = collectErrors(
       [
