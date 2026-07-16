@@ -1,5 +1,9 @@
 import { createRequire } from 'node:module'
-import { TRACKED_ASSERT_METHODS, type CommandLog } from '@wdio/devtools-shared'
+import {
+  TRACKED_ASSERT_METHODS,
+  type CollapsedAssertResult,
+  type CommandLog
+} from '@wdio/devtools-shared'
 import { getCallSourceFromStack } from './stack.js'
 import { toError } from './error.js'
 import { stripAnsi } from './console.js'
@@ -21,7 +25,10 @@ export const ASSERT_PATCHED_SYMBOL = Symbol.for(
 export interface CapturedAssert {
   command: string
   args: unknown[]
-  result: 'passed' | undefined
+  /** `'passed'` for a passing assert; a `CollapsedAssertResult` for a failing
+   *  node:assert (its clean `actual`/`expected` props), so the trace shows
+   *  labelled rows rather than node's ANSI-stripped char-diff. */
+  result: 'passed' | CollapsedAssertResult | undefined
   error: Error | undefined
   callSource: string | undefined
   timestamp: number
@@ -52,6 +59,65 @@ export function safeSerializeAssertArg(value: unknown): unknown {
   return value
 }
 
+interface NodeAssertionError {
+  actual?: unknown
+  expected?: unknown
+  generatedMessage?: boolean
+}
+
+/** Human-readable rendering of an assert value for the message body. */
+function displayAssertValue(value: unknown): string {
+  if (typeof value === 'string') {
+    return `'${value}'`
+  }
+  try {
+    return JSON.stringify(value) ?? String(value)
+  } catch {
+    return String(value)
+  }
+}
+
+/**
+ * Turn a thrown assert error into the captured shape. node:assert's
+ * AssertionError carries clean `actual`/`expected` props plus, when it
+ * auto-generated the message, a per-character COLORED diff whose body becomes
+ * unreadable noise once ANSI is stripped (`'ExampleThis DIs Nomt...'`). Pull the
+ * clean values into a CollapsedAssertResult AND rebuild an auto-generated
+ * message (and its echo in the stack) as a value-bearing `Expected:/Received:`
+ * block, so every consumer — the trace's Errors tab, the runner console, and
+ * allure-mocha's error box (which strips the diff's ANSI to mush) — shows
+ * readable values. A user-supplied message and errors without `actual`/
+ * `expected` (e.g. `assert.ok`, a thrown non-assert error) pass through.
+ */
+function describeAssertFailure(err: unknown): {
+  result: CollapsedAssertResult | undefined
+  error: Error
+} {
+  const error = toError(err)
+  const e = (typeof err === 'object' && err ? err : {}) as NodeAssertionError
+  if (!('actual' in e) && !('expected' in e)) {
+    return { result: undefined, error }
+  }
+  const rawMessage = stripAnsi(error.message)
+  const cleanMessage = e.generatedMessage
+    ? `${rawMessage.split('\n')[0] ?? 'Assertion failed'}\n\n` +
+      `Expected: ${displayAssertValue(e.expected)}\n` +
+      `Received: ${displayAssertValue(e.actual)}`
+    : rawMessage
+  error.message = cleanMessage
+  if (error.stack) {
+    error.stack = stripAnsi(error.stack).replace(rawMessage, cleanMessage)
+  }
+  return {
+    result: {
+      passed: false,
+      actual: safeSerializeAssertArg(e.actual),
+      expected: safeSerializeAssertArg(e.expected)
+    },
+    error
+  }
+}
+
 function makeAssertEmitters(
   methodName: string,
   args: unknown[],
@@ -65,7 +131,7 @@ function makeAssertEmitters(
   }
   const startedAt = Date.now()
   const sanitizedArgs = args.map(safeSerializeAssertArg)
-  const emit = (result: 'passed' | undefined, error: Error | undefined) =>
+  const emit = (result: CapturedAssert['result'], error: Error | undefined) =>
     onCommand({
       command: `assert.${methodName}`,
       args: sanitizedArgs,
@@ -76,7 +142,10 @@ function makeAssertEmitters(
     })
   return {
     passed: () => emit('passed', undefined),
-    failed: (err: unknown) => emit(undefined, toError(err))
+    failed: (err: unknown) => {
+      const { result, error } = describeAssertFailure(err)
+      emit(result, error)
+    }
   }
 }
 

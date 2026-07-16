@@ -124,9 +124,9 @@ describe('wireAssertCapture', () => {
     expect(() => assert.strictEqual('a', 'b')).toThrow()
     const failed = entries[1]
     expect(failed.command).toBe('assert.strictEqual')
+    expect(failed.result).toMatchObject({ passed: false })
     expect(failed.testUid).toBe('uid-2')
     expect(failed.error).toMatchObject({ name: 'AssertionError' })
-    expect(failed.result).toBeUndefined()
   })
 
   it('is a no-op wiring when invoked twice (per-process patch guard)', () => {
