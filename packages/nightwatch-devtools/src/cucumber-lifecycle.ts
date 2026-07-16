@@ -63,6 +63,7 @@ export interface CucumberLifecycleCtx extends TestSliceCtx {
   setCurrentTest(t: unknown): void
   recordAttempt(uid: string, specFile?: string): number
   recordOutcome(uid: string, state: TestStats['state']): void
+  emitTestArtifacts(uid: string | undefined, failed: boolean): Promise<void>
 }
 
 type MutStep = {
@@ -241,6 +242,12 @@ export async function finalizeCucumberScenario(
     // Flush before the next attempt's attachScenarioToFeature overwrites this
     // scenario's suite (and thus its outcome) in the tree.
     flushTestSlice(ctx)
+    // Produce this scenario's per-test screenshot/video (core-gated to trace +
+    // `test`). `scenario` is the retry-stable test unit; null-scenario no-ops.
+    await ctx.emitTestArtifacts(
+      scenario?.uid,
+      scenarioState === TEST_STATE.FAILED
+    )
   } catch (err) {
     log.error(`Failed to finalize Cucumber scenario: ${errorMessage(err)}`)
   }

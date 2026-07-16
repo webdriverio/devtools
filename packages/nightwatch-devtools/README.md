@@ -85,6 +85,10 @@ module.exports = {
 | `screencast` | `ScreencastOptions` | `{ enabled: false }` | Session video recording — live mode only (see [Screencast](#screencast)). |
 | `bidi` | `boolean` | `false` | Opt into WebDriver BiDi capture for browser console + JS exceptions + network. Requires `webSocketUrl: true` in your capabilities and a BiDi-capable chromedriver. When attached, the per-command Chrome perf-log network path is gated off so requests don't duplicate. |
 | `mode` | `'live' \| 'trace'` | `'live'` | `'live'` opens the DevTools UI window; `'trace'` skips the UI and writes a `trace-<sessionId>.zip` next to your `nightwatch.conf.cjs` at run end. See [Trace mode](../../README.md#-trace-mode-tracezip). |
+| `screenshot` | `'off' \| 'on' \| 'only-on-failure'` | `'off'` | Per-test screenshot. Trace mode + `traceGranularity: 'test'` only. **Produce-only** — the PNG is written to the trace output dir and listed in the artifacts manifest; it is NOT attached inline to Allure (see note below). |
+| `video` | `'off' \| TraceRetentionPolicy` | `'off'` | Per-test video slice, retained per the given policy (e.g. `'retain-on-failure'`). Trace mode + `traceGranularity: 'test'` only. Setting a non-`off` policy starts the screencast recorder itself — you do **not** also need `filmstrip` or `screencast.enabled`; the recorder runs continuously for the session and each test's slice is cut from it by wall-clock window. **Produce-only** — the `.webm` is written to the trace output dir and listed in the manifest; NOT attached inline to Allure. |
+
+> **Inline Allure attachment is not supported for Nightwatch.** Its official `nightwatch-allure` reporter is post-hoc (no live attach API), and `allure-js-commons`' `attachment()` no-ops in a Nightwatch run. So `screenshot`/`video` artifacts are *produced* (files + manifest) in the trace output dir but not attached to an Allure test. Per-test slicing (and therefore these artifacts) is meaningful for the cucumber and exports-object interfaces; the BDD `describe/it` interface collapses to session granularity, so the gate no-ops there.
 
 ```javascript
 globals: nightwatchDevtools({

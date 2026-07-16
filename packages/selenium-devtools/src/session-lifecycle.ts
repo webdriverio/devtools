@@ -41,7 +41,8 @@ import type {
   SeleniumDriverLike,
   TraceFormat,
   TraceGranularity,
-  TraceRetentionPolicy
+  TraceRetentionPolicy,
+  TraceVideoPolicy
 } from './types.js'
 import type { TestManager } from './helpers/testManager.js'
 
@@ -59,6 +60,7 @@ export interface SessionLifecycleCtx {
     traceGranularity?: TraceGranularity
     tracePolicy?: TraceRetentionPolicy
     filmstrip?: boolean
+    video?: TraceVideoPolicy
   }
   readonly screencastOptions: ScreencastOptions
   readonly runner: string
@@ -161,6 +163,19 @@ function ctxPluginRef(ctx: SessionLifecycleCtx): unknown {
   return (ctx as unknown as Record<symbol, unknown>)[PLUGIN_REF]
 }
 
+/** Record a screencast this driver? Live mode: `screencast.enabled`. Trace mode:
+ *  a non-`off` per-test `video` policy or `filmstrip` — both feed the recorder
+ *  even though live screencast is off in trace mode (parity with the service). */
+function shouldRecordScreencast(ctx: SessionLifecycleCtx): boolean {
+  if (ctx.options.mode === 'trace') {
+    return (
+      (!!ctx.options.video && ctx.options.video !== 'off') ||
+      !!ctx.options.filmstrip
+    )
+  }
+  return !!ctx.screencastOptions.enabled
+}
+
 async function initPerDriverCapture(
   ctx: SessionLifecycleCtx,
   driver: SeleniumDriverLike,
@@ -187,11 +202,8 @@ async function initPerDriverCapture(
     ctx.sessionCapturer.sendUpstream('metadata', metadata)
   }
 
-  // Parallel — serial attach misses frames on fast tests. Trace-mode filmstrip
-  // needs the same recorder even though live screencast is off in trace mode.
-  const wantScreencast =
-    ctx.screencastOptions.enabled ||
-    (ctx.options.mode === 'trace' && !!ctx.options.filmstrip)
+  // Parallel — serial attach misses frames on fast tests.
+  const wantScreencast = shouldRecordScreencast(ctx)
   const screencastPromise = wantScreencast
     ? (async () => {
         try {
@@ -223,18 +235,25 @@ async function initPerDriverCapture(
 
 export async function onDriverEnd(ctx: SessionLifecycleCtx): Promise<void> {
   if (ctx.screencast && ctx.sessionId) {
-    await finalizeScreencast({
-      recorder: ctx.screencast,
-      sessionId: ctx.sessionId,
-      filenamePrefix: 'selenium-video',
-      outputDir: resolveAdapterOutputDir({
-        testFilePath: ctx.testFilePath
-      }),
-      captureFormat: ctx.screencastOptions.captureFormat,
-      sendUpstream: (scope, data) =>
-        ctx.sessionCapturer?.sendUpstream(scope, data),
-      onLog: (level, message) => log[level](message)
-    })
+    if (ctx.options.mode === 'trace') {
+      // Trace mode: the video is emitted per-test (sliced in #emitTestArtifacts)
+      // and there's no dashboard to receive a session recording — just stop the
+      // recorder to release resources; never encode an orphan session webm.
+      await ctx.screencast.stop()
+    } else {
+      await finalizeScreencast({
+        recorder: ctx.screencast,
+        sessionId: ctx.sessionId,
+        filenamePrefix: 'selenium-video',
+        outputDir: resolveAdapterOutputDir({
+          testFilePath: ctx.testFilePath
+        }),
+        captureFormat: ctx.screencastOptions.captureFormat,
+        sendUpstream: (scope, data) =>
+          ctx.sessionCapturer?.sendUpstream(scope, data),
+        onLog: (level, message) => log[level](message)
+      })
+    }
   }
   // Drain this driver's frames into the run-wide buffer while the recorder is
   // still alive — the finalize context is built after screencast is nulled.
@@ -449,15 +468,19 @@ function recordTestBoundary(
  * endTest has finalized its state so collectSuiteTestMetadata sees the final
  * outcome. flushRangeTrace dedupes by key, so finalizeTraceExport won't
  * re-write it; the promise is tracked so finalize awaits the last write.
+ * Returns the produced artifact so the plugin can attach the retained slice to
+ * Allure within the still-open per-test hook; undefined when nothing flushed.
  */
-export function flushCurrentTestTrace(ctx: SessionLifecycleCtx): void {
+export function flushCurrentTestTrace(
+  ctx: SessionLifecycleCtx
+): Promise<TraceArtifact | undefined> {
   if (ctx.options.traceGranularity !== 'test' || !ctx.sessionCapturer) {
-    return
+    return Promise.resolve(undefined)
   }
   const sessionId = ctx.sessionCapturer.metadata?.sessionId
   const currentRange = findFlushableRange(ctx.specRanges)
   if (!sessionId || currentRange?.testUid === undefined) {
-    return
+    return Promise.resolve(undefined)
   }
   const flush = flushRangeLogged(
     buildTraceExportContext(
@@ -469,6 +492,7 @@ export function flushCurrentTestTrace(ctx: SessionLifecycleCtx): void {
     currentRange
   )
   ctx.traceFlushes.push(flush)
+  return flush
 }
 
 async function writeTraceIfNeeded(

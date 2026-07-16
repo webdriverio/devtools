@@ -17,7 +17,9 @@ export {
   type TestMetadataMap,
   type TraceFormat,
   type TraceGranularity,
-  type TraceRetentionPolicy
+  type TraceRetentionPolicy,
+  type TraceScreenshotPolicy,
+  type TraceVideoPolicy
 } from '@wdio/devtools-shared'
 
 export interface DevToolsOptions extends BaseDevToolsOptions {
@@ -33,11 +35,24 @@ export interface DevToolsOptions extends BaseDevToolsOptions {
    * is unaffected. Defaults to false to preserve user-supplied options.
    */
   headless?: boolean
+  /** Per-test screenshot capture, recorded in the trace artifacts and attached
+   *  inline to Allure. `off` (default) | `on` | `only-on-failure`. Trace mode +
+   *  `traceGranularity: 'test'` only. */
+  screenshot?: TraceScreenshotPolicy
+  /** Per-test video (screencast) capture, retained per the given policy and
+   *  attached inline to Allure. `off` (default) or a retention policy. Trace
+   *  mode + `traceGranularity: 'test'` only. */
+  video?: TraceVideoPolicy
 }
 
 // ScreencastFrame, ScreencastOptions hoisted to @wdio/devtools-shared; re-exported
 // here for backwards compatibility with existing selenium-internal imports.
-import type { BaseDevToolsOptions, TestStatus } from '@wdio/devtools-shared'
+import type {
+  BaseDevToolsOptions,
+  TestStatus,
+  TraceScreenshotPolicy,
+  TraceVideoPolicy
+} from '@wdio/devtools-shared'
 export type { ScreencastFrame, ScreencastOptions } from '@wdio/devtools-shared'
 
 /**
@@ -134,7 +149,9 @@ export interface RunnerHookCallbacks {
     // `_currentRetry`); undefined leaves the heuristic tracker to decide.
     attempt?: number
   ) => void
-  onTestEnd: (state: Exclude<TestStatus, 'running'>) => void
+  // Async so the runner's afterEach/After awaits the full per-test artifact
+  // emit (trace slice + screenshot + video attach) before Allure closes the test.
+  onTestEnd: (state: Exclude<TestStatus, 'running'>) => void | Promise<void>
   // Cucumber-only: scenario boundary creates a sub-suite under the feature
   // rootSuite; subsequent onTestStart/onTestEnd attach as Gherkin steps inside.
   onScenarioStart?: (
@@ -144,7 +161,9 @@ export interface RunnerHookCallbacks {
     featureName?: string,
     featureCallSource?: string
   ) => void
-  onScenarioEnd?: (state: Exclude<TestStatus, 'running'>) => void
+  onScenarioEnd?: (
+    state: Exclude<TestStatus, 'running'>
+  ) => void | Promise<void>
   // Fires from the runner's after-all hook so the dashboard suite header
   // updates without waiting for process exit.
   onTestRunComplete?: (summary: {

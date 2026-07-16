@@ -21,10 +21,17 @@ export {
   type TestMetadataMap,
   type TraceGranularity,
   type TraceRetentionPolicy,
+  type TraceScreenshotPolicy,
+  type TraceVideoPolicy,
   type TraceLog
 } from '@wdio/devtools-shared'
 
-import type { BaseDevToolsOptions, CommandLog } from '@wdio/devtools-shared'
+import type {
+  BaseDevToolsOptions,
+  CommandLog,
+  TraceScreenshotPolicy,
+  TraceVideoPolicy
+} from '@wdio/devtools-shared'
 
 export interface CommandStackFrame {
   command: string
@@ -105,6 +112,16 @@ export interface DevToolsOptions extends BaseDevToolsOptions {
    * entries. Defaults to `false` — opt-in.
    */
   bidi?: boolean
+  /** Per-test screenshot capture, produced to the trace output dir + manifest.
+   *  `off` (default) | `on` | `only-on-failure`. Trace mode +
+   *  `traceGranularity: 'test'` only. Produce-only: Nightwatch has no live
+   *  Allure attach API, so artifacts are not attached inline. */
+  screenshot?: TraceScreenshotPolicy
+  /** Per-test video (screencast slice) capture, produced to the trace output
+   *  dir + manifest per the given retention policy. `off` (default) or a
+   *  retention policy. Trace mode + `traceGranularity: 'test'` only.
+   *  Produce-only (no inline Allure attach). */
+  video?: TraceVideoPolicy
 }
 
 export interface NightwatchBrowser {

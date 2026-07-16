@@ -10,6 +10,7 @@ import {
   errorMessage,
   finalizeTraceExport,
   flushRangeLogged,
+  resolveAdapterOutputDir,
   TestAttemptTracker,
   tracePolicyModeWarning,
   type SpecRange,
@@ -17,6 +18,7 @@ import {
   type TraceExportContext
 } from '@wdio/devtools-core'
 import { buildTraceContext } from './trace-context.js'
+import { emitTestArtifacts } from './test-artifacts.js'
 import { wireAssertCapture } from './helpers/assertCapture.js'
 import { stop as stopBackend } from '@wdio/devtools-backend'
 import {
@@ -132,21 +134,29 @@ class NightwatchDevToolsPlugin {
   #bidiEnabled = false
   #bidiAttachAttempted = false
 
+  /** Wall-clock ms at the current test/scenario start — the lower bound of that
+   *  test's action-snapshot and video-frame window (per-test artifact slicing). */
+  #currentTestStartWallTime = 0
+
   // Nightwatch `--retries` and cross-worker reruns may reset this in-process
   // tracker; only retries that re-enter this process's start hook are counted.
   #attemptTracker = new TestAttemptTracker()
 
   constructor(options: DevToolsOptions = {}) {
     const mode = options.mode ?? 'live'
-    // Filmstrip drives the recorder in trace mode; bare screencast stays live-only.
-    const filmstrip = mode === 'trace' && options.filmstrip === true
+    // Filmstrip OR a produce-only per-test video drives the recorder in trace
+    // mode; bare screencast (with neither on) stays a live-only feature.
+    const wantRecorder =
+      mode === 'trace' &&
+      (options.filmstrip === true ||
+        (options.video !== undefined && options.video !== 'off'))
     const ignore =
-      mode === 'trace' && !filmstrip && options.screencast?.enabled === true
+      mode === 'trace' && !wantRecorder && options.screencast?.enabled === true
     if (ignore) {
       log.warn('trace mode: ignoring screencast option (live-mode feature)')
     }
     let screencast = ignore ? {} : (options.screencast ?? {})
-    if (filmstrip) {
+    if (wantRecorder) {
       screencast = { ...(options.screencast ?? {}), enabled: true }
     }
     this.options = {
@@ -159,7 +169,9 @@ class NightwatchDevToolsPlugin {
       traceFormat: options.traceFormat ?? 'zip',
       traceGranularity: options.traceGranularity ?? 'session',
       tracePolicy: options.tracePolicy ?? 'on',
-      filmstrip: options.filmstrip ?? false
+      filmstrip: options.filmstrip ?? false,
+      screenshot: options.screenshot ?? 'off',
+      video: options.video ?? 'off'
     }
     const policyWarning = tracePolicyModeWarning(options.tracePolicy, mode)
     if (policyWarning) {
@@ -344,7 +356,8 @@ class NightwatchDevToolsPlugin {
       get flushedSpecs() {
         return self.#flushedSpecs
       },
-      flushTraceRange: (range) => self.#flushSpecTrace(range)
+      flushTraceRange: (range) => self.#flushSpecTrace(range),
+      emitTestArtifacts: (uid, failed) => self.#emitTestArtifacts(uid, failed)
     }
     return this.#internals
   }
@@ -386,13 +399,19 @@ class NightwatchDevToolsPlugin {
   }
 
   async #finalizeCurrentScreencast(): Promise<void> {
-    if (this.options.filmstrip && this.#screencastRecorder) {
+    // Preserve pre-reload frames for the trace filmstrip AND the produce-only
+    // per-test video — either can drive the recorder in trace mode now.
+    if (
+      (this.options.filmstrip || this.options.video !== 'off') &&
+      this.#screencastRecorder
+    ) {
       this.#filmstripFrames.push(...this.#screencastRecorder.frames)
     }
     await finalizeCurrentScreencast(this.#getInternals())
   }
 
   async cucumberBefore(browser: NightwatchBrowser, pickle: CucumberPickle) {
+    this.#currentTestStartWallTime = Date.now()
     await cucumberLifecycleBefore(this.#getInternals(), browser, pickle)
   }
 
@@ -480,6 +499,7 @@ class NightwatchDevToolsPlugin {
     if (this.#isCucumberRunner) {
       return
     }
+    this.#currentTestStartWallTime = Date.now()
     await this.#ensureSessionInitialized(browser)
 
     const currentTest = browser.currentTest as NightwatchCurrentTest | undefined
@@ -545,6 +565,10 @@ class NightwatchDevToolsPlugin {
         await this.sessionCapturer.captureTrace(browser)
         // Flush this test's slice before the next test overwrites its outcome.
         flushTestSlice(this.#getInternals())
+        const results = (browser.currentTest as NightwatchCurrentTest)?.results
+        const failed =
+          !!results && ((results.errors ?? 0) > 0 || (results.failed ?? 0) > 0)
+        await this.#emitTestArtifacts(this.#currentTestUid(), failed)
       } catch (err) {
         log.error(`Failed to capture trace: ${errorMessage(err)}`)
       }
@@ -553,6 +577,43 @@ class NightwatchDevToolsPlugin {
 
   async #closeOutTestcases(browser: NightwatchBrowser): Promise<void> {
     await closeOutTestcases(this.#getInternals(), browser)
+  }
+
+  /** Directory for produced artifacts — next to the test file, else the config,
+   *  else cwd (mirrors #traceContext's resolution). */
+  get #outputDir(): string {
+    return resolveAdapterOutputDir({
+      testFilePath: this.browserProxy?.getCurrentTestFullPath?.() ?? undefined,
+      configPath: this.#configPath
+    })
+  }
+
+  /** Produce (never attach — no live Allure API) this test's per-test screenshot
+   *  and video slice. No-op outside trace mode + `test` granularity (core-gated).
+   *  Shared by the per-test `afterEach` and the cucumber per-scenario finalize. */
+  async #emitTestArtifacts(
+    uid: string | undefined,
+    failed: boolean
+  ): Promise<void> {
+    const attempt = uid ? this.#attemptTracker.attemptFor(uid) : undefined
+    await emitTestArtifacts({
+      mode: this.options.mode,
+      granularity: this.options.traceGranularity,
+      screenshotPolicy: this.options.screenshot,
+      videoPolicy: this.options.video,
+      failed,
+      actionSnapshots: this.sessionCapturer.actionSnapshots,
+      frames: this.#screencastRecorder?.frames ?? this.#filmstripFrames,
+      startWallTime: this.#currentTestStartWallTime,
+      outcomes: uid ? this.#attemptTracker.forTest(uid, attempt) : [],
+      uid,
+      attempt,
+      sessionId: this.sessionCapturer?.metadata?.sessionId,
+      outputDir: this.#outputDir,
+      captureFormat: this.#screencastOptions.captureFormat,
+      onArtifact: (a) => this.#artifacts.push(a),
+      onLog: (level, msg) => log[level](msg)
+    })
   }
 
   async after(browser?: NightwatchBrowser) {

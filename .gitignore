@@ -40,7 +40,7 @@ trace-*.zip
 examples/**/trace-*/
 
 # test results
-examples/**/test-results/
+examples/**/test-results*/
 
 # vitest --coverage output
 coverage/
@@ -49,3 +49,12 @@ coverage/
 /packages/**/*.mjs
 
 .claude
+
+# Local Allure exploration / trace-parity comparison (throwaway — not committed)
+examples/**/allure-results*/
+examples/**/allure-report*/
+packages/**/allure-results*/
+packages/**/allure-report*/
+examples/playwright-allure/
+examples/wdio/cucumber/wdio.allure.conf.ts
+

@@ -9,7 +9,13 @@ const security = require('eslint-plugin-security')
 
 module.exports = [
   {
-    ignores: ['node_modules/**', '**/dist/**', '**/.tsup/**']
+    ignores: [
+      'node_modules/**',
+      '**/dist/**',
+      '**/.tsup/**',
+      '**/allure-report/**',
+      '**/allure-results/**'
+    ]
   },
   // Base JS config
   {
