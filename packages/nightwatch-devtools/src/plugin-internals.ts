@@ -94,4 +94,8 @@ export interface PluginInternals {
   readonly specRanges: SpecRange[]
   readonly flushedSpecs: Set<string>
   flushTraceRange(range: SpecRange): Promise<TraceArtifact | undefined>
+
+  /** Produce (no attach) this test's per-test screenshot + video artifacts.
+   *  Core-gated to trace mode + `test` granularity. */
+  emitTestArtifacts(uid: string | undefined, failed: boolean): Promise<void>
 }

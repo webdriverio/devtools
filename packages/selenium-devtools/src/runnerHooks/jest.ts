@@ -225,7 +225,9 @@ function registerJestAfterEach(
   state: JestState,
   callbacks: RunnerHookCallbacks
 ): void {
-  g.afterEach!(() => {
+  // Async so jest/vitest awaits the per-test artifact emit while the test is
+  // still open — a fire-and-forget attach would land after allure closed it.
+  g.afterEach!(async () => {
     const expectState = g.expect!.getState!() as {
       suppressedErrors?: unknown[]
       currentTestName?: string
@@ -258,7 +260,7 @@ function registerJestAfterEach(
     } else {
       state.testsFailed++
     }
-    callbacks.onTestEnd(finalState)
+    await callbacks.onTestEnd(finalState)
   })
 }
 

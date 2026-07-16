@@ -12,7 +12,7 @@ const log = logger('@wdio/selenium-devtools:runnerHooks:cucumber')
 
 type CucumberModule = Record<string, unknown> & {
   Before?: (fn: (testCase: unknown) => void) => void
-  After?: (fn: (testCase: unknown) => void) => void
+  After?: (fn: (testCase: unknown) => void | Promise<void>) => void
   BeforeAll?: (fn: () => void) => void
   AfterAll?: (fn: () => void) => void
   BeforeStep?: (fn: (arg: unknown) => void) => void
@@ -309,11 +309,11 @@ function handleScenarioStart(
   )
 }
 
-function handleScenarioEnd(
+async function handleScenarioEnd(
   testCase: CucumberTestCase,
   counters: RunCounters,
   callbacks: RunnerHookCallbacks
-): void {
+): Promise<void> {
   const state = mapCucumberStatus(String(testCase?.result?.status ?? ''))
   const scenarioState: ScenarioState = state === 'skipped' ? 'pending' : state
   const icon =
@@ -326,7 +326,7 @@ function handleScenarioEnd(
   } else {
     counters.pending++
   }
-  callbacks.onScenarioEnd?.(scenarioState)
+  await callbacks.onScenarioEnd?.(scenarioState)
 }
 
 function registerScenarioHooks(
@@ -347,7 +347,9 @@ function registerScenarioHooks(
       callbacks
     )
   )
-  After((testCase) =>
+  // Async so cucumber awaits the per-scenario artifact emit while the scenario
+  // is still open — a fire-and-forget attach would land after allure closed it.
+  After(async (testCase) =>
     handleScenarioEnd(testCase as CucumberTestCase, counters, callbacks)
   )
 }

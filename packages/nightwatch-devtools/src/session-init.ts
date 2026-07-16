@@ -277,19 +277,26 @@ export async function finalizeCurrentScreencast(
   if (!ctx.screencastRecorder || !ctx.screencastSessionId) {
     return
   }
-  await finalizeScreencast({
-    recorder: ctx.screencastRecorder,
-    sessionId: ctx.screencastSessionId,
-    filenamePrefix: 'nightwatch-video',
-    outputDir: resolveAdapterOutputDir({
-      testFilePath: ctx.browserProxy?.getCurrentTestFullPath?.() ?? undefined,
-      configPath: ctx.configPath
-    }),
-    captureFormat: ctx.screencastOptions.captureFormat,
-    sendUpstream: (scope, data) =>
-      ctx.sessionCapturer?.sendUpstream(scope, data),
-    onLog: (level, message) => log[level](message)
-  })
+  if (ctx.mode === 'trace') {
+    // Trace mode: the per-test video is written by the produce path and the
+    // filmstrip frames are embedded in the trace itself, so stop the recorder
+    // without encoding a session .webm nothing references (orphan file).
+    await ctx.screencastRecorder.stop()
+  } else {
+    await finalizeScreencast({
+      recorder: ctx.screencastRecorder,
+      sessionId: ctx.screencastSessionId,
+      filenamePrefix: 'nightwatch-video',
+      outputDir: resolveAdapterOutputDir({
+        testFilePath: ctx.browserProxy?.getCurrentTestFullPath?.() ?? undefined,
+        configPath: ctx.configPath
+      }),
+      captureFormat: ctx.screencastOptions.captureFormat,
+      sendUpstream: (scope, data) =>
+        ctx.sessionCapturer?.sendUpstream(scope, data),
+      onLog: (level, message) => log[level](message)
+    })
+  }
   ctx.screencastRecorder = undefined
   ctx.screencastSessionId = undefined
 }

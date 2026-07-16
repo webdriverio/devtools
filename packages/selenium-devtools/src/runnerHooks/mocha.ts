@@ -7,7 +7,9 @@ const log = logger('@wdio/selenium-devtools:runnerHooks:mocha')
 
 type MochaGlobals = {
   beforeEach?: (fn: (this: { currentTest?: MochaTestCtx }) => void) => void
-  afterEach?: (fn: (this: { currentTest?: MochaTestCtx }) => void) => void
+  afterEach?: (
+    fn: (this: { currentTest?: MochaTestCtx }) => void | Promise<void>
+  ) => void
   before?: (fn: () => void) => void
   after?: (fn: () => void) => void
 }
@@ -108,8 +110,10 @@ function resolveMochaState(
 function makeMochaAfterEach(
   counters: MochaCounters,
   callbacks: RunnerHookCallbacks
-): (this: { currentTest?: MochaTestCtx }) => void {
-  return function (this: { currentTest?: MochaTestCtx }) {
+): (this: { currentTest?: MochaTestCtx }) => Promise<void> {
+  // Async so mocha awaits the per-test artifact emit while the test is still
+  // open — a fire-and-forget attach would land after allure closed the test.
+  return async function (this: { currentTest?: MochaTestCtx }) {
     const test = this?.currentTest
     const state = resolveMochaState(test)
     const icon = state === 'passed' ? '✓' : state === 'failed' ? '✗' : '○'
@@ -123,7 +127,7 @@ function makeMochaAfterEach(
     } else {
       counters.pending++
     }
-    callbacks.onTestEnd(state)
+    await callbacks.onTestEnd(state)
   }
 }
 

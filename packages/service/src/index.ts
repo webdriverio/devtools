@@ -1,9 +1,13 @@
 /// <reference types="../../script/types.d.ts" />
 import logger from '@wdio/logger'
 import {
+  attachTraceArtifact,
+  captureAndAttachScreenshot,
+  captureAndAttachVideo,
   errorMessage,
   finalizeScreencast,
   finalizeTraceExport,
+  lastRenderedScreenshot,
   mapCommandToAction,
   recordSliceBoundary,
   resolveAdapterOutputDir,
@@ -13,9 +17,7 @@ import {
   type TraceArtifact,
   type TraceExportContext
 } from '@wdio/devtools-core'
-import { attachArtifactToAllure } from './allure.js'
-import { captureAndAttachScreenshot } from './screenshot-capture.js'
-import { captureAndAttachVideo } from './video-capture.js'
+import { getAllureSink } from './allure.js'
 import { wireAssertCapture, type ExpectAssertion } from './assert-capture.js'
 import { AssertionTracker } from './assertion-tracker.js'
 import {
@@ -185,25 +187,6 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     if (prevRange && this.#browser) {
       flushPrevSlice(this.#traceContext(this.#browser), prevRange)
     }
-  }
-
-  /** Base64 of the last rendered action snapshot for the current test, skipping
-   *  the end-of-scenario `__final__` frame — that one is captured post-teardown
-   *  and can come back blank when a reloadSession runs before afterScenario.
-   *  Used as the per-test screenshot so it's the real failure-moment frame,
-   *  reload-immune. Scoped to this test's window (>= its start) so a test that
-   *  captured nothing doesn't borrow the previous test's frame. */
-  #lastRenderedScreenshot(): string | undefined {
-    for (let i = this.#actionSnapshots.length - 1; i >= 0; i--) {
-      const snap = this.#actionSnapshots[i]!
-      if (snap.timestamp < this.#currentTestStartWallTime) {
-        return undefined
-      }
-      if (snap.command !== '__final__' && snap.screenshot) {
-        return snap.screenshot
-      }
-    }
-    return undefined
   }
 
   /** Record a screencast this session? Live mode: `screencast.enabled`. Trace
@@ -541,10 +524,12 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     uid: string | undefined,
     failed: boolean
   ): Promise<void> {
+    const attach = await getAllureSink()
+    const onLog = (level: 'info' | 'warn', msg: string) => log[level](msg)
     if (uid) {
       const artifact = await this.#eagerFlushTestSlice(uid)
       if (artifact) {
-        await attachArtifactToAllure(artifact)
+        await attachTraceArtifact(artifact, attach, onLog)
       }
     }
     await captureAndAttachScreenshot({
@@ -552,10 +537,14 @@ export default class DevToolsHookService implements Services.ServiceInstance {
       granularity: this.#options.traceGranularity,
       policy: this.#options.screenshot,
       failed,
-      screenshotBase64: this.#lastRenderedScreenshot(),
+      screenshotBase64: lastRenderedScreenshot(
+        this.#actionSnapshots,
+        this.#currentTestStartWallTime
+      ),
       sessionId: this.#browser?.sessionId,
       outputDir: this.#outputDir,
       testUid: uid,
+      attach,
       onArtifact: (a) => this.#artifacts.push(a)
     })
     // Authoritative attempt for this test (stamped into metadata by
@@ -581,8 +570,9 @@ export default class DevToolsHookService implements Services.ServiceInstance {
       testUid: uid,
       sessionId: this.#browser?.sessionId,
       captureFormat: this.#screencastOptions?.captureFormat,
+      attach,
       onArtifact: (a) => this.#artifacts.push(a),
-      onLog: (level, msg) => log[level](msg)
+      onLog
     })
   }
 

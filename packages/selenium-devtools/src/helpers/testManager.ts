@@ -3,7 +3,8 @@ import {
   createTestStats,
   stampTestEnd,
   TestAttemptTracker,
-  type RetryOutcomeView
+  type RetryOutcomeView,
+  type TestOutcome
 } from '@wdio/devtools-core'
 import { DEFAULTS, TEST_STATE } from '../constants.js'
 import type { SuiteStats, TestStats } from '../types.js'
@@ -32,6 +33,10 @@ export class TestManager {
   // Retry-stable uid of the in-progress marked test, so endCurrent can stamp
   // this attempt's outcome onto the same ledger entry recordStart opened.
   #currentRetryStableUid: string | undefined
+  // Retry-stable uid of the most-recently-started marked test, retained past
+  // endCurrent so the per-test artifact path (which runs after the test ends)
+  // can read this test's attempts from the ledger for video retention.
+  #lastRetryStableUid: string | undefined
   /** Set true the first time the user calls startMarkedTest. Once true we
    * never auto-create the synthetic session test — orphan commands attach
    * to the most-recently-marked test instead. */
@@ -146,6 +151,7 @@ export class TestManager {
       file
     )
     this.#currentRetryStableUid = retryStableUid
+    this.#lastRetryStableUid = retryStableUid
     test.retries = opts.attempt ?? heuristicAttempt
     log.info(
       `Started marked test "${name}" (callSource: ${opts.callSource || 'n/a'})`
@@ -188,6 +194,17 @@ export class TestManager {
    *  retention evaluation (retry-stable-keyed, so a test's attempts group). */
   get attemptOutcomes(): RetryOutcomeView {
     return this.#attemptTracker
+  }
+
+  /** The just-ended marked test's attempts, keyed by its retry-stable uid (the
+   *  ledger key), for the per-test video retention decision. The artifact
+   *  filename uses the marked uid, but retention groups a test's attempts under
+   *  the retry-stable key — this bridges the two. Empty when no marked test ran. */
+  lastTestOutcomes(): TestOutcome[] {
+    if (this.#lastRetryStableUid === undefined) {
+      return []
+    }
+    return this.#attemptTracker.forTest(this.#lastRetryStableUid)
   }
 
   /** Called when the driver session is closing (process exit / quit). */
