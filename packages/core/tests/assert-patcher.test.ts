@@ -78,8 +78,37 @@ describe('patchNodeAssert', () => {
     const captured: CapturedAssert[] = []
     patchNodeAssert((c) => captured.push(c))
     expect(() => assert.equal(1, 2)).toThrow()
-    expect(captured[0].result).toBeUndefined()
+    // A failed node:assert carries its clean actual/expected (not node's
+    // ANSI-stripped char-diff) so the trace renders labelled rows.
+    expect(captured[0].result).toMatchObject({
+      passed: false,
+      actual: 1,
+      expected: 2
+    })
     expect(captured[0].error).toBeInstanceOf(Error)
+  })
+
+  it('carries clean expected/actual and a header-only message for a strict string diff', () => {
+    const captured: CapturedAssert[] = []
+    patchNodeAssert((c) => captured.push(c))
+    // strict.equal is what produces node's colored char-diff (the source of the
+    // 'ExampleThis DIs Nomt…' mush once ANSI is stripped downstream).
+    expect(() =>
+      assert.strict.equal('Example Domain', 'This Is Not The Heading')
+    ).toThrow()
+    // node's clean props, not its char-diff, drive the rows.
+    expect(captured[0].result).toMatchObject({
+      passed: false,
+      actual: 'Example Domain',
+      expected: 'This Is Not The Heading'
+    })
+    // The auto-generated diff body is rebuilt as a value-bearing Expected/
+    // Received block — never the ANSI-stripped char-diff mush.
+    const message = captured[0].error?.message ?? ''
+    expect(message).toContain('Expected values to be strictly equal:')
+    expect(message).toContain("Expected: 'This Is Not The Heading'")
+    expect(message).toContain("Received: 'Example Domain'")
+    expect(message).not.toContain('ExampleThis')
   })
 
   it('handles Promise-returning asserts (rejects/doesNotReject)', async () => {
@@ -88,7 +117,8 @@ describe('patchNodeAssert', () => {
     await assert.doesNotReject(async () => 1)
     await expect(assert.rejects(async () => 1)).rejects.toThrow()
     const results = captured.map((c) => c.result)
-    expect(results).toEqual(['passed', undefined]) // first resolved, second rejected
+    expect(results[0]).toBe('passed') // first resolved
+    expect(results[1]).not.toBe('passed') // second rejected → failed capture
   })
 
   // `import { strict as assert }` (and `assert.strict.*`) reference a separate
@@ -98,10 +128,12 @@ describe('patchNodeAssert', () => {
     patchNodeAssert((c) => captured.push(c))
     assert.strict.equal(1, 1)
     expect(() => assert.strict.equal(1, 2)).toThrow()
-    expect(captured.map((c) => [c.command, c.result])).toEqual([
-      ['assert.equal', 'passed'],
-      ['assert.equal', undefined]
+    expect(captured.map((c) => c.command)).toEqual([
+      'assert.equal',
+      'assert.equal'
     ])
+    expect(captured[0].result).toBe('passed')
+    expect(captured[1].result).toMatchObject({ passed: false })
   })
 
   // Only assertions that originate in user test code should reach the trace.
@@ -144,7 +176,7 @@ describe('patchNodeAssert', () => {
         result: 'passed',
         callSource: USER_FRAME.callSource
       })
-      expect(captured[1].result).toBeUndefined()
+      expect(captured[1].result).toMatchObject({ passed: false })
       expect(captured[1].error).toBeInstanceOf(Error)
     })
   })
@@ -179,7 +211,7 @@ describe('patchNodeAssert', () => {
       patchNodeAssert((c) => captured.push(c))
       expect(() => assert.match('a', /b/)).toThrow()
       expect(captured[0].command).toBe('assert.match')
-      expect(captured[0].result).toBeUndefined()
+      expect(captured[0].result).toMatchObject({ passed: false })
       expect(captured[0].error).toBeInstanceOf(Error)
     })
 
@@ -196,7 +228,7 @@ describe('patchNodeAssert', () => {
       patchNodeAssert((c) => captured.push(c))
       expect(() => assert.doesNotMatch('a', /a/)).toThrow()
       expect(captured[0].command).toBe('assert.doesNotMatch')
-      expect(captured[0].result).toBeUndefined()
+      expect(captured[0].result).toMatchObject({ passed: false })
       expect(captured[0].error).toBeInstanceOf(Error)
     })
 

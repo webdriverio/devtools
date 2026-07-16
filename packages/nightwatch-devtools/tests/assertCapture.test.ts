@@ -87,7 +87,7 @@ describe('wireAssertCapture', () => {
     expect(() => assert.strictEqual('a', 'b')).toThrow()
     const failed = fake.commandsLog[1]
     expect(failed.command).toBe('assert.strictEqual')
-    expect(failed.result).toBeUndefined()
+    expect(failed.result).toMatchObject({ passed: false })
     expect(failed.error).toBeInstanceOf(Error)
     expect(fake.sendCommand).toHaveBeenCalledTimes(2)
   })
