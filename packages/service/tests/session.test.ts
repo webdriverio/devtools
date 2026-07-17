@@ -387,6 +387,41 @@ describe('SessionCapturer', () => {
     })
   })
 
+  describe('resetScriptInjection', () => {
+    // node:fs/promises is auto-mocked at module scope, so stub the preload-file
+    // read injectScript performs (otherwise readFile → undefined → throws).
+    beforeEach(() => {
+      vi.mocked(fs.readFile).mockResolvedValue(
+        '// preload' as unknown as Buffer
+      )
+    })
+
+    // Minimal BiDi browser stub — injectScript only needs isBidi + the preload
+    // hook; the script body comes from the mocked readFile above.
+    const bidiBrowser = () =>
+      ({
+        isBidi: true,
+        scriptAddPreloadScript: vi.fn().mockResolvedValue(undefined)
+      }) as unknown as WebdriverIO.Browser
+
+    it('guards against double preload injection within one session', async () => {
+      const capturer = new SessionCapturer()
+      const browser = bidiBrowser()
+      await capturer.injectScript(browser)
+      await capturer.injectScript(browser)
+      expect(browser.scriptAddPreloadScript).toHaveBeenCalledTimes(1)
+    })
+
+    it('re-adds the preload script for the new session after a reload reset', async () => {
+      const capturer = new SessionCapturer()
+      const browser = bidiBrowser()
+      await capturer.injectScript(browser)
+      capturer.resetScriptInjection()
+      await capturer.injectScript(browser)
+      expect(browser.scriptAddPreloadScript).toHaveBeenCalledTimes(2)
+    })
+  })
+
   describe('integration', () => {
     it('should handle complete session capture workflow', async () => {
       const capturer = new SessionCapturer()

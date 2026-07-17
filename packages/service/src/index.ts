@@ -59,7 +59,11 @@ import {
   type ServiceOptions,
   TraceType
 } from './types.js'
-import { CONTEXT_CHANGE_COMMANDS, INTERNAL_COMMANDS } from './constants.js'
+import {
+  CONTEXT_CHANGE_COMMANDS,
+  INTERNAL_COMMANDS,
+  PAGE_TRANSITION_COMMANDS
+} from './constants.js'
 import { isNativeMobile } from './mobile.js'
 import { detectInvocationConfigPath } from './standalone.js'
 
@@ -654,6 +658,15 @@ export default class DevToolsHookService implements Services.ServiceInstance {
       this.#screencastRecorder?.setStartMarker()
       this.#sessionCapturer.sendUpstream('metadata', { url: args[0] })
     }
+    // Flush the outgoing page's buffered mutations (e.g. field edits from prior
+    // fills — value/checked changes fire no page transition) BEFORE a navigating
+    // command discards its collector, else the replay shows empty inputs.
+    if (
+      this.#options.mode === 'trace' &&
+      PAGE_TRANSITION_COMMANDS.includes(command)
+    ) {
+      await this.#sessionCapturer.captureTrace(this.#browser)
+    }
     // Smart stack filtering to detect top-level user commands.
     Error.stackTraceLimit = 20
     const stack = parse(new Error('')).reverse()
@@ -772,6 +785,14 @@ export default class DevToolsHookService implements Services.ServiceInstance {
    * on the new session so the second scenario is also covered.
    */
   async onReload(oldSessionId: string, _newSessionId: string) {
+    // reloadSession starts a fresh session with no preload script (BiDi preload
+    // scripts are per-session), so DOM-mutation capture would silently stop
+    // after the first session — every post-reload scenario would replay the
+    // prior session's last DOM. Re-arm capture for the new session here,
+    // independent of screencast, so it runs before the early-return below.
+    this.#sessionCapturer.resetScriptInjection()
+    await this.#ensureInjected('reloadSession')
+
     if (!this.#shouldRecordScreencast() || !this.#browser) {
       return
     }

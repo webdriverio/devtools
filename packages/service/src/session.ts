@@ -203,7 +203,7 @@ export class SessionCapturer extends SessionCapturerBase {
     ) {
       await Promise.all([
         this.#capturePerformance(browser, commandLogEntry, args),
-        this.#captureTrace(browser)
+        this.captureTrace(browser)
       ])
     }
   }
@@ -357,7 +357,20 @@ export class SessionCapturer extends SessionCapturerBase {
     log.info('✓ Script injected successfully')
   }
 
-  async #captureTrace(browser: WebdriverIO.Browser) {
+  /** Clear the per-session injection guard so the next `injectScript` re-adds
+   *  the preload script. BiDi preload scripts are scoped to one session, so
+   *  after `reloadSession()` the new session has none — without this, DOM
+   *  capture silently stops after the first session. The guard itself still
+   *  prevents double-adding within a single session. */
+  resetScriptInjection() {
+    this.#isScriptInjected = false
+  }
+
+  /** Drain the current page's buffered trace data (mutations/console/network)
+   *  into the capturer. Public so the plugin can flush BEFORE a navigating
+   *  command, capturing the outgoing page's field edits (value/checked
+   *  mutations fire no page transition) before its collector is discarded. */
+  async captureTrace(browser: WebdriverIO.Browser) {
     if (!this.#isScriptInjected) {
       log.warn('Script not injected, skipping trace capture')
       return
