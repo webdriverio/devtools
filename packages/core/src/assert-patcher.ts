@@ -4,7 +4,7 @@ import {
   type CollapsedAssertResult,
   type CommandLog
 } from '@wdio/devtools-shared'
-import { getCallSourceFromStack } from './stack.js'
+import { getCallSourceFromStack, isAssertFromUserCode } from './stack.js'
 import { toError } from './error.js'
 import { stripAnsi } from './console.js'
 
@@ -121,12 +121,15 @@ function describeAssertFailure(err: unknown): {
 function makeAssertEmitters(
   methodName: string,
   args: unknown[],
-  onCommand: (cmd: CapturedAssert) => void
+  onCommand: (cmd: CapturedAssert) => void,
+  callerStack: string | undefined
 ): { passed: () => void; failed: (err: unknown) => void } {
-  const callInfo = getCallSourceFromStack()
-  // No user-code frame means the assert came from a dependency or framework
-  // internal, not the user's test — drop it so it never reaches the trace.
-  if (callInfo.filePath === undefined) {
+  const callInfo = getCallSourceFromStack(callerStack)
+  // Drop asserts the user's test didn't fire directly: either no user-code frame
+  // on the stack at all, or the assert's immediate caller is a dependency (a
+  // framework/library assert firing during a user operation) — both are noise.
+  // callerStack is captured in patchedAssert so the frame offsets line up.
+  if (callInfo.filePath === undefined || !isAssertFromUserCode(callerStack)) {
     return { passed: () => {}, failed: () => {} }
   }
   const startedAt = Date.now()
@@ -156,7 +159,15 @@ function makePatchedAssertMethod(
   onCommand: (cmd: CapturedAssert) => void
 ): (...args: unknown[]) => unknown {
   return function patchedAssert(this: unknown, ...args: unknown[]) {
-    const { passed, failed } = makeAssertEmitters(methodName, args, onCommand)
+    // Captured HERE so frames[0] is this wrapper and frames[1] is the assert's
+    // caller — a fixed offset isAssertFromUserCode reads (minification-robust).
+    const callerStack = new Error().stack
+    const { passed, failed } = makeAssertEmitters(
+      methodName,
+      args,
+      onCommand,
+      callerStack
+    )
     let result: unknown
     // Node's internalMatch dispatches on `fn === assert.match` (Node ≤20), so
     // a wrapper installed on that property silently inverts `match` into
