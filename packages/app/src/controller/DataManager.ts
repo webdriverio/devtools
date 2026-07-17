@@ -22,7 +22,8 @@ import {
   baselineContext,
   selectedTestUidContext,
   framesContext,
-  actionGroupsContext
+  actionGroupsContext,
+  transcriptContext
 } from './context.js'
 import { BASELINE_WS_SCOPE, TRACE_API, WS_SCOPE } from '@wdio/devtools-shared'
 import { CACHE_ID } from './constants.js'
@@ -66,6 +67,7 @@ export class DataManagerController implements ReactiveController {
   selectedTestUidContextProvider: ContextProvider<typeof selectedTestUidContext>
   framesContextProvider: ContextProvider<typeof framesContext>
   actionGroupsContextProvider: ContextProvider<typeof actionGroupsContext>
+  transcriptContextProvider: ContextProvider<typeof transcriptContext>
 
   #playerMode = false
 
@@ -100,6 +102,7 @@ export class DataManagerController implements ReactiveController {
       actionGroupsContext,
       undefined
     )
+    this.transcriptContextProvider = this.#provide(transcriptContext, undefined)
   }
 
   #provide<T extends Context<unknown, unknown>>(
@@ -216,6 +219,7 @@ export class DataManagerController implements ReactiveController {
     this.#playerMode = true
     this.framesContextProvider.setValue(data.frames)
     this.actionGroupsContextProvider.setValue(data.groups)
+    this.transcriptContextProvider.setValue(data.transcript)
     this.loadTraceFile(data.trace)
     this.hasConnectionProvider.setValue(true)
     this.#host.requestUpdate()

@@ -252,6 +252,26 @@ describe('parseTraceZip', () => {
     expect(trace.mutations[1]).toMatchObject({ target: 'body' })
   })
 
+  it('reads transcript.md into the player payload when present', () => {
+    const zip = zipSync({
+      'trace.trace': toNdjson([
+        {
+          type: 'context-options',
+          wallTime: WALL_TIME,
+          browserName: 'chrome',
+          contextId: 'context@abcd1234',
+          options: { viewport: { width: 1024, height: 768 } }
+        }
+      ]),
+      'transcript.md': strToU8('# Session\n\n1. Page.navigate("https://x")')
+    })
+    expect(parseTraceZip(zip).transcript).toContain('Page.navigate')
+  })
+
+  it('leaves transcript undefined when the zip carries none', () => {
+    expect(parseTraceZip(fixtureZip()).transcript).toBeUndefined()
+  })
+
   it('restores callSource and sources from stack frames + src resources', () => {
     const { trace } = parseTraceZip(fixtureZip())
     const click = trace.commands.find((c) => c.command === 'click')
