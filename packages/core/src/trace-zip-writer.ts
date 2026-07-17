@@ -16,6 +16,8 @@ export interface TraceZipInputs {
   networkNdjson: Buffer
   /** Human/LLM-readable Markdown transcript. */
   transcriptMd?: string
+  /** NDJSON DOM mutation stream (one mutation per line). Omitted/empty → no entry. */
+  mutationsNdjson?: Buffer
   /** Files written under `resources/` — typically screenshots + element snapshots. */
   resources: TraceZipResource[]
 }
@@ -30,6 +32,9 @@ export function buildTraceZip(inputs: TraceZipInputs): Promise<Buffer> {
         Buffer.from(inputs.transcriptMd, 'utf8'),
         'transcript.md'
       )
+    }
+    if (inputs.mutationsNdjson?.length) {
+      zipFile.addBuffer(inputs.mutationsNdjson, 'trace.mutations')
     }
     for (const resource of inputs.resources) {
       zipFile.addBuffer(resource.data, `resources/${resource.resourceName}`)

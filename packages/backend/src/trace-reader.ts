@@ -5,22 +5,26 @@
 // is a HAR stream, and `.stacks` sidecars carry call stacks. Commands come
 // from before/after events, the filmstrip from screencast-frame events +
 // resources/*, console logs from console/stdio events, sources from stack
-// frames + src@ resources. Fields the zip never carried (mutations, suites)
-// come back empty. Constants, event types, and pure helpers live in the
-// sibling trace-reader-{constants,types,utils}.ts files.
+// frames + src@ resources, and DOM mutations from the `.mutations` stream when
+// present. Fields the zip never carried (suites) come back empty. Constants,
+// event types, and pure helpers live in the sibling
+// trace-reader-{constants,types,utils}.ts files.
 
 import fs from 'node:fs/promises'
 import { unzipSync, strFromU8 } from 'fflate'
 import {
+  isMutationsTruncationMarker,
   type CommandLog,
   type NetworkRequest,
   type TraceLog,
+  type TraceMutation,
   type TracePlayerData,
   type TracePlayerFrame
 } from '@wdio/devtools-shared'
 
 import {
   FRAME_RESOURCE_SUFFIXES,
+  MUTATIONS_STREAM_SUFFIX,
   NETWORK_STREAM_SUFFIX,
   REVERSE_ACTION_MAP,
   STACKS_STREAM_SUFFIX,
@@ -270,6 +274,39 @@ function parseNetworkStreams(
     )
 }
 
+function parseMutationStreams(
+  files: Record<string, Uint8Array>,
+  names: string[]
+): TraceMutation[] {
+  // The `.mutations` NDJSON is TraceMutation JSON, minus the trailing
+  // truncation marker; cast at this boundary like the HAR/action parsers.
+  return names
+    .flatMap((name) => parseNdjson(strFromU8(files[name])))
+    .filter(
+      (entry) => !isMutationsTruncationMarker(entry)
+    ) as unknown as TraceMutation[]
+}
+
+/** Categorize + rebase every `.trace` action stream, merge them, and fold in
+ *  any `.stacks` sidecars — the event-stream prelude for `parseTraceZip`. */
+function parseAndMergeEventStreams(
+  files: Record<string, Uint8Array>,
+  names: string[]
+): MergedEvents {
+  const streams = names
+    .filter((name) => name.endsWith(TRACE_STREAM_SUFFIX))
+    .map((name) => {
+      const stream = categorizeEvents(parseNdjson(strFromU8(files[name])))
+      rebaseToEpoch(stream)
+      return stream
+    })
+  const merged = mergeStreams(streams)
+  for (const name of names.filter((n) => n.endsWith(STACKS_STREAM_SUFFIX))) {
+    attachSidecarStacks(merged.befores, strFromU8(files[name]))
+  }
+  return merged
+}
+
 function earliestWallTime(ctxs: ContextOptionsEvent[]): number {
   const wallTimes = ctxs
     .map((ctx) => ctx.wallTime)
@@ -283,15 +320,7 @@ export function parseTraceZip(zip: Uint8Array): TracePlayerData {
   const names = Object.keys(files).sort()
   const entriesWith = (suffix: string) =>
     names.filter((name) => name.endsWith(suffix))
-  const streams = entriesWith(TRACE_STREAM_SUFFIX).map((name) => {
-    const stream = categorizeEvents(parseNdjson(strFromU8(files[name])))
-    rebaseToEpoch(stream)
-    return stream
-  })
-  const merged = mergeStreams(streams)
-  for (const name of entriesWith(STACKS_STREAM_SUFFIX)) {
-    attachSidecarStacks(merged.befores, strFromU8(files[name]))
-  }
+  const merged = parseAndMergeEventStreams(files, names)
   const { frames, maxTime: frameMax } = buildFrames(files, merged.frameEvents)
   const {
     commands,
@@ -306,7 +335,10 @@ export function parseTraceZip(zip: Uint8Array): TracePlayerData {
   )
   const startTime = earliestWallTime(merged.ctxs)
   const trace: TraceLog = {
-    mutations: [],
+    mutations: parseMutationStreams(
+      files,
+      entriesWith(MUTATIONS_STREAM_SUFFIX)
+    ),
     logs: [],
     consoleLogs: buildConsoleLogs(merged.consoleEvents),
     networkRequests: parseNetworkStreams(
