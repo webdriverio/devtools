@@ -9,12 +9,14 @@ import {
   safeSerializeAssertArg,
   type CapturedAssert
 } from '../src/assert-patcher.js'
-import { getCallSourceFromStack } from '../src/stack.js'
+import { getCallSourceFromStack, isAssertFromUserCode } from '../src/stack.js'
 
-// Stub the call-source resolver so tests choose whether an assert looks like
-// it originated in user code (a frame) or a dependency/internal (no frame).
+// Stub the stack resolvers so tests choose whether an assert looks like it
+// originated in user code (a frame + a direct user caller) or a
+// dependency/internal (no frame, or an indirect framework caller).
 vi.mock('../src/stack.js', () => ({
-  getCallSourceFromStack: vi.fn()
+  getCallSourceFromStack: vi.fn(),
+  isAssertFromUserCode: vi.fn()
 }))
 
 const USER_FRAME = {
@@ -44,6 +46,7 @@ beforeEach(() => {
   }
   // Default: every assert looks like it came from user code so captures fire.
   vi.mocked(getCallSourceFromStack).mockReturnValue(USER_FRAME)
+  vi.mocked(isAssertFromUserCode).mockReturnValue(true)
 })
 
 describe('safeSerializeAssertArg', () => {
@@ -162,6 +165,18 @@ describe('patchNodeAssert', () => {
       patchNodeAssert((c) => captured.push(c))
       await assert.doesNotReject(async () => 1)
       await expect(assert.rejects(async () => 1)).rejects.toThrow()
+      expect(captured).toHaveLength(0)
+    })
+
+    it('drops a framework assert whose immediate caller is a dependency', () => {
+      // A user frame exists deep in the stack, but the assert was fired by a
+      // dependency during a user operation — isAssertFromUserCode says no.
+      vi.mocked(getCallSourceFromStack).mockReturnValue(USER_FRAME)
+      vi.mocked(isAssertFromUserCode).mockReturnValue(false)
+      const captured: CapturedAssert[] = []
+      patchNodeAssert((c) => captured.push(c))
+      assert.equal(1, 1)
+      expect(() => assert.equal(1, 2)).toThrow()
       expect(captured).toHaveLength(0)
     })
 
