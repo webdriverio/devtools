@@ -58,3 +58,9 @@ export const framesContext = createContext<TracePlayerFrame[]>(
 export const actionGroupsContext = createContext<
   TraceActionChild[] | undefined
 >(Symbol('actionGroupsContext'))
+
+/** Markdown run transcript from a loaded trace (`transcript.md`); undefined in
+ *  live mode or when the zip carried none. */
+export const transcriptContext = createContext<string | undefined>(
+  Symbol('transcriptContext')
+)

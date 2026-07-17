@@ -334,6 +334,9 @@ export function parseTraceZip(zip: Uint8Array): TracePlayerData {
     indexByCallId
   )
   const startTime = earliestWallTime(merged.ctxs)
+  const transcript = files['transcript.md']
+    ? strFromU8(files['transcript.md'])
+    : undefined
   const trace: TraceLog = {
     mutations: parseMutationStreams(
       files,
@@ -357,7 +360,8 @@ export function parseTraceZip(zip: Uint8Array): TracePlayerData {
     frames,
     startTime,
     duration: Math.max(0, Math.max(frameMax, cmdMax) - startTime),
-    ...(groups ? { groups } : {})
+    ...(groups ? { groups } : {}),
+    ...(transcript ? { transcript } : {})
   }
 }
 

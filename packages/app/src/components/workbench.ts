@@ -33,6 +33,7 @@ import './workbench/console.js'
 import './workbench/metadata.js'
 import './workbench/network.js'
 import './workbench/errors.js'
+import './workbench/transcript.js'
 import './workbench/compare.js'
 import './browser/snapshot.js'
 import './browser/trace-timeline.js'
@@ -368,6 +369,11 @@ export class DevtoolsWorkbench extends Element {
       >
         <wdio-devtools-errors></wdio-devtools-errors>
       </wdio-devtools-tab>
+      ${this.playerMode
+        ? html`<wdio-devtools-tab label="Transcript">
+            <wdio-devtools-transcript></wdio-devtools-transcript>
+          </wdio-devtools-tab>`
+        : nothing}
       ${this.#renderCompareTabIfAvailable()}
     `
   }

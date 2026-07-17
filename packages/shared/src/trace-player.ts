@@ -49,4 +49,6 @@ export interface TracePlayerData {
   /** Root children of the action tree, chronological. Absent when the zip
    *  carried no structural steps — the player then renders the flat list. */
   groups?: TraceActionChild[]
+  /** Markdown run transcript (`transcript.md`), when the zip carried one. */
+  transcript?: string
 }
