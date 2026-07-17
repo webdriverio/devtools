@@ -391,6 +391,29 @@ export interface TraceMutation {
 }
 
 /**
+ * Trailing sentinel line in a `trace.mutations` NDJSON stream, marking that
+ * `dropped` late mutations were discarded under the size cap. A distinct shape
+ * (not a `TraceMutation.type`) so it never collides with a real mutation. This
+ * is the writer↔reader contract shared by core's exporter and the backend
+ * reader, so both agree on the key.
+ */
+export interface MutationsTruncationMarker {
+  __truncated__: true
+  dropped: number
+}
+
+/** True when an NDJSON entry is the truncation sentinel, not a mutation. */
+export function isMutationsTruncationMarker(
+  entry: unknown
+): entry is MutationsTruncationMarker {
+  return (
+    typeof entry === 'object' &&
+    entry !== null &&
+    (entry as { __truncated__?: unknown }).__truncated__ === true
+  )
+}
+
+/**
  * Captured at each user-facing action boundary in `trace` mode. Feeds the
  * downstream trace.zip exporter (Phase 4). `screenshot` is base64-encoded JPEG.
  */

@@ -17,6 +17,9 @@ export const NETWORK_STREAM_SUFFIX = '.network'
 /** Sidecar entries holding call stacks keyed by numeric call id. */
 export const STACKS_STREAM_SUFFIX = '.stacks'
 
+/** Every zip entry ending in this suffix is an NDJSON DOM-mutation stream. */
+export const MUTATIONS_STREAM_SUFFIX = '.mutations'
+
 /** Foreign screencast refs may be a bare sha1; probe image extensions too. */
 export const FRAME_RESOURCE_SUFFIXES = ['', '.jpeg', '.png'] as const
 

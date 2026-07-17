@@ -212,6 +212,46 @@ describe('parseTraceZip', () => {
     expect(trace.suites).toEqual([])
   })
 
+  it('restores DOM mutations from a trace.mutations stream, dropping the marker', () => {
+    const mutations = [
+      {
+        type: 'childList',
+        addedNodes: [{ tag: 'html' }],
+        removedNodes: [],
+        timestamp: 1000
+      },
+      {
+        type: 'attributes',
+        target: 'body',
+        attributeName: 'class',
+        addedNodes: [],
+        removedNodes: [],
+        timestamp: 1100
+      }
+    ]
+    const zip = zipSync({
+      'trace.trace': toNdjson([
+        {
+          type: 'context-options',
+          wallTime: WALL_TIME,
+          browserName: 'chrome',
+          contextId: 'context@abcd1234',
+          options: { viewport: { width: 1024, height: 768 } }
+        }
+      ]),
+      'trace.mutations': toNdjson([
+        ...mutations,
+        { __truncated__: true, dropped: 7 }
+      ])
+    })
+    const { trace } = parseTraceZip(zip)
+    // Two mutations from three NDJSON lines proves the trailing truncation
+    // marker was dropped rather than surfaced as a mutation.
+    expect(trace.mutations).toHaveLength(2)
+    expect(trace.mutations[0]).toMatchObject({ type: 'childList' })
+    expect(trace.mutations[1]).toMatchObject({ target: 'body' })
+  })
+
   it('restores callSource and sources from stack frames + src resources', () => {
     const { trace } = parseTraceZip(fixtureZip())
     const click = trace.commands.find((c) => c.command === 'click')

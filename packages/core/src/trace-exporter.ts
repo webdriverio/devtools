@@ -41,6 +41,7 @@ import { buildActionEvents, type ActionEvent } from './trace-action-events.js'
 import { buildSourceResources } from './trace-sources.js'
 import { networkRequestToHar } from './trace-har.js'
 import { buildTraceZip, type TraceZipResource } from './trace-zip-writer.js'
+import { buildMutationsNdjson } from './trace-mutations.js'
 import { sha1Hex } from './sha1.js'
 
 const TRACE_VERSION = 8
@@ -125,6 +126,14 @@ type TraceEvent =
 
 function shortId(sessionId?: string): string {
   return (sessionId ?? Math.random().toString(36).slice(2, 10)).slice(0, 8)
+}
+
+function allocateTraceIds(sessionId?: string): {
+  contextId: string
+  pageId: string
+} {
+  const idPrefix = shortId(sessionId)
+  return { contextId: `context@${idPrefix}`, pageId: `page@${idPrefix}` }
 }
 
 function resolveContextNaming(caps: Record<string, unknown> | undefined): {
@@ -314,6 +323,7 @@ interface TraceBundle {
   traceNdjson: string
   networkNdjson: Buffer
   transcriptMd: string
+  mutationsNdjson: Buffer
   resources: TraceZipResource[]
 }
 
@@ -368,9 +378,7 @@ function buildTraceBundle(
   // subsequent actions render at positive deltas in the trace viewer.
   const firstCommandTs = trace.commands[0]?.timestamp
   const wallTime = opts.wallTimeOverride ?? firstCommandTs ?? Date.now()
-  const idPrefix = shortId(opts.sessionId)
-  const contextId = `context@${idPrefix}`
-  const pageId = `page@${idPrefix}`
+  const { contextId, pageId } = allocateTraceIds(opts.sessionId)
   const ctxOptions = buildContextOptions(trace, contextId, wallTime)
   const dense = buildDenseScreencast(
     trace.screencastFrames ?? [],
@@ -400,6 +408,7 @@ function buildTraceBundle(
       wallTime,
       ctxOptions.title
     ),
+    mutationsNdjson: buildMutationsNdjson(trace.mutations ?? []).ndjson,
     resources: [
       ...buildSnapshotResources(trace.actionSnapshots ?? [], pageId),
       ...dense.resources,
@@ -422,7 +431,8 @@ export async function exportTraceZip(
     traceNdjson: bundle.traceNdjson,
     networkNdjson: bundle.networkNdjson,
     resources: bundle.resources,
-    transcriptMd: bundle.transcriptMd
+    transcriptMd: bundle.transcriptMd,
+    mutationsNdjson: bundle.mutationsNdjson
   })
 }
 
@@ -448,6 +458,12 @@ async function exportTraceDirectory(
       ? fs.writeFile(
           path.join(targetDir, 'trace.network'),
           bundle.networkNdjson
+        )
+      : Promise.resolve(),
+    bundle.mutationsNdjson.length
+      ? fs.writeFile(
+          path.join(targetDir, 'trace.mutations'),
+          bundle.mutationsNdjson
         )
       : Promise.resolve(),
     ...bundle.resources.map((r) =>

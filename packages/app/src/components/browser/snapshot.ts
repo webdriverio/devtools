@@ -257,9 +257,36 @@ export class DevtoolsBrowser extends Element {
         commandPageUrl(command, this.commands ?? [], this.mutations ?? []) ??
         this.#activeUrl
     }
-    // Switch to snapshot mode so the command screenshot is visible instead of the video.
+    // Switch to snapshot mode so the command snapshot is visible instead of the video.
     this.#viewMode = 'snapshot'
-    this.requestUpdate()
+    // DOM time-travel: rebuild the iframe DOM as of the selected command's time.
+    // #renderBrowserState requestUpdates internally, so only request one here
+    // when there's no mutation stream to replay (screenshot-only fallback).
+    const target = this.#mutationForCommand(command)
+    if (target) {
+      await this.#renderBrowserState(target)
+    } else {
+      this.requestUpdate()
+    }
+  }
+
+  /** The last mutation captured at or before the command's time — the DOM state
+   *  the command observed. Falls back to the first mutation when every mutation
+   *  is later (command precedes the slice's initial full-DOM snapshot). */
+  #mutationForCommand(command?: CommandLog): TraceMutation | undefined {
+    const mutations = this.mutations
+    if (!command?.timestamp || !mutations?.length) {
+      return undefined
+    }
+    let best: TraceMutation | undefined
+    for (const mutation of mutations) {
+      if (mutation.timestamp <= command.timestamp) {
+        best = mutation
+      } else {
+        break
+      }
+    }
+    return best ?? mutations[0]
   }
 
   // View-mode flips swap the iframe with <img>/<video> and don't fire resize.
@@ -328,7 +355,7 @@ export class DevtoolsBrowser extends Element {
   }
 
   #handleAttributeMutation(mutation: TraceMutation) {
-    if (!mutation.attributeName || !mutation.attributeValue) {
+    if (!mutation.attributeName) {
       return
     }
 
@@ -337,7 +364,16 @@ export class DevtoolsBrowser extends Element {
       return
     }
 
-    el.setAttribute(mutation.attributeName, mutation.attributeValue || '')
+    const value = mutation.attributeValue ?? ''
+    el.setAttribute(mutation.attributeName, value)
+    // Form-field state lives on the PROPERTY, not just the attribute — mirror it
+    // so a replayed input shows the captured value / checked state, including a
+    // field cleared back to empty.
+    if (mutation.attributeName === 'value' && 'value' in el) {
+      ;(el as HTMLInputElement).value = value
+    } else if (mutation.attributeName === 'checked' && 'checked' in el) {
+      ;(el as HTMLInputElement).checked = value === 'true'
+    }
   }
 
   #handleChildListMutation(mutation: TraceMutation) {
@@ -554,6 +590,17 @@ export class DevtoolsBrowser extends Element {
         ></wdio-devtools-screencast-player>
       </div>`
     }
+    // DOM replay is the primary snapshot whenever the trace carries mutations:
+    // #renderBrowserState reconstructs the iframe DOM at the selected command's
+    // time, so points without a captured frame (assertions, static waits) still
+    // show the real page instead of a blank/stale screenshot.
+    if (hasMutations) {
+      return html`<div class="iframe-wrapper">
+        <iframe class="origin-top-left"></iframe>
+      </div>`
+    }
+    // No mutation stream (DOM-less / foreign trace): fall back to the selected
+    // command's screenshot, then the latest available frame.
     if (this.#screenshotData) {
       return html`<div class="iframe-wrapper">
         <div
@@ -567,12 +614,7 @@ export class DevtoolsBrowser extends Element {
         </div>
       </div>`
     }
-    if (hasMutations) {
-      return html`<div class="iframe-wrapper">
-        <iframe class="origin-top-left"></iframe>
-      </div>`
-    }
-    const autoScreenshot = hasMutations ? null : this.#latestAutoScreenshot
+    const autoScreenshot = this.#latestAutoScreenshot
     if (autoScreenshot) {
       return html`<div class="iframe-wrapper">
         <div

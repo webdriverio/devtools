@@ -523,3 +523,70 @@ describe('exported trace stream — dense filmstrip', () => {
     await fs.rm(outputDir, { recursive: true, force: true })
   })
 })
+
+describe('exported trace stream — DOM mutations', () => {
+  const baseCapturer = (
+    mutations: TraceCapturer['mutations']
+  ): TraceCapturer => ({
+    mutations,
+    traceLogs: [],
+    consoleLogs: [],
+    networkRequests: [],
+    commandsLog: [
+      {
+        command: 'url',
+        args: ['https://example.test'],
+        timestamp: 1200,
+        startTime: 1150
+      }
+    ],
+    sources: new Map(),
+    metadata: { type: TraceType.Standalone },
+    startWallTime: 1000
+  })
+
+  it('writes captured mutations to a trace.mutations entry, one per line', async () => {
+    const outputDir = await fs.mkdtemp(path.join(os.tmpdir(), 'trace-mut-'))
+    const dir = await writeTraceZip(
+      baseCapturer([
+        {
+          type: 'childList',
+          addedNodes: [{ tag: 'html' }],
+          removedNodes: [],
+          timestamp: 1000
+        },
+        {
+          type: 'attributes',
+          target: 'body',
+          attributeName: 'class',
+          attributeValue: 'ready',
+          addedNodes: [],
+          removedNodes: [],
+          timestamp: 1100
+        }
+      ]),
+      { outputDir, sessionId: 'abc12345', format: 'ndjson-directory' }
+    )
+    const lines = (await fs.readFile(path.join(dir, 'trace.mutations'), 'utf8'))
+      .trim()
+      .split('\n')
+      .map((l) => JSON.parse(l) as Record<string, unknown>)
+    expect(lines).toHaveLength(2)
+    expect(lines[0]!.type).toBe('childList')
+    expect(lines[1]!.target).toBe('body')
+    await fs.rm(outputDir, { recursive: true, force: true })
+  })
+
+  it('writes no trace.mutations entry when there are none', async () => {
+    const outputDir = await fs.mkdtemp(
+      path.join(os.tmpdir(), 'trace-mut-none-')
+    )
+    const dir = await writeTraceZip(baseCapturer([]), {
+      outputDir,
+      sessionId: 'abc12345',
+      format: 'ndjson-directory'
+    })
+    await expect(fs.access(path.join(dir, 'trace.mutations'))).rejects.toThrow()
+    await fs.rm(outputDir, { recursive: true, force: true })
+  })
+})
