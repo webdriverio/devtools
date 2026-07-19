@@ -7,6 +7,8 @@ import type { CommandLog } from '@wdio/devtools-shared'
 import { transcriptContext, commandContext } from '../../controller/context.js'
 
 import '../placeholder.js'
+import '~icons/mdi/content-copy.js'
+import '~icons/mdi/check.js'
 
 const COMPONENT = 'wdio-devtools-transcript'
 
@@ -28,31 +30,32 @@ export class DevtoolsTranscript extends Element {
     ...Element.styles,
     css`
       :host {
-        display: flex;
-        flex-direction: column;
+        display: block;
+        position: relative;
         width: 100%;
         height: 100%;
-        overflow: hidden;
-      }
-      .bar {
-        display: flex;
-        justify-content: flex-end;
-        padding: 8px 12px;
-        border-bottom: 1px solid var(--vscode-panel-border);
+        overflow: auto;
       }
       button {
-        font-family: inherit;
-        font-size: 11px;
-        padding: 5px 12px;
+        position: absolute;
+        top: 10px;
+        right: 14px;
+        z-index: 2;
+        display: inline-grid;
+        place-items: center;
+        width: 28px;
+        height: 28px;
+        padding: 0;
         border: 1px solid var(--vscode-panel-border);
         border-radius: 8px;
         background: var(--vscode-input-background);
-        color: var(--vscode-foreground);
+        color: var(--vscode-descriptionForeground);
         cursor: pointer;
-        line-height: 1;
+        font-size: 14px;
       }
       button:hover {
         border-color: var(--accent);
+        color: var(--vscode-foreground);
       }
       button.copied {
         color: var(--vscode-charts-green);
@@ -60,9 +63,7 @@ export class DevtoolsTranscript extends Element {
       }
       pre {
         margin: 0;
-        padding: 14px;
-        flex: 1;
-        overflow: auto;
+        padding: 14px 52px 14px 14px;
         font-family: var(--vscode-editor-font-family);
         font-size: 12px;
         line-height: 1.6;
@@ -116,15 +117,15 @@ export class DevtoolsTranscript extends Element {
       return html`<wdio-devtools-placeholder></wdio-devtools-placeholder>`
     }
     return html`
-      <div class="bar">
-        <button
-          class=${this.copied ? 'copied' : ''}
-          @click=${() => this.#copy()}
-          title="Copy the transcript + failures as an LLM prompt"
-        >
-          ${this.copied ? 'Copied' : 'Copy prompt'}
-        </button>
-      </div>
+      <button
+        class=${this.copied ? 'copied' : ''}
+        @click=${() => this.#copy()}
+        title="Copy the transcript + failures as an LLM prompt"
+      >
+        ${this.copied
+          ? html`<icon-mdi-check></icon-mdi-check>`
+          : html`<icon-mdi-content-copy></icon-mdi-content-copy>`}
+      </button>
       <pre>${this.transcript}</pre>
       ${nothing}
     `
