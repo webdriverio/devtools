@@ -173,6 +173,10 @@ export interface CommandLog {
   cookies?: string
   documentInfo?: DocumentInfo
   id?: number
+  /** Depth-indented accessibility-tree text for the page state at this command
+   *  (from the per-action `-snapshot.txt` resource). Reconstructed by the trace
+   *  reader; drives the player's A11y tab. */
+  snapshotText?: string
 }
 
 /**
