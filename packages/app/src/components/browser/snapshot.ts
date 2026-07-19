@@ -3,6 +3,7 @@ import { html, nothing } from 'lit'
 import { consume } from '@lit/context'
 import { snapshotStyles } from './snapshot-styles.js'
 import { renderBrowserChrome } from './browser-chrome.js'
+import { drawElementOverlay, clearElementOverlay } from './element-overlay.js'
 import { commandPageUrl } from './url-at-timestamp.js'
 import { imageMime } from './trace-timeline-utils.js'
 
@@ -22,6 +23,7 @@ import type { Metadata, MetadataBySession } from '@wdio/devtools-shared'
 
 import '../placeholder.js'
 import './screencast-player.js'
+import '~icons/mdi/cursor-default-click-outline.js'
 
 const MUTATION_SELECTOR = '__mutation-highlight__'
 
@@ -62,6 +64,9 @@ export class DevtoolsBrowser extends Element {
    * 'snapshot' — show DOM mutations replay and per-command screenshots
    */
   #viewMode: 'snapshot' | 'video' = 'snapshot'
+  /** When on, outline the elements the test interacted with (their command
+   *  target selectors) on the replayed page; click a box to copy its locator. */
+  #overlayOn = false
 
   @consume({ context: metadataContext, subscribe: true })
   metadata: Metadata | undefined = undefined
@@ -97,6 +102,7 @@ export class DevtoolsBrowser extends Element {
     window.addEventListener('app-mutation-select', (ev) =>
       this.#renderBrowserState(ev.detail)
     )
+    window.addEventListener('a11y-highlight', this.#highlightBySelector)
     window.addEventListener(
       'show-command',
       this.#handleShowCommand as EventListener
@@ -186,6 +192,9 @@ export class DevtoolsBrowser extends Element {
         this.iframe.style.left = `${Math.max(0, (availW - viewportWidth * scale) / 2)}px`
         this.iframe.style.top = '0px'
       }
+      // Layout is now settled — the one moment element rects are reliable, so
+      // the overlay boxes track the replayed DOM after every step and resize.
+      this.#redrawOverlay()
     })
   }
 
@@ -421,24 +430,18 @@ export class DevtoolsBrowser extends Element {
     return rootElement.querySelector(`*[data-wdio-ref="${ref}"]`) as HTMLElement
   }
 
-  #highlightMutation(ev: CustomEvent<TraceMutation | null>) {
-    if (!ev.detail) {
-      this.iframe?.contentDocument
-        ?.querySelector(`.${MUTATION_SELECTOR}`)
-        ?.remove()
-      return
-    }
+  #clearHighlight() {
+    this.iframe?.contentDocument
+      ?.querySelector(`.${MUTATION_SELECTOR}`)
+      ?.remove()
+  }
 
-    const mutation = ev.detail
+  /** Draw the outline box over an element in the replayed iframe. */
+  #outline(el: HTMLElement) {
     const docEl = this.iframe?.contentDocument
-    if (!docEl || !mutation.target) {
+    if (!docEl) {
       return
     }
-    const el = this.#queryElement(mutation.target)
-    if (!el) {
-      return
-    }
-
     el.scrollIntoView({ block: 'center', inline: 'center' })
     const rect = el.getBoundingClientRect()
     const scrollY = this.iframe?.contentWindow?.scrollY || 0
@@ -450,8 +453,81 @@ export class DevtoolsBrowser extends Element {
       'style',
       `position: absolute; background: #38bdf8; outline: 2px dotted red; opacity: .2; top: ${scrollY + rect.top}px; left: ${scrollX + rect.left}px; width: ${rect.width}px; height: ${rect.height}px; z-index: 10000;`
     )
-    docEl.querySelector(`.${MUTATION_SELECTOR}`)?.remove()
+    this.#clearHighlight()
     docEl.body.appendChild(highlight)
+  }
+
+  #highlightMutation(ev: CustomEvent<TraceMutation | null>) {
+    if (!ev.detail) {
+      this.#clearHighlight()
+      return
+    }
+    const el = ev.detail.target
+      ? this.#queryElement(ev.detail.target)
+      : undefined
+    if (el) {
+      this.#outline(el)
+    }
+  }
+
+  /** Outline the element for an a11y-tree locator (CSS selectors only; WDIO
+   *  locators like `button*=Login` can't resolve via querySelector → no-op). */
+  #highlightBySelector = (ev: Event) => {
+    const detail = (ev as CustomEvent<{ selector?: string } | null>).detail
+    const docEl = this.iframe?.contentDocument
+    if (!docEl) {
+      return
+    }
+    this.#clearHighlight()
+    if (!detail?.selector) {
+      return
+    }
+    let el: HTMLElement | null = null
+    try {
+      el = docEl.querySelector(detail.selector)
+    } catch {
+      return
+    }
+    if (el) {
+      this.#outline(el)
+    }
+  }
+
+  /** Distinct target selectors the test interacted with (each command's first
+   *  arg), in order. querySelector filters non-element args (URLs, matcher
+   *  strings) at draw time, so this stays permissive. */
+  #testSelectors(): string[] {
+    const seen = new Set<string>()
+    for (const command of this.commands ?? []) {
+      const arg = command.args?.[0]
+      if (typeof arg === 'string' && arg) {
+        seen.add(arg)
+      }
+    }
+    return [...seen]
+  }
+
+  // Draws immediately — call only once the iframe has laid out (the sizing rAF
+  // in #sizeSnapshotToViewport is the one point that holds for both a replay and
+  // a resize; reading element rects any earlier yields pre-layout positions).
+  #redrawOverlay() {
+    if (!this.#overlayOn) {
+      clearElementOverlay(this.iframe)
+      return
+    }
+    drawElementOverlay(this.iframe, this.#testSelectors(), (selector) =>
+      this.#copyLocator(selector)
+    )
+  }
+
+  #toggleOverlay() {
+    this.#overlayOn = !this.#overlayOn
+    this.#redrawOverlay()
+    this.requestUpdate()
+  }
+
+  #copyLocator(selector: string) {
+    navigator.clipboard?.writeText(selector).catch(() => {})
   }
 
   async #renderBrowserState(mutationEntry?: TraceMutation) {
@@ -499,6 +575,8 @@ export class DevtoolsBrowser extends Element {
       }
     }
 
+    // The replay wiped any overlay boxes; the requestUpdate below runs updated()
+    // → #sizeSnapshotToViewport, whose settled rAF redraws them post-layout.
     this.requestUpdate()
   }
 
@@ -533,6 +611,28 @@ export class DevtoolsBrowser extends Element {
       }
     }
     return null
+  }
+
+  /** Compact "element overlay" toggle in the browser chrome. Shown only when
+   *  the DOM is replayable; boxes the elements the test interacted with. */
+  #renderOverlayToggle(hasMutations: number | null) {
+    if (!hasMutations) {
+      return nothing
+    }
+    const on = this.#overlayOn
+    return html`<button
+      title="Element overlay — outline what the test interacted with"
+      @click=${() => this.#toggleOverlay()}
+      style="display:inline-grid;place-items:center;width:24px;height:24px;margin:0 8px;flex:none;border-radius:6px;cursor:pointer;border:1px solid var(--vscode-panel-border, #2a2a31);background:${on
+        ? 'var(--accent, #ff6a3d)'
+        : 'transparent'};color:${on
+        ? '#1a0d06'
+        : 'var(--vscode-descriptionForeground, #8b8b96)'};"
+    >
+      <icon-mdi-cursor-default-click-outline
+        style="width:14px;height:14px;"
+      ></icon-mdi-cursor-default-click-outline>
+    </button>`
   }
 
   #renderViewToggle() {
@@ -643,7 +743,12 @@ export class DevtoolsBrowser extends Element {
       <section
         class="w-full h-full bg-sideBarBackground rounded-[14px] border-2 border-panelBorder"
       >
-        ${renderBrowserChrome(this.#displayUrl, this.#renderViewToggle())}
+        ${renderBrowserChrome(
+          this.#displayUrl,
+          html`${this.#renderOverlayToggle(
+            hasMutations
+          )}${this.#renderViewToggle()}`
+        )}
         ${this.#renderViewport(hasMutations)}
       </section>
     `

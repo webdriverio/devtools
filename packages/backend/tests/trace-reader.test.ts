@@ -272,6 +272,39 @@ describe('parseTraceZip', () => {
     expect(parseTraceZip(fixtureZip()).transcript).toBeUndefined()
   })
 
+  it('attaches per-command a11y snapshotText via the frame-snapshot resource', () => {
+    const zip = zipSync({
+      'trace.trace': toNdjson([
+        {
+          type: 'context-options',
+          wallTime: WALL_TIME,
+          browserName: 'chrome',
+          contextId: 'context@abcd1234',
+          options: { viewport: { width: 1024, height: 768 } }
+        },
+        {
+          type: 'before',
+          callId: 'call@1',
+          startTime: 0,
+          class: 'Element',
+          method: 'fill',
+          params: { selector: '#username', value: 'tom' }
+        },
+        { type: 'after', callId: 'call@1', endTime: 50 },
+        // wallTime here names the resource, independent of the filmstrip mode.
+        {
+          type: 'frame-snapshot',
+          snapshot: { callId: 'call@1', pageId: 'page@abcd1234', wallTime: 999 }
+        }
+      ]),
+      'resources/page@abcd1234-999-snapshot.txt': strToU8(
+        '[Page: Login]\n  textbox "Username"\n  button "Login"'
+      )
+    })
+    const { trace } = parseTraceZip(zip)
+    expect(trace.commands[0]?.snapshotText).toContain('textbox "Username"')
+  })
+
   it('restores callSource and sources from stack frames + src resources', () => {
     const { trace } = parseTraceZip(fixtureZip())
     const click = trace.commands.find((c) => c.command === 'click')

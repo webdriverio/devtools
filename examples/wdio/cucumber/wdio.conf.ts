@@ -133,6 +133,7 @@ export const config: Options.Testrunner = {
       'devtools',
       {
         mode: 'trace' as const,
+        filmstrip: true,
         // tracePolicy: 'retain-on-failure',
         traceGranularity: 'test' as const,
         // NEW: per-test screenshot + video, attached inline to Allure.

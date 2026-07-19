@@ -32,6 +32,15 @@ export interface ScreencastFrameEvent {
   timestamp: number
 }
 
+/** Per-action DOM snapshot event. Always emitted (independent of the sparse/
+ *  dense filmstrip), so it's the reliable anchor for per-command data: `callId`
+ *  maps to the command and `wallTime` (the original snapshot ts) names the
+ *  `-snapshot.txt` / `-elements.json` resources. */
+export interface FrameSnapshotEvent {
+  type: 'frame-snapshot'
+  snapshot: { callId: string; pageId: string; wallTime: number }
+}
+
 export interface ConsoleEvent {
   type: 'console'
   time: number
@@ -97,6 +106,7 @@ export interface CategorizedEvents {
   befores: Map<string, BeforeEvent>
   afters: Map<string, AfterEvent>
   frameEvents: ScreencastFrameEvent[]
+  frameSnapshots: FrameSnapshotEvent[]
   consoleEvents: (ConsoleEvent | StdioEvent)[]
 }
 

@@ -36,6 +36,7 @@ import type {
   CategorizedEvents,
   ConsoleEvent,
   ContextOptionsEvent,
+  FrameSnapshotEvent,
   HarSnapshot,
   MergedEvents,
   ScreencastFrameEvent,
@@ -65,6 +66,7 @@ function categorizeEvents(
   const befores = new Map<string, BeforeEvent>()
   const afters = new Map<string, AfterEvent>()
   const frameEvents: ScreencastFrameEvent[] = []
+  const frameSnapshots: FrameSnapshotEvent[] = []
   const consoleEvents: (ConsoleEvent | StdioEvent)[] = []
   let ctx: ContextOptionsEvent | undefined
   for (const event of events) {
@@ -85,6 +87,9 @@ function categorizeEvents(
       case 'screencast-frame':
         frameEvents.push(event as unknown as ScreencastFrameEvent)
         break
+      case 'frame-snapshot':
+        frameSnapshots.push(event as unknown as FrameSnapshotEvent)
+        break
       case 'console':
       case 'stdout':
       case 'stderr':
@@ -92,7 +97,7 @@ function categorizeEvents(
         break
     }
   }
-  return { ctx, befores, afters, frameEvents, consoleEvents }
+  return { ctx, befores, afters, frameEvents, frameSnapshots, consoleEvents }
 }
 
 // Anchors both encodings: our offsets (monotonicTime 0 → anchor = wallTime)
@@ -127,6 +132,7 @@ function mergeStreams(streams: CategorizedEvents[]): MergedEvents {
     befores: new Map(),
     afters: new Map(),
     frameEvents: [],
+    frameSnapshots: [],
     consoleEvents: []
   }
   for (const stream of streams) {
@@ -140,6 +146,7 @@ function mergeStreams(streams: CategorizedEvents[]): MergedEvents {
       merged.afters.set(callId, after)
     }
     merged.frameEvents.push(...stream.frameEvents)
+    merged.frameSnapshots.push(...stream.frameSnapshots)
     merged.consoleEvents.push(...stream.consoleEvents)
   }
   return merged
@@ -200,7 +207,8 @@ function reconstructCommand(
   before: BeforeEvent,
   after: AfterEvent | undefined,
   afters: Map<string, AfterEvent>,
-  frames: TracePlayerFrame[]
+  frames: TracePlayerFrame[],
+  snapshotText?: string
 ): CommandLog {
   const endTime = after?.endTime ?? before.startTime
   const command: CommandLog = {
@@ -229,12 +237,35 @@ function reconstructCommand(
   if (frame) {
     command.screenshot = frame.screenshot
   }
+  if (snapshotText) {
+    command.snapshotText = snapshotText
+  }
   return command
+}
+
+/** Resolve each per-action `-snapshot.txt` (a11y tree) resource, keyed by the
+ *  command's callId. The frame-snapshot event names the resource via its pageId
+ *  + original timestamp (wallTime), so this works regardless of whether the zip
+ *  used the sparse or dense filmstrip. */
+function buildSnapshotTextByCallId(
+  files: Record<string, Uint8Array>,
+  frameSnapshots: FrameSnapshotEvent[]
+): Map<string, string> {
+  const byCallId = new Map<string, string>()
+  for (const { snapshot } of frameSnapshots) {
+    const data =
+      files[`resources/${snapshot.pageId}-${snapshot.wallTime}-snapshot.txt`]
+    if (data) {
+      byCallId.set(snapshot.callId, strFromU8(data))
+    }
+  }
+  return byCallId
 }
 
 function buildCommands(
   events: MergedEvents,
-  frames: TracePlayerFrame[]
+  frames: TracePlayerFrame[],
+  files: Record<string, Uint8Array>
 ): {
   commands: CommandLog[]
   maxTime: number
@@ -242,6 +273,10 @@ function buildCommands(
 } {
   const entries: { callId: string; command: CommandLog }[] = []
   const structural = collectStructuralIds(events.befores)
+  const snapshotByCallId = buildSnapshotTextByCallId(
+    files,
+    events.frameSnapshots
+  )
   let maxTime = 0
   for (const [callId, before] of events.befores) {
     // Group markers are structure, not actions — as command rows their end
@@ -250,7 +285,13 @@ function buildCommands(
       continue
     }
     const after = events.afters.get(callId)
-    const command = reconstructCommand(before, after, events.afters, frames)
+    const command = reconstructCommand(
+      before,
+      after,
+      events.afters,
+      frames,
+      snapshotByCallId.get(callId)
+    )
     maxTime = Math.max(maxTime, command.timestamp)
     entries.push({ callId, command })
   }
@@ -326,7 +367,7 @@ export function parseTraceZip(zip: Uint8Array): TracePlayerData {
     commands,
     maxTime: cmdMax,
     indexByCallId
-  } = buildCommands(merged, frames)
+  } = buildCommands(merged, frames, files)
   const groups = buildActionTree(
     merged.befores,
     merged.afters,
