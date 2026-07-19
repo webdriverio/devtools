@@ -259,6 +259,28 @@ function classifyMobileRole(
 }
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Clickable container whose label lives on a child TextView. */
+function getFirstChildText(element: JSONElement): string | undefined {
+  // Breadth-first: direct children checked before grandchildren.
+  // This prefers a direct sibling label over a deeply nested one.
+  const queue: JSONElement[] = [...(element.children || [])]
+  while (queue.length > 0) {
+    const el = queue.shift()!
+    const text = el.attributes?.text?.trim()
+    if (text) {
+      return text
+    }
+    if (el.children) {
+      queue.push(...el.children)
+    }
+  }
+  return undefined
+}
+
+// ---------------------------------------------------------------------------
 // Locator generation
 // ---------------------------------------------------------------------------
 
@@ -453,7 +475,7 @@ function collectMobileNodes(
 ): void {
   const attrs = element.attributes
   const role = classifyMobileRole(element.tagName, platform)
-  const name = getMobileNodeIdentity(attrs, platform)
+  let name = getMobileNodeIdentity(attrs, platform)
   const explicit = isExplicitlyInteractive(attrs, platform)
   const interactive = isMobileInteractive(element, platform)
   const inViewport = isMobileInViewport(element, platform, walkOpts.viewport)
@@ -510,6 +532,23 @@ function collectMobileNodes(
         (platform === 'android'
           ? getBestAndroidLocator(attrs)
           : getBestIOSLocator(attrs)) ?? ''
+    }
+
+    // When the only locator is class-based and the element has no name,
+    // pull a label from a child — common in Android native apps where a
+    // clickable container row's label lives on a child TextView.  We
+    // enrich the name rather than replacing the selector so the locator
+    // still targets the correct (parent) element.
+    if (
+      !name &&
+      platform === 'android' &&
+      (locator.startsWith('class:') ||
+        locator.startsWith('android=new UiSelector().className("'))
+    ) {
+      const childText = getFirstChildText(element)
+      if (childText && childText.length < 100) {
+        name = childText
+      }
     }
   }
 
@@ -782,7 +821,9 @@ export function serializeMobileSnapshot(
 function extractTagFromSelector(selector: string, fallback: string): string {
   // Matches tag name followed by a CSS selector combinator or operator.
   // Supports hyphenated custom elements (my-component) and pseudo-classes (:nth-of-type).
-  const match = selector.match(/^([a-z][a-z0-9]*(?:-[a-z][a-z0-9]*)*)[*.#\[:=(^$~]/)
+  const match = selector.match(
+    /^([a-z][a-z0-9]*(?:-[a-z][a-z0-9]*)*)[*.#\[:=(^$~]/
+  )
   if (match) {
     return match[1]
   }
@@ -794,7 +835,10 @@ function extractTagFromSelector(selector: string, fallback: string): string {
 }
 
 /** Walk backwards to find the nearest structural container name for ∈ context. */
-function findContextName(nodes: SnapshotNode[], index: number): string | undefined {
+function findContextName(
+  nodes: SnapshotNode[],
+  index: number
+): string | undefined {
   const myDepth = nodes[index].depth
   for (let i = index - 1; i >= 0; i--) {
     if (nodes[i].depth <= myDepth && nodes[i].name) {
@@ -828,7 +872,10 @@ export function buildSnapshot(
   const selectorCounts = new Map<string, number>()
   for (const node of nodes) {
     if (node.isInteractive && node.selector) {
-      selectorCounts.set(node.selector, (selectorCounts.get(node.selector) ?? 0) + 1)
+      selectorCounts.set(
+        node.selector,
+        (selectorCounts.get(node.selector) ?? 0) + 1
+      )
     }
   }
 
@@ -929,9 +976,10 @@ export function accessibilityNodesToSnapshotNodes(
       continue
     }
 
-    const tagName = isInteractive && node.selector
-      ? extractTagFromSelector(node.selector, node.role)
-      : node.role
+    const tagName =
+      isInteractive && node.selector
+        ? extractTagFromSelector(node.selector, node.role)
+        : node.role
 
     result.push({
       role: node.role,
@@ -963,13 +1011,14 @@ export function jsonElementToSnapshotNodes(
   const { inViewportOnly = true } = options ?? {}
   const effectiveViewport = options?.viewport ?? { width: 9999, height: 9999 }
   const automationName = platform === 'android' ? 'uiautomator2' : 'xcuitest'
+  const effectiveXML = options?.sourceXML || root.attributes._sourceXML
 
   const mobileNodes: MobileFlatNode[] = []
   collectMobileNodes(root, platform, 0, mobileNodes, {
     inViewportOnly,
     viewport: effectiveViewport,
-    sourceXML: options?.sourceXML,
-    automationName: options?.sourceXML ? automationName : undefined
+    sourceXML: effectiveXML,
+    automationName: effectiveXML ? automationName : undefined
   })
 
   suppressTagOnlyChildren(mobileNodes)
