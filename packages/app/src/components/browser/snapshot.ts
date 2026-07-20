@@ -148,9 +148,12 @@ export class DevtoolsBrowser extends Element {
       return
     }
 
-    this.iframe?.removeAttribute('style')
-
     // Defer to next frame so we read post-reflow dimensions on resize events.
+    // NB: we deliberately do NOT clear the iframe's inline style first — the rAF
+    // below overwrites every property it sets, so the iframe keeps its prior
+    // (correct) transform until then. Clearing synchronously here made it paint
+    // one frame un-scaled → a zoom flicker on every replayed frame during
+    // playback, and let the overlay measure a collapsed/narrow layout.
     requestAnimationFrame(() => {
       if (!this.section || !this.header) {
         return
