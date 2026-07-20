@@ -132,6 +132,10 @@ export default class DevToolsHookService implements Services.ServiceInstance {
   #currentStepUid?: string
   /** Per-scenario step counter for stable, collision-free step uids. */
   #currentStepIndex = 0
+  /** True when @wdio/allure-reporter is in the WDIO config (detected in
+   *  beforeSession) — auto-enables the artifacts manifest even if the option
+   *  isn't set, since session/spec-scoped Allure attach reads it. */
+  #allureReporterConfigured = false
 
   /** Wall-clock ms at the current test's start, set in beforeTest/beforeScenario;
    *  the lower bound of that test's video frame window (per-test slicing). */
@@ -266,7 +270,8 @@ export default class DevToolsHookService implements Services.ServiceInstance {
       resolveOutputDir: () => this.#outputDir,
       prepareSnapshots: dedupeSnapshotsByTimestamp,
       log: (level, msg) => log[level](msg),
-      emitManifest: true,
+      emitManifest:
+        this.#options.emitArtifactsManifest ?? this.#allureReporterConfigured,
       collectedArtifacts: this.#artifacts,
       onArtifact: (a) => this.#artifacts.push(a)
     }
@@ -389,6 +394,12 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     }
 
     if ('reporters' in config) {
+      // Detect the Allure reporter (before we append our own) so the artifacts
+      // manifest auto-enables for session/spec-scoped Allure attach.
+      this.#allureReporterConfigured = (config.reporters || []).some((r) => {
+        const name = Array.isArray(r) ? r[0] : r
+        return typeof name === 'string' && name.includes('allure')
+      })
       const self = this
       config.reporters = [
         ...(config.reporters || []),
