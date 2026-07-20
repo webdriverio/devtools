@@ -515,8 +515,30 @@ export class DevtoolsBrowser extends Element {
       clearElementOverlay(this.iframe)
       return
     }
-    drawElementOverlay(this.iframe, this.#testSelectors(), (selector) =>
-      this.#copyLocator(selector)
+    drawElementOverlay(this.iframe, this.#testSelectors(), {
+      onPick: (selector, label) => this.#pickElement(selector, label),
+      onHover: (selector, label) => this.#revealA11yRow(selector, label),
+      onLeave: () => this.#revealA11yRow()
+    })
+  }
+
+  /** Clicking a box: copy the locator, open the A11y tab, and pin its row. */
+  #pickElement(selector: string, label: string) {
+    this.#copyLocator(selector)
+    window.dispatchEvent(
+      new CustomEvent('open-dock-tab', { detail: { label: 'A11y' } })
+    )
+    this.#revealA11yRow(selector, label, true)
+  }
+
+  /** Reverse link: ask the A11y tab to highlight the matching row — by selector,
+   *  falling back to the element's accessible name. `pin` keeps it highlighted
+   *  (click) rather than clearing on mouse-out (hover). */
+  #revealA11yRow(selector?: string, label?: string, pin = false) {
+    window.dispatchEvent(
+      new CustomEvent('a11y-reveal', {
+        detail: selector ? { selector, label, pin } : null
+      })
     )
   }
 
