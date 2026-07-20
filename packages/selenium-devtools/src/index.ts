@@ -24,11 +24,7 @@ import {
   recordTraceBoundary,
   flushCurrentTestTrace
 } from './session-lifecycle.js'
-import type {
-  AllureAttachSink,
-  SpecRange,
-  TraceArtifact
-} from '@wdio/devtools-core'
+import type { SpecRange, TraceArtifact } from '@wdio/devtools-core'
 import {
   startTest as tmStartTest,
   endTest as tmEndTest,
@@ -49,15 +45,10 @@ import {
 import { findFreePort } from './helpers/utils.js'
 import {
   RetryTracker,
-  attachTraceArtifact,
-  captureAndAttachScreenshot,
-  captureAndAttachVideo,
   errorMessage,
-  lastRenderedScreenshot,
-  resolveAdapterOutputDir,
   tracePolicyModeWarning
 } from '@wdio/devtools-core'
-import { getAllureSink } from './allure.js'
+import { SeleniumTestArtifacts } from './test-artifacts.js'
 import { tryRegisterRunnerHooks } from './runnerHooks.js'
 import { patchNodeAssert } from './assertPatcher.js'
 import {
@@ -152,8 +143,9 @@ class SeleniumDevToolsPlugin {
    *  test's video frame window and screenshot lookup (per-test slicing). */
   #currentTestStartWallTime = Date.now()
 
-  /** Allure attach sink, resolved once lazily at the first per-test end. */
-  #allureSinkResolved?: Promise<AllureAttachSink | undefined>
+  /** Per-test artifact emit (trace-slice attach + screenshot + video); owns its
+   *  own lazily-resolved Allure attach sink. */
+  #testArtifacts = new SeleniumTestArtifacts()
 
   constructor(options: DevToolsOptions = {}) {
     this.#options = {
@@ -538,81 +530,30 @@ class SeleniumDevToolsPlugin {
     await this.#emitTestArtifacts(ended, state === 'failed', flushed)
   }
 
-  /** Lazily resolve the Allure attach sink once (produce-only when Allure is
-   *  inactive), reused across every per-test attach this run. */
-  #allureSink(): Promise<AllureAttachSink | undefined> {
-    return (this.#allureSinkResolved ??= getAllureSink())
-  }
-
-  /** Snapshot every per-test capture input synchronously at test end. Selenium's
-   *  runner hooks fire-and-forget the emit, so reading these after an await would
-   *  race the next test overwriting the fields; frames/outcomes are copied
-   *  because their backing arrays keep mutating after this test ends. */
-  #perTestArtifactInputs(endedTest: TestStats | null) {
-    const startWallTime = this.#currentTestStartWallTime
-    return {
-      startWallTime,
-      sessionId: this.#sessionId,
-      testUid: endedTest?.uid,
-      attempt: endedTest?.retries,
-      screenshotBase64: lastRenderedScreenshot(
-        this.#actionSnapshots,
-        startWallTime
-      ),
-      frames: this.#screencast ? [...this.#screencast.frames] : undefined,
-      outcomes: (this.#testManager?.lastTestOutcomes() ?? []).map((o) => ({
-        ...o
-      })),
-      captureFormat: this.#screencastOptions.captureFormat,
-      outputDir: resolveAdapterOutputDir({ testFilePath: this.#testFilePath })
-    }
-  }
-
-  /** At a test/scenario end, while the runner's per-test hook is still open:
-   *  attach the just-flushed trace slice to Allure, then capture + attach the
-   *  per-test screenshot and video per their policies. Each part no-ops when its
-   *  feature is off (all gate on trace mode + `test` granularity in core). */
-  async #emitTestArtifacts(
+  /** Build the per-test artifact bag from live plugin state and delegate to the
+   *  emitter (which copies the mutable inputs synchronously before awaiting). */
+  #emitTestArtifacts(
     endedTest: TestStats | null,
     failed: boolean,
     flushed: Promise<TraceArtifact | undefined>
   ): Promise<void> {
-    const inp = this.#perTestArtifactInputs(endedTest)
-    const onArtifact = (a: TraceArtifact) => this.#artifacts.push(a)
-    const onLog = (level: 'info' | 'warn', msg: string) => log[level](msg)
-    const attach = await this.#allureSink()
-    const artifact = await flushed
-    if (artifact) {
-      await attachTraceArtifact(artifact, attach, onLog)
-    }
-    await captureAndAttachScreenshot({
+    return this.#testArtifacts.emit({
       mode: this.#options.mode,
       granularity: this.#options.traceGranularity,
-      policy: this.#options.screenshot,
+      screenshotPolicy: this.#options.screenshot,
+      videoPolicy: this.#options.video,
       failed,
-      screenshotBase64: inp.screenshotBase64,
-      sessionId: inp.sessionId,
-      outputDir: inp.outputDir,
-      testUid: inp.testUid,
-      attach,
-      onArtifact,
-      onLog
-    })
-    await captureAndAttachVideo({
-      mode: this.#options.mode,
-      granularity: this.#options.traceGranularity,
-      policy: this.#options.video,
-      frames: inp.frames,
-      startWallTime: inp.startWallTime,
-      outcomes: inp.outcomes,
-      attempt: inp.attempt,
-      outputDir: inp.outputDir,
-      testUid: inp.testUid,
-      sessionId: inp.sessionId,
-      captureFormat: inp.captureFormat,
-      attach,
-      onArtifact,
-      onLog
+      flushed,
+      startWallTime: this.#currentTestStartWallTime,
+      sessionId: this.#sessionId,
+      endedTest,
+      actionSnapshots: this.#actionSnapshots,
+      frames: this.#screencast?.frames,
+      outcomes: this.#testManager?.lastTestOutcomes() ?? [],
+      captureFormat: this.#screencastOptions.captureFormat,
+      testFilePath: this.#testFilePath,
+      onArtifact: (a) => this.#artifacts.push(a),
+      onLog: (level, msg) => log[level](msg)
     })
   }
 
