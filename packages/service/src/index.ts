@@ -97,6 +97,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
       getCapturer: () => this.#sessionCapturer,
       getBrowser: () => this.#browser,
       getTestUid: () => this.#currentTestUid,
+      getStepUid: () => this.#currentStepUid,
       options: this.#options,
       actionSnapshots: this.#actionSnapshots
     })
@@ -126,6 +127,11 @@ export default class DevToolsHookService implements Services.ServiceInstance {
 
   /** Current test UID, set in beforeTest(), used by afterCommand() to tag commands. */
   #currentTestUid?: string
+  /** Current Cucumber step UID, set in beforeStep(), used by afterCommand() to
+   *  nest commands under the step in the trace group tree (C2). */
+  #currentStepUid?: string
+  /** Per-scenario step counter for stable, collision-free step uids. */
+  #currentStepIndex = 0
 
   /** Wall-clock ms at the current test's start, set in beforeTest/beforeScenario;
    *  the lower bound of that test's video frame window (per-test slicing). */
@@ -412,6 +418,8 @@ export default class DevToolsHookService implements Services.ServiceInstance {
   }) {
     this.resetStack()
     this.#currentTestStartWallTime = Date.now()
+    this.#currentStepIndex = 0
+    this.#currentStepUid = undefined
 
     const featureFile = world?.pickle?.uri
     const scenarioName = world?.pickle?.name
@@ -464,6 +472,25 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     }
   }
 
+  // Tag the scenario's commands with a stable per-step uid so the trace nests
+  // them under the step (Feature→Scenario→Step). The uid combines the scenario
+  // uid with a per-scenario counter, so repeated step text can't collide.
+  beforeStep(step?: { text?: string; keyword?: string }) {
+    if (!this.#currentTestUid) {
+      return
+    }
+    this.#currentStepIndex += 1
+    const uid = `${this.#currentTestUid}:step:${this.#currentStepIndex}`
+    const title =
+      [step?.keyword, step?.text].filter(Boolean).join('').trim() ||
+      `Step ${this.#currentStepIndex}`
+    this.#currentStepUid = uid
+    this.#testMetadata.set(uid, {
+      title,
+      specFile: this.#testMetadata.get(this.#currentTestUid)?.specFile ?? ''
+    })
+  }
+
   // afterStep fires right after each step, so the failing assertion lands next
   // to the step's actions rather than after reloadSession at scenario end.
   afterStep(
@@ -471,6 +498,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     _scenario?: unknown,
     result?: { error?: unknown }
   ) {
+    this.#currentStepUid = undefined
     this.#assertionTracker.handleOutcome(result?.error)
   }
 
@@ -737,7 +765,8 @@ export default class DevToolsHookService implements Services.ServiceInstance {
           error,
           frame.callSource,
           frame.startTimestamp,
-          this.#currentTestUid
+          this.#currentTestUid,
+          this.#currentStepUid
         )
         if (this.#options.mode === 'trace') {
           await captureActionResult(

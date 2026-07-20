@@ -105,3 +105,34 @@ export const ACTION_MAP: Record<string, TraceAction> = {
   getRect: { class: 'Element', method: 'getRect' },
   getCurrentUrl: { class: 'Page', method: 'getUrl' }
 }
+
+/** Trace methods (ACTION_MAP values) that act at a point on the page — the
+ *  exporter emits a hit `point` for these so the player can mark where the
+ *  action landed. `fill` is included (typing focuses the element first). */
+export const POINTABLE_METHODS: ReadonlySet<string> = new Set([
+  'click',
+  'dblclick',
+  'hover',
+  'tap',
+  'dragTo',
+  'scrollIntoViewIfNeeded',
+  'selectOption',
+  'fill'
+])
+
+/** Runner command names (native or trace method) that type into an element —
+ *  drives the timeline's keyboard glyph vs the pointer glyph. */
+const KEYBOARD_COMMANDS: ReadonlySet<string> = new Set([
+  'setValue',
+  'sendKeys',
+  'addValue',
+  'clearValue',
+  'clear',
+  'keys',
+  'fill',
+  'press'
+])
+
+export function isKeyboardCommand(command: string): boolean {
+  return KEYBOARD_COMMANDS.has(command)
+}

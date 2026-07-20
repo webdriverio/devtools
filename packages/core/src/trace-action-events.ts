@@ -6,6 +6,7 @@ import type {
   CommandLog,
   TestMetadataMap
 } from '@wdio/devtools-shared'
+import { POINTABLE_METHODS } from '@wdio/devtools-shared'
 import {
   ASSERT_ACTION_CLASS,
   formatActionTitle,
@@ -15,6 +16,7 @@ import {
 } from './action-mapping.js'
 import { callSourceToStack, type StackFrame } from './trace-sources.js'
 import type { FrameSnapshotIndex } from './trace-frame-snapshots.js'
+import { buildGroupPath } from './trace-hierarchy.js'
 
 export interface BeforeEvent {
   type: 'before'
@@ -46,6 +48,9 @@ export interface AfterEvent {
   parentId?: string
   /** Frame-snapshot name rendered as the action's after state. */
   afterSnapshot?: string
+  /** Page-coordinate hit point (centre of the matched element) for pointer
+   *  actions — drives the player's click marker + timeline pointer glyph. */
+  point?: { x: number; y: number }
 }
 
 // Serialized command results over this size are dropped from the trace — a
@@ -75,8 +80,9 @@ interface ActionStream {
   events: ActionEvent[]
   prevEndMs: number
   callCounter: number
-  lastTestUid?: string
-  groupCallId?: string
+  /** Currently-open tracingGroup path, outermost first (feature→scenario→step).
+   *  Actions nest under the innermost entry. */
+  openGroups: { uid: string; callId: string }[]
 }
 
 // An adapter may attach a normalized CollapsedAssertResult (see shared) to an
@@ -139,49 +145,64 @@ function buildActionParams(
   return Object.fromEntries(rawArgs.map((a, i) => [String(i), a]))
 }
 
-function closeGroup(stream: ActionStream): void {
-  if (!stream.lastTestUid || !stream.groupCallId) {
-    return
+function closeGroupsFrom(stream: ActionStream, from: number): void {
+  // Innermost-first so nested after events stay balanced.
+  for (let i = stream.openGroups.length - 1; i >= from; i--) {
+    stream.events.push({
+      type: 'after',
+      callId: stream.openGroups[i].callId,
+      endTime: stream.prevEndMs
+    })
   }
-  stream.callCounter++
-  stream.events.push({
-    type: 'after',
-    callId: stream.groupCallId,
-    endTime: stream.prevEndMs
-  })
+  stream.openGroups.length = Math.max(0, from)
 }
 
-// When the testUid changes, close the previous Tracing.tracingGroup and open
-// a new one; child actions reference it via parentId to render as spans.
-function handleTestBoundary(
+// Diff the command's desired group path (feature→scenario→step, or just the
+// test) against the open stack: close the diverged tail, then open the new tail
+// with parentId chaining so the reader nests them. Actions then reference the
+// innermost open group. A path of length ≤1 with no ancestry/step reproduces
+// the previous single-group-per-test output.
+function syncGroups(
   stream: ActionStream,
   cmd: CommandLog,
   pageId: string,
   wallTime: number,
   testMetadata?: TestMetadataMap
 ): void {
-  if (!cmd.testUid || cmd.testUid === stream.lastTestUid) {
-    return
+  const desired = buildGroupPath(cmd, testMetadata)
+  let common = 0
+  while (
+    common < stream.openGroups.length &&
+    common < desired.length &&
+    stream.openGroups[common].uid === desired[common].uid
+  ) {
+    common++
   }
-  closeGroup(stream)
-  stream.callCounter++
-  stream.groupCallId = `call@${stream.callCounter}`
-  const groupName = testMetadata?.get(cmd.testUid)?.title ?? cmd.testUid
-  stream.events.push({
-    type: 'before',
-    callId: stream.groupCallId,
-    startTime: Math.max(
-      stream.prevEndMs,
-      (cmd.startTime ?? cmd.timestamp) - wallTime
-    ),
-    class: 'Tracing',
-    method: 'tracingGroup',
-    pageId,
-    params: { name: groupName },
-    title: groupName,
-    apiName: 'tracing.tracingGroup'
-  })
-  stream.lastTestUid = cmd.testUid
+  closeGroupsFrom(stream, common)
+  for (let i = common; i < desired.length; i++) {
+    stream.callCounter++
+    const callId = `call@${stream.callCounter}`
+    const parentId = stream.openGroups[i - 1]?.callId
+    const groupBefore: BeforeEvent = {
+      type: 'before',
+      callId,
+      startTime: Math.max(
+        stream.prevEndMs,
+        (cmd.startTime ?? cmd.timestamp) - wallTime
+      ),
+      class: 'Tracing',
+      method: 'tracingGroup',
+      pageId,
+      params: { name: desired[i].title },
+      title: desired[i].title,
+      apiName: 'tracing.tracingGroup'
+    }
+    if (parentId) {
+      groupBefore.parentId = parentId
+    }
+    stream.events.push(groupBefore)
+    stream.openGroups.push({ uid: desired[i].uid, callId })
+  }
 }
 
 function buildParamsAndTitle(
@@ -221,6 +242,37 @@ function actionError(
   return undefined
 }
 
+/** Centre of the element a pointer action matched, from the captured element
+ *  rects at the command's completion. Undefined for non-pointer actions, a
+ *  non-string selector, or a selector absent from the captured elements (e.g. a
+ *  WDIO text/xpath locator `getSelector` didn't reproduce). */
+function resolveActionPoint(
+  action: TraceAction,
+  cmd: CommandLog,
+  snapshotIndex?: FrameSnapshotIndex
+): { x: number; y: number } | undefined {
+  if (action.class !== 'Element' || !POINTABLE_METHODS.has(action.method)) {
+    return undefined
+  }
+  const selector = cmd.args?.[0]
+  if (typeof selector !== 'string') {
+    return undefined
+  }
+  const elements = snapshotIndex?.elementsAt(cmd.timestamp)
+  for (const el of elements ?? []) {
+    // Narrow the unknown element record at the boundary (element-scripts shape).
+    const e = el as {
+      selector?: string
+      boundingBox?: { x: number; y: number; width: number; height: number }
+    }
+    if (e.selector === selector && e.boundingBox) {
+      const bb = e.boundingBox
+      return { x: bb.x + bb.width / 2, y: bb.y + bb.height / 2 }
+    }
+  }
+  return undefined
+}
+
 function buildAfterEvent(
   cmd: CommandLog,
   action: TraceAction,
@@ -240,6 +292,10 @@ function buildAfterEvent(
   const afterName = snapshotIndex?.claimAfter(cmd.timestamp, callId)
   if (afterName) {
     afterEvent.afterSnapshot = afterName
+  }
+  const point = resolveActionPoint(action, cmd, snapshotIndex)
+  if (point) {
+    afterEvent.point = point
   }
   return afterEvent
 }
@@ -272,7 +328,7 @@ function pushActionPair(
     params,
     title,
     apiName: `${action.class.toLowerCase()}.${action.method}`,
-    parentId: stream.groupCallId
+    parentId: stream.openGroups[stream.openGroups.length - 1]?.callId
   }
   const stack = callSourceToStack(cmd.callSource)
   if (stack) {
@@ -294,7 +350,12 @@ export function buildActionEvents(
   testMetadata?: TestMetadataMap,
   snapshotIndex?: FrameSnapshotIndex
 ): ActionEvent[] {
-  const stream: ActionStream = { events: [], prevEndMs: 0, callCounter: 0 }
+  const stream: ActionStream = {
+    events: [],
+    prevEndMs: 0,
+    callCounter: 0,
+    openGroups: []
+  }
   // Process in chronological order, not insertion order. Deferred rows (e.g.
   // Nightwatch native asserts, finalized in one batch at test-end) are appended
   // late but carry their real call-time `startTime`; since pushActionPair floors
@@ -311,9 +372,9 @@ export function buildActionEvents(
     if (!action) {
       continue
     }
-    handleTestBoundary(stream, cmd, pageId, wallTime, testMetadata)
+    syncGroups(stream, cmd, pageId, wallTime, testMetadata)
     pushActionPair(stream, cmd, action, pageId, wallTime, snapshotIndex)
   }
-  closeGroup(stream)
+  closeGroupsFrom(stream, 0)
   return stream.events
 }

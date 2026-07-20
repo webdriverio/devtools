@@ -3,6 +3,7 @@ import { html, type TemplateResult } from 'lit'
 import { customElement, state, query } from 'lit/decorators.js'
 import { consume } from '@lit/context'
 import type { CommandLog, TracePlayerFrame } from '@wdio/devtools-shared'
+import { isKeyboardCommand } from '@wdio/devtools-shared'
 
 import { commandContext, framesContext } from '../../controller/context.js'
 import { activeSpanAt } from '../workbench/active-entry.js'
@@ -347,7 +348,9 @@ export class TraceTimeline extends Element {
           const active = frame.timestamp === activeFrame
           return html`<button
             class="absolute top-0.5 bottom-0.5 aspect-video border rounded overflow-hidden hover:border-chartsBlue hover:z-10 ${active
-              ? 'border-chartsBlue ring-1 ring-chartsBlue z-10'
+              ? `border-chartsBlue ring-1 ring-chartsBlue${
+                  this.playing ? '' : ' z-10'
+                }`
               : 'border-panelBorder'}"
             style="left:${fraction * 100}%; transform:translateX(-${fraction *
             100}%);"
@@ -375,10 +378,17 @@ export class TraceTimeline extends Element {
           class="absolute left-0 right-0 top-1/2 -translate-y-1/2 h-0.5 bg-chartsBlue/50 rounded"
         ></div>
         ${this.#sortedCommands.map((command) => {
-          const tickFraction = this.#fraction(command.timestamp ?? 0)
+          const pct = this.#fraction(command.timestamp ?? 0) * 100
+          // Keyboard = green mark; pointer (has a hit point) = blue dot; else a
+          // plain white tick. Glyphs are illegible at this scale, so shape+colour.
+          const mark = isKeyboardCommand(command.command)
+            ? 'width:6px;height:10px;border-radius:2px;background:#46c96a;'
+            : command.point
+              ? 'width:8px;height:8px;border-radius:50%;background:#38bdf8;box-shadow:0 0 0 1px rgba(255,255,255,0.5);'
+              : 'width:1px;height:10px;background:rgba(255,255,255,0.8);'
           return html`<div
-            class="absolute top-1/2 -translate-y-1/2 h-2.5 w-px bg-white/80"
-            style="left:${tickFraction * 100}%;"
+            class="absolute top-1/2 -translate-y-1/2"
+            style="left:${pct}%;${mark}"
             title="${command.title ?? command.command}"
           ></div>`
         })}

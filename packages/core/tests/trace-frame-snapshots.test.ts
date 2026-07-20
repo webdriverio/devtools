@@ -1,10 +1,12 @@
 import { describe, it, expect } from 'vitest'
 import {
+  buildActionEvents,
   buildImageFrameSnapshots,
   FrameSnapshotIndex,
+  type AfterEvent,
   type FrameSnapshotRef
 } from '@wdio/devtools-core'
-import type { ActionSnapshot } from '@wdio/devtools-shared'
+import type { ActionSnapshot, CommandLog } from '@wdio/devtools-shared'
 
 function snap(overrides: Partial<ActionSnapshot> = {}): ActionSnapshot {
   return { timestamp: 2000, command: 'click', screenshot: 'AAAA', ...overrides }
@@ -56,6 +58,70 @@ describe('FrameSnapshotIndex', () => {
     expect(index.beforeName()).toBe('after@call@2')
     index.claimAfter(3000, 'call@3')
     expect(index.beforeName()).toBe('after@call@3')
+  })
+
+  it('exposes element rects by timestamp regardless of screenshot', () => {
+    const index = new FrameSnapshotIndex([
+      snap({ screenshot: undefined, elements: [{ selector: '#go' }] })
+    ])
+    expect(index.elementsAt(2000)).toEqual([{ selector: '#go' }])
+    expect(index.elementsAt(9999)).toBeUndefined()
+  })
+
+  it('keeps the richest element set for duplicate timestamps', () => {
+    const index = new FrameSnapshotIndex([
+      snap({ elements: [{ selector: 'a' }] }),
+      snap({ elements: [{ selector: 'a' }, { selector: 'b' }] })
+    ])
+    expect(index.elementsAt(2000)).toHaveLength(2)
+  })
+})
+
+describe('input point synthesis (A8)', () => {
+  const wallTime = 1000
+  const box = { x: 10, y: 20, width: 40, height: 10 }
+
+  function pointOf(commands: CommandLog[], snaps: ActionSnapshot[]) {
+    const events = buildActionEvents(
+      commands,
+      'page@abc',
+      wallTime,
+      undefined,
+      new FrameSnapshotIndex(snaps)
+    )
+    const after = events.find((e) => e.type === 'after') as
+      | AfterEvent
+      | undefined
+    return after?.point
+  }
+
+  it('sets after.point to the matched element rect centre for a pointer action', () => {
+    const point = pointOf(
+      [{ command: 'click', args: ['#go'], timestamp: 2000, startTime: 1950 }],
+      [snap({ elements: [{ selector: '#go', boundingBox: box }] })]
+    )
+    expect(point).toEqual({ x: 30, y: 25 })
+  })
+
+  it('omits the point when the selector is absent from captured elements', () => {
+    const point = pointOf(
+      [{ command: 'click', args: ['#go'], timestamp: 2000, startTime: 1950 }],
+      [snap({ elements: [{ selector: '#other', boundingBox: box }] })]
+    )
+    expect(point).toBeUndefined()
+  })
+
+  it('omits the point for non-pointer commands', () => {
+    const point = pointOf(
+      [{ command: 'getText', args: ['#go'], timestamp: 2000, startTime: 1950 }],
+      [
+        snap({
+          command: 'getText',
+          elements: [{ selector: '#go', boundingBox: box }]
+        })
+      ]
+    )
+    expect(point).toBeUndefined()
   })
 })
 

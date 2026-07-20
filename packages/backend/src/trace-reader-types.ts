@@ -24,6 +24,8 @@ export interface AfterEvent {
   error?: { message: string }
   /** Command return value, restored onto CommandLog.result. */
   result?: unknown
+  /** Pointer hit point, restored onto CommandLog.point (A8 input marker). */
+  point?: { x: number; y: number }
 }
 
 export interface ScreencastFrameEvent {

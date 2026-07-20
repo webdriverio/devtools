@@ -112,7 +112,8 @@ export class SessionCapturer extends SessionCapturerBase {
     error: Error | undefined,
     callSource?: string,
     commandStartTime?: number,
-    testUid?: string
+    testUid?: string,
+    stepUid?: string
   ) {
     const { sourceFileLocation, absolutePath } = this.#resolveUserStackFrame()
     const sourceFilePath = absolutePath.split(':')[0]
@@ -127,7 +128,8 @@ export class SessionCapturer extends SessionCapturerBase {
       timestamp: Date.now(),
       startTime: commandStartTime,
       callSource: callSource ?? absolutePath,
-      testUid
+      testUid,
+      stepUid
     }
     if (!isNativeMobile(browser)) {
       try {
