@@ -2,6 +2,11 @@ import { Element } from '@core/element'
 import { html, css, nothing, type TemplateResult } from 'lit'
 import { customElement, state } from 'lit/decorators.js'
 
+import {
+  SNAPSHOT_INDENT_UNIT,
+  SNAPSHOT_PAGE_HEADER,
+  SNAPSHOT_LOCATOR_DELIM
+} from '@wdio/devtools-shared'
 import type { CommandLog } from '@wdio/devtools-shared'
 
 import '../placeholder.js'
@@ -218,16 +223,19 @@ export class DevtoolsA11yTree extends Element {
    *  blank lines return null. */
   #parse(line: string): A11yNode | null {
     const trimmed = line.trimStart()
-    if (!trimmed || trimmed.startsWith('[Page')) {
+    if (!trimmed || trimmed.startsWith(SNAPSHOT_PAGE_HEADER)) {
       return null
     }
     const indent = line.length - trimmed.length
-    const depth = Math.max(0, Math.floor(indent / 2) - 1)
+    const depth = Math.max(
+      0,
+      Math.floor(indent / SNAPSHOT_INDENT_UNIT.length) - 1
+    )
     const role = /^\S+/.exec(trimmed)?.[0] ?? trimmed
     const name = /"([^"]*)"/.exec(trimmed)?.[1] ?? ''
     // The `→ <locator>` suffix (last one wins; skips any `∈ "purpose"` before it).
-    const selector = trimmed.includes('→')
-      ? trimmed.split('→').pop()?.trim() || undefined
+    const selector = trimmed.includes(SNAPSHOT_LOCATOR_DELIM)
+      ? trimmed.split(SNAPSHOT_LOCATOR_DELIM).pop()?.trim() || undefined
       : undefined
     return { depth, role, name, selector }
   }
@@ -262,7 +270,9 @@ export class DevtoolsA11yTree extends Element {
       return html`<wdio-devtools-placeholder></wdio-devtools-placeholder>`
     }
     const lines = text.split('\n')
-    const header = lines[0]?.startsWith('[Page') ? lines[0] : undefined
+    const header = lines[0]?.startsWith(SNAPSHOT_PAGE_HEADER)
+      ? lines[0]
+      : undefined
     const nodes = lines
       .map((l) => this.#parse(l))
       .filter((n): n is A11yNode => n !== null)
