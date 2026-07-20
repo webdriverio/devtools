@@ -5,12 +5,36 @@
 
 const OVERLAY_CLASS = '__wdio-el-overlay__'
 
+export interface OverlayHandlers {
+  /** Click a box — copy its locator + jump to the A11y row (selector + name). */
+  onPick: (selector: string, label: string) => void
+  /** Hover a box — reveal the matching a11y-tree row (by selector, else by the
+   *  element's accessible name for locators the serializer captured a different
+   *  way, e.g. the test's `button[type=submit]` vs the tree's `button*=Login`). */
+  onHover?: (selector: string, label: string) => void
+  onLeave?: () => void
+}
+
 export function clearElementOverlay(
   iframe: HTMLIFrameElement | null | undefined
 ): void {
   iframe?.contentDocument
     ?.querySelectorAll(`.${OVERLAY_CLASS}`)
     .forEach((node) => node.remove())
+}
+
+/** Cheap accessible-name approximation for cross-referencing the a11y tree —
+ *  the visible label a screen reader would announce, not the raw value. */
+function elementLabel(el: Element): string {
+  const aria = el.getAttribute('aria-label')?.trim()
+  if (aria) {
+    return aria
+  }
+  const text = el.textContent?.trim()
+  if (text) {
+    return text
+  }
+  return el.getAttribute('placeholder')?.trim() ?? ''
 }
 
 /**
@@ -21,7 +45,7 @@ export function clearElementOverlay(
 export function drawElementOverlay(
   iframe: HTMLIFrameElement | null | undefined,
   selectors: string[],
-  onPick: (selector: string) => void
+  handlers: OverlayHandlers
 ): void {
   const docEl = iframe?.contentDocument
   if (!docEl?.body) {
@@ -40,6 +64,7 @@ export function drawElementOverlay(
     if (!el) {
       continue
     }
+    const name = elementLabel(el)
     const rect = el.getBoundingClientRect()
     const box = docEl.createElement('div')
     box.className = OVERLAY_CLASS
@@ -57,8 +82,10 @@ export function drawElementOverlay(
     box.appendChild(label)
     box.addEventListener('click', (e) => {
       e.stopPropagation()
-      onPick(selector)
+      handlers.onPick(selector, name)
     })
+    box.addEventListener('mouseenter', () => handlers.onHover?.(selector, name))
+    box.addEventListener('mouseleave', () => handlers.onLeave?.())
     docEl.body.appendChild(box)
   }
 }

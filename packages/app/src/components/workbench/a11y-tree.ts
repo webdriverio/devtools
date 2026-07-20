@@ -31,18 +31,83 @@ export class DevtoolsA11yTree extends Element {
   @state()
   private copiedSel?: string
 
+  /** Reverse of #highlight — the row the snapshot pane points at. `revealed` is
+   *  transient (overlay-box hover); `pinned` persists (box click, which also
+   *  opens this tab). Both matched by selector then accessible name. */
+  @state()
+  private revealed?: { selector?: string; label?: string }
+
+  @state()
+  private pinned?: { selector?: string; label?: string }
+
   #onShow = (e: Event) => {
     this.active = (e as CustomEvent<{ command?: CommandLog }>).detail?.command
+    // A pin belongs to one page state; drop it when the command changes.
+    this.pinned = undefined
+    this.revealed = undefined
+  }
+
+  #onReveal = (e: Event) => {
+    const detail = (
+      e as CustomEvent<{
+        selector?: string
+        label?: string
+        pin?: boolean
+      } | null>
+    ).detail
+    if (detail?.pin) {
+      this.pinned = { selector: detail.selector, label: detail.label }
+    } else {
+      this.revealed = detail ?? undefined
+    }
   }
 
   connectedCallback() {
     super.connectedCallback()
     window.addEventListener('show-command', this.#onShow as EventListener)
+    window.addEventListener('a11y-reveal', this.#onReveal as EventListener)
   }
   disconnectedCallback() {
     window.removeEventListener('show-command', this.#onShow as EventListener)
+    window.removeEventListener('a11y-reveal', this.#onReveal as EventListener)
     this.#highlight(undefined)
     super.disconnectedCallback()
+  }
+
+  /** Scroll the highlighted row into view when the snapshot pane points at it. */
+  updated() {
+    if (this.revealed || this.pinned) {
+      this.renderRoot
+        ?.querySelector('.node.hot')
+        ?.scrollIntoView({ block: 'nearest' })
+    }
+  }
+
+  /** A node matches a reveal target by exact selector, else by accessible name
+   *  (covers locators the serializer captured differently, e.g. the test's
+   *  `button[type=submit]` vs `button*=Login`). */
+  #matches(node: A11yNode, target?: { selector?: string; label?: string }) {
+    if (!target) {
+      return false
+    }
+    if (
+      target.selector &&
+      node.selector &&
+      node.selector.trim() === target.selector.trim()
+    ) {
+      return true
+    }
+    return !!(
+      target.label &&
+      node.name &&
+      node.name.trim() === target.label.trim()
+    )
+  }
+
+  #isRevealed(node: A11yNode): boolean {
+    return (
+      this.#matches(node, this.revealed) || this.#matches(node, this.pinned)
+    )
   }
 
   /** Ask the snapshot pane to outline (or clear) the element for this locator. */
@@ -134,6 +199,13 @@ export class DevtoolsA11yTree extends Element {
       .node.pick:hover .sel {
         opacity: 0.85;
       }
+      .node.hot {
+        background: color-mix(in srgb, var(--pick, #38bdf8) 22%, transparent);
+        box-shadow: inset 0 0 0 1px var(--pick, #38bdf8);
+      }
+      .node.hot .sel {
+        opacity: 0.85;
+      }
     `
   ]
 
@@ -162,8 +234,9 @@ export class DevtoolsA11yTree extends Element {
 
   #row(node: A11yNode): TemplateResult {
     const sel = node.selector
+    const hot = this.#isRevealed(node)
     return html`<div
-      class="node ${sel ? 'pick' : ''}"
+      class="node ${sel ? 'pick' : ''} ${hot ? 'hot' : ''}"
       style="padding-left:${8 + node.depth * 16}px"
       @mouseenter=${() => this.#highlight(sel)}
       @mouseleave=${() => this.#highlight(undefined)}

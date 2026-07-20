@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "pnpm -r build",
+    "show-trace": "node packages/backend/dist/show-trace.js",
     "demo:wdio": "wdio run ./examples/wdio/cucumber/wdio.conf.ts",
     "demo:wdio:mocha": "wdio run ./examples/wdio/mocha/wdio.conf.ts",
     "demo:wdio:retry": "wdio run ./examples/wdio/mocha/wdio.retry.conf.ts",

@@ -12,6 +12,15 @@ export class DevtoolsTabs extends Element {
   #tabList: string[] = []
   #badgeCheckInterval?: number
 
+  // Programmatic tab open (e.g. clicking an element overlay box jumps to A11y).
+  // Guarded by activateTab, so only the tabs instance that owns the label reacts.
+  #onOpenTab = (e: Event) => {
+    const label = (e as CustomEvent<{ label?: string }>).detail?.label
+    if (label) {
+      this.activateTab(label)
+    }
+  }
+
   @property({ type: String })
   cacheId?: string
 
@@ -142,6 +151,7 @@ export class DevtoolsTabs extends Element {
 
   connectedCallback() {
     super.connectedCallback()
+    window.addEventListener('open-dock-tab', this.#onOpenTab as EventListener)
     setTimeout(() => {
       // wait till innerHTML is parsed
       this.#refreshTabList()
@@ -188,6 +198,10 @@ export class DevtoolsTabs extends Element {
 
   disconnectedCallback() {
     super.disconnectedCallback()
+    window.removeEventListener(
+      'open-dock-tab',
+      this.#onOpenTab as EventListener
+    )
     if (this.#badgeCheckInterval) {
       clearInterval(this.#badgeCheckInterval)
     }
