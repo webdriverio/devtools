@@ -49,7 +49,8 @@ const mockBrowser = {
     .fn()
     .mockResolvedValue({ width: 1, height: 1, offsetLeft: 0, offsetTop: 0 }),
   on: vi.fn(),
-  emit: vi.fn()
+  emit: vi.fn(),
+  addCommand: vi.fn()
 } as unknown as WebdriverIO.Browser
 
 // before() wires node:assert capture; restore the real methods afterwards.
