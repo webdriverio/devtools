@@ -798,7 +798,9 @@ export function serializeMobileSnapshot(
 function extractTagFromSelector(selector: string, fallback: string): string {
   // Matches tag name followed by a CSS selector combinator or operator.
   // Supports hyphenated custom elements (my-component) and pseudo-classes (:nth-of-type).
-  const match = selector.match(/^([a-z][a-z0-9]*(?:-[a-z][a-z0-9]*)*)[*.#\[:=(^$~]/)
+  const match = selector.match(
+    /^([a-z][a-z0-9]*(?:-[a-z][a-z0-9]*)*)[*.#\[:=(^$~]/
+  )
   if (match) {
     return match[1]
   }
@@ -810,7 +812,10 @@ function extractTagFromSelector(selector: string, fallback: string): string {
 }
 
 /** Walk backwards to find the nearest structural container name for ∈ context. */
-function findContextName(nodes: SnapshotNode[], index: number): string | undefined {
+function findContextName(
+  nodes: SnapshotNode[],
+  index: number
+): string | undefined {
   const myDepth = nodes[index].depth
   for (let i = index - 1; i >= 0; i--) {
     if (nodes[i].depth <= myDepth && nodes[i].name) {
@@ -844,7 +849,10 @@ export function buildSnapshot(
   const selectorCounts = new Map<string, number>()
   for (const node of nodes) {
     if (node.isInteractive && node.selector) {
-      selectorCounts.set(node.selector, (selectorCounts.get(node.selector) ?? 0) + 1)
+      selectorCounts.set(
+        node.selector,
+        (selectorCounts.get(node.selector) ?? 0) + 1
+      )
     }
   }
 
@@ -945,9 +953,10 @@ export function accessibilityNodesToSnapshotNodes(
       continue
     }
 
-    const tagName = isInteractive && node.selector
-      ? extractTagFromSelector(node.selector, node.role)
-      : node.role
+    const tagName =
+      isInteractive && node.selector
+        ? extractTagFromSelector(node.selector, node.role)
+        : node.role
 
     result.push({
       role: node.role,
