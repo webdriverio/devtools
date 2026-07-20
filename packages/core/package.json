@@ -1,6 +1,6 @@
 {
   "name": "@wdio/devtools-core",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "description": "Framework-agnostic capture/reporter logic shared by @wdio/devtools-* adapters. Workspace-internal, never published — code is inlined into each consuming adapter at build time.",
   "repository": {
