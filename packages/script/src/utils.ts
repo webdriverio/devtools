@@ -25,7 +25,10 @@ export function parseNode(
   const props: Record<string, unknown> = {}
 
   if (fragment.nodeName === '#comment') {
-    return (fragment as vComment).data
+    // Drop comment content — returning its data rendered the comment as visible
+    // text on replay (e.g. an IE conditional comment's `<![endif]` showed as
+    // text and added a line box that shifted the whole page layout down).
+    return ''
   }
   if (fragment.nodeName === '#text') {
     return (fragment as vText).value
