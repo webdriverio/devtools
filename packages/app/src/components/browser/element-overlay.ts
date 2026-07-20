@@ -52,6 +52,12 @@ export function drawElementOverlay(
     return
   }
   clearElementOverlay(iframe)
+  // Force a synchronous layout flush before measuring. #sizeSnapshotToViewport
+  // strips + restores the iframe's inline size in the same frame that draws the
+  // overlay, so the content reflow to full width is still pending — reading
+  // rects now would capture the transient narrow-breakpoint layout (boxes end up
+  // low + oversized). Reading offsetHeight settles layout first.
+  void docEl.documentElement.offsetHeight
   const scrollY = iframe?.contentWindow?.scrollY || 0
   const scrollX = iframe?.contentWindow?.scrollX || 0
   for (const selector of selectors) {
