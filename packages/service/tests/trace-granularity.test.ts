@@ -98,6 +98,7 @@ describe('DevtoolsService - trace granularity slicing', () => {
       .mockResolvedValue({ width: 1, height: 1, offsetLeft: 0, offsetTop: 0 }),
     on: vi.fn(),
     emit: vi.fn(),
+    addCommand: vi.fn(),
     options: { rootDir: '/proj' },
     capabilities: { browserName: 'chrome' }
   } as never
