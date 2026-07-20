@@ -45,8 +45,19 @@ jobs:
 
           # Bump the monorepo root version so tags always advance.
           # The root is private (never published) and drives the v* tag.
-          npm version minor --no-git-tag-version
-          git commit --amend --no-edit
+          CURRENT=$(jq -r '.version' package.json)
+          MAJOR=$(echo "$CURRENT" | cut -d. -f1)
+          MINOR=$(echo "$CURRENT" | cut -d. -f2)
+          NEW="$MAJOR.$((MINOR + 1)).0"
+          jq ".version = \"$NEW\"" package.json > package.json.tmp && mv package.json.tmp package.json
+          git add package.json
+
+          # Squash into the changeset commit if one was created, otherwise commit standalone.
+          if git log -1 --format='%s' | grep -q '^RELEASING:'; then
+            git commit --amend --no-edit
+          else
+            git commit -m "v$NEW"
+          fi
 
       - name: Publish
         env:
@@ -63,8 +74,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="v$(jq -r '.version' package.json)"
-          git tag "$TAG"
-          git push origin "$TAG"
+          git tag -f "$TAG"
+          git push --force origin "$TAG"
           gh release create "$TAG" \
             --title "$TAG" \
             --generate-notes \
