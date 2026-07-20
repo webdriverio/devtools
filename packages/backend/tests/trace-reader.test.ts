@@ -305,6 +305,36 @@ describe('parseTraceZip', () => {
     expect(trace.commands[0]?.snapshotText).toContain('textbox "Username"')
   })
 
+  it('restores the pointer hit point from after.point (A8)', () => {
+    const zip = zipSync({
+      'trace.trace': toNdjson([
+        {
+          type: 'context-options',
+          wallTime: WALL_TIME,
+          browserName: 'chrome',
+          contextId: 'context@abcd1234',
+          options: { viewport: { width: 1024, height: 768 } }
+        },
+        {
+          type: 'before',
+          callId: 'call@1',
+          startTime: 0,
+          class: 'Element',
+          method: 'click',
+          params: { selector: '#go' }
+        },
+        {
+          type: 'after',
+          callId: 'call@1',
+          endTime: 50,
+          point: { x: 30, y: 25 }
+        }
+      ])
+    })
+    const { trace } = parseTraceZip(zip)
+    expect(trace.commands[0]?.point).toEqual({ x: 30, y: 25 })
+  })
+
   it('restores callSource and sources from stack frames + src resources', () => {
     const { trace } = parseTraceZip(fixtureZip())
     const click = trace.commands.find((c) => c.command === 'click')

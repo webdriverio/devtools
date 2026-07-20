@@ -50,11 +50,20 @@ export interface FrameSnapshotRef {
 /** Correlates captured screenshots to callIds as the exporter assigns them. */
 export class FrameSnapshotIndex {
   #byTimestamp = new Map<number, ActionSnapshot>()
+  // Element rects by timestamp, indexed independently of the screenshot gate so
+  // A8 input points resolve even when the frame carries no screenshot.
+  #elementsByTimestamp = new Map<number, unknown[]>()
   #refs: FrameSnapshotRef[] = []
   #lastName?: string
 
   constructor(snapshots: ActionSnapshot[]) {
     for (const snap of snapshots) {
+      if (snap.elements) {
+        const currentEls = this.#elementsByTimestamp.get(snap.timestamp)
+        if (!currentEls || snap.elements.length > currentEls.length) {
+          this.#elementsByTimestamp.set(snap.timestamp, snap.elements)
+        }
+      }
       if (!snap.screenshot) {
         continue
       }
@@ -67,6 +76,11 @@ export class FrameSnapshotIndex {
         this.#byTimestamp.set(snap.timestamp, snap)
       }
     }
+  }
+
+  /** Captured element rects at a command's completion timestamp, if any. */
+  elementsAt(timestamp: number): unknown[] | undefined {
+    return this.#elementsByTimestamp.get(timestamp)
   }
 
   /** Snapshot name representing the page state before the next action. */

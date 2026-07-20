@@ -24,6 +24,7 @@ export interface AssertionTrackerContext {
   getCapturer: () => SessionCapturer
   getBrowser: () => WebdriverIO.Browser | undefined
   getTestUid: () => string | undefined
+  getStepUid: () => string | undefined
   options: ServiceOptions
   actionSnapshots: ActionSnapshot[]
 }
@@ -32,6 +33,7 @@ interface PendingAssertion {
   matcherName: string
   expectedValue?: unknown
   testUid?: string
+  stepUid?: string
 }
 
 export class AssertionTracker {
@@ -76,7 +78,8 @@ export class AssertionTracker {
       this.#pendingAssertion = {
         matcherName: params.matcherName,
         expectedValue: params.expectedValue,
-        testUid: this.#ctx.getTestUid()
+        testUid: this.#ctx.getTestUid(),
+        stepUid: this.#ctx.getStepUid()
       }
     }
     this.#assertionDepth++
@@ -105,6 +108,7 @@ export class AssertionTracker {
     this.#pendingAssertion = undefined
     const capturer = this.#ctx.getCapturer()
     const entry = expectAssertionToCommandLog(params, this.#ctx.getTestUid())
+    entry.stepUid = this.#ctx.getStepUid()
     if (capturer.coalesceAssertionIntoLastRead(entry, isMatcherReadCommand)) {
       return
     }
@@ -176,6 +180,7 @@ export class AssertionTracker {
       },
       pending.testUid
     )
+    entry.stepUid = pending.stepUid
     const capturer = this.#ctx.getCapturer()
     if (
       capturer.coalesceAssertionIntoLastRead(entry, isMatcherReadCommand, true)

@@ -240,6 +240,9 @@ function reconstructCommand(
   if (snapshotText) {
     command.snapshotText = snapshotText
   }
+  if (after?.point) {
+    command.point = after.point
+  }
   return command
 }
 

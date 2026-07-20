@@ -68,7 +68,8 @@ export async function captureActionSnapshot(
       ),
       runWith<BrowserElementInfo[]>(
         input.runScript,
-        elementsScript(false, true),
+        // includeBounds: the per-action element rects drive A8 input points.
+        elementsScript(true, true),
         []
       )
     ])

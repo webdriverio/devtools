@@ -173,10 +173,17 @@ export interface CommandLog {
   cookies?: string
   documentInfo?: DocumentInfo
   id?: number
+  /** Cucumber step this command ran under — nests below testUid in the trace's
+   *  group tree (Feature → Scenario → Step). Set by the adapter step hooks. */
+  stepUid?: string
   /** Depth-indented accessibility-tree text for the page state at this command
    *  (from the per-action `-snapshot.txt` resource). Reconstructed by the trace
    *  reader; drives the player's A11y tab. */
   snapshotText?: string
+  /** Page-coordinate hit point for pointer actions — the centre of the matched
+   *  element at capture time. Synthesized in the exporter; drives the snapshot
+   *  click marker and the timeline pointer glyph. */
+  point?: { x: number; y: number }
 }
 
 /**
