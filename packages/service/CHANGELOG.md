@@ -1,5 +1,13 @@
 # @wdio/devtools-service
 
+## 10.7.1
+
+### Patch Changes
+
+- 64d54a9: - Bump @wdio/devtools-core to 1.0.1
+- Updated dependencies [64d54a9]
+  - @wdio/elements@1.1.1
+
 ## 10.7.0
 
 ### Minor Changes

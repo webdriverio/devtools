@@ -1,6 +1,6 @@
 {
   "name": "devtools-monorepo",
-  "version": "10.6.1",
+  "version": "10.7.0",
   "private": true,
   "type": "module",
   "scripts": {

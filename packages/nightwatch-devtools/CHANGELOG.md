@@ -1,5 +1,11 @@
 # @wdio/nightwatch-devtools
 
+## 1.5.1
+
+### Patch Changes
+
+- 64d54a9: - Bump @wdio/devtools-core to 1.0.1
+
 ## 1.5.0
 
 ### Minor Changes
