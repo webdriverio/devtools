@@ -1,5 +1,11 @@
 # @wdio/elements
 
+## 1.1.1
+
+### Patch Changes
+
+- 64d54a9: - Bump @wdio/devtools-core to 1.0.1
+
 ## 1.1.0
 
 ### Minor Changes

@@ -1,5 +1,12 @@
 # @wdio/devtools-app
 
+## 1.8.1
+
+### Patch Changes
+
+- Updated dependencies [64d54a9]
+  - @wdio/devtools-service@10.7.1
+
 ## 1.8.0
 
 ### Minor Changes

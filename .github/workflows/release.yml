@@ -8,6 +8,15 @@ on:
         required: false
         type: string
         default: 'latest'
+      releaseType:
+        description: 'Release type for monorepo root (drives the v* tag)'
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+        default: 'patch'
 
 env:
   NPM_CONFIG_PROVENANCE: true
@@ -40,13 +49,7 @@ jobs:
       - name: Build
         run: pnpm -r build
       - name: Consume changesets
-        run: |
-          npx changeset version
-
-          # Bump the monorepo root version so tags always advance.
-          # The root is private (never published) and drives the v* tag.
-          npm version minor --no-git-tag-version
-          git commit --amend --no-edit
+        run: npx changeset version
 
       - name: Publish
         env:
@@ -55,15 +58,12 @@ jobs:
           DIST_TAG: ${{ inputs.distTag }}
         run: npx changeset publish --tag "${DIST_TAG}" --no-git-tag
 
-      - name: Push version commit
-        run: git push origin main
-
       - name: GitHub Release & Tag
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG="v$(jq -r '.version' package.json)"
-          git tag "$TAG"
+          TAG=$(npm version ${{ inputs.releaseType }})
+          git push origin main
           git push origin "$TAG"
           gh release create "$TAG" \
             --title "$TAG" \
