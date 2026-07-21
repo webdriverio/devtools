@@ -41,11 +41,11 @@
   },
   "devDependencies": {
     "@microsoft/api-extractor": "^7.58.7",
-    "@types/node": "25.9.3",
+    "@types/node": "26.1.1",
     "@wdio/devtools-core": "workspace:^",
     "@wdio/globals": "9.28.0",
     "tsup": "^8.5.1",
-    "typescript": "6.0.3",
+    "typescript": "7.0.2",
     "vitest": "^4.0.16"
   },
   "peerDependencies": {

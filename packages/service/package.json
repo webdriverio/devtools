@@ -38,10 +38,10 @@
     "prepublishOnly": "pnpm build"
   },
   "dependencies": {
-    "@babel/parser": "^7.29.7",
-    "@babel/traverse": "^7.29.7",
-    "@babel/types": "^7.29.7",
-    "@types/yazl": "^2.4.6",
+    "@babel/parser": "^8.0.4",
+    "@babel/traverse": "^8.0.4",
+    "@babel/types": "^8.0.4",
+    "@types/yazl": "^3.3.1",
     "@wdio/devtools-backend": "workspace:^",
     "@wdio/devtools-script": "workspace:^",
     "@wdio/elements": "workspace:^",
@@ -55,7 +55,7 @@
     "stacktrace-parser": "^0.1.11",
     "ws": "^8.21.0",
     "xpath": "^0.0.34",
-    "yazl": "^2.5.1"
+    "yazl": "^3.3.1"
   },
   "license": "MIT",
   "devDependencies": {
@@ -68,7 +68,7 @@
     "@wdio/devtools-shared": "workspace:^",
     "@wdio/globals": "9.28.0",
     "@wdio/protocols": "9.28.0",
-    "typescript": "6.0.3",
+    "typescript": "7.0.2",
     "vite": "^8.0.16",
     "vite-plugin-dts": "^5.0.2"
   },
