@@ -55,17 +55,17 @@
     "webdriverio": "^9.27.2",
     "ws": "^8.21.0",
     "xpath": "^0.0.34",
-    "yazl": "^2.5.1"
+    "yazl": "^3.3.1"
   },
   "devDependencies": {
-    "@types/node": "25.9.3",
+    "@types/node": "26.1.1",
     "@types/ws": "^8.18.1",
     "@wdio/devtools-core": "workspace:^",
     "@wdio/devtools-shared": "workspace:^",
-    "chromedriver": "^148.0.4",
+    "chromedriver": "^151.0.0",
     "nightwatch": "^3.16.0",
     "tsup": "^8.5.1",
-    "typescript": "^6.0.3"
+    "typescript": "^7.0.2"
   },
   "peerDependencies": {
     "devtools": "^8.42.0",

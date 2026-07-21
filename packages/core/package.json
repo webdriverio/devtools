@@ -43,13 +43,13 @@
   "license": "MIT",
   "devDependencies": {
     "@types/ws": "^8.18.1",
-    "@types/yazl": "^2.4.6",
+    "@types/yazl": "^3.3.1",
     "@wdio/devtools-script": "workspace:*",
     "@wdio/devtools-shared": "workspace:^",
     "@xmldom/xmldom": "^0.9.8",
     "stacktrace-parser": "^0.1.11",
     "ws": "^8.21.0",
     "xpath": "^0.0.34",
-    "yazl": "^2.5.1"
+    "yazl": "^3.3.1"
   }
 }
