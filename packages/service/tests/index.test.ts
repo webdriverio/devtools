@@ -278,16 +278,17 @@ describe('DevtoolsService - Screencast Integration', () => {
     // helper itself (covered in core/tests). Service just needs to invoke it.
   })
 
-  it('trace mode: filmstrip starts the recorder; no filmstrip/video leaves it off', async () => {
-    // filmstrip on → recorder runs so its frames become the dense trace filmstrip
-    service = new DevToolsHookService({ mode: 'trace', filmstrip: true })
+  it('trace mode: filmstrip defaults on and starts the recorder; filmstrip:false + no video leaves it off', async () => {
+    // filmstrip defaults ON in trace mode → recorder runs (its frames become the
+    // dense trace filmstrip) even with no explicit option.
+    service = new DevToolsHookService({ mode: 'trace' })
     await service.before({} as any, [], mockBrowser)
     expect(mockScreencastRecorder.start).toHaveBeenCalledWith(mockBrowser)
 
     vi.clearAllMocks()
 
-    // trace mode, neither filmstrip nor video → no recorder (byte-stable output)
-    service = new DevToolsHookService({ mode: 'trace' })
+    // explicit filmstrip:false and no video → no recorder (one frame per action)
+    service = new DevToolsHookService({ mode: 'trace', filmstrip: false })
     await service.before({} as any, [], mockBrowser)
     expect(mockScreencastRecorder.start).not.toHaveBeenCalled()
   })

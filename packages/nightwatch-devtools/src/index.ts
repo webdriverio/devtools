@@ -169,7 +169,7 @@ class NightwatchDevToolsPlugin {
       traceFormat: options.traceFormat ?? 'zip',
       traceGranularity: options.traceGranularity ?? 'session',
       tracePolicy: options.tracePolicy ?? 'on',
-      filmstrip: options.filmstrip ?? false,
+      filmstrip: options.filmstrip ?? true,
       screenshot: options.screenshot ?? 'off',
       video: options.video ?? 'off',
       // No live Allure signal in Nightwatch (produce-only), so no auto-detect:

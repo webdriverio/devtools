@@ -206,11 +206,16 @@ export default class DevToolsHookService implements Services.ServiceInstance {
   /** Record a screencast this session? Live mode: `screencast.enabled`. Trace
    *  mode: a non-`off` `video` policy (frames sliced per test at flush) or
    *  `filmstrip` (dense frames written into the trace itself). */
+  /** Filmstrip defaults ON in trace mode; explicit `filmstrip: false` opts out. */
+  #filmstripOn(): boolean {
+    return this.#options.filmstrip ?? true
+  }
+
   #shouldRecordScreencast(): boolean {
     if (this.#options.mode === 'trace') {
       return (
         (!!this.#options.video && this.#options.video !== 'off') ||
-        !!this.#options.filmstrip
+        this.#filmstripOn()
       )
     }
     return !!this.#screencastOptions?.enabled
@@ -220,7 +225,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
    *  accumulated frames plus the live recorder's, or undefined when filmstrip
    *  is off (so the trace stays byte-stable with today's output). */
   #filmstripFramesForExport(): ScreencastFrame[] | undefined {
-    if (!this.#options.filmstrip) {
+    if (!this.#filmstripOn()) {
       return undefined
     }
     return [
