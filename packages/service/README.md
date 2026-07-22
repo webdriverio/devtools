@@ -48,16 +48,60 @@ services: [['devtools', options]]
 | `devtoolsCapabilities` | `Capabilities` | Chrome 1600×1200 | Capabilities used to open the DevTools UI window |
 | `screencast` | `ScreencastOptions` | — | Session video recording (live mode only — see below; for trace mode use `video`) |
 | `mode` | `'live' \| 'trace'` | `'live'` | `'live'` opens the DevTools UI window; `'trace'` skips the UI and writes a `trace-<sessionId>.zip` at session end. See [Trace mode](../../README.md#-trace-mode-tracezip) |
-| `traceGranularity` | `'session' \| 'spec' \| 'test'` | `'session'` | Trace mode only. How traces are partitioned. `'test'` is required for per-test Allure attachments (trace, screenshot, video). |
-| `tracePolicy` | `TraceRetentionPolicy` | `'on'` | Trace mode only. Which traces to keep — e.g. `'retain-on-failure'`, `'retain-on-first-failure'`. |
-| `screenshot` | `'off' \| 'on' \| 'only-on-failure'` | `'off'` | Trace mode + `traceGranularity: 'test'`. Per-test screenshot, attached inline to Allure (`image/png`). |
-| `video` | `'off' \| TraceRetentionPolicy` | `'off'` | Trace mode + `traceGranularity: 'test'`. Per-test screencast video, retained per the given policy, attached inline to Allure (`video/webm`). |
-| `filmstrip` | `boolean` | `false` | Trace mode only. Records a dense, continuous screencast filmstrip *into* the trace so the player scrubs smooth playback — dense frames are added alongside the per-action frames (not one frame per action). Frames are thinned (≥100 ms apart, ~600 max) and content-addressed (identical frames — a static wait — collapse to one resource); windowed per slice at any `traceGranularity`. Runs the screencast recorder (CDP push on Chrome, polling elsewhere). |
+| `traceFormat` | `'zip' \| 'ndjson-directory'` | `'zip'` | Trace mode only. Output layout — `'zip'` writes a single archive; `'ndjson-directory'` unpacks the same files into `trace-<id>/` (one less unzip step for scripted/agentic consumers). Both open in `show-trace` and other compatible viewers. |
+| `traceGranularity` | `'session' \| 'spec' \| 'test'` | `'session'` | Trace mode only. How traces are partitioned — one per worker session / spec file / test. `'test'` is required for per-test Allure attachments (trace, screenshot, video). |
+| `tracePolicy` | `TraceRetentionPolicy` | `'on'` | Trace mode only. Which traces to keep: `'on'` \| `'retain-on-failure'` \| `'retain-on-first-failure'` \| `'on-first-retry'` \| `'on-all-retries'` \| `'retain-on-failure-and-retries'`. The retry-aware policies pair best with `traceGranularity: 'test'`. |
+| `screenshot` | `'off' \| 'on' \| 'only-on-failure'` | `'off'` | Trace mode + `traceGranularity: 'test'`. Per-test screenshot, attached inline to Allure (`image/png`). WDIO-service-specific. |
+| `video` | `'off' \| TraceRetentionPolicy` | `'off'` | Trace mode + `traceGranularity: 'test'`. Per-test screencast video, retained per the given policy, attached inline to Allure (`video/webm`). WDIO-service-specific. |
+| `filmstrip` | `boolean` | `true` | Trace mode only. Records a dense, continuous screencast filmstrip *into* the trace so the player scrubs smooth playback — dense frames are added alongside the per-action frames (not one frame per action). Frames are thinned (≥100 ms apart, ~600 max) and content-addressed (identical frames — a static wait — collapse to one resource); windowed per slice at any `traceGranularity`. Runs the screencast recorder (CDP push on Chrome, polling elsewhere). |
+| `emitArtifactsManifest` | `boolean` | `false` | Trace mode only. Writes `devtools-artifacts-<sessionId>.json` next to the trace — a generic index of every produced artifact (trace/screenshot/video) plus each test's state, for reporters/CI to consume. Off by default; **auto-enabled when `@wdio/allure-reporter` is in the config**. |
+| `captureAssertions` | `boolean` | `true` | Capture assertions as command/action rows — `node:assert` plus passing *and* failing expect-webdriverio matchers, folded into single `expect.<matcher>` rows (e.g. `toHaveText`, `toExist`). Set `false` to opt out. |
+
+## Viewing traces — `show-trace`
+
+In trace mode the adapter writes a portable `trace.zip` (or, with
+`traceFormat: 'ndjson-directory'`, an unpacked directory). Open it in the
+first-party player:
+
+```sh
+pnpm show-trace path/to/trace.zip     # from this repo
+npx show-trace path/to/trace.zip      # in a project that installs an adapter
+```
+
+The `show-trace` bin ships with this service (and with the Selenium/Nightwatch
+adapters), so it's available wherever one is installed — no extra dependency. It
+boots the DevTools UI in a dedicated **player** mode:
+
+- **DOM time-travel** — the page pane rebuilds the real DOM as of the selected
+  action from the captured mutation stream (not just a screenshot), replaying
+  form-field state (typed values, checked/selected) so each step shows the page
+  exactly as it was at that moment.
+- **A11y tab** — the accessibility tree (roles + accessible names) captured for
+  the selected action; the semantic view a screen reader sees, distinct from the
+  raw DOM in the snapshot pane.
+- **Element overlay ("pick locator")** — every locator the test interacted with
+  is outlined on the replayed page. Hover a box to highlight the matching A11y
+  row; click to copy a resilient locator to the clipboard. Hovering an A11y row
+  highlights the element back — the two views are linked bidirectionally.
+- **Transcript tab + Copy-for-LLM** — the run's `transcript.md` rendered
+  in-panel, with a one-click **Copy prompt** that bundles the transcript and any
+  failing-command errors into paste-ready LLM context.
+- **Timeline** — categorized action markers (navigation / input / assertion /
+  query / …), a dense filmstrip when `filmstrip` is enabled, Network and Console
+  tracks, a draggable playhead, and playback controls (play/pause, step, speed).
+  Cucumber runs nest as Feature → Scenario → Step.
+- **Errors, Console, Network, and Source tabs** — the same workbench tabs as
+  live mode.
+
+The same `trace.zip` also opens in other compatible standalone trace viewers,
+and its on-disk format is what an Allure report's embedded trace viewer reads
+(Allure ≥ 2.35).
 
 ## Allure integration
 
 When `@wdio/allure-reporter` is installed, trace-mode artifacts are attached to
-the Allure report automatically:
+the Allure report automatically (and `emitArtifactsManifest` is auto-enabled, so
+the run also writes the `devtools-artifacts-<sessionId>.json` index):
 
 - **`traceGranularity: 'test'`** — each test's trace (`application/zip`, a
   download that opens in `pnpm show-trace`), screenshot (`image/png`, inline)

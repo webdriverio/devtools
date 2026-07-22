@@ -70,7 +70,16 @@ When BiDi is active in Selenium or Nightwatch, the per-command Chrome performanc
 
 ### 📦 Trace mode (trace.zip)
 
-Headless capture path — no DevTools UI window opens. At session end the adapter writes trace artifacts into a `test-results/` folder (created next to the resolved spec/config directory), suitable for offline replay, AI-agent diffing, or any consumer that prefers a portable artifact over a live UI.
+The dashboard runs in one of **two modes**, set per adapter via the shared `mode` option:
+
+- **`live`** (default) — the interactive DevTools UI window described above.
+- **`trace`** — a headless capture path that writes a portable trace archive, opened later in the **trace player**.
+
+All three adapters (`@wdio/devtools-service`, `@wdio/selenium-devtools`, `@wdio/nightwatch-devtools`) emit the **same normalized trace** through the shared `@wdio/devtools-core` capture library, so one archive format and one player serve every framework.
+
+The trace **format and the player are identical** across the three adapters, but **capture completeness varies** — WebdriverIO is the most complete; Selenium and Nightwatch cover the core flow with some gaps (e.g. inline-Allure per-test artifacts, retry-aware retention, Cucumber step nesting, auto BiDi). Each adapter's README lists its specifics.
+
+In trace mode no DevTools UI window opens. At session end the adapter writes trace artifacts into a `test-results/` folder (created next to the resolved spec/config directory), suitable for offline replay, AI-agent diffing, or any consumer that prefers a portable artifact over a live UI.
 
 | Adapter | How to enable |
 |---|---|
@@ -101,9 +110,19 @@ npx show-trace path/to/trace.zip      # in a project that installs an adapter
 
 `show-trace` reconstructs the trace and serves the same DevTools UI in a dedicated **player** mode: the action list on the left, the page snapshot in the browser pane, and a bottom timeline with a filmstrip, action/network tracks, a draggable playhead, and playback controls (play/step/speed). Click a **Network** bar to open its request detail; press **`?`** for keyboard shortcuts (`Space` play/pause, `←`/`→` step, `Home`/`End`, `,`/`.` speed).
 
+The player exposes everything captured in the archive:
+
+- **DOM time-travel** — the browser pane replays the page from the captured DOM **mutation stream**, so scrubbing the playhead reconstructs the live DOM at any point, not just a screenshot.
+- **A11y tab** — the accessibility tree (roles + accessible names) captured for the selected command; hover a row to outline the element in the snapshot, click to copy its locator.
+- **Element overlay (pick-locator)** — labelled, click-to-copy boxes drawn over every element the test interacted with, cross-linked to the A11y rows.
+- **Transcript tab + Copy-for-LLM** — the run's Markdown transcript with a one-click "copy prompt" that bundles it with any failing-command errors, paste-ready for an LLM.
+- **Cucumber Feature → Scenario → Step nesting** — tests render as labelled `tracingGroup` spans wrapping their commands, with Cucumber steps nested under their scenario.
+- **Dense filmstrip** — with `filmstrip` enabled, the timeline scrubs a continuous screencast for smooth playback rather than one frame per action.
+- **Timeline input markers** — keyboard actions and pointer hits (commands with a captured hit point) get distinct glyphs on the timeline.
+
 The `show-trace` bin is exposed by each adapter (`@wdio/devtools-service`, `@wdio/nightwatch-devtools`, `@wdio/selenium-devtools`), so `pnpm show-trace <zip>` / `npx show-trace <zip>` work in any project that installs one — no extra dependency.
 
-**Other viewers.** The trace uses a portable NDJSON schema, so the same `.zip` also opens in other compatible trace viewers that read the format. This is the same format [`@wdio/mcp`](https://webdriver.io/docs/mcp) uses for AI-driven session recording.
+**Other viewers.** The trace uses a portable NDJSON schema, so the same `.zip` also opens in other compatible standalone trace viewers that read the format, and — because it shares that on-disk format — is what an Allure report's **embedded trace viewer** (Allure ≥ 2.35) reads. See the [backend README](./packages/backend/README.md#trace-serving--show-trace) for the reader details.
 
 #### Options
 
@@ -114,6 +133,12 @@ The `show-trace` bin is exposed by each adapter (`@wdio/devtools-service`, `@wdi
 | `traceGranularity` | `'session'` \| `'spec'` \| `'test'` | `'session'` | `'session'` writes one trace per worker; `'spec'` one per spec file; `'test'` one per test into its own `<spec>-<title>-<browser>[-retryN]/trace.zip` folder — the smallest, most navigable artifacts, and the best pairing for a retention policy. |
 | `tracePolicy` | `'on'` \| `'retain-on-failure'` \| `'retain-on-first-failure'` \| `'on-first-retry'` \| `'on-all-retries'` \| `'retain-on-failure-and-retries'` | `'on'` | Which traces to keep. `'on'` keeps every trace; the rest keep only failing/retried tests — pairs well with `traceGranularity: 'test'`. |
 | `captureAssertions` | `boolean` | `true` | Capture assertions as action rows: `node:assert` (all adapters), WebdriverIO `expect(...)` matchers, and Nightwatch `browser.assert`/`verify`. Set `false` to opt out. |
+| `filmstrip` | `boolean` | `true` | Record a dense, continuous screencast *into* the trace for smooth scrubbing in the player (not just one frame per action). Dense frames sit alongside the per-action frames; thinned + content-addressed at export. Runs the screencast recorder (CDP push on Chrome, polling elsewhere). |
+| `emitArtifactsManifest` | `boolean` | auto | Write `devtools-artifacts-<sessionId>.json` next to the trace — the index reporters/CI read to discover produced artifacts. Off by default; auto-enabled when an Allure reporter is detected (Nightwatch stays opt-in). |
+
+The per-test **`screenshot`** and **`video`** artifact options live on the WebdriverIO and Selenium adapters (not the shared base), are gated to `traceGranularity: 'test'`, and attach inline to Allure — see the [WebdriverIO](./packages/service/README.md#allure-integration) and [Selenium](./packages/selenium-devtools/README.md) READMEs for the full per-adapter option tables.
+
+**Allure integration.** When an Allure reporter is present, per-test traces, screenshots, and videos attach to each test's card (`traceGranularity: 'test'`); coarser granularities write the artifacts to disk and list them in the manifest. Details and the report-noise settings are in the [WebdriverIO adapter README](./packages/service/README.md#allure-integration).
 
 WDIO config example:
 
