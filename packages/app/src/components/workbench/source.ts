@@ -13,7 +13,14 @@ import type { CommandLog } from '@wdio/devtools-shared'
 
 import { sourceContext, commandContext } from '../../controller/context.js'
 import { commandCategory, type ActionCategory } from './actionItems/category.js'
-import { parseCallSource, fileBasename, pathSegments } from './call-source.js'
+import {
+  parseCallSource,
+  fileBasename,
+  pathSegments,
+  normalizeSourcePath,
+  resolveSourceFile,
+  listSourceFiles
+} from './call-source.js'
 import { sourceStyles } from './source/styles.js'
 
 import '../placeholder.js'
@@ -95,12 +102,24 @@ export class DevtoolsSource extends Element {
     return document.body.classList.contains('dark')
   }
 
-  /** File to show: an explicit selection/call-site, else the first available. */
+  /** Captured files plus files referenced by command call sources (clean paths). */
+  get #fileList(): string[] {
+    return listSourceFiles(
+      this.sources || {},
+      (this.commands || []).map((c) => c.callSource)
+    )
+  }
+
+  /** File to show: an explicit selection/call-site wins even when it wasn't
+   *  captured as a source (the toolbar then shows a not-captured state instead
+   *  of silently falling back to a different file), else the first available. */
   get #effectiveFile(): string | undefined {
-    if (this.activeFile && this.sources?.[this.activeFile]) {
-      return this.activeFile
-    }
-    return Object.keys(this.sources || {})[0]
+    return this.activeFile ?? this.#fileList[0]
+  }
+
+  #contentFor(file: string): string | undefined {
+    const key = resolveSourceFile(this.sources || {}, file)
+    return key !== undefined ? this.sources[key] : undefined
   }
 
   connectedCallback(): void {
@@ -145,8 +164,7 @@ export class DevtoolsSource extends Element {
     super.disconnectedCallback()
     window.removeEventListener('app-source-highlight', this.#onHighlight)
     window.removeEventListener('app-source-track', this.#onTrack)
-    this.#editorView?.destroy()
-    this.#editorView = undefined
+    this.#unmountEditor()
     this.#tabObserver?.disconnect()
     this.#tabObserver = undefined
     this.#themeObserver?.disconnect()
@@ -158,6 +176,10 @@ export class DevtoolsSource extends Element {
     if (!target) {
       return
     }
+    if (this.#contentFor(target) === undefined) {
+      this.#unmountEditor()
+      return
+    }
     this.#mountEditor(target)
     this.#refreshCallSite()
   }
@@ -167,10 +189,11 @@ export class DevtoolsSource extends Element {
     if (!parsed) {
       return
     }
-    this.activeFile = parsed.file
-    this.callSiteFile = parsed.file
+    const file = normalizeSourcePath(parsed.file)
+    this.activeFile = file
+    this.callSiteFile = file
     this.callSiteLine = parsed.line
-    const cmd = this.#commandAt(parsed.file, parsed.line)
+    const cmd = this.#commandAt(file, parsed.line)
     this.callSiteCommand = cmd?.command
     this.callSiteCategory = cmd ? commandCategory(cmd.command) : 'other'
     if (activateTab) {
@@ -184,7 +207,11 @@ export class DevtoolsSource extends Element {
         return false
       }
       const parsed = parseCallSource(c.callSource)
-      return parsed?.file === file && parsed.line === line
+      return (
+        !!parsed &&
+        normalizeSourcePath(parsed.file) === file &&
+        parsed.line === line
+      )
     })
   }
 
@@ -192,9 +219,15 @@ export class DevtoolsSource extends Element {
     this.activeFile = file
   }
 
+  #unmountEditor() {
+    this.#editorView?.destroy()
+    this.#editorView = undefined
+    this.#mountedFile = undefined
+  }
+
   #mountEditor(filePath: string) {
-    const source = this.sources?.[filePath]
-    if (!source) {
+    const source = this.#contentFor(filePath)
+    if (source === undefined) {
       return
     }
     const container =
@@ -256,7 +289,7 @@ export class DevtoolsSource extends Element {
   }
 
   #renderFileTabs(active: string) {
-    return Object.keys(this.sources || {}).map(
+    return this.#fileList.map(
       (file) =>
         html`<button
           class="src-file ${file === active ? 'active' : ''}"
@@ -331,9 +364,14 @@ export class DevtoolsSource extends Element {
     if (!active) {
       return html`<wdio-devtools-placeholder></wdio-devtools-placeholder>`
     }
+    const hasContent = this.#contentFor(active) !== undefined
     return html`<div class="source-root">
       ${this.#renderToolbar(active)}
-      <div class="source-container"></div>
+      ${hasContent
+        ? html`<div class="source-container"></div>`
+        : html`<div class="src-empty">
+            Source for ${fileBasename(active)} was not captured in this trace.
+          </div>`}
     </div>`
   }
 }

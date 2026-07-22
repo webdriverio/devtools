@@ -130,7 +130,42 @@ export abstract class ScreencastRecorderBase<TDriver = unknown> {
       typeof timestampSeconds === 'number'
         ? Math.round(timestampSeconds * 1000)
         : Date.now()
-    this.buffer.push({ data, timestamp })
+    this.#appendFrame({ data, timestamp })
+  }
+
+  /**
+   * Append a frame, decimating the buffer in place once it exceeds
+   * `maxBufferFrames` so a long session can't grow it without bound.
+   */
+  #appendFrame(frame: ScreencastFrame): void {
+    this.buffer.push(frame)
+    // Decimation always keeps the first and last frame, so 2 is the hard floor;
+    // clamp so a nonsensical sub-2 cap is honored as 2 rather than never firing.
+    if (this.buffer.length > Math.max(2, this.options.maxBufferFrames)) {
+      this.#decimateBuffer()
+    }
+  }
+
+  /**
+   * Halve the buffer by keeping every other frame plus the first and last, so
+   * memory is bounded while the temporal spread survives (never tail-truncated).
+   * `#startIndex` is remapped to the count of surviving pre-marker frames, which
+   * keeps `frames`/`duration` excluding pre-marker frames across decimation.
+   */
+  #decimateBuffer(): void {
+    const lastIndex = this.buffer.length - 1
+    const kept: ScreencastFrame[] = []
+    let preMarkerKept = 0
+    for (let i = 0; i < this.buffer.length; i++) {
+      if (i % 2 === 0 || i === lastIndex) {
+        if (i < this.#startIndex) {
+          preMarkerKept++
+        }
+        kept.push(this.buffer[i])
+      }
+    }
+    this.buffer = kept
+    this.#startIndex = preMarkerKept
   }
 
   /** Whether `setStartMarker` (or `markStartAtLatest`) has fired yet. */
@@ -180,14 +215,14 @@ export abstract class ScreencastRecorderBase<TDriver = unknown> {
         this.onUnavailable(new Error('first screenshot returned null'))
         return
       }
-      this.buffer.push({ data: first, timestamp: Date.now() })
+      this.#appendFrame({ data: first, timestamp: Date.now() })
 
       const intervalMs = this.options.pollIntervalMs
       this.#pollTimer = setInterval(async () => {
         try {
           const data = await this.takeScreenshot()
           if (data !== null) {
-            this.buffer.push({ data, timestamp: Date.now() })
+            this.#appendFrame({ data, timestamp: Date.now() })
           }
         } catch {
           // Session ended mid-interval — stop polling gracefully.

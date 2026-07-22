@@ -3,6 +3,7 @@ import { html, nothing } from 'lit'
 import { consume } from '@lit/context'
 import { snapshotStyles } from './snapshot-styles.js'
 import { renderBrowserChrome } from './browser-chrome.js'
+import { drawElementOverlay, clearElementOverlay } from './element-overlay.js'
 import { commandPageUrl } from './url-at-timestamp.js'
 import { imageMime } from './trace-timeline-utils.js'
 
@@ -22,6 +23,7 @@ import type { Metadata, MetadataBySession } from '@wdio/devtools-shared'
 
 import '../placeholder.js'
 import './screencast-player.js'
+import '~icons/mdi/cursor-default-click-outline.js'
 
 const MUTATION_SELECTOR = '__mutation-highlight__'
 
@@ -62,6 +64,9 @@ export class DevtoolsBrowser extends Element {
    * 'snapshot' — show DOM mutations replay and per-command screenshots
    */
   #viewMode: 'snapshot' | 'video' = 'snapshot'
+  /** When on, outline the elements the test interacted with (their command
+   *  target selectors) on the replayed page; click a box to copy its locator. */
+  #overlayOn = false
 
   @consume({ context: metadataContext, subscribe: true })
   metadata: Metadata | undefined = undefined
@@ -97,6 +102,7 @@ export class DevtoolsBrowser extends Element {
     window.addEventListener('app-mutation-select', (ev) =>
       this.#renderBrowserState(ev.detail)
     )
+    window.addEventListener('a11y-highlight', this.#highlightBySelector)
     window.addEventListener(
       'show-command',
       this.#handleShowCommand as EventListener
@@ -142,9 +148,12 @@ export class DevtoolsBrowser extends Element {
       return
     }
 
-    this.iframe?.removeAttribute('style')
-
     // Defer to next frame so we read post-reflow dimensions on resize events.
+    // NB: we deliberately do NOT clear the iframe's inline style first — the rAF
+    // below overwrites every property it sets, so the iframe keeps its prior
+    // (correct) transform until then. Clearing synchronously here made it paint
+    // one frame un-scaled → a zoom flicker on every replayed frame during
+    // playback, and let the overlay measure a collapsed/narrow layout.
     requestAnimationFrame(() => {
       if (!this.section || !this.header) {
         return
@@ -186,6 +195,9 @@ export class DevtoolsBrowser extends Element {
         this.iframe.style.left = `${Math.max(0, (availW - viewportWidth * scale) / 2)}px`
         this.iframe.style.top = '0px'
       }
+      // Layout is now settled — the one moment element rects are reliable, so
+      // the overlay boxes track the replayed DOM after every step and resize.
+      this.#redrawOverlay()
     })
   }
 
@@ -249,7 +261,7 @@ export class DevtoolsBrowser extends Element {
   }
 
   async #renderCommandScreenshot(command?: CommandLog) {
-    this.#screenshotData = command?.screenshot ?? null
+    this.#screenshotData = this.#screenshotForCommand(command)
     // Follow the selected command's page in the address bar — commands carry no
     // URL, so resolve it from the navigation active at the command's time.
     if (command) {
@@ -257,9 +269,36 @@ export class DevtoolsBrowser extends Element {
         commandPageUrl(command, this.commands ?? [], this.mutations ?? []) ??
         this.#activeUrl
     }
-    // Switch to snapshot mode so the command screenshot is visible instead of the video.
+    // Switch to snapshot mode so the command snapshot is visible instead of the video.
     this.#viewMode = 'snapshot'
-    this.requestUpdate()
+    // DOM time-travel: rebuild the iframe DOM as of the selected command's time.
+    // #renderBrowserState requestUpdates internally, so only request one here
+    // when there's no mutation stream to replay (screenshot-only fallback).
+    const target = this.#mutationForCommand(command)
+    if (target) {
+      await this.#renderBrowserState(target)
+    } else {
+      this.requestUpdate()
+    }
+  }
+
+  /** The last mutation captured at or before the command's time — the DOM state
+   *  the command observed. Falls back to the first mutation when every mutation
+   *  is later (command precedes the slice's initial full-DOM snapshot). */
+  #mutationForCommand(command?: CommandLog): TraceMutation | undefined {
+    const mutations = this.mutations
+    if (!command?.timestamp || !mutations?.length) {
+      return undefined
+    }
+    let best: TraceMutation | undefined
+    for (const mutation of mutations) {
+      if (mutation.timestamp <= command.timestamp) {
+        best = mutation
+      } else {
+        break
+      }
+    }
+    return best ?? mutations[0]
   }
 
   // View-mode flips swap the iframe with <img>/<video> and don't fire resize.
@@ -328,7 +367,7 @@ export class DevtoolsBrowser extends Element {
   }
 
   #handleAttributeMutation(mutation: TraceMutation) {
-    if (!mutation.attributeName || !mutation.attributeValue) {
+    if (!mutation.attributeName) {
       return
     }
 
@@ -337,7 +376,16 @@ export class DevtoolsBrowser extends Element {
       return
     }
 
-    el.setAttribute(mutation.attributeName, mutation.attributeValue || '')
+    const value = mutation.attributeValue ?? ''
+    el.setAttribute(mutation.attributeName, value)
+    // Form-field state lives on the PROPERTY, not just the attribute — mirror it
+    // so a replayed input shows the captured value / checked state, including a
+    // field cleared back to empty.
+    if (mutation.attributeName === 'value' && 'value' in el) {
+      ;(el as HTMLInputElement).value = value
+    } else if (mutation.attributeName === 'checked' && 'checked' in el) {
+      ;(el as HTMLInputElement).checked = value === 'true'
+    }
   }
 
   #handleChildListMutation(mutation: TraceMutation) {
@@ -385,24 +433,18 @@ export class DevtoolsBrowser extends Element {
     return rootElement.querySelector(`*[data-wdio-ref="${ref}"]`) as HTMLElement
   }
 
-  #highlightMutation(ev: CustomEvent<TraceMutation | null>) {
-    if (!ev.detail) {
-      this.iframe?.contentDocument
-        ?.querySelector(`.${MUTATION_SELECTOR}`)
-        ?.remove()
-      return
-    }
+  #clearHighlight() {
+    this.iframe?.contentDocument
+      ?.querySelector(`.${MUTATION_SELECTOR}`)
+      ?.remove()
+  }
 
-    const mutation = ev.detail
+  /** Draw the outline box over an element in the replayed iframe. */
+  #outline(el: HTMLElement) {
     const docEl = this.iframe?.contentDocument
-    if (!docEl || !mutation.target) {
+    if (!docEl) {
       return
     }
-    const el = this.#queryElement(mutation.target)
-    if (!el) {
-      return
-    }
-
     el.scrollIntoView({ block: 'center', inline: 'center' })
     const rect = el.getBoundingClientRect()
     const scrollY = this.iframe?.contentWindow?.scrollY || 0
@@ -414,8 +456,103 @@ export class DevtoolsBrowser extends Element {
       'style',
       `position: absolute; background: #38bdf8; outline: 2px dotted red; opacity: .2; top: ${scrollY + rect.top}px; left: ${scrollX + rect.left}px; width: ${rect.width}px; height: ${rect.height}px; z-index: 10000;`
     )
-    docEl.querySelector(`.${MUTATION_SELECTOR}`)?.remove()
+    this.#clearHighlight()
     docEl.body.appendChild(highlight)
+  }
+
+  #highlightMutation(ev: CustomEvent<TraceMutation | null>) {
+    if (!ev.detail) {
+      this.#clearHighlight()
+      return
+    }
+    const el = ev.detail.target
+      ? this.#queryElement(ev.detail.target)
+      : undefined
+    if (el) {
+      this.#outline(el)
+    }
+  }
+
+  /** Outline the element for an a11y-tree locator (CSS selectors only; WDIO
+   *  locators like `button*=Login` can't resolve via querySelector → no-op). */
+  #highlightBySelector = (ev: Event) => {
+    const detail = (ev as CustomEvent<{ selector?: string } | null>).detail
+    const docEl = this.iframe?.contentDocument
+    if (!docEl) {
+      return
+    }
+    this.#clearHighlight()
+    if (!detail?.selector) {
+      return
+    }
+    let el: HTMLElement | null = null
+    try {
+      el = docEl.querySelector(detail.selector)
+    } catch {
+      return
+    }
+    if (el) {
+      this.#outline(el)
+    }
+  }
+
+  /** Distinct target selectors the test interacted with (each command's first
+   *  arg), in order. querySelector filters non-element args (URLs, matcher
+   *  strings) at draw time, so this stays permissive. */
+  #testSelectors(): string[] {
+    const seen = new Set<string>()
+    for (const command of this.commands ?? []) {
+      const arg = command.args?.[0]
+      if (typeof arg === 'string' && arg) {
+        seen.add(arg)
+      }
+    }
+    return [...seen]
+  }
+
+  // Draws immediately — call only once the iframe has laid out (the sizing rAF
+  // in #sizeSnapshotToViewport is the one point that holds for both a replay and
+  // a resize; reading element rects any earlier yields pre-layout positions).
+  #redrawOverlay() {
+    if (!this.#overlayOn) {
+      clearElementOverlay(this.iframe)
+      return
+    }
+    drawElementOverlay(this.iframe, this.#testSelectors(), {
+      onPick: (selector, label) => this.#pickElement(selector, label),
+      onHover: (selector, label) => this.#revealA11yRow(selector, label),
+      onLeave: () => this.#revealA11yRow()
+    })
+  }
+
+  /** Clicking a box: copy the locator, open the A11y tab, and pin its row. */
+  #pickElement(selector: string, label: string) {
+    this.#copyLocator(selector)
+    window.dispatchEvent(
+      new CustomEvent('open-dock-tab', { detail: { label: 'A11y' } })
+    )
+    this.#revealA11yRow(selector, label, true)
+  }
+
+  /** Reverse link: ask the A11y tab to highlight the matching row — by selector,
+   *  falling back to the element's accessible name. `pin` keeps it highlighted
+   *  (click) rather than clearing on mouse-out (hover). */
+  #revealA11yRow(selector?: string, label?: string, pin = false) {
+    window.dispatchEvent(
+      new CustomEvent('a11y-reveal', {
+        detail: selector ? { selector, label, pin } : null
+      })
+    )
+  }
+
+  #toggleOverlay() {
+    this.#overlayOn = !this.#overlayOn
+    this.#redrawOverlay()
+    this.requestUpdate()
+  }
+
+  #copyLocator(selector: string) {
+    navigator.clipboard?.writeText(selector).catch(() => {})
   }
 
   async #renderBrowserState(mutationEntry?: TraceMutation) {
@@ -463,7 +600,29 @@ export class DevtoolsBrowser extends Element {
       }
     }
 
+    // The replay wiped any overlay boxes; the requestUpdate below runs updated()
+    // → #sizeSnapshotToViewport, whose settled rAF redraws them post-layout.
     this.requestUpdate()
+  }
+
+  /** Screenshot for the selected command. Assertions (and other snapshot-less
+   *  commands) carry none, so fall back to the nearest PRECEDING command's frame
+   *  — the page state the assertion observed — instead of a blank preview. */
+  #screenshotForCommand(command?: CommandLog): string | null {
+    if (!command) {
+      return null
+    }
+    if (command.screenshot) {
+      return command.screenshot
+    }
+    const cmds = this.commands ?? []
+    const idx = cmds.indexOf(command)
+    for (let i = (idx === -1 ? cmds.length : idx) - 1; i >= 0; i--) {
+      if (cmds[i].screenshot) {
+        return cmds[i].screenshot!
+      }
+    }
+    return null
   }
 
   /** Latest screenshot from any command — auto-updates the preview as tests run. */
@@ -477,6 +636,28 @@ export class DevtoolsBrowser extends Element {
       }
     }
     return null
+  }
+
+  /** Compact "element overlay" toggle in the browser chrome. Shown only when
+   *  the DOM is replayable; boxes the elements the test interacted with. */
+  #renderOverlayToggle(hasMutations: number | null) {
+    if (!hasMutations) {
+      return nothing
+    }
+    const on = this.#overlayOn
+    return html`<button
+      title="Element overlay — outline what the test interacted with"
+      @click=${() => this.#toggleOverlay()}
+      style="display:inline-grid;place-items:center;width:24px;height:24px;margin:0 8px;flex:none;border-radius:6px;cursor:pointer;border:1px solid var(--vscode-panel-border, #2a2a31);background:${on
+        ? 'var(--accent, #ff6a3d)'
+        : 'transparent'};color:${on
+        ? '#1a0d06'
+        : 'var(--vscode-descriptionForeground, #8b8b96)'};"
+    >
+      <icon-mdi-cursor-default-click-outline
+        style="width:14px;height:14px;"
+      ></icon-mdi-cursor-default-click-outline>
+    </button>`
   }
 
   #renderViewToggle() {
@@ -534,6 +715,17 @@ export class DevtoolsBrowser extends Element {
         ></wdio-devtools-screencast-player>
       </div>`
     }
+    // DOM replay is the primary snapshot whenever the trace carries mutations:
+    // #renderBrowserState reconstructs the iframe DOM at the selected command's
+    // time, so points without a captured frame (assertions, static waits) still
+    // show the real page instead of a blank/stale screenshot.
+    if (hasMutations) {
+      return html`<div class="iframe-wrapper">
+        <iframe class="origin-top-left"></iframe>
+      </div>`
+    }
+    // No mutation stream (DOM-less / foreign trace): fall back to the selected
+    // command's screenshot, then the latest available frame.
     if (this.#screenshotData) {
       return html`<div class="iframe-wrapper">
         <div
@@ -547,12 +739,7 @@ export class DevtoolsBrowser extends Element {
         </div>
       </div>`
     }
-    if (hasMutations) {
-      return html`<div class="iframe-wrapper">
-        <iframe class="origin-top-left"></iframe>
-      </div>`
-    }
-    const autoScreenshot = hasMutations ? null : this.#latestAutoScreenshot
+    const autoScreenshot = this.#latestAutoScreenshot
     if (autoScreenshot) {
       return html`<div class="iframe-wrapper">
         <div
@@ -581,7 +768,12 @@ export class DevtoolsBrowser extends Element {
       <section
         class="w-full h-full bg-sideBarBackground rounded-[14px] border-2 border-panelBorder"
       >
-        ${renderBrowserChrome(this.#displayUrl, this.#renderViewToggle())}
+        ${renderBrowserChrome(
+          this.#displayUrl,
+          html`${this.#renderOverlayToggle(
+            hasMutations
+          )}${this.#renderViewToggle()}`
+        )}
         ${this.#renderViewport(hasMutations)}
       </section>
     `

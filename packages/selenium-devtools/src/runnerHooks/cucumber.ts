@@ -1,13 +1,18 @@
 import { createRequire } from 'node:module'
 import logger from '@wdio/logger'
 import { errorMessage } from '@wdio/devtools-core'
+import type {
+  CucumberPickle,
+  CucumberPickleStep,
+  TestStatus
+} from '@wdio/devtools-shared'
 import type { RunnerHookCallbacks } from '../types.js'
 
 const log = logger('@wdio/selenium-devtools:runnerHooks:cucumber')
 
 type CucumberModule = Record<string, unknown> & {
   Before?: (fn: (testCase: unknown) => void) => void
-  After?: (fn: (testCase: unknown) => void) => void
+  After?: (fn: (testCase: unknown) => void | Promise<void>) => void
   BeforeAll?: (fn: () => void) => void
   AfterAll?: (fn: () => void) => void
   BeforeStep?: (fn: (arg: unknown) => void) => void
@@ -178,17 +183,6 @@ interface GherkinFeature {
   location?: { line?: number }
   children?: GherkinFeatureChild[]
 }
-interface CucumberPickleStep {
-  text?: string
-  astNodeIds?: string[]
-  location?: { line?: number }
-}
-interface CucumberPickle {
-  name?: string
-  uri?: string
-  location?: { line?: number }
-  astNodeIds?: string[]
-}
 interface CucumberTestCase {
   gherkinDocument?: { feature?: GherkinFeature }
   pickle?: CucumberPickle
@@ -227,7 +221,7 @@ function populateGherkinIndex(
   }
 }
 
-type ScenarioState = 'passed' | 'failed' | 'pending'
+type ScenarioState = Extract<TestStatus, 'passed' | 'failed' | 'pending'>
 
 function mapCucumberStatus(status: string): ScenarioState | 'skipped' {
   const s = status.toUpperCase()
@@ -315,11 +309,11 @@ function handleScenarioStart(
   )
 }
 
-function handleScenarioEnd(
+async function handleScenarioEnd(
   testCase: CucumberTestCase,
   counters: RunCounters,
   callbacks: RunnerHookCallbacks
-): void {
+): Promise<void> {
   const state = mapCucumberStatus(String(testCase?.result?.status ?? ''))
   const scenarioState: ScenarioState = state === 'skipped' ? 'pending' : state
   const icon =
@@ -332,7 +326,7 @@ function handleScenarioEnd(
   } else {
     counters.pending++
   }
-  callbacks.onScenarioEnd?.(scenarioState)
+  await callbacks.onScenarioEnd?.(scenarioState)
 }
 
 function registerScenarioHooks(
@@ -353,7 +347,9 @@ function registerScenarioHooks(
       callbacks
     )
   )
-  After((testCase) =>
+  // Async so cucumber awaits the per-scenario artifact emit while the scenario
+  // is still open — a fire-and-forget attach would land after allure closed it.
+  After(async (testCase) =>
     handleScenarioEnd(testCase as CucumberTestCase, counters, callbacks)
   )
 }

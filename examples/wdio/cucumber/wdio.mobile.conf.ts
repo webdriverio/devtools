@@ -44,7 +44,7 @@ export const config: Options.Testrunner = {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
   ] as any,
 
-  logLevel: 'info',
+  logLevel: 'warn',
   bail: 0,
   baseUrl: 'http://localhost',
   waitforTimeout: 15000,

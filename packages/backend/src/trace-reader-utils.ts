@@ -1,15 +1,28 @@
 // Pure helpers for reconstructing a player payload from trace.zip events.
 // No I/O — the reader pipeline (trace-reader.ts) composes these.
 
+import { createHash } from 'node:crypto'
+import { strFromU8 } from 'fflate'
 import {
   TraceType,
+  type ConsoleLog,
+  type LogLevel,
   type Metadata,
   type NetworkRequest,
   type TracePlayerFrame,
   type Viewport
 } from '@wdio/devtools-shared'
 
-import type { ContextOptionsEvent, HarSnapshot } from './trace-reader-types.js'
+import { LOG_LEVEL_SET } from './trace-reader-constants.js'
+import type {
+  BeforeEvent,
+  ConsoleEvent,
+  ContextOptionsEvent,
+  HarContent,
+  HarSnapshot,
+  SidecarStacks,
+  StdioEvent
+} from './trace-reader-types.js'
 
 export function parseNdjson(text: string): Record<string, unknown>[] {
   return text
@@ -44,9 +57,9 @@ export function paramsToArgs(
   return indexKeys.map((key) => params[key])
 }
 
-// Playwright/vibium-style action label, built from class.method + the most
-// meaningful param (value for fill/type, url for navigate, nothing for click) —
-// matching what `playwright show-trace` renders for the same trace.
+// Trace-viewer action label, built from class.method + the most meaningful
+// param (value for fill/type, url for navigate, nothing for click) —
+// matching what standard trace viewers render for the same trace.
 export function actionLabel(
   cls: string,
   method: string,
@@ -103,17 +116,42 @@ function mimeToType(mimeType: string): string {
   return 'other'
 }
 
+const TEXTUAL_MIME_RE = /json|xml|javascript|ecmascript|^text\//
+
+// Restore the body from inline `text`, else the content-addressed
+// `resources/<_sha1>` entry (the `_sha1` value is the resource filename,
+// extension included when the writer added one). Textual mimes only —
+// binary bodies stay out of the string field.
+function restoreResponseBody(
+  content: HarContent | undefined,
+  files: Record<string, Uint8Array> | undefined
+): string | undefined {
+  if (!content || !TEXTUAL_MIME_RE.test(content.mimeType)) {
+    return undefined
+  }
+  if (typeof content.text === 'string' && content.encoding !== 'base64') {
+    return content.text
+  }
+  if (!content._sha1 || !files) {
+    return undefined
+  }
+  const data = files[`resources/${content._sha1}`]
+  return data ? strFromU8(data) : undefined
+}
+
 export function harToNetworkRequest(
   snapshot: HarSnapshot,
-  index: number
+  index: number,
+  files?: Record<string, Uint8Array>
 ): NetworkRequest {
   const started = Date.parse(snapshot.startedDateTime)
   const startTime = Number.isFinite(started) ? started : 0
-  // A foreign trace.zip (the reader accepts any Vibium/Playwright zip) can carry
+  // A foreign trace.zip (the reader accepts any standard-format zip) can carry
   // a pending or failed request with no response or content; default those.
   const response = snapshot.response
   const content = response?.content
   const responseHeaders = headerArrayToRecord(response?.headers)
+  const responseBody = restoreResponseBody(content, files)
   return {
     id: String(index),
     url: snapshot.request.url,
@@ -128,6 +166,7 @@ export function harToNetworkRequest(
     requestHeaders: headerArrayToRecord(snapshot.request.headers),
     responseHeaders,
     size: content?.size ?? 0,
+    ...(responseBody !== undefined ? { responseBody } : {}),
     response: {
       fromCache: false,
       headers: responseHeaders,
@@ -135,6 +174,122 @@ export function harToNetworkRequest(
       status: response?.status ?? 0
     }
   }
+}
+
+// Reverse level mapping; foreign levels outside our union default to 'log'.
+function fromTraceLevel(messageType: string): LogLevel {
+  if (messageType === 'warning') {
+    return 'warn'
+  }
+  return LOG_LEVEL_SET.has(messageType) ? (messageType as LogLevel) : 'log'
+}
+
+/** Map console/stdio events (already carrying absolute times) to console logs. */
+export function buildConsoleLogs(
+  consoleEvents: (ConsoleEvent | StdioEvent)[]
+): ConsoleLog[] {
+  const logs: ConsoleLog[] = consoleEvents.map((event) => {
+    if (event.type === 'console') {
+      return {
+        type: fromTraceLevel(event.messageType),
+        args: event.args?.map((arg) => arg.value) ?? [event.text],
+        timestamp: event.time,
+        source: 'browser' as const
+      }
+    }
+    return {
+      type: event.type === 'stderr' ? ('error' as const) : ('log' as const),
+      args: [event.text ?? ''],
+      timestamp: event.timestamp,
+      // Our zips carry the origin; foreign stdio events default to terminal.
+      source: event.source ?? ('terminal' as const)
+    }
+  })
+  return logs.sort((a, b) => a.timestamp - b.timestamp)
+}
+
+// Local copy of core's sha1 helper — the backend only imports from shared.
+function sha1Hex(data: string): string {
+  return createHash('sha1').update(data).digest('hex')
+}
+
+// Older zips glued ':<line>[:<column>]' onto the frame's file (and shifted
+// line/column); peel up to two numeric suffixes — the innermost is the real
+// line. `at < 2` keeps bare Windows drive specs (`C:...`) intact.
+function splitGluedLineSuffix(file: string): {
+  file: string
+  line?: number
+} {
+  let cleaned = file
+  let line: number | undefined
+  for (let pass = 0; pass < 2; pass++) {
+    const at = cleaned.lastIndexOf(':')
+    if (at < 2 || !/^\d+$/.test(cleaned.slice(at + 1))) {
+      break
+    }
+    line = Number(cleaned.slice(at + 1))
+    cleaned = cleaned.slice(0, at)
+  }
+  return { file: cleaned, line }
+}
+
+/** Rebuild the `<file>:<line>` callSource from an event's first stack frame. */
+export function stackToCallSource(
+  stack: BeforeEvent['stack']
+): string | undefined {
+  const frame = stack?.[0]
+  if (!frame) {
+    return undefined
+  }
+  const { file, line } = splitGluedLineSuffix(frame.file)
+  return `${file}:${line ?? frame.line ?? 0}`
+}
+
+/** Fill in stacks from a sidecar `.stacks` entry (foreign zips store them there, keyed `call@<id>`). */
+export function attachSidecarStacks(
+  befores: Map<string, BeforeEvent>,
+  stacksJson: string
+): void {
+  // Cast at the zip boundary: the sidecar is a single JSON document, not NDJSON.
+  const parsed = JSON.parse(stacksJson) as Partial<SidecarStacks>
+  if (!Array.isArray(parsed.files) || !Array.isArray(parsed.stacks)) {
+    return
+  }
+  const paths = parsed.files
+  for (const [id, frames] of parsed.stacks) {
+    const before = befores.get(`call@${id}`)
+    if (!before || before.stack?.length) {
+      continue
+    }
+    before.stack = frames.flatMap(([fileIndex, line, column]) => {
+      const file = paths[fileIndex]
+      return file ? [{ file, line, column }] : []
+    })
+  }
+}
+
+/** Recover `sources` by matching stack-frame paths to `src@<sha1(path)>.txt`. */
+export function buildSources(
+  befores: Iterable<BeforeEvent>,
+  files: Record<string, Uint8Array>
+): Record<string, string> {
+  const sources: Record<string, string> = {}
+  for (const before of befores) {
+    const rawFile = before.stack?.[0]?.file
+    if (!rawFile) {
+      continue
+    }
+    // Resources were written under the clean path's sha1; unglue before lookup.
+    const { file } = splitGluedLineSuffix(rawFile)
+    if (file in sources) {
+      continue
+    }
+    const data = files[`resources/src@${sha1Hex(file)}.txt`]
+    if (data) {
+      sources[file] = strFromU8(data)
+    }
+  }
+  return sources
 }
 
 export function nearestFrame(

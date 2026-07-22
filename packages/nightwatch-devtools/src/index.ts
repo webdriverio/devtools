@@ -8,14 +8,26 @@
 import { fileURLToPath } from 'node:url'
 import {
   errorMessage,
-  recordSpecBoundary,
+  finalizeTraceExport,
+  flushRangeLogged,
   resolveAdapterOutputDir,
-  writeSpecTrace,
-  writeTraceZip,
-  type SpecRange
+  TestAttemptTracker,
+  tracePolicyModeWarning,
+  type SpecRange,
+  type TraceArtifact,
+  type TraceExportContext
 } from '@wdio/devtools-core'
+import { buildTraceContext } from './trace-context.js'
+import { emitTestArtifacts } from './test-artifacts.js'
+import { wireAssertCapture } from './helpers/assertCapture.js'
 import { stop as stopBackend } from '@wdio/devtools-backend'
-import { REUSE_ENV, SCREENCAST_DEFAULTS } from '@wdio/devtools-shared'
+import {
+  REUSE_ENV,
+  SCREENCAST_DEFAULTS,
+  type CucumberPickle,
+  type CucumberPickleStep,
+  type ScreencastFrame
+} from '@wdio/devtools-shared'
 import logger from '@wdio/logger'
 import {
   handleReuseMode,
@@ -40,8 +52,7 @@ import type {
   NightwatchEventHub,
   ScreencastOptions,
   SuiteStats,
-  TestStats,
-  TestMetadataMap
+  TestStats
 } from './types.js'
 import { registerEventHandlers as registerEventHandlersImpl } from './event-hub.js'
 import {
@@ -49,8 +60,6 @@ import {
   cucumberAfter as cucumberLifecycleAfter,
   cucumberBeforeStep as cucumberLifecycleBeforeStep,
   cucumberAfterStep as cucumberLifecycleAfterStep,
-  type CucumberPickle,
-  type CucumberPickleStep,
   type CucumberResult
 } from './cucumber-lifecycle.js'
 import {
@@ -65,6 +74,8 @@ import {
   ensureSessionInitialized,
   finalizeCurrentScreencast
 } from './session-init.js'
+import { captureNativeAssertions } from './helpers/nativeAssertions.js'
+import { flushTestSlice, recordSpecSliceBoundary } from './trace-slices.js'
 import {
   getTestIcon,
   incrementCounters,
@@ -100,6 +111,14 @@ class NightwatchDevToolsPlugin {
   /** Set of spec files already flushed to disk. */
   #flushedSpecs = new Set<string>()
 
+  /** Every trace/video artifact seen this run (retained or not), for the
+   *  end-of-run artifacts manifest. Populated via the context's onArtifact. */
+  #artifacts: TraceArtifact[] = []
+
+  /** In-flight fire-and-forget eager/boundary slice flushes, awaited at finalize
+   *  so the last slice's write + its manifest entry land before teardown. */
+  #traceFlushes: Promise<unknown>[] = []
+
   #getRerunLabel() {
     return process.env[REUSE_ENV.RERUN_ENTRY_TYPE] === 'test'
       ? process.env[REUSE_ENV.RERUN_LABEL]?.trim()
@@ -109,24 +128,57 @@ class NightwatchDevToolsPlugin {
   #screencastOptions: ScreencastOptions
   #screencastRecorder?: ScreencastRecorder
   #screencastSessionId?: string
+
+  // Snapshotted before each recorder is nulled, so the export isn't blank.
+  #filmstripFrames: ScreencastFrame[] = []
   #bidiEnabled = false
   #bidiAttachAttempted = false
 
+  /** Wall-clock ms at the current test/scenario start — the lower bound of that
+   *  test's action-snapshot and video-frame window (per-test artifact slicing). */
+  #currentTestStartWallTime = 0
+
+  // Nightwatch `--retries` and cross-worker reruns may reset this in-process
+  // tracker; only retries that re-enter this process's start hook are counted.
+  #attemptTracker = new TestAttemptTracker()
+
   constructor(options: DevToolsOptions = {}) {
     const mode = options.mode ?? 'live'
-    const ignore = mode === 'trace' && options.screencast?.enabled === true
+    // Filmstrip OR a produce-only per-test video drives the recorder in trace
+    // mode; bare screencast (with neither on) stays a live-only feature.
+    const wantRecorder =
+      mode === 'trace' &&
+      (options.filmstrip === true ||
+        (options.video !== undefined && options.video !== 'off'))
+    const ignore =
+      mode === 'trace' && !wantRecorder && options.screencast?.enabled === true
     if (ignore) {
       log.warn('trace mode: ignoring screencast option (live-mode feature)')
     }
-    const screencast = ignore ? {} : (options.screencast ?? {})
+    let screencast = ignore ? {} : (options.screencast ?? {})
+    if (wantRecorder) {
+      screencast = { ...(options.screencast ?? {}), enabled: true }
+    }
     this.options = {
       port: options.port ?? 3000,
       hostname: options.hostname ?? 'localhost',
       screencast,
       bidi: options.bidi ?? false,
+      captureAssertions: options.captureAssertions ?? true,
       mode,
       traceFormat: options.traceFormat ?? 'zip',
-      traceGranularity: options.traceGranularity ?? 'session'
+      traceGranularity: options.traceGranularity ?? 'session',
+      tracePolicy: options.tracePolicy ?? 'on',
+      filmstrip: options.filmstrip ?? false,
+      screenshot: options.screenshot ?? 'off',
+      video: options.video ?? 'off',
+      // No live Allure signal in Nightwatch (produce-only), so no auto-detect:
+      // off by default, opt-in via the option.
+      emitArtifactsManifest: options.emitArtifactsManifest ?? false
+    }
+    const policyWarning = tracePolicyModeWarning(options.tracePolicy, mode)
+    if (policyWarning) {
+      log.warn(policyWarning)
     }
     this.#screencastOptions = { ...SCREENCAST_DEFAULTS, ...screencast }
     this.#bidiEnabled = options.bidi === true
@@ -161,6 +213,9 @@ class NightwatchDevToolsPlugin {
       },
       get bidiEnabled() {
         return self.#bidiEnabled
+      },
+      get captureAssertions() {
+        return self.options.captureAssertions
       },
       get sessionCapturer() {
         return self.sessionCapturer
@@ -276,7 +331,13 @@ class NightwatchDevToolsPlugin {
       clearExecutionData: () => {
         self.testReporter.clearExecutionData()
         self.suiteManager.clearExecutionData()
+        self.#attemptTracker.reset()
       },
+      recordAttempt: (uid, specFile) =>
+        self.#attemptTracker.recordStart(uid, specFile),
+      recordOutcome: (uid, state) =>
+        self.#attemptTracker.recordOutcome(uid, state),
+      attemptFor: (uid) => self.#attemptTracker.attemptFor(uid),
       buildMetadataOptions: () => self.#buildMetadataOptions(),
       ensureSessionInitialized: (b) => self.#ensureSessionInitialized(b),
       wrapBrowserOnce: (b) => self.#wrapBrowserOnce(b),
@@ -285,9 +346,28 @@ class NightwatchDevToolsPlugin {
       setCucumberRunner: (v) => {
         self.#isCucumberRunner = v
       },
-      getRerunLabel: () => self.#getRerunLabel()
+      getRerunLabel: () => self.#getRerunLabel(),
+      get traceMode() {
+        return self.options.mode === 'trace'
+      },
+      get traceGranularity() {
+        return self.options.traceGranularity
+      },
+      get specRanges() {
+        return self.#specRanges
+      },
+      get flushedSpecs() {
+        return self.#flushedSpecs
+      },
+      flushTraceRange: (range) => self.#flushSpecTrace(range),
+      emitTestArtifacts: (uid, failed) => self.#emitTestArtifacts(uid, failed)
     }
     return this.#internals
+  }
+
+  /** Boundary cast: currentTest is Nightwatch's loose bag; only uid is read. */
+  #currentTestUid(): string | undefined {
+    return (this.#currentTest as { uid?: string } | null)?.uid
   }
 
   #handleReuseMode(): void {
@@ -307,6 +387,12 @@ class NightwatchDevToolsPlugin {
     internals.handleReuse = () => this.#handleReuseMode()
     internals.plugin = this
     await runPluginBefore(internals)
+    if (this.options.captureAssertions) {
+      wireAssertCapture(
+        () => this.sessionCapturer,
+        () => this.#currentTestUid()
+      )
+    }
   }
 
   async #ensureSessionInitialized(browser: NightwatchBrowser) {
@@ -316,10 +402,19 @@ class NightwatchDevToolsPlugin {
   }
 
   async #finalizeCurrentScreencast(): Promise<void> {
+    // Preserve pre-reload frames for the trace filmstrip AND the produce-only
+    // per-test video — either can drive the recorder in trace mode now.
+    if (
+      (this.options.filmstrip || this.options.video !== 'off') &&
+      this.#screencastRecorder
+    ) {
+      this.#filmstripFrames.push(...this.#screencastRecorder.frames)
+    }
     await finalizeCurrentScreencast(this.#getInternals())
   }
 
   async cucumberBefore(browser: NightwatchBrowser, pickle: CucumberPickle) {
+    this.#currentTestStartWallTime = Date.now()
     await cucumberLifecycleBefore(this.#getInternals(), browser, pickle)
   }
 
@@ -374,13 +469,15 @@ class NightwatchDevToolsPlugin {
   async #startNextTest(
     currentSuite: SuiteStats,
     currentTestName: string,
-    processedTests: Set<string>
+    processedTests: Set<string>,
+    specFile: string | null
   ): Promise<void> {
     await startNextTest(
       this.#getInternals(),
       currentSuite,
       currentTestName,
-      processedTests
+      processedTests,
+      specFile
     )
   }
 
@@ -405,6 +502,7 @@ class NightwatchDevToolsPlugin {
     if (this.#isCucumberRunner) {
       return
     }
+    this.#currentTestStartWallTime = Date.now()
     await this.#ensureSessionInitialized(browser)
 
     const currentTest = browser.currentTest as NightwatchCurrentTest | undefined
@@ -426,25 +524,8 @@ class NightwatchDevToolsPlugin {
       this.sessionCapturer.captureSource(fullPath).catch(() => {})
     }
 
-    // ── Per-spec boundary detection ──
     if (fullPath) {
-      const prevRange = recordSpecBoundary(
-        {
-          specRanges: this.#specRanges,
-          flushedSpecs: this.#flushedSpecs,
-          capturer: this.sessionCapturer,
-          actionSnapshots: this.sessionCapturer.actionSnapshots
-        },
-        fullPath,
-        this.options.traceGranularity
-      )
-      if (prevRange) {
-        void this.#flushSpecTrace(prevRange).catch((err) =>
-          log.warn(
-            `Failed to flush trace for spec "${prevRange.specFile}": ${errorMessage(err)}`
-          )
-        )
-      }
+      recordSpecSliceBoundary(this.#getInternals(), fullPath)
     }
 
     await this.#closePreviousRunningTest(currentSuite, testFile, currentTest)
@@ -456,7 +537,12 @@ class NightwatchDevToolsPlugin {
       processedTests
     )
     if (currentTestName) {
-      await this.#startNextTest(currentSuite, currentTestName, processedTests)
+      await this.#startNextTest(
+        currentSuite,
+        currentTestName,
+        processedTests,
+        fullPath
+      )
     }
     this.#wrapBrowserOnce(browser)
   }
@@ -470,7 +556,22 @@ class NightwatchDevToolsPlugin {
     if (browser && this.sessionCapturer) {
       try {
         await this.#closeOutTestcases(browser)
+        if (this.options.captureAssertions) {
+          await captureNativeAssertions(
+            this.sessionCapturer,
+            browser,
+            browser.currentTest as NightwatchCurrentTest | undefined,
+            this.#currentTestUid(),
+            this.browserProxy.drainNativeAssertCalls()
+          )
+        }
         await this.sessionCapturer.captureTrace(browser)
+        // Flush this test's slice before the next test overwrites its outcome.
+        flushTestSlice(this.#getInternals())
+        const results = (browser.currentTest as NightwatchCurrentTest)?.results
+        const failed =
+          !!results && ((results.errors ?? 0) > 0 || (results.failed ?? 0) > 0)
+        await this.#emitTestArtifacts(this.#currentTestUid(), failed)
       } catch (err) {
         log.error(`Failed to capture trace: ${errorMessage(err)}`)
       }
@@ -481,13 +582,50 @@ class NightwatchDevToolsPlugin {
     await closeOutTestcases(this.#getInternals(), browser)
   }
 
+  /** Directory for produced artifacts — next to the test file, else the config,
+   *  else cwd (mirrors #traceContext's resolution). */
+  get #outputDir(): string {
+    return resolveAdapterOutputDir({
+      testFilePath: this.browserProxy?.getCurrentTestFullPath?.() ?? undefined,
+      configPath: this.#configPath
+    })
+  }
+
+  /** Produce (never attach — no live Allure API) this test's per-test screenshot
+   *  and video slice. No-op outside trace mode + `test` granularity (core-gated).
+   *  Shared by the per-test `afterEach` and the cucumber per-scenario finalize. */
+  async #emitTestArtifacts(
+    uid: string | undefined,
+    failed: boolean
+  ): Promise<void> {
+    const attempt = uid ? this.#attemptTracker.attemptFor(uid) : undefined
+    await emitTestArtifacts({
+      mode: this.options.mode,
+      granularity: this.options.traceGranularity,
+      screenshotPolicy: this.options.screenshot,
+      videoPolicy: this.options.video,
+      failed,
+      actionSnapshots: this.sessionCapturer.actionSnapshots,
+      frames: this.#screencastRecorder?.frames ?? this.#filmstripFrames,
+      startWallTime: this.#currentTestStartWallTime,
+      outcomes: uid ? this.#attemptTracker.forTest(uid, attempt) : [],
+      uid,
+      attempt,
+      sessionId: this.sessionCapturer?.metadata?.sessionId,
+      outputDir: this.#outputDir,
+      captureFormat: this.#screencastOptions.captureFormat,
+      onArtifact: (a) => this.#artifacts.push(a),
+      onLog: (level, msg) => log[level](msg)
+    })
+  }
+
   async after(browser?: NightwatchBrowser) {
     await this.#finalizeCurrentScreencast()
     try {
       await this.#finalizeAllSuites(browser)
       this.#logRunSummary()
       if (this.options.mode === 'trace') {
-        await this.#writeTraceZipIfNeeded()
+        await this.#writeTraceIfNeeded()
         await this.sessionCapturer?.closeWebSocket()
         await stopBackend()
         return
@@ -515,108 +653,63 @@ class NightwatchDevToolsPlugin {
     logRunSummary(this.#getInternals())
   }
 
-  async #flushSpecTrace(
-    range: SpecRange,
-    nextRange?: SpecRange
-  ): Promise<string | undefined> {
-    if (this.#flushedSpecs.has(range.specFile)) {
-      return undefined
-    }
-    this.#flushedSpecs.add(range.specFile)
-
+  /** Thin wrapper so boundary flushes and the final flush share one path.
+   *  flushRangeLogged logs+swallows a failed flush (shared spec/test string) so
+   *  the fire-and-forget boundary callers don't each re-implement the guard. */
+  #flushSpecTrace(range: SpecRange): Promise<TraceArtifact | undefined> {
     const sessionId = this.sessionCapturer.metadata?.sessionId
     if (!sessionId) {
-      return undefined
+      return Promise.resolve(undefined)
     }
-
-    // Collect test metadata from the suite tree. Nightwatch stores one suite
-    // per spec file (flat data model) — a flat iteration is correct. If
-    // child suites are ever introduced, this must switch to a recursive walk
-    // matching the selenium adapter.
-    const allMetadata: TestMetadataMap = new Map()
-    if (this.suiteManager) {
-      for (const suite of this.suiteManager.getAllSuites().values()) {
-        for (const entry of suite.tests) {
-          if (typeof entry === 'string') {
-            continue
-          }
-          allMetadata.set(entry.uid, {
-            title: entry.fullTitle,
-            specFile: entry.file
-          })
-        }
-      }
-    }
-
-    const tracePath = await writeSpecTrace({
-      range,
-      nextRange,
-      capturer: this.sessionCapturer,
-      actionSnapshots: this.sessionCapturer.actionSnapshots,
-      sessionId,
-      outputDir: resolveAdapterOutputDir({ configPath: this.#configPath }),
-      format: this.options.traceFormat,
-      testMetadata: allMetadata
-    })
-    log.info(`Trace for spec "${range.specFile}" saved to ${tracePath}`)
-    return tracePath
+    // Track the promise (before it's added to awaitPending) so finalize awaits
+    // this fire-and-forget flush — its context snapshot already excludes it.
+    const flush = flushRangeLogged(this.#traceContext(sessionId), range)
+    this.#traceFlushes.push(flush)
+    return flush
   }
 
-  async #writeTraceZipIfNeeded(): Promise<void> {
-    if (this.options.mode !== 'trace' || !this.sessionCapturer) {
-      return
-    }
-    const sessionId = this.sessionCapturer.metadata?.sessionId
-    if (!sessionId) {
-      return
-    }
-    try {
-      if (this.sessionCapturer.snapshotCaptures.length) {
-        await Promise.allSettled(this.sessionCapturer.snapshotCaptures)
-      }
-
-      if (this.options.traceGranularity === 'spec') {
-        // Per-spec traces — flush any remaining ranges that weren't
-        // flushed at spec boundaries (the last spec in the run).
-        for (const range of this.#specRanges) {
-          if (!this.#flushedSpecs.has(range.specFile)) {
-            await this.#flushSpecTrace(range)
-          }
-        }
-        return
-      }
-
-      // Session-level trace (default) — single artifact for the
-      // entire worker session.
-      const testMetadata: TestMetadataMap = new Map()
-      if (this.suiteManager) {
-        for (const suite of this.suiteManager.getAllSuites().values()) {
-          for (const entry of suite.tests) {
-            if (typeof entry === 'string') {
-              continue
-            }
-            testMetadata.set(entry.uid, {
-              title: entry.fullTitle,
-              specFile: entry.file
-            })
-          }
-        }
-      }
-
-      const snapshots = this.sessionCapturer.actionSnapshots
-      const tracePath = await writeTraceZip(this.sessionCapturer, {
-        outputDir: resolveAdapterOutputDir({
-          configPath: this.#configPath
-        }),
-        sessionId,
-        actionSnapshots: snapshots.length ? snapshots : undefined,
+  /** Assemble the framework-agnostic trace-export context from plugin state.
+   *  Output dir ignores the spec range — nightwatch writes next to config. */
+  #traceContext(sessionId: string): TraceExportContext {
+    return buildTraceContext(
+      {
+        mode: this.options.mode,
+        policy: this.options.tracePolicy,
+        granularity: this.options.traceGranularity,
         format: this.options.traceFormat,
-        testMetadata
-      })
-      log.info(`Trace saved to ${tracePath}`)
-    } catch (err) {
-      log.warn(`trace write failed: ${errorMessage(err)}`)
+        capturer: this.sessionCapturer,
+        suites: this.suiteManager.getAllSuites().values(),
+        outcomes: this.#attemptTracker,
+        ranges: this.#specRanges,
+        flushed: this.#flushedSpecs,
+        artifacts: this.#artifacts,
+        traceFlushes: this.#traceFlushes,
+        emitArtifactsManifest: this.options.emitArtifactsManifest,
+        // Accumulated (finalized-session) frames plus the live recorder's — a
+        // mid-run per-spec/per-test flush fires before the recorder is drained
+        // into #filmstripFrames, so its frames live only on the recorder still;
+        // at the final write the recorder is already nulled, so no double-count.
+        screencastFrames: this.options.filmstrip
+          ? [
+              ...this.#filmstripFrames,
+              ...(this.#screencastRecorder?.frames ?? [])
+            ]
+          : undefined,
+        configPath: this.#configPath,
+        testFilePath:
+          this.browserProxy?.getCurrentTestFullPath?.() ?? undefined,
+        log: (level, msg) => log[level](msg)
+      },
+      sessionId
+    )
+  }
+
+  async #writeTraceIfNeeded(): Promise<void> {
+    const sessionId = this.sessionCapturer?.metadata?.sessionId
+    if (this.options.mode !== 'trace' || !this.sessionCapturer || !sessionId) {
+      return
     }
+    await finalizeTraceExport(this.#traceContext(sessionId))
   }
 
   async #waitForDevtoolsBrowserClose(): Promise<void> {

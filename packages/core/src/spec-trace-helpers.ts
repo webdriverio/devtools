@@ -6,8 +6,11 @@
  * is the single source of truth — adapters import from here.
  */
 
+import path from 'node:path'
 import type {
   ActionSnapshot,
+  CommandLog,
+  ScreencastFrame,
   TestMetadataMap,
   TraceFormat,
   TraceGranularity
@@ -15,18 +18,48 @@ import type {
 import type { TraceCapturer } from './trace-exporter.js'
 import { writeTraceZip } from './trace-exporter.js'
 import { deterministicUid } from './uid.js'
+import { trimChar } from './artifact-naming.js'
 
 // ─── SpecRange ────────────────────────────────────────────────────────────────
 
-/** Index ranges into a SessionCapturer's flat arrays for a single spec file. */
+/** Index ranges into a SessionCapturer's flat arrays for one trace slice
+ *  (a spec file, or a single test under `test` granularity). */
 export interface SpecRange {
   specFile: string
+  /** Dedupe/identity key: spec path for spec slices; testUid for test slices,
+   *  or `${testUid}-retry${n}` so each retried attempt is its own slice. */
+  key: string
+  /** Present only for test-granularity slices; the base (non-retry) testUid. */
+  testUid?: string
   commandStartIdx: number
   consoleStartIdx: number
   networkStartIdx: number
   mutationStartIdx: number
   traceLogStartIdx: number
-  snapshotCount: number
+}
+
+/**
+ * The slice range to eager-flush for a just-ended test. When the caller knows
+ * the test's uid (e.g. WDIO's `afterTest`), reverse-scan for it — retries push
+ * a new range under the same uid, and the next test's boundary may already be
+ * recorded, so the last range isn't reliably this test's. When the uid isn't
+ * independently known (Nightwatch/Selenium discover it from the range itself),
+ * the last recorded range is the just-ended test's. Undefined when there is no
+ * range to flush. One helper for what the three adapters each open-coded.
+ */
+export function findFlushableRange(
+  ranges: readonly SpecRange[],
+  testUid?: string
+): SpecRange | undefined {
+  if (testUid !== undefined) {
+    for (let i = ranges.length - 1; i >= 0; i--) {
+      if (ranges[i]!.testUid === testUid) {
+        return ranges[i]
+      }
+    }
+    return undefined
+  }
+  return ranges[ranges.length - 1]
 }
 
 // ─── Spec name sanitization ───────────────────────────────────────────────────
@@ -37,13 +70,14 @@ export interface SpecRange {
  * Falls back to `'unknown-spec'` when the result is empty.
  */
 export function sanitizeSpecName(specFile: string): string {
-  return (
+  const cleaned = trimChar(
     specFile
       .replace(/^.*[/\\]/, '')
       .replace(/\.[^.]+$/, '')
-      .replace(/[^a-zA-Z0-9_-]/g, '_')
-      .replace(/^_+|_+$/g, '') || 'unknown-spec'
+      .replace(/[^a-zA-Z0-9_-]/g, '_'),
+    '_'
   )
+  return cleaned || 'unknown-spec'
 }
 
 // ─── Spec session ID ──────────────────────────────────────────────────────────
@@ -61,6 +95,66 @@ export function buildSpecSessionId(
   const base = sanitizeSpecName(specFile)
   const hash = deterministicUid(specFile).split('-').pop()!.slice(0, 8)
   return `${base}-${hash}-${sessionId.slice(0, 8)}`
+}
+
+// ─── Test slice session ID ──────────────────────────────────────────────────
+
+/**
+ * Build a collision-safe test-level session ID from the slice's spec file, its
+ * identity `key` (testUid, or `${testUid}-retry${n}` for retries), and the
+ * parent session ID. Hashing the key keeps retries and sibling tests in the
+ * same spec from colliding on filename, while the spec basename keeps the name
+ * human-readable.
+ */
+export function buildTestSliceSessionId(
+  specFile: string,
+  key: string,
+  sessionId: string
+): string {
+  const base = sanitizeSpecName(specFile)
+  const hash = deterministicUid(key).split('-').pop()!.slice(0, 8)
+  return `${base}-${hash}-${sessionId.slice(0, 8)}`
+}
+
+// ─── Test slice output folder ────────────────────────────────────────────────
+
+/** Max slug length so a title doesn't blow past filesystem path limits. */
+const MAX_SLUG_LENGTH = 60
+
+/** Lowercase, collapse runs of non-alphanumerics to `-`, trim edge dashes,
+ *  and cap length (trimming a dash the cut may leave behind). */
+function slugify(text: string): string {
+  const collapsed = trimChar(
+    text.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+    '-'
+  )
+  // Trim again after the length cap in case it sliced mid-dash-run.
+  return trimChar(collapsed.slice(0, MAX_SLUG_LENGTH), '-')
+}
+
+/**
+ * Build the per-test output folder name: `<spec>-<title>-<browser>[-retryN]`.
+ * The spec basename is sanitized via {@link sanitizeSpecName}; title and browser
+ * are slugified. An empty title falls back to a short hash of `key`, and a
+ * `${uid}-retry${n}` key appends a `-retry<N>` suffix so retries don't collide.
+ */
+export function buildTestSliceFolder(
+  specFile: string,
+  testTitle: string | undefined,
+  browser: string | undefined,
+  key: string
+): string {
+  const specBase = sanitizeSpecName(path.basename(specFile))
+  // A short hash of the slice key disambiguates two tests that share a title
+  // (Scenario Outline examples with a placeholder-free name, or duplicate `it`
+  // titles) — without it their folders collide and one trace overwrites the
+  // other. Mirrors buildTestSliceSessionId, which hashes the key for the id.
+  const keyHash = deterministicUid(key).split('-').pop()!.slice(0, 8)
+  const titleSlug = slugify(testTitle ?? '') || keyHash
+  const browserSlug = slugify(browser ?? '') || 'browser'
+  const retryMatch = key.match(/-retry(\d+)$/)
+  const retrySuffix = retryMatch ? `-retry${retryMatch[1]}` : ''
+  return `${specBase}-${titleSlug}-${browserSlug}-${keyHash}${retrySuffix}`
 }
 
 // ─── TraceCapturer slice ─────────────────────────────────────────────────────
@@ -127,11 +221,29 @@ export function filterTestMetadataBySpec(
   return filtered
 }
 
+/**
+ * Filter a full `testUid → metadata` map down to a single test's entry. The
+ * per-test analog of {@link filterTestMetadataBySpec}: a test slice's metadata
+ * is just that one test's entry, attached as its tracingGroup name.
+ */
+export function filterTestMetadataByUid(
+  allMetadata: TestMetadataMap,
+  testUid: string
+): TestMetadataMap {
+  const filtered: TestMetadataMap = new Map()
+  const entry = allMetadata.get(testUid)
+  if (entry) {
+    filtered.set(testUid, entry)
+  }
+  return filtered
+}
+
 // ─── Spec boundary recording ──────────────────────────────────────────────────
 
 /**
- * Minimal context needed by `recordSpecBoundary` to detect spec-file
- * transitions and capture array index ranges.
+ * Minimal context needed by `recordSliceBoundary` to detect spec-file / test
+ * transitions and capture array index ranges. `flushedSpecs` holds already-
+ * flushed slice keys (spec paths or test keys), shared with the finalizer.
  */
 export interface SpecBoundaryContext {
   specRanges: SpecRange[]
@@ -143,44 +255,80 @@ export interface SpecBoundaryContext {
     mutations: ArrayLike<unknown>
     traceLogs: ArrayLike<unknown>
   }
-  actionSnapshots: ArrayLike<unknown>
+}
+
+/** Push a new slice range and return the previous (unflushed) range to flush.
+ *  `suppressSameKey` skips recording when the incoming key matches the last
+ *  range's — used for spec granularity so consecutive tests in one file share
+ *  a slice; test granularity records every attempt (retries included). */
+function pushSliceRange(
+  ctx: SpecBoundaryContext,
+  specFile: string,
+  key: string,
+  testUid: string | undefined,
+  suppressSameKey: boolean
+): SpecRange | null {
+  const lastRange = ctx.specRanges[ctx.specRanges.length - 1]
+  if (suppressSameKey && lastRange && lastRange.key === key) {
+    return null
+  }
+  const prevRange =
+    lastRange && !ctx.flushedSpecs.has(lastRange.key) ? lastRange : null
+
+  ctx.specRanges.push({
+    specFile,
+    key,
+    testUid,
+    commandStartIdx: ctx.capturer.commandsLog.length,
+    consoleStartIdx: ctx.capturer.consoleLogs.length,
+    networkStartIdx: ctx.capturer.networkRequests.length,
+    mutationStartIdx: ctx.capturer.mutations.length,
+    traceLogStartIdx: ctx.capturer.traceLogs.length
+  })
+
+  return prevRange
 }
 
 /**
- * Record a spec-file boundary. When `traceGranularity` is `'spec'` and the
- * spec file has changed, this pushes a new `SpecRange` and returns the
- * previous range so the caller can flush its trace artifact.
- *
- * Returns `null` when no flush is needed (same spec, or granularity isn't
- * `'spec'`, or no capturer).
+ * Record a trace-slice boundary. For `spec` granularity, a new slice starts
+ * when the spec file changes (existing behavior). For `test` granularity, a
+ * new slice starts on every recorded test — including retries: a repeated
+ * `testUid` is keyed `${testUid}-retry${n}` so each attempt is its own slice.
+ * Returns the previous, not-yet-flushed range so the caller can flush it, or
+ * `null` when nothing needs flushing (same spec, missing testUid, or a
+ * non-sliced granularity).
+ */
+export function recordSliceBoundary(
+  ctx: SpecBoundaryContext,
+  granularity: TraceGranularity | undefined,
+  specFile: string,
+  testUid?: string
+): SpecRange | null {
+  if (granularity === 'spec') {
+    return pushSliceRange(ctx, specFile, specFile, undefined, true)
+  }
+  if (granularity === 'test' && testUid !== undefined) {
+    const priorAttempts = ctx.specRanges.filter(
+      (r) => r.testUid === testUid
+    ).length
+    const key =
+      priorAttempts === 0 ? testUid : `${testUid}-retry${priorAttempts}`
+    return pushSliceRange(ctx, specFile, key, testUid, false)
+  }
+  return null
+}
+
+/**
+ * Record a spec-file boundary. Thin back-compat wrapper over
+ * {@link recordSliceBoundary}; behavior is unchanged for `spec` granularity
+ * and returns `null` for every other granularity.
  */
 export function recordSpecBoundary(
   ctx: SpecBoundaryContext,
   specFile: string,
   traceGranularity: TraceGranularity | undefined
 ): SpecRange | null {
-  if (traceGranularity !== 'spec') {
-    return null
-  }
-  const lastRange = ctx.specRanges[ctx.specRanges.length - 1]
-  if (lastRange && lastRange.specFile === specFile) {
-    return null
-  }
-
-  const prevRange =
-    lastRange && !ctx.flushedSpecs.has(lastRange.specFile) ? lastRange : null
-
-  ctx.specRanges.push({
-    specFile,
-    commandStartIdx: ctx.capturer.commandsLog.length,
-    consoleStartIdx: ctx.capturer.consoleLogs.length,
-    networkStartIdx: ctx.capturer.networkRequests.length,
-    mutationStartIdx: ctx.capturer.mutations.length,
-    traceLogStartIdx: ctx.capturer.traceLogs.length,
-    snapshotCount: ctx.actionSnapshots.length
-  })
-
-  return prevRange
+  return recordSliceBoundary(ctx, traceGranularity, specFile)
 }
 
 // ─── Spec trace I/O ────────────────────────────────────────────────────────────
@@ -197,12 +345,105 @@ export interface WriteSpecTraceInput {
   /** Shape-compatible with `buildSpecCapturer`'s first parameter. */
   capturer: Parameters<typeof buildSpecCapturer>[0]
   actionSnapshots: ActionSnapshot[]
+  /** Full session frame buffer; windowed to this slice's wall-clock span. */
+  screencastFrames?: readonly ScreencastFrame[]
   sessionId: string
   outputDir: string
   format?: TraceFormat
   /** Full test-metadata map (all specs); filtered to `range.specFile` internally. */
   testMetadata: TestMetadataMap
   capabilities?: unknown
+}
+
+/** Timestamped items inside a slice's wall-clock window `[start, end)`. An
+ *  undefined `start` (a slice with nothing to anchor on) yields nothing; an
+ *  undefined `end` (the last slice) is open-ended, so a trailing assertion-wait
+ *  stays with its test. Used for both action snapshots and screencast frames so
+ *  they partition on the same reliable boundary as the sliced commands. */
+function sliceByWindow<T extends { timestamp: number }>(
+  items: readonly T[],
+  start: number | undefined,
+  end: number | undefined
+): T[] {
+  if (start === undefined) {
+    return []
+  }
+  return items.filter(
+    (i) => i.timestamp >= start && (end === undefined || i.timestamp < end)
+  )
+}
+
+/** Slice the parent capturer/snapshots for one range and write the artifact
+ *  under `sliceSessionId` with the pre-filtered `testMetadata`. Shared by the
+ *  spec and test write paths so both slice identically. `overrides` lets the
+ *  test path redirect into a named folder with a fixed `trace` file stem. */
+async function writeSliceTrace(
+  input: WriteSpecTraceInput,
+  sliceSessionId: string,
+  testMetadata: TestMetadataMap,
+  overrides: { outputDir?: string; fileStem?: string } = {}
+): Promise<string> {
+  const sliceCapturer = buildSpecCapturer(
+    input.capturer,
+    input.range,
+    input.nextRange
+  )
+
+  // Anchor the slice on its own commands, which buildSpecCapturer index-slices
+  // reliably — parent-array index lookups desync under reloadSession and would
+  // sweep an earlier test's snapshots/frames in. Snapshots and frames are then
+  // windowed by that wall-clock span, and the slice is rebased to its own start
+  // (start === wallTime) so a per-test trace begins at 0, not the session
+  // offset. `windowEnd` is the next slice's start; open for the last. Anchor on
+  // the command's `startTime` (invocation), not `timestamp` (completion), so the
+  // frames captured *during* the first action — e.g. the page load of an opening
+  // `url()` — fall inside this slice rather than being dropped or bleeding into
+  // the previous one.
+  const commandStart = (c: CommandLog | undefined): number | undefined =>
+    c ? (c.startTime ?? c.timestamp) : undefined
+  // A command-less slice (assertion-only test) has no command to anchor on; fall
+  // back to the earliest of its own index-sliced console/network timestamps so
+  // its snapshots/frames still window+rebase rather than drop to the session
+  // offset. Empty of both keeps today's undefined → no-window behavior.
+  // Both are epoch ms (Date.now), matching the command anchor and the frame/
+  // snapshot clock — NOT NetworkRequest.startTime, which is performance.now
+  // (relative ms) and would anchor the window ~54,000 years off.
+  const fallbackStart = (): number | undefined => {
+    const times = [
+      ...sliceCapturer.consoleLogs.map((c) => c.timestamp),
+      ...sliceCapturer.networkRequests.map((n) => n.timestamp)
+    ]
+    return times.length ? Math.min(...times) : undefined
+  }
+  const windowStart =
+    commandStart(sliceCapturer.commandsLog[0]) ?? fallbackStart()
+  const windowEnd = input.nextRange
+    ? commandStart(input.capturer.commandsLog[input.nextRange.commandStartIdx])
+    : undefined
+
+  const sliceSnapshots = sliceByWindow(
+    input.actionSnapshots,
+    windowStart,
+    windowEnd
+  )
+  const sliceFrames = input.screencastFrames
+    ? sliceByWindow(input.screencastFrames, windowStart, windowEnd)
+    : undefined
+
+  if (windowStart !== undefined) {
+    sliceCapturer.startWallTime = windowStart
+  }
+
+  return writeTraceZip(sliceCapturer, {
+    outputDir: overrides.outputDir ?? input.outputDir,
+    sessionId: sliceSessionId,
+    fileStem: overrides.fileStem,
+    capabilities: input.capabilities,
+    actionSnapshots: sliceSnapshots.length > 0 ? sliceSnapshots : undefined,
+    screencastFrames: sliceFrames?.length ? sliceFrames : undefined,
+    format: input.format,
+    testMetadata
+  })
 }
 
 /**
@@ -213,33 +454,43 @@ export interface WriteSpecTraceInput {
 export async function writeSpecTrace(
   input: WriteSpecTraceInput
 ): Promise<string> {
-  const specCapturer = buildSpecCapturer(
-    input.capturer,
-    input.range,
-    input.nextRange
+  return writeSliceTrace(
+    input,
+    buildSpecSessionId(input.range.specFile, input.sessionId),
+    filterTestMetadataBySpec(input.testMetadata, input.range.specFile)
   )
+}
 
-  const specSnapshots = input.actionSnapshots.slice(
-    input.range.snapshotCount,
-    input.nextRange?.snapshotCount ?? input.actionSnapshots.length
-  )
-
-  const specSessionId = buildSpecSessionId(
+/**
+ * Write a standalone trace artifact for a single test slice into its own
+ * folder: `<outputDir>/<specBasename>-<titleSlug>-<browserSlug>[-retryN]/trace.zip`.
+ * Reuses {@link WriteSpecTraceInput}; the folder is the slice's external
+ * identity (title/browser/retry), while {@link buildTestSliceSessionId} names
+ * the sessionId embedded inside the archive.
+ */
+export async function writeTestSliceTrace(
+  input: WriteSpecTraceInput
+): Promise<string> {
+  const testUid = input.range.testUid ?? input.range.key
+  const title = input.testMetadata.get(testUid)?.title
+  // capabilities is framework-typed unknown; read only browserName here.
+  const browserName = (
+    input.capabilities as { browserName?: string } | undefined
+  )?.browserName
+  const folder = buildTestSliceFolder(
     input.range.specFile,
-    input.sessionId
+    title,
+    browserName,
+    input.range.key
   )
-
-  const testMetadata = filterTestMetadataBySpec(
-    input.testMetadata,
-    input.range.specFile
+  return writeSliceTrace(
+    input,
+    buildTestSliceSessionId(
+      input.range.specFile,
+      input.range.key,
+      input.sessionId
+    ),
+    filterTestMetadataByUid(input.testMetadata, testUid),
+    { outputDir: path.join(input.outputDir, folder), fileStem: 'trace' }
   )
-
-  return writeTraceZip(specCapturer, {
-    outputDir: input.outputDir,
-    sessionId: specSessionId,
-    capabilities: input.capabilities,
-    actionSnapshots: specSnapshots.length > 0 ? specSnapshots : undefined,
-    format: input.format,
-    testMetadata
-  })
 }

@@ -15,6 +15,7 @@ import type { ScreencastRecorder } from './screencast.js'
 import type {
   ActionSnapshot,
   DevToolsMode,
+  ScreencastFrame,
   ScreencastOptions,
   SeleniumDriverLike,
   TraceFormat,
@@ -22,7 +23,7 @@ import type {
 } from './types.js'
 import type { RetryTracker } from '@wdio/devtools-core'
 import type { PendingTestAction, PendingScenario } from './test-management.js'
-import type { SpecRange } from '@wdio/devtools-core'
+import type { SpecRange, TraceArtifact } from '@wdio/devtools-core'
 
 export interface PluginInternals {
   // Config
@@ -67,6 +68,12 @@ export interface PluginInternals {
   // Per-spec trace tracking (populated at spec file boundaries).
   readonly specRanges: SpecRange[]
   readonly flushedSpecs: Set<string>
+  // In-flight per-test eager flushes (test granularity), awaited at finalize.
+  readonly traceFlushes: Promise<unknown>[]
+  // Every trace/video artifact seen this run, for the end-of-run manifest.
+  readonly artifacts: TraceArtifact[]
+  // Dense filmstrip frames accumulated across drivers (filmstrip option only).
+  readonly filmstripFrames: ScreencastFrame[]
 
   // Plugin-side delegates
   setFinalized(v: boolean): void

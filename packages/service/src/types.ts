@@ -23,36 +23,36 @@ export {
   type Viewport
 } from '@wdio/devtools-shared'
 
+import type {
+  BaseDevToolsOptions,
+  TraceScreenshotPolicy,
+  TraceVideoPolicy
+} from '@wdio/devtools-shared'
+
 // ScreencastFrame, ScreencastOptions hoisted to @wdio/devtools-shared; re-exported
 // here for backwards compatibility with existing service-internal imports.
-import type {
-  DevToolsMode,
-  ScreencastOptions,
-  TraceFormat,
-  TraceGranularity
-} from '@wdio/devtools-shared'
 export type {
   DevToolsMode,
   ScreencastFrame,
   ScreencastOptions,
   TraceFormat,
-  TraceGranularity
+  TraceGranularity,
+  TraceRetentionPolicy
 } from '@wdio/devtools-shared'
 
 export interface ExtendedCapabilities extends WebdriverIO.Capabilities {
   'wdio:devtoolsOptions'?: ServiceOptions
 }
 
-export interface ServiceOptions {
-  /**
-   * port to launch the application on (default: random)
-   */
-  port?: number
-  /**
-   * hostname to launch the application on
-   * @default localhost
-   */
-  hostname?: string
+export interface ServiceOptions extends BaseDevToolsOptions {
+  /** Per-test screenshot capture, attached to the trace artifacts and inline to
+   *  Allure. `off` (default) | `on` | `only-on-failure`. Trace mode +
+   *  `traceGranularity: 'test'` only. WDIO-service-specific for now. */
+  screenshot?: TraceScreenshotPolicy
+  /** Per-test video (screencast) capture, retained per the given policy and
+   *  attached inline to Allure. `off` (default) or a retention policy. Trace
+   *  mode + `traceGranularity: 'test'` only. WDIO-service-specific for now. */
+  video?: TraceVideoPolicy
   /**
    * capabilities used to launch the devtools application
    * @default
@@ -65,21 +65,6 @@ export interface ServiceOptions {
    * }
    */
   devtoolsCapabilities?: WebdriverIO.Capabilities
-  /**
-   * Screencast recording options. When enabled, a continuous video of the
-   * browser session is recorded and saved as a .webm file. Chrome/Chromium
-   * uses CDP push mode; all other browsers fall back to screenshot polling.
-   */
-  screencast?: ScreencastOptions
-  /** `live` (default) launches the DevTools UI; `trace` skips it. */
-  mode?: DevToolsMode
-  /** Trace output layout — `zip` (default) writes a single archive,
-   *  `ndjson-directory` unpacks into `trace-<id>/`. Only applies in trace mode. */
-  traceFormat?: TraceFormat
-  /** Trace output granularity — `session` (default) writes one trace per
-   *  worker session; `spec` writes one trace per spec file. Only applies in
-   *  trace mode. */
-  traceGranularity?: TraceGranularity
 }
 
 declare namespace WebdriverIO {

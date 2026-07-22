@@ -103,28 +103,3 @@ export const BLANK_FRAME_THRESHOLD_BYTES = 4_000
 
 /** Per-prototype "already patched" guard for driverPatcher / assertPatcher. */
 export const PATCHED_SYMBOL = Symbol.for('@wdio/selenium-devtools/patched')
-
-/** Per-prototype guard for the (currently disabled) node:assert patcher. */
-export const ASSERT_PATCHED_SYMBOL = Symbol.for(
-  '@wdio/selenium-devtools/assert-patched'
-)
-
-/** node:assert methods the (currently disabled) assertPatcher would wrap. */
-export const TRACKED_ASSERT_METHODS = [
-  'equal',
-  'strictEqual',
-  'deepEqual',
-  'deepStrictEqual',
-  'notEqual',
-  'notStrictEqual',
-  'notDeepEqual',
-  'notDeepStrictEqual',
-  'ok',
-  'fail',
-  'throws',
-  'doesNotThrow',
-  'rejects',
-  'doesNotReject',
-  'match',
-  'doesNotMatch'
-] as const

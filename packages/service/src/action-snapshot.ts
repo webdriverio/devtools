@@ -8,15 +8,95 @@
 // library. No external input reaches new Function() — the lint flag here is
 // a false positive given the closed input set.
 
-import { captureActionSnapshot as coreCapture } from '@wdio/devtools-core'
+import {
+  captureActionSnapshot as coreCapture,
+  mapCommandToAction
+} from '@wdio/devtools-core'
 import type { ActionSnapshot } from '@wdio/devtools-shared'
 import { isNativeMobile, mobilePlatform } from './mobile.js'
+import { INTERNAL_COMMANDS } from './constants.js'
 
 function reviveScript(src: string): () => unknown {
   // `src` from core/element-scripts is already a self-invoking IIFE
   // (`(function () { ... })()`); we just wrap it in a return so it's
   // a function browser.execute() can call.
   return new Function(`return (${src})`) as () => unknown
+}
+
+/**
+ * After a mapped action, wait for the resulting page to settle before the
+ * post-action screenshot. readyState alone is unreliable — right after a click
+ * the OLD document still reports 'complete'. beforeCommand tags the document;
+ * if the tag is gone the action navigated, so we wait for the NEW document to
+ * finish loading AND render content before the destination is screenshotted.
+ */
+export async function waitForActionResult(
+  browser: WebdriverIO.Browser
+): Promise<void> {
+  const navigated = await browser
+    .execute(
+      () => !(window as Window & { __wdioSnapMark?: boolean }).__wdioSnapMark
+    )
+    .catch(() => true)
+  if (!navigated) {
+    return
+  }
+  await browser
+    .waitUntil(
+      async () =>
+        (await browser
+          .execute(
+            () =>
+              document.readyState === 'complete' &&
+              !!document.body &&
+              document.body.childElementCount > 0
+          )
+          .catch(() => false)) === true,
+      { timeout: 8000, interval: 150 }
+    )
+    .catch(() => undefined)
+  // Headless renderers can return a blank shot right after load; let it paint.
+  await browser.pause(250).catch(() => undefined)
+}
+
+/** Post-action capture: settle the resulting page, screenshot it, and push the
+ *  snapshot stamped at the latest logged action. No-op for internal/non-mapped
+ *  commands. Skipped by the caller outside trace mode. */
+export async function captureActionResult(
+  browser: WebdriverIO.Browser,
+  command: string,
+  actionSnapshots: ActionSnapshot[],
+  stampTimestamp: () => number
+): Promise<void> {
+  if (!mapCommandToAction(command) || INTERNAL_COMMANDS.includes(command)) {
+    return
+  }
+  if (!isNativeMobile(browser)) {
+    await waitForActionResult(browser)
+  }
+  const snap = await captureActionSnapshot(browser, command)
+  if (snap) {
+    snap.timestamp = stampTimestamp()
+    actionSnapshots.push(snap)
+  }
+}
+
+/** Capture a DOM snapshot for a synthesized action row (e.g. an `expect.*`
+ *  assertion) and push it stamped at the row's OWN timestamp — the trace
+ *  player's Snapshot tab claims it by timestamp the same way it claims a
+ *  regular command's post-action snapshot (see FrameSnapshotIndex.claimAfter).
+ *  Mirrors the tail of `captureActionResult` for a command with no page-settle. */
+export async function pushActionSnapshotAt(
+  browser: WebdriverIO.Browser,
+  command: string,
+  timestamp: number,
+  actionSnapshots: ActionSnapshot[]
+): Promise<void> {
+  const snap = await captureActionSnapshot(browser, command)
+  if (snap) {
+    snap.timestamp = timestamp
+    actionSnapshots.push(snap)
+  }
 }
 
 export function captureActionSnapshot(

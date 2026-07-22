@@ -23,6 +23,16 @@ import type {
 
 const log = logger('@wdio/selenium-devtools:commandPostActions')
 
+/** Element commands that edit the current document (field values, form state).
+ *  After these we drain the collector so the edits land in the mutation stream
+ *  before a navigation (e.g. a submit click) discards the page. */
+const DOM_MUTATING_ELEMENT_COMMANDS = new Set([
+  'click',
+  'sendKeys',
+  'clear',
+  'submit'
+])
+
 /**
  * Helpers that run AFTER an `onCommand` capture/replace has fired. Kept out
  * of the plugin class so the hot path stays readable and these are easier to
@@ -81,7 +91,6 @@ export async function enrichFindResult(
  */
 export function captureNavigationTrace(
   capturer: SessionCapturer,
-  alreadyInjected: boolean,
   onInjected: () => void,
   isFinalized: () => boolean,
   entry?: CommandLog,
@@ -90,10 +99,12 @@ export function captureNavigationTrace(
 ): void {
   void (async () => {
     try {
-      if (!alreadyInjected) {
-        onInjected()
-        await capturer.injectScript()
-      }
+      // A navigation replaced the document, so the previous page's collector is
+      // gone — (re)inject on every navigation so each visited page's DOM (and
+      // field edits) is captured, not just the first. onInjected keeps the
+      // first-injection flag other capture paths read.
+      onInjected()
+      await capturer.injectScript()
       if (entry && driver) {
         await capturePerformance(capturer, driver, entry, args)
       }
@@ -174,6 +185,27 @@ function attachScreenshotAsync(
 }
 
 /**
+ * After a DOM-mutating element command (type/click/clear/submit), drain the
+ * collector so the page's field edits (value/checked) land in the mutation
+ * stream before a later navigation discards the page. Fire-and-forget; trace
+ * mode only.
+ */
+function maybeDrainAfterDomCommand(
+  ctx: OnCommandCtx,
+  capturer: SessionCapturer,
+  cmd: CapturedCommand
+): void {
+  if (
+    ctx.options.mode === 'trace' &&
+    cmd.fromElement &&
+    DOM_MUTATING_ELEMENT_COMMANDS.has(cmd.command) &&
+    !ctx.finalized
+  ) {
+    void capturer.captureTrace().catch(() => {})
+  }
+}
+
+/**
  * Plugin-side handler for a single command capture event. Pulled out of the
  * plugin class so the hot path stays readable and the post-capture branches
  * (screenshot, find-result enrichment, navigation trace) are easier to test.
@@ -212,7 +244,6 @@ export async function handleOnCommand(
   if (capturer.isNavigationCommand(cmd.command) && !cmd.fromElement) {
     captureNavigationTrace(
       capturer,
-      ctx.scriptInjected,
       () => ctx.setScriptInjected(true),
       () => ctx.finalized,
       entry,
@@ -220,6 +251,7 @@ export async function handleOnCommand(
       ctx.driver
     )
   }
+  maybeDrainAfterDomCommand(ctx, capturer, cmd)
   if (
     ctx.options.mode === 'trace' &&
     !error &&

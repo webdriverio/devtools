@@ -4,7 +4,15 @@
 // these shapes. The backend stores and forwards them. The app consumes them.
 // See ARCHITECTURE.md §2 and CLAUDE.md §2.1.
 
-export type LogLevel = 'trace' | 'debug' | 'log' | 'info' | 'warn' | 'error'
+export const LOG_LEVELS = [
+  'trace',
+  'debug',
+  'log',
+  'info',
+  'warn',
+  'error'
+] as const
+export type LogLevel = (typeof LOG_LEVELS)[number]
 
 /** Where a captured ConsoleLog entry originated. */
 export type LogSource = 'browser' | 'test' | 'terminal'
@@ -21,17 +29,71 @@ export type DevToolsMode = 'live' | 'trace'
 
 /** `zip` (default) writes a single `trace-<id>.zip`; `ndjson-directory` writes
  *  the same `trace.trace` + `trace.network` + `resources/` layout unpacked
- *  into `trace-<id>/`. Both are consumable by `playwright show-trace` — the
- *  unpacked form skips the unzip step for agentic / scripted consumers. */
+ *  into `trace-<id>/`. Both open in any standard trace viewer — the unpacked
+ *  form skips the unzip step for agentic / scripted consumers. */
 export type TraceFormat = 'zip' | 'ndjson-directory'
 
 /** `session` (default) writes one trace per worker session; `spec` writes one
- *  trace per spec file, keyed on the spec's filename. Only applies in trace mode. */
-export type TraceGranularity = 'session' | 'spec'
+ *  trace per spec file, keyed on the spec's filename; `test` writes one trace
+ *  per test. Only applies in trace mode. */
+export type TraceGranularity = 'session' | 'spec' | 'test'
+
+/** Retention policy for written traces. Only applies in trace mode; `on` is
+ *  the current always-write behavior (there is no `off` — that's simply not
+ *  using trace mode). */
+export type TraceRetentionPolicy =
+  | 'on'
+  | 'retain-on-failure'
+  | 'retain-on-first-failure'
+  | 'on-first-retry'
+  | 'on-all-retries'
+  | 'retain-on-failure-and-retries'
+
+/** Per-test screenshot capture policy, mirroring Playwright's `screenshot`
+ *  option. `only-on-failure` shoots after a failing test; `on` after every
+ *  test; `off` (default) never. Only applies in trace mode. */
+export type TraceScreenshotPolicy = 'off' | 'on' | 'only-on-failure'
+
+/** Per-test video capture policy. `off` (default) records nothing; any other
+ *  value records the screencast and keeps each test's video slice per the same
+ *  retention semantics as `tracePolicy`. Only applies in trace mode at
+ *  `traceGranularity: 'test'` (the per-test scope videos attach to). */
+export type TraceVideoPolicy = 'off' | TraceRetentionPolicy
+
+/** One node in a test's ancestor chain, outermost first. */
+export interface TestAncestor {
+  uid: string
+  title: string
+  kind: 'feature' | 'scenario' | 'suite' | 'test' | 'step' | 'hook'
+}
+
+/** Per-test metadata for Tracing.tracingGroup events in trace output. */
+export interface TestMetadataEntry {
+  title: string
+  specFile: string
+  state?: TestStatus
+  attempt?: number
+  ancestry?: TestAncestor[]
+}
 
 /** Test metadata keyed by testUid — maps stable test IDs to human-readable
  *  title + specFile for Tracing.tracingGroup events in trace output. */
-export type TestMetadataMap = Map<string, { title: string; specFile: string }>
+export type TestMetadataMap = Map<string, TestMetadataEntry>
+
+/**
+ * Normalized assertion result an adapter may attach to `CommandLog.result` for
+ * an assertion command. The trace exporter's assert-param builder prefers this
+ * over the positional `[actual, expected]` arg convention — correct for
+ * frameworks whose asserts pass only an expected value (a matcher like
+ * `titleContains('x')`), where args[0] is the expected, not the actual.
+ * Cross-package contract: adapters produce it, core's exporter consumes it.
+ */
+export interface CollapsedAssertResult {
+  passed: boolean
+  actual?: unknown
+  expected?: unknown
+  message?: string
+}
 
 /**
  * Enum-style accessor for the canonical TestStatus values. Adapter code uses
@@ -111,6 +173,17 @@ export interface CommandLog {
   cookies?: string
   documentInfo?: DocumentInfo
   id?: number
+  /** Cucumber step this command ran under — nests below testUid in the trace's
+   *  group tree (Feature → Scenario → Step). Set by the adapter step hooks. */
+  stepUid?: string
+  /** Depth-indented accessibility-tree text for the page state at this command
+   *  (from the per-action `-snapshot.txt` resource). Reconstructed by the trace
+   *  reader; drives the player's A11y tab. */
+  snapshotText?: string
+  /** Page-coordinate hit point for pointer actions — the centre of the matched
+   *  element at capture time. Synthesized in the exporter; drives the snapshot
+   *  click marker and the timeline pointer glyph. */
+  point?: { x: number; y: number }
 }
 
 /**
@@ -216,6 +289,8 @@ export interface ScreencastOptions {
    * (default: 200 ms ≈ 5 fps). Lower = smoother, more WebDriver round-trips.
    */
   pollIntervalMs?: number
+  /** Cap on frames held in memory (default: 2000 ≈ several minutes at ~5 fps); the buffer is decimated in place past this. */
+  maxBufferFrames?: number
 }
 
 /** Defaults applied to ScreencastOptions when not specified by the user. */
@@ -225,7 +300,68 @@ export const SCREENCAST_DEFAULTS: Required<ScreencastOptions> = {
   quality: 70,
   maxWidth: 1280,
   maxHeight: 720,
-  pollIntervalMs: 200
+  pollIntervalMs: 200,
+  maxBufferFrames: 2000
+}
+
+/**
+ * Options every framework adapter accepts. Each adapter's own options interface
+ * extends this and adds only its framework-specific fields (e.g. WDIO's
+ * devtoolsCapabilities, Selenium's openUi, Nightwatch's bidi).
+ */
+export interface BaseDevToolsOptions {
+  /** Port to launch the application on (default: random). */
+  port?: number
+  /** Hostname to launch the application on. @default localhost */
+  hostname?: string
+  /** Screencast recording options. When enabled, a continuous video of the
+   *  browser session is recorded and saved as a .webm file. */
+  screencast?: ScreencastOptions
+  /** Capture node:assert assertions (and framework `expect` matchers where
+   *  supported) as first-class commands. Default true. */
+  captureAssertions?: boolean
+  /** `live` (default) launches the DevTools UI; `trace` skips it. */
+  mode?: DevToolsMode
+  /** Trace output layout — `zip` (default) writes a single archive,
+   *  `ndjson-directory` unpacks into `trace-<id>/`. Only applies in trace mode. */
+  traceFormat?: TraceFormat
+  /** Trace output granularity — `session` (default) writes one trace per
+   *  worker session; `spec` writes one per spec file. Only applies in trace mode. */
+  traceGranularity?: TraceGranularity
+  /** Trace retention policy — gates which traces are kept (e.g.
+   *  `retain-on-failure`). Default `on` (keep all). Only applies in trace mode. */
+  tracePolicy?: TraceRetentionPolicy
+  /** Record a dense, continuous screencast filmstrip into the trace for
+   *  scrubbable playback in the trace player — not just one frame per action.
+   *  The dense frames are added alongside the per-action frames (which carry the
+   *  DOM snapshots). Runs the screencast recorder (CDP push on Chrome, polling
+   *  elsewhere). Default false. Only applies in trace mode. */
+  filmstrip?: boolean
+  /** Write the `devtools-artifacts-<sessionId>.json` manifest next to the trace
+   *  — the generic index reporters/CI consume to discover produced artifacts.
+   *  Off by default; auto-enabled when an Allure reporter is detected (WDIO:
+   *  `@wdio/allure-reporter` in config; Selenium: an active `allure-js-commons`
+   *  runtime). Nightwatch has no live Allure signal, so it stays opt-in there.
+   *  Only applies in trace mode. */
+  emitArtifactsManifest?: boolean
+}
+
+/** Minimal Cucumber pickle-step shape — only the fields the adapters read.
+ *  Cucumber's own types vary across versions, so we pin just these. */
+export interface CucumberPickleStep {
+  text?: string
+  astNodeIds?: string[]
+  location?: { line?: number }
+}
+
+/** Minimal Cucumber pickle shape — only the fields the adapters read. `steps`
+ *  is present only where the adapter walks step boundaries (Nightwatch). */
+export interface CucumberPickle {
+  name?: string
+  uri?: string
+  location?: { line?: number }
+  astNodeIds?: string[]
+  steps?: CucumberPickleStep[]
 }
 
 export interface Metadata {
@@ -273,6 +409,29 @@ export interface TraceMutation {
 }
 
 /**
+ * Trailing sentinel line in a `trace.mutations` NDJSON stream, marking that
+ * `dropped` late mutations were discarded under the size cap. A distinct shape
+ * (not a `TraceMutation.type`) so it never collides with a real mutation. This
+ * is the writer↔reader contract shared by core's exporter and the backend
+ * reader, so both agree on the key.
+ */
+export interface MutationsTruncationMarker {
+  __truncated__: true
+  dropped: number
+}
+
+/** True when an NDJSON entry is the truncation sentinel, not a mutation. */
+export function isMutationsTruncationMarker(
+  entry: unknown
+): entry is MutationsTruncationMarker {
+  return (
+    typeof entry === 'object' &&
+    entry !== null &&
+    (entry as { __truncated__?: unknown }).__truncated__ === true
+  )
+}
+
+/**
  * Captured at each user-facing action boundary in `trace` mode. Feeds the
  * downstream trace.zip exporter (Phase 4). `screenshot` is base64-encoded JPEG.
  */
@@ -299,6 +458,10 @@ export interface TraceLog {
   config?: { configFile?: string }
   /** Per-action snapshots captured in `mode: 'trace'` for the trace.zip exporter. */
   actionSnapshots?: ActionSnapshot[]
+  /** Dense screencast frames (continuous recorder buffer) for the trace-mode
+   *  filmstrip. Present only when `filmstrip` is enabled; thinned + content-
+   *  addressed at export time. */
+  screencastFrames?: ScreencastFrame[]
 }
 
 // ─── Preserve-and-rerun ─────────────────────────────────────────────────────

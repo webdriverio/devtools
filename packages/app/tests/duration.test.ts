@@ -3,8 +3,10 @@ import { describe, it, expect } from 'vitest'
 import {
   formatDuration,
   durationHeat,
+  entryDuration,
   stepDurations
 } from '../src/components/workbench/actionItems/duration.js'
+import type { CommandLog, TraceMutation } from '@wdio/devtools-shared'
 
 describe('formatDuration', () => {
   it('shows milliseconds under a second', () => {
@@ -21,6 +23,15 @@ describe('formatDuration', () => {
   it('shows minutes and seconds above a minute', () => {
     expect(formatDuration(60001)).toBe('1m 0s')
     expect(formatDuration(150000)).toBe('2m 30s')
+  })
+
+  it('rounds fractional milliseconds from reconstructed traces', () => {
+    expect(formatDuration(1.02978515625)).toBe('1ms')
+    expect(formatDuration(22.4)).toBe('22ms')
+    expect(formatDuration(0.4)).toBe('0ms')
+    expect(formatDuration(999.7)).toBe('1000ms')
+    expect(formatDuration(5049.9)).toBe('5.05s')
+    expect(formatDuration(60000.6)).toBe('1m 0s')
   })
 })
 
@@ -62,5 +73,36 @@ describe('stepDurations', () => {
 
   it('keeps 0ms gaps for same-timestamp commands', () => {
     expect(stepDurations([0, 0, 0, 500])).toEqual([0, 0, 500, 500])
+  })
+})
+
+describe('entryDuration', () => {
+  const cmd = (over: Partial<CommandLog> = {}): CommandLog => ({
+    command: 'expect.toExist',
+    args: [],
+    timestamp: 10603,
+    ...over
+  })
+
+  it('uses the command execution span (timestamp − startTime) when present', () => {
+    // Regression: an assertion whose internal polling is suppressed sits after a
+    // long navigation gap; the row must show its own 603ms runtime, not the gap.
+    expect(entryDuration(cmd({ startTime: 10000 }), 10650)).toBe(603)
+  })
+
+  it('falls back to the inter-action gap when the command has no startTime', () => {
+    expect(entryDuration(cmd(), 420)).toBe(420)
+  })
+
+  it('falls back to the gap for a mutation entry (no startTime field)', () => {
+    const mutation = {
+      type: 'childList',
+      timestamp: 5
+    } as unknown as TraceMutation
+    expect(entryDuration(mutation, 42)).toBe(42)
+  })
+
+  it('returns undefined when neither a span nor a gap is available', () => {
+    expect(entryDuration(cmd(), undefined)).toBeUndefined()
   })
 })

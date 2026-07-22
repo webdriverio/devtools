@@ -21,17 +21,20 @@ import {
   onDriverEnd as sessionOnDriverEnd,
   onSessionEnd as sessionOnSessionEnd,
   setPluginRef,
-  recordSpecBoundary
+  recordTraceBoundary,
+  flushCurrentTestTrace
 } from './session-lifecycle.js'
-import type { SpecRange } from '@wdio/devtools-core'
+import type { SpecRange, TraceArtifact } from '@wdio/devtools-core'
 import {
   startTest as tmStartTest,
   endTest as tmEndTest,
   startScenario as tmStartScenario,
   endScenario as tmEndScenario,
   flushPendingTestActions as tmFlushPendingTestActions,
+  buildStartTestMeta,
   type StartTestMeta,
-  type StartScenarioMeta
+  type StartScenarioMeta,
+  type PendingTestAction
 } from './test-management.js'
 import type { PluginInternals } from './plugin-internals.js'
 import {
@@ -40,7 +43,12 @@ import {
   detectSeleniumVersion
 } from './helpers/runtime.js'
 import { findFreePort } from './helpers/utils.js'
-import { RetryTracker, errorMessage } from '@wdio/devtools-core'
+import {
+  RetryTracker,
+  errorMessage,
+  tracePolicyModeWarning
+} from '@wdio/devtools-core'
+import { SeleniumTestArtifacts } from './test-artifacts.js'
 import { tryRegisterRunnerHooks } from './runnerHooks.js'
 import { patchNodeAssert } from './assertPatcher.js'
 import {
@@ -54,9 +62,13 @@ import {
   type CapturedCommand,
   type DevToolsMode,
   type DevToolsOptions,
+  type ScreencastFrame,
   type ScreencastOptions,
   type TraceFormat,
   type TraceGranularity,
+  type TraceRetentionPolicy,
+  type TraceScreenshotPolicy,
+  type TraceVideoPolicy,
   type SeleniumDriverLike,
   type TestStats
 } from './types.js'
@@ -73,9 +85,17 @@ log.info(`Detected runner: ${RUNNER}`)
 log.info(`Detected selenium-webdriver: v${SELENIUM_VERSION}`)
 
 class SeleniumDevToolsPlugin {
-  #options: Required<Omit<DevToolsOptions, 'rerunCommand' | 'screencast'>> & {
+  #options: Required<
+    Omit<
+      DevToolsOptions,
+      'rerunCommand' | 'screencast' | 'emitArtifactsManifest'
+    >
+  > & {
     rerunCommand?: string
     headless: boolean
+    // Optional (not defaulted): undefined defers to Allure auto-detection at
+    // finalize time (globalThis.allureTestRuntime), matching WDIO's tristate.
+    emitArtifactsManifest?: boolean
   }
   #sessionCapturer?: SessionCapturer
   #testReporter?: TestReporter
@@ -100,16 +120,7 @@ class SeleniumDevToolsPlugin {
   #uiReadyPromise?: Promise<void>
   // First it() body fires before onDriverCreated's async setup completes —
   // buffer startTest/endTest until testManager exists.
-  #pendingTestActions: Array<
-    | {
-        kind: 'start'
-        name: string
-        meta: { file?: string; callSource?: string }
-        suiteName?: string
-        suiteCallSource?: string
-      }
-    | { kind: 'end'; state: TestStats['state'] }
-  > = []
+  #pendingTestActions: PendingTestAction[] = []
   // Cucumber Before fires before the driver-build Before — stash and replay.
   #pendingScenario: {
     name: string
@@ -125,17 +136,49 @@ class SeleniumDevToolsPlugin {
   /** Set of spec files already flushed to disk. */
   #flushedSpecs = new Set<string>()
 
+  /** In-flight per-test eager flushes (test granularity), awaited at finalize. */
+  #traceFlushes: Promise<unknown>[] = []
+
+  /** Every trace/video artifact seen this run (retained or not), for the
+   *  end-of-run artifacts manifest. Populated via the context's onArtifact. */
+  #artifacts: TraceArtifact[] = []
+
+  /** Filmstrip frames accumulated across drivers, appended at each driver end
+   *  before the recorder is nulled so the finalize context is never blank. */
+  #filmstripFrames: ScreencastFrame[] = []
+
+  /** Wall-clock ms at the current test/scenario start — the lower bound of that
+   *  test's video frame window and screenshot lookup (per-test slicing). */
+  #currentTestStartWallTime = Date.now()
+
+  /** Per-test artifact emit (trace-slice attach + screenshot + video); owns its
+   *  own lazily-resolved Allure attach sink. */
+  #testArtifacts = new SeleniumTestArtifacts()
+
   constructor(options: DevToolsOptions = {}) {
     this.#options = {
       port: options.port ?? 3000,
       hostname: options.hostname ?? 'localhost',
       openUi: options.openUi ?? true,
       captureScreenshots: options.captureScreenshots ?? true,
+      captureAssertions: options.captureAssertions ?? true,
       rerunCommand: options.rerunCommand,
       headless: options.headless ?? false,
       mode: options.mode ?? 'live',
       traceFormat: options.traceFormat ?? 'zip',
-      traceGranularity: options.traceGranularity ?? 'session'
+      traceGranularity: options.traceGranularity ?? 'session',
+      tracePolicy: options.tracePolicy ?? 'on',
+      filmstrip: options.filmstrip ?? false,
+      screenshot: options.screenshot ?? 'off',
+      video: options.video ?? 'off',
+      emitArtifactsManifest: options.emitArtifactsManifest
+    }
+    const policyWarning = tracePolicyModeWarning(
+      options.tracePolicy,
+      this.#options.mode
+    )
+    if (policyWarning) {
+      log.warn(policyWarning)
     }
     this.#rerunManager = new RerunManager(RUNNER)
     if (options.rerunCommand) {
@@ -257,15 +300,22 @@ class SeleniumDevToolsPlugin {
     return this.#uiReadyPromise
   }
 
+  // Declarative option-application mapper — one guarded assignment per option;
+  // splitting it purely to satisfy the line rule hurts readability.
+  // eslint-disable-next-line max-lines-per-function
   configure(
     opts: {
       rerunCommand?: string
       screencast?: ScreencastOptions
       headless?: boolean
       openUi?: boolean
+      captureAssertions?: boolean
       mode?: DevToolsMode
       traceFormat?: TraceFormat
       traceGranularity?: TraceGranularity
+      tracePolicy?: TraceRetentionPolicy
+      screenshot?: TraceScreenshotPolicy
+      video?: TraceVideoPolicy
     } = {}
   ) {
     if ('rerunCommand' in opts) {
@@ -274,6 +324,9 @@ class SeleniumDevToolsPlugin {
     }
     if (typeof opts.headless === 'boolean') {
       this.#options.headless = opts.headless
+    }
+    if (typeof opts.captureAssertions === 'boolean') {
+      this.#options.captureAssertions = opts.captureAssertions
     }
     if (typeof opts.openUi === 'boolean') {
       this.#options.openUi = opts.openUi
@@ -286,6 +339,15 @@ class SeleniumDevToolsPlugin {
     }
     if (opts.traceGranularity) {
       this.#options.traceGranularity = opts.traceGranularity
+    }
+    if (opts.tracePolicy) {
+      this.#options.tracePolicy = opts.tracePolicy
+    }
+    if (opts.screenshot) {
+      this.#options.screenshot = opts.screenshot
+    }
+    if (opts.video) {
+      this.#options.video = opts.video
     }
     if (opts.screencast) {
       if (this.#options.mode === 'trace' && opts.screencast.enabled) {
@@ -417,6 +479,15 @@ class SeleniumDevToolsPlugin {
       get flushedSpecs() {
         return self.#flushedSpecs
       },
+      get traceFlushes() {
+        return self.#traceFlushes
+      },
+      get artifacts() {
+        return self.#artifacts
+      },
+      get filmstripFrames() {
+        return self.#filmstripFrames
+      },
       setFinalized: (v) => {
         self.#finalized = v
       },
@@ -440,29 +511,68 @@ class SeleniumDevToolsPlugin {
 
   /** Public API: start a marked test. */
   startTest(name: string, meta: StartTestMeta = {}) {
+    this.#currentTestStartWallTime = Date.now()
     tmStartTest(this.#getInternals(), name, meta)
-    if (meta.file) {
-      recordSpecBoundary(this.#getInternals(), meta.file)
-    }
+    recordTraceBoundary(this.#getInternals(), meta.file)
   }
 
-  endTest(state: TestStats['state'] = 'passed') {
+  // Async + awaited by the runner's afterEach so the per-test artifact emit
+  // (trace slice + screenshot + video attach) completes while the test is still
+  // open; otherwise allure closes the test before attachment() runs.
+  async endTest(state: TestStats['state'] = 'passed') {
+    const ended = this.#testManager?.getCurrentTest() ?? null
     tmEndTest(this.#getInternals(), state)
+    const flushed = flushCurrentTestTrace(this.#getInternals())
+    await this.#emitTestArtifacts(ended, state === 'failed', flushed)
   }
 
   startScenario(name: string, meta: StartScenarioMeta = {}) {
+    this.#currentTestStartWallTime = Date.now()
     tmStartScenario(this.#getInternals(), name, meta)
-    if (meta.file) {
-      recordSpecBoundary(this.#getInternals(), meta.file)
-    }
+    recordTraceBoundary(this.#getInternals(), meta.file)
   }
 
-  endScenario(state: TestStats['state'] = 'passed') {
+  async endScenario(state: TestStats['state'] = 'passed') {
+    const ended = this.#testManager?.getCurrentTest() ?? null
     tmEndScenario(this.#getInternals(), state)
+    const flushed = flushCurrentTestTrace(this.#getInternals())
+    await this.#emitTestArtifacts(ended, state === 'failed', flushed)
+  }
+
+  /** Build the per-test artifact bag from live plugin state and delegate to the
+   *  emitter (which copies the mutable inputs synchronously before awaiting). */
+  #emitTestArtifacts(
+    endedTest: TestStats | null,
+    failed: boolean,
+    flushed: Promise<TraceArtifact | undefined>
+  ): Promise<void> {
+    return this.#testArtifacts.emit({
+      mode: this.#options.mode,
+      granularity: this.#options.traceGranularity,
+      screenshotPolicy: this.#options.screenshot,
+      videoPolicy: this.#options.video,
+      failed,
+      flushed,
+      startWallTime: this.#currentTestStartWallTime,
+      sessionId: this.#sessionId,
+      endedTest,
+      actionSnapshots: this.#actionSnapshots,
+      frames: this.#screencast?.frames,
+      outcomes: this.#testManager?.lastTestOutcomes() ?? [],
+      captureFormat: this.#screencastOptions.captureFormat,
+      testFilePath: this.#testFilePath,
+      onArtifact: (a) => this.#artifacts.push(a),
+      onLog: (level, msg) => log[level](msg)
+    })
   }
 
   #flushPendingTestActions() {
     tmFlushPendingTestActions(this.#getInternals())
+    // The first test's startTest fires before the driver/capturer exists, so
+    // its per-test boundary is recorded here once capture is live.
+    if (this.#options.traceGranularity === 'test') {
+      recordTraceBoundary(this.#getInternals(), this.#testFilePath)
+    }
   }
 
   async onDriverCreated(driver: SeleniumDriverLike) {
@@ -568,36 +678,38 @@ if (patched) {
   log.info('✓ selenium-devtools attached — waiting for driver creation')
 }
 
-// node:assert wrappers silently invert match/doesNotMatch — kept disabled.
-void patchNodeAssert
+// Patch eagerly (user specs must see the wrappers before they import assert);
+// the gate runs at capture time because DevTools.configure() may arrive later.
+patchNodeAssert((cmd) => {
+  if (plugin.options.captureAssertions) {
+    void plugin.onCommand(cmd)
+  }
+})
 
 // Runner globals are published after `--require`, so retry briefly.
 function registerHooks() {
   return tryRegisterRunnerHooks({
-    onTestStart: (name, file, callSource, suiteName, suiteCallSource) => {
-      const meta: {
-        file?: string
-        callSource?: string
-        suiteName?: string
-        suiteCallSource?: string
-      } = {}
-      if (file) {
-        meta.file = file
-      }
-      if (callSource) {
-        meta.callSource = callSource
-      }
-      if (suiteName) {
-        meta.suiteName = suiteName
-      }
-      if (suiteCallSource) {
-        meta.suiteCallSource = suiteCallSource
-      }
-      plugin.startTest(name, meta)
-    },
-    onTestEnd: (state) => {
-      plugin.endTest(state === 'pending' ? 'skipped' : state)
-    },
+    onTestStart: (
+      name,
+      file,
+      callSource,
+      suiteName,
+      suiteCallSource,
+      attempt
+    ) =>
+      plugin.startTest(
+        name,
+        buildStartTestMeta(
+          file,
+          callSource,
+          suiteName,
+          suiteCallSource,
+          attempt
+        )
+      ),
+    // Return the promise so the runner hook awaits the full attach chain.
+    onTestEnd: (state) =>
+      plugin.endTest(state === 'pending' ? 'skipped' : state),
     onScenarioStart: (
       name,
       file,
@@ -612,9 +724,8 @@ function registerHooks() {
         featureCallSource
       })
     },
-    onScenarioEnd: (state) => {
-      plugin.endScenario(state === 'pending' ? 'skipped' : state)
-    },
+    onScenarioEnd: (state) =>
+      plugin.endScenario(state === 'pending' ? 'skipped' : state),
     onTestRunComplete: () => {
       void plugin.finalizeTestRun()
     }
@@ -638,9 +749,13 @@ export const DevTools = {
     screencast?: ScreencastOptions
     headless?: boolean
     openUi?: boolean
+    captureAssertions?: boolean
     mode?: DevToolsMode
     traceFormat?: TraceFormat
     traceGranularity?: TraceGranularity
+    tracePolicy?: TraceRetentionPolicy
+    screenshot?: TraceScreenshotPolicy
+    video?: TraceVideoPolicy
   }) => plugin.configure(opts),
   startTest: (name: string, meta?: { file?: string }) =>
     plugin.startTest(name, meta),

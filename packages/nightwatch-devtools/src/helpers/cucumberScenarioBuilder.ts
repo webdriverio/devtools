@@ -21,6 +21,9 @@ export interface CucumberScenarioBuildInput {
   scenarioLine: number
   /** Parent feature-suite uid — scenarios nest under this. */
   parentFeatureSuiteUid: string
+  /** Records the scenario start under its (retry-stable) uid + feature file and
+   *  returns the 0-based attempt number stamped on every step. Omitted → 0. */
+  recordAttempt?: (scenarioUid: string, specFile?: string) => number
 }
 
 /**
@@ -36,6 +39,7 @@ export interface CucumberScenarioBuildInput {
 function buildScenarioStepTest(
   input: CucumberScenarioBuildInput,
   scenarioUid: string,
+  attempt: number,
   i: number
 ): SuiteStats['tests'][number] {
   const {
@@ -57,7 +61,9 @@ function buildScenarioStepTest(
       ? `${featureAbsPath}:${stepLines[i]}`
       : undefined
   return {
-    uid: deterministicUid(featureUri, `step:${scenarioName}:${step.text}`),
+    // Scope by the scenario uid (which carries the scenario line) so identical
+    // step text in sibling scenarios and outline example rows stays distinct.
+    uid: deterministicUid(featureUri, `step:${scenarioUid}:${step.text}`),
     cid: DEFAULTS.CID,
     title: stepLabel,
     fullTitle: `${scenarioName} ${stepLabel}`,
@@ -67,7 +73,9 @@ function buildScenarioStepTest(
     end: null,
     type: 'test' as const,
     file: featureUri,
-    retries: 0,
+    // Scenario-level attempt from the tracker (0 first run, +1 per retry);
+    // flows to TestOutcome.attempt via collectSuiteTestMetadata.
+    retries: attempt,
     _duration: 0,
     hooks: [],
     callSource
@@ -87,8 +95,13 @@ export function buildCucumberScenarioSuite(
     parentFeatureSuiteUid
   } = input
   // deterministicUid (no counter) so the SAME scenario gets the SAME uid
-  // across retries — that's what makes retry-coalescing work upstream.
-  const scenarioUid = deterministicUid(featureUri, `scenario:${scenarioName}`)
+  // across retries — that's what makes retry-coalescing work upstream. The
+  // scenario line disambiguates outline example rows that share a name.
+  const scenarioUid = deterministicUid(
+    featureUri,
+    `scenario:${scenarioName}:${scenarioLine}`
+  )
+  const attempt = input.recordAttempt?.(scenarioUid, featureUri) ?? 0
   const scenarioSuite: SuiteStats = {
     uid: scenarioUid,
     cid: DEFAULTS.CID,
@@ -110,7 +123,9 @@ export function buildCucumberScenarioSuite(
         : undefined
   }
   for (let i = 0; i < steps.length; i++) {
-    scenarioSuite.tests.push(buildScenarioStepTest(input, scenarioUid, i))
+    scenarioSuite.tests.push(
+      buildScenarioStepTest(input, scenarioUid, attempt, i)
+    )
   }
   return scenarioSuite
 }

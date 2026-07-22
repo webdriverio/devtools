@@ -1,4 +1,6 @@
-import { css } from 'lit'
+import { css, unsafeCSS } from 'lit'
+
+import { BROWSER_BACKDROP_GRADIENT } from '../../controller/constants.js'
 
 /** Component styles for `<wdio-devtools-snapshot>`. Pulled out of snapshot.ts
  *  so the main component file stays focused on the iframe/screencast logic. */
@@ -11,11 +13,7 @@ export const snapshotStyles = css`
     align-items: center;
     justify-content: center;
     box-sizing: border-box !important;
-    background: radial-gradient(
-      120% 120% at 50% 0%,
-      var(--vscode-editorWidget-background),
-      var(--vscode-editor-background)
-    );
+    background: ${unsafeCSS(BROWSER_BACKDROP_GRADIENT)};
   }
 
   section {

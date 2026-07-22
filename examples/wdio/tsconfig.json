@@ -11,7 +11,8 @@
             "node",
             "@wdio/globals/types",
             "expect-webdriverio",
-            "@wdio/cucumber-framework"
+            "@wdio/cucumber-framework",
+            "@wdio/mocha-framework"
         ],
         "skipLibCheck": true,
         "noEmit": true,
@@ -24,7 +25,8 @@
         "noFallthroughCasesInSwitch": true
     },
     "include": [
-        "test",
-        "wdio.conf.ts"
+        "cucumber",
+        "mocha",
+        "pageobjects"
     ]
 }

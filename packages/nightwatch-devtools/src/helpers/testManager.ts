@@ -13,7 +13,11 @@ export class TestManager {
   private processedTests = new Map<string, Set<string>>()
   private lastKnownTestName: string | null = null
 
-  constructor(private testReporter: TestReporter) {}
+  constructor(
+    private testReporter: TestReporter,
+    /** Stamps a test's resolved terminal state onto the retry ledger. */
+    private recordOutcome?: (uid: string, state: TestStats['state']) => void
+  ) {}
 
   /**
    * Update test state and report to UI
@@ -42,6 +46,7 @@ export class TestManager {
 
     if (state !== TEST_STATE.RUNNING) {
       this.testReporter.onTestEnd(test)
+      this.recordOutcome?.(test.uid, state)
     }
   }
 

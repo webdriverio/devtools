@@ -33,6 +33,7 @@
     "prepublishOnly": "pnpm build",
     "example": "pnpm example:cucumber",
     "example:mocha": "mocha --require @wdio/selenium-devtools --timeout 60000 ../../examples/selenium/mocha-test/test/example.js",
+    "example:mocha:allure": "mocha --require @wdio/selenium-devtools --reporter allure-mocha --reporter-options resultsDir=../../examples/selenium/mocha-test/allure-results --timeout 60000 ../../examples/selenium/mocha-test/test/example.js",
     "example:jest": "NODE_OPTIONS=--experimental-vm-modules jest --config ../../examples/selenium/jest-test/jest.config.json",
     "example:cucumber": "cucumber-js --config ../../examples/selenium/cucumber-test/cucumber.json"
   },
@@ -65,7 +66,9 @@
     "@types/ws": "^8.18.1",
     "@wdio/devtools-core": "workspace:^",
     "@wdio/devtools-shared": "workspace:^",
-    "chromedriver": "^148.0.4",
+    "allure-js-commons": "^3.0.0",
+    "allure-mocha": "^3.0.0",
+    "chromedriver": "^150.0.0",
     "jest": "^30.4.2",
     "mocha": "^11.7.6",
     "selenium-webdriver": "^4.44.0",
@@ -74,6 +77,12 @@
     "vitest": "^4.1.8"
   },
   "peerDependencies": {
+    "allure-js-commons": "^3.0.0",
     "selenium-webdriver": ">=4.8.0"
+  },
+  "peerDependenciesMeta": {
+    "allure-js-commons": {
+      "optional": true
+    }
   }
 }

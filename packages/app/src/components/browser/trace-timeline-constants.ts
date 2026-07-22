@@ -1,19 +1,23 @@
-import type { ActionCategory } from '../workbench/actionItems/category.js'
-
 /** Playback speed multipliers offered in the timeline controls. */
 export const SPEEDS = [0.5, 1, 2, 3, 5]
 
-/** Width of the track-label gutter (px) — lanes start after it. */
-export const GUTTER = 80
+/** Candidate ruler intervals (ms); tickStep picks the smallest fitting one. */
+export const TICK_STEPS = [
+  100, 250, 500, 1_000, 2_000, 5_000, 10_000, 15_000, 30_000, 60_000, 120_000,
+  300_000, 600_000
+]
 
-/** Right breathing room (px) so end-of-timeline markers don't hug the edge. */
-export const INSET = 14
+/** Ruler divisions to aim for — keeps labels readable at any duration. */
+export const TICK_TARGET_DIVISIONS = 14
 
-/** Tailwind background class per action category, for the timeline chips. */
-export const CATEGORY_BG: Record<ActionCategory, string> = {
-  navigation: 'bg-chartsBlue',
-  input: 'bg-chartsPurple',
-  assertion: 'bg-chartsGreen',
-  query: 'bg-chartsYellow',
-  other: 'bg-gray-500'
+/** Window events linking the controls bar and the timeline strip (KBD-style). */
+export const PLAYER_STATE_EVENT = 'trace-player:state'
+export const PLAYER_RESTART_EVENT = 'trace-player:restart'
+export const PLAYER_SPEED_EVENT = 'trace-player:speed'
+
+export interface PlayerState {
+  currentMs: number
+  duration: number
+  playing: boolean
+  speed: number
 }

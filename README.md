@@ -70,7 +70,7 @@ When BiDi is active in Selenium or Nightwatch, the per-command Chrome performanc
 
 ### 📦 Trace mode (trace.zip)
 
-Headless capture path — no DevTools UI window opens. At session end the adapter writes a trace artifact next to the user's output directory, suitable for offline replay, AI-agent diffing, or any consumer that prefers a portable artifact over a live UI.
+Headless capture path — no DevTools UI window opens. At session end the adapter writes trace artifacts into a `test-results/` folder (created next to the resolved spec/config directory), suitable for offline replay, AI-agent diffing, or any consumer that prefers a portable artifact over a live UI.
 
 | Adapter | How to enable |
 |---|---|
@@ -79,7 +79,7 @@ Headless capture path — no DevTools UI window opens. At session end the adapte
 | **Nightwatch** | `globals: nightwatchDevtools({ mode: 'trace' })` |
 
 The trace artifact contains:
-- `trace.trace` — NDJSON `context-options` + `before`/`after` action events. When test hooks are available (Mocha's `it()` / Cucumber's `Scenario()`), each test becomes a [`Tracing.tracingGroup`](https://github.com/VibiumDev/vibium/blob/main/docs/explanation/recording-format.md#action-groups-user-defined) span — an open/close `before`/`after` pair with `method: "tracingGroup"` and `params.name` set to the test title. Child actions inside the group carry `parentId` pointing back to the group's `callId`, so timeline viewers render tests as labelled spans wrapping their commands.
+- `trace.trace` — NDJSON `context-options` + `before`/`after` action events. When test hooks are available (Mocha's `it()` / Cucumber's `Scenario()`), each test becomes a `Tracing.tracingGroup` span — an open/close `before`/`after` pair with `method: "tracingGroup"` and `params.name` set to the test title. Child actions inside the group carry `parentId` pointing back to the group's `callId`, so timeline viewers render tests as labelled spans wrapping their commands.
 - `trace.network` — HAR-style network entries derived from the existing capture
 - `resources/page@<id>-<ts>.jpeg` — screenshot per user-facing action
 - `resources/elements-page@<id>-<ts>.json` — flat interactable element list extracted by the page-injected scripts in `@wdio/devtools-core/element-scripts`
@@ -103,7 +103,7 @@ npx show-trace path/to/trace.zip      # in a project that installs an adapter
 
 The `show-trace` bin is exposed by each adapter (`@wdio/devtools-service`, `@wdio/nightwatch-devtools`, `@wdio/selenium-devtools`), so `pnpm show-trace <zip>` / `npx show-trace <zip>` work in any project that installs one — no extra dependency.
 
-**Other viewers.** Because the format is unchanged, the same `.zip` also drops into [player.vibium.dev](https://player.vibium.dev) or `npx playwright show-trace <path>`. The format follows the [Vibium recording format](https://github.com/VibiumDev/vibium/blob/main/docs/explanation/recording-format.md) spec — a Playwright-compatible NDJSON schema that the ecosystem already renders. This is the same format [`@wdio/mcp`](https://webdriver.io/docs/mcp) uses for AI-driven session recording.
+**Other viewers.** The trace uses a portable NDJSON schema, so the same `.zip` also opens in other compatible trace viewers that read the format. This is the same format [`@wdio/mcp`](https://webdriver.io/docs/mcp) uses for AI-driven session recording.
 
 #### Options
 
@@ -111,7 +111,9 @@ The `show-trace` bin is exposed by each adapter (`@wdio/devtools-service`, `@wdi
 |--------|--------|---------|-------------|
 | `mode` | `'live'` \| `'trace'` | `'live'` | `'live'` launches the DevTools UI; `'trace'` writes an offline artifact. |
 | `traceFormat` | `'zip'` \| `'ndjson-directory'` | `'zip'` | Output layout. `'zip'` writes a single archive; `'ndjson-directory'` unpacks into `trace-<id>/`. |
-| `traceGranularity` | `'session'` \| `'spec'` | `'session'` | `'session'` writes one trace per worker; `'spec'` writes one trace per spec file — smaller artifacts, easier to navigate. |
+| `traceGranularity` | `'session'` \| `'spec'` \| `'test'` | `'session'` | `'session'` writes one trace per worker; `'spec'` one per spec file; `'test'` one per test into its own `<spec>-<title>-<browser>[-retryN]/trace.zip` folder — the smallest, most navigable artifacts, and the best pairing for a retention policy. |
+| `tracePolicy` | `'on'` \| `'retain-on-failure'` \| `'retain-on-first-failure'` \| `'on-first-retry'` \| `'on-all-retries'` \| `'retain-on-failure-and-retries'` | `'on'` | Which traces to keep. `'on'` keeps every trace; the rest keep only failing/retried tests — pairs well with `traceGranularity: 'test'`. |
+| `captureAssertions` | `boolean` | `true` | Capture assertions as action rows: `node:assert` (all adapters), WebdriverIO `expect(...)` matchers, and Nightwatch `browser.assert`/`verify`. Set `false` to opt out. |
 
 WDIO config example:
 
@@ -129,7 +131,7 @@ services: [[DevToolsHookService, {
 
 Adapters detect mobile sessions via `platformName: 'android' | 'ios'` (case-insensitive) and adjust the per-action snapshot to extract elements from the mobile XML tree instead of the DOM. The trace's `context-options` records `title: 'android' — <deviceName>` / `'ios' — <deviceName>` so the viewer labels frames correctly.
 
-A reference WDIO config is at [examples/wdio/wdio.mobile.conf.ts](examples/wdio/wdio.mobile.conf.ts). Prereqs to run it end-to-end with a local emulator:
+A reference WDIO config is at [examples/wdio/cucumber/wdio.mobile.conf.ts](examples/wdio/cucumber/wdio.mobile.conf.ts). Prereqs to run it end-to-end with a local emulator:
 
 1. **Java JDK** — `brew install --cask temurin`
 2. **Android SDK** — `brew install --cask android-commandlinetools` then `yes | sdkmanager --licenses && sdkmanager "platform-tools" "emulator" "system-images;android-34;google_apis_playstore;arm64-v8a"`. The brew cask installs sdkmanager under `/opt/homebrew/share/android-commandlinetools/`, and sdkmanager downloads other SDK pieces alongside it — set `ANDROID_HOME` to that path (not `~/Library/Android/sdk/`).

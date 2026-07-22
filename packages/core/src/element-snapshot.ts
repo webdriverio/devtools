@@ -11,6 +11,14 @@ import type {
   SnapshotElement,
   SnapshotResult
 } from './element-types.js'
+
+import {
+  SNAPSHOT_INDENT_UNIT,
+  SNAPSHOT_PAGE_HEADER,
+  SNAPSHOT_LOCATOR_DELIM,
+  SNAPSHOT_PURPOSE_TOKEN
+} from '@wdio/devtools-shared'
+
 import type { JSONElement } from './locators/types.js'
 import { parseAndroidBounds, parseIOSBounds } from './locators/xml-parsing.js'
 import {
@@ -81,7 +89,7 @@ export function serializeWebSnapshot(
 ): string {
   const { inViewportOnly = true } = options
 
-  let header = '[Page'
+  let header = SNAPSHOT_PAGE_HEADER
   if (context?.title) {
     header += `: ${context.title}`
   }
@@ -103,7 +111,7 @@ export function serializeWebSnapshot(
       continue
     }
 
-    const indent = '  '.repeat(node.depth + 1) // +1 indents everything under the header
+    const indent = SNAPSHOT_INDENT_UNIT.repeat(node.depth + 1) // +1 indents everything under the header
     const isInteractive = INTERACTIVE_ROLES.has(node.role)
 
     if (isStatictextEchoedByParent(nodes, i)) {
@@ -127,13 +135,17 @@ export function serializeWebSnapshot(
         // duplicate selectors like six "Add to Wishlist" buttons.
         lines.push(
           purpose
-            ? `${indent}${roleLabel} "${node.name}" ∈ "${purpose}"  →  ${node.selector}`
-            : `${indent}${roleLabel} "${node.name}"  →  ${node.selector}`
+            ? `${indent}${roleLabel} "${node.name}" ${SNAPSHOT_PURPOSE_TOKEN} "${purpose}"  ${SNAPSHOT_LOCATOR_DELIM}  ${node.selector}`
+            : `${indent}${roleLabel} "${node.name}"  ${SNAPSHOT_LOCATOR_DELIM}  ${node.selector}`
         )
       } else if (purpose) {
-        lines.push(`${indent}${roleLabel} ∈ "${purpose}"  →  ${node.selector}`)
+        lines.push(
+          `${indent}${roleLabel} ${SNAPSHOT_PURPOSE_TOKEN} "${purpose}"  ${SNAPSHOT_LOCATOR_DELIM}  ${node.selector}`
+        )
       } else {
-        lines.push(`${indent}${roleLabel}  →  ${node.selector}`)
+        lines.push(
+          `${indent}${roleLabel}  ${SNAPSHOT_LOCATOR_DELIM}  ${node.selector}`
+        )
       }
     } else {
       // Container / structural: show role + name when present, no selector
@@ -672,7 +684,7 @@ function renderMobileNodes(nodes: MobileFlatNode[]): string[] {
 
   for (let i = 0; i < nodes.length; i++) {
     const node = nodes[i]
-    const indent = '  '.repeat(node.depth + 1)
+    const indent = SNAPSHOT_INDENT_UNIT.repeat(node.depth + 1)
 
     // Collapse anonymous layout containers at depth ≥ 2.
     // Keep depth 0-1 structural chrome and any named container.
@@ -725,13 +737,17 @@ function renderMobileNodes(nodes: MobileFlatNode[]): string[] {
       if (node.name) {
         lines.push(
           purpose
-            ? `${indent}${node.role} "${node.name}" ∈ "${purpose}"  →  ${selector}`
-            : `${indent}${node.role} "${node.name}"  →  ${selector}`
+            ? `${indent}${node.role} "${node.name}" ${SNAPSHOT_PURPOSE_TOKEN} "${purpose}"  ${SNAPSHOT_LOCATOR_DELIM}  ${selector}`
+            : `${indent}${node.role} "${node.name}"  ${SNAPSHOT_LOCATOR_DELIM}  ${selector}`
         )
       } else if (purpose) {
-        lines.push(`${indent}${node.role} ∈ "${purpose}"  →  ${selector}`)
+        lines.push(
+          `${indent}${node.role} ${SNAPSHOT_PURPOSE_TOKEN} "${purpose}"  ${SNAPSHOT_LOCATOR_DELIM}  ${selector}`
+        )
       } else {
-        lines.push(`${indent}${node.role}  →  ${selector}`)
+        lines.push(
+          `${indent}${node.role}  ${SNAPSHOT_LOCATOR_DELIM}  ${selector}`
+        )
       }
     } else {
       // Container / structural / non-locatable

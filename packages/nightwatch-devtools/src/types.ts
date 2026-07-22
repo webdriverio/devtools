@@ -3,6 +3,7 @@
 export {
   TraceType,
   type ActionSnapshot,
+  type CollapsedAssertResult,
   type CommandLog,
   type ConsoleLog,
   type DevToolsMode,
@@ -19,20 +20,37 @@ export {
   type TraceFormat,
   type TestMetadataMap,
   type TraceGranularity,
+  type TraceRetentionPolicy,
+  type TraceScreenshotPolicy,
+  type TraceVideoPolicy,
   type TraceLog
 } from '@wdio/devtools-shared'
 
 import type {
-  DevToolsMode,
-  ScreencastOptions,
-  TraceFormat,
-  TraceGranularity
+  BaseDevToolsOptions,
+  CommandLog,
+  TraceScreenshotPolicy,
+  TraceVideoPolicy
 } from '@wdio/devtools-shared'
 
 export interface CommandStackFrame {
   command: string
   callSource?: string
   signature: string
+}
+
+/** One explicit `browser.assert.*` / `browser.verify.*` call, recorded at call
+ *  time by BrowserProxy. A neutral "pending" row (`entry`) is streamed live at
+ *  call time; `captureNativeAssertions` finalizes its pass/fail at test-end. */
+export interface NativeAssertCall {
+  prefix: 'assert' | 'verify'
+  method: string
+  args: unknown[]
+  callSource?: string
+  /** Wall-clock at call time; also the streamed row's timestamp/startTime. */
+  timestamp: number
+  /** The pending row emitted at call time, updated in place when finalized. */
+  entry?: CommandLog
 }
 
 export interface NightwatchTestCase {
@@ -85,16 +103,7 @@ export interface StepLocation {
   line: number
 }
 
-export interface DevToolsOptions {
-  port?: number
-  hostname?: string
-  /**
-   * Screencast recording options. When enabled, a continuous video of the
-   * browser session is recorded and saved as a .webm file at the end of the
-   * test run. Polling mode only on Nightwatch (no CDP push); works on every
-   * browser Nightwatch supports.
-   */
-  screencast?: ScreencastOptions
+export interface DevToolsOptions extends BaseDevToolsOptions {
   /**
    * Enable WebDriver BiDi capture (browser console + JS exceptions + network
    * via `selenium-webdriver/bidi`). Requires `webSocketUrl: true` in your
@@ -103,15 +112,16 @@ export interface DevToolsOptions {
    * entries. Defaults to `false` — opt-in.
    */
   bidi?: boolean
-  /** `live` (default) launches the DevTools UI; `trace` skips it. */
-  mode?: DevToolsMode
-  /** Trace output layout — `zip` (default) writes a single archive,
-   *  `ndjson-directory` unpacks into `trace-<id>/`. Only applies in trace mode. */
-  traceFormat?: TraceFormat
-  /** Trace output granularity — `session` (default) writes one trace per
-   *  worker session; `spec` writes one trace per spec file. Only applies in
-   *  trace mode. */
-  traceGranularity?: TraceGranularity
+  /** Per-test screenshot capture, produced to the trace output dir + manifest.
+   *  `off` (default) | `on` | `only-on-failure`. Trace mode +
+   *  `traceGranularity: 'test'` only. Produce-only: Nightwatch has no live
+   *  Allure attach API, so artifacts are not attached inline. */
+  screenshot?: TraceScreenshotPolicy
+  /** Per-test video (screencast slice) capture, produced to the trace output
+   *  dir + manifest per the given retention policy. `off` (default) or a
+   *  retention policy. Trace mode + `traceGranularity: 'test'` only.
+   *  Produce-only (no inline Allure attach). */
+  video?: TraceVideoPolicy
 }
 
 export interface NightwatchBrowser {
@@ -136,12 +146,7 @@ export interface NightwatchBrowser {
     webdriver?: { host?: string }
     [key: string]: unknown
   }
-  currentTest?: {
-    name?: string
-    module?: string
-    group?: string
-    [key: string]: unknown
-  }
+  currentTest?: NightwatchCurrentTest
   results?: unknown
   queue?: unknown
 }

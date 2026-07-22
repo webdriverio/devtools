@@ -387,6 +387,41 @@ describe('SessionCapturer', () => {
     })
   })
 
+  describe('resetScriptInjection', () => {
+    // node:fs/promises is auto-mocked at module scope, so stub the preload-file
+    // read injectScript performs (otherwise readFile → undefined → throws).
+    beforeEach(() => {
+      vi.mocked(fs.readFile).mockResolvedValue(
+        '// preload' as unknown as Buffer
+      )
+    })
+
+    // Minimal BiDi browser stub — injectScript only needs isBidi + the preload
+    // hook; the script body comes from the mocked readFile above.
+    const bidiBrowser = () =>
+      ({
+        isBidi: true,
+        scriptAddPreloadScript: vi.fn().mockResolvedValue(undefined)
+      }) as unknown as WebdriverIO.Browser
+
+    it('guards against double preload injection within one session', async () => {
+      const capturer = new SessionCapturer()
+      const browser = bidiBrowser()
+      await capturer.injectScript(browser)
+      await capturer.injectScript(browser)
+      expect(browser.scriptAddPreloadScript).toHaveBeenCalledTimes(1)
+    })
+
+    it('re-adds the preload script for the new session after a reload reset', async () => {
+      const capturer = new SessionCapturer()
+      const browser = bidiBrowser()
+      await capturer.injectScript(browser)
+      capturer.resetScriptInjection()
+      await capturer.injectScript(browser)
+      expect(browser.scriptAddPreloadScript).toHaveBeenCalledTimes(2)
+    })
+  })
+
   describe('integration', () => {
     it('should handle complete session capture workflow', async () => {
       const capturer = new SessionCapturer()
@@ -767,6 +802,112 @@ describe('SessionCapturer', () => {
 
       expect(capturer.commandsLog).toHaveLength(1)
       expect(capturer.commandsLog[0].testUid).toBeUndefined()
+    })
+  })
+
+  describe('coalesceAssertionIntoLastRead', () => {
+    const isRead = (c: string) => c === 'getText'
+
+    it('folds the assertion into the trailing matcher read, in place', () => {
+      const capturer = new SessionCapturer()
+      capturer.commandsLog.push({
+        command: 'getText',
+        args: [],
+        timestamp: 100,
+        startTime: 90,
+        callSource: '/spec.ts:13:5',
+        screenshot: 'READ_SHOT',
+        _id: 7
+      } as never)
+
+      const folded = capturer.coalesceAssertionIntoLastRead(
+        {
+          command: 'expect.toHaveText',
+          args: ['x'],
+          timestamp: 999,
+          result: 'passed'
+        } as never,
+        isRead
+      )
+
+      expect(folded).toBe(true)
+      expect(capturer.commandsLog).toHaveLength(1)
+      const row = capturer.commandsLog[0] as Record<string, unknown>
+      expect(row.command).toBe('expect.toHaveText') // became the assertion
+      expect(row.callSource).toBe('/spec.ts:13:5') // inherited from the read
+      expect(row.screenshot).toBe('READ_SHOT') // inherited from the read
+      expect(row.timestamp).toBe(100) // kept the read's timeline position
+      expect(row._id).toBe(7) // local dedup bookkeeping preserved
+      // No public `id`: WDIO replaces by timestamp, and commandCounter resets
+      // per worker/spec, so a bare id would collide across specs and the app's
+      // id-first replaceCommand would swap the wrong row.
+      expect(row.id).toBeUndefined()
+    })
+
+    it('returns false and leaves the log untouched when the last command is not a matcher read', () => {
+      const capturer = new SessionCapturer()
+      capturer.commandsLog.push({
+        command: 'click',
+        args: [],
+        timestamp: 100
+      } as never)
+
+      const folded = capturer.coalesceAssertionIntoLastRead(
+        { command: 'expect.toExist', args: [], timestamp: 999 } as never,
+        isRead
+      )
+
+      expect(folded).toBe(false)
+      expect(capturer.commandsLog).toHaveLength(1)
+      expect((capturer.commandsLog[0] as Record<string, unknown>).command).toBe(
+        'click'
+      )
+    })
+
+    it('returns false when the trailing read hard-threw (carries an error)', () => {
+      const capturer = new SessionCapturer()
+      capturer.commandsLog.push({
+        command: 'getText',
+        args: [],
+        timestamp: 100,
+        error: { message: 'element not found' }
+      } as never)
+
+      expect(
+        capturer.coalesceAssertionIntoLastRead(
+          { command: 'expect.toHaveText', args: [], timestamp: 999 } as never,
+          isRead
+        )
+      ).toBe(false)
+    })
+
+    it('foldErrored=true folds a throwing read, keeping its error (hard-throw)', () => {
+      const capturer = new SessionCapturer()
+      capturer.commandsLog.push({
+        command: 'getText',
+        args: [],
+        timestamp: 100,
+        callSource: '/spec.ts:22:5',
+        error: { message: 'element not found' },
+        _id: 3
+      } as never)
+
+      const folded = capturer.coalesceAssertionIntoLastRead(
+        { command: 'expect.toHaveText', args: ['x'], timestamp: 999 } as never,
+        isRead,
+        true
+      )
+
+      expect(folded).toBe(true)
+      expect(capturer.commandsLog).toHaveLength(1)
+      const row = capturer.commandsLog[0] as Record<string, unknown>
+      expect(row.command).toBe('expect.toHaveText') // relabelled from the read
+      expect(row.callSource).toBe('/spec.ts:22:5') // inherited from the read
+      expect(row.timestamp).toBe(100) // kept the read's timeline position
+      expect((row.error as { message: string }).message).toBe(
+        'element not found'
+      ) // the throw's error carries through
+      expect(row.id).toBeUndefined() // still no cross-spec-colliding public id
     })
   })
 })

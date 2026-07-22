@@ -232,9 +232,10 @@ export class WebdriverIODevtoolsApplication extends Element {
         class="flex h-[calc(100%-40px)] w-full relative"
       >
         ${
-          // Only render the test-suite sidebar (and its resize slider) when the
-          // trace came from a testrunner — the player (standalone) has no tree,
-          // so the slider would otherwise show a stray dragger on hover.
+          // Only render the test-suite sidebar (and its resize slider) for a
+          // live testrunner session. The player has no run/rerun affordances,
+          // so the tree is dead weight even for testrunner-captured zips.
+          !this.dataManager.playerMode &&
           this.dataManager.traceType === TraceType.Testrunner
             ? html`<wdio-devtools-sidebar
                   style="${this.#drag?.getPosition()}"
