@@ -348,6 +348,7 @@ See [Trace mode](../../README.md#-trace-mode-tracezip) in the root README for th
 | `rerunCommand` | `string` | auto | Command template for per-test rerun. `{{testName}}` is substituted. Auto-derived from runner argv if omitted. |
 | `screenshot` | `'off' \| 'on' \| 'only-on-failure'` | `'off'` | Trace mode + `traceGranularity: 'test'`. Per-test screenshot, attached inline to Allure (`image/png`) via `allure-js-commons` when an Allure runner adapter is active. |
 | `video` | `'off' \| TraceRetentionPolicy` | `'off'` | Trace mode + `traceGranularity: 'test'`. Per-test screencast video, retained per the given policy, attached inline to Allure (`video/webm`) via `allure-js-commons` when an Allure runner adapter is active. |
+| `emitArtifactsManifest` | `boolean` | auto | Write the `devtools-artifacts-<sessionId>.json` manifest — the generic index reporters/CI consume to discover produced artifacts — next to the trace. Off by default; **auto-enables** when an `allure-js-commons` runtime is active (the same signal the inline Allure attach uses). Set explicitly to force on/off. Trace mode only. |
 
 `ScreencastOptions`:
 

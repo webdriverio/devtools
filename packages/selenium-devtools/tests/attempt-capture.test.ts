@@ -98,6 +98,64 @@ describe('retry/attempt capture', () => {
   })
 })
 
+describe('artifacts manifest gating', () => {
+  function traceCtxWith(options: Record<string, unknown>) {
+    const { suiteManager } = makeManager()
+    const capturer = new SessionCapturer()
+    try {
+      const ctx = {
+        options: {
+          mode: 'trace',
+          traceGranularity: 'session',
+          traceFormat: 'zip',
+          ...options
+        },
+        suiteManager,
+        actionSnapshots: [],
+        specRanges: [],
+        flushedSpecs: new Set<string>(),
+        traceFlushes: [],
+        snapshotCaptures: []
+      } as unknown as SessionLifecycleCtx
+      return buildTraceExportContext(ctx, capturer, 'sess-1', '/spec.ts')
+    } finally {
+      capturer.cleanup()
+    }
+  }
+
+  it('does not emit the manifest by default (no option, no Allure runtime)', () => {
+    expect(traceCtxWith({}).emitManifest).toBe(false)
+  })
+
+  it('emits the manifest when explicitly enabled', () => {
+    expect(traceCtxWith({ emitArtifactsManifest: true }).emitManifest).toBe(
+      true
+    )
+  })
+
+  it('auto-enables when an allure-js-commons runtime is active', () => {
+    const g = globalThis as { allureTestRuntime?: unknown }
+    g.allureTestRuntime = () => ({})
+    try {
+      expect(traceCtxWith({}).emitManifest).toBe(true)
+    } finally {
+      delete g.allureTestRuntime
+    }
+  })
+
+  it('an explicit false wins over an active Allure runtime', () => {
+    const g = globalThis as { allureTestRuntime?: unknown }
+    g.allureTestRuntime = () => ({})
+    try {
+      expect(traceCtxWith({ emitArtifactsManifest: false }).emitManifest).toBe(
+        false
+      )
+    } finally {
+      delete g.allureTestRuntime
+    }
+  })
+})
+
 describe('retry outcome ledger feeds retry-aware retention', () => {
   it('groups a fail-then-pass retry under one retry-stable uid', () => {
     const { mgr } = makeManager()

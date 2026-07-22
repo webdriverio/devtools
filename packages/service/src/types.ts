@@ -53,12 +53,6 @@ export interface ServiceOptions extends BaseDevToolsOptions {
    *  attached inline to Allure. `off` (default) or a retention policy. Trace
    *  mode + `traceGranularity: 'test'` only. WDIO-service-specific for now. */
   video?: TraceVideoPolicy
-  /** Write the `devtools-artifacts-<sessionId>.json` manifest next to the trace
-   *  — the generic index reporters/CI consume to discover produced artifacts.
-   *  Off by default (WDIO auto-attaches per-test traces to Allure directly);
-   *  auto-enabled when `@wdio/allure-reporter` is in the config, since
-   *  session/spec-scoped Allure attach reads the manifest. */
-  emitArtifactsManifest?: boolean
   /**
    * capabilities used to launch the devtools application
    * @default

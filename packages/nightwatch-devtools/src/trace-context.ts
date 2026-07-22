@@ -39,6 +39,7 @@ export interface TraceContextInput {
   screencastFrames?: readonly ScreencastFrame[]
   configPath: string | undefined
   testFilePath: string | undefined
+  emitArtifactsManifest?: boolean
   log: (level: 'info' | 'warn', msg: string) => void
 }
 
@@ -68,7 +69,9 @@ export function buildTraceContext(
     // Nightwatch feeds real per-test attempt numbers via TestAttemptTracker
     // (B4), so retry-aware policies use per-test attempts, not the fallback.
     attemptInfoAvailable: true,
-    emitManifest: true,
+    // Off by default; opt-in only — Nightwatch has no live Allure signal to
+    // auto-detect against (produce-only Allure), unlike WDIO/Selenium.
+    emitManifest: input.emitArtifactsManifest ?? false,
     collectedArtifacts: input.artifacts,
     onArtifact: (a) => input.artifacts.push(a),
     log: input.log
