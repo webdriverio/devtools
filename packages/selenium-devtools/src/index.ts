@@ -85,9 +85,17 @@ log.info(`Detected runner: ${RUNNER}`)
 log.info(`Detected selenium-webdriver: v${SELENIUM_VERSION}`)
 
 class SeleniumDevToolsPlugin {
-  #options: Required<Omit<DevToolsOptions, 'rerunCommand' | 'screencast'>> & {
+  #options: Required<
+    Omit<
+      DevToolsOptions,
+      'rerunCommand' | 'screencast' | 'emitArtifactsManifest'
+    >
+  > & {
     rerunCommand?: string
     headless: boolean
+    // Optional (not defaulted): undefined defers to Allure auto-detection at
+    // finalize time (globalThis.allureTestRuntime), matching WDIO's tristate.
+    emitArtifactsManifest?: boolean
   }
   #sessionCapturer?: SessionCapturer
   #testReporter?: TestReporter
@@ -162,7 +170,8 @@ class SeleniumDevToolsPlugin {
       tracePolicy: options.tracePolicy ?? 'on',
       filmstrip: options.filmstrip ?? false,
       screenshot: options.screenshot ?? 'off',
-      video: options.video ?? 'off'
+      video: options.video ?? 'off',
+      emitArtifactsManifest: options.emitArtifactsManifest
     }
     const policyWarning = tracePolicyModeWarning(
       options.tracePolicy,

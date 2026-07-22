@@ -171,7 +171,10 @@ class NightwatchDevToolsPlugin {
       tracePolicy: options.tracePolicy ?? 'on',
       filmstrip: options.filmstrip ?? false,
       screenshot: options.screenshot ?? 'off',
-      video: options.video ?? 'off'
+      video: options.video ?? 'off',
+      // No live Allure signal in Nightwatch (produce-only), so no auto-detect:
+      // off by default, opt-in via the option.
+      emitArtifactsManifest: options.emitArtifactsManifest ?? false
     }
     const policyWarning = tracePolicyModeWarning(options.tracePolicy, mode)
     if (policyWarning) {
@@ -681,6 +684,7 @@ class NightwatchDevToolsPlugin {
         flushed: this.#flushedSpecs,
         artifacts: this.#artifacts,
         traceFlushes: this.#traceFlushes,
+        emitArtifactsManifest: this.options.emitArtifactsManifest,
         // Accumulated (finalized-session) frames plus the live recorder's — a
         // mid-run per-spec/per-test flush fires before the recorder is drained
         // into #filmstripFrames, so its frames live only on the recorder still;

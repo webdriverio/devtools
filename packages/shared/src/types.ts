@@ -337,6 +337,13 @@ export interface BaseDevToolsOptions {
    *  DOM snapshots). Runs the screencast recorder (CDP push on Chrome, polling
    *  elsewhere). Default false. Only applies in trace mode. */
   filmstrip?: boolean
+  /** Write the `devtools-artifacts-<sessionId>.json` manifest next to the trace
+   *  — the generic index reporters/CI consume to discover produced artifacts.
+   *  Off by default; auto-enabled when an Allure reporter is detected (WDIO:
+   *  `@wdio/allure-reporter` in config; Selenium: an active `allure-js-commons`
+   *  runtime). Nightwatch has no live Allure signal, so it stays opt-in there.
+   *  Only applies in trace mode. */
+  emitArtifactsManifest?: boolean
 }
 
 /** Minimal Cucumber pickle-step shape — only the fields the adapters read.

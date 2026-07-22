@@ -188,4 +188,55 @@ describe('buildTraceContext', () => {
       { uid: 't1', attempt: 0, state: 'failed' }
     ])
   })
+
+  it('does not emit the artifacts manifest by default', () => {
+    const capturer = {
+      actionSnapshots: [],
+      snapshotCaptures: []
+    } as unknown as SessionCapturer
+    const ctx = buildTraceContext(
+      {
+        mode: 'trace',
+        policy: 'on',
+        granularity: 'session',
+        format: 'zip',
+        capturer,
+        suites: [],
+        ranges: [],
+        flushed: new Set(),
+        artifacts: [],
+        traceFlushes: [],
+        configPath: undefined,
+        log: () => {}
+      },
+      'session-1'
+    )
+    expect(ctx.emitManifest).toBe(false)
+  })
+
+  it('emits the manifest only when emitArtifactsManifest is opted in', () => {
+    const capturer = {
+      actionSnapshots: [],
+      snapshotCaptures: []
+    } as unknown as SessionCapturer
+    const ctx = buildTraceContext(
+      {
+        mode: 'trace',
+        policy: 'on',
+        granularity: 'session',
+        format: 'zip',
+        capturer,
+        suites: [],
+        ranges: [],
+        flushed: new Set(),
+        artifacts: [],
+        traceFlushes: [],
+        configPath: undefined,
+        emitArtifactsManifest: true,
+        log: () => {}
+      },
+      'session-1'
+    )
+    expect(ctx.emitManifest).toBe(true)
+  })
 })

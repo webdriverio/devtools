@@ -61,6 +61,7 @@ export interface SessionLifecycleCtx {
     tracePolicy?: TraceRetentionPolicy
     filmstrip?: boolean
     video?: TraceVideoPolicy
+    emitArtifactsManifest?: boolean
   }
   readonly screencastOptions: ScreencastOptions
   readonly runner: string
@@ -234,6 +235,13 @@ async function initPerDriverCapture(
 }
 
 export async function onDriverEnd(ctx: SessionLifecycleCtx): Promise<void> {
+  // Drain the live page's mutations before the driver quits — onDriverEnd runs
+  // (via onBeforeQuit) while the session is still alive, so the final page's
+  // DOM + field edits reach capturer.mutations before the trace is written.
+  // Gated on ctx.driver so the post-quit onDriverEnd call skips a dead session.
+  if (ctx.options.mode === 'trace' && ctx.driver) {
+    await ctx.sessionCapturer?.captureTrace()
+  }
   if (ctx.screencast && ctx.sessionId) {
     if (ctx.options.mode === 'trace') {
       // Trace mode: the video is emitted per-test (sliced in #emitTestArtifacts)
@@ -369,7 +377,11 @@ export function buildTraceExportContext(
       }),
     awaitPending: [...ctx.snapshotCaptures, ...ctx.traceFlushes],
     log: (level, msg) => log[level](msg),
-    emitManifest: true,
+    // Off by default; explicit option wins, else auto-enable when an
+    // allure-js-commons runtime is active (the same signal the Allure sink uses).
+    emitManifest:
+      ctx.options.emitArtifactsManifest ??
+      !!(globalThis as { allureTestRuntime?: unknown }).allureTestRuntime,
     collectedArtifacts: ctx.artifacts,
     onArtifact: (a) => ctx.artifacts.push(a)
   }
