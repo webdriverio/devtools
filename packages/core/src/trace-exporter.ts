@@ -276,7 +276,7 @@ function compareEvents(a: TraceEvent, b: TraceEvent): number {
 /**
  * Generate a human/LLM-readable Markdown transcript from captured commands.
  */
-function generateTranscript(
+export function generateTranscript(
   commands: CommandLog[],
   startWallTime: number,
   title?: string
@@ -284,8 +284,17 @@ function generateTranscript(
   const wallTimeISO = new Date(startWallTime).toISOString()
   const lines: string[] = [`# ${title ?? 'Session'} — ${wallTimeISO}`, '']
 
+  // Sort by invocation time so batched commands land at their real timeline
+  // positions — Nightwatch buffers native asserts and emits them at test-end,
+  // so raw order clusters all asserts after the navigations. The Actions tree
+  // stays correct because buildActionEvents applies the same sort; mirror it
+  // here so the transcript matches execution order. Stable + a no-op for
+  // already-ordered WDIO/Selenium command logs.
+  const ordered = [...commands].sort(
+    (a, b) => (a.startTime ?? a.timestamp) - (b.startTime ?? b.timestamp)
+  )
   const captured: { entry: CommandLog; action: TraceAction }[] = []
-  for (const c of commands) {
+  for (const c of ordered) {
     const action = mapCommandToAction(String(c.command))
     if (action) {
       captured.push({ entry: c, action })

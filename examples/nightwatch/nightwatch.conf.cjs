@@ -54,7 +54,7 @@ module.exports = {
         // a single session-scoped slice here. See CLAUDE.md § Known debt.
         mode: 'trace',
         traceGranularity: 'session',
-        tracePolicy: 'retain-on-first-failure',
+        // tracePolicy: 'retain-on-first-failure',
         bidi: true
       })
     }

@@ -9,6 +9,7 @@ import {
   type TraceCapturer
 } from '@wdio/devtools-core'
 import { TraceType, type CommandLog } from '@wdio/devtools-shared'
+import { generateTranscript } from '../src/trace-exporter.js'
 
 function cmd(command: string, overrides: Partial<CommandLog> = {}): CommandLog {
   const base = (overrides.timestamp ?? 1000) + 100
@@ -20,6 +21,24 @@ function cmd(command: string, overrides: Partial<CommandLog> = {}): CommandLog {
     ...overrides
   }
 }
+
+describe('generateTranscript', () => {
+  it('orders commands by invocation time when captured out of order (Nightwatch batches asserts to test-end)', () => {
+    // Array order puts a later navigation before an earlier-timestamped click,
+    // mimicking Nightwatch buffering native asserts until test-end.
+    const commands = [
+      cmd('url', { timestamp: 1100, startTime: 1050 }),
+      cmd('url', { timestamp: 1300, startTime: 1250 }),
+      cmd('click', { timestamp: 1200, startTime: 1150 })
+    ]
+    const lines = generateTranscript(commands, 1000, 'Test')
+      .split('\n')
+      .filter((l) => /^\d+\./.test(l))
+    expect(lines).toHaveLength(3)
+    // Sorted by startTime: url(1050) → click(1150) → url(1250) — click is #2.
+    expect(lines[1]).toMatch(/click/i)
+  })
+})
 
 describe('buildActionEvents', () => {
   const pageId = 'page@abc123'
