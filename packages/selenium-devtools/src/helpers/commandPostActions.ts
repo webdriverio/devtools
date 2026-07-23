@@ -3,6 +3,7 @@ import {
   CAPTURE_PERFORMANCE_SCRIPT,
   applyPerformanceData,
   errorMessage,
+  isSessionGoneError,
   mapCommandToAction,
   toError,
   type CapturedPerformancePayload,
@@ -144,11 +145,7 @@ async function capturePerformance(
     const msg = errorMessage(err)
     // Session torn down between the navigation command and the deferred
     // perf-script execution — expected during teardown of the last test.
-    if (
-      msg.includes('ECONNREFUSED') ||
-      msg.includes('no such session') ||
-      msg.includes('invalid session id')
-    ) {
+    if (isSessionGoneError(msg)) {
       return
     }
     log.warn(`Performance capture failed: ${msg}`)
@@ -185,10 +182,11 @@ function attachScreenshotAsync(
 }
 
 /**
- * After a DOM-mutating element command (type/click/clear/submit), drain the
- * collector so the page's field edits (value/checked) land in the mutation
- * stream before a later navigation discards the page. Fire-and-forget; trace
- * mode only.
+ * After a DOM-mutating element command (type/click/clear/submit): drain the
+ * collector so the page's field edits land before the page is discarded, then —
+ * if the command navigated (a submit click) — re-inject on the destination so
+ * its DOM is captured too (the previous page's `<script>` collector didn't
+ * survive the navigation). Fire-and-forget; trace mode only.
  */
 function maybeDrainAfterDomCommand(
   ctx: OnCommandCtx,
@@ -201,7 +199,10 @@ function maybeDrainAfterDomCommand(
     DOM_MUTATING_ELEMENT_COMMANDS.has(cmd.command) &&
     !ctx.finalized
   ) {
-    void capturer.captureTrace().catch(() => {})
+    void (async () => {
+      await capturer.captureTrace()
+      await capturer.reinjectIfNavigated()
+    })().catch(() => {})
   }
 }
 

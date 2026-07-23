@@ -1,7 +1,9 @@
 import logger from '@wdio/logger'
 import {
+  COLLECTOR_READY_EXPRESSION,
   SessionCapturerBase,
   errorMessage,
+  isSessionGoneError,
   loadInjectableScript,
   mapChromeBrowserLogs,
   pollUntilReady,
@@ -208,10 +210,7 @@ export class SessionCapturer extends SessionCapturerBase {
         scriptContent
       )
       const ready = await pollUntilReady(async () => {
-        const r = await exec(
-          driver,
-          'return typeof window.wdioTraceCollector !== "undefined";'
-        )
+        const r = await exec(driver, `return ${COLLECTOR_READY_EXPRESSION};`)
         return r === true
       })
       if (ready) {
@@ -222,11 +221,7 @@ export class SessionCapturer extends SessionCapturerBase {
     } catch (err) {
       // Driver torn down between navigation and deferred trace work.
       const msg = errorMessage(err)
-      if (
-        msg.includes('ECONNREFUSED') ||
-        msg.includes('no such session') ||
-        msg.includes('invalid session id')
-      ) {
+      if (isSessionGoneError(msg)) {
         return
       }
       log.error(`Failed to inject script: ${msg}`)
@@ -246,7 +241,7 @@ export class SessionCapturer extends SessionCapturerBase {
       // "Cannot read properties of undefined (reading 'getTraceData')" errors.
       const traceData = await exec(
         driver,
-        'return typeof window.wdioTraceCollector !== "undefined" ? window.wdioTraceCollector.getTraceData() : null;'
+        `return ${COLLECTOR_READY_EXPRESSION} ? window.wdioTraceCollector.getTraceData() : null;`
       )
       if (!traceData) {
         return
@@ -257,11 +252,7 @@ export class SessionCapturer extends SessionCapturerBase {
       })
     } catch (err) {
       const msg = errorMessage(err)
-      if (
-        msg.includes('ECONNREFUSED') ||
-        msg.includes('no such session') ||
-        msg.includes('invalid session id')
-      ) {
+      if (isSessionGoneError(msg)) {
         return
       }
       log.error(`Failed to capture trace from injected script: ${msg}`)
@@ -302,9 +293,42 @@ export class SessionCapturer extends SessionCapturerBase {
     }
   }
 
+  /**
+   * After a click/submit that may have navigated, the previous page's injected
+   * `<script>` collector is gone (unlike WDIO's BiDi preload, it doesn't survive
+   * navigation). If the current document has no collector, the page was
+   * replaced — re-inject on it and drain so the destination DOM lands in the
+   * trace. No-op for a same-document click (the collector is still present).
+   * Relies on the default `normal` page-load strategy, so a navigating click
+   * has finished loading by the time this runs.
+   */
+  async reinjectIfNavigated(): Promise<void> {
+    const driver = this.#driver
+    const exec = getDriverOriginals().executeScript
+    if (!driver || !exec) {
+      return
+    }
+    try {
+      const hasCollector = await exec(
+        driver,
+        `return ${COLLECTOR_READY_EXPRESSION};`
+      )
+      if (hasCollector === true) {
+        return
+      }
+      await this.injectScript()
+      await this.captureTrace()
+    } catch (err) {
+      const msg = errorMessage(err)
+      if (isSessionGoneError(msg)) {
+        return
+      }
+      log.warn(`Re-inject after navigation failed: ${msg}`)
+    }
+  }
+
   isNavigationCommand(command: string): boolean {
-    return NAVIGATION_COMMANDS.some((c) =>
-      command.toLowerCase().includes(c.toLowerCase())
-    )
+    const target = command.toLowerCase()
+    return NAVIGATION_COMMANDS.some((c) => target === c.toLowerCase())
   }
 }
