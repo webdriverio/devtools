@@ -1,9 +1,9 @@
 import {
   waitForBody,
   parseFragment,
-  parseDocument,
   getRef,
-  assignRef
+  assignRef,
+  REF_ATTR
 } from './utils.js'
 import { log } from './logger.js'
 import { collector } from './collector.js'
@@ -50,25 +50,13 @@ try {
   await waitForBody()
   log('body rendered')
 
-  assignRef(document.documentElement)
-  log('applied wdio ref ids')
-
-  const timestamp = Date.now()
-  collector.captureMutation([
-    {
-      type: 'childList',
-      url: document.location.href,
-      timestamp,
-      addedNodes: [parseDocument(document.documentElement)],
-      removedNodes: []
-    }
-  ])
+  collector.captureCurrentDom()
   log('added initial page structure')
 
   const config = { attributes: true, childList: true, subtree: true }
   const observer = new MutationObserver((ml) => {
     const timestamp = Date.now()
-    const mutationList = ml.filter((m) => m.attributeName !== 'data-wdio-ref')
+    const mutationList = ml.filter((m) => m.attributeName !== REF_ATTR)
     log(`observed ${mutationList.length} mutations`)
     try {
       collector.captureMutation(

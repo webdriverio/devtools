@@ -17,6 +17,7 @@ const mockSessionCapturerInstance = {
   afterCommand: vi.fn(),
   sendUpstream: vi.fn(),
   injectScript: vi.fn().mockResolvedValue(undefined),
+  captureTrace: vi.fn().mockResolvedValue(undefined),
   captureAssertCommand: vi.fn(),
   failLastAction: vi.fn(),
   resetLastSelector: vi.fn(),

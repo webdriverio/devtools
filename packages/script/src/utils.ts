@@ -98,6 +98,10 @@ export async function waitForBody() {
   clearTimeout(waitForTimeout)
 }
 
+/** Attribute stamped on every captured element to correlate it across the
+ *  mutation stream. Owned here; consumers use REF_ATTR / hasRef / getRef. */
+export const REF_ATTR = 'data-wdio-ref'
+
 let refId = 0
 /**
  * assign a uid to each element so we can reference it later in the vdom
@@ -111,18 +115,22 @@ export function assignRef(elem: Element) {
     return
   }
 
-  if (!elem.hasAttribute('data-wdio-ref')) {
-    elem.setAttribute('data-wdio-ref', `${++refId}`)
+  if (!elem.hasAttribute(REF_ATTR)) {
+    elem.setAttribute(REF_ATTR, `${++refId}`)
   }
 
   Array.from(elem.querySelectorAll('*')).forEach((el) => {
-    el.setAttribute('data-wdio-ref', `${++refId}`)
+    el.setAttribute(REF_ATTR, `${++refId}`)
   })
+}
+
+export function hasRef(elem: Element): boolean {
+  return elem.hasAttribute(REF_ATTR)
 }
 
 export function getRef(elem: Node) {
   if (!elem || !(elem as Element).getAttribute) {
     return null
   }
-  return (elem as Element).getAttribute('data-wdio-ref')
+  return (elem as Element).getAttribute(REF_ATTR)
 }

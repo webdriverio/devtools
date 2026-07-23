@@ -17,6 +17,7 @@ import {
   applyPerformanceData,
   errorMessage,
   getRequestType,
+  isSessionGoneError,
   type CapturedPerformancePayload
 } from '@wdio/devtools-core'
 import type { CommandLog } from './types.js'
@@ -324,11 +325,7 @@ export class SessionCapturer extends SessionCapturerBase {
       const msg = errorMessage(err)
       // Session torn down between the navigation command and the deferred
       // perf-script execution — expected during teardown of the last test.
-      if (
-        msg.includes('ECONNREFUSED') ||
-        msg.includes('no such session') ||
-        msg.includes('invalid session id')
-      ) {
+      if (isSessionGoneError(msg)) {
         return
       }
       log.warn(`Performance capture failed: ${msg}`)
@@ -372,7 +369,7 @@ export class SessionCapturer extends SessionCapturerBase {
    *  into the capturer. Public so the plugin can flush BEFORE a navigating
    *  command, capturing the outgoing page's field edits (value/checked
    *  mutations fire no page transition) before its collector is discarded. */
-  async captureTrace(browser: WebdriverIO.Browser) {
+  async captureTrace(browser: WebdriverIO.Browser, forceAnchor = false) {
     if (!this.#isScriptInjected) {
       log.warn('Script not injected, skipping trace capture')
       return
@@ -383,11 +380,17 @@ export class SessionCapturer extends SessionCapturerBase {
       // disappear (page navigation) between the existence check and the
       // getTraceData call. Two round-trips left a TOCTOU race that surfaced
       // spurious "Cannot read properties of undefined" errors.
-      const payload = await browser.execute(() =>
-        typeof window.wdioTraceCollector !== 'undefined'
-          ? window.wdioTraceCollector.getTraceData()
-          : null
-      )
+      // forceAnchor: capture the current document before draining — for a final
+      // closing navigation whose async initial anchor hasn't run by teardown.
+      const payload = await browser.execute((anchor) => {
+        if (typeof window.wdioTraceCollector === 'undefined') {
+          return null
+        }
+        if (anchor) {
+          window.wdioTraceCollector.captureCurrentDom()
+        }
+        return window.wdioTraceCollector.getTraceData()
+      }, forceAnchor)
       if (!payload) {
         log.warn(
           'wdioTraceCollector not loaded yet - page loaded before preload script took effect'

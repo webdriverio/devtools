@@ -15,6 +15,7 @@ const capturer = vi.hoisted(() => ({
   failLastAction: vi.fn(),
   captureSource: vi.fn().mockResolvedValue(undefined),
   injectScript: vi.fn().mockResolvedValue(undefined),
+  captureTrace: vi.fn().mockResolvedValue(undefined),
   sendUpstream: vi.fn(),
   cleanup: vi.fn(),
   resetLastSelector: vi.fn(),
