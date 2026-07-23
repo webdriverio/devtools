@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { fileURLToPath } from 'node:url'
 import {
+  chrome150InputRegressionWarning,
   getBrowserObject,
   isUserSpecFile,
   setCurrentSpecFile
@@ -97,6 +98,74 @@ describe('service utils', () => {
       const selfDir = fileURLToPath(new URL('../src/', import.meta.url))
       expect(isUserSpecFile(`${selfDir}index.js`)).toBe(false)
       expect(isUserSpecFile(`file://${selfDir}session.js`)).toBe(false)
+    })
+  })
+
+  describe('chrome150InputRegressionWarning', () => {
+    it('warns only for Chrome 150.x', () => {
+      expect(
+        chrome150InputRegressionWarning({
+          browserName: 'chrome',
+          browserVersion: '150.0.7871.130'
+        })
+      ).toContain('input regression')
+      // Case-insensitive browser name (grids report "Chrome").
+      expect(
+        chrome150InputRegressionWarning({
+          browserName: 'Chrome',
+          browserVersion: '150.0.1'
+        })
+      ).toBeDefined()
+    })
+
+    it('is silent for unaffected versions and browsers', () => {
+      expect(
+        chrome150InputRegressionWarning({
+          browserName: 'chrome',
+          browserVersion: '149.0.7827.155'
+        })
+      ).toBeUndefined()
+      expect(
+        chrome150InputRegressionWarning({
+          browserName: 'chrome',
+          browserVersion: '151.0.7922.47'
+        })
+      ).toBeUndefined()
+      expect(
+        chrome150InputRegressionWarning({
+          browserName: 'firefox',
+          browserVersion: '150.0'
+        })
+      ).toBeUndefined()
+      expect(chrome150InputRegressionWarning({})).toBeUndefined()
+      expect(chrome150InputRegressionWarning(undefined)).toBeUndefined()
+    })
+
+    it('is silent for headed Chrome 150 (args prove no headless)', () => {
+      expect(
+        chrome150InputRegressionWarning({
+          browserName: 'chrome',
+          browserVersion: '150.0.7871.130',
+          'goog:chromeOptions': { args: ['--window-size=1600,900'] }
+        })
+      ).toBeUndefined()
+    })
+
+    it('warns for headless Chrome 150 and when args are unknown', () => {
+      expect(
+        chrome150InputRegressionWarning({
+          browserName: 'chrome',
+          browserVersion: '150.0.7871.130',
+          'goog:chromeOptions': { args: ['--headless', '--disable-gpu'] }
+        })
+      ).toContain('input regression')
+      // No args → can't prove headed, so warn (CI headless is the common case).
+      expect(
+        chrome150InputRegressionWarning({
+          browserName: 'chrome',
+          browserVersion: '150.0.7871.130'
+        })
+      ).toBeDefined()
     })
   })
 })

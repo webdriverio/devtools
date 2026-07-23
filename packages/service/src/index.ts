@@ -50,7 +50,11 @@ import type { WebDriverCommands } from '@wdio/protocols'
 import { SessionCapturer } from './session.js'
 import { TestReporter } from './reporter.js'
 import { DevToolsAppLauncher } from './launcher.js'
-import { getBrowserObject, isUserSpecFile } from './utils.js'
+import {
+  chrome150InputRegressionWarning,
+  getBrowserObject,
+  isUserSpecFile
+} from './utils.js'
 import { ScreencastRecorder } from './screencast.js'
 import { attachBidiListeners } from './bidi-listeners.js'
 import { parse } from 'stack-trace'
@@ -84,7 +88,6 @@ export default class DevToolsHookService implements Services.ServiceInstance {
   #testReporters: TestReporter[] = []
   #sessionCapturer = new SessionCapturer()
   #browser?: WebdriverIO.Browser
-  #bidiListenersSetup = false
   #screencastRecorder?: ScreencastRecorder
   #screencastOptions?: ScreencastOptions
   #options: ServiceOptions
@@ -298,6 +301,11 @@ export default class DevToolsHookService implements Services.ServiceInstance {
   ) {
     this.#browser = browser
 
+    const versionWarning = chrome150InputRegressionWarning(browser.capabilities)
+    if (versionWarning) {
+      log.warn(versionWarning)
+    }
+
     /**
      * create a new session capturer instance with the devtools options
      */
@@ -328,6 +336,12 @@ export default class DevToolsHookService implements Services.ServiceInstance {
           `Failed to inject script at session start: ${errorMessage(err)}`
         )
       }
+    }
+
+    // WDIO has already subscribed the BiDi events by now, so attaching here
+    // issues no mid-run protocol traffic and misses no early events.
+    if (browser.isBidi) {
+      attachBidiListeners(browser, this.#sessionCapturer)
     }
 
     /**
@@ -643,6 +657,13 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     if (this.#options.mode !== 'trace' || !this.#browser) {
       return
     }
+    // Drain the collector one final time while the session is still alive, so the
+    // DOM the LAST command produced is recorded — a closing navigation (e.g. a
+    // logout landing back on the login page) fires no subsequent beforeCommand,
+    // which is where every other drain happens, so its destination DOM would
+    // otherwise never be captured before teardown. forceAnchor: the destination's
+    // async initial anchor may not have run yet, so anchor it synchronously here.
+    await this.#sessionCapturer.captureTrace(this.#browser, true)
     const stamp = this.#lastActionTimestamp()
     const snap = await captureActionSnapshot(this.#browser, '__final__')
     if (snap) {
@@ -692,11 +713,6 @@ export default class DevToolsHookService implements Services.ServiceInstance {
   async beforeCommand(command: string, args: string[]) {
     if (!this.#browser) {
       return
-    }
-    // BiDi listeners attach on the first command (before any execute).
-    if (!this.#bidiListenersSetup && this.#browser.isBidi) {
-      this.#bidiListenersSetup = true
-      attachBidiListeners(this.#browser, this.#sessionCapturer)
     }
     // On first URL navigation, mark the start of meaningful recording so
     // leading blank frames (pre-test pauses, etc.) are trimmed from the video.

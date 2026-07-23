@@ -75,8 +75,6 @@ declare namespace WebdriverIO {
     // omitted from WDIO's public Browser type. Returns Puppeteer's top-level
     // browser object — see screencast.ts for the local shape we use.
     getPuppeteer?: () => Promise<unknown>
-    // BiDi-specific WDIO method, present at runtime when BiDi is active.
-    sessionSubscribe?: (opts: { events: string[] }) => Promise<unknown>
     // Runtime DOM snapshot for agent auto-healing. Added by
     // @wdio/devtools-service in the before hook.
     getSnapshot(options?: { inViewportOnly?: boolean }): Promise<SnapshotResult>

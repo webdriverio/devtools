@@ -63,3 +63,40 @@ export function getBrowserObject(
     ? getBrowserObject(elemObject.parent)
     : (elem as WebdriverIO.Browser)
 }
+
+/** Chrome 150's headless mode silently drops trusted input (clicks, keys)
+ *  once automation traffic like the devtools capture runs on a page reached
+ *  via click navigation — clicks then report success without navigating.
+ *  ≤149, ≥151, and headed 150 are unaffected. Returns a warning to log when
+ *  the session is (or may be) affected, else undefined. */
+export function chrome150InputRegressionWarning(
+  capabilities:
+    | {
+        browserName?: string
+        browserVersion?: string
+        'goog:chromeOptions'?: { args?: string[] }
+      }
+    | undefined
+): string | undefined {
+  if (
+    capabilities?.browserName?.toLowerCase() !== 'chrome' ||
+    !capabilities.browserVersion?.startsWith('150.')
+  ) {
+    return undefined
+  }
+  // The regression is headless-only; skip the warning when the args prove the
+  // session is headed. Absent/unknown args → warn (headless is WDIO's common
+  // CI default and the false-positive cost is one log line).
+  const args = capabilities['goog:chromeOptions']?.args
+  const headed =
+    Array.isArray(args) && !args.some((a) => a.includes('headless'))
+  if (headed) {
+    return undefined
+  }
+  return (
+    `Chrome ${capabilities.browserVersion} headless has a known input regression: ` +
+    'element clicks may silently stop navigating while DevTools capture is active. ' +
+    "Pin capabilities browserVersion: '149' (or '151' once stable) or run headed. " +
+    'Fixed in Chrome 151.'
+  )
+}
