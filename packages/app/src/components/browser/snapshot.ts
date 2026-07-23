@@ -5,6 +5,7 @@ import { snapshotStyles } from './snapshot-styles.js'
 import { renderBrowserChrome } from './browser-chrome.js'
 import { drawElementOverlay, clearElementOverlay } from './element-overlay.js'
 import { commandPageUrl } from './url-at-timestamp.js'
+import { mutationForCommand } from './mutation-at-command.js'
 import { imageMime } from './trace-timeline-utils.js'
 
 import { type ComponentChildren, h, render, type VNode } from 'preact'
@@ -187,18 +188,37 @@ export class DevtoolsBrowser extends Element {
       this.section.style.height = '100%'
 
       // Iframe absent in screenshot/video modes — section sizing above still runs.
-      if (this.iframe) {
-        this.iframe.style.width = `${viewportWidth}px`
-        this.iframe.style.height = `${viewportHeight}px`
-        this.iframe.style.transformOrigin = '0 0'
-        this.iframe.style.transform = `scale(${scale})`
-        this.iframe.style.left = `${Math.max(0, (availW - viewportWidth * scale) / 2)}px`
-        this.iframe.style.top = '0px'
-      }
+      this.#scaleReplayIframe(viewportWidth, viewportHeight, scale)
       // Layout is now settled — the one moment element rects are reliable, so
       // the overlay boxes track the replayed DOM after every step and resize.
       this.#redrawOverlay()
     })
+  }
+
+  /** Scale the DOM-replay iframe to the captured viewport. Content taller than
+   *  the viewport scrolls INSIDE the iframe — a native page scrollbar at the
+   *  page's own edge, like a real browser window — so the player adds no outer
+   *  scroll surface and no gutter can appear beside the page. Centering is the
+   *  wrapper's job (align-items), so the iframe sits at 0,0 inside the sizer. */
+  #scaleReplayIframe(
+    viewportWidth: number,
+    viewportHeight: number,
+    scale: number
+  ) {
+    if (!this.iframe) {
+      return
+    }
+    this.iframe.style.width = `${viewportWidth}px`
+    this.iframe.style.height = `${viewportHeight}px`
+    this.iframe.style.transformOrigin = '0 0'
+    this.iframe.style.transform = `scale(${scale})`
+    this.iframe.style.left = '0px'
+    this.iframe.style.top = '0px'
+    const sizer = this.iframe.parentElement
+    if (sizer) {
+      sizer.style.width = `${viewportWidth * scale}px`
+      sizer.style.height = `${viewportHeight * scale}px`
+    }
   }
 
   #handleShowCommand = (event: Event) =>
@@ -271,34 +291,19 @@ export class DevtoolsBrowser extends Element {
     }
     // Switch to snapshot mode so the command snapshot is visible instead of the video.
     this.#viewMode = 'snapshot'
-    // DOM time-travel: rebuild the iframe DOM as of the selected command's time.
-    // #renderBrowserState requestUpdates internally, so only request one here
-    // when there's no mutation stream to replay (screenshot-only fallback).
-    const target = this.#mutationForCommand(command)
+    // DOM time-travel: rebuild the iframe DOM to the command's RESULT state (see
+    // #mutationForCommand). #renderBrowserState requestUpdates internally, so
+    // only request one here when there's no mutation stream (screenshot fallback).
+    const target = mutationForCommand(
+      command,
+      this.commands ?? [],
+      this.mutations ?? []
+    )
     if (target) {
       await this.#renderBrowserState(target)
     } else {
       this.requestUpdate()
     }
-  }
-
-  /** The last mutation captured at or before the command's time — the DOM state
-   *  the command observed. Falls back to the first mutation when every mutation
-   *  is later (command precedes the slice's initial full-DOM snapshot). */
-  #mutationForCommand(command?: CommandLog): TraceMutation | undefined {
-    const mutations = this.mutations
-    if (!command?.timestamp || !mutations?.length) {
-      return undefined
-    }
-    let best: TraceMutation | undefined
-    for (const mutation of mutations) {
-      if (mutation.timestamp <= command.timestamp) {
-        best = mutation
-      } else {
-        break
-      }
-    }
-    return best ?? mutations[0]
   }
 
   // View-mode flips swap the iframe with <img>/<video> and don't fire resize.
@@ -326,8 +331,9 @@ export class DevtoolsBrowser extends Element {
   }
 
   #renderVdom() {
-    const docEl = this.iframe?.contentDocument?.documentElement
-    if (!docEl) {
+    const doc = this.iframe?.contentDocument
+    const docEl = doc?.documentElement
+    if (!doc || !docEl) {
       return
     }
 
@@ -336,7 +342,21 @@ export class DevtoolsBrowser extends Element {
      * representation of the page
      */
     ;[...this.#vdom.querySelectorAll('script')].forEach((el) => el.remove())
-    docEl.ownerDocument.replaceChild(this.#vdom, docEl)
+
+    // importNode into the iframe's document before replaceChild so adoption
+    // happens node-by-node in one document: a cross-document graft makes
+    // Chromium silently drop body's first element child (the leading flash row).
+    const html = this.#vdom.firstElementChild
+    if (!html) {
+      return
+    }
+    doc.replaceChild(doc.importNode(html, true), docEl)
+
+    // Player chrome, not captured content: thin down the replayed page's own
+    // scrollbar so it reads as part of the mock browser window.
+    const scrollbarStyle = doc.createElement('style')
+    scrollbarStyle.textContent = ':root { scrollbar-width: thin }'
+    doc.head?.appendChild(scrollbarStyle)
 
     this.#setIframeSize()
   }
@@ -408,12 +428,22 @@ export class DevtoolsBrowser extends Element {
       return
     }
 
+    // Insert added nodes at their captured position via a detached holder.
+    // render(vnode, el) can't append — Preact treats `el` as its render root and
+    // reconciles its children, replacing el's first child instead of inserting
+    // (which would wipe a real sibling, e.g. body's flash banner).
+    const nextRef = mutation.nextSibling
+    const candidate = nextRef ? this.#queryElement(nextRef, el) : undefined
+    const before = candidate?.parentNode === el ? candidate : null
     mutation.addedNodes.forEach((node) => {
       if (typeof node === 'string') {
-        el.appendChild(document.createTextNode(node))
+        el.insertBefore(document.createTextNode(node), before)
       } else {
-        const root = transform(node)
-        render(root, el)
+        const holder = el.ownerDocument.createElement('div')
+        render(transform(node), holder)
+        while (holder.firstChild) {
+          el.insertBefore(holder.firstChild, before)
+        }
       }
     })
 
@@ -720,8 +750,10 @@ export class DevtoolsBrowser extends Element {
     // time, so points without a captured frame (assertions, static waits) still
     // show the real page instead of a blank/stale screenshot.
     if (hasMutations) {
-      return html`<div class="iframe-wrapper">
-        <iframe class="origin-top-left"></iframe>
+      return html`<div class="iframe-wrapper iframe-wrapper--replay">
+        <div class="iframe-sizer">
+          <iframe class="origin-top-left"></iframe>
+        </div>
       </div>`
     }
     // No mutation stream (DOM-less / foreign trace): fall back to the selected
