@@ -14,7 +14,6 @@ Thanks for contributing to WebdriverIO DevTools! This guide gets you from a clon
 ```bash
 git clone https://github.com/<your-username>/devtools
 cd devtools
-git remote add upstream https://github.com/webdriverio/devtools
 
 pnpm install
 pnpm build
@@ -70,18 +69,24 @@ Resolving question: *who else would want this?* If "any future adapter would," i
 
 ## Changesets
 
-This repo publishes with [changesets](https://github.com/changesets/changesets). If your change affects a published package, add one:
+This repo publishes with [changesets](https://github.com/changesets/changesets). **If your change touches a published package, add a changeset** — without one the release won't bump or publish it.
 
 ```bash
-pnpm changeset
+pnpm changeset      # or: npx changeset
 ```
 
-Pick the bumped packages and a semver level, and commit the generated file with your change.
+Then pick:
+
+- **Packages** — only the **published** ones you changed: `@wdio/devtools-service`, `@wdio/selenium-devtools`, `@wdio/nightwatch-devtools`, `@wdio/devtools-backend`, `@wdio/devtools-app`, `@wdio/devtools-script`, `@wdio/elements`. Do **not** select `@wdio/devtools-shared` or `@wdio/devtools-core` — they're private and inlined into their consumers, so a change there just means bumping the consumers (a released package that depends on them).
+- **Level** — by impact: **major** = a breaking change (removed/renamed option, changed default), **minor** = a backward-compatible feature, **patch** = a backward-compatible fix.
+
+Commit the generated `.changeset/*.md` with your change. You don't edit `CHANGELOG.md` or version numbers — the release generates those from your changeset. Publishing itself is a **manual step a maintainer runs** (the "Manual NPM Publish" GitHub Action), so your job ends at landing the changeset.
 
 ## Before you push
 
 - `pnpm build`, `pnpm test`, and `pnpm lint` all green — don't push red.
 - UI / runtime changes verified in `examples/<framework>/`.
+- A changeset added if a published package changed (`pnpm changeset`).
 - User-facing changes (a new option, CLI, flag, output, or workflow) update the relevant README **and** are mirrored to the [WebdriverIO devtools webpage](https://webdriver.io/docs/devtools) in the same change.
 
 ## Pull requests
