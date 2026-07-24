@@ -36,6 +36,11 @@ export class DevtoolsA11yTree extends Element {
   @state()
   private copiedSel?: string
 
+  /** Locator under the cursor — drives the copy-hint bar so the click-to-copy
+   *  affordance is discoverable without waiting for the native title tooltip. */
+  @state()
+  private hoveredSel?: string
+
   /** Reverse of #highlight — the row the snapshot pane points at. `revealed` is
    *  transient (overlay-box hover); `pinned` persists (box click, which also
    *  opens this tab). Both matched by selector then accessible name. */
@@ -50,6 +55,7 @@ export class DevtoolsA11yTree extends Element {
     // A pin belongs to one page state; drop it when the command changes.
     this.pinned = undefined
     this.revealed = undefined
+    this.hoveredSel = undefined
   }
 
   #onReveal = (e: Event) => {
@@ -143,9 +149,56 @@ export class DevtoolsA11yTree extends Element {
     ...Element.styles,
     css`
       :host {
-        display: block;
+        display: flex;
+        flex-direction: column;
         width: 100%;
         height: 100%;
+        overflow: hidden;
+      }
+      /* Fixed hint bar: names the click-to-copy affordance and echoes the
+         locator under the cursor, so it's discoverable without the native
+         title tooltip. Stays put while the tree scrolls beneath it. */
+      .copybar {
+        flex: none;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 7px 12px;
+        font-family: var(--vscode-editor-font-family, monospace);
+        font-size: 11px;
+        border-bottom: 1px solid
+          var(--vscode-panel-border, rgba(255, 255, 255, 0.08));
+        background: var(
+          --vscode-editorWidget-background,
+          rgba(255, 255, 255, 0.03)
+        );
+        white-space: nowrap;
+        overflow: hidden;
+      }
+      .copybar .clip {
+        color: var(--pick, #38bdf8);
+        flex: none;
+      }
+      .copybar .lead {
+        color: var(--vscode-descriptionForeground);
+        flex: none;
+      }
+      .copybar .loc {
+        color: var(--pick, #38bdf8);
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .copybar .ok {
+        color: var(--vscode-charts-green, #46c96a);
+        flex: none;
+      }
+      .copybar .idle {
+        color: var(--vscode-descriptionForeground);
+        opacity: 0.7;
+      }
+      .scroll {
+        flex: 1;
+        min-height: 0;
         overflow: auto;
       }
       .tree {
@@ -246,8 +299,14 @@ export class DevtoolsA11yTree extends Element {
     return html`<div
       class="node ${sel ? 'pick' : ''} ${hot ? 'hot' : ''}"
       style="padding-left:${8 + node.depth * 16}px"
-      @mouseenter=${() => this.#highlight(sel)}
-      @mouseleave=${() => this.#highlight(undefined)}
+      @mouseenter=${() => {
+        this.hoveredSel = sel
+        this.#highlight(sel)
+      }}
+      @mouseleave=${() => {
+        this.hoveredSel = undefined
+        this.#highlight(undefined)
+      }}
       @click=${() => this.#copy(sel)}
       title=${sel ? `Click to copy locator: ${sel}` : nothing}
     >
@@ -264,6 +323,27 @@ export class DevtoolsA11yTree extends Element {
     </div>`
   }
 
+  /** The copy-hint bar's content: a copied confirmation, else the locator under
+   *  the cursor (or the one the snapshot pane is pointing at), else the idle
+   *  affordance prompt. */
+  #hint(): TemplateResult {
+    if (this.copiedSel) {
+      return html`<span class="ok">✓ Copied</span
+        ><span class="loc">${this.copiedSel}</span>`
+    }
+    const sel =
+      this.hoveredSel ?? this.pinned?.selector ?? this.revealed?.selector
+    if (sel) {
+      return html`<span class="clip">⧉</span
+        ><span class="lead">Click to copy locator:</span
+        ><span class="loc">${sel}</span>`
+    }
+    return html`<span class="clip">⧉</span
+      ><span class="idle"
+        >Hover a node to preview its locator — click to copy</span
+      >`
+  }
+
   render() {
     const text = this.active?.snapshotText
     if (!text) {
@@ -276,10 +356,13 @@ export class DevtoolsA11yTree extends Element {
     const nodes = lines
       .map((l) => this.#parse(l))
       .filter((n): n is A11yNode => n !== null)
-    return html`<div class="tree">
-      ${header ? html`<div class="hdr">${header}</div>` : nothing}
-      ${nodes.map((n) => this.#row(n))}
-    </div>`
+    return html`<div class="copybar">${this.#hint()}</div>
+      <div class="scroll">
+        <div class="tree">
+          ${header ? html`<div class="hdr">${header}</div>` : nothing}
+          ${nodes.map((n) => this.#row(n))}
+        </div>
+      </div>`
   }
 }
 
