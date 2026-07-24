@@ -194,6 +194,30 @@ describe('DevtoolsService - Internal Command Filtering', () => {
       }
     )
   })
+
+  // Live mode (default) relies solely on the mutation stream for DOM replay. A
+  // navigating command discards the outgoing page's collector, so its buffered
+  // field edits must be flushed in beforeCommand — else the replayed action
+  // shows empty inputs. This drain used to be gated to trace mode.
+  describe('beforeCommand - pre-navigation flush (live mode)', () => {
+    beforeEach(async () => {
+      await service.before({} as any, [], mockBrowser)
+      vi.clearAllMocks()
+    })
+
+    it.each(['url', 'navigateTo', 'click', 'elementClick'])(
+      'flushes buffered mutations before navigating command %s',
+      async (cmd) => {
+        await service.beforeCommand(cmd as any, ['a[href="/logout"]'])
+        expect(mockSessionCapturerInstance.captureTrace).toHaveBeenCalled()
+      }
+    )
+
+    it('does not flush before a non-navigating command', async () => {
+      await service.beforeCommand('getText' as any, ['#flash'])
+      expect(mockSessionCapturerInstance.captureTrace).not.toHaveBeenCalled()
+    })
+  })
 })
 
 describe('DevtoolsService - Screencast Integration', () => {

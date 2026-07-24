@@ -721,45 +721,48 @@ export default class DevToolsHookService implements Services.ServiceInstance {
       this.#screencastRecorder?.setStartMarker()
       this.#sessionCapturer.sendUpstream('metadata', { url: args[0] })
     }
-    // Flush the outgoing page's buffered mutations (e.g. field edits from prior
-    // fills — value/checked changes fire no page transition) BEFORE a navigating
-    // command discards its collector, else the replay shows empty inputs.
-    if (
-      this.#options.mode === 'trace' &&
-      PAGE_TRANSITION_COMMANDS.includes(command)
-    ) {
-      await this.#sessionCapturer.captureTrace(this.#browser)
-    }
-    // Smart stack filtering to detect top-level user commands.
+    // Smart stack filtering to detect top-level user commands. This bookkeeping
+    // is synchronous and must settle BEFORE any await below, because afterCommand
+    // pops exactly what beforeCommand pushed — a stack push stranded behind an
+    // await would let a same-tick afterCommand miss the frame.
     Error.stackTraceLimit = 20
     const stack = parse(new Error('')).reverse()
     const source = stack.find((frame) => isUserSpecFile(frame.getFileName()))
     // A matcher's value-read (getText/isExisting) is captured normally like any
     // command; afterAssertion later folds it into the expect.<matcher> row (see
     // coalesceAssertionIntoLastRead) — no suppression window needed here.
-    if (source && this.#commandStack.length === 0) {
+    const topLevelUserCommand = source && this.#commandStack.length === 0
+    if (topLevelUserCommand) {
       this.#pushTopLevelCommandFrame(
         command,
         resolveCallSourceFromFrame(source)
       )
-
-      // Pre-action capture: state BEFORE this action executes.  Will be
-      // stamped at the previous action's end time (or 0 for the first).
-      if (
-        this.#options.mode === 'trace' &&
-        this.#browser &&
-        mapCommandToAction(command) &&
-        !INTERNAL_COMMANDS.includes(command)
-      ) {
-        const snap = await captureActionSnapshot(this.#browser, command)
-        if (snap) {
-          snap.timestamp = this.#lastActionTimestamp()
-          this.#actionSnapshots.push(snap)
-        }
-        // Tag the current document so the post-action capture can tell whether
-        // this action navigated (a new document drops the tag).
-        await this.#markDocument()
+    }
+    // Flush the outgoing page's buffered mutations (e.g. field edits from prior
+    // fills — value/checked changes fire no page transition) BEFORE a navigating
+    // command discards its collector, else the replay shows empty inputs. Runs
+    // in live mode too: navigation drops the old document's collector, so the
+    // post-navigation afterCommand drain would hit the fresh page and lose them.
+    if (PAGE_TRANSITION_COMMANDS.includes(command)) {
+      await this.#sessionCapturer.captureTrace(this.#browser)
+    }
+    // Pre-action capture: state BEFORE this action executes. Stamped at the
+    // previous action's end time (or 0 for the first). Trace mode only.
+    if (
+      topLevelUserCommand &&
+      this.#options.mode === 'trace' &&
+      this.#browser &&
+      mapCommandToAction(command) &&
+      !INTERNAL_COMMANDS.includes(command)
+    ) {
+      const snap = await captureActionSnapshot(this.#browser, command)
+      if (snap) {
+        snap.timestamp = this.#lastActionTimestamp()
+        this.#actionSnapshots.push(snap)
       }
+      // Tag the current document so the post-action capture can tell whether
+      // this action navigated (a new document drops the tag).
+      await this.#markDocument()
     }
   }
 
