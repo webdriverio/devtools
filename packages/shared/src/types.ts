@@ -184,6 +184,12 @@ export interface CommandLog {
    *  element at capture time. Synthesized in the exporter; drives the snapshot
    *  click marker and the timeline pointer glyph. */
   point?: { x: number; y: number }
+  /** Locator of the element this command acted on. Survives assertion folding
+   *  (where `args` becomes the expected value), so the player's element overlay
+   *  can box an assertion target like `#flash`. Carried through the trace as the
+   *  `locator` action param — kept distinct from the `selector` param so it
+   *  never feeds `paramsToArgs`. */
+  selector?: string
 }
 
 /**

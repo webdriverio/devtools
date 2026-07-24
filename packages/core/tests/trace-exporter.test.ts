@@ -74,6 +74,23 @@ describe('buildActionEvents', () => {
     expect(after.result).toBeUndefined()
   })
 
+  it('carries CommandLog.selector as a `locator` param without touching args', () => {
+    // A folded assertion: args hold the expected value, selector the element.
+    const commands = [
+      cmd('expect.toHaveText', {
+        args: ['You logged out of the secure area!'],
+        selector: '#flash'
+      })
+    ]
+    const before = buildActionEvents(commands, pageId, wallTime).find(
+      (e) => e.type === 'before'
+    )!
+    expect(before.params.locator).toBe('#flash')
+    // The expected value stays the positional arg — locator must not hijack it.
+    expect(before.params.selector).toBeUndefined()
+    expect(before.params['0']).toBe('You logged out of the secure area!')
+  })
+
   it('returns empty array for no commands', () => {
     expect(buildActionEvents([], pageId, wallTime)).toEqual([])
   })

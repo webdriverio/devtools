@@ -335,6 +335,40 @@ describe('parseTraceZip', () => {
     expect(trace.commands[0]?.point).toEqual({ x: 30, y: 25 })
   })
 
+  it('restores CommandLog.selector from the `locator` param without disturbing args', () => {
+    const zip = zipSync({
+      'trace.trace': toNdjson([
+        {
+          type: 'context-options',
+          wallTime: WALL_TIME,
+          browserName: 'chrome',
+          contextId: 'context@abcd1234',
+          options: { viewport: { width: 1024, height: 768 } }
+        },
+        {
+          type: 'before',
+          callId: 'call@1',
+          startTime: 0,
+          class: 'Assert',
+          method: 'toHaveText',
+          // A folded assertion: expected value in the positional arg, the
+          // targeted element carried out-of-band as `locator`.
+          params: {
+            '0': 'You logged out of the secure area!',
+            locator: '#flash'
+          }
+        },
+        { type: 'after', callId: 'call@1', endTime: 50 }
+      ])
+    })
+    const { trace } = parseTraceZip(zip)
+    expect(trace.commands[0]?.selector).toBe('#flash')
+    // locator must not leak into the reconstructed args.
+    expect(trace.commands[0]?.args).toEqual([
+      'You logged out of the secure area!'
+    ])
+  })
+
   it('restores callSource and sources from stack frames + src resources', () => {
     const { trace } = parseTraceZip(fixtureZip())
     const click = trace.commands.find((c) => c.command === 'click')

@@ -37,10 +37,57 @@ function elementLabel(el: Element): string {
   return el.getAttribute('placeholder')?.trim() ?? ''
 }
 
+/** Resolve a test locator in the replayed document: native CSS first, then the
+ *  WebdriverIO text-selectors querySelector can't parse (`tag=Exact`,
+ *  `tag*=Contains`, and their tag-less forms). Returns the deepest text match
+ *  so a container that merely encloses the text isn't boxed over the real
+ *  element. Returns null when nothing matches (locator absent on this page). */
+export function resolveTestSelector(
+  doc: Document,
+  selector: string
+): Element | null {
+  try {
+    const css = doc.querySelector(selector)
+    if (css) {
+      return css
+    }
+  } catch {
+    // Not valid CSS — try the WDIO text-selector forms below.
+  }
+  // WDIO text-selector: `tag=Exact` / `tag*=Contains` (tag optional). Parsed by
+  // hand — a single regex for it trips the redos linter. querySelector already
+  // handled every real CSS form above (incl. `[attr*=v]`), so anything with a
+  // non-tag head here is junk and bails.
+  const eq = selector.indexOf('=')
+  if (eq < 0) {
+    return null
+  }
+  const text = selector.slice(eq + 1).trim()
+  let head = selector.slice(0, eq)
+  const exact = !head.endsWith('*')
+  if (!exact) {
+    head = head.slice(0, -1)
+  }
+  if (!text || (head && !/^[a-zA-Z][\w-]*$/.test(head))) {
+    return null
+  }
+  const hits = Array.from(doc.querySelectorAll(head || '*')).filter((el) => {
+    const elText = (el.textContent || '').trim()
+    return exact ? elText === text : elText.includes(text)
+  })
+  return (
+    hits.find(
+      (el) => !hits.some((other) => other !== el && el.contains(other))
+    ) ??
+    hits[hits.length - 1] ??
+    null
+  )
+}
+
 /**
- * Outline each selector that resolves in the replayed iframe, labelled with the
- * locator and copying it on click. Selectors that querySelector can't parse
- * (WDIO-style, e.g. `button*=Login`) are skipped rather than throwing.
+ * Outline each locator the test used that resolves on the replayed page,
+ * labelled with the locator and copying it on click. A locator absent from the
+ * current page (e.g. the element a click navigated away from) draws no box.
  */
 export function drawElementOverlay(
   iframe: HTMLIFrameElement | null | undefined,
@@ -61,12 +108,7 @@ export function drawElementOverlay(
   const scrollY = iframe?.contentWindow?.scrollY || 0
   const scrollX = iframe?.contentWindow?.scrollX || 0
   for (const selector of selectors) {
-    let el: Element | null = null
-    try {
-      el = docEl.querySelector(selector)
-    } catch {
-      continue // non-CSS (WDIO) locator — can't resolve in the DOM
-    }
+    const el = resolveTestSelector(docEl, selector)
     if (!el) {
       continue
     }

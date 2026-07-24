@@ -532,7 +532,9 @@ export class DevtoolsBrowser extends Element {
   #testSelectors(): string[] {
     const seen = new Set<string>()
     for (const command of this.commands ?? []) {
-      const arg = command.args?.[0]
+      // Prefer the captured locator: an assertion's args carry its expected
+      // value, not the element it targeted (e.g. `#flash`).
+      const arg = command.selector ?? command.args?.[0]
       if (typeof arg === 'string' && arg) {
         seen.add(arg)
       }

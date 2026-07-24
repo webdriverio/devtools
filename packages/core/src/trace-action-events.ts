@@ -213,6 +213,12 @@ function buildParamsAndTitle(
   const params = isAssert
     ? buildAssertParams(cmd)
     : buildActionParams(action, cmd.args)
+  // The element this command targeted, under a key distinct from `selector` so
+  // it never feeds `paramsToArgs` — lets the reader restore CommandLog.selector
+  // for the player's overlay even when args carry an assertion's expected value.
+  if (cmd.selector && params.locator === undefined) {
+    params.locator = cmd.selector
+  }
   return {
     params,
     title: formatActionTitle(

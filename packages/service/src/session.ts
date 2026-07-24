@@ -186,6 +186,7 @@ export class SessionCapturer extends SessionCapturerBase {
       if (hasNoSelector) {
         commandLogEntry.args = [this.#lastSelector]
       }
+      commandLogEntry.selector = this.#lastSelector
     }
 
     // For setValue / addValue, prepend the last selector so trace params
@@ -294,7 +295,11 @@ export class SessionCapturer extends SessionCapturerBase {
       startTime: last.startTime,
       callSource: entry.callSource ?? last.callSource,
       screenshot: entry.screenshot ?? last.screenshot,
-      error: entry.error ?? last.error
+      error: entry.error ?? last.error,
+      // The matcher's `args` become the expected value on fold, so the read's
+      // locator is the only record of which element the assertion targeted —
+      // carry it so the player's overlay can box e.g. `#flash`.
+      selector: entry.selector ?? last.selector ?? this.#lastSelector
     }
     log[log.length - 1] = merged
     this.sendReplaceCommand(last.timestamp, merged)

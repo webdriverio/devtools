@@ -243,6 +243,10 @@ function reconstructCommand(
   if (after?.point) {
     command.point = after.point
   }
+  const locator = before.params?.locator
+  if (typeof locator === 'string') {
+    command.selector = locator
+  }
   return command
 }
 
