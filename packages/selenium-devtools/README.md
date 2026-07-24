@@ -312,7 +312,7 @@ DevTools.configure({ rerunCommand: 'npm test -- --grep "{{testName}}"' })
 ```
 
 #### `mode` — live UI vs. headless trace.zip
-**Default:** `'live'` (launches the dashboard window). Set to `'trace'` to skip the dashboard entirely and write a `trace-<sessionId>.zip` next to your test file at session end — meant for CI / offline replay / agentic diffing. `screencast` is ignored in trace mode (live-mode-only feature).
+**Default:** `'live'` (launches the dashboard window). Set to `'trace'` to skip the dashboard entirely and write a `trace-<sessionId>.zip` under a `test-results/` directory at session end (the base dir resolves from the test file's directory → the config directory → cwd) — meant for CI / offline replay / agentic diffing. For `traceGranularity: 'test'` the per-test artifact lands at `test-results/<spec>-<title>-<browser>[-retryN]/trace.zip`. `screencast` is ignored in trace mode (live-mode-only feature).
 
 ```javascript
 DevTools.configure({ mode: 'trace' })
@@ -332,7 +332,7 @@ DevTools.configure({ mode: 'trace', traceGranularity: 'test' })
 **Default:** `'zip'` (a single `trace-<sessionId>.zip`). `'ndjson-directory'` writes the same `trace.trace` + `trace.network` + `resources/` layout unpacked into `trace-<id>/`, skipping the unzip step for scripted / agentic consumers. Trace mode only.
 
 #### `filmstrip` — dense scrubbable screencast in the trace
-**Default:** `false`. Records a continuous screencast (CDP push on Chrome, screenshot polling elsewhere) into the trace so the player timeline scrubs frame-by-frame, not just one frame per action. Trace mode only.
+**Default:** `true`. Records a continuous screencast (CDP push on Chrome, screenshot polling elsewhere) into the trace so the player timeline scrubs frame-by-frame. On by default in trace mode; set `false` to record just one frame per action. Trace mode only.
 
 ```javascript
 DevTools.configure({ mode: 'trace', filmstrip: true })

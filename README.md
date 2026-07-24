@@ -79,6 +79,28 @@ All three adapters (`@wdio/devtools-service`, `@wdio/selenium-devtools`, `@wdio/
 
 The trace **format and the player are identical** across the three adapters, but **capture completeness varies** — WebdriverIO is the most complete; Selenium and Nightwatch cover the core flow with some gaps (e.g. inline-Allure per-test artifacts, retry-aware retention, Cucumber step nesting, auto BiDi). Each adapter's README lists its specifics.
 
+**Trace-mode support by adapter:**
+
+| Capability | WebdriverIO | Selenium | Nightwatch |
+|---|---|---|---|
+| Trace mode + `show-trace` player | ✅ | ✅ | ✅ |
+| DOM time-travel (mutation capture) | ✅ | ✅ ¹ | ✅ |
+| Dense filmstrip (`filmstrip`) | ✅ CDP push | ✅ CDP push | ⚠️ polling only |
+| Per-test granularity (`traceGranularity: 'test'`) | ✅ | ✅ | ⚠️ ² |
+| Retry-aware retention (`tracePolicy`) | ✅ | ✅ | ⚠️ ³ |
+| Cucumber step nesting | Scenario→Step ⁴ | ✅ full | Feature→Scenario ⁵ |
+| Inline Allure attach | ✅ | ✅ | ⚠️ produce-only ⁶ |
+| Assertion capture (`captureAssertions`) | ✅ | ✅ | ✅ |
+| Auto BiDi capture | ✅ auto | ✅ auto | ⚠️ opt-in ⁷ |
+
+¹ Selenium reconstructs the DOM per navigation; anchor timing is approximate (a navigation's snapshot can lag the command that triggered it).
+² Nightwatch's Cucumber and exports-object interfaces get real per-test slicing; the BDD `describe/it` interface collapses to a single session-scoped slice keyed to the first test.
+³ Only `retain-on-failure` works; the other retry-aware policies degrade to it because Nightwatch's `--retries` re-runs a testcase internally without re-firing the per-test hooks.
+⁴ WebdriverIO does not yet carry feature-level ancestry, so its Cucumber nesting is Scenario→Step.
+⁵ Nightwatch does not yet stamp per-step nesting (Feature→Scenario only).
+⁶ Nightwatch has no live Allure attach API, so per-test `screenshot`/`video` are written to disk and listed in the manifest but not attached to an Allure test.
+⁷ Opt-in via `bidi: true` + `webSocketUrl: true` in capabilities.
+
 In trace mode no DevTools UI window opens. At session end the adapter writes trace artifacts into a `test-results/` folder (created next to the resolved spec/config directory), suitable for offline replay, AI-agent diffing, or any consumer that prefers a portable artifact over a live UI.
 
 | Adapter | How to enable |
@@ -114,6 +136,7 @@ The player exposes everything captured in the archive:
 
 - **DOM time-travel** — the browser pane replays the page from the captured DOM **mutation stream**, so scrubbing the playhead reconstructs the live DOM at any point, not just a screenshot.
 - **A11y tab** — the accessibility tree (roles + accessible names) captured for the selected command; hover a row to outline the element in the snapshot, click to copy its locator.
+- **Errors tab** — every failing `expect`/assertion and step failure collected in one place, each with a jump-to-source link to the command that threw.
 - **Element overlay (pick-locator)** — labelled, click-to-copy boxes drawn over every element the test interacted with, cross-linked to the A11y rows.
 - **Transcript tab + Copy-for-LLM** — the run's Markdown transcript with a one-click "copy prompt" that bundles it with any failing-command errors, paste-ready for an LLM.
 - **Cucumber Feature → Scenario → Step nesting** — tests render as labelled `tracingGroup` spans wrapping their commands, with Cucumber steps nested under their scenario.

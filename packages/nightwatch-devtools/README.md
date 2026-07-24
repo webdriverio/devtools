@@ -84,7 +84,7 @@ module.exports = {
 | `hostname` | `string` | `'localhost'` | Hostname the backend server binds to. |
 | `screencast` | `ScreencastOptions` | `{ enabled: false }` | Session video recording — live mode only (see [Screencast](#screencast)). |
 | `bidi` | `boolean` | `false` | Opt into WebDriver BiDi capture for browser console + JS exceptions + network. Requires `webSocketUrl: true` in your capabilities and a BiDi-capable chromedriver. When attached, the per-command Chrome perf-log network path is gated off so requests don't duplicate. |
-| `mode` | `'live' \| 'trace'` | `'live'` | `'live'` opens the DevTools UI window; `'trace'` skips the UI and writes a `trace-<sessionId>.zip` (or directory) next to your `nightwatch.conf.cjs` at run end. See [Trace mode](#trace-mode). |
+| `mode` | `'live' \| 'trace'` | `'live'` | `'live'` opens the DevTools UI window; `'trace'` skips the UI and writes a `trace-<sessionId>.zip` (or directory) under a `test-results/` directory at run end (base dir resolved from the test file dir → config dir → cwd). See [Trace mode](#trace-mode). |
 | `traceFormat` | `'zip' \| 'ndjson-directory'` | `'zip'` | Trace artifact layout — `zip` writes a single archive, `ndjson-directory` unpacks the same files into `trace-<sessionId>/`. Only applies when `mode: 'trace'`. |
 | `traceGranularity` | `'session' \| 'spec' \| 'test'` | `'session'` | One trace per session / spec file / test. `'test'` is what the per-test `screenshot` / `video` artifacts attach to. Only applies when `mode: 'trace'`. **Caveat:** the BDD `describe/it` interface collapses to a single session-scoped slice (see [Per-test slicing](#per-test-slicing--the-bdd-describeit-caveat)). |
 | `tracePolicy` | `'on' \| 'retain-on-failure' \| 'retain-on-first-failure' \| 'on-first-retry' \| 'on-all-retries' \| 'retain-on-failure-and-retries'` | `'on'` | Which traces to keep. Pairs with `traceGranularity: 'test'`. Only applies when `mode: 'trace'`. |
@@ -151,7 +151,7 @@ globals: nightwatchDevtools({
 })
 ```
 
-Nightwatch emits the **same normalized trace** as the WebdriverIO and Selenium adapters (all three share `@wdio/devtools-core`), so the archive format and the `show-trace` player are identical no matter which adapter produced it. A Nightwatch trace carries the full per-action capture — a screenshot, the depth-indented accessibility-tree snapshot, the interactable-element list, and the Markdown transcript — so it opens in the player with DOM/snapshot time-travel, the **A11y** and **Transcript** tabs, the pick-locator element overlay, and (for Cucumber) **Feature → Scenario → Step** nesting.
+Nightwatch emits the **same normalized trace** as the WebdriverIO and Selenium adapters (all three share `@wdio/devtools-core`), so the archive format and the `show-trace` player are identical no matter which adapter produced it. A Nightwatch trace carries the full per-action capture — a screenshot, the depth-indented accessibility-tree snapshot, the interactable-element list, and the Markdown transcript — so it opens in the player with DOM/snapshot time-travel, the **A11y** and **Transcript** tabs, an **Errors** tab surfacing expect/step failures with jump-to-source, the pick-locator element overlay, and (for Cucumber) **Feature → Scenario → Step** nesting.
 
 Open a trace with the `show-trace` bin, shipped with this package (no extra dependency):
 
