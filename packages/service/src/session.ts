@@ -7,7 +7,7 @@ import { resolve } from 'import-meta-resolve'
 import { SevereServiceError } from 'webdriverio'
 import type { WebDriverCommands } from '@wdio/protocols'
 
-import { PAGE_TRANSITION_COMMANDS } from './constants.js'
+import { PAGE_TRANSITION_COMMANDS, LOCATOR_COMMANDS } from './constants.js'
 import { isNativeMobile } from './mobile.js'
 import {
   CAPTURE_PERFORMANCE_SCRIPT,
@@ -17,6 +17,7 @@ import {
   applyPerformanceData,
   errorMessage,
   getRequestType,
+  isSessionGoneError,
   type CapturedPerformancePayload
 } from '@wdio/devtools-core'
 import type { CommandLog } from './types.js'
@@ -29,6 +30,11 @@ export class SessionCapturer extends SessionCapturerBase {
   readonly startWallTime = Date.now()
   /** Last find-element selector — carried forward to the next element command. */
   #lastSelector: string | undefined
+  /** Selector resolved during the current assertion. Unlike #lastSelector this
+   *  updates on EVERY locator command (even below the top-level boundary), so
+   *  it captures the element `expect($('#flash'))` resolves inside the matcher.
+   *  Cleared at each matcher start so a value assertion inherits nothing. */
+  #lastResolvedSelector: string | undefined
   /** Collapses internal command retries onto a single entry (see #captureOrReplace). */
   #retryTracker = new RetryTracker()
   #pendingNetworkRequests = new Map<
@@ -54,6 +60,21 @@ export class SessionCapturer extends SessionCapturerBase {
    */
   resetLastSelector(): void {
     this.#lastSelector = undefined
+    this.#lastResolvedSelector = undefined
+  }
+
+  /** Record the selector of an element-resolution command, ungated by the
+   *  top-level filter — the service calls this for every locator command so an
+   *  assertion can recover the element expect() resolved internally. */
+  noteResolvedSelector(selector: string): void {
+    this.#lastResolvedSelector = selector
+  }
+
+  /** Clear the resolved selector at a matcher's start, so only an element
+   *  resolved DURING this matcher (an element assertion) is attributed to it —
+   *  a value assertion (`expect(x).toBe(y)`) resolves nothing and stays blank. */
+  beginAssertionSelector(): void {
+    this.#lastResolvedSelector = undefined
   }
 
   protected override onWsError(err: unknown): void {
@@ -112,7 +133,8 @@ export class SessionCapturer extends SessionCapturerBase {
     error: Error | undefined,
     callSource?: string,
     commandStartTime?: number,
-    testUid?: string
+    testUid?: string,
+    stepUid?: string
   ) {
     const { sourceFileLocation, absolutePath } = this.#resolveUserStackFrame()
     const sourceFilePath = absolutePath.split(':')[0]
@@ -127,7 +149,8 @@ export class SessionCapturer extends SessionCapturerBase {
       timestamp: Date.now(),
       startTime: commandStartTime,
       callSource: callSource ?? absolutePath,
-      testUid
+      testUid,
+      stepUid
     }
     if (!isNativeMobile(browser)) {
       try {
@@ -143,12 +166,7 @@ export class SessionCapturer extends SessionCapturerBase {
     // Track last find-element selector so element commands (click, setValue, …)
     // carry a human-readable selector in trace events even though WDIO doesn't
     // pass it in their args.
-    if (
-      cmd === '$' ||
-      cmd === '$$' ||
-      cmd === 'findElement' ||
-      cmd === 'findElements'
-    ) {
+    if (LOCATOR_COMMANDS.includes(cmd)) {
       const sel = args[0]
       if (typeof sel === 'string' && sel.length > 0) {
         this.#lastSelector = sel
@@ -183,6 +201,7 @@ export class SessionCapturer extends SessionCapturerBase {
       if (hasNoSelector) {
         commandLogEntry.args = [this.#lastSelector]
       }
+      commandLogEntry.selector = this.#lastSelector
     }
 
     // For setValue / addValue, prepend the last selector so trace params
@@ -203,7 +222,7 @@ export class SessionCapturer extends SessionCapturerBase {
     ) {
       await Promise.all([
         this.#capturePerformance(browser, commandLogEntry, args),
-        this.#captureTrace(browser)
+        this.captureTrace(browser)
       ])
     }
   }
@@ -248,6 +267,64 @@ export class SessionCapturer extends SessionCapturerBase {
     this.#retryTracker.reset()
   }
 
+  /** Ingest an assertion entry (node:assert capture or synthesized expect
+   *  failure) through the same retry-collapsing path driver commands use. A
+   *  fresh (unfolded) expect row still carries the element it targeted. */
+  captureAssertCommand(entry: CommandLog): void {
+    if (!entry.selector) {
+      entry.selector = this.#lastResolvedSelector
+    }
+    this.#captureOrReplace(entry)
+  }
+
+  /**
+   * Fold an expect-matcher assertion into the matcher's value-read command when
+   * that read is the most recent captured command (per `isRead`). The read
+   * already carries the correct callSource, screenshot, and timeline position —
+   * the DOM the matcher evaluated — so replace it in place with the assertion
+   * row: one row, no duplicate, and no timing/stack heuristics. WDIO's
+   * RetryTracker already collapses a matcher's repeated polls to that one read.
+   * Returns false when the last command isn't a matcher read (a value matcher),
+   * so the caller emits a fresh assertion row instead.
+   *
+   * `foldErrored` folds even when the read carries an error — used by the
+   * hard-throw path (element never resolved, so afterAssertion never fired and
+   * the read threw): relabel the throwing read as the failing expect row rather
+   * than leave a raw `getText`. The normal path keeps the guard so a value
+   * matcher can't accidentally swallow an unrelated errored command.
+   */
+  coalesceAssertionIntoLastRead(
+    entry: CommandLog,
+    isRead: (command: string) => boolean,
+    foldErrored = false
+  ): boolean {
+    const log = this.commandsLog as (CommandLog & { _id?: number })[]
+    const last = log[log.length - 1]
+    if (!last || !isRead(last.command) || (last.error && !foldErrored)) {
+      return false
+    }
+    // Inherit the read's `_id` (local dedup bookkeeping) and timestamp, but do
+    // NOT stamp a public `id`: WDIO replaces by timestamp (like #captureOrReplace),
+    // and `commandCounter` resets per worker/spec, so a bare `id` collides across
+    // specs and the app's id-first replaceCommand would swap the wrong row.
+    const merged: CommandLog & { _id?: number } = {
+      ...entry,
+      _id: last._id,
+      timestamp: last.timestamp,
+      startTime: last.startTime,
+      callSource: entry.callSource ?? last.callSource,
+      screenshot: entry.screenshot ?? last.screenshot,
+      error: entry.error ?? last.error,
+      // The matcher's `args` become the expected value on fold, so record which
+      // element the assertion targeted — the selector expect() resolved during
+      // this matcher — so the player's overlay can box e.g. `#flash`.
+      selector: entry.selector ?? this.#lastResolvedSelector
+    }
+    log[log.length - 1] = merged
+    this.sendReplaceCommand(last.timestamp, merged)
+    return true
+  }
+
   /**
    * Run the shared Performance API capture script and attach the result to
    * the given CommandLog entry. Same `CAPTURE_PERFORMANCE_SCRIPT` +
@@ -272,11 +349,7 @@ export class SessionCapturer extends SessionCapturerBase {
       const msg = errorMessage(err)
       // Session torn down between the navigation command and the deferred
       // perf-script execution — expected during teardown of the last test.
-      if (
-        msg.includes('ECONNREFUSED') ||
-        msg.includes('no such session') ||
-        msg.includes('invalid session id')
-      ) {
+      if (isSessionGoneError(msg)) {
         return
       }
       log.warn(`Performance capture failed: ${msg}`)
@@ -307,7 +380,20 @@ export class SessionCapturer extends SessionCapturerBase {
     log.info('✓ Script injected successfully')
   }
 
-  async #captureTrace(browser: WebdriverIO.Browser) {
+  /** Clear the per-session injection guard so the next `injectScript` re-adds
+   *  the preload script. BiDi preload scripts are scoped to one session, so
+   *  after `reloadSession()` the new session has none — without this, DOM
+   *  capture silently stops after the first session. The guard itself still
+   *  prevents double-adding within a single session. */
+  resetScriptInjection() {
+    this.#isScriptInjected = false
+  }
+
+  /** Drain the current page's buffered trace data (mutations/console/network)
+   *  into the capturer. Public so the plugin can flush BEFORE a navigating
+   *  command, capturing the outgoing page's field edits (value/checked
+   *  mutations fire no page transition) before its collector is discarded. */
+  async captureTrace(browser: WebdriverIO.Browser, forceAnchor = false) {
     if (!this.#isScriptInjected) {
       log.warn('Script not injected, skipping trace capture')
       return
@@ -318,11 +404,17 @@ export class SessionCapturer extends SessionCapturerBase {
       // disappear (page navigation) between the existence check and the
       // getTraceData call. Two round-trips left a TOCTOU race that surfaced
       // spurious "Cannot read properties of undefined" errors.
-      const payload = await browser.execute(() =>
-        typeof window.wdioTraceCollector !== 'undefined'
-          ? window.wdioTraceCollector.getTraceData()
-          : null
-      )
+      // forceAnchor: capture the current document before draining — for a final
+      // closing navigation whose async initial anchor hasn't run by teardown.
+      const payload = await browser.execute((anchor) => {
+        if (typeof window.wdioTraceCollector === 'undefined') {
+          return null
+        }
+        if (anchor) {
+          window.wdioTraceCollector.captureCurrentDom()
+        }
+        return window.wdioTraceCollector.getTraceData()
+      }, forceAnchor)
       if (!payload) {
         log.warn(
           'wdioTraceCollector not loaded yet - page loaded before preload script took effect'

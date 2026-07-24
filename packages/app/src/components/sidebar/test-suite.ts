@@ -287,10 +287,11 @@ export class ExplorerTestEntry extends CollapseableEntry {
     return this.state === TestState.RUNNING
   }
   get testStateIcon() {
-    // Fixed-height box (= the label's line-height) centred so the icon aligns
-    // with the first line of the title whether it wraps or not — no margin hacks.
+    // Vertically centred in the row so the status icon lines up with the
+    // row's action buttons (run/stop), which are also centre-aligned.
     const box = (inner: unknown) =>
-      html`<span class="w-4 h-[18px] shrink-0 flex items-center justify-center"
+      html`<span
+        class="w-4 h-[18px] shrink-0 self-center grid place-items-center"
         >${inner}</span
       >`
     if (this.isRunning) {
@@ -407,7 +408,9 @@ export class ExplorerTestEntry extends CollapseableEntry {
         class="row flex w-full items-start text-sm group/sidebar rounded-md my-0.5 px-1 py-1 cursor-pointer hover:bg-toolbarHoverBackground"
       >
         <button
-          class="flex-none pointer px-2 h-8 ${hasNoChildren ? 'hidden' : ''}"
+          class="flex-none pointer px-2 h-[18px] flex items-center justify-center ${hasNoChildren
+            ? 'hidden'
+            : ''}"
           @click="${() => this.#toggleEntry()}"
         >
           <icon-mdi-menu-down

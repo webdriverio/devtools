@@ -13,9 +13,12 @@
 
 import logger from '@wdio/logger'
 import { errorMessage } from '@wdio/devtools-core'
-import { WS_SCOPE } from '@wdio/devtools-shared'
+import {
+  WS_SCOPE,
+  type CucumberPickle,
+  type CucumberPickleStep
+} from '@wdio/devtools-shared'
 
-import type { SessionCapturer } from './session.js'
 import type { TestReporter } from './reporter.js'
 import type { TestManager } from './helpers/testManager.js'
 import type { SuiteManager } from './helpers/suiteManager.js'
@@ -29,29 +32,21 @@ import {
 import { buildCucumberScenarioSuite } from './helpers/cucumberScenarioBuilder.js'
 import { scanFeatureFile } from './helpers/featureFileScan.js'
 import { parseCucumberScenario } from './helpers/utils.js'
+import {
+  recordTestSliceBoundary,
+  flushTestSlice,
+  type TestSliceCtx
+} from './trace-slices.js'
 
 const log = logger('@wdio/nightwatch-devtools:cucumber')
 
-/** Minimal shapes for the Cucumber objects we touch. Cucumber's own types
- *  vary across major versions; we pin only fields we read. */
-export interface CucumberPickleStep {
-  text?: string
-  astNodeIds?: string[]
-  location?: { line?: number }
-}
-export interface CucumberPickle {
-  uri?: string
-  name?: string
-  location?: { line?: number }
-  astNodeIds?: string[]
-  steps?: CucumberPickleStep[]
-}
+/** Cucumber's result shape varies across major versions; we pin only the
+ *  status field we read. Pickle shapes come from shared. */
 export interface CucumberResult {
   status?: string
 }
 
-export interface CucumberLifecycleCtx {
-  readonly sessionCapturer: SessionCapturer
+export interface CucumberLifecycleCtx extends TestSliceCtx {
   readonly testReporter: TestReporter
   readonly testManager: TestManager
   readonly suiteManager: SuiteManager
@@ -66,6 +61,9 @@ export interface CucumberLifecycleCtx {
   setCurrentStep(s: unknown): void
   getCurrentStep(): unknown
   setCurrentTest(t: unknown): void
+  recordAttempt(uid: string, specFile?: string): number
+  recordOutcome(uid: string, state: TestStats['state']): void
+  emitTestArtifacts(uid: string | undefined, failed: boolean): Promise<void>
 }
 
 type MutStep = {
@@ -139,6 +137,15 @@ function normalizeSteps(
   return (pickleSteps ?? []).map((s) => ({ text: s.text ?? '' }))
 }
 
+function captureFeatureSources(
+  ctx: CucumberLifecycleCtx,
+  paths: string[]
+): void {
+  for (const p of paths) {
+    ctx.sessionCapturer.captureSource(p).catch(() => {})
+  }
+}
+
 export async function initCucumberScenario(
   ctx: CucumberLifecycleCtx,
   browser: NightwatchBrowser,
@@ -155,9 +162,7 @@ export async function initCucumberScenario(
     stepDefFiles,
     capturedPaths
   } = scanFeatureFile(featureUri)
-  for (const p of capturedPaths) {
-    ctx.sessionCapturer.captureSource(p).catch(() => {})
-  }
+  captureFeatureSources(ctx, capturedPaths)
   const { featureSuite, scenarioLine, stepLines, stepKeywords } =
     createFeatureSuite(
       ctx,
@@ -178,9 +183,12 @@ export async function initCucumberScenario(
     stepLines,
     stepKeywords,
     scenarioLine,
-    parentFeatureSuiteUid: featureSuite.uid
+    parentFeatureSuiteUid: featureSuite.uid,
+    recordAttempt: (uid, specFile) => ctx.recordAttempt(uid, specFile)
   })
   attachScenarioToFeature(ctx, featureSuite, scenarioSuite)
+  // The scenario is the `test` unit; its steps are the leaf metadata entries.
+  recordTestSliceBoundary(ctx, featureUri, scenarioSuite.uid)
   ctx.setCurrentScenarioSuite(scenarioSuite)
   ctx.setCurrentStep(null)
   ctx.setCurrentTest(null)
@@ -205,6 +213,9 @@ export async function finalizeCucumberScenario(
       scenario.state = scenarioState
       scenario.end = now
       scenario._duration = duration
+      // Stamp this attempt's real outcome so spec/session retention doesn't
+      // collapse to the retry-stable suite's last-overwritten state.
+      ctx.recordOutcome(scenario.uid, scenarioState)
       closeOpenSteps(scenario, scenarioState, now)
 
       const featureUri: string = pickle?.uri ?? 'unknown.feature'
@@ -228,6 +239,15 @@ export async function finalizeCucumberScenario(
       ctx.setCurrentTest(null)
     }
     await ctx.sessionCapturer.captureTrace(browser)
+    // Flush before the next attempt's attachScenarioToFeature overwrites this
+    // scenario's suite (and thus its outcome) in the tree.
+    flushTestSlice(ctx)
+    // Produce this scenario's per-test screenshot/video (core-gated to trace +
+    // `test`). `scenario` is the retry-stable test unit; null-scenario no-ops.
+    await ctx.emitTestArtifacts(
+      scenario?.uid,
+      scenarioState === TEST_STATE.FAILED
+    )
   } catch (err) {
     log.error(`Failed to finalize Cucumber scenario: ${errorMessage(err)}`)
   }

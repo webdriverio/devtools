@@ -10,11 +10,16 @@ import {
 } from '../constants.js'
 import { getCallSourceFromStack } from './utils.js'
 import { serializeCommandResult } from './serializeCommandResult.js'
+import {
+  latestResolvedScreenshot,
+  pendingAssertionCommand
+} from './nativeAssertions.js'
 import { RetryTracker, toError } from '@wdio/devtools-core'
 import type { SessionCapturer } from '../session.js'
 import type { TestManager } from './testManager.js'
 import type {
   CommandLog,
+  NativeAssertCall,
   NightwatchBrowser,
   NightwatchCurrentTest,
   CommandStackFrame
@@ -42,10 +47,20 @@ export class BrowserProxy {
    */
   private retryTracker = new RetryTracker()
 
+  /**
+   * Per-test buffer of explicit `browser.assert.*` / `browser.verify.*` calls,
+   * recorded synchronously at call time by {@link wrapAssertionNamespaces}.
+   * Nightwatch exposes no per-assertion hook and its test-end results carry no
+   * source location for passing assertions, so call-time capture is the only
+   * way to get real args + callSource. Drained (and cleared) each `afterEach`.
+   */
+  private nativeAssertCalls: NativeAssertCall[] = []
+
   constructor(
     private sessionCapturer: SessionCapturer,
     private testManager: TestManager,
-    private getCurrentTest: () => { uid?: string } | null
+    private getCurrentTest: () => { uid?: string } | null,
+    private captureAssertions = true
   ) {}
 
   /**
@@ -60,6 +75,104 @@ export class BrowserProxy {
     this.commandStack = []
     this.lastCommandSig = null
     this.retryTracker.reset()
+    this.nativeAssertCalls = []
+  }
+
+  /** Hand off this test's recorded native-assertion calls and clear the
+   *  buffer so the next test starts fresh. */
+  drainNativeAssertCalls(): NativeAssertCall[] {
+    const calls = this.nativeAssertCalls
+    this.nativeAssertCalls = []
+    return calls
+  }
+
+  /**
+   * Replace `browser.assert` / `browser.verify` (both are Nightwatch Proxies
+   * whose `get` returns a fresh function per access) with a recording Proxy:
+   * on each method call it captures `{prefix, method, args, callSource}` from a
+   * user-code frame, streams a neutral pending row immediately (live), then
+   * delegates to the ORIGINAL namespace method so Nightwatch's queue, chaining,
+   * and abortOnFailure semantics (assert aborts, verify does not) are
+   * byte-for-byte unchanged. Called once per browser.
+   */
+  private wrapAssertionNamespaces(browser: NightwatchBrowser): void {
+    // captureAssertions:false → leave assert/verify original so no neutral
+    // pending rows stream (the afterEach finalize path is gated to match).
+    if (!this.captureAssertions) {
+      return
+    }
+    // Cast once: the assert/verify namespaces aren't on the public type; each
+    // is a dynamic method bag reached by property name.
+    const b = browser as unknown as Record<string, unknown>
+    ;(['assert', 'verify'] as const).forEach((prefix) => {
+      const original = b[prefix]
+      if (!original || typeof original !== 'object') {
+        return
+      }
+      b[prefix] = this.recordingNamespaceProxy(original, prefix, [])
+    })
+  }
+
+  /**
+   * Recording Proxy over one assert/verify namespace. A function property
+   * becomes a call-time recorder keyed by its full dotted path
+   * (`titleContains`, `not.titleContains`); a nested namespace object recurses
+   * through the SAME wrapper — Nightwatch exposes `assert.not` as its own Proxy,
+   * so negated asserts are recorded via the identical mechanism as positive
+   * ones instead of a parallel path. The recorder buffers a pending row, then
+   * delegates to the ORIGINAL method so Nightwatch's queue, chaining, and
+   * abort/negate semantics stay byte-for-byte unchanged. Non-method,
+   * non-namespace props pass through untouched.
+   */
+  private recordingNamespaceProxy(
+    target: object,
+    prefix: 'assert' | 'verify',
+    path: readonly string[]
+  ): object {
+    return new Proxy(target, {
+      get: (t, name, receiver) => {
+        const orig = Reflect.get(t, name, receiver)
+        if (typeof name !== 'string') {
+          return orig
+        }
+        if (orig !== null && typeof orig === 'object') {
+          return this.recordingNamespaceProxy(orig, prefix, [...path, name])
+        }
+        if (typeof orig !== 'function') {
+          return orig
+        }
+        return (...args: unknown[]) => {
+          const callInfo = getCallSourceFromStack()
+          if (callInfo.filePath !== undefined) {
+            this.emitPendingAssertion({
+              prefix,
+              method: [...path, name].join('.'),
+              args,
+              callSource: callInfo.callSource,
+              timestamp: Date.now()
+            })
+          }
+          return (orig as (...a: unknown[]) => unknown)(...args)
+        }
+      }
+    })
+  }
+
+  /** Buffer an explicit assert/verify call at invocation time (prebuilding its
+   *  row with args/callSource/screenshot), but do NOT stream it yet. Nightwatch
+   *  exposes no per-assertion result hook, so streaming here would show every
+   *  assert as a neutral (green) row while the test is still Running — before
+   *  its pass/fail is known. `captureNativeAssertions` emits the rows at test-end
+   *  with real outcomes + execution timing instead. */
+  private emitPendingAssertion(call: NativeAssertCall): void {
+    const testUid = this.getCurrentTest()?.uid
+    const entry = pendingAssertionCommand(
+      call,
+      testUid,
+      latestResolvedScreenshot(this.sessionCapturer)
+    )
+    call.entry = entry
+    this.nativeAssertCalls.push(call)
   }
 
   getCurrentTestFullPath(): string | null {
@@ -189,6 +302,7 @@ export class BrowserProxy {
       wrappedMethods.push(methodName)
     })
 
+    this.wrapAssertionNamespaces(browser)
     this.proxiedBrowsers.add(browser as object)
     log.info(`✓ Wrapped ${wrappedMethods.length} browser methods`)
   }
@@ -307,6 +421,7 @@ export class BrowserProxy {
     logArgs: unknown[],
     cmdSig: string,
     callSource: string | undefined,
+    hasUserSource: boolean,
     commandTimestamp: number,
     testUid: string | undefined,
     userCallback: Function | null
@@ -318,7 +433,12 @@ export class BrowserProxy {
         methodName
       )
       const effectiveUid = this.getCurrentTest()?.uid ?? testUid
-      if (effectiveUid) {
+      // Only surface commands that originate from a user-code frame. Commands
+      // Nightwatch issues from inside its own queue (e.g. the getTitle a
+      // `browser.assert.titleContains` runs) execute in a detached tick with no
+      // user frame on the stack, so they'd otherwise leak as top-level actions
+      // with an "unknown" source. Mirrors the service's user-spec-source guard.
+      if (effectiveUid && hasUserSource) {
         if (this.retryTracker.isRetry(cmdSig)) {
           this.handleRetryReplacement(
             browser,
@@ -402,6 +522,7 @@ export class BrowserProxy {
       logArgs,
       cmdSig,
       callSource,
+      callInfo.filePath !== undefined,
       commandTimestamp,
       this.getCurrentTest()?.uid,
       userCallback

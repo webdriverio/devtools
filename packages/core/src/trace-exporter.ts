@@ -9,6 +9,7 @@ import type {
   ConsoleLog,
   Metadata,
   NetworkRequest,
+  ScreencastFrame,
   TestMetadataMap,
   TraceFormat,
   TraceLog,
@@ -20,12 +21,84 @@ import {
   FILL_METHODS,
   type TraceAction
 } from './action-mapping.js'
+import {
+  buildConsoleEvents,
+  type ConsoleEvent,
+  type StdioEvent
+} from './trace-console.js'
+import {
+  buildFilmstripEvents,
+  buildSnapshotResources,
+  type ScreencastFrameEvent
+} from './trace-snapshots.js'
+import { buildDenseScreencast } from './screencast-trace.js'
+import {
+  buildImageFrameSnapshots,
+  FrameSnapshotIndex,
+  type FrameSnapshotEvent
+} from './trace-frame-snapshots.js'
+import { buildActionEvents, type ActionEvent } from './trace-action-events.js'
+import { buildSourceResources } from './trace-sources.js'
 import { networkRequestToHar } from './trace-har.js'
 import { buildTraceZip, type TraceZipResource } from './trace-zip-writer.js'
+import { buildMutationsNdjson } from './trace-mutations.js'
+import { sha1Hex } from './sha1.js'
 
 const TRACE_VERSION = 8
 const LIBRARY_NAME = '@wdio/devtools-core'
 const LIBRARY_VERSION = '1.0.0'
+
+/** Response bodies above this size are not embedded in the trace. */
+const MAX_BODY_RESOURCE_BYTES = 1024 * 1024
+/** Per-trace ceiling on total embedded response-body bytes. */
+const MAX_TOTAL_BODY_RESOURCE_BYTES = 20 * 1024 * 1024
+
+export interface NetworkBodyCaps {
+  maxBodyBytes: number
+  maxTotalBytes: number
+}
+
+export interface NetworkBodyResources {
+  resources: TraceZipResource[]
+  sha1ByRequestId: Map<string, string>
+}
+
+/** Content-addressed `resources/<sha1>` entries for captured response bodies. */
+export function buildNetworkBodyResources(
+  requests: NetworkRequest[],
+  caps: NetworkBodyCaps = {
+    maxBodyBytes: MAX_BODY_RESOURCE_BYTES,
+    maxTotalBytes: MAX_TOTAL_BODY_RESOURCE_BYTES
+  }
+): NetworkBodyResources {
+  const resources: TraceZipResource[] = []
+  const sha1ByRequestId = new Map<string, string>()
+  const stored = new Set<string>()
+  let totalBytes = 0
+  // Cap skips are silent by design; a warn hook would slot into these branches.
+  for (const request of requests) {
+    if (request.responseBody === undefined) {
+      continue
+    }
+    const data = Buffer.from(request.responseBody, 'utf8')
+    if (data.byteLength > caps.maxBodyBytes) {
+      continue
+    }
+    const sha1 = sha1Hex(data)
+    if (stored.has(sha1)) {
+      sha1ByRequestId.set(request.id, sha1)
+      continue
+    }
+    if (totalBytes + data.byteLength > caps.maxTotalBytes) {
+      continue
+    }
+    stored.add(sha1)
+    totalBytes += data.byteLength
+    resources.push({ resourceName: sha1, data })
+    sha1ByRequestId.set(request.id, sha1)
+  }
+  return { resources, sha1ByRequestId }
+}
 
 interface ContextOptionsEvent {
   version: number
@@ -43,49 +116,24 @@ interface ContextOptionsEvent {
   options: { viewport: { width: number; height: number } }
 }
 
-interface BeforeEvent {
-  type: 'before'
-  callId: string
-  startTime: number
-  class: string
-  method: string
-  pageId: string
-  params: Record<string, unknown>
-  title: string
-  /** Playwright-compatible API name (e.g. 'page.goBack', 'element.click'). */
-  apiName: string
-  /** CallId of the Tracing.tracingGroup that wraps this action (if any). */
-  parentId?: string
-}
-
-interface AfterEvent {
-  type: 'after'
-  callId: string
-  endTime: number
-  error?: { message: string }
-  /** CallId of the Tracing.tracingGroup that wraps this action (if any). */
-  parentId?: string
-}
-
-interface ScreencastFrameEvent {
-  type: 'screencast-frame'
-  pageId: string
-  sha1: string
-  elements?: string
-  snapshot?: string
-  width: number
-  height: number
-  timestamp: number
-}
-
 type TraceEvent =
   | ContextOptionsEvent
-  | BeforeEvent
-  | AfterEvent
+  | ActionEvent
   | ScreencastFrameEvent
+  | ConsoleEvent
+  | StdioEvent
+  | FrameSnapshotEvent
 
 function shortId(sessionId?: string): string {
   return (sessionId ?? Math.random().toString(36).slice(2, 10)).slice(0, 8)
+}
+
+function allocateTraceIds(sessionId?: string): {
+  contextId: string
+  pageId: string
+} {
+  const idPrefix = shortId(sessionId)
+  return { contextId: `context@${idPrefix}`, pageId: `page@${idPrefix}` }
 }
 
 function resolveContextNaming(caps: Record<string, unknown> | undefined): {
@@ -145,143 +193,19 @@ function buildContextOptions(
   }
 }
 
-export function buildActionEvents(
-  commands: CommandLog[],
-  pageId: string,
-  wallTime: number,
-  testMetadata?: TestMetadataMap
-): TraceEvent[] {
-  const events: TraceEvent[] = []
-  let prevEndMs = 0
-  let callCounter = 0
-  let lastTestUid: string | undefined
-  let groupCallId: string | undefined
-
-  for (const cmd of commands) {
-    const action = mapCommandToAction(cmd.command)
-    if (!action) {
-      continue
-    }
-
-    // ── Test boundary detection ──
-    // When the testUid changes, close the previous Tracing.tracingGroup
-    // and open a new one. Child actions inside the group reference it via
-    // parentId so trace viewers render them as labelled spans.
-    if (cmd.testUid && cmd.testUid !== lastTestUid) {
-      // Close the previous group.
-      if (lastTestUid && groupCallId) {
-        callCounter++
-        events.push({
-          type: 'after',
-          callId: groupCallId,
-          endTime: prevEndMs
-        } satisfies AfterEvent)
-      }
-
-      // Open a new group for this test.
-      callCounter++
-      groupCallId = `call@${callCounter}`
-      const meta = testMetadata?.get(cmd.testUid)
-      const groupName = meta?.title ?? cmd.testUid
-      events.push({
-        type: 'before',
-        callId: groupCallId,
-        startTime: Math.max(
-          prevEndMs,
-          (cmd.startTime ?? cmd.timestamp) - wallTime
-        ),
-        class: 'Tracing',
-        method: 'tracingGroup',
-        pageId,
-        params: { name: groupName },
-        title: groupName,
-        apiName: 'tracing.tracingGroup'
-      } satisfies BeforeEvent)
-      lastTestUid = cmd.testUid
-    }
-
-    // ── Regular action (child of the current group) ──
-    callCounter++
-    const callId = `call@${callCounter}`
-    // Use the command's actual invocation timestamp for the start, falling
-    // back to the completion timestamp when startTime isn't recorded.
-    const rawStartMs = (cmd.startTime ?? cmd.timestamp) - wallTime
-    const rawEndMs = cmd.timestamp - wallTime
-    // Floor at prevEndMs to prevent visual overlap with previous action.
-    const startMs = Math.max(prevEndMs, rawStartMs)
-    // +1ms minimum duration so the viewer never sees an `after` whose
-    // matching `before` hasn't been parsed yet.
-    const endMs = Math.max(startMs + 1, rawEndMs)
-    const rawArgs = cmd.args as unknown[]
-    let params: Record<string, unknown>
-    const isValueMethod = FILL_METHODS.has(action.method)
-    if (action.class === 'Element' && isValueMethod && rawArgs.length >= 2) {
-      params = { selector: rawArgs[0], value: rawArgs[1] }
-    } else if (
-      action.class === 'Element' &&
-      isValueMethod &&
-      rawArgs.length === 1
-    ) {
-      params = { value: rawArgs[0] }
-    } else if (
-      action.class === 'Element' &&
-      rawArgs.length === 1 &&
-      typeof rawArgs[0] === 'string'
-    ) {
-      params = { selector: rawArgs[0] }
-    } else if (rawArgs.length === 1 && typeof rawArgs[0] === 'string') {
-      params = { url: rawArgs[0] }
-    } else {
-      params = Object.fromEntries(rawArgs.map((a, i) => [String(i), a]))
-    }
-    events.push({
-      type: 'before',
-      callId,
-      startTime: startMs,
-      class: action.class,
-      method: action.method,
-      pageId,
-      params,
-      title: formatActionTitle(action, cmd.args, params),
-      apiName: `${action.class.toLowerCase()}.${action.method}`,
-      parentId: groupCallId
-    })
-    const afterEvent: AfterEvent = {
-      type: 'after',
-      callId,
-      endTime: endMs
-    }
-    if (cmd.error) {
-      const err = cmd.error as { message?: string }
-      afterEvent.error = { message: err.message ?? String(cmd.error) }
-    }
-    events.push(afterEvent)
-    prevEndMs = endMs
-  }
-
-  // Close the final group after the last action.
-  if (lastTestUid && groupCallId) {
-    callCounter++
-    events.push({
-      type: 'after',
-      callId: groupCallId,
-      endTime: prevEndMs
-    } satisfies AfterEvent)
-  }
-
-  return events
-}
-
 function buildNetworkNdjson(
   requests: NetworkRequest[],
   wallTime: number,
-  pageId: string
+  pageId: string,
+  sha1ByRequestId: Map<string, string>
 ): Buffer {
   if (!requests.length) {
     return Buffer.alloc(0)
   }
   const lines = requests.map((r) => {
-    const entry = networkRequestToHar(r) as unknown as Record<string, unknown>
+    const entry = networkRequestToHar(r, {
+      bodySha1: sha1ByRequestId.get(r.id)
+    }) as unknown as Record<string, unknown>
     entry.snapshot = {
       ...(entry.snapshot as Record<string, unknown>),
       // Monotonic offset so the viewer positions bars on the timeline.
@@ -292,63 +216,6 @@ function buildNetworkNdjson(
     return JSON.stringify(entry)
   })
   return Buffer.from(lines.join('\n'), 'utf8')
-}
-
-function buildSnapshotResources(
-  snapshots: ActionSnapshot[],
-  pageId: string
-): TraceZipResource[] {
-  const out: TraceZipResource[] = []
-  for (const snap of snapshots) {
-    const base = `${pageId}-${snap.timestamp}`
-    if (snap.screenshot) {
-      out.push({
-        resourceName: `${base}.jpeg`,
-        data: Buffer.from(snap.screenshot, 'base64')
-      })
-    }
-    if (snap.elements && snap.elements.length) {
-      out.push({
-        resourceName: `${base}-elements.json`,
-        data: Buffer.from(JSON.stringify(snap.elements), 'utf8')
-      })
-    }
-    if (snap.snapshotText) {
-      out.push({
-        resourceName: `${base}-snapshot.txt`,
-        data: Buffer.from(snap.snapshotText, 'utf8')
-      })
-    }
-  }
-  return out
-}
-
-function buildScreencastFrames(
-  snapshots: ActionSnapshot[],
-  pageId: string,
-  wallTime: number,
-  viewport: { width: number; height: number }
-): ScreencastFrameEvent[] {
-  return snapshots
-    .filter((s) => s.screenshot)
-    .map((s) => {
-      const base = `${pageId}-${s.timestamp}`
-      const frame: ScreencastFrameEvent = {
-        type: 'screencast-frame',
-        pageId,
-        sha1: `${base}.jpeg`,
-        width: viewport.width,
-        height: viewport.height,
-        timestamp: Math.max(0, s.timestamp - wallTime)
-      }
-      if (s.elements && s.elements.length) {
-        frame.elements = `${base}-elements.json`
-      }
-      if (s.snapshotText) {
-        frame.snapshot = `${base}-snapshot.txt`
-      }
-      return frame
-    })
 }
 
 /**
@@ -368,13 +235,21 @@ function eventTime(e: TraceEvent): number {
       return e.endTime
     case 'screencast-frame':
       return e.timestamp
+    case 'frame-snapshot':
+      return e.snapshot.timestamp
+    case 'console':
+      return e.time
+    case 'stdout':
+    case 'stderr':
+      return e.timestamp
   }
 }
 
 /** At the same timestamp T: an action's `after` ends first, then the
- *  snapshot captured at the action boundary, then the next action's `before`.
- *  Matches the viewer's expectation that the screencast frame shows the
- *  state between the previous action's completion and the next one's start. */
+ *  snapshot captured at the action boundary, then console output observed
+ *  at the boundary, then the next action's `before`. Matches the viewer's
+ *  expectation that the screencast frame shows the state between the
+ *  previous action's completion and the next one's start. */
 function eventOrder(e: TraceEvent): number {
   switch (e.type) {
     case 'context-options':
@@ -382,9 +257,14 @@ function eventOrder(e: TraceEvent): number {
     case 'after':
       return 1
     case 'screencast-frame':
+    case 'frame-snapshot':
       return 2
-    case 'before':
+    case 'console':
+    case 'stdout':
+    case 'stderr':
       return 3
+    case 'before':
+      return 4
   }
 }
 
@@ -396,7 +276,7 @@ function compareEvents(a: TraceEvent, b: TraceEvent): number {
 /**
  * Generate a human/LLM-readable Markdown transcript from captured commands.
  */
-function generateTranscript(
+export function generateTranscript(
   commands: CommandLog[],
   startWallTime: number,
   title?: string
@@ -404,8 +284,17 @@ function generateTranscript(
   const wallTimeISO = new Date(startWallTime).toISOString()
   const lines: string[] = [`# ${title ?? 'Session'} — ${wallTimeISO}`, '']
 
+  // Sort by invocation time so batched commands land at their real timeline
+  // positions — Nightwatch buffers native asserts and emits them at test-end,
+  // so raw order clusters all asserts after the navigations. The Actions tree
+  // stays correct because buildActionEvents applies the same sort; mirror it
+  // here so the transcript matches execution order. Stable + a no-op for
+  // already-ordered WDIO/Selenium command logs.
+  const ordered = [...commands].sort(
+    (a, b) => (a.startTime ?? a.timestamp) - (b.startTime ?? b.timestamp)
+  )
   const captured: { entry: CommandLog; action: TraceAction }[] = []
-  for (const c of commands) {
+  for (const c of ordered) {
     const action = mapCommandToAction(String(c.command))
     if (action) {
       captured.push({ entry: c, action })
@@ -443,7 +332,47 @@ interface TraceBundle {
   traceNdjson: string
   networkNdjson: Buffer
   transcriptMd: string
+  mutationsNdjson: Buffer
   resources: TraceZipResource[]
+}
+
+function buildEventStream(
+  trace: TraceLog,
+  ctxOptions: ContextOptionsEvent,
+  pageId: string,
+  wallTime: number,
+  testMetadata?: TestMetadataMap,
+  denseFrameEvents: ScreencastFrameEvent[] = []
+): TraceEvent[] {
+  const viewport = trace.metadata.viewport ?? { width: 1280, height: 720 }
+  const snapshots = trace.actionSnapshots ?? []
+  const snapshotIndex = new FrameSnapshotIndex(snapshots)
+  // Dense frames supersede the sparse per-action filmstrip; per-action DOM is
+  // carried by the frame-snapshot events, so sparse frames would only duplicate.
+  const filmstrip =
+    denseFrameEvents.length > 0
+      ? denseFrameEvents
+      : buildFilmstripEvents(snapshots, pageId, wallTime, viewport)
+  const events: TraceEvent[] = [
+    ctxOptions,
+    ...filmstrip,
+    ...buildActionEvents(
+      trace.commands,
+      pageId,
+      wallTime,
+      testMetadata,
+      snapshotIndex
+    ),
+    ...buildImageFrameSnapshots(
+      snapshotIndex.refs(),
+      pageId,
+      wallTime,
+      viewport
+    ),
+    ...buildConsoleEvents(trace.consoleLogs, pageId, wallTime)
+  ]
+  events.sort(compareEvents)
+  return events
 }
 
 function buildTraceBundle(
@@ -458,54 +387,43 @@ function buildTraceBundle(
   // subsequent actions render at positive deltas in the trace viewer.
   const firstCommandTs = trace.commands[0]?.timestamp
   const wallTime = opts.wallTimeOverride ?? firstCommandTs ?? Date.now()
-  const idPrefix = shortId(opts.sessionId)
-  const contextId = `context@${idPrefix}`
-  const pageId = `page@${idPrefix}`
-  const viewport = trace.metadata.viewport ?? { width: 1280, height: 720 }
-  const snapshots = trace.actionSnapshots ?? []
+  const { contextId, pageId } = allocateTraceIds(opts.sessionId)
   const ctxOptions = buildContextOptions(trace, contextId, wallTime)
-  const events: TraceEvent[] = [ctxOptions]
-
-  // Emit initial screencast-frame (timestamp=0) using the first snapshot's
-  // resources so trace viewers show the page state before any interaction.
-  const firstSnap = snapshots.find((s) => s.screenshot)
-  if (firstSnap) {
-    const base = `${pageId}-${firstSnap.timestamp}`
-    const initFrame: ScreencastFrameEvent = {
-      type: 'screencast-frame',
-      pageId,
-      sha1: `${base}.jpeg`,
-      width: viewport.width,
-      height: viewport.height,
-      timestamp: 0
-    }
-    if (firstSnap.elements && firstSnap.elements.length) {
-      initFrame.elements = `${base}-elements.json`
-    }
-    if (firstSnap.snapshotText) {
-      initFrame.snapshot = `${base}-snapshot.txt`
-    }
-    events.push(initFrame)
-  }
-
-  events.push(
-    // Skip the first snapshot in buildScreencastFrames — it was already emitted
-    // as the initial t=0 frame above.
-    ...buildScreencastFrames(
-      firstSnap ? snapshots.filter((s) => s !== firstSnap) : snapshots,
-      pageId,
-      wallTime,
-      viewport
-    ),
-    ...buildActionEvents(trace.commands, pageId, wallTime, opts.testMetadata)
+  const dense = buildDenseScreencast(
+    trace.screencastFrames ?? [],
+    pageId,
+    wallTime,
+    trace.metadata.viewport ?? { width: 1280, height: 720 }
   )
-  events.sort(compareEvents)
-  const ctxBName = ctxOptions.title
+  const events = buildEventStream(
+    trace,
+    ctxOptions,
+    pageId,
+    wallTime,
+    opts.testMetadata,
+    dense.events
+  )
+  const networkBodies = buildNetworkBodyResources(trace.networkRequests)
   return {
     traceNdjson: events.map((e) => JSON.stringify(e)).join('\n') + '\n',
-    networkNdjson: buildNetworkNdjson(trace.networkRequests, wallTime, pageId),
-    transcriptMd: generateTranscript(trace.commands, wallTime, ctxBName),
-    resources: buildSnapshotResources(snapshots, pageId)
+    networkNdjson: buildNetworkNdjson(
+      trace.networkRequests,
+      wallTime,
+      pageId,
+      networkBodies.sha1ByRequestId
+    ),
+    transcriptMd: generateTranscript(
+      trace.commands,
+      wallTime,
+      ctxOptions.title
+    ),
+    mutationsNdjson: buildMutationsNdjson(trace.mutations ?? []).ndjson,
+    resources: [
+      ...buildSnapshotResources(trace.actionSnapshots ?? [], pageId),
+      ...dense.resources,
+      ...buildSourceResources(trace.sources),
+      ...networkBodies.resources
+    ]
   }
 }
 
@@ -522,7 +440,8 @@ export async function exportTraceZip(
     traceNdjson: bundle.traceNdjson,
     networkNdjson: bundle.networkNdjson,
     resources: bundle.resources,
-    transcriptMd: bundle.transcriptMd
+    transcriptMd: bundle.transcriptMd,
+    mutationsNdjson: bundle.mutationsNdjson
   })
 }
 
@@ -548,6 +467,12 @@ async function exportTraceDirectory(
       ? fs.writeFile(
           path.join(targetDir, 'trace.network'),
           bundle.networkNdjson
+        )
+      : Promise.resolve(),
+    bundle.mutationsNdjson.length
+      ? fs.writeFile(
+          path.join(targetDir, 'trace.mutations'),
+          bundle.mutationsNdjson
         )
       : Promise.resolve(),
     ...bundle.resources.map((r) =>
@@ -578,11 +503,18 @@ export interface WriteTraceZipOptions {
    * viewer still renders thumbnails for adapters without an action hook.
    */
   actionSnapshots?: ActionSnapshot[]
+  /** Dense screencast frames for the filmstrip. Thinned + content-addressed at
+   *  export time; adapters pass the slice's windowed frames (or all, session
+   *  scope). Omitted → no dense filmstrip (byte-stable with today's output). */
+  screencastFrames?: readonly ScreencastFrame[]
   /** Output layout — `zip` (default) writes a single archive, `directory`
    *  unpacks the same files into `trace-<id>/`. */
   format?: TraceFormat
   /** Test metadata keyed by testUid for Tracing.tracingGroup events. */
   testMetadata?: TestMetadataMap
+  /** Base name for the artifact (zip file stem / directory name). Defaults to
+   *  `trace-<sessionId>`; per-test slices pass `'trace'` inside a named folder. */
+  fileStem?: string
 }
 
 /**
@@ -610,7 +542,10 @@ export async function writeTraceZip(
     },
     commands: capturer.commandsLog,
     sources: Object.fromEntries(capturer.sources),
-    ...(actionSnapshots.length ? { actionSnapshots } : {})
+    ...(actionSnapshots.length ? { actionSnapshots } : {}),
+    ...(opts.screencastFrames?.length
+      ? { screencastFrames: [...opts.screencastFrames] }
+      : {})
   }
   await fs.mkdir(opts.outputDir, { recursive: true })
   const exportOpts = {
@@ -618,14 +553,15 @@ export async function writeTraceZip(
     wallTimeOverride: capturer.startWallTime,
     testMetadata: opts.testMetadata
   }
+  const stem = opts.fileStem ?? `trace-${opts.sessionId}`
   if (opts.format === 'ndjson-directory') {
-    const dir = path.join(opts.outputDir, `trace-${opts.sessionId}`)
+    const dir = path.join(opts.outputDir, stem)
     await fs.mkdir(dir, { recursive: true })
     await exportTraceDirectory(traceLog, dir, exportOpts)
     return dir
   }
   const zip = await exportTraceZip(traceLog, exportOpts)
-  const zipPath = path.join(opts.outputDir, `trace-${opts.sessionId}.zip`)
+  const zipPath = path.join(opts.outputDir, `${stem}.zip`)
   await fs.writeFile(zipPath, zip)
   return zipPath
 }

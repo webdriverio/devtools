@@ -26,8 +26,13 @@ function isScenario(item: SuiteStats | TestStats): boolean {
 // Generate stable UID for a WDIO suite/test stats object. Handles WDIO's
 // Cucumber-specific shapes (scenarios with featureFile/featureLine, or with
 // numeric uid + example-row fallback), then delegates the Mocha/Jasmine path
-// to core's generateStableUid.
-function generateStableUid(item: SuiteStats | TestStats): string {
+// to core's generateStableUid. `parentScope` (the owning scenario's stable
+// uid) disambiguates Cucumber steps so identical step text in sibling
+// scenarios yields distinct, rerun-stable uids.
+function generateStableUid(
+  item: SuiteStats | TestStats,
+  parentScope?: string
+): string {
   // For Cucumber scenarios, prefer the feature file URI:line as the stable
   // discriminator. The Cucumber pickle carries the actual line of the example
   // row, which is stable across reruns regardless of how many examples run.
@@ -60,11 +65,25 @@ function generateStableUid(item: SuiteStats | TestStats): string {
     )
   }
 
+  // Cucumber step: scope by the owning scenario's stable uid via
+  // deterministicUid (no run-order counter), so two scenarios sharing step
+  // text — and scenario-outline example rows — get distinct, rerun-stable uids.
+  const stepFile = 'file' in item ? (item.file ?? '') : ''
+  if (parentScope) {
+    return deterministicUid(
+      stepFile,
+      parentScope,
+      String(item.fullTitle || item.title)
+    )
+  }
+
   // For Mocha/Jasmine tests and suites, use only stable identifiers
   // that don't change between full and partial runs
   // DO NOT use cid or parent as they can vary based on run context
-  const file = 'file' in item ? (item.file ?? '') : ''
-  return generateStableUidByFileName(file, String(item.fullTitle || item.title))
+  return generateStableUidByFileName(
+    stepFile,
+    String(item.fullTitle || item.title)
+  )
 }
 
 /**
@@ -154,6 +173,9 @@ export class TestReporter extends WebdriverIOReporter {
   #loadSource: (location: string) => void
   #currentSpecFile?: string
   #suitePath: string[] = []
+  /** Stable uid of the Cucumber scenario currently open, used to scope its
+   *  step uids. Undefined outside a scenario (Mocha/Jasmine). */
+  #currentScenarioUid?: string
 
   constructor(
     options: Reporters.Options,
@@ -205,6 +227,11 @@ export class TestReporter extends WebdriverIOReporter {
     // Generate stable UID for consistent identification across reruns
     suiteStats.uid = generateStableUid(suiteStats)
 
+    // Track the open Cucumber scenario so its steps scope their uids to it.
+    if (isScenario(suiteStats)) {
+      this.#currentScenarioUid = suiteStats.uid
+    }
+
     this.#currentSpecFile = suiteStats.file
     setCurrentSpecFile(suiteStats.file)
 
@@ -252,8 +279,10 @@ export class TestReporter extends WebdriverIOReporter {
       this.#loadSource(testStats.file)
     }
 
-    // Generate stable UID after enriching metadata for consistent test identification
-    testStats.uid = generateStableUid(testStats)
+    // Generate stable UID after enriching metadata for consistent test
+    // identification. Cucumber steps are scoped by their scenario's uid so
+    // identical step text across scenarios stays distinct.
+    testStats.uid = generateStableUid(testStats, this.#currentScenarioUid)
 
     this.#sendUpstream()
   }
@@ -285,11 +314,19 @@ export class TestReporter extends WebdriverIOReporter {
         matcherResult: rawErr.matcherResult
       } as Error
     }
+    // WDIO stamps the 0-based attempt on each test:start, so the final attempt's
+    // stat already carries the retry count; the field is optional upstream, so
+    // pin it to a number for the shared TestStats.retries contract.
+    testStats.retries = testStats.retries ?? 0
     this.#sendUpstream()
   }
 
   onSuiteEnd(suiteStats: SuiteStats): void {
     super.onSuiteEnd(suiteStats)
+    // Stop scoping steps once the owning scenario closes.
+    if (isScenario(suiteStats) && suiteStats.uid === this.#currentScenarioUid) {
+      this.#currentScenarioUid = undefined
+    }
     // Pop the suite we pushed on start
     if (
       suiteStats.title &&

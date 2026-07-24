@@ -28,7 +28,8 @@ import type {
   DevToolsMode,
   NightwatchBrowser,
   ScreencastOptions,
-  SuiteStats
+  SuiteStats,
+  TestStats
 } from './types.js'
 
 const log = logger('@wdio/nightwatch-devtools:session-init')
@@ -39,6 +40,7 @@ export interface SessionInitCtx {
   readonly screencastOptions: ScreencastOptions
   readonly bidiEnabled: boolean
   readonly mode: DevToolsMode
+  readonly captureAssertions: boolean
 
   sessionCapturer: SessionCapturer
   testReporter: TestReporter
@@ -57,6 +59,8 @@ export interface SessionInitCtx {
   getCurrentTest(): unknown
   getCurrentScenarioSuite(): SuiteStats | null
   buildMetadataOptions(): unknown
+  attemptFor(uid: string): number | undefined
+  recordOutcome(uid: string, state: TestStats['state']): void
 }
 
 async function handleSessionChange(
@@ -84,17 +88,23 @@ function initReporterChain(ctx: SessionInitCtx): void {
   // These must NOT be recreated on session change — doing so generates a
   // new feature suite with a fresh start timestamp, which DataManager sees
   // as a new run and wipes all accumulated commands.
-  ctx.testReporter = new TestReporter((suitesData) => {
-    if (ctx.sessionCapturer) {
-      ctx.sessionCapturer.sendUpstream('suites', suitesData)
-    }
-  })
-  ctx.testManager = new TestManager(ctx.testReporter)
+  ctx.testReporter = new TestReporter(
+    (suitesData) => {
+      if (ctx.sessionCapturer) {
+        ctx.sessionCapturer.sendUpstream('suites', suitesData)
+      }
+    },
+    (uid) => ctx.attemptFor(uid)
+  )
+  ctx.testManager = new TestManager(ctx.testReporter, (uid, state) =>
+    ctx.recordOutcome(uid, state)
+  )
   ctx.suiteManager = new SuiteManager(ctx.testReporter)
   ctx.browserProxy = new BrowserProxy(
     ctx.sessionCapturer,
     ctx.testManager,
-    () => ctx.getCurrentTest() ?? ctx.getCurrentScenarioSuite()
+    () => ctx.getCurrentTest() ?? ctx.getCurrentScenarioSuite(),
+    ctx.captureAssertions
   )
 }
 
@@ -267,19 +277,26 @@ export async function finalizeCurrentScreencast(
   if (!ctx.screencastRecorder || !ctx.screencastSessionId) {
     return
   }
-  await finalizeScreencast({
-    recorder: ctx.screencastRecorder,
-    sessionId: ctx.screencastSessionId,
-    filenamePrefix: 'nightwatch-video',
-    outputDir: resolveAdapterOutputDir({
-      testFilePath: ctx.browserProxy?.getCurrentTestFullPath?.() ?? undefined,
-      configPath: ctx.configPath
-    }),
-    captureFormat: ctx.screencastOptions.captureFormat,
-    sendUpstream: (scope, data) =>
-      ctx.sessionCapturer?.sendUpstream(scope, data),
-    onLog: (level, message) => log[level](message)
-  })
+  if (ctx.mode === 'trace') {
+    // Trace mode: the per-test video is written by the produce path and the
+    // filmstrip frames are embedded in the trace itself, so stop the recorder
+    // without encoding a session .webm nothing references (orphan file).
+    await ctx.screencastRecorder.stop()
+  } else {
+    await finalizeScreencast({
+      recorder: ctx.screencastRecorder,
+      sessionId: ctx.screencastSessionId,
+      filenamePrefix: 'nightwatch-video',
+      outputDir: resolveAdapterOutputDir({
+        testFilePath: ctx.browserProxy?.getCurrentTestFullPath?.() ?? undefined,
+        configPath: ctx.configPath
+      }),
+      captureFormat: ctx.screencastOptions.captureFormat,
+      sendUpstream: (scope, data) =>
+        ctx.sessionCapturer?.sendUpstream(scope, data),
+      onLog: (level, message) => log[level](message)
+    })
+  }
   ctx.screencastRecorder = undefined
   ctx.screencastSessionId = undefined
 }

@@ -1,4 +1,4 @@
-import { ContextProvider } from '@lit/context'
+import { ContextProvider, type Context, type ContextType } from '@lit/context'
 import type { ReactiveController, ReactiveControllerHost } from 'lit'
 import type {
   Metadata,
@@ -21,7 +21,9 @@ import {
   hasConnectionContext,
   baselineContext,
   selectedTestUidContext,
-  framesContext
+  framesContext,
+  actionGroupsContext,
+  transcriptContext
 } from './context.js'
 import { BASELINE_WS_SCOPE, TRACE_API, WS_SCOPE } from '@wdio/devtools-shared'
 import { CACHE_ID } from './constants.js'
@@ -64,60 +66,50 @@ export class DataManagerController implements ReactiveController {
   baselineContextProvider: ContextProvider<typeof baselineContext>
   selectedTestUidContextProvider: ContextProvider<typeof selectedTestUidContext>
   framesContextProvider: ContextProvider<typeof framesContext>
+  actionGroupsContextProvider: ContextProvider<typeof actionGroupsContext>
+  transcriptContextProvider: ContextProvider<typeof transcriptContext>
 
   #playerMode = false
 
   constructor(host: ReactiveControllerHost & HTMLElement) {
     ;(this.#host = host).addController(this)
-    this.mutationsContextProvider = new ContextProvider(this.#host, {
-      context: mutationContext,
-      initialValue: []
-    })
-    this.logsContextProvider = new ContextProvider(this.#host, {
-      context: logContext,
-      initialValue: []
-    })
-    this.consoleLogsContextProvider = new ContextProvider(this.#host, {
-      context: consoleLogContext,
-      initialValue: []
-    })
-    this.networkRequestsContextProvider = new ContextProvider(this.#host, {
-      context: networkRequestContext,
-      initialValue: []
-    })
-    this.metadataContextProvider = new ContextProvider(this.#host, {
-      context: metadataContext
-    })
-    this.metadataBySessionContextProvider = new ContextProvider(this.#host, {
-      context: metadataBySessionContext,
-      initialValue: {}
-    })
-    this.commandsContextProvider = new ContextProvider(this.#host, {
-      context: commandContext,
-      initialValue: []
-    })
-    this.sourcesContextProvider = new ContextProvider(this.#host, {
-      context: sourceContext
-    })
-    this.suitesContextProvider = new ContextProvider(this.#host, {
-      context: suiteContext
-    })
-    this.hasConnectionProvider = new ContextProvider(this.#host, {
-      context: hasConnectionContext,
-      initialValue: false
-    })
-    this.baselineContextProvider = new ContextProvider(this.#host, {
-      context: baselineContext,
-      initialValue: new Map<string, PreservedAttempt>()
-    })
-    this.selectedTestUidContextProvider = new ContextProvider(this.#host, {
-      context: selectedTestUidContext,
-      initialValue: undefined
-    })
-    this.framesContextProvider = new ContextProvider(this.#host, {
-      context: framesContext,
-      initialValue: []
-    })
+    this.mutationsContextProvider = this.#provide(mutationContext, [])
+    this.logsContextProvider = this.#provide(logContext, [])
+    this.consoleLogsContextProvider = this.#provide(consoleLogContext, [])
+    this.networkRequestsContextProvider = this.#provide(
+      networkRequestContext,
+      []
+    )
+    this.metadataContextProvider = this.#provide(metadataContext)
+    this.metadataBySessionContextProvider = this.#provide(
+      metadataBySessionContext,
+      {}
+    )
+    this.commandsContextProvider = this.#provide(commandContext, [])
+    this.sourcesContextProvider = this.#provide(sourceContext)
+    this.suitesContextProvider = this.#provide(suiteContext)
+    this.hasConnectionProvider = this.#provide(hasConnectionContext, false)
+    this.baselineContextProvider = this.#provide(
+      baselineContext,
+      new Map<string, PreservedAttempt>()
+    )
+    this.selectedTestUidContextProvider = this.#provide(
+      selectedTestUidContext,
+      undefined
+    )
+    this.framesContextProvider = this.#provide(framesContext, [])
+    this.actionGroupsContextProvider = this.#provide(
+      actionGroupsContext,
+      undefined
+    )
+    this.transcriptContextProvider = this.#provide(transcriptContext, undefined)
+  }
+
+  #provide<T extends Context<unknown, unknown>>(
+    context: T,
+    initialValue?: ContextType<T>
+  ): ContextProvider<T> {
+    return new ContextProvider(this.#host, { context, initialValue })
   }
 
   get playerMode() {
@@ -226,6 +218,8 @@ export class DataManagerController implements ReactiveController {
   loadPlayerData(data: TracePlayerData) {
     this.#playerMode = true
     this.framesContextProvider.setValue(data.frames)
+    this.actionGroupsContextProvider.setValue(data.groups)
+    this.transcriptContextProvider.setValue(data.transcript)
     this.loadTraceFile(data.trace)
     this.hasConnectionProvider.setValue(true)
     this.#host.requestUpdate()

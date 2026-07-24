@@ -4,6 +4,12 @@ import { createRequire } from 'node:module'
 
 const require = createRequire(import.meta.url)
 
+/** Browser-side expression that is true once the injected collector has
+ *  initialised. Shared by the adapters' readiness polls and re-injection
+ *  checks so the collector's global name lives in one place. */
+export const COLLECTOR_READY_EXPRESSION =
+  'typeof window.wdioTraceCollector !== "undefined"'
+
 /**
  * Load the `@wdio/devtools-script` browser preload, wrapped in an async IIFE
  * so its top-level `await` works inside a regular `<script>` element body.

@@ -29,6 +29,10 @@ export class ActionItem extends Element {
   @property({ type: Boolean, reflect: true })
   active = false
 
+  /** Whether this row's action errored — drives the red row treatment. */
+  @property({ type: Boolean, reflect: true })
+  failed = false
+
   static styles = [
     ...Element.styles,
     css`
@@ -66,6 +70,19 @@ export class ActionItem extends Element {
       }
       :host([active]) .ic {
         border-color: var(--accent);
+      }
+      :host([failed]) button {
+        background: color-mix(
+          in srgb,
+          var(--vscode-charts-red) 8%,
+          transparent
+        );
+        box-shadow: inset 2px 0 0 var(--vscode-charts-red);
+      }
+      :host([failed][active]) button {
+        box-shadow:
+          inset 2px 0 0 var(--vscode-charts-red),
+          inset 0 0 0 1px var(--vscode-panel-border);
       }
     `
   ]

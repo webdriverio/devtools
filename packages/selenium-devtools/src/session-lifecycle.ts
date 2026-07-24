@@ -10,13 +10,19 @@
 
 import logger from '@wdio/logger'
 import {
+  collectSuiteTestMetadata,
   errorMessage,
   finalizeScreencast,
+  finalizeTraceExport,
+  findFlushableRange,
+  flushRangeLogged,
+  recordSliceBoundary as coreRecordSliceBoundary,
   recordSpecBoundary as coreRecordSpecBoundary,
   resolveAdapterOutputDir,
-  writeSpecTrace,
-  writeTraceZip,
-  type SpecRange
+  type SpecBoundaryContext,
+  type SpecRange,
+  type TraceArtifact,
+  type TraceExportContext
 } from '@wdio/devtools-core'
 import { TIMING } from './constants.js'
 import { SessionCapturer } from './session.js'
@@ -30,12 +36,13 @@ import type {
   ActionSnapshot,
   DevToolsMode,
   Metadata,
+  ScreencastFrame,
   ScreencastOptions,
   SeleniumDriverLike,
-  SuiteStats,
-  TestMetadataMap,
   TraceFormat,
-  TraceGranularity
+  TraceGranularity,
+  TraceRetentionPolicy,
+  TraceVideoPolicy
 } from './types.js'
 import type { TestManager } from './helpers/testManager.js'
 
@@ -51,6 +58,10 @@ export interface SessionLifecycleCtx {
     mode?: DevToolsMode
     traceFormat?: TraceFormat
     traceGranularity?: TraceGranularity
+    tracePolicy?: TraceRetentionPolicy
+    filmstrip?: boolean
+    video?: TraceVideoPolicy
+    emitArtifactsManifest?: boolean
   }
   readonly screencastOptions: ScreencastOptions
   readonly runner: string
@@ -77,6 +88,13 @@ export interface SessionLifecycleCtx {
   // Per-spec trace tracking (populated at spec file boundaries).
   readonly specRanges: SpecRange[]
   readonly flushedSpecs: Set<string>
+  // In-flight per-test eager flushes (test granularity); awaited at finalize
+  // so the last test's write completes before the process exits.
+  readonly traceFlushes: Promise<unknown>[]
+  // Every trace/video artifact seen this run, for the end-of-run manifest.
+  readonly artifacts: TraceArtifact[]
+  // Dense filmstrip frames accumulated across drivers (filmstrip option only).
+  readonly filmstripFrames: ScreencastFrame[]
 
   setFinalized(v: boolean): void
   ensureBackendStarted(): Promise<void>
@@ -146,6 +164,19 @@ function ctxPluginRef(ctx: SessionLifecycleCtx): unknown {
   return (ctx as unknown as Record<symbol, unknown>)[PLUGIN_REF]
 }
 
+/** Record a screencast this driver? Live mode: `screencast.enabled`. Trace mode:
+ *  a non-`off` per-test `video` policy or `filmstrip` — both feed the recorder
+ *  even though live screencast is off in trace mode (parity with the service). */
+function shouldRecordScreencast(ctx: SessionLifecycleCtx): boolean {
+  if (ctx.options.mode === 'trace') {
+    return (
+      (!!ctx.options.video && ctx.options.video !== 'off') ||
+      !!ctx.options.filmstrip
+    )
+  }
+  return !!ctx.screencastOptions.enabled
+}
+
 async function initPerDriverCapture(
   ctx: SessionLifecycleCtx,
   driver: SeleniumDriverLike,
@@ -173,7 +204,8 @@ async function initPerDriverCapture(
   }
 
   // Parallel — serial attach misses frames on fast tests.
-  const screencastPromise = ctx.screencastOptions.enabled
+  const wantScreencast = shouldRecordScreencast(ctx)
+  const screencastPromise = wantScreencast
     ? (async () => {
         try {
           ctx.screencast = new ScreencastRecorder(ctx.screencastOptions)
@@ -203,19 +235,38 @@ async function initPerDriverCapture(
 }
 
 export async function onDriverEnd(ctx: SessionLifecycleCtx): Promise<void> {
+  // Drain the live page's mutations before the driver quits — onDriverEnd runs
+  // (via onBeforeQuit) while the session is still alive, so the final page's
+  // DOM + field edits reach capturer.mutations before the trace is written.
+  // Gated on ctx.driver so the post-quit onDriverEnd call skips a dead session.
+  if (ctx.options.mode === 'trace' && ctx.driver) {
+    await ctx.sessionCapturer?.captureTrace()
+  }
   if (ctx.screencast && ctx.sessionId) {
-    await finalizeScreencast({
-      recorder: ctx.screencast,
-      sessionId: ctx.sessionId,
-      filenamePrefix: 'selenium-video',
-      outputDir: resolveAdapterOutputDir({
-        testFilePath: ctx.testFilePath
-      }),
-      captureFormat: ctx.screencastOptions.captureFormat,
-      sendUpstream: (scope, data) =>
-        ctx.sessionCapturer?.sendUpstream(scope, data),
-      onLog: (level, message) => log[level](message)
-    })
+    if (ctx.options.mode === 'trace') {
+      // Trace mode: the video is emitted per-test (sliced in #emitTestArtifacts)
+      // and there's no dashboard to receive a session recording — just stop the
+      // recorder to release resources; never encode an orphan session webm.
+      await ctx.screencast.stop()
+    } else {
+      await finalizeScreencast({
+        recorder: ctx.screencast,
+        sessionId: ctx.sessionId,
+        filenamePrefix: 'selenium-video',
+        outputDir: resolveAdapterOutputDir({
+          testFilePath: ctx.testFilePath
+        }),
+        captureFormat: ctx.screencastOptions.captureFormat,
+        sendUpstream: (scope, data) =>
+          ctx.sessionCapturer?.sendUpstream(scope, data),
+        onLog: (level, message) => log[level](message)
+      })
+    }
+  }
+  // Drain this driver's frames into the run-wide buffer while the recorder is
+  // still alive — the finalize context is built after screencast is nulled.
+  if (ctx.options.filmstrip && ctx.screencast) {
+    ctx.filmstripFrames.push(...ctx.screencast.frames)
   }
   ctx.driver = undefined
   ctx.screencast = undefined
@@ -247,7 +298,7 @@ export async function onSessionEnd(ctx: SessionLifecycleCtx): Promise<void> {
     ctx.testManager?.finalizeSession()
     ctx.testReporter?.updateSuites()
 
-    await maybeWriteTrace(ctx, capturerAtStart, testFilePathAtStart)
+    await writeTraceIfNeeded(ctx, capturerAtStart, testFilePathAtStart)
 
     logSessionSummary(ctx)
     ctx.sessionCapturer?.cleanup()
@@ -283,101 +334,180 @@ export async function onSessionEnd(ctx: SessionLifecycleCtx): Promise<void> {
 }
 
 /**
- * Record a spec-file boundary in the session lifecycle context. Called from
- * the plugin's startTest / startScenario when `traceGranularity` is `'spec'`.
- * Flushes the previous spec's trace if it hasn't been written yet.
+ * Assemble the framework-agnostic trace-export context from the selenium
+ * session state. `resolveOutputDir` writes per-spec traces next to the spec
+ * file and the session trace next to the run's first test file. Test metadata
+ * is recomputed from the suite tree so a boundary flush sees the current tree.
  */
-export function recordSpecBoundary(
+export function buildTraceExportContext(
   ctx: SessionLifecycleCtx,
-  specFile: string
+  capturer: SessionCapturer,
+  sessionId: string,
+  testFilePath: string | undefined
+): TraceExportContext {
+  const root = ctx.suiteManager?.getRootSuite()
+  return {
+    mode: ctx.options.mode,
+    policy: ctx.options.tracePolicy,
+    granularity: ctx.options.traceGranularity,
+    format: ctx.options.traceFormat,
+    capturer,
+    actionSnapshots: ctx.actionSnapshots,
+    // Accumulated (ended-driver) frames plus the live recorder's — a mid-run
+    // per-spec/per-test flush fires before onDriverEnd drains the recorder, so
+    // its frames aren't in filmstripFrames yet; the core windows per slice.
+    screencastFrames: ctx.options.filmstrip
+      ? [...ctx.filmstripFrames, ...(ctx.screencast?.frames ?? [])]
+      : undefined,
+    sessionId,
+    testMetadata: collectSuiteTestMetadata(root ? [root] : []),
+    // TestStats.retries carries the per-test attempt (Mocha authoritative,
+    // other runners heuristic), so retry-aware policies can trust it.
+    attemptInfoAvailable: true,
+    // Per-attempt outcome ledger, retry-stable-keyed so a test's attempts
+    // group as one test. Without it, session/spec retention reads the
+    // per-attempt suite-node metadata — which sees a fail-then-pass as two
+    // separate one-shot tests and over-retains it under retain-on-failure.
+    outcomes: ctx.testManager?.attemptOutcomes,
+    ranges: ctx.specRanges,
+    flushed: ctx.flushedSpecs,
+    resolveOutputDir: (range) =>
+      resolveAdapterOutputDir({
+        testFilePath: range ? range.specFile : testFilePath
+      }),
+    awaitPending: [...ctx.snapshotCaptures, ...ctx.traceFlushes],
+    log: (level, msg) => log[level](msg),
+    // Off by default; explicit option wins, else auto-enable when an
+    // allure-js-commons runtime is active (the same signal the Allure sink uses).
+    emitManifest:
+      ctx.options.emitArtifactsManifest ??
+      !!(globalThis as { allureTestRuntime?: unknown }).allureTestRuntime,
+    collectedArtifacts: ctx.artifacts,
+    onArtifact: (a) => ctx.artifacts.push(a)
+  }
+}
+
+/** Narrow view of the lifecycle ctx that the core boundary recorder needs. */
+function boundaryContext(
+  ctx: SessionLifecycleCtx,
+  capturer: SessionCapturer
+): SpecBoundaryContext {
+  return {
+    specRanges: ctx.specRanges,
+    flushedSpecs: ctx.flushedSpecs,
+    capturer
+  }
+}
+
+/**
+ * Record a trace-slice boundary for the active granularity, called from the
+ * plugin's startTest / startScenario. `spec` keys by spec file (flushing the
+ * previous spec lazily at the next boundary); `test` keys by the just-started
+ * marked test's uid so each test — and each retry, which selenium gives a
+ * distinct uid — becomes its own slice. No-op for `session`.
+ */
+export function recordTraceBoundary(
+  ctx: SessionLifecycleCtx,
+  specFile: string | undefined
 ): void {
+  if (ctx.options.traceGranularity === 'test') {
+    recordTestBoundary(ctx, specFile)
+    return
+  }
+  if (specFile) {
+    recordSpecBoundary(ctx, specFile)
+  }
+}
+
+/**
+ * Record a spec-file boundary and lazily flush the previous spec's trace if it
+ * hasn't been written yet. `coreRecordSpecBoundary` no-ops for non-spec
+ * granularities, so this only records under `spec`.
+ */
+function recordSpecBoundary(ctx: SessionLifecycleCtx, specFile: string): void {
   if (!ctx.sessionCapturer) {
     return
   }
   const prevRange = coreRecordSpecBoundary(
-    {
-      specRanges: ctx.specRanges,
-      flushedSpecs: ctx.flushedSpecs,
-      capturer: ctx.sessionCapturer,
-      actionSnapshots: ctx.actionSnapshots
-    },
+    boundaryContext(ctx, ctx.sessionCapturer),
     specFile,
     ctx.options.traceGranularity
   )
-  if (prevRange) {
-    void flushOneSpecTrace(ctx, prevRange).catch((err) =>
-      log.warn(
-        `Failed to flush trace for spec "${prevRange.specFile}": ${errorMessage(err)}`
-      )
-    )
+  const sessionId = ctx.sessionCapturer.metadata?.sessionId
+  if (!prevRange || !sessionId) {
+    return
   }
+  void flushRangeLogged(
+    buildTraceExportContext(
+      ctx,
+      ctx.sessionCapturer,
+      sessionId,
+      ctx.testFilePath
+    ),
+    prevRange
+  )
 }
 
-async function flushOneSpecTrace(
+/**
+ * Record a per-test boundary keyed by the currently-active marked test's uid.
+ * The first test's startTest fires before the driver exists (no capturer yet),
+ * so flushPendingTestActions re-invokes this once capture is live; the
+ * same-uid guard keeps that replay from minting a spurious retry slice.
+ */
+function recordTestBoundary(
   ctx: SessionLifecycleCtx,
-  range: SpecRange,
-  nextRange?: SpecRange
-): Promise<string | undefined> {
-  const capturer = ctx.sessionCapturer
-  if (!capturer || ctx.flushedSpecs.has(range.specFile)) {
-    return undefined
+  specFile: string | undefined
+): void {
+  const testUid = ctx.testManager?.getCurrentTest()?.uid
+  const file = specFile ?? ctx.testFilePath
+  if (!ctx.sessionCapturer || !testUid || !file) {
+    return
   }
-  ctx.flushedSpecs.add(range.specFile)
-
-  const sessionId = capturer.metadata?.sessionId
-  if (!sessionId) {
-    return undefined
+  const lastRange = ctx.specRanges[ctx.specRanges.length - 1]
+  if (lastRange?.testUid === testUid) {
+    return
   }
-
-  const tracePath = await writeSpecTrace({
-    range,
-    nextRange,
-    capturer,
-    actionSnapshots: ctx.actionSnapshots,
-    sessionId,
-    outputDir: resolveAdapterOutputDir({ testFilePath: range.specFile }),
-    format: ctx.options.traceFormat,
-    testMetadata: collectTestMetadata(ctx.suiteManager)
-  })
-  log.info(`Trace for spec "${range.specFile}" saved to ${tracePath}`)
-  return tracePath
+  coreRecordSliceBoundary(
+    boundaryContext(ctx, ctx.sessionCapturer),
+    'test',
+    file,
+    testUid
+  )
 }
 
-async function flushSpecTraces(ctx: SessionLifecycleCtx): Promise<void> {
-  for (const range of ctx.specRanges) {
-    if (!ctx.flushedSpecs.has(range.specFile)) {
-      await flushOneSpecTrace(ctx, range)
-    }
+/**
+ * Eager-flush the just-ended test's trace slice (test granularity), after
+ * endTest has finalized its state so collectSuiteTestMetadata sees the final
+ * outcome. flushRangeTrace dedupes by key, so finalizeTraceExport won't
+ * re-write it; the promise is tracked so finalize awaits the last write.
+ * Returns the produced artifact so the plugin can attach the retained slice to
+ * Allure within the still-open per-test hook; undefined when nothing flushed.
+ */
+export function flushCurrentTestTrace(
+  ctx: SessionLifecycleCtx
+): Promise<TraceArtifact | undefined> {
+  if (ctx.options.traceGranularity !== 'test' || !ctx.sessionCapturer) {
+    return Promise.resolve(undefined)
   }
+  const sessionId = ctx.sessionCapturer.metadata?.sessionId
+  const currentRange = findFlushableRange(ctx.specRanges)
+  if (!sessionId || currentRange?.testUid === undefined) {
+    return Promise.resolve(undefined)
+  }
+  const flush = flushRangeLogged(
+    buildTraceExportContext(
+      ctx,
+      ctx.sessionCapturer,
+      sessionId,
+      ctx.testFilePath
+    ),
+    currentRange
+  )
+  ctx.traceFlushes.push(flush)
+  return flush
 }
 
-function collectTestMetadata(
-  suiteManager: SuiteManager | undefined
-): TestMetadataMap {
-  const metadata: TestMetadataMap = new Map()
-  const root = suiteManager?.getRootSuite()
-  if (!root) {
-    return metadata
-  }
-  const walk = (suite: SuiteStats) => {
-    for (const entry of suite.tests) {
-      if (typeof entry === 'string') {
-        continue
-      }
-      metadata.set(entry.uid, {
-        title: entry.fullTitle,
-        specFile: entry.file
-      })
-    }
-    for (const child of suite.suites) {
-      walk(child)
-    }
-  }
-  walk(root)
-  return metadata
-}
-
-async function maybeWriteTrace(
+async function writeTraceIfNeeded(
   ctx: SessionLifecycleCtx,
   capturer: SessionCapturer | undefined,
   testFilePath: string | undefined
@@ -386,30 +516,9 @@ async function maybeWriteTrace(
   if (ctx.options.mode !== 'trace' || !capturer || !sessionId) {
     return
   }
-  try {
-    if (ctx.snapshotCaptures.length) {
-      await Promise.allSettled(ctx.snapshotCaptures)
-    }
-
-    if (ctx.options.traceGranularity === 'spec') {
-      await flushSpecTraces(ctx)
-      return
-    }
-
-    const testMetadata = collectTestMetadata(ctx.suiteManager)
-    const tracePath = await writeTraceZip(capturer, {
-      outputDir: resolveAdapterOutputDir({ testFilePath }),
-      sessionId,
-      actionSnapshots: ctx.actionSnapshots.length
-        ? ctx.actionSnapshots
-        : undefined,
-      format: ctx.options.traceFormat,
-      testMetadata
-    })
-    log.info(`Trace saved to ${tracePath}`)
-  } catch (err) {
-    log.warn(`trace write failed: ${errorMessage(err)}`)
-  }
+  await finalizeTraceExport(
+    buildTraceExportContext(ctx, capturer, sessionId, testFilePath)
+  )
 }
 
 function logSessionSummary(ctx: SessionLifecycleCtx): void {

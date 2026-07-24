@@ -152,3 +152,49 @@ describe('sendCommand', () => {
     expect(cap.upstream.filter((u) => u.scope === 'commands')).toHaveLength(1)
   })
 })
+
+describe('failLastAction', () => {
+  const boom = { name: 'Error', message: 'boom' }
+
+  it('marks the most-recent action of the test when it has no error', () => {
+    cap.commandsLog.push({
+      command: 'expect.toBeExisting',
+      args: [],
+      timestamp: 1,
+      testUid: 't1'
+    })
+    expect(cap.failLastAction('t1', boom)).toBe(true)
+    expect(cap.commandsLog[0]!.error).toEqual(boom)
+  })
+
+  it('does not bleed onto an earlier passing action when the latest one already failed', () => {
+    // Regression: a failing expect matcher is captured as its own row via
+    // afterAssertion, so failLastAction must stop at it — NOT stamp the error
+    // onto the preceding passing assertion (the toBeExisting-shown-red bug).
+    const matcherErr = { name: 'Error', message: 'to have text' }
+    cap.commandsLog.push(
+      { command: 'expect.toBeExisting', args: [], timestamp: 1, testUid: 't1' },
+      {
+        command: 'expect.toHaveText',
+        args: [],
+        timestamp: 2,
+        testUid: 't1',
+        error: matcherErr
+      }
+    )
+    expect(cap.failLastAction('t1', boom)).toBe(false)
+    expect(cap.commandsLog[0]!.error).toBeUndefined()
+    expect(cap.commandsLog[1]!.error).toEqual(matcherErr)
+  })
+
+  it('ignores actions belonging to a different test', () => {
+    cap.commandsLog.push({
+      command: 'expect.toBeExisting',
+      args: [],
+      timestamp: 1,
+      testUid: 'other'
+    })
+    expect(cap.failLastAction('t1', boom)).toBe(false)
+    expect(cap.commandsLog[0]!.error).toBeUndefined()
+  })
+})

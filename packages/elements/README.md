@@ -21,6 +21,22 @@ const result = await getElements(browser, { limit: 50, inViewportOnly: true })
 // { total, showing, hasMore, elements, tree? }
 ```
 
+### Accessibility snapshot (`getSnapshot`)
+
+A single call for web and mobile that returns an AI-readable accessibility/DOM snapshot as a `SnapshotResult` — a text tree with `e1`, `e2`, … virtual element IDs baked in, plus an `elements` map that resolves each ID to a real selector. No post-processing required.
+
+```ts
+import { getSnapshot } from '@wdio/elements'
+
+const { text, elements } = await getSnapshot(browser, { inViewportOnly: true })
+// text: '[Page: Login — https://…]\n  button "Log in" → button*=Log in\n  …'
+// elements: { e1: { selector, qualifiedSelector?, tagName, role, text }, … }
+```
+
+It auto-detects platform: web sessions walk the browser accessibility tree, mobile sessions parse the page-source XML. `@wdio/devtools-service` also registers a `browser.getSnapshot()` runtime accessor that calls this directly.
+
+This is the snapshot the DevTools **trace player** consumes: the per-action accessibility tree feeds the player's **A11y tab** (roles + accessible names, hover to highlight, click to copy a locator), and the resolved `elements` back the player's **element overlay / pick-locator** (click-to-copy boxes drawn over each interacted element, cross-linked to the A11y rows).
+
 ### Browser
 
 ```ts
@@ -92,6 +108,14 @@ Auto-detects platform and returns a unified result.
 | `limit` | `number` | `0` | Max elements (0 = no limit) |
 | `offset` | `number` | `0` | Pagination offset |
 
+### `getSnapshot(browser, options)`
+
+Auto-detects platform and returns a `SnapshotResult` — `{ text, elements }` — where `text` is the rendered accessibility tree with embedded `e1`, `e2`, … IDs and `elements` maps each ID to a `SnapshotElement` (`selector`, optional `qualifiedSelector` for `.instance(N)` disambiguation, `tagName`, `role`, `text`).
+
+| Param | Type | Default | Description |
+|---|---|---|---|
+| `inViewportOnly` | `boolean` | `true` | Only include elements whose bounds intersect the viewport |
+
 ### `getInteractableBrowserElements(browser, options)`
 
 Single `querySelectorAll` walk — returns flat list of interactable elements.
@@ -132,7 +156,9 @@ export type {
   MobileElementInfo, GetMobileElementsOptions,
   AccessibilityNode,
   VisibleElementsResult,
-  WebSnapshotOptions, MobileSnapshotOptions
+  WebSnapshotOptions, MobileSnapshotOptions,
+  GetSnapshotOptions,
+  SnapshotResult, SnapshotElement
 } from '@wdio/elements'
 
 // From @wdio/elements/locators:

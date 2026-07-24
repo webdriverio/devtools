@@ -1,5 +1,11 @@
 import logger from '@wdio/logger'
-import { createTestStats, stampTestEnd } from '@wdio/devtools-core'
+import {
+  createTestStats,
+  stampTestEnd,
+  TestAttemptTracker,
+  type RetryOutcomeView,
+  type TestOutcome
+} from '@wdio/devtools-core'
 import { DEFAULTS, TEST_STATE } from '../constants.js'
 import type { SuiteStats, TestStats } from '../types.js'
 import type { TestReporter } from '../reporter.js'
@@ -19,6 +25,18 @@ export class TestManager {
   #currentTest: TestStats | null = null
   #lastMarkedTest: TestStats | null = null
   #mode: 'session' | 'marked' = 'session'
+  // Per-test attempt ledger. Persists for the whole in-process session so
+  // same-process retries (Mocha/Jest/etc re-entering the start hook) accumulate.
+  // Retry-stable-keyed so a test's attempts group under one entry; the trace
+  // finalizer reads it (attemptOutcomes) for retry-aware retention.
+  #attemptTracker = new TestAttemptTracker()
+  // Retry-stable uid of the in-progress marked test, so endCurrent can stamp
+  // this attempt's outcome onto the same ledger entry recordStart opened.
+  #currentRetryStableUid: string | undefined
+  // Retry-stable uid of the most-recently-started marked test, retained past
+  // endCurrent so the per-test artifact path (which runs after the test ends)
+  // can read this test's attempts from the ledger for video retention.
+  #lastRetryStableUid: string | undefined
   /** Set true the first time the user calls startMarkedTest. Once true we
    * never auto-create the synthetic session test — orphan commands attach
    * to the most-recently-marked test instead. */
@@ -90,7 +108,7 @@ export class TestManager {
    */
   startMarkedTest(
     name: string,
-    opts: { file?: string; callSource?: string } = {}
+    opts: { file?: string; callSource?: string; attempt?: number } = {}
   ): TestStats {
     if (!this.#userTookOver) {
       this.#userTookOver = true
@@ -115,14 +133,26 @@ export class TestManager {
     const file = opts.file || this.suite.file
     // Scope by parent so two suites with the same test/step name don't
     // collide on signatureCounter disambiguation across rerun processes.
+    const signature = `${this.suite.uid}::${name}`
     const test = createTestStats({
-      uid: generateStableUid(file, `${this.suite.uid}::${name}`),
+      uid: generateStableUid(file, signature),
       cid: DEFAULTS.CID,
       title: name,
       file,
       parent: this.suite.uid,
       callSource: opts.callSource
     })
+    // deterministicUid is retry-stable (no counter), so re-entering with the
+    // same logical test increments the heuristic. Mocha supplies an
+    // authoritative per-test retry index via opts.attempt; prefer it.
+    const retryStableUid = deterministicUid(file, signature)
+    const heuristicAttempt = this.#attemptTracker.recordStart(
+      retryStableUid,
+      file
+    )
+    this.#currentRetryStableUid = retryStableUid
+    this.#lastRetryStableUid = retryStableUid
+    test.retries = opts.attempt ?? heuristicAttempt
     log.info(
       `Started marked test "${name}" (callSource: ${opts.callSource || 'n/a'})`
     )
@@ -140,12 +170,41 @@ export class TestManager {
     }
     test.state = state
     stampTestEnd(test)
+    // Stamp this attempt's real outcome onto its retry-stable ledger slot so a
+    // fail-then-pass groups under one test: retain-on-failure keys on the final
+    // (passed) attempt and stops over-retaining, retain-on-first-failure on
+    // attempt 0. Skipped for the synthetic session test (no recordStart).
+    if (this.#currentRetryStableUid !== undefined) {
+      this.#attemptTracker.recordOutcome(
+        this.#currentRetryStableUid,
+        state,
+        test.retries
+      )
+      this.#currentRetryStableUid = undefined
+    }
     this.testReporter.onTestEnd(test)
     this.#currentTest = null
   }
 
   getCurrentTest(): TestStats | null {
     return this.#currentTest
+  }
+
+  /** Read-only per-attempt outcome ledger for the trace finalizer's retry-aware
+   *  retention evaluation (retry-stable-keyed, so a test's attempts group). */
+  get attemptOutcomes(): RetryOutcomeView {
+    return this.#attemptTracker
+  }
+
+  /** The just-ended marked test's attempts, keyed by its retry-stable uid (the
+   *  ledger key), for the per-test video retention decision. The artifact
+   *  filename uses the marked uid, but retention groups a test's attempts under
+   *  the retry-stable key — this bridges the two. Empty when no marked test ran. */
+  lastTestOutcomes(): TestOutcome[] {
+    if (this.#lastRetryStableUid === undefined) {
+      return []
+    }
+    return this.#attemptTracker.forTest(this.#lastRetryStableUid)
   }
 
   /** Called when the driver session is closing (process exit / quit). */

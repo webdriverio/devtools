@@ -148,3 +148,74 @@ describe('ScreencastRecorderBase — CDP override path', () => {
     await r.stop()
   })
 })
+
+describe('ScreencastRecorderBase — buffer cap / decimation', () => {
+  class PushRecorder extends ScreencastRecorderBase<{ name: string }> {
+    protected override async takeScreenshot() {
+      return null
+    }
+    protected override async tryStartCdp() {
+      return true
+    }
+    push(d: string, t: number) {
+      this.pushCdpFrame(d, t)
+    }
+    get len() {
+      return this.buffer.length
+    }
+  }
+
+  it('never lets the buffer exceed maxBufferFrames across many appends', async () => {
+    const cap = 10
+    const r = new PushRecorder({ maxBufferFrames: cap })
+    await r.start({ name: 'd' })
+    for (let i = 0; i < 1000; i++) {
+      r.push(`f-${i}`, i)
+      expect(r.len).toBeLessThanOrEqual(cap)
+    }
+    await r.stop()
+  })
+
+  it('preserves the first and last frame and the temporal spread (not tail-truncated)', async () => {
+    const cap = 100
+    const total = 350
+    const r = new PushRecorder({ maxBufferFrames: cap })
+    await r.start({ name: 'd' })
+    for (let i = 0; i < total; i++) {
+      r.push(`f-${i}`, i) // pushCdpFrame stores seconds*1000, so timestamp == i*1000
+    }
+    const frames = r.frames
+    expect(frames[0].data).toBe('f-0') // first kept — a tail-truncated buffer would drop it
+    expect(frames[frames.length - 1].data).toBe(`f-${total - 1}`) // last kept
+    expect(r.duration).toBe((total - 1) * 1000) // spans the whole session
+
+    // Spread survives: frames land in the early, middle, and late thirds of the
+    // timeline rather than clustering at either end.
+    const times = frames.map((f) => f.timestamp / 1000)
+    expect(times.some((t) => t < total / 4)).toBe(true)
+    expect(times.some((t) => t > total / 4 && t < (total * 3) / 4)).toBe(true)
+    expect(times.some((t) => t > (total * 3) / 4)).toBe(true)
+    await r.stop()
+  })
+
+  it('keeps setStartMarker semantics and a sane duration across decimation', async () => {
+    const cap = 10
+    const r = new PushRecorder({ maxBufferFrames: cap })
+    await r.start({ name: 'd' })
+    for (let i = 0; i < 5; i++) {
+      r.push(`pre-${i}`, i) // ts 0..4, before the marker
+    }
+    r.setStartMarker()
+    for (let i = 0; i < 200; i++) {
+      r.push(`post-${i}`, 100 + i) // ts 100..299, after the marker — forces many decimations
+    }
+    const frames = r.frames
+    expect(frames.length).toBeGreaterThan(1)
+    // No pre-marker frame ever leaks into the public getter.
+    expect(frames.every((f) => f.data.startsWith('post-'))).toBe(true)
+    // Duration stays within the post-marker time window (ts 100..299 → 199s span in ms).
+    expect(r.duration).toBeGreaterThan(0)
+    expect(r.duration).toBeLessThanOrEqual(199 * 1000)
+    await r.stop()
+  })
+})

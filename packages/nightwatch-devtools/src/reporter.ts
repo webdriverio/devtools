@@ -1,5 +1,5 @@
 import logger from '@wdio/logger'
-import { TestReporterBase } from '@wdio/devtools-core'
+import { TestReporterBase, type ReporterUpstream } from '@wdio/devtools-core'
 import { REUSE_ENV } from '@wdio/devtools-shared'
 import { DEFAULTS } from './constants.js'
 import { extractTestMetadata, generateStableUid } from './helpers/utils.js'
@@ -11,6 +11,15 @@ export class TestReporter extends TestReporterBase {
   #currentSpecFile?: string
   #testNamesCache = new Map<string, string[]>()
   #currentSuite?: SuiteStats
+  #attemptFor: (uid: string) => number | undefined
+
+  constructor(
+    report: ReporterUpstream,
+    attemptFor: (uid: string) => number | undefined
+  ) {
+    super(report)
+    this.#attemptFor = attemptFor
+  }
 
   onSuiteStart(suiteStats: SuiteStats) {
     this.#currentSpecFile = suiteStats.file
@@ -92,11 +101,12 @@ export class TestReporter extends TestReporterBase {
 
     cachedNames.forEach((testName) => {
       if (!processedTestNames.has(testName)) {
+        const uid = generateStableUid({
+          file: suiteStats.file,
+          fullTitle: `${suiteStats.title} ${testName}`
+        } as TestStats)
         const skippedTest: TestStats = {
-          uid: generateStableUid({
-            file: suiteStats.file,
-            fullTitle: `${suiteStats.title} ${testName}`
-          } as TestStats),
+          uid,
           cid: DEFAULTS.CID,
           title: testName,
           fullTitle: `${suiteStats.title} ${testName}`,
@@ -106,7 +116,7 @@ export class TestReporter extends TestReporterBase {
           end: new Date(),
           type: 'test',
           file: suiteStats.file,
-          retries: DEFAULTS.RETRIES,
+          retries: this.#attemptFor(uid) ?? DEFAULTS.RETRIES,
           _duration: DEFAULTS.DURATION,
           hooks: []
         }

@@ -1,6 +1,7 @@
 import { getLogs, clearLogs } from './logger.js'
 import { ConsoleLogCollector } from './collectors/consoleLogs.js'
 import { NetworkRequestCollector } from './collectors/networkRequests.js'
+import { assignRef, hasRef, parseDocument } from './utils.js'
 
 class DataCollector {
   #metadata = {
@@ -27,6 +28,29 @@ class DataCollector {
 
   captureMutation(mutations: TraceMutation[]) {
     this.#mutations.push(...mutations)
+  }
+
+  /** Force a full-DOM anchor of the CURRENT document, unless it was already
+   *  anchored. The initial anchor runs asynchronously (after `waitForBody`), so
+   *  the destination of a closing navigation — e.g. a logout landing back on the
+   *  login page as the last action — may not be anchored yet when the final
+   *  drain fires at teardown. Skipped when the root already carries a ref (the
+   *  async anchor won the race): re-running assignRef would renumber descendants
+   *  and desync every prior mutation. */
+  captureCurrentDom() {
+    if (hasRef(document.documentElement)) {
+      return
+    }
+    assignRef(document.documentElement)
+    this.captureMutation([
+      {
+        type: 'childList',
+        url: window.location.href,
+        timestamp: Date.now(),
+        addedNodes: [parseDocument(document.documentElement)],
+        removedNodes: []
+      }
+    ])
   }
 
   reset() {

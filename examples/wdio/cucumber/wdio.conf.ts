@@ -54,7 +54,9 @@ export const config: Options.Testrunner = {
   // and 30 processes will get spawned. The property handles how many capabilities
   // from the same test should run tests.
   //
-  maxInstances: 10,
+  // Live mode drives a single-session dashboard; >1 worker streams two feature
+  // files into it at once and neither renders cleanly. One instance = readable demo.
+  maxInstances: 1,
   //
   // If you have trouble getting all important capabilities together, check out the
   // Sauce Labs platform configurator - a great tool to configure your capabilities:
@@ -67,7 +69,6 @@ export const config: Options.Testrunner = {
       'goog:chromeOptions': {
         args: [
           '--headless',
-          '--disable-gpu',
           '--remote-allow-origins=*',
           '--window-size=1600,900'
         ]
@@ -87,7 +88,7 @@ export const config: Options.Testrunner = {
   // Define all options that are relevant for the WebdriverIO instance here
   //
   // Level of logging verbosity: trace | debug | info | warn | error | silent
-  logLevel: 'debug',
+  logLevel: 'warn',
   //
   // Set specific log levels per logger
   // loggers:
@@ -131,8 +132,15 @@ export const config: Options.Testrunner = {
     [
       'devtools',
       {
-        mode: 'live' as const,
-        screencast: { enabled: true, pollIntervalMs: 200 }
+        mode: 'trace' as const,
+        filmstrip: true,
+        // tracePolicy: 'retain-on-failure',
+        traceGranularity: 'test' as const,
+        // NEW: per-test screenshot + video, attached inline to Allure.
+        // Both require traceGranularity:'test' (the uniform rule).
+        screenshot: 'only-on-failure' as const, // 'off' | 'on' | 'only-on-failure'
+        video: 'on' as const // 'off' | retention policy
+        // screencast: { enabled: true, pollIntervalMs: 200 }
       }
     ]
   ],
@@ -158,7 +166,22 @@ export const config: Options.Testrunner = {
   // Test reporter for stdout.
   // The only one supported by default is 'dot'
   // see also: https://webdriver.io/docs/dot-reporter
-  reporters: ['spec'],
+  reporters: [
+    'spec',
+    [
+      'allure',
+      {
+        outputDir: path.resolve(__dirname, 'allure-results'),
+        // Trace mode issues a takeScreenshot (+ reads) per action to build the
+        // trace snapshots; @wdio/allure-reporter logs every WebDriver command as
+        // a step and attaches a screenshot per takeScreenshot, which floods the
+        // report. Silence both — the trace.zip attachment is unaffected, and the
+        // gherkin Given/When/Then steps still show.
+        disableWebdriverStepsReporting: true,
+        disableWebdriverScreenshotsReporting: true
+      }
+    ]
+  ],
 
   // If you are using Cucumber you need to specify the location of your step definitions.
   cucumberOpts: {

@@ -3,6 +3,18 @@
 
 import type { NetworkRequest } from '@wdio/devtools-shared'
 
+/** Bodies below this inline as plain `text`; larger ones rely on `_sha1` only. */
+const INLINE_BODY_TEXT_MAX_BYTES = 8 * 1024
+
+export interface HarResponseContent {
+  size: number
+  mimeType: string
+  /** Inline body fallback for small textual bodies. */
+  text?: string
+  /** Content-addressed body resource name under `resources/`. */
+  _sha1?: string
+}
+
 export interface ResourceSnapshotEntry {
   type: 'resource-snapshot'
   snapshot: {
@@ -24,7 +36,7 @@ export interface ResourceSnapshotEntry {
       httpVersion: string
       cookies: unknown[]
       headers: { name: string; value: string }[]
-      content: { size: number; mimeType: string }
+      content: HarResponseContent
       redirectURL: string
       headersSize: number
       bodySize: number
@@ -54,8 +66,28 @@ function toQueryString(url: string): { name: string; value: string }[] {
   }
 }
 
+function toHarContent(
+  entry: NetworkRequest,
+  mimeType: string,
+  bodySha1: string | undefined
+): HarResponseContent {
+  const content: HarResponseContent = { size: entry.size ?? 0, mimeType }
+  const body = entry.responseBody
+  if (body === undefined) {
+    return content
+  }
+  if (Buffer.byteLength(body, 'utf8') < INLINE_BODY_TEXT_MAX_BYTES) {
+    content.text = body
+  }
+  if (bodySha1) {
+    content._sha1 = bodySha1
+  }
+  return content
+}
+
 export function networkRequestToHar(
-  entry: NetworkRequest
+  entry: NetworkRequest,
+  opts: { bodySha1?: string } = {}
 ): ResourceSnapshotEntry {
   const startedDateTime = new Date(entry.timestamp).toISOString()
   const duration =
@@ -84,7 +116,7 @@ export function networkRequestToHar(
         httpVersion: 'HTTP/1.1',
         cookies: [],
         headers: toHeaderArray(responseHeaders),
-        content: { size: entry.size ?? 0, mimeType },
+        content: toHarContent(entry, mimeType, opts.bodySha1),
         redirectURL: '',
         headersSize: -1,
         bodySize: entry.size ?? -1

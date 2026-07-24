@@ -186,6 +186,19 @@ export const sourceStyles = css`
     overflow: hidden;
   }
 
+  .src-empty {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    text-align: center;
+    font-family: var(--vscode-font-family, sans-serif);
+    font-size: 12px;
+    color: var(--vscode-descriptionForeground);
+    background: var(--vscode-editor-background);
+  }
+
   .cm-editor {
     width: 100%;
     height: 100%;

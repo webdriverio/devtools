@@ -10,7 +10,7 @@ Works with **Mocha**, **Jest**, **Cucumber**, or plain `node script.js` — the 
 
 ---
 
-## Quick start (3 steps)
+## Quick Start
 
 **1. Install the package** in your Selenium project:
 
@@ -247,7 +247,7 @@ node tests/google.test.js
 
 ---
 
-## Configuration options explained
+## Configuration
 
 The runner snippets above use a typical config:
 
@@ -312,13 +312,42 @@ DevTools.configure({ rerunCommand: 'npm test -- --grep "{{testName}}"' })
 ```
 
 #### `mode` — live UI vs. headless trace.zip
-**Default:** `'live'` (launches the dashboard window). Set to `'trace'` to skip the dashboard entirely and write a `trace-<sessionId>.zip` next to your test file at session end — meant for CI / offline replay / agentic diffing. `screencast` is ignored in trace mode (live-mode-only feature).
+**Default:** `'live'` (launches the dashboard window). Set to `'trace'` to skip the dashboard entirely and write a `trace-<sessionId>.zip` under a `test-results/` directory at session end (the base dir resolves from the test file's directory → the config directory → cwd) — meant for CI / offline replay / agentic diffing. For `traceGranularity: 'test'` the per-test artifact lands at `test-results/<spec>-<title>-<browser>[-retryN]/trace.zip`. `screencast` is ignored in trace mode (live-mode-only feature).
 
 ```javascript
 DevTools.configure({ mode: 'trace' })
 ```
 
-See [Trace mode](../../README.md#-trace-mode-tracezip) in the root README for the trace.zip layout and consumer notes.
+#### `traceGranularity` — one trace per session, spec, or test
+**Default:** `'session'`. `'spec'` writes one trace per spec file; `'test'` writes one per test into `test-results/<spec>-<title>-<browser>[-retryN]/trace.zip` — the smallest, most navigable artifacts and the best pairing with `tracePolicy`. Trace mode only.
+
+```javascript
+DevTools.configure({ mode: 'trace', traceGranularity: 'test' })
+```
+
+#### `tracePolicy` — which traces to keep
+**Default:** `'on'` (keep every trace). Pairs with `traceGranularity: 'test'`. The other values keep only failing / retried tests: `'retain-on-failure'`, `'retain-on-first-failure'`, `'on-first-retry'`, `'on-all-retries'`, `'retain-on-failure-and-retries'`. Trace mode only.
+
+#### `traceFormat` — zip vs. unpacked directory
+**Default:** `'zip'` (a single `trace-<sessionId>.zip`). `'ndjson-directory'` writes the same `trace.trace` + `trace.network` + `resources/` layout unpacked into `trace-<id>/`, skipping the unzip step for scripted / agentic consumers. Trace mode only.
+
+#### `filmstrip` — dense scrubbable screencast in the trace
+**Default:** `true`. Records a continuous screencast (CDP push on Chrome, screenshot polling elsewhere) into the trace so the player timeline scrubs frame-by-frame. On by default in trace mode; set `false` to record just one frame per action. Trace mode only.
+
+```javascript
+DevTools.configure({ mode: 'trace', filmstrip: true })
+```
+
+#### `screenshot` and `video` — per-test artifacts
+**Default:** `'off'` for both. Trace mode + `traceGranularity: 'test'`. `screenshot` (`'on'` / `'only-on-failure'`) captures a per-test PNG; `video` (a retention policy) slices a per-test `.webm`. When an `allure-js-commons` runner adapter is active they're attached inline to the Allure report; otherwise they're written to `test-results/` and recorded in the manifest.
+
+#### `emitArtifactsManifest` — machine-readable artifact index
+**Default:** off, **auto-enabled** when an `allure-js-commons` runtime is active. Writes `devtools-artifacts-<sessionId>.json` next to the trace so reporters / CI can discover the produced artifacts. Set explicitly to force on/off. Trace mode only.
+
+#### `captureAssertions` — record assertions as action rows
+**Default:** `true`. Captures `node:assert` assertions (both passing and failing) as first-class rows in the trace's Actions / Errors view. Set `false` to opt out.
+
+See [Trace mode](../../README.md#-trace-mode-tracezip) in the root README for the trace.zip layout and consumer notes, and [Viewing traces](#viewing-traces) below for the player.
 
 ---
 
@@ -335,7 +364,31 @@ See [Trace mode](../../README.md#-trace-mode-tracezip) in the root README for th
 
 ---
 
-## Reference — all options
+## Viewing traces
+
+Open any trace `.zip` in the first-party player — the same DevTools UI in a dedicated **player** mode:
+
+```bash
+pnpm show-trace path/to/trace.zip     # from this repo
+npx show-trace path/to/trace.zip      # in a project that installs the adapter
+```
+
+The `show-trace` bin ships with `@wdio/selenium-devtools`, so `npx show-trace <zip>` works in any project that installs it — no extra dependency.
+
+Because the Selenium adapter captures the page's **DOM mutation stream** and a per-command element / accessibility snapshot alongside each screenshot, a Selenium trace drives the player's full feature set:
+
+- **DOM time-travel** — the browser pane rebuilds the live page DOM as of the selected command (reconstructed per navigation from the captured mutations), not just a static screenshot.
+- **A11y tab + element overlay** — inspect the accessibility tree for the selected action; hover the snapshot to outline elements and click a box to copy its locator ("pick locator").
+- **Transcript tab + Copy-for-LLM** — a Markdown rendering of the run (actions, selectors, values) ready to paste into an agent or LLM.
+- **Cucumber Feature → Scenario → Step nesting** — Gherkin steps render as a collapsible tree.
+- **Timeline** — a dense filmstrip (with `filmstrip: true`), input markers, and Actions / Network / Console tracks with a draggable playhead and playback controls.
+- **Errors, Console, Network, and Source** panels per action.
+
+The trace uses a portable NDJSON schema, so the same `.zip` (or `ndjson-directory`) also opens in other compatible trace viewers, and — when an `allure-js-commons` runner adapter is active — per-test traces / screenshots / videos attach inline to the Allure report.
+
+---
+
+## Reference
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
@@ -346,6 +399,15 @@ See [Trace mode](../../README.md#-trace-mode-tracezip) in the root README for th
 | `headless` | `boolean` | `false` | Run the **test** browser headless (injects `--headless=old`). The DevTools UI window is unaffected. |
 | `screencast` | `ScreencastOptions` | `{ enabled: false }` | Per-session `.webm` video recording. See sub-options below. |
 | `rerunCommand` | `string` | auto | Command template for per-test rerun. `{{testName}}` is substituted. Auto-derived from runner argv if omitted. |
+| `mode` | `'live' \| 'trace'` | `'live'` | `live` opens the DevTools UI; `trace` skips it and writes a portable trace artifact instead. Overrides `openUi`. |
+| `traceFormat` | `'zip' \| 'ndjson-directory'` | `'zip'` | Trace artifact layout — a single `.zip` or an unpacked directory. Trace mode only. |
+| `traceGranularity` | `'session' \| 'spec' \| 'test'` | `'session'` | One trace per session / spec file / test. `'test'` writes each to `test-results/<spec>-<title>-<browser>[-retryN]/trace.zip`. Trace mode only. |
+| `tracePolicy` | `'on' \| 'retain-on-failure' \| 'retain-on-first-failure' \| 'on-first-retry' \| 'on-all-retries' \| 'retain-on-failure-and-retries'` | `'on'` | Which traces to keep. Pairs with `traceGranularity: 'test'`. Trace mode only. |
+| `filmstrip` | `boolean` | `true` | Record a dense, continuous screencast into the trace for frame-by-frame scrubbing in the player. Trace mode only. |
+| `screenshot` | `'off' \| 'on' \| 'only-on-failure'` | `'off'` | Trace mode + `traceGranularity: 'test'`. Per-test screenshot, attached inline to Allure (`image/png`) via `allure-js-commons` when an Allure runner adapter is active. |
+| `video` | `'off' \| TraceRetentionPolicy` | `'off'` | Trace mode + `traceGranularity: 'test'`. Per-test screencast video, retained per the given policy, attached inline to Allure (`video/webm`) via `allure-js-commons` when an Allure runner adapter is active. |
+| `emitArtifactsManifest` | `boolean` | auto | Write the `devtools-artifacts-<sessionId>.json` manifest — the generic index reporters/CI consume to discover produced artifacts — next to the trace. Off by default; **auto-enables** when an `allure-js-commons` runtime is active (the same signal the inline Allure attach uses). Set explicitly to force on/off. Trace mode only. |
+| `captureAssertions` | `boolean` | `true` | Capture `node:assert` assertions (both passing and failing) as trace action rows. Set `false` to opt out. |
 
 `ScreencastOptions`:
 
@@ -393,7 +455,7 @@ pnpm example:mocha
 
 ---
 
-## How it works
+## How It Works
 
 The plugin patches `selenium-webdriver`'s `Builder`, `WebDriver`, and `WebElement` prototypes at import time:
 
@@ -402,6 +464,8 @@ The plugin patches `selenium-webdriver`'s `Builder`, `WebDriver`, and `WebElemen
 - **`WebDriver.quit()`** → awaited cleanup hook flushes screencast encoding, WebSocket buffer, and final metadata before the original quit runs.
 
 When BiDi is available (Chrome ≥114), console logs, JavaScript exceptions, and network events stream directly via the Selenium BiDi handlers. Otherwise the plugin falls back to an injected browser-side collector script.
+
+The same injected collector also records the page's **DOM mutation stream** and a per-command element / accessibility snapshot, so a trace carries enough to rebuild the live DOM at each step (per-navigation mapping) — that's what powers the player's DOM time-travel and A11y tab rather than a screenshot-only replay.
 
 > The BiDi attach + inspector wiring lives in [`@wdio/devtools-core`'s `bidi.ts`](../core/src/bidi.ts) (`loadSeleniumSubmodule`, `attachBidiHandlers`, `arrayHeadersToObject`) — the same helpers nightwatch-devtools uses when its `bidi: true` opt-in is enabled. This adapter's `bidi.ts` keeps only the selenium-specific Builder-cap helpers (`ensureBidiCapability`, `ensureHeadlessChrome`) and the `buildBidiSinks` wrapper.
 
