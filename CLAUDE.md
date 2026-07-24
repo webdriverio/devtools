@@ -48,6 +48,7 @@ Defined in root `tsconfig.json`:
 | `@wdio/selenium-devtools` / `*` | `packages/selenium-devtools/src/...` |
 | `@wdio/devtools-shared` / `*` | `packages/shared/src/...` |
 | `@wdio/devtools-core` / `*` | `packages/core/src/...` |
+| `@wdio/elements` / `*` | `packages/elements/src/...` |
 
 These exist so imports stay short and grep-able. Long relative paths (`../../../components/…`) aren't used.
 
@@ -158,7 +159,7 @@ Unused exports, unused imports, commented-out blocks, and `_unused` parameters g
 
 ## Testing
 
-The repo uses **vitest** at the root. The current state: 566 tests across 47 files; thresholds at `vitest.config.ts` enforce a floor of 85/77/86/85 (statements/branches/functions/lines). Coverage is ratcheted upward as gaps close, never downward.
+The repo uses **vitest** at the root. The current state: 1315 tests across 112 files; thresholds at `vitest.config.ts` enforce a floor of 85/77/86/85 (statements/branches/functions/lines). Coverage is ratcheted upward as gaps close, never downward.
 
 ### What gets tested
 
