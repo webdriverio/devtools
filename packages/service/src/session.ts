@@ -7,7 +7,7 @@ import { resolve } from 'import-meta-resolve'
 import { SevereServiceError } from 'webdriverio'
 import type { WebDriverCommands } from '@wdio/protocols'
 
-import { PAGE_TRANSITION_COMMANDS } from './constants.js'
+import { PAGE_TRANSITION_COMMANDS, LOCATOR_COMMANDS } from './constants.js'
 import { isNativeMobile } from './mobile.js'
 import {
   CAPTURE_PERFORMANCE_SCRIPT,
@@ -30,6 +30,11 @@ export class SessionCapturer extends SessionCapturerBase {
   readonly startWallTime = Date.now()
   /** Last find-element selector — carried forward to the next element command. */
   #lastSelector: string | undefined
+  /** Selector resolved during the current assertion. Unlike #lastSelector this
+   *  updates on EVERY locator command (even below the top-level boundary), so
+   *  it captures the element `expect($('#flash'))` resolves inside the matcher.
+   *  Cleared at each matcher start so a value assertion inherits nothing. */
+  #lastResolvedSelector: string | undefined
   /** Collapses internal command retries onto a single entry (see #captureOrReplace). */
   #retryTracker = new RetryTracker()
   #pendingNetworkRequests = new Map<
@@ -55,6 +60,21 @@ export class SessionCapturer extends SessionCapturerBase {
    */
   resetLastSelector(): void {
     this.#lastSelector = undefined
+    this.#lastResolvedSelector = undefined
+  }
+
+  /** Record the selector of an element-resolution command, ungated by the
+   *  top-level filter — the service calls this for every locator command so an
+   *  assertion can recover the element expect() resolved internally. */
+  noteResolvedSelector(selector: string): void {
+    this.#lastResolvedSelector = selector
+  }
+
+  /** Clear the resolved selector at a matcher's start, so only an element
+   *  resolved DURING this matcher (an element assertion) is attributed to it —
+   *  a value assertion (`expect(x).toBe(y)`) resolves nothing and stays blank. */
+  beginAssertionSelector(): void {
+    this.#lastResolvedSelector = undefined
   }
 
   protected override onWsError(err: unknown): void {
@@ -146,12 +166,7 @@ export class SessionCapturer extends SessionCapturerBase {
     // Track last find-element selector so element commands (click, setValue, …)
     // carry a human-readable selector in trace events even though WDIO doesn't
     // pass it in their args.
-    if (
-      cmd === '$' ||
-      cmd === '$$' ||
-      cmd === 'findElement' ||
-      cmd === 'findElements'
-    ) {
+    if (LOCATOR_COMMANDS.includes(cmd)) {
       const sel = args[0]
       if (typeof sel === 'string' && sel.length > 0) {
         this.#lastSelector = sel
@@ -253,8 +268,12 @@ export class SessionCapturer extends SessionCapturerBase {
   }
 
   /** Ingest an assertion entry (node:assert capture or synthesized expect
-   *  failure) through the same retry-collapsing path driver commands use. */
+   *  failure) through the same retry-collapsing path driver commands use. A
+   *  fresh (unfolded) expect row still carries the element it targeted. */
   captureAssertCommand(entry: CommandLog): void {
+    if (!entry.selector) {
+      entry.selector = this.#lastResolvedSelector
+    }
     this.#captureOrReplace(entry)
   }
 
@@ -296,10 +315,10 @@ export class SessionCapturer extends SessionCapturerBase {
       callSource: entry.callSource ?? last.callSource,
       screenshot: entry.screenshot ?? last.screenshot,
       error: entry.error ?? last.error,
-      // The matcher's `args` become the expected value on fold, so the read's
-      // locator is the only record of which element the assertion targeted —
-      // carry it so the player's overlay can box e.g. `#flash`.
-      selector: entry.selector ?? last.selector ?? this.#lastSelector
+      // The matcher's `args` become the expected value on fold, so record which
+      // element the assertion targeted — the selector expect() resolved during
+      // this matcher — so the player's overlay can box e.g. `#flash`.
+      selector: entry.selector ?? this.#lastResolvedSelector
     }
     log[log.length - 1] = merged
     this.sendReplaceCommand(last.timestamp, merged)

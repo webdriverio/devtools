@@ -159,6 +159,45 @@ describe('SessionCapturer', () => {
     })
   })
 
+  describe('assertion target selector', () => {
+    const assertEntry = (command: string) =>
+      ({ command, args: [], timestamp: Date.now() }) as any
+
+    it('stamps the element resolved during the matcher onto a fresh assert row', () => {
+      const capturer = new SessionCapturer()
+      // expect($('#flash')) resolves the element inside the matcher.
+      capturer.beginAssertionSelector()
+      capturer.noteResolvedSelector('#flash')
+      capturer.captureAssertCommand(assertEntry('expect.toExist'))
+      expect(capturer.commandsLog.at(-1)!.selector).toBe('#flash')
+    })
+
+    it('folds the resolved selector into the matcher read', () => {
+      const capturer = new SessionCapturer()
+      capturer.commandsLog.push(assertEntry('getText'))
+      capturer.beginAssertionSelector()
+      capturer.noteResolvedSelector('#flash')
+      const folded = capturer.coalesceAssertionIntoLastRead(
+        {
+          command: 'expect.toHaveText',
+          args: ['hi'],
+          timestamp: Date.now()
+        } as any,
+        (c) => c === 'getText'
+      )
+      expect(folded).toBe(true)
+      expect(capturer.commandsLog.at(-1)!.selector).toBe('#flash')
+    })
+
+    it('leaves a value assertion blank (no element resolved during it)', () => {
+      const capturer = new SessionCapturer()
+      capturer.noteResolvedSelector('#flash') // stale, from a prior assertion
+      capturer.beginAssertionSelector() // expect(x).toBe(y) resolves nothing
+      capturer.captureAssertCommand(assertEntry('expect.toBe'))
+      expect(capturer.commandsLog.at(-1)!.selector).toBeUndefined()
+    })
+  })
+
   describe('websocket communication', () => {
     it('should handle connection states and errors', () => {
       const mockWs = {

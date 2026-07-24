@@ -11,6 +11,16 @@ export const PAGE_TRANSITION_COMMANDS: string[] = [
   'click'
 ]
 
+// Element-resolution commands. Tracked so an assertion can recover the element
+// expect() resolved internally — `expect($('#flash'))` fires one of these below
+// the top-level command boundary, where the normal selector tracking skips it.
+export const LOCATOR_COMMANDS: string[] = [
+  '$',
+  '$$',
+  'findElement',
+  'findElements'
+]
+
 // Console capture constants are defined in @wdio/devtools-core; re-exported
 // here so existing imports from ./constants.js continue to work.
 export {

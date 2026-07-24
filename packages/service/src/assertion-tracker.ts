@@ -81,6 +81,10 @@ export class AssertionTracker {
         testUid: this.#ctx.getTestUid(),
         stepUid: this.#ctx.getStepUid()
       }
+      // Reset before the matcher resolves its element (WDIO's $ is lazy, so it
+      // resolves inside the matcher) — only an element resolved during this
+      // assertion is attributed to it; a value matcher stays blank.
+      this.#ctx.getCapturer().beginAssertionSelector()
     }
     this.#assertionDepth++
   }

@@ -20,6 +20,8 @@ const capturer = vi.hoisted(() => ({
   cleanup: vi.fn(),
   resetLastSelector: vi.fn(),
   resetRetryTracker: vi.fn(),
+  beginAssertionSelector: vi.fn(),
+  noteResolvedSelector: vi.fn(),
   commandsLog: [] as unknown[],
   sources: new Map<string, string>()
 }))

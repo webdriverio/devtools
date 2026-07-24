@@ -66,6 +66,7 @@ import {
 import {
   CONTEXT_CHANGE_COMMANDS,
   INTERNAL_COMMANDS,
+  LOCATOR_COMMANDS,
   PAGE_TRANSITION_COMMANDS
 } from './constants.js'
 import { isNativeMobile } from './mobile.js'
@@ -786,6 +787,18 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     // Skip bookkeeping for internal injection calls
     if (this.#injecting) {
       return
+    }
+
+    // Record every element resolution, even those below the top-level command
+    // boundary — an `expect($('#flash'))` resolves its element inside the
+    // matcher, so this is the only place the assertion's target selector is
+    // observable (see SessionCapturer.noteResolvedSelector).
+    if (
+      LOCATOR_COMMANDS.includes(command as string) &&
+      typeof args[0] === 'string' &&
+      args[0]
+    ) {
+      this.#sessionCapturer.noteResolvedSelector(args[0])
     }
 
     /* Ensure that the command is captured only if it matches the last command in the stack.
