@@ -10,7 +10,7 @@ Works with **Mocha**, **Jest**, **Cucumber**, or plain `node script.js` — the 
 
 ---
 
-## Quick start (3 steps)
+## Quick Start
 
 **1. Install the package** in your Selenium project:
 
@@ -247,7 +247,7 @@ node tests/google.test.js
 
 ---
 
-## Configuration options explained
+## Configuration
 
 The runner snippets above use a typical config:
 
@@ -388,7 +388,7 @@ The trace uses a portable NDJSON schema, so the same `.zip` (or `ndjson-director
 
 ---
 
-## Reference — all options
+## Reference
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
@@ -455,7 +455,7 @@ pnpm example:mocha
 
 ---
 
-## How it works
+## How It Works
 
 The plugin patches `selenium-webdriver`'s `Builder`, `WebDriver`, and `WebElement` prototypes at import time:
 

@@ -8,6 +8,46 @@ npm install @wdio/nightwatch-devtools
 
 ---
 
+## Quick Start
+
+**1. Install the package** in your Nightwatch project:
+
+```bash
+npm install @wdio/nightwatch-devtools
+```
+
+**2. Wire the plugin into your Nightwatch config** via the `globals` field:
+
+```javascript
+// nightwatch.conf.cjs
+const nightwatchDevtools = require('@wdio/nightwatch-devtools').default
+
+module.exports = {
+  src_folders: ['tests'],
+
+  test_settings: {
+    default: {
+      desiredCapabilities: {
+        browserName: 'chrome',
+        // Required for network request capture
+        'goog:loggingPrefs': { performance: 'ALL' }
+      },
+      globals: nightwatchDevtools({ port: 3000 })
+    }
+  }
+}
+```
+
+**3. Run your tests as normal** — the DevTools UI opens automatically in a new browser window:
+
+```bash
+nightwatch
+```
+
+No changes to your test files are needed.
+
+---
+
 ## Setup
 
 ### Standard Nightwatch (mocha-style)
@@ -76,25 +116,9 @@ module.exports = {
 
 ---
 
-## Configuration Options
+## Configuration
 
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `port` | `number` | `3000` | Port for the DevTools backend server. Auto-incremented if already in use. |
-| `hostname` | `string` | `'localhost'` | Hostname the backend server binds to. |
-| `screencast` | `ScreencastOptions` | `{ enabled: false }` | Session video recording — live mode only (see [Screencast](#screencast)). |
-| `bidi` | `boolean` | `false` | Opt into WebDriver BiDi capture for browser console + JS exceptions + network. Requires `webSocketUrl: true` in your capabilities and a BiDi-capable chromedriver. When attached, the per-command Chrome perf-log network path is gated off so requests don't duplicate. |
-| `mode` | `'live' \| 'trace'` | `'live'` | `'live'` opens the DevTools UI window; `'trace'` skips the UI and writes a `trace-<sessionId>.zip` (or directory) under a `test-results/` directory at run end (base dir resolved from the test file dir → config dir → cwd). See [Trace mode](#trace-mode). |
-| `traceFormat` | `'zip' \| 'ndjson-directory'` | `'zip'` | Trace artifact layout — `zip` writes a single archive, `ndjson-directory` unpacks the same files into `trace-<sessionId>/`. Only applies when `mode: 'trace'`. |
-| `traceGranularity` | `'session' \| 'spec' \| 'test'` | `'session'` | One trace per session / spec file / test. `'test'` is what the per-test `screenshot` / `video` artifacts attach to. Only applies when `mode: 'trace'`. **Caveat:** the BDD `describe/it` interface collapses to a single session-scoped slice (see [Per-test slicing](#per-test-slicing--the-bdd-describeit-caveat)). |
-| `tracePolicy` | `'on' \| 'retain-on-failure' \| 'retain-on-first-failure' \| 'on-first-retry' \| 'on-all-retries' \| 'retain-on-failure-and-retries'` | `'on'` | Which traces to keep. Pairs with `traceGranularity: 'test'`. Only applies when `mode: 'trace'`. |
-| `filmstrip` | `boolean` | `true` | Record a dense, continuous screencast filmstrip into the trace for scrubbable playback in the trace player — not just one frame per action. Runs the screencast recorder (polling mode on Nightwatch) for the session. Only applies when `mode: 'trace'`. |
-| `screenshot` | `'off' \| 'on' \| 'only-on-failure'` | `'off'` | Per-test screenshot. Trace mode + `traceGranularity: 'test'` only. **Produce-only** — the PNG is written to the trace output dir (and listed in the artifacts manifest when `emitArtifactsManifest: true`); it is NOT attached inline to Allure (see note below). |
-| `video` | `'off' \| TraceRetentionPolicy` | `'off'` | Per-test video slice, retained per the given policy (e.g. `'retain-on-failure'`). Trace mode + `traceGranularity: 'test'` only. Setting a non-`off` policy starts the screencast recorder itself — you do **not** also need `filmstrip` or `screencast.enabled`; the recorder runs continuously for the session and each test's slice is cut from it by wall-clock window. **Produce-only** — the `.webm` is written to the trace output dir (and listed in the manifest when `emitArtifactsManifest: true`); NOT attached inline to Allure. |
-| `emitArtifactsManifest` | `boolean` | `false` | Write the `devtools-artifacts-<sessionId>.json` manifest — the generic index reporters/CI consume to discover produced artifacts — next to the trace. **Opt-in for Nightwatch**: it has no live Allure signal to auto-detect against (`nightwatch-allure` is post-hoc), so unlike WDIO/Selenium it never auto-enables. Trace mode only. |
-| `captureAssertions` | `boolean` | `true` | Capture assertions as trace action rows — `node:assert` plus native `browser.assert.*` / `browser.verify.*`, including negated `.not.*` matchers. Passing assertions render green, failing ones red with the error. Set `false` to opt out. |
-
-> **Inline Allure attachment is not supported for Nightwatch.** Its official `nightwatch-allure` reporter is post-hoc (no live attach API), and `allure-js-commons`' `attachment()` no-ops in a Nightwatch run. So `screenshot`/`video` artifacts are *produced* (files, plus the artifacts manifest when `emitArtifactsManifest: true`) in the trace output dir but not attached to an Allure test. Per-test slicing (and therefore these artifacts) is meaningful for the cucumber and exports-object interfaces; the BDD `describe/it` interface collapses to session granularity, so the gate no-ops there.
+Options are passed to the plugin through the `globals` field — `globals: nightwatchDevtools({ ... })`. **All options are optional**; the plugin runs fine with `nightwatchDevtools({})`. See [Reference](#reference) for the full option table.
 
 ```javascript
 globals: nightwatchDevtools({
@@ -103,6 +127,69 @@ globals: nightwatchDevtools({
   screencast: { enabled: true }
 })
 ```
+
+---
+
+## Live Mode
+
+In the default `mode: 'live'`, the plugin launches the DevTools dashboard in a new browser window when your tests run, streaming each test's commands, screenshots, console logs, and network activity in real time. See the [dashboard docs](https://webdriver.io/docs/devtools/dashboard) for a walkthrough of the UI.
+
+### Preserve & Rerun (Compare)
+
+Available for Nightwatch — same dashboard UI as WebdriverIO. The "compare with rerun" flow snapshots the failing run, re-launches the test with `DEVTOOLS_RERUN_LABEL` set (the plugin filters down to just that test name on the rerun), and the dashboard shows the two runs side-by-side aligned by command.
+
+---
+
+## Trace Mode
+
+Set `mode: 'trace'` to skip the DevTools UI window and instead write a portable, self-contained trace artifact at run end — for offline replay, CI artifact collection, or AI-agent diffing. The backend port-bind, the UI window, and the live-only `screencast` option are all skipped in trace mode.
+
+```javascript
+globals: nightwatchDevtools({
+  mode: 'trace',
+  traceFormat: 'ndjson-directory'  // optional; default 'zip'
+})
+```
+
+Nightwatch emits the **same normalized trace** as the WebdriverIO and Selenium adapters (all three share `@wdio/devtools-core`), so the archive format and the `show-trace` player are identical no matter which adapter produced it. A Nightwatch trace carries the full per-action capture — a screenshot, the depth-indented accessibility-tree snapshot, the interactable-element list, and the Markdown transcript — so it opens in the player with DOM/snapshot time-travel, the **A11y** and **Transcript** tabs, an **Errors** tab surfacing expect/step failures with jump-to-source, the pick-locator element overlay, and (for Cucumber) **Feature → Scenario → Step** nesting.
+
+Open a trace with the `show-trace` bin, shipped with this package (no extra dependency):
+
+```bash
+npx show-trace test-results/trace-<sessionId>.zip   # in a project that installs this adapter
+pnpm show-trace test-results/trace-<sessionId>.zip  # from the devtools monorepo
+```
+
+For the full artifact contents, the `traceGranularity` / `tracePolicy` reference, and the player walkthrough, see [Trace mode](../../README.md#-trace-mode-tracezip) and [Viewing traces](../../README.md#viewing-traces) in the root README, and the [Trace Mode docs](https://webdriver.io/docs/devtools/wdio/trace-mode).
+
+### Per-test slicing & the BDD `describe/it` caveat
+
+The per-test options — `traceGranularity: 'test'`, and the `tracePolicy`, `screenshot`, and `video` options that pair with it — need a per-test hook to cut each test's slice. The **exports-object (mocha-style)** interface and **Cucumber** (per-scenario hooks) expose one, so they get real per-test slicing. The **BDD `describe/it`** interface — the style used by this package's bundled example — is the exception: Nightwatch runs each `it()` internally and fires the plugin's per-test hook only once per module, so `traceGranularity: 'test'` collapses to a single **session-scoped** slice keyed to the first test. The artifacts manifest still lists every testcase with its correct state; only the per-test slice/artifact keying collapses. Session- and spec-granularity traces are unaffected.
+
+---
+
+## BiDi capture
+
+Enable WebDriver BiDi capture for browser console messages, JS exceptions, and network requests. Equivalent to the path selenium-devtools uses — both adapters call the same `attachBidiHandlers` in `@wdio/devtools-core`.
+
+```javascript
+globals: nightwatchDevtools({
+  port: 3000,
+  bidi: true
+})
+```
+
+You also need `webSocketUrl: true` in your capabilities so chromedriver actually exposes the BiDi channel:
+
+```javascript
+desiredCapabilities: {
+  browserName: 'chrome',
+  'webSocketUrl': true,                         // ← enables BiDi
+  'goog:chromeOptions': { /* ... */ }
+}
+```
+
+When attached, the per-command Chrome performance-log network capture path is gated off so requests don't appear twice in the dashboard. If `webSocketUrl` is missing or the chromedriver version doesn't expose BiDi, the attach silently fails and the perf-log fallback continues to work.
 
 ---
 
@@ -140,31 +227,25 @@ The encoded video is sent to the DevTools dashboard via the `screencast` WS scop
 
 ---
 
-## Trace mode
+## Reference
 
-Set `mode: 'trace'` to skip the DevTools UI window and instead write a portable, self-contained trace artifact at run end — for offline replay, CI artifact collection, or AI-agent diffing. The backend port-bind, the UI window, and the live-only `screencast` option are all skipped in trace mode.
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `port` | `number` | `3000` | Port for the DevTools backend server. Auto-incremented if already in use. |
+| `hostname` | `string` | `'localhost'` | Hostname the backend server binds to. |
+| `screencast` | `ScreencastOptions` | `{ enabled: false }` | Session video recording — live mode only (see [Screencast](#screencast)). |
+| `bidi` | `boolean` | `false` | Opt into WebDriver BiDi capture for browser console + JS exceptions + network. Requires `webSocketUrl: true` in your capabilities and a BiDi-capable chromedriver. When attached, the per-command Chrome perf-log network path is gated off so requests don't duplicate. |
+| `mode` | `'live' \| 'trace'` | `'live'` | `'live'` opens the DevTools UI window; `'trace'` skips the UI and writes a `trace-<sessionId>.zip` (or directory) under a `test-results/` directory at run end (base dir resolved from the test file dir → config dir → cwd). See [Trace mode](#trace-mode). |
+| `traceFormat` | `'zip' \| 'ndjson-directory'` | `'zip'` | Trace artifact layout — `zip` writes a single archive, `ndjson-directory` unpacks the same files into `trace-<sessionId>/`. Only applies when `mode: 'trace'`. |
+| `traceGranularity` | `'session' \| 'spec' \| 'test'` | `'session'` | One trace per session / spec file / test. `'test'` is what the per-test `screenshot` / `video` artifacts attach to. Only applies when `mode: 'trace'`. **Caveat:** the BDD `describe/it` interface collapses to a single session-scoped slice (see [Per-test slicing](#per-test-slicing--the-bdd-describeit-caveat)). |
+| `tracePolicy` | `'on' \| 'retain-on-failure' \| 'retain-on-first-failure' \| 'on-first-retry' \| 'on-all-retries' \| 'retain-on-failure-and-retries'` | `'on'` | Which traces to keep. Pairs with `traceGranularity: 'test'`. Only applies when `mode: 'trace'`. |
+| `filmstrip` | `boolean` | `true` | Record a dense, continuous screencast filmstrip into the trace for scrubbable playback in the trace player — not just one frame per action. Runs the screencast recorder (polling mode on Nightwatch) for the session. Only applies when `mode: 'trace'`. |
+| `screenshot` | `'off' \| 'on' \| 'only-on-failure'` | `'off'` | Per-test screenshot. Trace mode + `traceGranularity: 'test'` only. **Produce-only** — the PNG is written to the trace output dir (and listed in the artifacts manifest when `emitArtifactsManifest: true`); it is NOT attached inline to Allure (see note below). |
+| `video` | `'off' \| TraceRetentionPolicy` | `'off'` | Per-test video slice, retained per the given policy (e.g. `'retain-on-failure'`). Trace mode + `traceGranularity: 'test'` only. Setting a non-`off` policy starts the screencast recorder itself — you do **not** also need `filmstrip` or `screencast.enabled`; the recorder runs continuously for the session and each test's slice is cut from it by wall-clock window. **Produce-only** — the `.webm` is written to the trace output dir (and listed in the manifest when `emitArtifactsManifest: true`); NOT attached inline to Allure. |
+| `emitArtifactsManifest` | `boolean` | `false` | Write the `devtools-artifacts-<sessionId>.json` manifest — the generic index reporters/CI consume to discover produced artifacts — next to the trace. **Opt-in for Nightwatch**: it has no live Allure signal to auto-detect against (`nightwatch-allure` is post-hoc), so unlike WDIO/Selenium it never auto-enables. Trace mode only. |
+| `captureAssertions` | `boolean` | `true` | Capture assertions as trace action rows — `node:assert` plus native `browser.assert.*` / `browser.verify.*`, including negated `.not.*` matchers. Passing assertions render green, failing ones red with the error. Set `false` to opt out. |
 
-```javascript
-globals: nightwatchDevtools({
-  mode: 'trace',
-  traceFormat: 'ndjson-directory'  // optional; default 'zip'
-})
-```
-
-Nightwatch emits the **same normalized trace** as the WebdriverIO and Selenium adapters (all three share `@wdio/devtools-core`), so the archive format and the `show-trace` player are identical no matter which adapter produced it. A Nightwatch trace carries the full per-action capture — a screenshot, the depth-indented accessibility-tree snapshot, the interactable-element list, and the Markdown transcript — so it opens in the player with DOM/snapshot time-travel, the **A11y** and **Transcript** tabs, an **Errors** tab surfacing expect/step failures with jump-to-source, the pick-locator element overlay, and (for Cucumber) **Feature → Scenario → Step** nesting.
-
-Open a trace with the `show-trace` bin, shipped with this package (no extra dependency):
-
-```bash
-npx show-trace test-results/trace-<sessionId>.zip   # in a project that installs this adapter
-pnpm show-trace test-results/trace-<sessionId>.zip  # from the devtools monorepo
-```
-
-For the full artifact contents, the `traceGranularity` / `tracePolicy` reference, and the player walkthrough, see [Trace mode](../../README.md#-trace-mode-tracezip) and [Viewing traces](../../README.md#viewing-traces) in the root README.
-
-### Per-test slicing & the BDD `describe/it` caveat
-
-The per-test options — `traceGranularity: 'test'`, and the `tracePolicy`, `screenshot`, and `video` options that pair with it — need a per-test hook to cut each test's slice. The **exports-object (mocha-style)** interface and **Cucumber** (per-scenario hooks) expose one, so they get real per-test slicing. The **BDD `describe/it`** interface — the style used by this package's bundled example — is the exception: Nightwatch runs each `it()` internally and fires the plugin's per-test hook only once per module, so `traceGranularity: 'test'` collapses to a single **session-scoped** slice keyed to the first test. The artifacts manifest still lists every testcase with its correct state; only the per-test slice/artifact keying collapses. Session- and spec-granularity traces are unaffected.
+> **Inline Allure attachment is not supported for Nightwatch.** Its official `nightwatch-allure` reporter is post-hoc (no live attach API), and `allure-js-commons`' `attachment()` no-ops in a Nightwatch run. So `screenshot`/`video` artifacts are *produced* (files, plus the artifacts manifest when `emitArtifactsManifest: true`) in the trace output dir but not attached to an Allure test. Per-test slicing (and therefore these artifacts) is meaningful for the cucumber and exports-object interfaces; the BDD `describe/it` interface collapses to session granularity, so the gate no-ops there.
 
 ---
 
@@ -201,33 +282,6 @@ Nightwatch does not provide the same depth of framework hooks as WebdriverIO, so
 | Produce-only trace artifacts | Per-test `screenshot` / `video` files are written to the trace output dir (and the manifest when `emitArtifactsManifest: true`) but not attached inline to Allure — Nightwatch has no live Allure attach API. |
 
 Overall feature parity with the WebdriverIO DevTools service is approximately **80–90%**.
-
-### Preserve & Rerun (Compare)
-
-Available for Nightwatch — same dashboard UI as WebdriverIO. The "compare with rerun" flow snapshots the failing run, re-launches the test with `DEVTOOLS_RERUN_LABEL` set (the plugin filters down to just that test name on the rerun), and the dashboard shows the two runs side-by-side aligned by command.
-
-### BiDi capture (opt-in)
-
-Enable WebDriver BiDi capture for browser console messages, JS exceptions, and network requests. Equivalent to the path selenium-devtools uses — both adapters call the same `attachBidiHandlers` in `@wdio/devtools-core`.
-
-```javascript
-globals: nightwatchDevtools({
-  port: 3000,
-  bidi: true
-})
-```
-
-You also need `webSocketUrl: true` in your capabilities so chromedriver actually exposes the BiDi channel:
-
-```javascript
-desiredCapabilities: {
-  browserName: 'chrome',
-  'webSocketUrl': true,                         // ← enables BiDi
-  'goog:chromeOptions': { /* ... */ }
-}
-```
-
-When attached, the per-command Chrome performance-log network capture path is gated off so requests don't appear twice in the dashboard. If `webSocketUrl` is missing or the chromedriver version doesn't expose BiDi, the attach silently fails and the perf-log fallback continues to work.
 
 ## :page_facing_up: License
 

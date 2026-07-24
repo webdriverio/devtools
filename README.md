@@ -4,6 +4,29 @@ A powerful browser devtools extension for debugging, visualizing, and controllin
 
 Works with **WebdriverIO**, **[Nightwatch.js](./packages/nightwatch-devtools/README.md)**, and **[Selenium WebDriver](./packages/selenium-devtools/README.md)** (any test runner) — same backend, same UI, same capture infrastructure.
 
+It runs in two modes: **live** — an interactive dashboard that opens as your tests run — and **trace** — a portable `trace.zip` artifact for offline replay, CI, and AI-agent diffing.
+
+## Quick Start
+
+Install the adapter for your framework, add it to your config, and run — the DevTools dashboard opens automatically.
+
+```bash
+npm install @wdio/devtools-service --save-dev   # WebdriverIO (Nightwatch / Selenium below)
+```
+
+```js
+// wdio.conf.js
+export const config = {
+  services: ['devtools'] // live mode — opens the dashboard on run
+}
+```
+
+```bash
+npx wdio run wdio.conf.js
+```
+
+Want a portable artifact instead of a live UI (CI / agent diffing)? Switch to **trace mode** — see [Configuration](#configuration) and [Usage](#usage). Full setup for each framework: [Installation](#installation) · [Nightwatch](#nightwatch-integration) · [Selenium](#selenium-integration).
+
 ## Features
 
 ### 🎯 Interactive Test Execution
@@ -257,37 +280,80 @@ npm install @wdio/selenium-devtools
 
 ## Configuration
 
-Add the service to your `wdio.conf.js`:
+**Live mode** (default) — opens the dashboard:
 
 ```javascript
+// wdio.conf.js
 export const config = {
-    // ...
-    services: ['devtools']
+  services: ['devtools']
 }
 ```
 
+**Trace mode** — writes a portable `trace.zip` under `test-results/`, no UI window:
+
+```javascript
+export const config = {
+  services: [['devtools', { mode: 'trace' }]]
+}
+```
+
+Common options (all optional):
+
+| Option | Values | Default | Notes |
+|---|---|---|---|
+| `mode` | `'live'` \| `'trace'` | `'live'` | Dashboard vs. portable artifact |
+| `traceFormat` | `'zip'` \| `'ndjson-directory'` | `'zip'` | Trace mode only |
+| `traceGranularity` | `'session'` \| `'spec'` \| `'test'` | `'session'` | One trace per session / spec / test |
+| `tracePolicy` | `'on'` \| `'retain-on-failure'` \| … | `'on'` | Which traces to keep (trace mode) |
+| `filmstrip` | `boolean` | `true` | Dense screencast into the trace |
+| `screenshot` | `'off'` \| `'on'` \| `'only-on-failure'` | `'off'` | Per-test; needs `traceGranularity: 'test'` |
+| `video` | `'off'` \| `<tracePolicy>` | `'off'` | Per-test; needs `traceGranularity: 'test'` |
+| `captureAssertions` | `boolean` | `true` | Capture assertions as action rows |
+
+**Full option reference:** [`@wdio/devtools-service` README](./packages/service/README.md#reference) — plus the [Nightwatch](./packages/nightwatch-devtools/README.md#reference) and [Selenium](./packages/selenium-devtools/README.md#reference) references.
+
 ## Usage
 
+### Live mode
+
 1. Run your WebdriverIO tests
-2. The devtools UI automatically opens in an external browser window at `http://localhost:3000`
+2. The devtools UI automatically opens in an external browser window
 3. Tests begin executing immediately with real-time visualization
 4. View live browser preview, test progress, and command execution
-5. After initial run completes, use play buttons to rerun individual tests or suites
-6. Click stop button anytime to terminate running tests
-7. Explore actions, metadata, console logs, and source code in the workbench tabs
+5. After the initial run, use the play buttons to rerun individual tests or suites
+6. Click stop anytime to terminate running tests
+7. Explore actions, metadata, console logs, and source in the workbench tabs
+
+### Trace mode
+
+With `mode: 'trace'` no UI opens — the run writes a portable `trace.zip` under `test-results/`. Open it in the first-party player (the `show-trace` bin ships with each adapter):
+
+```bash
+pnpm show-trace test-results/trace-<sessionId>.zip
+# or from a project that installs an adapter:
+npx show-trace <path-to-trace.zip>
+```
+
+<p align="center">
+  <img src="assets/trace-player.gif" alt="Trace Player Demo" width="600" />
+</p>
+
+See the [Trace mode](./packages/service/README.md#trace-mode) section for the full artifact contents and player features.
 
 ## Development
 
 ```bash
-# Install dependencies
-pnpm install
+pnpm install          # install workspace dependencies
+pnpm build            # build all packages
+pnpm test             # run the vitest suite
+pnpm test:coverage    # run with coverage (thresholds enforced in CI)
+pnpm lint             # lint all packages
 
-# Build all packages
-pnpm build
-
-# Run demo
-pnpm demo:wdio
+# Run an example project for manual UI / runtime verification:
+pnpm demo:wdio        # or: pnpm demo:nightwatch / pnpm demo:selenium
 ```
+
+See **[CONTRIBUTING.md](./CONTRIBUTING.md)** for the full contributor workflow and **[ARCHITECTURE.md](./ARCHITECTURE.md)** for where each piece lives.
 
 ## Nightwatch Integration
 
@@ -310,6 +376,7 @@ packages/
 ├── app/                   # Frontend Lit-based UI application
 ├── backend/               # Fastify server, WS gateway, baseline store, rerun spawner
 ├── script/                # Browser-injected trace collection script (runs in the page under test)
+├── elements/              # Element-detection scripts — getSnapshot, a11y tree, element list (@wdio/elements)
 ├── service/               # WebdriverIO adapter (@wdio/devtools-service)
 ├── nightwatch-devtools/   # Nightwatch adapter (@wdio/nightwatch-devtools)
 └── selenium-devtools/     # Selenium WebDriver adapter (@wdio/selenium-devtools)
@@ -319,7 +386,13 @@ packages/
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+Contributions are welcome! Start here:
+
+- **[CONTRIBUTING.md](./CONTRIBUTING.md)** — dev setup, running tests & lint, changesets, and the pre-push / PR checklist.
+- **[ARCHITECTURE.md](./ARCHITECTURE.md)** — the package map and the "where does my change go?" decision tree.
+- **[CLAUDE.md](./CLAUDE.md)** — the repo conventions (single source of truth, thin adapters, testing floor, commit style).
+
+Rule of thumb: **one concern per PR**, and any change that would otherwise land in two or more adapters belongs in `core`.
 
 ## :page_facing_up: License
 
