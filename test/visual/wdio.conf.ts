@@ -41,7 +41,11 @@ export const config: Options.Testrunner = {
           ...(headed ? [] : ['--headless']),
           '--disable-gpu',
           '--remote-allow-origins=*',
-          '--window-size=1600,900'
+          '--window-size=1600,900',
+          // Pin device-scale-factor so headed (esp. retina) renders at the same
+          // 1600x900 dpr1 as headless — otherwise HEADED=1 mints a divergent
+          // baseline set (e.g. 1470x900-dpr2). Keeps one canonical baseline.
+          '--force-device-scale-factor=1'
         ]
       }
     }
