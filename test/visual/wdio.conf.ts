@@ -30,6 +30,12 @@ export const config: Options.Testrunner = {
   capabilities: [
     {
       browserName: 'chrome',
+      // Opt out of BiDi: the player's nested shadow DOM is queried via the `>>>`
+      // deep combinator, which routes through BiDi browsingContext.locateNodes —
+      // that intermittently hangs ~60s (esp. headed) before falling back to
+      // Classic. Classic resolves the same elements reliably; screenshots are
+      // identical either way, so committed baselines are unaffected.
+      'wdio:enforceWebDriverClassic': true,
       'goog:chromeOptions': {
         args: [
           ...(headed ? [] : ['--headless']),
