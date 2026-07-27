@@ -110,14 +110,21 @@ export const ENTRIES: VerificationEntry[] = [
     adapter: 'nightwatch',
     runner: 'cucumber',
     label: 'Nightwatch · cucumber',
+    // Documented limitation: Nightwatch's cucumber runner launches a browser
+    // session PER SCENARIO, so the adapter's session-scoped trace export (written
+    // once at run-end) has no single live session to finalize and produces no
+    // trace.zip. The example runs and captures per-scenario in trace mode; only
+    // the session-zip export is missing. See CLAUDE.md known debt. Supporting it
+    // needs per-scenario trace writing in @wdio/nightwatch-devtools.
     status: 'planned',
-    plannedReason:
-      'Nightwatch supports cucumber natively (test_runner:{type:"cucumber"}) and the adapter handles cucumber scenarios; the example project under examples/nightwatch/ is not built yet. Flip to ready once it exists.',
     command: {
       cmd: 'pnpm',
       args: ['--filter', '@wdio/nightwatch-devtools', 'example:cucumber']
     },
-    cleanDirs: ['examples/nightwatch/cucumber/test-results'],
+    cleanDirs: [
+      'examples/nightwatch/cucumber/test-results',
+      'examples/nightwatch/cucumber/features/step_definitions/test-results'
+    ],
     traceOutputGlobs: [
       'examples/nightwatch/cucumber/**/test-results/**/trace*.zip'
     ]

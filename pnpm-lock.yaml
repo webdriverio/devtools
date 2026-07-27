@@ -15,7 +15,7 @@ importers:
     dependencies:
       '@wdio/cli':
         specifier: 9.28.0
-        version: 9.28.0(@types/node@25.9.3)(expect-webdriverio@5.6.8)(puppeteer-core@21.11.0)
+        version: 9.28.0(@types/node@25.9.3)(expect-webdriverio@5.7.0)(puppeteer-core@21.11.0)
     devDependencies:
       '@changesets/cli':
         specifier: ^2.31.0
@@ -44,6 +44,9 @@ importers:
       '@wdio/allure-reporter':
         specifier: ^9.29.1
         version: 9.29.1
+      '@wdio/visual-service':
+        specifier: ^10.1.0
+        version: 10.1.0(webdriverio@9.28.0(puppeteer-core@21.11.0))
       autoprefixer:
         specifier: ^10.5.0
         version: 10.5.0(postcss@8.5.15)
@@ -264,7 +267,7 @@ importers:
         version: 11.2.0
       '@wdio/cli':
         specifier: 9.28.0
-        version: 9.28.0(@types/node@25.9.3)(expect-webdriverio@5.6.8)(puppeteer-core@21.11.0)
+        version: 9.28.0(@types/node@25.9.3)(expect-webdriverio@5.7.0)(puppeteer-core@21.11.0)
       '@wdio/devtools-app':
         specifier: workspace:^
         version: link:../app
@@ -362,7 +365,7 @@ importers:
         version: link:../core
       '@wdio/globals':
         specifier: 9.28.0
-        version: 9.28.0(expect-webdriverio@5.6.8)(webdriverio@9.28.0(puppeteer-core@21.11.0))
+        version: 9.28.0(expect-webdriverio@5.7.0)(webdriverio@9.28.0(puppeteer-core@21.11.0))
       tsup:
         specifier: ^8.5.1
         version: 8.5.1(@microsoft/api-extractor@7.58.9(@types/node@25.9.3))(jiti@2.7.0)(postcss@8.5.15)(tsx@4.22.4)(typescript@6.0.3)(yaml@2.9.0)
@@ -371,7 +374,7 @@ importers:
         version: 6.0.3
       vitest:
         specifier: ^4.0.16
-        version: 4.1.9(@types/node@25.9.3)(@vitest/coverage-v8@4.1.9)(happy-dom@20.10.4)(jsdom@24.1.3)(vite@8.0.16(@types/node@25.9.3)(esbuild@0.28.0)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
+        version: 4.1.9(@types/node@25.9.3)(@vitest/coverage-v8@4.1.9)(happy-dom@20.10.4)(jsdom@24.1.3)(vite@8.0.16(@types/node@25.9.3)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
 
   packages/nightwatch-devtools:
     dependencies:
@@ -412,6 +415,9 @@ importers:
         specifier: ^2.5.1
         version: 2.5.1
     devDependencies:
+      '@cucumber/cucumber':
+        specifier: ^13.0.0
+        version: 13.0.0
       '@types/node':
         specifier: 25.9.3
         version: 25.9.3
@@ -622,7 +628,7 @@ importers:
         version: link:../shared
       '@wdio/globals':
         specifier: 9.28.0
-        version: 9.28.0(expect-webdriverio@5.6.8)(webdriverio@9.28.0(puppeteer-core@21.11.0))
+        version: 9.28.0(expect-webdriverio@5.7.0)(webdriverio@9.28.0(puppeteer-core@21.11.0))
       '@wdio/protocols':
         specifier: 9.28.0
         version: 9.28.0
@@ -2755,6 +2761,16 @@ packages:
       expect-webdriverio: ^5.6.5
       webdriverio: ^9.0.0
 
+  '@wdio/globals@9.29.1':
+    resolution: {integrity: sha512-F96BKppx4HGD64v+s57TM4K4zaxqUCg2RXHk6sjB2xrSa7P+d2VYV28ID2ddF7iSodVfPlpa1i2/jy8jMGrU8w==}
+    engines: {node: '>=18.20.0'}
+    peerDependencies:
+      expect-webdriverio: ^5.6.5
+      webdriverio: ^9.0.0
+
+  '@wdio/image-comparison-core@2.1.0':
+    resolution: {integrity: sha512-o9w80bkMmgbUuPKoJYbuf2sKh/xyrfVyITftmVJuIaqIPehwriwGF7ZU7sS9JiXAdoqM17Wdy7MdpO3mOgsjZA==}
+
   '@wdio/local-runner@9.28.0':
     resolution: {integrity: sha512-cuITB31LRvEuOfhVNtkqBC0LQsQQTp7jumV8l7YJgchdmNI2gwyRaeKR35HxPpR8Awi5QeBfSkFxipwP8JQIWg==}
     engines: {node: '>=18.20.0'}
@@ -2823,6 +2839,9 @@ packages:
   '@wdio/utils@9.28.0':
     resolution: {integrity: sha512-VDqUaXpR8oOZSs26dy06Y2LhmA8bldsXDHeZ36n8SfW+Bq0miG0RRxou7aqx7sifVbbsuxrbBPXvmK+40uAIbQ==}
     engines: {node: '>=18.20.0'}
+
+  '@wdio/visual-service@10.1.0':
+    resolution: {integrity: sha512-GsWItEpETBRy5Ymuh8HOEX1pMDME2hxSgUBW4UlSHCmKTSOcUEfQosjAx3XVMucpR5SosPIiOB1/4teEi4qLhw==}
 
   '@wdio/xvfb@9.28.0':
     resolution: {integrity: sha512-9NUB6rYS7uOzE+attbvX7frfvXdf/FhinHBL2hJtBW81/lcSm3TPqgFskKVKiUooXfdTf4bvrRYn1+MVVGFFXA==}
@@ -4161,6 +4180,14 @@ packages:
       '@wdio/logger': ^9.0.0
       webdriverio: ^9.0.0
 
+  expect-webdriverio@5.7.0:
+    resolution: {integrity: sha512-jLOTrJoPBC3Wtd83ryHMbRcEajMGtAnn6OWtSnoJoDLt16nHvxVdjcI4Bc0n+1KAOr8DvQtlJ55f0M48kJtEpw==}
+    engines: {node: '>=20'}
+    peerDependencies:
+      '@wdio/globals': ^9.0.0
+      '@wdio/logger': ^9.0.0
+      webdriverio: ^9.0.0
+
   expect@30.4.1:
     resolution: {integrity: sha512-PMARsyh/JtqC20HoGqlFcIlQAyqUtW4PlI1rup1uhYJtKuwAjbvWi3GQMAn+STdHum/dk8xrKfUM1+5SAwpolA==}
     engines: {node: ^18.14.0 || ^20.0.0 || ^22.0.0 || >=24.0.0}
@@ -4203,6 +4230,9 @@ packages:
 
   fast-levenshtein@2.0.6:
     resolution: {integrity: sha512-DCXu6Ifhqcks7TZKY3Hxp3y6qphY5SJZmrWMDrKcERSOXWQdMhU9Ig/PYrzyw/ul9jOIyh0N4M0tbC5hodg8dw==}
+
+  fast-png@8.0.0:
+    resolution: {integrity: sha512-gCysNasJ8KEMgfdYIKd/wTDo6ENK1PWT0RJO7O+0pgmuHPw2O6tA1WvdxFRJoLf9V8yFYpG0FA1YgI8X97OhJA==}
 
   fast-querystring@1.1.2:
     resolution: {integrity: sha512-g6KuKWmFXc0fID8WWH0jit4g0AGBoJhCkJMb1RmbsSEUNvQ+ZC8D6CUZ+GtF8nMzSPXnhiePyyqqipzNNEnHjg==}
@@ -4748,6 +4778,9 @@ packages:
   internal-slot@1.1.0:
     resolution: {integrity: sha512-4gd7VpWNQNB4UKKCFFVcp1AVv+FMOgs9NKzjHKusc8jTMhd5eL1NqQqOpE0KzMds804/yHlglp3uxgluOqAPLw==}
     engines: {node: '>= 0.4'}
+
+  iobuffer@6.0.1:
+    resolution: {integrity: sha512-SZWYkWNfjIXIBYSDpXDYIgshqtbOPsi4lviawAEceR1Kqk+sHDlcQjWrzNQsii80AyBY0q5c8HCTNjqo74ul+Q==}
 
   ip-address@10.2.0:
     resolution: {integrity: sha512-/+S6j4E9AHvW9SWMSEY9Xfy66O5PWvVEJ08O0y5JGyEKQpojb0K0GKpz/v5HJ/G0vi3D2sjGK78119oXZeE0qA==}
@@ -6015,6 +6048,10 @@ packages:
 
   piscina@4.9.2:
     resolution: {integrity: sha512-Fq0FERJWFEUpB4eSY59wSNwXD4RYqR+nR/WiEVcZW8IWfVBxJJafcgTEZDQo8k3w0sUarJ8RyVbbUF4GQ2LGbQ==}
+
+  pixelmatch@7.2.0:
+    resolution: {integrity: sha512-xhcb4yHu9sM/G7foGzoLtXYcC0zHEaOXXjRKhGup0fw78Nf2Tkiapv4EQyMzrbcmQPsllAI7DbFY2UT7PlI9Pg==}
+    hasBin: true
 
   pkg-dir@4.2.0:
     resolution: {integrity: sha512-HRDzbaKjC+AOWVXxAU/x54COGeIv9eb+6CkDSQoNTt4XyWoIJvuPsXizxu/Fr23EiekbtZwmh1IcIG/l/a10GQ==}
@@ -7669,7 +7706,7 @@ snapshots:
       '@babel/types': 7.29.7
       '@jridgewell/remapping': 2.3.5
       convert-source-map: 2.0.0
-      debug: 4.4.3(supports-color@5.5.0)
+      debug: 4.4.3(supports-color@10.2.2)
       gensync: 1.0.0-beta.2
       json5: 2.2.3
       semver: 6.3.1
@@ -7828,7 +7865,7 @@ snapshots:
       '@babel/parser': 7.29.7
       '@babel/template': 7.29.7
       '@babel/types': 7.29.7
-      debug: 4.4.3(supports-color@5.5.0)
+      debug: 4.4.3(supports-color@10.2.2)
     transitivePeerDependencies:
       - supports-color
 
@@ -8509,7 +8546,7 @@ snapshots:
   '@eslint/config-array@0.23.5':
     dependencies:
       '@eslint/object-schema': 3.0.5
-      debug: 4.4.3(supports-color@5.5.0)
+      debug: 4.4.3(supports-color@10.2.2)
       minimatch: 10.2.5
     transitivePeerDependencies:
       - supports-color
@@ -9193,7 +9230,7 @@ snapshots:
 
   '@puppeteer/browsers@2.13.2':
     dependencies:
-      debug: 4.4.3(supports-color@5.5.0)
+      debug: 4.4.3(supports-color@10.2.2)
       extract-zip: 2.0.1
       progress: 2.0.3
       proxy-agent: 6.5.0
@@ -9611,7 +9648,7 @@ snapshots:
       '@typescript-eslint/types': 8.61.1
       '@typescript-eslint/typescript-estree': 8.61.1(typescript@6.0.3)
       '@typescript-eslint/visitor-keys': 8.61.1
-      debug: 4.4.3(supports-color@5.5.0)
+      debug: 4.4.3(supports-color@10.2.2)
       eslint: 10.5.0(jiti@2.7.0)
       typescript: 6.0.3
     transitivePeerDependencies:
@@ -9621,7 +9658,7 @@ snapshots:
     dependencies:
       '@typescript-eslint/tsconfig-utils': 8.61.1(typescript@6.0.3)
       '@typescript-eslint/types': 8.61.1
-      debug: 4.4.3(supports-color@5.5.0)
+      debug: 4.4.3(supports-color@10.2.2)
       typescript: 6.0.3
     transitivePeerDependencies:
       - supports-color
@@ -9640,7 +9677,7 @@ snapshots:
       '@typescript-eslint/types': 8.61.1
       '@typescript-eslint/typescript-estree': 8.61.1(typescript@6.0.3)
       '@typescript-eslint/utils': 8.61.1(eslint@10.5.0(jiti@2.7.0))(typescript@6.0.3)
-      debug: 4.4.3(supports-color@5.5.0)
+      debug: 4.4.3(supports-color@10.2.2)
       eslint: 10.5.0(jiti@2.7.0)
       ts-api-utils: 2.5.0(typescript@6.0.3)
       typescript: 6.0.3
@@ -9655,7 +9692,7 @@ snapshots:
       '@typescript-eslint/tsconfig-utils': 8.61.1(typescript@6.0.3)
       '@typescript-eslint/types': 8.61.1
       '@typescript-eslint/visitor-keys': 8.61.1
-      debug: 4.4.3(supports-color@5.5.0)
+      debug: 4.4.3(supports-color@10.2.2)
       minimatch: 10.2.5
       semver: 7.8.4
       tinyglobby: 0.2.17
@@ -9794,6 +9831,14 @@ snapshots:
       chai: 6.2.2
       tinyrainbow: 3.1.0
 
+  '@vitest/mocker@4.1.9(vite@8.0.16(@types/node@25.9.3)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))':
+    dependencies:
+      '@vitest/spy': 4.1.9
+      estree-walker: 3.0.3
+      magic-string: 0.30.21
+    optionalDependencies:
+      vite: 8.0.16(@types/node@25.9.3)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)
+
   '@vitest/mocker@4.1.9(vite@8.0.16(@types/node@25.9.3)(esbuild@0.28.0)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))':
     dependencies:
       '@vitest/spy': 4.1.9
@@ -9893,6 +9938,39 @@ snapshots:
       - supports-color
       - utf-8-validate
 
+  '@wdio/cli@9.28.0(@types/node@25.9.3)(expect-webdriverio@5.7.0)(puppeteer-core@21.11.0)':
+    dependencies:
+      '@vitest/snapshot': 2.1.9
+      '@wdio/config': 9.28.0
+      '@wdio/globals': 9.28.0(expect-webdriverio@5.7.0)(webdriverio@9.28.0(puppeteer-core@21.11.0))
+      '@wdio/logger': 9.18.0
+      '@wdio/protocols': 9.28.0
+      '@wdio/types': 9.28.0
+      '@wdio/utils': 9.28.0
+      async-exit-hook: 2.0.1
+      chalk: 5.6.2
+      chokidar: 4.0.3
+      create-wdio: 9.28.0(@types/node@25.9.3)
+      dotenv: 17.4.2
+      import-meta-resolve: 4.2.0
+      lodash.flattendeep: 4.4.0
+      lodash.pickby: 4.6.0
+      lodash.union: 4.6.0
+      read-pkg-up: 10.1.0
+      tsx: 4.22.4
+      webdriverio: 9.28.0(puppeteer-core@21.11.0)
+      yargs: 17.7.2
+    transitivePeerDependencies:
+      - '@types/node'
+      - bare-abort-controller
+      - bare-buffer
+      - bufferutil
+      - expect-webdriverio
+      - puppeteer-core
+      - react-native-b4a
+      - supports-color
+      - utf-8-validate
+
   '@wdio/config@8.41.0':
     dependencies:
       '@wdio/logger': 8.38.0
@@ -9951,6 +10029,23 @@ snapshots:
     dependencies:
       expect-webdriverio: 5.6.8(@wdio/globals@9.28.0)(@wdio/logger@9.29.1)(webdriverio@9.28.0(puppeteer-core@21.11.0))
       webdriverio: 9.28.0(puppeteer-core@21.11.0)
+
+  '@wdio/globals@9.28.0(expect-webdriverio@5.7.0)(webdriverio@9.28.0(puppeteer-core@21.11.0))':
+    dependencies:
+      expect-webdriverio: 5.7.0(@wdio/globals@9.28.0)(@wdio/logger@9.29.1)(webdriverio@9.28.0(puppeteer-core@21.11.0))
+      webdriverio: 9.28.0(puppeteer-core@21.11.0)
+
+  '@wdio/globals@9.29.1(expect-webdriverio@5.7.0)(webdriverio@9.28.0(puppeteer-core@21.11.0))':
+    dependencies:
+      expect-webdriverio: 5.7.0(@wdio/globals@9.29.1)(@wdio/logger@9.18.0)(webdriverio@9.28.0(puppeteer-core@21.11.0))
+      webdriverio: 9.28.0(puppeteer-core@21.11.0)
+
+  '@wdio/image-comparison-core@2.1.0':
+    dependencies:
+      '@wdio/logger': 9.29.1
+      '@wdio/types': 9.29.1
+      fast-png: 8.0.0
+      pixelmatch: 7.2.0
 
   '@wdio/local-runner@9.28.0(@wdio/globals@9.28.0)(webdriverio@9.28.0(puppeteer-core@21.11.0))':
     dependencies:
@@ -10119,6 +10214,16 @@ snapshots:
       - react-native-b4a
       - supports-color
 
+  '@wdio/visual-service@10.1.0(webdriverio@9.28.0(puppeteer-core@21.11.0))':
+    dependencies:
+      '@wdio/globals': 9.29.1(expect-webdriverio@5.7.0)(webdriverio@9.28.0(puppeteer-core@21.11.0))
+      '@wdio/image-comparison-core': 2.1.0
+      '@wdio/logger': 9.29.1
+      '@wdio/types': 9.29.1
+      expect-webdriverio: 5.7.0(@wdio/globals@9.29.1)(@wdio/logger@9.29.1)(webdriverio@9.28.0(puppeteer-core@21.11.0))
+    transitivePeerDependencies:
+      - webdriverio
+
   '@wdio/xvfb@9.28.0':
     dependencies:
       '@wdio/logger': 9.18.0
@@ -10149,7 +10254,7 @@ snapshots:
 
   agent-base@6.0.2:
     dependencies:
-      debug: 4.4.3(supports-color@5.5.0)
+      debug: 4.4.3(supports-color@10.2.2)
     transitivePeerDependencies:
       - supports-color
 
@@ -11252,7 +11357,7 @@ snapshots:
 
   edgedriver@6.3.0:
     dependencies:
-      '@wdio/logger': 9.29.1
+      '@wdio/logger': 9.18.0
       '@zip.js/zip.js': 2.8.26
       decamelize: 6.0.1
       edge-paths: 3.0.5
@@ -11597,7 +11702,7 @@ snapshots:
       '@types/estree': 1.0.9
       ajv: 6.15.0
       cross-spawn: 7.0.6
-      debug: 4.4.3(supports-color@5.5.0)
+      debug: 4.4.3(supports-color@10.2.2)
       escape-string-regexp: 4.0.0
       eslint-scope: 9.1.2
       eslint-visitor-keys: 5.0.1
@@ -11709,6 +11814,36 @@ snapshots:
       jest-matcher-utils: 30.4.1
       webdriverio: 9.28.0(puppeteer-core@21.11.0)
 
+  expect-webdriverio@5.7.0(@wdio/globals@9.28.0)(@wdio/logger@9.29.1)(webdriverio@9.28.0(puppeteer-core@21.11.0)):
+    dependencies:
+      '@vitest/snapshot': 4.1.9
+      '@wdio/globals': 9.28.0(expect-webdriverio@5.7.0)(webdriverio@9.28.0(puppeteer-core@21.11.0))
+      '@wdio/logger': 9.29.1
+      deep-eql: 5.0.2
+      expect: 30.4.1
+      jest-matcher-utils: 30.4.1
+      webdriverio: 9.28.0(puppeteer-core@21.11.0)
+
+  expect-webdriverio@5.7.0(@wdio/globals@9.29.1)(@wdio/logger@9.18.0)(webdriverio@9.28.0(puppeteer-core@21.11.0)):
+    dependencies:
+      '@vitest/snapshot': 4.1.9
+      '@wdio/globals': 9.29.1(expect-webdriverio@5.7.0)(webdriverio@9.28.0(puppeteer-core@21.11.0))
+      '@wdio/logger': 9.18.0
+      deep-eql: 5.0.2
+      expect: 30.4.1
+      jest-matcher-utils: 30.4.1
+      webdriverio: 9.28.0(puppeteer-core@21.11.0)
+
+  expect-webdriverio@5.7.0(@wdio/globals@9.29.1)(@wdio/logger@9.29.1)(webdriverio@9.28.0(puppeteer-core@21.11.0)):
+    dependencies:
+      '@vitest/snapshot': 4.1.9
+      '@wdio/globals': 9.29.1(expect-webdriverio@5.7.0)(webdriverio@9.28.0(puppeteer-core@21.11.0))
+      '@wdio/logger': 9.29.1
+      deep-eql: 5.0.2
+      expect: 30.4.1
+      jest-matcher-utils: 30.4.1
+      webdriverio: 9.28.0(puppeteer-core@21.11.0)
+
   expect@30.4.1:
     dependencies:
       '@jest/expect-utils': 30.4.1
@@ -11724,7 +11859,7 @@ snapshots:
 
   extract-zip@2.0.1:
     dependencies:
-      debug: 4.4.3(supports-color@5.5.0)
+      debug: 4.4.3(supports-color@10.2.2)
       get-stream: 5.2.0
       yauzl: 2.10.0
     optionalDependencies:
@@ -11762,6 +11897,11 @@ snapshots:
       rfdc: 1.4.1
 
   fast-levenshtein@2.0.6: {}
+
+  fast-png@8.0.0:
+    dependencies:
+      fflate: 0.8.3
+      iobuffer: 6.0.1
 
   fast-querystring@1.1.2:
     dependencies:
@@ -11993,7 +12133,7 @@ snapshots:
 
   geckodriver@6.1.0:
     dependencies:
-      '@wdio/logger': 9.29.1
+      '@wdio/logger': 9.18.0
       '@zip.js/zip.js': 2.8.26
       decamelize: 6.0.1
       http-proxy-agent: 7.0.2
@@ -12055,7 +12195,7 @@ snapshots:
     dependencies:
       basic-ftp: 5.3.1
       data-uri-to-buffer: 6.0.2
-      debug: 4.4.3(supports-color@5.5.0)
+      debug: 4.4.3(supports-color@10.2.2)
     transitivePeerDependencies:
       - supports-color
 
@@ -12063,7 +12203,7 @@ snapshots:
     dependencies:
       basic-ftp: 5.3.1
       data-uri-to-buffer: 8.0.0
-      debug: 4.4.3(supports-color@5.5.0)
+      debug: 4.4.3(supports-color@10.2.2)
     transitivePeerDependencies:
       - supports-color
 
@@ -12261,35 +12401,35 @@ snapshots:
   http-proxy-agent@7.0.2:
     dependencies:
       agent-base: 7.1.4
-      debug: 4.4.3(supports-color@5.5.0)
+      debug: 4.4.3(supports-color@10.2.2)
     transitivePeerDependencies:
       - supports-color
 
   http-proxy-agent@9.0.0:
     dependencies:
       agent-base: 9.0.0
-      debug: 4.4.3(supports-color@5.5.0)
+      debug: 4.4.3(supports-color@10.2.2)
     transitivePeerDependencies:
       - supports-color
 
   https-proxy-agent@5.0.1:
     dependencies:
       agent-base: 6.0.2
-      debug: 4.4.3(supports-color@5.5.0)
+      debug: 4.4.3(supports-color@10.2.2)
     transitivePeerDependencies:
       - supports-color
 
   https-proxy-agent@7.0.6:
     dependencies:
       agent-base: 7.1.4
-      debug: 4.4.3(supports-color@5.5.0)
+      debug: 4.4.3(supports-color@10.2.2)
     transitivePeerDependencies:
       - supports-color
 
   https-proxy-agent@9.0.0:
     dependencies:
       agent-base: 9.0.0
-      debug: 4.4.3(supports-color@5.5.0)
+      debug: 4.4.3(supports-color@10.2.2)
     transitivePeerDependencies:
       - supports-color
 
@@ -12369,6 +12509,8 @@ snapshots:
       es-errors: 1.3.0
       hasown: 2.0.4
       side-channel: 1.1.0
+
+  iobuffer@6.0.1: {}
 
   ip-address@10.2.0: {}
 
@@ -12588,7 +12730,7 @@ snapshots:
   istanbul-lib-source-maps@5.0.6:
     dependencies:
       '@jridgewell/trace-mapping': 0.3.31
-      debug: 4.4.3(supports-color@5.5.0)
+      debug: 4.4.3(supports-color@10.2.2)
       istanbul-lib-coverage: 3.2.2
     transitivePeerDependencies:
       - supports-color
@@ -13051,7 +13193,7 @@ snapshots:
 
   lighthouse-logger@2.0.2:
     dependencies:
-      debug: 4.4.3(supports-color@5.5.0)
+      debug: 4.4.3(supports-color@10.2.2)
       marky: 1.3.0
     transitivePeerDependencies:
       - supports-color
@@ -13680,7 +13822,7 @@ snapshots:
     dependencies:
       '@tootallnate/quickjs-emscripten': 0.23.0
       agent-base: 7.1.4
-      debug: 4.4.3(supports-color@5.5.0)
+      debug: 4.4.3(supports-color@10.2.2)
       get-uri: 6.0.5
       http-proxy-agent: 7.0.2
       https-proxy-agent: 7.0.6
@@ -13692,7 +13834,7 @@ snapshots:
   pac-proxy-agent@9.0.1:
     dependencies:
       agent-base: 9.0.0
-      debug: 4.4.3(supports-color@5.5.0)
+      debug: 4.4.3(supports-color@10.2.2)
       get-uri: 8.0.0
       http-proxy-agent: 9.0.0
       https-proxy-agent: 9.0.0
@@ -13858,6 +14000,10 @@ snapshots:
     optionalDependencies:
       '@napi-rs/nice': 1.1.1
 
+  pixelmatch@7.2.0:
+    dependencies:
+      pngjs: 7.0.0
+
   pkg-dir@4.2.0:
     dependencies:
       find-up: 4.1.0
@@ -13969,7 +14115,7 @@ snapshots:
   proxy-agent@6.3.1:
     dependencies:
       agent-base: 7.1.4
-      debug: 4.4.3(supports-color@5.5.0)
+      debug: 4.4.3(supports-color@10.2.2)
       http-proxy-agent: 7.0.2
       https-proxy-agent: 7.0.6
       lru-cache: 7.18.3
@@ -13982,7 +14128,7 @@ snapshots:
   proxy-agent@6.5.0:
     dependencies:
       agent-base: 7.1.4
-      debug: 4.4.3(supports-color@5.5.0)
+      debug: 4.4.3(supports-color@10.2.2)
       http-proxy-agent: 7.0.2
       https-proxy-agent: 7.0.6
       lru-cache: 7.18.3
@@ -13995,7 +14141,7 @@ snapshots:
   proxy-agent@8.0.1:
     dependencies:
       agent-base: 9.0.0
-      debug: 4.4.3(supports-color@5.5.0)
+      debug: 4.4.3(supports-color@10.2.2)
       http-proxy-agent: 9.0.0
       https-proxy-agent: 9.0.0
       lru-cache: 7.18.3
@@ -14492,7 +14638,7 @@ snapshots:
 
   simple-update-notifier@2.0.0:
     dependencies:
-      semver: 7.8.1
+      semver: 7.8.4
 
   sirv@3.0.2:
     dependencies:
@@ -14515,7 +14661,7 @@ snapshots:
   socks-proxy-agent@10.0.0:
     dependencies:
       agent-base: 9.0.0
-      debug: 4.4.3(supports-color@5.5.0)
+      debug: 4.4.3(supports-color@10.2.2)
       socks: 2.8.9
     transitivePeerDependencies:
       - supports-color
@@ -14523,7 +14669,7 @@ snapshots:
   socks-proxy-agent@8.0.5:
     dependencies:
       agent-base: 7.1.4
-      debug: 4.4.3(supports-color@5.5.0)
+      debug: 4.4.3(supports-color@10.2.2)
       socks: 2.8.9
     transitivePeerDependencies:
       - supports-color
@@ -14732,7 +14878,7 @@ snapshots:
       cosmiconfig: 9.0.2(typescript@6.0.3)
       css-functions-list: 3.3.3
       css-tree: 3.2.1
-      debug: 4.4.3(supports-color@5.5.0)
+      debug: 4.4.3(supports-color@10.2.2)
       fast-glob: 3.3.3
       fastest-levenshtein: 1.0.16
       file-entry-cache: 11.1.3
@@ -14995,7 +15141,7 @@ snapshots:
       cac: 6.7.14
       chokidar: 4.0.3
       consola: 3.4.2
-      debug: 4.4.3(supports-color@5.5.0)
+      debug: 4.4.3(supports-color@10.2.2)
       esbuild: 0.27.7
       fix-dts-default-cjs-exports: 1.0.1
       joycon: 3.1.1
@@ -15128,7 +15274,7 @@ snapshots:
       '@rollup/pluginutils': 5.4.0(rollup@4.62.0)
       '@volar/typescript': 2.4.28
       compare-versions: 6.1.1
-      debug: 4.4.3(supports-color@5.5.0)
+      debug: 4.4.3(supports-color@10.2.2)
       kolorist: 1.8.0
       local-pkg: 1.2.1
       magic-string: 0.30.21
@@ -15271,6 +15417,21 @@ snapshots:
     optionalDependencies:
       rollup: 4.62.0
 
+  vite@8.0.16(@types/node@25.9.3)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0):
+    dependencies:
+      lightningcss: 1.32.0
+      picomatch: 4.0.4
+      postcss: 8.5.15
+      rolldown: 1.0.3
+      tinyglobby: 0.2.17
+    optionalDependencies:
+      '@types/node': 25.9.3
+      esbuild: 0.27.7
+      fsevents: 2.3.3
+      jiti: 2.7.0
+      tsx: 4.22.4
+      yaml: 2.9.0
+
   vite@8.0.16(@types/node@25.9.3)(esbuild@0.28.0)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0):
     dependencies:
       lightningcss: 1.32.0
@@ -15285,6 +15446,36 @@ snapshots:
       jiti: 2.7.0
       tsx: 4.22.4
       yaml: 2.9.0
+
+  vitest@4.1.9(@types/node@25.9.3)(@vitest/coverage-v8@4.1.9)(happy-dom@20.10.4)(jsdom@24.1.3)(vite@8.0.16(@types/node@25.9.3)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)):
+    dependencies:
+      '@vitest/expect': 4.1.9
+      '@vitest/mocker': 4.1.9(vite@8.0.16(@types/node@25.9.3)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
+      '@vitest/pretty-format': 4.1.9
+      '@vitest/runner': 4.1.9
+      '@vitest/snapshot': 4.1.9
+      '@vitest/spy': 4.1.9
+      '@vitest/utils': 4.1.9
+      es-module-lexer: 2.1.0
+      expect-type: 1.3.0
+      magic-string: 0.30.21
+      obug: 2.1.3
+      pathe: 2.0.3
+      picomatch: 4.0.4
+      std-env: 4.1.0
+      tinybench: 2.9.0
+      tinyexec: 1.2.4
+      tinyglobby: 0.2.17
+      tinyrainbow: 3.1.0
+      vite: 8.0.16(@types/node@25.9.3)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)
+      why-is-node-running: 2.3.0
+    optionalDependencies:
+      '@types/node': 25.9.3
+      '@vitest/coverage-v8': 4.1.9(@vitest/browser@4.1.9)(vitest@4.1.9)
+      happy-dom: 20.10.4
+      jsdom: 24.1.3
+    transitivePeerDependencies:
+      - msw
 
   vitest@4.1.9(@types/node@25.9.3)(@vitest/coverage-v8@4.1.9)(happy-dom@20.10.4)(jsdom@24.1.3)(vite@8.0.16(@types/node@25.9.3)(esbuild@0.28.0)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)):
     dependencies:
@@ -15328,7 +15519,7 @@ snapshots:
     dependencies:
       chalk: 4.1.2
       commander: 9.5.0
-      debug: 4.4.3(supports-color@5.5.0)
+      debug: 4.4.3(supports-color@10.2.2)
     transitivePeerDependencies:
       - supports-color
 

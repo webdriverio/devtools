@@ -48,13 +48,15 @@ capture-layer path changes (see `.github/workflows/`).
 ```sh
 pnpm verify                    # Layer A — snapshot check (no browser)
 pnpm verify:watch              # watch mode
-pnpm verify:update             # accept snapshot changes after a regen (vitest -u)
+pnpm verify:update             # seed/accept snapshots after a regen (vitest -u)
 pnpm fixtures:regen            # regenerate all ready fixtures (needs Chrome)
 pnpm fixtures:regen wdio-mocha # regenerate one entry by id
 ```
 
 A fixture that doesn't exist yet skips its entry, so `verify` is green on a fresh
-clone until you run `fixtures:regen`.
+clone until you run `fixtures:regen`. **First run:** after the first
+`fixtures:regen`, run `pnpm verify:update` once to write the initial snapshots
+(vitest does not auto-create them); thereafter `pnpm verify` checks against them.
 
 ## Extending
 
@@ -64,6 +66,12 @@ adapters. Set `status: 'ready'` once the example produces a trace.
 
 ## Status
 
-`nightwatch-cucumber` is `planned` — Nightwatch supports cucumber natively and the
-adapter handles cucumber scenarios, but the example project isn't built yet. The
-other five entries are ready; run `pnpm fixtures:regen` to populate their fixtures.
+Five entries are `ready` with committed fixtures: WebdriverIO mocha + cucumber,
+Selenium mocha + cucumber, Nightwatch BDD.
+
+`nightwatch-cucumber` has a working example (it runs and captures per-scenario in
+trace mode) but is `planned` — a **documented limitation**: Nightwatch's cucumber
+runner uses a browser session per scenario, so the adapter's session-scoped trace
+export (written once at run-end) has no single live session to finalize and writes
+no `trace.zip`. The harness surfaced it; it's tracked in CLAUDE.md known debt.
+Flip to `ready` once `@wdio/nightwatch-devtools` supports per-scenario trace writing.
