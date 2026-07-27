@@ -30,6 +30,7 @@ import {
   cucumberResultToTestState
 } from './helpers/cucumberResult.js'
 import { buildCucumberScenarioSuite } from './helpers/cucumberScenarioBuilder.js'
+import { captureNativeAssertions } from './helpers/nativeAssertions.js'
 import { scanFeatureFile } from './helpers/featureFileScan.js'
 import { parseCucumberScenario } from './helpers/utils.js'
 import {
@@ -263,6 +264,21 @@ export async function captureCucumberScenarioBeforeQuit(
 ): Promise<void> {
   const scenario = ctx.getCurrentScenarioSuite()
   try {
+    // Emit native asserts (assert.titleContains, …) while the session is live —
+    // Nightwatch's afterEach path skips the cucumber runner, so this is the only
+    // place scenario asserts get captured. drainNativeAssertCalls() is empty when
+    // captureAssertions is off. Pass/fail isn't correlated to cucumber's result
+    // shape yet, so rows may render neutral (never dropped) — tracked follow-up.
+    const assertCalls = ctx.browserProxy?.drainNativeAssertCalls() ?? []
+    if (assertCalls.length > 0) {
+      await captureNativeAssertions(
+        ctx.sessionCapturer,
+        browser,
+        undefined,
+        scenario?.uid,
+        assertCalls
+      )
+    }
     await ctx.sessionCapturer.captureTrace(browser)
     flushTestSlice(ctx)
     await ctx.emitTestArtifacts(

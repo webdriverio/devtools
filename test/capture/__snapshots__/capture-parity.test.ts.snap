@@ -22,6 +22,7 @@ exports[`Nightwatch · BDD (describe/it) [nightwatch-bdd] > captures a consisten
 exports[`Nightwatch · cucumber [nightwatch-cucumber] > captures a consistent trace shape 1`] = `
 {
   "commandVocabulary": [
+    "titleContains",
     "url",
   ],
   "groups": {
