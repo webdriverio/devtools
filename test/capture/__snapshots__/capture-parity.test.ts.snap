@@ -19,6 +19,24 @@ exports[`Nightwatch · BDD (describe/it) [nightwatch-bdd] > captures a consisten
 }
 `;
 
+exports[`Nightwatch · cucumber [nightwatch-cucumber] > captures a consistent trace shape 1`] = `
+{
+  "commandVocabulary": [
+    "url",
+  ],
+  "groups": {
+    "maxDepth": 1,
+    "topLevel": 1,
+  },
+  "hasConsole": true,
+  "hasFrames": true,
+  "hasMutations": false,
+  "hasNetwork": true,
+  "hasSources": true,
+  "hasTranscript": true,
+}
+`;
+
 exports[`Selenium · cucumber [selenium-cucumber] > captures a consistent trace shape 1`] = `
 {
   "commandVocabulary": [

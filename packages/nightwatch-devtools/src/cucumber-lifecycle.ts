@@ -199,7 +199,7 @@ export async function initCucumberScenario(
 
 export async function finalizeCucumberScenario(
   ctx: CucumberLifecycleCtx,
-  browser: NightwatchBrowser,
+  _browser: NightwatchBrowser,
   result: CucumberResult,
   pickle: CucumberPickle | undefined
 ): Promise<void> {
@@ -238,18 +238,41 @@ export async function finalizeCucumberScenario(
       ctx.setCurrentStep(null)
       ctx.setCurrentTest(null)
     }
-    await ctx.sessionCapturer.captureTrace(browser)
-    // Flush before the next attempt's attachScenarioToFeature overwrites this
-    // scenario's suite (and thus its outcome) in the tree.
-    flushTestSlice(ctx)
-    // Produce this scenario's per-test screenshot/video (core-gated to trace +
-    // `test`). `scenario` is the retry-stable test unit; null-scenario no-ops.
-    await ctx.emitTestArtifacts(
-      scenario?.uid,
-      scenarioState === TEST_STATE.FAILED
-    )
+    // The trace capture, slice flush, and per-test artifacts need a live
+    // WebDriver session — by this hook (cucumber After order:-1) the browser is
+    // already quit. They run in captureCucumberScenarioBeforeQuit (order:1000,
+    // pre-quit); this hook keeps only the settled-outcome bookkeeping.
   } catch (err) {
     log.error(`Failed to finalize Cucumber scenario: ${errorMessage(err)}`)
+  }
+}
+
+/**
+ * Live-session work for a cucumber scenario — runs at the cucumber `After`
+ * `order:1000` hook, BEFORE Nightwatch quits the browser (its quit hook is
+ * `order:0`; `finalizeCucumberScenario` is `order:-1`, after quit, so it reads
+ * the settled outcome). Trace capture, the slice flush, and per-test artifacts
+ * all need a live WebDriver session — at finalize the session is gone and the
+ * flush bails, writing no zip. Trace test-state may be pre-outcome for a
+ * scenario that fails on a Nightwatch assertion (see CLAUDE.md known debt).
+ */
+export async function captureCucumberScenarioBeforeQuit(
+  ctx: CucumberLifecycleCtx,
+  browser: NightwatchBrowser,
+  result: CucumberResult
+): Promise<void> {
+  const scenario = ctx.getCurrentScenarioSuite()
+  try {
+    await ctx.sessionCapturer.captureTrace(browser)
+    flushTestSlice(ctx)
+    await ctx.emitTestArtifacts(
+      scenario?.uid,
+      cucumberResultToTestState(result) === TEST_STATE.FAILED
+    )
+  } catch (err) {
+    log.error(
+      `Failed to capture Cucumber scenario before quit: ${errorMessage(err)}`
+    )
   }
 }
 

@@ -29,7 +29,7 @@
     "plugin": true
   },
   "scripts": {
-    "build": "tsup src/index.ts --format esm --dts --sourcemap --clean",
+    "build": "tsup",
     "watch": "tsup src/index.ts --format esm --dts --sourcemap --watch",
     "clean": "rm -rf dist",
     "lint": "eslint .",

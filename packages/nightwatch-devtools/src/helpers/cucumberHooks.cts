@@ -37,11 +37,12 @@ interface CucumberApi {
 const { Before, After, BeforeStep, AfterStep } = require('@cucumber/cucumber') as CucumberApi
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const { PLUGIN_GLOBAL_KEY } = require('../constants.js') as { PLUGIN_GLOBAL_KEY: string }
+const { PLUGIN_GLOBAL_KEY } = require('../plugin-global-key.js') as { PLUGIN_GLOBAL_KEY: string }
 
 // The plugin instance is stored here by NightwatchDevToolsPlugin.before()
 interface CucumberPluginBridge {
   cucumberBefore(browser: unknown, pickle: unknown): Promise<void>
+  cucumberBeforeQuit(browser: unknown, result: unknown): Promise<void>
   cucumberAfter(browser: unknown, result: unknown, pickle: unknown): Promise<void>
   cucumberBeforeStep(browser: unknown, pickleStep: unknown, pickle: unknown): Promise<void>
   cucumberAfterStep(browser: unknown, result: unknown, pickleStep: unknown, pickle: unknown): Promise<void>
@@ -51,6 +52,17 @@ Before({ order: 1000 }, async function (this: any, { pickle }: any) {
   const plugin = (globalThis as Record<string, unknown>)[PLUGIN_GLOBAL_KEY] as CucumberPluginBridge | undefined
   if (this.browser && plugin) {
     await plugin.cucumberBefore(this.browser, pickle)
+  }
+})
+
+// Pre-quit: order:1000 runs BEFORE Nightwatch's browser-quit hook (order:0), so
+// the WebDriver session is still live. Trace capture + slice flush happen here
+// (they need a live session); the order:-1 After below then reads the settled
+// outcome. (Cucumber After: higher order executes first.)
+After({ order: 1000 }, async function (this: any, { result }: any) {
+  const plugin = (globalThis as Record<string, unknown>)[PLUGIN_GLOBAL_KEY] as CucumberPluginBridge | undefined
+  if (this.browser && plugin) {
+    await plugin.cucumberBeforeQuit(this.browser, result)
   }
 })
 

@@ -110,13 +110,11 @@ export const ENTRIES: VerificationEntry[] = [
     adapter: 'nightwatch',
     runner: 'cucumber',
     label: 'Nightwatch · cucumber',
-    // Documented limitation: Nightwatch's cucumber runner launches a browser
-    // session PER SCENARIO, so the adapter's session-scoped trace export (written
-    // once at run-end) has no single live session to finalize and produces no
-    // trace.zip. The example runs and captures per-scenario in trace mode; only
-    // the session-zip export is missing. See CLAUDE.md known debt. Supporting it
-    // needs per-scenario trace writing in @wdio/nightwatch-devtools.
-    status: 'planned',
+    // Per-scenario trace via the pre-quit capture hook (see CLAUDE.md). Captures
+    // commands/console/network/DOM; native asserts (assert.titleContains) are
+    // not yet emitted for the cucumber runner — a tracked follow-up, so this
+    // fixture's vocabulary will lack them until that lands.
+    status: 'ready',
     command: {
       cmd: 'pnpm',
       args: ['--filter', '@wdio/nightwatch-devtools', 'example:cucumber']
