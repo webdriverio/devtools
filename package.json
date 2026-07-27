@@ -19,6 +19,10 @@
     "test:coverage": "vitest run --coverage",
     "test:ui": "vitest --ui",
     "test:debug": "node --inspect-brk ./node_modules/.bin/vitest run",
+    "verify": "vitest run --config test/vitest.config.ts",
+    "verify:watch": "vitest --config test/vitest.config.ts",
+    "verify:update": "vitest run --config test/vitest.config.ts -u",
+    "fixtures:regen": "tsx test/regen.ts",
     "lint": "pnpm --parallel lint",
     "watch": "pnpm build --watch",
     "changeset:gen": "bash .changeset/changeset-gen.sh"

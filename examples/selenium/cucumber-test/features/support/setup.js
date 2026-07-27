@@ -6,7 +6,10 @@
 
 import { DevTools } from '@wdio/selenium-devtools'
 
+// mode defaults to 'live' (the demo default); the verification harness sets
+// DEVTOOLS_MODE=trace to produce a golden fixture from this same example.
 DevTools.configure({
+  mode: process.env.DEVTOOLS_MODE === 'trace' ? 'trace' : 'live',
   screencast: { enabled: true, quality: 70, maxWidth: 1280, maxHeight: 720 },
   headless: true
 })
