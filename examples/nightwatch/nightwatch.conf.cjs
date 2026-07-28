@@ -52,7 +52,8 @@ module.exports = {
         // NOTE: the BDD describe/it interface fires the plugin's beforeEach once
         // per module (no per-`it` hook), so traceGranularity:'test' collapses to
         // a single session-scoped slice here. See CLAUDE.md § Known debt.
-        mode: 'trace',
+        // Trace by default (regen/demo); DEVTOOLS_MODE=live flips to live for live-parity recording.
+        mode: process.env.DEVTOOLS_MODE === 'live' ? 'live' : 'trace',
         traceGranularity: 'session',
         // tracePolicy: 'retain-on-first-failure',
         bidi: true

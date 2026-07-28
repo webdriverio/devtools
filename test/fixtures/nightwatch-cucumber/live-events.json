@@ -1,0 +1,323 @@
+[
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "metadata"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "suites"
+  },
+  {
+    "scope": "suites"
+  },
+  {
+    "scope": "suites"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "suites"
+  },
+  {
+    "scope": "sources"
+  },
+  {
+    "scope": "sources"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "commands",
+    "commands": [
+      "url"
+    ]
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "suites"
+  },
+  {
+    "scope": "suites"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "replaceCommand"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "commands",
+    "commands": [
+      "waitForElementVisible"
+    ]
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "suites"
+  },
+  {
+    "scope": "suites"
+  },
+  {
+    "scope": "replaceCommand"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "suites"
+  },
+  {
+    "scope": "suites"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "suites"
+  },
+  {
+    "scope": "commands",
+    "commands": [
+      "assert.titleContains"
+    ]
+  },
+  {
+    "scope": "metadata"
+  },
+  {
+    "scope": "mutations"
+  },
+  {
+    "scope": "logs"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "suites"
+  },
+  {
+    "scope": "metadata"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "suites"
+  },
+  {
+    "scope": "clearExecutionData"
+  },
+  {
+    "scope": "suites"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "suites"
+  },
+  {
+    "scope": "sources"
+  },
+  {
+    "scope": "sources"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "commands",
+    "commands": [
+      "url"
+    ]
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "suites"
+  },
+  {
+    "scope": "suites"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "replaceCommand"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "commands",
+    "commands": [
+      "waitForElementVisible"
+    ]
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "suites"
+  },
+  {
+    "scope": "suites"
+  },
+  {
+    "scope": "replaceCommand"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "suites"
+  },
+  {
+    "scope": "suites"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "suites"
+  },
+  {
+    "scope": "commands",
+    "commands": [
+      "assert.titleContains"
+    ]
+  },
+  {
+    "scope": "metadata"
+  },
+  {
+    "scope": "mutations"
+  },
+  {
+    "scope": "logs"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "suites"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "suites"
+  },
+  {
+    "scope": "consoleLogs"
+  }
+]

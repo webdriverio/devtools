@@ -24,6 +24,7 @@
     "verify:update": "vitest run --config test/vitest.config.ts -u",
     "verify:ui": "wdio run test/visual/wdio.conf.ts",
     "fixtures:regen": "tsx test/regen.ts",
+    "fixtures:record-live": "tsx test/support/record-live.ts",
     "lint": "pnpm --parallel lint",
     "watch": "pnpm build --watch",
     "changeset:gen": "bash .changeset/changeset-gen.sh"
@@ -42,6 +43,7 @@
     "@changesets/cli": "^2.31.0",
     "@eslint/js": "^10.0.1",
     "@types/node": "25.9.3",
+    "@types/ws": "^8.18.1",
     "@typescript-eslint/eslint-plugin": "^8.60.1",
     "@typescript-eslint/parser": "^8.60.1",
     "@typescript-eslint/utils": "^8.60.1",
@@ -68,7 +70,8 @@
     "unplugin-icons": "^23.0.1",
     "vite": "^8.0.16",
     "vitest": "^4.1.8",
-    "webdriverio": "^9.27.2"
+    "webdriverio": "^9.27.2",
+    "ws": "^8.21.0"
   },
   "dependencies": {
     "@wdio/cli": "9.28.0"

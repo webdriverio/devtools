@@ -20,7 +20,8 @@ import { DevTools } from '@wdio/selenium-devtools'
 // 4 fail:    { mode: 'trace', traceGranularity: 'test', tracePolicy: 'retain-on-failure' }
 // 5 retry:   { mode: 'trace', traceGranularity: 'test', tracePolicy: 'on-first-retry' }
 DevTools.configure({
-  mode: 'trace',
+  // Trace by default (regen); DEVTOOLS_MODE=live flips to live for live-parity recording.
+  mode: process.env.DEVTOOLS_MODE === 'live' ? 'live' : 'trace',
   traceGranularity: 'session',
   tracePolicy: 'retain-on-first-failure',
   headless: true

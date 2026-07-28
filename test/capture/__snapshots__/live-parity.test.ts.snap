@@ -1,0 +1,141 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`Nightwatch · BDD (describe/it) [nightwatch-bdd] (live) > streams a consistent live event shape 1`] = `
+{
+  "commandVocabulary": [
+    "assert.titleContains",
+    "url",
+    "waitForElementVisible",
+  ],
+  "scopes": [
+    "commands",
+    "consoleLogs",
+    "logs",
+    "metadata",
+    "mutations",
+    "networkRequests",
+    "replaceCommand",
+    "sources",
+    "suites",
+  ],
+}
+`;
+
+exports[`Nightwatch · cucumber [nightwatch-cucumber] (live) > streams a consistent live event shape 1`] = `
+{
+  "commandVocabulary": [
+    "assert.titleContains",
+    "url",
+    "waitForElementVisible",
+  ],
+  "scopes": [
+    "clearExecutionData",
+    "commands",
+    "consoleLogs",
+    "logs",
+    "metadata",
+    "mutations",
+    "networkRequests",
+    "replaceCommand",
+    "sources",
+    "suites",
+  ],
+}
+`;
+
+exports[`Selenium · cucumber [selenium-cucumber] (live) > streams a consistent live event shape 1`] = `
+{
+  "commandVocabulary": [
+    "assert.match",
+    "click",
+    "findElement",
+    "findElements",
+    "get",
+    "getCurrentUrl",
+    "getText",
+    "sendKeys",
+  ],
+  "scopes": [
+    "commands",
+    "consoleLogs",
+    "metadata",
+    "networkRequests",
+    "replaceCommand",
+    "screencast",
+    "sources",
+    "suites",
+  ],
+}
+`;
+
+exports[`Selenium · mocha [selenium-mocha] (live) > streams a consistent live event shape 1`] = `
+{
+  "commandVocabulary": [
+    "assert.equal",
+    "assert.match",
+    "findElements",
+    "get",
+    "getText",
+    "getTitle",
+  ],
+  "scopes": [
+    "commands",
+    "consoleLogs",
+    "logs",
+    "metadata",
+    "mutations",
+    "networkRequests",
+    "replaceCommand",
+    "sources",
+    "suites",
+  ],
+}
+`;
+
+exports[`WebdriverIO · cucumber [wdio-cucumber] (live) > streams a consistent live event shape 1`] = `
+{
+  "commandVocabulary": [
+    "$",
+    "click",
+    "getText",
+    "isExisting",
+    "reloadSession",
+    "setValue",
+    "url",
+  ],
+  "scopes": [
+    "commands",
+    "consoleLogs",
+    "logs",
+    "metadata",
+    "mutations",
+    "networkRequests",
+    "replaceCommand",
+    "sources",
+    "suites",
+  ],
+}
+`;
+
+exports[`WebdriverIO · mocha [wdio-mocha] (live) > streams a consistent live event shape 1`] = `
+{
+  "commandVocabulary": [
+    "$",
+    "click",
+    "getText",
+    "setValue",
+    "url",
+  ],
+  "scopes": [
+    "commands",
+    "consoleLogs",
+    "logs",
+    "metadata",
+    "mutations",
+    "networkRequests",
+    "replaceCommand",
+    "sources",
+    "suites",
+  ],
+}
+`;

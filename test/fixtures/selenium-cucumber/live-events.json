@@ -1,0 +1,1040 @@
+[
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "metadata"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "suites"
+  },
+  {
+    "scope": "suites"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "suites"
+  },
+  {
+    "scope": "sources"
+  },
+  {
+    "scope": "sources"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "commands",
+    "commands": [
+      "get"
+    ]
+  },
+  {
+    "scope": "suites"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "suites"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "replaceCommand"
+  },
+  {
+    "scope": "commands",
+    "commands": [
+      "findElement"
+    ]
+  },
+  {
+    "scope": "replaceCommand"
+  },
+  {
+    "scope": "commands",
+    "commands": [
+      "sendKeys"
+    ]
+  },
+  {
+    "scope": "replaceCommand"
+  },
+  {
+    "scope": "commands",
+    "commands": [
+      "findElement"
+    ]
+  },
+  {
+    "scope": "replaceCommand"
+  },
+  {
+    "scope": "replaceCommand"
+  },
+  {
+    "scope": "commands",
+    "commands": [
+      "sendKeys"
+    ]
+  },
+  {
+    "scope": "suites"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "suites"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "replaceCommand"
+  },
+  {
+    "scope": "commands",
+    "commands": [
+      "findElement"
+    ]
+  },
+  {
+    "scope": "replaceCommand"
+  },
+  {
+    "scope": "replaceCommand"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "commands",
+    "commands": [
+      "click"
+    ]
+  },
+  {
+    "scope": "suites"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "suites"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "replaceCommand"
+  },
+  {
+    "scope": "commands",
+    "commands": [
+      "getCurrentUrl"
+    ]
+  },
+  {
+    "scope": "suites"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "suites"
+  },
+  {
+    "scope": "replaceCommand"
+  },
+  {
+    "scope": "replaceCommand"
+  },
+  {
+    "scope": "commands",
+    "commands": [
+      "findElements"
+    ]
+  },
+  {
+    "scope": "replaceCommand"
+  },
+  {
+    "scope": "commands",
+    "commands": [
+      "getText"
+    ]
+  },
+  {
+    "scope": "commands",
+    "commands": [
+      "assert.match"
+    ]
+  },
+  {
+    "scope": "replaceCommand"
+  },
+  {
+    "scope": "replaceCommand"
+  },
+  {
+    "scope": "replaceCommand"
+  },
+  {
+    "scope": "suites"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "screencast"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "suites"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "suites"
+  },
+  {
+    "scope": "suites"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "metadata"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "suites"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "commands",
+    "commands": [
+      "get"
+    ]
+  },
+  {
+    "scope": "suites"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "suites"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "replaceCommand"
+  },
+  {
+    "scope": "commands",
+    "commands": [
+      "findElement"
+    ]
+  },
+  {
+    "scope": "replaceCommand"
+  },
+  {
+    "scope": "commands",
+    "commands": [
+      "sendKeys"
+    ]
+  },
+  {
+    "scope": "replaceCommand"
+  },
+  {
+    "scope": "commands",
+    "commands": [
+      "findElement"
+    ]
+  },
+  {
+    "scope": "replaceCommand"
+  },
+  {
+    "scope": "replaceCommand"
+  },
+  {
+    "scope": "commands",
+    "commands": [
+      "sendKeys"
+    ]
+  },
+  {
+    "scope": "suites"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "suites"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "replaceCommand"
+  },
+  {
+    "scope": "commands",
+    "commands": [
+      "findElement"
+    ]
+  },
+  {
+    "scope": "replaceCommand"
+  },
+  {
+    "scope": "replaceCommand"
+  },
+  {
+    "scope": "commands",
+    "commands": [
+      "click"
+    ]
+  },
+  {
+    "scope": "suites"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "suites"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "replaceCommand"
+  },
+  {
+    "scope": "commands",
+    "commands": [
+      "findElements"
+    ]
+  },
+  {
+    "scope": "replaceCommand"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "replaceCommand"
+  },
+  {
+    "scope": "commands",
+    "commands": [
+      "getText"
+    ]
+  },
+  {
+    "scope": "commands",
+    "commands": [
+      "assert.match"
+    ]
+  },
+  {
+    "scope": "replaceCommand"
+  },
+  {
+    "scope": "replaceCommand"
+  },
+  {
+    "scope": "replaceCommand"
+  },
+  {
+    "scope": "suites"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "suites"
+  },
+  {
+    "scope": "commands",
+    "commands": [
+      "getCurrentUrl"
+    ]
+  },
+  {
+    "scope": "commands",
+    "commands": [
+      "assert.match"
+    ]
+  },
+  {
+    "scope": "suites"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "replaceCommand"
+  },
+  {
+    "scope": "replaceCommand"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "screencast"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "suites"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "suites"
+  },
+  {
+    "scope": "suites"
+  }
+]

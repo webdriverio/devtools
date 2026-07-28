@@ -1,0 +1,461 @@
+[
+  {
+    "scope": "suites"
+  },
+  {
+    "scope": "suites"
+  },
+  {
+    "scope": "suites"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "metadata"
+  },
+  {
+    "scope": "sources"
+  },
+  {
+    "scope": "sources"
+  },
+  {
+    "scope": "sources"
+  },
+  {
+    "scope": "metadata"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "commands",
+    "commands": [
+      "url"
+    ]
+  },
+  {
+    "scope": "metadata"
+  },
+  {
+    "scope": "mutations"
+  },
+  {
+    "scope": "logs"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "suites"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "sources"
+  },
+  {
+    "scope": "commands",
+    "commands": [
+      "$"
+    ]
+  },
+  {
+    "scope": "commands",
+    "commands": [
+      "setValue"
+    ]
+  },
+  {
+    "scope": "commands",
+    "commands": [
+      "$"
+    ]
+  },
+  {
+    "scope": "commands",
+    "commands": [
+      "setValue"
+    ]
+  },
+  {
+    "scope": "commands",
+    "commands": [
+      "$"
+    ]
+  },
+  {
+    "scope": "metadata"
+  },
+  {
+    "scope": "mutations"
+  },
+  {
+    "scope": "metadata"
+  },
+  {
+    "scope": "metadata"
+  },
+  {
+    "scope": "metadata"
+  },
+  {
+    "scope": "metadata"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "commands",
+    "commands": [
+      "click"
+    ]
+  },
+  {
+    "scope": "metadata"
+  },
+  {
+    "scope": "mutations"
+  },
+  {
+    "scope": "logs"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "suites"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "commands",
+    "commands": [
+      "isExisting"
+    ]
+  },
+  {
+    "scope": "replaceCommand"
+  },
+  {
+    "scope": "commands",
+    "commands": [
+      "getText"
+    ]
+  },
+  {
+    "scope": "replaceCommand"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "commands",
+    "commands": [
+      "reloadSession"
+    ]
+  },
+  {
+    "scope": "suites"
+  },
+  {
+    "scope": "suites"
+  },
+  {
+    "scope": "suites"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "metadata"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "commands",
+    "commands": [
+      "url"
+    ]
+  },
+  {
+    "scope": "metadata"
+  },
+  {
+    "scope": "mutations"
+  },
+  {
+    "scope": "logs"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "suites"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "commands",
+    "commands": [
+      "$"
+    ]
+  },
+  {
+    "scope": "commands",
+    "commands": [
+      "setValue"
+    ]
+  },
+  {
+    "scope": "commands",
+    "commands": [
+      "$"
+    ]
+  },
+  {
+    "scope": "commands",
+    "commands": [
+      "setValue"
+    ]
+  },
+  {
+    "scope": "commands",
+    "commands": [
+      "$"
+    ]
+  },
+  {
+    "scope": "metadata"
+  },
+  {
+    "scope": "mutations"
+  },
+  {
+    "scope": "metadata"
+  },
+  {
+    "scope": "metadata"
+  },
+  {
+    "scope": "metadata"
+  },
+  {
+    "scope": "metadata"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "networkRequests"
+  },
+  {
+    "scope": "commands",
+    "commands": [
+      "click"
+    ]
+  },
+  {
+    "scope": "metadata"
+  },
+  {
+    "scope": "mutations"
+  },
+  {
+    "scope": "logs"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "suites"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "commands",
+    "commands": [
+      "isExisting"
+    ]
+  },
+  {
+    "scope": "replaceCommand"
+  },
+  {
+    "scope": "commands",
+    "commands": [
+      "getText"
+    ]
+  },
+  {
+    "scope": "replaceCommand"
+  },
+  {
+    "scope": "consoleLogs"
+  },
+  {
+    "scope": "commands",
+    "commands": [
+      "reloadSession"
+    ]
+  },
+  {
+    "scope": "suites"
+  },
+  {
+    "scope": "suites"
+  }
+]

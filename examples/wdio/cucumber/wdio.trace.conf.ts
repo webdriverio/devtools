@@ -36,7 +36,10 @@ export const config: WebdriverIO.Config = {
     [
       'devtools',
       {
-        mode: 'trace' as const
+        // Trace by default (regen); DEVTOOLS_MODE=live flips to live for live-parity recording.
+        mode: (process.env.DEVTOOLS_MODE === 'live' ? 'live' : 'trace') as
+          | 'live'
+          | 'trace'
         // traceFormat: 'ndjson-directory'
       }
     ]
