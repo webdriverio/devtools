@@ -236,17 +236,28 @@ describe('selenium SessionCapturer (with stashed executeScript)', () => {
     await expect(cap.captureTrace()).resolves.toBeUndefined()
   })
 
-  it('captureTrace early-returns when getTraceData returns falsy', async () => {
-    let call = 0
-    stubExec(async () => {
-      call++
-      return null
-    })
-    const cap = makeCapturer({ id: 'd' })
-    await expect(cap.captureTrace()).resolves.toBeUndefined()
-    // Single atomic check+read in one executeScript — see session.ts comment.
-    expect(call).toBe(1)
-  })
+  it.skipIf(!scriptPackageAvailable)(
+    'captureTrace re-injects and re-drains when getTraceData returns falsy',
+    async () => {
+      const scripts: string[] = []
+      stubExec(async (_driver, script) => {
+        const source = String(script)
+        scripts.push(source)
+        // Recovery is gated on being on a real page (see script-loader.ts).
+        return source.includes('location.href')
+          ? 'http://localhost/login'
+          : null
+      })
+      const cap = makeCapturer({ id: 'd' })
+      await expect(cap.captureTrace()).resolves.toBeUndefined()
+      // One atomic check+read per drain (see session.ts comment), and an absent
+      // collector triggers exactly one re-inject + re-drain — a document that
+      // loaded before the injection would otherwise never be captured.
+      const drains = scripts.filter((s) => s.includes('getTraceData'))
+      expect(drains).toHaveLength(2)
+      expect(scripts.some((s) => s.includes('createElement'))).toBe(true)
+    }
+  )
 
   it('captureTrace processes payload when collector returns data', async () => {
     let call = 0

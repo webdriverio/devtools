@@ -459,6 +459,25 @@ describe('SessionCapturer', () => {
       await capturer.injectScript(browser)
       expect(browser.scriptAddPreloadScript).toHaveBeenCalledTimes(2)
     })
+
+    // A guard left closed by a failed attempt silently disables DOM capture for
+    // the rest of the session — the retry has to stay possible.
+    it('reopens the guard when the preload add fails', async () => {
+      const capturer = new SessionCapturer()
+      const browser = {
+        isBidi: true,
+        scriptAddPreloadScript: vi
+          .fn()
+          .mockRejectedValueOnce(new Error('no such window'))
+          .mockResolvedValue(undefined)
+      } as unknown as WebdriverIO.Browser
+
+      await expect(capturer.injectScript(browser)).rejects.toThrow(
+        'no such window'
+      )
+      await capturer.injectScript(browser)
+      expect(browser.scriptAddPreloadScript).toHaveBeenCalledTimes(2)
+    })
   })
 
   describe('integration', () => {

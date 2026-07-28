@@ -826,6 +826,8 @@ export default class DevToolsHookService implements Services.ServiceInstance {
             this.#actionSnapshots,
             () => this.#lastActionTimestamp()
           )
+        } else {
+          await this.#drainAfterLiveCommand(command)
         }
         return captured
       }
@@ -835,6 +837,26 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     if (CONTEXT_CHANGE_COMMANDS.includes(command)) {
       void this.#ensureInjected(`context-change:${command}`)
     }
+  }
+
+  /** Live mode has no per-action DOM snapshot (that's trace mode), so the
+   *  dashboard's replay is only as fresh as the last drain. Field edits fire no
+   *  page transition, so without this every action between two navigations
+   *  replays the page as it looked at load — an un-filled form after setValue.
+   *  Page-transition commands already drain inside the capturer, and resolving
+   *  a locator can't change the DOM — skipping both keeps the added round trips
+   *  to the commands that can actually move the page (which matters: capture
+   *  traffic is what triggers the Chrome 150 headless input regression). */
+  async #drainAfterLiveCommand(command: keyof WebDriverCommands) {
+    if (
+      !this.#browser ||
+      isNativeMobile(this.#browser) ||
+      PAGE_TRANSITION_COMMANDS.includes(command) ||
+      LOCATOR_COMMANDS.includes(command)
+    ) {
+      return
+    }
+    await this.#sessionCapturer.captureTrace(this.#browser)
   }
 
   /**
@@ -983,18 +1005,12 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     }
     try {
       this.#injecting = true
-      const markerPresent = await this.#browser.execute(() => {
-        return Boolean(
-          (window as unknown as { __WDIO_DEVTOOLS_MARK?: unknown })
-            .__WDIO_DEVTOOLS_MARK
-        )
-      })
-      if (markerPresent) {
-        return
-      }
       await this.#sessionCapturer.injectScript(getBrowserObject(this.#browser))
     } catch (err) {
-      log.warn(`[inject] failed (reason=${reason}): ${errorMessage(err)}`)
+      // Not recoverable here, and silence would mean losing DOM capture for the
+      // rest of the session with no symptom other than a stale replay. The
+      // per-drain recovery in core is the safety net for the current document.
+      log.error(`[inject] failed (reason=${reason}): ${errorMessage(err)}`)
     } finally {
       this.#injecting = false
     }

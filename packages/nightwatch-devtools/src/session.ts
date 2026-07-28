@@ -2,6 +2,7 @@ import http from 'node:http'
 import logger from '@wdio/logger'
 import {
   SessionCapturerBase,
+  drainCollectorWithRecovery,
   errorMessage,
   loadInjectableScript,
   mapChromeBrowserLogs,
@@ -483,16 +484,24 @@ export class SessionCapturer extends SessionCapturerBase {
     // the only safe form; a separate existence check would race page navigation
     // (the collector can disappear between the two round-trips).
     try {
-      const result = await browser.execute(`
-        if (typeof window.wdioTraceCollector === 'undefined') {
-          return null;
-        }
-        return window.wdioTraceCollector.getTraceData();
-      `)
+      const traceData = await drainCollectorWithRecovery({
+        drain: async () => {
+          const result = await browser.execute(`
+            if (typeof window.wdioTraceCollector === 'undefined') {
+              return null;
+            }
+            return window.wdioTraceCollector.getTraceData();
+          `)
+          return unwrapDriverValue<Record<string, unknown> | null>(result)
+        },
+        injectIntoCurrentDocument: () => this.injectScript(browser),
+        currentUrl: async () =>
+          unwrapDriverValue<string | undefined>(
+            await browser.execute('return location.href;')
+          ),
+        log: (level, message) => log[level](message)
+      })
 
-      const traceData = unwrapDriverValue<Record<string, unknown> | null>(
-        result
-      )
       if (!traceData) {
         return
       }

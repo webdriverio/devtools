@@ -7,7 +7,8 @@ import { resolve } from 'import-meta-resolve'
 import { SevereServiceError } from 'webdriverio'
 import type { WebDriverCommands } from '@wdio/protocols'
 
-import { PAGE_TRANSITION_COMMANDS, LOCATOR_COMMANDS } from './constants.js'
+import { PAGE_TRANSITION_COMMANDS } from './constants.js'
+import { decorateSelector, nextLastSelector } from './command-selectors.js'
 import { isNativeMobile } from './mobile.js'
 import {
   CAPTURE_PERFORMANCE_SCRIPT,
@@ -15,9 +16,11 @@ import {
   RetryTracker,
   SessionCapturerBase,
   applyPerformanceData,
+  drainCollectorWithRecovery,
   errorMessage,
   getRequestType,
   isSessionGoneError,
+  loadInjectableScript,
   type CapturedPerformancePayload
 } from '@wdio/devtools-core'
 import type { CommandLog } from './types.js'
@@ -162,56 +165,8 @@ export class SessionCapturer extends SessionCapturerBase {
       }
     }
     const cmd = String(command)
-
-    // Track last find-element selector so element commands (click, setValue, …)
-    // carry a human-readable selector in trace events even though WDIO doesn't
-    // pass it in their args.
-    if (LOCATOR_COMMANDS.includes(cmd)) {
-      const sel = args[0]
-      if (typeof sel === 'string' && sel.length > 0) {
-        this.#lastSelector = sel
-      }
-    }
-
-    // For element-scoped commands without meaningful args, inject the last
-    // selector so the trace event shows what element was acted upon.
-    if (
-      this.#lastSelector &&
-      (cmd === 'click' ||
-        cmd === 'doubleClick' ||
-        cmd === 'moveTo' ||
-        cmd === 'scrollIntoView' ||
-        cmd === 'touchAction' ||
-        cmd === 'dragAndDrop' ||
-        cmd === 'getText' ||
-        cmd === 'getAttribute' ||
-        cmd === 'clearValue' ||
-        cmd === 'waitForExist' ||
-        cmd === 'waitForDisplayed' ||
-        cmd === 'waitForEnabled' ||
-        cmd === 'waitForClickable')
-    ) {
-      const hasNoSelector =
-        args.length === 0 ||
-        (args.length === 1 &&
-          typeof args[0] === 'object' &&
-          args[0] !== null &&
-          !Array.isArray(args[0]) &&
-          Object.keys(args[0] as object).some((k) => k.startsWith('element-')))
-      if (hasNoSelector) {
-        commandLogEntry.args = [this.#lastSelector]
-      }
-      commandLogEntry.selector = this.#lastSelector
-    }
-
-    // For setValue / addValue, prepend the last selector so trace params
-    // carry both {selector, value} like the MCP set_value tool does.
-    if (this.#lastSelector && (cmd === 'setValue' || cmd === 'addValue')) {
-      const hasNoSelector = args.length >= 1 && typeof args[0] !== 'object'
-      if (hasNoSelector) {
-        commandLogEntry.args = [this.#lastSelector, ...args]
-      }
-    }
+    this.#lastSelector = nextLastSelector(cmd, args, this.#lastSelector)
+    decorateSelector(commandLogEntry, cmd, args, this.#lastSelector)
 
     this.#captureOrReplace(commandLogEntry)
     // Capture trace + perf on commands that could trigger a page transition.
@@ -370,14 +325,33 @@ export class SessionCapturer extends SessionCapturerBase {
 
     this.#isScriptInjected = true
     log.info('Injecting devtools script...')
-    const script = await resolve('@wdio/devtools-script', import.meta.url)
-    const source = (await fs.readFile(url.fileURLToPath(script))).toString()
-    const functionDeclaration = `async () => { ${source} }`
+    try {
+      const script = await resolve('@wdio/devtools-script', import.meta.url)
+      const source = (await fs.readFile(url.fileURLToPath(script))).toString()
+      const functionDeclaration = `async () => { ${source} }`
 
-    await browser.scriptAddPreloadScript({
-      functionDeclaration
-    })
+      await browser.scriptAddPreloadScript({
+        functionDeclaration
+      })
+    } catch (err) {
+      // Leave the guard open so a later attempt (context change, reload) can
+      // retry — a stuck guard silently disables DOM capture for the session.
+      this.#isScriptInjected = false
+      throw err
+    }
     log.info('✓ Script injected successfully')
+  }
+
+  /** Evaluate the collector bundle in the document that is loaded RIGHT NOW.
+   *  A preload script only runs for documents created after it was registered,
+   *  so this is the only way to instrument a page that loaded while no preload
+   *  was in place (the first navigation after `reloadSession()`). Mirrors what
+   *  WDIO's own PolyfillManager does — register for future documents, evaluate
+   *  into the existing one. The bundle is an async IIFE, so awaiting the
+   *  `execute` awaits its startup (which anchors the current DOM). */
+  async injectIntoCurrentDocument(browser: WebdriverIO.Browser) {
+    const source = await loadInjectableScript()
+    await browser.execute(`return ${source}`)
   }
 
   /** Clear the per-session injection guard so the next `injectScript` re-adds
@@ -394,11 +368,12 @@ export class SessionCapturer extends SessionCapturerBase {
    *  command, capturing the outgoing page's field edits (value/checked
    *  mutations fire no page transition) before its collector is discarded. */
   async captureTrace(browser: WebdriverIO.Browser, forceAnchor = false) {
-    if (!this.#isScriptInjected) {
-      log.warn('Script not injected, skipping trace capture')
-      return
-    }
-
+    // No `#isScriptInjected` gate: that flag tracks the preload REGISTRATION,
+    // and the two cases worth capturing are exactly the ones where it lies — a
+    // registration that failed (guard never closed) and a document that loaded
+    // before the registration landed (guard closed, collector absent). The drain
+    // probe below is the only reliable per-document check, and recovery is
+    // gated on being on a real page.
     try {
       // Atomic check+read in a single browser.execute so the collector can't
       // disappear (page navigation) between the existence check and the
@@ -406,19 +381,23 @@ export class SessionCapturer extends SessionCapturerBase {
       // spurious "Cannot read properties of undefined" errors.
       // forceAnchor: capture the current document before draining — for a final
       // closing navigation whose async initial anchor hasn't run by teardown.
-      const payload = await browser.execute((anchor) => {
-        if (typeof window.wdioTraceCollector === 'undefined') {
-          return null
-        }
-        if (anchor) {
-          window.wdioTraceCollector.captureCurrentDom()
-        }
-        return window.wdioTraceCollector.getTraceData()
-      }, forceAnchor)
+      const payload = await drainCollectorWithRecovery({
+        drain: () =>
+          browser.execute((anchor) => {
+            if (typeof window.wdioTraceCollector === 'undefined') {
+              return null
+            }
+            if (anchor) {
+              window.wdioTraceCollector.captureCurrentDom()
+            }
+            return window.wdioTraceCollector.getTraceData()
+          }, forceAnchor),
+        injectIntoCurrentDocument: () =>
+          this.injectIntoCurrentDocument(browser),
+        currentUrl: () => browser.getUrl(),
+        log: (level, message) => log[level](message)
+      })
       if (!payload) {
-        log.warn(
-          'wdioTraceCollector not loaded yet - page loaded before preload script took effect'
-        )
         return
       }
       this.processTracePayload(payload as Record<string, unknown>)
