@@ -48,6 +48,17 @@ interface Recorder {
   close(): Promise<void>
 }
 
+// Force half-open sockets shut so wss.close's callback actually fires — a
+// persistent re-runner (nightwatch reuse mode) can leave one dangling.
+function closeServer(wss: WebSocketServer): Promise<void> {
+  return new Promise((resolve) => {
+    for (const client of wss.clients) {
+      client.terminate()
+    }
+    wss.close(() => resolve())
+  })
+}
+
 // Stand-in worker-WS backend: the adapter, launched in reuse mode, connects
 // here and streams its SocketMessages instead of to a real backend.
 async function startRecorder(): Promise<Recorder> {
@@ -93,8 +104,37 @@ async function startRecorder(): Promise<Recorder> {
     port: (wss.address() as { port: number }).port,
     messages,
     streamEnded,
-    close: () => new Promise<void>((resolve) => wss.close(() => resolve()))
+    close: () => closeServer(wss)
   }
+}
+
+// Kill the child's whole process tree. entry.command is often `pnpm --filter …`,
+// which does NOT forward signals to the runner it spawns — so signalling the
+// direct child leaves nightwatch/chromedriver alive and the run hangs. On POSIX
+// the child leads its own process group (detached), so a negative pid signals
+// the group; Windows has no groups, so kill the tree with taskkill.
+function killTree(pid: number, signal: NodeJS.Signals): void {
+  try {
+    if (process.platform === 'win32') {
+      spawn('taskkill', ['/pid', String(pid), '/T', '/F'])
+    } else {
+      process.kill(-pid, signal)
+    }
+  } catch {
+    // Group already gone — nothing to signal.
+  }
+}
+
+// If the recorder itself is interrupted, take the detached child group with it
+// (a detached child does not receive the terminal's Ctrl-C).
+let activeChildPid: number | undefined
+for (const sig of ['SIGINT', 'SIGTERM'] as const) {
+  process.on(sig, () => {
+    if (activeChildPid !== undefined) {
+      killTree(activeChildPid, 'SIGKILL')
+    }
+    process.exit(130)
+  })
 }
 
 function delay(ms: number): Promise<void> {
@@ -128,21 +168,27 @@ async function recordEntry(entry: VerificationEntry): Promise<boolean> {
       [REUSE_ENV.HOST]: HOST,
       [REUSE_ENV.PORT]: String(port)
     },
+    // Own process group on POSIX so killTree can signal the whole tree; on
+    // Windows shell:true runs the .cmd shim and taskkill /T handles the tree.
+    detached: process.platform !== 'win32',
     shell: process.platform === 'win32'
   })
+  activeChildPid = run.pid
   const exited = new Promise<void>((resolve) => run.on('exit', () => resolve()))
 
   // Done when the adapter closes its stream, the child exits, or we time out —
-  // whichever comes first. Live-mode runners usually hang, so streamEnded wins.
+  // whichever comes first. Live-mode runners usually hang (reuse mode is a
+  // persistent re-runner), so streamEnded wins and we terminate the tree.
   await Promise.race([streamEnded, exited, timeout(MAX_RUN_MS)])
   await delay(FLUSH_GRACE_MS)
-  if (run.exitCode === null && !run.killed) {
-    run.kill('SIGTERM')
+  if (run.exitCode === null && !run.killed && run.pid !== undefined) {
+    killTree(run.pid, 'SIGTERM')
     await Promise.race([exited, timeout(3000)])
     if (run.exitCode === null) {
-      run.kill('SIGKILL')
+      killTree(run.pid, 'SIGKILL')
     }
   }
+  activeChildPid = undefined
   await close()
 
   if (messages.length === 0) {
