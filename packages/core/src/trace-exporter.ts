@@ -3,6 +3,7 @@
 
 import fs from 'node:fs/promises'
 import path from 'node:path'
+import { TRACE_ZIP_ENTRIES } from '@wdio/devtools-shared'
 import type {
   ActionSnapshot,
   CommandLog,
@@ -455,28 +456,29 @@ async function exportTraceDirectory(
   } = {}
 ): Promise<void> {
   const bundle = buildTraceBundle(trace, opts)
-  await fs.mkdir(path.join(targetDir, 'resources'), { recursive: true })
+  const entry = (name: string) => path.join(targetDir, name)
+  const {
+    trace: T,
+    network,
+    mutations,
+    transcript,
+    resourcesDir
+  } = TRACE_ZIP_ENTRIES
+  await fs.mkdir(entry(resourcesDir), { recursive: true })
   await Promise.all([
-    fs.writeFile(path.join(targetDir, 'trace.trace'), bundle.traceNdjson),
-    fs.writeFile(
-      path.join(targetDir, 'transcript.md'),
-      bundle.transcriptMd,
-      'utf8'
-    ),
+    fs.writeFile(entry(T), bundle.traceNdjson),
+    fs.writeFile(entry(transcript), bundle.transcriptMd, 'utf8'),
     bundle.networkNdjson.length
-      ? fs.writeFile(
-          path.join(targetDir, 'trace.network'),
-          bundle.networkNdjson
-        )
+      ? fs.writeFile(entry(network), bundle.networkNdjson)
       : Promise.resolve(),
     bundle.mutationsNdjson.length
-      ? fs.writeFile(
-          path.join(targetDir, 'trace.mutations'),
-          bundle.mutationsNdjson
-        )
+      ? fs.writeFile(entry(mutations), bundle.mutationsNdjson)
       : Promise.resolve(),
     ...bundle.resources.map((r) =>
-      fs.writeFile(path.join(targetDir, 'resources', r.resourceName), r.data)
+      fs.writeFile(
+        path.join(targetDir, TRACE_ZIP_ENTRIES.resourcesDir, r.resourceName),
+        r.data
+      )
     )
   ])
 }

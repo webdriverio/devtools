@@ -341,6 +341,9 @@ importers:
       '@xmldom/xmldom':
         specifier: ^0.9.8
         version: 0.9.10
+      fflate:
+        specifier: ^0.8.2
+        version: 0.8.3
       stacktrace-parser:
         specifier: ^0.1.11
         version: 0.1.11
