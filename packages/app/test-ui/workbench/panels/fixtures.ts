@@ -1,6 +1,7 @@
-// Console-log and network-request scenarios for the two data-heavy workbench
-// panels. Both take their data through @lit/context, so a spec hands these
-// arrays to `mountWithContext` rather than setting properties.
+// One login run, seen by every workbench panel: console entries, network
+// requests, command failures, session metadata and captured spec sources. Each
+// panel takes its data through @lit/context, so a spec hands these values to
+// `mountWithContext` rather than setting properties.
 //
 // Typed against shared's `ConsoleLog`/`NetworkRequest` — the contracts the
 // adapters produce. The panels annotate the same data with the browser-side
@@ -8,10 +9,26 @@
 // (packages/script/types.d.ts aliases both to themselves), so shared is the
 // only shape that actually type-checks a fixture.
 
-import type { ConsoleLog, NetworkRequest } from '@wdio/devtools-shared'
+import { TraceType } from '@wdio/devtools-shared'
+import type {
+  CommandLog,
+  ConsoleLog,
+  Metadata,
+  NetworkRequest,
+  SerializedError
+} from '@wdio/devtools-shared'
+
+import type {
+  SuiteStatsFragment,
+  TestStatsFragment
+} from '../../../src/controller/types.js'
+import { commandLog } from '../../support/builders.js'
 
 /** Wall-clock origin of the fixture run — the offsets below read as ms into it. */
 export const RUN_START = 1_700_000_000_000
+
+/** The page the fixture run drives — the demo app every example project uses. */
+export const LOGIN_URL = 'https://the-internet.herokuapp.com/login'
 
 export function consoleLog(overrides: Partial<ConsoleLog> = {}): ConsoleLog {
   return {
@@ -27,7 +44,7 @@ export function networkRequest(
 ): NetworkRequest {
   return {
     id: 'req-1',
-    url: 'https://the-internet.herokuapp.com/login',
+    url: LOGIN_URL,
     method: 'GET',
     type: 'document',
     status: 200,
@@ -119,7 +136,7 @@ export interface LoginNetwork {
 
 const pageHtml = networkRequest({
   id: 'req-html',
-  url: 'https://the-internet.herokuapp.com/login',
+  url: LOGIN_URL,
   type: 'document',
   status: 200,
   statusText: 'OK',
@@ -227,3 +244,301 @@ export const loginNetwork: LoginNetwork = {
   redirect,
   pending
 }
+
+// --- The spec under test ----------------------------------------------------
+// One file, shared by the errors and source panels: the errors anchor points
+// into it, the source panel renders it, and the line constants below are the
+// 1-based indices the call sources name.
+
+/** Three directories deep, so the Errors anchor's last-three-segments label is
+ *  a real truncation and the Source toolbar's path is really elided. */
+export const SPEC_FILE = '/repo/test/specs/login.e2e.ts'
+export const STEPS_FILE = '/repo/test/step-definitions/login.steps.ts'
+/** Named by a command's call source but never captured as a source. */
+export const HELPER_FILE = '/repo/test/support/helpers.ts'
+
+export const SPEC_LINES = [
+  "import { $, browser, expect } from '@wdio/globals'",
+  "import assert from 'node:assert'",
+  '',
+  "describe('login page', () => {",
+  "  it('logs in with valid credentials', async () => {",
+  "    await browser.url('https://the-internet.herokuapp.com/login')",
+  "    await $('#username').setValue('tomsmith')",
+  "    await $('#password').setValue('SuperSecretPassword!')",
+  "    await $('button[type=submit]').click()",
+  "    await expect($('#flash')).toHaveText('Secure Area')",
+  "    assert.strictEqual(await browser.getTitle(), 'Secure Area')",
+  '  })',
+  '})'
+]
+
+export const NAVIGATE_LINE = 6
+export const SET_VALUE_LINE = 7
+export const CLICK_LINE = 9
+export const MATCHER_LINE = 10
+export const ASSERT_LINE = 11
+
+export const STEPS_LINES = [
+  "import { When } from '@cucumber/cucumber'",
+  '',
+  "When('I log in as {string}', async (user) => {",
+  "  await $('#username').setValue(user)",
+  '})'
+]
+
+export const STEPS_SET_VALUE_LINE = 4
+
+export const NAVIGATE_CALL_SOURCE = `${SPEC_FILE}:${NAVIGATE_LINE}:19`
+export const SET_VALUE_CALL_SOURCE = `${SPEC_FILE}:${SET_VALUE_LINE}:26`
+export const CLICK_CALL_SOURCE = `${SPEC_FILE}:${CLICK_LINE}:36`
+export const MATCHER_CALL_SOURCE = `${SPEC_FILE}:${MATCHER_LINE}:11`
+export const ASSERT_CALL_SOURCE = `${SPEC_FILE}:${ASSERT_LINE}:12`
+export const STEPS_CALL_SOURCE = `${STEPS_FILE}:${STEPS_SET_VALUE_LINE}:24`
+export const HELPER_CALL_SOURCE = `${HELPER_FILE}:12:9`
+
+// --- Errors panel -----------------------------------------------------------
+
+/** Stack as a captured failure carries it: a user frame, then a node internal. */
+export const STACK_FRAMES = [
+  `    at Context.<anonymous> (${SPEC_FILE}:${MATCHER_LINE}:11)`,
+  '    at processTicksAndRejections (node:internal/process/task_queues:95:5)'
+]
+
+/** A failing expect-webdriverio matcher's message: a headline, then
+ *  jest-matcher-utils' Expected/Received block — whose values arrive already
+ *  quoted (`printExpected`). ANSI is stripped before it reaches the app. */
+export const MATCHER_HEADLINE = 'Expect $(`#flash`) to have text'
+export const MATCHER_EXPECTED = '"Secure Area"'
+export const MATCHER_RECEIVED = '"You logged into a secure area!"'
+export const MATCHER_MESSAGE = [
+  MATCHER_HEADLINE,
+  '',
+  `Expected: ${MATCHER_EXPECTED}`,
+  `Received: ${MATCHER_RECEIVED}`
+].join('\n')
+
+/** A node:assert failure the way core's `describeAssertFailure` rewrites it —
+ *  node's auto-generated per-character diff replaced by a value-bearing block,
+ *  with the clean values also carried as a collapsed result. */
+export const ASSERT_HEADLINE = 'strictEqual(actual, expected)'
+export const ASSERT_EXPECTED = 'Secure Area'
+export const ASSERT_ACTUAL = 'Login Page'
+export const ASSERT_MESSAGE = [
+  ASSERT_HEADLINE,
+  '',
+  `Expected: '${ASSERT_EXPECTED}'`,
+  `Received: '${ASSERT_ACTUAL}'`
+].join('\n')
+
+export const CLICK_MESSAGE =
+  'Can not call click on element with selector "#login" because element was not found'
+
+export const HOOK_MESSAGE =
+  'beforeEach hook: browser.setWindowRect is not a function'
+
+/** A command failure as it crosses the WS bridge — the serialized shape, so a
+ *  fixture can model an error with no stack at all. */
+export function capturedError(
+  message: string,
+  overrides: Partial<SerializedError> = {}
+): SerializedError {
+  return { name: 'Error', message, ...overrides }
+}
+
+/** A test-level failure. `@wdio/reporter` types `TestStats.error` as a real
+ *  `Error`, which always synthesizes a stack — assigned unconditionally here so
+ *  a fixture can model a failure that reached the app without one. */
+export function testError(message: string, stack?: string): Error {
+  const error = new Error(message)
+  error.stack = stack
+  return error
+}
+
+/** Defaults to `failed`: the Errors panel reads no other test state. */
+export function testFragment(
+  uid: string,
+  overrides: Omit<Partial<TestStatsFragment>, 'uid'> = {}
+): TestStatsFragment {
+  return {
+    uid,
+    title: uid,
+    fullTitle: uid,
+    file: SPEC_FILE,
+    state: 'failed',
+    ...overrides
+  }
+}
+
+export function suiteFragment(
+  uid: string,
+  overrides: Omit<Partial<SuiteStatsFragment>, 'uid'> = {}
+): SuiteStatsFragment {
+  return {
+    uid,
+    title: uid,
+    fullTitle: uid,
+    file: SPEC_FILE,
+    tests: [],
+    suites: [],
+    ...overrides
+  }
+}
+
+/** The `suiteContext` value — the registry reaches the app as uid-keyed chunks. */
+export function suiteRegistry(
+  ...suites: SuiteStatsFragment[]
+): Record<string, SuiteStatsFragment>[] {
+  return [Object.fromEntries(suites.map((suite) => [suite.uid, suite]))]
+}
+
+export interface LoginErrors {
+  /** Capture order, which is deliberately *not* timestamp order. */
+  commands: CommandLog[]
+  /** Succeeded, so it contributes no row. */
+  navigate: CommandLog
+  /** Earliest failure; carries no assertion values, so it renders message-first. */
+  click: CommandLog
+  /** expect-webdriverio matcher — its diff lives in the message. */
+  matcher: CommandLog
+  /** node:assert — its diff lives in a collapsed result, and it has no stack. */
+  nativeAssert: CommandLog
+  /** One passed and one failed test; only the hook failure adds a row. */
+  suites: Record<string, SuiteStatsFragment>[]
+}
+
+const navigate = commandLog({
+  command: 'url',
+  args: [LOGIN_URL],
+  callSource: NAVIGATE_CALL_SOURCE,
+  timestamp: RUN_START
+})
+
+const clickFailure = commandLog({
+  command: 'click',
+  args: ['#login'],
+  callSource: CLICK_CALL_SOURCE,
+  timestamp: RUN_START + 1000,
+  error: capturedError(CLICK_MESSAGE, {
+    stack: `Error: ${CLICK_MESSAGE}\n${STACK_FRAMES.join('\n')}`
+  })
+})
+
+const matcherFailure = commandLog({
+  command: 'expect.toHaveText',
+  args: [ASSERT_EXPECTED],
+  callSource: MATCHER_CALL_SOURCE,
+  timestamp: RUN_START + 3000,
+  error: capturedError(MATCHER_MESSAGE, {
+    stack: `Error: ${MATCHER_MESSAGE}\n${STACK_FRAMES.join('\n')}`
+  })
+})
+
+const nativeAssertFailure = commandLog({
+  command: 'assert.strictEqual',
+  args: [ASSERT_ACTUAL, ASSERT_EXPECTED],
+  result: { passed: false, actual: ASSERT_ACTUAL, expected: ASSERT_EXPECTED },
+  callSource: ASSERT_CALL_SOURCE,
+  timestamp: RUN_START + 4000,
+  error: capturedError(ASSERT_MESSAGE, { name: 'AssertionError' })
+})
+
+export const loginErrors: LoginErrors = {
+  commands: [navigate, matcherFailure, nativeAssertFailure, clickFailure],
+  navigate,
+  click: clickFailure,
+  matcher: matcherFailure,
+  nativeAssert: nativeAssertFailure,
+  suites: suiteRegistry(
+    suiteFragment('login-suite', {
+      title: 'login page',
+      tests: [
+        testFragment('login-valid', {
+          title: 'logs in with valid credentials',
+          fullTitle: 'login page logs in with valid credentials',
+          state: 'passed',
+          error: testError('stale element reference on the first attempt')
+        }),
+        testFragment('login-logout', {
+          title: 'logs out again',
+          fullTitle: 'login page logs out again',
+          callSource: `${SPEC_FILE}:14:3`,
+          error: testError(
+            HOOK_MESSAGE,
+            `Error: ${HOOK_MESSAGE}\n${STACK_FRAMES.join('\n')}`
+          )
+        })
+      ]
+    })
+  )
+}
+
+// --- Metadata panel ---------------------------------------------------------
+
+export const SECURE_URL = 'https://the-internet.herokuapp.com/secure'
+
+export function metadata(overrides: Partial<Metadata> = {}): Metadata {
+  return { type: TraceType.Testrunner, ...overrides }
+}
+
+/** Every field the Session section knows, plus a boolean, an object and a
+ *  string capability — one fixture covering each value renderer. */
+export const loginMetadata = metadata({
+  sessionId: '3a7f19c4e2b8',
+  testEnv: 'local',
+  host: 'http://localhost:4444',
+  modulePath: SPEC_FILE,
+  url: LOGIN_URL,
+  viewport: { width: 1600, height: 900, offsetLeft: 0, offsetTop: 0, scale: 1 },
+  capabilities: {
+    browserName: 'chrome',
+    browserVersion: '149.0.7204.15',
+    'goog:chromeOptions': { args: ['--headless=new'] },
+    setWindowRect: true
+  },
+  desiredCapabilities: { browserName: 'chrome', acceptInsecureCerts: false },
+  options: { waitforTimeout: 5000, logLevel: 'error' }
+})
+
+/** A second session, on the page the login redirects to. */
+export const secureMetadata = metadata({
+  sessionId: 'b52d08fa17c6',
+  url: SECURE_URL,
+  capabilities: { browserName: 'firefox' }
+})
+
+// --- Source panel -----------------------------------------------------------
+
+export const loginSources: Record<string, string> = {
+  [SPEC_FILE]: SPEC_LINES.join('\n'),
+  [STEPS_FILE]: STEPS_LINES.join('\n')
+}
+
+/** Commands whose call sources cover all three files: two lines of the captured
+ *  spec, one of the captured step definitions, and one file never captured. */
+export const loginSourceCommands: CommandLog[] = [
+  commandLog({
+    command: 'url',
+    args: [LOGIN_URL],
+    callSource: NAVIGATE_CALL_SOURCE,
+    timestamp: RUN_START
+  }),
+  commandLog({
+    command: 'setValue',
+    args: ['#username', 'tomsmith'],
+    callSource: SET_VALUE_CALL_SOURCE,
+    timestamp: RUN_START + 500
+  }),
+  commandLog({
+    command: 'setValue',
+    args: ['#username', 'tomsmith'],
+    callSource: STEPS_CALL_SOURCE,
+    timestamp: RUN_START + 900
+  }),
+  commandLog({
+    command: 'getTitle',
+    args: [],
+    callSource: HELPER_CALL_SOURCE,
+    timestamp: RUN_START + 1200
+  })
+]

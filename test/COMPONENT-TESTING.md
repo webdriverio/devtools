@@ -34,12 +34,12 @@ Running the real thing — `pnpm demo:wdio:mocha` and the other
 | Custom elements in `packages/app/src` | **31** |
 | Non-component modules (helpers + 3 base classes) | 50 |
 | Test files in `packages/app/tests` | 22 |
-| Components with a **rendering** test | **0** |
+| Elements with a **rendering** test | **13** (was 0 before Phase 0) |
 
 The helpers extracted *out of* components are well covered — `duration`,
-`tree-filter`, `mutation-at-command`, `network-helpers` and 18 more. What no test
-touches is whether a component renders those values correctly, reacts to input,
-or emits the right events. Until now that gap was filled by 54 whole-app pixel
+`tree-filter`, `mutation-at-command`, `network-helpers` and 18 more. What they
+don't touch is whether a component renders those values correctly, reacts to
+input, or emits the right events — which is what the specs below now assert. Until now that gap was filled by 54 whole-app pixel
 baselines coupled to 6 trace recordings — the wrong granularity for developing a
 single component, since it can't tell you *which* component broke and a
 re-recorded fixture invalidated it wholesale.
@@ -281,7 +281,7 @@ component's extracted logic — a spec need not re-assert those.
 |---|---|---|---|---|---|
 | 1 | `wdio-devtools-sidebar-explorer` | `sidebar/explorer.ts` | 481 | Suite tree construction, filter narrowing, run/stop/rerun controls, running-state transitions | `tree-filter`, `contextUpdates`, `mark-running`, `run-detection`, `suite-merge` |
 | 1 | `wdio-test-suite` | `sidebar/test-suite.ts` | 449 | Suite grouping, expand/collapse, child entry ordering, selection event | — |
-| 1 | `wdio-test-entry` | `sidebar/test-suite.ts` | ↑ | Per-test row: state icon (passed/failed/running/skipped), title, retry marker, click event | — (see `test-entry-state` gap) |
+| 1 | `wdio-test-entry` | `sidebar/test-suite.ts` | ↑ | Per-test row: state icon (passed/failed/running/skipped/pending), title, run/stop/rerun controls, collapse, click event. **No retry marker exists** — an earlier draft of this table claimed one | — (`test-entry-state` has no unit tests; this spec is its only cover) |
 | 2 | `wdio-devtools-sidebar-summary` | `sidebar/summary.ts` | 252 | Pass/fail/running/skipped counts, progress bar proportions, runner capability chips | `suite-summary`, `runnerCapabilities` |
 | 2 | `wdio-devtools-sidebar-filter` | `sidebar/filter.ts` | 111 | Query input → filter event, tag syntax, clear control | — |
 | 3 | `wdio-devtools-sidebar` | `sidebar.ts` | 56 | Composition and collapse state | — |
@@ -301,7 +301,8 @@ component's extracted logic — a spec need not re-assert those.
 |---|---|---|---|---|---|
 | 2 | `wdio-devtools-placeholder` | `placeholder.ts` | 53 | Empty-state copy per panel; asserted once here rather than in every parent | — |
 
-**Tier totals:** 10 · 15 · 6 = 31.
+**Tier totals:** 10 · 15 · 6 = 31. **Covered: 13** (all of Tier 1, plus
+`group-item`, `placeholder`, `screencast-player` from Tier 2).
 
 ### Base classes (3)
 
@@ -415,8 +416,16 @@ bothers you.
 | `ERROR … No environment found for non determined environment` ×4 | Nothing to do with Vite. The runner's middleware looks up a test session by `cid` (query param or `WDIO_CID` cookie) on *every* request; one without either logs this and calls `next()`, handing the request to normal Vite handling. A mislabelled debug line on non-spec requests. |
 | `Failed to resolve dependency: p-iteration` | The one entry in the runner's CJS list that resolves nowhere in this tree. Unreachable, therefore never imported. |
 
-**Phase 1 — Tier 1.** `workbench/player/snapshot`, `trace-timeline`,
-`sidebar/explorer/` (all three), `panels/console`, `panels/network`.
+**Phase 1 — Tier 1. Landed and green:** 11 spec files, **292 tests in ~45s**
+(explorer 48, snapshot 37, test-entry 36, network 33, command-item 32,
+trace-timeline 25, console 25, mutation-item 16, actions 15, group-item 14,
+test-suite 11).
+
+Coverage is **13 of 31 elements** — the 10 Tier 1 elements plus three that render
+inside their parents' specs: `group-item` (own spec), `placeholder` (asserted as
+the empty state in actions/network/snapshot) and `screencast-player` (mounted by
+the snapshot view-mode tests). That incidental coverage is the
+parent-mounts-children pattern paying off.
 
 **Phase 2 — Tier 2.** 15 elements across the remaining folders.
 

@@ -4,7 +4,7 @@
 // explanation, and a status assertion has exactly one right answer.
 
 import { TraceType } from '@wdio/devtools-shared'
-import type { Metadata } from '@wdio/devtools-shared'
+import type { Metadata, TestStatus } from '@wdio/devtools-shared'
 
 import type {
   SuiteStatsFragment,
@@ -117,6 +117,27 @@ export const mixedStateRun: MixedStateRun = {
     running.title,
     skipped.title
   ]
+}
+
+/**
+ * One root suite whose tests carry exactly the states listed, `undefined` for a
+ * test that never started. The summary tallies leaf states and nothing else, so
+ * a run it renders is fully described by its list of states — the titles are
+ * generated because no summary assertion reads them.
+ */
+export function summaryRun(
+  ...states: (TestStatus | undefined)[]
+): Record<string, SuiteStatsFragment>[] {
+  return suiteRegistry(
+    suiteFragment('summary-suite', 'Checkout flow', {
+      tests: states.map((state, index) =>
+        testFragment(`summary-step-${index}`, `step ${index + 1}`, {
+          ...(state ? { state } : {}),
+          ...(state && state !== 'running' ? { end: FINISHED_AT } : {})
+        })
+      )
+    })
+  )
 }
 
 /** A second root with nothing failing and nothing running — the sibling a

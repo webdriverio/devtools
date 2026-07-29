@@ -1,0 +1,329 @@
+import type { CommandLog } from '@wdio/devtools-shared'
+
+import { commandContext, sourceContext } from '@/controller/context.js'
+import '@components/workbench/source.js'
+import type { DevtoolsSource } from '@components/workbench/source.js'
+
+import { commandLog } from '../../support/builders.js'
+import { mount, mountWithContext, settle } from '../../support/mount.js'
+import { shadow, shadowAll, text, texts } from '../../support/queries.js'
+import {
+  HELPER_CALL_SOURCE,
+  NAVIGATE_CALL_SOURCE,
+  SET_VALUE_CALL_SOURCE,
+  SPEC_FILE,
+  SPEC_LINES,
+  SET_VALUE_LINE,
+  STEPS_CALL_SOURCE,
+  STEPS_LINES,
+  STEPS_SET_VALUE_LINE,
+  loginSourceCommands,
+  loginSources
+} from './fixtures.js'
+
+const PANEL = 'wdio-devtools-source'
+const FILE_TAB = '.src-file'
+const ACTIVE_FILE_TAB = '.src-file.active'
+const PATH = '.src-path'
+const BASE = '.src-path .base'
+const ELISION = '.src-path .sep'
+const ACTION = '.src-act'
+const EDITOR_LINK = 'a.src-act'
+const CHIP = '.cs-chip'
+const CHIP_COMMAND = '.cs-chip .cmd'
+const CHIP_LINE = '.cs-chip .ln'
+const EDITOR = '.cm-editor'
+const LINE = '.cm-line'
+const CALL_SITE = '.cm-line.cm-callsite'
+const NOT_CAPTURED = '.src-empty'
+const PLACEHOLDER = 'wdio-devtools-placeholder'
+
+/** Theme token the panel exposes as `--cs` for the call site's category. */
+const CATEGORY_COLOUR = {
+  navigation: 'var(--vscode-charts-blue)',
+  input: 'var(--vscode-charts-purple)',
+  none: 'var(--vscode-descriptionForeground)'
+}
+
+/** `text()` collapses whitespace, so a rendered editor line is compared against
+ *  its source line collapsed the same way. */
+const collapsed = (line: string) => line.replace(/\s+/g, ' ').trim()
+
+/** CodeMirror measures its viewport in a rAF — give it one before reading the
+ *  lines it rendered. */
+const nextFrame = () =>
+  new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+
+async function mountSource(
+  sources: Record<string, string>,
+  commands: CommandLog[] = []
+): Promise<DevtoolsSource> {
+  const panel = await mountWithContext<DevtoolsSource>(PANEL, [
+    { context: sourceContext, value: sources },
+    { context: commandContext, value: commands }
+  ])
+  await settle(panel)
+  await nextFrame()
+  return panel
+}
+
+async function highlight(panel: DevtoolsSource, callSource: string) {
+  window.dispatchEvent(
+    new CustomEvent('app-source-highlight', { detail: callSource })
+  )
+  await settle(panel)
+  await nextFrame()
+}
+
+async function track(panel: DevtoolsSource, callSource: string) {
+  window.dispatchEvent(
+    new CustomEvent('app-source-track', { detail: { callSource } })
+  )
+  await settle(panel)
+  await nextFrame()
+}
+
+async function openFile(panel: DevtoolsSource, basename: string) {
+  const tab = shadowAll(panel, FILE_TAB).find(
+    (candidate) => text(candidate) === basename
+  )
+  if (!tab) {
+    throw new Error(`no file tab labelled "${basename}"`)
+  }
+  tab.click()
+  await settle(panel)
+  await nextFrame()
+}
+
+const callSiteColour = (panel: DevtoolsSource) =>
+  panel.style.getPropertyValue('--cs')
+
+describe('wdio-devtools-source', () => {
+  describe('file tabs', () => {
+    it('renders a tab per captured source file, labelled by file name', async () => {
+      const panel = await mountSource(loginSources)
+
+      expect(texts(panel, FILE_TAB)).toEqual(['login.e2e.ts', 'login.steps.ts'])
+    })
+
+    it('adds a file that only a command call source names', async () => {
+      const panel = await mountSource(loginSources, loginSourceCommands)
+
+      expect(texts(panel, FILE_TAB)).toEqual([
+        'login.e2e.ts',
+        'login.steps.ts',
+        'helpers.ts'
+      ])
+    })
+
+    it('marks the first captured file active until another is picked', async () => {
+      const panel = await mountSource(loginSources)
+
+      expect(texts(panel, ACTIVE_FILE_TAB)).toEqual(['login.e2e.ts'])
+    })
+
+    it('moves the active mark to the file that was clicked', async () => {
+      const panel = await mountSource(loginSources)
+      await openFile(panel, 'login.steps.ts')
+
+      expect(texts(panel, ACTIVE_FILE_TAB)).toEqual(['login.steps.ts'])
+    })
+  })
+
+  describe('path', () => {
+    it('shows the last three segments of the active path, marking the elision', async () => {
+      const panel = await mountSource(loginSources)
+
+      expect(text(shadow(panel, PATH))).toBe('…/test/specs/login.e2e.ts')
+      expect(text(shadow(panel, BASE))).toBe('login.e2e.ts')
+    })
+
+    it('keeps the whole path in the hover title', async () => {
+      const panel = await mountSource(loginSources)
+
+      expect(shadow(panel, PATH)?.getAttribute('title')).toBe(SPEC_FILE)
+    })
+
+    it('shows a path short enough to fit whole, with no elision', async () => {
+      const panel = await mountSource({ 'login.e2e.ts': SPEC_LINES.join('\n') })
+
+      expect(text(shadow(panel, PATH))).toBe('login.e2e.ts')
+      expect(shadowAll(panel, ELISION)).toHaveLength(0)
+    })
+
+    it('offers copy-path and open-in-editor actions', async () => {
+      const panel = await mountSource(loginSources)
+
+      expect(texts(panel, ACTION)).toEqual(['Copy path', 'Open in editor'])
+    })
+  })
+
+  describe('editor', () => {
+    it('renders the captured source of the active file', async () => {
+      const panel = await mountSource(loginSources)
+
+      expect(texts(panel, LINE)).toEqual(SPEC_LINES.map(collapsed))
+    })
+
+    it('renders the source of the file the tabs switch to', async () => {
+      const panel = await mountSource(loginSources)
+      await openFile(panel, 'login.steps.ts')
+
+      expect(texts(panel, LINE)).toEqual(STEPS_LINES.map(collapsed))
+      expect(text(shadow(panel, BASE))).toBe('login.steps.ts')
+    })
+
+    it('reports a file the trace never captured instead of an editor', async () => {
+      const panel = await mountSource(loginSources, loginSourceCommands)
+      await openFile(panel, 'helpers.ts')
+
+      expect(text(shadow(panel, NOT_CAPTURED))).toBe(
+        'Source for helpers.ts was not captured in this trace.'
+      )
+      expect(shadowAll(panel, EDITOR)).toHaveLength(0)
+    })
+
+    it('keeps the file tabs while reporting an uncaptured file', async () => {
+      const panel = await mountSource(loginSources, loginSourceCommands)
+      await openFile(panel, 'helpers.ts')
+
+      expect(texts(panel, ACTIVE_FILE_TAB)).toEqual(['helpers.ts'])
+      expect(texts(panel, FILE_TAB)).toHaveLength(3)
+    })
+
+    it('reports the uncaptured file a command named when nothing was captured', async () => {
+      const panel = await mountSource({}, [
+        commandLog({ command: 'getTitle', callSource: HELPER_CALL_SOURCE })
+      ])
+
+      expect(shadowAll(panel, PLACEHOLDER)).toHaveLength(0)
+      expect(text(shadow(panel, NOT_CAPTURED))).toBe(
+        'Source for helpers.ts was not captured in this trace.'
+      )
+    })
+  })
+
+  describe('call site', () => {
+    it('highlights the line a source-highlight event names', async () => {
+      const panel = await mountSource(loginSources, loginSourceCommands)
+      await highlight(panel, SET_VALUE_CALL_SOURCE)
+
+      expect(texts(panel, CALL_SITE)).toEqual([
+        collapsed(SPEC_LINES[SET_VALUE_LINE - 1])
+      ])
+    })
+
+    it('highlights the line a passive source-track event names', async () => {
+      const panel = await mountSource(loginSources, loginSourceCommands)
+      await track(panel, SET_VALUE_CALL_SOURCE)
+
+      expect(texts(panel, CALL_SITE)).toEqual([
+        collapsed(SPEC_LINES[SET_VALUE_LINE - 1])
+      ])
+    })
+
+    it('opens the call source file before highlighting it', async () => {
+      const panel = await mountSource(loginSources, loginSourceCommands)
+      await highlight(panel, STEPS_CALL_SOURCE)
+
+      expect(texts(panel, ACTIVE_FILE_TAB)).toEqual(['login.steps.ts'])
+      expect(texts(panel, CALL_SITE)).toEqual([
+        collapsed(STEPS_LINES[STEPS_SET_VALUE_LINE - 1])
+      ])
+    })
+
+    it('names the command and line of the call site in a chip', async () => {
+      const panel = await mountSource(loginSources, loginSourceCommands)
+      await highlight(panel, SET_VALUE_CALL_SOURCE)
+
+      expect(text(shadow(panel, CHIP_COMMAND))).toBe('setValue')
+      expect(text(shadow(panel, CHIP_LINE))).toBe(`L${SET_VALUE_LINE}`)
+    })
+
+    it('tints the call site with the category of the command that ran there', async () => {
+      const panel = await mountSource(loginSources, loginSourceCommands)
+      await highlight(panel, SET_VALUE_CALL_SOURCE)
+
+      expect(callSiteColour(panel)).toBe(CATEGORY_COLOUR.input)
+    })
+
+    it('tints a navigation call site with its own category colour', async () => {
+      const panel = await mountSource(loginSources, loginSourceCommands)
+      await highlight(panel, NAVIGATE_CALL_SOURCE)
+
+      expect(text(shadow(panel, CHIP_COMMAND))).toBe('url')
+      expect(callSiteColour(panel)).toBe(CATEGORY_COLOUR.navigation)
+    })
+
+    it('highlights a line no command ran on without naming one', async () => {
+      const panel = await mountSource(loginSources, loginSourceCommands)
+      await highlight(panel, `${SPEC_FILE}:4:1`)
+
+      expect(texts(panel, CALL_SITE)).toEqual([collapsed(SPEC_LINES[3])])
+      expect(shadowAll(panel, CHIP)).toHaveLength(0)
+    })
+
+    it('highlights nothing for a line past the end of the file', async () => {
+      const panel = await mountSource(loginSources, [
+        commandLog({ command: 'click', callSource: `${SPEC_FILE}:99:3` })
+      ])
+      await highlight(panel, `${SPEC_FILE}:99:3`)
+
+      expect(shadowAll(panel, CALL_SITE)).toHaveLength(0)
+      expect(text(shadow(panel, CHIP_LINE))).toBe('L99')
+    })
+
+    it('ignores a call source that carries no line number', async () => {
+      const panel = await mountSource(loginSources, loginSourceCommands)
+      await highlight(panel, SPEC_FILE)
+
+      expect(shadowAll(panel, CALL_SITE)).toHaveLength(0)
+      expect(shadowAll(panel, CHIP)).toHaveLength(0)
+      expect(texts(panel, ACTIVE_FILE_TAB)).toEqual(['login.e2e.ts'])
+    })
+
+    it('clears the highlight when another file is opened', async () => {
+      const panel = await mountSource(loginSources, loginSourceCommands)
+      await highlight(panel, SET_VALUE_CALL_SOURCE)
+      await openFile(panel, 'login.steps.ts')
+
+      expect(shadowAll(panel, CALL_SITE)).toHaveLength(0)
+      expect(shadowAll(panel, CHIP)).toHaveLength(0)
+      expect(callSiteColour(panel)).toBe(CATEGORY_COLOUR.none)
+    })
+
+    it('points the editor link at the call-site line', async () => {
+      const panel = await mountSource(loginSources, loginSourceCommands)
+      await highlight(panel, SET_VALUE_CALL_SOURCE)
+
+      expect(shadow(panel, EDITOR_LINK)?.getAttribute('href')).toBe(
+        `vscode://file/${SPEC_FILE}:${SET_VALUE_LINE}`
+      )
+    })
+
+    it('points the editor link at the file itself before any call site', async () => {
+      const panel = await mountSource(loginSources)
+
+      expect(shadow(panel, EDITOR_LINK)?.getAttribute('href')).toBe(
+        `vscode://file/${SPEC_FILE}`
+      )
+    })
+  })
+
+  describe('empty state', () => {
+    it('renders the placeholder when no source and no call source was captured', async () => {
+      const panel = await mountSource({}, [
+        commandLog({ callSource: undefined })
+      ])
+
+      expect(shadowAll(panel, PLACEHOLDER)).toHaveLength(1)
+      expect(shadowAll(panel, FILE_TAB)).toHaveLength(0)
+    })
+
+    it('renders the placeholder before a provider supplies anything', async () => {
+      const panel = await mount<DevtoolsSource>(PANEL)
+
+      expect(shadowAll(panel, PLACEHOLDER)).toHaveLength(1)
+    })
+  })
+})
