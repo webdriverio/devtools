@@ -1,3 +1,0 @@
-# Visual-service working dir — per-run actual + diff images. Only the committed
-# goldens under ./baseline are tracked.
-.tmp/
