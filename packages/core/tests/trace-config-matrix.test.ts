@@ -18,11 +18,13 @@ import os from 'node:os'
 import path from 'node:path'
 
 import {
+  artifactsManifestFilename,
   buildSpecSessionId,
   buildTestSliceFolder,
   finalizeTraceExport,
   TestAttemptTracker,
   type SpecRange,
+  type TraceArtifact,
   type TraceCapturer,
   type TraceExportContext
 } from '@wdio/devtools-core'
@@ -316,6 +318,118 @@ describe('traceGranularity × tracePolicy', () => {
         })
       )
       expect(await writtenTraces()).toEqual(retained ? [sessionTrace] : [])
+    })
+  })
+
+  // ── the manifest describes the config's outcome ────────────────────────────
+  // The manifest is the contract for reporters (Allure) and CI collectors, and
+  // its promise is that it enumerates every artifact the run *produced*,
+  // including slices a policy declined — otherwise a consumer can't tell "no
+  // trace because the test passed" from "no trace because something broke".
+  describe('artifacts manifest per config', () => {
+    async function readManifest(): Promise<{
+      artifacts: TraceArtifact[]
+      tests: Array<{ uid: string; state?: string; attempt?: number }>
+      format: string
+    }> {
+      const file = path.join(outputDir, artifactsManifestFilename(SESSION_ID))
+      return JSON.parse(await fs.readFile(file, 'utf8'))
+    }
+
+    /** The finalizer reports each write through onArtifact; the manifest is
+     *  assembled from that same collection at the end of the run. */
+    function collecting(overrides: Partial<TraceExportContext> = {}) {
+      const collected: TraceArtifact[] = []
+      return ctx({
+        emitManifest: true,
+        collectedArtifacts: collected,
+        onArtifact: (artifact) => collected.push(artifact),
+        ...overrides
+      })
+    }
+
+    const mixed = meta([
+      ['t1', { title: 'T1', specFile: SPEC_A, state: 'failed', attempt: 0 }],
+      ['t2', { title: 'T2', specFile: SPEC_A, state: 'passed', attempt: 0 }]
+    ])
+
+    function mixedLedger(): TestAttemptTracker {
+      const tracker = new TestAttemptTracker()
+      tracker.recordStart('t1', SPEC_A)
+      tracker.recordOutcome('t1', 'failed')
+      tracker.recordStart('t2', SPEC_A)
+      tracker.recordOutcome('t2', 'passed')
+      return tracker
+    }
+
+    it('lists a policy-declined slice alongside the retained one', async () => {
+      await finalizeTraceExport(
+        collecting({
+          granularity: 'test',
+          policy: 'retain-on-failure',
+          attemptInfoAvailable: true,
+          outcomes: mixedLedger(),
+          ranges: [testRange(SPEC_A, 't1', 0), testRange(SPEC_A, 't2', 2)],
+          testMetadata: mixed
+        })
+      )
+      const manifest = await readManifest()
+      const byKey = new Map(manifest.artifacts.map((a) => [a.key, a.retained]))
+      expect(byKey.get('t1')).toBe(true)
+      expect(byKey.get('t2')).toBe(false)
+      // Only the retained slice reached disk; the manifest still reports both.
+      expect(await writtenTraces()).toEqual(
+        [
+          path.join(
+            buildTestSliceFolder(SPEC_A, 'T1', undefined, 't1'),
+            'trace.zip'
+          ),
+          artifactsManifestFilename(SESSION_ID)
+        ].sort()
+      )
+    })
+
+    it('records every test with its state even when its slice was dropped', async () => {
+      await finalizeTraceExport(
+        collecting({
+          granularity: 'test',
+          policy: 'retain-on-failure',
+          attemptInfoAvailable: true,
+          outcomes: mixedLedger(),
+          ranges: [testRange(SPEC_A, 't1', 0), testRange(SPEC_A, 't2', 2)],
+          testMetadata: mixed
+        })
+      )
+      const manifest = await readManifest()
+      expect(manifest.tests.map((t) => [t.uid, t.state, t.attempt])).toEqual([
+        ['t1', 'failed', 0],
+        ['t2', 'passed', 0]
+      ])
+    })
+
+    it.each<[TraceExportContext['granularity'], string]>([
+      ['session', 'session'],
+      ['spec', 'spec'],
+      ['test', 'test']
+    ])('scopes %s-granularity artifacts as %s', async (granularity, scope) => {
+      const ranges =
+        granularity === 'spec'
+          ? [specRange(SPEC_A, 0)]
+          : granularity === 'test'
+            ? [testRange(SPEC_A, 't1', 0)]
+            : []
+      await finalizeTraceExport(
+        collecting({
+          granularity,
+          ranges,
+          testMetadata: meta([
+            ['t1', { title: 'T1', specFile: SPEC_A, state: 'passed' }]
+          ])
+        })
+      )
+      const manifest = await readManifest()
+      expect(manifest.format).toBe('zip')
+      expect(manifest.artifacts.map((a) => a.scope)).toEqual([scope])
     })
   })
 })
