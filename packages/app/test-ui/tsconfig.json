@@ -1,0 +1,13 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "types": ["@wdio/globals/types", "@wdio/mocha-framework"],
+    "noEmit": true
+  },
+  // The parent excludes this folder from the app build; that exclude is
+  // inherited relative to the parent, so it must be cleared here.
+  "exclude": [],
+  // vite-env.d.ts carries `vite/client` (the `?inline` CSS module shapes the
+  // components import) and the app's custom event map.
+  "include": ["**/*.ts", "../src/vite-env.d.ts"]
+}

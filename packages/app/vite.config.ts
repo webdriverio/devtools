@@ -23,7 +23,7 @@ export default defineConfig({
     }
   },
   css: {
-    postcss: './postcss.config.cjs'
+    postcss: path.resolve(__dirname, './postcss.config.cjs')
   },
   plugins: [
     Icons({
@@ -32,8 +32,15 @@ export default defineConfig({
         autoDefine: true,
         shadow: false
       },
+      // Every path here is absolute because this config is also handed to the
+      // component-test runner, whose Vite servers start in worker processes with
+      // the repo root as cwd — the defaults resolve against cwd and every icon
+      // then fails to load.
+      collectionsNodeResolvePath: __dirname,
       customCollections: {
-        custom: FileSystemIconLoader('./src/assets/icons')
+        custom: FileSystemIconLoader(
+          path.resolve(__dirname, './src/assets/icons')
+        )
       }
     })
   ]
