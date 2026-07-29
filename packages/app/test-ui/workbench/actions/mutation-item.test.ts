@@ -1,5 +1,5 @@
-import '../../../src/components/workbench/actionItems/mutation.js'
-import type { MutationItem } from '../../../src/components/workbench/actionItems/mutation.js'
+import '@components/workbench/actionItems/mutation.js'
+import type { MutationItem } from '@components/workbench/actionItems/mutation.js'
 
 import { mount } from '../../support/mount.js'
 import { shadow, shadowAll, text } from '../../support/queries.js'
@@ -8,7 +8,7 @@ import { mutation, documentLoaded } from '../../support/builders.js'
 const TAG = 'wdio-devtools-mutation-item'
 const LABEL = 'span.flex-grow'
 const BADGE = '.ml-auto'
-const PAGE_URL = 'https://example.com/login'
+const PAGE_URL = 'https://the-internet.herokuapp.com/login'
 
 describe('wdio-devtools-mutation-item', () => {
   it('renders no row without an entry', async () => {

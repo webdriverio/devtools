@@ -2,8 +2,8 @@ import {
   actionGroupsContext,
   commandContext,
   mutationContext
-} from '../../../src/controller/context.js'
-import '../../../src/components/workbench/actions.js'
+} from '@/controller/context.js'
+import '@components/workbench/actions.js'
 
 import { mountWithContext, settle } from '../../support/mount.js'
 import { shadow, shadowAll } from '../../support/queries.js'

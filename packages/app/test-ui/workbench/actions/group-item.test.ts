@@ -1,5 +1,5 @@
-import '../../../src/components/workbench/actionItems/group.js'
-import type { GroupItem } from '../../../src/components/workbench/actionItems/group.js'
+import '@components/workbench/actionItems/group.js'
+import type { GroupItem } from '@components/workbench/actionItems/group.js'
 
 import { mount, settle } from '../../support/mount.js'
 import { shadow, shadowAll, text } from '../../support/queries.js'

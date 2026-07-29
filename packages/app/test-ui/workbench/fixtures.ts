@@ -40,7 +40,7 @@ export interface LoginTimeline {
 
 const url = commandLog({
   command: 'url',
-  args: ['https://example.com/login'],
+  args: ['https://the-internet.herokuapp.com/login'],
   startTime: RUN_START,
   timestamp: RUN_START + 420
 })
@@ -54,7 +54,7 @@ const findInput = commandLog({
 
 const setValue = commandLog({
   command: 'setValue',
-  args: ['#username', 'ada@example.com'],
+  args: ['#username', 'tomsmith'],
   callSource: 'login.e2e.ts:12:5',
   startTime: RUN_START + 700,
   timestamp: RUN_START + 780
@@ -66,9 +66,12 @@ const click = commandLog({
   timestamp: RUN_START + 1300
 })
 
-const documentLoad = documentLoaded('https://example.com/login', {
-  timestamp: RUN_START + 450
-})
+const documentLoad = documentLoaded(
+  'https://the-internet.herokuapp.com/login',
+  {
+    timestamp: RUN_START + 450
+  }
+)
 
 const attributeChange = mutation({
   type: 'attributes',

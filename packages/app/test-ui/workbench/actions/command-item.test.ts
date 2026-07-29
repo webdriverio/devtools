@@ -1,8 +1,8 @@
 import type { CommandLog } from '@wdio/devtools-shared'
 
-import '../../../src/components/workbench/actionItems/command.js'
-import type { CommandItem } from '../../../src/components/workbench/actionItems/command.js'
-import { entryDuration } from '../../../src/components/workbench/actionItems/duration.js'
+import '@components/workbench/actionItems/command.js'
+import type { CommandItem } from '@components/workbench/actionItems/command.js'
+import { entryDuration } from '@components/workbench/actionItems/duration.js'
 
 import { mount, settle } from '../../support/mount.js'
 import { shadow, shadowAll, text } from '../../support/queries.js'
