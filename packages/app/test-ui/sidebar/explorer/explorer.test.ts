@@ -234,6 +234,55 @@ describe('wdio-devtools-sidebar-explorer', () => {
       )
     })
 
+    it('derives a failed feature from a failure inside one of its scenarios', async () => {
+      const scenario = suiteFragment('audit-scenario', 'Exports the audit', {
+        type: 'scenario',
+        parent: 'Auditing',
+        tests: [
+          testFragment('audit-csv', 'writes a csv', {
+            state: 'passed',
+            end: FINISHED_AT
+          }),
+          testFragment('audit-signature', 'signs the export', {
+            state: 'failed',
+            end: FINISHED_AT
+          })
+        ]
+      })
+      const feature = suiteFragment('audit-feature', 'Auditing', {
+        suites: [scenario]
+      })
+      const explorer = await mountExplorer(suiteRegistry(feature, scenario))
+
+      expect(rowByUid(explorer, feature.uid).getAttribute('state')).toBe(
+        'failed'
+      )
+      expect(rowByUid(explorer, scenario.uid).getAttribute('state')).toBe(
+        'failed'
+      )
+    })
+
+    it('derives a running suite from a queued test next to a finished one', async () => {
+      // Nightwatch-Cucumber leaves the feature state undefined, so a terminal
+      // child alongside a queued one is the only signal the run is in progress.
+      const suite = suiteFragment('audit-suite', 'Auditing', {
+        tests: [
+          testFragment('audit-csv', 'writes a csv', {
+            state: 'passed',
+            end: FINISHED_AT
+          }),
+          testFragment('audit-archive', 'archives the export', {
+            state: 'pending'
+          })
+        ]
+      })
+      const explorer = await mountExplorer(suiteRegistry(suite))
+
+      expect(rowByUid(explorer, suite.uid).getAttribute('state')).toBe(
+        'running'
+      )
+    })
+
     it('shows a test that finished without a reported state as passed', async () => {
       const finished = testFragment('report-done', 'writes the report', {
         end: FINISHED_AT

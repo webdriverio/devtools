@@ -10,8 +10,12 @@ import type {
   SuiteStatsFragment,
   TestStatsFragment
 } from '../../src/controller/types.js'
-import type { ExplorerTestEntry } from '../../src/components/sidebar/test-suite.js'
-import type { RunnerOptions } from '../../src/components/sidebar/types.js'
+import {
+  computeEntryState,
+  getTestEntry
+} from '@/components/sidebar/test-entry-state.js'
+import type { ExplorerTestEntry } from '@/components/sidebar/test-suite.js'
+import type { RunnerOptions } from '@/components/sidebar/types.js'
 
 /** The sidebar only checks *whether* a test carries an `end` stamp, never its
  *  value, so one fixed stamp serves every fixture. */
@@ -140,6 +144,15 @@ export function summaryRun(
   )
 }
 
+/** A test the run never reached: no state, no `end`. The only fragment shape
+ *  that derives to `'pending'` — a leaf *reported* pending is a run in
+ *  progress and derives to `'running'`. Kept out of `mixedStateRun` so the
+ *  explorer's row counts stay as they are. */
+export const neverRanTest = testFragment(
+  'checkout-invoice',
+  'emails the invoice'
+)
+
 /** A second root with nothing failing and nothing running — the sibling a
  *  status or query filter is expected to drop entirely. */
 export const profileSuite = suiteFragment('profile-suite', 'Profile page', {
@@ -202,6 +215,50 @@ export const nestedRun: NestedRun = {
   ]
 }
 
+export const FEATURE_FILE = '/repo/test/refund.feature'
+
+const refundStepFails = testFragment('refund-gateway', 'calls the gateway', {
+  state: 'failed',
+  file: FEATURE_FILE,
+  featureFile: FEATURE_FILE,
+  featureLine: 10,
+  callSource: 'refund.feature:10',
+  end: FINISHED_AT
+})
+
+/** A step of a scenario that is still executing, so the row it derives is
+ *  running *and* carries feature coordinates — which is what makes it the
+ *  input for "the stop request leaves the feature fields out". */
+const refundStepRuns = testFragment('refund-email', 'emails the customer', {
+  state: 'running',
+  file: FEATURE_FILE,
+  featureFile: FEATURE_FILE,
+  featureLine: 12
+})
+
+/** Cucumber stops a scenario at its first failing step, so the scenario holds
+ *  only that step and derives to `failed` — the state its run controls need. */
+const refundScenario = suiteFragment(
+  'refund-scenario',
+  'Refunds a paid order',
+  {
+    type: 'scenario',
+    file: FEATURE_FILE,
+    featureFile: FEATURE_FILE,
+    featureLine: 8,
+    callSource: 'refund.feature:8',
+    tests: [refundStepFails]
+  }
+)
+
+/** The only fixture carrying feature coordinates: the run/stop/rerun details a
+ *  Gherkin row emits are the ones that forward them. */
+export const gherkinRun = {
+  scenario: refundScenario,
+  failingStep: refundStepFails,
+  runningStep: refundStepRuns
+}
+
 export const mochaRunnerOptions: RunnerOptions = {
   framework: 'mocha',
   configFilePath: '/repo/wdio.conf.ts',
@@ -244,17 +301,43 @@ export type TestEntryProps = Partial<
   >
 >
 
+/**
+ * Row props for one fragment, derived the way the explorer derives them: the
+ * real `getTestEntry` over the fragment, then the same `TestEntry` → row
+ * mapping `explorer.ts`'s `#renderEntry` performs. A spec that wants a row in
+ * some state names a fragment that *produces* that state, so the assertion is
+ * sourced from `test-entry-state.ts` instead of restating its conclusion.
+ *
+ * `overrides` carry the props no fragment can produce — a tree position
+ * (`root`, `selected`), a runner capability (`runDisabled`) or an off-contract
+ * value. Each spec that passes one says why.
+ */
+export function rowProps(
+  fragment: TestStatsFragment | SuiteStatsFragment,
+  overrides: TestEntryProps = {}
+): TestEntryProps {
+  const entry = getTestEntry(fragment, () => true)
+  return {
+    uid: entry.uid,
+    labelText: entry.label,
+    entryType: entry.type,
+    // `TestEntry.state` is the widened `string`, the row property the narrow
+    // `TestStatus`, so the state is read from the same helper the tree derives
+    // it with rather than cast across that gap.
+    state: computeEntryState(fragment),
+    specFile: entry.specFile,
+    fullTitle: entry.fullTitle,
+    callSource: entry.callSource,
+    featureFile: entry.featureFile,
+    featureLine: entry.featureLine,
+    suiteType: entry.suiteType,
+    hasChildren: entry.children.length > 0,
+    ...overrides
+  }
+}
+
 /** Property bag for one `wdio-test-entry`. Defaulted to `mixedStateRun`'s
  *  passing row so the row specs and the explorer spec name the same test. */
 export function entryProps(overrides: TestEntryProps = {}): TestEntryProps {
-  return {
-    uid: passing.uid,
-    labelText: passing.title,
-    fullTitle: passing.fullTitle,
-    entryType: 'test',
-    state: 'passed',
-    specFile: SPEC_FILE,
-    callSource: CALL_SOURCE,
-    ...overrides
-  }
+  return rowProps(passing, overrides)
 }

@@ -7,8 +7,8 @@ import type { TestRunDetail } from '@components/sidebar/types.js'
 
 import { mount, settle } from '../../support/mount.js'
 import { shadow, shadowAll, text } from '../../support/queries.js'
-import { entryProps, mixedStateRun, nestedRun } from '../fixtures.js'
-import type { TestEntryProps } from '../fixtures.js'
+import { entryProps, mixedStateRun, nestedRun, rowProps } from '../fixtures.js'
+import type { NamedSuite, NamedTest, TestEntryProps } from '../fixtures.js'
 
 const SUITE = 'wdio-test-suite'
 const ENTRY = 'wdio-test-entry'
@@ -24,15 +24,22 @@ const assigned = (host: Element, selector: string): Element[] =>
 const uidsOf = (rows: Element[]) =>
   rows.map((entry) => (entry as ExplorerTestEntry).uid)
 
-function buildRow(props: TestEntryProps, label: string): ExplorerTestEntry {
+function buildRow(props: TestEntryProps, label?: string): ExplorerTestEntry {
+  const resolved = entryProps(props)
   const entry = document.createElement(ENTRY)
-  Object.assign(entry, entryProps(props))
+  Object.assign(entry, resolved)
   const title = document.createElement('label')
   title.slot = 'label'
-  title.textContent = label
+  title.textContent = label ?? resolved.labelText ?? ''
   entry.append(title)
   return entry
 }
+
+/** One row per fragment, with its state, type and label derived by the same
+ *  helpers the explorer uses — the group specs assert composition, so their
+ *  rows should be the rows the explorer would hand them. */
+const rowFor = (fragment: NamedSuite | NamedTest): ExplorerTestEntry =>
+  buildRow(rowProps(fragment))
 
 /** Nest a group in a row's `children` slot the way the explorer does for a
  *  suite that has descendants. */
@@ -82,46 +89,20 @@ function capture<T>(
 }
 
 const checkoutRows = () => [
-  buildRow(
-    { uid: mixedStateRun.passing.uid, state: 'passed' },
-    mixedStateRun.passing.title
-  ),
-  buildRow(
-    { uid: mixedStateRun.failing.uid, state: 'failed' },
-    mixedStateRun.failing.title
-  ),
-  buildRow(
-    { uid: mixedStateRun.running.uid, state: 'running' },
-    mixedStateRun.running.title
-  ),
-  buildRow(
-    { uid: mixedStateRun.skipped.uid, state: 'skipped' },
-    mixedStateRun.skipped.title
-  )
+  rowFor(mixedStateRun.passing),
+  rowFor(mixedStateRun.failing),
+  rowFor(mixedStateRun.running),
+  rowFor(mixedStateRun.skipped)
 ]
 
 /** The shape the explorer builds for a suite with descendants: a row whose
  *  `children` slot holds its own group. */
 const nestedTree = () => {
   const tests = [
-    buildRow(
-      { uid: nestedRun.signsIn.uid, state: 'passed' },
-      nestedRun.signsIn.title
-    ),
-    buildRow(
-      { uid: nestedRun.rejectsBadPassword.uid, state: 'passed' },
-      nestedRun.rejectsBadPassword.title
-    )
+    rowFor(nestedRun.signsIn),
+    rowFor(nestedRun.rejectsBadPassword)
   ]
-  const scenario = buildRow(
-    {
-      uid: nestedRun.scenario.uid,
-      entryType: 'suite',
-      state: 'passed',
-      suiteType: 'scenario'
-    },
-    nestedRun.scenario.title
-  )
+  const scenario = rowFor(nestedRun.scenario)
   const inner = groupUnder(scenario, tests)
   return { tests, scenario, inner }
 }

@@ -7,8 +7,12 @@ import { shadow, shadowAll, text } from '../../support/queries.js'
 import {
   CALL_SOURCE,
   entryProps,
+  FEATURE_FILE,
+  gherkinRun,
   mixedStateRun,
-  SPEC_FILE,
+  neverRanTest,
+  profileSuite,
+  rowProps,
   type TestEntryProps
 } from '../fixtures.js'
 
@@ -40,14 +44,18 @@ const CUCUMBER_REASON =
 const childrenSection = (row: Element) =>
   shadow(row, CHILDREN_SLOT)?.parentElement
 
+/** Row props come from `rowProps(fragment)` — the real `getTestEntry` over a
+ *  fragment — so the label the explorer would slot is already in them; a spec
+ *  only names one when it is asserting the projection itself. */
 async function mountRow(
   props: TestEntryProps = {},
-  label = mixedStateRun.passing.title
+  label?: string
 ): Promise<ExplorerTestEntry> {
-  const row = await mount<ExplorerTestEntry>(TAG, entryProps(props))
+  const resolved = entryProps(props)
+  const row = await mount<ExplorerTestEntry>(TAG, resolved)
   const title = document.createElement('label')
   title.slot = 'label'
-  title.textContent = label
+  title.textContent = label ?? resolved.labelText ?? ''
   row.append(title)
   await settle(row)
   return row
@@ -72,7 +80,7 @@ function capture<T>(
 describe('wdio-test-entry', () => {
   describe('state icon', () => {
     it('shows a check for a passing test', async () => {
-      const row = await mountRow({ state: 'passed' })
+      const row = await mountRow(rowProps(mixedStateRun.passing))
 
       expect(shadowAll(row, PASSED_ICON)).toHaveLength(1)
       expect(
@@ -81,7 +89,7 @@ describe('wdio-test-entry', () => {
     })
 
     it('shows a cross for a failing test', async () => {
-      const row = await mountRow({ state: 'failed' })
+      const row = await mountRow(rowProps(mixedStateRun.failing))
 
       expect(shadowAll(row, FAILED_ICON)).toHaveLength(1)
       expect(
@@ -90,7 +98,7 @@ describe('wdio-test-entry', () => {
     })
 
     it('shows a step-over arrow for a skipped test', async () => {
-      const row = await mountRow({ state: 'skipped' })
+      const row = await mountRow(rowProps(mixedStateRun.skipped))
 
       expect(shadowAll(row, SKIPPED_ICON)).toHaveLength(1)
       expect(
@@ -99,7 +107,7 @@ describe('wdio-test-entry', () => {
     })
 
     it('shows a pulsing dot instead of an icon while a test runs', async () => {
-      const row = await mountRow({ state: 'running' })
+      const row = await mountRow(rowProps(mixedStateRun.running))
 
       expect(shadowAll(row, RUNNING_DOT)).toHaveLength(1)
       expect(shadowAll(row, PASSED_ICON)).toHaveLength(0)
@@ -107,8 +115,12 @@ describe('wdio-test-entry', () => {
     })
 
     it('shows an empty circle for a test that is only pending', async () => {
-      const row = await mountRow({ state: 'pending' })
+      // A leaf with no state and no end stamp is the one fragment shape that
+      // derives to 'pending' — a *reported* pending leaf is a run in progress
+      // and derives to 'running'.
+      const row = await mountRow(rowProps(neverRanTest))
 
+      expect(row.state).toBe('pending')
       expect(shadowAll(row, NOT_RUN_ICON)).toHaveLength(1)
       expect(
         shadow(row, NOT_RUN_ICON)?.classList.contains('text-disabledForeground')
@@ -116,16 +128,19 @@ describe('wdio-test-entry', () => {
     })
 
     it('shows an empty circle for a test with no state at all', async () => {
+      // Hand-set: `computeEntryState` always returns a status, so a stateless
+      // row is only reachable when something other than the explorer mounts it.
       const row = await mountRow({ state: undefined })
 
       expect(shadowAll(row, NOT_RUN_ICON)).toHaveLength(1)
     })
 
     it('shows an empty circle for a state it does not recognise', async () => {
-      const row = await mountRow({ state: 'passed' })
+      const row = await mountRow(rowProps(mixedStateRun.passing))
 
-      // Set through the attribute because that is how the explorer feeds state,
-      // and it keeps an off-contract value out of the typed property.
+      // Hand-set through the attribute: no fragment derives to a state outside
+      // STATE_MAP, and the attribute is how the explorer feeds state — so this
+      // keeps an off-contract value out of the typed property.
       row.setAttribute('state', 'aborted')
       await settle(row)
 
@@ -134,9 +149,9 @@ describe('wdio-test-entry', () => {
     })
 
     it('swaps the icon when the state changes', async () => {
-      const row = await mountRow({ state: 'running' })
+      const row = await mountRow(rowProps(mixedStateRun.running))
 
-      row.state = 'failed'
+      row.state = rowProps(mixedStateRun.failing).state
       await settle(row)
 
       expect(shadowAll(row, RUNNING_DOT)).toHaveLength(0)
@@ -144,7 +159,11 @@ describe('wdio-test-entry', () => {
     })
 
     it('leaves the state icon off a root row', async () => {
-      const row = await mountRow({ state: 'failed', root: true })
+      // `root` is hand-set: it marks the row's position in the tree, which is
+      // the explorer's own knowledge and not part of any fragment.
+      const row = await mountRow(
+        rowProps(mixedStateRun.failing, { root: true })
+      )
 
       expect(row.hasAttribute('root')).toBe(true)
       expect(shadowAll(row, FAILED_ICON)).toHaveLength(0)
@@ -154,7 +173,7 @@ describe('wdio-test-entry', () => {
 
   describe('title', () => {
     it('renders the title projected into the label slot', async () => {
-      const row = await mountRow({}, mixedStateRun.failing.title)
+      const row = await mountRow(rowProps(mixedStateRun.failing))
 
       const slot = shadow<HTMLSlotElement>(row, LABEL_SLOT)
       expect(slot?.assignedElements().map((el) => text(el))).toEqual([
@@ -165,7 +184,7 @@ describe('wdio-test-entry', () => {
 
   describe('selection', () => {
     it('announces its uid on app-test-select when the row is clicked', async () => {
-      const row = await mountRow({ uid: mixedStateRun.failing.uid })
+      const row = await mountRow(rowProps(mixedStateRun.failing))
 
       const received = capture<string>(row, 'app-test-select', () =>
         shadow(row, LABEL_SPAN)?.click()
@@ -180,6 +199,7 @@ describe('wdio-test-entry', () => {
     })
 
     it('stays silent when the row has no uid', async () => {
+      // Hand-set: `getTestEntry` always carries the fragment's uid through.
       const row = await mountRow({ uid: undefined })
 
       const received = capture<string>(row, 'app-test-select', () =>
@@ -190,7 +210,7 @@ describe('wdio-test-entry', () => {
     })
 
     it('asks the source view on window to highlight its call site', async () => {
-      const row = await mountRow({ callSource: CALL_SOURCE })
+      const row = await mountRow(rowProps(mixedStateRun.passing))
 
       const received = capture<string>(window, 'app-source-highlight', () =>
         shadow(row, LABEL_SPAN)?.click()
@@ -201,7 +221,8 @@ describe('wdio-test-entry', () => {
     })
 
     it('leaves the source view alone when the row has no call site', async () => {
-      const row = await mountRow({ callSource: undefined })
+      // The running fragment reports no call site, so the derived row has none.
+      const row = await mountRow(rowProps(mixedStateRun.running))
 
       const received = capture<string>(window, 'app-source-highlight', () =>
         shadow(row, LABEL_SPAN)?.click()
@@ -211,6 +232,8 @@ describe('wdio-test-entry', () => {
     })
 
     it('reflects the selected flag so the row can be styled', async () => {
+      // Hand-set: selection is explorer state (clicked row, or the running row
+      // it auto-selects), not something a fragment reports.
       const row = await mountRow({ selected: true })
 
       expect(row.hasAttribute('selected')).toBe(true)
@@ -225,7 +248,7 @@ describe('wdio-test-entry', () => {
 
   describe('row actions', () => {
     it('offers a run button on a row that is not running', async () => {
-      const row = await mountRow({ state: 'passed' })
+      const row = await mountRow(rowProps(mixedStateRun.passing))
 
       expect(shadowAll(row, RUN_BUTTON)).toHaveLength(1)
       expect(shadow(row, RUN_BUTTON)?.getAttribute('title')).toBe(
@@ -235,7 +258,7 @@ describe('wdio-test-entry', () => {
     })
 
     it('replaces the run button with a stop button while the row runs', async () => {
-      const row = await mountRow({ state: 'running' })
+      const row = await mountRow(rowProps(mixedStateRun.running))
 
       expect(shadowAll(row, STOP_BUTTON)).toHaveLength(1)
       expect(shadowAll(row, RUN_BUTTON)).toHaveLength(0)
@@ -243,23 +266,19 @@ describe('wdio-test-entry', () => {
     })
 
     it('offers a preserve-and-rerun button only after a failure', async () => {
-      const failed = await mountRow({ state: 'failed' })
-      const passed = await mountRow({ state: 'passed' })
+      const failed = await mountRow(rowProps(mixedStateRun.failing))
+      const passed = await mountRow(rowProps(mixedStateRun.passing))
 
       expect(shadowAll(failed, RERUN_BUTTON)).toHaveLength(1)
       expect(shadowAll(passed, RERUN_BUTTON)).toHaveLength(0)
     })
 
     it('emits app-test-run carrying the row identity', async () => {
-      const row = await mountRow({
-        uid: mixedStateRun.failing.uid,
-        labelText: mixedStateRun.failing.title,
-        fullTitle: mixedStateRun.failing.fullTitle,
-        state: 'failed',
-        featureFile: 'checkout.feature',
-        featureLine: 12,
-        suiteType: 'scenario'
-      })
+      // The Gherkin scenario is the only fixture carrying feature coordinates,
+      // and it derives to 'failed' from its one failing step — so the run
+      // control is present and every identity field below is derived.
+      const scenario = gherkinRun.scenario
+      const row = await mountRow(rowProps(scenario))
 
       const received = capture<TestRunDetail>(row, 'app-test-run', () =>
         shadow(row, RUN_BUTTON)?.click()
@@ -267,28 +286,22 @@ describe('wdio-test-entry', () => {
 
       expect(received).toHaveLength(1)
       expect(received[0]?.detail).toEqual({
-        uid: mixedStateRun.failing.uid,
-        entryType: 'test',
-        specFile: SPEC_FILE,
-        fullTitle: mixedStateRun.failing.fullTitle,
-        label: mixedStateRun.failing.title,
-        callSource: CALL_SOURCE,
-        featureFile: 'checkout.feature',
-        featureLine: 12,
-        suiteType: 'scenario'
+        uid: scenario.uid,
+        entryType: 'suite',
+        specFile: FEATURE_FILE,
+        fullTitle: scenario.title,
+        label: scenario.title,
+        callSource: scenario.callSource,
+        featureFile: FEATURE_FILE,
+        featureLine: scenario.featureLine,
+        suiteType: scenario.type
       })
       expect(received[0]?.composed).toBe(true)
     })
 
     it('emits app-test-stop for the running row without the feature fields', async () => {
-      const row = await mountRow({
-        uid: mixedStateRun.running.uid,
-        labelText: mixedStateRun.running.title,
-        fullTitle: mixedStateRun.running.fullTitle,
-        state: 'running',
-        featureFile: 'checkout.feature',
-        featureLine: 12
-      })
+      const step = gherkinRun.runningStep
+      const row = await mountRow(rowProps(step))
 
       const received = capture<TestRunDetail>(row, 'app-test-stop', () =>
         shadow(row, STOP_BUTTON)?.click()
@@ -296,21 +309,21 @@ describe('wdio-test-entry', () => {
 
       expect(received).toHaveLength(1)
       expect(received[0]?.detail).toEqual({
-        uid: mixedStateRun.running.uid,
+        uid: step.uid,
         entryType: 'test',
-        specFile: SPEC_FILE,
-        fullTitle: mixedStateRun.running.fullTitle,
-        label: mixedStateRun.running.title,
-        callSource: CALL_SOURCE
+        specFile: FEATURE_FILE,
+        fullTitle: step.fullTitle,
+        label: step.title
       })
+      // The row does carry them — the stop detail deliberately leaves them out.
+      expect(row.featureFile).toBe(FEATURE_FILE)
+      expect(received[0]?.detail.featureFile).toBeUndefined()
+      expect(received[0]?.detail.featureLine).toBeUndefined()
     })
 
     it('emits app-test-preserve-rerun for the failed row', async () => {
-      const row = await mountRow({
-        uid: mixedStateRun.failing.uid,
-        state: 'failed',
-        suiteType: 'scenario'
-      })
+      const scenario = gherkinRun.scenario
+      const row = await mountRow(rowProps(scenario))
 
       const received = capture<TestRunDetail>(
         row,
@@ -319,12 +332,14 @@ describe('wdio-test-entry', () => {
       )
 
       expect(received).toHaveLength(1)
-      expect(received[0]?.detail.uid).toBe(mixedStateRun.failing.uid)
-      expect(received[0]?.detail.suiteType).toBe('scenario')
+      expect(received[0]?.detail.uid).toBe(scenario.uid)
+      expect(received[0]?.detail.suiteType).toBe(scenario.type)
       expect(received[0]?.composed).toBe(true)
     })
 
     it('disables the run button and explains why when running is not supported', async () => {
+      // Hand-set: `runDisabled` comes from the runner's capabilities in the
+      // metadata context, which no suite or test fragment carries.
       const row = await mountRow({
         runDisabled: true,
         runDisabledReason: CUCUMBER_REASON
@@ -337,6 +352,7 @@ describe('wdio-test-entry', () => {
     })
 
     it('explains a disabled row generically when no reason was supplied', async () => {
+      // Hand-set for the same reason as above.
       const row = await mountRow({ runDisabled: true })
 
       expect(shadow(row, RUN_BUTTON)?.getAttribute('title')).toBe(
@@ -357,14 +373,18 @@ describe('wdio-test-entry', () => {
     })
 
     it('offers no stop button on a running row that cannot be stopped', async () => {
-      const row = await mountRow({ state: 'running', runDisabled: true })
+      const row = await mountRow(
+        rowProps(mixedStateRun.running, { runDisabled: true })
+      )
 
       expect(shadowAll(row, STOP_BUTTON)).toHaveLength(0)
       expect(shadowAll(row, RUN_BUTTON)).toHaveLength(0)
     })
 
     it('drops the rerun button from a failed row that cannot be run', async () => {
-      const row = await mountRow({ state: 'failed', runDisabled: true })
+      const row = await mountRow(
+        rowProps(mixedStateRun.failing, { runDisabled: true })
+      )
 
       expect(shadowAll(row, RERUN_BUTTON)).toHaveLength(0)
       expect(shadowAll(row, RUN_BUTTON)).toHaveLength(1)
@@ -373,23 +393,28 @@ describe('wdio-test-entry', () => {
 
   describe('collapsing', () => {
     it('hides the chevron on a row without children', async () => {
-      const row = await mountRow({ hasChildren: false })
+      const row = await mountRow(rowProps(mixedStateRun.passing))
 
+      expect(row.hasChildren).toBe(false)
       expect(shadow(row, CHEVRON_BUTTON)?.classList.contains('hidden')).toBe(
         true
       )
     })
 
     it('offers no collapse control on a row without children', async () => {
-      const row = await mountRow({ hasChildren: false, state: 'passed' })
+      const row = await mountRow(rowProps(mixedStateRun.passing))
 
       expect(shadowAll(row, TOOLBAR_BUTTON)).toHaveLength(1)
       expect(shadowAll(row, EXPAND_ALL_ICON)).toHaveLength(0)
     })
 
     it('shows the chevron and a collapse control on a row with children', async () => {
-      const row = await mountRow({ hasChildren: true, state: 'passed' })
+      // A suite fragment with tests derives both `hasChildren` and its passed
+      // state, so the row under test is the one the explorer would render.
+      const row = await mountRow(rowProps(profileSuite))
 
+      expect(row.hasChildren).toBe(true)
+      expect(row.state).toBe('passed')
       expect(shadow(row, CHEVRON_BUTTON)?.classList.contains('hidden')).toBe(
         false
       )
@@ -398,7 +423,7 @@ describe('wdio-test-entry', () => {
     })
 
     it('collapses the children section when the chevron is clicked', async () => {
-      const row = await mountRow({ hasChildren: true })
+      const row = await mountRow(rowProps(profileSuite))
       expect(childrenSection(row)?.classList.contains('hidden')).toBe(false)
 
       shadow(row, CHEVRON_BUTTON)?.click()
@@ -409,7 +434,7 @@ describe('wdio-test-entry', () => {
     })
 
     it('rotates the chevron while collapsed', async () => {
-      const row = await mountRow({ hasChildren: true })
+      const row = await mountRow(rowProps(profileSuite))
       expect(shadow(row, CHEVRON)?.classList.contains('-rotate-90')).toBe(false)
 
       shadow(row, CHEVRON_BUTTON)?.click()
@@ -419,7 +444,7 @@ describe('wdio-test-entry', () => {
     })
 
     it('expands the children section again on a second click', async () => {
-      const row = await mountRow({ hasChildren: true })
+      const row = await mountRow(rowProps(profileSuite))
 
       shadow(row, CHEVRON_BUTTON)?.click()
       await settle(row)
@@ -431,7 +456,7 @@ describe('wdio-test-entry', () => {
     })
 
     it('reports the new collapsed state on entry-collapse-change', async () => {
-      const row = await mountRow({ hasChildren: true })
+      const row = await mountRow(rowProps(profileSuite))
 
       const received = capture<{ isCollapsed: boolean; entry: Element }>(
         row,
@@ -445,7 +470,7 @@ describe('wdio-test-entry', () => {
     })
 
     it('keeps entry-collapse-change inside the tree that owns the row', async () => {
-      const row = await mountRow({ hasChildren: true })
+      const row = await mountRow(rowProps(profileSuite))
 
       const received = capture<{ isCollapsed: boolean }>(
         row,
@@ -460,7 +485,7 @@ describe('wdio-test-entry', () => {
     })
 
     it('switches the toolbar control to collapse-all once the row has been expanded', async () => {
-      const row = await mountRow({ hasChildren: true })
+      const row = await mountRow(rowProps(profileSuite))
       expect(shadowAll(row, EXPAND_ALL_ICON)).toHaveLength(1)
 
       shadow(row, CHEVRON_BUTTON)?.click()
