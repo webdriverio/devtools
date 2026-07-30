@@ -303,17 +303,28 @@ describe('wdio-devtools-command-item', () => {
       expect(shadow(el, BADGE)?.classList.contains('text-chartsRed')).toBe(true)
     })
 
+    it('renders a step over a minute in minutes and seconds', async () => {
+      const el = await mount<CommandItem>(TAG, {
+        entry: commandLog({ command: 'waitUntil' }),
+        duration: 65_000
+      })
+
+      expect(text(shadow(el, BADGE))).toBe('1m 5s')
+      expect(shadow(el, BADGE)?.classList.contains('text-chartsRed')).toBe(true)
+    })
+
     it("shows the command's own span rather than the gap to the next action", async () => {
       const entry = commandLog({
         command: 'expect.toHaveText',
         startTime: 1000,
         timestamp: 1120
       })
-      const el = await mount<CommandItem>(TAG, {
-        entry,
-        duration: entryDuration(entry, 4000)
-      })
+      // The panel hands the row `entryDuration`'s answer, so the row is fed the
+      // real derivation over a 4s gap fallback — not a number chosen to match.
+      const duration = entryDuration(entry, 4000)
+      const el = await mount<CommandItem>(TAG, { entry, duration })
 
+      expect(duration).toBe(120)
       expect(text(shadow(el, BADGE))).toBe('120ms')
       expect(shadow(el, BADGE)?.classList.contains('text-chartsGreen')).toBe(
         true
@@ -322,11 +333,10 @@ describe('wdio-devtools-command-item', () => {
 
     it('falls back to the inter-action gap when the entry has no start time', async () => {
       const entry = commandLog({ command: 'click', timestamp: 1120 })
-      const el = await mount<CommandItem>(TAG, {
-        entry,
-        duration: entryDuration(entry, 750)
-      })
+      const duration = entryDuration(entry, 750)
+      const el = await mount<CommandItem>(TAG, { entry, duration })
 
+      expect(duration).toBe(750)
       expect(text(shadow(el, BADGE))).toBe('750ms')
       expect(shadow(el, BADGE)?.classList.contains('text-chartsYellow')).toBe(
         true

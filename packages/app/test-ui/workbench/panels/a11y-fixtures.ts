@@ -33,7 +33,7 @@ export const LOGIN_LOCATOR = 'button[type=submit]'
  *  for. */
 export const LOGIN_LOCATOR_ALIAS = 'button*=Login'
 
-interface NodeLine {
+export interface NodeLine {
   depth: number
   role: string
   name?: string
@@ -63,55 +63,57 @@ export function a11yLine({
 }
 
 /** Login page: two nameless containers, three locator-bearing controls, one
- *  heading with a level suffix, and depths 0–2. */
-export const loginSnapshot = [
-  PAGE_HEADER,
-  a11yLine({ depth: 0, role: 'document', name: PAGE_TITLE }),
-  a11yLine({ depth: 1, role: 'heading[2]', name: 'Login Page' }),
-  a11yLine({ depth: 1, role: 'form' }),
-  a11yLine({
+ *  heading with a level suffix, and depths 0–2. The single source of truth for
+ *  the fixture — the snapshot text below is serialized from it, and the
+ *  per-column expectations are projected off it, so no spec restates a role,
+ *  name, depth or locator the snapshot doesn't actually carry. */
+export const LOGIN_NODES: NodeLine[] = [
+  { depth: 0, role: 'document', name: PAGE_TITLE },
+  { depth: 1, role: 'heading[2]', name: 'Login Page' },
+  { depth: 1, role: 'form' },
+  {
     depth: 2,
     role: 'textbox',
     name: 'Username',
     purpose: 'Login form',
     selector: USERNAME_LOCATOR
-  }),
-  a11yLine({
+  },
+  {
     depth: 2,
     role: 'textbox',
     name: 'Password',
     purpose: 'Login form',
     selector: PASSWORD_LOCATOR
-  }),
-  a11yLine({
+  },
+  {
     depth: 2,
     role: 'button',
     name: 'Login',
     purpose: 'Login form',
     selector: LOGIN_LOCATOR
-  }),
-  a11yLine({ depth: 1, role: 'contentinfo' })
-].join('\n')
-
-/** Roles in render order, so a spec names them once. */
-export const LOGIN_ROLES = [
-  'document',
-  'heading[2]',
-  'form',
-  'textbox',
-  'textbox',
-  'button',
-  'contentinfo'
+  },
+  { depth: 1, role: 'contentinfo' }
 ]
+
+export const loginSnapshot = [PAGE_HEADER, ...LOGIN_NODES.map(a11yLine)].join(
+  '\n'
+)
+
+/** Roles in render order. */
+export const LOGIN_ROLES = LOGIN_NODES.map((node) => node.role)
 
 /** Quoted accessible names in render order — the two containers have none. */
-export const LOGIN_NAMES = [
-  `"${PAGE_TITLE}"`,
-  '"Login Page"',
-  '"Username"',
-  '"Password"',
-  '"Login"'
-]
+export const LOGIN_NAMES = LOGIN_NODES.filter(
+  (node) => node.name !== undefined
+).map((node) => `"${node.name}"`)
+
+/** Captured locators in render order — only the three controls carry one. */
+export const LOGIN_LOCATORS = LOGIN_NODES.filter(
+  (node) => node.selector !== undefined
+).map((node) => node.selector!)
+
+/** Node depths in render order, the input the row indent is computed from. */
+export const LOGIN_DEPTHS = LOGIN_NODES.map((node) => node.depth)
 
 /** A page the capture reached before any element was on it. */
 export const headerOnlySnapshot = PAGE_HEADER

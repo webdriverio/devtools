@@ -8,6 +8,7 @@ import {
   SPEEDS,
   type PlayerState
 } from '@components/browser/trace-timeline-constants.js'
+import { formatTimecode } from '@components/browser/trace-timeline-utils.js'
 
 import { mount, settle } from '../../support/mount.js'
 import { shadow, shadowAll, text, texts } from '../../support/queries.js'
@@ -79,8 +80,20 @@ describe('wdio-devtools-trace-player-controls', () => {
     })
 
     it('mirrors the clock the timeline broadcasts', async () => {
-      const el = await mountControls({ currentMs: 32_270, duration: 61_000 })
+      const position = 32_270
+      const length = 61_000
+      const el = await mountControls({
+        currentMs: position,
+        duration: length
+      })
 
+      // Derived, so a bar that swapped the two codes or read either straight off
+      // the state without the shared formatter fails here...
+      expect(texts(el, TIMECODE)).toEqual([
+        formatTimecode(position),
+        formatTimecode(length)
+      ])
+      // ...and pinned, so the derivation cannot drift with a broken formatter.
       expect(texts(el, TIMECODE)).toEqual(['0:32.27', '1:01.00'])
     })
 

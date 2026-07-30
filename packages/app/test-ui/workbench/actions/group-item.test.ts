@@ -33,6 +33,9 @@ describe('wdio-devtools-group-item', () => {
   it("shows the group's own span as its duration", async () => {
     const el = await mount<GroupItem>(TAG, { group: { ...STEP } })
 
+    // Derived from the step, so a row measuring it the wrong way round — or from
+    // the wrong end — fails here rather than only in the rendered text.
+    expect(el.duration).toBe(STEP.endTime - STEP.startTime)
     expect(text(shadow(el, BADGE))).toBe('600ms')
     expect(shadow(el, BADGE)?.classList.contains('text-chartsYellow')).toBe(
       true

@@ -1,5 +1,7 @@
 import type { CommandLog } from '@wdio/devtools-shared'
 
+import { commandCategory } from '@components/workbench/actionItems/category.js'
+import { formatDuration } from '@components/workbench/actionItems/duration.js'
 import '@components/workbench/logs.js'
 import type { DevtoolsCommandLogs } from '@components/workbench/logs.js'
 
@@ -61,6 +63,11 @@ const categoryOf = (panel: DevtoolsCommandLogs) =>
 
 const attrOf = (el: Element | null, name: string) =>
   el?.getAttribute(name) ?? null
+
+/** A non-string value as the panel prints it, then whitespace-collapsed the way
+ *  `text()` collapses the rendered cell. */
+const prettyValue = (value: unknown) =>
+  JSON.stringify(value, null, 2).replace(/\s+/g, ' ')
 
 /** Property path: what the workbench does when it renders the panel directly.
  *  No protocol definition is resolved, so no description or reference exists. */
@@ -139,14 +146,17 @@ describe('wdio-devtools-logs', () => {
     })
 
     it('marks the command with the dot of the category it belongs to', async () => {
-      const clicked = await mountLogs(commandLog({ command: 'click' }))
-      const navigated = await mountLogs(commandLog({ command: 'navigateTo' }))
-      const asserted = await mountLogs(
-        commandLog({ command: 'expect.toHaveText' })
-      )
-      const read = await mountLogs(commandLog({ command: 'getUrl' }))
+      const commands = ['click', 'navigateTo', 'expect.toHaveText', 'getUrl']
+      const panels = []
+      for (const command of commands) {
+        panels.push(await mountLogs(commandLog({ command })))
+      }
 
-      expect([clicked, navigated, asserted, read].map(categoryOf)).toEqual([
+      // Derived: the dot must follow the classifier's verdict for that command.
+      expect(panels.map(categoryOf)).toEqual(
+        commands.map((command) => `cat-${commandCategory(command)}`)
+      )
+      expect(panels.map(categoryOf)).toEqual([
         'cat-input',
         'cat-navigation',
         'cat-assertion',
@@ -157,6 +167,7 @@ describe('wdio-devtools-logs', () => {
     it('falls back to the other category for a command it cannot classify', async () => {
       const panel = await mountLogs(commandLog({ command: 'takeScreenshot' }))
 
+      expect(commandCategory('takeScreenshot')).toBe('other')
       expect(categoryOf(panel)).toBe('cat-other')
     })
 
@@ -164,6 +175,8 @@ describe('wdio-devtools-logs', () => {
       const milliseconds = await mountLogs(commandLog(), 320)
       const seconds = await mountLogs(commandLog(), 1500)
 
+      expect(text(shadow(milliseconds, DURATION))).toBe(formatDuration(320))
+      expect(text(shadow(seconds, DURATION))).toBe(formatDuration(1500))
       expect(text(shadow(milliseconds, DURATION))).toBe('320ms')
       expect(text(shadow(seconds, DURATION))).toBe('1.50s')
     })
@@ -171,6 +184,7 @@ describe('wdio-devtools-logs', () => {
     it('renders a zero elapsed time rather than dropping it', async () => {
       const panel = await mountLogs(commandLog(), 0)
 
+      expect(text(shadow(panel, DURATION))).toBe(formatDuration(0))
       expect(text(shadow(panel, DURATION))).toBe('0ms')
     })
 
@@ -265,13 +279,14 @@ describe('wdio-devtools-logs', () => {
     })
 
     it('pretty-prints an object argument', async () => {
+      const size = { width: 1600, height: 900 }
       const panel = await mountLogs(
-        commandLog({
-          command: 'setWindowSize',
-          args: [{ width: 1600, height: 900 }]
-        })
+        commandLog({ command: 'setWindowSize', args: [size] })
       )
 
+      expect(sectionNamed(panel, 'Parameters').values).toEqual([
+        prettyValue(size)
+      ])
       expect(sectionNamed(panel, 'Parameters').values).toEqual([
         '{ "width": 1600, "height": 900 }'
       ])
@@ -306,14 +321,17 @@ describe('wdio-devtools-logs', () => {
 
   describe('result', () => {
     it('renders one row per entry of an object result', async () => {
+      const rect = { x: 8, y: 240, width: 176, height: 32 }
       const panel = await mountLogs(
-        commandLog({
-          command: 'getElementRect',
-          args: [],
-          result: { x: 8, y: 240, width: 176, height: 32 }
-        })
+        commandLog({ command: 'getElementRect', args: [], result: rect })
       )
 
+      // One row per own entry of the result, keyed and valued by it.
+      expect(sectionNamed(panel, 'Result')).toEqual({
+        title: 'Result',
+        keys: Object.keys(rect),
+        values: Object.values(rect).map(prettyValue)
+      })
       expect(sectionNamed(panel, 'Result')).toEqual({
         title: 'Result',
         keys: ['x', 'y', 'width', 'height'],

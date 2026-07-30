@@ -8,6 +8,11 @@ import {
   PLAYER_STATE_EVENT,
   type PlayerState
 } from '@components/browser/trace-timeline-constants.js'
+import {
+  formatTickLabel,
+  formatTimecode,
+  tickStep
+} from '@components/browser/trace-timeline-utils.js'
 import '@components/browser/trace-timeline.js'
 
 import { mountWithContext, settle } from '../../support/mount.js'
@@ -69,6 +74,24 @@ const attrs = (els: Element[], name: string) =>
 
 const lefts = (els: HTMLElement[]) => els.map((el) => el.style.left)
 
+/** Where the strip puts a wall-clock timestamp: its share of the window, from
+ *  the same origin and span the component derives. */
+const at = (timestamp: number) => `${((timestamp - START) / DURATION) * 100}%`
+
+/** Ruler ticks as the strip lays them out — one every `tickStep(duration)`, up
+ *  to but not including the end of the window. */
+function rulerTicks(duration: number): number[] {
+  const step = tickStep(duration)
+  const ticks: number[] = []
+  for (let tick = step; tick < duration; tick += step) {
+    ticks.push(tick)
+  }
+  return ticks
+}
+
+const byTimestamp = (entries: CommandLog[]) =>
+  [...entries].sort((a, b) => a.timestamp - b.timestamp)
+
 const isActive = (thumb: HTMLElement) => thumb.classList.contains('ring-1')
 
 describe('wdio-devtools-trace-timeline', () => {
@@ -76,6 +99,13 @@ describe('wdio-devtools-trace-timeline', () => {
     it('renders one thumbnail per captured frame, timecoded from the start', async () => {
       const el = await mountTimeline(commands, frames)
 
+      // Derived, so a strip that timecoded from the wrong origin — or stopped
+      // running its labels through the shared formatter — fails here.
+      expect(attrs(shadowAll(el, THUMB), 'title')).toEqual(
+        frames.map((frame) => formatTimecode(frame.timestamp - START))
+      )
+      // ...and pinned, so the derivation can't drift along with a broken
+      // formatter. These are the fixture's designed offsets: 0/500/750/1250/2000.
       expect(attrs(shadowAll(el, THUMB), 'title')).toEqual([
         '0:00.00',
         '0:00.50',
@@ -88,6 +118,9 @@ describe('wdio-devtools-trace-timeline', () => {
     it('positions each thumbnail at its share of the recording', async () => {
       const el = await mountTimeline(commands, frames)
 
+      expect(lefts(shadowAll(el, THUMB))).toEqual(
+        frames.map((frame) => at(frame.timestamp))
+      )
       expect(lefts(shadowAll(el, THUMB))).toEqual([
         '0%',
         '25%',
@@ -158,6 +191,12 @@ describe('wdio-devtools-trace-timeline', () => {
     it('positions each mark at its share of the recording', async () => {
       const el = await mountTimeline(commands, frames)
 
+      // A mark sits at its command's END, not its start — the two differ for
+      // every spanned command in the fixture, so a mark drawn from `startTime`
+      // moves every position here.
+      expect(lefts(shadowAll(el, MARK))).toEqual(
+        byTimestamp(commands).map((command) => at(command.timestamp))
+      )
       expect(lefts(shadowAll(el, MARK))).toEqual([
         '20%',
         '32%',
@@ -198,6 +237,11 @@ describe('wdio-devtools-trace-timeline', () => {
     it('labels the ruler at the interval that fits the recording', async () => {
       const el = await mountTimeline(commands, frames)
 
+      // 2000ms over the 14 divisions the ruler aims for lands on the 250ms step.
+      expect(tickStep(DURATION)).toBe(250)
+      expect(texts(el, TICK_LABEL)).toEqual(
+        rulerTicks(DURATION).map(formatTickLabel)
+      )
       expect(texts(el, TICK_LABEL)).toEqual([
         '250ms',
         '500ms',
@@ -209,9 +253,18 @@ describe('wdio-devtools-trace-timeline', () => {
       ])
     })
 
+    it('positions each ruler label at its tick', async () => {
+      const el = await mountTimeline(commands, frames)
+
+      expect(lefts(shadowAll(el, TICK_LABEL))).toEqual(
+        rulerTicks(DURATION).map((tick) => `${(tick / DURATION) * 100}%`)
+      )
+    })
+
     it('draws one gridline per ruler tick', async () => {
       const el = await mountTimeline(commands, frames)
 
+      expect(shadowAll(el, GRIDLINE)).toHaveLength(rulerTicks(DURATION).length)
       expect(shadowAll(el, GRIDLINE)).toHaveLength(7)
     })
 

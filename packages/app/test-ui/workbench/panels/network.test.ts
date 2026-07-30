@@ -1,8 +1,21 @@
 import type { NetworkRequest } from '@wdio/devtools-shared'
 
 import { networkRequestContext } from '@/controller/context.js'
+import { TYPE_DOT_CLASS } from '@/utils/network-constants.js'
+import {
+  contentType,
+  formatBytes,
+  formatTime,
+  getFileName,
+  getResourceType,
+  statusKind
+} from '@/utils/network-helpers.js'
 import '@components/workbench/network.js'
 import type { DevtoolsNetwork } from '@components/workbench/network.js'
+import {
+  networkWindow,
+  waterfallBar
+} from '@components/workbench/network/waterfall.js'
 
 import { mount, mountWithContext, settle } from '../../support/mount.js'
 import { shadow, shadowAll, text, texts } from '../../support/queries.js'
@@ -29,10 +42,58 @@ const TOOLBAR = '.network-header'
 const FILTER_EMPTY = '.filter-empty'
 const PLACEHOLDER = 'wdio-devtools-placeholder'
 
+/** The panel's own "no value" glyph, distinct from the `-` `formatBytes`
+ *  returns — an em dash, written out so the two can't be confused. */
+const NO_VALUE = '—'
+
 interface DetailSection {
   title: string
   keys: string[]
   values: string[]
+}
+
+// --- Derived expectations ---------------------------------------------------
+// Each column's expected content is computed from the fixture through the same
+// exported helper the panel calls, so a column wired to the wrong field (or to
+// the wrong formatter) fails even though the literal list still reads right.
+// The literals stay alongside as the pinned user-visible strings.
+
+const expectedNames = (requests: NetworkRequest[]) =>
+  requests.map((request) => getFileName(request.url))
+
+const expectedTypes = (requests: NetworkRequest[]) => requests.map(contentType)
+
+const expectedDurations = (requests: NetworkRequest[]) =>
+  requests.map((request) =>
+    typeof request.time === 'number' && request.time > 0
+      ? formatTime(request.time)
+      : NO_VALUE
+  )
+
+const expectedSizes = (requests: NetworkRequest[]) =>
+  requests.map((request) => formatBytes(request.size))
+
+const expectedKindClasses = (requests: NetworkRequest[]) =>
+  requests.map(
+    (request) => `kind-${statusKind(request.status, Boolean(request.error))}`
+  )
+
+const expectedDotClasses = (requests: NetworkRequest[]) =>
+  requests.map((request) => TYPE_DOT_CLASS[getResourceType(request)])
+
+/** A captured body as the detail panel re-indents it, then whitespace-collapsed
+ *  the way `text()` collapses the rendered `<pre>`. */
+const prettyJson = (body: string | undefined) =>
+  JSON.stringify(JSON.parse(body ?? ''), null, 2).replace(/\s+/g, ' ')
+
+/** Bar width per timed request, scaled against the set actually in view — the
+ *  panel scales against the *filtered* list, which is what makes this derived
+ *  form worth asserting. */
+const expectedBarWidths = (inView: NetworkRequest[]) => {
+  const range = networkWindow(inView)
+  return inView
+    .filter((request) => typeof request.time === 'number' && request.time > 0)
+    .map((request) => `${waterfallBar(request, range).width}%`)
 }
 
 async function mountNetwork(
@@ -125,6 +186,7 @@ describe('wdio-devtools-network', () => {
     it('names each row after the file its URL points at', async () => {
       const panel = await mountNetwork(loginNetwork.requests)
 
+      expect(texts(panel, NAME)).toEqual(expectedNames(loginNetwork.requests))
       expect(texts(panel, NAME)).toEqual([
         'login',
         'jquery-1.11.3.min.js',
@@ -153,6 +215,7 @@ describe('wdio-devtools-network', () => {
     it('renders the content type of each request', async () => {
       const panel = await mountNetwork(loginNetwork.requests)
 
+      expect(texts(panel, TYPE)).toEqual(expectedTypes(loginNetwork.requests))
       expect(texts(panel, TYPE)).toEqual([
         'text/html',
         'application/javascript',
@@ -167,6 +230,12 @@ describe('wdio-devtools-network', () => {
     it('renders the duration and transferred size of each request', async () => {
       const panel = await mountNetwork(loginNetwork.requests)
 
+      expect(texts(panel, DURATION)).toEqual(
+        expectedDurations(loginNetwork.requests)
+      )
+      expect(texts(panel, SIZE)).toEqual(expectedSizes(loginNetwork.requests))
+      // The two "missing" glyphs differ: the panel writes an em dash for an
+      // absent duration, `formatBytes` a hyphen for an absent size.
       expect(texts(panel, DURATION)).toEqual([
         '800ms',
         '400ms',
@@ -190,6 +259,9 @@ describe('wdio-devtools-network', () => {
     it('marks each row with the dot of its resource type', async () => {
       const panel = await mountNetwork(loginNetwork.requests)
 
+      expect(shadowAll(panel, TYPE_DOT).map(dotClassOf)).toEqual(
+        expectedDotClasses(loginNetwork.requests)
+      )
       expect(shadowAll(panel, TYPE_DOT).map(dotClassOf)).toEqual([
         'type-html',
         'type-js',
@@ -220,6 +292,9 @@ describe('wdio-devtools-network', () => {
     it('buckets 2xx as ok, 3xx as redirect and 4xx as error', async () => {
       const panel = await mountNetwork(loginNetwork.requests)
 
+      expect(shadowAll(panel, STATUS).map(kindClassOf)).toEqual(
+        expectedKindClasses(loginNetwork.requests)
+      )
       expect(shadowAll(panel, STATUS).map(kindClassOf)).toEqual([
         'kind-ok',
         'kind-ok',
@@ -243,6 +318,11 @@ describe('wdio-devtools-network', () => {
     it('scales every bar against the slowest request in view', async () => {
       const panel = await mountNetwork(loginNetwork.requests)
 
+      expect(barWidths(panel)).toEqual([
+        ...expectedBarWidths(loginNetwork.requests),
+        // The in-flight request draws no bar at all.
+        null
+      ])
       // 800ms is the slowest; the 8ms request is held at the visible minimum.
       expect(barWidths(panel)).toEqual([
         '100%',
@@ -290,7 +370,11 @@ describe('wdio-devtools-network', () => {
       const panel = await mountNetwork(loginNetwork.requests)
       await clickTypeTab(panel, 'JS')
 
+      // Scaled against the filtered set, so the 400ms script now fills the
+      // track; scaling against the unfiltered 800ms maximum would give 50%.
+      expect(barWidths(panel)).toEqual(expectedBarWidths([loginNetwork.script]))
       expect(barWidths(panel)).toEqual(['100%'])
+      expect(expectedBarWidths(loginNetwork.requests)[1]).toBe('50%')
     })
   })
 
@@ -315,6 +399,7 @@ describe('wdio-devtools-network', () => {
       const panel = await mountNetwork(loginNetwork.requests)
       await clickRow(panel, 2)
 
+      const { api } = loginNetwork
       const [general] = detailSections(panel)
       expect(general.keys).toEqual([
         'Request URL',
@@ -323,6 +408,14 @@ describe('wdio-devtools-network', () => {
         'Type',
         'Time',
         'Size'
+      ])
+      expect(general.values).toEqual([
+        api.url,
+        api.method,
+        `${api.status} ${api.statusText}`,
+        contentType(api),
+        formatTime(api.time),
+        formatBytes(api.size)
       ])
       expect(general.values).toEqual([
         'https://the-internet.herokuapp.com/api/session',
@@ -357,6 +450,14 @@ describe('wdio-devtools-network', () => {
       await clickRow(panel, 2)
 
       const sections = detailSections(panel)
+      // Re-indented from the captured wire body — `text()` then collapses the
+      // indentation, so the assertion is on the reflow, not the whitespace.
+      expect(sections[2].values).toEqual([
+        prettyJson(loginNetwork.api.requestBody)
+      ])
+      expect(sections[4].values).toEqual([
+        prettyJson(loginNetwork.api.responseBody)
+      ])
       expect(sections[2].values).toEqual(['{ "sku": "AB-1", "qty": 2 }'])
       expect(sections[4].values).toEqual(['{ "ok": true, "items": 2 }'])
     })
@@ -374,8 +475,15 @@ describe('wdio-devtools-network', () => {
       const panel = await mountNetwork([loginNetwork.pending])
       await clickRow(panel, 0)
 
+      const { pending } = loginNetwork
       const [general] = detailSections(panel)
       expect(general.keys).toEqual(['Request URL', 'Method', 'Status', 'Type'])
+      expect(general.values).toEqual([
+        pending.url,
+        pending.method,
+        NO_VALUE,
+        contentType(pending)
+      ])
       expect(general.values).toEqual([
         'https://the-internet.herokuapp.com/api/notifications?limit=4',
         'GET',
@@ -471,11 +579,29 @@ describe('wdio-devtools-network', () => {
 
       const placeholder = shadow(panel, PLACEHOLDER)
       expect(shadowAll(panel, PLACEHOLDER)).toHaveLength(1)
+      // GAP: none of this copy reaches the screen. `placeholder.ts` declares no
+      // reactive properties, so `icon`/`title`/`description` stay inert
+      // attributes and its template renders only the loading skeleton. The
+      // attributes are still asserted — the panel is meant to be passing them —
+      // but the point of the next block is that a user sees no text at all, so
+      // an assertion on the attributes alone would pass over a blank panel.
       expect(attrOf(placeholder, 'icon')).toBe('network')
       expect(attrOf(placeholder, 'title')).toBe('No network requests captured')
       expect(attrOf(placeholder, 'description')).toBe(
         'Network requests will appear here as your tests run'
       )
+    })
+
+    it('renders none of the placeholder copy it is handed', async () => {
+      const panel = await mountNetwork([])
+      const placeholder = shadow(panel, PLACEHOLDER)!
+
+      // The skeleton renders; the words do not. `title` is the one attribute a
+      // browser does something with (a native tooltip) — it is still not text.
+      expect(text(placeholder)).toBe('')
+      expect(shadowAll(placeholder, '.ph-item')).toHaveLength(1)
+      expect(text(panel)).not.toContain('No network requests captured')
+      expect(text(panel)).not.toContain('Network requests will appear here')
     })
 
     it('renders the placeholder before a provider supplies any requests', async () => {

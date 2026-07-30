@@ -1,6 +1,7 @@
 import type { CommandLog } from '@wdio/devtools-shared'
 
 import { commandContext, sourceContext } from '@/controller/context.js'
+import { commandCategory } from '@components/workbench/actionItems/category.js'
 import '@components/workbench/source.js'
 import type { DevtoolsSource } from '@components/workbench/source.js'
 
@@ -38,11 +39,27 @@ const CALL_SITE = '.cm-line.cm-callsite'
 const NOT_CAPTURED = '.src-empty'
 const PLACEHOLDER = 'wdio-devtools-placeholder'
 
-/** Theme token the panel exposes as `--cs` for the call site's category. */
+/** Theme token the panel exposes as `--cs`, per `ActionCategory`. Mirrors
+ *  `source.ts`'s `CATEGORY_VAR`, which is module-private; `none` is the value
+ *  the panel writes when there is no call site at all. */
 const CATEGORY_COLOUR = {
   navigation: 'var(--vscode-charts-blue)',
   input: 'var(--vscode-charts-purple)',
+  assertion: 'var(--vscode-charts-green)',
+  query: 'var(--vscode-charts-yellow)',
+  other: 'var(--vscode-descriptionForeground)',
   none: 'var(--vscode-descriptionForeground)'
+}
+
+/** The tint a command's call site should get — looked up by the classifier's
+ *  verdict for that command, so a panel tinting by anything else fails. */
+const tintFor = (command: string) => CATEGORY_COLOUR[commandCategory(command)]
+
+/** Last three segments of a path, elided, as the toolbar shows it. */
+const elidedPath = (path: string) => {
+  const segments = path.split('/').filter(Boolean)
+  const shown = segments.slice(-3)
+  return `${segments.length > shown.length ? '…/' : ''}${shown.join('/')}`
 }
 
 /** `text()` collapses whitespace, so a rendered editor line is compared against
@@ -134,6 +151,7 @@ describe('wdio-devtools-source', () => {
     it('shows the last three segments of the active path, marking the elision', async () => {
       const panel = await mountSource(loginSources)
 
+      expect(text(shadow(panel, PATH))).toBe(elidedPath(SPEC_FILE))
       expect(text(shadow(panel, PATH))).toBe('…/test/specs/login.e2e.ts')
       expect(text(shadow(panel, BASE))).toBe('login.e2e.ts')
     })
@@ -147,6 +165,7 @@ describe('wdio-devtools-source', () => {
     it('shows a path short enough to fit whole, with no elision', async () => {
       const panel = await mountSource({ 'login.e2e.ts': SPEC_LINES.join('\n') })
 
+      expect(text(shadow(panel, PATH))).toBe(elidedPath('login.e2e.ts'))
       expect(text(shadow(panel, PATH))).toBe('login.e2e.ts')
       expect(shadowAll(panel, ELISION)).toHaveLength(0)
     })
@@ -244,6 +263,7 @@ describe('wdio-devtools-source', () => {
       const panel = await mountSource(loginSources, loginSourceCommands)
       await highlight(panel, SET_VALUE_CALL_SOURCE)
 
+      expect(callSiteColour(panel)).toBe(tintFor('setValue'))
       expect(callSiteColour(panel)).toBe(CATEGORY_COLOUR.input)
     })
 
@@ -252,7 +272,11 @@ describe('wdio-devtools-source', () => {
       await highlight(panel, NAVIGATE_CALL_SOURCE)
 
       expect(text(shadow(panel, CHIP_COMMAND))).toBe('url')
+      expect(callSiteColour(panel)).toBe(tintFor('url'))
       expect(callSiteColour(panel)).toBe(CATEGORY_COLOUR.navigation)
+      // The two categories really are distinct tints, so the assertion above
+      // isn't satisfied by a panel that hard-codes one colour.
+      expect(tintFor('url')).not.toBe(tintFor('setValue'))
     })
 
     it('highlights a line no command ran on without naming one', async () => {

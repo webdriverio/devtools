@@ -14,9 +14,10 @@ import { commandLog, documentLoaded, mutation } from '../support/builders.js'
 /** Wall-clock origin of the fixture run — the offsets below read as ms into it. */
 const RUN_START = 1_700_000_000_000
 
-/** Playback position inside `setValue`'s span, used to drive the screencast
- *  highlight to that action. */
-export const SET_VALUE_PLAYBACK_TIME = RUN_START + 740
+/** `setValue`'s own execution span. Named because the screencast playback
+ *  position is taken from it rather than restated as a number. */
+const SET_VALUE_START = RUN_START + 700
+const SET_VALUE_END = RUN_START + 780
 
 export interface LoginTimeline {
   /** Capture order, which the action tree's `commandIndex` slots refer to. */
@@ -56,9 +57,15 @@ const setValue = commandLog({
   command: 'setValue',
   args: ['#username', 'tomsmith'],
   callSource: 'login.e2e.ts:12:5',
-  startTime: RUN_START + 700,
-  timestamp: RUN_START + 780
+  startTime: SET_VALUE_START,
+  timestamp: SET_VALUE_END
 })
+
+/** Playback position used to drive the screencast highlight: the midpoint of
+ *  `setValue`'s span, so it falls inside that span and no other. Derived rather
+ *  than restated, so retiming the command moves the position with it — the
+ *  actions spec asserts through `activeSpanAt` that it still resolves there. */
+export const SET_VALUE_PLAYBACK_TIME = (SET_VALUE_START + SET_VALUE_END) / 2
 
 const click = commandLog({
   command: 'click',

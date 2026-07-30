@@ -10,6 +10,7 @@ import {
   metadataContext,
   mutationContext
 } from '@/controller/context.js'
+import { mutationForCommand } from '@components/browser/mutation-at-command.js'
 import '@components/browser/snapshot.js'
 
 import { mountWithContext, settle } from '../../support/mount.js'
@@ -28,6 +29,8 @@ import {
   SECURE_SHOT,
   SECURE_URL,
   STALE_USERNAME,
+  textNodeTrace,
+  type TraceScenario,
   TYPED_USERNAME,
   urllessTrace,
   urlMetadata,
@@ -365,7 +368,16 @@ describe('wdio-devtools-browser', () => {
       expect(doc.querySelector('form#login')).toBeTruthy()
     })
 
-    it('applies a character-data mutation to the element it targets', async () => {
+    /**
+     * SYNTHETIC INPUT — the shape is spelled out at `flashText` in fixtures.ts.
+     * A resolvable `target` is what lets a characterData mutation reach the body
+     * of `#handleCharacterDataMutation`, and `packages/script` cannot record
+     * one: its observer never watches characterData, and a characterData
+     * record's target is a Text node, which `getRef()` serializes to null. So
+     * this is the branch's only cover and it proves nothing about a real trace —
+     * the case after it is what a recorded flash text actually does.
+     */
+    it('applies a character-data mutation whose target resolves', async () => {
       const el = await mountBrowser(loginTrace)
       await replayedPage(el)
 
@@ -380,6 +392,65 @@ describe('wdio-devtools-browser', () => {
       )
 
       expect(doc.querySelector('#flash')?.textContent).toBe(FLASH_TEXT)
+    })
+
+    it('never applies a character-data mutation as a capture records it', async () => {
+      const el = await mountBrowser(textNodeTrace)
+      await replayedPage(el)
+
+      const doc = await replayAfter(el, () =>
+        selectCommand(textNodeTrace.readFlash)
+      )
+      // The class change is the LAST mutation of the window, so it is uniquely
+      // true once the whole walk has run — without it an unfinished replay and a
+      // text change that never landed read the same.
+      await waitUntil(
+        () => doc.querySelector('#flash')?.className === 'success dismissed',
+        'the whole replay window to be applied'
+      )
+
+      // The text is dropped, not deferred: the mutation's null target resolves
+      // to no element, so the replay skips it and the flash stays empty.
+      expect(doc.querySelector('#flash')?.textContent).toBe('')
+    })
+  })
+
+  // The fixture documents a DOM window per command in prose; `mutationForCommand`
+  // is what actually decides them. Asserting the windows keeps those claims
+  // honest — a fixture timestamp that stopped meaning what it says would
+  // otherwise silently move which page every replay case above observes.
+  describe('the DOM window a command resolves to', () => {
+    const windowFor = (command: CommandLog, scenario: TraceScenario) =>
+      mutationForCommand(command, scenario.commands, scenario.mutations)
+
+    it('ends a command at the last mutation before the next one starts', () => {
+      expect(windowFor(loginTrace.openLogin, loginTrace)).toBe(
+        loginTrace.loginDocument
+      )
+    })
+
+    it('gives the fill command the whole field batch that followed it', () => {
+      expect(windowFor(loginTrace.typeUsername, loginTrace)).toBe(
+        loginTrace.planSelected
+      )
+    })
+
+    it('reaches past a navigating click to the page it produced', () => {
+      expect(windowFor(loginTrace.submit, loginTrace)).toBe(
+        loginTrace.securePageDocument
+      )
+    })
+
+    it('leaves the last command unbounded', () => {
+      expect(windowFor(loginTrace.readFlash, loginTrace)).toBe(
+        loginTrace.flashText
+      )
+    })
+
+    it('falls back to the first capture for a command that predates every mutation', () => {
+      expect(windowFor(preCaptureTrace.launchSession, preCaptureTrace)).toBe(
+        preCaptureTrace.mutations[0]
+      )
     })
   })
 

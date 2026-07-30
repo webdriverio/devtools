@@ -79,6 +79,24 @@ function sectionNamed(panel: DevtoolsMetadata, label: string): MetaSection {
 const jsonLines = (el: Element | null): string[] =>
   (el?.textContent ?? '').trim().split('\n')
 
+/** A captured value as the panel prints it in a JSON block. */
+const prettyJson = (value: unknown) => JSON.stringify(value, null, 2)
+
+/** A session option's label — `Session <n>` plus the host of the page it was
+ *  last on, which is what makes several options distinguishable. */
+const sessionLabel = (index: number, url?: string) => {
+  const host = url ? tryHost(url) : undefined
+  return host ? `Session ${index + 1} · ${host}` : `Session ${index + 1}`
+}
+
+const tryHost = (url: string): string | undefined => {
+  try {
+    return new URL(url).host
+  } catch {
+    return undefined
+  }
+}
+
 async function toggleSection(panel: DevtoolsMetadata, label: string) {
   const heading = shadowAll(panel, HEADING).find(
     (candidate) => text(candidate) === label
@@ -114,14 +132,22 @@ describe('wdio-devtools-metadata', () => {
           'Test File',
           'URL'
         ],
+        // Derived, so a row wired to the wrong metadata field fails.
         values: [
-          '3a7f19c4e2b8',
-          'local',
-          'http://localhost:4444',
-          SPEC_FILE,
-          LOGIN_URL
+          loginMetadata.sessionId,
+          loginMetadata.testEnv,
+          loginMetadata.host,
+          loginMetadata.modulePath,
+          loginMetadata.url
         ]
       })
+      expect(sectionNamed(panel, 'Session').values).toEqual([
+        '3a7f19c4e2b8',
+        'local',
+        'http://localhost:4444',
+        SPEC_FILE,
+        LOGIN_URL
+      ])
     })
 
     it('leaves out the session fields the capture did not carry', async () => {
@@ -166,12 +192,22 @@ describe('wdio-devtools-metadata', () => {
     it('renders a row per capability', async () => {
       const panel = await mountMetadata(loginMetadata)
 
+      const captured = loginMetadata.capabilities as Record<string, unknown>
       const capabilities = sectionNamed(panel, 'Capabilities')
+      // One row per captured capability, in capture order.
+      expect(capabilities.keys).toEqual(Object.keys(captured))
       expect(capabilities.keys).toEqual([
         'browserName',
         'browserVersion',
         'goog:chromeOptions',
         'setWindowRect'
+      ])
+      // Object values go through a JSON block, scalars through the value cell.
+      expect(capabilities.values).toEqual([
+        String(captured.browserName),
+        String(captured.browserVersion),
+        prettyJson(captured['goog:chromeOptions']).replace(/\s+/g, ' '),
+        String(captured.setWindowRect)
       ])
       expect(capabilities.values).toEqual([
         'chrome',
@@ -184,6 +220,12 @@ describe('wdio-devtools-metadata', () => {
     it('renders a row per runner option', async () => {
       const panel = await mountMetadata(loginMetadata)
 
+      const captured = loginMetadata.options as Record<string, unknown>
+      expect(sectionNamed(panel, 'Options')).toEqual({
+        label: 'Options',
+        keys: Object.keys(captured),
+        values: Object.values(captured).map(String)
+      })
       expect(sectionNamed(panel, 'Options')).toEqual({
         label: 'Options',
         keys: ['waitforTimeout', 'logLevel'],
@@ -194,6 +236,15 @@ describe('wdio-devtools-metadata', () => {
     it('renders a row per requested capability', async () => {
       const panel = await mountMetadata(loginMetadata)
 
+      const captured = loginMetadata.desiredCapabilities as Record<
+        string,
+        unknown
+      >
+      expect(sectionNamed(panel, 'Desired Capabilities')).toEqual({
+        label: 'Desired Capabilities',
+        keys: Object.keys(captured),
+        values: Object.values(captured).map(String)
+      })
       expect(sectionNamed(panel, 'Desired Capabilities')).toEqual({
         label: 'Desired Capabilities',
         keys: ['browserName', 'acceptInsecureCerts'],
@@ -230,6 +281,13 @@ describe('wdio-devtools-metadata', () => {
     it('pretty-prints an object capability into a JSON block', async () => {
       const panel = await mountMetadata(loginMetadata)
 
+      expect(jsonLines(shadow(panel, JSON_BLOCK))).toEqual(
+        prettyJson(
+          (loginMetadata.capabilities as Record<string, unknown>)[
+            'goog:chromeOptions'
+          ]
+        ).split('\n')
+      )
       expect(jsonLines(shadow(panel, JSON_BLOCK))).toEqual([
         '{',
         '  "args": [',
@@ -240,11 +298,13 @@ describe('wdio-devtools-metadata', () => {
     })
 
     it('renders an array option as a JSON block too', async () => {
-      const panel = await mountMetadata(
-        metadata({ options: { specs: ['login.e2e.ts'] } })
-      )
+      const specs = ['login.e2e.ts']
+      const panel = await mountMetadata(metadata({ options: { specs } }))
 
       expect(shadowAll(panel, JSON_BLOCK)).toHaveLength(1)
+      expect(jsonLines(shadow(panel, JSON_BLOCK))).toEqual(
+        prettyJson(specs).split('\n')
+      )
       expect(jsonLines(shadow(panel, JSON_BLOCK))).toEqual([
         '[',
         '  "login.e2e.ts"',
@@ -314,7 +374,9 @@ describe('wdio-devtools-metadata', () => {
       })
 
       expect(shadowAll(panel, SELECT)).toHaveLength(0)
-      expect(sectionNamed(panel, 'Session').values).toContain('3a7f19c4e2b8')
+      expect(sectionNamed(panel, 'Session').values).toContain(
+        loginMetadata.sessionId
+      )
     })
 
     it('renders one picker option per captured session', async () => {
@@ -333,17 +395,26 @@ describe('wdio-devtools-metadata', () => {
       })
 
       expect(texts(panel, OPTION)).toEqual([
+        sessionLabel(0, loginMetadata.url),
+        sessionLabel(1, secureMetadata.url)
+      ])
+      expect(texts(panel, OPTION)).toEqual([
         'Session 1 · the-internet.herokuapp.com',
         'Session 2 · the-internet.herokuapp.com'
       ])
     })
 
     it('labels a session that never navigated by its position alone', async () => {
+      const never = metadata({ sessionId: 'never-navigated' })
       const panel = await mountMetadata(undefined, {
         'session-1': loginMetadata,
-        'session-2': metadata({ sessionId: 'never-navigated' })
+        'session-2': never
       })
 
+      expect(texts(panel, OPTION)).toEqual([
+        sessionLabel(0, loginMetadata.url),
+        sessionLabel(1, never.url)
+      ])
       expect(texts(panel, OPTION)).toEqual([
         'Session 1 · the-internet.herokuapp.com',
         'Session 2'
@@ -351,11 +422,17 @@ describe('wdio-devtools-metadata', () => {
     })
 
     it('labels a session whose url is not a url by its position alone', async () => {
+      // `about:blank` parses as a URL but has no host, so the suffix drops.
+      const blank = metadata({ url: 'about:blank' })
       const panel = await mountMetadata(undefined, {
         'session-1': loginMetadata,
-        'session-2': metadata({ url: 'about:blank' })
+        'session-2': blank
       })
 
+      expect(texts(panel, OPTION)).toEqual([
+        sessionLabel(0, loginMetadata.url),
+        sessionLabel(1, blank.url)
+      ])
       expect(texts(panel, OPTION)).toEqual([
         'Session 1 · the-internet.herokuapp.com',
         'Session 2'
@@ -368,6 +445,10 @@ describe('wdio-devtools-metadata', () => {
         'session-2': secureMetadata
       })
 
+      expect(sectionNamed(panel, 'Session').values).toEqual([
+        secureMetadata.sessionId,
+        secureMetadata.url
+      ])
       expect(sectionNamed(panel, 'Session').values).toEqual([
         'b52d08fa17c6',
         SECURE_URL
@@ -382,7 +463,9 @@ describe('wdio-devtools-metadata', () => {
       })
       await pickSession(panel, 'session-1')
 
-      expect(sectionNamed(panel, 'Session').values).toContain('3a7f19c4e2b8')
+      expect(sectionNamed(panel, 'Session').values).toContain(
+        loginMetadata.sessionId
+      )
       expect(sectionNamed(panel, 'Capabilities').values).toContain('chrome')
     })
 
@@ -394,6 +477,12 @@ describe('wdio-devtools-metadata', () => {
       })
 
       expect(shadowAll(panel, OPTION)).toHaveLength(2)
+      // Numbered over the *filtered* list, so the buffer doesn't shift the
+      // positions by one.
+      expect(texts(panel, OPTION)).toEqual([
+        sessionLabel(0, loginMetadata.url),
+        sessionLabel(1, secureMetadata.url)
+      ])
       expect(texts(panel, OPTION)).toEqual([
         'Session 1 · the-internet.herokuapp.com',
         'Session 2 · the-internet.herokuapp.com'
@@ -403,7 +492,9 @@ describe('wdio-devtools-metadata', () => {
     it('falls back to the active metadata when no session map was captured', async () => {
       const panel = await mountMetadata(loginMetadata, {})
 
-      expect(sectionNamed(panel, 'Session').values).toContain('3a7f19c4e2b8')
+      expect(sectionNamed(panel, 'Session').values).toContain(
+        loginMetadata.sessionId
+      )
       expect(shadowAll(panel, SELECT)).toHaveLength(0)
     })
 
@@ -412,6 +503,10 @@ describe('wdio-devtools-metadata', () => {
         'session-2': secureMetadata
       })
 
+      expect(sectionNamed(panel, 'Session').values).toEqual([
+        secureMetadata.sessionId,
+        secureMetadata.url
+      ])
       expect(sectionNamed(panel, 'Session').values).toEqual([
         'b52d08fa17c6',
         SECURE_URL

@@ -74,7 +74,8 @@ describe('wdio-devtools-tab', () => {
       expect(el.badgeTone).toBe(undefined)
     })
 
-    // The workbench writes both as attributes; the bar reads them as properties,
+    // The workbench binds the count as a PROPERTY (`.badge="${…}"`) and the tone
+    // as an attribute (`badgeTone="danger"`); the bar reads both as properties,
     // so the attribute has to reach the typed property to be badged at all.
     it('reads a count written as an attribute as a number', async () => {
       const el = await mount<DevtoolsTab>(TAG)

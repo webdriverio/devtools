@@ -4,6 +4,12 @@
 // matches mutations against, and form state arrives as a synthetic
 // `value` / `checked` attribute mutation the way the collector emits it
 // (`String(el.value)` / `String(el.checked)`).
+//
+// The two producers each shape gets its shape from, so a change on either side
+// shows up here:
+//   `parseDocument`  (collector.captureCurrentDom) → the full-DOM anchor
+//   `parseFragment`  (serializeMutation)           → every added node
+// both via `parseNode`, which builds nodes with preact's `h()`.
 
 import { TraceType } from '@wdio/devtools-shared'
 import type {
@@ -45,8 +51,10 @@ export const SECURE_SHOT =
 export const FRAME_SHOT =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR42mP48OEDAAWkAtFkkTHCAAAAAElFTkSuQmCC'
 
-/** Refs the mutation stream targets. Real captures number them; the names here
- *  keep the assertions readable. */
+/** Refs the mutation stream targets. `assignRef` numbers them and stamps one on
+ *  EVERY element of the captured tree (`<html>` and `<head>` included); the
+ *  names here cover only the elements the specs address, and read better in an
+ *  assertion than a serial number. */
 export const REF = {
   body: 'body-ref',
   form: 'form-ref',
@@ -63,27 +71,54 @@ export const REF = {
 } as const
 
 /** A serialized element as the collector emits it — attributes and the child
- *  list share `props`. */
+ *  list share `props`, and a wrapper fragment carries no `type` at all. */
 interface CapturedNode {
-  type: string
-  props: Record<string, string | CapturedNode[]>
+  type?: string
+  props: Record<string, string | CapturedNode | CapturedNode[]>
 }
 
+/**
+ * One serialized element, shaped as `parseNode` leaves it: attributes spread
+ * onto `props`, children under `props.children` — a single child BARE, several
+ * as an array. That split is not cosmetic: `parseNode` builds each node with
+ * preact's `h()`, and `h(type, props, one)` stores that one child as-is, so a
+ * real capture of `body > form` hands the replay an object where a capture of
+ * `body > [div, a]` hands it an array. Always emitting an array would leave the
+ * single-child path — the common one — untested.
+ */
 function vnode(
   type: string,
   props: Record<string, string>,
   ...children: CapturedNode[]
 ): CapturedNode {
-  return children.length > 0
-    ? { type, props: { ...props, children } }
-    : { type, props }
+  if (children.length === 0) {
+    return { type, props }
+  }
+  return {
+    type,
+    props: {
+      ...props,
+      children: children.length === 1 ? children[0] : children
+    }
+  }
 }
 
 /**
- * A captured page as `html > [head, body]`. `head` takes at least two nodes:
- * the replay prepends its `<base>` by spreading `head.props.children`, and
- * Preact only materialises that as an array for a node with several children —
- * a one-child head makes the rebuild throw and the iframe stays blank.
+ * An added node as `serializeMutation` puts it on the wire. `parseFragment`
+ * serializes a documentFragment, whose nodeName yields no tagName, so every
+ * added node arrives inside a TYPELESS node holding it as its only child —
+ * the wrapper `vnode-transform`'s ToDo branch unwraps on replay.
+ */
+function capturedFragment(node: CapturedNode): CapturedNode {
+  return { props: { children: node } }
+}
+
+/**
+ * A captured page as `parseDocument` emits it: `html > [head, body]`, since
+ * parse5 always materialises both. `head` takes at least two nodes here because
+ * the replay prepends its `<base>` by spreading `head.props.children` — a real
+ * page with a single `<title>` therefore hands it a bare object, the rebuild
+ * throws, and the iframe stays blank (see `vnode-transform.test.ts`).
  */
 function capturedDocument(
   head: readonly [CapturedNode, CapturedNode, ...CapturedNode[]],
@@ -260,11 +295,50 @@ const securePageDocument = documentLoaded(SECURE_URL, {
   timestamp: RUN_START + 1400
 })
 
+/**
+ * SYNTHETIC — no real trace carries this shape, and the replay branch it drives
+ * (`#handleCharacterDataMutation`) is dead against recorded data, for two
+ * independent reasons:
+ *
+ *  1. `packages/script` never records one. Its MutationObserver is configured
+ *     `{ attributes, childList, subtree }` — `characterData` is not observed, so
+ *     no such record ever reaches `serializeMutation`.
+ *  2. Even if it were observed, the target would not resolve. A characterData
+ *     record's `target` is the mutated TEXT node, and `serializeMutation` sets
+ *     `target: getRef(m.target)`; `getRef` returns null for anything without
+ *     `getAttribute`, so the wire value is null and the replay's
+ *     `#queryElement(null)` looks for `[data-wdio-ref="null"]` — never a match.
+ *
+ * A resolvable `target` is what makes this fixture's mutation apply at all, and
+ * that is exactly the part production cannot produce. `textNodeTrace` below
+ * carries the shape a real capture WOULD have, and the spec asserts against it
+ * that the branch does nothing.
+ */
 const flashText = mutation({
   type: 'characterData',
   target: REF.flash,
   newTextContent: FLASH_TEXT,
   timestamp: RUN_START + 1600
+})
+
+/** The `target` a characterData record really arrives with: `getRef()` on a Text
+ *  node returns null. `TraceMutation.target` is typed `string | undefined`, so
+ *  the wire value is cast once here rather than softened to `undefined` — the
+ *  point of the fixture is to be the value the reader hands the player. */
+const TEXT_NODE_TARGET = null as unknown as string
+
+const flashTextAsCaptured = mutation({
+  type: 'characterData',
+  target: TEXT_NODE_TARGET,
+  newTextContent: FLASH_TEXT,
+  timestamp: RUN_START + 1600
+})
+
+const flashDismissed = mutation({
+  target: REF.flash,
+  attributeName: 'class',
+  attributeValue: 'success dismissed',
+  timestamp: RUN_START + 1650
 })
 
 export interface LoginTrace extends TraceScenario {
@@ -292,7 +366,8 @@ export interface LoginTrace extends TraceScenario {
   planSelected: TraceMutation
   /** Full-DOM anchor of the page the click navigated to. */
   securePageDocument: TraceMutation
-  /** Flash text arriving on the secure page. */
+  /** Flash text arriving on the secure page — a shape only this fixture has;
+   *  see the note above its definition. */
   flashText: TraceMutation
 }
 
@@ -321,6 +396,28 @@ export const loginTrace: LoginTrace = {
   planSelected,
   securePageDocument,
   flashText
+}
+
+export interface TextNodeTrace extends TraceScenario {
+  /** Last command, so its DOM window runs to the end of the mutation stream —
+   *  the replay walks the anchor, then the text change, then the class change. */
+  readFlash: CommandLog
+  /** A characterData mutation exactly as a capture would carry it: `target` is
+   *  the null `getRef()` returns for a Text node. */
+  flashTextAsCaptured: TraceMutation
+  /** Applied after it, so the spec has a signal that is uniquely true once the
+   *  whole window has replayed — without it a missing text change and an
+   *  unfinished replay look the same. */
+  flashDismissed: TraceMutation
+}
+
+/** The secure page as `packages/script` would really record its flash text. */
+export const textNodeTrace: TextNodeTrace = {
+  commands: [readFlash],
+  mutations: [securePageDocument, flashTextAsCaptured, flashDismissed],
+  readFlash,
+  flashTextAsCaptured,
+  flashDismissed
 }
 
 const launchSession = commandLog({
@@ -357,7 +454,9 @@ const errorInserted = mutation({
   type: 'childList',
   target: REF.form,
   addedNodes: [
-    payload(vnode('p', { id: 'error', 'data-wdio-ref': REF.error }))
+    payload(
+      capturedFragment(vnode('p', { id: 'error', 'data-wdio-ref': REF.error }))
+    )
   ],
   nextSibling: REF.submit,
   timestamp: RUN_START + 900
@@ -465,8 +564,17 @@ export const domlessTrace: DomlessTrace = {
   assertFlash
 }
 
-/** A document anchor is a childList of one added node with no target; this one
- *  carries no url, which is what makes the player fall back for the address bar. */
+/**
+ * A document anchor is a childList of one added node with no target; this one
+ * carries no url, which is what makes the player fall back for the address bar.
+ *
+ * SYNTHETIC in that respect: `captureCurrentDom` always stamps
+ * `window.location.href` on the anchor it emits, so a recorded anchor has a url.
+ * The fallback is reached from the other direction instead — a slice whose first
+ * mutation is not an anchor at all leaves `#renderBrowserState` on `mutations[0]`
+ * with no url. Driving it from a url-less anchor is the only way to exercise the
+ * fallback and still have a document to replay.
+ */
 const urllessDocument = mutation({
   type: 'childList',
   target: undefined,

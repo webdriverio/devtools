@@ -9,8 +9,10 @@ import { shadow, shadowAll, text, texts } from '../../support/queries.js'
 import {
   headerlessSnapshot,
   headerOnlySnapshot,
+  LOGIN_DEPTHS,
   LOGIN_LOCATOR,
   LOGIN_LOCATOR_ALIAS,
+  LOGIN_LOCATORS,
   LOGIN_NAMES,
   LOGIN_ROLES,
   loginCommand,
@@ -186,6 +188,12 @@ describe('wdio-devtools-a11y', () => {
     it('indents each row by the depth of its node', async () => {
       const panel = await mountTree(loginSnapshot)
 
+      // Derived from the captured depths, so a row indented by its render
+      // position rather than its nesting fails: rows 2 and 7 are both depth 1
+      // but four apart in the list.
+      expect(indents(panel)).toEqual(
+        LOGIN_DEPTHS.map((depth) => `${8 + depth * 16}px`)
+      )
       expect(indents(panel)).toEqual([
         '8px',
         '24px',
@@ -254,12 +262,16 @@ describe('wdio-devtools-a11y', () => {
     it('marks only the nodes that carry a locator as pickable', async () => {
       const panel = await mountTree(loginSnapshot)
 
+      expect(shadowAll(panel, PICKABLE_NODE)).toHaveLength(
+        LOGIN_LOCATORS.length
+      )
       expect(shadowAll(panel, PICKABLE_NODE)).toHaveLength(3)
     })
 
     it('renders the captured locator of every pickable row', async () => {
       const panel = await mountTree(loginSnapshot)
 
+      expect(texts(panel, LOCATOR)).toEqual(LOGIN_LOCATORS)
       expect(texts(panel, LOCATOR)).toEqual([
         USERNAME_LOCATOR,
         PASSWORD_LOCATOR,
@@ -349,6 +361,10 @@ describe('wdio-devtools-a11y', () => {
       const panel = await mountTree(loginSnapshot)
       await clickRow(panel, USERNAME_ROW)
 
+      expect(texts(panel, LOCATOR)).toEqual([
+        'copied ✓',
+        ...LOGIN_LOCATORS.slice(1)
+      ])
       expect(texts(panel, LOCATOR)).toEqual([
         'copied ✓',
         PASSWORD_LOCATOR,

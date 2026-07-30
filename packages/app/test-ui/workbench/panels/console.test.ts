@@ -3,6 +3,7 @@ import type { ConsoleLog } from '@wdio/devtools-shared'
 import { consoleLogContext } from '@/controller/context.js'
 import '@components/workbench/console.js'
 import type { DevtoolsConsoleLogs } from '@components/workbench/console.js'
+import { formatConsoleArgs } from '@components/workbench/console-filter.js'
 
 import { mount, mountWithContext, settle } from '../../support/mount.js'
 import { shadow, shadowAll, text, texts } from '../../support/queries.js'
@@ -27,13 +28,22 @@ const TOOLBAR = '.console-header'
 const EMPTY_STATE = '.empty-state'
 const FILTER_EMPTY = '.console-container .empty-state-text'
 
-/** The four `loginConsole` messages as the panel renders them. */
-const MESSAGES = [
+/** The four `loginConsole` messages as the panel renders them — derived through
+ *  the same formatter the panel calls, so a row wired to the wrong entry (or to
+ *  the raw args) fails. The literals below pin the strings a user reads. */
+const MESSAGES = loginConsole.logs.map((log) => formatConsoleArgs(log.args))
+
+const MESSAGE_LITERALS = [
   '[TEST] logging in with valid credentials',
   'navigating to /secure',
   RUNNER_WARN_TEXT,
   "TypeError: Cannot read properties of undefined (reading 'flash')"
 ]
+
+/** Elapsed time as the panel measures it: seconds since the *first captured*
+ *  log, to one decimal. Written out because `#formatElapsedTime` is private. */
+const elapsed = (timestamp: number) =>
+  `${((timestamp - loginConsole.logs[0].timestamp) / 1000).toFixed(1)}s`
 
 async function mountConsole(logs: ConsoleLog[]): Promise<DevtoolsConsoleLogs> {
   const panel = await mountWithContext<DevtoolsConsoleLogs>(PANEL, [
@@ -82,6 +92,7 @@ describe('wdio-devtools-console-logs', () => {
       const panel = await mountConsole(loginConsole.logs)
 
       expect(texts(panel, MESSAGE)).toEqual(MESSAGES)
+      expect(texts(panel, MESSAGE)).toEqual(MESSAGE_LITERALS)
     })
 
     it('keeps capture order rather than sorting rows by timestamp', async () => {
@@ -166,6 +177,9 @@ describe('wdio-devtools-console-logs', () => {
     it("renders each row's time elapsed from the first captured log", async () => {
       const panel = await mountConsole(loginConsole.logs)
 
+      expect(texts(panel, TIME)).toEqual(
+        loginConsole.logs.map((log) => elapsed(log.timestamp))
+      )
       expect(texts(panel, TIME)).toEqual(['0.0s', '0.4s', '1.2s', '2.5s'])
     })
 
@@ -196,6 +210,11 @@ describe('wdio-devtools-console-logs', () => {
       const panel = await mountConsole(loginConsole.logs)
       await clickLevelTab(panel, 'Errors')
 
+      // Measured from the first *captured* log, not the first *visible* one —
+      // re-basing on the filtered list would read 0.0s here.
+      expect(texts(panel, TIME)).toEqual([
+        elapsed(loginConsole.pageError.timestamp)
+      ])
       expect(texts(panel, TIME)).toEqual(['2.5s'])
     })
 
