@@ -361,8 +361,9 @@ describe('collectErrors', () => {
       ],
       []
     )
-    expect(error.actual).toBe('Your username is invalid!')
-    expect(error.expected).toBe('You logged into a secure area!')
+    // Raw values are printed once, here, so the renderer never formats them.
+    expect(error.actual).toBe("'Your username is invalid!'")
+    expect(error.expected).toBe("'You logged into a secure area!'")
   })
 
   it('extracts expected/received from a failed-test matcher error', () => {

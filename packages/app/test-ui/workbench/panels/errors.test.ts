@@ -4,15 +4,19 @@ import { commandContext, suiteContext } from '@/controller/context.js'
 import type { SuiteStatsFragment } from '@/controller/types.js'
 import '@components/workbench/errors.js'
 import type { DevtoolsErrors } from '@components/workbench/errors.js'
+import { collectErrors } from '@components/workbench/errors/collect.js'
 
 import { mount, mountWithContext, settle } from '../../support/mount.js'
 import { commandLog } from '../../support/builders.js'
 import { shadow, shadowAll, text, texts } from '../../support/queries.js'
 import {
   ASSERT_ACTUAL,
+  ASSERT_CALL_SOURCE,
   ASSERT_EXPECTED,
+  CLICK_CALL_SOURCE,
   CLICK_MESSAGE,
   HOOK_MESSAGE,
+  MATCHER_CALL_SOURCE,
   MATCHER_EXPECTED,
   MATCHER_HEADLINE,
   MATCHER_RECEIVED,
@@ -41,13 +45,20 @@ const STACK_SUMMARY = '.error-stack summary'
 const EMPTY_STATE = '.empty-state'
 const EMPTY_ICON = '.empty-state-icon'
 
-/** Anchor labels of the scenario's failures — `@` plus the last three path
- *  segments of each call source, which is all the anchor shows. */
+/** `@` plus the last three path segments of a call source, which is all the
+ *  anchor shows. Mirrors `errors.ts`'s `shortSource`, which is module-private —
+ *  so the anchors below follow the fixture's own call sources rather than
+ *  restating its file path and line numbers as literals. A change to how many
+ *  segments the panel keeps still fails these. */
+const anchor = (callSource: string) =>
+  `@${callSource.split(/[\\/]/).slice(-3).join('/')}`
+
+/** Anchor labels of the scenario's failures. */
 const ANCHOR = {
-  click: '@test/specs/login.e2e.ts:9:36',
-  matcher: '@test/specs/login.e2e.ts:10:11',
-  nativeAssert: '@test/specs/login.e2e.ts:11:12',
-  hook: '@test/specs/login.e2e.ts:14:3'
+  click: anchor(CLICK_CALL_SOURCE),
+  matcher: anchor(MATCHER_CALL_SOURCE),
+  nativeAssert: anchor(ASSERT_CALL_SOURCE),
+  hook: anchor(`${SPEC_FILE}:14:3`)
 }
 
 async function mountErrors(
@@ -118,6 +129,25 @@ describe('wdio-devtools-errors', () => {
         ANCHOR.nativeAssert,
         ANCHOR.hook
       ])
+    })
+
+    it('renders every error the collector produced, in its order', async () => {
+      const panel = await mountErrors(loginErrors.commands, loginErrors.suites)
+      const collected = collectErrors(
+        loginErrors.commands,
+        loginErrors.suites as never
+      )
+
+      // The panel renders `collectErrors` output directly, so a row it drops or
+      // reorders on its own account shows up here even though the per-field
+      // assertions above still pass.
+      expect(entries(panel)).toHaveLength(collected.length)
+      expect(texts(panel, LOC)).toEqual(
+        collected.map((error) => anchor(error.callSource!))
+      )
+      expect(texts(panel, TITLE)).toEqual(
+        collected.map((error) => error.message)
+      )
     })
 
     it('ignores a test that carries an error but did not fail', async () => {
@@ -255,18 +285,19 @@ describe('wdio-devtools-errors', () => {
       const panel = await mountErrors([loginErrors.matcher])
 
       expect(texts(panel, DIFF_LABEL)).toEqual(['Actual', 'Expected'])
-      // The matcher printed its own values, and the panel quotes any string
-      // value again — so they arrive doubly quoted.
-      expect(text(shadow(panel, RECEIVED))).toBe(`'${MATCHER_RECEIVED}'`)
-      expect(text(shadow(panel, EXPECTED))).toBe(`'${MATCHER_EXPECTED}'`)
+      // The matcher already printed these values; the panel renders them as-is
+      // rather than quoting a second time.
+      expect(text(shadow(panel, RECEIVED))).toBe(MATCHER_RECEIVED)
+      expect(text(shadow(panel, EXPECTED))).toBe(MATCHER_EXPECTED)
     })
 
-    it('drops the matcher headline once its values have been pulled out', async () => {
+    it('keeps the matcher headline above the values pulled out of it', async () => {
       const panel = await mountErrors([loginErrors.matcher])
 
-      expect(shadowAll(panel, TITLE)).toHaveLength(0)
-      // The headline survives only inside the stack the entry also renders.
-      expect(text(shadow(panel, STACK_BODY))).toContain(MATCHER_HEADLINE)
+      // The headline is the message minus the Expected/Received lines, so it
+      // heads the row without repeating what the diff already shows.
+      expect(text(shadow(panel, TITLE))).toBe(MATCHER_HEADLINE)
+      expect(text(shadow(panel, TITLE))).not.toContain('Expected:')
     })
 
     it('reads the values off a collapsed assert result when the command carries one', async () => {

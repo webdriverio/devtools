@@ -35,13 +35,21 @@ export interface CollectedError {
 
 const ASSERTION_COMMAND_RE = /^(expect|assert|verify)\./
 
-/** Display string for an expected/actual value that may already be serialized. */
+/** Headline used when the whole message body was the Expected/Received block, so
+ *  there is nothing left to head the row with. */
+export const GENERIC_ERROR_TITLE = 'Error'
+
+/** Display string for a RAW expected/actual value — one this app is printing for
+ *  the first time. Strings are quoted so an empty or space-padded value is
+ *  visible. Values lifted out of a matcher message must NOT come through here:
+ *  the matcher already printed them (`"Secure Area"`), and quoting again renders
+ *  `'"Secure Area"'`. Provenance is resolved at the single call site below. */
 function displayValue(value: unknown): string | undefined {
   if (value === undefined || value === null) {
     return undefined
   }
   if (typeof value === 'string') {
-    return value
+    return `'${value}'`
   }
   try {
     return JSON.stringify(value)
@@ -157,7 +165,7 @@ function readError(error: unknown):
   const { body, stack } = splitStack(stripAnsi(raw))
   const diff = extractDiff(body)
   return {
-    message: diff.headline || 'Error',
+    message: diff.headline || GENERIC_ERROR_TITLE,
     stack: e.stack ? stripAnsi(e.stack) : stack,
     expected: diff.expected ?? displayValue(e.expected),
     actual: diff.actual ?? displayValue(e.actual)

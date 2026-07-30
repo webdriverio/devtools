@@ -6,7 +6,11 @@ import { consume } from '@lit/context'
 import type { CommandLog } from '@wdio/devtools-shared'
 import { commandContext, suiteContext } from '../../controller/context.js'
 import type { SuiteStatsFragment } from '../../controller/types.js'
-import { collectErrors, type CollectedError } from './errors/collect.js'
+import {
+  collectErrors,
+  GENERIC_ERROR_TITLE,
+  type CollectedError
+} from './errors/collect.js'
 
 const COMPONENT = 'wdio-devtools-errors'
 
@@ -14,11 +18,6 @@ const COMPONENT = 'wdio-devtools-errors'
  *  short (`step-definitions/steps.ts:31:3`) instead of an absolute path. */
 function shortSource(callSource: string): string {
   return callSource.split(/[\\/]/).slice(-3).join('/')
-}
-
-/** Show assertion values readably: quote strings, stringify everything else. */
-function fmtValue(value: unknown): string {
-  return typeof value === 'string' ? `'${value}'` : String(value)
 }
 
 @customElement(COMPONENT)
@@ -155,6 +154,18 @@ export class DevtoolsErrors extends Element {
     )
   }
 
+  /** The headline is the message with the Expected/Received block already
+   *  stripped, so it shows alongside a diff without repeating it. The one case to
+   *  hide is the generic fallback: `Error` above a diff is noise, but with no diff
+   *  it is the row's only heading. */
+  #showsHeadline(error: CollectedError): boolean {
+    if (!error.message) {
+      return false
+    }
+    const hasDiff = error.expected !== undefined || error.actual !== undefined
+    return !(hasDiff && error.message === GENERIC_ERROR_TITLE)
+  }
+
   #renderDiff(error: CollectedError): TemplateResult | typeof nothing {
     if (error.expected === undefined && error.actual === undefined) {
       return nothing
@@ -162,11 +173,11 @@ export class DevtoolsErrors extends Element {
     return html`<div class="error-diff">
       ${error.actual !== undefined
         ? html`<span class="label">Actual</span
-            ><span class="received">${fmtValue(error.actual)}</span>`
+            ><span class="received">${error.actual}</span>`
         : nothing}
       ${error.expected !== undefined
         ? html`<span class="label">Expected</span
-            ><span class="expected">${fmtValue(error.expected)}</span>`
+            ><span class="expected">${error.expected}</span>`
         : nothing}
     </div>`
   }
@@ -183,7 +194,7 @@ export class DevtoolsErrors extends Element {
               @${shortSource(error.callSource)}
             </button>`
           : nothing}
-        ${error.expected === undefined && error.actual === undefined
+        ${this.#showsHeadline(error)
           ? html`<div class="error-title">${error.message}</div>`
           : nothing}
         ${this.#renderDiff(error)}
