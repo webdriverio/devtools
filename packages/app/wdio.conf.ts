@@ -25,6 +25,10 @@ import appViteConfig from './vite.config.js'
 
 const appDir = path.dirname(fileURLToPath(import.meta.url))
 const headed = process.env.HEADED === '1' || process.env.HEADED === 'true'
+// INSPECT=1 makes the browser attachable from an editor: a fixed CDP port, one
+// worker so nothing contends for it, and headed so the paused page is visible.
+const inspect = process.env.INSPECT === '1' || process.env.INSPECT === 'true'
+const INSPECT_PORT = 9222
 const requireFromApp = createRequire(import.meta.url)
 
 // The runner asks Vite to pre-bundle these CJS packages so the browser can
@@ -102,14 +106,26 @@ export const config: WebdriverIO.Config = {
     {
       preset: 'lit',
       rootDir: appDir,
-      headless: !headed,
+      headless: !(headed || inspect),
       viteConfig
     }
   ],
   specs: ['./test-ui/**/*.test.ts'],
-  capabilities: [{ browserName: 'chrome' }],
-  // Default is 100, i.e. one browser per spec file all at once.
-  maxInstances: 4,
+  capabilities: [
+    {
+      browserName: 'chrome',
+      ...(inspect
+        ? {
+            'goog:chromeOptions': {
+              args: [`--remote-debugging-port=${INSPECT_PORT}`]
+            }
+          }
+        : {})
+    }
+  ],
+  // Default is 100, i.e. one browser per spec file all at once. One when
+  // inspecting, since a fixed debugging port can only serve a single browser.
+  maxInstances: inspect ? 1 : 4,
   logLevel: 'warn',
   framework: 'mocha',
   reporters: ['spec'],
