@@ -31,9 +31,12 @@ export const REUSE_ENV = {
  * relaunch with the same config. Also covers DEVTOOLS_RUNNER_CWD which the
  * backend reads to know which directory to spawn the child in. Bin-override
  * vars (DEVTOOLS_WDIO_BIN, DEVTOOLS_NIGHTWATCH_BIN) live here too — they're
- * test-rig overrides that backend's bin-resolver respects.
+ * test-rig overrides that backend's bin-resolver respects. RUN_ID is stamped
+ * before any worker forks so every worker of one run inherits it and reports
+ * the same run identity (see `WORKER_WS_QUERY.runId`).
  */
 export const RUNNER_ENV = {
+  RUN_ID: 'DEVTOOLS_RUN_ID',
   WDIO_CONFIG: 'DEVTOOLS_WDIO_CONFIG',
   NIGHTWATCH_CONFIG: 'DEVTOOLS_NIGHTWATCH_CONFIG',
   WDIO_INITIAL_SPECS: 'DEVTOOLS_WDIO_INITIAL_SPECS',

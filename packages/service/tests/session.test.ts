@@ -44,7 +44,14 @@ describe('SessionCapturer', () => {
         hostname: 'localhost',
         port: 3000
       })
-      expect(WebSocket).toHaveBeenCalledWith('ws://localhost:3000/worker')
+      // The run id is generated per process, so match the path and assert the
+      // param separately (see core's session-capturer-connect specs).
+      const [openedUrl] = vi.mocked(WebSocket).mock.calls[0]
+      const url = new URL(String(openedUrl))
+      expect(`${url.protocol}//${url.host}${url.pathname}`).toBe(
+        'ws://localhost:3000/worker'
+      )
+      expect(url.searchParams.get('runId')).toBeTruthy()
       expect(capturer2.isReportingUpstream).toBe(false)
     })
   })

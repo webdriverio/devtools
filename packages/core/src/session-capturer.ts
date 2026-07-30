@@ -10,8 +10,9 @@ import type {
   SerializedError,
   TraceMutation
 } from '@wdio/devtools-shared'
-import { WS_PATHS, WS_SCOPE } from '@wdio/devtools-shared'
+import { WORKER_WS_QUERY, WS_PATHS, WS_SCOPE } from '@wdio/devtools-shared'
 import { mapCommandToAction } from './action-mapping.js'
+import { resolveRunId } from './run-id.js'
 import {
   CONSOLE_METHODS,
   LOG_SOURCES,
@@ -40,7 +41,8 @@ export interface SessionCapturerOptions {
    * Set when this capturer reconnects mid-run (e.g. after `browser.end()` opens
    * a new session). Tells the backend to keep the accumulated run state instead
    * of resetting it — otherwise earlier tests' commands are wiped and Preserve
-   * & Rerun on those tests finds nothing.
+   * & Rerun on those tests finds nothing. Every socket also carries the run id,
+   * which covers the same-run case a process can't flag: the next spec's worker.
    */
   reconnect?: boolean
 }
@@ -98,9 +100,12 @@ export abstract class SessionCapturerBase {
   constructor(opts: SessionCapturerOptions = {}) {
     const { hostname, port, reconnect } = opts
     if (hostname && port) {
-      const query = reconnect ? '?reconnect=1' : ''
+      const query = new URLSearchParams({
+        [WORKER_WS_QUERY.runId]: resolveRunId(),
+        ...(reconnect ? { [WORKER_WS_QUERY.reconnect]: '1' } : {})
+      })
       this.ws = new WebSocket(
-        `ws://${hostname}:${port}${WS_PATHS.worker}${query}`
+        `ws://${hostname}:${port}${WS_PATHS.worker}?${query}`
       )
       this.ws.on('open', () => {
         this.#hasConnected = true

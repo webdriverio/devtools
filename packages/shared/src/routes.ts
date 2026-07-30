@@ -12,6 +12,22 @@ export const WS_PATHS = {
 } as const
 
 /**
+ * Query params on the worker upgrade. Both answer the same question for the
+ * backend — does this socket continue the current run, or start a new one? —
+ * which decides whether accumulated run state is kept or wiped. A run opens
+ * one worker socket per spec file, so treating every connect as a new run
+ * drops earlier specs' data and Preserve & Rerun then has nothing to diff.
+ */
+export const WORKER_WS_QUERY = {
+  /** `1` when the adapter reopened this socket mid-run (e.g. after a session
+   *  change from `browser.end()` or `reloadSession()`). */
+  reconnect: 'reconnect',
+  /** Identity of the run this worker belongs to; shared by every worker the
+   *  same run forks. */
+  runId: 'runId'
+} as const
+
+/**
  * Control-frame scopes exchanged over the worker↔backend↔client WS channels.
  * `BASELINE_WS_SCOPE` (in `./baseline.ts`) covers the baseline-specific
  * scopes; this object covers the runtime control frames. Single source of
