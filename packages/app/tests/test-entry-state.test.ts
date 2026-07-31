@@ -2,10 +2,7 @@ import { describe, it, expect } from 'vitest'
 
 import {
   computeEntryState,
-  getTestEntry,
-  hasFailed,
-  hasPending,
-  isRunning
+  getTestEntry
 } from '../src/components/sidebar/test-entry-state.js'
 import type { TestEntry } from '../src/components/sidebar/types.js'
 import type {
@@ -19,7 +16,8 @@ const FINISHED_AT = new Date(1_700_000_000_000)
 // Fragments are cast through `as never` for the same reason as
 // suite-merge.test.ts: the declared shapes come from @wdio/reporter, and these
 // specs need the off-contract values real payloads carry — a suite whose state
-// is null, a state string STATE_MAP has no entry for, a missing `tests` key.
+// is null, a state string the sidebar has no rendering for, a missing `tests`
+// key.
 const test = (
   uid: string,
   overrides: Record<string, unknown> = {}
@@ -32,9 +30,9 @@ const test = (
     ...overrides
   }) as never as TestStatsFragment
 
-/** No `state` by default: a suite carrying one returns early from
- *  `computeEntryState`, so the derive-from-children path is only reachable
- *  from a stateless suite — which is also what the backend sends. */
+/** No `state` by default: a suite carrying one is answered from that state, so
+ *  the derive-from-children path is only reachable from a stateless suite —
+ *  which is also what the backend sends. */
 const suite = (
   uid: string,
   overrides: Record<string, unknown> = {}
@@ -57,167 +55,12 @@ const queued = (uid: string) => test(uid, { state: 'pending' })
 
 const keepAll = () => true
 
-describe('isRunning', () => {
-  it('reads a leaf test off its own state and nothing else', () => {
-    expect(isRunning(running('t'))).toBe(true)
-    expect(isRunning(queued('t'))).toBe(false)
-    expect(isRunning(passed('t'))).toBe(false)
-    expect(isRunning(test('t'))).toBe(false)
-  })
-
-  it('runs a suite while any of its own tests runs', () => {
-    expect(
-      isRunning(suite('s', { tests: [passed('t1'), running('t2')] }))
-    ).toBe(true)
-  })
-
-  it('runs a suite while a test inside a nested suite runs', () => {
-    const inner = suite('inner', { tests: [running('t')] })
-    expect(isRunning(suite('outer', { suites: [inner] }))).toBe(true)
-  })
-
-  it('runs a suite marked running that still has a queued test', () => {
-    expect(
-      isRunning(
-        suite('s', { state: 'running', tests: [passed('t1'), queued('t2')] })
-      )
-    ).toBe(true)
-  })
-
-  it('runs a suite marked running whose nested suite still has a queued test', () => {
-    const inner = suite('inner', { tests: [queued('t')] })
-    expect(
-      isRunning(suite('outer', { state: 'running', suites: [inner] }))
-    ).toBe(true)
-  })
-
-  it('leaves a suite marked running alone once every descendant is terminal', () => {
-    expect(
-      isRunning(
-        suite('s', { state: 'running', tests: [passed('t1'), failed('t2')] })
-      )
-    ).toBe(false)
-  })
-
-  it('runs a stateless suite whose results and queued tests are mixed', () => {
-    // Nightwatch-Cucumber leaves feature.state undefined, so the mix of a
-    // terminal and a queued child is the only signal the run is in progress.
-    expect(isRunning(suite('s', { tests: [passed('t1'), queued('t2')] }))).toBe(
-      true
-    )
-  })
-
-  it('counts a terminal nested suite as the finished half of that mix', () => {
-    const done = suite('done', { state: 'passed', tests: [passed('t')] })
-    expect(
-      isRunning(suite('feature', { tests: [queued('t2')], suites: [done] }))
-    ).toBe(true)
-  })
-
-  it('counts a skipped test as the finished half of that mix', () => {
-    expect(
-      isRunning(suite('s', { tests: [skipped('t1'), queued('t2')] }))
-    ).toBe(true)
-  })
-
-  it('leaves a suite whose tests have only been queued alone', () => {
-    expect(isRunning(suite('s', { tests: [queued('t1'), queued('t2')] }))).toBe(
-      false
-    )
-  })
-
-  it('leaves a suite with no children alone', () => {
-    expect(isRunning(suite('s'))).toBe(false)
-    expect(isRunning(suite('s', { tests: undefined, suites: undefined }))).toBe(
-      false
-    )
-  })
-})
-
-describe('hasPending', () => {
-  it('reads a leaf test off its own state', () => {
-    expect(hasPending(queued('t'))).toBe(true)
-    expect(hasPending(running('t'))).toBe(false)
-    expect(hasPending(test('t'))).toBe(false)
-  })
-
-  it('holds a suite marked pending even when every child is terminal', () => {
-    expect(
-      hasPending(suite('s', { state: 'pending', tests: [passed('t')] }))
-    ).toBe(true)
-  })
-
-  it('holds a suite with a queued test of its own', () => {
-    expect(
-      hasPending(suite('s', { tests: [passed('t1'), queued('t2')] }))
-    ).toBe(true)
-  })
-
-  it('holds a suite whose queued test sits in a nested suite', () => {
-    const inner = suite('inner', { tests: [queued('t')] })
-    expect(hasPending(suite('outer', { suites: [inner] }))).toBe(true)
-  })
-
-  it('clears a suite whose descendants are all terminal or running', () => {
-    const inner = suite('inner', { tests: [running('t')] })
-    expect(
-      hasPending(suite('outer', { tests: [passed('t1')], suites: [inner] }))
-    ).toBe(false)
-  })
-
-  it('clears a suite with no children', () => {
-    expect(hasPending(suite('s'))).toBe(false)
-  })
-})
-
-describe('hasFailed', () => {
-  it('reads a leaf test off its own state', () => {
-    expect(hasFailed(failed('t'))).toBe(true)
-    expect(hasFailed(passed('t'))).toBe(false)
-    expect(hasFailed(skipped('t'))).toBe(false)
-    expect(hasFailed(test('t'))).toBe(false)
-  })
-
-  it('fails a suite that holds a failed test', () => {
-    expect(hasFailed(suite('s', { tests: [passed('t1'), failed('t2')] }))).toBe(
-      true
-    )
-  })
-
-  it('keeps a suite of passed and skipped tests clear', () => {
-    expect(
-      hasFailed(suite('s', { tests: [passed('t1'), skipped('t2')] }))
-    ).toBe(false)
-  })
-
-  it('fails a suite whose failure is in a nested suite', () => {
-    const inner = suite('inner', { tests: [failed('t')] })
-    expect(
-      hasFailed(suite('outer', { tests: [passed('t1')], suites: [inner] }))
-    ).toBe(true)
-  })
-
-  it('fails a suite whose failure is two levels down', () => {
-    const leaf = suite('leaf', { tests: [failed('t')] })
-    const middle = suite('middle', { suites: [leaf] })
-    expect(hasFailed(suite('outer', { suites: [middle] }))).toBe(true)
-  })
-
-  it('ignores a suite state of failed with no failed descendant', () => {
-    // The suite's own state is not consulted — only its descendants are.
-    expect(
-      hasFailed(suite('s', { state: 'failed', tests: [passed('t')] }))
-    ).toBe(false)
-  })
-
-  it('keeps a suite with no children clear', () => {
-    expect(hasFailed(suite('s'))).toBe(false)
-    expect(hasFailed(suite('s', { tests: undefined, suites: undefined }))).toBe(
-      false
-    )
-  })
-})
-
+/**
+ * `computeEntryState` is the sidebar's mapping of a shared outcome onto a row
+ * status — the outcome derivation itself, and the truth table every consumer
+ * agrees on, live in `test-outcome.test.ts`. These specs cover the mapping and
+ * the two statuses only the tree has a name for.
+ */
 describe('computeEntryState', () => {
   describe('suite', () => {
     it('spins for a running test even over a stale terminal suite state', () => {
@@ -234,12 +77,6 @@ describe('computeEntryState', () => {
         computeEntryState(
           suite('s', { state: 'pending', tests: [passed('t1'), failed('t2')] })
         )
-      ).toBe('running')
-    })
-
-    it('spins for a suite with a null state whose child never started', () => {
-      expect(
-        computeEntryState(suite('s', { state: null, tests: [test('t')] }))
       ).toBe('running')
     })
 
@@ -264,7 +101,7 @@ describe('computeEntryState', () => {
       ).toBe('failed')
     })
 
-    it('derives passed when no descendant failed', () => {
+    it('derives passed when something passed and no descendant failed', () => {
       const inner = suite('inner', { tests: [skipped('t')] })
       expect(
         computeEntryState(
@@ -273,18 +110,13 @@ describe('computeEntryState', () => {
       ).toBe('passed')
     })
 
-    it('derives failed once every child of a null-state suite is terminal', () => {
+    it('derives skipped for a suite that only ever skipped', () => {
       expect(
-        computeEntryState(
-          suite('s', { state: null, tests: [passed('t1'), failed('t2')] })
-        )
-      ).toBe('failed')
+        computeEntryState(suite('s', { tests: [skipped('t1'), skipped('t2')] }))
+      ).toBe('skipped')
     })
 
     it('returns its own state before consulting its children', () => {
-      // The early return on STATE_MAP is why a suite fixture carrying an
-      // explicit state never reaches the derive-from-children path: a suite
-      // reported passed stays passed even holding a failed test.
       expect(
         computeEntryState(suite('s', { state: 'passed', tests: [failed('t')] }))
       ).toBe('passed')
@@ -298,7 +130,7 @@ describe('computeEntryState', () => {
       ).toBe('skipped')
     })
 
-    it('derives from its children when its own state is one STATE_MAP has no entry for', () => {
+    it('derives from its children when its own state is one it cannot render', () => {
       expect(
         computeEntryState(
           suite('s', { state: 'aborted', tests: [failed('t')] })
@@ -311,24 +143,22 @@ describe('computeEntryState', () => {
       ).toBe('passed')
     })
 
-    it('passes a suite whose child never started unless its state is null', () => {
-      // The derive-from-children guard tests `state === null`, and `TestStatus`
-      // carries no null — so the `undefined` state a real payload has skips the
-      // guard and a suite whose only test never ran reads as passed. The
-      // summary's `deriveRunStatus` calls that same run 'idle'.
+    it('shows a suite nothing has reported on as not run, null state or no state', () => {
+      // The summary calls this same run 'idle'; a green check here was the
+      // divergence the shared derivation removed.
       const child = test('t')
-      expect(computeEntryState(suite('s', { tests: [child] }))).toBe('passed')
+      expect(computeEntryState(suite('s', { tests: [child] }))).toBe('pending')
       expect(
         computeEntryState(suite('s', { state: null, tests: [child] }))
-      ).toBe('running')
+      ).toBe('pending')
     })
 
-    it('passes an empty suite', () => {
-      expect(computeEntryState(suite('s'))).toBe('passed')
-      expect(computeEntryState(suite('s', { state: null }))).toBe('passed')
+    it('shows an empty suite as not run', () => {
+      expect(computeEntryState(suite('s'))).toBe('pending')
+      expect(computeEntryState(suite('s', { state: null }))).toBe('pending')
       expect(
         computeEntryState(suite('s', { tests: undefined, suites: undefined }))
-      ).toBe('passed')
+      ).toBe('pending')
     })
   })
 

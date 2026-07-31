@@ -19,6 +19,7 @@ const STATUS_LABEL: Record<RunStatus, string> = {
   running: 'Running',
   failed: 'Failed',
   passed: 'Passed',
+  skipped: 'Skipped',
   idle: 'Idle'
 }
 
@@ -173,6 +174,8 @@ export class DevtoolsSidebarSummary extends Element {
         return 'var(--vscode-charts-red)'
       case 'passed':
         return 'var(--vscode-charts-green)'
+      case 'skipped':
+        return 'var(--vscode-charts-yellow)'
       case 'running':
         return 'var(--vscode-charts-blue)'
       default:

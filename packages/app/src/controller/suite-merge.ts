@@ -1,4 +1,11 @@
+import { TEST_STATE } from '@wdio/devtools-shared'
+
 import { getTimestamp } from '../utils/helpers.js'
+import {
+  hasInFlight,
+  settledOutcome,
+  tallyOutcomes
+} from '../utils/test-outcome.js'
 import type { SuiteStatsFragment, TestStatsFragment } from './types.js'
 
 /**
@@ -153,40 +160,6 @@ export function mergeChildSuites(
   return Array.from(map.values())
 }
 
-interface ChildStateSummary {
-  hasInProgressChildren: boolean
-  hasFailedChildren: boolean
-  allChildrenTerminal: boolean
-}
-
-function summarizeChildStates(
-  mergedTests: SuiteStatsFragment['tests'] | undefined,
-  mergedSuites: SuiteStatsFragment['suites'] | undefined
-): ChildStateSummary {
-  const allChildren = [...(mergedTests || []), ...(mergedSuites || [])]
-  // undefined/null state counts as in-progress so we don't derive 'passed'
-  // before children have reported.
-  const hasInProgressChildren = allChildren.some(
-    (child) =>
-      child?.state === 'running' ||
-      child?.state === 'pending' ||
-      child?.state === null
-  )
-  const hasFailedChildren = allChildren.some(
-    (child) => child?.state === 'failed'
-  )
-  const hasChildren = allChildren.length > 0
-  const allChildrenTerminal =
-    hasChildren &&
-    allChildren.every(
-      (child) =>
-        child?.state === 'passed' ||
-        child?.state === 'failed' ||
-        child?.state === 'skipped'
-    )
-  return { hasInProgressChildren, hasFailedChildren, allChildrenTerminal }
-}
-
 // When a new run starts the backend sends the feature suite with
 // state: 'pending' before it has pushed any scenario children. Stale child
 // suites preserved by mergeChildSuites must not keep their terminal states —
@@ -236,34 +209,28 @@ export function mergeSuite(
   const incomingStateIsUnset =
     incoming.state === null || incoming.state === undefined
 
-  const { hasInProgressChildren, hasFailedChildren, allChildrenTerminal } =
-    summarizeChildStates(mergedTests, mergedSuites)
+  const childStates = tallyOutcomes([...mergedTests, ...mergedSuites])
 
   // Keep 'running' when the backend hasn't reported a terminal state and any
   // child is still in flight — covers both Nightwatch (was 'running') and
   // WDIO (was 'passed' from previous run, now has new running children).
   const keepRunningState =
-    incomingStateIsPendingOrUnset && hasInProgressChildren
+    incomingStateIsPendingOrUnset && hasInFlight(childStates)
 
   // Only derive a terminal state when the backend left it unset AND every
   // child has settled. Avoids deriving 'passed' from stale previous-run kids.
-  const derivedCompletedState: SuiteStatsFragment['state'] | undefined =
-    allChildrenTerminal && incomingStateIsUnset
-      ? hasFailedChildren
-        ? 'failed'
-        : 'passed'
-      : undefined
+  const derivedCompletedState = incomingStateIsUnset
+    ? settledOutcome(childStates)
+    : undefined
 
   const finalSuites = resetStaleChildrenOnRerun(mergedSuites, incoming, ctx)
 
   return {
     ...existing,
     ...incomingProps,
-    ...(keepRunningState && hasInProgressChildren
-      ? { state: 'running' as const }
-      : incomingStateIsPendingOrUnset &&
-          !hasInProgressChildren &&
-          derivedCompletedState
+    ...(keepRunningState
+      ? { state: TEST_STATE.RUNNING }
+      : incomingStateIsPendingOrUnset && derivedCompletedState
         ? { state: derivedCompletedState }
         : {}),
     tests: mergedTests,

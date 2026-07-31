@@ -124,13 +124,21 @@ describe('wdio-devtools-sidebar-summary', () => {
       expect(text(shadow(el, COUNT))).toBe('0/2 passed')
     })
 
-    // Skipped counts as a terminal state, so a run that executed nothing still
-    // settles green — with a passed tally of zero to say so.
-    it('reports an all-skipped run as passed with nothing passed', async () => {
+    // A run that verified nothing is not a passing run: reporting green off a
+    // passed tally of zero was a false green.
+    it('reports an all-skipped run as skipped', async () => {
       const el = await mountSummary(summaryRun('skipped', 'skipped'))
 
-      expect(text(shadow(el, PILL))).toBe('Passed')
+      expect(text(shadow(el, PILL))).toBe('Skipped')
       expect(text(shadow(el, COUNT))).toBe('0/2 passed')
+    })
+
+    it('tints the card yellow when the run only skipped', async () => {
+      const el = await mountSummary(summaryRun('skipped', 'skipped'))
+
+      expect(el.style.getPropertyValue('--status')).toBe(
+        'var(--vscode-charts-yellow)'
+      )
     })
 
     it('tints the card blue while the run is in progress', async () => {

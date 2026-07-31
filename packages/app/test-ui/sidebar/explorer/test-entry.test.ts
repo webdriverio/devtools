@@ -139,7 +139,7 @@ describe('wdio-test-entry', () => {
       const row = await mountRow(rowProps(mixedStateRun.passing))
 
       // Hand-set through the attribute: no fragment derives to a state outside
-      // STATE_MAP, and the attribute is how the explorer feeds state — so this
+      // TestStatus, and the attribute is how the explorer feeds state — so this
       // keeps an off-contract value out of the typed property.
       row.setAttribute('state', 'aborted')
       await settle(row)
