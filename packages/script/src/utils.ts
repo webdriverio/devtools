@@ -60,6 +60,17 @@ export function parseDocument(node: HTMLElement) {
 }
 
 export function parseFragment(node: Element) {
+  // Only an Element has `outerHTML`: handed a Text or Comment child, parse5
+  // reads `length` off undefined and throws, and the catch below then serializes
+  // its own STACK TRACE into the page as a `<div class="parseFragmentWrapper">`.
+  // Text arrives as its data — the replay inserts a bare string as a text node —
+  // and a comment is dropped, matching `parseNode`'s policy for one it parses.
+  if (node?.nodeType === Node.TEXT_NODE) {
+    return node.textContent || ''
+  }
+  if (node?.nodeType === Node.COMMENT_NODE) {
+    return ''
+  }
   try {
     const fragment = parseFragmentImport(node.outerHTML)
     return parseNode(fragment)

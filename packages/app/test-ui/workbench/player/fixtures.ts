@@ -40,6 +40,22 @@ export const STALE_USERNAME = 'olduser'
 export const TYPED_USERNAME = 'tomsmith'
 export const FLASH_TEXT = 'You logged into a secure area!'
 
+/** Label of the submit button. The a11y tree captures interactive elements as
+ *  WDIO text locators (`button*=Login`), so the reverse highlight has to resolve
+ *  one — which needs an element whose TEXT identifies it. */
+export const LOGIN_LABEL = 'Login'
+/** Text `#flash` was captured with — the value every text change replaces, so a
+ *  change that never landed is distinguishable from one that did. */
+export const FLASH_PENDING = 'Signing you in…'
+
+/** `#notice` holds text, an element, then text again: the mixed-content parent a
+ *  characterData mutation has to address a single child of without disturbing
+ *  the other two. */
+export const NOTICE_LEAD = 'Signed in as '
+export const NOTICE_WHO = 'guest'
+export const NOTICE_TAIL = ' — session active'
+export const NOTICE_TAIL_UPDATED = ' — session expires in 5 minutes'
+
 /** Session id of the recording the screencast view plays. */
 export const VIDEO_SESSION_ID = 'session-secure'
 
@@ -67,6 +83,8 @@ export const REF = {
   error: 'error-ref',
   secureBody: 'secure-body-ref',
   flash: 'flash-ref',
+  notice: 'notice-ref',
+  who: 'who-ref',
   logout: 'logout-ref'
 } as const
 
@@ -74,8 +92,13 @@ export const REF = {
  *  list share `props`, and a wrapper fragment carries no `type` at all. */
 interface CapturedNode {
   type?: string
-  props: Record<string, string | CapturedNode | CapturedNode[]>
+  props: Record<string, string | CapturedChild | CapturedChild[]>
 }
+
+/** A child of a captured element. A text child is a BARE STRING: `parseNode`
+ *  returns a `#text` node's value, and `parseFragment` an added Text node's
+ *  data, without wrapping either. */
+type CapturedChild = CapturedNode | string
 
 /**
  * One serialized element, shaped as `parseNode` leaves it: attributes spread
@@ -89,7 +112,7 @@ interface CapturedNode {
 function vnode(
   type: string,
   props: Record<string, string>,
-  ...children: CapturedNode[]
+  ...children: CapturedChild[]
 ): CapturedNode {
   if (children.length === 0) {
     return { type, props }
@@ -177,11 +200,15 @@ const loginPage = payload(
           name: 'plan',
           'data-wdio-ref': REF.planMember
         }),
-        vnode('button', {
-          id: 'submit',
-          type: 'submit',
-          'data-wdio-ref': REF.submit
-        })
+        vnode(
+          'button',
+          {
+            id: 'submit',
+            type: 'submit',
+            'data-wdio-ref': REF.submit
+          },
+          LOGIN_LABEL
+        )
       )
     )
   )
@@ -196,11 +223,22 @@ const securePage = payload(
     vnode(
       'body',
       { 'data-wdio-ref': REF.secureBody },
-      vnode('div', {
-        id: 'flash',
-        class: 'success',
-        'data-wdio-ref': REF.flash
-      }),
+      vnode(
+        'div',
+        {
+          id: 'flash',
+          class: 'success',
+          'data-wdio-ref': REF.flash
+        },
+        FLASH_PENDING
+      ),
+      vnode(
+        'p',
+        { id: 'notice', 'data-wdio-ref': REF.notice },
+        NOTICE_LEAD,
+        vnode('strong', { id: 'who', 'data-wdio-ref': REF.who }, NOTICE_WHO),
+        NOTICE_TAIL
+      ),
       vnode('a', { id: 'logout', href: '/logout', 'data-wdio-ref': REF.logout })
     )
   )
@@ -296,41 +334,74 @@ const securePageDocument = documentLoaded(SECURE_URL, {
 })
 
 /**
- * SYNTHETIC — no real trace carries this shape, and the replay branch it drives
- * (`#handleCharacterDataMutation`) is dead against recorded data, for two
- * independent reasons:
- *
- *  1. `packages/script` never records one. Its MutationObserver is configured
- *     `{ attributes, childList, subtree }` — `characterData` is not observed, so
- *     no such record ever reaches `serializeMutation`.
- *  2. Even if it were observed, the target would not resolve. A characterData
- *     record's `target` is the mutated TEXT node, and `serializeMutation` sets
- *     `target: getRef(m.target)`; `getRef` returns null for anything without
- *     `getAttribute`, so the wire value is null and the replay's
- *     `#queryElement(null)` looks for `[data-wdio-ref="null"]` — never a match.
- *
- * A resolvable `target` is what makes this fixture's mutation apply at all, and
- * that is exactly the part production cannot produce. `textNodeTrace` below
- * carries the shape a real capture WOULD have, and the spec asserts against it
- * that the branch does nothing.
+ * A characterData mutation as `packages/script` records one. The mutated node is
+ * a Text node, which carries no ref of its own, so the collector addresses it
+ * as its PARENT element's ref plus its index among that parent's `childNodes` —
+ * `newTextContent` is that one node's new data, never the parent's whole text.
  */
 const flashText = mutation({
   type: 'characterData',
   target: REF.flash,
+  childIndex: 0,
   newTextContent: FLASH_TEXT,
   timestamp: RUN_START + 1600
 })
 
-/** The `target` a characterData record really arrives with: `getRef()` on a Text
- *  node returns null. `TraceMutation.target` is typed `string | undefined`, so
- *  the wire value is cast once here rather than softened to `undefined` — the
- *  point of the fixture is to be the value the reader hands the player. */
-const TEXT_NODE_TARGET = null as unknown as string
-
-const flashTextAsCaptured = mutation({
+/** `#notice`'s trailing text — child index 2, AFTER its `<strong>` element child
+ *  and after its own leading text. Both of those staying untouched is what
+ *  proves the patch reached one node rather than the parent's text as a whole. */
+const noticeTailChanged = mutation({
   type: 'characterData',
-  target: TEXT_NODE_TARGET,
+  target: REF.notice,
+  childIndex: 2,
+  newTextContent: NOTICE_TAIL_UPDATED,
+  timestamp: RUN_START + 1560
+})
+
+/**
+ * An index the replayed parent does not have. Real captures produce these: the
+ * index counts the captured parent's childNodes, and the player strips the page's
+ * `<script>` children, so anything after one shifts down. `#flash` has a single
+ * text child, which is what the replay falls back to.
+ */
+const flashOutOfRange = mutation({
+  type: 'characterData',
+  target: REF.flash,
+  childIndex: 9,
   newTextContent: FLASH_TEXT,
+  timestamp: RUN_START + 1560
+})
+
+/**
+ * A characterData mutation with no `childIndex` — every trace recorded before the
+ * collector addressed text nodes, and the shape the replay must refuse to apply:
+ * with only a parent ref to go on it would have to write the parent's
+ * `textContent`, deleting its element children.
+ */
+const noticeUnaddressed = mutation({
+  type: 'characterData',
+  target: REF.notice,
+  childIndex: undefined,
+  newTextContent: NOTICE_TAIL_UPDATED,
+  timestamp: RUN_START + 1580
+})
+
+/** `getRef()` on a removed Text node returns null — the only signal the wire
+ *  carries that a childList mutation dropped a non-element child.
+ *  `TraceMutation.removedNodes` is typed `string[]`, so the value the reader
+ *  really hands the player is cast once here. */
+const REMOVED_TEXT_NODE = null as unknown as string
+
+/**
+ * `el.textContent = …` as a capture records it: one childList record adding the
+ * new text (a bare string — `parseFragment` returns an added Text node's data)
+ * and removing the old Text node, which has no ref to name it by.
+ */
+const flashTextReplaced = mutation({
+  type: 'childList',
+  target: REF.flash,
+  addedNodes: [FLASH_TEXT],
+  removedNodes: [REMOVED_TEXT_NODE],
   timestamp: RUN_START + 1600
 })
 
@@ -366,8 +437,7 @@ export interface LoginTrace extends TraceScenario {
   planSelected: TraceMutation
   /** Full-DOM anchor of the page the click navigated to. */
   securePageDocument: TraceMutation
-  /** Flash text arriving on the secure page — a shape only this fixture has;
-   *  see the note above its definition. */
+  /** Flash text arriving on the secure page as a characterData record. */
   flashText: TraceMutation
 }
 
@@ -398,26 +468,42 @@ export const loginTrace: LoginTrace = {
   flashText
 }
 
-export interface TextNodeTrace extends TraceScenario {
-  /** Last command, so its DOM window runs to the end of the mutation stream —
-   *  the replay walks the anchor, then the text change, then the class change. */
+/** A text-change scenario. Only the command needs a handle — every assertion is
+ *  about the replayed DOM, and `flashDismissed` closing each stream gives the
+ *  spec one signal that is uniquely true once the whole window has replayed
+ *  (without it a text change that never landed and an unfinished replay look the
+ *  same). */
+export interface TextTrace extends TraceScenario {
+  /** Last command, so its DOM window runs to the end of the mutation stream. */
   readFlash: CommandLog
-  /** A characterData mutation exactly as a capture would carry it: `target` is
-   *  the null `getRef()` returns for a Text node. */
-  flashTextAsCaptured: TraceMutation
-  /** Applied after it, so the spec has a signal that is uniquely true once the
-   *  whole window has replayed — without it a missing text change and an
-   *  unfinished replay look the same. */
-  flashDismissed: TraceMutation
 }
 
-/** The secure page as `packages/script` would really record its flash text. */
-export const textNodeTrace: TextNodeTrace = {
+/** Text changes as `packages/script` records them: a characterData patch of one
+ *  text child of `#notice`, and `#flash`'s text replaced wholesale the way a
+ *  `textContent` write arrives. The two targets are different elements, so
+ *  neither case can mask the other. */
+export const textNodeTrace: TextTrace = {
   commands: [readFlash],
-  mutations: [securePageDocument, flashTextAsCaptured, flashDismissed],
-  readFlash,
-  flashTextAsCaptured,
-  flashDismissed
+  mutations: [
+    securePageDocument,
+    noticeTailChanged,
+    flashTextReplaced,
+    flashDismissed
+  ],
+  readFlash
+}
+
+/** Text mutations the replay cannot resolve exactly: `#flash`'s is addressed past
+ *  the end of the replayed parent, `#notice`'s carries no index at all. */
+export const looseTextTrace: TextTrace = {
+  commands: [readFlash],
+  mutations: [
+    securePageDocument,
+    flashOutOfRange,
+    noticeUnaddressed,
+    flashDismissed
+  ],
+  readFlash
 }
 
 const launchSession = commandLog({

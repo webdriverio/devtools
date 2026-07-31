@@ -18,10 +18,16 @@ import { shadow, shadowAll, text, texts } from '../../support/queries.js'
 import {
   domlessTrace,
   FLASH_TEXT,
+  LOGIN_LABEL,
   LOGIN_SHOT,
   LOGIN_URL,
   loginTrace,
+  looseTextTrace,
   METADATA_URL,
+  NOTICE_LEAD,
+  NOTICE_TAIL,
+  NOTICE_TAIL_UPDATED,
+  NOTICE_WHO,
   orphanTrace,
   preCaptureTrace,
   recordedSessionMetadata,
@@ -30,6 +36,7 @@ import {
   SECURE_URL,
   STALE_USERNAME,
   textNodeTrace,
+  type TextTrace,
   type TraceScenario,
   TYPED_USERNAME,
   urllessTrace,
@@ -370,16 +377,7 @@ describe('wdio-devtools-browser', () => {
       expect(doc.querySelector('form#login')).toBeTruthy()
     })
 
-    /**
-     * SYNTHETIC INPUT — the shape is spelled out at `flashText` in fixtures.ts.
-     * A resolvable `target` is what lets a characterData mutation reach the body
-     * of `#handleCharacterDataMutation`, and `packages/script` cannot record
-     * one: its observer never watches characterData, and a characterData
-     * record's target is a Text node, which `getRef()` serializes to null. So
-     * this is the branch's only cover and it proves nothing about a real trace —
-     * the case after it is what a recorded flash text actually does.
-     */
-    it('applies a character-data mutation whose target resolves', async () => {
+    it('replays a text change recorded as a character-data mutation', async () => {
       const el = await mountBrowser(loginTrace)
       await replayedPage(el)
 
@@ -395,25 +393,72 @@ describe('wdio-devtools-browser', () => {
 
       expect(doc.querySelector('#flash')?.textContent).toBe(FLASH_TEXT)
     })
+  })
 
-    it('never applies a character-data mutation as a capture records it', async () => {
-      const el = await mountBrowser(textNodeTrace)
-      await replayedPage(el)
-
-      const doc = await replayAfter(el, () =>
-        selectCommand(textNodeTrace.readFlash)
-      )
-      // The class change is the LAST mutation of the window, so it is uniquely
-      // true once the whole walk has run — without it an unfinished replay and a
-      // text change that never landed read the same.
-      await waitUntil(
+  /**
+   * A characterData record's target is the mutated Text NODE, which carries no
+   * `data-wdio-ref` of its own, so the collector addresses it as its parent
+   * element's ref plus the node's index among that parent's childNodes. These
+   * cases pin both halves: that the addressed node is the one patched, and that
+   * a mutation the address does not resolve leaves the parent alone rather than
+   * writing over its children.
+   */
+  describe('text changes', () => {
+    /** The class change closing every text stream — uniquely true once the whole
+     *  walk has run, so a text change that never landed cannot read as an
+     *  unfinished replay. */
+    const wholeWindowApplied = (doc: Document) =>
+      waitUntil(
         () => doc.querySelector('#flash')?.className === 'success dismissed',
         'the whole replay window to be applied'
       )
 
-      // The text is dropped, not deferred: the mutation's null target resolves
-      // to no element, so the replay skips it and the flash stays empty.
-      expect(doc.querySelector('#flash')?.textContent).toBe('')
+    const replayTextTrace = async (scenario: TextTrace) => {
+      const el = await mountBrowser(scenario)
+      await replayedPage(el)
+      const doc = await replayAfter(el, () => selectCommand(scenario.readFlash))
+      await wholeWindowApplied(doc)
+      return doc
+    }
+
+    it('patches only the addressed text node of a mixed-content parent', async () => {
+      const doc = await replayTextTrace(textNodeTrace)
+
+      const notice = doc.querySelector('#notice')!
+      // Text, element, text — the child list the capture recorded, still intact.
+      expect(
+        Array.from(notice.childNodes).map((node) => node.nodeName)
+      ).toEqual(['#text', 'STRONG', '#text'])
+      expect(notice.childNodes[0].textContent).toBe(NOTICE_LEAD)
+      expect(notice.childNodes[2].textContent).toBe(NOTICE_TAIL_UPDATED)
+      // The element child and its own text survive: a parent-level `textContent`
+      // write would have deleted both.
+      expect(doc.querySelector('#who')?.textContent).toBe(NOTICE_WHO)
+    })
+
+    it('replaces the text of a node the page rewrote through its parent', async () => {
+      const doc = await replayTextTrace(textNodeTrace)
+
+      // Exactly the new text: the removed Text node reaches the replay as a null
+      // ref, and an entry it fails to drop leaves the old text alongside.
+      expect(doc.querySelector('#flash')?.textContent).toBe(FLASH_TEXT)
+    })
+
+    it('falls back to the only text child when the captured index has shifted', async () => {
+      const doc = await replayTextTrace(looseTextTrace)
+
+      expect(doc.querySelector('#flash')?.textContent).toBe(FLASH_TEXT)
+    })
+
+    it('leaves the parent alone for a text mutation carrying no address', async () => {
+      const doc = await replayTextTrace(looseTextTrace)
+
+      // Nothing to patch, so nothing changes — the parent keeps its element
+      // child and both of its text children.
+      const notice = doc.querySelector('#notice')!
+      expect(notice.childNodes[0].textContent).toBe(NOTICE_LEAD)
+      expect(notice.childNodes[2].textContent).toBe(NOTICE_TAIL)
+      expect(doc.querySelector('#who')?.textContent).toBe(NOTICE_WHO)
     })
   })
 
@@ -643,11 +688,24 @@ describe('wdio-devtools-browser', () => {
       expect(boxesIn(el, HIGHLIGHT_BOX)).toHaveLength(1)
     })
 
-    it('ignores an a11y locator that is not a CSS selector', async () => {
+    it('outlines the element an a11y text locator points at', async () => {
       const el = await mountBrowser(loginTrace)
       await replayedPage(el)
 
-      revealFromA11y('button*=Login')
+      // The form the a11y tree captures its own locators in — querySelector
+      // cannot parse it, so only the shared resolver finds the element.
+      revealFromA11y(`button*=${LOGIN_LABEL}`)
+
+      expect(boxesIn(el, HIGHLIGHT_BOX)).toHaveLength(1)
+    })
+
+    it('outlines nothing for an a11y locator absent from the replayed page', async () => {
+      const el = await mountBrowser(loginTrace)
+      await replayedPage(el)
+
+      // Same locator syntax as above, so this is about the page not carrying
+      // the text — not about the syntax being unparseable.
+      revealFromA11y('button*=Log out')
 
       expect(boxesIn(el, HIGHLIGHT_BOX)).toHaveLength(0)
     })

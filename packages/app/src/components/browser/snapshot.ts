@@ -3,7 +3,11 @@ import { html, nothing } from 'lit'
 import { consume } from '@lit/context'
 import { snapshotStyles } from './snapshot-styles.js'
 import { renderBrowserChrome } from './browser-chrome.js'
-import { drawElementOverlay, clearElementOverlay } from './element-overlay.js'
+import {
+  drawElementOverlay,
+  clearElementOverlay,
+  resolveTestSelector
+} from './element-overlay.js'
 import { commandPageUrl } from './url-at-timestamp.js'
 import { mutationForCommand } from './mutation-at-command.js'
 import { imageMime } from './trace-timeline-utils.js'
@@ -12,6 +16,10 @@ import { type ComponentChildren, h, render, type VNode } from 'preact'
 import { customElement, query } from 'lit/decorators.js'
 import { transform } from './vnode-transform.js'
 import type { SimplifiedVNode } from '../../../../script/types'
+// Type-only, like the `script/types` import above: the collector owns the
+// characterData wire shape (parent ref + child index), so the replay reads it
+// from the same declaration that produces it.
+import type { TextMutation } from '../../../../script/src/mutations.js'
 import type { CommandLog } from '@wdio/devtools-shared'
 
 import {
@@ -27,6 +35,22 @@ import './screencast-player.js'
 import '~icons/mdi/cursor-default-click-outline.js'
 
 const MUTATION_SELECTOR = '__mutation-highlight__'
+
+/** A characterData mutation the collector could address. Older traces (and any
+ *  producer that only sets `target`) carry no `childIndex`, and there is no
+ *  child to patch without one — patching the parent instead would delete its
+ *  element children. */
+function isAddressedText(mutation: TraceMutation): mutation is TextMutation {
+  return (
+    typeof mutation.target === 'string' &&
+    typeof mutation.childIndex === 'number'
+  )
+}
+
+const textChildren = (el: Node) =>
+  Array.from(el.childNodes).filter(
+    (node): node is Text => node.nodeType === Node.TEXT_NODE
+  )
 
 declare global {
   interface WindowEventMap {
@@ -396,12 +420,34 @@ export class DevtoolsBrowser extends Element {
   }
 
   #handleCharacterDataMutation(mutation: TraceMutation) {
-    const el = this.#queryElement(mutation.target!)
+    if (!isAddressedText(mutation)) {
+      return
+    }
+    const el = this.#queryElement(mutation.target)
     if (!el) {
       return
     }
+    // Patch the addressed node's data only. Assigning `textContent` on the
+    // parent would replace ALL of its children — the element ones included.
+    const node = this.#textNodeAt(el, mutation)
+    if (!node) {
+      return
+    }
+    node.data = mutation.newTextContent || ''
+  }
 
-    el.textContent = mutation.newTextContent || ''
+  /** The Text node a characterData mutation addressed. `childIndex` counts the
+   *  CAPTURED parent's childNodes, and the replayed parent can hold fewer (the
+   *  player strips the page's `<script>` children), so an index that no longer
+   *  lands on a text node falls back to the parent's only one — and to nothing
+   *  when several make that ambiguous. */
+  #textNodeAt(el: HTMLElement, mutation: TextMutation): Text | undefined {
+    const addressed = el.childNodes[mutation.childIndex]
+    if (addressed?.nodeType === Node.TEXT_NODE) {
+      return addressed as Text
+    }
+    const texts = textChildren(el)
+    return texts.length === 1 ? texts[0] : undefined
   }
 
   #handleAttributeMutation(mutation: TraceMutation) {
@@ -446,6 +492,11 @@ export class DevtoolsBrowser extends Element {
       return
     }
 
+    // Before the insertions: a removed TEXT node is matched positionally (see
+    // #removeChildren), so a text node added here would be a candidate for it
+    // and `el.textContent = 'new'` would replay as the old text plus the new.
+    this.#removeChildren(el, mutation)
+
     // Insert added nodes at their captured position via a detached holder.
     // render(vnode, el) can't append — Preact treats `el` as its render root and
     // reconciles its children, replacing el's first child instead of inserting
@@ -464,12 +515,20 @@ export class DevtoolsBrowser extends Element {
         }
       }
     })
+  }
 
+  /** Drop what a childList mutation removed. An element is found by its ref; a
+   *  removed TEXT node has none — `getRef` yields null for it — so each null
+   *  entry drops one text child, in the order the collector reported them. */
+  #removeChildren(el: HTMLElement, mutation: TraceMutation) {
+    const texts = textChildren(el)
+    let next = 0
     mutation.removedNodes.forEach((ref) => {
-      const child = this.#queryElement(ref, el)
-      if (child) {
-        child.remove()
+      if (!ref) {
+        texts[next++]?.remove()
+        return
       }
+      this.#queryElement(ref, el)?.remove()
     })
   }
 
@@ -487,8 +546,11 @@ export class DevtoolsBrowser extends Element {
       ?.remove()
   }
 
-  /** Draw the outline box over an element in the replayed iframe. */
-  #outline(el: HTMLElement) {
+  /** Draw the outline box over an element in the replayed iframe. Takes any DOM
+   *  element — the text-locator resolver matches on content, so what it finds
+   *  need not be an `HTMLElement`. Spelled `globalThis.Element` because the Lit
+   *  base class imported here shadows the DOM one. */
+  #outline(el: globalThis.Element) {
     const docEl = this.iframe?.contentDocument
     if (!docEl) {
       return
@@ -520,8 +582,10 @@ export class DevtoolsBrowser extends Element {
     }
   }
 
-  /** Outline the element for an a11y-tree locator (CSS selectors only; WDIO
-   *  locators like `button*=Login` can't resolve via querySelector → no-op). */
+  /** Outline the element for an a11y-tree locator. Resolved through the same
+   *  resolver the forward direction (the element overlay) uses, because the tree
+   *  captures interactive elements as WDIO text locators (`button*=Login`) that
+   *  querySelector cannot parse. */
   #highlightBySelector = (ev: Event) => {
     const detail = (ev as CustomEvent<{ selector?: string } | null>).detail
     const docEl = this.iframe?.contentDocument
@@ -532,12 +596,7 @@ export class DevtoolsBrowser extends Element {
     if (!detail?.selector) {
       return
     }
-    let el: HTMLElement | null = null
-    try {
-      el = docEl.querySelector(detail.selector)
-    } catch {
-      return
-    }
+    const el = resolveTestSelector(docEl, detail.selector)
     if (el) {
       this.#outline(el)
     }
