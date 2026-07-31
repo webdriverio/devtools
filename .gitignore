@@ -29,6 +29,7 @@ dist-ssr
 /*.ts
 /*.json
 !/vitest.config.ts
+!/tsconfig.dts.json
 *.tgz
 examples/wdio/wdio-*.json
 examples/wdio/wdio-*.webm

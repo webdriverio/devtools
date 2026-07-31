@@ -4,8 +4,10 @@
     "types": ["@wdio/globals/types", "@wdio/mocha-framework"],
     "noEmit": true
   },
-  // The parent excludes this folder from the app build; that exclude is
-  // inherited relative to the parent, so it must be cleared here.
+  // Both the app config and the repo root exclude this folder — the specs run
+  // under global types (browser-runner mocha + expect-webdriverio) that no other
+  // program may see, so they are checked here instead. Those inherited excludes
+  // resolve against the config they came from, so they must be cleared.
   "exclude": [],
   // vite-env.d.ts carries `vite/client` (the `?inline` CSS module shapes the
   // components import) and the app's custom event map.

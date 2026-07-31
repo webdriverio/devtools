@@ -13,7 +13,6 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": true,
-    "baseUrl": ".",
 
     /* Linting */
     "strict": true,
@@ -21,24 +20,39 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
     "paths": {
-      "@/*": ["packages/app/src/*"],
-      "@components/*": ["packages/app/src/components/*"],
-      "@core/*": ["packages/app/src/core/*"],
+      "@/*": ["./packages/app/src/*"],
+      "@components/*": ["./packages/app/src/components/*"],
+      "@core/*": ["./packages/app/src/core/*"],
 
-      "@wdio/devtools-shared": ["packages/shared/src/index.ts"],
-      "@wdio/devtools-shared/*": ["packages/shared/src/*"],
-      "@wdio/devtools-core": ["packages/core/src/index.ts"],
-      "@wdio/devtools-core/*": ["packages/core/src/*"],
-      "@wdio/elements": ["packages/elements/src/index.ts"],
-      "@wdio/elements/*": ["packages/elements/src/*"],
-      "@wdio/devtools-backend": ["packages/backend/src/index.ts"],
-      "@wdio/devtools-backend/*": ["packages/backend/src/*"],
-      "@wdio/devtools-script": ["packages/script/src/index.ts"],
-      "@wdio/devtools-script/*": ["packages/script/src/*"],
-      "@wdio/devtools-service": ["packages/service/src/index.ts"],
-      "@wdio/devtools-service/*": ["packages/service/src/*"],
-      "@wdio/selenium-devtools": ["packages/selenium-devtools/src/index.ts"],
-      "@wdio/selenium-devtools/*": ["packages/selenium-devtools/src/*"]
+      "@wdio/devtools-shared": ["./packages/shared/src/index.ts"],
+      "@wdio/devtools-shared/*": ["./packages/shared/src/*"],
+      "@wdio/devtools-core": ["./packages/core/src/index.ts"],
+      "@wdio/devtools-core/*": ["./packages/core/src/*"],
+      "@wdio/elements": ["./packages/elements/src/index.ts"],
+      "@wdio/elements/*": ["./packages/elements/src/*"],
+      "@wdio/devtools-backend": ["./packages/backend/src/index.ts"],
+      "@wdio/devtools-backend/*": ["./packages/backend/src/*"],
+      "@wdio/devtools-script": ["./packages/script/src/index.ts"],
+      "@wdio/devtools-script/*": ["./packages/script/src/*"],
+      "@wdio/devtools-service": ["./packages/service/src/index.ts"],
+      "@wdio/devtools-service/*": ["./packages/service/src/*"],
+      "@wdio/selenium-devtools": ["./packages/selenium-devtools/src/index.ts"],
+      "@wdio/selenium-devtools/*": ["./packages/selenium-devtools/src/*"]
     }
-  }
+  },
+  // This file is both the `extends` base for every package config and, run
+  // directly, the repo-wide type gate. `exclude` replaces the default, so
+  // node_modules is re-listed; there is deliberately no `include`, because an
+  // inherited one resolves against *this* directory and would make every
+  // extending package config sweep the whole repo.
+  "exclude": [
+    "node_modules",
+    // Emitted .d.ts, so the gate's result would otherwise depend on whether
+    // `pnpm build` had run.
+    "**/dist",
+    // Each has its own project: both need runner globals (mocha,
+    // expect-webdriverio, @wdio/globals) that no other program may see.
+    "packages/app/test-ui",
+    "examples"
+  ]
 }

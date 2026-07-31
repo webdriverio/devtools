@@ -1,0 +1,16 @@
+{
+  // Our own ambient declarations, checked with `skipLibCheck` OFF — the root
+  // config keeps it on because 27 errors in third-party `.d.ts` files (a
+  // duplicate index signature in @wdio/types, URLPattern declared three times,
+  // optional peers missing in unplugin) are not ours to fix. But that flag also
+  // suppresses errors INSIDE our own declarations, which is how two ambient
+  // globals sat broken: one imported a name its module never exported and the
+  // other referenced itself, so both silently resolved to `any`. Only these two
+  // files exist, and both are clean — keep them that way by listing new ones here.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "skipLibCheck": false
+  },
+  "exclude": [],
+  "files": ["packages/script/types.d.ts", "packages/app/src/vite-env.d.ts"]
+}
