@@ -142,9 +142,11 @@ The execution environment is the browser, not Node, so this package cannot impor
 
 ### `packages/elements`
 
-Element-detection scripts (`@wdio/elements`). Produces the per-action data that feeds the snapshot pipeline: `getSnapshot`, the depth-indented accessibility-tree serializer, and the interactable-element list, plus locator generation.
+The WDIO-typed element-detection API (`@wdio/elements`): `getSnapshot`, `getElements`, the accessibility-tree and interactable-element readers. Unlike `shared` and `core` this package **is** published, so its exported names are public API.
 
-Consumed by `core` (the element-snapshot builder) and by the adapters' per-action capture (`captureActionSnapshot`). The DOM-walking scripts run in the page via `browser.execute`, so — like `script` — they avoid Node-only APIs.
+Imports from: `core`. The script bodies, serializers, types, and locator generation all live in `core` (`element-scripts.ts`, `element-snapshot.ts`, `element-types.ts`, `locators/`) because they're framework-agnostic; this package holds only the wrappers that take a `WebdriverIO.Browser` — which `core` can't type against. The arrow never reverses: `core` does not import `elements`, and the adapters' per-action capture (`captureActionSnapshot`) calls core's script bodies directly rather than going through this package. `elements/snapshot.ts` and `elements/locators/index.ts` are re-export shims kept for API stability.
+
+The DOM-walking scripts run in the page via `browser.execute`, so — like `script` — they avoid Node-only APIs.
 
 ### `examples/`
 
