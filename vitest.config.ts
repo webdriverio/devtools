@@ -19,9 +19,14 @@ export default defineConfig({
         '**/src/index.ts',
         '**/src/types.ts'
       ],
-      // Floor — drops here fail CI. Numbers reflect the current state after
-      // the test-trim + targeted-backfill pass; ratchet upward as gaps close,
-      // never downward.
+      // Floor for `pnpm test:coverage`, which NOTHING RUNS IN CI (`ci.yml`
+      // runs `pnpm test`, `pnpm lint`, `pnpm test:ui`) — so these numbers gate
+      // nothing today and the suite is currently below all four. Two reasons
+      // to fix the measurement before the numbers: the denominator counts
+      // every Lit component in `packages/app/src`, while the component specs
+      // that exercise them run in a real browser under `test:ui` and
+      // contribute no v8 coverage at all; and `include` only collects from
+      // `packages/**/tests/**`. Ratchet upward as gaps close, never downward.
       thresholds: {
         lines: 85,
         branches: 77,

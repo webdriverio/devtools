@@ -43,7 +43,20 @@ export const config: Options.Testrunner = {
         mode: (process.env.DEVTOOLS_MODE === 'live' ? 'live' : 'trace') as
           | 'live'
           | 'trace',
-        traceGranularity: 'session' as const
+        // Granularity/policy default to session/on and are env-overridable so
+        // one config can walk the whole grid, e.g.
+        //   DEVTOOLS_TRACE_GRANULARITY=test DEVTOOLS_TRACE_POLICY=retain-on-failure
+        traceGranularity: (process.env.DEVTOOLS_TRACE_GRANULARITY ??
+          'session') as 'session' | 'spec' | 'test',
+        tracePolicy: (process.env.DEVTOOLS_TRACE_POLICY ?? 'on') as
+          | 'on'
+          | 'retain-on-failure'
+          | 'retain-on-first-failure'
+          | 'on-first-retry'
+          | 'on-all-retries'
+          | 'retain-on-failure-and-retries',
+        // Always emit the manifest so scenario-parity can read the artifact set.
+        emitArtifactsManifest: true
       }
     ]
   ],

@@ -55,8 +55,12 @@ inside a real browser, first-class Lit support, no fixture or backend involved.
 Mount a component with explicit inputs, assert its shadow DOM.
 
 - Headless by default; `HEADED=1` to watch a component render.
-- `--spec` runs one file or a folder glob, `--mochaOpts.grep` one case.
-- Deterministic (DOM assertions, not pixels), so it can gate CI.
+- `--spec` takes a path relative to the REPO ROOT (not this package) and must be
+  repeated per file — the folder-glob form matches nothing under
+  `@wdio/config@9.28`. `--mochaOpts.grep` runs one case.
+- Deterministic (DOM assertions, not pixels), so it gates CI: the
+  `component-tests` job in `.github/workflows/ci.yml` runs the suite at
+  `--maxInstances 2`, the ceiling above which the heaviest specs time out.
 
 `@vitest/browser` was an unused devDependency defaulting to a Playwright
 provider; removed in Phase 0 to keep one browser stack.
@@ -284,16 +288,16 @@ component's extracted logic — a spec need not re-assert those.
 | 1 | `wdio-test-entry` | `sidebar/test-suite.ts` | ↑ | Per-test row: state icon (passed/failed/running/skipped/pending), title, run/stop/rerun controls, collapse, click event. **No retry marker exists** — an earlier draft of this table claimed one | — (`test-entry-state` has no unit tests; this spec is its only cover) |
 | 2 | `wdio-devtools-sidebar-summary` | `sidebar/summary.ts` | 252 | Pass/fail/running/skipped counts, progress bar proportions, runner capability chips | `suite-summary`, `runnerCapabilities` |
 | 2 | `wdio-devtools-sidebar-filter` | `sidebar/filter.ts` | 111 | Query input → filter event, tag syntax, clear control | — |
-| 3 | `wdio-devtools-sidebar` | `sidebar.ts` | 56 | Composition and collapse state | — |
+| 3 | `wdio-devtools-sidebar` | `sidebar.ts` | 56 | Composition, and the cross-child wiring it owns: the filter narrows the explorer, a summary status chip narrows it too. No collapse state — the explorer rows collapse, not this element. Spec lives at `test-ui/shell/sidebar.test.ts` | `summary`, `filter`, `explorer` |
 
-### `test-ui/shell/` (4)
+### `test-ui/shell/` (5)
 
 | Tier | Element | Source | LOC | The spec covers | Inherits |
 |---|---|---|---|---|---|
 | 3 | `wdio-devtools` | `app.ts` | 259 | Player vs live routing, connected/disconnected state, overlay mounting | — |
 | 3 | `wdio-devtools-header` | `header.ts` | 98 | Title, theme toggle, connection indicator | — |
 | 3 | `wdio-devtools-shortcuts` | `shortcuts-overlay.ts` | 141 | Open/close, keybinding list rendering | — |
-| 3 | `wdio-devtools-start` | `onboarding/start.ts` | 45 | Onboarding copy and CTA event | — |
+| 3 | `wdio-devtools-start` | `onboarding/start.ts` | 45 | Onboarding copy: the install command and service snippet, in document order. The element is inert — no CTA, no button, no dispatched event | — |
 
 ### `test-ui/shared/` (1)
 
