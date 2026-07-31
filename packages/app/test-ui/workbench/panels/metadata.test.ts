@@ -33,6 +33,17 @@ const BOOL_FALSE = '.bool-false'
 const SELECT = '.session-select'
 const OPTION = '.session-select option'
 const PLACEHOLDER = 'wdio-devtools-placeholder'
+const EMPTY_ICON = '.empty-state-icon'
+const EMPTY_HEADING = '.empty-state-text'
+const EMPTY_DETAIL = '.empty-state-detail'
+const SKELETON = '.ph-item'
+
+/** Copy the panel hands its placeholder — shown both when no session metadata
+ *  arrived at all and when what arrived carries no renderable field. */
+const EMPTY_GLYPH = '🧾'
+const EMPTY_HEADING_TEXT = 'No session metadata captured'
+const EMPTY_DETAIL_TEXT =
+  'Capabilities, options and session details are recorded when the driver session starts — this run carries none.'
 
 interface MetaSection {
   label: string
@@ -545,10 +556,31 @@ describe('wdio-devtools-metadata', () => {
       expect(shadowAll(panel, SECTION)).toHaveLength(0)
     })
 
+    // Read inside the placeholder's own shadow root: the panel's `textContent`
+    // stops at the placeholder's host, so it reads empty whether or not the
+    // words render — which is how inert copy went unnoticed.
+    it('says why there is no metadata', async () => {
+      const panel = await mountMetadata(undefined, {})
+      const placeholder = shadow(panel, PLACEHOLDER)!
+
+      expect(text(shadow(placeholder, EMPTY_HEADING))).toBe(EMPTY_HEADING_TEXT)
+      expect(text(shadow(placeholder, EMPTY_DETAIL))).toBe(EMPTY_DETAIL_TEXT)
+      expect(text(shadow(placeholder, EMPTY_ICON))).toBe(EMPTY_GLYPH)
+    })
+
+    it('explains the empty panel instead of drawing a loading skeleton', async () => {
+      const panel = await mountMetadata(undefined, {})
+      const placeholder = shadow(panel, PLACEHOLDER)!
+
+      expect(shadowAll(placeholder, SKELETON)).toHaveLength(0)
+    })
+
     it('renders the placeholder before a provider supplies anything', async () => {
       const panel = await mount<DevtoolsMetadata>(PANEL)
+      const placeholder = shadow(panel, PLACEHOLDER)!
 
       expect(shadowAll(panel, PLACEHOLDER)).toHaveLength(1)
+      expect(text(shadow(placeholder, EMPTY_HEADING))).toBe(EMPTY_HEADING_TEXT)
     })
 
     it('renders the placeholder when only the pending buffer was captured', async () => {
@@ -559,11 +591,16 @@ describe('wdio-devtools-metadata', () => {
       expect(shadowAll(panel, PLACEHOLDER)).toHaveLength(1)
     })
 
-    it('renders no section for metadata carrying nothing but its trace type', async () => {
+    // A metadata object exists here, so the panel takes its rendering path and
+    // then finds every bag empty — without the fallback the user gets a blank
+    // pane rather than an explanation.
+    it('falls back to the placeholder for metadata carrying nothing but its trace type', async () => {
       const panel = await mountMetadata(metadata())
+      const placeholder = shadow(panel, PLACEHOLDER)!
 
-      expect(shadowAll(panel, PLACEHOLDER)).toHaveLength(0)
+      expect(shadowAll(panel, PLACEHOLDER)).toHaveLength(1)
       expect(shadowAll(panel, SECTION)).toHaveLength(0)
+      expect(text(shadow(placeholder, EMPTY_HEADING))).toBe(EMPTY_HEADING_TEXT)
     })
 
     it('surfaces no viewport row for a capture that carried no dimensions', async () => {
@@ -583,6 +620,9 @@ describe('wdio-devtools-metadata', () => {
 
       expect(shadowAll(panel, SECTION)).toHaveLength(0)
       expect(shadowAll(panel, ROW)).toHaveLength(0)
+      // Nothing renderable was left, so the panel explains itself rather than
+      // showing an empty Session card.
+      expect(shadowAll(panel, PLACEHOLDER)).toHaveLength(1)
     })
   })
 })

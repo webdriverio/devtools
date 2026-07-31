@@ -34,6 +34,8 @@ const CATEGORY_VAR: Record<ActionCategory, string> = {
   other: 'var(--vscode-descriptionForeground)'
 }
 
+const EMPTY_GLYPH = '📄'
+
 /** Sets/clears the highlighted call-site line (1-based, or null to clear). */
 const setCallSite = StateEffect.define<number | null>()
 
@@ -362,7 +364,11 @@ export class DevtoolsSource extends Element {
   render() {
     const active = this.#effectiveFile
     if (!active) {
-      return html`<wdio-devtools-placeholder></wdio-devtools-placeholder>`
+      return html`<wdio-devtools-placeholder
+        icon="${EMPTY_GLYPH}"
+        heading="No source to show"
+        description="A file appears here once the run captures a spec's source or a command reports the line it ran from — this run carries neither."
+      ></wdio-devtools-placeholder>`
     }
     const hasContent = this.#contentFor(active) !== undefined
     return html`<div class="source-root">

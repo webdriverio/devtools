@@ -13,8 +13,10 @@ import { PENDING_SESSION_KEY } from '../../controller/contextUpdates.js'
 import '../placeholder.js'
 import '~icons/mdi/chevron-right.js'
 
-const SOURCE_COMPONENT = 'wdio-devtools-metadata'
-@customElement(SOURCE_COMPONENT)
+const COMPONENT = 'wdio-devtools-metadata'
+const EMPTY_GLYPH = '🧾'
+
+@customElement(COMPONENT)
 export class DevtoolsMetadata extends Element {
   /** Latest/active session metadata — fallback when no per-session map exists
    *  (e.g. a loaded single-session trace without a sessionId). */
@@ -210,13 +212,13 @@ export class DevtoolsMetadata extends Element {
     `
   }
 
-  #renderSection(label: string, data: unknown) {
-    // Metadata's capability/option bags are typed `unknown` upstream; narrow to
-    // a record here so the section can iterate their key/value pairs.
-    const entries = Object.entries((data ?? {}) as Record<string, unknown>)
-    if (entries.length === 0) {
-      return nothing
-    }
+  /** Metadata's capability/option bags are typed `unknown` upstream; narrowed to
+   *  a record here so a section can iterate their key/value pairs. */
+  #entriesOf(data: unknown): Array<[string, unknown]> {
+    return Object.entries((data ?? {}) as Record<string, unknown>)
+  }
+
+  #renderSection(label: string, entries: Array<[string, unknown]>) {
     const open = !this.#collapsed.has(label)
     return html`
       <div class="meta-sec">
@@ -300,29 +302,41 @@ export class DevtoolsMetadata extends Element {
     `
   }
 
+  /** Sections in display order, dropping every bag the capture left empty — so
+   *  metadata carrying nothing renderable yields none and the panel shows its
+   *  empty state instead of a blank pane. */
+  #renderSections(active: Metadata): TemplateResult[] {
+    const bags: Array<[string, unknown]> = [
+      ['Session', this.#buildSessionInfo(active)],
+      ['Capabilities', active.capabilities],
+      ['Desired Capabilities', active.desiredCapabilities],
+      ['Options', active.options]
+    ]
+    return bags
+      .map(([label, data]) => [label, this.#entriesOf(data)] as const)
+      .filter(([, entries]) => entries.length > 0)
+      .map(([label, entries]) => this.#renderSection(label, entries))
+  }
+
   render() {
     const sessions = this.#sessions()
     const active = this.#activeMetadata(sessions)
-    if (!active) {
-      return html`<wdio-devtools-placeholder></wdio-devtools-placeholder>`
+    const sections = active ? this.#renderSections(active) : []
+    if (sections.length === 0) {
+      return html`<wdio-devtools-placeholder
+        icon="${EMPTY_GLYPH}"
+        heading="No session metadata captured"
+        description="Capabilities, options and session details are recorded when the driver session starts — this run carries none."
+      ></wdio-devtools-placeholder>`
     }
     return html`
-      <div class="meta">
-        ${this.#renderSessionSelect(sessions)}
-        ${this.#renderSection('Session', this.#buildSessionInfo(active))}
-        ${this.#renderSection('Capabilities', active.capabilities)}
-        ${this.#renderSection(
-          'Desired Capabilities',
-          active.desiredCapabilities
-        )}
-        ${this.#renderSection('Options', active.options)}
-      </div>
+      <div class="meta">${this.#renderSessionSelect(sessions)}${sections}</div>
     `
   }
 }
 
 declare global {
   interface HTMLElementTagNameMap {
-    [SOURCE_COMPONENT]: DevtoolsMetadata
+    [COMPONENT]: DevtoolsMetadata
   }
 }

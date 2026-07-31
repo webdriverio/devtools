@@ -38,6 +38,17 @@ const LINE = '.cm-line'
 const CALL_SITE = '.cm-line.cm-callsite'
 const NOT_CAPTURED = '.src-empty'
 const PLACEHOLDER = 'wdio-devtools-placeholder'
+const EMPTY_ICON = '.empty-state-icon'
+const EMPTY_HEADING = '.empty-state-text'
+const EMPTY_DETAIL = '.empty-state-detail'
+const SKELETON = '.ph-item'
+
+/** Copy the panel hands its placeholder — a terminal state whenever the run
+ *  captured no source and no command reported a call site. */
+const EMPTY_GLYPH = '📄'
+const EMPTY_HEADING_TEXT = 'No source to show'
+const EMPTY_DETAIL_TEXT =
+  "A file appears here once the run captures a spec's source or a command reports the line it ran from — this run carries neither."
 
 /** Theme token the panel exposes as `--cs`, per `ActionCategory`. Mirrors
  *  `source.ts`'s `CATEGORY_VAR`, which is module-private; `none` is the value
@@ -344,10 +355,38 @@ describe('wdio-devtools-source', () => {
       expect(shadowAll(panel, FILE_TAB)).toHaveLength(0)
     })
 
+    // Read inside the placeholder's own shadow root: the panel's `textContent`
+    // stops at the placeholder's host, so it reads empty whether or not the
+    // words render — which is how inert copy went unnoticed.
+    it('says why there is no file to show', async () => {
+      const panel = await mountSource({}, [
+        commandLog({ callSource: undefined })
+      ])
+      const placeholder = shadow(panel, PLACEHOLDER)!
+
+      expect(text(shadow(placeholder, EMPTY_HEADING))).toBe(EMPTY_HEADING_TEXT)
+      expect(text(shadow(placeholder, EMPTY_DETAIL))).toBe(EMPTY_DETAIL_TEXT)
+      expect(text(shadow(placeholder, EMPTY_ICON))).toBe(EMPTY_GLYPH)
+    })
+
+    // Distinct from the uncaptured-file notice above: that one names a file the
+    // commands pointed at, this one is the no-file-at-all state.
+    it('explains the empty panel instead of drawing a loading skeleton', async () => {
+      const panel = await mountSource({}, [
+        commandLog({ callSource: undefined })
+      ])
+      const placeholder = shadow(panel, PLACEHOLDER)!
+
+      expect(shadowAll(placeholder, SKELETON)).toHaveLength(0)
+      expect(shadowAll(panel, NOT_CAPTURED)).toHaveLength(0)
+    })
+
     it('renders the placeholder before a provider supplies anything', async () => {
       const panel = await mount<DevtoolsSource>(PANEL)
+      const placeholder = shadow(panel, PLACEHOLDER)!
 
       expect(shadowAll(panel, PLACEHOLDER)).toHaveLength(1)
+      expect(text(shadow(placeholder, EMPTY_HEADING))).toBe(EMPTY_HEADING_TEXT)
     })
   })
 })

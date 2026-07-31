@@ -11,6 +11,7 @@ import '~icons/mdi/content-copy.js'
 import '~icons/mdi/check.js'
 
 const COMPONENT = 'wdio-devtools-transcript'
+const EMPTY_GLYPH = '📝'
 
 /** Player-only panel: renders the run's `transcript.md` and offers a one-click
  *  "Copy prompt" that bundles the transcript with any failing-command errors —
@@ -114,7 +115,11 @@ export class DevtoolsTranscript extends Element {
 
   render() {
     if (!this.transcript) {
-      return html`<wdio-devtools-placeholder></wdio-devtools-placeholder>`
+      return html`<wdio-devtools-placeholder
+        icon="${EMPTY_GLYPH}"
+        heading="No transcript in this trace"
+        description="A run writes transcript.md from the steps it captured — this trace carries none, so there is no prompt to copy."
+      ></wdio-devtools-placeholder>`
     }
     return html`
       <button

@@ -6,7 +6,7 @@ import type { DevtoolsTranscript } from '@components/workbench/transcript.js'
 
 import { commandLog } from '../../support/builders.js'
 import { mount, mountWithContext, settle } from '../../support/mount.js'
-import { shadow, shadowAll } from '../../support/queries.js'
+import { shadow, shadowAll, text } from '../../support/queries.js'
 
 const PANEL = 'wdio-devtools-transcript'
 const BODY = 'pre'
@@ -14,6 +14,18 @@ const COPY_BUTTON = 'button'
 const COPY_ICON = 'icon-mdi-content-copy'
 const COPIED_ICON = 'icon-mdi-check'
 const PLACEHOLDER = 'wdio-devtools-placeholder'
+const EMPTY_ICON = '.empty-state-icon'
+const EMPTY_HEADING = '.empty-state-text'
+const EMPTY_DETAIL = '.empty-state-detail'
+const SKELETON = '.ph-item'
+
+/** Copy the panel hands its placeholder. The panel mounts in player mode only,
+ *  over an already-loaded trace, so this is a terminal state — a skeleton here
+ *  would never resolve. */
+const EMPTY_GLYPH = '📝'
+const EMPTY_HEADING_TEXT = 'No transcript in this trace'
+const EMPTY_DETAIL_TEXT =
+  'A run writes transcript.md from the steps it captured — this trace carries none, so there is no prompt to copy.'
 /** Elements a markdown renderer would produce — the panel renders none. */
 const MARKDOWN_ELEMENTS = 'h1, h2, ul, ol, li, strong, code'
 
@@ -150,16 +162,41 @@ describe('wdio-devtools-transcript', () => {
       expect(shadowAll(panel, BODY)).toHaveLength(0)
     })
 
+    // Read inside the placeholder's own shadow root: the panel's `textContent`
+    // stops at the placeholder's host, so it reads empty whether or not the
+    // words render — which is how inert copy went unnoticed.
+    it('says why there is no transcript', async () => {
+      const panel = await mountTranscript()
+      const placeholder = shadow(panel, PLACEHOLDER)!
+
+      expect(text(shadow(placeholder, EMPTY_HEADING))).toBe(EMPTY_HEADING_TEXT)
+      expect(text(shadow(placeholder, EMPTY_DETAIL))).toBe(EMPTY_DETAIL_TEXT)
+      expect(text(shadow(placeholder, EMPTY_ICON))).toBe(EMPTY_GLYPH)
+    })
+
+    // The panel only mounts over a loaded trace, so a skeleton would spin for
+    // the life of the tab.
+    it('explains the empty panel instead of drawing a loading skeleton', async () => {
+      const panel = await mountTranscript()
+      const placeholder = shadow(panel, PLACEHOLDER)!
+
+      expect(shadowAll(placeholder, SKELETON)).toHaveLength(0)
+    })
+
     it('renders the placeholder before a provider supplies one', async () => {
       const panel = await mount<DevtoolsTranscript>(PANEL)
+      const placeholder = shadow(panel, PLACEHOLDER)!
 
       expect(shadowAll(panel, PLACEHOLDER)).toHaveLength(1)
+      expect(text(shadow(placeholder, EMPTY_HEADING))).toBe(EMPTY_HEADING_TEXT)
     })
 
     it('renders the placeholder for an empty transcript', async () => {
       const panel = await mountTranscript('')
+      const placeholder = shadow(panel, PLACEHOLDER)!
 
       expect(shadowAll(panel, PLACEHOLDER)).toHaveLength(1)
+      expect(text(shadow(placeholder, EMPTY_HEADING))).toBe(EMPTY_HEADING_TEXT)
     })
 
     it('offers no copy control while the placeholder is showing', async () => {
