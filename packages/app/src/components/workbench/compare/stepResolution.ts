@@ -3,7 +3,10 @@ import type {
   PreservedAttempt,
   PreservedStep
 } from '@wdio/devtools-shared'
-import type { SuiteStatsFragment } from '../../../controller/types.js'
+import type {
+  SuiteStatsFragment,
+  TestStatsFragment
+} from '../../../controller/types.js'
 import {
   cleanErrorMessage,
   extractExpectedFromStepText,
@@ -37,27 +40,55 @@ function findSuiteByUid(
   return undefined
 }
 
+/** One live test as the step shape the panel compares against a baseline. */
+function testToStep(t: TestStatsFragment): PreservedStep {
+  return {
+    uid: t.uid,
+    title: t.title,
+    fullTitle: t.fullTitle,
+    start: t.start ? new Date(t.start).getTime() : undefined,
+    end: t.end ? new Date(t.end).getTime() : undefined,
+    state: t.state,
+    error: t.error
+      ? {
+          message: t.error.message,
+          name: t.error.name,
+          stack: t.error.stack
+        }
+      : undefined
+  }
+}
+
 function flattenSuiteTests(s: SuiteStatsFragment, out: PreservedStep[]): void {
   for (const t of s.tests ?? []) {
-    out.push({
-      uid: t.uid,
-      title: t.title,
-      fullTitle: t.fullTitle,
-      start: t.start ? new Date(t.start).getTime() : undefined,
-      end: t.end ? new Date(t.end).getTime() : undefined,
-      state: t.state === 'pending' || t.state === 'running' ? t.state : t.state,
-      error: t.error
-        ? {
-            message: t.error.message,
-            name: t.error.name,
-            stack: t.error.stack
-          }
-        : undefined
-    })
+    out.push(testToStep(t))
   }
   for (const child of s.suites ?? []) {
     flattenSuiteTests(child, out)
   }
+}
+
+/** A single live test by uid. Preserving from a test row records that test's
+ *  uid, which names no suite — without this the panel finds no live steps and
+ *  falls back to the whole unwindowed command stream. */
+function findTestByUid(
+  s: SuiteStatsFragment | undefined,
+  uid: string
+): TestStatsFragment | undefined {
+  if (!s) {
+    return undefined
+  }
+  const hit = (s.tests ?? []).find((t) => t.uid === uid)
+  if (hit) {
+    return hit
+  }
+  for (const child of s.suites ?? []) {
+    const nested = findTestByUid(child, uid)
+    if (nested) {
+      return nested
+    }
+  }
+  return undefined
 }
 
 export function liveStepsForUid(
@@ -79,12 +110,23 @@ export function liveStepsForUid(
       break
     }
   }
-  if (!foundRoot) {
-    return []
+  if (foundRoot) {
+    const out: PreservedStep[] = []
+    flattenSuiteTests(foundRoot, out)
+    return out
   }
-  const out: PreservedStep[] = []
-  flattenSuiteTests(foundRoot, out)
-  return out
+  // Preserving from a test row records the TEST's uid, so the suite walk above
+  // finds nothing. Resolve it as a single step: without this the panel reports no
+  // live steps and compares the baseline against every command in the run.
+  for (const chunk of liveSuites) {
+    for (const root of Object.values(chunk)) {
+      const test = findTestByUid(root, selectedTestUid)
+      if (test) {
+        return [testToStep(test)]
+      }
+    }
+  }
+  return []
 }
 
 /**

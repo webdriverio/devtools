@@ -28,9 +28,9 @@ import {
   testFragment
 } from './fixtures.js'
 
-/** The uid the baseline was preserved under. Deliberately a **suite** uid:
- *  `liveStepsForUid` matches suite uids only, so a suite-scoped baseline is the
- *  only shape whose live steps resolve. */
+/** The uid the baseline was preserved under — a **suite** uid, so its live steps
+ *  are the whole suite's tests. `LIVE_TEST_UID` covers the other shape: a test
+ *  uid, which is what preserving from a test row records. */
 export const SELECTED_UID = 'login-suite'
 export const LIVE_TEST_UID = 'login-valid'
 export const LIVE_TEST_TITLE = 'login page logs in with valid credentials'

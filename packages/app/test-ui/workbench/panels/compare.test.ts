@@ -765,14 +765,16 @@ describe('wdio-devtools-compare', () => {
       expect(texts(panel, PILL)[1]).toBe('Latest · 5 commands')
     })
 
-    it('compares the whole live stream when the selected uid names a test rather than a suite', async () => {
+    // Preserving from a test row records the TEST's uid, which is the common
+    // case; it must window to that test, not fall open to the whole run.
+    it('windows the live stream to the selected test when the uid names a test', async () => {
       const panel = await mountLogin({
         baselines: baselineMap(preservedAttempt(), LIVE_TEST_UID),
         selectedTestUid: LIVE_TEST_UID
       })
 
-      expect(texts(panel, PILL)[1]).toBe('Latest · 7 commands')
-      expect(commandsIn(panel, 1)[0]).toBe('deleteAllCookies')
+      expect(texts(panel, PILL)[1]).toBe('Latest · 5 commands')
+      expect(commandsIn(panel, 1)[0]).toBe('url')
     })
 
     it('compares the whole live stream when the selected uid is not in the live tree', async () => {
