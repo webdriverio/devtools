@@ -6,17 +6,12 @@ import '~icons/custom/logo.svg'
 import '~icons/mdi/white-balance-sunny.js'
 import '~icons/mdi/moon-waning-crescent.js'
 
-import { DARK_MODE_KEY } from '../controller/constants.js'
-
-/** The theme to render: the choice the user stored, else the OS setting. The
- *  header owns the toggle, so it owns this rule — `app.ts` bootstraps `<body>`
- *  from the same function so the document and the icon can't disagree. */
-export function prefersDarkMode(): boolean {
-  const stored = localStorage.getItem(DARK_MODE_KEY)
-  return stored === null
-    ? window.matchMedia('(prefers-color-scheme: dark)').matches
-    : stored === 'true'
-}
+import {
+  applyDarkMode,
+  onThemeChange,
+  prefersDarkMode,
+  storeDarkMode
+} from '../controller/theme.js'
 
 @customElement('wdio-devtools-header')
 export class DevtoolsHeader extends Element {
@@ -24,28 +19,30 @@ export class DevtoolsHeader extends Element {
   // changed elsewhere would otherwise render the icon of the old one.
   #darkMode = prefersDarkMode()
 
+  #unwatchTheme?: () => void
+
   constructor() {
     super()
-    document.body.classList.toggle('dark', this.#darkMode)
+    applyDarkMode(this.#darkMode)
   }
 
   connectedCallback(): void {
     super.connectedCallback()
-    window.addEventListener('storage', this.#onStorage)
+    // Another window stored a theme, or the OS flipped while nothing is stored:
+    // either way the icon has to follow, or it contradicts the document.
+    this.#unwatchTheme = onThemeChange((dark) => this.#renderTheme(dark))
   }
 
   disconnectedCallback(): void {
     super.disconnectedCallback()
-    window.removeEventListener('storage', this.#onStorage)
+    this.#unwatchTheme?.()
+    this.#unwatchTheme = undefined
   }
 
-  // Another window (a popout, a second dashboard tab) stored a new theme — the
-  // `storage` event only fires for changes made outside this one.
-  #onStorage = (event: StorageEvent): void => {
-    if (event.key !== DARK_MODE_KEY) {
-      return
-    }
-    this.#darkMode = prefersDarkMode()
+  // The one place the header adopts a theme: icon and document move together.
+  #renderTheme(dark: boolean): void {
+    this.#darkMode = dark
+    applyDarkMode(dark)
     this.requestUpdate()
   }
 
@@ -108,10 +105,9 @@ export class DevtoolsHeader extends Element {
   }
 
   #switchMode() {
-    this.#darkMode = !this.#darkMode
-    document.body.classList.toggle('dark', this.#darkMode)
-    localStorage.setItem(DARK_MODE_KEY, this.#darkMode ? 'true' : 'false')
-    this.requestUpdate()
+    const dark = !this.#darkMode
+    storeDarkMode(dark)
+    this.#renderTheme(dark)
   }
 }
 

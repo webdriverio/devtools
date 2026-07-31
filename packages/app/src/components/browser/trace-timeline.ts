@@ -6,6 +6,7 @@ import type { CommandLog, TracePlayerFrame } from '@wdio/devtools-shared'
 import { isKeyboardCommand } from '@wdio/devtools-shared'
 
 import { commandContext, framesContext } from '../../controller/context.js'
+import { elapsedSince } from '../../utils/elapsed.js'
 import { activeSpanAt } from '../workbench/active-entry.js'
 import { KBD } from '../../controller/keyboard.js'
 import {
@@ -236,13 +237,12 @@ export class TraceTimeline extends Element {
     }
     this.#started = true
     this.#activeCommand = command
-    // Mirror actions.ts: elapsed time is the command's offset from the first
-    // command — not from the strip's window origin, which also counts frames and
-    // would badge the same action differently in the two panes.
-    const baseline = sorted[0].timestamp
+    // Timed against the commands, NOT against `#start`: the strip's window origin
+    // also counts captured frames, which begin before the first command, so
+    // measuring from it would badge the same action differently in the two panes.
     window.dispatchEvent(
       new CustomEvent<CommandEventProps>('show-command', {
-        detail: { command, elapsedTime: command.timestamp - baseline }
+        detail: { command, elapsedTime: elapsedSince(sorted, command) }
       })
     )
   }

@@ -13,6 +13,7 @@ import {
 import '@components/workbench/actions.js'
 import type { DevtoolsActions } from '@components/workbench/actions.js'
 
+import { commandLog, documentLoaded } from '../../support/builders.js'
 import {
   type ContextValue,
   mountWithContext,
@@ -39,6 +40,12 @@ type GroupRowElement = HTMLElementTagNameMap[typeof GROUP_ROW]
 type TimelineEntry = CommandLog | TraceMutation
 
 const { commands, mutations } = loginTimeline
+
+/** The demo target and wall clock of the one scenario built inside this spec: a
+ *  document load BEFORE the first command, which the shared fixture has no case
+ *  for and which is what separates the two baselines. */
+const LOGIN_URL = 'https://the-internet.herokuapp.com/login'
+const RUN_START = 1_700_000_000_000
 
 /**
  * The row order the panel derives: `#sortedEntries` keeps the childList
@@ -147,6 +154,55 @@ describe('wdio-devtools-actions', () => {
       expect(shadowAll(panel, ROWS).map(elapsedOf)).toEqual([
         0, 30, 220, 360, 880
       ])
+    })
+
+    it('times its rows from a document load that precedes the first command', async () => {
+      // Routine rather than a corner case: a command's timestamp is when it
+      // ENDED, and a navigation's DOM is captured before `url` returns.
+      const load = documentLoaded(LOGIN_URL, { timestamp: RUN_START })
+      const navigate = commandLog({
+        command: 'url',
+        args: [LOGIN_URL],
+        timestamp: RUN_START + 300
+      })
+      const click = commandLog({ command: 'click', timestamp: RUN_START + 800 })
+
+      const panel = await mountPanel({
+        commands: [navigate, click],
+        mutations: [load]
+      })
+
+      // The column stays monotonic from the top row. Timing these rows against
+      // the commands alone would badge the document load at -300ms.
+      expect(shadowAll(panel, ROWS).map(elapsedOf)).toEqual([0, 300, 800])
+    })
+
+    it('announces the offset it displays when a row is clicked', async () => {
+      const load = documentLoaded(LOGIN_URL, { timestamp: RUN_START })
+      const navigate = commandLog({
+        command: 'url',
+        args: [LOGIN_URL],
+        timestamp: RUN_START + 300
+      })
+      const panel = await mountPanel({
+        commands: [navigate],
+        mutations: [load]
+      })
+      const shown = new Promise<CommandEventProps>((resolve) => {
+        window.addEventListener(
+          'show-command',
+          (event) => resolve(event.detail),
+          { once: true }
+        )
+      })
+
+      clickRow(shadowAll(panel, ROWS)[1])
+
+      // The Log tab's chip shows the number the user clicked. It is measured from
+      // this list, so it can differ from what the keyboard and the player's strip
+      // announce for the same command — neither of those panes has document-load
+      // rows, so they measure the commands they navigate.
+      expect(await shown).toEqual({ command: navigate, elapsedTime: 300 })
     })
 
     it('renders the placeholder while no commands or mutations have arrived', async () => {

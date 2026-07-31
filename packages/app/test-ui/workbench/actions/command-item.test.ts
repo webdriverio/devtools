@@ -287,7 +287,9 @@ describe('wdio-devtools-command-item', () => {
         duration: 1999
       })
 
-      expect(text(shadow(el, BADGE))).toBe('2.00s')
+      // Reads below the boundary it is below: rounding to `2.00s` put the same
+      // label as the slow bucket's first value on a yellow badge.
+      expect(text(shadow(el, BADGE))).toBe('1.99s')
       expect(shadow(el, BADGE)?.classList.contains('text-chartsYellow')).toBe(
         true
       )
@@ -366,12 +368,13 @@ describe('wdio-devtools-command-item', () => {
       expect(received[0]?.detail.elapsedTime).toBe(1250)
     })
 
-    it('forwards an undefined elapsed time when none was supplied', async () => {
+    it('announces a zero elapsed time when it was handed none', async () => {
       const el = await mount<CommandItem>(TAG, {
         entry: commandLog({ command: 'click' })
       })
-      const received: CustomEvent<{ elapsedTime?: number }>[] = []
-      const listener = (event: Event) => received.push(event as CustomEvent)
+      const received: CommandEventProps[] = []
+      const listener = (event: Event) =>
+        received.push((event as CustomEvent<CommandEventProps>).detail)
 
       window.addEventListener('show-command', listener)
       try {
@@ -380,8 +383,11 @@ describe('wdio-devtools-command-item', () => {
         window.removeEventListener('show-command', listener)
       }
 
+      // The contract declares a number, and the Log tab drops its duration chip
+      // for `undefined` — so a row with no offset of its own announces the start
+      // of its list, not "no answer".
       expect(received.length).toBe(1)
-      expect(received[0]?.detail.elapsedTime).toBe(undefined)
+      expect(received[0].elapsedTime).toBe(0)
     })
   })
 })

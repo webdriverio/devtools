@@ -1,5 +1,6 @@
 import { DARK_MODE_KEY } from '@/controller/constants.js'
-import { prefersDarkMode } from '@components/header.js'
+import { prefersDarkMode } from '@/controller/theme.js'
+import '@components/header.js'
 import type { DevtoolsHeader } from '@components/header.js'
 
 import { mount, settle } from '../support/mount.js'
@@ -57,11 +58,62 @@ async function themeChangedElsewhere(
 const shownIcon = (header: DevtoolsHeader) =>
   shadow(header, SUN)?.className === 'show' ? 'sun' : 'moon'
 
-/** Nothing carries over: the next test picks its own theme, and the document is
- *  left as the runner found it. */
-afterEach(() => {
+let osThemeEmulated = false
+
+/**
+ * Really flip the OS-level setting: `prefers-color-scheme` is overridden through
+ * CDP, so every live MediaQueryList in the page fires `change` exactly as it does
+ * when the user switches their system theme. Nothing lighter reaches the
+ * subscription under test — `matchMedia()` hands out a NEW MediaQueryList per
+ * call, so a stubbed one is invisible to whoever already subscribed.
+ */
+async function osThemeBecomes(theme: 'dark' | 'light'): Promise<void> {
+  await browser.sendCommand('Emulation.setEmulatedMedia', {
+    features: [{ name: 'prefers-color-scheme', value: theme }]
+  })
+  osThemeEmulated = true
+  // The drive itself, asserted: without it the tests below would pass on any
+  // header, since nothing would have changed.
+  expect(osPrefersDark()).toBe(theme === 'dark')
+}
+
+/** Resolves once the page has delivered the flip to a media query of this spec's
+ *  own — which is proof that the one `controller/theme` subscribed to, notified in
+ *  the same page task, has been called too. The CDP command returns as soon as
+ *  `matches` reports the new value, BEFORE that delivery, so awaiting the command
+ *  alone makes these specs race the listener under test. */
+function osThemeDelivered(): Promise<void> {
+  return new Promise((resolve) => {
+    window
+      .matchMedia('(prefers-color-scheme: dark)')
+      .addEventListener('change', () => resolve(), { once: true })
+  })
+}
+
+/** Flip the OS setting and wait for the page to hand it to its listeners. Only
+ *  for a flip that really changes the value — an unchanged setting fires no
+ *  `change`, so this would wait for an event that never comes. */
+async function osThemeFlipsTo(theme: 'dark' | 'light'): Promise<void> {
+  const delivered = osThemeDelivered()
+  await osThemeBecomes(theme)
+  await delivered
+}
+
+/** Hand the setting back to the machine running the suite. */
+async function restoreOsTheme(): Promise<void> {
+  if (!osThemeEmulated) {
+    return
+  }
+  osThemeEmulated = false
+  await browser.sendCommand('Emulation.setEmulatedMedia', { features: [] })
+}
+
+/** Nothing carries over: the next test picks its own theme, and the document and
+ *  the OS setting are left as the runner found them. */
+afterEach(async () => {
   document.body.classList.remove('dark')
   localStorage.removeItem(DARK_MODE_KEY)
+  await restoreOsTheme()
 })
 
 describe('wdio-devtools-header', () => {
@@ -236,6 +288,64 @@ describe('wdio-devtools-header', () => {
 
       header.remove()
       await themeChangedElsewhere(header, DARK_MODE_KEY, 'dark')
+
+      expect(shownIcon(header)).toBe('moon')
+    })
+  })
+
+  describe('OS theme flipped', () => {
+    it('follows the OS while the user has not picked a theme', async () => {
+      localStorage.removeItem(DARK_MODE_KEY)
+      await osThemeBecomes('light')
+      const header = await mountHeader()
+      expect(shownIcon(header)).toBe('moon')
+
+      await osThemeFlipsTo('dark')
+      await settle(header)
+
+      // Regression: only the document used to follow the OS (the shell listens
+      // for it), so a mounted header kept offering to switch to the theme the
+      // dashboard was already showing.
+      expect(shownIcon(header)).toBe('sun')
+      expect(isDark()).toBe(true)
+    })
+
+    it('follows it back to light again', async () => {
+      localStorage.removeItem(DARK_MODE_KEY)
+      await osThemeBecomes('dark')
+      const header = await mountHeader()
+      expect(shownIcon(header)).toBe('sun')
+
+      await osThemeFlipsTo('light')
+      await settle(header)
+
+      expect(shownIcon(header)).toBe('moon')
+      expect(isDark()).toBe(false)
+    })
+
+    it('ignores the OS once the user has picked a theme', async () => {
+      await osThemeBecomes('light')
+      store('light')
+      const header = await mountHeader()
+
+      await osThemeFlipsTo('dark')
+      await settle(header)
+
+      // The stored choice is the answer while it exists — the OS is only the
+      // fallback, so this flip must not undo what the user picked. The flip was
+      // delivered before this ran, so an unchanged icon is a decision, not a race.
+      expect(shownIcon(header)).toBe('moon')
+      expect(isDark()).toBe(false)
+    })
+
+    it('stops following the OS once it leaves the DOM', async () => {
+      localStorage.removeItem(DARK_MODE_KEY)
+      await osThemeBecomes('light')
+      const header = await mountHeader()
+
+      header.remove()
+      await osThemeFlipsTo('dark')
+      await settle(header)
 
       expect(shownIcon(header)).toBe('moon')
     })
