@@ -829,12 +829,72 @@ describe('wdio-devtools-compare', () => {
       expect(texts(panel, PILL)[1]).toBe('Latest · 7 commands')
     })
 
-    it('compares the whole live stream when no live test recorded a start time', async () => {
+    // A start the runner hasn't reported yet is unknown, not unbounded: the end
+    // it did report still keeps the *next* test's commands out. Falling open to
+    // the whole stream here re-admits them.
+    it('windows the live stream with the end alone when no live test recorded a start time', async () => {
       const panel = await mountLogin({
         liveSuites: liveSuitesWith(liveTest({ end: RERUN_END }))
       })
 
+      expect(texts(panel, PILL)[1]).toBe('Latest · 6 commands')
+      // Everything up to the rerun's end — the preceding test's command is
+      // admitted (no start to exclude it by), the following test's is not.
+      expect(commandsIn(panel, 1)).toEqual([
+        'deleteAllCookies',
+        'url',
+        'setValue',
+        'setValue',
+        'click',
+        'getText'
+      ])
+    })
+
+    it('takes the window start from the live tests that recorded one', async () => {
+      const panel = await mountLogin({
+        liveSuites: liveSuitesWith(
+          liveTest({ end: RERUN_START + 1200 }, { uid: 'no-start' }),
+          liveTest(
+            { start: RERUN_START + 1500, end: RERUN_END },
+            { uid: 'second-half' }
+          )
+        )
+      })
+
+      // The step without a start contributes only its end, so the window still
+      // opens at the started step rather than at the beginning of the run.
+      expect(texts(panel, PILL)[1]).toBe('Latest · 2 commands')
+      expect(commandsIn(panel, 1)).toEqual(['click', 'getText', '', '', '', ''])
+    })
+
+    it('compares the whole live stream when the live test recorded neither bound', async () => {
+      const panel = await mountLogin({
+        liveSuites: liveSuitesWith(liveTest({}))
+      })
+
       expect(texts(panel, PILL)[1]).toBe('Latest · 7 commands')
+      expect(commandsIn(panel, 1)[6]).toBe('url')
+    })
+
+    it('ignores a live test with neither bound while another one is windowed', async () => {
+      const panel = await mountLogin({
+        liveSuites: liveSuitesWith(
+          liveTest({ start: RERUN_START, end: RERUN_END }, { uid: 'windowed' }),
+          liveTest({}, { uid: 'never-started' })
+        )
+      })
+
+      // The timeless step carries no window information, so it must not widen
+      // the windowed one's end to "now" and re-admit the next test's command.
+      expect(texts(panel, PILL)[1]).toBe('Latest · 5 commands')
+      expect(commandsIn(panel, 1)).toEqual([
+        'url',
+        'setValue',
+        'setValue',
+        'click',
+        'getText',
+        ''
+      ])
     })
 
     it('leaves the window open-ended for a live test that has not finished', async () => {

@@ -366,10 +366,22 @@ describe('renderDetailBlock', () => {
       expect(rendered).not.toMatch(/\[\d+m/)
     })
 
-    it('stringifies an error object that carries no message', () => {
+    it('names an error object that carries no message', () => {
       const command = cmd({
         command: 'click',
-        error: { name: 'Error', message: '' }
+        error: { name: 'TimeoutError', message: '' }
+      })
+      const host = renderInto(
+        renderDetailBlock('Baseline', command, 'baseline', ctxWith())
+      )
+
+      expect(preLines(host)[1]).toBe('error: TimeoutError')
+    })
+
+    it('stringifies an error object that carries neither message nor name', () => {
+      const command = cmd({
+        command: 'click',
+        error: { name: '', message: '   ' }
       })
       const host = renderInto(
         renderDetailBlock('Baseline', command, 'baseline', ctxWith())

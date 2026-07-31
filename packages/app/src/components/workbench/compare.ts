@@ -130,14 +130,18 @@ export class DevtoolsCompare extends Element {
    *  test's step time windows (mirrors the backend's snapshot filter). */
   #liveCommandsForSelectedUid(): CommandLog[] {
     const all = this.liveCommands || []
-    const steps = this.#liveStepsForSelectedUid()
+    // A step the runner reported with neither bound windows nothing, and must
+    // not widen the window of a step that does carry one.
+    const steps = this.#liveStepsForSelectedUid().filter(
+      (s) => typeof s.start === 'number' || typeof s.end === 'number'
+    )
     if (steps.length === 0) {
       return all
     }
     let start = Number.POSITIVE_INFINITY
     let end = 0
     for (const s of steps) {
-      if (s.start !== null && s.start !== undefined && s.start < start) {
+      if (typeof s.start === 'number' && s.start < start) {
         start = s.start
       }
       const candidateEnd = s.end ?? Date.now()
@@ -145,8 +149,10 @@ export class DevtoolsCompare extends Element {
         end = candidateEnd
       }
     }
+    // An unreported start is unknown, not unbounded: keep filtering by the end
+    // rather than re-admitting the commands of whichever test ran next.
     if (!Number.isFinite(start)) {
-      return all
+      start = 0
     }
     return all.filter(
       (c) => c.timestamp !== null && c.timestamp >= start && c.timestamp <= end
