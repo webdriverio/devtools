@@ -98,6 +98,34 @@ function failingCommand(
   })
 }
 
+/** Every window event the panel can announce. `show-command` is listed because
+ *  it is what a clickable row would emit — the panel owns no timeline, so it has
+ *  no baseline to derive that event's required `elapsedTime` from, and rows are
+ *  read-only apart from their source anchor. */
+const OUTPUT_EVENTS = ['app-source-highlight', 'show-command'] as const
+
+/** What the panel announced on `window` while `act` ran, keyed by event type. */
+function recordOutput(act: () => void): Record<string, CustomEvent[]> {
+  const seen: Record<string, CustomEvent[]> = Object.fromEntries(
+    OUTPUT_EVENTS.map((type) => [type, []])
+  )
+  const listeners = OUTPUT_EVENTS.map((type) => {
+    const listener = (event: Event) => seen[type].push(event as CustomEvent)
+    window.addEventListener(type, listener)
+    return { type, listener }
+  })
+  try {
+    act()
+  } finally {
+    for (const { type, listener } of listeners) {
+      window.removeEventListener(type, listener)
+    }
+  }
+  return seen
+}
+
+const click = () => new MouseEvent('click', { bubbles: true, composed: true })
+
 describe('wdio-devtools-errors', () => {
   describe('error list', () => {
     it('renders one entry per failing command', async () => {
@@ -417,6 +445,24 @@ describe('wdio-devtools-errors', () => {
       expect(shadowAll(panel, DIFF)).toHaveLength(0)
       expect(text(shadow(panel, MESSAGE))).toBe(CLICK_MESSAGE)
     })
+
+    it('drops the bare-Error headline when the whole message was the diff', async () => {
+      const panel = await mountErrors([
+        failingCommand(
+          `Expected: ${MATCHER_EXPECTED}\nReceived: ${MATCHER_RECEIVED}`,
+          { command: 'expect.toHaveText' }
+        )
+      ])
+
+      // Nothing is left to head the row once the values are pulled out of it,
+      // and a lone `Error` above a diff says nothing the diff doesn't. The
+      // counterpart — no diff, so `Error` is all the row has — is asserted under
+      // "stack".
+      expect(shadowAll(panel, MESSAGE)).toHaveLength(0)
+      expect(text(shadow(panel, RECEIVED))).toBe(MATCHER_RECEIVED)
+      expect(text(shadow(panel, EXPECTED))).toBe(MATCHER_EXPECTED)
+      expect(entries(panel)).toHaveLength(1)
+    })
   })
 
   describe('stack', () => {
@@ -542,6 +588,22 @@ describe('wdio-devtools-errors', () => {
       expect(entries(panel)).toHaveLength(1)
     })
 
+    it('dispatches exactly one highlight per click, and nothing else', async () => {
+      const panel = await mountErrors([loginErrors.matcher])
+
+      const seen = recordOutput(() => {
+        shadow(panel, LOC)?.dispatchEvent(click())
+      })
+
+      expect(seen['app-source-highlight']).toHaveLength(1)
+      expect(seen['app-source-highlight'][0].detail).toBe(
+        loginErrors.matcher.callSource
+      )
+      // The anchor is the row's only destination: `show-command` would also send
+      // the dock to the Log tab, so one click would ask for two.
+      expect(seen['show-command']).toHaveLength(0)
+    })
+
     it("anchors a suite-level failure at the test's own call source", async () => {
       const panel = await mountErrors(
         [],
@@ -558,6 +620,32 @@ describe('wdio-devtools-errors', () => {
       )
 
       expect(text(shadow(panel, LOC))).toBe(ANCHOR.hook)
+    })
+  })
+
+  describe('row interaction', () => {
+    it('announces nothing when the row itself is clicked', async () => {
+      const panel = await mountErrors([loginErrors.matcher])
+
+      const seen = recordOutput(() => {
+        shadow(panel, ENTRY)?.dispatchEvent(click())
+        shadow(panel, TITLE)?.dispatchEvent(click())
+      })
+
+      // A command failure is the row that could plausibly select its action, and
+      // it deliberately doesn't — the anchor is the row's only control.
+      expect(seen['show-command']).toHaveLength(0)
+      expect(seen['app-source-highlight']).toHaveLength(0)
+    })
+
+    it('presents the row as no kind of control', async () => {
+      const panel = await mountErrors([loginErrors.matcher])
+      const entry = shadow(panel, ENTRY)
+
+      expect(entry?.tagName).toBe('DIV')
+      expect(entry?.getAttribute('role')).toBeNull()
+      expect(entry?.getAttribute('tabindex')).toBeNull()
+      expect(shadowAll(panel, `${ENTRY} button`)).toHaveLength(1)
     })
   })
 
