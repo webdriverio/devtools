@@ -35,6 +35,7 @@ const PANEL = 'wdio-devtools-errors'
 const ENTRY = '.error-entry'
 const LOC = '.error-loc'
 const TITLE = '.error-title'
+const MESSAGE = '.error-message'
 const DIFF = '.error-diff'
 const DIFF_LABEL = '.error-diff .label'
 const RECEIVED = '.error-diff .received'
@@ -60,6 +61,9 @@ const ANCHOR = {
   nativeAssert: anchor(ASSERT_CALL_SOURCE),
   hook: anchor(`${SPEC_FILE}:14:3`)
 }
+
+/** `fullTitle` of the fixture run's failed test, which heads its row. */
+const HOOK_TEST_TITLE = 'login page logs out again'
 
 async function mountErrors(
   commands: CommandLog[],
@@ -145,7 +149,7 @@ describe('wdio-devtools-errors', () => {
       expect(texts(panel, LOC)).toEqual(
         collected.map((error) => anchor(error.callSource!))
       )
-      expect(texts(panel, TITLE)).toEqual(
+      expect(texts(panel, MESSAGE)).toEqual(
         collected.map((error) => error.message)
       )
     })
@@ -156,7 +160,7 @@ describe('wdio-devtools-errors', () => {
       // The scenario's passing test carries a retry error; only the failed one
       // becomes a row.
       expect(entries(panel)).toHaveLength(1)
-      expect(text(shadow(panel, TITLE))).toBe(HOOK_MESSAGE)
+      expect(text(shadow(panel, MESSAGE))).toBe(HOOK_MESSAGE)
     })
 
     it('walks nested suites for failed tests', async () => {
@@ -175,7 +179,7 @@ describe('wdio-devtools-errors', () => {
         )
       )
 
-      expect(text(shadow(panel, TITLE))).toBe('nested failure')
+      expect(text(shadow(panel, MESSAGE))).toBe('nested failure')
     })
 
     it('keeps the freshest fragment when the same test uid failed twice', async () => {
@@ -191,7 +195,7 @@ describe('wdio-devtools-errors', () => {
         ]
       )
 
-      expect(texts(panel, TITLE)).toEqual(['corrected report'])
+      expect(texts(panel, MESSAGE)).toEqual(['corrected report'])
     })
 
     it('renders no entry for a failure carrying neither message nor stack', async () => {
@@ -200,6 +204,63 @@ describe('wdio-devtools-errors', () => {
       ])
 
       expect(entries(panel)).toHaveLength(0)
+    })
+  })
+
+  describe('row heading', () => {
+    it("heads a command failure with the action's display label", async () => {
+      const panel = await mountErrors([
+        failingCommand('element not interactable', {
+          command: 'click',
+          title: 'Element.click("#login")'
+        })
+      ])
+
+      // The label, not the raw command name — a trace-player row is titled
+      // `Element.click("#login")` while its command is still `click`.
+      expect(text(shadow(panel, TITLE))).toBe('Element.click("#login")')
+    })
+
+    it('heads a command failure with the command name when it has no label', async () => {
+      const panel = await mountErrors([loginErrors.matcher])
+
+      expect(text(shadow(panel, TITLE))).toBe(loginErrors.matcher.command)
+    })
+
+    it("heads a suite-level failure with the failed test's full title", async () => {
+      const panel = await mountErrors([], loginErrors.suites)
+
+      expect(text(shadow(panel, TITLE))).toBe(HOOK_TEST_TITLE)
+    })
+
+    it('heads every row of a run that failed several ways', async () => {
+      const panel = await mountErrors(loginErrors.commands, loginErrors.suites)
+
+      expect(texts(panel, TITLE)).toEqual([
+        loginErrors.click.command,
+        loginErrors.matcher.command,
+        loginErrors.nativeAssert.command,
+        HOOK_TEST_TITLE
+      ])
+    })
+
+    it('distinguishes two failures that report the same message', async () => {
+      const panel = await mountErrors([
+        failingCommand('Timeout of 5000ms exceeded', {
+          command: 'waitForDisplayed',
+          timestamp: RUN_START
+        }),
+        failingCommand('Timeout of 5000ms exceeded', {
+          command: 'click',
+          timestamp: RUN_START + 400
+        })
+      ])
+
+      expect(texts(panel, MESSAGE)).toEqual([
+        'Timeout of 5000ms exceeded',
+        'Timeout of 5000ms exceeded'
+      ])
+      expect(texts(panel, TITLE)).toEqual(['waitForDisplayed', 'click'])
     })
   })
 
@@ -262,7 +323,7 @@ describe('wdio-devtools-errors', () => {
     it('keeps a failed test whose own failure no command reported', async () => {
       const panel = await mountErrors([loginErrors.click], loginErrors.suites)
 
-      expect(texts(panel, TITLE)).toEqual([CLICK_MESSAGE, HOOK_MESSAGE])
+      expect(texts(panel, MESSAGE)).toEqual([CLICK_MESSAGE, HOOK_MESSAGE])
     })
 
     it('renders a repeated failure once per command rather than grouping it', async () => {
@@ -273,7 +334,7 @@ describe('wdio-devtools-errors', () => {
         })
       ])
 
-      expect(texts(panel, TITLE)).toEqual([
+      expect(texts(panel, MESSAGE)).toEqual([
         'Timeout of 5000ms exceeded',
         'Timeout of 5000ms exceeded'
       ])
@@ -296,8 +357,8 @@ describe('wdio-devtools-errors', () => {
 
       // The headline is the message minus the Expected/Received lines, so it
       // heads the row without repeating what the diff already shows.
-      expect(text(shadow(panel, TITLE))).toBe(MATCHER_HEADLINE)
-      expect(text(shadow(panel, TITLE))).not.toContain('Expected:')
+      expect(text(shadow(panel, MESSAGE))).toBe(MATCHER_HEADLINE)
+      expect(text(shadow(panel, MESSAGE))).not.toContain('Expected:')
     })
 
     it('reads the values off a collapsed assert result when the command carries one', async () => {
@@ -354,7 +415,7 @@ describe('wdio-devtools-errors', () => {
       const panel = await mountErrors([loginErrors.click])
 
       expect(shadowAll(panel, DIFF)).toHaveLength(0)
-      expect(text(shadow(panel, TITLE))).toBe(CLICK_MESSAGE)
+      expect(text(shadow(panel, MESSAGE))).toBe(CLICK_MESSAGE)
     })
   })
 
@@ -383,7 +444,7 @@ describe('wdio-devtools-errors', () => {
         failingCommand(`element not interactable\n${STACK_FRAMES.join('\n')}`)
       ])
 
-      expect(text(shadow(panel, TITLE))).toBe('element not interactable')
+      expect(text(shadow(panel, MESSAGE))).toBe('element not interactable')
       expect(lines(shadow(panel, STACK_BODY))).toEqual(
         STACK_FRAMES.map((frame) => frame.trim())
       )
@@ -392,7 +453,7 @@ describe('wdio-devtools-errors', () => {
     it('reports a bare Error when the message was only stack frames', async () => {
       const panel = await mountErrors([failingCommand(STACK_FRAMES.join('\n'))])
 
-      expect(text(shadow(panel, TITLE))).toBe('Error')
+      expect(text(shadow(panel, MESSAGE))).toBe('Error')
       expect(shadowAll(panel, STACK)).toHaveLength(1)
     })
   })
@@ -405,7 +466,7 @@ describe('wdio-devtools-errors', () => {
         failingCommand('\u001b[31mTimeout\u001b[39m of 5000ms exceeded')
       ])
 
-      expect(text(shadow(panel, TITLE))).toBe('Timeout of 5000ms exceeded')
+      expect(text(shadow(panel, MESSAGE))).toBe('Timeout of 5000ms exceeded')
     })
 
     it('strips terminal colour codes from the stack', async () => {
@@ -430,7 +491,7 @@ describe('wdio-devtools-errors', () => {
         )
       ])
 
-      expect(lines(shadow(panel, TITLE))).toEqual([
+      expect(lines(shadow(panel, MESSAGE))).toEqual([
         'Timed out waiting for element',
         'while polling #flash',
         'for 5000ms'
@@ -442,7 +503,7 @@ describe('wdio-devtools-errors', () => {
         commandLog({ error: capturedError('', { name: 'AssertionError' }) })
       ])
 
-      expect(text(shadow(panel, TITLE))).toBe('AssertionError')
+      expect(text(shadow(panel, MESSAGE))).toBe('AssertionError')
     })
   })
 

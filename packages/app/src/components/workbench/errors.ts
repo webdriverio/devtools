@@ -52,6 +52,16 @@ export class DevtoolsErrors extends Element {
         gap: 8px;
       }
 
+      /* Which action, step or test failed — the row heading. Monospace and
+         neutral so the red message below it stays the loudest thing in the row. */
+      .error-title {
+        font-family: var(--vscode-editor-font-family);
+        font-size: 12.5px;
+        font-weight: 700;
+        color: var(--vscode-foreground);
+        word-break: break-word;
+      }
+
       /* Clickable source anchor (@ path:line) — the affordance that opens the
          Source tab at the exact line. Styled as a link, not selected text. */
       .error-loc {
@@ -77,7 +87,7 @@ export class DevtoolsErrors extends Element {
         border-radius: 2px;
       }
 
-      .error-title {
+      .error-message {
         font-size: 12.5px;
         font-weight: 600;
         color: var(--vscode-charts-red);
@@ -157,7 +167,7 @@ export class DevtoolsErrors extends Element {
   /** The headline is the message with the Expected/Received block already
    *  stripped, so it shows alongside a diff without repeating it. The one case to
    *  hide is the generic fallback: `Error` above a diff is noise, but with no diff
-   *  it is the row's only heading. */
+   *  it is all the row says about the failure. */
   #showsHeadline(error: CollectedError): boolean {
     if (!error.message) {
       return false
@@ -185,6 +195,9 @@ export class DevtoolsErrors extends Element {
   #renderEntry(error: CollectedError): TemplateResult {
     return html`
       <div class="error-entry">
+        ${error.title
+          ? html`<div class="error-title">${error.title}</div>`
+          : nothing}
         ${error.callSource
           ? html`<button
               class="error-loc"
@@ -195,7 +208,7 @@ export class DevtoolsErrors extends Element {
             </button>`
           : nothing}
         ${this.#showsHeadline(error)
-          ? html`<div class="error-title">${error.message}</div>`
+          ? html`<div class="error-message">${error.message}</div>`
           : nothing}
         ${this.#renderDiff(error)}
         ${error.stack
