@@ -454,11 +454,11 @@ export class SessionCapturer extends SessionCapturerBase {
         this.networkRequests as NetworkEntry[]
       )
       if (deduped.length > 0) {
-        // NetworkEntry has `type?: string`; the shared NetworkRequest needs
-        // `type: string` so default the field at this framework boundary.
+        // A perf-log entry that never saw its response event carries no type;
+        // default it to the vocabulary's residual at this framework boundary.
         const normalized = deduped.map((d) => ({
           ...d,
-          type: d.type ?? 'unknown'
+          type: d.type ?? 'other'
         }))
         this.networkRequests.push(...normalized)
         this.sendUpstream('networkRequests', normalized)

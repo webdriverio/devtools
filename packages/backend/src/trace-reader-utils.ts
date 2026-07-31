@@ -9,6 +9,7 @@ import {
   type LogLevel,
   type Metadata,
   type NetworkRequest,
+  type RequestType,
   type TracePlayerFrame,
   type Viewport
 } from '@wdio/devtools-shared'
@@ -91,7 +92,7 @@ function headerArrayToRecord(
 }
 
 // Coarse resource type from mime so the Network panel can group requests.
-function mimeToType(mimeType: string): string {
+function mimeToType(mimeType: string): RequestType {
   if (!mimeType) {
     return 'other'
   }

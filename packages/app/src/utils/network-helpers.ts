@@ -1,5 +1,6 @@
+import { isRequestType, type NetworkRequest } from '@wdio/devtools-shared'
 import {
-  RESOURCE_TYPE_PATTERNS,
+  RESOURCE_TYPE_BY_REQUEST_TYPE,
   OTHER_RESOURCE_TYPE,
   HTTP_STATUS,
   STATUS_KIND,
@@ -82,36 +83,24 @@ export function getStatusClass(status?: number): string {
 }
 
 /**
- * Determine resource type from network request
+ * Bucket a request into the display type the list colours and filters by,
+ * translating the type the capture side already classified it as. Header and
+ * extension sniffing deliberately doesn't happen here — that is core's
+ * `getRequestType`, and a second copy of it drifted from the first. The guard is
+ * for wire data only: `RequestType` covers every word a current producer emits,
+ * but an older trace file can still carry one it doesn't.
  */
 export function getResourceType(request: NetworkRequest): ResourceType {
-  const url = request.url.toLowerCase()
-  const contentType =
-    request.responseHeaders?.['content-type']?.toLowerCase() || ''
-  const entries = Object.entries(RESOURCE_TYPE_PATTERNS) as [
-    keyof typeof RESOURCE_TYPE_PATTERNS,
-    (typeof RESOURCE_TYPE_PATTERNS)[keyof typeof RESOURCE_TYPE_PATTERNS]
-  ][]
-
-  // Check by content-type first
-  for (const [type, patterns] of entries) {
-    if (patterns.contentTypes.some((ct) => contentType.includes(ct))) {
-      return type
-    }
+  const captured =
+    typeof request.type === 'string' ? request.type.toLowerCase() : ''
+  if (isRequestType(captured)) {
+    return RESOURCE_TYPE_BY_REQUEST_TYPE[captured]
   }
-
-  // Fallback to URL extension
-  for (const [type, patterns] of entries) {
-    if (patterns.extensions.some((ext) => url.endsWith(ext))) {
-      return type
-    }
-  }
-
-  // Check by request type
-  if (request.type === 'fetch' || request.method !== 'GET') {
+  // An unrecognised type still tells us this much: a body-carrying method is a
+  // data request, never a static resource.
+  if (request.method !== 'GET') {
     return 'Fetch'
   }
-
   return OTHER_RESOURCE_TYPE
 }
 
@@ -129,7 +118,7 @@ export function contentType(request: NetworkRequest): string {
  * Extract filename from URL
  */
 export function getFileName(url: string): string {
-  if (!url || url === '' || url === 'event') {
+  if (!url || url === 'event') {
     return '-'
   }
 
@@ -139,12 +128,12 @@ export function getFileName(url: string): string {
     const parts = pathname.split('/').filter(Boolean)
     const fileName = parts[parts.length - 1]
 
-    // If there's a query string and no filename, show the host + path
-    if (!fileName || fileName === '' || pathname === '/') {
-      if (urlObj.search) {
-        return `${urlObj.hostname}${pathname.length > 1 ? pathname : ''}`
-      }
-      return urlObj.hostname
+    // No named segment: the host identifies the row, plus a query-bearing path
+    // that is nothing but separators.
+    if (!fileName) {
+      return urlObj.search && pathname.length > 1
+        ? `${urlObj.hostname}${pathname}`
+        : urlObj.hostname
     }
 
     return fileName

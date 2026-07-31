@@ -200,7 +200,9 @@ describe('renderNetworkRequestDetail', () => {
     })
 
     it('dashes the type of a request with neither a content-type nor a type', () => {
-      const request = req({ type: '' })
+      // `RequestType` has no empty member; the cast reproduces wire data that
+      // arrived without one, which the renderer still has to survive.
+      const request = req({ type: '' as NetworkRequest['type'] })
       const root = detail(request)
 
       expect(sectionNamed(root, 'General').values[3]).toBe(contentType(request))

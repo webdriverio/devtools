@@ -1,13 +1,11 @@
 import type { NetworkRequest } from '@wdio/devtools-shared'
 
 import { networkRequestContext } from '@/controller/context.js'
-import { TYPE_DOT_CLASS } from '@/utils/network-constants.js'
 import {
   contentType,
   formatBytes,
   formatTime,
   getFileName,
-  getResourceType,
   statusKind
 } from '@/utils/network-helpers.js'
 import '@components/workbench/network.js'
@@ -19,7 +17,7 @@ import {
 
 import { mount, mountWithContext, settle } from '../../support/mount.js'
 import { shadow, shadowAll, text, texts } from '../../support/queries.js'
-import { loginNetwork } from './fixtures.js'
+import { loginNetwork, networkRequest } from './fixtures.js'
 
 const PANEL = 'wdio-devtools-network'
 const ROW = '.request-row'
@@ -84,9 +82,6 @@ const expectedKindClasses = (requests: NetworkRequest[]) =>
   requests.map(
     (request) => `kind-${statusKind(request.status, Boolean(request.error))}`
   )
-
-const expectedDotClasses = (requests: NetworkRequest[]) =>
-  requests.map((request) => TYPE_DOT_CLASS[getResourceType(request)])
 
 /** A captured body as the detail panel re-indents it, then whitespace-collapsed
  *  the way `text()` collapses the rendered `<pre>`. */
@@ -263,19 +258,21 @@ describe('wdio-devtools-network', () => {
       ])
     })
 
-    it('marks each row with the dot of its resource type', async () => {
+    // Literals only, deliberately: routing the expectation through the same
+    // helper the panel calls made this list agree with itself while it
+    // contradicted the Type column above — a document row dotted `type-other`.
+    it('marks each row with the dot of the type its Type column names', async () => {
       const panel = await mountNetwork(loginNetwork.requests)
 
-      expect(shadowAll(panel, TYPE_DOT).map(dotClassOf)).toEqual(
-        expectedDotClasses(loginNetwork.requests)
-      )
       expect(shadowAll(panel, TYPE_DOT).map(dotClassOf)).toEqual([
         'type-html',
         'type-js',
         'type-fetch',
         'type-image',
         'type-font',
-        'type-other',
+        // A document with no response headers and no `.html` in its URL — its
+        // dot follows the captured type, as the Type column already did.
+        'type-html',
         'type-fetch'
       ])
     })
@@ -549,6 +546,16 @@ describe('wdio-devtools-network', () => {
       expect(texts(panel, NAME)).toEqual(['jquery-1.11.3.min.js'])
     })
 
+    // The HTML tab used to match nothing: a document was only dotted HTML when
+    // its response headers said `text/html`, and the tab filtered on the same
+    // narrower rule. Both documents here must reach it, headers or not.
+    it('narrows the list to every document when the HTML tab is clicked', async () => {
+      const panel = await mountNetwork(loginNetwork.requests)
+      await clickTypeTab(panel, 'HTML')
+
+      expect(texts(panel, NAME)).toEqual(['login', 'authenticate'])
+    })
+
     it('starts with the All type tab active', async () => {
       const panel = await mountNetwork(loginNetwork.requests)
 
@@ -560,6 +567,29 @@ describe('wdio-devtools-network', () => {
       await search(panel, 'jquery-1.11.3.min.js')
 
       expect(texts(panel, NAME)).toEqual(['jquery-1.11.3.min.js'])
+    })
+
+    // Matches inside the URL but outside the name the row shows, so only the
+    // filter's URL clause can find it.
+    it('narrows the list by a path segment that is not the file name', async () => {
+      const panel = await mountNetwork(loginNetwork.requests)
+      await search(panel, 'js/vendor')
+
+      expect(texts(panel, NAME)).toEqual(['jquery-1.11.3.min.js'])
+    })
+
+    // The name a row shows isn't always a slice of the URL it was captured
+    // with — this host reaches the list punycoded. Searching it exercises the
+    // name clause of the filter on its own; the URL clause can't match `xn--`.
+    it('narrows the list by the name a row displays, not only by its URL', async () => {
+      const internationalHost = networkRequest({
+        id: 'req-idn',
+        url: 'https://münchen.example/?q=1'
+      })
+      const panel = await mountNetwork([internationalHost, loginNetwork.script])
+      await search(panel, 'xn--')
+
+      expect(texts(panel, NAME)).toEqual(['xn--mnchen-3ya.example'])
     })
 
     it('narrows the list by status code', async () => {

@@ -1,4 +1,5 @@
 import { Element } from '@core/element'
+import type { NetworkRequest } from '@wdio/devtools-shared'
 import { html, nothing } from 'lit'
 import { networkStyles } from './network/styles.js'
 import { customElement, state } from 'lit/decorators.js'
@@ -6,7 +7,8 @@ import { consume } from '@lit/context'
 import { networkRequestContext } from '../../controller/context.js'
 import {
   RESOURCE_TYPES,
-  TYPE_DOT_CLASS
+  TYPE_DOT_CLASS,
+  type ResourceFilter
 } from '../../utils/network-constants.js'
 import {
   formatBytes,
@@ -38,7 +40,7 @@ export class DevtoolsNetwork extends Element {
   selectedRequest?: NetworkRequest
 
   @state()
-  filterType: string = 'All'
+  filterType: ResourceFilter = 'All'
 
   @state()
   searchQuery: string = ''

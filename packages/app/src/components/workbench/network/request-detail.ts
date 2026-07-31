@@ -3,6 +3,7 @@
 // network drawer (TraceTimeline). The returned markup relies on `networkStyles`
 // being present in the host component's shadow root.
 
+import type { NetworkRequest } from '@wdio/devtools-shared'
 import { html, nothing, type TemplateResult } from 'lit'
 import {
   formatBytes,
