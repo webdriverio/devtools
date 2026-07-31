@@ -1,3 +1,5 @@
+import type { LogSource } from '@wdio/devtools-shared'
+
 export const CACHE_ID = 'wdio-trace-cache'
 export const SIDEBAR_MIN_WIDTH = 250
 export const DARK_MODE_KEY = 'darkMode'
@@ -30,7 +32,7 @@ export const LOG_ICONS: Record<string, string> = {
 
 /** Console-tab badge per log source: short label + style class. */
 export const CONSOLE_SOURCE_BADGE: Record<
-  NonNullable<ConsoleLogs['source']>,
+  LogSource,
   { label: string; class: string }
 > = {
   test: { label: 'TEST', class: 'b-test' },

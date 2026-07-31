@@ -1,8 +1,10 @@
 import { ContextProvider, type Context, type ContextType } from '@lit/context'
 import type { ReactiveController, ReactiveControllerHost } from 'lit'
 import type {
+  ConsoleLog,
   Metadata,
   CommandLog,
+  NetworkRequest,
   TraceLog,
   PreservedAttempt,
   TracePlayerData
@@ -325,7 +327,7 @@ export class DataManagerController implements ReactiveController {
     } else if (scope === 'metadata') {
       this.#handleMetadataUpdate(data as Metadata)
     } else if (scope === 'consoleLogs') {
-      this.#handleConsoleLogsUpdate(data as string[])
+      this.#handleConsoleLogsUpdate(data as ConsoleLog[])
     } else if (scope === 'networkRequests') {
       this.#handleNetworkRequestsUpdate(data as NetworkRequest[])
     } else if (scope === 'sources') {
@@ -414,7 +416,7 @@ export class DataManagerController implements ReactiveController {
     )
   }
 
-  #handleConsoleLogsUpdate(data: string[]) {
+  #handleConsoleLogsUpdate(data: ConsoleLog[]) {
     this.consoleLogsContextProvider.setValue([
       ...(this.consoleLogsContextProvider.value || []),
       ...data
