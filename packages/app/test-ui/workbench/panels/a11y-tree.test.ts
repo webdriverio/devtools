@@ -7,7 +7,8 @@ import { commandLog } from '../../support/builders.js'
 import { mount, settle } from '../../support/mount.js'
 import { shadow, shadowAll, text, texts } from '../../support/queries.js'
 import {
-  headerlessSnapshot,
+  BARE_MOBILE_HEADER,
+  bareMobileSnapshot,
   headerOnlySnapshot,
   LOGIN_DEPTHS,
   LOGIN_LOCATOR,
@@ -19,6 +20,9 @@ import {
   loginSnapshot,
   LONG_NAME,
   longNameSnapshot,
+  MOBILE_HEADER,
+  MOBILE_ROLES,
+  mobileSnapshot,
   PAGE_HEADER,
   PASSWORD_LOCATOR,
   snapshotlessCommand,
@@ -239,11 +243,20 @@ describe('wdio-devtools-a11y', () => {
       expect(text(shadow(panel, HEADER))).toBe(PAGE_HEADER)
     })
 
-    it('renders no page header for a capture that has none', async () => {
-      const panel = await mountTree(headerlessSnapshot)
+    it('renders the platform and device of a native capture above the tree', async () => {
+      const panel = await mountTree(mobileSnapshot)
 
-      expect(shadowAll(panel, HEADER)).toHaveLength(0)
-      expect(texts(panel, ROLE)).toEqual(['document', 'button'])
+      // A native snapshot heads `[android — …]`, not `[Page …]`; parsed as a node
+      // it would render as a first row whose role is the header.
+      expect(text(shadow(panel, HEADER))).toBe(MOBILE_HEADER)
+      expect(texts(panel, ROLE)).toEqual(MOBILE_ROLES)
+    })
+
+    it('renders the bare platform header the per-action capture writes', async () => {
+      const panel = await mountTree(bareMobileSnapshot)
+
+      expect(text(shadow(panel, HEADER))).toBe(BARE_MOBILE_HEADER)
+      expect(texts(panel, ROLE)).toEqual(MOBILE_ROLES)
     })
 
     it('renders an empty tree for a page captured with no nodes', async () => {

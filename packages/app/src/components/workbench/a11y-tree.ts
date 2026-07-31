@@ -3,8 +3,8 @@ import { html, css, nothing, type TemplateResult } from 'lit'
 import { customElement, state } from 'lit/decorators.js'
 
 import {
+  isSnapshotHeaderLine,
   SNAPSHOT_INDENT_UNIT,
-  SNAPSHOT_PAGE_HEADER,
   SNAPSHOT_LOCATOR_DELIM
 } from '@wdio/devtools-shared'
 import type { CommandLog } from '@wdio/devtools-shared'
@@ -277,7 +277,7 @@ export class DevtoolsA11yTree extends Element {
    *  blank lines return null. */
   #parse(line: string): A11yNode | null {
     const trimmed = line.trimStart()
-    if (!trimmed || trimmed.startsWith(SNAPSHOT_PAGE_HEADER)) {
+    if (!trimmed || isSnapshotHeaderLine(trimmed)) {
       return null
     }
     const indent = line.length - trimmed.length
@@ -368,9 +368,9 @@ export class DevtoolsA11yTree extends Element {
       return this.#unavailable()
     }
     const lines = text.split('\n')
-    const header = lines[0]?.startsWith(SNAPSHOT_PAGE_HEADER)
-      ? lines[0]
-      : undefined
+    // Web captures head `[Page: <title> — <url>]`, native ones `[<platform> …]`.
+    const header =
+      lines[0] && isSnapshotHeaderLine(lines[0]) ? lines[0] : undefined
     const nodes = lines
       .map((l) => this.#parse(l))
       .filter((n): n is A11yNode => n !== null)

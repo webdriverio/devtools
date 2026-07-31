@@ -4,15 +4,16 @@
 // fills from the per-action `-snapshot.txt` resource.
 //
 // The lines are composed from shared's snapshot-format tokens rather than typed
-// out: the producer (core's `serializeWebSnapshot`) and the panel's parser both
-// reference those constants, so a fixture built from them can't drift from the
-// grammar the panel is written against.
+// out: the producers (core's `serializeWebSnapshot` and `serializeMobileSnapshot`)
+// and the panel's parser both reference those constants, so a fixture built from
+// them can't drift from the grammar the panel is written against.
 
 import {
   SNAPSHOT_INDENT_UNIT,
   SNAPSHOT_LOCATOR_DELIM,
   SNAPSHOT_PAGE_HEADER,
-  SNAPSHOT_PURPOSE_TOKEN
+  SNAPSHOT_PURPOSE_TOKEN,
+  snapshotNativeHeader
 } from '@wdio/devtools-shared'
 import type { CommandLog } from '@wdio/devtools-shared'
 
@@ -118,10 +119,41 @@ export const LOGIN_DEPTHS = LOGIN_NODES.map((node) => node.depth)
 /** A page the capture reached before any element was on it. */
 export const headerOnlySnapshot = PAGE_HEADER
 
-/** Mobile captures carry no `[Page …]` line, so the first line is a node. */
-export const headerlessSnapshot = [
-  a11yLine({ depth: 0, role: 'document', name: PAGE_TITLE }),
-  a11yLine({ depth: 1, role: 'button', name: 'Login', selector: LOGIN_LOCATOR })
+// A native-mobile capture. `serializeMobileSnapshot` always opens with a header
+// of its own — `[<platform> …]`, never a `[Page …]` line — and its locators are
+// Appium's rather than CSS.
+
+export const MOBILE_DEVICE = 'Pixel 7'
+
+/** `[android — <device> (<w>×<h>)]`: the form a capture that knew both writes. */
+export const MOBILE_HEADER = `${snapshotNativeHeader('android')} — ${MOBILE_DEVICE} (412×915)]`
+
+/** The header the PER-ACTION capture writes: it passes neither device nor
+ *  viewport, so the serializer emits the bare platform form. On iOS here, so the
+ *  two fixtures between them cover both platforms the serializer heads with. */
+export const BARE_MOBILE_HEADER = `${snapshotNativeHeader('ios')}]`
+
+export const MOBILE_NODES: NodeLine[] = [
+  { depth: 0, role: 'FrameLayout' },
+  { depth: 1, role: 'button', name: 'Skip', selector: '~Skip' },
+  {
+    depth: 1,
+    role: 'textbox',
+    name: 'search',
+    selector: 'id:com.example:id/search'
+  }
+]
+
+export const MOBILE_ROLES = MOBILE_NODES.map((node) => node.role)
+
+export const mobileSnapshot = [
+  MOBILE_HEADER,
+  ...MOBILE_NODES.map(a11yLine)
+].join('\n')
+
+export const bareMobileSnapshot = [
+  BARE_MOBILE_HEADER,
+  ...MOBILE_NODES.map(a11yLine)
 ].join('\n')
 
 /** 80 characters — past the panel's 64-character name budget. */
