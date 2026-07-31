@@ -2,6 +2,7 @@ import { Element } from '@core/element'
 import { html, css } from 'lit'
 import { customElement, state } from 'lit/decorators.js'
 import { consume } from '@lit/context'
+import type { ConsoleLog } from '@wdio/devtools-shared'
 
 import { consoleLogContext } from '../../controller/context.js'
 import { LOG_ICONS, CONSOLE_SOURCE_BADGE } from '../../controller/constants.js'
@@ -199,7 +200,7 @@ export class DevtoolsConsoleLogs extends Element {
   ]
 
   @consume({ context: consoleLogContext, subscribe: true })
-  logs: ConsoleLogs[] | undefined = undefined
+  logs: ConsoleLog[] | undefined = undefined
 
   @state()
   private searchText = ''
@@ -256,7 +257,7 @@ export class DevtoolsConsoleLogs extends Element {
     `
   }
 
-  #renderLogEntry(log: ConsoleLogs) {
+  #renderLogEntry(log: ConsoleLog) {
     const icon = LOG_ICONS[log.type] || LOG_ICONS.log
     const badge = log.source ? CONSOLE_SOURCE_BADGE[log.source] : undefined
     return html`

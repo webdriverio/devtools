@@ -3,8 +3,10 @@
  * matching logic can be unit-tested without rendering the component.
  */
 
+import type { ConsoleLog, LogLevel } from '@wdio/devtools-shared'
+
 /** Level filter options — `all` plus one per captured log type. */
-export type ConsoleLevelFilter = 'all' | 'error' | 'warn' | 'info' | 'log'
+export type ConsoleLevelFilter = 'all' | LogLevel
 
 /** Ordered level filters for the Console toolbar: filter key + display label. */
 export const CONSOLE_LEVEL_FILTERS: ReadonlyArray<{
@@ -18,13 +20,18 @@ export const CONSOLE_LEVEL_FILTERS: ReadonlyArray<{
   { key: 'log', label: 'Logs' }
 ]
 
-// SGR escape sequences (e.g. `[31m`) from the WDIO terminal logger render
-// as stray `[31m` once the invisible ESC is dropped — strip them for display.
-const ANSI_SGR_RE = /\[[0-9;]*m/g
+// Terminal escape sequences from the runner's logger and from framework error
+// messages (node's AssertionError diff is colour-coded). Written with `\x1b`
+// rather than a raw ESC byte: a literal control character here is invisible in
+// an editor and in most diffs. Mirrors core's ANSI_REGEX — any trailing letter
+// counts, so cursor sequences (`\x1b[2K`) go too, not just SGR colour (`m`).
+// The app depends on shared only and cannot import core, so the pattern is
+// duplicated deliberately; keep the two in step.
+const ANSI_RE = /\x1b\[[?]?[0-9;]*[A-Za-z]/g
 
-/** Remove terminal ANSI color codes so logger output reads cleanly in the UI. */
+/** Remove terminal ANSI codes so logger output reads cleanly in the UI. */
 export function stripAnsi(value: string): string {
-  return value.replace(ANSI_SGR_RE, '')
+  return value.replace(ANSI_RE, '')
 }
 
 /** Render a log entry's args into one string for display and search. */
@@ -50,10 +57,10 @@ export function formatConsoleArgs(args: unknown): string {
 
 /** Filter logs by level and a case-insensitive substring of the message. */
 export function filterConsoleLogs(
-  logs: ConsoleLogs[],
+  logs: ConsoleLog[],
   level: ConsoleLevelFilter,
   search: string
-): ConsoleLogs[] {
+): ConsoleLog[] {
   const needle = search.trim().toLowerCase()
   return logs.filter((log) => {
     if (level !== 'all' && (log.type || 'log') !== level) {

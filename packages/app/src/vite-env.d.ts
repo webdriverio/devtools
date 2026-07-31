@@ -21,10 +21,10 @@ interface GlobalEventHandlersEventMap {
   >
   'app-test-select': CustomEvent<string>
   'app-test-run': CustomEvent<
-    import('./components/sidebar/test-suite').TestRunDetail
+    import('./components/sidebar/types').TestRunDetail
   >
   'app-test-stop': CustomEvent<
-    import('./components/sidebar/test-suite').TestRunDetail
+    import('./components/sidebar/types').TestRunDetail
   >
   'app-logs': CustomEvent<string>
   'show-command': CustomEvent<CommandEventProps>

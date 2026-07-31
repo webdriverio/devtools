@@ -5,7 +5,7 @@ import {
   stripAnsi
 } from '../src/components/workbench/console-filter.js'
 
-const ESC = ''
+const ESC = '\u001b'
 
 function log(
   type: ConsoleLogs['type'],
@@ -20,6 +20,14 @@ describe('stripAnsi', () => {
     expect(stripAnsi(`${ESC}[90m2026-06-16${ESC}[39m INFO`)).toBe(
       '2026-06-16 INFO'
     )
+  })
+
+  // A cursor sequence, not colour: the pattern must accept any trailing letter,
+  // or the ESC stays behind as an invisible byte in the rendered log line.
+  it('removes non-colour escape sequences', () => {
+    const cleaned = stripAnsi(`${ESC}[2Kdownloading${ESC}[1G done`)
+    expect(cleaned).toBe('downloading done')
+    expect([...cleaned].filter((c) => c < ' ')).toEqual([])
   })
 
   it('leaves plain text untouched', () => {
