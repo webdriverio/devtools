@@ -23,8 +23,12 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+# Scratch scripts and dumps dropped at the repo root. Real root-level config
+# has to be un-ignored by name: a new one is otherwise silently never added,
+# and CI then runs with different settings than everyone's checkout.
 /*.ts
 /*.json
+!/vitest.config.ts
 *.tgz
 examples/wdio/wdio-*.json
 examples/wdio/wdio-*.webm
@@ -55,6 +59,5 @@ examples/**/allure-results*/
 examples/**/allure-report*/
 packages/**/allure-results*/
 packages/**/allure-report*/
-examples/playwright-allure/
 examples/wdio/cucumber/wdio.allure.conf.ts
 
