@@ -16,16 +16,13 @@ import { stripAnsi } from '../console-filter.js'
 export interface CollectedError {
   /** Failing action/step or test title — the row heading. */
   title: string
-  /** Error message shown message-first, monospace. */
+  /** Error headline, with any Expected/Received block already split off. */
   message: string
-  /** Optional stack, rendered under the message when present. */
+  /** Optional stack, rendered in a collapsed section at the end of the row. */
   stack?: string
   /** `file:line:col` source anchor for the "open source" link. */
   callSource?: string
-  /** The failing command, when the error came from one — lets the tab dispatch
-   *  `show-command` to select and scroll to that action. */
-  command?: CommandLog
-  /** Command timestamp; drives ordering and the `show-command` elapsed time. */
+  /** Command timestamp; orders the command rows. Test rows carry none. */
   timestamp?: number
   /** Assertion expected value, rendered as a labelled row when present. */
   expected?: string
@@ -210,7 +207,6 @@ function commandErrors(commands: CommandLog[] | undefined): CollectedError[] {
           message: read.message,
           stack: read.stack,
           callSource: command.callSource,
-          command,
           timestamp: command.timestamp,
           expected: values.expected ?? read.expected,
           actual: values.actual ?? read.actual
@@ -253,9 +249,9 @@ function isAssertionEcho(
 /**
  * Build the Errors-tab list from the live/player contexts.
  *
- * Command failures come first (time-ordered) because they carry the clickable
- * action; a failed test that only echoes a command's failure is dropped so the
- * same failure isn't listed twice (e.g. a Cucumber `Then` fails as both the
+ * Command failures come first (time-ordered) because they pinpoint the action
+ * that failed; a failed test that only echoes a command's failure is dropped so
+ * the same failure isn't listed twice (e.g. a Cucumber `Then` fails as both the
  * assertion command and the step). The echo is detected two ways because the
  * frameworks reword the test-level message: a normalized-message match (robust
  * to the `Error:` prefix Cucumber adds), and — for assertions — the command's

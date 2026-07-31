@@ -71,7 +71,57 @@ describe('collectErrors', () => {
       callSource: 'file:///spec.ts:12:3',
       timestamp: 100
     })
-    expect(errors[0].command?.command).toBe('expect')
+  })
+
+  it('exposes only the fields the panel renders', () => {
+    // A row is a flat bag of display values — no reference back to the command
+    // it came from. The panel dispatches nothing per row, so a re-added source
+    // object would be populated for no reader; this locks the shape.
+    const [fromCommand] = collectErrors(
+      [
+        command({
+          command: 'click',
+          callSource: 'file:///spec.ts:9:3',
+          error: { name: 'Error', message: 'boom', stack: 'at spec.ts:9' },
+          timestamp: 100
+        })
+      ],
+      []
+    )
+    const [fromTest] = collectErrors(
+      [],
+      suiteMap({
+        uid: 's',
+        state: 'failed',
+        tests: [
+          failedTest({
+            uid: 'a',
+            title: 'the scenario',
+            callSource: 'spec.ts:14:3',
+            error: { name: 'Error', message: 'hook failed' }
+          })
+        ]
+      })
+    )
+
+    expect(Object.keys(fromCommand).sort()).toEqual([
+      'actual',
+      'callSource',
+      'expected',
+      'message',
+      'stack',
+      'timestamp',
+      'title'
+    ])
+    // A test row has no command behind it, so it carries no timestamp either.
+    expect(Object.keys(fromTest).sort()).toEqual([
+      'actual',
+      'callSource',
+      'expected',
+      'message',
+      'stack',
+      'title'
+    ])
   })
 
   it('falls back to the command name when there is no title', () => {
@@ -135,7 +185,8 @@ describe('collectErrors', () => {
       message: 'nope',
       callSource: 'steps.ts:8:1'
     })
-    expect(errors[0].command).toBeUndefined()
+    // Nothing timed a test-level failure, so it has no ordering key.
+    expect(errors[0].timestamp).toBeUndefined()
   })
 
   it('reads the first entry of errors[] when error is absent', () => {
@@ -190,7 +241,8 @@ describe('collectErrors', () => {
       })
     )
     expect(errors).toHaveLength(1)
-    expect(errors[0].command?.command).toBe('expect')
+    // The command's row survives: it is headed by the action, not by the test.
+    expect(errors[0].title).toBe('expect')
   })
 
   it('dedupes a Cucumber assertion listed as both a command and a reworded test error', () => {
@@ -230,7 +282,7 @@ describe('collectErrors', () => {
       })
     )
     expect(errors).toHaveLength(1)
-    expect(errors[0].command?.command).toBe('expect.toHaveText')
+    expect(errors[0].title).toBe('expect.toHaveText')
     expect(errors[0].actual).toBe('"Your username is invalid!"')
     expect(errors[0].expected).toBe(
       'StringContaining "You logged into a secure area!"'
@@ -264,7 +316,8 @@ describe('collectErrors', () => {
       })
     )
     expect(errors).toHaveLength(1)
-    expect(errors[0].command?.command).toBe('click')
+    // The test row would have been headed by its uid (`step`); the command wins.
+    expect(errors[0].title).toBe('click')
   })
 
   it('keeps a distinct test failure alongside command failures', () => {
