@@ -166,6 +166,11 @@ export class DevtoolsMetadata extends Element {
     if (m.url) {
       sessionInfo.URL = m.url
     }
+    // A viewport can arrive before its dimensions are serialized, and a
+    // `0 × 0 px` row would read as a captured value rather than a missing one.
+    if (m.viewport?.width && m.viewport.height) {
+      sessionInfo.Viewport = `${m.viewport.width} × ${m.viewport.height} px`
+    }
     return sessionInfo
   }
 

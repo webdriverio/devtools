@@ -45,6 +45,8 @@ const SCREENSHOT = '.screenshot-overlay img'
 const PLACEHOLDER = 'wdio-devtools-placeholder'
 const SCREENCAST = 'wdio-devtools-screencast-player'
 const VIEW_BUTTON = '.view-toggle button'
+/** One option per recording the player holds — rendered from the second on. */
+const RECORDING_OPTION = '.video-select option'
 const OVERLAY_TOGGLE = 'button[title^="Element overlay"]'
 /** Boxes `element-overlay` draws inside the replayed page. */
 const OVERLAY_BOX = '.__wdio-el-overlay__'
@@ -691,6 +693,70 @@ describe('wdio-devtools-browser', () => {
       const el = await mountBrowser(loginTrace)
       await settle(el)
 
+      expect(shadowAll(el, VIEW_BUTTON)).toHaveLength(0)
+    })
+
+    it('offers one picker option per recording it holds', async () => {
+      const el = await withRecording()
+      await replayedPage(el)
+
+      recordingArrives()
+      recordingArrives()
+      await settle(el)
+
+      // The signal the re-connect case below reads: a player that took one
+      // recording twice shows a second option here.
+      expect(shadowAll(el, RECORDING_OPTION)).toHaveLength(2)
+    })
+  })
+
+  /**
+   * Re-connecting is Lit's contract, not an edge case — the workbench swaps the
+   * player between its player-mode host and the plain pane, and every window
+   * listener it registers on connect outlives the element unless connect and
+   * disconnect stay symmetric.
+   */
+  describe('re-connecting', () => {
+    /** Removes the player from its mount, handing back the host to re-attach to. */
+    function detach(el: Browser): HTMLElement {
+      const host = el.parentElement
+      if (!host) {
+        throw new Error('the mounted player has no host to re-attach it to')
+      }
+      el.remove()
+      return host
+    }
+
+    it('takes an arriving recording once after being re-connected', async () => {
+      const el = await mountBrowser(loginTrace)
+      await replayedPage(el)
+      detach(el).append(el)
+      await settle(el)
+
+      recordingArrives()
+      await settle(el)
+
+      // Exactly once: a registration that only runs on the first connect leaves
+      // the re-connected player deaf, and one that stacks takes the recording
+      // twice — which shows up as a picker for two.
+      expect(shadowAll(el, SCREENCAST)).toHaveLength(1)
+      expect(shadowAll(el, RECORDING_OPTION)).toHaveLength(0)
+    })
+
+    it('stops taking recordings while it is detached', async () => {
+      const el = await mountBrowser(loginTrace)
+      await replayedPage(el)
+      const host = detach(el)
+
+      recordingArrives()
+
+      host.append(el)
+      // Renders whatever it collected while detached, without depending on a
+      // detached element having rendered on its own.
+      el.requestUpdate()
+      await settle(el)
+
+      expect(shadowAll(el, SCREENCAST)).toHaveLength(0)
       expect(shadowAll(el, VIEW_BUTTON)).toHaveLength(0)
     })
   })

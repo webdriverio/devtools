@@ -130,7 +130,8 @@ describe('wdio-devtools-metadata', () => {
           'Environment',
           'WebDriver Host',
           'Test File',
-          'URL'
+          'URL',
+          'Viewport'
         ],
         // Derived, so a row wired to the wrong metadata field fails.
         values: [
@@ -138,7 +139,8 @@ describe('wdio-devtools-metadata', () => {
           loginMetadata.testEnv,
           loginMetadata.host,
           loginMetadata.modulePath,
-          loginMetadata.url
+          loginMetadata.url,
+          `${loginMetadata.viewport?.width} × ${loginMetadata.viewport?.height} px`
         ]
       })
       expect(sectionNamed(panel, 'Session').values).toEqual([
@@ -146,8 +148,29 @@ describe('wdio-devtools-metadata', () => {
         'local',
         'http://localhost:4444',
         SPEC_FILE,
-        LOGIN_URL
+        LOGIN_URL,
+        '1600 × 900 px'
       ])
+    })
+
+    it('renders the captured viewport as one row of dimensions', async () => {
+      const viewport = {
+        width: 1024,
+        height: 768,
+        offsetLeft: 40,
+        offsetTop: 90,
+        scale: 2
+      }
+      const panel = await mountMetadata(metadata({ viewport }))
+
+      const session = sectionNamed(panel, 'Session')
+      expect(session.keys).toEqual(['Viewport'])
+      // Derived from the fixture, so a row that drops a dimension, swaps the two
+      // or reads the scroll offsets / pinch scale instead fails.
+      expect(session.values).toEqual([
+        `${viewport.width} × ${viewport.height} px`
+      ])
+      expect(session.values).toEqual(['1024 × 768 px'])
     })
 
     it('leaves out the session fields the capture did not carry', async () => {
@@ -543,12 +566,14 @@ describe('wdio-devtools-metadata', () => {
       expect(shadowAll(panel, SECTION)).toHaveLength(0)
     })
 
-    it('surfaces no row for the captured viewport', async () => {
+    it('surfaces no viewport row for a capture that carried no dimensions', async () => {
+      // The viewport can reach the panel before it is serialized; a `0 × 0 px`
+      // row would read as a captured size rather than a missing one.
       const panel = await mountMetadata(
         metadata({
           viewport: {
-            width: 1600,
-            height: 900,
+            width: 0,
+            height: 0,
             offsetLeft: 0,
             offsetTop: 0,
             scale: 1

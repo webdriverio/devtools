@@ -92,27 +92,40 @@ export class DevtoolsBrowser extends Element {
   @query('section')
   section?: HTMLElement
 
+  /** The window events the player handles while connected, as one table so its
+   *  registration and its teardown cannot drift. Every handler is a per-instance
+   *  arrow field, so the reference removeEventListener gets is the one that was
+   *  added — a bound method would produce a new function per call and never
+   *  detach. */
+  #windowListeners(): ReadonlyArray<readonly [string, EventListener]> {
+    return [
+      ['resize', this.#handleResize],
+      ['window-drag', this.#handleResize],
+      ['app-mutation-highlight', this.#highlightMutation],
+      ['app-mutation-select', this.#handleMutationSelect],
+      ['a11y-highlight', this.#highlightBySelector],
+      ['show-command', this.#handleShowCommand],
+      ['screencast-ready', this.#handleScreencastReady]
+    ]
+  }
+
   async connectedCallback() {
     super.connectedCallback()
-    window.addEventListener('resize', this.#setIframeSize.bind(this))
-    window.addEventListener('window-drag', this.#setIframeSize.bind(this))
-    window.addEventListener(
-      'app-mutation-highlight',
-      this.#highlightMutation.bind(this)
-    )
-    window.addEventListener('app-mutation-select', (ev) =>
-      this.#renderBrowserState(ev.detail)
-    )
-    window.addEventListener('a11y-highlight', this.#highlightBySelector)
-    window.addEventListener(
-      'show-command',
-      this.#handleShowCommand as EventListener
-    )
-    window.addEventListener(
-      'screencast-ready',
-      this.#handleScreencastReady as EventListener
-    )
+    for (const [type, handler] of this.#windowListeners()) {
+      window.addEventListener(type, handler)
+    }
     await this.updateComplete
+  }
+
+  // Lit calls connectedCallback again on every re-connect, so a listener left
+  // behind keeps a discarded player working — it still replays into its detached
+  // iframe and collects arriving recordings — and makes the re-connected one
+  // handle every event twice.
+  disconnectedCallback() {
+    super.disconnectedCallback()
+    for (const [type, handler] of this.#windowListeners()) {
+      window.removeEventListener(type, handler)
+    }
   }
 
   #setIframeSize() {
@@ -220,6 +233,11 @@ export class DevtoolsBrowser extends Element {
       sizer.style.height = `${viewportHeight * scale}px`
     }
   }
+
+  #handleResize = () => this.#setIframeSize()
+
+  #handleMutationSelect = (event: Event) =>
+    this.#renderBrowserState((event as CustomEvent<TraceMutation>).detail)
 
   #handleShowCommand = (event: Event) =>
     this.#renderCommandScreenshot(
@@ -490,14 +508,13 @@ export class DevtoolsBrowser extends Element {
     docEl.body.appendChild(highlight)
   }
 
-  #highlightMutation(ev: CustomEvent<TraceMutation | null>) {
-    if (!ev.detail) {
+  #highlightMutation = (event: Event) => {
+    const mutation = (event as CustomEvent<TraceMutation | null>).detail
+    if (!mutation) {
       this.#clearHighlight()
       return
     }
-    const el = ev.detail.target
-      ? this.#queryElement(ev.detail.target)
-      : undefined
+    const el = mutation.target ? this.#queryElement(mutation.target) : undefined
     if (el) {
       this.#outline(el)
     }
