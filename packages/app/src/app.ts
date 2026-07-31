@@ -9,12 +9,17 @@ import { KeyboardController, KBD } from './controller/keyboard.js'
 import { DragController, Direction } from './utils/DragController.js'
 import {
   SIDEBAR_MIN_WIDTH,
-  SIDEBAR_DEFAULT_WIDTH,
-  DARK_MODE_KEY
+  SIDEBAR_DEFAULT_WIDTH
 } from './controller/constants.js'
+import {
+  applyDarkMode,
+  onThemeChange,
+  prefersDarkMode
+} from './controller/theme.js'
+import { elapsedSince } from './utils/elapsed.js'
 import { POPOUT_QUERY } from './components/workbench/compare/constants.js'
 
-import { prefersDarkMode } from './components/header.js'
+import './components/header.js'
 import './components/sidebar.js'
 import './components/workbench.js'
 import './components/onboarding/start.js'
@@ -23,25 +28,11 @@ import './components/shortcuts-overlay.js'
 
 // Bootstrap the dark-mode class on <body> before the first render so popout
 // windows (which don't render the header) still get themed consistently with
-// the main dashboard. The header still owns the toggle — and the rule for what
-// "dark" means, which is why it is read from there rather than restated here.
-const applyTheme = (): void => {
-  document.body.classList.toggle('dark', prefersDarkMode())
-}
-applyTheme()
-// Cross-window sync: when the user toggles dark mode in the main dashboard,
-// the storage event fires in OTHER windows (popouts) and we mirror the
-// theme change there too.
-window.addEventListener('storage', (e) => {
-  if (e.key === DARK_MODE_KEY) {
-    applyTheme()
-  }
-})
-// Follow live OS theme changes — a no-op while the user has an override stored,
-// since that override is what `prefersDarkMode` then returns.
-window
-  .matchMedia('(prefers-color-scheme: dark)')
-  .addEventListener('change', applyTheme)
+// the main dashboard. The header owns the toggle; `controller/theme` owns what
+// "dark" resolves to and every source that can change it, so the document and
+// the header's icon follow one answer instead of two.
+applyDarkMode(prefersDarkMode())
+onThemeChange(applyDarkMode)
 
 @customElement('wdio-devtools')
 export class WebdriverIODevtoolsApplication extends Element {
@@ -113,6 +104,11 @@ export class WebdriverIODevtoolsApplication extends Element {
       'clear-execution-data',
       this.#clearExecutionData.bind(this)
     )
+    // The sidebar row announces the selection; nothing else forwards it into
+    // the context, so without this the selection only ever moved on a preserve
+    // or a popout — and the Compare tab, which keys on it, kept showing the
+    // previously selected test's baseline after clicking a different test.
+    this.addEventListener('app-test-select', this.#onTestSelect)
     window.addEventListener('show-command', this.#onShowCommand)
     window.addEventListener(KBD.step, this.#onKbdStep)
     window.addEventListener(KBD.jump, this.#onKbdJump)
@@ -126,9 +122,14 @@ export class WebdriverIODevtoolsApplication extends Element {
 
   disconnectedCallback(): void {
     super.disconnectedCallback()
+    this.removeEventListener('app-test-select', this.#onTestSelect)
     window.removeEventListener('show-command', this.#onShowCommand)
     window.removeEventListener(KBD.step, this.#onKbdStep)
     window.removeEventListener(KBD.jump, this.#onKbdJump)
+  }
+
+  #onTestSelect = (event: Event): void => {
+    this.dataManager.setSelectedTestUid((event as CustomEvent<string>).detail)
   }
 
   #onShowCommand = (event: Event): void => {
@@ -148,13 +149,14 @@ export class WebdriverIODevtoolsApplication extends Element {
 
   #selectCommand(command: CommandLog): void {
     this.#activeCommandTs = command.timestamp
-    // Mirror actions.ts: elapsed time is the command's offset from the first
-    // command, so keyboard selection shows the same duration as a mouse click.
-    const baseline = this.#sortedCommands[0]?.timestamp ?? 0
-    const elapsedTime = command.timestamp - baseline
+    // Timed against the commands, so keyboard selection badges the same offset
+    // the actions list shows for a mouse click on the same row.
     window.dispatchEvent(
       new CustomEvent<CommandEventProps>('show-command', {
-        detail: { command, elapsedTime }
+        detail: {
+          command,
+          elapsedTime: elapsedSince(this.#sortedCommands, command)
+        }
       })
     )
   }

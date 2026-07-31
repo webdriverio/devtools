@@ -8,6 +8,7 @@ import {
   SIDEBAR_DEFAULT_WIDTH
 } from '@/controller/constants.js'
 import { POPOUT_QUERY } from '@components/workbench/compare/constants.js'
+import type { DevtoolsHeader } from '@components/header.js'
 import type { DevtoolsSidebar } from '@components/sidebar.js'
 import type { DevtoolsSidebarExplorer } from '@components/sidebar/explorer.js'
 import type { ExplorerTestEntry } from '@components/sidebar/test-suite.js'
@@ -470,10 +471,120 @@ describe('wdio-devtools', () => {
     })
   })
 
+  // The sidebar row announces a selection as a bubbling, composed
+  // `app-test-select`; only the shell can turn that into the selected-test
+  // context the Compare tab and panel key on. Without this the selection moved
+  // only on a preserve or a popout, so clicking a different test left Compare
+  // showing the previous test's baseline.
+  describe('test selection', () => {
+    it('publishes a selected row as the selected test', async () => {
+      const { app } = await liveApp(METADATA, SUITES)
+      // The sidebar only appears once the metadata frame has been ingested,
+      // which can land a tick after `liveApp` settles — without waiting on it
+      // the row query races the mount and fails intermittently.
+      await waitFor(
+        () => Boolean(shadow(app, SIDEBAR)),
+        'the sidebar to render'
+      )
+      await settleTree(app)
+
+      // The row sits two shadow roots down (app → sidebar → explorer), so it
+      // is reached through the explorer; the event's own `composed` flag is
+      // what carries it back out to the shell.
+      const row = shadow<HTMLElement>(
+        explorerOf(app),
+        `wdio-test-entry[uid="${loginRun.passing.uid}"]`
+      )
+      if (!row) {
+        throw new Error('the explorer rendered no row for the passing test')
+      }
+      row.dispatchEvent(
+        new CustomEvent('app-test-select', {
+          detail: loginRun.passing.uid,
+          bubbles: true,
+          composed: true
+        })
+      )
+      await settle(app)
+
+      expect(app.dataManager.selectedTestUidContextProvider.value).toBe(
+        loginRun.passing.uid
+      )
+    })
+
+    it('stops listening once it leaves the page', async () => {
+      const { app } = await liveApp(METADATA, SUITES)
+      app.remove()
+
+      app.dispatchEvent(
+        new CustomEvent('app-test-select', {
+          detail: loginRun.passing.uid,
+          bubbles: true,
+          composed: true
+        })
+      )
+
+      expect(
+        app.dataManager.selectedTestUidContextProvider.value
+      ).toBeUndefined()
+    })
+  })
+
   describe('theme', () => {
-    afterEach(() => {
+    const SUN = 'icon-mdi-white-balance-sunny'
+    let osThemeEmulated = false
+
+    /** Really flip the OS-level setting: `prefers-color-scheme` is overridden
+     *  through CDP, so the page's live MediaQueryLists fire `change` the way they
+     *  do when the user switches their system theme. */
+    async function osThemeBecomes(theme: 'dark' | 'light'): Promise<void> {
+      await browser.sendCommand('Emulation.setEmulatedMedia', {
+        features: [{ name: 'prefers-color-scheme', value: theme }]
+      })
+      osThemeEmulated = true
+      expect(window.matchMedia('(prefers-color-scheme: dark)').matches).toBe(
+        theme === 'dark'
+      )
+    }
+
+    /** Flip it and wait for the page to hand the change to its listeners: the CDP
+     *  command returns as soon as `matches` reports the new value, which is before
+     *  the media query notifies anyone. Waiting on a listener of this spec's own is
+     *  what keeps the assertions below from racing the shell and the header. */
+    async function osThemeFlipsTo(theme: 'dark' | 'light'): Promise<void> {
+      const delivered = new Promise<void>((resolve) => {
+        window
+          .matchMedia('(prefers-color-scheme: dark)')
+          .addEventListener('change', () => resolve(), { once: true })
+      })
+      await osThemeBecomes(theme)
+      await delivered
+    }
+
+    function header(app: Element): DevtoolsHeader {
+      const el = shadow<DevtoolsHeader>(app, HEADER)
+      if (!el) {
+        throw new Error('the app rendered no header')
+      }
+      return el
+    }
+
+    /** The theme the header's control renders: the sun offers a way out of dark. */
+    const headerTheme = (app: Element) =>
+      shadow(header(app), SUN)?.className === 'show' ? 'dark' : 'light'
+
+    const documentTheme = () =>
+      document.body.classList.contains('dark') ? 'dark' : 'light'
+
+    afterEach(async () => {
       localStorage.removeItem(DARK_MODE_KEY)
       document.body.classList.remove('dark')
+      if (osThemeEmulated) {
+        osThemeEmulated = false
+        await browser.sendCommand('Emulation.setEmulatedMedia', {
+          features: []
+        })
+      }
     })
 
     it('opens the dashboard in the stored dark theme', async () => {
@@ -494,6 +605,20 @@ describe('wdio-devtools', () => {
       await liveApp(METADATA)
 
       expect(document.body.classList.contains('dark')).toBe(false)
+    })
+
+    it('keeps the document and the header in step when the OS theme flips', async () => {
+      localStorage.removeItem(DARK_MODE_KEY)
+      await osThemeBecomes('light')
+      const { app } = await liveApp(METADATA)
+      expect([documentTheme(), headerTheme(app)]).toEqual(['light', 'light'])
+
+      await osThemeFlipsTo('dark')
+      await settle(header(app))
+
+      // Regression: the shell followed the OS on its own, so the document went
+      // dark while the header it renders kept showing the light-mode icon.
+      expect([documentTheme(), headerTheme(app)]).toEqual(['dark', 'dark'])
     })
   })
 

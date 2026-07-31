@@ -15,7 +15,9 @@ import {
 } from '../controller/context.js'
 import type {
   CommandLog,
+  ConsoleLog,
   Metadata,
+  NetworkRequest,
   PreservedAttempt
 } from '@wdio/devtools-shared'
 import type { SuiteStatsFragment } from '../controller/types.js'
@@ -75,7 +77,7 @@ export class DevtoolsWorkbench extends Element {
 
   @consume({ context: consoleLogContext, subscribe: true })
   @state()
-  consoleLogs: ConsoleLogs[] | undefined = undefined
+  consoleLogs: ConsoleLog[] | undefined = undefined
 
   @consume({ context: networkRequestContext, subscribe: true })
   @state()

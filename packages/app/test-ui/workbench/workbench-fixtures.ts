@@ -1,12 +1,13 @@
 // Mount harness + data for the workbench parent spec.
 //
 // The workbench takes everything by context and nothing by property, so its
-// spec needs what `mountWithContext` cannot give it: a handle on the provider,
-// so a baseline can be preserved and dropped *after* the mount — that is the
-// join the Compare tab lives in. The provider set mirrors
-// DataManagerController's constructor one for one, so the element sees exactly
-// the context surface the running app gives it (a panel whose context is
-// missing altogether renders a different empty state than one reading `[]`).
+// spec needs what `mountWithContext` cannot give it: a handle on the providers,
+// so a baseline can be preserved and dropped — and a different test selected —
+// *after* the mount; those two contexts joined are where the Compare tab lives.
+// The provider set mirrors DataManagerController's constructor one for one, so
+// the element sees exactly the context surface the running app gives it (a panel
+// whose context is missing altogether renders a different empty state than one
+// reading `[]`).
 //
 // The values published here go through the same `ContextProvider.setValue` the
 // controller calls on a WS frame; the frame → provider hop itself is covered in
@@ -56,6 +57,8 @@ const RUN_START = 1_700_000_000_000
 
 export const SELECTED_TEST_UID = 'login-test'
 export const OTHER_TEST_UID = 'checkout-test'
+/** A test no baseline is ever preserved for — selecting it must offer nothing. */
+export const UNPRESERVED_TEST_UID = 'signup-test'
 
 const FLASH_SELECTOR = '#flash'
 const SUBMIT_SELECTOR = 'button[type="submit"]'
@@ -267,6 +270,9 @@ export interface WorkbenchHarness {
   /** Republish `baselineContext` the way DataManager does on a
    *  `baseline:saved` / `baseline:cleared` broadcast: always a fresh Map. */
   publishBaselines(next: Map<string, PreservedAttempt>): Promise<void>
+  /** Republish `selectedTestUidContext` through the one setter DataManager
+   *  exposes for it (`setSelectedTestUid`); `undefined` deselects. */
+  publishSelectedTestUid(next: string | undefined): Promise<void>
   /** Await a tab-bar rebuild — it refreshes its list off `slotchange`, a task
    *  after the workbench's own render. */
   settleTabs(): Promise<void>
@@ -325,6 +331,12 @@ export const openTabLabels = (bar: DevtoolsTabs): string[] =>
   dockTabs(bar)
     .filter((tab) => tab.hasAttribute('active'))
     .map((tab) => tab.getAttribute('label') ?? '')
+
+/** The panel behind every open tab — an empty array is a dock showing nothing. */
+export const openPanelTags = (bar: DevtoolsTabs): string[] =>
+  dockTabs(bar)
+    .filter((tab) => tab.hasAttribute('active'))
+    .map((tab) => (tab.firstElementChild?.tagName ?? '').toLowerCase())
 
 export function mountWorkbench(
   contexts: WorkbenchContexts = {},
@@ -406,6 +418,10 @@ async function finishMount(
     settleTabs,
     publishBaselines: async (next) => {
       providers.get(baselineContext)?.setValue(next)
+      await settleTabs()
+    },
+    publishSelectedTestUid: async (next) => {
+      providers.get(selectedTestUidContext)?.setValue(next)
       await settleTabs()
     }
   }

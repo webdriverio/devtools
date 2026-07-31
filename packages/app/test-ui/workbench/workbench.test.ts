@@ -15,6 +15,7 @@ import {
   OTHER_TEST_UID,
   SELECTED_TEST_UID,
   SIDEBAR_CACHE_ID,
+  UNPRESERVED_TEST_UID,
   baselineMap,
   consoleLogs,
   dockTabs,
@@ -22,6 +23,7 @@ import {
   failingSuites,
   liveCommands,
   mountWorkbench,
+  openPanelTags,
   openTabLabels,
   networkRequests,
   preservedAttempt,
@@ -583,6 +585,114 @@ describe('wdio-devtools-workbench', () => {
       expect(tabLabels(dock)).toEqual(LIVE_DOCK)
       expect(openTabLabels(dock)).toEqual(['Source'])
       expect(text(shadow(dock, ACTIVE_BUTTON))).toBe('Source')
+    })
+  })
+
+  // The other half of the same join: the baseline map holds still and the
+  // SELECTION moves. Preserving auto-selects the preserved test, so this is the
+  // step right after it — and the panel only ever renders the selected test's
+  // baseline, so the tab has to follow the selection, not just the map.
+  // (Today only the preserve auto-select and the popout hand-off publish this
+  // context; a sidebar row click updates the explorer's own highlight only.)
+  describe('the Compare tab following the selection', () => {
+    it('drops the tab when the selection moves to a test with no baseline', async () => {
+      const harness = await mountWorkbench({
+        baselines: preservedFor(SELECTED_TEST_UID),
+        selectedTestUid: SELECTED_TEST_UID,
+        commands: liveCommands
+      })
+      expect(tabLabels(harness.dock)).toEqual([...LIVE_DOCK, 'Compare'])
+
+      await harness.publishSelectedTestUid(OTHER_TEST_UID)
+
+      expect(tabLabels(harness.dock)).toEqual(LIVE_DOCK)
+      expect(texts(harness.dock, TAB_LABEL)).toEqual(LIVE_DOCK)
+      expect(shadowAll(harness.workbench, COMPARE_PANEL)).toHaveLength(0)
+    })
+
+    it('brings the tab back when the preserved test is selected again', async () => {
+      const harness = await mountWorkbench({
+        baselines: preservedFor(SELECTED_TEST_UID),
+        selectedTestUid: SELECTED_TEST_UID,
+        commands: liveCommands
+      })
+      await harness.publishSelectedTestUid(OTHER_TEST_UID)
+
+      await harness.publishSelectedTestUid(SELECTED_TEST_UID)
+      await clickTab(harness, harness.dock, 'Compare')
+      const panel = shadow(harness.workbench, COMPARE_PANEL)
+
+      expect(tabLabels(harness.dock)).toEqual([...LIVE_DOCK, 'Compare'])
+      // The returning tab opens onto the real pairing, not the panel's own
+      // "No baseline preserved." prompt.
+      expect(shadowAll(panel!, EMPTY_STATE)).toHaveLength(0)
+      expect(shadowAll(panel!, STEP_ROW)).toHaveLength(PAIRED_ROWS)
+    })
+
+    it('offers no tab for a test no baseline was ever preserved for', async () => {
+      const harness = await mountWorkbench({
+        baselines: preservedFor(SELECTED_TEST_UID),
+        commands: liveCommands
+      })
+
+      await harness.publishSelectedTestUid(UNPRESERVED_TEST_UID)
+
+      expect(tabLabels(harness.dock)).toEqual(LIVE_DOCK)
+      expect(shadowAll(harness.workbench, COMPARE_PANEL)).toHaveLength(0)
+      expect(openPanelTags(harness.dock)).toEqual(['wdio-devtools-source'])
+    })
+
+    it('waits for the other test to be selected before offering its baseline', async () => {
+      const harness = await mountWorkbench({
+        selectedTestUid: SELECTED_TEST_UID,
+        commands: liveCommands
+      })
+
+      await harness.publishBaselines(preservedFor(OTHER_TEST_UID))
+      expect(tabLabels(harness.dock)).toEqual(LIVE_DOCK)
+
+      await harness.publishSelectedTestUid(OTHER_TEST_UID)
+      await clickTab(harness, harness.dock, 'Compare')
+
+      expect(tabLabels(harness.dock)).toEqual([...LIVE_DOCK, 'Compare'])
+      expect(
+        shadowAll(shadow(harness.workbench, COMPARE_PANEL)!, STEP_ROW)
+      ).toHaveLength(PAIRED_ROWS)
+    })
+
+    // Same hand-back as clearing the baseline under the open tab: a selection
+    // that unmounts the OPEN Compare tab must leave a panel on screen.
+    it('falls back to the first dock tab when the selection drops the open Compare tab', async () => {
+      const harness = await mountWorkbench({
+        baselines: preservedFor(SELECTED_TEST_UID),
+        selectedTestUid: SELECTED_TEST_UID,
+        commands: liveCommands
+      })
+      await clickTab(harness, harness.dock, 'Compare')
+      expect(openTabLabels(harness.dock)).toEqual(['Compare'])
+
+      await harness.publishSelectedTestUid(OTHER_TEST_UID)
+
+      expect(openTabLabels(harness.dock)).toEqual(['Source'])
+      expect(openPanelTags(harness.dock)).toEqual(['wdio-devtools-source'])
+      expect(text(shadow(harness.dock, ACTIVE_BUTTON))).toBe('Source')
+    })
+
+    it('leaves the fallback tab open when the Compare tab returns', async () => {
+      const harness = await mountWorkbench({
+        baselines: preservedFor(SELECTED_TEST_UID),
+        selectedTestUid: SELECTED_TEST_UID,
+        commands: liveCommands
+      })
+      await clickTab(harness, harness.dock, 'Compare')
+      await harness.publishSelectedTestUid(OTHER_TEST_UID)
+
+      await harness.publishSelectedTestUid(SELECTED_TEST_UID)
+
+      // The tab is offered again, but re-selecting a test is not a request to
+      // jump panels — the dock stays where the fallback left it.
+      expect(tabLabels(harness.dock)).toEqual([...LIVE_DOCK, 'Compare'])
+      expect(openTabLabels(harness.dock)).toEqual(['Source'])
     })
   })
 })
