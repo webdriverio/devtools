@@ -4,6 +4,7 @@ import {
   ASSERT_PATCHED_SYMBOL,
   TRACKED_ASSERT_METHODS
 } from '@wdio/devtools-core'
+import type { CommandLog } from '@wdio/devtools-shared'
 import {
   captureExpectFailure,
   expectAssertionToCommandLog,

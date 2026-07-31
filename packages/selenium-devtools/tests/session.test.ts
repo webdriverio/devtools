@@ -69,7 +69,12 @@ describe('selenium SessionCapturer.captureCommand', () => {
 
   it('leaves testUid undefined when not provided', async () => {
     const cap = makeCapturer()
-    const entry = await cap.captureCommand('click', ['.btn'])
+    const entry = await cap.captureCommand(
+      'click',
+      ['.btn'],
+      undefined,
+      undefined
+    )
     expect(entry.testUid).toBeUndefined()
   })
 })

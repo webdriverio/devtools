@@ -73,6 +73,7 @@ function specRange(specFile: string, startIdx: number): SpecRange {
     specFile,
     key: specFile,
     commandStartIdx: startIdx,
+    consoleStartIdx: 0,
     networkStartIdx: 0,
     mutationStartIdx: 0,
     traceLogStartIdx: 0

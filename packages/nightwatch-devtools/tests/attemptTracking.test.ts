@@ -145,6 +145,7 @@ describe('buildTraceContext', () => {
         artifacts: [],
         traceFlushes: [],
         configPath: undefined,
+        testFilePath: undefined,
         log: () => {}
       },
       'session-1'
@@ -178,6 +179,7 @@ describe('buildTraceContext', () => {
         artifacts: [],
         traceFlushes: [],
         configPath: undefined,
+        testFilePath: undefined,
         log: () => {}
       },
       'session-1'
@@ -207,6 +209,7 @@ describe('buildTraceContext', () => {
         artifacts: [],
         traceFlushes: [],
         configPath: undefined,
+        testFilePath: undefined,
         log: () => {}
       },
       'session-1'
@@ -232,6 +235,7 @@ describe('buildTraceContext', () => {
         artifacts: [],
         traceFlushes: [],
         configPath: undefined,
+        testFilePath: undefined,
         emitArtifactsManifest: true,
         log: () => {}
       },

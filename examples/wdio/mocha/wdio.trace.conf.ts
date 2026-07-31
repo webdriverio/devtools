@@ -1,18 +1,9 @@
-import type { Options } from '@wdio/types'
-
 // Trace-mode variant of wdio.conf.ts, used by the verification harness
 // (`pnpm fixtures:regen`) to produce a deterministic golden trace.zip. Same
 // capabilities and specs as the live config; session granularity writes one zip
 // per run. Kept separate so the demo config's live default stays untouched.
-export const config: Options.Testrunner = {
+export const config: WebdriverIO.Config = {
   runner: 'local',
-  autoCompileOpts: {
-    autoCompile: true,
-    tsNodeOpts: {
-      project: './tsconfig.json',
-      transpileOnly: true
-    }
-  },
   specs: ['./specs/**/*.e2e.ts'],
   exclude: [],
   maxInstances: 1,

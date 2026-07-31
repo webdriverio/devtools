@@ -27,7 +27,6 @@ class TestSessionCapturer extends SessionCapturerBase {
     },
     opts?: { skipConsoleLogs?: boolean; skipNetworkRequests?: boolean }
   ) {
-    // @ts-expect-error — accessing protected method from same-module subclass
     return this.processTracePayload(payload, opts)
   }
 }

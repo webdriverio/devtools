@@ -20,7 +20,13 @@ describe('TestReporter - Rerun & Stable UID', () => {
       ...overrides
     }) as TestStats
 
-  const createSuiteStats = (overrides: Partial<SuiteStats> = {}): SuiteStats =>
+  // `argument` is the cucumber pickle extra the reporter probes for off
+  // SuiteStats; WDIO's own type doesn't declare it.
+  const createSuiteStats = (
+    overrides: Partial<SuiteStats> & {
+      argument?: { uri?: string; line?: number }
+    } = {}
+  ): SuiteStats =>
     ({
       uid: 'suite-123',
       title: 'Login Suite',
@@ -298,7 +304,7 @@ describe('TestReporter - Rerun & Stable UID', () => {
         uid: '0',
         title: 'login scenario',
         file: '/some/login.feature',
-        argument: { uri: '/some/login.feature', line: 42 } as any
+        argument: { uri: '/some/login.feature', line: 42 }
       })
       ;(suite as any).type = 'scenario'
 

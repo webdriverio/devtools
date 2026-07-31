@@ -7,7 +7,7 @@ import {
   jsonElementToSnapshotNodes
 } from '../src/snapshot.js'
 import type { AccessibilityNode } from '../src/accessibility-tree.js'
-import type { JSONElement } from '../src/locators/types.js'
+import type { JSONElement } from '../src/locators/index.js'
 import type { SnapshotNode } from '@wdio/devtools-core/element-types'
 
 // ---------------------------------------------------------------------------
