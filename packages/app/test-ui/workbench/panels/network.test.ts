@@ -41,6 +41,13 @@ const SEARCH = '.search-input'
 const TOOLBAR = '.network-header'
 const FILTER_EMPTY = '.filter-empty'
 const PLACEHOLDER = 'wdio-devtools-placeholder'
+const EMPTY_ICON = '.empty-state-icon'
+const EMPTY_HEADING = '.empty-state-text'
+const EMPTY_DETAIL = '.empty-state-detail'
+const SKELETON = '.ph-item'
+
+/** Glyph the panel hands its empty-state placeholder. */
+const NETWORK_GLYPH = '🌐'
 
 /** The panel's own "no value" glyph, distinct from the `-` `formatBytes`
  *  returns — an em dash, written out so the two can't be confused. */
@@ -579,29 +586,36 @@ describe('wdio-devtools-network', () => {
 
       const placeholder = shadow(panel, PLACEHOLDER)
       expect(shadowAll(panel, PLACEHOLDER)).toHaveLength(1)
-      // GAP: none of this copy reaches the screen. `placeholder.ts` declares no
-      // reactive properties, so `icon`/`title`/`description` stay inert
-      // attributes and its template renders only the loading skeleton. The
-      // attributes are still asserted — the panel is meant to be passing them —
-      // but the point of the next block is that a user sees no text at all, so
-      // an assertion on the attributes alone would pass over a blank panel.
-      expect(attrOf(placeholder, 'icon')).toBe('network')
-      expect(attrOf(placeholder, 'title')).toBe('No network requests captured')
+      expect(attrOf(placeholder, 'icon')).toBe(NETWORK_GLYPH)
+      expect(attrOf(placeholder, 'heading')).toBe(
+        'No network requests captured'
+      )
       expect(attrOf(placeholder, 'description')).toBe(
         'Network requests will appear here as your tests run'
       )
     })
 
-    it('renders none of the placeholder copy it is handed', async () => {
+    // The copy is asserted inside the placeholder's own shadow root, not through
+    // the panel's `textContent` — that stops at the placeholder's host and so
+    // reads empty whether or not the words render.
+    it('renders the copy it hands the placeholder as visible text', async () => {
       const panel = await mountNetwork([])
       const placeholder = shadow(panel, PLACEHOLDER)!
 
-      // The skeleton renders; the words do not. `title` is the one attribute a
-      // browser does something with (a native tooltip) — it is still not text.
-      expect(text(placeholder)).toBe('')
-      expect(shadowAll(placeholder, '.ph-item')).toHaveLength(1)
-      expect(text(panel)).not.toContain('No network requests captured')
-      expect(text(panel)).not.toContain('Network requests will appear here')
+      expect(text(shadow(placeholder, EMPTY_HEADING))).toBe(
+        'No network requests captured'
+      )
+      expect(text(shadow(placeholder, EMPTY_DETAIL))).toBe(
+        'Network requests will appear here as your tests run'
+      )
+      expect(text(shadow(placeholder, EMPTY_ICON))).toBe(NETWORK_GLYPH)
+    })
+
+    it('explains the empty panel instead of drawing a loading skeleton', async () => {
+      const panel = await mountNetwork([])
+      const placeholder = shadow(panel, PLACEHOLDER)!
+
+      expect(shadowAll(placeholder, SKELETON)).toHaveLength(0)
     })
 
     it('renders the placeholder before a provider supplies any requests', async () => {

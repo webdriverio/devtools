@@ -186,8 +186,8 @@ export class DevtoolsNetwork extends Element {
     if (!this.networkRequests || this.networkRequests.length === 0) {
       return html`
         <wdio-devtools-placeholder
-          icon="network"
-          title="No network requests captured"
+          icon="🌐"
+          heading="No network requests captured"
           description="Network requests will appear here as your tests run"
         ></wdio-devtools-placeholder>
       `

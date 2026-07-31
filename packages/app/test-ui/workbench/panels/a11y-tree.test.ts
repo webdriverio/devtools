@@ -40,6 +40,22 @@ const HINT_LOCATOR = '.copybar .loc'
 const HINT_IDLE = '.copybar .idle'
 const HINT_CONFIRMATION = '.copybar .ok'
 const PLACEHOLDER = 'wdio-devtools-placeholder'
+const EMPTY_ICON = '.empty-state-icon'
+const EMPTY_HEADING = '.empty-state-text'
+const EMPTY_DETAIL = '.empty-state-detail'
+const SKELETON = '.ph-item'
+
+/** Glyph the panel hands its empty-state placeholder. */
+const TREE_GLYPH = '🌳'
+
+/** Why a trace can reach this panel with commands that carry no snapshot —
+ *  per-command accessibility capture is WDIO-only. */
+const CAPTURE_UNSUPPORTED =
+  'Per-command accessibility capture is WebdriverIO-only — Selenium and Nightwatch traces do not include it.'
+
+/** The copy shown before anything is selected, which is not a capture gap. */
+const NOTHING_SELECTED =
+  'Select a command in the Actions tab to see the accessibility tree captured for it.'
 
 /** Rendered row of the first textbox — the tree drops the `∈ "purpose"` suffix
  *  the serializer wrote before the locator. */
@@ -473,6 +489,35 @@ describe('wdio-devtools-a11y', () => {
       expect(shadowAll(panel, PLACEHOLDER)).toHaveLength(1)
       expect(shadowAll(panel, COPYBAR)).toHaveLength(0)
       expect(rows(panel)).toHaveLength(0)
+    })
+
+    it('names the missing capture as the reason a selected command has no tree', async () => {
+      const panel = await mountTree()
+      await showCommand(panel, snapshotlessCommand)
+      const placeholder = shadow(panel, PLACEHOLDER)!
+
+      expect(text(shadow(placeholder, EMPTY_HEADING))).toBe(
+        'No accessibility snapshot for this command'
+      )
+      expect(text(shadow(placeholder, EMPTY_DETAIL))).toBe(CAPTURE_UNSUPPORTED)
+      expect(text(shadow(placeholder, EMPTY_ICON))).toBe(TREE_GLYPH)
+    })
+
+    it('prompts for a selection rather than blaming capture when nothing is selected', async () => {
+      const panel = await mountTree()
+      const placeholder = shadow(panel, PLACEHOLDER)!
+
+      expect(text(shadow(placeholder, EMPTY_HEADING))).toBe(
+        'No command selected'
+      )
+      expect(text(shadow(placeholder, EMPTY_DETAIL))).toBe(NOTHING_SELECTED)
+    })
+
+    it('explains the empty panel instead of drawing a loading skeleton', async () => {
+      const panel = await mountTree()
+      await showCommand(panel, snapshotlessCommand)
+
+      expect(shadowAll(shadow(panel, PLACEHOLDER)!, SKELETON)).toHaveLength(0)
     })
 
     it('falls back to the placeholder when a snapshotless command follows one with a snapshot', async () => {
