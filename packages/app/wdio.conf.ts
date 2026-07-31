@@ -1,6 +1,5 @@
 // Component tests for the Lit elements in packages/app/src — mount one with
-// explicit inputs, assert its shadow DOM in a real browser. Distinct from
-// test/browser/wdio.conf.ts, which pixel-snapshots the whole assembled app.
+// explicit inputs, assert its shadow DOM in a real browser.
 //
 // The browser runner serves the specs through Vite, so it is handed the app's
 // own vite.config.ts rather than a second copy of it: the components import
@@ -123,9 +122,12 @@ export const config: WebdriverIO.Config = {
         : {})
     }
   ],
-  // Default is 100, i.e. one browser per spec file all at once. One when
-  // inspecting, since a fixed debugging port can only serve a single browser.
-  maxInstances: inspect ? 1 : 4,
+  // 2, not the default 100 (a browser per spec file all at once): every worker
+  // carries its own Vite server plus a Chrome, and past 2 that contention alone
+  // pushes the heaviest specs over the 30s timeout — at 4 three spec files fail
+  // there and the suite is also slower overall than at 2. One when inspecting,
+  // since a fixed debugging port can only serve a single browser.
+  maxInstances: inspect ? 1 : 2,
   logLevel: 'warn',
   framework: 'mocha',
   reporters: ['spec'],

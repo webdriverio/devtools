@@ -38,3 +38,36 @@ jobs:
         run: pnpm -r --workspace-concurrency=1 build
       - name: 🧪 Run Tests
         run: pnpm test
+
+  # Separate job because these are the only tests that need a real browser, and
+  # they parallelise with `build` instead of extending it. No bundle step: the
+  # specs and packages/app/src reach @wdio/devtools-shared through its source
+  # exports, so Vite compiles everything from source. Chrome comes preinstalled
+  # on the runner image; wdio fetches the matching driver itself.
+  component-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Use Node.js
+        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+        with:
+          node-version-file: .nvmrc
+      - name: Cache pnpm modules
+        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
+        env:
+          cache-name: cache-pnpm-modules
+        with:
+          path: ~/.pnpm-store
+          key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ matrix.node-version }}-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-build-${{ env.cache-name }}-${{ matrix.node-version }}-
+      - uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
+        with:
+          version: 10.26.1
+          run_install: false
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      # Two workers, not the runner default: each carries a Vite server plus a
+      # Chrome, and past 2 the heaviest specs time out under that contention.
+      - name: 🧩 Component Tests
+        run: pnpm test:ui --maxInstances 2
