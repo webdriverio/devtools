@@ -127,7 +127,9 @@ wdio-devtools                              app.ts
 ├─ wdio-devtools-shortcuts
 └─ wdio-devtools-start
 
-wdio-devtools-placeholder                  shared leaf: browser, actions, network
+wdio-devtools-placeholder                  shared leaf: browser, and the a11y-tree,
+                                           actions, metadata, network, source and
+                                           transcript panels
 ```
 
 ## Layout
@@ -185,7 +187,7 @@ packages/app/
    │     ├─ transcript.test.ts
    │     └─ compare.test.ts
    └─ shared/
-      └─ placeholder.test.ts         used by three parents, owned by none
+      └─ placeholder.test.ts         used by seven parents, owned by none
 ```
 
 Why grouped rather than colocated in `src/`:
@@ -303,7 +305,7 @@ component's extracted logic — a spec need not re-assert those.
 
 | Tier | Element | Source | LOC | The spec covers | Inherits |
 |---|---|---|---|---|---|
-| 2 | `wdio-devtools-placeholder` | `placeholder.ts` | 53 | Empty-state copy per panel; asserted once here rather than in every parent | — |
+| 2 | `wdio-devtools-placeholder` | `placeholder.ts` | 118 | Both modes: the loading skeleton it draws with no copy, and the empty state it draws with a heading/description — including the boundary where only one is set. Asserted once here rather than in every parent | — |
 
 **Tier totals:** 10 · 15 · 6 = 31. **Covered: 13** (all of Tier 1, plus
 `group-item`, `placeholder`, `screencast-player` from Tier 2).

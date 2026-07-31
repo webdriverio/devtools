@@ -87,6 +87,40 @@ function cjsDepAliases(): Record<string, string> {
   return aliases
 }
 
+// COVERAGE=1 instruments packages/app/src with istanbul through Vite and
+// collects `__coverage__` out of the browser, writing the report to
+// packages/app/coverage. Opt-in, never on by default, for three measured
+// reasons: instrumented specs run about twice as slow (heaviest spec 2.3s ->
+// 4.7s, full suite 243s -> 283s); that margin costs roughly one spec per run its
+// BiDi `browsingContext.navigate`, and under any parallel load it collapses
+// (11 of 30 specs lost to driver timeouts while other work shared the machine);
+// and `clean: true` wipes reportsDirectory at startup, so two concurrent
+// instrumented runs silently destroy each other's report. Default-off keeps
+// `pnpm test:ui` the fast 30/30-green signal it is.
+const coverageEnabled = process.env.COVERAGE === '1'
+
+const COVERAGE: WebdriverIO.BrowserRunnerOptions['coverage'] = {
+  enabled: true,
+  // Relative to `rootDir` below — the runner hands `cwd: rootDir` to
+  // vite-plugin-istanbul, so this is packages/app/src.
+  include: ['src/**'],
+  reportsDirectory: path.resolve(appDir, 'coverage'),
+  // `json` is the mergeable istanbul map: it is what a single combined number
+  // across this suite and `vitest --coverage` would be built from.
+  reporter: ['text', 'json', 'json-summary']
+  // Deliberately no `lines`/`branches`/`functions`/`statements` floor, even
+  // though the runner supports one and @wdio/cli would turn a breach into exit
+  // code 1. Two measured reasons. The denominator cannot be pinned: istanbul
+  // instruments through Vite's transform, so only modules some spec imported are
+  // ever counted, and that set moves with the specs. And instrumentation costs
+  // the heaviest specs their BiDi navigate — roughly one spec per run, a
+  // different one each time, surviving a retry, all of which pass uninstrumented
+  // — and a lost spec takes its files' coverage with it. Consecutive full runs
+  // scored 83.55% and 80.70% for that reason alone. A floor tight enough to mean
+  // anything would fail on the flake; one loose enough to survive it would gate
+  // nothing. Add one once the instrumented suite is deterministically green.
+}
+
 // The app's config declares `alias` as an object literal, so it is spread rather
 // than concatenated as the array form would need.
 const appAlias = appViteConfig.resolve?.alias as Record<string, string>
@@ -106,7 +140,8 @@ export const config: WebdriverIO.Config = {
       preset: 'lit',
       rootDir: appDir,
       headless: !(headed || inspect),
-      viteConfig
+      viteConfig,
+      ...(coverageEnabled ? { coverage: COVERAGE } : {})
     }
   ],
   specs: ['./test-ui/**/*.test.ts'],
@@ -128,6 +163,11 @@ export const config: WebdriverIO.Config = {
   // there and the suite is also slower overall than at 2. One when inspecting,
   // since a fixed debugging port can only serve a single browser.
   maxInstances: inspect ? 1 : 2,
+  // Instrumented specs lose a BiDi navigate to a timeout about one spec per run
+  // (a timeout, never a failed assertion — the same specs pass uninstrumented).
+  // A retry usually recovers it, though not always, so this reduces the noise
+  // rather than removing it. Only on the instrumented path.
+  ...(coverageEnabled ? { specFileRetries: 1 } : {}),
   logLevel: 'warn',
   framework: 'mocha',
   reporters: ['spec'],
