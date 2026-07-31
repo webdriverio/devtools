@@ -46,8 +46,10 @@ const ACTION_BTN =
 const ACTION_ICON = 'w-[15px] h-[15px]'
 @customElement(TEST_ENTRY)
 export class ExplorerTestEntry extends CollapseableEntry {
-  @property({ attribute: 'is-collapsed' })
-  isCollapsed = 'false'
+  /** Present ⇔ the children are hidden. Reflected so the tree-wide controls in
+   *  `CollapseableEntry` can read a row's state straight off the DOM. */
+  @property({ type: Boolean, reflect: true, attribute: 'is-collapsed' })
+  isCollapsed = false
 
   @property({ type: String })
   uid?: string
@@ -161,20 +163,20 @@ export class ExplorerTestEntry extends CollapseableEntry {
   ]
 
   #toggleEntry() {
-    this.setAttribute('is-collapsed', `${!(this.isCollapsed === 'true')}`)
-    const isCollapsed = this.isCollapsed === 'true'
+    // Toggle the attribute, not the property: Lit reflects a property on the
+    // next update, but the listeners below read the DOM synchronously.
+    this.toggleAttribute('is-collapsed', !this.isCollapsed)
+    // The row's own control mirrors its own children, not its descendants'.
+    this.allowCollapseAll = !this.isCollapsed
     this.dispatchEvent(
       new CustomEvent('entry-collapse-change', {
         detail: {
-          isCollapsed,
+          isCollapsed: this.isCollapsed,
           entry: this
         },
         bubbles: true
       })
     )
-    if (isCollapsed) {
-      this.allowCollapseAll = false
-    }
     this.requestUpdate()
   }
 
@@ -229,7 +231,9 @@ export class ExplorerTestEntry extends CollapseableEntry {
 
   #stopEntry(event: Event) {
     event.stopPropagation()
-    if (!this.uid || this.runDisabled) {
+    // No `runDisabled` guard: stopping is not a launch capability (see
+    // #renderRunStopButtons).
+    if (!this.uid) {
       return
     }
     const detail: TestRunDetail = {
@@ -357,8 +361,10 @@ export class ExplorerTestEntry extends CollapseableEntry {
   }
 
   #renderRunStopButtons() {
+    // `runDisabled` gates LAUNCHING only: /api/tests/stop takes no body and
+    // stops the whole run, so a run in flight is always stoppable.
     if (this.isRunning) {
-      return this.runDisabled ? nothing : this.#renderStopButton()
+      return this.#renderStopButton()
     }
     return html`
       ${this.#renderRunButton()}
@@ -402,7 +408,7 @@ export class ExplorerTestEntry extends CollapseableEntry {
 
   render() {
     const hasNoChildren = !this.hasChildren
-    const isCollapsed = this.isCollapsed === 'true'
+    const isCollapsed = this.isCollapsed
     return html`
       <section
         class="row flex w-full items-start text-sm group/sidebar rounded-md my-0.5 px-1 py-1 cursor-pointer hover:bg-toolbarHoverBackground"

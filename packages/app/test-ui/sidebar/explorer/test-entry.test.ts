@@ -372,13 +372,28 @@ describe('wdio-test-entry', () => {
       expect(received).toHaveLength(0)
     })
 
-    it('offers no stop button on a running row that cannot be stopped', async () => {
+    it('keeps the stop button on a running row the runner cannot start', async () => {
+      // `runDisabled` is a *launch* capability. A run already in flight is
+      // stoppable whatever the framework is able to start, so the stop control
+      // survives it — otherwise a Nightwatch run could never be stopped.
       const row = await mountRow(
         rowProps(mixedStateRun.running, { runDisabled: true })
       )
 
-      expect(shadowAll(row, STOP_BUTTON)).toHaveLength(0)
+      expect(shadowAll(row, STOP_BUTTON)).toHaveLength(1)
       expect(shadowAll(row, RUN_BUTTON)).toHaveLength(0)
+    })
+
+    it('emits app-test-stop from a running row the runner cannot start', async () => {
+      const step = mixedStateRun.running
+      const row = await mountRow(rowProps(step, { runDisabled: true }))
+
+      const received = capture<TestRunDetail>(row, 'app-test-stop', () =>
+        shadow(row, STOP_BUTTON)?.click()
+      )
+
+      expect(received).toHaveLength(1)
+      expect(received[0]?.detail.uid).toBe(step.uid)
     })
 
     it('drops the rerun button from a failed row that cannot be run', async () => {
@@ -406,6 +421,7 @@ describe('wdio-test-entry', () => {
 
       expect(shadowAll(row, TOOLBAR_BUTTON)).toHaveLength(1)
       expect(shadowAll(row, EXPAND_ALL_ICON)).toHaveLength(0)
+      expect(shadowAll(row, COLLAPSE_ALL_ICON)).toHaveLength(0)
     })
 
     it('shows the chevron and a collapse control on a row with children', async () => {
@@ -419,6 +435,20 @@ describe('wdio-test-entry', () => {
         false
       )
       expect(shadowAll(row, TOOLBAR_BUTTON)).toHaveLength(2)
+      // The row starts out rendering its children, so the control it offers is
+      // the one that collapses them.
+      expect(childrenSection(row)?.classList.contains('hidden')).toBe(false)
+      expect(shadowAll(row, COLLAPSE_ALL_ICON)).toHaveLength(1)
+      expect(shadowAll(row, EXPAND_ALL_ICON)).toHaveLength(0)
+    })
+
+    it('hides the children from the toolbar collapse control too', async () => {
+      const row = await mountRow(rowProps(profileSuite))
+
+      shadow(row, COLLAPSE_ALL_ICON)?.click()
+      await settle(row)
+
+      expect(childrenSection(row)?.classList.contains('hidden')).toBe(true)
       expect(shadowAll(row, EXPAND_ALL_ICON)).toHaveLength(1)
     })
 
@@ -429,7 +459,9 @@ describe('wdio-test-entry', () => {
       shadow(row, CHEVRON_BUTTON)?.click()
       await settle(row)
 
-      expect(row.getAttribute('is-collapsed')).toBe('true')
+      expect(row.isCollapsed).toBe(true)
+      // Reflected, so a tree-wide control can read the row's state off the DOM.
+      expect(row.hasAttribute('is-collapsed')).toBe(true)
       expect(childrenSection(row)?.classList.contains('hidden')).toBe(true)
     })
 
@@ -451,7 +483,8 @@ describe('wdio-test-entry', () => {
       shadow(row, CHEVRON_BUTTON)?.click()
       await settle(row)
 
-      expect(row.getAttribute('is-collapsed')).toBe('false')
+      expect(row.isCollapsed).toBe(false)
+      expect(row.hasAttribute('is-collapsed')).toBe(false)
       expect(childrenSection(row)?.classList.contains('hidden')).toBe(false)
     })
 
@@ -484,15 +517,21 @@ describe('wdio-test-entry', () => {
       expect(received[0]?.composed).toBe(false)
     })
 
-    it('switches the toolbar control to collapse-all once the row has been expanded', async () => {
+    it('tracks the children with the toolbar control through a collapse and back', async () => {
       const row = await mountRow(rowProps(profileSuite))
+
+      shadow(row, CHEVRON_BUTTON)?.click()
+      await settle(row)
+
+      // Children hidden, so the control on offer is the one that shows them.
+      expect(childrenSection(row)?.classList.contains('hidden')).toBe(true)
       expect(shadowAll(row, EXPAND_ALL_ICON)).toHaveLength(1)
+      expect(shadowAll(row, COLLAPSE_ALL_ICON)).toHaveLength(0)
 
       shadow(row, CHEVRON_BUTTON)?.click()
       await settle(row)
-      shadow(row, CHEVRON_BUTTON)?.click()
-      await settle(row)
 
+      expect(childrenSection(row)?.classList.contains('hidden')).toBe(false)
       expect(shadowAll(row, COLLAPSE_ALL_ICON)).toHaveLength(1)
       expect(shadowAll(row, EXPAND_ALL_ICON)).toHaveLength(0)
     })

@@ -407,7 +407,6 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
     const runBtnCls = canRunAll
       ? 'hover:bg-toolbarHoverBackground'
       : 'opacity-30 cursor-not-allowed'
-    const iconCls = (color: string) => (canRunAll ? `group-hover:${color}` : '')
     return html`
       <nav class="flex ml-auto gap-0.5 text-[16px] text-descriptionForeground">
         <button
@@ -416,15 +415,18 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
           title="Run all"
           @click="${() => this.#runAllSuites()}"
         >
-          <icon-mdi-play class="${iconCls('text-chartsGreen')}"></icon-mdi-play>
+          <icon-mdi-play
+            class="${canRunAll ? 'group-hover:text-chartsGreen' : ''}"
+          ></icon-mdi-play>
         </button>
+        <!-- Not gated on a run capability: those describe what a framework can
+             launch, and stopping needs none (see runnerCapabilities.ts). -->
         <button
-          class="p-1 rounded group ${runBtnCls}"
-          ?disabled=${!canRunAll}
+          class="p-1 rounded group hover:bg-toolbarHoverBackground"
           title="Stop"
           @click="${() => this.#stopActiveRun()}"
         >
-          <icon-mdi-stop class="${iconCls('text-chartsRed')}"></icon-mdi-stop>
+          <icon-mdi-stop class="group-hover:text-chartsRed"></icon-mdi-stop>
         </button>
         <button
           class="p-1 rounded hover:bg-toolbarHoverBackground group"

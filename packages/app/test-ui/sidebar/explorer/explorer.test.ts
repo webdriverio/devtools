@@ -45,6 +45,7 @@ const EXPAND_ALL_ICON = 'header icon-mdi-expand-all'
 const COLLAPSE_ALL_ICON = 'header icon-mdi-collapse-all'
 const LABEL_SPAN = 'section.row > span'
 const CHEVRON_BUTTON = 'section.row > button'
+const CHILDREN_SLOT = 'slot[name="children"]'
 const RUN_BUTTON = 'nav.row-actions button:has(icon-mdi-play)'
 const STOP_BUTTON = 'nav.row-actions button:has(icon-mdi-stop)'
 const RERUN_BUTTON = 'nav.row-actions button:has(icon-mdi-bug-play)'
@@ -114,6 +115,21 @@ function rowByUid(explorer: Element, uid: string): ExplorerTestEntry {
     throw new Error(`no row rendered for uid "${uid}"`)
   }
   return row
+}
+
+/** A row renders its group in a second section beside the label row, so the
+ *  children slot is the only stable handle on the thing that hides. */
+const childrenHidden = (row: Element) =>
+  shadow(row, CHILDREN_SLOT)?.parentElement?.classList.contains('hidden')
+
+/** A tree-wide collapse reaches the rows by attribute, so the explorer settling
+ *  is not enough — every row it just touched has to re-render too. */
+async function settleTree(explorer: DevtoolsSidebarExplorer): Promise<void> {
+  await settle(explorer)
+  for (const row of shadowAll<ExplorerTestEntry>(explorer, ENTRY)) {
+    await settle(row)
+  }
+  await settle(explorer)
 }
 
 const rowLabels = (explorer: Element) => texts(explorer, ROW_LABEL)
@@ -584,17 +600,35 @@ describe('wdio-devtools-sidebar-explorer', () => {
       expect(requests[0]?.body).toEqual({})
     })
 
-    it('disables the run and stop controls for a runner that cannot run everything', async () => {
+    it('disables the run control for a runner that cannot run everything', async () => {
       const explorer = await mountExplorer(
         mixedStateRun.registry,
         nightwatchMetadata
       )
 
       const run = shadow<HTMLButtonElement>(explorer, RUN_ALL_BUTTON)
-      const stop = shadow<HTMLButtonElement>(explorer, STOP_ALL_BUTTON)
       expect(run?.disabled).toBe(true)
-      expect(stop?.disabled).toBe(true)
       expect(run?.classList.contains('cursor-not-allowed')).toBe(true)
+    })
+
+    it('still stops the run for a runner that cannot run everything', async () => {
+      // Launching and stopping are separate concerns: /api/tests/stop takes no
+      // body and kills whatever the backend spawned, so a Nightwatch run — which
+      // has no run-everything entry point — must still be stoppable from here.
+      const requests = recordBackend()
+      const explorer = await mountExplorer(
+        mixedStateRun.registry,
+        nightwatchMetadata
+      )
+
+      const stop = shadow<HTMLButtonElement>(explorer, STOP_ALL_BUTTON)
+      expect(stop?.disabled).toBe(false)
+      expect(stop?.classList.contains('cursor-not-allowed')).toBe(false)
+
+      stop?.click()
+      await flush()
+
+      expect(requests.map((request) => request.url)).toEqual([TESTS_API.stop])
     })
 
     it('sends nothing while the run control is disabled', async () => {
@@ -610,48 +644,54 @@ describe('wdio-devtools-sidebar-explorer', () => {
       expect(requests).toHaveLength(0)
     })
 
-    it('expands every row from the header control', async () => {
+    it('offers to collapse a freshly rendered tree, which shows its children', async () => {
       const explorer = await mountExplorer(mixedStateRun.registry)
-      expect(shadowAll(explorer, EXPAND_ALL_ICON)).toHaveLength(1)
 
-      shadow(explorer, EXPAND_ALL_ICON)?.click()
-      await settle(explorer)
-
-      expect(
-        shadowAll(explorer, ENTRY).map((row) =>
-          row.getAttribute('is-collapsed')
-        )
-      ).toEqual(['false', 'false', 'false', 'false', 'false'])
+      expect(childrenHidden(rowByUid(explorer, mixedStateRun.suite.uid))).toBe(
+        false
+      )
       expect(shadowAll(explorer, COLLAPSE_ALL_ICON)).toHaveLength(1)
+      expect(shadowAll(explorer, EXPAND_ALL_ICON)).toHaveLength(0)
     })
 
-    it('collapses every row again from the header control', async () => {
-      const explorer = await mountExplorer(mixedStateRun.registry)
-
-      shadow(explorer, EXPAND_ALL_ICON)?.click()
-      await settle(explorer)
-      shadow(explorer, COLLAPSE_ALL_ICON)?.click()
-      await settle(explorer)
-
-      expect(
-        shadowAll(explorer, ENTRY).map((row) =>
-          row.getAttribute('is-collapsed')
-        )
-      ).toEqual(['true', 'true', 'true', 'true', 'true'])
-      expect(shadowAll(explorer, EXPAND_ALL_ICON)).toHaveLength(1)
-    })
-
-    it('switches the header control to collapse-all once a row is expanded by hand', async () => {
+    it('hides every row of children from the header control', async () => {
       const explorer = await mountExplorer(mixedStateRun.registry)
       const root = rowByUid(explorer, mixedStateRun.suite.uid)
 
-      shadow(root, CHEVRON_BUTTON)?.click()
-      await settle(root)
-      await settle(explorer)
-      shadow(root, CHEVRON_BUTTON)?.click()
-      await settle(root)
-      await settle(explorer)
+      shadow(explorer, COLLAPSE_ALL_ICON)?.click()
+      await settleTree(explorer)
 
+      expect(childrenHidden(root)).toBe(true)
+      expect(shadowAll(explorer, EXPAND_ALL_ICON)).toHaveLength(1)
+      expect(shadowAll(explorer, COLLAPSE_ALL_ICON)).toHaveLength(0)
+    })
+
+    it('shows every row of children again from the header control', async () => {
+      const explorer = await mountExplorer(mixedStateRun.registry)
+      const root = rowByUid(explorer, mixedStateRun.suite.uid)
+
+      shadow(explorer, COLLAPSE_ALL_ICON)?.click()
+      await settleTree(explorer)
+      shadow(explorer, EXPAND_ALL_ICON)?.click()
+      await settleTree(explorer)
+
+      expect(childrenHidden(root)).toBe(false)
+      expect(shadowAll(explorer, COLLAPSE_ALL_ICON)).toHaveLength(1)
+      expect(shadowAll(explorer, EXPAND_ALL_ICON)).toHaveLength(0)
+    })
+
+    it('switches the header control back to collapse-all once a row is expanded by hand', async () => {
+      const explorer = await mountExplorer(mixedStateRun.registry)
+      const root = rowByUid(explorer, mixedStateRun.suite.uid)
+
+      shadow(explorer, COLLAPSE_ALL_ICON)?.click()
+      await settleTree(explorer)
+      expect(shadowAll(explorer, EXPAND_ALL_ICON)).toHaveLength(1)
+
+      shadow(root, CHEVRON_BUTTON)?.click()
+      await settleTree(explorer)
+
+      expect(childrenHidden(root)).toBe(false)
       expect(shadowAll(explorer, COLLAPSE_ALL_ICON)).toHaveLength(1)
       expect(shadowAll(explorer, EXPAND_ALL_ICON)).toHaveLength(0)
     })
@@ -812,14 +852,16 @@ describe('wdio-devtools-sidebar-explorer', () => {
       expect(button?.getAttribute('title')).toBe('Run this entry')
     })
 
-    it('leaves a running test row without controls when single tests cannot be run', async () => {
+    // Cucumber cannot launch a single test, so the run control is withheld —
+    // but the step is already running, and stopping is not a launch capability.
+    it('keeps a running test row stoppable when single tests cannot be run', async () => {
       const explorer = await mountExplorer(
         mixedStateRun.registry,
         cucumberMetadata
       )
 
       const row = rowByUid(explorer, mixedStateRun.running.uid)
-      expect(shadowAll(row, STOP_BUTTON)).toHaveLength(0)
+      expect(shadowAll(row, STOP_BUTTON)).toHaveLength(1)
       expect(shadowAll(row, RUN_BUTTON)).toHaveLength(0)
     })
 

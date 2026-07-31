@@ -3,6 +3,11 @@
  * (and tests) to decide whether the Run/Rerun buttons should be enabled.
  * Extracted from explorer.ts so the Lit component stays under the
  * file-size cap.
+ *
+ * Every capability here is about *launching*. Stopping deliberately has none:
+ * `POST /api/tests/stop` takes no body and kills whatever child the backend
+ * spawned, so no framework varies on it and a `canStop` field would be `true`
+ * forever. A run that can be started must always be stoppable.
  */
 
 import type { Metadata } from '@wdio/devtools-shared'
