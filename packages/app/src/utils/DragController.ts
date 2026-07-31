@@ -63,22 +63,14 @@ export class DragController implements ReactiveController {
     Promise.all([this.#getDraggableEl(), options.getContainerEl()]).then(
       ([draggableEl, containerEl]) => {
         if (!draggableEl || !containerEl) {
-          // Retry after a short delay
+          // Retry after a short delay. Quietly: a host renders only the sliders
+          // its current mode needs, so a handle whose pane is absent is expected
+          // — hostUpdated → #maybeReinit picks it up if it ever appears.
           setTimeout(async () => {
             const [retryDraggableEl, retryContainerEl] = await Promise.all([
               this.#getDraggableEl(),
               options.getContainerEl()
             ])
-            if (!retryDraggableEl) {
-              console.warn(
-                'getDraggableEl() did not return an element HTMLElement'
-              )
-            }
-            if (!retryContainerEl) {
-              console.warn(
-                'getContainerEl() did not return an element HTMLElement'
-              )
-            }
             if (retryDraggableEl && retryContainerEl) {
               this.#draggableEl = retryDraggableEl as HTMLElement
               this.#containerEl = retryContainerEl as HTMLElement

@@ -165,6 +165,34 @@ describe('wdio-devtools-tabs', () => {
       expect(texts(el, TAB_LABEL)).toEqual(['Source', 'Compare'])
       expect(activePanels(el)).toEqual(['Source'])
     })
+
+    it('opens the first tab when the open one unmounts', async () => {
+      // The workbench drops the Compare tab as soon as its baseline goes; the
+      // strip would otherwise keep pointing at a tab that no longer exists.
+      const el = await mountTabs(DOCK)
+      tabButton(el, 'Errors').click()
+      await settle(el)
+
+      panels(el)[2].remove()
+      await nextTask()
+      await settle(el)
+
+      expect(texts(el, TAB_LABEL)).toEqual(['Source', 'Console'])
+      expect(activePanels(el)).toEqual(['Source'])
+      expect(text(shadow(el, ACTIVE_BUTTON))).toBe('Source')
+    })
+
+    it('keeps the open tab when another one unmounts', async () => {
+      const el = await mountTabs(DOCK)
+      tabButton(el, 'Console').click()
+      await settle(el)
+
+      panels(el)[2].remove()
+      await nextTask()
+      await settle(el)
+
+      expect(activePanels(el)).toEqual(['Console'])
+    })
   })
 
   describe('switching tabs', () => {
@@ -299,6 +327,17 @@ describe('wdio-devtools-tabs', () => {
       const el = await mountTabs(DOCK, { cacheId: CACHE_ID })
 
       expect(activePanels(el)).toEqual(['Errors'])
+    })
+
+    it('opens the first tab when the remembered one is not rendered', async () => {
+      // A dock that remembered `Compare` and mounts without a baseline: the
+      // remembered label names no tab, so the first one takes over.
+      localStorage.setItem(CACHE_ID, 'Compare')
+
+      const el = await mountTabs(DOCK, { cacheId: CACHE_ID })
+
+      expect(activePanels(el)).toEqual(['Source'])
+      expect(text(shadow(el, ACTIVE_BUTTON))).toBe('Source')
     })
 
     it('prefers the remembered tab over the child that claims to be active', async () => {

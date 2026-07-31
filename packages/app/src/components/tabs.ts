@@ -128,10 +128,7 @@ export class DevtoolsTabs extends Element {
     if (!activeTab) {
       return
     }
-    this.#activeTab = tabId
-    this.tabs.forEach((el) => el.removeAttribute('active'))
-    activeTab?.setAttribute('active', '')
-    this.requestUpdate()
+    this.#openTab(activeTab, tabId)
 
     /**
      * cache tab id in local storage
@@ -141,11 +138,33 @@ export class DevtoolsTabs extends Element {
     }
   }
 
+  #openTab(tab: Element, label: string) {
+    this.#activeTab = label
+    this.tabs.forEach((el) => el.removeAttribute('active'))
+    tab.setAttribute('active', '')
+    this.requestUpdate()
+  }
+
+  // A conditional tab (Compare) can unmount while it is the open one, and a
+  // remembered label can name a tab this mount never renders — both would leave
+  // the strip with no panel open. The cached choice is left as the user set it.
+  #openFallbackTabWhenActiveIsGone() {
+    if (this.#activeTab && this.#tabList.includes(this.#activeTab)) {
+      return
+    }
+    const fallback =
+      this.tabs.find((el) => el.hasAttribute('active')) ?? this.tabs[0]
+    const label = fallback?.getAttribute('label')
+    if (fallback && label) {
+      this.#openTab(fallback, label)
+    }
+  }
+
   #refreshTabList() {
-    this.#tabList =
-      this.tabs
-        .map((el) => el.getAttribute('label') as string)
-        .filter(Boolean) || []
+    this.#tabList = this.tabs
+      .map((el) => el.getAttribute('label') as string)
+      .filter(Boolean)
+    this.#openFallbackTabWhenActiveIsGone()
     this.requestUpdate()
   }
 
@@ -153,28 +172,17 @@ export class DevtoolsTabs extends Element {
     super.connectedCallback()
     window.addEventListener('open-dock-tab', this.#onOpenTab as EventListener)
     setTimeout(() => {
-      // wait till innerHTML is parsed
+      // wait till innerHTML is parsed; this opens the tab claiming to be active,
+      // or the first one
       this.#refreshTabList()
 
       /**
-       * get tab id either from local storage or a tab element that
-       * has an "active" attribute
+       * reopen the remembered tab; a label this mount doesn't render is ignored,
+       * which leaves the tab opened above in place
        */
-      this.#activeTab =
-        (this.cacheId && localStorage.getItem(this.cacheId)) ||
-        this.tabs
-          .find((el) => el.hasAttribute('active'))
-          ?.getAttribute('label') ||
-        undefined
-
-      /**
-       * set active tab or first tab as active
-       */
-      if (!this.#activeTab) {
-        this.#activeTab = this.#tabList[0]
-        this.tabs[0]?.setAttribute('active', '')
-      } else {
-        this.activateTab(this.#activeTab)
+      const remembered = this.cacheId && localStorage.getItem(this.cacheId)
+      if (remembered) {
+        this.activateTab(remembered)
       }
 
       this.requestUpdate()
