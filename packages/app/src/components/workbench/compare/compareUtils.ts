@@ -1,5 +1,7 @@
 import type { CommandLog } from '@wdio/devtools-shared'
 
+import { stripAnsi } from '../console-filter.js'
+
 export interface ComparePairedStep {
   index: number
   baseline?: CommandLog
@@ -96,15 +98,15 @@ export function safeJson(value: unknown): string {
 /** Strip ANSI escapes and collapse blank-line runs so the error banner
  *  doesn't grow tall from formatting whitespace. */
 export function cleanErrorMessage(msg: string): string {
-  return msg
-    .replace(/\[[0-9;]*m/g, '')
-    .replace(/\[\d+m/g, '')
+  return stripAnsi(msg)
     .replace(/\n{3,}/g, '\n\n')
     .trim()
 }
 
+// Single spaces, not `\s+`: the step text is whitespace-normalised before it is
+// matched, which keeps every quantifier out of the optional groups.
 const STEP_VERB_RE =
-  /^(?:I should see|should see|should have|should be|should contain|should equal|should match|see|have|equals?|matches?|contains?)\s+(?:a\s+)?(?:flash\s+message\s+saying\s+|text\s+|message\s+saying\s+|message\s+|value\s+)?(.+)$/i
+  /^(?:I should see|should see|should have|should be|should contain|should equal|should match|see|have|equals?|matches?|contains?) (?:a )?(?:flash message saying |text |message saying |message |value )?(.+)$/i
 
 /** Best-effort extraction of the expected value from a Cucumber step title
  *  (strip the keyword + common verb phrase, return the parameterized tail). */
@@ -117,6 +119,7 @@ export function extractExpectedFromStepText(
   const stripped = stepText
     .replace(/^\d+:\s*/, '')
     .replace(/^(Given|When|Then|And|But)\s+/i, '')
+    .replace(/\s+/g, ' ')
     .trim()
   const m = stripped.match(STEP_VERB_RE)
   if (m && m[1]) {

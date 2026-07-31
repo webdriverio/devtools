@@ -262,6 +262,14 @@ const lines = (el: Element | null): string[] =>
     .split('\n')
     .map((line) => line.trim())
 
+/** Control characters left in rendered text, line breaks excluded: a cleaned
+ *  message keeps its line breaks but must carry no escape bytes. */
+const controlChars = (el: Element | null): string[] =>
+  [...(el?.textContent ?? '')].filter((char) => {
+    const code = char.charCodeAt(0)
+    return code !== 0x0a && (code < 0x20 || code === 0x7f)
+  })
+
 async function clickCell(
   panel: DevtoolsCompare,
   row: number,
@@ -415,6 +423,15 @@ describe('wdio-devtools-compare', () => {
       expect(lines(shadow(panel, ERROR_BANNER_MESSAGE))).toEqual(
         BASELINE_ERROR_LINES
       )
+    })
+
+    it('leaves no invisible control character in the rendered banner', async () => {
+      const panel = await mountLogin()
+      const banner = shadow(panel, ERROR_BANNER_MESSAGE)
+
+      expect(text(banner)).toContain(`Expected: "${EXPECTED_FLASH}"`)
+      expect(controlChars(banner)).toEqual([])
+      expect(text(banner)).not.toMatch(/\[\d+m/)
     })
 
     it('renders no banner for a baseline that carried no error', async () => {
@@ -656,6 +673,33 @@ describe('wdio-devtools-compare', () => {
       // The two runs agree, so nothing is highlighted as divergent — the
       // failure-site marker is independent of the diff.
       expect(divergentIn(panel, 0)).toEqual([false, false, false])
+    })
+
+    it('marks a single failure site when two commands share a millisecond', async () => {
+      const failedStep: PreservedStep = {
+        uid: 'assert-step',
+        title: 'shows the secure-area flash',
+        start: RUN_START,
+        end: RUN_START + 2000,
+        state: 'failed'
+      }
+      // Commands are stamped in wall-clock ms, so two fast reads inside one
+      // step share a timestamp; only the later one is the failure site.
+      const commands = [
+        commandLog({
+          command: 'getText',
+          args: [FLASH_SELECTOR],
+          timestamp: RUN_START + 1500
+        }),
+        commandLog({
+          command: 'getAttribute',
+          args: [FLASH_SELECTOR, 'class'],
+          timestamp: RUN_START + 1500
+        })
+      ]
+      const panel = await mountPair(commands, commands, [failedStep])
+
+      expect(markersIn(panel, 0)).toEqual([['✓'], ['✗ in failed step']])
     })
 
     it('marks a command that errored as failed when no step state resolved', async () => {

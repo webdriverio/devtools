@@ -145,14 +145,17 @@ export function findStepFor(
   }
   const steps = side === 'baseline' ? (baseline?.steps ?? []) : liveSteps
   const ts = cmd.timestamp
-  return steps.find(
-    (s) =>
-      s.start !== null &&
-      s.start !== undefined &&
-      s.end !== null &&
-      s.end !== undefined &&
-      ts >= s.start &&
-      ts <= s.end
+  return steps.find((s) => containsTimestamp(s, ts))
+}
+
+/** A step whose window never opened (a test still running, or one the runner
+ *  reported without times) contains nothing. */
+function containsTimestamp(step: PreservedStep, ts: number): boolean {
+  return (
+    typeof step.start === 'number' &&
+    typeof step.end === 'number' &&
+    ts >= step.start &&
+    ts <= step.end
   )
 }
 
@@ -234,21 +237,15 @@ export function isFailureSite(
   if (cmd.error?.message) {
     return true
   }
-  if (step.start === null || step.end === null) {
-    return false
-  }
-  let lastTs = 0
-  for (const c of allCommandsOnSide) {
-    if (
-      c.timestamp !== null &&
-      step.start !== undefined &&
-      step.end !== undefined &&
-      c.timestamp >= step.start &&
-      c.timestamp <= step.end &&
-      c.timestamp > lastTs
-    ) {
-      lastTs = c.timestamp
-    }
-  }
-  return cmd.timestamp === lastTs
+  // Several commands can share the step's last wall-clock ms, so the site is
+  // the last of them in capture order — `cmd` is an element of the same list.
+  const site = allCommandsOnSide.reduce<CommandLog | undefined>(
+    (latest, c) =>
+      containsTimestamp(step, c.timestamp) &&
+      (!latest || c.timestamp >= latest.timestamp)
+        ? c
+        : latest,
+    undefined
+  )
+  return !!site && site === cmd
 }

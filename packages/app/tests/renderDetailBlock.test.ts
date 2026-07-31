@@ -29,6 +29,14 @@ import { computeDetailBlockData } from '../src/components/workbench/compare/step
 const RUN_START = 1_700_000_000_000
 const RED = 'var(--vscode-charts-red,#f48771)'
 const GREEN = 'var(--vscode-charts-green,#73c373)'
+const ESC = '\u001b'
+
+/** Control characters left in a rendered string, line breaks excluded. */
+const controlChars = (value: string): string[] =>
+  [...value].filter((char) => {
+    const code = char.charCodeAt(0)
+    return code !== 0x0a && (code < 0x20 || code === 0x7f)
+  })
 
 function cmd(overrides: Partial<CommandLog> = {}): CommandLog {
   return {
@@ -321,7 +329,9 @@ describe('renderDetailBlock', () => {
     })
 
     it("prints a command's error in place of its result, cleaned", () => {
-      const raw = 'element click [31mintercepted[39m'
+      // A real terminal colour code is `ESC[<n>m`; stripping the `[<n>m` alone
+      // leaves the invisible ESC behind in the rendered row.
+      const raw = `element click ${ESC}[31mintercepted${ESC}[39m`
       const command = cmd({
         command: 'click',
         result: 'ignored',
@@ -336,6 +346,24 @@ describe('renderDetailBlock', () => {
         `error: ${cleanErrorMessage(raw)}`
       ])
       expect(preLines(host)[1]).toBe('error: element click intercepted')
+    })
+
+    it('leaves no control character or colour code in a rendered error', () => {
+      const command = cmd({
+        command: 'click',
+        error: {
+          name: 'Error',
+          message: `${ESC}[1m${ESC}[31mExpected: ${ESC}[39m"Secure Area"${ESC}[22m`
+        }
+      })
+      const host = renderInto(
+        renderDetailBlock('Baseline', command, 'baseline', ctxWith())
+      )
+      const rendered = preLines(host)[1]
+
+      expect(rendered).toContain('Expected: "Secure Area"')
+      expect(controlChars(rendered)).toEqual([])
+      expect(rendered).not.toMatch(/\[\d+m/)
     })
 
     it('stringifies an error object that carries no message', () => {
@@ -555,6 +583,30 @@ describe('renderDetailBlock', () => {
         'args: ["#flash"]',
         'result: undefined'
       ])
+    })
+
+    it('renders the failed values on the later of two commands sharing a millisecond', () => {
+      const earlier = cmd({ command: 'click', timestamp: RUN_START })
+      const last = cmd({ timestamp: RUN_START })
+      const commands = [earlier, last]
+      const ctx = ctxWith({ baselineCommands: commands, step: failed })
+      const rowsFor = (command: CommandLog) =>
+        preLines(
+          renderInto(renderDetailBlock('Baseline', command, 'baseline', ctx))
+        )
+
+      expect(computeDetailBlockData(last, failed, commands).atFailureSite).toBe(
+        true
+      )
+      expect(
+        computeDetailBlockData(earlier, failed, commands).atFailureSite
+      ).toBe(false)
+      expect(rowsFor(last).some((line) => line.startsWith('expected:'))).toBe(
+        true
+      )
+      expect(
+        rowsFor(earlier).some((line) => line.startsWith('expected:'))
+      ).toBe(false)
     })
 
     it('renders no expected or actual for a step that passed', () => {

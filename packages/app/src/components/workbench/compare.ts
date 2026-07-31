@@ -14,8 +14,6 @@ import {
   baselineContext,
   selectedTestUidContext,
   commandContext,
-  consoleLogContext,
-  networkRequestContext,
   suiteContext
 } from '../../controller/context.js'
 import type { SuiteStatsFragment } from '../../controller/types.js'
@@ -23,18 +21,10 @@ import {
   pairSteps,
   classifyDivergence,
   cleanErrorMessage,
+  firstDivergentIndex,
   type ComparePairedStep,
   type DivergenceKind
 } from './compare/compareUtils.js'
-
-interface RenderPairCtx {
-  pair: ComparePairedStep
-  kind: DivergenceKind
-  isTruncation: boolean
-  oneSideEntirelyEmpty: boolean
-  expanded: boolean
-  isFirstDivergent: boolean
-}
 import { BASELINE_API, type BaselineClearRequest } from '@wdio/devtools-shared'
 import { POPOUT_QUERY, buildPopoutFeatures } from './compare/constants.js'
 import { renderMarker } from './compare/markers.js'
@@ -47,6 +37,17 @@ import {
 import { renderDetailBlock } from './compare/renderDetailBlock.js'
 
 const COMPONENT = 'wdio-devtools-compare'
+
+/** What both cells of one step row share: the pairing, the row's divergence
+ *  kind, and the row-level flags the cell renderers branch on. */
+interface RenderPairCtx {
+  pair: ComparePairedStep
+  kind: DivergenceKind
+  isTruncation: boolean
+  oneSideEntirelyEmpty: boolean
+  expanded: boolean
+  isFirstDivergent: boolean
+}
 
 @customElement(COMPONENT)
 export class DevtoolsCompare extends Element {
@@ -63,14 +64,6 @@ export class DevtoolsCompare extends Element {
   @consume({ context: commandContext, subscribe: true })
   @state()
   liveCommands: CommandLog[] | undefined = undefined
-
-  @consume({ context: consoleLogContext, subscribe: true })
-  @state()
-  liveConsoleLogs: ConsoleLogs[] | undefined = undefined
-
-  @consume({ context: networkRequestContext, subscribe: true })
-  @state()
-  liveNetwork: NetworkRequest[] | undefined = undefined
 
   @consume({ context: suiteContext, subscribe: true })
   @state()
@@ -281,7 +274,7 @@ export class DevtoolsCompare extends Element {
     const visiblePairs = this.differencesOnly
       ? pairs.filter((p) => p.divergent || !p.baseline || !p.latest)
       : pairs
-    const firstDivergent = pairs.findIndex((p) => p.divergent)
+    const firstDivergent = firstDivergentIndex(pairs)
     const errorMessage = baseline.test.error?.message
       ? cleanErrorMessage(baseline.test.error.message)
       : undefined

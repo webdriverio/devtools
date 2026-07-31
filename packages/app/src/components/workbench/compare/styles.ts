@@ -225,14 +225,6 @@ export const compareStyles = css`
     color: var(--vscode-charts-red);
     background: color-mix(in srgb, var(--vscode-charts-red) 16%, transparent);
   }
-  .marker.result {
-    color: var(--vscode-charts-yellow);
-    background: color-mix(
-      in srgb,
-      var(--vscode-charts-yellow) 16%,
-      transparent
-    );
-  }
   .marker.info {
     color: var(--vscode-charts-yellow);
     background: color-mix(

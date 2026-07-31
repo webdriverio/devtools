@@ -247,6 +247,38 @@ describe('renderMarker', () => {
       ])
     })
 
+    it('marks one failure site when two commands share a millisecond', () => {
+      // Command timestamps are wall-clock ms, so two fast commands in the same
+      // step routinely land on the same one. A failed step has a single failure
+      // site — the later of the two — not one per tied timestamp.
+      const failed = step({ state: 'failed' })
+      const earlier = cmd({ command: 'getText', timestamp: RUN_START + 500 })
+      const last = cmd({ command: 'getAttribute', timestamp: RUN_START + 500 })
+      const allCmdsThisSide = [earlier, last]
+
+      expect(
+        allCmdsThisSide.filter((c) => isFailureSite(c, failed, allCmdsThisSide))
+      ).toEqual([last])
+      expect(labels({ cmd: earlier, step: failed, allCmdsThisSide })).toEqual([
+        '✓'
+      ])
+      expect(labels({ cmd: last, step: failed, allCmdsThisSide })).toEqual([
+        '✗ in failed step'
+      ])
+    })
+
+    it('marks no failure site in a failed step that recorded no window', () => {
+      // Without a start/end there is nothing to resolve a site against, so no
+      // command may claim it — including one whose timestamp is falsy.
+      const failed = step({ state: 'failed', start: undefined, end: undefined })
+      const command = cmd({ timestamp: 0 })
+
+      expect(isFailureSite(command, failed, [command])).toBe(false)
+      expect(
+        labels({ cmd: command, step: failed, allCmdsThisSide: [command] })
+      ).toEqual(['✓'])
+    })
+
     it("marks a failed step's own erroring command even when a later command exists", () => {
       const failed = step({ state: 'failed' })
       const errored = cmd({

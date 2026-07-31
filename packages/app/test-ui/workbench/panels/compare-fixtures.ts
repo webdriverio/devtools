@@ -55,16 +55,16 @@ export const LATEST_FLASH = 'You logged into a secure area!'
 export const FLASH_ASSERTION_MESSAGE =
   'Expect $(`#flash`) to have text "Secure Area"'
 
-// The SGR codes here carry no ESC byte on purpose: `cleanErrorMessage` matches
-// `[<n>m` without one, so that is the form it actually strips (the errors panel
-// uses a different cleaner, which needs the ESC — see ./fixtures.ts).
+// The `\u001b` prefixes are load-bearing: a real terminal colour code is
+// `ESC[<n>m`, and a cleaner that strips the `[<n>m` alone leaves the invisible
+// ESC in the rendered banner.
 export const BASELINE_ERROR_MESSAGE = [
   'Expect $(`#flash`) to have text',
   '',
   '',
   '',
-  `Expected: [32m"${EXPECTED_FLASH}"[39m`,
-  `Received: [31m"${BASELINE_FLASH}"[39m`
+  `Expected: \u001b[32m"${EXPECTED_FLASH}"\u001b[39m`,
+  `Received: \u001b[31m"${BASELINE_FLASH}"\u001b[39m`
 ].join('\n')
 
 /** `BASELINE_ERROR_MESSAGE` as the banner renders it: colour codes gone, the
