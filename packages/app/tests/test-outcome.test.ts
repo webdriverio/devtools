@@ -82,6 +82,7 @@ const ROWS = {
   unreported: [unreported('a'), unreported('b')],
   empty: [] as TestStatsFragment[],
   running: [passed('a'), running('b')],
+  allQueued: [queued('a'), queued('b')],
   queuedAfterFinished: [passed('a'), queued('b')],
   skippedAndPassed: [passed('a'), skipped('b')],
   skippedAndFailed: [failed('a'), skipped('b')]
@@ -130,16 +131,14 @@ describe('deriveEntryOutcome', () => {
         unreported: OUTCOME.IDLE,
         empty: OUTCOME.IDLE,
         running: OUTCOME.RUNNING,
+        // Every run's first frame: the reporter announces its tests as pending
+        // before the first one executes. The leaves spin, so the suite holding
+        // them cannot show the not-run circle.
+        allQueued: OUTCOME.RUNNING,
         queuedAfterFinished: OUTCOME.RUNNING,
         skippedAndPassed: OUTCOME.PASSED,
         skippedAndFailed: OUTCOME.FAILED
       })
-    })
-
-    it('is idle for a suite whose queued tests have all yet to produce a result', () => {
-      expect(
-        deriveEntryOutcome(suite('s', { tests: [queued('a'), queued('b')] }))
-      ).toBe(OUTCOME.IDLE)
     })
 
     it('reports its own terminal state over its children', () => {
@@ -212,9 +211,12 @@ describe('deriveEntryOutcome', () => {
       ).toBe(OUTCOME.IDLE)
     })
 
-    it('counts an empty suite that carries an end stamp as passed', () => {
+    // An end stamp on a suite says its hooks finished, not that anything ran:
+    // a `describe` whose tests were all filtered out still gets `suite:end`.
+    // Calling that passed is the false green this module exists to prevent.
+    it('has no verdict for an empty suite that carries an end stamp', () => {
       expect(deriveEntryOutcome(suite('s', { end: FINISHED_AT }))).toBe(
-        OUTCOME.PASSED
+        OUTCOME.IDLE
       )
     })
   })
@@ -245,7 +247,11 @@ describe('isInFlight', () => {
 })
 
 describe('tallyOutcomes', () => {
-  it('counts each outcome once, folding queued and idle into pending', () => {
+  // `queued` counts its own bucket: a reporter marking a test pending means the
+  // run reached it, which reads as running above it — folding it into `pending`
+  // (nothing reported at all) is what showed spinner leaves under a not-run
+  // parent on every run's first frame.
+  it('counts each outcome once, keeping queued apart from unreported', () => {
     expect(
       tallyOutcomes([
         passed('a'),
@@ -261,7 +267,8 @@ describe('tallyOutcomes', () => {
         failed: 1,
         running: 1,
         skipped: 1,
-        pending: 2,
+        queued: 1,
+        pending: 1,
         total: 6
       })
     )

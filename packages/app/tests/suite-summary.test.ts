@@ -45,6 +45,7 @@ const summary = (overrides: Partial<SuiteSummary>): SuiteSummary => ({
   failed: 0,
   running: 0,
   skipped: 0,
+  queued: 0,
   pending: 0,
   total: 0,
   ...overrides
@@ -70,13 +71,16 @@ describe('computeSuiteSummary', () => {
         ]
       })
     )
+    // `c3` is REPORTED pending, so it counts as queued — the run reached it.
+    // `pending` is reserved for entries nothing has reported on at all, which
+    // the next test covers with an undefined state.
     expect(computeSuiteSummary(input)).toEqual(
       summary({
         passed: 1,
         failed: 1,
         running: 1,
         skipped: 1,
-        pending: 1,
+        queued: 1,
         total: 5
       })
     )

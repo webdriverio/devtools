@@ -50,11 +50,15 @@ const REPORTED: Partial<Record<TestStatus, EntryOutcome>> = {
   [TEST_STATE.PENDING]: OUTCOME.QUEUED
 }
 
+/** `queued` and `pending` are both unfinished but say opposite things about the
+ *  run: `queued` counts entries a reporter marked pending, so the run reached
+ *  them, while `pending` counts entries nothing has reported on at all. */
 export interface StateTally {
   passed: number
   failed: number
   running: number
   skipped: number
+  queued: number
   pending: number
   total: number
 }
@@ -64,6 +68,7 @@ export const emptyTally = (): StateTally => ({
   failed: 0,
   running: 0,
   skipped: 0,
+  queued: 0,
   pending: 0,
   total: 0
 })
@@ -79,8 +84,9 @@ const childrenOf = (entry: OutcomeEntry): (OutcomeEntry | undefined)[] => [
   ...(entry.suites ?? [])
 ]
 
-/** An entry whose state nobody reported still counts as finished once it
- *  carries an end stamp. */
+/** A leaf whose state nobody reported still counts as finished once it carries
+ *  an end stamp. Leaf-only: a suite's end stamp says its hooks finished, not
+ *  that anything inside it was verified. */
 const byEndStamp = (entry: OutcomeEntry): EntryOutcome =>
   entry.end ? OUTCOME.PASSED : OUTCOME.IDLE
 
@@ -88,7 +94,10 @@ const byEndStamp = (entry: OutcomeEntry): EntryOutcome =>
  * One entry's outcome. A suite defers to its children where it has no usable
  * state of its own, and children still in flight outrank whatever state it
  * carries — a rerun clears end stamps but leaves the previous run's
- * `passed`/`failed` behind.
+ * `passed`/`failed` behind. A suite with no settled child has no verdict to
+ * report, however finished it looks: an ended `describe` whose tests were all
+ * filtered out verified nothing, and calling that green is the false green this
+ * module exists to prevent.
  */
 export function deriveEntryOutcome(entry: OutcomeEntry): EntryOutcome {
   const reported = entry.state ? REPORTED[entry.state] : undefined
@@ -101,10 +110,7 @@ export function deriveEntryOutcome(entry: OutcomeEntry): EntryOutcome {
   if (children === OUTCOME.RUNNING || reported === OUTCOME.QUEUED) {
     return OUTCOME.RUNNING
   }
-  if (reported) {
-    return reported
-  }
-  return children === OUTCOME.IDLE ? byEndStamp(entry) : children
+  return reported ?? children
 }
 
 /** True until an entry settles: running, queued, or nothing reported yet. */
@@ -141,8 +147,11 @@ export function tallyOutcomes(
       case OUTCOME.SKIPPED:
         tally.skipped += 1
         break
+      case OUTCOME.QUEUED:
+        tally.queued += 1
+        break
       default:
-        // queued and idle both mean "no result to show yet".
+        // Idle: nothing has reported on this entry at all.
         tally.pending += 1
     }
   }
@@ -151,17 +160,19 @@ export function tallyOutcomes(
 
 /**
  * The outcome of a counted group. Running outranks a stale terminal count (a
- * rerun keeps the old numbers until fresh results land); a group nothing has
- * reported on is idle rather than green; and a group that only ever skipped is
- * `skipped`, because reporting "passed" for a run that verified nothing reads
- * as a false green.
+ * rerun keeps the old numbers until fresh results land); a queued child means
+ * the run reached the group, so the group runs while its leaves spin; a group
+ * nothing has reported on is idle rather than green; and a group that only ever
+ * skipped is `skipped`, because reporting "passed" for a run that verified
+ * nothing reads as a false green.
  */
 export function deriveOutcome(tally: StateTally): GroupOutcome {
   if (tally.total === 0) {
     return OUTCOME.IDLE
   }
   const settled = tally.passed + tally.failed + tally.skipped
-  if (tally.running > 0 || (tally.pending > 0 && settled > 0)) {
+  const reached = tally.running + tally.queued
+  if (reached > 0 || (tally.pending > 0 && settled > 0)) {
     return OUTCOME.RUNNING
   }
   if (settled === 0) {
@@ -196,4 +207,4 @@ export const hasFailure = (tally: StateTally): boolean => tally.failed > 0
 
 /** Is anything in this group still to come — running, queued, or unreported? */
 export const hasInFlight = (tally: StateTally): boolean =>
-  tally.running + tally.pending > 0
+  tally.running + tally.queued + tally.pending > 0
