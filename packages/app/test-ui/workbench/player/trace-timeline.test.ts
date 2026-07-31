@@ -58,16 +58,19 @@ function nextPlayerState(): Promise<PlayerState> {
   })
 }
 
-/** The action the strip asks the workbench to show next. */
-function nextShownCommand(): Promise<CommandLog> {
+/** The next `show-command` the strip announces, whole: the workbench reads the
+ *  command, the Logs panel badges the elapsed offset that comes with it. */
+function nextShowCommand(): Promise<CommandEventProps> {
   return new Promise((resolve) => {
-    window.addEventListener(
-      'show-command',
-      (event) => resolve(event.detail.command),
-      { once: true }
-    )
+    window.addEventListener('show-command', (event) => resolve(event.detail), {
+      once: true
+    })
   })
 }
+
+/** The action the strip asks the workbench to show next. */
+const nextShownCommand = (): Promise<CommandLog> =>
+  nextShowCommand().then((detail) => detail.command)
 
 const attrs = (els: Element[], name: string) =>
   els.map((el) => el.getAttribute(name))
@@ -293,6 +296,32 @@ describe('wdio-devtools-trace-timeline', () => {
       shadowAll(el, THUMB)[frames.indexOf(typing)].click()
 
       expect(await shown).toEqual(typeUsername)
+    })
+
+    it('times the first action from itself, so its badge reads zero', async () => {
+      const shown = nextShowCommand()
+
+      await mountTimeline(commands, frames)
+
+      expect(await shown).toEqual({ command: openLogin, elapsedTime: 0 })
+    })
+
+    it('times the announced action from the first command, as the actions list does', async () => {
+      const el = await mountTimeline(commands, frames)
+      const shown = nextShowCommand()
+
+      shadowAll(el, THUMB)[frames.indexOf(typing)].click()
+
+      // The offset the Logs panel badges, derived the way actions.ts derives the
+      // one it sends on a row click: from the first COMMAND. The strip's own
+      // window starts 400ms earlier (at the first captured frame), so measuring
+      // from that origin would badge 780ms for this action instead of 380ms and
+      // the same action would read differently in the two panes.
+      expect(await shown).toEqual({
+        command: typeUsername,
+        elapsedTime: typeUsername.timestamp - openLogin.timestamp
+      })
+      expect((await shown).elapsedTime).toBe(380)
     })
 
     it('does not re-announce the action already selected', async () => {

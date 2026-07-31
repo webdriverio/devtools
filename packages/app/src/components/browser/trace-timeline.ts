@@ -236,8 +236,14 @@ export class TraceTimeline extends Element {
     }
     this.#started = true
     this.#activeCommand = command
+    // Mirror actions.ts: elapsed time is the command's offset from the first
+    // command — not from the strip's window origin, which also counts frames and
+    // would badge the same action differently in the two panes.
+    const baseline = sorted[0].timestamp
     window.dispatchEvent(
-      new CustomEvent('show-command', { detail: { command } })
+      new CustomEvent<CommandEventProps>('show-command', {
+        detail: { command, elapsedTime: command.timestamp - baseline }
+      })
     )
   }
 

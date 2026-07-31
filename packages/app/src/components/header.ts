@@ -8,20 +8,45 @@ import '~icons/mdi/moon-waning-crescent.js'
 
 import { DARK_MODE_KEY } from '../controller/constants.js'
 
-const darkModeInitValue = localStorage.getItem(DARK_MODE_KEY)
+/** The theme to render: the choice the user stored, else the OS setting. The
+ *  header owns the toggle, so it owns this rule — `app.ts` bootstraps `<body>`
+ *  from the same function so the document and the icon can't disagree. */
+export function prefersDarkMode(): boolean {
+  const stored = localStorage.getItem(DARK_MODE_KEY)
+  return stored === null
+    ? window.matchMedia('(prefers-color-scheme: dark)').matches
+    : stored === 'true'
+}
 
 @customElement('wdio-devtools-header')
 export class DevtoolsHeader extends Element {
-  #darkMode =
-    typeof darkModeInitValue === 'string'
-      ? darkModeInitValue === 'true'
-      : window.matchMedia('(prefers-color-scheme: dark)').matches
+  // Read per instance, not once per module load: a header built after the theme
+  // changed elsewhere would otherwise render the icon of the old one.
+  #darkMode = prefersDarkMode()
 
   constructor() {
     super()
-    if (this.#darkMode) {
-      document.querySelector('body')?.classList.add('dark')
+    document.body.classList.toggle('dark', this.#darkMode)
+  }
+
+  connectedCallback(): void {
+    super.connectedCallback()
+    window.addEventListener('storage', this.#onStorage)
+  }
+
+  disconnectedCallback(): void {
+    super.disconnectedCallback()
+    window.removeEventListener('storage', this.#onStorage)
+  }
+
+  // Another window (a popout, a second dashboard tab) stored a new theme — the
+  // `storage` event only fires for changes made outside this one.
+  #onStorage = (event: StorageEvent): void => {
+    if (event.key !== DARK_MODE_KEY) {
+      return
     }
+    this.#darkMode = prefersDarkMode()
+    this.requestUpdate()
   }
 
   static styles = [
@@ -83,9 +108,8 @@ export class DevtoolsHeader extends Element {
   }
 
   #switchMode() {
-    const body = document.querySelector('body')
-    body?.classList.toggle('dark')
     this.#darkMode = !this.#darkMode
+    document.body.classList.toggle('dark', this.#darkMode)
     localStorage.setItem(DARK_MODE_KEY, this.#darkMode ? 'true' : 'false')
     this.requestUpdate()
   }

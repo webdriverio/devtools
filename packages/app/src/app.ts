@@ -14,40 +14,34 @@ import {
 } from './controller/constants.js'
 import { POPOUT_QUERY } from './components/workbench/compare/constants.js'
 
-// Bootstrap the dark-mode class on <body> as early as possible so popout
-// windows (which don't render the header) still get themed consistently
-// with the main dashboard. The header still owns the toggle.
-const darkModeInit = localStorage.getItem(DARK_MODE_KEY)
-const isDarkMode =
-  typeof darkModeInit === 'string'
-    ? darkModeInit === 'true'
-    : window.matchMedia('(prefers-color-scheme: dark)').matches
-if (isDarkMode) {
-  document.body.classList.add('dark')
-}
-// Cross-window sync: when the user toggles dark mode in the main dashboard,
-// the storage event fires in OTHER windows (popouts) and we mirror the
-// theme change there too.
-window.addEventListener('storage', (e) => {
-  if (e.key === DARK_MODE_KEY) {
-    document.body.classList.toggle('dark', e.newValue === 'true')
-  }
-})
-// Follow live OS theme changes while the user hasn't set an explicit override.
-window
-  .matchMedia('(prefers-color-scheme: dark)')
-  .addEventListener('change', (e) => {
-    if (localStorage.getItem(DARK_MODE_KEY) === null) {
-      document.body.classList.toggle('dark', e.matches)
-    }
-  })
-
-import './components/header.js'
+import { prefersDarkMode } from './components/header.js'
 import './components/sidebar.js'
 import './components/workbench.js'
 import './components/onboarding/start.js'
 import './components/workbench/compare.js'
 import './components/shortcuts-overlay.js'
+
+// Bootstrap the dark-mode class on <body> before the first render so popout
+// windows (which don't render the header) still get themed consistently with
+// the main dashboard. The header still owns the toggle — and the rule for what
+// "dark" means, which is why it is read from there rather than restated here.
+const applyTheme = (): void => {
+  document.body.classList.toggle('dark', prefersDarkMode())
+}
+applyTheme()
+// Cross-window sync: when the user toggles dark mode in the main dashboard,
+// the storage event fires in OTHER windows (popouts) and we mirror the
+// theme change there too.
+window.addEventListener('storage', (e) => {
+  if (e.key === DARK_MODE_KEY) {
+    applyTheme()
+  }
+})
+// Follow live OS theme changes — a no-op while the user has an override stored,
+// since that override is what `prefersDarkMode` then returns.
+window
+  .matchMedia('(prefers-color-scheme: dark)')
+  .addEventListener('change', applyTheme)
 
 @customElement('wdio-devtools')
 export class WebdriverIODevtoolsApplication extends Element {
@@ -157,9 +151,11 @@ export class WebdriverIODevtoolsApplication extends Element {
     // Mirror actions.ts: elapsed time is the command's offset from the first
     // command, so keyboard selection shows the same duration as a mouse click.
     const baseline = this.#sortedCommands[0]?.timestamp ?? 0
-    const elapsedTime = (command.timestamp ?? baseline) - baseline
+    const elapsedTime = command.timestamp - baseline
     window.dispatchEvent(
-      new CustomEvent('show-command', { detail: { command, elapsedTime } })
+      new CustomEvent<CommandEventProps>('show-command', {
+        detail: { command, elapsedTime }
+      })
     )
   }
 
