@@ -41,7 +41,10 @@ const TEST_ROW = 'wdio-test-entry[entry-type="test"]'
 const SELECTED_ROW = 'wdio-test-entry[selected]'
 const ROW_LABEL = 'wdio-test-entry > label'
 const EMPTY_STATE = 'p.text-disabledForeground'
-const RUN_ALL_BUTTON = 'header button[title="Run all"]'
+// Located by its icon, not its title: the title carries the refusal reason when
+// the runner cannot run everything, so a title selector would stop matching
+// exactly in the specs that need the button most.
+const RUN_ALL_BUTTON = 'header button:has(icon-mdi-play)'
 const STOP_ALL_BUTTON = 'header button[title="Stop"]'
 const EXPAND_ALL_ICON = 'header icon-mdi-expand-all'
 const COLLAPSE_ALL_ICON = 'header icon-mdi-collapse-all'
@@ -55,6 +58,11 @@ const NOT_RUN_ICON = 'icon-mdi-circle-outline'
 
 const CUCUMBER_REASON =
   'Single-test execution is not supported by this framework.'
+
+/** A run-all refusal is its own reason: it is not a suite run, and the runners
+ *  that refuse it (Nightwatch) can run suites perfectly well. */
+const RUN_ALL_REASON =
+  'Running every test at once is not supported by this framework.'
 
 interface RecordedRequest {
   url: string
@@ -712,21 +720,20 @@ describe('wdio-devtools-sidebar-explorer', () => {
       // reach the backend, so the empty list above is this button being disabled
       // rather than a recorder that never saw a request. (`click()` returns early
       // on a disabled form control, so the assertion that really guards the gate
-      // is `run.disabled` — the sibling spec at 'is held back by the attribute
-      // alone' drives the handler directly.)
+      // is `run.disabled` — the sibling spec at 'refuses a run-all that reaches
+      // the handler' drives the handler directly.)
       shadow(explorer, STOP_ALL_BUTTON)?.click()
       await flush()
 
       expect(requests.map((request) => request.url)).toEqual([TESTS_API.stop])
     })
 
-    // SOURCE GAP, reported not fixed: the button is rendered from `canRunAll`,
-    // but `#runAllSuites` guards on `canRunSuites` — which Nightwatch HAS. So
-    // nothing but the disabled attribute keeps a run-everything POST off the
-    // wire, and no capability warning is surfaced. Pinned as it behaves today so
-    // that moving the guard onto `canRunAll` fails here and is updated on
-    // purpose rather than silently.
-    it('is held back by the attribute alone once the handler is entered', async () => {
+    // The disabled attribute is not the gate: a programmatic dispatch, a
+    // keyboard binding or a toolbar refactor all enter the handler without a
+    // real click. `#runAllSuites` used to guard on `canRunSuites` — which
+    // Nightwatch HAS — so the POST went through; it now guards on the same
+    // `canRunAll` the button is rendered from.
+    it('refuses a run-all that reaches the handler without a real click, and says why', async () => {
       const requests = recordBackend()
       const explorer = await mountExplorer(
         mixedStateRun.registry,
@@ -736,6 +743,61 @@ describe('wdio-devtools-sidebar-explorer', () => {
       const logs = await capture<string>(window, 'app-logs', () =>
         shadow(explorer, RUN_ALL_BUTTON)?.dispatchEvent(new MouseEvent('click'))
       )
+
+      expect(logs.map((log) => log.detail)).toEqual([RUN_ALL_REASON])
+      expect(requests).toHaveLength(0)
+    })
+
+    // The second path to the same POST: `#handleTestRun` derives `runAll` from
+    // the uid, so a run event naming the whole tree has to be judged against
+    // `canRunAll` too — its `entryType` alone would pick `canRunSuites`.
+    it('refuses a run-all that arrives as a run event', async () => {
+      const requests = recordBackend()
+      const explorer = await mountExplorer(
+        mixedStateRun.registry,
+        nightwatchMetadata
+      )
+      const detail: TestRunDetail = { uid: '*', entryType: 'suite' }
+
+      const logs = await capture<string>(window, 'app-logs', () =>
+        explorer.dispatchEvent(
+          new CustomEvent<TestRunDetail>('app-test-run', { detail })
+        )
+      )
+
+      expect(logs.map((log) => log.detail)).toEqual([RUN_ALL_REASON])
+      expect(requests).toHaveLength(0)
+    })
+
+    it('explains the refusal in the run control tooltip, and only then', async () => {
+      const refusing = await mountExplorer(
+        mixedStateRun.registry,
+        nightwatchMetadata
+      )
+      const running = await mountExplorer(mixedStateRun.registry, mochaMetadata)
+
+      expect(shadow(refusing, RUN_ALL_BUTTON)?.getAttribute('title')).toBe(
+        RUN_ALL_REASON
+      )
+      expect(shadow(running, RUN_ALL_BUTTON)?.getAttribute('title')).toBe(
+        'Run all'
+      )
+    })
+
+    // Cucumber cannot launch a single test but CAN run everything, so the
+    // refusal keys on `canRunAll` alone — no capability was withdrawn from a
+    // runner that has the whole-tree entry point.
+    it('still runs the whole tree for a runner that cannot run a single test', async () => {
+      const requests = recordBackend()
+      const explorer = await mountExplorer(
+        mixedStateRun.registry,
+        cucumberMetadata
+      )
+
+      const run = shadow<HTMLButtonElement>(explorer, RUN_ALL_BUTTON)
+      expect(run?.disabled).toBe(false)
+
+      const logs = await capture<string>(window, 'app-logs', () => run?.click())
 
       expect(logs).toHaveLength(0)
       expect(requests.map((request) => request.url)).toEqual([TESTS_API.run])

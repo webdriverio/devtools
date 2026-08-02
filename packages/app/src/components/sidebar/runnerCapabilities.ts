@@ -19,6 +19,22 @@ import type {
 } from './types.js'
 import { DEFAULT_CAPABILITIES, FRAMEWORK_CAPABILITIES } from './constants.js'
 
+/** The uid the header control names the whole tree with. `RunnerRequestBody`'s
+ *  `runAll` flag is derived from it, so it is also the signal that a refusal
+ *  has to be judged against `canRunAll` — not against the `canRunSuites` its
+ *  `entryType` would otherwise select. */
+export const RUN_ALL_UID = '*'
+
+const SINGLE_TEST_REFUSAL =
+  'Single-test execution is not supported by this framework.'
+const SUITE_REFUSAL = 'Suite execution is not supported by this framework.'
+const RUN_ALL_REFUSAL =
+  'Running every test at once is not supported by this framework.'
+
+export function isRunAll(detail: Pick<TestRunDetail, 'uid'>): boolean {
+  return detail.uid === RUN_ALL_UID
+}
+
 export function getRunnerOptions(
   metadata: Metadata | undefined
 ): RunnerOptions | undefined {
@@ -61,6 +77,11 @@ export function isRunDisabledDetail(
   detail: TestRunDetail
 ): boolean {
   const caps = getRunCapabilities(metadata)
+  // A run-all is not a suite run: it needs the whole-tree entry point the
+  // header control is rendered from, which several runners don't have.
+  if (isRunAll(detail)) {
+    return !caps.canRunAll
+  }
   if (detail.entryType === 'test' && !caps.canRunTests) {
     return true
   }
@@ -77,15 +98,23 @@ export function getRunDisabledReason(
   if (!isRunDisabled(metadata, entry)) {
     return undefined
   }
-  return entry.type === 'test'
-    ? 'Single-test execution is not supported by this framework.'
-    : 'Suite execution is not supported by this framework.'
+  return entry.type === 'test' ? SINGLE_TEST_REFUSAL : SUITE_REFUSAL
+}
+
+/** Reason the header run-all control is refused, for its tooltip — the only
+ *  surface a real user sees, since the button is disabled and never reaches
+ *  the handler that logs the warning. */
+export function getRunAllDisabledReason(
+  metadata: Metadata | undefined
+): string | undefined {
+  return getRunCapabilities(metadata).canRunAll ? undefined : RUN_ALL_REFUSAL
 }
 
 export function getCapabilityWarning(detail: TestRunDetail): string {
-  return detail.entryType === 'test'
-    ? 'Single-test execution is not supported by this framework.'
-    : 'Suite execution is disabled by this framework.'
+  if (isRunAll(detail)) {
+    return RUN_ALL_REFUSAL
+  }
+  return detail.entryType === 'test' ? SINGLE_TEST_REFUSAL : SUITE_REFUSAL
 }
 
 export function getConfigPath(
