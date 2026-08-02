@@ -1,6 +1,12 @@
 import { Element } from '@core/element'
-import { html, css, nothing, type TemplateResult } from 'lit'
-import { customElement, property } from 'lit/decorators.js'
+import {
+  html,
+  css,
+  nothing,
+  type PropertyValues,
+  type TemplateResult
+} from 'lit'
+import { customElement, state } from 'lit/decorators.js'
 
 import type { CommandLog } from '@wdio/devtools-shared'
 import type { CommandEndpoint } from '@wdio/protocols'
@@ -9,15 +15,59 @@ import { commandCategory } from './actionItems/category.js'
 import { formatDuration } from './actionItems/duration.js'
 
 const SOURCE_COMPONENT = 'wdio-devtools-logs'
+
+// The protocol tables are a large payload the dashboard only needs once a
+// command is selected, so they are imported on demand and memoised here.
+let commandDefinitions: Record<string, CommandEndpoint> | undefined
+let commandDefinitionsLoad: Promise<Record<string, CommandEndpoint>> | undefined
+
+function loadCommandDefinitions(): Promise<Record<string, CommandEndpoint>> {
+  commandDefinitionsLoad ??= import('@wdio/protocols').then((protocols) => {
+    const {
+      WebDriverProtocol,
+      MJsonWProtocol,
+      AppiumProtocol,
+      ChromiumProtocol,
+      SauceLabsProtocol,
+      SeleniumProtocol,
+      GeckoProtocol,
+      WebDriverBidiProtocol
+    } = protocols
+    commandDefinitions = Object.values({
+      ...WebDriverProtocol,
+      ...MJsonWProtocol,
+      ...AppiumProtocol,
+      ...ChromiumProtocol,
+      ...SauceLabsProtocol,
+      ...SeleniumProtocol,
+      ...GeckoProtocol,
+      ...WebDriverBidiProtocol
+    }).reduce(
+      (acc, endpoint) => {
+        for (const cmdDesc of Object.values(endpoint)) {
+          acc[cmdDesc.command] = cmdDesc as CommandEndpoint
+        }
+        return acc
+      },
+      {} as Record<string, CommandEndpoint>
+    )
+    return commandDefinitions
+  })
+  return commandDefinitionsLoad
+}
+
+/** Detail view of one command in the Log tab. Its only input is the window
+ *  `show-command` event, dispatched by the Actions row, the player timeline and
+ *  keyboard command navigation. */
 @customElement(SOURCE_COMPONENT)
 export class DevtoolsCommandLogs extends Element {
+  /** Derived from `command` on every change, so a definition can never outlive
+   *  the command it describes. */
   #commandDefinition?: CommandEndpoint
 
-  @property({ type: Object })
-  command?: CommandLog
+  @state() private command?: CommandLog
 
-  @property({ type: Number })
-  elapsedTime?: number
+  @state() private elapsedTime?: number
 
   static styles = [
     ...Element.styles,
@@ -143,46 +193,54 @@ export class DevtoolsCommandLogs extends Element {
     `
   ]
 
+  /** A stable field rather than a bound method or inline arrow: only the exact
+   *  reference that was added can be removed again. */
+  #onShowCommand = (event: Event): void => {
+    const { command, elapsedTime } = (event as CustomEvent<CommandEventProps>)
+      .detail
+    this.elapsedTime = elapsedTime
+    this.command = command
+
+    // Source line-tracking is dispatched by the Actions handler; here we only
+    // surface the command's detail in the Log tab.
+    this.closest('wdio-devtools-tabs')?.activateTab('Log')
+  }
+
   connectedCallback(): void {
     super.connectedCallback()
-    window.addEventListener('show-command', async (ev: CustomEvent) => {
-      const command = ev.detail.command
-      this.elapsedTime = ev.detail.elapsedTime
+    window.addEventListener('show-command', this.#onShowCommand)
+  }
 
-      const {
-        WebDriverProtocol,
-        MJsonWProtocol,
-        AppiumProtocol,
-        ChromiumProtocol,
-        SauceLabsProtocol,
-        SeleniumProtocol,
-        GeckoProtocol,
-        WebDriverBidiProtocol
-      } = await import('@wdio/protocols')
-      const endpoints = Object.values({
-        ...WebDriverProtocol,
-        ...MJsonWProtocol,
-        ...AppiumProtocol,
-        ...ChromiumProtocol,
-        ...SauceLabsProtocol,
-        ...SeleniumProtocol,
-        ...GeckoProtocol,
-        ...WebDriverBidiProtocol
-      }).reduce(
-        (acc, endpoint) => {
-          for (const cmdDesc of Object.values(endpoint)) {
-            acc[cmdDesc.command] = cmdDesc as CommandEndpoint
-          }
-          return acc
-        },
-        {} as Record<string, CommandEndpoint>
-      )
-      this.#commandDefinition = endpoints[command.command]
-      this.command = command
+  // Lit calls connectedCallback again on every re-connect, so a listener left
+  // behind keeps a discarded panel alive on `window` — it leaks, and it keeps
+  // reacting to selections meant for the panel that replaced it.
+  disconnectedCallback(): void {
+    super.disconnectedCallback()
+    window.removeEventListener('show-command', this.#onShowCommand)
+  }
 
-      // Source line-tracking is dispatched by the Actions handler; here we only
-      // surface the command's detail in the Log tab.
-      this.closest('wdio-devtools-tabs')?.activateTab('Log')
+  // Untyped map: `keyof this` drops private members, so `PropertyValues<this>`
+  // cannot name the internal `command` state this derivation keys on.
+  willUpdate(changed: PropertyValues): void {
+    if (changed.has('command')) {
+      this.#resolveDefinition(this.command)
+    }
+  }
+
+  #resolveDefinition(command?: CommandLog): void {
+    this.#commandDefinition =
+      command && commandDefinitions
+        ? commandDefinitions[command.command]
+        : undefined
+    if (!command || commandDefinitions) {
+      return
+    }
+    void loadCommandDefinitions().then((definitions) => {
+      // Another command may have been selected while the tables loaded.
+      if (this.command === command) {
+        this.#commandDefinition = definitions[command.command]
+        this.requestUpdate()
+      }
     })
   }
 
