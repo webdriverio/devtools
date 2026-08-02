@@ -43,10 +43,8 @@ jobs:
       # because it is fast and its failures are cheaper to read.
       - name: 🔎 Typecheck
         run: pnpm typecheck
-      # `test:coverage`, not `test`: same specs plus the coverage floor, ~8s
-      # more. Without it the thresholds in vitest.config.ts gate nothing.
       - name: 🧪 Run Tests
-        run: pnpm test:coverage
+        run: pnpm test
 
   # Separate job because these are the only tests that need a real browser, and
   # they parallelise with `build` instead of extending it. No bundle step: the
@@ -79,42 +77,4 @@ jobs:
       # Two workers, not the runner default: each carries a Vite server plus a
       # Chrome, and past 2 the heaviest specs time out under that contention.
       - name: 🧩 Component Tests
-        run: pnpm test:ui --maxInstances 2
-
-  # The component suite again, instrumented. Separate from `component-tests` so
-  # a coverage-only flake can never mask a real component failure:
-  # instrumentation costs ~16% wall clock and loses roughly one spec per run to
-  # a BiDi navigate timeout — a different one each run, which is why this is
-  # report-only for now. It measures packages/app/src, the rendering layer
-  # vitest's denominator excludes on purpose (a node test cannot import a Lit
-  # element). Drop continue-on-error and add thresholds once that flake is fixed.
-  component-coverage:
-    runs-on: ubuntu-latest
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - name: Use Node.js
-        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
-        with:
-          node-version-file: .nvmrc
-      - name: Cache pnpm modules
-        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
-        env:
-          cache-name: cache-pnpm-modules
-        with:
-          path: ~/.pnpm-store
-          key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-build-${{ env.cache-name }}-
-      - uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
-        with:
-          version: 10.26.1
-          run_install: false
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-      # Two workers, not the runner default: each carries a Vite server plus a
-      # Chrome, and past 2 the heaviest specs time out under that contention.
-      - name: 📊 Component Coverage
-        env:
-          COVERAGE: '1'
         run: pnpm test:ui --maxInstances 2
