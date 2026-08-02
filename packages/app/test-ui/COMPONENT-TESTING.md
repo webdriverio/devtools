@@ -55,9 +55,13 @@ inside a real browser, first-class Lit support, no fixture or backend involved.
 Mount a component with explicit inputs, assert its shadow DOM.
 
 - Headless by default; `HEADED=1` to watch a component render.
-- `--spec` takes a path relative to the REPO ROOT (not this package) and must be
-  repeated per file — the folder-glob form matches nothing under
-  `@wdio/config@9.28`. `--mochaOpts.grep` runs one case.
+- `--spec` resolves a LITERAL path against the repo root, but matches a GLOB
+  against the runner's `rootDir` (this package). So repeat literal repo-root
+  paths per file, and write globs either rootDir-relative
+  (`test-ui/workbench/player/**/*.test.ts`) or leading-`**` (`**/tabs/*.test.ts`).
+  A repo-root-prefixed glob silently matches nothing:
+  `packages/app/test-ui/.../**/*.test.ts` warns `did not match any file`.
+  `--mochaOpts.grep` runs one case.
 - Deterministic (DOM assertions, not pixels), so it gates CI: the
   `component-tests` job in `.github/workflows/ci.yml` runs the suite at
   `--maxInstances 2`, the ceiling above which the heaviest specs time out.
@@ -219,6 +223,15 @@ specs in node.
    error, active/selected.
 5. Pure logic stays in the node suite. If a spec starts asserting a computation,
    extract the helper instead — that is where the existing 22 tests came from.
+   Two shapes look alike here: deriving an expectation *through* a collaborator
+   helper alongside a literal is fine; asserting the helper on its own, with no
+   component in the assertion, belongs in the node suite. Both banned assertions
+   found in the sweep were sitting inside blocks labelled "derived expectations".
+5a. Never assert a value the fixture itself wrote, and never let a query return
+   the "absent" answer and the "negative" answer as the same value — `text()` of
+   a missing element and of an empty one are both `''`, so an assertion that
+   cannot tell them apart passes when the element disappears. Eight of the
+   vacuous assertions the sweep removed were one of those two shapes.
 6. Shared data builders in `support/builders.ts`; anything used by one folder
    only lives in that folder's `fixtures.ts`.
 7. No DOM-string snapshots. They churn like pixel baselines and hide the intent.
@@ -245,10 +258,10 @@ component's extracted logic — a spec need not re-assert those.
 
 | Tier | Element | Source | LOC | The spec covers | Inherits |
 |---|---|---|---|---|---|
-| 1 | `wdio-devtools-browser` | `browser/snapshot.ts` | 821 | Document-anchor rebuild, incremental mutation replay (attribute/childList/characterData), field-state (`value`/`checked`) application, screenshot fallback when no mutation is in range, URL bar resolution, view-mode switching | `mutation-at-command`, `url-at-timestamp`, `element-overlay` |
+| 1 | `wdio-devtools-browser` | `browser/snapshot.ts` | 821 | Document-anchor rebuild, incremental mutation replay (attribute/childList/characterData), field-state (`value`/`checked`) application, screenshot fallback when no mutation is in range, URL bar resolution, view-mode switching, captured-viewport layout and scale-to-fit (both constraining axes, sizer footprint, viewport fallback) | `mutation-at-command`, `url-at-timestamp`, `element-overlay` (partial — its node spec covers `resolveTestSelector` only, so the accessible-name fallback is covered here) |
 | 1 | `wdio-devtools-trace-timeline` | `browser/trace-timeline.ts` | 421 | Row ordering, duration bars, active-entry highlight, click → selection event | `trace-timeline-utils` |
-| 2 | `wdio-devtools-screencast-player` | `browser/screencast-player.ts` | 343 | Frame selection by time, scrub → progress event, no-frames state | `scrubber` |
-| 2 | `wdio-devtools-trace-player-controls` | `browser/trace-player-controls.ts` | 137 | Play/pause/step state, disabled at bounds, emitted control events | — |
+| 2 | `wdio-devtools-screencast-player` | `browser/screencast-player.ts` | 343 | Action markers pinned by time, press/drag scrub → progress event, no-recording-window state, play/pause, silence while paused. It plays a `<video>` from `/api/video/:sessionId` — there is no frame list and no no-frames state | `scrubber` |
+| 2 | `wdio-devtools-trace-player-controls` | `browser/trace-player-controls.ts` | 137 | Play/pause state, emitted control events, and that the controls stay live at both bounds — nothing here disables; clamping is the timeline's job | — |
 
 ### `test-ui/workbench/actions/` (4)
 
@@ -263,14 +276,14 @@ component's extracted logic — a spec need not re-assert those.
 
 | Tier | Element | Source | LOC | The spec covers | Inherits |
 |---|---|---|---|---|---|
-| 1 | `wdio-devtools-console-logs` | `workbench/console.ts` | 302 | One row per entry, level styling, browser/terminal source split, filter narrowing, empty state | `console-filter` |
-| 1 | `wdio-devtools-network` | `workbench/network.ts` | 228 | One row per request, status/method/type columns, waterfall geometry, row → detail expansion | `network-helpers`, `waterfall` |
+| 1 | `wdio-devtools-console-logs` | `workbench/console.ts` | 302 | One row per entry, level styling, browser/terminal source split, filter narrowing, the elapsed-time cell, empty state | `console-filter` |
+| 1 | `wdio-devtools-network` | `workbench/network.ts` | 228 | One row per request, status/method/type columns, waterfall bar geometry (the offset half is left to the node `waterfall` spec rather than duplicated), row → detail expansion | `network-helpers`, `waterfall` |
 | 2 | `wdio-devtools-errors` | `workbench/errors.ts` | 218 | Grouping and de-duplication, stack rendering, assertion `Expected/Received` block, empty state | `errors-collect` |
 | 2 | `wdio-devtools-a11y` | `workbench/a11y-tree.ts` | 373 | Tree nesting, role/name rendering, node selection, unavailable state (Selenium/Nightwatch traces carry no snapshot) | — |
 | 2 | `wdio-devtools-metadata` | `workbench/metadata.ts` | 323 | Capability/option rows, per-session grouping, missing-field tolerance | — |
-| 2 | `wdio-devtools-source` | `workbench/source.ts` | 383 | Highlighted call-site line, file switching, source-unavailable state | — |
-| 2 | `wdio-devtools-logs` | `workbench/logs.ts` | 288 | Parameter/result rendering per command, long-value truncation, empty state | — |
-| 2 | `wdio-devtools-transcript` | `workbench/transcript.ts` | 139 | Step ordering and formatting, empty state | — |
+| 2 | `wdio-devtools-source` | `workbench/source.ts` | 383 | Highlighted call-site line, file switching, source-unavailable state, and highlight-vs-track (only the active event raises the dock tab) | — |
+| 2 | `wdio-devtools-logs` | `workbench/logs.ts` | 288 | Parameter/result rendering per command, oversized arguments rendered in full (not truncated), empty state. Driven by the `show-command` window event — its `command`/`elapsedTime` properties are unbound public API | `category`, `duration` |
+| 2 | `wdio-devtools-transcript` | `workbench/transcript.ts` | 139 | Step ordering and formatting, the copy-prompt bundle (transcript + Failures section, clipboard write, copied/rejected confirmation), empty state | — |
 | 2 | `wdio-devtools-compare` | `workbench/compare.ts` | 459 | Baseline-vs-current pairing, marker placement, detail blocks, no-baseline state | `compareUtils` |
 
 ### `test-ui/workbench/` + `tabs/` (3)
@@ -279,7 +292,7 @@ component's extracted logic — a spec need not re-assert those.
 |---|---|---|---|---|---|
 | 2 | `wdio-devtools-workbench` | `workbench.ts` | 498 | Panel composition, dock tab switching, player vs live layout, split/resize persistence | — |
 | 2 | `wdio-devtools-tabs` | `tabs.ts` | 261 | Active tab, per-tab count badges, `open-dock-tab` event handling (the programmatic tab switch) | — |
-| 2 | `wdio-devtools-tab` | `tabs.ts` | ↑ | Single tab: label, count badge, active/disabled state, click event | — |
+| 2 | `wdio-devtools-tab` | `tabs.ts` | ↑ | Single tab: panel projection, `active` → visibility, and label/badge carried as data for the bar to render. It has no disabled state and no click handler, and renders nothing of its own | — |
 
 ### `test-ui/sidebar/` (6)
 
@@ -289,7 +302,7 @@ component's extracted logic — a spec need not re-assert those.
 | 1 | `wdio-test-suite` | `sidebar/test-suite.ts` | 449 | Suite grouping, expand/collapse, child entry ordering, selection event | — |
 | 1 | `wdio-test-entry` | `sidebar/test-suite.ts` | ↑ | Per-test row: state icon (passed/failed/running/skipped/pending), title, run/stop/rerun controls, collapse, click event. **No retry marker exists** — an earlier draft of this table claimed one | — (`test-entry-state` has no unit tests; this spec is its only cover) |
 | 2 | `wdio-devtools-sidebar-summary` | `sidebar/summary.ts` | 252 | Pass/fail/running/skipped counts, progress bar proportions, runner capability chips | `suite-summary`, `runnerCapabilities` |
-| 2 | `wdio-devtools-sidebar-filter` | `sidebar/filter.ts` | 111 | Query input → filter event, tag syntax, clear control | — |
+| 2 | `wdio-devtools-sidebar-filter` | `sidebar/filter.ts` | 111 | Query input → filter event, tag/case passthrough, empty query, and the focus shortcut with its teardown. There is no clear control — clearing means emptying the field | `tree-filter` |
 | 3 | `wdio-devtools-sidebar` | `sidebar.ts` | 56 | Composition, and the cross-child wiring it owns: the filter narrows the explorer, a summary status chip narrows it too. No collapse state — the explorer rows collapse, not this element. Spec lives at `test-ui/shell/sidebar.test.ts` | `summary`, `filter`, `explorer` |
 
 ### `test-ui/shell/` (5)
@@ -297,7 +310,7 @@ component's extracted logic — a spec need not re-assert those.
 | Tier | Element | Source | LOC | The spec covers | Inherits |
 |---|---|---|---|---|---|
 | 3 | `wdio-devtools` | `app.ts` | 259 | Player vs live routing, connected/disconnected state, overlay mounting | — |
-| 3 | `wdio-devtools-header` | `header.ts` | 98 | Title, theme toggle, connection indicator | — |
+| 3 | `wdio-devtools-header` | `header.ts` | 98 | Title, theme toggle, stored/OS theme resolution and cross-window sync. There is no connection indicator | `theme` |
 | 3 | `wdio-devtools-shortcuts` | `shortcuts-overlay.ts` | 141 | Open/close, keybinding list rendering | — |
 | 3 | `wdio-devtools-start` | `onboarding/start.ts` | 45 | Onboarding copy: the install command and service snippet, in document order. The element is inert — no CTA, no button, no dispatched event | — |
 
@@ -307,8 +320,8 @@ component's extracted logic — a spec need not re-assert those.
 |---|---|---|---|---|---|
 | 2 | `wdio-devtools-placeholder` | `placeholder.ts` | 118 | Both modes: the loading skeleton it draws with no copy, and the empty state it draws with a heading/description — including the boundary where only one is set. Asserted once here rather than in every parent | — |
 
-**Tier totals:** 10 · 15 · 6 = 31. **Covered: 13** (all of Tier 1, plus
-`group-item`, `placeholder`, `screencast-player` from Tier 2).
+**Tier totals:** 10 · 16 · 5 = 31. **Covered: 31** — every element in this
+table is exercised by a spec.
 
 ### Base classes (3)
 
@@ -422,18 +435,26 @@ bothers you.
 | `ERROR … No environment found for non determined environment` ×4 | Nothing to do with Vite. The runner's middleware looks up a test session by `cid` (query param or `WDIO_CID` cookie) on *every* request; one without either logs this and calls `next()`, handing the request to normal Vite handling. A mislabelled debug line on non-spec requests. |
 | `Failed to resolve dependency: p-iteration` | The one entry in the runner's CJS list that resolves nowhere in this tree. Unreachable, therefore never imported. |
 
-**Phase 1 — Tier 1. Landed and green:** 11 spec files, **292 tests in ~45s**
-(explorer 48, snapshot 37, test-entry 36, network 33, command-item 32,
-trace-timeline 25, console 25, mutation-item 16, actions 15, group-item 14,
-test-suite 11).
+**Landed and green:** 31 spec files, **892 tests in ~1m20s** at
+`--maxInstances 2` (compare 80, explorer 57, snapshot 57, workbench 50, errors 45,
+a11y-tree 43, test-entry 38, metadata 37, network 37, app 36, command-item 33,
+source 30, logs 29, trace-timeline 28, summary 27, tabs 26, header 25, console 25,
+actions 21, trace-player-controls 18, transcript 18, mutation-item 16,
+screencast-player 16, shortcuts-overlay 15, group-item 14, sidebar 14,
+placeholder 13, start 12, tab 11, test-suite 11, filter 10).
 
-Coverage is **13 of 31 elements** — the 10 Tier 1 elements plus three that render
-inside their parents' specs: `group-item` (own spec), `placeholder` (asserted as
-the empty state in actions/network/snapshot) and `screencast-player` (mounted by
-the snapshot view-mode tests). That incidental coverage is the
-parent-mounts-children pattern paying off.
+Coverage is **31 of 31 elements**. `placeholder` and `screencast-player` began as
+incidental cover inside their parents' specs and now have their own — which is
+the lesson rather than a footnote: `placeholder` declared no reactive properties
+at all, so every panel's empty-state copy was inert, and the parent specs that
+"covered" it asserted `textContent` across a shadow boundary, which returns `''`
+whether the copy renders or not. Incidental coverage told us the element mounted,
+not that it worked.
 
-**Phase 2 — Tier 2.** 15 elements across the remaining folders.
+**What is left is depth, not breadth.** Every element has a spec; the open
+question for each is whether its assertions can fail. A sweep of the specs
+written in the first pass found six that asserted broken behaviour as expected
+and eight that could not fail at all — see the two rules added to Conventions.
 
 ## Expansion rule
 
