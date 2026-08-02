@@ -41,9 +41,12 @@ const MESSAGE_LITERALS = [
 ]
 
 /** Elapsed time as the panel measures it: seconds since the *first captured*
- *  log, to one decimal. Written out because `#formatElapsedTime` is private. */
+ *  log, to one decimal, floored at zero for an entry stamped before that log.
+ *  Written out because `#formatElapsedTime` is private. */
 const elapsed = (timestamp: number) =>
-  `${((timestamp - loginConsole.logs[0].timestamp) / 1000).toFixed(1)}s`
+  `${(Math.max(0, timestamp - loginConsole.logs[0].timestamp) / 1000).toFixed(
+    1
+  )}s`
 
 async function mountConsole(logs: ConsoleLog[]): Promise<DevtoolsConsoleLogs> {
   const panel = await mountWithContext<DevtoolsConsoleLogs>(PANEL, [
@@ -183,22 +186,81 @@ describe('wdio-devtools-console-logs', () => {
       expect(texts(panel, TIME)).toEqual(['0.0s', '0.4s', '1.2s', '2.5s'])
     })
 
-    // SOURCE BUG, pinned as it behaves today: `ConsoleLog.timestamp` is
-    // required (`shared/src/types.ts:210`), so 0 is a captured time like any
-    // other, and the panel's own convention for the first captured log is
-    // `0.0s` — asserted above and again below. `console.ts:266` guards the cell
-    // on truthiness instead, so an entry timestamped 0 loses its time. Reading
-    // the cell as an element rather than through `text()` is what separates
-    // "blank cell" from "no cell at all": `text(null)` is `''` too.
-    it('blanks the time cell of an entry captured at timestamp 0', async () => {
+    // `ConsoleLog.timestamp` is required (`shared/src/types.ts:210`), so 0 is a
+    // captured time like any other and the first captured log always reads
+    // `0.0s` — whatever that log's own timestamp is. Reading the cell as an
+    // element rather than through `text()` is what separates "blank cell" from
+    // "no cell at all": `text(null)` is `''` too, so an assertion on text
+    // alone passes for a row that rendered no time element whatsoever.
+    it('times an entry captured at timestamp 0 like any other entry', async () => {
       const panel = await mountConsole([consoleLog({ timestamp: 0 })])
       const nonZero = await mountConsole([consoleLog({ timestamp: RUN_START })])
 
       const cells = shadowAll(panel, TIME)
       expect(cells).toHaveLength(1)
-      expect(text(cells[0])).toBe('')
-      // The same single entry at any other timestamp does get the 0.0s cell.
+      expect(text(cells[0])).toBe('0.0s')
+      // The same single entry at any other timestamp reads the same.
       expect(texts(nonZero, TIME)).toEqual(['0.0s'])
+    })
+
+    it('measures later entries from a first entry captured at timestamp 0', async () => {
+      const panel = await mountConsole([
+        consoleLog({ timestamp: 0 }),
+        consoleLog({ timestamp: 1500 })
+      ])
+
+      expect(shadowAll(panel, TIME)).toHaveLength(2)
+      expect(texts(panel, TIME)).toEqual(['0.0s', '1.5s'])
+    })
+
+    it('gives two entries captured at the same moment the same time', async () => {
+      const panel = await mountConsole([
+        consoleLog({ timestamp: RUN_START }),
+        consoleLog({ timestamp: RUN_START + 400 }),
+        consoleLog({ timestamp: RUN_START + 400 })
+      ])
+
+      expect(texts(panel, TIME)).toEqual(['0.0s', '0.4s', '0.4s'])
+    })
+
+    // Browser and terminal logs are stamped by different clocks, so a later
+    // entry can carry a smaller timestamp than the first captured one. The
+    // column reads seconds into the run, so it floors at the origin instead of
+    // counting backwards — and a sub-100ms skew must not render as `-0.0s`.
+    it('floors an entry stamped before the first captured log at 0.0s', async () => {
+      const panel = await mountConsole([
+        consoleLog({ timestamp: RUN_START }),
+        consoleLog({ timestamp: RUN_START - 40, source: 'terminal' }),
+        consoleLog({ timestamp: RUN_START - 900, source: 'terminal' }),
+        consoleLog({ timestamp: RUN_START + 600 })
+      ])
+
+      expect(texts(panel, TIME)).toEqual(['0.0s', '0.0s', '0.0s', '0.6s'])
+      expect(texts(panel, TIME).filter((cell) => cell.includes('-'))).toEqual(
+        []
+      )
+    })
+
+    // The panel outlives a run: the logs context is replaced when the next one
+    // starts. Elapsed time is measured from whichever logs it currently holds,
+    // so a remembered origin from the previous run can't leak into this one.
+    it('re-bases elapsed time when a new run replaces the captured logs', async () => {
+      const panel = await mountConsole([
+        consoleLog({ timestamp: RUN_START }),
+        consoleLog({ timestamp: RUN_START + 400 })
+      ])
+      expect(texts(panel, TIME)).toEqual(['0.0s', '0.4s'])
+
+      // What @lit/context's consume callback does on a new value; `logs` is not
+      // a reactive property, so the re-render has to be asked for explicitly.
+      panel.logs = [
+        consoleLog({ timestamp: RUN_START + 60_000 }),
+        consoleLog({ timestamp: RUN_START + 61_200 })
+      ]
+      panel.requestUpdate()
+      await settle(panel)
+
+      expect(texts(panel, TIME)).toEqual(['0.0s', '1.2s'])
     })
   })
 

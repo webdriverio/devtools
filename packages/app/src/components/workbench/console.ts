@@ -208,13 +208,15 @@ export class DevtoolsConsoleLogs extends Element {
   @state()
   private activeLevel: ConsoleLevelFilter = 'all'
 
-  #startTime?: number
-
+  // Read from the current logs on every call rather than cached: the context
+  // value is replaced when a new run starts, and a cached origin would elapse
+  // that run's rows from the previous run's first log.
   #formatElapsedTime(timestamp: number): string {
-    if (this.#startTime === undefined) {
-      this.#startTime = this.logs?.[0]?.timestamp ?? timestamp
-    }
-    const elapsed = (timestamp - this.#startTime!) / 1000
+    const origin = this.logs?.[0]?.timestamp ?? timestamp
+    // Browser and terminal logs are stamped by different clocks, so an entry
+    // can predate the first captured one; clamped because a negative elapsed
+    // (and `-0.0s` from sub-100ms skew) describes nothing a reader can use.
+    const elapsed = Math.max(0, timestamp - origin) / 1000
     return `${elapsed.toFixed(1)}s`
   }
 
@@ -258,13 +260,14 @@ export class DevtoolsConsoleLogs extends Element {
   }
 
   #renderLogEntry(log: ConsoleLog) {
-    const icon = LOG_ICONS[log.type] || LOG_ICONS.log
+    // `LOG_ICONS` is keyed by the levels that have an icon of their own, so a
+    // miss here is a real absence — unlike `log.type`/`log.timestamp`, which
+    // `ConsoleLog` requires and which are therefore rendered unguarded.
+    const icon = LOG_ICONS[log.type] ?? LOG_ICONS.log
     const badge = log.source ? CONSOLE_SOURCE_BADGE[log.source] : undefined
     return html`
-      <div class="log-entry log-type-${log.type || 'log'}">
-        <div class="log-time">
-          ${log.timestamp ? this.#formatElapsedTime(log.timestamp) : ''}
-        </div>
+      <div class="log-entry log-type-${log.type}">
+        <div class="log-time">${this.#formatElapsedTime(log.timestamp)}</div>
         <div class="log-icon">${icon}</div>
         ${badge
           ? html`<span class="log-badge ${badge.class}">${badge.label}</span>`
