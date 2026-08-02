@@ -50,8 +50,13 @@ const STEPS = [
 const TRANSCRIPT = STEPS.join('\n')
 
 const FLASH_ASSERTION = 'expect("#flash").toHaveText(…)'
-const FLASH_ERROR =
-  'Expected: "You logged into a secure area!"\nReceived: "Your username is invalid!"'
+/** An expect-webdriverio failure puts each half of its diff on its own line. */
+const FLASH_EXPECTED = 'Expected: "You logged into a secure area!"'
+const FLASH_RECEIVED = 'Received: "Your username is invalid!"'
+const FLASH_ERROR = `${FLASH_EXPECTED}\n${FLASH_RECEIVED}`
+/** How the panel writes that failure: the message's second line is indented by
+ *  the width of the `- ` marker, keeping it inside its list item. */
+const FLASH_FAILURE_ITEM = `- ${FLASH_ASSERTION}: ${FLASH_EXPECTED}\n  ${FLASH_RECEIVED}`
 
 const failingAssertion: CommandLog = commandLog({
   command: 'expect.toHaveText',
@@ -72,6 +77,43 @@ const failingRead: CommandLog = commandLog({
   command: 'getText',
   args: ['#flash'],
   error: { name: 'Error', message: 'element not found' }
+})
+
+/** A runner error carrying terminal colour — node's AssertionError diff is
+ *  colour-coded, and an escape sequence is noise in a prompt. */
+const ANSI_ERROR =
+  '\x1b[31mExpected:\x1b[39m "secure area"\n\x1b[2K\x1b[32mReceived:\x1b[39m "invalid"'
+const ANSI_ERROR_LINES = [
+  'Expected: "secure area"',
+  'Received: "invalid"'
+] as const
+
+const failingColouredAssertion: CommandLog = commandLog({
+  command: 'expect.toHaveText',
+  title: 'expect("#flash").toHaveText(…)',
+  args: ['#flash'],
+  error: { name: 'AssertionError', message: ANSI_ERROR }
+})
+
+/** A stack-shaped message: a blank line separates the summary from the frames,
+ *  so the item spans a paragraph break. */
+const STACK_ERROR = 'element not interactable\n\n    at click (spec.ts:12:3)'
+
+const failingWithStack: CommandLog = commandLog({
+  command: 'click',
+  args: ['button[type=submit]'],
+  error: { name: 'Error', message: STACK_ERROR }
+})
+
+/** A multi-line *label*: the value typed into the field carried a newline, so
+ *  the display title the player built spans two lines. */
+const MULTILINE_TITLE = 'setValue("#comment", "first line\nsecond line")'
+
+const failingMultilineTitle: CommandLog = commandLog({
+  command: 'setValue',
+  title: MULTILINE_TITLE,
+  args: ['#comment', 'first line\nsecond line'],
+  error: { name: 'Error', message: 'element not interactable' }
 })
 
 const passingNavigation: CommandLog = commandLog({
@@ -239,6 +281,17 @@ describe('wdio-devtools-transcript', () => {
       expect(writes).toEqual([TRANSCRIPT])
     })
 
+    // `transcript.md` inlines the runner's own error text, so the colour comes
+    // through the file as well as through a command's error.
+    it('copies a transcript free of the terminal colour it was written with', async () => {
+      const writes = recordClipboard()
+      const coloured = `${TRANSCRIPT}\n- \x1b[31mERROR: element not found\x1b[39m`
+      const panel = await mountTranscript(coloured)
+      await clickCopy(panel)
+
+      expect(writes).toEqual([`${TRANSCRIPT}\n- ERROR: element not found`])
+    })
+
     it('appends a failures section built from the commands that errored', async () => {
       const writes = recordClipboard()
       const panel = await mountTranscript(TRANSCRIPT, [
@@ -248,7 +301,7 @@ describe('wdio-devtools-transcript', () => {
       await clickCopy(panel)
 
       expect(writes).toEqual([
-        `${TRANSCRIPT}\n\n## Failures\n- ${FLASH_ASSERTION}: ${FLASH_ERROR}`
+        `${TRANSCRIPT}\n\n## Failures\n${FLASH_FAILURE_ITEM}`
       ])
     })
 
@@ -275,12 +328,10 @@ describe('wdio-devtools-transcript', () => {
       ])
     })
 
-    // SOURCE BUG, pinned as it behaves today: `transcript.ts`'s `#buildPrompt`
-    // (:94-98) inlines the raw error message and joins the rows with '\n', so
-    // the tail of a multi-line error lands outside the markdown list the prompt
-    // is built as — an LLM reads an unattributed `Received:` line. Indenting or
-    // escaping the continuation flips both assertions below.
-    it('spills the tail of a multi-line error out of the failures list', async () => {
+    // The whole array is asserted, not `[0]`/`[1]`: indexing plus `toContain`
+    // is what let an unattributed `Received:` line at the top level of the
+    // document go unnoticed.
+    it('keeps the tail of a multi-line error inside its own failure bullet', async () => {
       const writes = recordClipboard()
       const panel = await mountTranscript(TRANSCRIPT, [
         failingClick,
@@ -288,16 +339,60 @@ describe('wdio-devtools-transcript', () => {
       ])
       await clickCopy(panel)
 
-      const [expectedLine, receivedLine] = FLASH_ERROR.split('\n')
       const failures = failureLines(writes[0])
       expect(failures).toEqual([
         '- click: element not interactable',
-        `- ${FLASH_ASSERTION}: ${expectedLine}`,
-        receivedLine
+        `- ${FLASH_ASSERTION}: ${FLASH_EXPECTED}`,
+        `  ${FLASH_RECEIVED}`
       ])
-      // Two commands failed, so a well-formed list is two bullets on two lines.
+      // Two commands failed, so the list carries exactly two bullets, and every
+      // other line is indented under the one above it — nothing escapes.
       expect(failures.filter((line) => line.startsWith('- '))).toHaveLength(2)
-      expect(failures).toHaveLength(3)
+      expect(
+        failures.filter((line) => !line.startsWith('- ') && line !== '')
+      ).toEqual([`  ${FLASH_RECEIVED}`])
+    })
+
+    it('strips terminal colour codes out of a failure message', async () => {
+      const writes = recordClipboard()
+      const panel = await mountTranscript(TRANSCRIPT, [
+        failingColouredAssertion
+      ])
+      await clickCopy(panel)
+
+      expect(failureLines(writes[0])).toEqual([
+        `- ${FLASH_ASSERTION}: ${ANSI_ERROR_LINES[0]}`,
+        `  ${ANSI_ERROR_LINES[1]}`
+      ])
+      expect(writes[0]).not.toContain('\x1b')
+    })
+
+    it('keeps a blank line inside the bullet blank rather than indenting it', async () => {
+      const writes = recordClipboard()
+      const panel = await mountTranscript(TRANSCRIPT, [failingWithStack])
+      await clickCopy(panel)
+
+      expect(failureLines(writes[0])).toEqual([
+        '- click: element not interactable',
+        '',
+        '      at click (spec.ts:12:3)'
+      ])
+    })
+
+    it('indents a failure whose own label spans two lines', async () => {
+      const writes = recordClipboard()
+      const panel = await mountTranscript(TRANSCRIPT, [
+        failingMultilineTitle,
+        failingRead
+      ])
+      await clickCopy(panel)
+
+      const [labelHead, labelTail] = MULTILINE_TITLE.split('\n')
+      expect(failureLines(writes[0])).toEqual([
+        `- ${labelHead}`,
+        `  ${labelTail}: element not interactable`,
+        '- getText: element not found'
+      ])
     })
 
     it('confirms the copy on the control itself', async () => {
