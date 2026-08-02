@@ -50,7 +50,18 @@ describe('mutationForCommand', () => {
     ).toEqual(mut(100))
   })
 
-  it('returns undefined without a command timestamp or mutations', () => {
+  it('resolves the window of a command captured at timestamp 0', () => {
+    // `CommandLog.timestamp` is required and 0 is reachable — the first command
+    // of a normalized or standalone trace. Read for truthiness it bails out and
+    // the snapshot player is handed no DOM at all for that command.
+    const first = cmd(0, 0)
+    const second = cmd(300, 250)
+    expect(mutationForCommand(first, [first, second], mutations)).toBe(
+      mutations[2]
+    )
+  })
+
+  it('returns undefined without a command or without mutations', () => {
     expect(mutationForCommand(undefined, [], mutations)).toBeUndefined()
     expect(mutationForCommand(cmd(100), [], [])).toBeUndefined()
   })

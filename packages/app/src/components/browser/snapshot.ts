@@ -52,6 +52,44 @@ const textChildren = (el: Node) =>
     (node): node is Text => node.nodeType === Node.TEXT_NODE
   )
 
+/** HTML boolean content attributes: presence alone is the state, so a captured
+ *  "false" has to REMOVE one — written verbatim, `checked="false"` reads as
+ *  checked. Curated rather than probed off the element, because a probe both
+ *  misses and misfires: `readonly` has no same-named property (it is `readOnly`),
+ *  while `draggable`, `spellcheck` and `translate` do carry boolean properties
+ *  yet their attributes are enumerated, where "false" is a meaningful value. */
+const BOOLEAN_ATTRIBUTES = new Set([
+  'allowfullscreen',
+  'autofocus',
+  'autoplay',
+  'checked',
+  'controls',
+  'default',
+  'disabled',
+  'formnovalidate',
+  'inert',
+  'ismap',
+  'itemscope',
+  'loop',
+  'multiple',
+  'muted',
+  'novalidate',
+  'open',
+  'playsinline',
+  'readonly',
+  'required',
+  'reversed',
+  'selected'
+])
+
+/** State a captured boolean attribute carries. The collector emits form-field
+ *  state as `String(el.checked)` and every other record as the attribute's own
+ *  value, so only a literal "false" — and a record carrying no value, which
+ *  leaves no attribute state to set — means off: an empty value is a present
+ *  attribute (`<input disabled>` reaches the wire as `''`). */
+const booleanAttributeOn = (value?: string) =>
+  value !== undefined && value.toLowerCase() !== 'false'
+
 declare global {
   interface WindowEventMap {
     'screencast-ready': CustomEvent<{
@@ -451,7 +489,8 @@ export class DevtoolsBrowser extends Element {
   }
 
   #handleAttributeMutation(mutation: TraceMutation) {
-    if (!mutation.attributeName) {
+    const name = mutation.attributeName
+    if (!name) {
       return
     }
 
@@ -460,15 +499,35 @@ export class DevtoolsBrowser extends Element {
       return
     }
 
+    if (BOOLEAN_ATTRIBUTES.has(name.toLowerCase())) {
+      this.#applyBooleanAttribute(
+        el,
+        name,
+        booleanAttributeOn(mutation.attributeValue)
+      )
+      return
+    }
+
     const value = mutation.attributeValue ?? ''
-    el.setAttribute(mutation.attributeName, value)
+    el.setAttribute(name, value)
     // Form-field state lives on the PROPERTY, not just the attribute — mirror it
-    // so a replayed input shows the captured value / checked state, including a
-    // field cleared back to empty.
-    if (mutation.attributeName === 'value' && 'value' in el) {
+    // so a replayed input shows the captured value, including a field cleared
+    // back to empty.
+    if (name === 'value' && 'value' in el) {
       ;(el as HTMLInputElement).value = value
-    } else if (mutation.attributeName === 'checked' && 'checked' in el) {
-      ;(el as HTMLInputElement).checked = value === 'true'
+    }
+  }
+
+  /** Presence IS the state of a boolean attribute, so the captured state is
+   *  toggled rather than written — the markup a re-serialization reads then says
+   *  what the replayed page shows. `checked` is mirrored onto the property as
+   *  well because checkedness stops tracking the attribute once anything sets it
+   *  (the captured page's fields arrive as preact property writes); every other
+   *  boolean attribute reflects its property, so the toggle moves both. */
+  #applyBooleanAttribute(el: HTMLElement, name: string, on: boolean) {
+    el.toggleAttribute(name, on)
+    if (name === 'checked' && 'checked' in el) {
+      ;(el as HTMLInputElement).checked = on
     }
   }
 

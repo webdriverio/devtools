@@ -13,6 +13,7 @@ import {
 import { mutationForCommand } from '@components/browser/mutation-at-command.js'
 import '@components/browser/snapshot.js'
 
+import { commandLog, mutation } from '../../support/builders.js'
 import { mountWithContext, settle } from '../../support/mount.js'
 import { shadow, shadowAll, text, texts } from '../../support/queries.js'
 import {
@@ -181,6 +182,19 @@ function input(doc: Document, selector: string): HTMLInputElement {
   return el
 }
 
+/** The element as a re-parse of its own markup yields it — what an export, a
+ *  copy-as-HTML or any other re-serialization of the replayed page reads, and the
+ *  only reader that tells a boolean attribute's PRESENCE from its value. */
+function reparse(el: HTMLElement, selector: string): HTMLInputElement {
+  const parsed = new DOMParser()
+    .parseFromString(el.outerHTML, 'text/html')
+    .querySelector<HTMLInputElement>(selector)
+  if (!parsed) {
+    throw new Error(`No ${selector} in the re-parsed markup`)
+  }
+  return parsed
+}
+
 const boxesIn = (el: Browser, selector: string) =>
   Array.from(replayDoc(el)?.querySelectorAll<HTMLElement>(selector) ?? [])
 
@@ -296,23 +310,16 @@ describe('wdio-devtools-browser', () => {
       )
 
       const remember = input(doc, '#remember')
-      // The property mirror is the half that is right, and the half the replayed
-      // page is drawn from.
+      // The rendered field...
       expect(remember.checked).toBe(false)
-      // SOURCE BUG, pinned as-is (snapshot.ts:464 `setAttribute` runs for every
-      // attribute mutation, before the property mirror on :470). `checked` is a
-      // BOOLEAN content attribute — its presence means checked whatever the value
-      // — so the replayed markup says TICKED while the property says otherwise.
-      // On screen the property wins, so replay is unaffected; anything that
-      // re-serializes the page (export, copy-as-HTML, outerHTML round-trip) reads
-      // the lie. Asserted through a real re-parse rather than the attribute's
-      // spelling, so a fix flips a visible assertion instead of sneaking past:
-      // the correct value is `null`, and `reticked` then becomes false.
-      const reticked = new DOMParser()
-        .parseFromString(remember.outerHTML, 'text/html')
-        .querySelector<HTMLInputElement>('#remember')!
-      expect(remember.getAttribute('checked')).toBe('false')
-      expect(reticked.checked).toBe(true)
+      // ...and its markup agree. `checked` is a BOOLEAN content attribute — its
+      // presence means checked whatever the value — so a captured "false" has to
+      // remove it; written verbatim, the markup reads as TICKED while the
+      // property says otherwise, and everything that re-serializes the page
+      // (export, copy-as-HTML, outerHTML round-trip) carries the lie. Asserted
+      // through a real re-parse rather than the attribute's spelling.
+      expect(remember.getAttribute('checked')).toBeNull()
+      expect(reparse(remember, '#remember').checked).toBe(false)
     })
 
     it('moves the radio selection to the option the test picked', async () => {
@@ -344,6 +351,72 @@ describe('wdio-devtools-browser', () => {
       )
 
       expect(input(doc, '#username').value).toBe(TYPED_USERNAME)
+    })
+  })
+
+  /**
+   * `checked` is the boolean attribute the collector actually emits state for
+   * (`String(el.checked)` on every input/change), but nothing about the replay is
+   * checkbox-specific — every boolean attribute reaches the same code, so these
+   * cases drive the general shape through `disabled` and `readonly` on a text
+   * field and through a cleared `checked` on the captured radio.
+   */
+  describe('boolean attributes', () => {
+    /**
+     * Replays one boolean-attribute mutation on the login page. The typed
+     * username rides along as the signal that the window landed — the attribute
+     * under test cannot be that signal, since it is what the assertions read.
+     */
+    async function replayAttribute(
+      target: string,
+      attributeName: string,
+      attributeValue?: string
+    ): Promise<Document> {
+      const entry = mutation({ target, attributeName, attributeValue })
+      const el = await mountBrowser({
+        commands: loginTrace.commands,
+        mutations: [loginTrace.loginDocument, loginTrace.usernameTyped, entry]
+      })
+      await replayedPage(el)
+      const doc = await replayAfter(el, () => selectMutation(entry))
+      await waitUntil(
+        () => input(doc, '#username').value === TYPED_USERNAME,
+        'the replay window to be applied'
+      )
+      return doc
+    }
+
+    it('drops a boolean attribute the capture recorded as false', async () => {
+      const doc = await replayAttribute(REF.username, 'disabled', 'false')
+
+      // Written verbatim, `disabled="false"` DISABLES the field — the state the
+      // capture says the page was not in.
+      const username = input(doc, '#username')
+      expect(username.getAttribute('disabled')).toBeNull()
+      expect(username.disabled).toBe(false)
+      expect(reparse(username, '#username').disabled).toBe(false)
+    })
+
+    it('removes a boolean attribute a mutation carries no value for', async () => {
+      // The captured radio has `checked="checked"`, so the removal is observable:
+      // a cleared attribute written as an empty one stays present and keeps
+      // reading as checked.
+      const doc = await replayAttribute(REF.planGuest, 'checked')
+
+      const guest = input(doc, '#plan-guest')
+      expect(guest.getAttribute('checked')).toBeNull()
+      expect(guest.checked).toBe(false)
+      expect(reparse(guest, '#plan-guest').checked).toBe(false)
+    })
+
+    it('keeps a boolean attribute the capture carries with an empty value', async () => {
+      // `<input readonly>` reaches the wire as an empty value, so empty is the
+      // PRESENT state — reading the string for truthiness would drop it.
+      const doc = await replayAttribute(REF.username, 'readonly', '')
+
+      const username = input(doc, '#username')
+      expect(username.readOnly).toBe(true)
+      expect(reparse(username, '#username').readOnly).toBe(true)
     })
   })
 
@@ -397,6 +470,31 @@ describe('wdio-devtools-browser', () => {
       )
 
       expect(doc.querySelector('form#login')).toBeTruthy()
+    })
+
+    it('replays the DOM window of a command captured at timestamp 0', async () => {
+      // `CommandLog.timestamp` is required and 0 is reachable — the first command
+      // of a normalized or standalone trace. Resolved for truthiness the player
+      // is handed no window at all and keeps whatever page it already showed.
+      const first = commandLog({
+        command: 'url',
+        args: [LOGIN_URL],
+        startTime: 0,
+        timestamp: 0
+      })
+      const el = await mountBrowser({
+        commands: [first, loginTrace.readFlash],
+        mutations: loginTrace.mutations
+      })
+      await replayedPage(el)
+
+      const doc = await replayAfter(el, () => selectCommand(first))
+
+      // `readFlash` starts after the secure-page anchor, so that anchor is where
+      // this command's window ends — the login form the initial replay showed is
+      // gone, which no stale page could produce.
+      expect(doc.querySelector('#flash')).toBeTruthy()
+      expect(doc.querySelector('form#login')).toBeNull()
     })
 
     it('replays a text change recorded as a character-data mutation', async () => {
