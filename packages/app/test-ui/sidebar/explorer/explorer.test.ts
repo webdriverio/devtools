@@ -17,7 +17,9 @@ import type { ContextValue } from '../../support/mount.js'
 import { shadow, shadowAll, text, texts } from '../../support/queries.js'
 import {
   cucumberMetadata,
+  FEATURE_FILE,
   FINISHED_AT,
+  gherkinRun,
   mixedStateRun,
   mochaMetadata,
   mochaRunnerOptions,
@@ -379,6 +381,67 @@ describe('wdio-devtools-sidebar-explorer', () => {
     })
   })
 
+  // `sidebar/fixtures.ts`'s `rowProps` re-implements this projection for the row
+  // specs, so only an explorer-rendered row can catch a regression in it. Read
+  // back as PROPERTIES rather than attributes: the explorer writes the attribute
+  // names (`full-title`, `call-source`, `feature-line`, …) and the row declares
+  // which property each converts into, so a rename on either side lands here.
+  describe('row projection', () => {
+    it('hands a test row every identity field of its fragment', async () => {
+      const explorer = await mountExplorer(mixedStateRun.registry)
+
+      const row = rowByUid(explorer, mixedStateRun.failing.uid)
+      expect(row.entryType).toBe('test')
+      expect(row.labelText).toBe(mixedStateRun.failing.title)
+      expect(row.fullTitle).toBe(mixedStateRun.failing.fullTitle)
+      expect(row.callSource).toBe(mixedStateRun.failing.callSource)
+      expect(row.specFile).toBe(SPEC_FILE)
+    })
+
+    it('hands a suite row its own type and children flag', async () => {
+      const explorer = await mountExplorer(mixedStateRun.registry)
+
+      const row = rowByUid(explorer, mixedStateRun.suite.uid)
+      expect(row.entryType).toBe('suite')
+      expect(row.suiteType).toBe('suite')
+      expect(row.hasChildren).toBe(true)
+      expect(row.fullTitle).toBe(mixedStateRun.suite.title)
+    })
+
+    it('carries the feature coordinates of a Gherkin scenario onto its rows', async () => {
+      const explorer = await mountExplorer(suiteRegistry(gherkinRun.scenario))
+
+      const scenario = rowByUid(explorer, gherkinRun.scenario.uid)
+      expect(scenario.suiteType).toBe('scenario')
+      expect(scenario.featureFile).toBe(FEATURE_FILE)
+      expect(scenario.featureLine).toBe(gherkinRun.scenario.featureLine)
+
+      const step = rowByUid(explorer, gherkinRun.failingStep.uid)
+      expect(step.featureFile).toBe(FEATURE_FILE)
+      expect(step.featureLine).toBe(gherkinRun.failingStep.featureLine)
+    })
+
+    it('forwards the coordinates it projected in the run request', async () => {
+      // The whole path in one go: the explorer writes the attributes, the row
+      // reads them back into its run detail, and the explorer posts that detail.
+      const requests = recordBackend()
+      const explorer = await mountExplorer(
+        suiteRegistry(gherkinRun.scenario),
+        mochaMetadata
+      )
+
+      shadow(rowByUid(explorer, gherkinRun.scenario.uid), RUN_BUTTON)?.click()
+
+      expect(requests).toHaveLength(1)
+      expect(requests[0]?.body.specFile).toBe(FEATURE_FILE)
+      expect(requests[0]?.body.featureFile).toBe(FEATURE_FILE)
+      expect(requests[0]?.body.featureLine).toBe(
+        gherkinRun.scenario.featureLine
+      )
+      expect(requests[0]?.body.suiteType).toBe('scenario')
+    })
+  })
+
   describe('filtering', () => {
     it('narrows the tree to the tests matching the filter query', async () => {
       const explorer = await mountExplorer(mixedStateRun.registry)
@@ -631,17 +694,52 @@ describe('wdio-devtools-sidebar-explorer', () => {
       expect(requests.map((request) => request.url)).toEqual([TESTS_API.stop])
     })
 
-    it('sends nothing while the run control is disabled', async () => {
+    it('sends nothing when the disabled run control is clicked', async () => {
+      const requests = recordBackend()
+      const explorer = await mountExplorer(
+        mixedStateRun.registry,
+        nightwatchMetadata
+      )
+      const run = shadow<HTMLButtonElement>(explorer, RUN_ALL_BUTTON)
+      expect(run?.disabled).toBe(true)
+
+      const logs = await capture<string>(window, 'app-logs', () => run?.click())
+
+      expect(requests).toHaveLength(0)
+      expect(logs).toHaveLength(0)
+
+      // Positive control in the same mount: the neighbouring stop control does
+      // reach the backend, so the empty list above is this button being disabled
+      // rather than a recorder that never saw a request. (`click()` returns early
+      // on a disabled form control, so the assertion that really guards the gate
+      // is `run.disabled` — the sibling spec at 'is held back by the attribute
+      // alone' drives the handler directly.)
+      shadow(explorer, STOP_ALL_BUTTON)?.click()
+      await flush()
+
+      expect(requests.map((request) => request.url)).toEqual([TESTS_API.stop])
+    })
+
+    // SOURCE GAP, reported not fixed: the button is rendered from `canRunAll`,
+    // but `#runAllSuites` guards on `canRunSuites` — which Nightwatch HAS. So
+    // nothing but the disabled attribute keeps a run-everything POST off the
+    // wire, and no capability warning is surfaced. Pinned as it behaves today so
+    // that moving the guard onto `canRunAll` fails here and is updated on
+    // purpose rather than silently.
+    it('is held back by the attribute alone once the handler is entered', async () => {
       const requests = recordBackend()
       const explorer = await mountExplorer(
         mixedStateRun.registry,
         nightwatchMetadata
       )
 
-      shadow(explorer, RUN_ALL_BUTTON)?.click()
-      await flush()
+      const logs = await capture<string>(window, 'app-logs', () =>
+        shadow(explorer, RUN_ALL_BUTTON)?.dispatchEvent(new MouseEvent('click'))
+      )
 
-      expect(requests).toHaveLength(0)
+      expect(logs).toHaveLength(0)
+      expect(requests.map((request) => request.url)).toEqual([TESTS_API.run])
+      expect(requests[0]?.body).toMatchObject({ uid: '*', runAll: true })
     })
 
     it('offers to collapse a freshly rendered tree, which shows its children', async () => {

@@ -120,9 +120,11 @@ describe('wdio-devtools-start', () => {
     it('nests the heading and the snippets legally, so none is re-parented', async () => {
       const start = await mountStart()
 
-      // A `<p>` takes phrasing content only. `<h3>`/`<pre>` inside one closes it
-      // and leaves both as siblings of the column — the shapes asserted against.
-      expect(shadowAll(start, 'p h3, p pre')).toHaveLength(0)
+      // A `<p>` takes phrasing content only, and Lit builds its templates through
+      // `<template>.innerHTML` — so an `<h3>`/`<pre>` written inside a `<p>` is
+      // CLOSED out of it by the parser and re-parented upwards. `p h3, p pre` can
+      // therefore never match and is no guard at all; where the parser would put
+      // the orphans is, so that is what is asserted.
       expect(
         shadowAll(start, `${COPY_COLUMN} > h3, ${COPY_COLUMN} > pre`)
       ).toHaveLength(0)

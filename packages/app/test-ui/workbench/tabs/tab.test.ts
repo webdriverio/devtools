@@ -51,7 +51,16 @@ describe('wdio-devtools-tab', () => {
     })
 
     it('hides its panel again when the bar moves on', async () => {
-      const el = await mount<DevtoolsTab>(TAG, { active: '' })
+      // Opened the way the bar opens it — `setAttribute`, since visibility comes
+      // from `:host([active])` and the element declares no `active` property, so
+      // a mount-time `{ active: '' }` would only set an expando and leave the
+      // panel hidden before the removal under test.
+      const el = await mount<DevtoolsTab>(TAG, {
+        innerHTML: '<p>Console panel</p>'
+      })
+      el.setAttribute('active', '')
+      await settle(el)
+      expect(display(el)).toBe('flex')
 
       el.removeAttribute('active')
       await settle(el)
@@ -108,14 +117,18 @@ describe('wdio-devtools-tab', () => {
 
     it('keeps its label as data for the bar rather than rendering it', async () => {
       const el = await mount<DevtoolsTab>(TAG, {
-        innerHTML: '<p>Console panel</p>'
+        innerHTML: '<p id="panel">Console panel</p>'
       })
 
       el.setAttribute('label', 'Console')
       await settle(el)
 
-      expect(el.getAttribute('label')).toBe('Console')
-      expect(el.shadowRoot?.textContent).not.toContain('Console')
+      // The bar draws the label (see tabs.test.ts); a tab that drew it too would
+      // print it twice. So the label must change nothing about what this element
+      // renders — still the bare slot — while the panel keeps being projected.
+      expect(shadowAll(el, '*').map((child) => child.tagName)).toEqual(['SLOT'])
+      expect(el.shadowRoot?.textContent?.trim()).toBe('')
+      expect(slotted(el).map((child) => child.id)).toEqual(['panel'])
     })
   })
 })

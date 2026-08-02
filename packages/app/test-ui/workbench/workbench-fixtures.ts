@@ -216,6 +216,9 @@ export function networkRequests(): NetworkRequest[] {
   ]
 }
 
+/** No `as TestStatsFragment`: the annotation alone is what makes TypeScript
+ *  reject a misspelt or dropped field on this hand-built wire shape, and a cast
+ *  would switch that check off (see `shell/fixtures.ts` for the same pattern). */
 function failingTest(uid: string): TestStatsFragment {
   return {
     uid,
@@ -227,7 +230,21 @@ function failingTest(uid: string): TestStatsFragment {
       name: 'AssertionError',
       message: `Expected: "${EXPECTED_FLASH}"\nReceived: "${BASELINE_FLASH}"`
     }
-  } as TestStatsFragment
+  }
+}
+
+function failingSuite(uid: string): SuiteStatsFragment {
+  return {
+    uid: 'login-suite',
+    title: 'login page',
+    fullTitle: 'login page',
+    file: '/specs/login.e2e.ts',
+    state: 'failed',
+    start: new Date(RUN_START),
+    end: new Date(RUN_START + 1500),
+    tests: [failingTest(uid)],
+    suites: []
+  }
 }
 
 /** One root suite holding the failed test — the second source the Errors tab
@@ -235,21 +252,7 @@ function failingTest(uid: string): TestStatsFragment {
 export function failingSuites(
   uid = SELECTED_TEST_UID
 ): Record<string, SuiteStatsFragment>[] {
-  return [
-    {
-      'login-suite': {
-        uid: 'login-suite',
-        title: 'login page',
-        fullTitle: 'login page',
-        file: '/specs/login.e2e.ts',
-        state: 'failed',
-        start: new Date(RUN_START),
-        end: new Date(RUN_START + 1500),
-        tests: [failingTest(uid)],
-        suites: []
-      } as SuiteStatsFragment
-    }
-  ]
+  return [{ 'login-suite': failingSuite(uid) }]
 }
 
 export interface WorkbenchContexts {
@@ -278,21 +281,74 @@ export interface WorkbenchHarness {
   settleTabs(): Promise<void>
 }
 
+export const DOCK_CACHE_ID = 'activeWorkbenchTab'
+export const SIDEBAR_CACHE_ID = 'activeActionsTab'
+
+/** `DragController` storage keys for the two splits a live workbench renders. */
+export const SPLIT_HEIGHT_KEY = 'toolbarHeight'
+export const SIDEBAR_WIDTH_KEY = 'workbenchSidebarWidth'
+
 /** Keys the workbench, its bars and its drag handles persist. Cleared between
  *  tests so specs can't leak layout state into each other. */
 const PERSISTED_KEYS = [
   'toolbar',
   'workbenchSidebar',
-  'activeWorkbenchTab',
-  'activeActionsTab',
-  'toolbarHeight',
-  'workbenchSidebarWidth',
+  DOCK_CACHE_ID,
+  SIDEBAR_CACHE_ID,
+  SPLIT_HEIGHT_KEY,
+  SIDEBAR_WIDTH_KEY,
   'traceTimelineHeight',
   'playerPaneHeight'
 ]
 
-export const DOCK_CACHE_ID = 'activeWorkbenchTab'
-export const SIDEBAR_CACHE_ID = 'activeActionsTab'
+/** Height the vertical split gives the browser pane, off the inline style the
+ *  workbench computes from the drag position. */
+export function browserPaneHeight(workbench: DevtoolsWorkbench): number {
+  const pane = workbench.shadowRoot?.querySelector<HTMLElement>(
+    'section:has(> wdio-devtools-browser)'
+  )
+  const basis = pane?.getAttribute('style')?.match(/flex:\s*0 0 ([\d.]+)px/)
+  if (!basis) {
+    throw new Error('the workbench rendered no sized browser pane')
+  }
+  return parseFloat(basis[1])
+}
+
+/**
+ * Drag the live split's handle by `delta` pixels, as a real pointer would.
+ *
+ * The events carry no `pointerId`, which puts `PointerTracker` on its
+ * no-PointerEvent (mouse) path — the one that needs no `setPointerCapture`, a
+ * call that throws for a pointer id the browser never issued. That path listens
+ * for the move and the release on `window`, so they must be `composed` to leave
+ * the workbench's shadow root at all. `pageY` is derived from `clientY`, so the
+ * offsets go in as client coordinates.
+ */
+export async function dragLiveSplit(
+  workbench: DevtoolsWorkbench,
+  delta: number
+): Promise<void> {
+  const handle = workbench.shadowRoot?.querySelector<HTMLElement>(
+    'button[data-draggable-id].cursor-row-resize'
+  )
+  if (!handle) {
+    throw new Error('the workbench rendered no vertical resize handle')
+  }
+  const from = Math.round(handle.getBoundingClientRect().top)
+  const at = (type: string, clientY: number, buttons: number) =>
+    new MouseEvent(type, {
+      bubbles: true,
+      composed: true,
+      buttons,
+      clientX: 0,
+      clientY
+    })
+
+  handle.dispatchEvent(at('pointerdown', from, 1))
+  handle.dispatchEvent(at('mousemove', from + delta, 1))
+  handle.dispatchEvent(at('mouseup', from + delta, 0))
+  await workbench.updateComplete
+}
 
 /** Mocha's root hook — declared locally, as in `support/mount.ts`. */
 declare const afterEach: (teardown: () => void) => void

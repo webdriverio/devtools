@@ -141,11 +141,22 @@ describe('wdio-devtools-sidebar-filter', () => {
     it('stops answering the shortcut once it leaves the page', async () => {
       const el = await mount<DevtoolsSidebarFilter>(TAG)
       const input = field(el)
-      el.remove()
+      // Counted rather than read off `shadowRoot.activeElement`: `focus()` cannot
+      // move that on a DETACHED host, so the removal would look successful even
+      // with the listener still attached.
+      let focused = 0
+      input.focus = () => {
+        focused += 1
+      }
 
+      // Positive control: while it is on the page the shortcut does reach here.
+      window.dispatchEvent(new CustomEvent(KBD.focusFilter))
+      expect(focused).toBe(1)
+
+      el.remove()
       window.dispatchEvent(new CustomEvent(KBD.focusFilter))
 
-      expect(el.shadowRoot?.activeElement).not.toBe(input)
+      expect(focused).toBe(1)
     })
   })
 })

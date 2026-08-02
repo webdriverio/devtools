@@ -15,10 +15,14 @@ import {
   OTHER_TEST_UID,
   SELECTED_TEST_UID,
   SIDEBAR_CACHE_ID,
+  SIDEBAR_WIDTH_KEY,
+  SPLIT_HEIGHT_KEY,
   UNPRESERVED_TEST_UID,
   baselineMap,
+  browserPaneHeight,
   consoleLogs,
   dockTabs,
+  dragLiveSplit,
   erroringCommand,
   failingSuites,
   liveCommands,
@@ -91,12 +95,12 @@ async function clickInWorkbench(
   await harness.settleTabs()
 }
 
-const badgeFor = (bar: DevtoolsTabs, label: string): string | null => {
-  const found = shadowAll(bar, TAB_BUTTON).find((candidate) =>
-    text(candidate).startsWith(label)
-  )
-  return found ? (shadow(found, BADGE)?.textContent ?? null) : null
-}
+/** The count on a tab, or `null` for a tab that carries none. Resolved through
+ *  `button()`, which THROWS for a label the dock never rendered — otherwise a
+ *  dock that rendered no button at all would read as "present but unbadged" and
+ *  the unbadged assertions below would hold for a missing tab. */
+const badgeFor = (bar: DevtoolsTabs, label: string): string | null =>
+  shadow(button(bar, label), BADGE)?.textContent ?? null
 
 const openTab = (label?: string) =>
   window.dispatchEvent(new CustomEvent('open-dock-tab', { detail: { label } }))
@@ -185,6 +189,9 @@ describe('wdio-devtools-workbench', () => {
     it('leaves the counted tabs unbadged until something is captured', async () => {
       const { dock } = await mountWorkbench()
 
+      // The button count first: "no badges" is only news about badges once the
+      // buttons that would carry them are on screen.
+      expect(shadowAll(dock, TAB_BUTTON)).toHaveLength(LIVE_DOCK.length)
       expect(shadowAll(dock, BADGE)).toHaveLength(0)
     })
   })
@@ -321,6 +328,8 @@ describe('wdio-devtools-workbench', () => {
     it('leaves the Errors tab unbadged for a clean run', async () => {
       const { dock } = await mountWorkbench({ commands: liveCommands })
 
+      // Still offered, just uncounted — `badgeFor` throws if the button is gone.
+      expect(tabLabels(dock)).toContain('Errors')
       expect(badgeFor(dock, 'Errors')).toBe(null)
     })
   })
@@ -387,6 +396,50 @@ describe('wdio-devtools-workbench', () => {
       )
 
       expect(warnings).toEqual([])
+    })
+  })
+
+  // The dock/sidebar COLLAPSE is asserted above; what a resize leaves behind was
+  // claimed by the inventory and asserted nowhere. Both keys are cleared between
+  // tests by the fixture, so a restored value can only have come from this test.
+  describe('remembering a resize', () => {
+    /** Visible, but small enough that the split lands clear of both its bounds
+     *  (30%/300px of the viewport below, 70% above) on any window the runner
+     *  opens — a clamped drag would report no movement at all. */
+    const DRAG_DISTANCE = 60
+    /** Between `MIN_METATAB_WIDTH` (260) and `ACTIONS_DEFAULT_WIDTH` (360), so a
+     *  sidebar that fell back to either bound reads differently. */
+    const STORED_SIDEBAR_WIDTH = 300
+
+    it('reopens the split where a drag left it', async () => {
+      const first = await mountWorkbench()
+      const before = browserPaneHeight(first.workbench)
+
+      await dragLiveSplit(first.workbench, -DRAG_DISTANCE)
+      const after = browserPaneHeight(first.workbench)
+
+      expect(after).toBe(before - DRAG_DISTANCE)
+      expect(localStorage.getItem(SPLIT_HEIGHT_KEY)).toBe(String(after))
+
+      // A second mount is a fresh page load — no state but storage survives it.
+      // `DragController` writes the position with `JSON.stringify` and reads it
+      // back with `parseInt`, so the split returns at whole pixels: the sub-pixel
+      // is dropped on the way through storage, not by the workbench.
+      const second = await mountWorkbench()
+
+      expect(browserPaneHeight(second.workbench)).toBe(Math.trunc(after))
+      expect(browserPaneHeight(second.workbench)).not.toBe(before)
+    })
+
+    it('reopens the actions sidebar at the width it was left', async () => {
+      localStorage.setItem(SIDEBAR_WIDTH_KEY, String(STORED_SIDEBAR_WIDTH))
+
+      const { workbench } = await mountWorkbench()
+
+      const style =
+        shadow(workbench, SIDEBAR_SECTION)?.getAttribute('style') ?? ''
+      expect(style).toContain(`flex-basis: ${STORED_SIDEBAR_WIDTH}px`)
+      expect(style).toContain(`min-width:${STORED_SIDEBAR_WIDTH}px`)
     })
   })
 

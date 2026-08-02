@@ -41,11 +41,59 @@ type TimelineEntry = CommandLog | TraceMutation
 
 const { commands, mutations } = loginTimeline
 
-/** The demo target and wall clock of the one scenario built inside this spec: a
+/** The demo target and wall clock of the scenarios built inside this spec: a
  *  document load BEFORE the first command, which the shared fixture has no case
  *  for and which is what separates the two baselines. */
 const LOGIN_URL = 'https://the-internet.herokuapp.com/login'
+const SECURE_URL = 'https://the-internet.herokuapp.com/secure'
 const RUN_START = 1_700_000_000_000
+
+/**
+ * A run whose commands are FRAMED by document loads: one before the first
+ * command, which moves the baseline an elapsed badge is measured from, and one
+ * between two commands, which changes the gap a row without its own execution
+ * span falls back to. Both are needed to tell the two timing rules apart — the
+ * flat list measures the merged rows, tree mode measures the commands — and the
+ * shared fixture has no case where they disagree.
+ *
+ * Only `navigate` carries a `startTime`, so it is the one row whose duration is
+ * its own span in either mode; the other two can only report a gap.
+ */
+const framedRun = {
+  firstLoad: documentLoaded(LOGIN_URL, { timestamp: RUN_START }),
+  navigate: commandLog({
+    command: 'url',
+    args: [LOGIN_URL],
+    startTime: RUN_START,
+    timestamp: RUN_START + 300
+  }),
+  readFlash: commandLog({
+    command: 'getText',
+    args: ['#flash'],
+    timestamp: RUN_START + 700
+  }),
+  secondLoad: documentLoaded(SECURE_URL, { timestamp: RUN_START + 900 }),
+  click: commandLog({ command: 'click', timestamp: RUN_START + 1600 })
+}
+
+/** One step holding all three commands, marked failed so it opens by default. */
+const framedGroups: TraceActionChild[] = [
+  {
+    group: {
+      callId: 'framed-step',
+      title: 'When I sign in',
+      startTime: RUN_START,
+      endTime: RUN_START + 1600,
+      failed: true,
+      children: [{ commandIndex: 0 }, { commandIndex: 1 }, { commandIndex: 2 }]
+    }
+  }
+]
+
+const framedInputs = {
+  commands: [framedRun.navigate, framedRun.readFlash, framedRun.click],
+  mutations: [framedRun.firstLoad, framedRun.secondLoad]
+}
 
 /**
  * The row order the panel derives: `#sortedEntries` keeps the childList
@@ -358,23 +406,35 @@ describe('wdio-devtools-actions', () => {
     })
 
     it('times a tree row against the commands alone, not the merged list', async () => {
-      const panel = await mountPanel({ groups })
-
       // Tree mode has no mutation rows, so its gaps and its baseline come from
-      // the command stream — a row still handed the merged-list values would
-      // report a duration its own group never contained.
-      const commandDurations = durationsFor(commands)
-      const commandElapsed = elapsedFor(commands)
-      const rows = shadowAll(panel, COMMAND_ROW)
+      // the command stream. Driven with `framedRun`, where that really differs:
+      // the load before the first command moves the baseline, and the load
+      // between two commands moves the gap. Literal numbers rather than the
+      // duration helpers, so the pairing is pinned independently of them.
+      const panel = await mountPanel({ ...framedInputs, groups: framedGroups })
 
-      expect(rows.map(durationOf)).toEqual([
-        commandDurations[1],
-        commandDurations[2]
+      const rows = shadowAll(panel, COMMAND_ROW)
+      expect(rows).toHaveLength(3)
+      expect(rows.map(elapsedOf)).toEqual([0, 400, 1300])
+      expect(rows.map(durationOf)).toEqual([300, 900, 900])
+    })
+
+    it('times the same commands by the merged list once the tree is gone', async () => {
+      // The other half of the pair: same run, no groups. Every command's numbers
+      // move, so a tree row handed these values — or a flat row handed the tree's
+      // — fails one of the two specs.
+      const panel = await mountPanel(framedInputs)
+
+      const rows = shadowAll(panel, ROWS)
+      expect(tagsOf(rows)).toEqual([
+        MUTATION_ROW,
+        COMMAND_ROW,
+        COMMAND_ROW,
+        MUTATION_ROW,
+        COMMAND_ROW
       ])
-      expect(rows.map(elapsedOf)).toEqual([
-        commandElapsed[1],
-        commandElapsed[2]
-      ])
+      expect(rows.map(elapsedOf)).toEqual([0, 300, 700, 900, 1600])
+      expect(rows.map(durationOf)).toEqual([300, 300, 200, 700, 700])
     })
 
     it("reveals a collapsed group's commands when the group row is clicked", async () => {

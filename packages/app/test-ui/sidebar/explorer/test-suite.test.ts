@@ -14,6 +14,7 @@ const SUITE = 'wdio-test-suite'
 const ENTRY = 'wdio-test-entry'
 const GROUP_SLOT = 'slot:not([name])'
 const CHILDREN_SLOT = 'slot[name="children"]'
+const LABEL_SLOT = 'slot[name="label"]'
 const LABEL_SPAN = 'section.row > span'
 const CHEVRON_BUTTON = 'section.row > button'
 const RUN_BUTTON = 'nav.row-actions button:has(icon-mdi-play)'
@@ -125,13 +126,16 @@ describe('wdio-test-suite', () => {
       expect(projected[3]).toBe(rows[3])
     })
 
-    it('renders every row title in the group', async () => {
+    it('projects every row title through the row that owns it', async () => {
       const group = await mountGroup(checkoutRows())
 
+      // Read back through each row's OWN label slot rather than off the `<label>`
+      // the fixture appended: the group renders a bare slot, so a light-DOM query
+      // would only echo the fixture's write and pass even if nothing projected.
+      const projected = assigned(group, GROUP_SLOT)
+      expect(projected).toHaveLength(4)
       expect(
-        Array.from(group.querySelectorAll(`${ENTRY} > label`)).map((label) =>
-          text(label)
-        )
+        projected.map((row) => assigned(row, LABEL_SLOT).map(text).join('|'))
       ).toEqual([
         mixedStateRun.passing.title,
         mixedStateRun.failing.title,
@@ -152,7 +156,12 @@ describe('wdio-test-suite', () => {
     it('renders an empty group when it holds no rows', async () => {
       const group = await mountGroup([])
 
-      expect(assigned(group, GROUP_SLOT)).toHaveLength(0)
+      // The slot has to EXIST and be empty. Asserting only that nothing is
+      // assigned would also hold for a group that rendered no slot at all — the
+      // state in which every row it is handed disappears.
+      const slot = shadow<HTMLSlotElement>(group, GROUP_SLOT)
+      expect(slot).not.toBe(null)
+      expect(slot?.assignedNodes()).toHaveLength(0)
       expect(group.querySelectorAll(ENTRY).length).toBe(0)
     })
   })

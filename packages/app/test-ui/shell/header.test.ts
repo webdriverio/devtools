@@ -12,8 +12,6 @@ const TITLE = 'h1'
 const THEME_BUTTON = 'nav button'
 const MOON = 'icon-mdi-moon-waning-crescent'
 const SUN = 'icon-mdi-white-balance-sunny'
-const SHOWN = '.show'
-const HIDDEN = '.hidden'
 
 const isDark = () => document.body.classList.contains('dark')
 const storedTheme = () => localStorage.getItem(DARK_MODE_KEY)
@@ -55,8 +53,42 @@ async function themeChangedElsewhere(
   await settle(header)
 }
 
-const shownIcon = (header: DevtoolsHeader) =>
-  shadow(header, SUN)?.className === 'show' ? 'sun' : 'moon'
+/**
+ * How the header really hides an icon. It marks the two `show` and `hidden`, but
+ * `show` matches no rule in `core.css` or the Tailwind build — only `hidden` does
+ * anything, so the shown icon is simply the one that is NOT hidden. Read off the
+ * class rather than the computed style because two specs below inspect the header
+ * AFTER removing it, and a disconnected element reports no display at all; the
+ * spec 'hides the icon it is not offering in layout' ties the class to what the
+ * user sees.
+ */
+const isHidden = (icon: Element): boolean => icon.classList.contains('hidden')
+
+/** The two icons, or a throw: a header that rendered neither must not read as
+ *  one of them. */
+function themeIcons(header: DevtoolsHeader): [Element, Element] {
+  const sun = shadow(header, SUN)
+  const moon = shadow(header, MOON)
+  if (!sun || !moon) {
+    throw new Error(`the header rendered no ${sun ? 'moon' : 'sun'} icon`)
+  }
+  return [sun, moon]
+}
+
+/**
+ * Which theme the header is OFFERING to switch to. Throws rather than guessing
+ * when an icon is missing or when both/neither are on offer — reading "moon" off
+ * an absent sun is how a header that drew no icons at all would report light, and
+ * every theme assertion in this file goes through here.
+ */
+function shownIcon(header: DevtoolsHeader): 'sun' | 'moon' {
+  const [sun, moon] = themeIcons(header)
+  const shown = [sun, moon].filter((icon) => !isHidden(icon))
+  if (shown.length !== 1) {
+    throw new Error(`expected one icon on offer, found ${shown.length}`)
+  }
+  return shown[0] === sun ? 'sun' : 'moon'
+}
 
 let osThemeEmulated = false
 
@@ -136,8 +168,20 @@ describe('wdio-devtools-header', () => {
 
       expect(shadowAll(header, MOON)).toHaveLength(1)
       expect(shadowAll(header, SUN)).toHaveLength(1)
-      expect(shadowAll(header, SHOWN)).toHaveLength(1)
-      expect(shadowAll(header, HIDDEN)).toHaveLength(1)
+      expect(themeIcons(header).filter(isHidden)).toHaveLength(1)
+    })
+
+    it('hides the icon it is not offering in layout, not only in name', async () => {
+      store('light')
+      const header = await mountHeader()
+
+      // Ties `hidden` to what the user sees, once, so the rest of this file can
+      // read the class: `hidden` really is `display:none`, while `show` — the
+      // other class the header sets — matches no rule and hides nothing.
+      const [sun, moon] = themeIcons(header)
+      expect(getComputedStyle(sun).display).toBe('none')
+      expect(getComputedStyle(moon).display).not.toBe('none')
+      expect(shownIcon(header)).toBe('moon')
     })
   })
 
@@ -200,8 +244,7 @@ describe('wdio-devtools-header', () => {
       store('light')
       const header = await mountHeader()
 
-      expect(shadow(header, MOON)?.className).toBe('show')
-      expect(shadow(header, SUN)?.className).toBe('hidden')
+      expect(shownIcon(header)).toBe('moon')
       expect(isDark()).toBe(false)
     })
 
@@ -212,8 +255,7 @@ describe('wdio-devtools-header', () => {
       await toggleTheme(header)
 
       expect(isDark()).toBe(true)
-      expect(shadow(header, SUN)?.className).toBe('show')
-      expect(shadow(header, MOON)?.className).toBe('hidden')
+      expect(shownIcon(header)).toBe('sun')
     })
 
     it('lightens it again on the next click', async () => {
@@ -224,7 +266,7 @@ describe('wdio-devtools-header', () => {
       await toggleTheme(header)
 
       expect(isDark()).toBe(false)
-      expect(shadow(header, MOON)?.className).toBe('show')
+      expect(shownIcon(header)).toBe('moon')
     })
 
     it('stores the choice so the next visit opens in the same theme', async () => {
