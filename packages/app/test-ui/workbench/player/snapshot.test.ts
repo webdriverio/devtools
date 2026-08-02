@@ -16,33 +16,44 @@ import '@components/browser/snapshot.js'
 import { mountWithContext, settle } from '../../support/mount.js'
 import { shadow, shadowAll, text, texts } from '../../support/queries.js'
 import {
-  domlessTrace,
+  CANCEL_ARIA_LABEL,
+  CANCEL_TEXT,
   FLASH_TEXT,
   LOGIN_LABEL,
+  NOTICE_LEAD,
+  NOTICE_TAIL,
+  NOTICE_TAIL_UPDATED,
+  NOTICE_WHO,
+  REF,
+  STALE_USERNAME,
+  TYPED_USERNAME,
+  UNNAMED_LABEL,
+  USERNAME_PLACEHOLDER
+} from './captured-pages.js'
+import {
+  CAPTURED_VIEWPORT,
+  domlessTrace,
   LOGIN_SHOT,
   LOGIN_URL,
   loginTrace,
   looseTextTrace,
   METADATA_URL,
-  NOTICE_LEAD,
-  NOTICE_TAIL,
-  NOTICE_TAIL_UPDATED,
-  NOTICE_WHO,
+  metadataForViewport,
   orphanTrace,
+  overlayLabelTrace,
   preCaptureTrace,
+  RECORDING,
   recordedSessionMetadata,
-  REF,
   SECURE_SHOT,
   SECURE_URL,
-  STALE_USERNAME,
   textNodeTrace,
   type TextTrace,
   type TraceScenario,
-  TYPED_USERNAME,
   urllessTrace,
   urlMetadata,
   validationTrace,
   VIDEO_SESSION_ID,
+  viewportlessMetadata,
   viewportMetadata
 } from './fixtures.js'
 
@@ -158,11 +169,7 @@ const revealFromA11y = (selector: string) =>
 const recordingArrives = () =>
   window.dispatchEvent(
     new CustomEvent('screencast-ready', {
-      detail: {
-        sessionId: VIDEO_SESSION_ID,
-        startTime: loginTrace.openLogin.startTime,
-        duration: 2000
-      }
+      detail: { sessionId: VIDEO_SESSION_ID, ...RECORDING }
     })
   )
 
@@ -278,19 +285,34 @@ describe('wdio-devtools-browser', () => {
       const doc = await replayAfter(el, () =>
         selectMutation(loginTrace.rememberUnchecked)
       )
-      // An unticked box looks like the captured page, so wait on the attribute
-      // only this mutation writes — otherwise the assertion could read the
-      // anchor state and pass without the untick ever having been applied.
+      // The typed username is the signal that the window replayed — the page was
+      // captured with a different one. It cannot be keyed on the checkbox: the
+      // captured box is unticked too. What makes the assertion below unambiguous
+      // is the fixture TICKING the box earlier in the same window, so an unticked
+      // box here can only be this mutation's work.
       await waitUntil(
-        () => input(doc, '#remember').getAttribute('checked') === 'false',
-        'the untick to replay'
+        () => input(doc, '#username').value === TYPED_USERNAME,
+        'the replay window to be applied'
       )
 
       const remember = input(doc, '#remember')
+      // The property mirror is the half that is right, and the half the replayed
+      // page is drawn from.
       expect(remember.checked).toBe(false)
-      // The attribute is present and 'false': only the property mirror keeps
-      // the replayed box unticked.
+      // SOURCE BUG, pinned as-is (snapshot.ts:464 `setAttribute` runs for every
+      // attribute mutation, before the property mirror on :470). `checked` is a
+      // BOOLEAN content attribute — its presence means checked whatever the value
+      // — so the replayed markup says TICKED while the property says otherwise.
+      // On screen the property wins, so replay is unaffected; anything that
+      // re-serializes the page (export, copy-as-HTML, outerHTML round-trip) reads
+      // the lie. Asserted through a real re-parse rather than the attribute's
+      // spelling, so a fix flips a visible assertion instead of sneaking past:
+      // the correct value is `null`, and `reticked` then becomes false.
+      const reticked = new DOMParser()
+        .parseFromString(remember.outerHTML, 'text/html')
+        .querySelector<HTMLInputElement>('#remember')!
       expect(remember.getAttribute('checked')).toBe('false')
+      expect(reticked.checked).toBe(true)
     })
 
     it('moves the radio selection to the option the test picked', async () => {
@@ -596,6 +618,71 @@ describe('wdio-devtools-browser', () => {
   })
 
   describe('element overlay', () => {
+    /**
+     * The accessible name the overlay hands the A11y tab per box, collected by
+     * hovering every box in turn — the only way out of the component, and the
+     * same value a click carries.
+     */
+    async function overlayNames(
+      el: Browser
+    ): Promise<Record<string, string | undefined>> {
+      const names: Record<string, string | undefined> = {}
+      const listener = (event: Event) => {
+        const detail = (
+          event as CustomEvent<{ selector: string; label?: string } | null>
+        ).detail
+        if (detail) {
+          names[detail.selector] = detail.label
+        }
+      }
+      window.addEventListener('a11y-reveal', listener)
+      try {
+        for (const box of boxesIn(el, OVERLAY_BOX)) {
+          box.dispatchEvent(new MouseEvent('mouseenter'))
+        }
+      } finally {
+        window.removeEventListener('a11y-reveal', listener)
+      }
+      return names
+    }
+
+    /**
+     * The a11y tree keys its rows on the accessible name, so every box carries
+     * one — approximated from `aria-label`, else the visible text, else the
+     * placeholder. The captured page holds one element per branch, which is what
+     * stops this passing with the whole fallback deleted (it would then name
+     * every box `''`).
+     */
+    it("names each box by the element's accessible name", async () => {
+      const el = await mountBrowser(overlayLabelTrace)
+      await replayedPage(el)
+
+      shadow(el, OVERLAY_TOGGLE)?.click()
+
+      expect(await overlayNames(el)).toEqual({
+        '#username': USERNAME_PLACEHOLDER,
+        '#submit': LOGIN_LABEL,
+        '#cancel': CANCEL_ARIA_LABEL,
+        '#password': UNNAMED_LABEL
+      })
+    })
+
+    it("prefers an element's aria-label over the text it displays", async () => {
+      const el = await mountBrowser(overlayLabelTrace)
+      const doc = await replayedPage(el)
+
+      shadow(el, OVERLAY_TOGGLE)?.click()
+
+      // The element really does display text, so the aria-label winning is
+      // precedence rather than there being nothing else to read...
+      expect(doc.querySelector('#cancel')?.textContent).toBe(CANCEL_TEXT)
+      expect((await overlayNames(el))['#cancel']).toBe(CANCEL_ARIA_LABEL)
+      // ...and the captured attribute is padded, so the name is trimmed too.
+      expect(doc.querySelector('#cancel')?.getAttribute('aria-label')).not.toBe(
+        CANCEL_ARIA_LABEL
+      )
+    })
+
     it('boxes only the command locators that resolve on the replayed page', async () => {
       const el = await mountBrowser(loginTrace)
       await replayedPage(el)
@@ -646,7 +733,9 @@ describe('wdio-devtools-browser', () => {
       expect(await opened).toBe('A11y')
       expect(await revealed).toEqual({
         selector: '#username',
-        label: '',
+        // The accessible name that goes with it — the field's placeholder, since
+        // an input carries no text of its own.
+        label: USERNAME_PLACEHOLDER,
         pin: true
       })
     })
@@ -816,6 +905,165 @@ describe('wdio-devtools-browser', () => {
 
       expect(shadowAll(el, SCREENCAST)).toHaveLength(0)
       expect(shadowAll(el, VIEW_BUTTON)).toHaveLength(0)
+    })
+  })
+
+  /**
+   * The replay iframe is laid out at the CAPTURED viewport and scaled to fit the
+   * pane, so the page inside sees the width it was recorded at — its breakpoints
+   * and media queries resolve the way they did during the run — however small the
+   * panel is. Every other case in this spec reads the replayed DOM only, so the
+   * whole sizing pass could be deleted and they would all still pass.
+   */
+  describe('viewport sizing', () => {
+    /** The in-flow box that gives the absolutely-positioned, scaled iframe a
+     *  footprint for the wrapper to centre. */
+    const SIZER = '.iframe-sizer'
+
+    /** Host padding the sizing subtracts, measured off the element rather than
+     *  assumed from the stylesheet's rem value. */
+    function hostPadding(el: Browser): { x: number; y: number } {
+      const style = getComputedStyle(el)
+      return {
+        x: parseFloat(style.paddingLeft) + parseFloat(style.paddingRight),
+        y: parseFloat(style.paddingTop) + parseFloat(style.paddingBottom)
+      }
+    }
+
+    const headerHeight = (el: Browser) =>
+      shadow(el, 'header')!.getBoundingClientRect().height
+
+    /** The scale the player put on the iframe, read off the COMPUTED transform —
+     *  so an equivalent spelling still passes and a wrong factor still fails. */
+    const scaleOf = (iframe: HTMLIFrameElement) =>
+      new DOMMatrixReadOnly(getComputedStyle(iframe).transform).a
+
+    function frame(el: Browser): HTMLIFrameElement {
+      if (!el.iframe) {
+        throw new Error('the player rendered no replay iframe')
+      }
+      return el.iframe
+    }
+
+    /**
+     * Sizes the pane the player sits in and waits for the re-scale. The transform
+     * is cleared first so the wait is for the player writing it again, not for a
+     * value this test hopes to read — the geometry itself is never predicted here.
+     */
+    async function resizePane(
+      el: Browser,
+      width: number,
+      height: number
+    ): Promise<HTMLIFrameElement> {
+      const host = el.parentElement
+      if (!host) {
+        throw new Error('the mounted player has no pane to size')
+      }
+      const iframe = frame(el)
+      iframe.style.transform = ''
+      host.style.width = `${width}px`
+      host.style.height = `${height}px`
+      window.dispatchEvent(new Event('resize'))
+      await waitUntil(
+        () => iframe.style.transform !== '',
+        'the iframe to be re-scaled to the pane'
+      )
+      return iframe
+    }
+
+    /** Pane leaving `usable` px of width and height for the replay, on top of
+     *  the host padding and browser chrome the player subtracts. */
+    const paneFor = (el: Browser, usable: { w: number; h: number }) =>
+      [
+        hostPadding(el).x + usable.w,
+        hostPadding(el).y + headerHeight(el) + usable.h
+      ] as const
+
+    it('lays the replay out at the captured viewport, scaled into the pane', async () => {
+      const el = await mountBrowser(loginTrace)
+      await replayedPage(el)
+
+      // 640 usable px for a 1280px capture — half — with height to spare, so the
+      // width is what constrains the fit.
+      const iframe = await resizePane(el, ...paneFor(el, { w: 640, h: 600 }))
+
+      // The page is laid out at the size it was recorded at...
+      expect(iframe.style.width).toBe(`${CAPTURED_VIEWPORT.width}px`)
+      expect(iframe.style.height).toBe(`${CAPTURED_VIEWPORT.height}px`)
+      // ...and drawn at half of it, filling the width it was given.
+      expect(scaleOf(iframe)).toBeCloseTo(0.5, 5)
+      const box = iframe.getBoundingClientRect()
+      expect(box.width).toBeCloseTo(640, 1)
+      expect(box.height).toBeCloseTo(400, 1)
+    })
+
+    it('shrinks the replay to the pane height when that is what constrains it', async () => {
+      const el = await mountBrowser({
+        ...loginTrace,
+        metadata: metadataForViewport(640, 480)
+      })
+      await replayedPage(el)
+
+      // All 640 px of the capture's width available, but a quarter of its height.
+      const iframe = await resizePane(el, ...paneFor(el, { w: 640, h: 120 }))
+
+      expect(iframe.style.width).toBe('640px')
+      expect(iframe.style.height).toBe('480px')
+      expect(scaleOf(iframe)).toBeCloseTo(0.25, 5)
+      // Fits the height exactly and leaves width to spare — a fit taken from the
+      // width alone would draw it 640×480 and overflow the pane by 360px.
+      const box = iframe.getBoundingClientRect()
+      expect(box.height).toBeCloseTo(120, 1)
+      expect(box.width).toBeCloseTo(160, 1)
+    })
+
+    it('magnifies a capture smaller than the pane rather than boxing it in', async () => {
+      const el = await mountBrowser({
+        ...loginTrace,
+        metadata: metadataForViewport(320, 240)
+      })
+      await replayedPage(el)
+
+      // Twice the capture's width fits, two and a half times its height.
+      const iframe = await resizePane(el, ...paneFor(el, { w: 640, h: 600 }))
+
+      expect(scaleOf(iframe)).toBeCloseTo(2, 5)
+      expect(iframe.getBoundingClientRect().width).toBeCloseTo(640, 1)
+    })
+
+    it('gives the scaled iframe a footprint of its own drawn size', async () => {
+      const el = await mountBrowser(loginTrace)
+      await replayedPage(el)
+
+      const iframe = await resizePane(el, ...paneFor(el, { w: 640, h: 600 }))
+
+      // A transform leaves layout alone and the iframe is absolutely positioned,
+      // so its own footprint is zero: without the sizer taking the scaled size
+      // the wrapper has nothing to centre and a gutter opens beside the page.
+      const box = iframe.getBoundingClientRect()
+      const sizer = shadow(el, SIZER)!.getBoundingClientRect()
+      expect(sizer.width).toBeCloseTo(box.width, 1)
+      expect(sizer.height).toBeCloseTo(box.height, 1)
+      // And the scaled box starts at the sizer's corner rather than shrinking
+      // towards its middle.
+      expect(box.left).toBeCloseTo(sizer.left, 1)
+      expect(box.top).toBeCloseTo(sizer.top, 1)
+    })
+
+    it('falls back to a 1280×800 layout when the metadata carries no viewport', async () => {
+      const el = await mountBrowser({
+        commands: loginTrace.commands,
+        mutations: loginTrace.mutations,
+        metadata: viewportlessMetadata
+      })
+      await replayedPage(el)
+
+      const iframe = await resizePane(el, ...paneFor(el, { w: 640, h: 600 }))
+
+      // The player's own default — nothing in this mount carries a size.
+      expect(iframe.style.width).toBe('1280px')
+      expect(iframe.style.height).toBe('800px')
+      expect(scaleOf(iframe)).toBeCloseTo(0.5, 5)
     })
   })
 

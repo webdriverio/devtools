@@ -1,15 +1,7 @@
 // Trace-player scenarios shared by the snapshot and trace-timeline specs, built
-// on `support/builders.ts`. The captured pages mirror what `packages/script`
-// serializes: every element carries the `data-wdio-ref` attribute the replay
-// matches mutations against, and form state arrives as a synthetic
-// `value` / `checked` attribute mutation the way the collector emits it
-// (`String(el.value)` / `String(el.checked)`).
-//
-// The two producers each shape gets its shape from, so a change on either side
-// shows up here:
-//   `parseDocument`  (collector.captureCurrentDom) → the full-DOM anchor
-//   `parseFragment`  (serializeMutation)           → every added node
-// both via `parseNode`, which builds nodes with preact's `h()`.
+// on `support/builders.ts` and on the captured pages in `captured-pages.ts`. Form
+// state arrives as a synthetic `value` / `checked` attribute mutation the way the
+// collector emits it (`String(el.value)` / `String(el.checked)`).
 
 import { TraceType } from '@wdio/devtools-shared'
 import type {
@@ -19,8 +11,18 @@ import type {
   TracePlayerFrame
 } from '@wdio/devtools-shared'
 
-import type { SimplifiedVNode } from '../../../../script/types'
 import { commandLog, documentLoaded, mutation } from '../../support/builders.js'
+import {
+  capturedFragment,
+  FLASH_TEXT,
+  loginPage,
+  NOTICE_TAIL_UPDATED,
+  payload,
+  REF,
+  securePage,
+  TYPED_USERNAME,
+  vnode
+} from './captured-pages.js'
 
 /** Wall-clock origin of the fixture run — every offset below reads as ms into it. */
 const RUN_START = 1_700_000_000_000
@@ -28,33 +30,6 @@ const RUN_START = 1_700_000_000_000
 export const LOGIN_URL = 'https://the-internet.herokuapp.com/login'
 export const SECURE_URL = 'https://the-internet.herokuapp.com/secure'
 export const METADATA_URL = 'https://the-internet.herokuapp.com/from-metadata'
-
-/**
- * Value the login page was captured with. Preact applies a non-empty `value` as
- * a PROPERTY, which raises the input's dirty-value flag — from then on the
- * `value` attribute alone no longer moves what the field displays. So a replay
- * that set the attribute without mirroring the property would keep showing this
- * string after the test typed over it.
- */
-export const STALE_USERNAME = 'olduser'
-export const TYPED_USERNAME = 'tomsmith'
-export const FLASH_TEXT = 'You logged into a secure area!'
-
-/** Label of the submit button. The a11y tree captures interactive elements as
- *  WDIO text locators (`button*=Login`), so the reverse highlight has to resolve
- *  one — which needs an element whose TEXT identifies it. */
-export const LOGIN_LABEL = 'Login'
-/** Text `#flash` was captured with — the value every text change replaces, so a
- *  change that never landed is distinguishable from one that did. */
-export const FLASH_PENDING = 'Signing you in…'
-
-/** `#notice` holds text, an element, then text again: the mixed-content parent a
- *  characterData mutation has to address a single child of without disturbing
- *  the other two. */
-export const NOTICE_LEAD = 'Signed in as '
-export const NOTICE_WHO = 'guest'
-export const NOTICE_TAIL = ' — session active'
-export const NOTICE_TAIL_UPDATED = ' — session expires in 5 minutes'
 
 /** Session id of the recording the screencast view plays. */
 export const VIDEO_SESSION_ID = 'session-secure'
@@ -66,183 +41,6 @@ export const SECURE_SHOT =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR42mPQqLgDAAJIAX2kVPgTAAAAAElFTkSuQmCC'
 export const FRAME_SHOT =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR42mP48OEDAAWkAtFkkTHCAAAAAElFTkSuQmCC'
-
-/** Refs the mutation stream targets. `assignRef` numbers them and stamps one on
- *  EVERY element of the captured tree (`<html>` and `<head>` included); the
- *  names here cover only the elements the specs address, and read better in an
- *  assertion than a serial number. */
-export const REF = {
-  body: 'body-ref',
-  form: 'form-ref',
-  username: 'username-ref',
-  password: 'password-ref',
-  remember: 'remember-ref',
-  planGuest: 'plan-guest-ref',
-  planMember: 'plan-member-ref',
-  submit: 'submit-ref',
-  error: 'error-ref',
-  secureBody: 'secure-body-ref',
-  flash: 'flash-ref',
-  notice: 'notice-ref',
-  who: 'who-ref',
-  logout: 'logout-ref'
-} as const
-
-/** A serialized element as the collector emits it — attributes and the child
- *  list share `props`, and a wrapper fragment carries no `type` at all. */
-interface CapturedNode {
-  type?: string
-  props: Record<string, string | CapturedChild | CapturedChild[]>
-}
-
-/** A child of a captured element. A text child is a BARE STRING: `parseNode`
- *  returns a `#text` node's value, and `parseFragment` an added Text node's
- *  data, without wrapping either. */
-type CapturedChild = CapturedNode | string
-
-/**
- * One serialized element, shaped as `parseNode` leaves it: attributes spread
- * onto `props`, children under `props.children` — a single child BARE, several
- * as an array. That split is not cosmetic: `parseNode` builds each node with
- * preact's `h()`, and `h(type, props, one)` stores that one child as-is, so a
- * real capture of `body > form` hands the replay an object where a capture of
- * `body > [div, a]` hands it an array. Always emitting an array would leave the
- * single-child path — the common one — untested.
- */
-function vnode(
-  type: string,
-  props: Record<string, string>,
-  ...children: CapturedChild[]
-): CapturedNode {
-  if (children.length === 0) {
-    return { type, props }
-  }
-  return {
-    type,
-    props: {
-      ...props,
-      children: children.length === 1 ? children[0] : children
-    }
-  }
-}
-
-/**
- * An added node as `serializeMutation` puts it on the wire. `parseFragment`
- * serializes a documentFragment, whose nodeName yields no tagName, so every
- * added node arrives inside a TYPELESS node holding it as its only child —
- * the wrapper `vnode-transform`'s ToDo branch unwraps on replay.
- */
-function capturedFragment(node: CapturedNode): CapturedNode {
-  return { props: { children: node } }
-}
-
-/**
- * A captured page as `parseDocument` emits it: `html > [head, body]`, since
- * parse5 always materialises both. `head` takes at least two nodes here because
- * the replay prepends its `<base>` by spreading `head.props.children` — a real
- * page with a single `<title>` therefore hands it a bare object, the rebuild
- * throws, and the iframe stays blank (see `vnode-transform.test.ts`).
- */
-function capturedDocument(
-  head: readonly [CapturedNode, CapturedNode, ...CapturedNode[]],
-  body: CapturedNode
-): CapturedNode {
-  return vnode('html', { lang: 'en' }, vnode('head', {}, ...head), body)
-}
-
-/** Hands a captured tree to the mutation builders. `SimplifiedVNode` types its
- *  props as `Record<string, string>`, which cannot also hold the child list the
- *  real payload carries — `packages/script` casts for the same reason — so the
- *  tree is built with an honest shape and narrowed here. */
-const payload = (node: CapturedNode) => node as unknown as SimplifiedVNode
-
-const loginPage = payload(
-  capturedDocument(
-    [
-      vnode('meta', { charset: 'utf-8' }),
-      // Never runs on replay — the player strips the captured page's scripts.
-      vnode('script', { src: '/login.js' })
-    ],
-    vnode(
-      'body',
-      { 'data-wdio-ref': REF.body },
-      vnode(
-        'form',
-        { id: 'login', 'data-wdio-ref': REF.form },
-        vnode('input', {
-          id: 'username',
-          type: 'text',
-          name: 'username',
-          value: STALE_USERNAME,
-          'data-wdio-ref': REF.username
-        }),
-        vnode('input', {
-          id: 'password',
-          type: 'password',
-          name: 'password',
-          'data-wdio-ref': REF.password
-        }),
-        vnode('input', {
-          id: 'remember',
-          type: 'checkbox',
-          'data-wdio-ref': REF.remember
-        }),
-        vnode('input', {
-          id: 'plan-guest',
-          type: 'radio',
-          name: 'plan',
-          checked: 'checked',
-          'data-wdio-ref': REF.planGuest
-        }),
-        vnode('input', {
-          id: 'plan-member',
-          type: 'radio',
-          name: 'plan',
-          'data-wdio-ref': REF.planMember
-        }),
-        vnode(
-          'button',
-          {
-            id: 'submit',
-            type: 'submit',
-            'data-wdio-ref': REF.submit
-          },
-          LOGIN_LABEL
-        )
-      )
-    )
-  )
-)
-
-const securePage = payload(
-  capturedDocument(
-    [
-      vnode('meta', { charset: 'utf-8' }),
-      vnode('meta', { name: 'viewport', content: 'width=device-width' })
-    ],
-    vnode(
-      'body',
-      { 'data-wdio-ref': REF.secureBody },
-      vnode(
-        'div',
-        {
-          id: 'flash',
-          class: 'success',
-          'data-wdio-ref': REF.flash
-        },
-        FLASH_PENDING
-      ),
-      vnode(
-        'p',
-        { id: 'notice', 'data-wdio-ref': REF.notice },
-        NOTICE_LEAD,
-        vnode('strong', { id: 'who', 'data-wdio-ref': REF.who }, NOTICE_WHO),
-        NOTICE_TAIL
-      ),
-      vnode('a', { id: 'logout', href: '/logout', 'data-wdio-ref': REF.logout })
-    )
-  )
-)
 
 /** The two streams one player mount consumes. */
 export interface TraceScenario {
@@ -611,6 +409,32 @@ export const orphanTrace: OrphanTrace = {
   usernameTyped
 }
 
+const clickCancel = commandLog({
+  command: 'click',
+  args: ['#cancel'],
+  startTime: RUN_START + 900,
+  timestamp: RUN_START + 940
+})
+
+const readPassword = commandLog({
+  command: 'getValue',
+  args: ['#password'],
+  startTime: RUN_START + 1000,
+  timestamp: RUN_START + 1020
+})
+
+/**
+ * One command per accessible-name branch, all four locators resolving on the
+ * login page: `#username` (placeholder only), `#submit` (visible text),
+ * `#cancel` (`aria-label` over its own text) and `#password` (nothing). The
+ * login anchor is the only mutation, so the overlay measures the captured page
+ * itself rather than a replayed edit of it.
+ */
+export const overlayLabelTrace: TraceScenario = {
+  commands: [findUsername, submit, clickCancel, readPassword],
+  mutations: [loginDocument]
+}
+
 const navigate = commandLog({
   command: 'url',
   args: [LOGIN_URL],
@@ -673,9 +497,12 @@ export const urllessTrace: TraceScenario = {
   mutations: [urllessDocument]
 }
 
+/** The viewport every page here was captured at — the size the replay iframe has
+ *  to be laid out at whatever the pane it is then scaled into. */
+export const CAPTURED_VIEWPORT = { width: 1280, height: 800 }
+
 const viewport = {
-  width: 1280,
-  height: 800,
+  ...CAPTURED_VIEWPORT,
   offsetLeft: 0,
   offsetTop: 0,
   scale: 1
@@ -687,12 +514,33 @@ export const viewportMetadata: Metadata = {
   viewport
 }
 
+/** A capture taken at some other viewport, so a spec can tell a read of the
+ *  captured size from the 1280×800 the player falls back to. */
+export const metadataForViewport = (
+  width: number,
+  height: number
+): Metadata => ({
+  type: TraceType.Testrunner,
+  viewport: { ...viewport, width, height }
+})
+
+/** Metadata whose viewport never made it onto the wire — the race the player
+ *  defaults for. */
+export const viewportlessMetadata: Metadata = { type: TraceType.Testrunner }
+
 /** Metadata that does carry a url, for the address-bar fallback. */
 export const urlMetadata: Metadata = {
   type: TraceType.Testrunner,
   url: METADATA_URL,
   viewport
 }
+
+/**
+ * Window of the screencast the player plays: the whole fixture run, from the
+ * first command's start over 2000ms. Every command of `loginTrace` therefore
+ * falls inside it, and the scrubber's markers land at exact percentages.
+ */
+export const RECORDING = { startTime: RUN_START, duration: 2000 }
 
 /** Per-session metadata for the recording the screencast view plays. */
 export const recordedSessionMetadata: MetadataBySession = {

@@ -186,36 +186,49 @@ describe('wdio-devtools-trace-player-controls', () => {
       expect(received).toHaveLength(1)
     })
 
-    // The bar has no bounds state: stepping past either end is the timeline's
-    // call, so nothing here is ever disabled.
-    it('keeps every control live at the start of the recording', async () => {
+    /**
+     * The bar owns no bounds state — where the playhead sits is the timeline's
+     * business, and clamping a step is too. So the controls keep driving it at
+     * either end, and these three cases pin that by the EVENT each click sends:
+     * a `?disabled` binding appearing in the bar would swallow the click and
+     * every one of them fails. Asserting `button.disabled` instead cannot fail —
+     * the bar renders no such binding, so the value is a constant.
+     */
+    it('still steps back with the playhead at the start of the recording', async () => {
       const el = await mountControls({ currentMs: 0, duration: 9_000 })
 
-      expect(
-        shadowAll<HTMLButtonElement>(el, CONTROL).map(
-          (button) => button.disabled
-        )
-      ).toEqual([false, false, false, false])
+      const received = capture<{ dir: number }>(KBD.step, () =>
+        control(el, 'Previous action').click()
+      )
+
+      expect(received.map((event) => event.detail.dir)).toEqual([-1])
     })
 
-    it('keeps every control live at the end of the recording', async () => {
+    it('still steps forward with the playhead at the end of the recording', async () => {
       const el = await mountControls({ currentMs: 9_000, duration: 9_000 })
 
-      expect(
-        shadowAll<HTMLButtonElement>(el, CONTROL).map(
-          (button) => button.disabled
-        )
-      ).toEqual([false, false, false, false])
+      const received = capture<{ dir: number }>(KBD.step, () =>
+        control(el, 'Next action').click()
+      )
+
+      expect(received.map((event) => event.detail.dir)).toEqual([1])
     })
 
-    it('keeps every control live for a recording of no length', async () => {
-      const el = await mountControls()
+    it('drives the timeline from every control for a recording of no length', async () => {
+      const el = await mountControls({ currentMs: 0, duration: 0 })
 
-      expect(
-        shadowAll<HTMLButtonElement>(el, CONTROL).map(
-          (button) => button.disabled
-        )
-      ).toEqual([false, false, false, false])
+      const stepped = capture<{ dir: number }>(KBD.step, () => {
+        control(el, 'Previous action').click()
+        control(el, 'Next action').click()
+      })
+      const restarted = capture(PLAYER_RESTART_EVENT, () =>
+        control(el, 'Restart').click()
+      )
+      const toggled = capture(KBD.togglePlay, () => control(el, 'Play').click())
+
+      expect(stepped.map((event) => event.detail.dir)).toEqual([-1, 1])
+      expect(restarted).toHaveLength(1)
+      expect(toggled).toHaveLength(1)
     })
   })
 
