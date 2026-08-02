@@ -28,8 +28,7 @@ const CARD = '.meta-card'
 const ROW = '.mrow'
 const JSON_BLOCK = '.mrow.json pre'
 const LINK = '.mrow .v a'
-const BOOL_TRUE = '.bool-true'
-const BOOL_FALSE = '.bool-false'
+const BOOL = '[class^="bool-"]'
 const SELECT = '.session-select'
 const OPTION = '.session-select option'
 const PLACEHOLDER = 'wdio-devtools-placeholder'
@@ -83,6 +82,25 @@ function sectionNamed(panel: DevtoolsMetadata, label: string): MetaSection {
     throw new Error(`no metadata section headed "${label}"`)
   }
   return found
+}
+
+/** Colour class and text of the boolean cell in the row keyed `key` — read
+ *  together and per key, so it is the pairing that gets compared. */
+const boolRow = (
+  panel: DevtoolsMetadata,
+  key: string
+): { class: string; text: string } => {
+  const row = shadowAll(panel, ROW).find(
+    (candidate) => text(shadow(candidate, '.k')) === key
+  )
+  if (!row) {
+    throw new Error(`no metadata row keyed "${key}"`)
+  }
+  const cell = shadow(row, `.v ${BOOL}`)
+  if (!cell) {
+    throw new Error(`the "${key}" row rendered no boolean cell`)
+  }
+  return { class: cell.className, text: text(cell) }
 }
 
 /** Raw lines of a JSON block — `text()` collapses the indentation that makes it
@@ -305,11 +323,37 @@ describe('wdio-devtools-metadata', () => {
       expect(sectionLabels(panel)).toEqual(['Session', 'Capabilities'])
     })
 
-    it('colours a boolean capability by its value', async () => {
+    // The class and the text come off the same value (`metadata.ts:188`), so a
+    // `.bool-true` reading "true" is a tautology. What can break is the pairing:
+    // which row got which colour. Read per key, and asserted against a second
+    // capture that carries the opposite value for the same two keys — a panel
+    // colouring by anything but the captured value fails one of the two.
+    it('colours a boolean row by the value captured for that key', async () => {
       const panel = await mountMetadata(loginMetadata)
+      const inverted = await mountMetadata(
+        metadata({
+          sessionId: 'inverted',
+          capabilities: { setWindowRect: false },
+          desiredCapabilities: { acceptInsecureCerts: true }
+        })
+      )
 
-      expect(text(shadow(panel, BOOL_TRUE))).toBe('true')
-      expect(text(shadow(panel, BOOL_FALSE))).toBe('false')
+      expect(boolRow(panel, 'setWindowRect')).toEqual({
+        class: 'bool-true',
+        text: 'true'
+      })
+      expect(boolRow(panel, 'acceptInsecureCerts')).toEqual({
+        class: 'bool-false',
+        text: 'false'
+      })
+      expect(boolRow(inverted, 'setWindowRect')).toEqual({
+        class: 'bool-false',
+        text: 'false'
+      })
+      expect(boolRow(inverted, 'acceptInsecureCerts')).toEqual({
+        class: 'bool-true',
+        text: 'true'
+      })
     })
 
     it('pretty-prints an object capability into a JSON block', async () => {

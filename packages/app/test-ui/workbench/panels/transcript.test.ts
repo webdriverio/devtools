@@ -66,6 +66,14 @@ const failingClick: CommandLog = commandLog({
   error: { name: 'Error', message: 'element not interactable' }
 })
 
+/** A second failure whose message is a single line, so the list it lands in is
+ *  well-formed — the contrast to `failingAssertion` below. */
+const failingRead: CommandLog = commandLog({
+  command: 'getText',
+  args: ['#flash'],
+  error: { name: 'Error', message: 'element not found' }
+})
+
 const passingNavigation: CommandLog = commandLog({
   command: 'url',
   args: [LOGIN_URL]
@@ -87,6 +95,11 @@ async function mountTranscript(
  *  and line order is the thing under test. */
 const bodyLines = (panel: DevtoolsTranscript): string[] =>
   (shadow(panel, BODY)?.textContent ?? '').split('\n')
+
+/** Lines of the copied prompt's Failures section, which the panel writes as a
+ *  markdown list — one bullet per failing command. */
+const failureLines = (prompt: string): string[] =>
+  prompt.split('## Failures\n')[1].split('\n')
 
 /** The panel copies through `navigator.clipboard`, which a headless run has no
  *  user gesture or permission for; the writes are recorded instead. */
@@ -247,18 +260,44 @@ describe('wdio-devtools-transcript', () => {
       expect(writes[0]).toContain('- click: element not interactable')
     })
 
-    it('lists one line per failing command', async () => {
+    it('lists one bullet per failing command, in the order they ran', async () => {
       const writes = recordClipboard()
       const panel = await mountTranscript(TRANSCRIPT, [
         failingClick,
         passingNavigation,
+        failingRead
+      ])
+      await clickCopy(panel)
+
+      expect(failureLines(writes[0])).toEqual([
+        '- click: element not interactable',
+        '- getText: element not found'
+      ])
+    })
+
+    // SOURCE BUG, pinned as it behaves today: `transcript.ts`'s `#buildPrompt`
+    // (:94-98) inlines the raw error message and joins the rows with '\n', so
+    // the tail of a multi-line error lands outside the markdown list the prompt
+    // is built as — an LLM reads an unattributed `Received:` line. Indenting or
+    // escaping the continuation flips both assertions below.
+    it('spills the tail of a multi-line error out of the failures list', async () => {
+      const writes = recordClipboard()
+      const panel = await mountTranscript(TRANSCRIPT, [
+        failingClick,
         failingAssertion
       ])
       await clickCopy(panel)
 
-      const failures = writes[0].split('## Failures\n')[1].split('\n')
-      expect(failures[0]).toBe('- click: element not interactable')
-      expect(failures[1]).toContain(FLASH_ASSERTION)
+      const [expectedLine, receivedLine] = FLASH_ERROR.split('\n')
+      const failures = failureLines(writes[0])
+      expect(failures).toEqual([
+        '- click: element not interactable',
+        `- ${FLASH_ASSERTION}: ${expectedLine}`,
+        receivedLine
+      ])
+      // Two commands failed, so a well-formed list is two bullets on two lines.
+      expect(failures.filter((line) => line.startsWith('- '))).toHaveLength(2)
+      expect(failures).toHaveLength(3)
     })
 
     it('confirms the copy on the control itself', async () => {

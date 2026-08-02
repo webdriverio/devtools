@@ -167,7 +167,6 @@ describe('wdio-devtools-logs', () => {
     it('falls back to the other category for a command it cannot classify', async () => {
       const panel = await mountLogs(commandLog({ command: 'takeScreenshot' }))
 
-      expect(commandCategory('takeScreenshot')).toBe('other')
       expect(categoryOf(panel)).toBe('cat-other')
     })
 
@@ -211,12 +210,23 @@ describe('wdio-devtools-logs', () => {
       expect(shadowAll(panel, REFERENCE)).toHaveLength(0)
     })
 
-    it('renders no reference link when the command arrives as a property', async () => {
-      // The protocol lookup lives in the `show-command` handler, so a command
-      // assigned directly carries no definition.
-      const panel = await mountLogs(commandLog({ command: 'navigateTo' }))
+    // SOURCE BUG, pinned as it behaves today: `command` is a public
+    // `@property` (logs.ts:16-17) but the protocol lookup only runs inside the
+    // `show-command` listener (logs.ts:180), so one and the same command
+    // renders its Reference link and Description by event and neither by
+    // property. Resolving the definition on input flips the property column.
+    it('resolves the protocol of a command by event but not of one assigned as a property', async () => {
+      const byEvent = await mountLogs()
+      await showCommand(byEvent, commandLog({ command: 'navigateTo' }))
+      // Mounted after the event on purpose: `show-command` is listened for on
+      // `window` (logs.ts:148) and never unlistened, so a panel alive at
+      // dispatch time picks the event up whether or not it was the target.
+      const byProperty = await mountLogs(commandLog({ command: 'navigateTo' }))
 
-      expect(shadowAll(panel, REFERENCE)).toHaveLength(0)
+      expect(shadowAll(byEvent, REFERENCE)).toHaveLength(1)
+      expect(sectionTitles(byEvent)).toContain('Description')
+      expect(shadowAll(byProperty, REFERENCE)).toHaveLength(0)
+      expect(sectionTitles(byProperty)).not.toContain('Description')
     })
   })
 

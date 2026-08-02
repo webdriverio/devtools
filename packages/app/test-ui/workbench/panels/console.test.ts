@@ -183,10 +183,22 @@ describe('wdio-devtools-console-logs', () => {
       expect(texts(panel, TIME)).toEqual(['0.0s', '0.4s', '1.2s', '2.5s'])
     })
 
-    it('renders an empty time cell for an entry without a timestamp', async () => {
+    // SOURCE BUG, pinned as it behaves today: `ConsoleLog.timestamp` is
+    // required (`shared/src/types.ts:210`), so 0 is a captured time like any
+    // other, and the panel's own convention for the first captured log is
+    // `0.0s` — asserted above and again below. `console.ts:266` guards the cell
+    // on truthiness instead, so an entry timestamped 0 loses its time. Reading
+    // the cell as an element rather than through `text()` is what separates
+    // "blank cell" from "no cell at all": `text(null)` is `''` too.
+    it('blanks the time cell of an entry captured at timestamp 0', async () => {
       const panel = await mountConsole([consoleLog({ timestamp: 0 })])
+      const nonZero = await mountConsole([consoleLog({ timestamp: RUN_START })])
 
-      expect(text(shadow(panel, TIME))).toBe('')
+      const cells = shadowAll(panel, TIME)
+      expect(cells).toHaveLength(1)
+      expect(text(cells[0])).toBe('')
+      // The same single entry at any other timestamp does get the 0.0s cell.
+      expect(texts(nonZero, TIME)).toEqual(['0.0s'])
     })
   })
 

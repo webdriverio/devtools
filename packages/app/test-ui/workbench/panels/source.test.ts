@@ -1,3 +1,4 @@
+import { ContextProvider, type Context } from '@lit/context'
 import type { CommandLog } from '@wdio/devtools-shared'
 
 import { commandContext, sourceContext } from '@/controller/context.js'
@@ -93,6 +94,52 @@ async function mountSource(
   await settle(panel)
   await nextFrame()
   return panel
+}
+
+/** Ancestor the panel raises its own dock tab through (`source.ts:199-201`) —
+ *  the only observable difference between the two call-source events, so it
+ *  needs a host answering `closest('wdio-devtools-tabs')`. The real element is
+ *  outside this spec's import graph, so the recorder is an unupgraded host
+ *  carrying the one method the panel calls; `display: contents` keeps it out of
+ *  the layout CodeMirror measures. */
+interface TabsHost extends HTMLElement {
+  activateTab: (label: string) => void
+}
+
+const tabsHosts: Element[] = []
+
+afterEach(() => {
+  for (const host of tabsHosts.splice(0)) {
+    host.remove()
+  }
+})
+
+async function mountSourceUnderTabs(
+  sources: Record<string, string>,
+  commands: CommandLog[] = []
+): Promise<{ panel: DevtoolsSource; activated: string[] }> {
+  const host = document.createElement('wdio-devtools-tabs') as TabsHost
+  host.style.display = 'contents'
+  const activated: string[] = []
+  host.activateTab = (label) => activated.push(label)
+  document.body.append(host)
+  tabsHosts.push(host)
+
+  for (const { context, value } of [
+    { context: sourceContext, value: sources },
+    { context: commandContext, value: commands }
+  ]) {
+    new ContextProvider(host, {
+      context: context as Context<unknown, unknown>,
+      initialValue: value
+    }).hostConnected()
+  }
+
+  const panel = document.createElement(PANEL) as DevtoolsSource
+  host.append(panel)
+  await panel.updateComplete
+  await nextFrame()
+  return { panel, activated }
 }
 
 async function highlight(panel: DevtoolsSource, callSource: string) {
@@ -243,10 +290,30 @@ describe('wdio-devtools-source', () => {
       ])
     })
 
-    it('highlights the line a passive source-track event names', async () => {
-      const panel = await mountSource(loginSources, loginSourceCommands)
+    it('raises its own dock tab for a source-highlight event', async () => {
+      const { panel, activated } = await mountSourceUnderTabs(
+        loginSources,
+        loginSourceCommands
+      )
+      await highlight(panel, SET_VALUE_CALL_SOURCE)
+
+      expect(activated).toEqual(['Source'])
+      expect(texts(panel, CALL_SITE)).toEqual([
+        collapsed(SPEC_LINES[SET_VALUE_LINE - 1])
+      ])
+    })
+
+    // The one difference between the two events (`source.ts:199-201`): the
+    // passive one moves the call site without pulling the dock to the Source
+    // tab, so a reader who is on another tab is not yanked away from it.
+    it('highlights the line a passive source-track event names without raising its tab', async () => {
+      const { panel, activated } = await mountSourceUnderTabs(
+        loginSources,
+        loginSourceCommands
+      )
       await track(panel, SET_VALUE_CALL_SOURCE)
 
+      expect(activated).toEqual([])
       expect(texts(panel, CALL_SITE)).toEqual([
         collapsed(SPEC_LINES[SET_VALUE_LINE - 1])
       ])

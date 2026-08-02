@@ -126,6 +126,14 @@ const attrOf = (el: Element | null, name: string) =>
 const barWidths = (panel: DevtoolsNetwork) =>
   rows(panel).map((row) => shadow<HTMLElement>(row, BAR)?.style.width ?? null)
 
+/** Both halves of a bar's geometry, so a bar wired to the wrong half of the
+ *  helper's `{ offset, width }` fails on the row where the two differ. */
+const barGeometry = (panel: DevtoolsNetwork) =>
+  rows(panel).map((row) => {
+    const bar = shadow<HTMLElement>(row, BAR)
+    return bar ? { left: bar.style.left, width: bar.style.width } : null
+  })
+
 const detailSections = (panel: DevtoolsNetwork): DetailSection[] =>
   shadowAll(panel, DETAIL_SECTION).map((section) => ({
     title: text(shadow(section, '.detail-title')),
@@ -328,23 +336,18 @@ describe('wdio-devtools-network', () => {
         null
       ])
       // 800ms is the slowest; the 8ms request is held at the visible minimum.
-      expect(barWidths(panel)).toEqual([
-        '100%',
-        '50%',
-        '2%',
-        '15%',
-        '25%',
-        '5%',
+      // Read with the offset each bar was placed at: every bar starts at the
+      // left edge, so only the pairing tells a width bound to `left` apart from
+      // one bound to `width`.
+      expect(barGeometry(panel)).toEqual([
+        { left: '0%', width: '100%' },
+        { left: '0%', width: '50%' },
+        { left: '0%', width: '2%' },
+        { left: '0%', width: '15%' },
+        { left: '0%', width: '25%' },
+        { left: '0%', width: '5%' },
         null
       ])
-    })
-
-    it('starts every bar at the left edge of its track', async () => {
-      const panel = await mountNetwork(loginNetwork.requests)
-
-      expect(
-        shadowAll<HTMLElement>(panel, BAR).map((bar) => bar.style.left)
-      ).toEqual(['0%', '0%', '0%', '0%', '0%', '0%'])
     })
 
     it('draws no bar and dashes the duration of an in-flight request', async () => {
@@ -371,14 +374,16 @@ describe('wdio-devtools-network', () => {
     })
 
     it('rescales the bars against the slowest request left after filtering', async () => {
+      const unfiltered = await mountNetwork(loginNetwork.requests)
       const panel = await mountNetwork(loginNetwork.requests)
       await clickTypeTab(panel, 'JS')
 
       // Scaled against the filtered set, so the 400ms script now fills the
-      // track; scaling against the unfiltered 800ms maximum would give 50%.
+      // track; scaling against the unfiltered 800ms maximum would give 50% —
+      // which is what the same request's bar reads in the unfiltered panel.
       expect(barWidths(panel)).toEqual(expectedBarWidths([loginNetwork.script]))
       expect(barWidths(panel)).toEqual(['100%'])
-      expect(expectedBarWidths(loginNetwork.requests)[1]).toBe('50%')
+      expect(barWidths(unfiltered)[1]).toBe('50%')
     })
   })
 
