@@ -1,3 +1,5 @@
+import type { RequestType } from '@wdio/devtools-shared'
+
 import { getRequestType } from './utils.js'
 
 /**
@@ -23,7 +25,9 @@ export interface NetworkEntry {
   statusText?: string
   responseHeaders?: Record<string, string>
   mimeType?: string
-  type?: string
+  /** Set only by `getRequestType`, so it carries the shared vocabulary; absent
+   *  until the response event arrives. */
+  type?: RequestType
   size?: number
   endTime?: number
   time?: number

@@ -17,7 +17,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "test:ui": "vitest --ui",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p packages/app/test-ui/tsconfig.json && tsc --noEmit -p tsconfig.dts.json && tsc --noEmit -p examples/wdio/tsconfig.json",
+    "test:ui": "wdio run packages/app/wdio.conf.ts",
     "test:debug": "node --inspect-brk ./node_modules/.bin/vitest run",
     "lint": "pnpm --parallel lint",
     "watch": "pnpm build --watch",
@@ -37,10 +38,10 @@
     "@changesets/cli": "^2.31.0",
     "@eslint/js": "^10.0.1",
     "@types/node": "25.9.3",
+    "@types/ws": "^8.18.1",
     "@typescript-eslint/eslint-plugin": "^8.60.1",
     "@typescript-eslint/parser": "^8.60.1",
     "@typescript-eslint/utils": "^8.60.1",
-    "@vitest/browser": "^4.1.8",
     "@vitest/coverage-v8": "^4.1.8",
     "@wdio/allure-reporter": "^9.29.1",
     "autoprefixer": "^10.5.0",
@@ -62,7 +63,8 @@
     "unplugin-icons": "^23.0.1",
     "vite": "^8.0.16",
     "vitest": "^4.1.8",
-    "webdriverio": "^9.27.2"
+    "webdriverio": "^9.27.2",
+    "ws": "^8.21.0"
   },
   "dependencies": {
     "@wdio/cli": "9.28.0"

@@ -1,7 +1,29 @@
 import type { RunnerRequestBody } from '@wdio/devtools-shared'
 
-function escapeRegex(str: string): string {
+/**
+ * Escape a test name for a grep-style rerun filter. These values are compiled
+ * as a regex (mocha's `grep()` does `new RegExp(str)`; cucumber's `--name` and
+ * jasmine's `grep` are documented as string-or-regexp), so a title carrying
+ * `()`, `[]` or `.` matches something other than itself — usually nothing, and
+ * the rerun then silently runs no tests.
+ */
+export function escapeFilterRegex(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+/**
+ * Grep pattern for a mocha/jasmine rerun, built from WDIO's `fullTitle`.
+ *
+ * Mocha matches the filter against its own SPACE-joined full title
+ * ("Login (failing) asserts the flash"), while `@wdio/mocha-framework` reports
+ * ancestry DOT-joined ("Login (failing).asserts the flash"), so a separator
+ * has to accept either form. Everything else is escaped: an unescaped `(` from
+ * a suite title like "Login (failing)" opens a capture group and the pattern
+ * then matches a string no test is named, so the runner filters everything out
+ * and reports the spec as skipped.
+ */
+export function buildTitleGrep(fullTitle: string): string {
+  return escapeFilterRegex(fullTitle).replace(/\\\./g, '[.\\s]')
 }
 
 export type FilterBuilder = (ctx: {
@@ -46,7 +68,7 @@ const buildCucumberFilters: FilterBuilder = ({ specArg, payload }) => {
         }
         filters.push(
           '--cucumberOpts.name',
-          `^${rowNumber}:\\s*${escapeRegex(scenarioName)}$`
+          `^${rowNumber}:\\s*${escapeFilterRegex(scenarioName)}$`
         )
         return filters
       }
@@ -72,7 +94,7 @@ const buildMochaFilters: FilterBuilder = ({ specArg, payload }) => {
     filters.push('--spec', specArg)
   }
   if (payload.fullTitle) {
-    filters.push('--mochaOpts.grep', payload.fullTitle)
+    filters.push('--mochaOpts.grep', buildTitleGrep(payload.fullTitle))
   }
   return filters
 }
@@ -83,7 +105,7 @@ const buildJasmineFilters: FilterBuilder = ({ specArg, payload }) => {
     filters.push('--spec', specArg)
   }
   if (payload.fullTitle) {
-    filters.push('--jasmineOpts.grep', payload.fullTitle)
+    filters.push('--jasmineOpts.grep', buildTitleGrep(payload.fullTitle))
   }
   return filters
 }
@@ -112,7 +134,7 @@ const buildNightwatchCucumberFilters: FilterBuilder = ({ payload }) => {
   if (!isFeatureLevel && payload.fullTitle) {
     // Wrap as an anchored exact regex so "Scenario A" never also matches
     // "Scenario A-1" (Cucumber treats --name as a regex).
-    const escaped = escapeRegex(payload.fullTitle)
+    const escaped = escapeFilterRegex(payload.fullTitle)
     filters.push('--name', `^${escaped}$`)
   }
   return filters

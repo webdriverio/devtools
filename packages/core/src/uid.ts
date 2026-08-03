@@ -16,6 +16,25 @@ export function deterministicUid(...parts: string[]): string {
   return `stable-${Math.abs(hash).toString(36)}`
 }
 
+const STEP_UID_SEPARATOR = ':step:'
+
+/**
+ * Key for one step (a Cucumber `Given`/`When`/`Then`) inside a test, derived
+ * from the test's own uid plus a per-test index — repeated step text can't
+ * collide. Derived rather than hashed so a step's owning test is recoverable
+ * from the key alone, which is what {@link isStepUidOf} relies on.
+ */
+export function stepMetadataUid(testUid: string, index: number): string {
+  return `${testUid}${STEP_UID_SEPARATOR}${index}`
+}
+
+/** True when `uid` is a step of `testUid`. Anchored on the full test uid plus
+ *  the separator, so a sibling test whose uid merely starts with the same
+ *  characters doesn't match. */
+export function isStepUidOf(uid: string, testUid: string): boolean {
+  return uid.startsWith(`${testUid}${STEP_UID_SEPARATOR}`)
+}
+
 // Counter for disambiguating repeated (file, name) signatures within a single
 // test run. Cleared by resetSignatureCounters() between runs.
 const signatureCounters = new Map<string, number>()

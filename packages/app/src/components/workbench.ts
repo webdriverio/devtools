@@ -10,11 +10,14 @@ import {
   networkRequestContext,
   baselineContext,
   commandContext,
+  selectedTestUidContext,
   suiteContext
 } from '../controller/context.js'
 import type {
   CommandLog,
+  ConsoleLog,
   Metadata,
+  NetworkRequest,
   PreservedAttempt
 } from '@wdio/devtools-shared'
 import type { SuiteStatsFragment } from '../controller/types.js'
@@ -74,7 +77,7 @@ export class DevtoolsWorkbench extends Element {
 
   @consume({ context: consoleLogContext, subscribe: true })
   @state()
-  consoleLogs: ConsoleLogs[] | undefined = undefined
+  consoleLogs: ConsoleLog[] | undefined = undefined
 
   @consume({ context: networkRequestContext, subscribe: true })
   @state()
@@ -83,6 +86,10 @@ export class DevtoolsWorkbench extends Element {
   @consume({ context: baselineContext, subscribe: true })
   @state()
   baselines: Map<string, PreservedAttempt> | undefined = undefined
+
+  @consume({ context: selectedTestUidContext, subscribe: true })
+  @state()
+  selectedTestUid: string | undefined = undefined
 
   @consume({ context: commandContext, subscribe: true })
   @state()
@@ -309,12 +316,15 @@ export class DevtoolsWorkbench extends Element {
     `
   }
 
-  #renderCompareTabIfAvailable() {
-    if ((this.baselines?.size || 0) === 0) {
+  // The panel renders the baseline of the SELECTED test and no other, so a
+  // baseline held for a different test is nothing this tab could open onto.
+  // Uncounted on purpose: one tab is one comparison.
+  #renderCompareTabForSelectedTest() {
+    if (!this.selectedTestUid || !this.baselines?.has(this.selectedTestUid)) {
       return nothing
     }
     return html`
-      <wdio-devtools-tab label="Compare" .badge="${this.baselines?.size || 0}">
+      <wdio-devtools-tab label="Compare">
         <wdio-devtools-compare></wdio-devtools-compare>
       </wdio-devtools-tab>
     `
@@ -378,7 +388,7 @@ export class DevtoolsWorkbench extends Element {
               <wdio-devtools-transcript></wdio-devtools-transcript>
             </wdio-devtools-tab>`
         : nothing}
-      ${this.#renderCompareTabIfAvailable()}
+      ${this.#renderCompareTabForSelectedTest()}
     `
   }
 

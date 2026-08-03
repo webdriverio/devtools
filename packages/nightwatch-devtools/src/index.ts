@@ -58,6 +58,7 @@ import { registerEventHandlers as registerEventHandlersImpl } from './event-hub.
 import {
   cucumberBefore as cucumberLifecycleBefore,
   cucumberAfter as cucumberLifecycleAfter,
+  captureCucumberScenarioBeforeQuit as cucumberLifecycleBeforeQuit,
   cucumberBeforeStep as cucumberLifecycleBeforeStep,
   cucumberAfterStep as cucumberLifecycleAfterStep,
   type CucumberResult
@@ -416,6 +417,10 @@ class NightwatchDevToolsPlugin {
   async cucumberBefore(browser: NightwatchBrowser, pickle: CucumberPickle) {
     this.#currentTestStartWallTime = Date.now()
     await cucumberLifecycleBefore(this.#getInternals(), browser, pickle)
+  }
+
+  async cucumberBeforeQuit(browser: NightwatchBrowser, result: CucumberResult) {
+    await cucumberLifecycleBeforeQuit(this.#getInternals(), browser, result)
   }
 
   async cucumberAfter(

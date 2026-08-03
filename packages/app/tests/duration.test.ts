@@ -9,15 +9,30 @@ import {
 import type { CommandLog, TraceMutation } from '@wdio/devtools-shared'
 
 describe('formatDuration', () => {
-  it('shows milliseconds under a second', () => {
+  it('shows milliseconds below a second', () => {
     expect(formatDuration(0)).toBe('0ms')
     expect(formatDuration(276)).toBe('276ms')
-    expect(formatDuration(1000)).toBe('1000ms')
+    expect(formatDuration(999)).toBe('999ms')
   })
 
-  it('shows seconds with two decimals under a minute', () => {
+  it('shows seconds with two decimals below a minute', () => {
     expect(formatDuration(1430)).toBe('1.43s')
     expect(formatDuration(10760)).toBe('10.76s')
+  })
+
+  it('switches unit AT each boundary, not one millisecond past it', () => {
+    // A `>` test left the first value of each unit rendered in the unit below:
+    // a four-digit `1000ms`, and a minute-long step reported as `60.00s`.
+    expect(formatDuration(1000)).toBe('1.00s')
+    expect(formatDuration(60_000)).toBe('1m 0s')
+  })
+
+  it('truncates seconds rather than rounding into the next bucket', () => {
+    // `durationHeat` calls 1999ms mid and 2000ms slow. Rounding printed `2.00s`
+    // for both, so the two buckets showed the same label in different colours.
+    expect(formatDuration(1999)).toBe('1.99s')
+    expect(formatDuration(2000)).toBe('2.00s')
+    expect(formatDuration(59_999)).toBe('59.99s')
   })
 
   it('shows minutes and seconds above a minute', () => {
@@ -29,7 +44,7 @@ describe('formatDuration', () => {
     expect(formatDuration(1.02978515625)).toBe('1ms')
     expect(formatDuration(22.4)).toBe('22ms')
     expect(formatDuration(0.4)).toBe('0ms')
-    expect(formatDuration(999.7)).toBe('1000ms')
+    expect(formatDuration(999.7)).toBe('1.00s')
     expect(formatDuration(5049.9)).toBe('5.05s')
     expect(formatDuration(60000.6)).toBe('1m 0s')
   })

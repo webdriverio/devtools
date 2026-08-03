@@ -1,3 +1,11 @@
+import { TEST_STATE } from '@wdio/devtools-shared'
+
+import {
+  hasFailure,
+  hasInFlight,
+  isInFlight,
+  tallyOutcomes
+} from '../utils/test-outcome.js'
 import type { SuiteStatsFragment, TestStatsFragment } from './types.js'
 
 /**
@@ -142,49 +150,52 @@ export function markSpecificRunning(
   })
 }
 
+/** A test the run never settled is cancelled by the stop; one that already
+ *  reported an outcome keeps it. */
+const stopTest = (test: TestStatsFragment): TestStatsFragment =>
+  test && isInFlight(test)
+    ? {
+        ...test,
+        end: new Date(),
+        state: TEST_STATE.FAILED,
+        error: { message: 'Test execution stopped', name: 'TestStoppedError' }
+      }
+    : test
+
 /**
- * Mark every still-running test (no `end`) as failed. Used when the user
- * manually stops the run from the dashboard — without this, suites with
- * `state: 'running'` would keep showing their spinner indefinitely.
+ * Mark every test the run never settled as failed. Used when the user manually
+ * stops the run from the dashboard — without this, suites with
+ * `state: 'running'` would keep showing their spinner indefinitely. A test that
+ * already reported an outcome keeps it: a skipped test carries no `end` stamp,
+ * so keying the flip off `end` used to relabel every skipped test as failed.
  *
- * The suite's state is derived from its updated children: if any child is
- * failed (or the suite itself was 'running' with no live children left),
- * the suite ends up failed. Otherwise the existing state is preserved.
+ * The suite's state is derived from its updated children: if any child failed
+ * (or the suite itself was 'running' with no live children left), the suite
+ * ends up failed — a stopped run is not a passing one. Otherwise the existing
+ * state is preserved.
  */
 export function markRunningAsStopped(suites: SuiteChunks): SuiteChunks {
   const updateSuite = (s: SuiteStatsFragment): SuiteStatsFragment => {
-    const updatedTests = s.tests?.map((test): TestStatsFragment => {
-      if (test && !test.end) {
-        return {
-          ...test,
-          end: new Date(),
-          state: 'failed',
-          error: {
-            message: 'Test execution stopped',
-            name: 'TestStoppedError'
-          }
-        }
-      }
-      return test
-    })
-
+    const updatedTests = s.tests?.map(stopTest)
     const updatedNestedSuites = s.suites?.map(updateSuite)
 
-    const allTests = [...(updatedTests || []), ...(updatedNestedSuites || [])]
-    const hasFailed = allTests.some((t) => t?.state === 'failed')
-    const hasRunning = allTests.some((t) => !t?.end)
-    const derivedState: SuiteStatsFragment['state'] = hasRunning
+    const childStates = tallyOutcomes([
+      ...(updatedTests || []),
+      ...(updatedNestedSuites || [])
+    ])
+    const stillRunning = hasInFlight(childStates)
+    const derivedState: SuiteStatsFragment['state'] = stillRunning
       ? s.state
-      : hasFailed
-        ? 'failed'
-        : s.state === 'running'
-          ? 'failed'
+      : hasFailure(childStates)
+        ? TEST_STATE.FAILED
+        : s.state === TEST_STATE.RUNNING
+          ? TEST_STATE.FAILED
           : s.state
 
     return {
       ...s,
       state: derivedState,
-      ...(!hasRunning && !s.end ? { end: new Date() } : {}),
+      ...(!stillRunning && !s.end ? { end: new Date() } : {}),
       tests: updatedTests || [],
       suites: updatedNestedSuites || []
     }

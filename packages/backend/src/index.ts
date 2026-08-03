@@ -23,6 +23,7 @@ import {
   BASELINE_API,
   BASELINE_WS_SCOPE,
   TRACE_API,
+  WORKER_WS_QUERY,
   WS_PATHS,
   WS_SCOPE,
   type BaselinePreserveRequest,
@@ -59,6 +60,10 @@ const clients = new Set<WebSocket>()
 // rerun-child leaves the parent unreachable and `clientDisconnected` is lost.
 let workerSocket: WebSocket | undefined
 let parentWorkerSocket: WebSocket | undefined
+
+// Run the accumulated state belongs to. Compared against each connecting
+// worker's `runId` so a new spec's worker is told apart from a new run.
+let activeRunId: string | undefined
 
 // sessionId → absolute path of the encoded .webm; queried by /api/video/:sessionId.
 const videoRegistry = new Map<string, string>()
@@ -133,6 +138,12 @@ async function handleTestRun(
   if (!body?.uid || !body.entryType) {
     return reply.code(400).send({ error: 'Invalid run payload' })
   }
+  // Logged through fastify so it survives a config `logLevel` that silences
+  // @wdio/logger: a rerun that filters to nothing reports only "spec skipped",
+  // and these fields are what decide the filter.
+  reply.log.info(
+    `run ${body.entryType} uid=${body.uid} framework=${body.framework} spec=${body.specFile} title=${JSON.stringify(body.fullTitle)}`
+  )
   // Broadcast a clear so popouts (which only see WS events) wipe too.
   broadcastToClients(
     JSON.stringify({
@@ -306,14 +317,22 @@ function registerWorkerWebSocket(s: FastifyInstance): void {
       // a different failed test still finds data; #updateNode handles window
       // expansion across reruns of the same test.
       const isRerunChild = testRunner.consumeRerunChildFlag()
+      const query = req.query as { reconnect?: string; runId?: string }
       // A mid-run session-change reconnect (e.g. after `browser.end()`) reopens
       // this socket; keep the accumulated run state so earlier tests' commands
       // survive for Preserve & Rerun instead of being wiped.
-      const isReconnect =
-        (req.query as { reconnect?: string })?.reconnect === '1'
-      if (!isRerunChild && !isReconnect) {
+      const isReconnect = query?.[WORKER_WS_QUERY.reconnect] === '1'
+      // A run opens one worker socket per spec file, so the second spec's
+      // worker is a fresh connect with neither flag set. Its run id matches,
+      // which is what keeps earlier specs preservable.
+      const runId = query?.[WORKER_WS_QUERY.runId]
+      const isSameRun = Boolean(runId) && runId === activeRunId
+      if (!isRerunChild && !isReconnect && !isSameRun) {
         messageBuffer.length = 0
         baselineStore.resetActiveRun()
+        // Rerun children report their own id; leaving it unrecorded keeps the
+        // parent run's identity, so its later workers still read as same-run.
+        activeRunId = runId
       }
       workerSocket = socket
       if (!isRerunChild) {

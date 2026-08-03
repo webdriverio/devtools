@@ -2,7 +2,7 @@
   "name": "@wdio/devtools-core",
   "version": "1.0.1",
   "private": true,
-  "description": "Framework-agnostic capture/reporter logic shared by @wdio/devtools-* adapters. Workspace-internal, never published — code is inlined into each consuming adapter at build time.",
+  "description": "Framework-agnostic capture/reporter logic shared by @wdio/devtools-* adapters. Workspace-internal, never published \u2014 code is inlined into each consuming adapter at build time.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/webdriverio/devtools.git",
@@ -47,6 +47,7 @@
     "@wdio/devtools-script": "workspace:*",
     "@wdio/devtools-shared": "workspace:^",
     "@xmldom/xmldom": "^0.9.8",
+    "fflate": "^0.8.2",
     "stacktrace-parser": "^0.1.11",
     "ws": "^8.21.0",
     "xpath": "^0.0.34",

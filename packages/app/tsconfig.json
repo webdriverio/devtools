@@ -3,5 +3,8 @@
   "compilerOptions": {
     "ignoreDeprecations": "6.0",
     "noUncheckedSideEffectImports": false
-  }
+  },
+  // Component specs need the browser-runner's mocha + expect globals, which the
+  // app build must not depend on — they carry their own tsconfig.
+  "exclude": ["test-ui"]
 }

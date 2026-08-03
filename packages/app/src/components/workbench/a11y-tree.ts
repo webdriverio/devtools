@@ -3,8 +3,8 @@ import { html, css, nothing, type TemplateResult } from 'lit'
 import { customElement, state } from 'lit/decorators.js'
 
 import {
+  isSnapshotHeaderLine,
   SNAPSHOT_INDENT_UNIT,
-  SNAPSHOT_PAGE_HEADER,
   SNAPSHOT_LOCATOR_DELIM
 } from '@wdio/devtools-shared'
 import type { CommandLog } from '@wdio/devtools-shared'
@@ -13,6 +13,7 @@ import '../placeholder.js'
 
 const COMPONENT = 'wdio-devtools-a11y'
 const NAME_MAX = 64
+const UNAVAILABLE_GLYPH = '🌳'
 
 interface A11yNode {
   depth: number
@@ -276,7 +277,7 @@ export class DevtoolsA11yTree extends Element {
    *  blank lines return null. */
   #parse(line: string): A11yNode | null {
     const trimmed = line.trimStart()
-    if (!trimmed || trimmed.startsWith(SNAPSHOT_PAGE_HEADER)) {
+    if (!trimmed || isSnapshotHeaderLine(trimmed)) {
       return null
     }
     const indent = line.length - trimmed.length
@@ -344,15 +345,32 @@ export class DevtoolsA11yTree extends Element {
       >`
   }
 
+  /** Why the panel is empty. A selected command with no `snapshotText` is a
+   *  capture gap, not an idle panel: per-command a11y capture is WDIO-only, so
+   *  Selenium and Nightwatch traces always land here. */
+  #unavailable(): TemplateResult {
+    return this.active
+      ? html`<wdio-devtools-placeholder
+          icon="${UNAVAILABLE_GLYPH}"
+          heading="No accessibility snapshot for this command"
+          description="Per-command accessibility capture is WebdriverIO-only — Selenium and Nightwatch traces do not include it."
+        ></wdio-devtools-placeholder>`
+      : html`<wdio-devtools-placeholder
+          icon="${UNAVAILABLE_GLYPH}"
+          heading="No command selected"
+          description="Select a command in the Actions tab to see the accessibility tree captured for it."
+        ></wdio-devtools-placeholder>`
+  }
+
   render() {
     const text = this.active?.snapshotText
     if (!text) {
-      return html`<wdio-devtools-placeholder></wdio-devtools-placeholder>`
+      return this.#unavailable()
     }
     const lines = text.split('\n')
-    const header = lines[0]?.startsWith(SNAPSHOT_PAGE_HEADER)
-      ? lines[0]
-      : undefined
+    // Web captures head `[Page: <title> — <url>]`, native ones `[<platform> …]`.
+    const header =
+      lines[0] && isSnapshotHeaderLine(lines[0]) ? lines[0] : undefined
     const nodes = lines
       .map((l) => this.#parse(l))
       .filter((n): n is A11yNode => n !== null)

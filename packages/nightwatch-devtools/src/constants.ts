@@ -84,6 +84,7 @@ export const CONFIG_FILENAMES = [
 
 /**
  * Global key used to share the plugin instance with Cucumber hooks.
- * Must match across index.ts and cucumberHooks.cts.
+ * Defined in its own leaf module so the Cucumber hooks can bundle it standalone
+ * (see plugin-global-key.ts); re-exported here for the rest of the plugin.
  */
-export const PLUGIN_GLOBAL_KEY = '__nightwatchDevtoolsPlugin'
+export { PLUGIN_GLOBAL_KEY } from './plugin-global-key.js'

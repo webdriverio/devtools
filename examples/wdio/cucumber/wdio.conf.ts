@@ -1,22 +1,14 @@
 import path from 'node:path'
-import type { Options } from '@wdio/types'
 
 const __dirname = path.resolve(path.dirname(new URL(import.meta.url).pathname))
 
-export const config: Options.Testrunner = {
+export const config: WebdriverIO.Config = {
   //
   // ====================
   // Runner Configuration
   // ====================
   // WebdriverIO supports running e2e tests as well as unit and component tests.
   runner: 'local',
-  autoCompileOpts: {
-    autoCompile: true,
-    tsNodeOpts: {
-      project: './tsconfig.json',
-      transpileOnly: true
-    }
-  },
   //
   // ==================
   // Specify Test Files

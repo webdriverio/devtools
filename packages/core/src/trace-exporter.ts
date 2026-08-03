@@ -3,6 +3,7 @@
 
 import fs from 'node:fs/promises'
 import path from 'node:path'
+import { TRACE_ZIP_ENTRIES } from '@wdio/devtools-shared'
 import type {
   ActionSnapshot,
   CommandLog,
@@ -15,12 +16,7 @@ import type {
   TraceLog,
   TraceMutation
 } from '@wdio/devtools-shared'
-import {
-  formatActionTitle,
-  mapCommandToAction,
-  FILL_METHODS,
-  type TraceAction
-} from './action-mapping.js'
+import { mapCommandToAction } from './action-mapping.js'
 import {
   buildConsoleEvents,
   type ConsoleEvent,
@@ -42,7 +38,12 @@ import { buildSourceResources } from './trace-sources.js'
 import { networkRequestToHar } from './trace-har.js'
 import { buildTraceZip, type TraceZipResource } from './trace-zip-writer.js'
 import { buildMutationsNdjson } from './trace-mutations.js'
+import { generateTranscript } from './trace-transcript.js'
 import { sha1Hex } from './sha1.js'
+
+// Transcript building moved to its own module; re-exported here because this is
+// the name the package barrel and downstream adapters already import.
+export { generateTranscript }
 
 const TRACE_VERSION = 8
 const LIBRARY_NAME = '@wdio/devtools-core'
@@ -273,61 +274,6 @@ function compareEvents(a: TraceEvent, b: TraceEvent): number {
   return dt !== 0 ? dt : eventOrder(a) - eventOrder(b)
 }
 
-/**
- * Generate a human/LLM-readable Markdown transcript from captured commands.
- */
-export function generateTranscript(
-  commands: CommandLog[],
-  startWallTime: number,
-  title?: string
-): string {
-  const wallTimeISO = new Date(startWallTime).toISOString()
-  const lines: string[] = [`# ${title ?? 'Session'} — ${wallTimeISO}`, '']
-
-  // Sort by invocation time so batched commands land at their real timeline
-  // positions — Nightwatch buffers native asserts and emits them at test-end,
-  // so raw order clusters all asserts after the navigations. The Actions tree
-  // stays correct because buildActionEvents applies the same sort; mirror it
-  // here so the transcript matches execution order. Stable + a no-op for
-  // already-ordered WDIO/Selenium command logs.
-  const ordered = [...commands].sort(
-    (a, b) => (a.startTime ?? a.timestamp) - (b.startTime ?? b.timestamp)
-  )
-  const captured: { entry: CommandLog; action: TraceAction }[] = []
-  for (const c of ordered) {
-    const action = mapCommandToAction(String(c.command))
-    if (action) {
-      captured.push({ entry: c, action })
-    }
-  }
-
-  captured.forEach(({ entry, action }, idx) => {
-    const label = formatActionTitle(action, entry.args as unknown[])
-
-    const rawArgs = entry.args as unknown[]
-    const parts: string[] = [`${idx + 1}. ${label}`]
-
-    if (FILL_METHODS.has(action.method) && rawArgs) {
-      const valueIdx = rawArgs.length >= 2 ? 1 : 0
-      if (rawArgs[valueIdx] !== undefined) {
-        parts.push(`value="${String(rawArgs[valueIdx])}"`)
-      }
-    }
-
-    if (entry.error) {
-      const msg =
-        typeof entry.error === 'object' && 'message' in entry.error
-          ? (entry.error as { message: string }).message
-          : String(entry.error)
-      parts.push(`ERROR: ${msg}`)
-    }
-
-    lines.push(parts.join('  '))
-  })
-
-  return lines.join('\n')
-}
-
 interface TraceBundle {
   traceNdjson: string
   networkNdjson: Buffer
@@ -455,28 +401,29 @@ async function exportTraceDirectory(
   } = {}
 ): Promise<void> {
   const bundle = buildTraceBundle(trace, opts)
-  await fs.mkdir(path.join(targetDir, 'resources'), { recursive: true })
+  const entry = (name: string) => path.join(targetDir, name)
+  const {
+    trace: T,
+    network,
+    mutations,
+    transcript,
+    resourcesDir
+  } = TRACE_ZIP_ENTRIES
+  await fs.mkdir(entry(resourcesDir), { recursive: true })
   await Promise.all([
-    fs.writeFile(path.join(targetDir, 'trace.trace'), bundle.traceNdjson),
-    fs.writeFile(
-      path.join(targetDir, 'transcript.md'),
-      bundle.transcriptMd,
-      'utf8'
-    ),
+    fs.writeFile(entry(T), bundle.traceNdjson),
+    fs.writeFile(entry(transcript), bundle.transcriptMd, 'utf8'),
     bundle.networkNdjson.length
-      ? fs.writeFile(
-          path.join(targetDir, 'trace.network'),
-          bundle.networkNdjson
-        )
+      ? fs.writeFile(entry(network), bundle.networkNdjson)
       : Promise.resolve(),
     bundle.mutationsNdjson.length
-      ? fs.writeFile(
-          path.join(targetDir, 'trace.mutations'),
-          bundle.mutationsNdjson
-        )
+      ? fs.writeFile(entry(mutations), bundle.mutationsNdjson)
       : Promise.resolve(),
     ...bundle.resources.map((r) =>
-      fs.writeFile(path.join(targetDir, 'resources', r.resourceName), r.data)
+      fs.writeFile(
+        path.join(targetDir, TRACE_ZIP_ENTRIES.resourcesDir, r.resourceName),
+        r.data
+      )
     )
   ])
 }

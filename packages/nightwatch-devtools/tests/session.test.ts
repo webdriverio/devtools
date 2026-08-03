@@ -94,7 +94,7 @@ describe('SessionCapturer.captureCommand', () => {
 
   it('leaves testUid undefined when not provided', async () => {
     const cap = makeCapturer()
-    await cap.captureCommand('click', ['.btn'])
+    await cap.captureCommand('click', ['.btn'], undefined, undefined)
     expect(cap.commandsLog[0].testUid).toBeUndefined()
   })
 })

@@ -1,8 +1,10 @@
 import { createContext } from '@lit/context'
 import type {
+  ConsoleLog,
   Metadata,
   MetadataBySession,
   CommandLog,
+  NetworkRequest,
   PreservedAttempt,
   TraceActionChild,
   TracePlayerFrame
@@ -13,7 +15,7 @@ export const mutationContext = createContext<TraceMutation[]>(
   Symbol('mutationContext')
 )
 export const logContext = createContext<string[]>(Symbol('logContext'))
-export const consoleLogContext = createContext<ConsoleLogs[]>(
+export const consoleLogContext = createContext<ConsoleLog[]>(
   Symbol('consoleLogContext')
 )
 export const networkRequestContext = createContext<NetworkRequest[]>(

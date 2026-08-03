@@ -29,12 +29,13 @@
     "plugin": true
   },
   "scripts": {
-    "build": "tsup src/index.ts --format esm --dts --sourcemap --clean",
+    "build": "tsup",
     "watch": "tsup src/index.ts --format esm --dts --sourcemap --watch",
     "clean": "rm -rf dist",
     "lint": "eslint .",
     "example": "nightwatch -c ../../examples/nightwatch/nightwatch.conf.cjs",
     "example:retry": "nightwatch -c ../../examples/nightwatch/nightwatch.conf.cjs --retries 1",
+    "example:cucumber": "nightwatch -c ../../examples/nightwatch/cucumber/nightwatch.cucumber.conf.cjs",
     "prepublishOnly": "pnpm build"
   },
   "keywords": [
@@ -59,6 +60,7 @@
     "yazl": "^2.5.1"
   },
   "devDependencies": {
+    "@cucumber/cucumber": "^13.0.0",
     "@types/node": "25.9.3",
     "@types/ws": "^8.18.1",
     "@wdio/devtools-core": "workspace:^",

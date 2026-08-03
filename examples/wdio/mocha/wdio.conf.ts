@@ -1,16 +1,7 @@
-import type { Options } from '@wdio/types'
-
 // Mocha counterpart to wdio.conf.ts (which runs the Cucumber example). Same
 // capabilities and devtools service; only the framework + spec layout differ.
-export const config: Options.Testrunner = {
+export const config: WebdriverIO.Config = {
   runner: 'local',
-  autoCompileOpts: {
-    autoCompile: true,
-    tsNodeOpts: {
-      project: './tsconfig.json',
-      transpileOnly: true
-    }
-  },
   specs: ['./specs/**/*.e2e.ts'],
   exclude: [],
   // Live mode drives a single-session dashboard; >1 worker streams two sessions
@@ -19,7 +10,6 @@ export const config: Options.Testrunner = {
   capabilities: [
     {
       browserName: 'chrome',
-      // browserVersion: '147.0.7727.56',
       'goog:chromeOptions': {
         args: [
           '--headless',

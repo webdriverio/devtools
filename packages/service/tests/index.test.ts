@@ -29,6 +29,7 @@ const mockSessionCapturerInstance = {
   injectScript: vi.fn().mockResolvedValue(undefined),
   captureTrace: vi.fn().mockResolvedValue(undefined),
   resetScriptInjection: vi.fn(),
+  noteResolvedSelector: vi.fn(),
   captureSource: vi.fn(),
   captureAssertCommand: vi.fn(),
   cleanup: vi.fn(),
@@ -215,6 +216,61 @@ describe('DevtoolsService - Internal Command Filtering', () => {
 
     it('does not flush before a non-navigating command', async () => {
       await service.beforeCommand('getText' as any, ['#flash'])
+      expect(mockSessionCapturerInstance.captureTrace).not.toHaveBeenCalled()
+    })
+  })
+
+  // Field edits (value/checked) fire no page transition, so with a
+  // navigation-only drain they stayed buffered in the page until the next
+  // navigation — every action in between replayed the form as it loaded, empty.
+  // Trace mode is unaffected: it captures a real per-action DOM snapshot.
+  describe('afterCommand - per-command drain (live mode)', () => {
+    beforeEach(async () => {
+      await service.before({} as any, [], mockBrowser)
+      vi.clearAllMocks()
+    })
+
+    it('drains after a top-level non-navigating command', async () => {
+      service.beforeCommand('setValue' as any, ['#username', 'foobar'])
+      await service.afterCommand('setValue' as any, ['#username', 'foobar'], {})
+      expect(mockSessionCapturerInstance.captureTrace).toHaveBeenCalledTimes(1)
+    })
+
+    it('does not drain after a locator command', async () => {
+      service.beforeCommand('$' as any, ['#username'])
+      await service.afterCommand('$' as any, ['#username'], {})
+      expect(mockSessionCapturerInstance.captureTrace).not.toHaveBeenCalled()
+    })
+
+    it('leaves the navigation drain to the capturer', async () => {
+      vi.clearAllMocks()
+      service.beforeCommand('click' as any, ['button'])
+      // beforeCommand's pre-navigation flush is the only drain the plugin owns
+      // for a navigating command — the post-command one lives in the capturer.
+      expect(mockSessionCapturerInstance.captureTrace).toHaveBeenCalledTimes(1)
+      await service.afterCommand('click' as any, ['button'], {})
+      expect(mockSessionCapturerInstance.captureTrace).toHaveBeenCalledTimes(1)
+    })
+
+    it('does not drain in trace mode', async () => {
+      // Trace mode runs the per-action snapshot path instead, which needs the
+      // page-settle surface the shared stub doesn't carry.
+      const traceBrowser = {
+        ...mockBrowser,
+        waitUntil: vi.fn().mockResolvedValue(true),
+        pause: vi.fn().mockResolvedValue(undefined),
+        getUrl: vi.fn().mockResolvedValue('http://test.com'),
+        getTitle: vi.fn().mockResolvedValue('title')
+      } as any
+      const traceService = new DevToolsHookService({ mode: 'trace' })
+      await traceService.before({} as any, [], traceBrowser)
+      vi.clearAllMocks()
+      traceService.beforeCommand('setValue' as any, ['#username', 'foobar'])
+      await traceService.afterCommand(
+        'setValue' as any,
+        ['#username', 'foobar'],
+        {}
+      )
       expect(mockSessionCapturerInstance.captureTrace).not.toHaveBeenCalled()
     })
   })

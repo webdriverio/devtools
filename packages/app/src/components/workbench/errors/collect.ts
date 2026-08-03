@@ -16,16 +16,13 @@ import { stripAnsi } from '../console-filter.js'
 export interface CollectedError {
   /** Failing action/step or test title — the row heading. */
   title: string
-  /** Error message shown message-first, monospace. */
+  /** Error headline, with any Expected/Received block already split off. */
   message: string
-  /** Optional stack, rendered under the message when present. */
+  /** Optional stack, rendered in a collapsed section at the end of the row. */
   stack?: string
   /** `file:line:col` source anchor for the "open source" link. */
   callSource?: string
-  /** The failing command, when the error came from one — lets the tab dispatch
-   *  `show-command` to select and scroll to that action. */
-  command?: CommandLog
-  /** Command timestamp; drives ordering and the `show-command` elapsed time. */
+  /** Command timestamp; orders the command rows. Test rows carry none. */
   timestamp?: number
   /** Assertion expected value, rendered as a labelled row when present. */
   expected?: string
@@ -35,13 +32,21 @@ export interface CollectedError {
 
 const ASSERTION_COMMAND_RE = /^(expect|assert|verify)\./
 
-/** Display string for an expected/actual value that may already be serialized. */
+/** Headline used when the whole message body was the Expected/Received block, so
+ *  there is nothing left to head the row with. */
+export const GENERIC_ERROR_TITLE = 'Error'
+
+/** Display string for a RAW expected/actual value — one this app is printing for
+ *  the first time. Strings are quoted so an empty or space-padded value is
+ *  visible. Values lifted out of a matcher message must NOT come through here:
+ *  the matcher already printed them (`"Secure Area"`), and quoting again renders
+ *  `'"Secure Area"'`. Provenance is resolved at the single call site below. */
 function displayValue(value: unknown): string | undefined {
   if (value === undefined || value === null) {
     return undefined
   }
   if (typeof value === 'string') {
-    return value
+    return `'${value}'`
   }
   try {
     return JSON.stringify(value)
@@ -157,7 +162,7 @@ function readError(error: unknown):
   const { body, stack } = splitStack(stripAnsi(raw))
   const diff = extractDiff(body)
   return {
-    message: diff.headline || 'Error',
+    message: diff.headline || GENERIC_ERROR_TITLE,
     stack: e.stack ? stripAnsi(e.stack) : stack,
     expected: diff.expected ?? displayValue(e.expected),
     actual: diff.actual ?? displayValue(e.actual)
@@ -202,7 +207,6 @@ function commandErrors(commands: CommandLog[] | undefined): CollectedError[] {
           message: read.message,
           stack: read.stack,
           callSource: command.callSource,
-          command,
           timestamp: command.timestamp,
           expected: values.expected ?? read.expected,
           actual: values.actual ?? read.actual
@@ -245,9 +249,9 @@ function isAssertionEcho(
 /**
  * Build the Errors-tab list from the live/player contexts.
  *
- * Command failures come first (time-ordered) because they carry the clickable
- * action; a failed test that only echoes a command's failure is dropped so the
- * same failure isn't listed twice (e.g. a Cucumber `Then` fails as both the
+ * Command failures come first (time-ordered) because they pinpoint the action
+ * that failed; a failed test that only echoes a command's failure is dropped so
+ * the same failure isn't listed twice (e.g. a Cucumber `Then` fails as both the
  * assertion command and the step). The echo is detected two ways because the
  * frameworks reword the test-level message: a normalized-message match (robust
  * to the `Error:` prefix Cucumber adds), and — for assertions — the command's

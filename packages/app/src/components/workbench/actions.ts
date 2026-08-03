@@ -18,6 +18,7 @@ import '../placeholder.js'
 import './actionItems/command.js'
 import './actionItems/group.js'
 import './actionItems/mutation.js'
+import { elapsedSince } from '../../utils/elapsed.js'
 import { entryDuration, stepDurations } from './actionItems/duration.js'
 import { activeSpanAt } from './active-entry.js'
 import {
@@ -195,17 +196,15 @@ export class DevtoolsActions extends Element {
       this.expandOverrides.get(group.callId) ??
       defaultExpanded(group, activeIndex >= 0 ? activeIndex : undefined)
     const rows = flattenActionTree(rootChildren, isExpanded)
-    const baseline = commands[0]?.timestamp ?? 0
     const gaps = stepDurations(commands.map((command) => command.timestamp))
     return html`<div class="timeline tree" @group-toggle=${this.#onGroupToggle}>
-      ${rows.map((row) => this.#renderTreeRow(row, commands, baseline, gaps))}
+      ${rows.map((row) => this.#renderTreeRow(row, commands, gaps))}
     </div>`
   }
 
   #renderTreeRow(
     row: ActionTreeRow,
     commands: CommandLog[],
-    baseline: number,
     gaps: Array<number | undefined>
   ) {
     const indent = `padding-left: ${row.depth * TREE_INDENT_PX}px`
@@ -227,7 +226,7 @@ export class DevtoolsActions extends Element {
     return html`
       <wdio-devtools-command-item
         style=${indent}
-        elapsedTime=${entry.timestamp - baseline}
+        elapsedTime=${elapsedSince(commands, entry)}
         .duration=${duration}
         .entry=${entry}
         ?active=${entry === this.activeEntry}
@@ -244,11 +243,12 @@ export class DevtoolsActions extends Element {
     if (!entries.length) {
       return html`<wdio-devtools-placeholder></wdio-devtools-placeholder>`
     }
-    const baselineTimestamp = entries[0]?.timestamp ?? 0
     const durations = stepDurations(entries.map((entry) => entry.timestamp))
 
     const rows = entries.map((entry, index) => {
-      const elapsedTime = entry.timestamp - baselineTimestamp
+      // Timed against the merged list, so the top row always reads zero — a
+      // document load can precede the first command.
+      const elapsedTime = elapsedSince(entries, entry)
       const duration = entryDuration(entry, durations[index])
       const active = entry === this.activeEntry
 

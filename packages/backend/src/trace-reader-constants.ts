@@ -2,23 +2,19 @@ import {
   ACTION_MAP,
   ASSERT_ACTION_CLASS,
   LOG_LEVELS,
+  TRACE_STREAM_SUFFIXES,
   TRACKED_ASSERT_METHODS
 } from '@wdio/devtools-shared'
 
 /** Runtime lookup for narrowing foreign trace levels to the shared union. */
 export const LOG_LEVEL_SET: ReadonlySet<string> = new Set(LOG_LEVELS)
 
-/** Every zip entry ending in this suffix is an NDJSON action-event stream. */
-export const TRACE_STREAM_SUFFIX = '.trace'
-
-/** Every zip entry ending in this suffix is an NDJSON HAR-snapshot stream. */
-export const NETWORK_STREAM_SUFFIX = '.network'
-
-/** Sidecar entries holding call stacks keyed by numeric call id. */
-export const STACKS_STREAM_SUFFIX = '.stacks'
-
-/** Every zip entry ending in this suffix is an NDJSON DOM-mutation stream. */
-export const MUTATIONS_STREAM_SUFFIX = '.mutations'
+// Re-exported from the shared trace-file contract so the writer and reader
+// cannot disagree about entry naming; the local names stay for readability.
+export const TRACE_STREAM_SUFFIX = TRACE_STREAM_SUFFIXES.trace
+export const NETWORK_STREAM_SUFFIX = TRACE_STREAM_SUFFIXES.network
+export const STACKS_STREAM_SUFFIX = TRACE_STREAM_SUFFIXES.stacks
+export const MUTATIONS_STREAM_SUFFIX = TRACE_STREAM_SUFFIXES.mutations
 
 /** Foreign screencast refs may be a bare sha1; probe image extensions too. */
 export const FRAME_RESOURCE_SUFFIXES = ['', '.jpeg', '.png'] as const

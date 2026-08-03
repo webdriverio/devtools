@@ -81,6 +81,21 @@ describe('DOM mutation capture utilities', () => {
     expect(JSON.stringify(vnode)).toBeTruthy()
   })
 
+  it('should serialize a text child as its data, not as an element', () => {
+    // Only an Element has `outerHTML`. Handed a Text node, parse5 threw on
+    // `undefined` and the catch below serialized its own stack trace onto the
+    // wire — which the replay then inserted into the page as a visible div.
+    const text = document.createTextNode('hello world')
+
+    expect(parseFragment(text as unknown as Element)).toBe('hello world')
+  })
+
+  it('should drop a comment child, the same as one inside a parsed tree', () => {
+    const comment = document.createComment('build stamp')
+
+    expect(parseFragment(comment as unknown as Element)).toBe('')
+  })
+
   it('should handle parsing errors without breaking mutation capture', () => {
     const fragmentResult = parseFragment(null as any)
     const documentResult = parseDocument(null as any)

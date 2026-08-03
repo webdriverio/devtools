@@ -10,7 +10,7 @@ import type {
   PreservedAttempt,
   PreservedStep
 } from '@wdio/devtools-shared'
-import { cleanErrorMessage, safeJson } from './compareUtils.js'
+import { cleanErrorMessage, errorText, safeJson } from './compareUtils.js'
 import { computeDetailBlockData } from './stepResolution.js'
 
 /** Assertion commands carry `[actual, expected]` in args (mirrors the Errors
@@ -144,7 +144,7 @@ export function renderDetailBlock(
         : html`
             ${cmd.error
               ? html`<pre style="color:var(--vscode-charts-red,#f48771);">
-error: ${cleanErrorMessage(cmd.error.message || String(cmd.error))}</pre
+error: ${cleanErrorMessage(errorText(cmd.error))}</pre
                 >`
               : html`<pre>result: ${data.resultStr}</pre>`}
             ${renderExpectedActualAssertion(

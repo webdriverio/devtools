@@ -1,49 +1,11 @@
+import { waitForBody, getRef } from './utils.js'
 import {
-  waitForBody,
-  parseFragment,
-  getRef,
-  assignRef,
-  REF_ATTR
-} from './utils.js'
+  MUTATION_OBSERVER_CONFIG,
+  serializeMutation,
+  shouldCapture
+} from './mutations.js'
 import { log } from './logger.js'
 import { collector } from './collector.js'
-
-function serializeMutation(
-  m: MutationRecord,
-  timestamp: number
-): TraceMutation {
-  const addedNodes = Array.from(m.addedNodes).map((node) => {
-    assignRef(node as Element)
-    return parseFragment(node as Element)
-  })
-  const removedNodes = Array.from(m.removedNodes).map((node) => getRef(node))
-  const target = getRef(m.target)
-  const previousSibling = m.previousSibling ? getRef(m.previousSibling) : null
-  const nextSibling = m.nextSibling ? getRef(m.nextSibling) : null
-  let attributeValue: string | undefined
-  if (m.type === 'attributes') {
-    attributeValue = (m.target as Element).getAttribute(m.attributeName!) || ''
-  }
-  let newTextContent: string | undefined
-  if (m.type === 'characterData') {
-    newTextContent = (m.target as Element).textContent || ''
-  }
-  log(`added mutation: ${m.type}`)
-  return {
-    type: m.type,
-    attributeName: m.attributeName,
-    attributeNamespace: m.attributeNamespace,
-    oldValue: m.oldValue,
-    addedNodes,
-    target,
-    removedNodes,
-    previousSibling,
-    nextSibling,
-    timestamp,
-    attributeValue,
-    newTextContent
-  } as TraceMutation
-}
 
 try {
   log('waiting for body to render')
@@ -53,10 +15,9 @@ try {
   collector.captureCurrentDom()
   log('added initial page structure')
 
-  const config = { attributes: true, childList: true, subtree: true }
   const observer = new MutationObserver((ml) => {
     const timestamp = Date.now()
-    const mutationList = ml.filter((m) => m.attributeName !== REF_ATTR)
+    const mutationList = ml.filter(shouldCapture)
     log(`observed ${mutationList.length} mutations`)
     try {
       collector.captureMutation(
@@ -66,7 +27,7 @@ try {
       collector.captureError(err as Error)
     }
   })
-  observer.observe(document.body, config)
+  observer.observe(document.body, MUTATION_OBSERVER_CONFIG)
 
   // Form-field state (value / checked) lives on element PROPERTIES, which the
   // MutationObserver never reports — so a replayed page shows empty inputs even
@@ -92,6 +53,9 @@ try {
         type: 'attributes',
         target: ref,
         attributeName: checkable ? 'checked' : 'value',
+        // `String` never yields the ambiguous shape a boolean attribute reader
+        // has to guess at: `checked` is always an explicit "true"/"false", and
+        // `value` is not a boolean attribute, so its `''` is a real empty value.
         attributeValue: checkable ? String(el.checked) : String(el.value),
         addedNodes: [],
         removedNodes: [],

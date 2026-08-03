@@ -14,6 +14,7 @@ import fs from 'node:fs/promises'
 import { unzipSync, strFromU8 } from 'fflate'
 import {
   isMutationsTruncationMarker,
+  TRACE_ZIP_ENTRIES,
   type CommandLog,
   type NetworkRequest,
   type TraceLog,
@@ -382,8 +383,8 @@ export function parseTraceZip(zip: Uint8Array): TracePlayerData {
     indexByCallId
   )
   const startTime = earliestWallTime(merged.ctxs)
-  const transcript = files['transcript.md']
-    ? strFromU8(files['transcript.md'])
+  const transcript = files[TRACE_ZIP_ENTRIES.transcript]
+    ? strFromU8(files[TRACE_ZIP_ENTRIES.transcript])
     : undefined
   const trace: TraceLog = {
     mutations: parseMutationStreams(

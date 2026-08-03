@@ -2,6 +2,7 @@ import logger from '@wdio/logger'
 import {
   COLLECTOR_READY_EXPRESSION,
   SessionCapturerBase,
+  drainCollectorWithRecovery,
   errorMessage,
   isSessionGoneError,
   loadInjectableScript,
@@ -239,10 +240,17 @@ export class SessionCapturer extends SessionCapturerBase {
       // (page navigation) between the existence check and the getTraceData
       // call. Two round-trips left a TOCTOU race that logged spurious
       // "Cannot read properties of undefined (reading 'getTraceData')" errors.
-      const traceData = await exec(
-        driver,
-        `return ${COLLECTOR_READY_EXPRESSION} ? window.wdioTraceCollector.getTraceData() : null;`
-      )
+      const traceData = await drainCollectorWithRecovery({
+        drain: () =>
+          exec(
+            driver,
+            `return ${COLLECTOR_READY_EXPRESSION} ? window.wdioTraceCollector.getTraceData() : null;`
+          ),
+        injectIntoCurrentDocument: () => this.injectScript(),
+        currentUrl: async () =>
+          (await exec(driver, 'return location.href;')) as string | undefined,
+        log: (level, message) => log[level](message)
+      })
       if (!traceData) {
         return
       }

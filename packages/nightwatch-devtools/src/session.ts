@@ -2,6 +2,7 @@ import http from 'node:http'
 import logger from '@wdio/logger'
 import {
   SessionCapturerBase,
+  drainCollectorWithRecovery,
   errorMessage,
   loadInjectableScript,
   mapChromeBrowserLogs,
@@ -453,11 +454,11 @@ export class SessionCapturer extends SessionCapturerBase {
         this.networkRequests as NetworkEntry[]
       )
       if (deduped.length > 0) {
-        // NetworkEntry has `type?: string`; the shared NetworkRequest needs
-        // `type: string` so default the field at this framework boundary.
+        // A perf-log entry that never saw its response event carries no type;
+        // default it to the vocabulary's residual at this framework boundary.
         const normalized = deduped.map((d) => ({
           ...d,
-          type: d.type ?? 'unknown'
+          type: d.type ?? 'other'
         }))
         this.networkRequests.push(...normalized)
         this.sendUpstream('networkRequests', normalized)
@@ -483,16 +484,24 @@ export class SessionCapturer extends SessionCapturerBase {
     // the only safe form; a separate existence check would race page navigation
     // (the collector can disappear between the two round-trips).
     try {
-      const result = await browser.execute(`
-        if (typeof window.wdioTraceCollector === 'undefined') {
-          return null;
-        }
-        return window.wdioTraceCollector.getTraceData();
-      `)
+      const traceData = await drainCollectorWithRecovery({
+        drain: async () => {
+          const result = await browser.execute(`
+            if (typeof window.wdioTraceCollector === 'undefined') {
+              return null;
+            }
+            return window.wdioTraceCollector.getTraceData();
+          `)
+          return unwrapDriverValue<Record<string, unknown> | null>(result)
+        },
+        injectIntoCurrentDocument: () => this.injectScript(browser),
+        currentUrl: async () =>
+          unwrapDriverValue<string | undefined>(
+            await browser.execute('return location.href;')
+          ),
+        log: (level, message) => log[level](message)
+      })
 
-      const traceData = unwrapDriverValue<Record<string, unknown> | null>(
-        result
-      )
       if (!traceData) {
         return
       }

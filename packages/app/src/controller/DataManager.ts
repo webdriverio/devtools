@@ -1,8 +1,10 @@
 import { ContextProvider, type Context, type ContextType } from '@lit/context'
 import type { ReactiveController, ReactiveControllerHost } from 'lit'
 import type {
+  ConsoleLog,
   Metadata,
   CommandLog,
+  NetworkRequest,
   TraceLog,
   PreservedAttempt,
   TracePlayerData
@@ -27,6 +29,7 @@ import {
 } from './context.js'
 import { BASELINE_WS_SCOPE, TRACE_API, WS_SCOPE } from '@wdio/devtools-shared'
 import { CACHE_ID } from './constants.js'
+import { RUN_ALL_UID } from '../components/sidebar/constants.js'
 import { rerunState } from './rerunState.js'
 import type { SuiteStatsFragment, SocketMessage } from './types.js'
 import { canonicalizeUids, mergeSuite } from './suite-merge.js'
@@ -161,21 +164,21 @@ export class DataManagerController implements ReactiveController {
     // of the previous run's terminal state (passed/failed).
     if (!uid) {
       rerunState.activeRerunSuiteUid = undefined
-      this.#markTestAsRunning('*', 'suite')
+      this.#markTestAsRunning(RUN_ALL_UID, 'suite')
       return
     }
 
     // Track the top-level rerun suite uid so we can identify child-scenario
     // clears (from the Nightwatch backend) and skip their data wipes.
-    if (!isChildOfActiveRerun && entryType === 'suite' && uid !== '*') {
+    if (!isChildOfActiveRerun && entryType === 'suite' && uid !== RUN_ALL_UID) {
       rerunState.activeRerunSuiteUid = uid
     }
 
     // Track explicit single-test reruns so merge logic can keep sibling tests
     // stable while the backend emits suite-level "pending" snapshots.
-    if (entryType === 'test' && uid !== '*') {
+    if (entryType === 'test' && uid !== RUN_ALL_UID) {
       this.#activeRerunTestUid = uid
-    } else if (entryType === 'suite' || uid === '*') {
+    } else if (entryType === 'suite' || uid === RUN_ALL_UID) {
       this.#activeRerunTestUid = undefined
     }
 
@@ -187,7 +190,7 @@ export class DataManagerController implements ReactiveController {
   #markTestAsRunning(uid: string, entryType?: 'suite' | 'test') {
     const suites = this.suitesContextProvider.value || []
     const updated =
-      uid === '*'
+      uid === RUN_ALL_UID
         ? markAllRunning(suites)
         : markSpecificRunning(suites, uid, entryType)
     this.suitesContextProvider.setValue(updated)
@@ -325,7 +328,7 @@ export class DataManagerController implements ReactiveController {
     } else if (scope === 'metadata') {
       this.#handleMetadataUpdate(data as Metadata)
     } else if (scope === 'consoleLogs') {
-      this.#handleConsoleLogsUpdate(data as string[])
+      this.#handleConsoleLogsUpdate(data as ConsoleLog[])
     } else if (scope === 'networkRequests') {
       this.#handleNetworkRequestsUpdate(data as NetworkRequest[])
     } else if (scope === 'sources') {
@@ -414,7 +417,7 @@ export class DataManagerController implements ReactiveController {
     )
   }
 
-  #handleConsoleLogsUpdate(data: string[]) {
+  #handleConsoleLogsUpdate(data: ConsoleLog[]) {
     this.consoleLogsContextProvider.setValue([
       ...(this.consoleLogsContextProvider.value || []),
       ...data

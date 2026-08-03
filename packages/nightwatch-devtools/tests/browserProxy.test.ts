@@ -39,7 +39,7 @@ function makeCapturer() {
         error,
         testUid,
         callSource,
-        timestamp
+        timestamp: timestamp ?? Date.now()
       })
       return true
     }

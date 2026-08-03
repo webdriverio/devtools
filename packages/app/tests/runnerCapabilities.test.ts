@@ -6,11 +6,19 @@ import {
   getFramework,
   getLaunchCommand,
   getRerunCommand,
+  getRunAllDisabledReason,
   getRunCapabilities,
   getRunDisabledReason,
+  isRunAll,
   isRunDisabled,
   isRunDisabledDetail
 } from '../src/components/sidebar/runnerCapabilities.js'
+import {
+  RUN_ALL_REFUSAL,
+  RUN_ALL_UID,
+  SINGLE_TEST_REFUSAL,
+  SUITE_REFUSAL
+} from '../src/components/sidebar/constants.js'
 import type {
   TestEntry,
   TestRunDetail
@@ -25,6 +33,11 @@ function entry(type: 'test' | 'suite'): TestEntry {
 }
 function detail(entryType: 'test' | 'suite'): TestRunDetail {
   return { entryType, uid: 'u' }
+}
+/** A run-all reaches the same helpers as a suite run — same `entryType`, only
+ *  the uid differs. */
+function runAllDetail(): TestRunDetail {
+  return { entryType: 'suite', uid: RUN_ALL_UID }
 }
 
 describe('getFramework', () => {
@@ -63,6 +76,16 @@ describe('getRunCapabilities', () => {
   })
 })
 
+describe('isRunAll', () => {
+  it('recognises the whole-tree sentinel uid', () => {
+    expect(isRunAll(runAllDetail())).toBe(true)
+  })
+  it('is false for a normal entry uid', () => {
+    expect(isRunAll(detail('suite'))).toBe(false)
+    expect(isRunAll(detail('test'))).toBe(false)
+  })
+})
+
 describe('isRunDisabled / isRunDisabledDetail', () => {
   it('disables test runs when canRunTests is false', () => {
     const m = md({ runCapabilities: { canRunTests: false } })
@@ -77,6 +100,33 @@ describe('isRunDisabled / isRunDisabledDetail', () => {
     expect(isRunDisabledDetail(m, detail('suite'))).toBe(true)
     expect(isRunDisabled(m, entry('test'))).toBe(false)
   })
+
+  it('judges a run-all against canRunAll, not canRunSuites', () => {
+    const noRunAll = md({
+      runCapabilities: { canRunAll: false, canRunSuites: true }
+    })
+    expect(isRunDisabledDetail(noRunAll, runAllDetail())).toBe(true)
+    expect(isRunDisabledDetail(noRunAll, detail('suite'))).toBe(false)
+
+    const suitesOnlyRefused = md({
+      runCapabilities: { canRunAll: true, canRunSuites: false }
+    })
+    expect(isRunDisabledDetail(suitesOnlyRefused, runAllDetail())).toBe(false)
+    expect(isRunDisabledDetail(suitesOnlyRefused, detail('suite'))).toBe(true)
+  })
+})
+
+describe('getRunAllDisabledReason', () => {
+  it('undefined when the runner can run everything', () => {
+    expect(
+      getRunAllDisabledReason(md({ framework: 'cucumber' }))
+    ).toBeUndefined()
+  })
+  it('names the run-all refusal when the runner cannot', () => {
+    expect(getRunAllDisabledReason(md({ framework: 'nightwatch' }))).toBe(
+      RUN_ALL_REFUSAL
+    )
+  })
 })
 
 describe('getRunDisabledReason', () => {
@@ -85,16 +135,19 @@ describe('getRunDisabledReason', () => {
   })
   it('phrases reason per type', () => {
     const m = md({ runCapabilities: { canRunTests: false } })
-    expect(getRunDisabledReason(m, entry('test'))).toContain('Single-test')
+    expect(getRunDisabledReason(m, entry('test'))).toBe(SINGLE_TEST_REFUSAL)
     const m2 = md({ runCapabilities: { canRunSuites: false } })
-    expect(getRunDisabledReason(m2, entry('suite'))).toContain('Suite')
+    expect(getRunDisabledReason(m2, entry('suite'))).toBe(SUITE_REFUSAL)
   })
 })
 
 describe('getCapabilityWarning', () => {
   it('phrases warning per detail entryType', () => {
-    expect(getCapabilityWarning(detail('test'))).toContain('Single-test')
-    expect(getCapabilityWarning(detail('suite'))).toContain('Suite')
+    expect(getCapabilityWarning(detail('test'))).toBe(SINGLE_TEST_REFUSAL)
+    expect(getCapabilityWarning(detail('suite'))).toBe(SUITE_REFUSAL)
+  })
+  it('phrases the run-all warning off the sentinel, not the entryType', () => {
+    expect(getCapabilityWarning(runAllDetail())).toBe(RUN_ALL_REFUSAL)
   })
 })
 

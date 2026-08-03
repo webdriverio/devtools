@@ -47,13 +47,22 @@ export class CommandItem extends ActionItem {
   }
 
   #highlightLine() {
-    const event = new CustomEvent('show-command', {
-      detail: {
-        command: this.entry,
-        elapsedTime: this.elapsedTime
-      }
-    })
-    window.dispatchEvent(event)
+    if (!this.entry) {
+      return
+    }
+    window.dispatchEvent(
+      // Typed as the contract, which is what makes the two nullable fields below
+      // a compile error rather than a blank chip in the Log tab.
+      new CustomEvent<CommandEventProps>('show-command', {
+        detail: {
+          command: this.entry,
+          // The offset this row displays. A row that was handed none is at the
+          // start of its list, so it reads zero like every other emitter's first
+          // action — `undefined` would drop the Log tab's chip entirely.
+          elapsedTime: this.elapsedTime ?? 0
+        }
+      })
+    )
   }
 
   #renderIcon(command: string): TemplateResult {

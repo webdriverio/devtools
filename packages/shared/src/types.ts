@@ -211,6 +211,39 @@ export interface ConsoleLog {
   source?: LogSource
 }
 
+/**
+ * Every word a captured `NetworkRequest.type` can carry. The capture side
+ * classifies once — `core`'s `getRequestType` for driver-observed traffic, the
+ * page collector for its patched `fetch`/`XMLHttpRequest` — and the app only
+ * translates these words into display buckets. Adding a category here is the
+ * compile-time trigger that forces every consumer's mapping to handle it.
+ * `other` is the residual for traffic no producer could classify (a failed
+ * request that never got a content-type, a foreign trace's unknown mime).
+ */
+export const REQUEST_TYPES = [
+  'document',
+  'stylesheet',
+  'script',
+  'image',
+  'font',
+  'fetch',
+  'xhr',
+  'other'
+] as const
+export type RequestType = (typeof REQUEST_TYPES)[number]
+
+/**
+ * Narrow an untrusted value onto {@link RequestType}. Needed wherever a type
+ * arrives from outside this build — a trace file written by an older version,
+ * or an adapter payload off the wire — since the static type can't vouch for it.
+ */
+export function isRequestType(value: unknown): value is RequestType {
+  return (
+    typeof value === 'string' &&
+    (REQUEST_TYPES as readonly string[]).includes(value)
+  )
+}
+
 export interface NetworkRequest {
   id: string
   url: string
@@ -223,7 +256,7 @@ export interface NetworkRequest {
   startTime: number
   endTime?: number
   time?: number
-  type: string
+  type: RequestType
   initiator?: string
   requestHeaders?: Record<string, string>
   responseHeaders?: Record<string, string>

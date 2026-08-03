@@ -3,15 +3,24 @@ import { html, nothing } from 'lit'
 import { consume } from '@lit/context'
 import { snapshotStyles } from './snapshot-styles.js'
 import { renderBrowserChrome } from './browser-chrome.js'
-import { drawElementOverlay, clearElementOverlay } from './element-overlay.js'
+import {
+  drawElementOverlay,
+  clearElementOverlay,
+  resolveTestSelector
+} from './element-overlay.js'
 import { commandPageUrl } from './url-at-timestamp.js'
 import { mutationForCommand } from './mutation-at-command.js'
 import { imageMime } from './trace-timeline-utils.js'
+import { booleanAttributeOn, isBooleanAttribute } from './boolean-attribute.js'
 
 import { type ComponentChildren, h, render, type VNode } from 'preact'
 import { customElement, query } from 'lit/decorators.js'
 import { transform } from './vnode-transform.js'
 import type { SimplifiedVNode } from '../../../../script/types'
+// Type-only, like the `script/types` import above: the collector owns the
+// characterData wire shape (parent ref + child index), so the replay reads it
+// from the same declaration that produces it.
+import type { TextMutation } from '../../../../script/src/mutations.js'
 import type { CommandLog } from '@wdio/devtools-shared'
 
 import {
@@ -28,6 +37,22 @@ import '~icons/mdi/cursor-default-click-outline.js'
 
 const MUTATION_SELECTOR = '__mutation-highlight__'
 
+/** A characterData mutation the collector could address. Older traces (and any
+ *  producer that only sets `target`) carry no `childIndex`, and there is no
+ *  child to patch without one — patching the parent instead would delete its
+ *  element children. */
+function isAddressedText(mutation: TraceMutation): mutation is TextMutation {
+  return (
+    typeof mutation.target === 'string' &&
+    typeof mutation.childIndex === 'number'
+  )
+}
+
+const textChildren = (el: Node) =>
+  Array.from(el.childNodes).filter(
+    (node): node is Text => node.nodeType === Node.TEXT_NODE
+  )
+
 declare global {
   interface WindowEventMap {
     'screencast-ready': CustomEvent<{
@@ -42,6 +67,10 @@ const COMPONENT = 'wdio-devtools-browser'
 @customElement(COMPONENT)
 export class DevtoolsBrowser extends Element {
   #vdom = document.createDocumentFragment()
+  /** Fields a field-state record has written the `value` PROPERTY of, which is
+   *  what separates a dirty replayed field from a pristine one. Weak, and every
+   *  replay rebuilds the document, so entries die with the elements they key. */
+  #fieldStateApplied = new WeakSet<HTMLElement>()
   #activeUrl?: string
   /** Base64 PNG of the screenshot for the currently selected command, or null. */
   #screenshotData: string | null = null
@@ -92,27 +121,40 @@ export class DevtoolsBrowser extends Element {
   @query('section')
   section?: HTMLElement
 
+  /** The window events the player handles while connected, as one table so its
+   *  registration and its teardown cannot drift. Every handler is a per-instance
+   *  arrow field, so the reference removeEventListener gets is the one that was
+   *  added — a bound method would produce a new function per call and never
+   *  detach. */
+  #windowListeners(): ReadonlyArray<readonly [string, EventListener]> {
+    return [
+      ['resize', this.#handleResize],
+      ['window-drag', this.#handleResize],
+      ['app-mutation-highlight', this.#highlightMutation],
+      ['app-mutation-select', this.#handleMutationSelect],
+      ['a11y-highlight', this.#highlightBySelector],
+      ['show-command', this.#handleShowCommand],
+      ['screencast-ready', this.#handleScreencastReady]
+    ]
+  }
+
   async connectedCallback() {
     super.connectedCallback()
-    window.addEventListener('resize', this.#setIframeSize.bind(this))
-    window.addEventListener('window-drag', this.#setIframeSize.bind(this))
-    window.addEventListener(
-      'app-mutation-highlight',
-      this.#highlightMutation.bind(this)
-    )
-    window.addEventListener('app-mutation-select', (ev) =>
-      this.#renderBrowserState(ev.detail)
-    )
-    window.addEventListener('a11y-highlight', this.#highlightBySelector)
-    window.addEventListener(
-      'show-command',
-      this.#handleShowCommand as EventListener
-    )
-    window.addEventListener(
-      'screencast-ready',
-      this.#handleScreencastReady as EventListener
-    )
+    for (const [type, handler] of this.#windowListeners()) {
+      window.addEventListener(type, handler)
+    }
     await this.updateComplete
+  }
+
+  // Lit calls connectedCallback again on every re-connect, so a listener left
+  // behind keeps a discarded player working — it still replays into its detached
+  // iframe and collects arriving recordings — and makes the re-connected one
+  // handle every event twice.
+  disconnectedCallback() {
+    super.disconnectedCallback()
+    for (const [type, handler] of this.#windowListeners()) {
+      window.removeEventListener(type, handler)
+    }
   }
 
   #setIframeSize() {
@@ -220,6 +262,11 @@ export class DevtoolsBrowser extends Element {
       sizer.style.height = `${viewportHeight * scale}px`
     }
   }
+
+  #handleResize = () => this.#setIframeSize()
+
+  #handleMutationSelect = (event: Event) =>
+    this.#renderBrowserState((event as CustomEvent<TraceMutation>).detail)
 
   #handleShowCommand = (event: Event) =>
     this.#renderCommandScreenshot(
@@ -378,16 +425,39 @@ export class DevtoolsBrowser extends Element {
   }
 
   #handleCharacterDataMutation(mutation: TraceMutation) {
-    const el = this.#queryElement(mutation.target!)
+    if (!isAddressedText(mutation)) {
+      return
+    }
+    const el = this.#queryElement(mutation.target)
     if (!el) {
       return
     }
+    // Patch the addressed node's data only. Assigning `textContent` on the
+    // parent would replace ALL of its children — the element ones included.
+    const node = this.#textNodeAt(el, mutation)
+    if (!node) {
+      return
+    }
+    node.data = mutation.newTextContent || ''
+  }
 
-    el.textContent = mutation.newTextContent || ''
+  /** The Text node a characterData mutation addressed. `childIndex` counts the
+   *  CAPTURED parent's childNodes, and the replayed parent can hold fewer (the
+   *  player strips the page's `<script>` children), so an index that no longer
+   *  lands on a text node falls back to the parent's only one — and to nothing
+   *  when several make that ambiguous. */
+  #textNodeAt(el: HTMLElement, mutation: TextMutation): Text | undefined {
+    const addressed = el.childNodes[mutation.childIndex]
+    if (addressed?.nodeType === Node.TEXT_NODE) {
+      return addressed as Text
+    }
+    const texts = textChildren(el)
+    return texts.length === 1 ? texts[0] : undefined
   }
 
   #handleAttributeMutation(mutation: TraceMutation) {
-    if (!mutation.attributeName) {
+    const name = mutation.attributeName
+    if (!name) {
       return
     }
 
@@ -396,15 +466,62 @@ export class DevtoolsBrowser extends Element {
       return
     }
 
-    const value = mutation.attributeValue ?? ''
-    el.setAttribute(mutation.attributeName, value)
+    if (isBooleanAttribute(name)) {
+      this.#applyBooleanAttribute(
+        el,
+        name,
+        booleanAttributeOn(name, mutation.attributeValue)
+      )
+      return
+    }
+
+    // An absent value is the capture's removal signal (`mutations.ts` sends
+    // undefined where `getAttribute` read null), and `class=""` is not `class`
+    // gone: presence-based selectors and `aria-label` semantics both turn on it.
+    if (mutation.attributeValue === undefined) {
+      el.removeAttribute(name)
+      this.#clearRemovedFieldValue(el, name)
+      return
+    }
+
+    const value = mutation.attributeValue
+    el.setAttribute(name, value)
     // Form-field state lives on the PROPERTY, not just the attribute — mirror it
-    // so a replayed input shows the captured value / checked state, including a
-    // field cleared back to empty.
-    if (mutation.attributeName === 'value' && 'value' in el) {
+    // so a replayed input shows the captured value, including a field cleared
+    // back to empty.
+    if (name === 'value' && 'value' in el) {
       ;(el as HTMLInputElement).value = value
-    } else if (mutation.attributeName === 'checked' && 'checked' in el) {
-      ;(el as HTMLInputElement).checked = value === 'true'
+      this.#fieldStateApplied.add(el)
+    }
+  }
+
+  /** A pristine field's text IS its `value` attribute, so removing the attribute
+   *  empties the field — but the property stops tracking it once assigned, and
+   *  the snapshot render assigns it. Mirroring the clear restores that coupling,
+   *  EXCEPT where a field-state record already set the property: the captured
+   *  field was dirty then, and a dirty field keeps its text when the attribute
+   *  goes. Only the collector's per-edit records carry that text, so clearing
+   *  there would lose what the user actually typed. */
+  #clearRemovedFieldValue(el: HTMLElement, name: string) {
+    if (name !== 'value' || !('value' in el)) {
+      return
+    }
+    if (this.#fieldStateApplied.has(el)) {
+      return
+    }
+    ;(el as HTMLInputElement).value = ''
+  }
+
+  /** Presence IS the state of a boolean attribute, so the captured state is
+   *  toggled rather than written — the markup a re-serialization reads then says
+   *  what the replayed page shows. `checked` is mirrored onto the property as
+   *  well because checkedness stops tracking the attribute once anything sets it
+   *  (the captured page's fields arrive as preact property writes); every other
+   *  boolean attribute reflects its property, so the toggle moves both. */
+  #applyBooleanAttribute(el: HTMLElement, name: string, on: boolean) {
+    el.toggleAttribute(name, on)
+    if (name === 'checked' && 'checked' in el) {
+      ;(el as HTMLInputElement).checked = on
     }
   }
 
@@ -428,6 +545,11 @@ export class DevtoolsBrowser extends Element {
       return
     }
 
+    // Before the insertions: a removed TEXT node is matched positionally (see
+    // #removeChildren), so a text node added here would be a candidate for it
+    // and `el.textContent = 'new'` would replay as the old text plus the new.
+    this.#removeChildren(el, mutation)
+
     // Insert added nodes at their captured position via a detached holder.
     // render(vnode, el) can't append — Preact treats `el` as its render root and
     // reconciles its children, replacing el's first child instead of inserting
@@ -446,12 +568,20 @@ export class DevtoolsBrowser extends Element {
         }
       }
     })
+  }
 
+  /** Drop what a childList mutation removed. An element is found by its ref; a
+   *  removed TEXT node has none — `getRef` yields null for it — so each null
+   *  entry drops one text child, in the order the collector reported them. */
+  #removeChildren(el: HTMLElement, mutation: TraceMutation) {
+    const texts = textChildren(el)
+    let next = 0
     mutation.removedNodes.forEach((ref) => {
-      const child = this.#queryElement(ref, el)
-      if (child) {
-        child.remove()
+      if (!ref) {
+        texts[next++]?.remove()
+        return
       }
+      this.#queryElement(ref, el)?.remove()
     })
   }
 
@@ -469,8 +599,11 @@ export class DevtoolsBrowser extends Element {
       ?.remove()
   }
 
-  /** Draw the outline box over an element in the replayed iframe. */
-  #outline(el: HTMLElement) {
+  /** Draw the outline box over an element in the replayed iframe. Takes any DOM
+   *  element — the text-locator resolver matches on content, so what it finds
+   *  need not be an `HTMLElement`. Spelled `globalThis.Element` because the Lit
+   *  base class imported here shadows the DOM one. */
+  #outline(el: globalThis.Element) {
     const docEl = this.iframe?.contentDocument
     if (!docEl) {
       return
@@ -490,21 +623,22 @@ export class DevtoolsBrowser extends Element {
     docEl.body.appendChild(highlight)
   }
 
-  #highlightMutation(ev: CustomEvent<TraceMutation | null>) {
-    if (!ev.detail) {
+  #highlightMutation = (event: Event) => {
+    const mutation = (event as CustomEvent<TraceMutation | null>).detail
+    if (!mutation) {
       this.#clearHighlight()
       return
     }
-    const el = ev.detail.target
-      ? this.#queryElement(ev.detail.target)
-      : undefined
+    const el = mutation.target ? this.#queryElement(mutation.target) : undefined
     if (el) {
       this.#outline(el)
     }
   }
 
-  /** Outline the element for an a11y-tree locator (CSS selectors only; WDIO
-   *  locators like `button*=Login` can't resolve via querySelector → no-op). */
+  /** Outline the element for an a11y-tree locator. Resolved through the same
+   *  resolver the forward direction (the element overlay) uses, because the tree
+   *  captures interactive elements as WDIO text locators (`button*=Login`) that
+   *  querySelector cannot parse. */
   #highlightBySelector = (ev: Event) => {
     const detail = (ev as CustomEvent<{ selector?: string } | null>).detail
     const docEl = this.iframe?.contentDocument
@@ -515,12 +649,7 @@ export class DevtoolsBrowser extends Element {
     if (!detail?.selector) {
       return
     }
-    let el: HTMLElement | null = null
-    try {
-      el = docEl.querySelector(detail.selector)
-    } catch {
-      return
-    }
+    const el = resolveTestSelector(docEl, detail.selector)
     if (el) {
       this.#outline(el)
     }

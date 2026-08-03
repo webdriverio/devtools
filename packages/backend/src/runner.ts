@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import url from 'node:url'
 import kill from 'tree-kill'
+import logger from '@wdio/logger'
 import { parse as shellParse, quote as shellQuote } from 'shell-quote'
 import {
   REUSE_ENV,
@@ -10,10 +11,11 @@ import {
   type RunnerRequestBody
 } from '@wdio/devtools-shared'
 import { WDIO_CONFIG_FILENAMES, NIGHTWATCH_CONFIG_FILENAMES } from './types.js'
-import { getFilterBuilder } from './framework-filters.js'
+import { escapeFilterRegex, getFilterBuilder } from './framework-filters.js'
 import { resolveNightwatchBin, resolveWdioBin } from './bin-resolver.js'
 
 const wdioBin = resolveWdioBin()
+const log = logger('@wdio/devtools-runner')
 
 /**
  * Detect a `--name "{{testName}}"` slot anywhere in `template`, with optional
@@ -38,14 +40,6 @@ function stripNameTestNameSlot(template: string): string {
     leftEdge--
   }
   return template.slice(0, leftEdge) + template.slice(idx + NAME_SLOT.length)
-}
-
-// Grep-style rerun filters (mocha --grep, jest/vitest -t, cucumber --name) treat
-// the value as a REGEX, so a test name containing (), [], ., etc. matches
-// nothing unless escaped. The slot is double-quoted in the template, so the
-// added backslashes survive shell parsing and reach the runner as literals.
-function escapeRerunName(name: string): string {
-  return name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
 class TestRunner {
@@ -85,6 +79,7 @@ class TestRunner {
     const command = this.#resolveGenericCommand(payload)
     this.#baseDir = process.env[RUNNER_ENV.RUNNER_CWD] || process.cwd()
     const { file, args } = this.#parseGenericCommand(command)
+    log.info(`rerun: ${file} ${args.join(' ')}`)
     return spawn(file, args, {
       cwd: this.#baseDir,
       env: childEnv,
@@ -120,6 +115,10 @@ class TestRunner {
         delete childEnv[REUSE_ENV.RERUN_LABEL]
       }
     }
+    // A filter that matches nothing makes the runner report the spec as
+    // skipped with no other output, so the resolved argv is the only way to
+    // tell a bad spec path from a bad name filter.
+    log.info(`rerun: ${process.execPath} ${args.join(' ')}`)
     return spawn(process.execPath, args, {
       cwd: this.#baseDir,
       env: childEnv,
@@ -211,7 +210,9 @@ class TestRunner {
       return `${stripped} ${shellQuote([featureSpec])}`
     }
     const name = payload.label || payload.fullTitle || ''
-    return template.replace(/\{\{testName\}\}/g, escapeRerunName(name))
+    // The slot is double-quoted in the template, so the backslashes the escape
+    // adds survive shell parsing and reach the runner as literals.
+    return template.replace(/\{\{testName\}\}/g, escapeFilterRegex(name))
   }
 
   #parseGenericCommand(command: string): { file: string; args: string[] } {

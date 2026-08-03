@@ -21,6 +21,25 @@ export const LOCATOR_COMMANDS: string[] = [
   'findElements'
 ]
 
+// Element-scoped commands WDIO invokes with an element handle instead of the
+// selector, so the trace row inherits the last resolved locator (see
+// command-selectors.ts).
+export const SELECTOR_INHERITING_COMMANDS: string[] = [
+  'click',
+  'doubleClick',
+  'moveTo',
+  'scrollIntoView',
+  'touchAction',
+  'dragAndDrop',
+  'getText',
+  'getAttribute',
+  'clearValue',
+  'waitForExist',
+  'waitForDisplayed',
+  'waitForEnabled',
+  'waitForClickable'
+]
+
 // Console capture constants are defined in @wdio/devtools-core; re-exported
 // here so existing imports from ./constants.js continue to work.
 export {

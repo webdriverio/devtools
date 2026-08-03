@@ -19,6 +19,7 @@
 
 - [ ] `shared` (types and contracts)
 - [ ] `core` (framework-agnostic capture/reporting)
+- [ ] `elements` (published element/snapshot API — `@wdio/elements`)
 - [ ] `service` (WebdriverIO adapter)
 - [ ] `nightwatch-devtools` (Nightwatch adapter)
 - [ ] `selenium-devtools` (Selenium adapter)

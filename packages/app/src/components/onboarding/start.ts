@@ -23,21 +23,23 @@ export class DevtoolsStart extends Element {
 
   render() {
     return html`
-      <div class="h-full flex-1 flex justify-center items-center bg-sideBarBackground">
+      <div
+        class="h-full flex-1 flex justify-center items-center bg-sideBarBackground"
+      >
         <h1 class="border-r-2 pr-12 mr-12 border-panelBorder">
           <img src="/robot.png" width="200px" />
         </h1>
         <section>
           <h2 class="text-4xl font-bold">WebdriverIO Devtools</h2>
-          <p class="py-4">
+          <div class="py-4">
             <h3 class="font-bold text-xl">Embed into Project</h3>
-            First install WebdriverIO Devtools via:
+            <p>First install WebdriverIO Devtools via:</p>
             <pre>npm install @wdio/devtools</pre>
-          </p>
-          <p class="py-4">
-            Then add it as a service:
+          </div>
+          <div class="py-4">
+            <p>Then add it as a service:</p>
             <pre class="w-full align-left">${CONFIG_CODE_EXAMPLE}</pre>
-          </p>
+          </div>
         </section>
       </div>
     `

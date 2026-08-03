@@ -6,10 +6,18 @@ import {
   buildActionEvents,
   writeTraceZip,
   FrameSnapshotIndex,
+  type ActionEvent,
+  type AfterEvent,
+  type BeforeEvent,
   type TraceCapturer
 } from '@wdio/devtools-core'
 import { TraceType, type CommandLog } from '@wdio/devtools-shared'
-import { generateTranscript } from '../src/trace-exporter.js'
+
+const isBefore = (event: ActionEvent): event is BeforeEvent =>
+  event.type === 'before'
+const isAfter = (event: ActionEvent): event is AfterEvent =>
+  event.type === 'after'
+const isTracingGroup = (event: BeforeEvent) => event.method === 'tracingGroup'
 
 function cmd(command: string, overrides: Partial<CommandLog> = {}): CommandLog {
   const base = (overrides.timestamp ?? 1000) + 100
@@ -21,24 +29,6 @@ function cmd(command: string, overrides: Partial<CommandLog> = {}): CommandLog {
     ...overrides
   }
 }
-
-describe('generateTranscript', () => {
-  it('orders commands by invocation time when captured out of order (Nightwatch batches asserts to test-end)', () => {
-    // Array order puts a later navigation before an earlier-timestamped click,
-    // mimicking Nightwatch buffering native asserts until test-end.
-    const commands = [
-      cmd('url', { timestamp: 1100, startTime: 1050 }),
-      cmd('url', { timestamp: 1300, startTime: 1250 }),
-      cmd('click', { timestamp: 1200, startTime: 1150 })
-    ]
-    const lines = generateTranscript(commands, 1000, 'Test')
-      .split('\n')
-      .filter((l) => /^\d+\./.test(l))
-    expect(lines).toHaveLength(3)
-    // Sorted by startTime: url(1050) → click(1150) → url(1250) — click is #2.
-    expect(lines[1]).toMatch(/click/i)
-  })
-})
 
 describe('buildActionEvents', () => {
   const pageId = 'page@abc123'
@@ -146,9 +136,9 @@ describe('buildActionEvents', () => {
 
     const befores = events.filter((e) => e.type === 'before')
     // Second before should be >= first after's endTime
-    const firstAfter = events.find(
-      (e) => e.type === 'after' && e.callId === 'call@1'
-    )!
+    const firstAfter = events
+      .filter(isAfter)
+      .find((e) => e.callId === 'call@1')!
     expect(befores[1]!.startTime).toBeGreaterThanOrEqual(firstAfter.endTime)
   })
 
@@ -175,12 +165,7 @@ describe('buildActionEvents — tracingGroup (testUid boundaries)', () => {
   it('does NOT emit tracingGroup when no command has testUid', () => {
     const commands = [cmd('url'), cmd('click')]
     const events = buildActionEvents(commands, pageId, wallTime)
-    const groups = events.filter(
-      (e) =>
-        e.type === 'before' &&
-        'method' in e &&
-        (e as { method: string }).method === 'tracingGroup'
-    )
+    const groups = events.filter(isBefore).filter(isTracingGroup)
     expect(groups).toHaveLength(0)
   })
 
@@ -188,15 +173,10 @@ describe('buildActionEvents — tracingGroup (testUid boundaries)', () => {
     const commands = [cmd('url', { testUid: 'uid-1' })]
     const events = buildActionEvents(commands, pageId, wallTime, testMeta)
 
-    const groupBefore = events.find(
-      (e) =>
-        e.type === 'before' &&
-        'method' in e &&
-        (e as { method: string }).method === 'tracingGroup'
-    )!
-    const groupAfter = events.find(
-      (e) => e.type === 'after' && e.callId === groupBefore.callId
-    )!
+    const groupBefore = events.filter(isBefore).find(isTracingGroup)!
+    const groupAfter = events
+      .filter(isAfter)
+      .find((e) => e.callId === groupBefore.callId)!
 
     expect(groupBefore.apiName).toBe('tracing.tracingGroup')
     expect(groupBefore.params).toEqual({ name: 'test A' })
@@ -211,17 +191,12 @@ describe('buildActionEvents — tracingGroup (testUid boundaries)', () => {
     ]
     const events = buildActionEvents(commands, pageId, wallTime, testMeta)
 
-    const groupBefore = events.find(
-      (e) =>
-        e.type === 'before' &&
-        'method' in e &&
-        (e as { method: string }).method === 'tracingGroup'
-    )!
-    const actionBefore = events.find(
-      (e) => e.type === 'before' && e.callId !== groupBefore.callId
-    )!
+    const groupBefore = events.filter(isBefore).find(isTracingGroup)!
+    const actionBefore = events
+      .filter(isBefore)
+      .find((e) => e.callId !== groupBefore.callId)!
 
-    expect(actionBefore!.parentId).toBe(groupBefore.callId)
+    expect(actionBefore.parentId).toBe(groupBefore.callId)
   })
 
   it('closes the previous group and opens a new one when testUid changes', () => {
@@ -231,12 +206,7 @@ describe('buildActionEvents — tracingGroup (testUid boundaries)', () => {
     ]
     const events = buildActionEvents(commands, pageId, wallTime, testMeta)
 
-    const groups = events.filter(
-      (e) =>
-        e.type === 'before' &&
-        'method' in e &&
-        (e as { method: string }).method === 'tracingGroup'
-    )
+    const groups = events.filter(isBefore).filter(isTracingGroup)
     expect(groups).toHaveLength(2)
 
     // First group: uid-1 → "test A"
@@ -245,12 +215,9 @@ describe('buildActionEvents — tracingGroup (testUid boundaries)', () => {
     expect(groups[1]!.params).toEqual({ name: 'test B' })
 
     // First group's after should close before the second group's before
-    const groupAfters = events.filter(
-      (e) =>
-        e.type === 'after' &&
-        'method' in e === false &&
-        (groups as { callId: string }[]).some((g) => g.callId === e.callId)
-    )
+    const groupAfters = events
+      .filter(isAfter)
+      .filter((e) => groups.some((g) => g.callId === e.callId))
     expect(groupAfters).toHaveLength(2)
   })
 
@@ -258,12 +225,7 @@ describe('buildActionEvents — tracingGroup (testUid boundaries)', () => {
     const commands = [cmd('url', { testUid: 'unknown-uid' })]
     const events = buildActionEvents(commands, pageId, wallTime)
 
-    const groupBefore = events.find(
-      (e) =>
-        e.type === 'before' &&
-        'method' in e &&
-        (e as { method: string }).method === 'tracingGroup'
-    )!
+    const groupBefore = events.filter(isBefore).find(isTracingGroup)!
     expect(groupBefore.params).toEqual({ name: 'unknown-uid' })
   })
 
@@ -283,14 +245,12 @@ describe('buildActionEvents — tracingGroup (testUid boundaries)', () => {
       testMeta,
       index
     )
-    const groups = events.filter(
-      (e) => e.type === 'before' && e.method === 'tracingGroup'
-    )
+    const groups = events.filter(isBefore).filter(isTracingGroup)
     for (const group of groups) {
       expect(group).not.toHaveProperty('beforeSnapshot')
-      const groupAfter = events.find(
-        (e) => e.type === 'after' && e.callId === group.callId
-      )!
+      const groupAfter = events
+        .filter(isAfter)
+        .find((e) => e.callId === group.callId)!
       expect(groupAfter.afterSnapshot).toBeUndefined()
     }
   })
@@ -303,12 +263,7 @@ describe('buildActionEvents — tracingGroup (testUid boundaries)', () => {
     const events = buildActionEvents(commands, pageId, wallTime, testMeta)
 
     // Only one tracingGroup (uid-2 starts with the first action)
-    const groups = events.filter(
-      (e) =>
-        e.type === 'before' &&
-        'method' in e &&
-        (e as { method: string }).method === 'tracingGroup'
-    )
+    const groups = events.filter(isBefore).filter(isTracingGroup)
     expect(groups).toHaveLength(1)
     expect(groups[0]!.params).toEqual({ name: 'test B' })
   })

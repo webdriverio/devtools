@@ -26,6 +26,7 @@
     "vite-plugin-singlefile": "^2.3.3"
   },
   "devDependencies": {
+    "@wdio/devtools-shared": "workspace:^",
     "vite": "^8.0.16"
   },
   "license": "MIT"

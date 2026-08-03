@@ -532,7 +532,9 @@ describe('driverPatcher', () => {
     }) as any
     stash.builderBuild = builderProto.build
 
-    const onDriverCreated = vi.fn(() => order.push('created'))
+    const onDriverCreated = vi.fn(() => {
+      order.push('created')
+    })
     patchSelenium({
       onBeforeBuild: vi.fn(() => order.push('before-build')),
       onDriverCreated,

@@ -1,4 +1,6 @@
+import { isRequestType, type NetworkRequest } from '@wdio/devtools-shared'
 import {
+  RESOURCE_TYPE_BY_REQUEST_TYPE,
   RESOURCE_TYPE_PATTERNS,
   OTHER_RESOURCE_TYPE,
   HTTP_STATUS,
@@ -82,37 +84,60 @@ export function getStatusClass(status?: number): string {
 }
 
 /**
- * Determine resource type from network request
+ * Bucket a request into the display type the list colours and filters by,
+ * translating the type the capture side already classified it as. Header and
+ * extension sniffing deliberately doesn't happen here — that is core's
+ * `getRequestType`, and a second copy of it drifted from the first. The guard is
+ * for wire data only: `RequestType` covers every word a current producer emits,
+ * but an older trace file can still carry one it doesn't.
  */
 export function getResourceType(request: NetworkRequest): ResourceType {
-  const url = request.url.toLowerCase()
+  const captured =
+    typeof request.type === 'string' ? request.type.toLowerCase() : ''
+  if (isRequestType(captured)) {
+    const mapped = RESOURCE_TYPE_BY_REQUEST_TYPE[captured]
+    // `other` is the capture saying "unclassified", not a verdict — so it falls
+    // through to sniffing below. Every other word is a real classification and
+    // wins outright.
+    if (mapped !== OTHER_RESOURCE_TYPE) {
+      return mapped
+    }
+  }
+  // The capture classified nothing usable — a reconstructed trace reports every
+  // request as `other`, because its HAR carries an empty `content.mimeType`. Sniff
+  // the response content-type, then the URL extension, before giving up.
+  const sniffed = sniffResourceType(request)
+  if (sniffed) {
+    return sniffed
+  }
+  // Still unknown, but a body-carrying method is a data request either way.
+  if (request.method !== 'GET') {
+    return 'Fetch'
+  }
+  return OTHER_RESOURCE_TYPE
+}
+
+/** Resource type implied by the response content-type, else by the URL's
+ *  extension. `undefined` when neither says anything. */
+function sniffResourceType(request: NetworkRequest): ResourceType | undefined {
   const contentType =
     request.responseHeaders?.['content-type']?.toLowerCase() || ''
+  const url = request.url.toLowerCase()
   const entries = Object.entries(RESOURCE_TYPE_PATTERNS) as [
-    keyof typeof RESOURCE_TYPE_PATTERNS,
-    (typeof RESOURCE_TYPE_PATTERNS)[keyof typeof RESOURCE_TYPE_PATTERNS]
+    ResourceType,
+    { contentTypes: readonly string[]; extensions: readonly string[] }
   ][]
-
-  // Check by content-type first
   for (const [type, patterns] of entries) {
     if (patterns.contentTypes.some((ct) => contentType.includes(ct))) {
       return type
     }
   }
-
-  // Fallback to URL extension
   for (const [type, patterns] of entries) {
     if (patterns.extensions.some((ext) => url.endsWith(ext))) {
       return type
     }
   }
-
-  // Check by request type
-  if (request.type === 'fetch' || request.method !== 'GET') {
-    return 'Fetch'
-  }
-
-  return OTHER_RESOURCE_TYPE
+  return undefined
 }
 
 /** Short content-type label for a request (response content-type, then the
@@ -129,7 +154,7 @@ export function contentType(request: NetworkRequest): string {
  * Extract filename from URL
  */
 export function getFileName(url: string): string {
-  if (!url || url === '' || url === 'event') {
+  if (!url || url === 'event') {
     return '-'
   }
 
@@ -139,12 +164,12 @@ export function getFileName(url: string): string {
     const parts = pathname.split('/').filter(Boolean)
     const fileName = parts[parts.length - 1]
 
-    // If there's a query string and no filename, show the host + path
-    if (!fileName || fileName === '' || pathname === '/') {
-      if (urlObj.search) {
-        return `${urlObj.hostname}${pathname.length > 1 ? pathname : ''}`
-      }
-      return urlObj.hostname
+    // No named segment: the host identifies the row, plus a query-bearing path
+    // that is nothing but separators.
+    if (!fileName) {
+      return urlObj.search && pathname.length > 1
+        ? `${urlObj.hostname}${pathname}`
+        : urlObj.hostname
     }
 
     return fileName

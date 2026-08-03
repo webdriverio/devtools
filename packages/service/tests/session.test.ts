@@ -1,8 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import type { CommandLog } from '@wdio/devtools-shared'
 import { SessionCapturer } from '../src/session.js'
 import { WebSocket } from 'ws'
 import fs from 'node:fs/promises'
 import { LOG_SOURCES } from '../src/constants.js'
+
+// Mirrors the shape `SessionCapturer` itself reads the log as — `_id` is
+// internal dedup bookkeeping that never reaches the public CommandLog.
+type LoggedCommand = CommandLog & { _id?: number }
 
 vi.mock('ws')
 vi.mock('node:fs/promises')
@@ -44,7 +49,14 @@ describe('SessionCapturer', () => {
         hostname: 'localhost',
         port: 3000
       })
-      expect(WebSocket).toHaveBeenCalledWith('ws://localhost:3000/worker')
+      // The run id is generated per process, so match the path and assert the
+      // param separately (see core's session-capturer-connect specs).
+      const [openedUrl] = vi.mocked(WebSocket).mock.calls[0]
+      const url = new URL(String(openedUrl))
+      expect(`${url.protocol}//${url.host}${url.pathname}`).toBe(
+        'ws://localhost:3000/worker'
+      )
+      expect(url.searchParams.get('runId')).toBeTruthy()
       expect(capturer2.isReportingUpstream).toBe(false)
     })
   })
@@ -430,9 +442,7 @@ describe('SessionCapturer', () => {
     // node:fs/promises is auto-mocked at module scope, so stub the preload-file
     // read injectScript performs (otherwise readFile → undefined → throws).
     beforeEach(() => {
-      vi.mocked(fs.readFile).mockResolvedValue(
-        '// preload' as unknown as Buffer
-      )
+      vi.mocked(fs.readFile).mockResolvedValue(Buffer.from('// preload'))
     })
 
     // Minimal BiDi browser stub — injectScript only needs isBidi + the preload
@@ -456,6 +466,25 @@ describe('SessionCapturer', () => {
       const browser = bidiBrowser()
       await capturer.injectScript(browser)
       capturer.resetScriptInjection()
+      await capturer.injectScript(browser)
+      expect(browser.scriptAddPreloadScript).toHaveBeenCalledTimes(2)
+    })
+
+    // A guard left closed by a failed attempt silently disables DOM capture for
+    // the rest of the session — the retry has to stay possible.
+    it('reopens the guard when the preload add fails', async () => {
+      const capturer = new SessionCapturer()
+      const browser = {
+        isBidi: true,
+        scriptAddPreloadScript: vi
+          .fn()
+          .mockRejectedValueOnce(new Error('no such window'))
+          .mockResolvedValue(undefined)
+      } as unknown as WebdriverIO.Browser
+
+      await expect(capturer.injectScript(browser)).rejects.toThrow(
+        'no such window'
+      )
       await capturer.injectScript(browser)
       expect(browser.scriptAddPreloadScript).toHaveBeenCalledTimes(2)
     })
@@ -871,7 +900,7 @@ describe('SessionCapturer', () => {
 
       expect(folded).toBe(true)
       expect(capturer.commandsLog).toHaveLength(1)
-      const row = capturer.commandsLog[0] as Record<string, unknown>
+      const row: LoggedCommand = capturer.commandsLog[0]
       expect(row.command).toBe('expect.toHaveText') // became the assertion
       expect(row.callSource).toBe('/spec.ts:13:5') // inherited from the read
       expect(row.screenshot).toBe('READ_SHOT') // inherited from the read
@@ -898,9 +927,7 @@ describe('SessionCapturer', () => {
 
       expect(folded).toBe(false)
       expect(capturer.commandsLog).toHaveLength(1)
-      expect((capturer.commandsLog[0] as Record<string, unknown>).command).toBe(
-        'click'
-      )
+      expect(capturer.commandsLog[0].command).toBe('click')
     })
 
     it('returns false when the trailing read hard-threw (carries an error)', () => {
@@ -939,13 +966,11 @@ describe('SessionCapturer', () => {
 
       expect(folded).toBe(true)
       expect(capturer.commandsLog).toHaveLength(1)
-      const row = capturer.commandsLog[0] as Record<string, unknown>
+      const row: LoggedCommand = capturer.commandsLog[0]
       expect(row.command).toBe('expect.toHaveText') // relabelled from the read
       expect(row.callSource).toBe('/spec.ts:22:5') // inherited from the read
       expect(row.timestamp).toBe(100) // kept the read's timeline position
-      expect((row.error as { message: string }).message).toBe(
-        'element not found'
-      ) // the throw's error carries through
+      expect(row.error?.message).toBe('element not found') // the throw's error carries through
       expect(row.id).toBeUndefined() // still no cross-spec-colliding public id
     })
   })
