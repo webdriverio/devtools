@@ -583,6 +583,88 @@ describe('wdio-devtools-browser', () => {
     })
   })
 
+  /**
+   * `value` is the one non-boolean attribute with a live PROPERTY behind it, and
+   * the two are only coupled while the field is pristine — once anything assigns
+   * the property, removing the attribute no longer changes what the field shows.
+   * That is a browser rule, not ours (probed in the first case below), and it is
+   * why removal leaves the property alone: the replay assigns it exactly when the
+   * collector reported field state, which is exactly when the captured field had
+   * been typed into and was therefore dirty itself.
+   */
+  describe('a removed `value` attribute', () => {
+    /** Replays `entry` with a trailing checkbox tick as the landing signal, so
+     *  the field under test is never also the signal that the window arrived. */
+    async function replayThenTick(
+      entry: TraceMutation,
+      ...before: TraceMutation[]
+    ) {
+      const el = await mountBrowser({
+        commands: loginTrace.commands,
+        mutations: [
+          loginTrace.loginDocument,
+          ...before,
+          entry,
+          loginTrace.rememberChecked
+        ]
+      })
+      await replayedPage(el)
+      const doc = await replayAfter(el, () =>
+        selectMutation(loginTrace.rememberChecked)
+      )
+      await waitUntil(
+        () => input(doc, '#remember').checked,
+        'the replay window to be applied'
+      )
+      return doc
+    }
+
+    // `attributeValue` is passed explicitly: the builder defaults it to a real
+    // value, so omitting the key would write one rather than remove the attribute.
+    const valueRemoval = () =>
+      mutation({
+        target: REF.username,
+        attributeName: 'value',
+        attributeValue: undefined
+      })
+
+    it('is the browser that couples a pristine field to its value attribute', () => {
+      const pristine = document.createElement('input')
+      pristine.setAttribute('value', STALE_USERNAME)
+      expect(pristine.value).toBe(STALE_USERNAME)
+      pristine.removeAttribute('value')
+      expect(pristine.value).toBe('')
+
+      // ...and that decouples it once the property has been assigned.
+      const dirty = document.createElement('input')
+      dirty.setAttribute('value', STALE_USERNAME)
+      dirty.value = TYPED_USERNAME
+      dirty.removeAttribute('value')
+      expect(dirty.value).toBe(TYPED_USERNAME)
+    })
+
+    it('clears a field the capture never reported typing into', async () => {
+      const doc = await replayThenTick(valueRemoval())
+
+      // No property assignment has happened, so the replayed field is pristine
+      // and the removal clears it on its own — no mirror needed.
+      const username = input(doc, '#username')
+      expect(username.getAttribute('value')).toBeNull()
+      expect(username.value).toBe('')
+    })
+
+    it('keeps the text of a field the capture reported typing into', async () => {
+      const doc = await replayThenTick(valueRemoval(), loginTrace.usernameTyped)
+
+      // The captured field was dirty when the page removed the attribute, so it
+      // kept showing the typed text. Clearing the property here — the obvious
+      // reading of "a removal should clear the field" — would lose it.
+      const username = input(doc, '#username')
+      expect(username.getAttribute('value')).toBeNull()
+      expect(username.value).toBe(TYPED_USERNAME)
+    })
+  })
+
   describe('command selection', () => {
     it('shows the page a navigating click produced, not the one it left', async () => {
       const el = await mountBrowser(loginTrace)

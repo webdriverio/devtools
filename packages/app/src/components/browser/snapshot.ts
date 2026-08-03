@@ -67,6 +67,10 @@ const COMPONENT = 'wdio-devtools-browser'
 @customElement(COMPONENT)
 export class DevtoolsBrowser extends Element {
   #vdom = document.createDocumentFragment()
+  /** Fields a field-state record has written the `value` PROPERTY of, which is
+   *  what separates a dirty replayed field from a pristine one. Weak, and every
+   *  replay rebuilds the document, so entries die with the elements they key. */
+  #fieldStateApplied = new WeakSet<HTMLElement>()
   #activeUrl?: string
   /** Base64 PNG of the screenshot for the currently selected command, or null. */
   #screenshotData: string | null = null
@@ -474,10 +478,9 @@ export class DevtoolsBrowser extends Element {
     // An absent value is the capture's removal signal (`mutations.ts` sends
     // undefined where `getAttribute` read null), and `class=""` is not `class`
     // gone: presence-based selectors and `aria-label` semantics both turn on it.
-    // The `value` PROPERTY is deliberately left alone — the collector re-sends
-    // the field's real value on every input event, so it stays authoritative.
     if (mutation.attributeValue === undefined) {
       el.removeAttribute(name)
+      this.#clearRemovedFieldValue(el, name)
       return
     }
 
@@ -488,7 +491,25 @@ export class DevtoolsBrowser extends Element {
     // back to empty.
     if (name === 'value' && 'value' in el) {
       ;(el as HTMLInputElement).value = value
+      this.#fieldStateApplied.add(el)
     }
+  }
+
+  /** A pristine field's text IS its `value` attribute, so removing the attribute
+   *  empties the field — but the property stops tracking it once assigned, and
+   *  the snapshot render assigns it. Mirroring the clear restores that coupling,
+   *  EXCEPT where a field-state record already set the property: the captured
+   *  field was dirty then, and a dirty field keeps its text when the attribute
+   *  goes. Only the collector's per-edit records carry that text, so clearing
+   *  there would lose what the user actually typed. */
+  #clearRemovedFieldValue(el: HTMLElement, name: string) {
+    if (name !== 'value' || !('value' in el)) {
+      return
+    }
+    if (this.#fieldStateApplied.has(el)) {
+      return
+    }
+    ;(el as HTMLInputElement).value = ''
   }
 
   /** Presence IS the state of a boolean attribute, so the captured state is
