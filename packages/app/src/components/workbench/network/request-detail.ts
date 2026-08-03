@@ -11,6 +11,38 @@ import {
   statusKind,
   contentType
 } from '../../../utils/network-helpers.js'
+import { FAILED_STATUS_LABEL } from '../../../utils/network-constants.js'
+
+// The capture side reports a transport failure as status 0 carrying the failure
+// text in `statusText` (service's `handleNetworkFetchError`), so 0 is a failure
+// that happened — never a status still on its way.
+const TRANSPORT_FAILURE_STATUS = 0
+
+const NO_VALUE = '—'
+
+const ZERO_BYTES = '0B'
+
+/** Whether a request failed rather than completing — a producer-reported error,
+ *  or the status 0 that stands in for one. */
+export function requestFailed(req: NetworkRequest): boolean {
+  return Boolean(req.error) || req.status === TRANSPORT_FAILURE_STATUS
+}
+
+/** Bytes a request transferred. A captured 0 (a 204, a HEAD, a body the
+ *  collector could not read) is a measured size, where `formatBytes` renders it
+ *  as the same dash it gives a size that was never captured at all. */
+export function formatTransferSize(size?: number): string {
+  return size === 0 ? ZERO_BYTES : formatBytes(size)
+}
+
+/** Keyed off `requestFailed` rather than status 0 alone, so the card agrees with
+ *  the list column for a request that reported an error before any status. */
+function statusCode(req: NetworkRequest): string {
+  if (req.status) {
+    return String(req.status)
+  }
+  return requestFailed(req) ? FAILED_STATUS_LABEL : NO_VALUE
+}
 
 function formatBody(body: string): string {
   try {
@@ -63,7 +95,7 @@ function bodySection(title: string, body: string | undefined) {
 }
 
 function generalSection(req: NetworkRequest) {
-  const kind = statusKind(req.status, Boolean(req.error))
+  const kind = statusKind(req.status, requestFailed(req))
   return html`
     <div class="detail-section">
       <div class="detail-title">General</div>
@@ -71,12 +103,16 @@ function generalSection(req: NetworkRequest) {
         ${kv('Request URL', req.url)} ${kv('Method', req.method)}
         ${kv(
           'Status',
-          html`${req.status || '—'} ${req.statusText || ''}`,
+          html`${statusCode(req)} ${req.statusText || ''}`,
           `kind-${kind}`
         )}
         ${kv('Type', contentType(req))}
-        ${req.time ? kv('Time', formatTime(req.time)) : nothing}
-        ${req.size ? kv('Size', formatBytes(req.size)) : nothing}
+        ${typeof req.time === 'number'
+          ? kv('Time', formatTime(req.time))
+          : nothing}
+        ${typeof req.size === 'number'
+          ? kv('Size', formatTransferSize(req.size))
+          : nothing}
         ${req.error ? kv('Error', req.error, 'kind-error') : nothing}
       </div>
     </div>

@@ -71,9 +71,33 @@ describe('filterConsoleLogs', () => {
     expect(errs[0].args).toEqual(['boom failed'])
   })
 
-  it('treats a missing type as "log"', () => {
+  it('files every captured level under its own filter and no other', () => {
+    const levels: ConsoleLogs['type'][] = [
+      'trace',
+      'debug',
+      'log',
+      'info',
+      'warn',
+      'error'
+    ]
+    const entries = levels.map((level) => log(level, [level]))
+
+    for (const level of levels) {
+      expect(filterConsoleLogs(entries, level, '')).toEqual([
+        log(level, [level])
+      ])
+    }
+  })
+
+  // `ConsoleLog.type` is required, so an entry without one is wire data that
+  // broke the contract — and the panel already tags such a row with the level it
+  // actually carries (`log-type-undefined`). Defaulting to `log` here handed the
+  // Logs tab a row that does not claim to be a log; the two now agree.
+  it('files an entry with no level under no level filter', () => {
     const untyped = [{ args: ['x'], timestamp: 0 } as unknown as ConsoleLogs]
-    expect(filterConsoleLogs(untyped, 'log', '')).toHaveLength(1)
+
+    expect(filterConsoleLogs(untyped, 'log', '')).toEqual([])
+    expect(filterConsoleLogs(untyped, 'all', '')).toHaveLength(1)
   })
 
   it('matches search case-insensitively against the message', () => {

@@ -5,6 +5,7 @@ import { consume } from '@lit/context'
 
 import type { CommandLog } from '@wdio/devtools-shared'
 import { transcriptContext, commandContext } from '../../controller/context.js'
+import { stripAnsi } from './console-filter.js'
 
 import '../placeholder.js'
 import '~icons/mdi/content-copy.js'
@@ -12,6 +13,23 @@ import '~icons/mdi/check.js'
 
 const COMPONENT = 'wdio-devtools-transcript'
 const EMPTY_GLYPH = '📝'
+/** Indent that keeps a continuation line inside its `- ` list item. */
+const CONTINUATION_INDENT = '  '
+
+/** Render `text` as one markdown list item, indenting every line after the
+ *  first. A framework error is routinely multi-line — expect-webdriverio puts
+ *  `Expected:` and `Received:` on their own lines — and an unindented tail
+ *  leaves the list entirely, reading as top-level prose unattributed to the
+ *  command that produced it. */
+function asListItem(text: string): string {
+  const [head, ...tail] = text.split('\n')
+  return [
+    `- ${head}`,
+    // A whitespace-only line stays empty: indenting it would only add trailing
+    // whitespace, and a blank line inside an indented item is still inside it.
+    ...tail.map((line) => (line.trim() ? `${CONTINUATION_INDENT}${line}` : ''))
+  ].join('\n')
+}
 
 /** Player-only panel: renders the run's `transcript.md` and offers a one-click
  *  "Copy prompt" that bundles the transcript with any failing-command errors —
@@ -77,25 +95,33 @@ export class DevtoolsTranscript extends Element {
 
   #errorMessage(command: CommandLog): string {
     const err = command.error
-    if (err && typeof err === 'object' && 'message' in err) {
-      return String((err as { message: unknown }).message)
-    }
-    return String(err)
+    const message =
+      err && typeof err === 'object' && 'message' in err
+        ? String((err as { message: unknown }).message)
+        : String(err)
+    // Runner errors carry terminal colour (node's AssertionError diff is
+    // colour-coded), which is noise in a prompt.
+    return stripAnsi(message).trim()
+  }
+
+  /** One failure as a markdown list item — label and message both come from
+   *  captured strings that may contain newlines, so the whole row is indented
+   *  as a unit. */
+  #failureItem(command: CommandLog): string {
+    const label = stripAnsi(String(command.title ?? command.command))
+    return asListItem(`${label}: ${this.#errorMessage(command)}`)
   }
 
   /** transcript + a Failures section built from commands carrying an error. */
   #buildPrompt(): string {
     const parts: string[] = []
     if (this.transcript) {
-      parts.push(this.transcript.trim())
+      parts.push(stripAnsi(this.transcript).trim())
     }
     const failures = (this.commands ?? []).filter((c) => c.error)
     if (failures.length) {
       parts.push(
-        '## Failures\n' +
-          failures
-            .map((f) => `- ${f.title ?? f.command}: ${this.#errorMessage(f)}`)
-            .join('\n')
+        '## Failures\n' + failures.map((f) => this.#failureItem(f)).join('\n')
       )
     }
     return parts.join('\n\n')

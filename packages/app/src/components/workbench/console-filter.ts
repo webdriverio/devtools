@@ -63,7 +63,10 @@ export function filterConsoleLogs(
 ): ConsoleLog[] {
   const needle = search.trim().toLowerCase()
   return logs.filter((log) => {
-    if (level !== 'all' && (log.type || 'log') !== level) {
+    // `ConsoleLog.type` is required, and the panel tags each row with it
+    // unguarded — a default here would file an entry under a level its own row
+    // does not claim.
+    if (level !== 'all' && log.type !== level) {
       return false
     }
     if (needle && !formatConsoleArgs(log.args).toLowerCase().includes(needle)) {

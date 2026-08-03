@@ -53,6 +53,9 @@ try {
         type: 'attributes',
         target: ref,
         attributeName: checkable ? 'checked' : 'value',
+        // `String` never yields the ambiguous shape a boolean attribute reader
+        // has to guess at: `checked` is always an explicit "true"/"false", and
+        // `value` is not a boolean attribute, so its `''` is a real empty value.
         attributeValue: checkable ? String(el.checked) : String(el.value),
         addedNodes: [],
         removedNodes: [],

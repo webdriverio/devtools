@@ -10,9 +10,20 @@ import {
   metadataContext,
   mutationContext
 } from '@/controller/context.js'
+// The collector itself, by path: `packages/app` deliberately does not depend on
+// `packages/script`, so there is no alias for it. Imported here — and only here —
+// so the boolean-attribute cases below replay records the CAPTURE produced
+// rather than ones this spec wrote out for it.
+import {
+  MUTATION_OBSERVER_CONFIG,
+  serializeMutation,
+  shouldCapture
+} from '../../../../script/src/mutations.js'
+import { REF_ATTR } from '../../../../script/src/utils.js'
 import { mutationForCommand } from '@components/browser/mutation-at-command.js'
 import '@components/browser/snapshot.js'
 
+import { commandLog, mutation } from '../../support/builders.js'
 import { mountWithContext, settle } from '../../support/mount.js'
 import { shadow, shadowAll, text, texts } from '../../support/queries.js'
 import {
@@ -181,8 +192,61 @@ function input(doc: Document, selector: string): HTMLInputElement {
   return el
 }
 
+/** The element as a re-parse of its own markup yields it — what an export, a
+ *  copy-as-HTML or any other re-serialization of the replayed page reads, and the
+ *  only reader that tells a boolean attribute's PRESENCE from its value. */
+function reparse(el: HTMLElement, selector: string): HTMLInputElement {
+  const parsed = new DOMParser()
+    .parseFromString(el.outerHTML, 'text/html')
+    .querySelector<HTMLInputElement>(selector)
+  if (!parsed) {
+    throw new Error(`No ${selector} in the re-parsed markup`)
+  }
+  return parsed
+}
+
 const boxesIn = (el: Browser, selector: string) =>
   Array.from(replayDoc(el)?.querySelectorAll<HTMLElement>(selector) ?? [])
+
+/** The timestamp `support/builders.ts` stamps, so a record serialized here lands
+ *  in the same replay window as the built ones beside it. */
+const BUILDER_TIMESTAMP = mutation().timestamp
+
+/**
+ * One attribute mutation as the COLLECTOR puts it on the wire: `markup` is
+ * mutated under `packages/script`'s own observer config, serialized by its own
+ * serializer, then JSON round-tripped — which is where a field the capture left
+ * undefined becomes an absent one, the only difference between a removed
+ * attribute and one present with an empty value.
+ */
+function capturedAttributeMutation(
+  ref: string,
+  markup: string,
+  mutate: (el: HTMLInputElement) => void
+): TraceMutation {
+  const host = document.createElement('div')
+  host.innerHTML = markup
+  const el = host.firstElementChild as HTMLInputElement
+  el.setAttribute(REF_ATTR, ref)
+  document.body.append(host)
+  const observer = new MutationObserver(() => {})
+  try {
+    observer.observe(el, MUTATION_OBSERVER_CONFIG)
+    mutate(el)
+    // Synchronous, so the records are here without waiting on the microtask the
+    // observer would otherwise deliver them in.
+    const records = observer.takeRecords().filter(shouldCapture)
+    if (records.length !== 1) {
+      throw new Error(`Captured ${records.length} records, expected exactly 1`)
+    }
+    return JSON.parse(
+      JSON.stringify(serializeMutation(records[0], BUILDER_TIMESTAMP))
+    ) as TraceMutation
+  } finally {
+    observer.disconnect()
+    host.remove()
+  }
+}
 
 describe('wdio-devtools-browser', () => {
   describe('document replay', () => {
@@ -296,23 +360,16 @@ describe('wdio-devtools-browser', () => {
       )
 
       const remember = input(doc, '#remember')
-      // The property mirror is the half that is right, and the half the replayed
-      // page is drawn from.
+      // The rendered field...
       expect(remember.checked).toBe(false)
-      // SOURCE BUG, pinned as-is (snapshot.ts:464 `setAttribute` runs for every
-      // attribute mutation, before the property mirror on :470). `checked` is a
-      // BOOLEAN content attribute — its presence means checked whatever the value
-      // — so the replayed markup says TICKED while the property says otherwise.
-      // On screen the property wins, so replay is unaffected; anything that
-      // re-serializes the page (export, copy-as-HTML, outerHTML round-trip) reads
-      // the lie. Asserted through a real re-parse rather than the attribute's
-      // spelling, so a fix flips a visible assertion instead of sneaking past:
-      // the correct value is `null`, and `reticked` then becomes false.
-      const reticked = new DOMParser()
-        .parseFromString(remember.outerHTML, 'text/html')
-        .querySelector<HTMLInputElement>('#remember')!
-      expect(remember.getAttribute('checked')).toBe('false')
-      expect(reticked.checked).toBe(true)
+      // ...and its markup agree. `checked` is a BOOLEAN content attribute — its
+      // presence means checked whatever the value — so a captured "false" has to
+      // remove it; written verbatim, the markup reads as TICKED while the
+      // property says otherwise, and everything that re-serializes the page
+      // (export, copy-as-HTML, outerHTML round-trip) carries the lie. Asserted
+      // through a real re-parse rather than the attribute's spelling.
+      expect(remember.getAttribute('checked')).toBeNull()
+      expect(reparse(remember, '#remember').checked).toBe(false)
     })
 
     it('moves the radio selection to the option the test picked', async () => {
@@ -344,6 +401,267 @@ describe('wdio-devtools-browser', () => {
       )
 
       expect(input(doc, '#username').value).toBe(TYPED_USERNAME)
+    })
+  })
+
+  /**
+   * `checked` is the boolean attribute the collector actually emits state for
+   * (`String(el.checked)` on every input/change), but nothing about the replay is
+   * checkbox-specific — every boolean attribute reaches the same code, so these
+   * cases drive the general shape through `disabled` and `readonly` on a text
+   * field and through a cleared `checked` on the captured radio.
+   */
+  /**
+   * Replays one attribute mutation on the login page. The typed username rides
+   * along as the signal that the window landed — the attribute under test cannot
+   * be that signal, since it is what the assertions read.
+   */
+  async function replayMutation(entry: TraceMutation): Promise<Document> {
+    const el = await mountBrowser({
+      commands: loginTrace.commands,
+      mutations: [loginTrace.loginDocument, loginTrace.usernameTyped, entry]
+    })
+    await replayedPage(el)
+    const doc = await replayAfter(el, () => selectMutation(entry))
+    await waitUntil(
+      () => input(doc, '#username').value === TYPED_USERNAME,
+      'the replay window to be applied'
+    )
+    return doc
+  }
+
+  const replayAttributeOn = (
+    target: string,
+    attributeName: string,
+    attributeValue?: string
+  ) => replayMutation(mutation({ target, attributeName, attributeValue }))
+
+  describe('boolean attributes', () => {
+    /**
+     * `disabled="false"` is invalid markup that browsers still honour, because a
+     * boolean attribute is active whenever PRESENT. Asserted here on a plain
+     * element rather than taken on trust, since the replay rule below is only
+     * right if this is — if a browser read the value instead, the captured page
+     * would have been enabled and keeping the attribute would be the bug.
+     */
+    it('is the browser, not this replay, that reads a present `disabled=false` as disabled', () => {
+      const probe = document.createElement('input')
+      probe.setAttribute('disabled', 'false')
+
+      expect(probe.disabled).toBe(true)
+    })
+
+    it('keeps a non-checked boolean attribute the page set to "false"', async () => {
+      const doc = await replayAttributeOn(REF.username, 'disabled', 'false')
+
+      // Only the page can have put `disabled="false"` on the wire, and that field
+      // IS disabled — so the replay keeps it. Dropping it replayed a control the
+      // capture recorded as disabled as an enabled one. Presence is asserted, not
+      // the value: the replay normalizes it to `''`, which reads identically.
+      const username = input(doc, '#username')
+      expect(username.hasAttribute('disabled')).toBe(true)
+      expect(username.disabled).toBe(true)
+      expect(reparse(username, '#username').disabled).toBe(true)
+    })
+
+    it('drops the checked state the capture recorded as false', async () => {
+      // `checked` is the one boolean attribute the collector reports as a
+      // property state (`String(el.checked)`), so here "false" means unchecked.
+      const doc = await replayAttributeOn(REF.planGuest, 'checked', 'false')
+
+      const guest = input(doc, '#plan-guest')
+      expect(guest.getAttribute('checked')).toBeNull()
+      expect(guest.checked).toBe(false)
+      expect(reparse(guest, '#plan-guest').checked).toBe(false)
+    })
+
+    it('removes a boolean attribute a mutation carries no value for', async () => {
+      // The captured radio has `checked="checked"`, so the removal is observable:
+      // a cleared attribute written as an empty one stays present and keeps
+      // reading as checked.
+      const doc = await replayAttributeOn(REF.planGuest, 'checked')
+
+      const guest = input(doc, '#plan-guest')
+      expect(guest.getAttribute('checked')).toBeNull()
+      expect(guest.checked).toBe(false)
+      expect(reparse(guest, '#plan-guest').checked).toBe(false)
+    })
+
+    it('keeps a boolean attribute the capture carries with an empty value', async () => {
+      // `<input readonly>` reaches the wire as an empty value, so empty is the
+      // PRESENT state — reading the string for truthiness would drop it.
+      const doc = await replayAttributeOn(REF.username, 'readonly', '')
+
+      const username = input(doc, '#username')
+      expect(username.readOnly).toBe(true)
+      expect(reparse(username, '#username').readOnly).toBe(true)
+    })
+
+    /**
+     * The same two states, on records `packages/script` serialized rather than
+     * ones written out above — the join that makes this a round trip. A capture
+     * coercing a removed attribute to `''` (what `getAttribute() || ''` does)
+     * emits the shape `<input readonly>` emits, so the removal case below is the
+     * one assertion that fails for it; the empty-value case is its control and
+     * has to keep passing, since a capture omitting BOTH would also "fix" the
+     * removal while losing the presence signal.
+     */
+    describe('as the collector serializes them', () => {
+      it('removes an attribute the captured page removed', async () => {
+        // The captured radio arrives with `checked`, so the removal is
+        // observable: a cleared attribute serialized as an empty one stays
+        // present and keeps reading as checked.
+        const doc = await replayMutation(
+          capturedAttributeMutation(REF.planGuest, '<input checked>', (el) =>
+            el.removeAttribute('checked')
+          )
+        )
+
+        const guest = input(doc, '#plan-guest')
+        expect(guest.getAttribute('checked')).toBeNull()
+        expect(guest.checked).toBe(false)
+        expect(reparse(guest, '#plan-guest').checked).toBe(false)
+      })
+
+      it('keeps an attribute the captured page set to an empty value', async () => {
+        const doc = await replayMutation(
+          capturedAttributeMutation(REF.username, '<input>', (el) =>
+            el.setAttribute('readonly', '')
+          )
+        )
+
+        const username = input(doc, '#username')
+        expect(username.readOnly).toBe(true)
+        expect(reparse(username, '#username').readOnly).toBe(true)
+      })
+    })
+  })
+
+  /**
+   * Removal has to survive for attributes that are NOT boolean too. `aria-label`
+   * is the case with a consequence a reader can see: `#cancel` is captured with
+   * one, and the element overlay names a box by `aria-label` BEFORE its visible
+   * text — so an `aria-label=""` left behind by a coerced removal names the
+   * button `''` instead of letting `Cancel` name it.
+   */
+  describe('non-boolean attributes', () => {
+    it('removes a non-boolean attribute a mutation carries no value for', async () => {
+      const doc = await replayAttributeOn(REF.cancel, 'aria-label')
+
+      const cancel = doc.querySelector('#cancel')!
+      expect(cancel.getAttribute('aria-label')).toBeNull()
+      expect(cancel.outerHTML).not.toContain('aria-label')
+    })
+
+    it('removes a non-boolean attribute the captured page removed', async () => {
+      const doc = await replayMutation(
+        capturedAttributeMutation(
+          REF.cancel,
+          `<button aria-label="${CANCEL_ARIA_LABEL}"></button>`,
+          (el) => el.removeAttribute('aria-label')
+        )
+      )
+
+      const cancel = doc.querySelector('#cancel')!
+      expect(cancel.getAttribute('aria-label')).toBeNull()
+    })
+
+    it('keeps a non-boolean attribute the captured page set to an empty value', async () => {
+      const doc = await replayAttributeOn(REF.cancel, 'aria-label', '')
+
+      // The control: an empty value is a value. A fix that removed on `''` too
+      // would pass the two cases above while losing this distinction.
+      expect(doc.querySelector('#cancel')!.getAttribute('aria-label')).toBe('')
+    })
+
+    it('writes a non-boolean attribute the captured page changed', async () => {
+      const doc = await replayAttributeOn(REF.cancel, 'aria-label', 'Go back')
+
+      expect(doc.querySelector('#cancel')!.getAttribute('aria-label')).toBe(
+        'Go back'
+      )
+    })
+  })
+
+  /**
+   * `value` is the one non-boolean attribute with a live PROPERTY behind it, and
+   * the two are only coupled while the field is pristine — once anything assigns
+   * the property, removing the attribute no longer changes what the field shows.
+   * That is a browser rule, not ours (probed in the first case below), and it is
+   * why removal leaves the property alone: the replay assigns it exactly when the
+   * collector reported field state, which is exactly when the captured field had
+   * been typed into and was therefore dirty itself.
+   */
+  describe('a removed `value` attribute', () => {
+    /** Replays `entry` with a trailing checkbox tick as the landing signal, so
+     *  the field under test is never also the signal that the window arrived. */
+    async function replayThenTick(
+      entry: TraceMutation,
+      ...before: TraceMutation[]
+    ) {
+      const el = await mountBrowser({
+        commands: loginTrace.commands,
+        mutations: [
+          loginTrace.loginDocument,
+          ...before,
+          entry,
+          loginTrace.rememberChecked
+        ]
+      })
+      await replayedPage(el)
+      const doc = await replayAfter(el, () =>
+        selectMutation(loginTrace.rememberChecked)
+      )
+      await waitUntil(
+        () => input(doc, '#remember').checked,
+        'the replay window to be applied'
+      )
+      return doc
+    }
+
+    // `attributeValue` is passed explicitly: the builder defaults it to a real
+    // value, so omitting the key would write one rather than remove the attribute.
+    const valueRemoval = () =>
+      mutation({
+        target: REF.username,
+        attributeName: 'value',
+        attributeValue: undefined
+      })
+
+    it('is the browser that couples a pristine field to its value attribute', () => {
+      const pristine = document.createElement('input')
+      pristine.setAttribute('value', STALE_USERNAME)
+      expect(pristine.value).toBe(STALE_USERNAME)
+      pristine.removeAttribute('value')
+      expect(pristine.value).toBe('')
+
+      // ...and that decouples it once the property has been assigned.
+      const dirty = document.createElement('input')
+      dirty.setAttribute('value', STALE_USERNAME)
+      dirty.value = TYPED_USERNAME
+      dirty.removeAttribute('value')
+      expect(dirty.value).toBe(TYPED_USERNAME)
+    })
+
+    it('clears a field the capture never reported typing into', async () => {
+      const doc = await replayThenTick(valueRemoval())
+
+      // No property assignment has happened, so the replayed field is pristine
+      // and the removal clears it on its own — no mirror needed.
+      const username = input(doc, '#username')
+      expect(username.getAttribute('value')).toBeNull()
+      expect(username.value).toBe('')
+    })
+
+    it('keeps the text of a field the capture reported typing into', async () => {
+      const doc = await replayThenTick(valueRemoval(), loginTrace.usernameTyped)
+
+      // The captured field was dirty when the page removed the attribute, so it
+      // kept showing the typed text. Clearing the property here — the obvious
+      // reading of "a removal should clear the field" — would lose it.
+      const username = input(doc, '#username')
+      expect(username.getAttribute('value')).toBeNull()
+      expect(username.value).toBe(TYPED_USERNAME)
     })
   })
 
@@ -397,6 +715,31 @@ describe('wdio-devtools-browser', () => {
       )
 
       expect(doc.querySelector('form#login')).toBeTruthy()
+    })
+
+    it('replays the DOM window of a command captured at timestamp 0', async () => {
+      // `CommandLog.timestamp` is required and 0 is reachable — the first command
+      // of a normalized or standalone trace. Resolved for truthiness the player
+      // is handed no window at all and keeps whatever page it already showed.
+      const first = commandLog({
+        command: 'url',
+        args: [LOGIN_URL],
+        startTime: 0,
+        timestamp: 0
+      })
+      const el = await mountBrowser({
+        commands: [first, loginTrace.readFlash],
+        mutations: loginTrace.mutations
+      })
+      await replayedPage(el)
+
+      const doc = await replayAfter(el, () => selectCommand(first))
+
+      // `readFlash` starts after the secure-page anchor, so that anchor is where
+      // this command's window ends — the login form the initial replay showed is
+      // gone, which no stale page could produce.
+      expect(doc.querySelector('#flash')).toBeTruthy()
+      expect(doc.querySelector('form#login')).toBeNull()
     })
 
     it('replays a text change recorded as a character-data mutation', async () => {

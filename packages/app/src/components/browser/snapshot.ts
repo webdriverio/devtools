@@ -11,6 +11,7 @@ import {
 import { commandPageUrl } from './url-at-timestamp.js'
 import { mutationForCommand } from './mutation-at-command.js'
 import { imageMime } from './trace-timeline-utils.js'
+import { booleanAttributeOn, isBooleanAttribute } from './boolean-attribute.js'
 
 import { type ComponentChildren, h, render, type VNode } from 'preact'
 import { customElement, query } from 'lit/decorators.js'
@@ -66,6 +67,10 @@ const COMPONENT = 'wdio-devtools-browser'
 @customElement(COMPONENT)
 export class DevtoolsBrowser extends Element {
   #vdom = document.createDocumentFragment()
+  /** Fields a field-state record has written the `value` PROPERTY of, which is
+   *  what separates a dirty replayed field from a pristine one. Weak, and every
+   *  replay rebuilds the document, so entries die with the elements they key. */
+  #fieldStateApplied = new WeakSet<HTMLElement>()
   #activeUrl?: string
   /** Base64 PNG of the screenshot for the currently selected command, or null. */
   #screenshotData: string | null = null
@@ -451,7 +456,8 @@ export class DevtoolsBrowser extends Element {
   }
 
   #handleAttributeMutation(mutation: TraceMutation) {
-    if (!mutation.attributeName) {
+    const name = mutation.attributeName
+    if (!name) {
       return
     }
 
@@ -460,15 +466,62 @@ export class DevtoolsBrowser extends Element {
       return
     }
 
-    const value = mutation.attributeValue ?? ''
-    el.setAttribute(mutation.attributeName, value)
+    if (isBooleanAttribute(name)) {
+      this.#applyBooleanAttribute(
+        el,
+        name,
+        booleanAttributeOn(name, mutation.attributeValue)
+      )
+      return
+    }
+
+    // An absent value is the capture's removal signal (`mutations.ts` sends
+    // undefined where `getAttribute` read null), and `class=""` is not `class`
+    // gone: presence-based selectors and `aria-label` semantics both turn on it.
+    if (mutation.attributeValue === undefined) {
+      el.removeAttribute(name)
+      this.#clearRemovedFieldValue(el, name)
+      return
+    }
+
+    const value = mutation.attributeValue
+    el.setAttribute(name, value)
     // Form-field state lives on the PROPERTY, not just the attribute — mirror it
-    // so a replayed input shows the captured value / checked state, including a
-    // field cleared back to empty.
-    if (mutation.attributeName === 'value' && 'value' in el) {
+    // so a replayed input shows the captured value, including a field cleared
+    // back to empty.
+    if (name === 'value' && 'value' in el) {
       ;(el as HTMLInputElement).value = value
-    } else if (mutation.attributeName === 'checked' && 'checked' in el) {
-      ;(el as HTMLInputElement).checked = value === 'true'
+      this.#fieldStateApplied.add(el)
+    }
+  }
+
+  /** A pristine field's text IS its `value` attribute, so removing the attribute
+   *  empties the field — but the property stops tracking it once assigned, and
+   *  the snapshot render assigns it. Mirroring the clear restores that coupling,
+   *  EXCEPT where a field-state record already set the property: the captured
+   *  field was dirty then, and a dirty field keeps its text when the attribute
+   *  goes. Only the collector's per-edit records carry that text, so clearing
+   *  there would lose what the user actually typed. */
+  #clearRemovedFieldValue(el: HTMLElement, name: string) {
+    if (name !== 'value' || !('value' in el)) {
+      return
+    }
+    if (this.#fieldStateApplied.has(el)) {
+      return
+    }
+    ;(el as HTMLInputElement).value = ''
+  }
+
+  /** Presence IS the state of a boolean attribute, so the captured state is
+   *  toggled rather than written — the markup a re-serialization reads then says
+   *  what the replayed page shows. `checked` is mirrored onto the property as
+   *  well because checkedness stops tracking the attribute once anything sets it
+   *  (the captured page's fields arrive as preact property writes); every other
+   *  boolean attribute reflects its property, so the toggle moves both. */
+  #applyBooleanAttribute(el: HTMLElement, name: string, on: boolean) {
+    el.toggleAttribute(name, on)
+    if (name === 'checked' && 'checked' in el) {
+      ;(el as HTMLInputElement).checked = on
     }
   }
 

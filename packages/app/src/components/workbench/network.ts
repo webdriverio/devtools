@@ -6,12 +6,12 @@ import { customElement, state } from 'lit/decorators.js'
 import { consume } from '@lit/context'
 import { networkRequestContext } from '../../controller/context.js'
 import {
+  FAILED_STATUS_LABEL,
   RESOURCE_TYPES,
   TYPE_DOT_CLASS,
   type ResourceFilter
 } from '../../utils/network-constants.js'
 import {
-  formatBytes,
   formatTime,
   statusKind,
   getResourceType,
@@ -24,7 +24,11 @@ import {
   waterfallBar,
   type WaterfallScale
 } from './network/waterfall.js'
-import { renderNetworkRequestDetail } from './network/request-detail.js'
+import {
+  formatTransferSize,
+  renderNetworkRequestDetail,
+  requestFailed
+} from './network/request-detail.js'
 
 import '../placeholder.js'
 
@@ -139,12 +143,19 @@ export class DevtoolsNetwork extends Element {
   }
 
   #renderRequestRow(request: NetworkRequest, range: WaterfallScale) {
-    const kind = statusKind(request.status, Boolean(request.error))
+    const kind = statusKind(request.status, requestFailed(request))
     const dotClass = TYPE_DOT_CLASS[getResourceType(request)]
-    // Only draw a bar when we have a real duration; missing/zero timing shows
-    // an empty track + a dash instead of a stray sliver.
-    const hasTiming = typeof request.time === 'number' && request.time > 0
+    // A zero duration is a measurement (a cached or same-tick response), so the
+    // cell reports it; only the bar is held back, because a zero-width bar draws
+    // as a stray sliver rather than as a duration.
+    const duration = typeof request.time === 'number' ? request.time : undefined
+    const hasBar = duration !== undefined && duration > 0
     const bar = waterfallBar(request, range)
+    // A transport failure is captured as status 0, which is not a code — it reads
+    // as ERR so a dead request is never mistaken for one still in flight, which
+    // is what the dash means.
+    const statusLabel =
+      request.status || (requestFailed(request) ? FAILED_STATUS_LABEL : '—')
     return html`
       <div
         class="grid request-row ${this.selectedRequest?.id === request.id
@@ -161,14 +172,14 @@ export class DevtoolsNetwork extends Element {
         <span class="req-method">${request.method}</span>
         <span class="req-status kind-${kind}">
           <i class="status-dot"></i>
-          ${request.status || (request.error ? 'ERR' : '—')}
+          ${statusLabel}
         </span>
         <span class="req-type truncate" title="${contentType(request)}"
           >${contentType(request)}</span
         >
         <span class="req-wf">
           <span class="wf-track">
-            ${hasTiming
+            ${hasBar
               ? html`<span
                   class="wf-bar kind-${kind}"
                   style="left:${bar.offset}%;width:${bar.width}%"
@@ -176,10 +187,10 @@ export class DevtoolsNetwork extends Element {
               : nothing}
           </span>
         </span>
-        <span class="req-dur ${hasTiming ? '' : 'req-dur-empty'}"
-          >${hasTiming ? formatTime(request.time) : '—'}</span
+        <span class="req-dur ${duration === undefined ? 'req-dur-empty' : ''}"
+          >${duration === undefined ? '—' : formatTime(duration)}</span
         >
-        <span class="req-size">${formatBytes(request.size)}</span>
+        <span class="req-size">${formatTransferSize(request.size)}</span>
       </div>
     `
   }

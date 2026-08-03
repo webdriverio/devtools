@@ -22,6 +22,7 @@ import {
   type WsMessageScope
 } from '@wdio/devtools-shared'
 
+import { RUN_ALL_UID } from '../src/components/sidebar/constants.js'
 import { CACHE_ID } from '../src/controller/constants.js'
 import { DataManagerController } from '../src/controller/DataManager.js'
 import { rerunState } from '../src/controller/rerunState.js'
@@ -794,6 +795,30 @@ describe('DataManagerController', () => {
         'running',
         'running'
       ])
+    })
+
+    it('marks the whole tree running for the run-all sentinel uid', async () => {
+      const { manager, deliver } = await boot()
+      deliver(
+        'suites',
+        suitesFrame(
+          suite('login-suite', { state: 'passed', tests: [test('t-1')] }),
+          suite('checkout-suite', { state: 'failed' })
+        )
+      )
+
+      deliver(WS_SCOPE.clearExecutionData, {
+        uid: RUN_ALL_UID,
+        entryType: 'suite'
+      })
+
+      expect(publishedSuites(manager).map((entry) => entry.state)).toEqual([
+        'running',
+        'running'
+      ])
+      // The sentinel is not a suite uid — it must not be latched as the active
+      // rerun suite, or every child clear would be skipped as its descendant.
+      expect(rerunState.activeRerunSuiteUid).toBeUndefined()
     })
 
     it('empties the tree when the backend asks for it', async () => {

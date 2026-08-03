@@ -17,7 +17,7 @@ import type {
 } from '@wdio/devtools-shared'
 import type { TraceCapturer } from './trace-exporter.js'
 import { writeTraceZip } from './trace-exporter.js'
-import { deterministicUid } from './uid.js'
+import { deterministicUid, isStepUidOf } from './uid.js'
 import { trimChar } from './artifact-naming.js'
 
 // ─── SpecRange ────────────────────────────────────────────────────────────────
@@ -222,9 +222,11 @@ export function filterTestMetadataBySpec(
 }
 
 /**
- * Filter a full `testUid → metadata` map down to a single test's entry. The
- * per-test analog of {@link filterTestMetadataBySpec}: a test slice's metadata
- * is just that one test's entry, attached as its tracingGroup name.
+ * Filter a full `testUid → metadata` map down to a single test's entry and its
+ * step entries. The per-test analog of {@link filterTestMetadataBySpec}. The
+ * steps have to come along: `buildGroupPath` names each step group from this
+ * map and falls back to the raw uid when the entry is missing, so dropping them
+ * renders a scenario's steps as `stable-…:step:1` instead of their Gherkin text.
  */
 export function filterTestMetadataByUid(
   allMetadata: TestMetadataMap,
@@ -234,6 +236,11 @@ export function filterTestMetadataByUid(
   const entry = allMetadata.get(testUid)
   if (entry) {
     filtered.set(testUid, entry)
+  }
+  for (const [uid, meta] of allMetadata) {
+    if (isStepUidOf(uid, testUid)) {
+      filtered.set(uid, meta)
+    }
   }
   return filtered
 }

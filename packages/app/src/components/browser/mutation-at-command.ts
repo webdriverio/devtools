@@ -19,7 +19,9 @@ export function mutationForCommand(
   commands: CommandLog[],
   mutations: TraceMutation[]
 ): TraceMutation | undefined {
-  if (!command?.timestamp || !mutations.length) {
+  // `timestamp` is required by the contract and 0 is a real value — the first
+  // command of a normalized or standalone trace — so only absence bails out.
+  if (command === undefined || !mutations.length) {
     return undefined
   }
   const idx = commands.indexOf(command)

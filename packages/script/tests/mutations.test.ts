@@ -111,6 +111,65 @@ describe('mutation serialization', () => {
     expect(mutations[0].childIndex).toBeUndefined()
   })
 
+  /**
+   * A removed attribute and one present with an empty value are different page
+   * states that both read back as falsy, and only the wire tells the replay
+   * which happened: a boolean attribute's PRESENCE is its state, so `''` means
+   * set (`<input disabled>` serializes to exactly that) and the removal has to
+   * arrive carrying no value at all. Asserted on the JSON the trace actually
+   * writes, since that is where an `undefined` field becomes an absent one.
+   */
+  describe('a removed attribute versus one present with an empty value', () => {
+    const onWire = (m: TraceMutation) =>
+      JSON.parse(JSON.stringify(m)) as Record<string, unknown>
+
+    it('carries no value for an attribute the page removed', async () => {
+      document.body.innerHTML = '<input id="field" disabled>'
+      assignRef(document.body)
+      const field = document.querySelector('#field')!
+
+      const mutations = await capture(() => {
+        field.removeAttribute('disabled')
+      })
+
+      expect(mutations).toHaveLength(1)
+      expect(mutations[0].attributeName).toBe('disabled')
+      // Coerced to `''` this record says the field is still disabled.
+      expect(mutations[0].attributeValue).toBeUndefined()
+      expect('attributeValue' in onWire(mutations[0])).toBe(false)
+    })
+
+    it('carries the empty value of an attribute the page set to it', async () => {
+      document.body.innerHTML = '<input id="field">'
+      assignRef(document.body)
+      const field = document.querySelector('#field')!
+
+      const mutations = await capture(() => {
+        field.setAttribute('readonly', '')
+      })
+
+      expect(mutations).toHaveLength(1)
+      expect(mutations[0].attributeValue).toBe('')
+      // Present and empty — indistinguishable from the removal above unless the
+      // field survives the trip as its own key.
+      expect(onWire(mutations[0]).attributeValue).toBe('')
+    })
+
+    it('keeps carrying the empty value of an emptied non-boolean attribute', async () => {
+      // The case the removal signal must not swallow: `class=""` is a real value
+      // the replay writes, and it reaches the wire the same way `disabled` does.
+      document.body.innerHTML = '<div id="flash" class="success"></div>'
+      assignRef(document.body)
+      const flash = document.querySelector('#flash')!
+
+      const mutations = await capture(() => {
+        flash.setAttribute('class', '')
+      })
+
+      expect(mutations[0].attributeValue).toBe('')
+    })
+  })
+
   it('never reports the ref attribute it stamps itself', async () => {
     document.body.innerHTML = '<div id="flash">old</div>'
     assignRef(document.body)

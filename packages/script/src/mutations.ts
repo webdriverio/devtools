@@ -85,7 +85,13 @@ export function serializeMutation(
   const nextSibling = m.nextSibling ? getRef(m.nextSibling) : null
   let attributeValue: string | undefined
   if (m.type === 'attributes') {
-    attributeValue = (m.target as Element).getAttribute(m.attributeName!) || ''
+    // A REMOVED attribute reads back as `null`, and the replay takes a record
+    // carrying no value as the removal — coerced to `''` it instead says the
+    // attribute is still there with an empty value, which is exactly what
+    // `<input disabled>` puts on the wire, so a boolean attribute the page just
+    // cleared replays as still set.
+    attributeValue =
+      (m.target as Element).getAttribute(m.attributeName!) ?? undefined
   }
   let newTextContent: string | undefined
   if (m.type === 'characterData') {
