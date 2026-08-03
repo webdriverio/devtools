@@ -13,6 +13,7 @@ import {
   recordSliceBoundary,
   recordSpecBoundary,
   sanitizeSpecName,
+  stepMetadataUid,
   writeSpecTrace,
   writeTestSliceTrace,
   type SpecBoundaryContext,
@@ -130,6 +131,39 @@ describe('filterTestMetadataByUid', () => {
     ])
     expect([...filterTestMetadataByUid(all, 'u1').keys()]).toEqual(['u1'])
     expect(filterTestMetadataByUid(all, 'missing').size).toBe(0)
+  })
+
+  it("keeps the test's own step entries so their titles survive the slice", () => {
+    const all: TestMetadataMap = new Map([
+      ['u1', { title: 'A', specFile: '/a.js' }],
+      [
+        stepMetadataUid('u1', 1),
+        { title: 'Given I log in', specFile: '/a.js' }
+      ],
+      [stepMetadataUid('u1', 2), { title: 'Then I see it', specFile: '/a.js' }],
+      ['u2', { title: 'B', specFile: '/b.js' }],
+      [stepMetadataUid('u2', 1), { title: 'Given other', specFile: '/b.js' }]
+    ])
+    const filtered = filterTestMetadataByUid(all, 'u1')
+    expect([...filtered.keys()]).toEqual([
+      'u1',
+      stepMetadataUid('u1', 1),
+      stepMetadataUid('u1', 2)
+    ])
+    expect(filtered.get(stepMetadataUid('u1', 1))?.title).toBe('Given I log in')
+  })
+
+  it('keeps step entries of the requested test only, never a sibling test whose uid shares a prefix', () => {
+    const all: TestMetadataMap = new Map([
+      ['u1', { title: 'A', specFile: '/a.js' }],
+      [stepMetadataUid('u1', 1), { title: 'step of A', specFile: '/a.js' }],
+      ['u12', { title: 'B', specFile: '/a.js' }],
+      [stepMetadataUid('u12', 1), { title: 'step of B', specFile: '/a.js' }]
+    ])
+    expect([...filterTestMetadataByUid(all, 'u1').keys()]).toEqual([
+      'u1',
+      stepMetadataUid('u1', 1)
+    ])
   })
 })
 

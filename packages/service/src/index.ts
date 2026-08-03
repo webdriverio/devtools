@@ -11,6 +11,7 @@ import {
   mapCommandToAction,
   recordSliceBoundary,
   resolveAdapterOutputDir,
+  stepMetadataUid,
   TestAttemptTracker,
   tracePolicyModeWarning,
   type SpecRange,
@@ -514,7 +515,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
       return
     }
     this.#currentStepIndex += 1
-    const uid = `${this.#currentTestUid}:step:${this.#currentStepIndex}`
+    const uid = stepMetadataUid(this.#currentTestUid, this.#currentStepIndex)
     const title =
       [step?.keyword, step?.text].filter(Boolean).join('').trim() ||
       `Step ${this.#currentStepIndex}`
