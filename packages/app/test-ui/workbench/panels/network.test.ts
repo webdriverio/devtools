@@ -8,6 +8,7 @@ import {
   getFileName,
   statusKind
 } from '@/utils/network-helpers.js'
+import { FAILED_STATUS_LABEL } from '@/utils/network-constants.js'
 import '@components/workbench/network.js'
 import type { DevtoolsNetwork } from '@components/workbench/network.js'
 import {
@@ -70,9 +71,7 @@ const expectedTypes = (requests: NetworkRequest[]) => requests.map(contentType)
 
 const expectedDurations = (requests: NetworkRequest[]) =>
   requests.map((request) =>
-    typeof request.time === 'number' && request.time > 0
-      ? formatTime(request.time)
-      : NO_VALUE
+    typeof request.time === 'number' ? formatTime(request.time) : NO_VALUE
   )
 
 const expectedSizes = (requests: NetworkRequest[]) =>
@@ -97,6 +96,20 @@ const expectedBarWidths = (inView: NetworkRequest[]) => {
     .filter((request) => typeof request.time === 'number' && request.time > 0)
     .map((request) => `${waterfallBar(request, range).width}%`)
 }
+
+/** A 204: an answered request that transferred nothing and took no measurable
+ *  time. Not in `fixtures.ts` because every fixture request there carries a
+ *  transferred body, and 0 is exactly the value these columns used to drop. */
+const emptyBody = networkRequest({
+  id: 'req-204',
+  url: 'https://the-internet.herokuapp.com/api/session',
+  method: 'DELETE',
+  type: 'fetch',
+  status: 204,
+  statusText: 'No Content',
+  time: 0,
+  size: 0
+})
 
 async function mountNetwork(
   requests: NetworkRequest[]
@@ -266,6 +279,32 @@ describe('wdio-devtools-network', () => {
       ])
     })
 
+    // A 204 transfers 0 bytes and a cached or same-tick response measures 0 ms;
+    // both are measurements the producers send (the page collector's
+    // `#estimateSize` returns 0 for a body it could not read, nightwatch's
+    // perf-log parser clamps a duration at 0). Both columns used to render them
+    // as if nothing had been captured, which the in-flight row beside them —
+    // where nothing really was — is here to keep apart.
+    it('reports a zero duration and a zero size as measured values', async () => {
+      const panel = await mountNetwork([emptyBody, loginNetwork.pending])
+
+      expect(texts(panel, DURATION)).toEqual(['0.00ms', NO_VALUE])
+      expect(texts(panel, SIZE)).toEqual(['0B', '-'])
+    })
+
+    it('draws no bar for a zero duration without dashing its cell', async () => {
+      const panel = await mountNetwork([emptyBody, loginNetwork.pending])
+
+      // A zero-width bar would read as a stray sliver, so the track stays empty
+      // for both rows — the difference is what the duration cell reports.
+      expect(shadowAll(panel, BAR)).toHaveLength(0)
+      expect(
+        shadowAll(panel, DURATION).map((cell) =>
+          cell.classList.contains('req-dur-empty')
+        )
+      ).toEqual([false, true])
+    })
+
     // Literals only, deliberately: routing the expectation through the same
     // helper the panel calls made this list agree with itself while it
     // contradicted the Type column above — a document row dotted `type-other`.
@@ -323,6 +362,45 @@ describe('wdio-devtools-network', () => {
 
       expect(text(shadow(panel, STATUS))).toBe('—')
       expect(kindClassOf(shadowAll(panel, STATUS)[0])).toBe('kind-pending')
+    })
+
+    // A transport failure reaches this panel as status 0 carrying the failure
+    // text, with no `error` field — that is what the WDIO service's
+    // `handleNetworkFetchError` sends on `network.fetchError`. Read on
+    // truthiness, the row claimed the request had no status yet: dashed and
+    // coloured pending, indistinguishable from the in-flight row beside it.
+    it('renders a request whose status is 0 as failed, not as still pending', async () => {
+      const failed = networkRequest({
+        id: 'req-dns',
+        url: 'https://the-internet.herokuapp.com/api/absent',
+        type: 'fetch',
+        status: 0,
+        statusText: 'net::ERR_NAME_NOT_RESOLVED',
+        time: 30
+      })
+      const panel = await mountNetwork([failed, loginNetwork.pending])
+
+      expect(texts(panel, STATUS)).toEqual(['ERR', '—'])
+      expect(shadowAll(panel, STATUS).map(kindClassOf)).toEqual([
+        'kind-error',
+        'kind-pending'
+      ])
+    })
+
+    it('summarises a status of 0 in the detail panel as the failure it was', async () => {
+      const failed = networkRequest({
+        id: 'req-dns',
+        status: 0,
+        statusText: 'net::ERR_NAME_NOT_RESOLVED'
+      })
+      const panel = await mountNetwork([failed])
+      await clickRow(panel, 0)
+
+      const [general] = detailSections(panel)
+      expect(general.values[2]).toBe('ERR net::ERR_NAME_NOT_RESOLVED')
+      expect(texts(panel, ERROR_VALUE)).toEqual([
+        'ERR net::ERR_NAME_NOT_RESOLVED'
+      ])
     })
   })
 
@@ -501,6 +579,44 @@ describe('wdio-devtools-network', () => {
       ])
     })
 
+    // The user-visible half of the same defect: expanding a 204 showed a General
+    // card with no Time and no Size row at all, so a request that answered with
+    // an empty body read as one whose timing and size were never captured.
+    it('reports the zero timing and zero size of a 204 it expands', async () => {
+      const panel = await mountNetwork([emptyBody])
+      await clickRow(panel, 0)
+
+      const [general] = detailSections(panel)
+      expect(general.keys).toEqual([
+        'Request URL',
+        'Method',
+        'Status',
+        'Type',
+        'Time',
+        'Size'
+      ])
+      expect(general.values).toEqual([
+        emptyBody.url,
+        'DELETE',
+        '204 No Content',
+        contentType(emptyBody),
+        '0.00ms',
+        '0B'
+      ])
+    })
+
+    it('leaves out the timing and size rows a request never carried', async () => {
+      const panel = await mountNetwork([
+        networkRequest({ id: 'req-untimed', time: undefined, size: undefined })
+      ])
+      await clickRow(panel, 0)
+
+      // Read as the absence of the rows, not as empty cells: `texts()` answers
+      // '' for both, which is how the dropped 204 rows above went unnoticed.
+      expect(detailSections(panel)[0].keys).not.toContain('Time')
+      expect(detailSections(panel)[0].keys).not.toContain('Size')
+    })
+
     it('reports the transport error of a request that never got a status', async () => {
       const panel = await mountNetwork([loginNetwork.failedFont])
       await clickRow(panel, 0)
@@ -514,9 +630,10 @@ describe('wdio-devtools-network', () => {
         'Time',
         'Error'
       ])
-      // The missing status and the error message are both flagged as errors.
+      // A request that reported an error before any status reads ERR in the card
+      // just as it does in the list column, never the dash meaning "still going".
       expect(texts(panel, ERROR_VALUE)).toEqual([
-        '—',
+        FAILED_STATUS_LABEL,
         'net::ERR_CONNECTION_REFUSED'
       ])
     })

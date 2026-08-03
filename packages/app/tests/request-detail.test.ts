@@ -15,6 +15,7 @@ import { render } from 'lit'
 import type { NetworkRequest } from '@wdio/devtools-shared'
 
 import { renderNetworkRequestDetail } from '../src/components/workbench/network/request-detail.js'
+import { FAILED_STATUS_LABEL } from '../src/utils/network-constants.js'
 import {
   contentType,
   formatBytes,
@@ -78,6 +79,22 @@ const sectionNamed = (root: Element, title: string): Section => {
 
 const sectionTitles = (root: Element) =>
   sections(root).map((section) => section.title)
+
+/** The value text of the General row labelled `key`, or `null` when the row was
+ *  not rendered at all. Reading the row as an element is what separates "the row
+ *  is missing" from "the row is there and reads empty": both answer `''` to a
+ *  text query, which is how a dropped row hides. */
+const generalValue = (root: Element, key: string): string | null => {
+  const row = [...root.querySelectorAll('.kv')].find(
+    (kv) => (kv.querySelector('.k')?.textContent ?? '').trim() === key
+  )
+  if (!row) {
+    return null
+  }
+  return (row.querySelector('.v')?.textContent ?? '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
 
 /** Class of the Status value cell — the renderer stamps `kind-<statusKind>`. */
 const kindClassOf = (root: Element, index = 0): string | undefined =>
@@ -209,18 +226,80 @@ describe('renderNetworkRequestDetail', () => {
       expect(sectionNamed(root, 'General').values[3]).toBe('-')
     })
 
-    it('leaves out a zero timing rather than rendering it as 0ms', () => {
-      // `req.time ? …` is falsy for 0, so the row is dropped — the renderer
-      // never reaches `formatTime(0)`.
-      const root = detail(req({ status: 200, time: 0, size: 0 }))
+    // `time` and `size` are optional, but 0 is a value a producer measures and
+    // sends: a 204 transfers 0 bytes (the page collector's `#estimateSize`
+    // returns 0 for a body it could not read), and a same-tick or cached
+    // response is 0 ms (nightwatch's perf-log parser clamps its duration at 0).
+    // Both rows used to be guarded on truthiness, so the fact was rendered as if
+    // it had never been captured.
+    it('reports the zero timing and zero size of a 204 as measured values', () => {
+      const root = detail(
+        req({
+          method: 'DELETE',
+          status: 204,
+          statusText: 'No Content',
+          time: 0,
+          size: 0
+        })
+      )
 
       expect(sectionNamed(root, 'General').keys).toEqual([
         'Request URL',
         'Method',
         'Status',
-        'Type'
+        'Type',
+        'Time',
+        'Size'
       ])
-      expect(formatTime(0)).toBe('0.00ms')
+      expect(generalValue(root, 'Time')).toBe(formatTime(0))
+      expect(generalValue(root, 'Time')).toBe('0.00ms')
+      // Not `formatBytes(0)`: that is the same dash the helper gives a size that
+      // was never captured, so reusing it here would report the fact as unknown.
+      expect(generalValue(root, 'Size')).not.toBe(formatBytes(0))
+      expect(generalValue(root, 'Size')).toBe('0B')
+    })
+
+    // Each row answers for its own field: a request timed at 0 whose size was
+    // never captured shows the timing and drops only the size.
+    it('reports a zero timing while still dropping an absent size', () => {
+      const root = detail(req({ status: 200, time: 0, size: undefined }))
+
+      expect(generalValue(root, 'Time')).toBe('0.00ms')
+      expect(generalValue(root, 'Size')).toBeNull()
+    })
+
+    // The counterpart to the test above: absent stays absent. Asserted as a
+    // missing row rather than as empty text — a query that answers the same for
+    // both is what let the zero rows disappear unnoticed.
+    it('renders no timing or size row for a request that carries neither', () => {
+      const root = detail(
+        req({ status: 200, time: undefined, size: undefined })
+      )
+
+      expect(generalValue(root, 'Time')).toBeNull()
+      expect(generalValue(root, 'Size')).toBeNull()
+    })
+
+    // `handleNetworkFetchError` in `service/src/session.ts` reports a transport
+    // failure as status 0 plus the failure text, and sets no `error` field, so a
+    // truthiness read files a request that demonstrably failed under "no status
+    // yet" — dashed and coloured as pending, like a request still in flight.
+    it('reads a status of 0 as a failure, not as a status that never arrived', () => {
+      const failed = detail(
+        req({ status: 0, statusText: 'net::ERR_NAME_NOT_RESOLVED' })
+      )
+      const failedStatus = generalValue(failed, 'Status')
+
+      expect(failedStatus).toBe('ERR net::ERR_NAME_NOT_RESOLVED')
+      expect(kindClassOf(failed, 2)).toBe('kind-error')
+
+      // The same cell for a request that genuinely has no status yet, so the two
+      // outcomes cannot both be satisfied by one rendering.
+      host = document.createElement('div')
+      const pending = detail(req({ status: undefined, statusText: undefined }))
+      expect(generalValue(pending, 'Status')).not.toBe(failedStatus)
+      expect(generalValue(pending, 'Status')).toBe('—')
+      expect(kindClassOf(pending, 2)).toBe('kind-pending')
     })
 
     it('renders a sub-second timing in seconds', () => {
@@ -250,9 +329,10 @@ describe('renderNetworkRequestDetail', () => {
         'Error'
       ])
       expect(general.values[5]).toBe('net::ERR_CONNECTION_REFUSED')
-      // The missing status and the message are both flagged as errors.
+      // A request that reported an error before any status reads ERR, the same
+      // as it does in the list column — never the dash that means "still going".
       expect(texts(root, '.v.kind-error')).toEqual([
-        '—',
+        FAILED_STATUS_LABEL,
         'net::ERR_CONNECTION_REFUSED'
       ])
     })
