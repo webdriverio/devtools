@@ -1,6 +1,7 @@
 import '@components/workbench/actionItems/group.js'
 import type { GroupItem } from '@components/workbench/actionItems/group.js'
 
+import { capture } from '../../support/events.js'
 import { mount, settle } from '../../support/mount.js'
 import { shadow, shadowAll, text } from '../../support/queries.js'
 
@@ -164,15 +165,29 @@ describe('wdio-devtools-group-item', () => {
     expect(el.hasAttribute('revealed')).toBe(false)
   })
 
-  it('reflows the title on click and folds it back on a second click', async () => {
+  // The row asks; the panel decides, so only one row is ever reflowed.
+  it('reports its reveal key on click for the panel to act on', async () => {
+    const el = await mount<GroupItem>(TAG, {
+      group: { ...STEP },
+      revealKey: 'group:step-7'
+    })
+
+    const received = capture<string>(el, 'row-reveal', () =>
+      shadow(el, 'button')?.dispatchEvent(new MouseEvent('click'))
+    )
+
+    expect(received).toHaveLength(1)
+    expect(received[0]?.detail).toBe('group:step-7')
+    expect(received[0]?.bubbles).toBe(true)
+    expect(received[0]?.composed).toBe(true)
+  })
+
+  it('does not reflow itself on click', async () => {
     const el = await mount<GroupItem>(TAG, { group: { ...STEP } })
 
     shadow(el, 'button')?.dispatchEvent(new MouseEvent('click'))
     await settle(el)
-    expect(el.hasAttribute('revealed')).toBe(true)
 
-    shadow(el, 'button')?.dispatchEvent(new MouseEvent('click'))
-    await settle(el)
     expect(el.hasAttribute('revealed')).toBe(false)
   })
 

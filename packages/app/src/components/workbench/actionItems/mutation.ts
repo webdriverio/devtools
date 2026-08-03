@@ -78,7 +78,7 @@ export class MutationItem extends ActionItem {
   }
 
   #selectMutation() {
-    this.toggleRevealed()
+    this.requestReveal()
     const event = new CustomEvent('app-mutation-select', { detail: this.entry })
     window.dispatchEvent(event)
     this.requestUpdate()

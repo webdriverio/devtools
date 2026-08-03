@@ -26,7 +26,7 @@ export class GroupItem extends ActionItem {
   }
 
   #toggle() {
-    this.toggleRevealed()
+    this.requestReveal()
     this.dispatchEvent(
       new CustomEvent('group-toggle', {
         detail: { callId: this.group?.callId, expanded: this.expanded },

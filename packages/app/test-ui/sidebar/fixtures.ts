@@ -294,6 +294,7 @@ export type TestEntryProps = Partial<
     | 'suiteType'
     | 'hasChildren'
     | 'selected'
+    | 'revealed'
     | 'root'
     | 'runDisabled'
     | 'runDisabledReason'

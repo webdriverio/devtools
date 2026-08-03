@@ -7,7 +7,8 @@ import type {
 import {
   collectCommandIndices,
   defaultExpanded,
-  flattenActionTree
+  flattenActionTree,
+  rowKey
 } from '../src/components/workbench/action-tree.js'
 
 function group(
@@ -91,5 +92,32 @@ describe('flattenActionTree', () => {
         row.kind === 'group' ? row.group.callId : row.commandIndex
       )
     ).toEqual(['hook', 'fixture', 2, 3])
+  })
+})
+
+describe('rowKey', () => {
+  it('keys a group row on its callId', () => {
+    expect(
+      rowKey({ kind: 'group', group: NESTED, depth: 0, expanded: true })
+    ).toBe('group:hook')
+  })
+
+  it('keys a command row on its command index', () => {
+    expect(rowKey({ kind: 'command', commandIndex: 2, depth: 1 })).toBe(
+      'command:2'
+    )
+  })
+
+  it('separates a numeric callId from the command index it reads as', () => {
+    const numeric = rowKey({
+      kind: 'group',
+      group: group('2', []),
+      depth: 0,
+      expanded: false
+    })
+
+    expect(numeric).not.toBe(
+      rowKey({ kind: 'command', commandIndex: 2, depth: 0 })
+    )
   })
 })

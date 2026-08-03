@@ -1,6 +1,7 @@
 import { Element } from '@core/element'
 import { html, css, nothing } from 'lit'
 import { customElement, state } from 'lit/decorators.js'
+import { repeat } from 'lit/directives/repeat.js'
 import { consume } from '@lit/context'
 
 import type {
@@ -18,12 +19,14 @@ import '../placeholder.js'
 import './actionItems/command.js'
 import './actionItems/group.js'
 import './actionItems/mutation.js'
+import type { RowRevealKey } from './actionItems/item.js'
 import { elapsedSince } from '../../utils/elapsed.js'
 import { entryDuration, stepDurations } from './actionItems/duration.js'
 import { activeSpanAt } from './active-entry.js'
 import {
   defaultExpanded,
   flattenActionTree,
+  rowKey,
   type ActionTreeRow
 } from './action-tree.js'
 
@@ -96,6 +99,17 @@ export class DevtoolsActions extends Element {
   // (failed or containing the active command → open).
   @state()
   private expandOverrides: ReadonlyMap<string, boolean> = new Map()
+
+  // The one row showing its label in full. Held here, not per row, so clicking
+  // a row folds whichever was open — otherwise every row the user ever clicked
+  // stays wrapped and the panel goes ragged again.
+  @state()
+  private revealedRow?: RowRevealKey
+
+  #onRowReveal = (event: Event) => {
+    const key = (event as CustomEvent<RowRevealKey | undefined>).detail
+    this.revealedRow = key === this.revealedRow ? undefined : key
+  }
 
   #onGroupToggle = (event: Event) => {
     const { callId, expanded } = (
@@ -201,8 +215,12 @@ export class DevtoolsActions extends Element {
       defaultExpanded(group, activeIndex >= 0 ? activeIndex : undefined)
     const rows = flattenActionTree(rootChildren, isExpanded)
     const gaps = stepDurations(commands.map((command) => command.timestamp))
-    return html`<div class="timeline tree" @group-toggle=${this.#onGroupToggle}>
-      ${rows.map((row) => this.#renderTreeRow(row, commands, gaps))}
+    return html`<div
+      class="timeline tree"
+      @group-toggle=${this.#onGroupToggle}
+      @row-reveal=${this.#onRowReveal}
+    >
+      ${repeat(rows, rowKey, (row) => this.#renderTreeRow(row, commands, gaps))}
     </div>`
   }
 
@@ -212,12 +230,15 @@ export class DevtoolsActions extends Element {
     gaps: Array<number | undefined>
   ) {
     const indent = `padding-left: ${row.depth * TREE_INDENT_PX}px`
+    const key = rowKey(row)
     if (row.kind === 'group') {
       return html`
         <wdio-devtools-group-item
           style=${indent}
           .group=${row.group}
           ?expanded=${row.expanded}
+          .revealKey=${key}
+          ?revealed=${key === this.revealedRow}
         ></wdio-devtools-group-item>
       `
     }
@@ -234,6 +255,8 @@ export class DevtoolsActions extends Element {
         .duration=${duration}
         .entry=${entry}
         ?active=${entry === this.activeEntry}
+        .revealKey=${key}
+        ?revealed=${key === this.revealedRow}
       ></wdio-devtools-command-item>
     `
   }
@@ -249,35 +272,50 @@ export class DevtoolsActions extends Element {
     }
     const durations = stepDurations(entries.map((entry) => entry.timestamp))
 
-    const rows = entries.map((entry, index) => {
-      // Timed against the merged list, so the top row always reads zero — a
-      // document load can precede the first command.
-      const elapsedTime = elapsedSince(entries, entry)
-      const duration = entryDuration(entry, durations[index])
-      const active = entry === this.activeEntry
+    // Keyed by reference, the same identity `activeEntry` uses: timestamps
+    // aren't unique, and an index would hand a row's local state to whatever
+    // entry sorts into that position next.
+    const rows = repeat(
+      entries,
+      (entry) => entry,
+      (entry, index) => {
+        // Timed against the merged list, so the top row always reads zero — a
+        // document load can precede the first command.
+        const elapsedTime = elapsedSince(entries, entry)
+        const duration = entryDuration(entry, durations[index])
+        const active = entry === this.activeEntry
 
-      if ('command' in entry) {
+        const revealed = entry === this.revealedRow
+
+        if ('command' in entry) {
+          return html`
+            <wdio-devtools-command-item
+              elapsedTime=${elapsedTime}
+              .duration=${duration}
+              .entry=${entry}
+              ?active=${active}
+              .revealKey=${entry}
+              ?revealed=${revealed}
+            ></wdio-devtools-command-item>
+          `
+        }
+
         return html`
-          <wdio-devtools-command-item
+          <wdio-devtools-mutation-item
             elapsedTime=${elapsedTime}
             .duration=${duration}
             .entry=${entry}
             ?active=${active}
-          ></wdio-devtools-command-item>
+            .revealKey=${entry}
+            ?revealed=${revealed}
+          ></wdio-devtools-mutation-item>
         `
       }
+    )
 
-      return html`
-        <wdio-devtools-mutation-item
-          elapsedTime=${elapsedTime}
-          .duration=${duration}
-          .entry=${entry}
-          ?active=${active}
-        ></wdio-devtools-mutation-item>
-      `
-    })
-
-    return html`<div class="timeline">${rows}</div>`
+    return html`<div class="timeline" @row-reveal=${this.#onRowReveal}>
+      ${rows}
+    </div>`
   }
 }
 

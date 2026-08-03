@@ -2,6 +2,7 @@ import '@components/sidebar/test-suite.js'
 import type { ExplorerTestEntry } from '@components/sidebar/test-suite.js'
 import type { TestRunDetail } from '@components/sidebar/types.js'
 
+import { capture } from '../../support/events.js'
 import { mount, settle } from '../../support/mount.js'
 import { shadow, shadowAll, text } from '../../support/queries.js'
 import {
@@ -59,22 +60,6 @@ async function mountRow(
   row.append(title)
   await settle(row)
   return row
-}
-
-function capture<T>(
-  target: EventTarget,
-  type: string,
-  act: () => void
-): CustomEvent<T>[] {
-  const received: CustomEvent<T>[] = []
-  const listener = (event: Event) => received.push(event as CustomEvent<T>)
-  target.addEventListener(type, listener)
-  try {
-    act()
-  } finally {
-    target.removeEventListener(type, listener)
-  }
-  return received
 }
 
 describe('wdio-test-entry', () => {
@@ -189,16 +174,24 @@ describe('wdio-test-entry', () => {
       expect(row.hasAttribute('revealed')).toBe(false)
     })
 
-    it('reflows the name on click and folds it back on a second click', async () => {
+    // The explorer owns which row is reflowed, so one click can fold another
+    // row; a row that reflowed itself would leave both open.
+    it('does not reflow itself on click', async () => {
       const row = await mountRow(rowProps(mixedStateRun.failing))
 
       shadow(row, LABEL_SPAN)?.click()
       await settle(row)
-      expect(row.hasAttribute('revealed')).toBe(true)
 
-      shadow(row, LABEL_SPAN)?.click()
-      await settle(row)
       expect(row.hasAttribute('revealed')).toBe(false)
+    })
+
+    it('reflows its name when the explorer reveals it', async () => {
+      const row = await mountRow({
+        ...rowProps(mixedStateRun.failing),
+        revealed: true
+      })
+
+      expect(row.hasAttribute('revealed')).toBe(true)
     })
 
     // The tree auto-selects the running test, so a selected row that reflowed

@@ -7,6 +7,9 @@ import { formatDuration, durationHeat, type DurationHeat } from './duration.js'
 
 export type ActionEntry = TraceMutation | CommandLog
 
+/** What a row reports as its identity: an action by reference, a group by key. */
+export type RowRevealKey = string | ActionEntry
+
 /** Icon sized to sit inside the `.ic` chip rendered by `iconChip`. */
 export const ICON_CLASS = 'w-[15px] h-[15px] block shrink-0'
 
@@ -33,14 +36,25 @@ export class ActionItem extends Element {
   @property({ type: Boolean, reflect: true })
   failed = false
 
-  /** Set by a click on this row alone. `active` can't drive it: the player
-   *  clock marks the action at the playhead, so it would expand rows nobody
-   *  touched and the panel would look as ragged as before. */
+  /** Whether this row shows its label in full. Owned by the list, which keeps
+   *  exactly one row revealed; `active` can't drive it because the player clock
+   *  marks the action at the playhead, expanding rows nobody touched. */
   @property({ type: Boolean, reflect: true })
   revealed = false
 
-  protected toggleRevealed() {
-    this.revealed = !this.revealed
+  /** Identity this row echoes back on click, for the list to compare. */
+  @property({ attribute: false })
+  revealKey?: RowRevealKey
+
+  /** Click-only by construction, which is what keeps playback out of it. */
+  protected requestReveal() {
+    this.dispatchEvent(
+      new CustomEvent<RowRevealKey | undefined>('row-reveal', {
+        detail: this.revealKey,
+        bubbles: true,
+        composed: true
+      })
+    )
   }
 
   static styles = [

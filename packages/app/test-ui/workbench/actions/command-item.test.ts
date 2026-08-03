@@ -4,6 +4,7 @@ import '@components/workbench/actionItems/command.js'
 import type { CommandItem } from '@components/workbench/actionItems/command.js'
 import { entryDuration } from '@components/workbench/actionItems/duration.js'
 
+import { capture } from '../../support/events.js'
 import { mount, settle } from '../../support/mount.js'
 import { shadow, shadowAll, text } from '../../support/queries.js'
 import { commandLog } from '../../support/builders.js'
@@ -171,17 +172,29 @@ describe('wdio-devtools-command-item', () => {
       expect(el.hasAttribute('revealed')).toBe(false)
     })
 
-    it('reflows the label on click and folds it back on a second click', async () => {
-      const el = await mount<CommandItem>(TAG, {
-        entry: commandLog({ command: 'click' })
-      })
+    // The row asks; the panel decides, so only one row is ever reflowed.
+    it('reports its reveal key on click for the panel to act on', async () => {
+      const entry = commandLog({ command: 'click' })
+      const el = await mount<CommandItem>(TAG, { entry, revealKey: entry })
+
+      const received = capture<CommandLog>(el, 'row-reveal', () =>
+        shadow(el, 'button')?.dispatchEvent(new MouseEvent('click'))
+      )
+
+      expect(received).toHaveLength(1)
+      expect(received[0]?.detail).toBe(entry)
+      // Composed so it survives the panel's shadow boundary, where it listens.
+      expect(received[0]?.bubbles).toBe(true)
+      expect(received[0]?.composed).toBe(true)
+    })
+
+    it('does not reflow itself on click', async () => {
+      const entry = commandLog({ command: 'click' })
+      const el = await mount<CommandItem>(TAG, { entry, revealKey: entry })
 
       shadow(el, 'button')?.dispatchEvent(new MouseEvent('click'))
       await settle(el)
-      expect(el.hasAttribute('revealed')).toBe(true)
 
-      shadow(el, 'button')?.dispatchEvent(new MouseEvent('click'))
-      await settle(el)
       expect(el.hasAttribute('revealed')).toBe(false)
     })
 

@@ -93,8 +93,9 @@ export class ExplorerTestEntry extends CollapseableEntry {
   @property({ type: Boolean, reflect: true })
   selected = false
 
-  /** Set by a click on this row alone. `selected` can't drive it: the tree
-   *  auto-selects the running test, so it would expand a row nobody touched. */
+  /** Whether this row shows its name in full. Owned by the explorer, which keeps
+   *  exactly one row revealed; `selected` can't drive it because the tree
+   *  auto-selects the running test, expanding a row nobody touched. */
   @property({ type: Boolean, reflect: true })
   revealed = false
 
@@ -209,7 +210,6 @@ export class ExplorerTestEntry extends CollapseableEntry {
   }
 
   #selectEntry() {
-    this.revealed = !this.revealed
     if (this.uid) {
       this.dispatchEvent(
         new CustomEvent('app-test-select', {

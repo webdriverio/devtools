@@ -50,7 +50,7 @@ export class CommandItem extends ActionItem {
     if (!this.entry) {
       return
     }
-    this.toggleRevealed()
+    this.requestReveal()
     window.dispatchEvent(
       // Typed as the contract, which is what makes the two nullable fields below
       // a compile error rather than a blank chip in the Log tab.
