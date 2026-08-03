@@ -34,10 +34,29 @@ const BOOLEAN_ATTRIBUTES = new Set([
 export const isBooleanAttribute = (name: string) =>
   BOOLEAN_ATTRIBUTES.has(name.toLowerCase())
 
-/** State a captured boolean attribute carries. The collector emits form-field
- *  state as `String(el.checked)` and every other record as the attribute's own
- *  value, so only a literal "false" — and a record carrying no value, which
- *  leaves no attribute state to set — means off: an empty value is a present
- *  attribute (`<input disabled>` reaches the wire as `''`). */
-export const booleanAttributeOn = (value?: string) =>
-  value !== undefined && value.toLowerCase() !== 'false'
+/** The only boolean attribute the collector reports as a PROPERTY state rather
+ *  than as the attribute's own value: `packages/script` emits `String(el.checked)`
+ *  on every input and change, so a cleared checkbox arrives as "false". Every
+ *  other boolean attribute reaches the wire only through a real mutation record,
+ *  which carries whatever the page set. */
+const PROPERTY_STATE_ATTRIBUTES = new Set(['checked'])
+
+/** State a captured boolean attribute carries. A record with no value is off —
+ *  there is no attribute state to set. Otherwise presence IS the state, so any
+ *  value means on, including `''` (`<input disabled>` reaches the wire empty).
+ *
+ *  A literal "false" is the one value that depends on which attribute it is:
+ *  `checked="false"` is the collector reporting an unchecked box, but
+ *  `disabled="false"` can only be the page having SET that attribute, and a
+ *  boolean attribute is active whenever present — so it replays as disabled.
+ *  The residual ambiguity is a page literally writing `checked="false"`; the
+ *  collector's own signal wins there, since it fires on every field edit. */
+export const booleanAttributeOn = (name: string, value?: string) => {
+  if (value === undefined) {
+    return false
+  }
+  if (!PROPERTY_STATE_ATTRIBUTES.has(name.toLowerCase())) {
+    return true
+  }
+  return value.toLowerCase() !== 'false'
+}

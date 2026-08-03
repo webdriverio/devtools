@@ -13,39 +13,55 @@ import {
  * test passes whatever that value is.
  */
 describe('booleanAttributeOn', () => {
-  it('reads the literal string "false" as off', () => {
-    // The collector emits form-field state as `String(el.checked)`, so this is
-    // the shape a cleared checkbox arrives in.
-    expect(booleanAttributeOn('false')).toBe(false)
-  })
-
-  it('reads a missing value as off', () => {
+  it('reads a missing value as off, for any attribute', () => {
     // Nothing to set: a record carrying no value leaves no attribute state.
-    expect(booleanAttributeOn(undefined)).toBe(false)
-    expect(booleanAttributeOn()).toBe(false)
+    expect(booleanAttributeOn('checked', undefined)).toBe(false)
+    expect(booleanAttributeOn('checked')).toBe(false)
+    expect(booleanAttributeOn('disabled', undefined)).toBe(false)
   })
 
   it('reads an empty value as ON, because empty means present', () => {
-    // The real MutationObserver record sends `getAttribute() || ''`, so a bare
+    // A real MutationObserver record sends the attribute's own value, so a bare
     // `<input disabled>` reaches the wire with an empty value. Reading the
     // string for truthiness would drop the attribute the page actually had.
-    expect(booleanAttributeOn('')).toBe(true)
+    expect(booleanAttributeOn('disabled', '')).toBe(true)
+    expect(booleanAttributeOn('checked', '')).toBe(true)
   })
 
   it('reads the literal string "true" as on', () => {
-    expect(booleanAttributeOn('true')).toBe(true)
+    expect(booleanAttributeOn('checked', 'true')).toBe(true)
+    expect(booleanAttributeOn('disabled', 'true')).toBe(true)
   })
 
   it('reads any other value as on', () => {
     // Presence is the state, so the value is not a boolean to parse:
     // `checked="checked"` and `disabled="disabled"` are the common spellings.
-    expect(booleanAttributeOn('checked')).toBe(true)
-    expect(booleanAttributeOn('0')).toBe(true)
+    expect(booleanAttributeOn('checked', 'checked')).toBe(true)
+    expect(booleanAttributeOn('disabled', '0')).toBe(true)
   })
 
-  it('ignores the case a producer spelled "false" in', () => {
-    expect(booleanAttributeOn('False')).toBe(false)
-    expect(booleanAttributeOn('FALSE')).toBe(false)
+  describe('a literal "false"', () => {
+    it('is off for `checked`, the one attribute reported as a property state', () => {
+      // The collector emits form-field state as `String(el.checked)` on every
+      // input and change, so this is the shape a CLEARED checkbox arrives in —
+      // the only boolean attribute for which "false" is a state and not a value.
+      expect(booleanAttributeOn('checked', 'false')).toBe(false)
+    })
+
+    it("ignores the case `checked`'s state was spelled in", () => {
+      expect(booleanAttributeOn('checked', 'False')).toBe(false)
+      expect(booleanAttributeOn('checked', 'FALSE')).toBe(false)
+    })
+
+    it('is ON for every other boolean attribute, where it is a present value', () => {
+      // `disabled="false"` can only have come from the page setting it, and a
+      // boolean attribute is active whenever PRESENT — so the captured control
+      // was disabled. Removing it would replay it as enabled.
+      expect(booleanAttributeOn('disabled', 'false')).toBe(true)
+      expect(booleanAttributeOn('readonly', 'false')).toBe(true)
+      expect(booleanAttributeOn('required', 'false')).toBe(true)
+      expect(booleanAttributeOn('open', 'false')).toBe(true)
+    })
   })
 })
 

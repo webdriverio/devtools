@@ -437,15 +437,42 @@ describe('wdio-devtools-browser', () => {
   ) => replayMutation(mutation({ target, attributeName, attributeValue }))
 
   describe('boolean attributes', () => {
-    it('drops a boolean attribute the capture recorded as false', async () => {
+    /**
+     * `disabled="false"` is invalid markup that browsers still honour, because a
+     * boolean attribute is active whenever PRESENT. Asserted here on a plain
+     * element rather than taken on trust, since the replay rule below is only
+     * right if this is — if a browser read the value instead, the captured page
+     * would have been enabled and keeping the attribute would be the bug.
+     */
+    it('is the browser, not this replay, that reads a present `disabled=false` as disabled', () => {
+      const probe = document.createElement('input')
+      probe.setAttribute('disabled', 'false')
+
+      expect(probe.disabled).toBe(true)
+    })
+
+    it('keeps a non-checked boolean attribute the page set to "false"', async () => {
       const doc = await replayAttributeOn(REF.username, 'disabled', 'false')
 
-      // Written verbatim, `disabled="false"` DISABLES the field — the state the
-      // capture says the page was not in.
+      // Only the page can have put `disabled="false"` on the wire, and that field
+      // IS disabled — so the replay keeps it. Dropping it replayed a control the
+      // capture recorded as disabled as an enabled one. Presence is asserted, not
+      // the value: the replay normalizes it to `''`, which reads identically.
       const username = input(doc, '#username')
-      expect(username.getAttribute('disabled')).toBeNull()
-      expect(username.disabled).toBe(false)
-      expect(reparse(username, '#username').disabled).toBe(false)
+      expect(username.hasAttribute('disabled')).toBe(true)
+      expect(username.disabled).toBe(true)
+      expect(reparse(username, '#username').disabled).toBe(true)
+    })
+
+    it('drops the checked state the capture recorded as false', async () => {
+      // `checked` is the one boolean attribute the collector reports as a
+      // property state (`String(el.checked)`), so here "false" means unchecked.
+      const doc = await replayAttributeOn(REF.planGuest, 'checked', 'false')
+
+      const guest = input(doc, '#plan-guest')
+      expect(guest.getAttribute('checked')).toBeNull()
+      expect(guest.checked).toBe(false)
+      expect(reparse(guest, '#plan-guest').checked).toBe(false)
     })
 
     it('removes a boolean attribute a mutation carries no value for', async () => {

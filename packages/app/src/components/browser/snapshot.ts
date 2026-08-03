@@ -466,7 +466,7 @@ export class DevtoolsBrowser extends Element {
       this.#applyBooleanAttribute(
         el,
         name,
-        booleanAttributeOn(mutation.attributeValue)
+        booleanAttributeOn(name, mutation.attributeValue)
       )
       return
     }
