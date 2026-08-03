@@ -16,12 +16,7 @@ import type {
   TraceLog,
   TraceMutation
 } from '@wdio/devtools-shared'
-import {
-  formatActionTitle,
-  mapCommandToAction,
-  FILL_METHODS,
-  type TraceAction
-} from './action-mapping.js'
+import { mapCommandToAction } from './action-mapping.js'
 import {
   buildConsoleEvents,
   type ConsoleEvent,
@@ -43,7 +38,12 @@ import { buildSourceResources } from './trace-sources.js'
 import { networkRequestToHar } from './trace-har.js'
 import { buildTraceZip, type TraceZipResource } from './trace-zip-writer.js'
 import { buildMutationsNdjson } from './trace-mutations.js'
+import { generateTranscript } from './trace-transcript.js'
 import { sha1Hex } from './sha1.js'
+
+// Transcript building moved to its own module; re-exported here because this is
+// the name the package barrel and downstream adapters already import.
+export { generateTranscript }
 
 const TRACE_VERSION = 8
 const LIBRARY_NAME = '@wdio/devtools-core'
@@ -272,61 +272,6 @@ function eventOrder(e: TraceEvent): number {
 function compareEvents(a: TraceEvent, b: TraceEvent): number {
   const dt = eventTime(a) - eventTime(b)
   return dt !== 0 ? dt : eventOrder(a) - eventOrder(b)
-}
-
-/**
- * Generate a human/LLM-readable Markdown transcript from captured commands.
- */
-export function generateTranscript(
-  commands: CommandLog[],
-  startWallTime: number,
-  title?: string
-): string {
-  const wallTimeISO = new Date(startWallTime).toISOString()
-  const lines: string[] = [`# ${title ?? 'Session'} — ${wallTimeISO}`, '']
-
-  // Sort by invocation time so batched commands land at their real timeline
-  // positions — Nightwatch buffers native asserts and emits them at test-end,
-  // so raw order clusters all asserts after the navigations. The Actions tree
-  // stays correct because buildActionEvents applies the same sort; mirror it
-  // here so the transcript matches execution order. Stable + a no-op for
-  // already-ordered WDIO/Selenium command logs.
-  const ordered = [...commands].sort(
-    (a, b) => (a.startTime ?? a.timestamp) - (b.startTime ?? b.timestamp)
-  )
-  const captured: { entry: CommandLog; action: TraceAction }[] = []
-  for (const c of ordered) {
-    const action = mapCommandToAction(String(c.command))
-    if (action) {
-      captured.push({ entry: c, action })
-    }
-  }
-
-  captured.forEach(({ entry, action }, idx) => {
-    const label = formatActionTitle(action, entry.args as unknown[])
-
-    const rawArgs = entry.args as unknown[]
-    const parts: string[] = [`${idx + 1}. ${label}`]
-
-    if (FILL_METHODS.has(action.method) && rawArgs) {
-      const valueIdx = rawArgs.length >= 2 ? 1 : 0
-      if (rawArgs[valueIdx] !== undefined) {
-        parts.push(`value="${String(rawArgs[valueIdx])}"`)
-      }
-    }
-
-    if (entry.error) {
-      const msg =
-        typeof entry.error === 'object' && 'message' in entry.error
-          ? (entry.error as { message: string }).message
-          : String(entry.error)
-      parts.push(`ERROR: ${msg}`)
-    }
-
-    lines.push(parts.join('  '))
-  })
-
-  return lines.join('\n')
 }
 
 interface TraceBundle {

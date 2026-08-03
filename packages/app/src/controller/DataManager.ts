@@ -29,6 +29,7 @@ import {
 } from './context.js'
 import { BASELINE_WS_SCOPE, TRACE_API, WS_SCOPE } from '@wdio/devtools-shared'
 import { CACHE_ID } from './constants.js'
+import { RUN_ALL_UID } from '../components/sidebar/constants.js'
 import { rerunState } from './rerunState.js'
 import type { SuiteStatsFragment, SocketMessage } from './types.js'
 import { canonicalizeUids, mergeSuite } from './suite-merge.js'
@@ -163,21 +164,21 @@ export class DataManagerController implements ReactiveController {
     // of the previous run's terminal state (passed/failed).
     if (!uid) {
       rerunState.activeRerunSuiteUid = undefined
-      this.#markTestAsRunning('*', 'suite')
+      this.#markTestAsRunning(RUN_ALL_UID, 'suite')
       return
     }
 
     // Track the top-level rerun suite uid so we can identify child-scenario
     // clears (from the Nightwatch backend) and skip their data wipes.
-    if (!isChildOfActiveRerun && entryType === 'suite' && uid !== '*') {
+    if (!isChildOfActiveRerun && entryType === 'suite' && uid !== RUN_ALL_UID) {
       rerunState.activeRerunSuiteUid = uid
     }
 
     // Track explicit single-test reruns so merge logic can keep sibling tests
     // stable while the backend emits suite-level "pending" snapshots.
-    if (entryType === 'test' && uid !== '*') {
+    if (entryType === 'test' && uid !== RUN_ALL_UID) {
       this.#activeRerunTestUid = uid
-    } else if (entryType === 'suite' || uid === '*') {
+    } else if (entryType === 'suite' || uid === RUN_ALL_UID) {
       this.#activeRerunTestUid = undefined
     }
 
@@ -189,7 +190,7 @@ export class DataManagerController implements ReactiveController {
   #markTestAsRunning(uid: string, entryType?: 'suite' | 'test') {
     const suites = this.suitesContextProvider.value || []
     const updated =
-      uid === '*'
+      uid === RUN_ALL_UID
         ? markAllRunning(suites)
         : markSpecificRunning(suites, uid, entryType)
     this.suitesContextProvider.setValue(updated)

@@ -367,7 +367,6 @@ export class DevtoolsSource extends Element {
       return html`<wdio-devtools-placeholder
         icon="${EMPTY_GLYPH}"
         heading="No source to show"
-        description="A file appears here once the run captures a spec's source or a command reports the line it ran from — this run carries neither."
       ></wdio-devtools-placeholder>`
     }
     const hasContent = this.#contentFor(active) !== undefined

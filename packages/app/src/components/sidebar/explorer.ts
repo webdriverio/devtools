@@ -23,9 +23,9 @@ import {
   getRunDisabledReason,
   isRunAll,
   isRunDisabled,
-  isRunDisabledDetail,
-  RUN_ALL_UID
+  isRunDisabledDetail
 } from './runnerCapabilities.js'
+import { RUN_ALL_UID } from './constants.js'
 import {
   BASELINE_API,
   TESTS_API,

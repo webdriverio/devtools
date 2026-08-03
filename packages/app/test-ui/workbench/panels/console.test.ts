@@ -302,6 +302,31 @@ describe('wdio-devtools-console-logs', () => {
       expect(texts(panel, MESSAGE)).toEqual(['plain log'])
     })
 
+    // `ConsoleLog.type` is required (`shared/src/types.ts:208`), so an entry
+    // without one is wire data that broke the contract — and the row it renders
+    // says so, tagged with no level at all. The level tabs read the same field,
+    // so they have to agree: defaulting the filter to `log` put a row that does
+    // not claim to be a log under the Logs tab.
+    it('keeps the Logs tab in step with the level each row renders', async () => {
+      const untyped = {
+        args: ['no level'],
+        timestamp: RUN_START
+      } as unknown as ConsoleLog
+      const panel = await mountConsole([
+        consoleLog({ args: ['plain log'] }),
+        untyped
+      ])
+
+      expect(shadowAll(panel, ENTRY).map(levelClassOf)).toEqual([
+        'log-type-log',
+        'log-type-'
+      ])
+
+      await clickLevelTab(panel, 'Logs')
+
+      expect(texts(panel, MESSAGE)).toEqual(['plain log'])
+    })
+
     it('narrows the list to messages containing the search text, ignoring case', async () => {
       const panel = await mountConsole(loginConsole.logs)
       await search(panel, 'SECURE')
