@@ -87,6 +87,30 @@ describe('getResourceType', () => {
     expect(getResourceType(request({ type: 'fetch' }))).toBe('Fetch')
     expect(getResourceType(request({ type: 'other' }))).toBe('Other')
   })
+  // A reconstructed trace carries an empty HAR `content.mimeType`, so the
+  // backend reports every request as `other`. The response header is then the
+  // only thing left that identifies the resource — without sniffing it, every
+  // row in the Network tab renders the same neutral dot.
+  it('sniffs a trace-shaped request whose captured type is other', () => {
+    expect(
+      getResourceType(
+        request({
+          type: 'other',
+          url: 'https://the-internet.herokuapp.com/login',
+          responseHeaders: { 'content-type': 'text/html; charset=utf-8' }
+        })
+      )
+    ).toBe('HTML')
+    expect(
+      getResourceType(
+        request({
+          type: 'other',
+          url: 'https://the-internet.herokuapp.com/js/foundation.js',
+          responseHeaders: {}
+        })
+      )
+    ).toBe('JS')
+  })
 
   it('names a bucket for every word in the shared vocabulary', () => {
     // The table is `Record<RequestType, ResourceType>`, so a new word breaks the

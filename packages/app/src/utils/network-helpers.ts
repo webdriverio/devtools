@@ -1,6 +1,7 @@
 import { isRequestType, type NetworkRequest } from '@wdio/devtools-shared'
 import {
   RESOURCE_TYPE_BY_REQUEST_TYPE,
+  RESOURCE_TYPE_PATTERNS,
   OTHER_RESOURCE_TYPE,
   HTTP_STATUS,
   STATUS_KIND,
@@ -94,14 +95,49 @@ export function getResourceType(request: NetworkRequest): ResourceType {
   const captured =
     typeof request.type === 'string' ? request.type.toLowerCase() : ''
   if (isRequestType(captured)) {
-    return RESOURCE_TYPE_BY_REQUEST_TYPE[captured]
+    const mapped = RESOURCE_TYPE_BY_REQUEST_TYPE[captured]
+    // `other` is the capture saying "unclassified", not a verdict — so it falls
+    // through to sniffing below. Every other word is a real classification and
+    // wins outright.
+    if (mapped !== OTHER_RESOURCE_TYPE) {
+      return mapped
+    }
   }
-  // An unrecognised type still tells us this much: a body-carrying method is a
-  // data request, never a static resource.
+  // The capture classified nothing usable — a reconstructed trace reports every
+  // request as `other`, because its HAR carries an empty `content.mimeType`. Sniff
+  // the response content-type, then the URL extension, before giving up.
+  const sniffed = sniffResourceType(request)
+  if (sniffed) {
+    return sniffed
+  }
+  // Still unknown, but a body-carrying method is a data request either way.
   if (request.method !== 'GET') {
     return 'Fetch'
   }
   return OTHER_RESOURCE_TYPE
+}
+
+/** Resource type implied by the response content-type, else by the URL's
+ *  extension. `undefined` when neither says anything. */
+function sniffResourceType(request: NetworkRequest): ResourceType | undefined {
+  const contentType =
+    request.responseHeaders?.['content-type']?.toLowerCase() || ''
+  const url = request.url.toLowerCase()
+  const entries = Object.entries(RESOURCE_TYPE_PATTERNS) as [
+    ResourceType,
+    { contentTypes: readonly string[]; extensions: readonly string[] }
+  ][]
+  for (const [type, patterns] of entries) {
+    if (patterns.contentTypes.some((ct) => contentType.includes(ct))) {
+      return type
+    }
+  }
+  for (const [type, patterns] of entries) {
+    if (patterns.extensions.some((ext) => url.endsWith(ext))) {
+      return type
+    }
+  }
+  return undefined
 }
 
 /** Short content-type label for a request (response content-type, then the

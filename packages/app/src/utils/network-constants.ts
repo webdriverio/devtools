@@ -4,6 +4,30 @@ import type { RequestType } from '@wdio/devtools-shared'
  * The Network list's display buckets — one row colour each. `Other` is the
  * residual for a request whose captured type the panel doesn't recognise.
  */
+/**
+ * Content-type and extension patterns used to sniff a resource type when the
+ * capture did not classify one. Needed because a reconstructed trace carries an
+ * empty HAR `content.mimeType`, so every request arrives as `other` — without
+ * this, every row in the Network tab renders the same neutral dot.
+ */
+export const RESOURCE_TYPE_PATTERNS = {
+  HTML: { contentTypes: ['text/html'], extensions: ['.html', '.htm'] },
+  CSS: { contentTypes: ['text/css'], extensions: ['.css'] },
+  JS: {
+    contentTypes: ['javascript', 'ecmascript'],
+    extensions: ['.js', '.mjs']
+  },
+  Image: {
+    contentTypes: ['image/'],
+    extensions: ['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp', '.ico']
+  },
+  Font: {
+    contentTypes: ['font/', 'woff'],
+    extensions: ['.woff', '.woff2', '.ttf', '.eot', '.otf']
+  },
+  Fetch: { contentTypes: ['application/json'], extensions: [] }
+} as const
+
 export const TYPE_DOT_CLASS = {
   HTML: 'type-html',
   CSS: 'type-css',
@@ -63,6 +87,12 @@ export const HTTP_STATUS = {
   REDIRECT_MIN: 300,
   CLIENT_ERROR_MIN: 400
 } as const
+
+/** Shown in the list's status column and the detail card when a request failed
+ *  at the transport level, so it carries no code — the capture reports status 0
+ *  there, which would otherwise render as the same dash a request still in
+ *  flight shows. */
+export const FAILED_STATUS_LABEL = 'ERR'
 
 /** Coarse status buckets used to colour the status dot/number in the list. */
 export const STATUS_KIND = {
