@@ -67,6 +67,6 @@
     "ws": "^8.21.0"
   },
   "dependencies": {
-    "@wdio/cli": "9.28.0"
+    "@wdio/cli": "9.30.0"
   }
 }
