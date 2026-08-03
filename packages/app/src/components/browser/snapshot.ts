@@ -471,7 +471,17 @@ export class DevtoolsBrowser extends Element {
       return
     }
 
-    const value = mutation.attributeValue ?? ''
+    // An absent value is the capture's removal signal (`mutations.ts` sends
+    // undefined where `getAttribute` read null), and `class=""` is not `class`
+    // gone: presence-based selectors and `aria-label` semantics both turn on it.
+    // The `value` PROPERTY is deliberately left alone — the collector re-sends
+    // the field's real value on every input event, so it stays authoritative.
+    if (mutation.attributeValue === undefined) {
+      el.removeAttribute(name)
+      return
+    }
+
+    const value = mutation.attributeValue
     el.setAttribute(name, value)
     // Form-field state lives on the PROPERTY, not just the attribute — mirror it
     // so a replayed input shows the captured value, including a field cleared

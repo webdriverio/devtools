@@ -411,34 +411,34 @@ describe('wdio-devtools-browser', () => {
    * cases drive the general shape through `disabled` and `readonly` on a text
    * field and through a cleared `checked` on the captured radio.
    */
+  /**
+   * Replays one attribute mutation on the login page. The typed username rides
+   * along as the signal that the window landed — the attribute under test cannot
+   * be that signal, since it is what the assertions read.
+   */
+  async function replayMutation(entry: TraceMutation): Promise<Document> {
+    const el = await mountBrowser({
+      commands: loginTrace.commands,
+      mutations: [loginTrace.loginDocument, loginTrace.usernameTyped, entry]
+    })
+    await replayedPage(el)
+    const doc = await replayAfter(el, () => selectMutation(entry))
+    await waitUntil(
+      () => input(doc, '#username').value === TYPED_USERNAME,
+      'the replay window to be applied'
+    )
+    return doc
+  }
+
+  const replayAttributeOn = (
+    target: string,
+    attributeName: string,
+    attributeValue?: string
+  ) => replayMutation(mutation({ target, attributeName, attributeValue }))
+
   describe('boolean attributes', () => {
-    /**
-     * Replays one boolean-attribute mutation on the login page. The typed
-     * username rides along as the signal that the window landed — the attribute
-     * under test cannot be that signal, since it is what the assertions read.
-     */
-    async function replayEntry(entry: TraceMutation): Promise<Document> {
-      const el = await mountBrowser({
-        commands: loginTrace.commands,
-        mutations: [loginTrace.loginDocument, loginTrace.usernameTyped, entry]
-      })
-      await replayedPage(el)
-      const doc = await replayAfter(el, () => selectMutation(entry))
-      await waitUntil(
-        () => input(doc, '#username').value === TYPED_USERNAME,
-        'the replay window to be applied'
-      )
-      return doc
-    }
-
-    const replayAttribute = (
-      target: string,
-      attributeName: string,
-      attributeValue?: string
-    ) => replayEntry(mutation({ target, attributeName, attributeValue }))
-
     it('drops a boolean attribute the capture recorded as false', async () => {
-      const doc = await replayAttribute(REF.username, 'disabled', 'false')
+      const doc = await replayAttributeOn(REF.username, 'disabled', 'false')
 
       // Written verbatim, `disabled="false"` DISABLES the field — the state the
       // capture says the page was not in.
@@ -452,7 +452,7 @@ describe('wdio-devtools-browser', () => {
       // The captured radio has `checked="checked"`, so the removal is observable:
       // a cleared attribute written as an empty one stays present and keeps
       // reading as checked.
-      const doc = await replayAttribute(REF.planGuest, 'checked')
+      const doc = await replayAttributeOn(REF.planGuest, 'checked')
 
       const guest = input(doc, '#plan-guest')
       expect(guest.getAttribute('checked')).toBeNull()
@@ -463,7 +463,7 @@ describe('wdio-devtools-browser', () => {
     it('keeps a boolean attribute the capture carries with an empty value', async () => {
       // `<input readonly>` reaches the wire as an empty value, so empty is the
       // PRESENT state — reading the string for truthiness would drop it.
-      const doc = await replayAttribute(REF.username, 'readonly', '')
+      const doc = await replayAttributeOn(REF.username, 'readonly', '')
 
       const username = input(doc, '#username')
       expect(username.readOnly).toBe(true)
@@ -484,7 +484,7 @@ describe('wdio-devtools-browser', () => {
         // The captured radio arrives with `checked`, so the removal is
         // observable: a cleared attribute serialized as an empty one stays
         // present and keeps reading as checked.
-        const doc = await replayEntry(
+        const doc = await replayMutation(
           capturedAttributeMutation(REF.planGuest, '<input checked>', (el) =>
             el.removeAttribute('checked')
           )
@@ -497,7 +497,7 @@ describe('wdio-devtools-browser', () => {
       })
 
       it('keeps an attribute the captured page set to an empty value', async () => {
-        const doc = await replayEntry(
+        const doc = await replayMutation(
           capturedAttributeMutation(REF.username, '<input>', (el) =>
             el.setAttribute('readonly', '')
           )
@@ -507,6 +507,52 @@ describe('wdio-devtools-browser', () => {
         expect(username.readOnly).toBe(true)
         expect(reparse(username, '#username').readOnly).toBe(true)
       })
+    })
+  })
+
+  /**
+   * Removal has to survive for attributes that are NOT boolean too. `aria-label`
+   * is the case with a consequence a reader can see: `#cancel` is captured with
+   * one, and the element overlay names a box by `aria-label` BEFORE its visible
+   * text — so an `aria-label=""` left behind by a coerced removal names the
+   * button `''` instead of letting `Cancel` name it.
+   */
+  describe('non-boolean attributes', () => {
+    it('removes a non-boolean attribute a mutation carries no value for', async () => {
+      const doc = await replayAttributeOn(REF.cancel, 'aria-label')
+
+      const cancel = doc.querySelector('#cancel')!
+      expect(cancel.getAttribute('aria-label')).toBeNull()
+      expect(cancel.outerHTML).not.toContain('aria-label')
+    })
+
+    it('removes a non-boolean attribute the captured page removed', async () => {
+      const doc = await replayMutation(
+        capturedAttributeMutation(
+          REF.cancel,
+          `<button aria-label="${CANCEL_ARIA_LABEL}"></button>`,
+          (el) => el.removeAttribute('aria-label')
+        )
+      )
+
+      const cancel = doc.querySelector('#cancel')!
+      expect(cancel.getAttribute('aria-label')).toBeNull()
+    })
+
+    it('keeps a non-boolean attribute the captured page set to an empty value', async () => {
+      const doc = await replayAttributeOn(REF.cancel, 'aria-label', '')
+
+      // The control: an empty value is a value. A fix that removed on `''` too
+      // would pass the two cases above while losing this distinction.
+      expect(doc.querySelector('#cancel')!.getAttribute('aria-label')).toBe('')
+    })
+
+    it('writes a non-boolean attribute the captured page changed', async () => {
+      const doc = await replayAttributeOn(REF.cancel, 'aria-label', 'Go back')
+
+      expect(doc.querySelector('#cancel')!.getAttribute('aria-label')).toBe(
+        'Go back'
+      )
     })
   })
 
