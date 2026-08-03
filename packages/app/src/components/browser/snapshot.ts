@@ -11,6 +11,7 @@ import {
 import { commandPageUrl } from './url-at-timestamp.js'
 import { mutationForCommand } from './mutation-at-command.js'
 import { imageMime } from './trace-timeline-utils.js'
+import { booleanAttributeOn, isBooleanAttribute } from './boolean-attribute.js'
 
 import { type ComponentChildren, h, render, type VNode } from 'preact'
 import { customElement, query } from 'lit/decorators.js'
@@ -51,44 +52,6 @@ const textChildren = (el: Node) =>
   Array.from(el.childNodes).filter(
     (node): node is Text => node.nodeType === Node.TEXT_NODE
   )
-
-/** HTML boolean content attributes: presence alone is the state, so a captured
- *  "false" has to REMOVE one — written verbatim, `checked="false"` reads as
- *  checked. Curated rather than probed off the element, because a probe both
- *  misses and misfires: `readonly` has no same-named property (it is `readOnly`),
- *  while `draggable`, `spellcheck` and `translate` do carry boolean properties
- *  yet their attributes are enumerated, where "false" is a meaningful value. */
-const BOOLEAN_ATTRIBUTES = new Set([
-  'allowfullscreen',
-  'autofocus',
-  'autoplay',
-  'checked',
-  'controls',
-  'default',
-  'disabled',
-  'formnovalidate',
-  'inert',
-  'ismap',
-  'itemscope',
-  'loop',
-  'multiple',
-  'muted',
-  'novalidate',
-  'open',
-  'playsinline',
-  'readonly',
-  'required',
-  'reversed',
-  'selected'
-])
-
-/** State a captured boolean attribute carries. The collector emits form-field
- *  state as `String(el.checked)` and every other record as the attribute's own
- *  value, so only a literal "false" — and a record carrying no value, which
- *  leaves no attribute state to set — means off: an empty value is a present
- *  attribute (`<input disabled>` reaches the wire as `''`). */
-const booleanAttributeOn = (value?: string) =>
-  value !== undefined && value.toLowerCase() !== 'false'
 
 declare global {
   interface WindowEventMap {
@@ -499,7 +462,7 @@ export class DevtoolsBrowser extends Element {
       return
     }
 
-    if (BOOLEAN_ATTRIBUTES.has(name.toLowerCase())) {
+    if (isBooleanAttribute(name)) {
       this.#applyBooleanAttribute(
         el,
         name,

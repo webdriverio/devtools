@@ -10,6 +10,16 @@ import {
   metadataContext,
   mutationContext
 } from '@/controller/context.js'
+// The collector itself, by path: `packages/app` deliberately does not depend on
+// `packages/script`, so there is no alias for it. Imported here — and only here —
+// so the boolean-attribute cases below replay records the CAPTURE produced
+// rather than ones this spec wrote out for it.
+import {
+  MUTATION_OBSERVER_CONFIG,
+  serializeMutation,
+  shouldCapture
+} from '../../../../script/src/mutations.js'
+import { REF_ATTR } from '../../../../script/src/utils.js'
 import { mutationForCommand } from '@components/browser/mutation-at-command.js'
 import '@components/browser/snapshot.js'
 
@@ -198,6 +208,46 @@ function reparse(el: HTMLElement, selector: string): HTMLInputElement {
 const boxesIn = (el: Browser, selector: string) =>
   Array.from(replayDoc(el)?.querySelectorAll<HTMLElement>(selector) ?? [])
 
+/** The timestamp `support/builders.ts` stamps, so a record serialized here lands
+ *  in the same replay window as the built ones beside it. */
+const BUILDER_TIMESTAMP = mutation().timestamp
+
+/**
+ * One attribute mutation as the COLLECTOR puts it on the wire: `markup` is
+ * mutated under `packages/script`'s own observer config, serialized by its own
+ * serializer, then JSON round-tripped — which is where a field the capture left
+ * undefined becomes an absent one, the only difference between a removed
+ * attribute and one present with an empty value.
+ */
+function capturedAttributeMutation(
+  ref: string,
+  markup: string,
+  mutate: (el: HTMLInputElement) => void
+): TraceMutation {
+  const host = document.createElement('div')
+  host.innerHTML = markup
+  const el = host.firstElementChild as HTMLInputElement
+  el.setAttribute(REF_ATTR, ref)
+  document.body.append(host)
+  const observer = new MutationObserver(() => {})
+  try {
+    observer.observe(el, MUTATION_OBSERVER_CONFIG)
+    mutate(el)
+    // Synchronous, so the records are here without waiting on the microtask the
+    // observer would otherwise deliver them in.
+    const records = observer.takeRecords().filter(shouldCapture)
+    if (records.length !== 1) {
+      throw new Error(`Captured ${records.length} records, expected exactly 1`)
+    }
+    return JSON.parse(
+      JSON.stringify(serializeMutation(records[0], BUILDER_TIMESTAMP))
+    ) as TraceMutation
+  } finally {
+    observer.disconnect()
+    host.remove()
+  }
+}
+
 describe('wdio-devtools-browser', () => {
   describe('document replay', () => {
     it('rebuilds the iframe document from the captured document anchor', async () => {
@@ -367,12 +417,7 @@ describe('wdio-devtools-browser', () => {
      * username rides along as the signal that the window landed — the attribute
      * under test cannot be that signal, since it is what the assertions read.
      */
-    async function replayAttribute(
-      target: string,
-      attributeName: string,
-      attributeValue?: string
-    ): Promise<Document> {
-      const entry = mutation({ target, attributeName, attributeValue })
+    async function replayEntry(entry: TraceMutation): Promise<Document> {
       const el = await mountBrowser({
         commands: loginTrace.commands,
         mutations: [loginTrace.loginDocument, loginTrace.usernameTyped, entry]
@@ -385,6 +430,12 @@ describe('wdio-devtools-browser', () => {
       )
       return doc
     }
+
+    const replayAttribute = (
+      target: string,
+      attributeName: string,
+      attributeValue?: string
+    ) => replayEntry(mutation({ target, attributeName, attributeValue }))
 
     it('drops a boolean attribute the capture recorded as false', async () => {
       const doc = await replayAttribute(REF.username, 'disabled', 'false')
@@ -417,6 +468,45 @@ describe('wdio-devtools-browser', () => {
       const username = input(doc, '#username')
       expect(username.readOnly).toBe(true)
       expect(reparse(username, '#username').readOnly).toBe(true)
+    })
+
+    /**
+     * The same two states, on records `packages/script` serialized rather than
+     * ones written out above — the join that makes this a round trip. A capture
+     * coercing a removed attribute to `''` (what `getAttribute() || ''` does)
+     * emits the shape `<input readonly>` emits, so the removal case below is the
+     * one assertion that fails for it; the empty-value case is its control and
+     * has to keep passing, since a capture omitting BOTH would also "fix" the
+     * removal while losing the presence signal.
+     */
+    describe('as the collector serializes them', () => {
+      it('removes an attribute the captured page removed', async () => {
+        // The captured radio arrives with `checked`, so the removal is
+        // observable: a cleared attribute serialized as an empty one stays
+        // present and keeps reading as checked.
+        const doc = await replayEntry(
+          capturedAttributeMutation(REF.planGuest, '<input checked>', (el) =>
+            el.removeAttribute('checked')
+          )
+        )
+
+        const guest = input(doc, '#plan-guest')
+        expect(guest.getAttribute('checked')).toBeNull()
+        expect(guest.checked).toBe(false)
+        expect(reparse(guest, '#plan-guest').checked).toBe(false)
+      })
+
+      it('keeps an attribute the captured page set to an empty value', async () => {
+        const doc = await replayEntry(
+          capturedAttributeMutation(REF.username, '<input>', (el) =>
+            el.setAttribute('readonly', '')
+          )
+        )
+
+        const username = input(doc, '#username')
+        expect(username.readOnly).toBe(true)
+        expect(reparse(username, '#username').readOnly).toBe(true)
+      })
     })
   })
 
