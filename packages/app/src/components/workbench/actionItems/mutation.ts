@@ -28,7 +28,7 @@ export class MutationItem extends ActionItem {
       ${this.iconChip(
         html`<icon-mdi-pencil class="${ICON_CLASS}"></icon-mdi-pencil>`
       )}
-      <span class="flex-grow text-left"
+      <span class="label"
         >element attribute "<code>${mutation.attributeName}</code>"
         changed</span
       >
@@ -42,7 +42,7 @@ export class MutationItem extends ActionItem {
         ${this.iconChip(
           html`<icon-mdi-document class="${ICON_CLASS}"></icon-mdi-document>`
         )}
-        <span class="flex-grow text-left">Document loaded</span>
+        <span class="label">Document loaded</span>
         ${this.renderTime()}
       `
     }
@@ -52,7 +52,7 @@ export class MutationItem extends ActionItem {
           class="${ICON_CLASS}"
         ></icon-mdi-family-tree>`
       )}
-      <span class="flex-grow text-left">
+      <span class="label">
         ${this.#renderNodeAmount(mutation.addedNodes, 'added')}
         ${mutation.addedNodes.length && mutation.removedNodes.length
           ? ' and '
@@ -78,6 +78,7 @@ export class MutationItem extends ActionItem {
   }
 
   #selectMutation() {
+    this.toggleRevealed()
     const event = new CustomEvent('app-mutation-select', { detail: this.entry })
     window.dispatchEvent(event)
     this.requestUpdate()

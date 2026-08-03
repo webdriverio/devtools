@@ -5,7 +5,7 @@ import { mount, settle } from '../../support/mount.js'
 import { shadow, shadowAll, text } from '../../support/queries.js'
 
 const TAG = 'wdio-devtools-group-item'
-const LABEL = 'span.break-all'
+const LABEL = 'span.label'
 const BADGE = '.ml-auto'
 const CHEVRON = 'icon-mdi-chevron-right'
 
@@ -151,6 +151,29 @@ describe('wdio-devtools-group-item', () => {
     }
 
     expect(received[0]?.detail.expanded).toBe(true)
+  })
+
+  // Groups auto-expand when they failed or hold the active command, so an
+  // expanded row that reflowed would be a step nobody clicked taking two lines.
+  it('does not reflow the title of a group that was expanded for it', async () => {
+    const el = await mount<GroupItem>(TAG, {
+      group: { ...STEP, failed: true },
+      expanded: true
+    })
+
+    expect(el.hasAttribute('revealed')).toBe(false)
+  })
+
+  it('reflows the title on click and folds it back on a second click', async () => {
+    const el = await mount<GroupItem>(TAG, { group: { ...STEP } })
+
+    shadow(el, 'button')?.dispatchEvent(new MouseEvent('click'))
+    await settle(el)
+    expect(el.hasAttribute('revealed')).toBe(true)
+
+    shadow(el, 'button')?.dispatchEvent(new MouseEvent('click'))
+    await settle(el)
+    expect(el.hasAttribute('revealed')).toBe(false)
   })
 
   it('does not toggle its own expanded state when clicked', async () => {

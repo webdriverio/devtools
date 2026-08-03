@@ -33,6 +33,16 @@ export class ActionItem extends Element {
   @property({ type: Boolean, reflect: true })
   failed = false
 
+  /** Set by a click on this row alone. `active` can't drive it: the player
+   *  clock marks the action at the playhead, so it would expand rows nobody
+   *  touched and the panel would look as ragged as before. */
+  @property({ type: Boolean, reflect: true })
+  revealed = false
+
+  protected toggleRevealed() {
+    this.revealed = !this.revealed
+  }
+
   static styles = [
     ...Element.styles,
     css`
@@ -44,6 +54,24 @@ export class ActionItem extends Element {
 
       button {
         position: relative;
+        /* Same height for every row whether or not it carries an icon chip
+           (chip 26px + its 4px margins). */
+        min-height: 34px;
+      }
+
+      /* One line per row; clicking a row is what reflows its full text. */
+      .label {
+        flex: 1 1 auto;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        text-align: left;
+        padding-right: 8px;
+      }
+      :host([revealed]) .label {
+        white-space: normal;
+        overflow-wrap: anywhere;
       }
 
       .ic {
@@ -102,7 +130,7 @@ export class ActionItem extends Element {
     const heatCls = HEAT_CLASS[durationHeat(this.duration)]
     return html`
       <span
-        class="text-[10px] grow-0 shrink rounded-xl ml-auto px-1.5 py-px font-medium ${heatCls}"
+        class="text-[10px] flex-none whitespace-nowrap rounded-xl ml-auto px-1.5 py-px font-medium ${heatCls}"
         >${formatDuration(this.duration)}</span
       >
     `

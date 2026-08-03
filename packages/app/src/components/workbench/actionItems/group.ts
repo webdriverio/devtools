@@ -26,6 +26,7 @@ export class GroupItem extends ActionItem {
   }
 
   #toggle() {
+    this.toggleRevealed()
     this.dispatchEvent(
       new CustomEvent('group-toggle', {
         detail: { callId: this.group?.callId, expanded: this.expanded },
@@ -51,7 +52,7 @@ export class GroupItem extends ActionItem {
             : ''}"
         ></icon-mdi-chevron-right>
         <span
-          class="text-[12.5px] font-medium text-left break-all ${this.failed
+          class="label text-[12.5px] font-medium ${this.failed
             ? 'text-chartsRed'
             : ''}"
           >${this.group.title}</span

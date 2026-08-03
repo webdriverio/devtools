@@ -182,6 +182,37 @@ describe('wdio-test-entry', () => {
     })
   })
 
+  describe('reveal', () => {
+    it('keeps a name on one line until the row is clicked', async () => {
+      const row = await mountRow(rowProps(mixedStateRun.failing))
+
+      expect(row.hasAttribute('revealed')).toBe(false)
+    })
+
+    it('reflows the name on click and folds it back on a second click', async () => {
+      const row = await mountRow(rowProps(mixedStateRun.failing))
+
+      shadow(row, LABEL_SPAN)?.click()
+      await settle(row)
+      expect(row.hasAttribute('revealed')).toBe(true)
+
+      shadow(row, LABEL_SPAN)?.click()
+      await settle(row)
+      expect(row.hasAttribute('revealed')).toBe(false)
+    })
+
+    // The tree auto-selects the running test, so a selected row that reflowed
+    // would grow a row nobody clicked — and mid-run, a different one each time.
+    it('does not reflow a row the tree merely selected', async () => {
+      const row = await mountRow({
+        ...rowProps(mixedStateRun.running),
+        selected: true
+      })
+
+      expect(row.hasAttribute('revealed')).toBe(false)
+    })
+  })
+
   describe('selection', () => {
     it('announces its uid on app-test-select when the row is clicked', async () => {
       const row = await mountRow(rowProps(mixedStateRun.failing))

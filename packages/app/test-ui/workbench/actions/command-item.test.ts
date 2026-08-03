@@ -162,6 +162,41 @@ describe('wdio-devtools-command-item', () => {
     })
   })
 
+  describe('reveal', () => {
+    it('keeps a row on one line until it is clicked', async () => {
+      const el = await mount<CommandItem>(TAG, {
+        entry: commandLog({ command: 'click' })
+      })
+
+      expect(el.hasAttribute('revealed')).toBe(false)
+    })
+
+    it('reflows the label on click and folds it back on a second click', async () => {
+      const el = await mount<CommandItem>(TAG, {
+        entry: commandLog({ command: 'click' })
+      })
+
+      shadow(el, 'button')?.dispatchEvent(new MouseEvent('click'))
+      await settle(el)
+      expect(el.hasAttribute('revealed')).toBe(true)
+
+      shadow(el, 'button')?.dispatchEvent(new MouseEvent('click'))
+      await settle(el)
+      expect(el.hasAttribute('revealed')).toBe(false)
+    })
+
+    // The player clock marks the action at the playhead as active, so an active
+    // row that reflowed would make every row height depend on playback.
+    it('does not reflow a row the playhead merely made active', async () => {
+      const el = await mount<CommandItem>(TAG, {
+        entry: commandLog({ command: 'click' }),
+        active: true
+      })
+
+      expect(el.hasAttribute('revealed')).toBe(false)
+    })
+  })
+
   describe('state', () => {
     it('leaves the row unmarked when the entry has no error', async () => {
       const el = await mount<CommandItem>(TAG, {

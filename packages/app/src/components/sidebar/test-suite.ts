@@ -93,6 +93,11 @@ export class ExplorerTestEntry extends CollapseableEntry {
   @property({ type: Boolean, reflect: true })
   selected = false
 
+  /** Set by a click on this row alone. `selected` can't drive it: the tree
+   *  auto-selects the running test, so it would expand a row nobody touched. */
+  @property({ type: Boolean, reflect: true })
+  revealed = false
+
   @property({ type: Boolean, reflect: true })
   root = false
 
@@ -110,6 +115,18 @@ export class ExplorerTestEntry extends CollapseableEntry {
         font-size: 12.5px;
         /* matches the icon box height so the icon aligns with the first line */
         line-height: 18px;
+        /* One line per row so every entry in the tree is the same height */
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      /* Clicking a row is the only way to read a name it had to clip. Wrapping
+         anywhere because a name can be one unbroken token (a URL) that plain
+         wrapping would still clip. */
+      :host([revealed]) ::slotted(label) {
+        white-space: normal;
+        overflow-wrap: anywhere;
       }
 
       :host([selected]) .row {
@@ -192,6 +209,7 @@ export class ExplorerTestEntry extends CollapseableEntry {
   }
 
   #selectEntry() {
+    this.revealed = !this.revealed
     if (this.uid) {
       this.dispatchEvent(
         new CustomEvent('app-test-select', {
@@ -426,13 +444,13 @@ export class ExplorerTestEntry extends CollapseableEntry {
           ></icon-mdi-menu-down>
         </button>
         <span
-          class="flex items-start shrink flex-nowrap min-w-0 leading-[18px] ${hasNoChildren
+          class="flex items-start flex-nowrap min-w-0 flex-1 leading-[18px] ${hasNoChildren
             ? 'pl-9'
             : ''}"
           @click="${() => this.#selectEntry()}"
         >
           ${this.root ? nothing : this.testStateIcon}
-          <slot name="label" class="mx-2 block flex-initial shrink"></slot>
+          <slot name="label" class="mx-2 block min-w-0 flex-1"></slot>
         </span>
         ${this.#renderToolbar(hasNoChildren)}
       </section>

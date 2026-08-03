@@ -43,6 +43,10 @@ export class DevtoolsActions extends Element {
         display: flex;
         flex-direction: column;
         width: 100%;
+        /* The panel's width is fixed by its drag handle; single-line rows must
+           clip inside it rather than widen it (or scroll it) to fit. */
+        min-width: 0;
+        overflow-x: hidden;
       }
 
       /* Wraps the rows so the rail spans the full content height — the host
