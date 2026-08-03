@@ -50,6 +50,7 @@ export class CommandItem extends ActionItem {
     if (!this.entry) {
       return
     }
+    this.requestReveal()
     window.dispatchEvent(
       // Typed as the contract, which is what makes the two nullable fields below
       // a compile error rather than a blank chip in the Log tab.
@@ -117,10 +118,7 @@ export class CommandItem extends ActionItem {
         @click="${() => this.#highlightLine()}"
       >
         ${this.iconChip(this.#renderIcon(entry.command))}
-        <code
-          class="text-[12.5px] flex-wrap text-left break-all ${this.failed
-            ? 'text-chartsRed'
-            : ''}"
+        <code class="label text-[12.5px] ${this.failed ? 'text-chartsRed' : ''}"
           >${capitalizeAssertLabel(entry.title ?? entry.command)}</code
         >
         ${this.renderTime()}

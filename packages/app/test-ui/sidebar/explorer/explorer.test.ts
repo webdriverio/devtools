@@ -39,6 +39,7 @@ const NESTED_GROUP = 'wdio-test-suite[slot="children"]'
 const ROOT_ROW = 'wdio-test-entry[root]'
 const TEST_ROW = 'wdio-test-entry[entry-type="test"]'
 const SELECTED_ROW = 'wdio-test-entry[selected]'
+const REVEALED_ROW = 'wdio-test-entry[revealed]'
 const ROW_LABEL = 'wdio-test-entry > label'
 const EMPTY_STATE = 'p.text-disabledForeground'
 // Located by its icon, not its title: the title carries the refusal reason when
@@ -614,6 +615,53 @@ describe('wdio-devtools-sidebar-explorer', () => {
       expect(rowUids(explorer, SELECTED_ROW)).toEqual([
         mixedStateRun.passing.uid
       ])
+    })
+
+    // The highlight follows the run on its own; reflowing a name must not, or a
+    // row nobody clicked grows — and a different one as the run moves on.
+    it('reflows no name while the highlight tracks the running test', async () => {
+      const explorer = await mountExplorer(mixedStateRun.registry)
+
+      expect(rowUids(explorer, REVEALED_ROW)).toEqual([])
+    })
+  })
+
+  describe('reveal', () => {
+    it('reflows the name of the row that is clicked', async () => {
+      const explorer = await mountExplorer(mixedStateRun.registry)
+
+      shadow(rowByUid(explorer, mixedStateRun.passing.uid), LABEL_SPAN)?.click()
+      await settle(explorer)
+
+      expect(rowUids(explorer, REVEALED_ROW)).toEqual([
+        mixedStateRun.passing.uid
+      ])
+    })
+
+    // One name at a time: every row the user had ever clicked used to stay
+    // wrapped, which is the ragged tree the single-line rows were meant to fix.
+    it('folds the previous name when another row is clicked', async () => {
+      const explorer = await mountExplorer(mixedStateRun.registry)
+
+      shadow(rowByUid(explorer, mixedStateRun.passing.uid), LABEL_SPAN)?.click()
+      await settle(explorer)
+      shadow(rowByUid(explorer, mixedStateRun.failing.uid), LABEL_SPAN)?.click()
+      await settle(explorer)
+
+      expect(rowUids(explorer, REVEALED_ROW)).toEqual([
+        mixedStateRun.failing.uid
+      ])
+    })
+
+    it('folds a reflowed name when its own row is clicked again', async () => {
+      const explorer = await mountExplorer(mixedStateRun.registry)
+
+      shadow(rowByUid(explorer, mixedStateRun.passing.uid), LABEL_SPAN)?.click()
+      await settle(explorer)
+      shadow(rowByUid(explorer, mixedStateRun.passing.uid), LABEL_SPAN)?.click()
+      await settle(explorer)
+
+      expect(rowUids(explorer, REVEALED_ROW)).toEqual([])
     })
   })
 

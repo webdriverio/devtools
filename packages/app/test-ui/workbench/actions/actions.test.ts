@@ -152,6 +152,12 @@ const elapsedOf = (row: Element) =>
 
 const clickRow = (row: Element) => shadow(row, 'button')?.click()
 
+/** Actions of the rows currently showing their label in full. */
+const revealedOf = (panel: Element): TimelineEntry[] =>
+  shadowAll(panel, `${COMMAND_ROW}[revealed], ${MUTATION_ROW}[revealed]`)
+    .map(entryOf)
+    .filter((entry): entry is TimelineEntry => Boolean(entry))
+
 describe('wdio-devtools-actions', () => {
   describe('merged timeline', () => {
     it('orders commands and document loads into a single list by timestamp', async () => {
@@ -435,6 +441,45 @@ describe('wdio-devtools-actions', () => {
       ])
       expect(rows.map(elapsedOf)).toEqual([0, 300, 700, 900, 1600])
       expect(rows.map(durationOf)).toEqual([300, 300, 200, 700, 700])
+    })
+
+    // One row at a time: every row the user had ever clicked used to stay
+    // wrapped, which is the ragged panel the single-line rows were meant to fix.
+    it('reflows only the row clicked last', async () => {
+      const panel = await mountPanel({ groups })
+
+      clickRow(shadowAll(panel, ROWS)[2])
+      await settle(panel)
+      expect(revealedOf(panel)).toEqual([loginTimeline.findInput])
+
+      clickRow(shadowAll(panel, ROWS)[3])
+      await settle(panel)
+
+      expect(revealedOf(panel)).toEqual([loginTimeline.setValue])
+    })
+
+    it('folds a reflowed row when it is clicked again', async () => {
+      const panel = await mountPanel({ groups })
+
+      clickRow(shadowAll(panel, ROWS)[2])
+      await settle(panel)
+      clickRow(shadowAll(panel, ROWS)[2])
+      await settle(panel)
+
+      expect(revealedOf(panel)).toEqual([])
+    })
+
+    // A step row and an action row compete for the same single reveal.
+    it('folds a reflowed action when a step row is clicked', async () => {
+      const panel = await mountPanel({ groups })
+
+      clickRow(shadowAll(panel, ROWS)[2])
+      await settle(panel)
+      clickRow(shadowAll(panel, ROWS)[0])
+      await settle(panel)
+
+      expect(revealedOf(panel)).toEqual([])
+      expect(shadowAll(panel, GROUP_ROW)[0].hasAttribute('revealed')).toBe(true)
     })
 
     it("reveals a collapsed group's commands when the group row is clicked", async () => {

@@ -21,6 +21,16 @@ export interface CommandRow {
 
 export type ActionTreeRow = GroupRow | CommandRow
 
+/** Identity of a render row. Rows are keyed on it so an expand/collapse moves
+ *  each element with the action it belongs to; reusing whatever element sat at
+ *  that index hands the new action the old row's local state. Namespaced so a
+ *  callId that reads as a number can't collide with a command index. */
+export function rowKey(row: ActionTreeRow): string {
+  return row.kind === 'group'
+    ? `group:${row.group.callId}`
+    : `command:${row.commandIndex}`
+}
+
 /** Command indices anywhere under a group, nested groups included. */
 export function collectCommandIndices(group: TraceActionGroupNode): number[] {
   const indices: number[] = []

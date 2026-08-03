@@ -2,6 +2,7 @@ import '@components/sidebar/test-suite.js'
 import type { ExplorerTestEntry } from '@components/sidebar/test-suite.js'
 import type { TestRunDetail } from '@components/sidebar/types.js'
 
+import { capture } from '../../support/events.js'
 import { mount, settle } from '../../support/mount.js'
 import { shadow, shadowAll, text } from '../../support/queries.js'
 import {
@@ -59,22 +60,6 @@ async function mountRow(
   row.append(title)
   await settle(row)
   return row
-}
-
-function capture<T>(
-  target: EventTarget,
-  type: string,
-  act: () => void
-): CustomEvent<T>[] {
-  const received: CustomEvent<T>[] = []
-  const listener = (event: Event) => received.push(event as CustomEvent<T>)
-  target.addEventListener(type, listener)
-  try {
-    act()
-  } finally {
-    target.removeEventListener(type, listener)
-  }
-  return received
 }
 
 describe('wdio-test-entry', () => {
@@ -179,6 +164,45 @@ describe('wdio-test-entry', () => {
       expect(slot?.assignedElements().map((el) => text(el))).toEqual([
         mixedStateRun.failing.title
       ])
+    })
+  })
+
+  describe('reveal', () => {
+    it('keeps a name on one line until the row is clicked', async () => {
+      const row = await mountRow(rowProps(mixedStateRun.failing))
+
+      expect(row.hasAttribute('revealed')).toBe(false)
+    })
+
+    // The explorer owns which row is reflowed, so one click can fold another
+    // row; a row that reflowed itself would leave both open.
+    it('does not reflow itself on click', async () => {
+      const row = await mountRow(rowProps(mixedStateRun.failing))
+
+      shadow(row, LABEL_SPAN)?.click()
+      await settle(row)
+
+      expect(row.hasAttribute('revealed')).toBe(false)
+    })
+
+    it('reflows its name when the explorer reveals it', async () => {
+      const row = await mountRow({
+        ...rowProps(mixedStateRun.failing),
+        revealed: true
+      })
+
+      expect(row.hasAttribute('revealed')).toBe(true)
+    })
+
+    // The tree auto-selects the running test, so a selected row that reflowed
+    // would grow a row nobody clicked — and mid-run, a different one each time.
+    it('does not reflow a row the tree merely selected', async () => {
+      const row = await mountRow({
+        ...rowProps(mixedStateRun.running),
+        selected: true
+      })
+
+      expect(row.hasAttribute('revealed')).toBe(false)
     })
   })
 

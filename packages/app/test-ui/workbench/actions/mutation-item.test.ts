@@ -7,7 +7,7 @@ import { shadow, shadowAll, text } from '../../support/queries.js'
 import { mutation, documentLoaded } from '../../support/builders.js'
 
 const TAG = 'wdio-devtools-mutation-item'
-const LABEL = 'span.flex-grow'
+const LABEL = 'span.label'
 const BADGE = '.ml-auto'
 const PAGE_URL = 'https://the-internet.herokuapp.com/login'
 

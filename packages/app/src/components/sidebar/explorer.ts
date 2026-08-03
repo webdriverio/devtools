@@ -50,6 +50,7 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
   #statusFilter: TestStatus | null = null
   #selectedUid?: string
   #autoSelectedUid?: string
+  #revealedUid?: string
   #filterListener = this.#filterTests.bind(this)
   #statusFilterListener = this.#applyStatusFilter.bind(this)
   #selectListener = this.#handleSelect.bind(this)
@@ -65,6 +66,7 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
         display: flex;
         flex-direction: column;
         min-height: 0;
+        min-width: 0;
         flex: 1 1 auto;
       }
 
@@ -140,7 +142,12 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
   }
 
   #handleSelect(event: CustomEvent<string>) {
-    this.#selectedUid = event.detail
+    const uid = event.detail
+    // Only one row shows its full name at a time: clicking a row folds whichever
+    // was open, and clicking the open one folds it. The event is click-only, so
+    // the tree auto-selecting the running test never expands anything.
+    this.#revealedUid = uid === this.#revealedUid ? undefined : uid
+    this.#selectedUid = uid
     this.requestUpdate()
   }
 
@@ -375,6 +382,7 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
         ?has-children="${entry.children && entry.children.length > 0}"
         ?selected="${entry.uid ===
         (this.#selectedUid ?? this.#autoSelectedUid)}"
+        ?revealed="${entry.uid === this.#revealedUid}"
         ?root="${isRoot}"
         .runDisabled=${this.#isRunDisabled(entry)}
         .runDisabledReason=${this.#getRunDisabledReason(entry)}
