@@ -1,0 +1,28 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "wdio-selenium-devtools"
+version = "0.1.0"
+description = "Python Selenium adapter for the WebdriverIO DevTools dashboard"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "WebdriverIO" }]
+keywords = ["selenium", "webdriver", "devtools", "pytest", "debugging"]
+
+# Transport is dependency-free (stdlib). selenium is the user's own dep; we
+# only patch it when present, so it's not a hard requirement to import.
+dependencies = []
+
+[project.optional-dependencies]
+selenium = ["selenium>=4.6"]
+test = ["pytest>=7", "selenium>=4.6"]
+
+# Auto-discovered by pytest; inert unless WDIO_DEVTOOLS / DEVTOOLS_PORT is set.
+[project.entry-points.pytest11]
+wdio_selenium_devtools = "wdio_selenium_devtools.pytest_plugin"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/wdio_selenium_devtools"]

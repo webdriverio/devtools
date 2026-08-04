@@ -1,0 +1,52 @@
+name: Manual PyPI Publish
+
+# Mirrors release.yml's manual, button-triggered shape for the Python adapter.
+# Unlike npm (NPM_TOKEN), PyPI uses trusted publishing (OIDC) — no secret.
+# Bump the version in packages/selenium-py-devtools/pyproject.toml before running.
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Publish target'
+        required: true
+        type: choice
+        default: pypi
+        options:
+          - pypi
+          - testpypi
+
+defaults:
+  run:
+    working-directory: packages/selenium-py-devtools
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.target }}
+    permissions:
+      id-token: write # PyPI trusted publishing (OIDC) — no token/secret needed
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: 'main'
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      - name: 🧪 Unit tests (release guard)
+        run: PYTHONPATH=src python -m unittest discover -s tests
+      - name: 📦 Build sdist + wheel
+        run: |
+          python -m pip install --upgrade build
+          python -m build
+      - name: 🚀 Publish to PyPI
+        if: ${{ inputs.target == 'pypi' }}
+        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # release/v1
+        with:
+          packages-dir: packages/selenium-py-devtools/dist
+      - name: 🚀 Publish to TestPyPI
+        if: ${{ inputs.target == 'testpypi' }}
+        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # release/v1
+        with:
+          packages-dir: packages/selenium-py-devtools/dist
+          repository-url: https://test.pypi.org/legacy/
