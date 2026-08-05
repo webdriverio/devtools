@@ -129,7 +129,12 @@ function makeWrappedMethod(
           rawResult: error ? undefined : result,
           error,
           callSource: callInfo.callSource,
-          timestamp: startedAt,
+          // Completion, not `startedAt`: a navigation resolves seconds after it
+          // is issued, and the destination document's DOM anchor carries its own
+          // birth time. Stamped at invocation, the row ended before the document
+          // existed and replayed the page it had just left.
+          timestamp: Date.now(),
+          startTime: startedAt,
           fromElement
         })
       } catch (hookErr) {

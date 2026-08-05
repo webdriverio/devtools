@@ -34,6 +34,7 @@ export async function captureOrReplaceCommand(opts: {
       cmd.timestamp
     )
     const entry = replaced.entry as CommandLog & { _id?: number }
+    entry.startTime = cmd.startTime
     retryTracker.setLastId(entry._id ?? null)
     capturer.sendReplaceCommand(replaced.oldTimestamp, entry)
     return entry
@@ -48,6 +49,7 @@ export async function captureOrReplaceCommand(opts: {
     cmd.callSource,
     cmd.timestamp
   )) as CommandLog & { _id?: number }
+  entry.startTime = cmd.startTime
   capturer.sendCommand(entry)
   retryTracker.recordCapture(cmdSig, entry._id ?? null)
   return entry

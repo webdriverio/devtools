@@ -89,7 +89,12 @@ export interface CapturedCommand {
   rawResult?: unknown
   error: Error | undefined
   callSource: string | undefined
+  /** When the command COMPLETED. The page-side mutation stream is on real time,
+   *  so a row stamped at invocation replays the page from before its own effect. */
   timestamp: number
+  /** When the command was invoked — the row's real start, so it spans its actual
+   *  duration instead of a synthetic 1ms. */
+  startTime: number
   fromElement: boolean
 }
 
