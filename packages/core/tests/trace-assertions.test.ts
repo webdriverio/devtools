@@ -120,6 +120,60 @@ describe('buildActionEvents with assert commands', () => {
       (e): e is AfterEvent => e.type === 'after' && e.callId === callId
     )
 
+  it('orders an issued-earlier assert before a longer command sharing its start', () => {
+    // Nightwatch enqueues `browser.assert.*` synchronously and then awaits the
+    // next command, so both read the same millisecond `startTime`. The assert is
+    // appended to commandsLog in the test-end batch, i.e. AFTER the click, so
+    // without `sequence` the tie resolved in insertion order and the assert
+    // landed below the logout click it actually preceded.
+    const commands: CommandLog[] = [
+      {
+        command: 'click',
+        args: ['a*=Logout'],
+        startTime: WALL + 100,
+        timestamp: WALL + 5100,
+        sequence: 3
+      },
+      {
+        command: 'assert.urlContains',
+        args: ['/secure'],
+        result: 'passed',
+        startTime: WALL + 100,
+        timestamp: WALL + 100,
+        sequence: 1
+      },
+      {
+        command: 'assert.textContains',
+        args: ['#flash', 'You logged into a secure area'],
+        result: 'passed',
+        startTime: WALL + 100,
+        timestamp: WALL + 100,
+        sequence: 2
+      }
+    ]
+    const order = befores(buildActionEvents(commands, 'page@1', WALL)).map(
+      (b) => b.apiName
+    )
+    expect(order).toEqual([
+      'assert.urlContains',
+      'assert.textContains',
+      'element.click'
+    ])
+  })
+
+  it('falls back to insertion order when no sequence is stamped', () => {
+    const commands: CommandLog[] = [
+      { command: 'click', args: ['#a'], startTime: WALL, timestamp: WALL },
+      { command: 'click', args: ['#b'], startTime: WALL, timestamp: WALL }
+    ]
+    const order = befores(buildActionEvents(commands, 'page@1', WALL)).map(
+      (b) => b.title
+    )
+    expect(order).toEqual(order.slice().sort())
+    expect(order[0]).toContain('#a')
+    expect(order[1]).toContain('#b')
+  })
+
   it('emits an action pair with assert params, apiName and title', () => {
     const commands: CommandLog[] = [
       {

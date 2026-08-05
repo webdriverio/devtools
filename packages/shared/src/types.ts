@@ -166,6 +166,12 @@ export interface CommandLog {
   timestamp: number
   /** Wall-clock ms when the command was invoked (before execution). */
   startTime?: number
+  /** Monotonic issue order, stamped when the test issued the command. Breaks
+   *  ties the millisecond clock can't: a deferred row (a Nightwatch native
+   *  assert, finalized in a batch at test-end) is appended long after the driver
+   *  row it was issued before, so an equal `startTime` otherwise resolved in
+   *  insertion order and put the assert after the command that followed it. */
+  sequence?: number
   callSource?: string
   screenshot?: string
   testUid?: string

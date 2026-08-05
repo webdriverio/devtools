@@ -367,11 +367,16 @@ export function buildActionEvents(
   // late but carry their real call-time `startTime`; since pushActionPair floors
   // each start at the running prevEndMs, out-of-order input would clamp those
   // late rows to the end of the timeline (clustering them after the last real
-  // command). A stable sort by start time restores true positions and keeps
-  // equal-time rows in insertion order (each command owns its own before/after
-  // pair, so pairing is unaffected).
+  // command). A stable sort by start time restores true positions. `sequence`
+  // then breaks ties the millisecond clock can't: a deferred row issued
+  // microseconds before the command that follows it reads as the same
+  // `startTime`, and insertion order put it after — which is how an assert that
+  // ran on the secure page landed below the logout click it preceded. Each
+  // command owns its own before/after pair, so pairing is unaffected.
   const ordered = [...commands].sort(
-    (a, b) => (a.startTime ?? a.timestamp) - (b.startTime ?? b.timestamp)
+    (a, b) =>
+      (a.startTime ?? a.timestamp) - (b.startTime ?? b.timestamp) ||
+      (a.sequence ?? 0) - (b.sequence ?? 0)
   )
   for (const cmd of ordered) {
     const action = mapCommandToAction(cmd.command)
