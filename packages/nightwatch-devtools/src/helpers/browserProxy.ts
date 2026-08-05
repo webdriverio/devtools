@@ -34,6 +34,45 @@ type NightwatchChainable = {
   perform?: (cb: (done: Function) => void) => void
 }
 
+/**
+ * The failure a Nightwatch command reports by invoking its callback with an
+ * error-shaped result instead of throwing.
+ *
+ * Only a SYNCHRONOUS failure reaches the try/catch around `originalMethod`; an
+ * async one (a command that times out waiting for an element) arrives here as a
+ * result object. Left in `result`, the row kept `error: undefined` and rendered
+ * as a success — the failure was readable only as raw text in the result pane,
+ * with no red row and nothing in the Errors tab.
+ *
+ * `passed` present means this is an assertion result, which carries its own
+ * pass/fail handling and must not be reinterpreted here.
+ */
+function callbackError(result: unknown, depth = 0): Error | undefined {
+  if (result instanceof Error) {
+    return result
+  }
+  if (!result || typeof result !== 'object') {
+    return undefined
+  }
+  const r = result as Record<string, unknown>
+  // W3C driver responses nest their payload under `value` and Nightwatch passes
+  // that wrapper through untouched, so the failure sits one level down — reading
+  // only the top level found no `error` and the row stayed green. Depth-bounded:
+  // this runs inside the command hook, so a self-referencing result must not be
+  // able to overflow the stack and take the user's test down with it.
+  if ('value' in r) {
+    return depth < 2 ? callbackError(r.value, depth + 1) : undefined
+  }
+  if ('passed' in r || !r.error) {
+    return undefined
+  }
+  const err = new Error(String(r.message ?? r.error))
+  if (typeof r.stack === 'string') {
+    err.stack = r.stack
+  }
+  return err
+}
+
 export class BrowserProxy {
   /** Tracks which browser *instances* have already been proxied to avoid double-wrapping. */
   private proxiedBrowsers = new WeakSet<object>()
@@ -55,6 +94,15 @@ export class BrowserProxy {
    * way to get real args + callSource. Drained (and cleared) each `afterEach`.
    */
   private nativeAssertCalls: NativeAssertCall[] = []
+
+  /**
+   * Monotonic issue-order counter. Stamped when the test ISSUES a row — a
+   * driver command at invocation, an assert at enqueue — which is source order.
+   * Both are recorded into `commandsLog` much later and out of that order (a
+   * driver command at completion, an assert in the test-end batch), so this is
+   * what lets the exporter recover the order the test wrote.
+   */
+  private issueCounter = 0
 
   constructor(
     private sessionCapturer: SessionCapturer,
@@ -171,6 +219,7 @@ export class BrowserProxy {
       testUid,
       latestResolvedScreenshot(this.sessionCapturer)
     )
+    entry.sequence = this.issueCounter++
     call.entry = entry
     this.nativeAssertCalls.push(call)
   }
@@ -215,12 +264,17 @@ export class BrowserProxy {
 
         const injectAndCapture = () => {
           log.info(`[nav] ${methodName}(${args[0] ?? ''}) — injecting script`)
-          return sessionCapturer
-            .injectScript(browser)
-            .then(() => sessionCapturer.captureTrace(browser))
-            .catch((err: Error) =>
-              log.error(`Failed to inject script: ${(err as Error).message}`)
-            )
+          return (
+            sessionCapturer
+              .injectScript(browser)
+              // Anchored: the just-injected collector anchors the document
+              // asynchronously, so an unanchored drain beats it and this page's
+              // DOM never reaches the trace.
+              .then(() => sessionCapturer.captureTrace(browser, true))
+              .catch((err: Error) =>
+                log.error(`Failed to inject script: ${(err as Error).message}`)
+              )
+          )
         }
 
         const chainable = result as NightwatchChainable | undefined
@@ -314,7 +368,10 @@ export class BrowserProxy {
     serializedResult: unknown,
     effectiveUid: string,
     callSource: string | undefined,
-    commandTimestamp: number
+    commandTimestamp: number,
+    invokedAt: number,
+    sequence: number,
+    commandError: Error | undefined
   ): void {
     // Same command fired again (internal retry) — replace the previous
     // entry so only the final result appears in the UI.
@@ -323,11 +380,13 @@ export class BrowserProxy {
       methodName,
       logArgs,
       serializedResult,
-      undefined,
+      commandError,
       effectiveUid,
       callSource,
       commandTimestamp
     )
+    entry.startTime = invokedAt
+    entry.sequence = sequence
     this.retryTracker.setLastId(entry._id ?? null)
     this.sessionCapturer.sendReplaceCommand(oldTimestamp, entry)
     this.attachScreenshot(browser, entry, methodName, ' (retry)')
@@ -341,7 +400,10 @@ export class BrowserProxy {
     effectiveUid: string,
     callSource: string | undefined,
     commandTimestamp: number,
-    cmdSig: string
+    cmdSig: string,
+    invokedAt: number,
+    sequence: number,
+    commandError: Error | undefined
   ): void {
     // captureCommand() pushes the entry to commandsLog synchronously before
     // any async work (navigation perf capture), so we can grab the ID
@@ -356,7 +418,7 @@ export class BrowserProxy {
         methodName,
         logArgs,
         serializedResult,
-        undefined,
+        commandError,
         effectiveUid,
         callSource,
         commandTimestamp
@@ -369,6 +431,8 @@ export class BrowserProxy {
         this.sessionCapturer.commandsLog.length - 1
       ]
     if (lastCommand) {
+      lastCommand.startTime = invokedAt
+      lastCommand.sequence = sequence
       this.retryTracker.setLastId((lastCommand as { _id?: number })._id ?? null)
       this.sessionCapturer.sendCommand(lastCommand)
       log.info(`[command] ${methodName}`)
@@ -377,9 +441,17 @@ export class BrowserProxy {
     this.maybeRepollMutations(browser, methodName)
   }
 
-  // After DOM-mutating commands, re-poll mutations from the injected script
-  // so the browser preview stays in sync. setTimeout runs OUTSIDE Nightwatch's
-  // current callback stack (safer queue-wise).
+  // After DOM-mutating commands, re-poll mutations from the injected script so
+  // the browser preview stays in sync.
+  //
+  // Issued synchronously, with no setTimeout in front. This used to defer 200ms
+  // to stay off Nightwatch's callback stack — safe only because the drain went
+  // through `browser.execute`, a QUEUED command. It now goes over the raw
+  // WebDriver HTTP transport, so it touches no queue and can fire immediately.
+  // That matters: a driver serialises requests per session, so a drain issued
+  // from this callback is served BEFORE the next queued command. Deferred, a
+  // submit click navigated first and the outgoing page's field edits died with
+  // it — the `#password` fill row replayed with an empty password box.
   private maybeRepollMutations(
     browser: NightwatchBrowser,
     methodName: string
@@ -401,9 +473,10 @@ export class BrowserProxy {
     if (!isDomMutating) {
       return
     }
-    setTimeout(() => {
-      this.sessionCapturer.captureTrace(browser).catch(() => {})
-    }, 200)
+    // Anchored: a DOM-mutating command may have navigated, and the drain's
+    // recovery re-injection anchors asynchronously — without forcing it the
+    // destination's DOM never enters the stream at all.
+    this.sessionCapturer.captureTrace(browser, true).catch(() => {})
   }
 
   private popCommandStackIfMatches(methodName: string, cmdSig: string): void {
@@ -422,16 +495,26 @@ export class BrowserProxy {
     cmdSig: string,
     callSource: string | undefined,
     hasUserSource: boolean,
-    commandTimestamp: number,
+    invokedAt: number,
+    sequence: number,
     testUid: string | undefined,
     userCallback: Function | null
   ): (callbackResult: unknown) => unknown {
     return (callbackResult: unknown) => {
+      // Stamped HERE, when the command actually finished in the browser — not
+      // when the test enqueued it. Nightwatch runs commands off a queue, so
+      // invocation leads real execution by hundreds of ms, and the page-side
+      // mutation stream is on real time: a row stamped at invocation replayed
+      // the page from BEFORE its own effect (the `#username` fill rendered an
+      // empty field, the `#password` fill rendered only the username). The
+      // invocation time becomes the row's `startTime`, so the row also spans its
+      // real duration instead of a synthetic 1ms.
+      const commandTimestamp = Date.now()
       this.popCommandStackIfMatches(methodName, cmdSig)
-      const serializedResult = serializeCommandResult(
-        callbackResult,
-        methodName
-      )
+      const commandError = callbackError(callbackResult)
+      const serializedResult = commandError
+        ? undefined
+        : serializeCommandResult(callbackResult, methodName)
       const effectiveUid = this.getCurrentTest()?.uid ?? testUid
       // Only surface commands that originate from a user-code frame. Commands
       // Nightwatch issues from inside its own queue (e.g. the getTitle a
@@ -447,7 +530,10 @@ export class BrowserProxy {
             serializedResult,
             effectiveUid,
             callSource,
-            commandTimestamp
+            commandTimestamp,
+            invokedAt,
+            sequence,
+            commandError
           )
         } else {
           this.captureFreshCommand(
@@ -458,7 +544,10 @@ export class BrowserProxy {
             effectiveUid,
             callSource,
             commandTimestamp,
-            cmdSig
+            cmdSig,
+            invokedAt,
+            sequence,
+            commandError
           )
         }
       }
@@ -515,7 +604,10 @@ export class BrowserProxy {
     this.pushCommandStackIfNew(methodName, cmdSig, callInfo.callSource)
 
     const callSource = callInfo.callSource
-    const commandTimestamp = Date.now()
+    // Invocation time only — the row's real completion stamp is taken inside the
+    // capture callback (see makeCaptureCallback).
+    const invokedAt = Date.now()
+    const sequence = this.issueCounter++
     const captureCallback = this.makeCaptureCallback(
       browser,
       methodName,
@@ -523,7 +615,8 @@ export class BrowserProxy {
       cmdSig,
       callSource,
       callInfo.filePath !== undefined,
-      commandTimestamp,
+      invokedAt,
+      sequence,
       this.getCurrentTest()?.uid,
       userCallback
     )

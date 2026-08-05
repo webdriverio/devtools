@@ -130,6 +130,94 @@ describe('BrowserProxy internal-command suppression', () => {
   })
 })
 
+describe('BrowserProxy async command failure', () => {
+  beforeEach(() => {
+    getCallSourceFromStack.mockReset()
+    getCallSourceFromStack.mockReturnValue({
+      filePath: '/tests/spec.js',
+      callSource: '/tests/spec.js:37'
+    })
+  })
+
+  /** Nightwatch reports an async failure (a command that timed out waiting for
+   *  an element) by INVOKING the callback with an error-shaped result rather than
+   *  throwing, so the try/catch around the original method never sees it. */
+  function makeFailingBrowser(result: unknown) {
+    return {
+      click: (_sel: unknown, cb: (r: unknown) => void) => {
+        cb(result)
+        return undefined
+      }
+    } as unknown as NightwatchBrowser
+  }
+
+  function clickWith(result: unknown) {
+    const ctx = makeCapturer()
+    const proxy = new BrowserProxy(ctx.capturer, makeTestManager(), () => ({
+      uid: 'test-1'
+    }))
+    const browser = makeFailingBrowser(result)
+    proxy.wrapBrowserCommands(browser)
+    ;(browser as unknown as Record<string, (a: unknown) => unknown>).click(
+      'a*=Logout'
+    )
+    return ctx
+  }
+
+  it('surfaces the failure as the row error, not as the result', () => {
+    // Left in `result`, the row kept error: undefined and rendered as a success
+    // — no red row and nothing in the Errors tab.
+    const { commandsLog } = clickWith({
+      error: 'timeout',
+      message:
+        'An error occurred while running .click() command on <a*=Logout>: Timed out',
+      stack: 'Error at BrowserProxy.handleCommandExecution'
+    })
+    expect(commandsLog).toHaveLength(1)
+    expect(commandsLog[0].error).toBeInstanceOf(Error)
+    expect((commandsLog[0].error as Error).message).toContain('Timed out')
+    expect((commandsLog[0].error as Error).stack).toContain('BrowserProxy')
+    expect(commandsLog[0].result).toBeUndefined()
+  })
+
+  it('finds the failure nested under a W3C value wrapper', () => {
+    // Nightwatch passes the driver response through untouched, so the failure
+    // sits under `value` — reading only the top level left the row green.
+    const { commandsLog } = clickWith({
+      status: -1,
+      value: {
+        error: 'timeout',
+        message: 'Timed out while waiting for element "a*=Logout"',
+        stack: 'Error at BrowserProxy.handleCommandExecution'
+      }
+    })
+    expect((commandsLog[0].error as Error).message).toContain('Timed out')
+    expect(commandsLog[0].result).toBeUndefined()
+  })
+
+  it('treats a thrown Error handed to the callback as the row error', () => {
+    const { commandsLog } = clickWith(new Error('stale element reference'))
+    expect((commandsLog[0].error as Error).message).toBe(
+      'stale element reference'
+    )
+  })
+
+  it('leaves a successful result untouched', () => {
+    const { commandsLog } = clickWith({ value: null })
+    expect(commandsLog[0].error).toBeUndefined()
+  })
+
+  it('does not reinterpret an assertion result as a command failure', () => {
+    // An assertion result carries its own pass/fail handling.
+    const { commandsLog } = clickWith({
+      passed: false,
+      error: 'assertion failed',
+      message: 'nope'
+    })
+    expect(commandsLog[0].error).toBeUndefined()
+  })
+})
+
 describe('BrowserProxy captureAssertions gating', () => {
   beforeEach(() => {
     getCallSourceFromStack.mockReset()
