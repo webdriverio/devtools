@@ -13,6 +13,7 @@ import type {
 import { WORKER_WS_QUERY, WS_PATHS, WS_SCOPE } from '@wdio/devtools-shared'
 import { mapCommandToAction } from './action-mapping.js'
 import { resolveRunId } from './run-id.js'
+import { reattributeDomAnchors } from './trace-mutations.js'
 import {
   CONSOLE_METHODS,
   LOG_SOURCES,
@@ -276,6 +277,36 @@ export abstract class SessionCapturerBase {
   }
 
   /**
+   * The action a document born at `time` belongs to, or undefined when the
+   * anchor already sits where it should and must be left alone.
+   *
+   * Derived from the anchor rather than from the draining call, because the
+   * post-command hooks fire at command START in some adapters: a navigation's
+   * own drain then runs against the document it is leaving, and whichever later
+   * drain does see the destination would otherwise be credited with it.
+   *
+   * Answers only when NO logged command completed after `time`. A command that
+   * completed after the document was born is the one that navigated there, and
+   * its own row already resolves the anchor — pulling the anchor earlier then
+   * mis-credits it to a preceding action and steals the DOM from rows that were
+   * genuinely still on the previous page. That is the whole difference between
+   * an adapter that stamps commands at invocation and one that stamps them at
+   * completion, so it stays a property of the data rather than a per-adapter flag.
+   */
+  protected anchorOwnerTimestamp(time: number): number | undefined {
+    let best: number | undefined
+    for (const cmd of this.commandsLog) {
+      if (cmd.timestamp > time) {
+        return undefined
+      }
+      if (best === undefined || cmd.timestamp > best) {
+        best = cmd.timestamp
+      }
+    }
+    return best
+  }
+
+  /**
    * Ingest the `{ mutations, traceLogs, consoleLogs, networkRequests, metadata }`
    * payload returned by the page-side `wdioTraceCollector.getTraceData()`.
    * Tags console logs with `source: 'browser'`, pushes each array into the
@@ -333,8 +364,14 @@ export abstract class SessionCapturerBase {
     }
 
     if (Array.isArray(mutations) && mutations.length > 0) {
-      this.mutations.push(...mutations)
-      this.sendUpstream('mutations', mutations)
+      const batch = mutations as TraceMutation[]
+      reattributeDomAnchors(
+        batch,
+        (anchorOwnTime) => this.anchorOwnerTimestamp(anchorOwnTime),
+        this.mutations[this.mutations.length - 1]?.timestamp ?? 0
+      )
+      this.mutations.push(...batch)
+      this.sendUpstream('mutations', batch)
     }
 
     if (Array.isArray(traceLogs) && traceLogs.length > 0) {
