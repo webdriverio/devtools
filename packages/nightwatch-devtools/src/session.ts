@@ -1,15 +1,20 @@
-import http from 'node:http'
 import logger from '@wdio/logger'
 import {
+  CAPTURE_PERFORMANCE_SCRIPT,
+  COLLECTOR_READY_EXPRESSION,
   SessionCapturerBase,
+  applyPerformanceData,
+  collectorDrainExpression,
   drainCollectorWithRecovery,
   errorMessage,
   loadInjectableScript,
   mapChromeBrowserLogs,
+  mapCommandToAction,
   pollUntilReady,
-  serializeError
+  serializeError,
+  upsertRichestSnapshot,
+  type CapturedPerformancePayload
 } from '@wdio/devtools-core'
-import { mapCommandToAction } from '@wdio/devtools-core'
 import { captureActionSnapshot } from './action-snapshot.js'
 import { NAVIGATION_COMMANDS } from './constants.js'
 import {
@@ -18,11 +23,7 @@ import {
   type NetworkEntry,
   type PerfLogEntry
 } from './helpers/perfLogs.js'
-import {
-  CAPTURE_PERFORMANCE_SCRIPT,
-  type CapturedPerformancePayload,
-  applyPerformanceData
-} from '@wdio/devtools-core'
+import { webdriverExecute, webdriverGet } from './helpers/webdriverHttp.js'
 import type {
   ActionSnapshot,
   CommandLog,
@@ -42,66 +43,6 @@ function unwrapDriverValue<T = unknown>(result: unknown): T {
     return (result as { value: T }).value
   }
   return result as T
-}
-
-type LooseRec = Record<string, unknown>
-const getProp = (obj: unknown, key: string): unknown =>
-  obj && typeof obj === 'object' ? (obj as LooseRec)[key] : undefined
-const getPath = (obj: unknown, ...path: string[]): unknown =>
-  path.reduce<unknown>((acc, k) => getProp(acc, k), obj)
-const firstDefined = (obj: unknown, ...keys: string[]): unknown => {
-  if (!obj || typeof obj !== 'object') {
-    return undefined
-  }
-  const rec = obj as LooseRec
-  for (const k of keys) {
-    const v = rec[k]
-    if (v !== undefined && v !== null) {
-      return v
-    }
-  }
-  return undefined
-}
-
-/**
- * Walks Nightwatch's internal config (transport / queue.transport /
- * nightwatchInstance — none of which are on the public NightwatchBrowser
- * type) to find the underlying WebDriver host+port for direct screenshot
- * fetches that bypass the command queue.
- */
-function resolveWebDriverAddress(browser: NightwatchBrowser): {
-  driverHost: string
-  driverPort: number
-} {
-  const transportSettings =
-    getPath(browser, 'transport', 'settings', 'webdriver') ||
-    getPath(browser, 'queue', 'transport', 'settings', 'webdriver') ||
-    getPath(
-      browser,
-      'nightwatchInstance',
-      'transport',
-      'settings',
-      'webdriver'
-    ) ||
-    {}
-  const opts = getProp(browser, 'options') ?? {}
-  const nightwatchSettings =
-    getPath(browser, 'nightwatchInstance', 'settings') ||
-    getPath(browser, 'globals', 'nightwatchInstance', 'settings') ||
-    {}
-  const driverHost = String(
-    firstDefined(transportSettings, 'host', 'server_address') ||
-      firstDefined(getProp(opts, 'webdriver'), 'host') ||
-      firstDefined(getProp(nightwatchSettings, 'webdriver'), 'host') ||
-      'localhost'
-  )
-  const driverPort = Number(
-    firstDefined(transportSettings, 'port') ||
-      firstDefined(getProp(opts, 'webdriver'), 'port') ||
-      firstDefined(getProp(nightwatchSettings, 'webdriver'), 'port') ||
-      9515
-  )
-  return { driverHost, driverPort }
 }
 
 export class SessionCapturer extends SessionCapturerBase {
@@ -177,25 +118,32 @@ export class SessionCapturer extends SessionCapturerBase {
       })
     }
 
-    if (
-      this.traceMode === 'trace' &&
-      !error &&
-      this.#browser &&
-      mapCommandToAction(command)
-    ) {
-      const browser = this.#browser
-      this.snapshotCaptures.push(
-        captureActionSnapshot(browser, command, () =>
-          this.takeScreenshotViaHttp(browser)
-        ).then((snap) => {
-          if (snap) {
-            this.actionSnapshots.push(snap)
-          }
-        })
-      )
+    if (!error) {
+      this.#queueActionSnapshot(command, commandLogEntry.timestamp)
     }
 
     return true
+  }
+
+  /** Fire-and-forget post-action snapshot, drained at finalize. Stamped with the
+   *  logged command's timestamp, not the capture's own: the capture resolves
+   *  after the command completes, and export claims snapshots by exact equality
+   *  with the command timestamp (FrameSnapshotIndex.claimAfter / elementsAt). */
+  #queueActionSnapshot(command: string, timestamp: number): void {
+    if (
+      this.traceMode !== 'trace' ||
+      !this.#browser ||
+      !mapCommandToAction(command)
+    ) {
+      return
+    }
+    this.snapshotCaptures.push(
+      captureActionSnapshot(this.#browser, command, timestamp).then((snap) => {
+        if (snap) {
+          upsertRichestSnapshot(this.actionSnapshots, snap)
+        }
+      })
+    )
   }
 
   async #capturePerformanceData(
@@ -229,23 +177,14 @@ export class SessionCapturer extends SessionCapturerBase {
     withId._id = this.commandCounter++
     withId.id = withId._id
     this.commandsLog.push(withId)
-    if (
-      this.traceMode === 'trace' &&
-      !entry.error &&
-      this.#browser &&
-      mapCommandToAction(entry.command)
-    ) {
-      const browser = this.#browser
-      this.snapshotCaptures.push(
-        captureActionSnapshot(browser, entry.command, () =>
-          this.takeScreenshotViaHttp(browser)
-        ).then((snap) => {
-          if (snap) {
-            this.actionSnapshots.push(snap)
-          }
-        })
-      )
-    }
+    // Deliberately no snapshot capture. These rows are emitted in a batch at
+    // test-end but positioned back on their real execution window, so capturing
+    // here would probe the page as it is NOW and stamp it at a moment seconds
+    // earlier — an assert that ran on /secure rendered the /login page it later
+    // logged out to. An assertion reads the page rather than changing it, so the
+    // exporter lets it inherit the preceding action's capture instead
+    // (FrameSnapshotIndex.claimAfter). The row's own `screenshot` is already
+    // attached by the caller from the last resolved capture.
     this.sendCommand(withId)
   }
 
@@ -295,58 +234,12 @@ export class SessionCapturer extends SessionCapturerBase {
   }
 
   /**
-   * Take a screenshot by calling the WebDriver HTTP endpoint directly.
-   * This completely bypasses Nightwatch's command queue so there is no risk
-   * of the request being appended after `end()` / `quit()`.
+   * Take a screenshot by calling the WebDriver HTTP endpoint directly, bypassing
+   * Nightwatch's command queue so the request can't be appended after
+   * `end()` / `quit()`.
    */
-  // Nightwatch's internal config lives at non-public paths (transport,
-  // queue.transport, nightwatchInstance.settings, globals.nightwatchInstance);
-  // none are in the NightwatchBrowser type. Cast for dynamic access.
-  #resolveDriverEndpoint(
-    browser: NightwatchBrowser,
-    sessionId: string
-  ): string {
-    const { driverHost, driverPort } = resolveWebDriverAddress(browser)
-    return `http://${driverHost}:${driverPort}/session/${sessionId}/screenshot`
-  }
-
   takeScreenshotViaHttp(browser: NightwatchBrowser): Promise<string | null> {
-    const sessionId = (browser as unknown as { sessionId?: string }).sessionId
-    if (!sessionId) {
-      return Promise.resolve(null)
-    }
-    const endpoint = this.#resolveDriverEndpoint(browser, sessionId)
-    return new Promise((resolve) => {
-      const req = http.get(endpoint, (res) => {
-        let body = ''
-        res.on('data', (chunk: string | Buffer) => {
-          body += chunk
-        })
-        res.on('end', () => {
-          try {
-            const value = JSON.parse(body).value || null
-            if (!value) {
-              log.warn(`[screenshot] Empty response from ${endpoint}`)
-            }
-            resolve(value)
-          } catch {
-            log.warn(`[screenshot] Failed to parse response from ${endpoint}`)
-            resolve(null)
-          }
-        })
-      })
-      req.on('error', (err) => {
-        log.warn(
-          `[screenshot] HTTP request failed (${endpoint}): ${errorMessage(err)}`
-        )
-        resolve(null)
-      })
-      req.setTimeout(5000, () => {
-        log.warn(`[screenshot] Request timed out (${endpoint})`)
-        req.destroy()
-        resolve(null)
-      })
-    })
+    return webdriverGet<string>(browser, 'screenshot')
   }
 
   protected override onSourceReadError(filePath: string, err: unknown): void {
@@ -372,21 +265,36 @@ export class SessionCapturer extends SessionCapturerBase {
    */
   async injectScript(browser: NightwatchBrowser) {
     try {
+      // Injecting over a live collector replaces `window.wdioTraceCollector`
+      // with a fresh instance and DISCARDS whatever it had buffered — including
+      // the destination's full-DOM anchor. Several paths can reach the same
+      // document (navigation proxy, drain recovery), so guard here once.
+      const alreadyPresent = await webdriverExecute<boolean>(
+        browser,
+        `return ${COLLECTOR_READY_EXPRESSION};`
+      )
+      if (alreadyPresent === true) {
+        return
+      }
       const scriptContent = await loadInjectableScript()
+      // Inlined as a literal rather than passed via `arguments[0]`: the raw
+      // /execute/sync transport takes its args separately and this keeps the
+      // injection a single self-contained body.
       const injectionScript = `
         const script = document.createElement('script');
-        script.textContent = arguments[0];
+        script.textContent = ${JSON.stringify(scriptContent)};
         document.head.appendChild(script);
         return true;
       `
-      await browser.execute(injectionScript, [scriptContent])
+      await webdriverExecute(browser, injectionScript)
 
-      const hasCollector = await pollUntilReady(async () => {
-        const checkResult = await browser.execute(
-          'return typeof window.wdioTraceCollector !== "undefined"'
-        )
-        return unwrapDriverValue<unknown>(checkResult) === true
-      })
+      const hasCollector = await pollUntilReady(
+        async () =>
+          (await webdriverExecute<boolean>(
+            browser,
+            `return ${COLLECTOR_READY_EXPRESSION};`
+          )) === true
+      )
 
       if (hasCollector) {
         log.info('✓ Script injected and collector ready')
@@ -475,7 +383,11 @@ export class SessionCapturer extends SessionCapturerBase {
   /**
    * Capture trace data from the browser (network requests, console logs, etc.)
    */
-  async captureTrace(browser: NightwatchBrowser) {
+  /** `forceAnchor` forces a full-DOM anchor of the current document before
+   *  draining, so a freshly injected collector's async anchor isn't lost. Which
+   *  action the anchor belongs to is derived from the anchor itself at ingest,
+   *  not from this call — see `reattributeDomAnchors`. */
+  async captureTrace(browser: NightwatchBrowser, forceAnchor = false) {
     // Capture network requests from Chrome performance logs
     await this.captureNetworkFromPerformanceLogs(browser)
 
@@ -485,19 +397,15 @@ export class SessionCapturer extends SessionCapturerBase {
     // (the collector can disappear between the two round-trips).
     try {
       const traceData = await drainCollectorWithRecovery({
-        drain: async () => {
-          const result = await browser.execute(`
-            if (typeof window.wdioTraceCollector === 'undefined') {
-              return null;
-            }
-            return window.wdioTraceCollector.getTraceData();
-          `)
-          return unwrapDriverValue<Record<string, unknown> | null>(result)
-        },
+        drain: () =>
+          webdriverExecute<Record<string, unknown> | null>(
+            browser,
+            collectorDrainExpression(forceAnchor)
+          ),
         injectIntoCurrentDocument: () => this.injectScript(browser),
-        currentUrl: async () =>
-          unwrapDriverValue<string | undefined>(
-            await browser.execute('return location.href;')
+        currentUrl: () =>
+          webdriverExecute<string>(browser, 'return location.href;').then(
+            (u) => u ?? undefined
           ),
         log: (level, message) => log[level](message)
       })
