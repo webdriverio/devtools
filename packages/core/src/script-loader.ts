@@ -13,19 +13,42 @@ export const COLLECTOR_READY_EXPRESSION =
   'typeof window.wdioTraceCollector !== "undefined"'
 
 /**
- * Load the `@wdio/devtools-script` browser preload, wrapped in an async IIFE
- * so its top-level `await` works inside a regular `<script>` element body.
- * Shared by selenium-devtools and nightwatch-devtools, which both inject the
- * script via `document.createElement('script')` rather than BiDi preload (the
- * WDIO service uses `browser.scriptAddPreloadScript`, which doesn't need the
- * wrap and stays in its own adapter).
+ * Browser-side expression that drains the collector in one round-trip, atomic
+ * against a navigation replacing the document mid-check.
+ *
+ * `forceAnchor` forces a full-DOM anchor of the CURRENT document before
+ * draining. The collector's initial anchor is scheduled asynchronously (after
+ * `waitForBody`), so a drain issued right after injecting on a navigation
+ * destination beats it and returns nothing — and the destination's buffer then
+ * dies with the page, leaving the navigating action's DOM absent entirely.
+ *
+ * Shared by the two adapters that eval the drain as a string; the WDIO service
+ * passes an equivalent function to `browser.execute` instead.
  */
-export async function loadInjectableScript(): Promise<string> {
+export function collectorDrainExpression(forceAnchor = false): string {
+  const call = forceAnchor
+    ? 'window.wdioTraceCollector.captureCurrentDom();'
+    : ''
+  return `if (!(${COLLECTOR_READY_EXPRESSION})) { return null; } ${call} return window.wdioTraceCollector.getTraceData();`
+}
+
+/** The collector bundle's raw source. Callers wrap it for their own injection
+ *  mechanism — an async IIFE for a `<script>` body, a function declaration for a
+ *  BiDi preload script. */
+export async function loadCollectorSource(): Promise<string> {
   const scriptPath = require.resolve('@wdio/devtools-script')
   const scriptDir = path.dirname(scriptPath)
-  const preloadScriptPath = path.join(scriptDir, 'script.js')
-  const scriptContent = await fs.readFile(preloadScriptPath, 'utf-8')
-  return `(async function() { ${scriptContent} })()`
+  return fs.readFile(path.join(scriptDir, 'script.js'), 'utf-8')
+}
+
+/**
+ * The collector bundle wrapped in an async IIFE so its top-level `await` works
+ * inside a regular `<script>` element body. Used for instrumenting the document
+ * that is loaded RIGHT NOW; documents created later are covered by the BiDi
+ * preload script (`registerCollectorPreload`), which takes the raw source.
+ */
+export async function loadInjectableScript(): Promise<string> {
+  return `(async function() { ${await loadCollectorSource()} })()`
 }
 
 /** Schemes that carry no test-relevant DOM — the browser's own start page,
