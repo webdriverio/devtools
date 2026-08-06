@@ -14,6 +14,7 @@
 import logger from '@wdio/logger'
 import {
   finalizeScreencast,
+  registerCollectorPreload,
   resolveAdapterOutputDir
 } from '@wdio/devtools-core'
 import { TraceType } from './types.js'
@@ -198,6 +199,32 @@ async function tryAttachBidi(
   }
 }
 
+/**
+ * Register the collector to run at document-start, so every document — including
+ * the ones a navigation creates without us noticing — instruments and anchors
+ * itself.
+ *
+ * Deliberately NOT gated on the `bidi` option: that option exists to avoid
+ * double-reporting console/network against the perf-log path, whereas this needs
+ * nothing but a session created with `webSocketUrl: true`. Gating DOM capture on
+ * an unrelated opt-in that defaults to false would leave the race in place for
+ * almost every user. Self-degrades to the per-document `<script>` injection when
+ * BiDi isn't there.
+ */
+async function tryRegisterPreload(
+  ctx: SessionInitCtx,
+  browser: NightwatchBrowser
+): Promise<void> {
+  const driver = (browser as { driver?: unknown }).driver
+  if (!driver) {
+    return
+  }
+  ctx.sessionCapturer.preloadRegistered = await registerCollectorPreload(
+    driver,
+    (level, message) => log[level](message)
+  )
+}
+
 // Screencast: start a fresh recorder per browser session — every
 // reloadSession / per-test browser produces its own .webm, matching
 // the WDIO service behavior. Polling mode only (Nightwatch has no
@@ -268,6 +295,7 @@ export async function ensureSessionInitialized(
   }
   broadcastSessionMetadata(ctx, browser)
   await tryAttachBidi(ctx, browser)
+  await tryRegisterPreload(ctx, browser)
   await tryStartScreencast(ctx, browser, browser.sessionId)
 }
 

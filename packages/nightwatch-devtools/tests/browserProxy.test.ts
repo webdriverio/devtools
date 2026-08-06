@@ -59,7 +59,10 @@ function makeCapturer() {
     sendCommand: vi.fn(),
     sendReplaceCommand: vi.fn(),
     takeScreenshotViaHttp: vi.fn(async () => null),
-    captureTrace: vi.fn(async () => {})
+    captureTrace: vi.fn(async () => {}),
+    injectScript: vi.fn(async () => {}),
+    anchorAfterNavigation: vi.fn(async () => {}),
+    snapshotCaptures: [] as Promise<void>[]
   } as unknown as SessionCapturer
   return { capturer, commandsLog, captureCommand, captureAssertCommand }
 }
@@ -127,6 +130,60 @@ describe('BrowserProxy internal-command suppression', () => {
 
     expect(captureCommand).not.toHaveBeenCalled()
     expect(commandsLog).toHaveLength(0)
+  })
+})
+
+describe('BrowserProxy navigation wrapping', () => {
+  beforeEach(() => {
+    getCallSourceFromStack.mockReset()
+    getCallSourceFromStack.mockReturnValue({
+      filePath: '/tests/spec.js',
+      callSource: '/tests/spec.js:5'
+    })
+  })
+
+  function makeUrlBrowser() {
+    return {
+      url: (...args: unknown[]) => {
+        const cb = args[args.length - 1]
+        if (typeof cb === 'function') {
+          ;(cb as (r: unknown) => void)({ value: 'https://example.com/' })
+        }
+        return undefined
+      }
+    } as unknown as NightwatchBrowser
+  }
+
+  it('does not treat browser.url() as a navigation when it is a getter', () => {
+    // assert.urlContains reads the current url via browser.url(cb) from inside
+    // Nightwatch's queue. Treating that as a navigation re-injected the collector
+    // and forced an anchored drain mid-test, for a command that changed nothing.
+    const { capturer } = makeCapturer()
+    const proxy = new BrowserProxy(capturer, makeTestManager(), () => ({
+      uid: 'test-1'
+    }))
+    const browser = makeUrlBrowser()
+    proxy.wrapUrlMethod(browser)
+    ;(browser as unknown as Record<string, (...a: unknown[]) => unknown>).url(
+      () => {}
+    )
+    expect(capturer.injectScript).not.toHaveBeenCalled()
+  })
+
+  it('still treats a url with a destination as a navigation', async () => {
+    const { capturer } = makeCapturer()
+    const proxy = new BrowserProxy(capturer, makeTestManager(), () => ({
+      uid: 'test-1'
+    }))
+    const browser = makeUrlBrowser()
+    proxy.wrapUrlMethod(browser)
+    ;(browser as unknown as Record<string, (...a: unknown[]) => unknown>).url(
+      'https://example.com/login'
+    )
+    // The non-chainable (cucumber async/await) branch defers injection onto the
+    // returned promise, so let the microtask queue drain before asserting.
+    await new Promise((resolve) => setImmediate(resolve))
+    expect(capturer.injectScript).toHaveBeenCalled()
   })
 })
 

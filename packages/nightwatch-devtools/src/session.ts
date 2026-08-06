@@ -52,6 +52,12 @@ export class SessionCapturer extends SessionCapturerBase {
   // capture path skips when set, so we don't double-emit network requests.
   bidiActive = false
 
+  /** True once the collector is registered to run at document-start. Every
+   *  document then instruments and anchors itself, so the paths that exist to
+   *  notice a navigation after the fact — re-injection and the settle poll — have
+   *  nothing left to do and stand down. */
+  preloadRegistered = false
+
   // Populated by captureCommand when mode === 'trace' (set by the plugin).
   traceMode: DevToolsMode = 'live'
   readonly actionSnapshots: ActionSnapshot[] = []
@@ -234,6 +240,59 @@ export class SessionCapturer extends SessionCapturerBase {
   }
 
   /**
+   * Wait for a navigation to actually replace the document, then drain with a
+   * forced anchor so the destination's DOM enters the stream.
+   *
+   * A Nightwatch click resolves BEFORE its navigation commits, so the drain that
+   * runs at command completion still finds the outgoing page's collector: it
+   * recovers nothing, and the destination is never anchored — every action on the
+   * new page then replays the page it came from. Waiting for the collector to
+   * disappear is the signal that the document was replaced; a command that
+   * navigated nowhere polls out and costs one drain of an empty buffer.
+   */
+  async anchorAfterNavigation(browser: NightwatchBrowser): Promise<void> {
+    const replaced = await pollUntilReady(
+      async () =>
+        (await webdriverExecute<boolean>(
+          browser,
+          `return ${COLLECTOR_READY_EXPRESSION};`
+        )) !== true,
+      // With the preload active every document instruments itself at
+      // document-start, so there is normally nothing to catch — but ONE probe
+      // still runs rather than standing down entirely, because a document created
+      // before the registration landed has no collector and nothing else would
+      // ever notice. Without the preload this is the only detector, so it keeps
+      // the full settle poll.
+      this.preloadRegistered
+        ? { attempts: 1, intervalMs: 0 }
+        : { attempts: 5, intervalMs: 150 }
+    )
+    if (!replaced) {
+      return
+    }
+    // captureTrace's own recovery injects into the fresh document and re-drains,
+    // and it gates that on the url being worth instrumenting — so a torn-down
+    // session falls out here rather than logging an injection failure.
+    //
+    // The attribution is the newest command at THIS moment, not the one whose
+    // completion started the poll: several polls overlap, so a field edit's poll
+    // routinely observes the navigation the following click caused and would
+    // credit itself — which pulled the anchor back before the edit's own row and
+    // moved the wrong-DOM row one earlier instead of fixing it. Read at detection
+    // time it is right for whichever poll gets there first.
+    //
+    // Unlike the inference in `anchorOwnerTimestamp`, this does not need the
+    // "nothing completed after the anchor" guard: we just watched the document be
+    // replaced, so a navigation demonstrably happened and the newest command is
+    // the one that caused it. The guard exists for the case where that is a guess.
+    await this.captureTrace(
+      browser,
+      true,
+      this.commandsLog[this.commandsLog.length - 1]?.timestamp
+    )
+  }
+
+  /**
    * Take a screenshot by calling the WebDriver HTTP endpoint directly, bypassing
    * Nightwatch's command queue so the request can't be appended after
    * `end()` / `quit()`.
@@ -384,10 +443,15 @@ export class SessionCapturer extends SessionCapturerBase {
    * Capture trace data from the browser (network requests, console logs, etc.)
    */
   /** `forceAnchor` forces a full-DOM anchor of the current document before
-   *  draining, so a freshly injected collector's async anchor isn't lost. Which
-   *  action the anchor belongs to is derived from the anchor itself at ingest,
-   *  not from this call — see `reattributeDomAnchors`. */
-  async captureTrace(browser: NightwatchBrowser, forceAnchor = false) {
+   *  draining, so a freshly injected collector's async anchor isn't lost.
+   *  `anchorTimestamp` is the command this drain's anchors were CAUSED by — pass
+   *  it only when the caller observed the document being replaced right after
+   *  that command, since it overrides the inference at ingest. */
+  async captureTrace(
+    browser: NightwatchBrowser,
+    forceAnchor = false,
+    anchorTimestamp?: number
+  ) {
     // Capture network requests from Chrome performance logs
     await this.captureNetworkFromPerformanceLogs(browser)
 
@@ -414,7 +478,7 @@ export class SessionCapturer extends SessionCapturerBase {
         return
       }
 
-      this.processTracePayload(traceData)
+      this.processTracePayload(traceData, { anchorTimestamp })
       const mutationCount = Array.isArray(
         (traceData as { mutations?: unknown }).mutations
       )

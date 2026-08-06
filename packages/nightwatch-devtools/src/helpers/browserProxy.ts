@@ -260,6 +260,15 @@ export class BrowserProxy {
       const original = b[methodName].bind(browser)
 
       b[methodName] = function (...args: unknown[]) {
+        // `browser.url()` is BOTH a navigation and a getter: with no url it just
+        // reads the current one, which is how `assert.urlContains` reads it from
+        // inside Nightwatch's own queue. Treating that read as a navigation
+        // re-injected the collector and forced an anchored drain mid-test — real
+        // round trips against the page for a command that changed nothing — and
+        // logged the capture callback's whole function body as the "url".
+        if (typeof args[0] !== 'string') {
+          return original(...args)
+        }
         const result = original(...args)
 
         const injectAndCapture = () => {
@@ -279,12 +288,20 @@ export class BrowserProxy {
 
         const chainable = result as NightwatchChainable | undefined
         if (chainable && typeof chainable.perform === 'function') {
-          // Standard Nightwatch (chained API): queue inside perform so it
-          // runs after navigation completes.  Always pass `done` so the
-          // command queue is unblocked even if injection fails.
-          chainable.perform((done: Function) => {
-            injectAndCapture().finally(() => done && done())
-          })
+          // Standard Nightwatch (chained API). Hung off the command's OWN
+          // thenable, not a queued `perform()`: a queued callback is discarded
+          // when a failing test aborts the rest of the queue, so the destination
+          // of a navigation in a failing test was never instrumented at all
+          // (measured: 2 of 3 navigations skipped, and with them the first
+          // document's entire DOM). The chainable is itself thenable, and
+          // resolving it means the navigation finished — the same signal
+          // `perform` gave, minus the dependency on the queue surviving.
+          //
+          // `result` is returned unchanged so `browser.url(…).waitFor…()`
+          // chaining still works; the injection runs as a side effect.
+          void Promise.resolve(result)
+            .then(injectAndCapture)
+            .catch(() => {})
           return result
         }
         // Cucumber async/await: result is a Promise (or thenable).
@@ -441,17 +458,28 @@ export class BrowserProxy {
     this.maybeRepollMutations(browser, methodName)
   }
 
-  // After DOM-mutating commands, re-poll mutations from the injected script so
-  // the browser preview stays in sync.
-  //
-  // Issued synchronously, with no setTimeout in front. This used to defer 200ms
-  // to stay off Nightwatch's callback stack — safe only because the drain went
-  // through `browser.execute`, a QUEUED command. It now goes over the raw
-  // WebDriver HTTP transport, so it touches no queue and can fire immediately.
-  // That matters: a driver serialises requests per session, so a drain issued
-  // from this callback is served BEFORE the next queued command. Deferred, a
-  // submit click navigated first and the outgoing page's field edits died with
-  // it — the `#password` fill row replayed with an empty password box.
+  /**
+   * After a DOM-mutating command, drain the collector — TWICE, for two different
+   * reasons that no single drain can serve.
+   *
+   * The first drain fires synchronously, with no setTimeout in front. It used to
+   * defer 200ms to stay off Nightwatch's callback stack, safe only because the
+   * drain went through `browser.execute`, a QUEUED command; over the raw HTTP
+   * transport it touches no queue, and because a driver serialises requests per
+   * session, a drain issued here is served BEFORE the next queued command. That
+   * is what captures the OUTGOING page's field edits — deferred, a submit click
+   * navigated first and they died with the page, so the `#password` fill row
+   * replayed with an empty password box.
+   *
+   * The second drain is what anchors the DESTINATION, and it has to wait: a
+   * Nightwatch click resolves before its navigation commits, so the first drain
+   * still finds the outgoing page's collector, recovers nothing, and the new
+   * document is never anchored — every action on it then replayed the page it
+   * came from (measured: 5 of 20 rows). `anchorAfterNavigation` keys off the
+   * document actually being replaced rather than off which command ran, so it
+   * covers any route to a new document — a submit click, a JS redirect, a
+   * same-command re-navigation — without a list of commands to keep in sync.
+   */
   private maybeRepollMutations(
     browser: NightwatchBrowser,
     methodName: string
@@ -473,10 +501,12 @@ export class BrowserProxy {
     if (!isDomMutating) {
       return
     }
-    // Anchored: a DOM-mutating command may have navigated, and the drain's
-    // recovery re-injection anchors asynchronously — without forcing it the
-    // destination's DOM never enters the stream at all.
     this.sessionCapturer.captureTrace(browser, true).catch(() => {})
+    // Tracked so finalize awaits it — an untracked anchor drain can still be in
+    // flight when the trace is written, which loses the document entirely.
+    this.sessionCapturer.snapshotCaptures.push(
+      this.sessionCapturer.anchorAfterNavigation(browser).catch(() => {})
+    )
   }
 
   private popCommandStackIfMatches(methodName: string, cmdSig: string): void {
