@@ -16,11 +16,11 @@ import { booleanAttributeOn, isBooleanAttribute } from './boolean-attribute.js'
 import { type ComponentChildren, h, render, type VNode } from 'preact'
 import { customElement, query } from 'lit/decorators.js'
 import { transform } from './vnode-transform.js'
-import type { SimplifiedVNode } from '../../../../script/types'
+import type { SimplifiedVNode } from '@wdio/devtools-script/types'
 // Type-only, like the `script/types` import above: the collector owns the
 // characterData wire shape (parent ref + child index), so the replay reads it
 // from the same declaration that produces it.
-import type { TextMutation } from '../../../../script/src/mutations.js'
+import type { TextMutation } from '@wdio/devtools-script/mutations.js'
 import type { CommandLog } from '@wdio/devtools-shared'
 
 import {
