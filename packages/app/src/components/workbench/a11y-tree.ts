@@ -346,14 +346,14 @@ export class DevtoolsA11yTree extends Element {
   }
 
   /** Why the panel is empty. A selected command with no `snapshotText` is a
-   *  capture gap, not an idle panel: per-command a11y capture is WDIO-only, so
-   *  Selenium and Nightwatch traces always land here. */
+   *  capture gap, not an idle panel — all three adapters capture the tree, so
+   *  what lands here is a command whose capture never bound to it. */
   #unavailable(): TemplateResult {
     return this.active
       ? html`<wdio-devtools-placeholder
           icon="${UNAVAILABLE_GLYPH}"
           heading="No accessibility snapshot for this command"
-          description="Per-command accessibility capture is WebdriverIO-only — Selenium and Nightwatch traces do not include it."
+          description="Nothing was captured for this action — either the capture had not resolved when the trace slice was written, or the action ran on native mobile, which has no DOM tree."
         ></wdio-devtools-placeholder>`
       : html`<wdio-devtools-placeholder
           icon="${UNAVAILABLE_GLYPH}"

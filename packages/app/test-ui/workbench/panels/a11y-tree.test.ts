@@ -52,10 +52,11 @@ const SKELETON = '.ph-item'
 /** Glyph the panel hands its empty-state placeholder. */
 const TREE_GLYPH = '🌳'
 
-/** Why a trace can reach this panel with commands that carry no snapshot —
- *  per-command accessibility capture is WDIO-only. */
+/** Why a trace can reach this panel with commands that carry no snapshot — all
+ *  three adapters capture the tree, so this is an unbound or native-mobile
+ *  capture, not an unsupported runner. */
 const CAPTURE_UNSUPPORTED =
-  'Per-command accessibility capture is WebdriverIO-only — Selenium and Nightwatch traces do not include it.'
+  'Nothing was captured for this action — either the capture had not resolved when the trace slice was written, or the action ran on native mobile, which has no DOM tree.'
 
 /** The copy shown before anything is selected, which is not a capture gap. */
 const NOTHING_SELECTED =
