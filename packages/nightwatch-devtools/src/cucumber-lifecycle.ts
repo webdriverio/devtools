@@ -279,7 +279,10 @@ export async function captureCucumberScenarioBeforeQuit(
         assertCalls
       )
     }
-    await ctx.sessionCapturer.captureTrace(browser)
+    // Anchored: a scenario's per-scenario session is re-navigated, so the
+    // destination's async initial anchor may not have run — the documented
+    // cucumber `hasMutations:false` gap.
+    await ctx.sessionCapturer.captureTrace(browser, true)
     flushTestSlice(ctx)
     await ctx.emitTestArtifacts(
       scenario?.uid,

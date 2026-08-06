@@ -240,7 +240,9 @@ export async function onDriverEnd(ctx: SessionLifecycleCtx): Promise<void> {
   // DOM + field edits reach capturer.mutations before the trace is written.
   // Gated on ctx.driver so the post-quit onDriverEnd call skips a dead session.
   if (ctx.options.mode === 'trace' && ctx.driver) {
-    await ctx.sessionCapturer?.captureTrace()
+    // Anchored: a run ending on a navigation (logout → /login as the last
+    // action) leaves the destination's async initial anchor unrun at teardown.
+    await ctx.sessionCapturer?.captureTrace(true)
   }
   if (ctx.screencast && ctx.sessionId) {
     if (ctx.options.mode === 'trace') {
