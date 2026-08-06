@@ -14,6 +14,7 @@ import {
   stepMetadataUid,
   TestAttemptTracker,
   tracePolicyModeWarning,
+  upsertRichestSnapshot,
   type SpecRange,
   type TraceArtifact,
   type TraceExportContext
@@ -35,10 +36,6 @@ import {
   captureActionResult,
   captureActionSnapshot
 } from './action-snapshot.js'
-import {
-  dedupeSnapshotsByTimestamp,
-  upsertRichestSnapshot
-} from './snapshot-dedupe.js'
 import type {
   ActionSnapshot,
   ScreencastFrame,
@@ -278,7 +275,6 @@ export default class DevToolsHookService implements Services.ServiceInstance {
       ranges: this.#specRanges,
       flushed: this.#flushedSpecs,
       resolveOutputDir: () => this.#outputDir,
-      prepareSnapshots: dedupeSnapshotsByTimestamp,
       log: (level, msg) => log[level](msg),
       emitManifest:
         this.#options.emitArtifactsManifest ?? this.#allureReporterConfigured,
@@ -666,10 +662,12 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     // otherwise never be captured before teardown. forceAnchor: the destination's
     // async initial anchor may not have run yet, so anchor it synchronously here.
     await this.#sessionCapturer.captureTrace(this.#browser, true)
-    const stamp = this.#lastActionTimestamp()
-    const snap = await captureActionSnapshot(this.#browser, '__final__')
+    const snap = await captureActionSnapshot(
+      this.#browser,
+      '__final__',
+      this.#lastActionTimestamp()
+    )
     if (snap) {
-      snap.timestamp = stamp
       // The last action's post-capture shares this timestamp and resources are
       // named by timestamp, so keep only the richer screenshot — a blank
       // end-of-scenario frame must not clobber the action's real result.
@@ -757,10 +755,13 @@ export default class DevToolsHookService implements Services.ServiceInstance {
       mapCommandToAction(command) &&
       !INTERNAL_COMMANDS.includes(command)
     ) {
-      const snap = await captureActionSnapshot(this.#browser, command)
+      const snap = await captureActionSnapshot(
+        this.#browser,
+        command,
+        this.#lastActionTimestamp()
+      )
       if (snap) {
-        snap.timestamp = this.#lastActionTimestamp()
-        this.#actionSnapshots.push(snap)
+        upsertRichestSnapshot(this.#actionSnapshots, snap)
       }
       // Tag the current document so the post-action capture can tell whether
       // this action navigated (a new document drops the tag).

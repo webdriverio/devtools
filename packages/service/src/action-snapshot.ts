@@ -10,7 +10,8 @@
 
 import {
   captureActionSnapshot as coreCapture,
-  mapCommandToAction
+  mapCommandToAction,
+  upsertRichestSnapshot
 } from '@wdio/devtools-core'
 import type { ActionSnapshot } from '@wdio/devtools-shared'
 import { isNativeMobile, mobilePlatform } from './mobile.js'
@@ -74,10 +75,13 @@ export async function captureActionResult(
   if (!isNativeMobile(browser)) {
     await waitForActionResult(browser)
   }
-  const snap = await captureActionSnapshot(browser, command)
+  // Stamped before the capture, not after: a snapshot probe can never enter
+  // commandsLog (beforeCommand requires an empty command stack), so the latest
+  // logged action is the same either way — and reading it up front keeps the
+  // stamp a capture input rather than a post-hoc mutation.
+  const snap = await captureActionSnapshot(browser, command, stampTimestamp())
   if (snap) {
-    snap.timestamp = stampTimestamp()
-    actionSnapshots.push(snap)
+    upsertRichestSnapshot(actionSnapshots, snap)
   }
 }
 
@@ -92,20 +96,21 @@ export async function pushActionSnapshotAt(
   timestamp: number,
   actionSnapshots: ActionSnapshot[]
 ): Promise<void> {
-  const snap = await captureActionSnapshot(browser, command)
+  const snap = await captureActionSnapshot(browser, command, timestamp)
   if (snap) {
-    snap.timestamp = timestamp
-    actionSnapshots.push(snap)
+    upsertRichestSnapshot(actionSnapshots, snap)
   }
 }
 
 export function captureActionSnapshot(
   browser: WebdriverIO.Browser,
-  command: string
+  command: string,
+  timestamp?: number
 ): Promise<ActionSnapshot | null> {
   const native = isNativeMobile(browser)
   return coreCapture({
     command,
+    timestamp,
     runScript: native ? undefined : (src) => browser.execute(reviveScript(src)),
     takeScreenshot: () => browser.takeScreenshot().catch(() => undefined),
     // url/title are browser-only concepts — they fail with "Method has not

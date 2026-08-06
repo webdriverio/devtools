@@ -12,11 +12,13 @@ import type { SeleniumDriverLike } from './types.js'
 
 export function captureActionSnapshot(
   driver: SeleniumDriverLike,
-  command: string
+  command: string,
+  timestamp?: number
 ): Promise<ActionSnapshot | null> {
   const orig = getDriverOriginals()
   return coreCapture({
     command,
+    timestamp,
     runScript: (src) =>
       orig.executeScript
         ? orig.executeScript(driver, `return (${src})`)

@@ -16,11 +16,29 @@ export interface ScreencastFrameEvent {
   timestamp: number
 }
 
+// The one merge rule for same-timestamp snapshots: richest wins per field,
+// first-seen wins for identity (command/url/title, which no export path reads).
+// Merging per field matters because the real screenshot and the real elements
+// can land on different captures of the same action.
+function mergeSnapshotInto(
+  existing: ActionSnapshot,
+  snap: ActionSnapshot
+): void {
+  if ((snap.screenshot?.length ?? 0) > (existing.screenshot?.length ?? 0)) {
+    existing.screenshot = snap.screenshot
+  }
+  if (!existing.elements?.length && snap.elements?.length) {
+    existing.elements = snap.elements
+  }
+  if (!existing.snapshotText && snap.snapshotText) {
+    existing.snapshotText = snap.snapshotText
+  }
+}
+
 // Two snapshots at the same timestamp (a real post-action capture and a blank
 // end-of-scenario one) map to the same `${pageId}-${ts}` resource name, so a
-// last-wins write lets a blank frame clobber the real one — and the real
-// screenshot and real elements can land on different captures. Collapse to one
-// per timestamp: largest screenshot, richest metadata, merged across duplicates.
+// last-wins write lets a blank frame clobber the real one. Collapse to one per
+// timestamp so the resource writer never sees a collision.
 function collapseByTimestamp(snapshots: ActionSnapshot[]): ActionSnapshot[] {
   const byTs = new Map<number, ActionSnapshot>()
   const order: number[] = []
@@ -31,17 +49,25 @@ function collapseByTimestamp(snapshots: ActionSnapshot[]): ActionSnapshot[] {
       order.push(snap.timestamp)
       continue
     }
-    if ((snap.screenshot?.length ?? 0) > (existing.screenshot?.length ?? 0)) {
-      existing.screenshot = snap.screenshot
-    }
-    if (!existing.elements?.length && snap.elements?.length) {
-      existing.elements = snap.elements
-    }
-    if (!existing.snapshotText && snap.snapshotText) {
-      existing.snapshotText = snap.snapshotText
-    }
+    mergeSnapshotInto(existing, snap)
   }
   return order.map((ts) => byTs.get(ts)!)
+}
+
+/** Insert a snapshot, or merge it into the one already holding its timestamp.
+ *  Applies the collapse rule at capture time so the accumulator holds one record
+ *  per timestamp: a mid-run slice flush reads this array live, before export
+ *  would have collapsed it, and would otherwise emit a blank duplicate. */
+export function upsertRichestSnapshot(
+  snapshots: ActionSnapshot[],
+  snap: ActionSnapshot
+): void {
+  const idx = snapshots.findIndex((s) => s.timestamp === snap.timestamp)
+  if (idx === -1) {
+    snapshots.push(snap)
+    return
+  }
+  mergeSnapshotInto(snapshots[idx]!, snap)
 }
 
 export function buildSnapshotResources(
