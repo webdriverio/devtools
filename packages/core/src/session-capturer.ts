@@ -324,7 +324,14 @@ export abstract class SessionCapturerBase {
       networkRequests?: unknown
       metadata?: unknown
     },
-    opts: { skipConsoleLogs?: boolean; skipNetworkRequests?: boolean } = {}
+    opts: {
+      skipConsoleLogs?: boolean
+      skipNetworkRequests?: boolean
+      /** The command this batch's anchors were CAUSED by, when the caller
+       *  observed the document being replaced right after it. Causal knowledge,
+       *  so it overrides the timestamp inference below. */
+      anchorTimestamp?: number
+    } = {}
   ): void {
     const { mutations, traceLogs, consoleLogs, networkRequests, metadata } =
       payload
@@ -367,7 +374,8 @@ export abstract class SessionCapturerBase {
       const batch = mutations as TraceMutation[]
       reattributeDomAnchors(
         batch,
-        (anchorOwnTime) => this.anchorOwnerTimestamp(anchorOwnTime),
+        (anchorOwnTime) =>
+          opts.anchorTimestamp ?? this.anchorOwnerTimestamp(anchorOwnTime),
         this.mutations[this.mutations.length - 1]?.timestamp ?? 0
       )
       this.mutations.push(...batch)
