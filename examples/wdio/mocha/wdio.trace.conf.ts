@@ -1,7 +1,8 @@
-// Trace-mode variant of wdio.conf.ts, used by the verification harness
-// (`pnpm fixtures:regen`) to produce a deterministic golden trace.zip. Same
+// Trace-mode variant of wdio.conf.ts, for manually verifying trace output. Same
 // capabilities and specs as the live config; session granularity writes one zip
-// per run. Kept separate so the demo config's live default stays untouched.
+// per run. Every knob reads from the environment so one config covers the
+// live→trace→per-test→retain→retry ladder. Kept separate so the demo config's
+// live default stays untouched.
 export const config: WebdriverIO.Config = {
   runner: 'local',
   specs: ['./specs/**/*.e2e.ts'],
@@ -46,7 +47,7 @@ export const config: WebdriverIO.Config = {
           | 'on-first-retry'
           | 'on-all-retries'
           | 'retain-on-failure-and-retries',
-        // Always emit the manifest so scenario-parity can read the artifact set.
+        // Always emit the manifest so the artifact set is inspectable per run.
         emitArtifactsManifest: true
       }
     ]
