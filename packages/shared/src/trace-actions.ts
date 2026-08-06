@@ -94,6 +94,15 @@ export const ACTION_MAP: Record<string, TraceAction> = {
   waitForEnabled: { class: 'Element', method: 'waitForEnabled' },
   waitForClickable: { class: 'Element', method: 'waitForClickable' },
   waitUntil: { class: 'Browser', method: 'waitForFunction' },
+  // Nightwatch's wait family, normalized onto the WDIO names above. These are
+  // written by the user and are the commands a Nightwatch test most often fails
+  // on, so leaving them out of the allow-list meant the failing step produced no
+  // row at all — and with no row, its error had nowhere to attach and neither the
+  // action list nor the Errors tab showed the failure.
+  waitForElementVisible: { class: 'Element', method: 'waitForDisplayed' },
+  waitForElementNotVisible: { class: 'Element', method: 'waitForHidden' },
+  waitForElementPresent: { class: 'Element', method: 'waitForExist' },
+  waitForElementNotPresent: { class: 'Element', method: 'waitForNotExist' },
   // WDIO page/browser reads
   getTitle: { class: 'Page', method: 'getTitle' },
   getUrl: { class: 'Page', method: 'getUrl' },

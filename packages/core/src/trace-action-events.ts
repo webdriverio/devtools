@@ -232,17 +232,37 @@ function buildParamsAndTitle(
 
 function actionError(
   cmd: CommandLog,
-  isAssert: boolean
+  action: TraceAction
 ): { message: string } | undefined {
   if (cmd.error) {
     const err = cmd.error as { message?: string }
     return { message: err.message ?? String(cmd.error) }
   }
-  if (isAssert) {
-    // Nightwatch assert failures carry no Error — only the collapsed result.
-    const collapsed = collapsedAssertResult(cmd.result)
-    if (collapsed && collapsed.passed === false) {
-      return { message: String(collapsed.message ?? 'Assertion failed') }
+  const isAssert = action.class === ASSERT_ACTION_CLASS
+  // A command whose own result reports `passed: false` failed, whatever class it
+  // maps to — not just the assert rows this used to be gated on.
+  const collapsed = collapsedAssertResult(cmd.result)
+  if (collapsed && collapsed.passed === false) {
+    return {
+      message: String(
+        collapsed.message ??
+          (isAssert ? 'Assertion failed' : `${cmd.command} failed`)
+      )
+    }
+  }
+  // A wait that resolved `false` timed out. Nightwatch reports its
+  // waitForElement* timeouts through its own assertion channel rather than the
+  // command callback, which hands back `{value: null}` — so the row's only
+  // evidence of the failure is that boolean, and without this the step a test
+  // most often fails on rendered green with nothing in the Errors tab. Scoped to
+  // waits because `false` is a legitimate value for a boolean read like
+  // `isDisplayed`, and WDIO's waits throw rather than return false.
+  if (cmd.result === false && action.method.startsWith('waitFor')) {
+    const target = cmd.args?.find((a) => typeof a === 'string')
+    return {
+      message: target
+        ? `${cmd.command} timed out waiting for ${String(target)}`
+        : `${cmd.command} timed out`
     }
   }
   return undefined
@@ -287,7 +307,7 @@ function buildAfterEvent(
   snapshotIndex?: FrameSnapshotIndex
 ): AfterEvent {
   const afterEvent: AfterEvent = { type: 'after', callId, endTime: endMs }
-  const error = actionError(cmd, action.class === ASSERT_ACTION_CLASS)
+  const error = actionError(cmd, action)
   if (error) {
     afterEvent.error = error
   }
