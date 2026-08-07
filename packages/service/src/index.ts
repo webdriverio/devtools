@@ -2,6 +2,7 @@
 import logger from '@wdio/logger'
 import {
   attachTraceArtifact,
+  beginInputDispatch,
   captureAndAttachScreenshot,
   captureAndAttachVideo,
   errorMessage,
@@ -68,6 +69,7 @@ import {
   PAGE_TRANSITION_COMMANDS
 } from './constants.js'
 import { isNativeMobile } from './mobile.js'
+import { stampRunnerMetadata } from './wdio-runner-id.js'
 import { detectInvocationConfigPath } from './standalone.js'
 
 export * from './types.js'
@@ -126,6 +128,12 @@ export default class DevToolsHookService implements Services.ServiceInstance {
    * commands that are top-level user commands.
    */
   #commandStack: CommandFrame[] = []
+
+  /** Closes the running command's screenshot-polling suppression window. Single
+   *  slot because WDIO serialises commands per session; a concurrent pair (e.g.
+   *  multiremote) closes the earlier window early, degrading to unguarded
+   *  polling rather than stalling the recorder. */
+  #closeInputWindow?: () => void
 
   /** Current test UID, set in beforeTest(), used by afterCommand() to tag commands. */
   #currentTestUid?: string
@@ -313,6 +321,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     this.#sessionCapturer = new SessionCapturer(
       wdioCaps['wdio:devtoolsOptions']
     )
+    stampRunnerMetadata(this.#sessionCapturer, browser, this.captureType)
 
     if (this.#options.captureAssertions !== false) {
       wireAssertCapture(
@@ -367,7 +376,8 @@ export default class DevToolsHookService implements Services.ServiceInstance {
             viewport: viewport || undefined,
             type: this.captureType,
             options: browser.options,
-            capabilities: browser.capabilities as Capabilities.W3CCapabilities
+            capabilities: browser.capabilities as Capabilities.W3CCapabilities,
+            runner: this.#sessionCapturer.metadata?.runner
           })
         )
     }
@@ -688,6 +698,10 @@ export default class DevToolsHookService implements Services.ServiceInstance {
 
   private resetStack() {
     this.#commandStack = []
+    // No command is in flight after a reset; without this a window stranded by a
+    // spec boundary would keep dropping frames until its bound expired.
+    this.#closeInputWindow?.()
+    this.#closeInputWindow = undefined
     this.#assertionTracker.reset()
     this.#sessionCapturer.resetLastSelector()
     this.#sessionCapturer.resetRetryTracker()
@@ -714,6 +728,13 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     if (!this.#browser) {
       return
     }
+    // Suppress screenshot polling for the duration of an input-dispatching
+    // command: a poll landing inside chromedriver's click, between computing the
+    // element's coordinates and dispatching at them, makes the click report
+    // success while activating nothing. Opened before the pre-action probes below
+    // so it spans the whole command.
+    this.#closeInputWindow?.()
+    this.#closeInputWindow = beginInputDispatch(command)
     // On first URL navigation, mark the start of meaningful recording so
     // leading blank frames (pre-test pauses, etc.) are trimmed from the video.
     // Fires regardless of runner (Mocha, Jasmine, Cucumber, standalone).
@@ -790,6 +811,8 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     if (this.#injecting) {
       return
     }
+    this.#closeInputWindow?.()
+    this.#closeInputWindow = undefined
 
     // Record every element resolution, even those below the top-level command
     // boundary — an `expect($('#flash'))` resolves its element inside the

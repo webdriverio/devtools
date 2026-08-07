@@ -16,6 +16,7 @@ import {
 import type { ActionSnapshot } from '@wdio/devtools-shared'
 import { isNativeMobile, mobilePlatform } from './mobile.js'
 import { INTERNAL_COMMANDS } from './constants.js'
+import { wdioRunnerId } from './wdio-runner-id.js'
 
 function reviveScript(src: string): () => unknown {
   // `src` from core/element-scripts is already a self-invoking IIFE
@@ -111,6 +112,7 @@ export function captureActionSnapshot(
   return coreCapture({
     command,
     timestamp,
+    runner: wdioRunnerId(browser),
     runScript: native ? undefined : (src) => browser.execute(reviveScript(src)),
     takeScreenshot: () => browser.takeScreenshot().catch(() => undefined),
     // url/title are browser-only concepts — they fail with "Method has not
