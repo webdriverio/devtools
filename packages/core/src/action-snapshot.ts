@@ -18,7 +18,7 @@ import {
   SNAPSHOT_PROBE_TIMEOUT_MS,
   withTimeout
 } from './with-timeout.js'
-import type { ActionSnapshot } from '@wdio/devtools-shared'
+import type { ActionSnapshot, TestRunnerId } from '@wdio/devtools-shared'
 
 export type ScriptRunner = (scriptSrc: string) => Promise<unknown>
 
@@ -37,6 +37,9 @@ export interface CaptureActionSnapshotInput {
   getPageSource?: () => Promise<string | undefined>
   /** Platform identifier for mobile snapshot formatting ('android' | 'ios'). */
   platform?: 'android' | 'ios'
+  /** Runner this capture belongs to — decides which text-locator dialect the
+   *  injected scripts emit. Omitted → the portable XPath form. */
+  runner?: TestRunnerId
 }
 
 async function runWith<T>(
@@ -140,13 +143,13 @@ export async function captureActionSnapshot(
       isNativeMobile ? probe(input.getPageSource) : undefined,
       runWith<AccessibilityNode[]>(
         input.runScript,
-        accessibilityTreeScript(true),
+        accessibilityTreeScript(true, input.runner),
         []
       ),
       runWith<BrowserElementInfo[]>(
         input.runScript,
         // includeBounds: the per-action element rects drive A8 input points.
-        elementsScript(true, true),
+        elementsScript(true, true, input.runner),
         []
       ),
       probe(input.takeScreenshot)

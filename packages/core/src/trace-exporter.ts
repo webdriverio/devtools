@@ -12,6 +12,7 @@ import type {
   NetworkRequest,
   ScreencastFrame,
   TestMetadataMap,
+  TestRunnerId,
   TraceFormat,
   TraceLog,
   TraceMutation
@@ -115,6 +116,10 @@ interface ContextOptionsEvent {
   title: string
   contextId: string
   options: { viewport: { width: number; height: number } }
+  /** Extension field: the runner that recorded this zip, so the player can tell
+   *  the user how to resolve a captured locator in their own framework. Absent
+   *  when the capture didn't identify itself, and in foreign zips. */
+  runner?: TestRunnerId
 }
 
 type TraceEvent =
@@ -190,7 +195,8 @@ function buildContextOptions(
     contextId,
     options: {
       viewport: { width: viewport.width, height: viewport.height }
-    }
+    },
+    ...(trace.metadata.runner ? { runner: trace.metadata.runner } : {})
   }
 }
 

@@ -98,3 +98,49 @@ describe('captureActionSnapshot probe isolation', () => {
     expect(snap?.url).toBe('https://example.com/x')
   })
 })
+
+describe('captureActionSnapshot locator dialect', () => {
+  /** Both injected script bodies, as the adapter's runScript receives them. */
+  async function injectedScripts(
+    input: Parameters<typeof captureActionSnapshot>[0]
+  ): Promise<string[]> {
+    const scripts: string[] = []
+    await captureActionSnapshot({
+      ...input,
+      runScript: (src) => {
+        scripts.push(src)
+        return Promise.resolve([])
+      }
+    })
+    return scripts
+  }
+
+  it("threads the runner into both scripts' text branch", async () => {
+    const scripts = await injectedScripts({ command: 'click', runner: 'mocha' })
+
+    expect(scripts).toHaveLength(2)
+    for (const src of scripts) {
+      expect(src).toContain("tag + '*=' + text")
+    }
+  })
+
+  it('keeps the portable XPath form for a runner without its own syntax', async () => {
+    const scripts = await injectedScripts({
+      command: 'click',
+      runner: 'nightwatch'
+    })
+
+    for (const src of scripts) {
+      expect(src).not.toContain("tag + '*=' + text")
+      expect(src).toContain("'[contains(., '")
+    }
+  })
+
+  it('defaults to the portable form when no runner is given', async () => {
+    const scripts = await injectedScripts({ command: 'click' })
+
+    for (const src of scripts) {
+      expect(src).not.toContain("tag + '*=' + text")
+    }
+  })
+})

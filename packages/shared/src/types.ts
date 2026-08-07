@@ -116,13 +116,27 @@ export const TEST_STATE = {
  * selenium) — wdio's runner can be mocha/jasmine/cucumber, nightwatch can be
  * vanilla or cucumber, selenium adapters report 'selenium-webdriver'.
  */
-export type TestRunnerId =
-  | 'mocha'
-  | 'jasmine'
-  | 'cucumber'
-  | 'nightwatch'
-  | 'nightwatch-cucumber'
-  | 'selenium-webdriver'
+export const TEST_RUNNER_IDS = [
+  'mocha',
+  'jasmine',
+  'cucumber',
+  'nightwatch',
+  'nightwatch-cucumber',
+  'selenium-webdriver'
+] as const
+export type TestRunnerId = (typeof TEST_RUNNER_IDS)[number]
+
+/**
+ * Narrow an untrusted value onto {@link TestRunnerId}. Needed wherever the id
+ * arrives from outside this build — a framework's own config value, or a trace
+ * zip recorded by another version — since the static type can't vouch for it.
+ */
+export function isTestRunnerId(value: unknown): value is TestRunnerId {
+  return (
+    typeof value === 'string' &&
+    (TEST_RUNNER_IDS as readonly string[]).includes(value)
+  )
+}
 
 // ─── Inner event payloads ───────────────────────────────────────────────────
 
@@ -421,6 +435,10 @@ export interface Metadata {
   host?: string
   modulePath?: string
   desiredCapabilities?: Record<string, unknown>
+  /** Runner that recorded this stream. Drives the locator dialect the page
+   *  capture emits and the player's locator hint; undefined for a trace zip
+   *  recorded before the field existed, or by a foreign tool. */
+  runner?: TestRunnerId
 }
 
 /** Captured metadata keyed by browser `sessionId` — lets the UI keep each

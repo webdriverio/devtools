@@ -16,7 +16,8 @@ import {
   SNAPSHOT_INDENT_UNIT,
   SNAPSHOT_PAGE_HEADER,
   SNAPSHOT_LOCATOR_DELIM,
-  SNAPSHOT_PURPOSE_TOKEN
+  SNAPSHOT_PURPOSE_TOKEN,
+  xpathLocatorTag
 } from '@wdio/devtools-shared'
 
 import type { JSONElement } from './locators/types.js'
@@ -833,8 +834,13 @@ export function serializeMobileSnapshot(
 // Unified snapshot formatter — web + mobile share the same render pass.
 // ---------------------------------------------------------------------------
 
-/** Derive a tag name from a CSS selector prefix (e.g. "button*=Submit" → "button"). */
+/** Derive a tag name from a locator prefix (e.g. `//button[contains(., "Submit")]`
+ *  or "button*=Submit" → "button"). */
 function extractTagFromSelector(selector: string, fallback: string): string {
+  const xpathTag = xpathLocatorTag(selector)
+  if (xpathTag) {
+    return xpathTag
+  }
   // Matches tag name followed by a CSS selector combinator or operator.
   // Supports hyphenated custom elements (my-component) and pseudo-classes (:nth-of-type).
   const match = selector.match(
