@@ -59,7 +59,10 @@ function makeCapturer() {
     sendCommand: vi.fn(),
     sendReplaceCommand: vi.fn(),
     takeScreenshotViaHttp: vi.fn(async () => null),
-    captureTrace: vi.fn(async () => {})
+    captureTrace: vi.fn(async () => {}),
+    injectScript: vi.fn(async () => {}),
+    anchorAfterNavigation: vi.fn(async () => {}),
+    snapshotCaptures: [] as Promise<void>[]
   } as unknown as SessionCapturer
   return { capturer, commandsLog, captureCommand, captureAssertCommand }
 }
@@ -127,6 +130,148 @@ describe('BrowserProxy internal-command suppression', () => {
 
     expect(captureCommand).not.toHaveBeenCalled()
     expect(commandsLog).toHaveLength(0)
+  })
+})
+
+describe('BrowserProxy navigation wrapping', () => {
+  beforeEach(() => {
+    getCallSourceFromStack.mockReset()
+    getCallSourceFromStack.mockReturnValue({
+      filePath: '/tests/spec.js',
+      callSource: '/tests/spec.js:5'
+    })
+  })
+
+  function makeUrlBrowser() {
+    return {
+      url: (...args: unknown[]) => {
+        const cb = args[args.length - 1]
+        if (typeof cb === 'function') {
+          ;(cb as (r: unknown) => void)({ value: 'https://example.com/' })
+        }
+        return undefined
+      }
+    } as unknown as NightwatchBrowser
+  }
+
+  it('does not treat browser.url() as a navigation when it is a getter', () => {
+    // assert.urlContains reads the current url via browser.url(cb) from inside
+    // Nightwatch's queue. Treating that as a navigation re-injected the collector
+    // and forced an anchored drain mid-test, for a command that changed nothing.
+    const { capturer } = makeCapturer()
+    const proxy = new BrowserProxy(capturer, makeTestManager(), () => ({
+      uid: 'test-1'
+    }))
+    const browser = makeUrlBrowser()
+    proxy.wrapUrlMethod(browser)
+    ;(browser as unknown as Record<string, (...a: unknown[]) => unknown>).url(
+      () => {}
+    )
+    expect(capturer.injectScript).not.toHaveBeenCalled()
+  })
+
+  it('still treats a url with a destination as a navigation', async () => {
+    const { capturer } = makeCapturer()
+    const proxy = new BrowserProxy(capturer, makeTestManager(), () => ({
+      uid: 'test-1'
+    }))
+    const browser = makeUrlBrowser()
+    proxy.wrapUrlMethod(browser)
+    ;(browser as unknown as Record<string, (...a: unknown[]) => unknown>).url(
+      'https://example.com/login'
+    )
+    // The non-chainable (cucumber async/await) branch defers injection onto the
+    // returned promise, so let the microtask queue drain before asserting.
+    await new Promise((resolve) => setImmediate(resolve))
+    expect(capturer.injectScript).toHaveBeenCalled()
+  })
+})
+
+describe('BrowserProxy async command failure', () => {
+  beforeEach(() => {
+    getCallSourceFromStack.mockReset()
+    getCallSourceFromStack.mockReturnValue({
+      filePath: '/tests/spec.js',
+      callSource: '/tests/spec.js:37'
+    })
+  })
+
+  /** Nightwatch reports an async failure (a command that timed out waiting for
+   *  an element) by INVOKING the callback with an error-shaped result rather than
+   *  throwing, so the try/catch around the original method never sees it. */
+  function makeFailingBrowser(result: unknown) {
+    return {
+      click: (_sel: unknown, cb: (r: unknown) => void) => {
+        cb(result)
+        return undefined
+      }
+    } as unknown as NightwatchBrowser
+  }
+
+  function clickWith(result: unknown) {
+    const ctx = makeCapturer()
+    const proxy = new BrowserProxy(ctx.capturer, makeTestManager(), () => ({
+      uid: 'test-1'
+    }))
+    const browser = makeFailingBrowser(result)
+    proxy.wrapBrowserCommands(browser)
+    ;(browser as unknown as Record<string, (a: unknown) => unknown>).click(
+      'a*=Logout'
+    )
+    return ctx
+  }
+
+  it('surfaces the failure as the row error, not as the result', () => {
+    // Left in `result`, the row kept error: undefined and rendered as a success
+    // — no red row and nothing in the Errors tab.
+    const { commandsLog } = clickWith({
+      error: 'timeout',
+      message:
+        'An error occurred while running .click() command on <a*=Logout>: Timed out',
+      stack: 'Error at BrowserProxy.handleCommandExecution'
+    })
+    expect(commandsLog).toHaveLength(1)
+    expect(commandsLog[0].error).toBeInstanceOf(Error)
+    expect((commandsLog[0].error as Error).message).toContain('Timed out')
+    expect((commandsLog[0].error as Error).stack).toContain('BrowserProxy')
+    expect(commandsLog[0].result).toBeUndefined()
+  })
+
+  it('finds the failure nested under a W3C value wrapper', () => {
+    // Nightwatch passes the driver response through untouched, so the failure
+    // sits under `value` — reading only the top level left the row green.
+    const { commandsLog } = clickWith({
+      status: -1,
+      value: {
+        error: 'timeout',
+        message: 'Timed out while waiting for element "a*=Logout"',
+        stack: 'Error at BrowserProxy.handleCommandExecution'
+      }
+    })
+    expect((commandsLog[0].error as Error).message).toContain('Timed out')
+    expect(commandsLog[0].result).toBeUndefined()
+  })
+
+  it('treats a thrown Error handed to the callback as the row error', () => {
+    const { commandsLog } = clickWith(new Error('stale element reference'))
+    expect((commandsLog[0].error as Error).message).toBe(
+      'stale element reference'
+    )
+  })
+
+  it('leaves a successful result untouched', () => {
+    const { commandsLog } = clickWith({ value: null })
+    expect(commandsLog[0].error).toBeUndefined()
+  })
+
+  it('does not reinterpret an assertion result as a command failure', () => {
+    // An assertion result carries its own pass/fail handling.
+    const { commandsLog } = clickWith({
+      passed: false,
+      error: 'assertion failed',
+      message: 'nope'
+    })
+    expect(commandsLog[0].error).toBeUndefined()
   })
 })
 
@@ -260,5 +405,115 @@ describe('BrowserProxy negated native assertions (assert.not.* / verify.not.*)',
     expect(row.title).toBe("assert.not.titleContains('Example')")
     expect(row.result).toMatchObject({ passed: false })
     expect(row.error).toBeDefined()
+  })
+})
+
+describe('BrowserProxy native-assert buffer scope', () => {
+  beforeEach(() => {
+    getCallSourceFromStack.mockReset()
+    getCallSourceFromStack.mockReturnValue({
+      filePath: '/tests/steps.js',
+      callSource: '/tests/steps.js:31'
+    })
+  })
+
+  /** Browser whose assert method returns a promise the test controls, mirroring
+   *  Nightwatch's ES6-async command return (`node.deferred.promise`). */
+  function makeSettleableAssertBrowser() {
+    const settlers: Array<{
+      resolve: (v: unknown) => void
+      reject: (e: unknown) => void
+    }> = []
+    const method = vi.fn(
+      () =>
+        new Promise<unknown>((resolve, reject) => {
+          settlers.push({ resolve, reject })
+        })
+    )
+    const browser = {
+      assert: { urlContains: method },
+      verify: { urlContains: method }
+    } as unknown as NightwatchBrowser
+    return { browser, settlers }
+  }
+
+  function assertNs(browser: NightwatchBrowser) {
+    return (
+      browser as unknown as {
+        assert: { urlContains: (a: unknown) => unknown }
+      }
+    ).assert
+  }
+
+  it('survives a per-step resetCommandTracking (cucumber calls it between steps)', () => {
+    const { capturer } = makeCapturer()
+    const proxy = new BrowserProxy(capturer, makeTestManager(), () => ({
+      uid: 'scenario-1'
+    }))
+    const { browser } = makeSettleableAssertBrowser()
+    proxy.wrapBrowserCommands(browser)
+
+    assertNs(browser).urlContains('/secure')
+    // Cucumber resets dedup state at every BeforeStep. Clearing the assert
+    // buffer there dropped every assertion but the last step's.
+    proxy.resetCommandTracking()
+    assertNs(browser).urlContains('/login')
+
+    const calls = proxy.drainNativeAssertCalls()
+    expect(calls.map((c) => c.args[0])).toEqual(['/secure', '/login'])
+  })
+
+  it('clears the buffer on resetTestTracking (a new test unit starts fresh)', () => {
+    const { capturer } = makeCapturer()
+    const proxy = new BrowserProxy(capturer, makeTestManager(), () => ({
+      uid: 'scenario-1'
+    }))
+    const { browser } = makeSettleableAssertBrowser()
+    proxy.wrapBrowserCommands(browser)
+
+    assertNs(browser).urlContains('/secure')
+    proxy.resetTestTracking()
+
+    expect(proxy.drainNativeAssertCalls()).toEqual([])
+  })
+
+  it('records the outcome off the assertion promise for both settlements', async () => {
+    const { capturer } = makeCapturer()
+    const proxy = new BrowserProxy(capturer, makeTestManager(), () => ({
+      uid: 'scenario-1'
+    }))
+    const { browser, settlers } = makeSettleableAssertBrowser()
+    proxy.wrapBrowserCommands(browser)
+
+    const okPromise = assertNs(browser).urlContains('/secure')
+    const failPromise = assertNs(browser).urlContains('/nope')
+    const calls = proxy.drainNativeAssertCalls()
+
+    settlers[0].resolve('https://example.com/secure')
+    settlers[1].reject(new Error('expected "/nope" but got: "/secure"'))
+    await okPromise
+    await expect(failPromise).rejects.toThrow('but got')
+
+    expect(calls[0].observed?.passed).toBe(true)
+    expect(calls[1].observed?.passed).toBe(false)
+    expect(calls[1].observed?.message).toContain('but got')
+  })
+
+  it('leaves a non-thenable command return unobserved', () => {
+    const { capturer } = makeCapturer()
+    const proxy = new BrowserProxy(capturer, makeTestManager(), () => ({
+      uid: 'scenario-1'
+    }))
+    // Nightwatch returns the `api` object (not a promise) when commands aren't
+    // ES6-async; the results-bag path supplies the outcome there.
+    const browser = {
+      assert: { urlContains: vi.fn(() => browser) },
+      verify: { urlContains: vi.fn(() => browser) }
+    } as unknown as NightwatchBrowser
+    proxy.wrapBrowserCommands(browser)
+
+    assertNs(browser).urlContains('/secure')
+
+    expect(proxy.drainNativeAssertCalls()[0].observed).toBeUndefined()
   })
 })

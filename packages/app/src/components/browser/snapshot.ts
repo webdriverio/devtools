@@ -16,11 +16,11 @@ import { booleanAttributeOn, isBooleanAttribute } from './boolean-attribute.js'
 import { type ComponentChildren, h, render, type VNode } from 'preact'
 import { customElement, query } from 'lit/decorators.js'
 import { transform } from './vnode-transform.js'
-import type { SimplifiedVNode } from '../../../../script/types'
+import type { SimplifiedVNode } from '@wdio/devtools-script/types'
 // Type-only, like the `script/types` import above: the collector owns the
 // characterData wire shape (parent ref + child index), so the replay reads it
 // from the same declaration that produces it.
-import type { TextMutation } from '../../../../script/src/mutations.js'
+import type { TextMutation } from '@wdio/devtools-script/mutations.js'
 import type { CommandLog } from '@wdio/devtools-shared'
 
 import {
@@ -637,8 +637,8 @@ export class DevtoolsBrowser extends Element {
 
   /** Outline the element for an a11y-tree locator. Resolved through the same
    *  resolver the forward direction (the element overlay) uses, because the tree
-   *  captures interactive elements as WDIO text locators (`button*=Login`) that
-   *  querySelector cannot parse. */
+   *  captures text-matched elements as XPath (`//button[contains(., "Login")]`)
+   *  that querySelector cannot parse. */
   #highlightBySelector = (ev: Event) => {
     const detail = (ev as CustomEvent<{ selector?: string } | null>).detail
     const docEl = this.iframe?.contentDocument

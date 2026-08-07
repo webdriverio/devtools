@@ -19,6 +19,7 @@ import type {
   NightwatchBrowser,
   ScreencastOptions,
   SuiteStats,
+  TestRunnerId,
   TestStats,
   TraceGranularity
 } from './types.js'
@@ -32,6 +33,9 @@ export interface PluginInternals {
   readonly screencastOptions: ScreencastOptions
   readonly bidiEnabled: boolean
   readonly captureAssertions: boolean
+  /** Derived from the cucumber flag, so one value answers both the metadata
+   *  payload and the capture's locator dialect. */
+  readonly runner: TestRunnerId
 
   // Runtime instances (mutable — bringup/session-change replaces them)
   sessionCapturer: SessionCapturer

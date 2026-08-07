@@ -1,6 +1,7 @@
 import logger from '@wdio/logger'
 import {
   COLLECTOR_READY_EXPRESSION,
+  collectorDrainExpression,
   SessionCapturerBase,
   drainCollectorWithRecovery,
   errorMessage,
@@ -204,6 +205,18 @@ export class SessionCapturer extends SessionCapturerBase {
       return
     }
     try {
+      // Injecting over a live collector replaces `window.wdioTraceCollector`
+      // with a fresh instance and DISCARDS whatever it had buffered — including
+      // the destination's full-DOM anchor. Three call paths can reach the same
+      // document (navigation trace, post-command drain recovery, explicit
+      // re-inject), so the guard lives here rather than in each caller.
+      const present = await exec(
+        driver,
+        `return ${COLLECTOR_READY_EXPRESSION};`
+      )
+      if (present === true) {
+        return
+      }
       const scriptContent = await loadInjectableScript()
       await exec(
         driver,
@@ -229,7 +242,11 @@ export class SessionCapturer extends SessionCapturerBase {
     }
   }
 
-  async captureTrace(): Promise<void> {
+  /** `forceAnchor` forces a full-DOM anchor of the current document before
+   *  draining, so a freshly injected collector's async anchor isn't lost. Which
+   *  action the anchor belongs to is derived from the anchor itself at ingest,
+   *  not from this call — see `reattributeDomAnchors`. */
+  async captureTrace(forceAnchor = false): Promise<void> {
     const driver = this.#driver
     const exec = getDriverOriginals().executeScript
     if (!driver || !exec) {
@@ -240,20 +257,27 @@ export class SessionCapturer extends SessionCapturerBase {
       // (page navigation) between the existence check and the getTraceData
       // call. Two round-trips left a TOCTOU race that logged spurious
       // "Cannot read properties of undefined (reading 'getTraceData')" errors.
+      let recovered = false
       const traceData = await drainCollectorWithRecovery({
-        drain: () =>
-          exec(
-            driver,
-            `return ${COLLECTOR_READY_EXPRESSION} ? window.wdioTraceCollector.getTraceData() : null;`
-          ),
-        injectIntoCurrentDocument: () => this.injectScript(),
+        drain: () => exec(driver, collectorDrainExpression(forceAnchor)),
+        injectIntoCurrentDocument: async () => {
+          recovered = true
+          await this.injectScript()
+        },
         currentUrl: async () =>
           (await exec(driver, 'return location.href;')) as string | undefined,
         log: (level, message) => log[level](message)
       })
       if (!traceData) {
+        log.debug(
+          `drain: no payload (anchor=${forceAnchor} recovered=${recovered})`
+        )
         return
       }
+      const drained = (traceData as { mutations?: unknown[] }).mutations ?? []
+      log.debug(
+        `drain: ${drained.length} mutations (anchor=${forceAnchor} recovered=${recovered})`
+      )
       this.processTracePayload(traceData as Record<string, unknown>, {
         skipConsoleLogs: this.bidiActive,
         skipNetworkRequests: this.bidiActive
@@ -325,7 +349,10 @@ export class SessionCapturer extends SessionCapturerBase {
         return
       }
       await this.injectScript()
-      await this.captureTrace()
+      // Anchor forced: the freshly injected collector's initial anchor is async,
+      // so an unanchored drain here beats it and the destination's DOM is lost
+      // with the page.
+      await this.captureTrace(true)
     } catch (err) {
       const msg = errorMessage(err)
       if (isSessionGoneError(msg)) {

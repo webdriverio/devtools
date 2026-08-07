@@ -327,26 +327,49 @@ describe('SessionCapturer.captureTrace', () => {
   })
 
   it('processes trace payload when collector is present', async () => {
-    let call = 0
-    const browser = makeMockBrowser({
-      getLog: vi.fn(async () => []),
-      execute: vi.fn(async () => {
-        call++
-        // Single atomic check+read — the inline `typeof === 'undefined' → null`
-        // guard in the script body avoids the navigation TOCTOU race.
-        return {
-          value: {
-            mutations: [
-              { type: 'attributes', addedNodes: [], removedNodes: [] }
-            ],
-            networkRequests: [],
-            consoleLogs: []
-          }
-        }
+    // The drain goes over the raw WebDriver HTTP transport, never through
+    // `browser.execute` — that is a QUEUED command, and deferring the drain off
+    // Nightwatch's callback stack to use it lost the outgoing page's field edits
+    // whenever the next command navigated.
+    const http = await import('node:http')
+    const bodies: string[] = []
+    const server = http.createServer((req, res) => {
+      let raw = ''
+      req.on('data', (c) => {
+        raw += c
+      })
+      req.on('end', () => {
+        bodies.push(raw)
+        res.setHeader('content-type', 'application/json')
+        res.end(
+          JSON.stringify({
+            value: {
+              mutations: [
+                { type: 'attributes', addedNodes: [], removedNodes: [] }
+              ],
+              networkRequests: [],
+              consoleLogs: []
+            }
+          })
+        )
       })
     })
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()))
+    const port = (server.address() as { port: number }).port
+    const browser = makeMockBrowser({
+      getLog: vi.fn(async () => []),
+      sessionId: 'sess-drain',
+      transport: { settings: { webdriver: { host: '127.0.0.1', port } } }
+    })
     const cap = makeCapturer(browser)
-    await cap.captureTrace(browser)
-    expect(call).toBe(1)
+    try {
+      await cap.captureTrace(browser)
+      expect(bodies).toHaveLength(1)
+      expect(bodies[0]).toContain('getTraceData')
+      expect(cap.mutations).toHaveLength(1)
+      expect(browser.execute).not.toHaveBeenCalled()
+    } finally {
+      await new Promise<void>((r) => server.close(() => r()))
+    }
   })
 })

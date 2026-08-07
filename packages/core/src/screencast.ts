@@ -1,5 +1,6 @@
 import type { ScreencastFrame, ScreencastOptions } from '@wdio/devtools-shared'
 import { SCREENCAST_DEFAULTS } from '@wdio/devtools-shared'
+import { isInputDispatchInFlight } from './input-dispatch.js'
 
 /**
  * Shared screencast scaffolding consumed by every adapter (service, selenium,
@@ -219,6 +220,13 @@ export abstract class ScreencastRecorderBase<TDriver = unknown> {
 
       const intervalMs = this.options.pollIntervalMs
       this.#pollTimer = setInterval(async () => {
+        // A screenshot that reaches the driver mid-click makes the click report
+        // success while dispatching nothing, so the page never navigates. Drop
+        // the tick rather than race it — the gate is bounded, so a command whose
+        // completion never arrives costs frames only until it expires.
+        if (isInputDispatchInFlight()) {
+          return
+        }
         try {
           const data = await this.takeScreenshot()
           if (data !== null) {

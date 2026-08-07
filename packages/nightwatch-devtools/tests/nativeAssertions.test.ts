@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import {
   captureNativeAssertions,
   latestResolvedScreenshot,
+  observedAssertOutcome,
   pendingAssertionCommand
 } from '../src/helpers/nativeAssertions.js'
 import type { SessionCapturer } from '../src/session.js'
@@ -365,5 +366,168 @@ describe('captureNativeAssertions (buffer → finalize at test-end)', () => {
     )
     expect(sendReplaceCommand).not.toHaveBeenCalled()
     expect(takeScreenshotViaHttp).not.toHaveBeenCalled()
+  })
+})
+
+describe('observedAssertOutcome (settlement of the assertion promise)', () => {
+  it('reads a rejection as a failure with the ANSI-stripped message', () => {
+    const err = new Error(
+      "[31mTesting if the page title contains 'NOPE'[39m - " +
+        'expected "contains \'NOPE\'" but got: "The Internet"'
+    )
+    expect(
+      observedAssertOutcome({ rejected: true, value: err, settledAt: 7 })
+    ).toEqual({
+      passed: false,
+      message:
+        "Testing if the page title contains 'NOPE' - expected " +
+        '"contains \'NOPE\'" but got: "The Internet"',
+      settledAt: 7
+    })
+  })
+
+  it('reads a fulfilment WITH an Error as a failure — the non-aborting verify path', () => {
+    // `verify.*` does not abort the queue, so Nightwatch resolves the node with
+    // the AssertionError rather than rejecting it (lib/core/asynctree.js).
+    const outcome = observedAssertOutcome({
+      rejected: false,
+      value: new Error('verify failed - expected "x" but got: "y"'),
+      settledAt: 9
+    })
+    expect(outcome?.passed).toBe(false)
+    expect(outcome?.message).toBe('verify failed - expected "x" but got: "y"')
+  })
+
+  it('reads a fulfilment with a value as a pass and carries no message', () => {
+    expect(
+      observedAssertOutcome({
+        rejected: false,
+        value: 'https://example.com/secure',
+        settledAt: 3
+      })
+    ).toEqual({ passed: true, message: '', settledAt: 3 })
+  })
+
+  it('treats a falsy-but-defined fulfilment as a pass', () => {
+    // A passing assertion can resolve with `null`/`false` (the unwrapped W3C
+    // `value`); only `undefined` means the node never ran.
+    expect(
+      observedAssertOutcome({ rejected: false, value: null, settledAt: 1 })
+        ?.passed
+    ).toBe(true)
+    expect(
+      observedAssertOutcome({ rejected: false, value: false, settledAt: 1 })
+        ?.passed
+    ).toBe(true)
+  })
+
+  it('returns no outcome for an undefined fulfilment (assertion never executed)', () => {
+    // An `assert.*` failure empties the queue; every assertion still enqueued
+    // then has its deferred resolved with the unset `node.resolveValue`. Reading
+    // that as a pass would paint a never-run assertion green.
+    expect(
+      observedAssertOutcome({
+        rejected: false,
+        value: undefined,
+        settledAt: 5
+      })
+    ).toBeUndefined()
+  })
+})
+
+describe('captureNativeAssertions with no results bag (cucumber runner)', () => {
+  /** The cucumber runner builds its Nightwatch client with no reporter, so
+   *  `SimplifiedReporter.logAssertResult` no-ops and there is no results bag at
+   *  all — `currentTest` is undefined and `correlate` has nothing to read. */
+  it('colours rows from the observed settlement instead of the results bag', async () => {
+    const { capturer, sent } = makeFakeCapturer()
+    const calls = [
+      call('assert', 'urlContains', ['/secure'], 'steps.js:31'),
+      call('assert', 'titleContains', ['NOPE'], 'steps.js:32')
+    ]
+    emitPending(capturer, calls, 'scenario-uid')
+    calls[0].observed = {
+      passed: true,
+      message: '',
+      settledAt: calls[0].timestamp + 146
+    }
+    calls[1].observed = {
+      passed: false,
+      message:
+        "Testing if the page title contains 'NOPE' - expected \"contains " +
+        '\'NOPE\'" but got: "The Internet"',
+      settledAt: calls[1].timestamp + 5072
+    }
+
+    await captureNativeAssertions(capturer, browser, undefined, 'uid', calls)
+
+    expect(sent).toHaveLength(2)
+    expect(sent[0].result).toEqual({ passed: true, expected: '/secure' })
+    expect(sent[0].error).toBeUndefined()
+    // Passing rows carry no prose (a settlement has none) — omitted, not blank.
+    expect(sent[0].result).not.toHaveProperty('message')
+    const failed = sent[1].result as {
+      passed: boolean
+      expected: unknown
+      actual: unknown
+    }
+    expect(failed.passed).toBe(false)
+    expect(failed.expected).toBe('NOPE')
+    // `actual` still comes from the "but got: …" clause, as on the BDD path.
+    expect(failed.actual).toBe('The Internet')
+    expect(sent[1].error?.message).toContain('but got')
+  })
+
+  it('spans each row over its observed execution window instead of a synthetic 1 ms', async () => {
+    const { capturer, sent } = makeFakeCapturer()
+    const calls = [call('assert', 'urlContains', ['/secure'])]
+    emitPending(capturer, calls, 'scenario-uid')
+    const enqueued = calls[0].timestamp
+    calls[0].observed = { passed: true, message: '', settledAt: enqueued + 146 }
+
+    await captureNativeAssertions(capturer, browser, undefined, 'uid', calls)
+
+    expect(sent[0].startTime).toBe(enqueued)
+    expect(sent[0].timestamp).toBe(enqueued + 146)
+  })
+
+  it('leaves a row neutral when the settlement carried no outcome', async () => {
+    const { capturer, sent } = makeFakeCapturer()
+    const calls = [call('assert', 'urlContains', ['/secure'])]
+    emitPending(capturer, calls, 'scenario-uid')
+
+    await captureNativeAssertions(capturer, browser, undefined, 'uid', calls)
+
+    expect(sent).toHaveLength(1)
+    expect(sent[0].result).toBeUndefined()
+    expect(sent[0].error).toBeUndefined()
+  })
+
+  it('keeps the results-bag outcome and its enqueue timestamp when both sources exist', async () => {
+    // The BDD interface reports no per-assertion command window, so a correlated
+    // row must keep its enqueue timestamp — `sequence` ordering depends on the
+    // resulting tie. The settlement must not quietly reposition it.
+    const { capturer, sent } = makeFakeCapturer()
+    const calls = [call('assert', 'titleContains', ['Example'])]
+    emitPending(capturer, calls, 'uid')
+    const enqueued = calls[0].timestamp
+    calls[0].observed = {
+      passed: false,
+      message: 'settlement says failed',
+      settledAt: enqueued + 500
+    }
+
+    await captureNativeAssertions(
+      capturer,
+      browser,
+      currentTestWith([
+        passing("Testing if the page title contains 'Example'")
+      ]),
+      'uid',
+      calls
+    )
+
+    expect((sent[0].result as { passed: boolean }).passed).toBe(true)
+    expect(sent[0].timestamp).toBe(enqueued)
   })
 })

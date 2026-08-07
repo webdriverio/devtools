@@ -329,6 +329,8 @@ function parseMutationStreams(
 ): TraceMutation[] {
   // The `.mutations` NDJSON is TraceMutation JSON, minus the trailing
   // truncation marker; cast at this boundary like the HAR/action parsers.
+  // Timestamps stay as written: they are page-side absolute wall ms, which is
+  // the same timebase `rebaseToEpoch` puts the action streams on.
   return names
     .flatMap((name) => parseNdjson(strFromU8(files[name])))
     .filter(

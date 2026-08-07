@@ -67,6 +67,10 @@ export interface ContextOptionsEvent {
   browserName?: string
   contextId?: string
   options?: { viewport?: { width: number; height: number } }
+  /** Extension field naming the runner that recorded the zip; absent in foreign
+   *  zips and in ours from before the field existed. Untrusted — narrowed
+   *  through `isTestRunnerId` before it reaches `Metadata.runner`. */
+  runner?: string
 }
 
 /** Sidecar `.stacks` shape: file table + per-call [fileIndex, line, column, function] frames. */

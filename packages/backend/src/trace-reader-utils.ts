@@ -4,6 +4,7 @@
 import { createHash } from 'node:crypto'
 import { strFromU8 } from 'fflate'
 import {
+  isTestRunnerId,
   TraceType,
   type ConsoleLog,
   type LogLevel,
@@ -325,6 +326,7 @@ export function buildMetadata(ctx: ContextOptionsEvent | undefined): Metadata {
     capabilities: ctx?.browserName
       ? { browserName: ctx.browserName }
       : undefined,
-    ...(sessionId ? { sessionId } : {})
+    ...(sessionId ? { sessionId } : {}),
+    ...(isTestRunnerId(ctx?.runner) ? { runner: ctx.runner } : {})
   }
 }

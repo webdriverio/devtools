@@ -15,6 +15,7 @@ export {
   type ScreencastFrame,
   type ScreencastOptions,
   type SuiteStats,
+  type TestRunnerId,
   type TestStats,
   type TestStatus,
   type TraceFormat,
@@ -39,9 +40,47 @@ export interface CommandStackFrame {
   signature: string
 }
 
+/** Nightwatch's chainable command result — exposes `.perform` to queue work
+ *  after the command completes. Cucumber async/await mode returns a Promise
+ *  instead, so callers narrow on `.perform` before using it. */
+export interface NightwatchChainable {
+  perform?: (cb: (done: Function) => void) => void
+}
+
+/** One intercepted command call, split into the parts capture needs. */
+export interface CommandInvocation {
+  /** Nightwatch passes results to a trailing callback; a user-supplied one must
+   *  still run after capture. */
+  userCallback: ((result: unknown) => unknown) | null
+  logArgs: unknown[]
+  /** Identifies a retry of the same call from the same source line. */
+  cmdSig: string
+  callSource: string | undefined
+  /** False for commands Nightwatch issues from inside its own queue, which have
+   *  no user frame on the stack and must not surface as top-level actions. */
+  hasUserSource: boolean
+}
+
+/** How a native assertion's own returned promise settled. */
+export interface AssertSettlement {
+  rejected: boolean
+  /** The fulfilment value, or the rejection reason when `rejected`. */
+  value: unknown
+  settledAt: number
+}
+
+/** Pass/fail read off a native assertion's own returned promise — the only
+ *  outcome source for the cucumber runner, whose results bag stays empty. */
+export interface ObservedAssertOutcome {
+  passed: boolean
+  message: string
+  /** Wall-clock at settlement — the assertion's real execution end. */
+  settledAt: number
+}
+
 /** One explicit `browser.assert.*` / `browser.verify.*` call, recorded at call
- *  time by BrowserProxy. A neutral "pending" row (`entry`) is streamed live at
- *  call time; `captureNativeAssertions` finalizes its pass/fail at test-end. */
+ *  time by NativeAssertRecorder. Its row (`entry`) is buffered, not streamed —
+ *  `captureNativeAssertions` emits it at test-end once its outcome is known. */
 export interface NativeAssertCall {
   prefix: 'assert' | 'verify'
   method: string
@@ -51,6 +90,9 @@ export interface NativeAssertCall {
   timestamp: number
   /** The pending row emitted at call time, updated in place when finalized. */
   entry?: CommandLog
+  /** Filled in asynchronously when the call's own promise settles; absent when
+   *  the settlement carried no outcome evidence (see observedAssertOutcome). */
+  observed?: ObservedAssertOutcome
 }
 
 export interface NightwatchTestCase {

@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { buildMutationsNdjson } from '@wdio/devtools-core'
+import {
+  buildMutationsNdjson,
+  reattributeDomAnchors
+} from '@wdio/devtools-core'
 import {
   isMutationsTruncationMarker,
   type TraceMutation
@@ -83,5 +86,79 @@ describe('isMutationsTruncationMarker', () => {
     expect(isMutationsTruncationMarker({ __truncated__: false })).toBe(false)
     expect(isMutationsTruncationMarker(null)).toBe(false)
     expect(isMutationsTruncationMarker('x')).toBe(false)
+  })
+})
+
+describe('reattributeDomAnchors', () => {
+  const anchor = (timestamp: number, url = 'https://example.com/a') =>
+    mutation({
+      type: 'childList',
+      url,
+      addedNodes: [{ tag: 'html' }],
+      timestamp
+    })
+  const at = (ts: number) => () => ts
+
+  it('pulls a drain-stamped anchor back to the command that produced it', () => {
+    const batch = [anchor(9625)]
+    reattributeDomAnchors(batch, at(8568), 8566)
+    expect(batch[0]!.timestamp).toBe(8568)
+  })
+
+  it("resolves the action from the anchor's own time, not the draining call", () => {
+    // The navigation's own drain runs against the page it is leaving, so a later
+    // command's drain collects the anchor — the resolver must key on the anchor.
+    const seen: number[] = []
+    const batch = [anchor(7860)]
+    reattributeDomAnchors(batch, (t) => {
+      seen.push(t)
+      return 7858
+    })
+    expect(seen).toEqual([7860])
+    expect(batch[0]!.timestamp).toBe(7858)
+  })
+
+  it('leaves observed diffs alone — only full-document anchors move', () => {
+    const diff = mutation({ type: 'attributes', target: '35', timestamp: 8600 })
+    reattributeDomAnchors([diff], at(100), 0)
+    expect(diff.timestamp).toBe(8600)
+  })
+
+  it('never pulls an anchor ahead of the document it replaces', () => {
+    // The prior page's field edits are already at 5131; replay would apply those
+    // stale refs to the new tree if the anchor landed before them.
+    const batch = [anchor(6509)]
+    reattributeDomAnchors(batch, at(4871), 5131)
+    expect(batch[0]!.timestamp).toBe(5131)
+  })
+
+  it('never pushes an anchor later than the page stamped it', () => {
+    const batch = [anchor(4259)]
+    reattributeDomAnchors(batch, at(99999), 0)
+    expect(batch[0]!.timestamp).toBe(4259)
+  })
+
+  it('leaves the anchor untouched when no action resolves', () => {
+    const batch = [anchor(4259)]
+    reattributeDomAnchors(batch, () => undefined, 0)
+    expect(batch[0]!.timestamp).toBe(4259)
+  })
+
+  it('keeps the batch ascending across two anchors', () => {
+    const batch = [
+      anchor(5000, 'https://example.com/one'),
+      mutation({ type: 'attributes', target: '35', timestamp: 5200 }),
+      anchor(6000, 'https://example.com/two')
+    ]
+    reattributeDomAnchors(batch, at(1000), 0)
+    expect(batch.map((m) => m.timestamp)).toEqual([1000, 5200, 5200])
+  })
+
+  it('is a no-op on a batch with no anchors', () => {
+    const batch = [
+      mutation({ type: 'characterData', target: '7', timestamp: 42 })
+    ]
+    reattributeDomAnchors(batch, at(1), 0)
+    expect(batch[0]!.timestamp).toBe(42)
   })
 })

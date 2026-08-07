@@ -80,7 +80,8 @@ import { flushTestSlice, recordSpecSliceBoundary } from './trace-slices.js'
 import {
   getTestIcon,
   incrementCounters,
-  buildPluginMetadataOptions
+  buildPluginMetadataOptions,
+  nightwatchRunnerId
 } from './helpers/utils.js'
 
 const log = logger('@wdio/nightwatch-devtools')
@@ -145,12 +146,15 @@ class NightwatchDevToolsPlugin {
 
   constructor(options: DevToolsOptions = {}) {
     const mode = options.mode ?? 'live'
+    // Resolve the default ONCE and gate on the resolved value: reading the raw
+    // `options.filmstrip === true` left the default-on filmstrip inert unless a
+    // config set it explicitly, so the recorder never started while
+    // `this.options.filmstrip` claimed it was on.
+    const filmstrip = options.filmstrip ?? true
+    const video = options.video ?? 'off'
     // Filmstrip OR a produce-only per-test video drives the recorder in trace
     // mode; bare screencast (with neither on) stays a live-only feature.
-    const wantRecorder =
-      mode === 'trace' &&
-      (options.filmstrip === true ||
-        (options.video !== undefined && options.video !== 'off'))
+    const wantRecorder = mode === 'trace' && (filmstrip || video !== 'off')
     const ignore =
       mode === 'trace' && !wantRecorder && options.screencast?.enabled === true
     if (ignore) {
@@ -170,9 +174,9 @@ class NightwatchDevToolsPlugin {
       traceFormat: options.traceFormat ?? 'zip',
       traceGranularity: options.traceGranularity ?? 'session',
       tracePolicy: options.tracePolicy ?? 'on',
-      filmstrip: options.filmstrip ?? true,
+      filmstrip,
       screenshot: options.screenshot ?? 'off',
-      video: options.video ?? 'off',
+      video,
       // No live Allure signal in Nightwatch (produce-only), so no auto-detect:
       // off by default, opt-in via the option.
       emitArtifactsManifest: options.emitArtifactsManifest ?? false
@@ -316,6 +320,9 @@ class NightwatchDevToolsPlugin {
       },
       get configPath() {
         return self.#configPath
+      },
+      get runner() {
+        return nightwatchRunnerId(self.#isCucumberRunner)
       },
       getCurrentTest: () => self.#currentTest,
       getCurrentScenarioSuite: () => self.#currentScenarioSuite,
@@ -570,7 +577,9 @@ class NightwatchDevToolsPlugin {
             this.browserProxy.drainNativeAssertCalls()
           )
         }
-        await this.sessionCapturer.captureTrace(browser)
+        // Anchored: a test ending on a navigation leaves the destination's
+        // async initial anchor unrun, so its DOM would be absent from the slice.
+        await this.sessionCapturer.captureTrace(browser, true)
         // Flush this test's slice before the next test overwrites its outcome.
         flushTestSlice(this.#getInternals())
         const results = (browser.currentTest as NightwatchCurrentTest)?.results

@@ -29,9 +29,19 @@ A single call for web and mobile that returns an AI-readable accessibility/DOM s
 import { getSnapshot } from '@wdio/elements'
 
 const { text, elements } = await getSnapshot(browser, { inViewportOnly: true })
-// text: '[Page: Login — https://…]\n  button "Log in" → button*=Log in\n  …'
+// text: '[Page: Login — https://…]\n  button "Log in" → //button[contains(., "Log in")]\n  …'
 // elements: { e1: { selector, qualifiedSelector?, tagName, role, text }, … }
 ```
+
+Every locator this API returns is portable across WebdriverIO, Selenium and
+Nightwatch: CSS where an id/attribute/class identifies the element uniquely,
+XPath where its text does (WebdriverIO resolves a leading `//` as XPath;
+Selenium takes it via `By.xpath`, Nightwatch via its `'xpath'` locate strategy).
+
+The DevTools **per-action trace capture** runs the same scripts but asks for the
+locator in the recording runner's own dialect, so a WebdriverIO trace shows
+`button*=Log in` while a Selenium or Nightwatch one shows the XPath above. Only
+the text branch differs; every other branch is the same portable CSS.
 
 It auto-detects platform: web sessions walk the browser accessibility tree, mobile sessions parse the page-source XML. `@wdio/devtools-service` also registers a `browser.getSnapshot()` runtime accessor that calls this directly.
 

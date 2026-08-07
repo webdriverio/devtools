@@ -27,3 +27,22 @@ describe('pushActionSnapshotAt', () => {
     expect(snapshots[0]!.screenshot).toBe('SHOT')
   })
 })
+
+describe('service action-snapshot locator dialect', () => {
+  it("injects WebdriverIO's own text form, which resolves in $() directly", async () => {
+    // Portable XPath resolves here too, but a WDIO user copying a locator out of
+    // the A11y tab expects `a*=Logout`, not something they must wrap.
+    const browser = Object.assign(mockBrowser(), {
+      options: { framework: 'cucumber' }
+    })
+    await pushActionSnapshotAt(browser, 'click', 1, [])
+
+    const bodies = vi
+      .mocked(browser.execute)
+      .mock.calls.map(([fn]) => String(fn))
+    expect(bodies).not.toHaveLength(0)
+    for (const body of bodies) {
+      expect(body).toContain("tag + '*=' + text")
+    }
+  })
+})

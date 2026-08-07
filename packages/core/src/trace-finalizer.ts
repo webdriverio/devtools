@@ -75,8 +75,6 @@ export interface TraceExportContext {
   flushed: Set<string>
   /** Adapters keep their differing dir logic; range is set for spec writes. */
   resolveOutputDir: (range?: SpecRange) => string
-  /** Service dedupes same-timestamp snapshots; others pass identity. */
-  prepareSnapshots?: (snaps: ActionSnapshot[]) => ActionSnapshot[]
   /** Pending snapshot captures to settle before writing (selenium/nightwatch). */
   awaitPending?: Promise<unknown>[]
   log?: (level: 'info' | 'warn', msg: string) => void
@@ -308,8 +306,7 @@ export async function flushRangeLogged(
 async function writeSessionTrace(
   ctx: TraceExportContext
 ): Promise<TraceArtifact | undefined> {
-  const prepare = ctx.prepareSnapshots ?? ((s) => s)
-  const snapshots = prepare(ctx.actionSnapshots ?? [])
+  const snapshots = ctx.actionSnapshots ?? []
   const artifact: TraceArtifact = {
     kind: 'trace',
     path: '',

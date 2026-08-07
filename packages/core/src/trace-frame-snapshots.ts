@@ -88,17 +88,38 @@ export class FrameSnapshotIndex {
     return this.#lastName
   }
 
-  /** Claims the screenshot captured at the command's completion, if any. */
+  /**
+   * The capture describing the page when this command completed: the one at its
+   * exact timestamp, else the most recent one before it.
+   *
+   * Non-consuming, and falls back rather than returning nothing, because several
+   * actions legitimately share one page state. Nightwatch emits its native
+   * assertion rows in a batch whose execution windows collapse onto the same
+   * instant, so handing the capture to whichever claimed first left the rest of
+   * the batch with no DOM, no a11y tree and no screenshot in the action pane.
+   * And an assertion reads the page rather than changing it, so it takes no
+   * capture of its own and correctly inherits the preceding action's.
+   */
   claimAfter(timestamp: number, callId: string): string | undefined {
-    const snap = this.#byTimestamp.get(timestamp)
+    const snap =
+      this.#byTimestamp.get(timestamp) ?? this.#latestAtOrBefore(timestamp)
     if (!snap) {
       return undefined
     }
-    this.#byTimestamp.delete(timestamp)
     const snapshotName = `after@${callId}`
     this.#refs.push({ callId, snapshotName, snapshot: snap })
     this.#lastName = snapshotName
     return snapshotName
+  }
+
+  #latestAtOrBefore(timestamp: number): ActionSnapshot | undefined {
+    let best: ActionSnapshot | undefined
+    for (const [ts, snap] of this.#byTimestamp) {
+      if (ts <= timestamp && (!best || ts > best.timestamp)) {
+        best = snap
+      }
+    }
+    return best
   }
 
   refs(): FrameSnapshotRef[] {

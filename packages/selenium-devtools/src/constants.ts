@@ -55,6 +55,10 @@ export const TRACKED_ELEMENT_METHODS = [
   'isSelected'
 ] as const
 
+/** Driver methods whose first argument is the locator that produces an element
+ *  handle — the only place a selector is observable, since the handle carries none. */
+export const ELEMENT_LOCATOR_METHODS = ['findElement', 'findElements'] as const
+
 export const NAVIGATION_COMMANDS = [
   'get',
   'navigate',
@@ -71,6 +75,7 @@ export { ANSI_REGEX, CONSOLE_METHODS, LOG_SOURCES } from '@wdio/devtools-core'
 export { SPINNER_RE } from '@wdio/devtools-core'
 
 import { DEFAULTS_BASE, TIMING_BASE } from '@wdio/devtools-shared'
+import type { TestRunnerId } from '@wdio/devtools-shared'
 
 export const DEFAULTS = {
   ...DEFAULTS_BASE,
@@ -103,3 +108,8 @@ export const BLANK_FRAME_THRESHOLD_BYTES = 4_000
 
 /** Per-prototype "already patched" guard for driverPatcher / assertPatcher. */
 export const PATCHED_SYMBOL = Symbol.for('@wdio/selenium-devtools/patched')
+
+/** This adapter's runner identity — one value regardless of which test runner
+ *  drives it (mocha/jest/cucumber), since the driver API is what the capture and
+ *  the locator dialect depend on. */
+export const SELENIUM_RUNNER_ID: TestRunnerId = 'selenium-webdriver'

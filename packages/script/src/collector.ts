@@ -3,7 +3,27 @@ import { ConsoleLogCollector } from './collectors/consoleLogs.js'
 import { NetworkRequestCollector } from './collectors/networkRequests.js'
 import { assignRef, hasRef, parseDocument } from './utils.js'
 
-class DataCollector {
+/**
+ * When THIS document came into existence, as epoch ms.
+ *
+ * The anchor must not be stamped with the drain's clock. A drain is forced from
+ * Node whenever a collector might be fresh, which is always some time after the
+ * navigation that created the document — a round trip at best, a whole page load
+ * at worst — and several actions can run inside that gap. Stamped at drain time
+ * the anchor lands after them, so they all replay the PREVIOUS page's DOM.
+ *
+ * `performance.timeOrigin` is this document's navigation start, which is exactly
+ * the moment the anchor describes and is immune to which drain happens to
+ * collect it. Falls back to the drain clock where it isn't exposed.
+ */
+function documentAnchorTime(): number {
+  const origin = performance?.timeOrigin
+  return typeof origin === 'number' && Number.isFinite(origin) && origin > 0
+    ? Math.round(origin)
+    : Date.now()
+}
+
+export class DataCollector {
   #metadata = {
     url: window.location.href,
     // Serialize viewport values explicitly — VisualViewport properties are
@@ -18,6 +38,10 @@ class DataCollector {
   }
   #errors: string[] = []
   #mutations: TraceMutation[] = []
+  /** Whether THIS collector has emitted its full-DOM anchor. Instance-scoped on
+   *  purpose: the document's refs outlive a replaced collector, so keying on
+   *  them made a re-injected collector unable to anchor at all. */
+  #anchored = false
   #consoleLogs = new ConsoleLogCollector()
   #networkRequests = new NetworkRequestCollector()
 
@@ -38,15 +62,23 @@ class DataCollector {
    *  async anchor won the race): re-running assignRef would renumber descendants
    *  and desync every prior mutation. */
   captureCurrentDom() {
-    if (hasRef(document.documentElement)) {
+    if (this.#anchored) {
       return
     }
-    assignRef(document.documentElement)
+    this.#anchored = true
+    // Only number the tree when it isn't numbered yet. A re-injected collector
+    // lands on a document a PREVIOUS collector already ref'd; re-running
+    // assignRef would renumber every descendant and desync prior mutations,
+    // but refusing to anchor at all loses the document entirely — which is what
+    // made a navigation destination's DOM vanish from the trace.
+    if (!hasRef(document.documentElement)) {
+      assignRef(document.documentElement)
+    }
     this.captureMutation([
       {
         type: 'childList',
         url: window.location.href,
-        timestamp: Date.now(),
+        timestamp: documentAnchorTime(),
         addedNodes: [parseDocument(document.documentElement)],
         removedNodes: []
       }
@@ -56,6 +88,8 @@ class DataCollector {
   reset() {
     this.#errors = []
     this.#mutations = []
+    // `#anchored` deliberately survives a reset so a later drain doesn't
+    // re-emit the whole document.
     this.#consoleLogs.clear()
     this.#networkRequests.clear()
     clearLogs()

@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   buildSpecSessionId,
   buildTestSliceFolder,
@@ -559,12 +559,6 @@ describe('finalizeTraceExport', () => {
         false
       )
     })
-  })
-
-  it('applies prepareSnapshots only to the session write', async () => {
-    const prepare = vi.fn((s: unknown[]) => s)
-    await finalizeTraceExport(baseCtx({ prepareSnapshots: prepare as never }))
-    expect(prepare).toHaveBeenCalledOnce()
   })
 })
 

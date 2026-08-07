@@ -6,7 +6,7 @@ import type {
   CommandLog,
   TestMetadataMap
 } from '@wdio/devtools-shared'
-import { POINTABLE_METHODS } from '@wdio/devtools-shared'
+import { locatorsMatch, POINTABLE_METHODS } from '@wdio/devtools-shared'
 import {
   ASSERT_ACTION_CLASS,
   formatActionTitle,
@@ -232,17 +232,37 @@ function buildParamsAndTitle(
 
 function actionError(
   cmd: CommandLog,
-  isAssert: boolean
+  action: TraceAction
 ): { message: string } | undefined {
   if (cmd.error) {
     const err = cmd.error as { message?: string }
     return { message: err.message ?? String(cmd.error) }
   }
-  if (isAssert) {
-    // Nightwatch assert failures carry no Error — only the collapsed result.
-    const collapsed = collapsedAssertResult(cmd.result)
-    if (collapsed && collapsed.passed === false) {
-      return { message: String(collapsed.message ?? 'Assertion failed') }
+  const isAssert = action.class === ASSERT_ACTION_CLASS
+  // A command whose own result reports `passed: false` failed, whatever class it
+  // maps to — not just the assert rows this used to be gated on.
+  const collapsed = collapsedAssertResult(cmd.result)
+  if (collapsed && collapsed.passed === false) {
+    return {
+      message: String(
+        collapsed.message ??
+          (isAssert ? 'Assertion failed' : `${cmd.command} failed`)
+      )
+    }
+  }
+  // A wait that resolved `false` timed out. Nightwatch reports its
+  // waitForElement* timeouts through its own assertion channel rather than the
+  // command callback, which hands back `{value: null}` — so the row's only
+  // evidence of the failure is that boolean, and without this the step a test
+  // most often fails on rendered green with nothing in the Errors tab. Scoped to
+  // waits because `false` is a legitimate value for a boolean read like
+  // `isDisplayed`, and WDIO's waits throw rather than return false.
+  if (cmd.result === false && action.method.startsWith('waitFor')) {
+    const target = cmd.args?.find((a) => typeof a === 'string')
+    return {
+      message: target
+        ? `${cmd.command} timed out waiting for ${String(target)}`
+        : `${cmd.command} timed out`
     }
   }
   return undefined
@@ -251,7 +271,10 @@ function actionError(
 /** Centre of the element a pointer action matched, from the captured element
  *  rects at the command's completion. Undefined for non-pointer actions, a
  *  non-string selector, or a selector absent from the captured elements (e.g. a
- *  WDIO text/xpath locator `getSelector` didn't reproduce). */
+ *  WDIO text/xpath locator `getSelector` didn't reproduce). A runner that acts
+ *  through a resolved element handle leaves nothing selector-shaped in `args`
+ *  (Selenium: the handle is the receiver, the args hold only the typed value), so
+ *  the row's recorded locator is read first. */
 function resolveActionPoint(
   action: TraceAction,
   cmd: CommandLog,
@@ -260,7 +283,7 @@ function resolveActionPoint(
   if (action.class !== 'Element' || !POINTABLE_METHODS.has(action.method)) {
     return undefined
   }
-  const selector = cmd.args?.[0]
+  const selector = cmd.selector ?? cmd.args?.[0]
   if (typeof selector !== 'string') {
     return undefined
   }
@@ -271,7 +294,7 @@ function resolveActionPoint(
       selector?: string
       boundingBox?: { x: number; y: number; width: number; height: number }
     }
-    if (e.selector === selector && e.boundingBox) {
+    if (e.selector && locatorsMatch(e.selector, selector) && e.boundingBox) {
       const bb = e.boundingBox
       return { x: bb.x + bb.width / 2, y: bb.y + bb.height / 2 }
     }
@@ -287,7 +310,7 @@ function buildAfterEvent(
   snapshotIndex?: FrameSnapshotIndex
 ): AfterEvent {
   const afterEvent: AfterEvent = { type: 'after', callId, endTime: endMs }
-  const error = actionError(cmd, action.class === ASSERT_ACTION_CLASS)
+  const error = actionError(cmd, action)
   if (error) {
     afterEvent.error = error
   }
@@ -367,11 +390,16 @@ export function buildActionEvents(
   // late but carry their real call-time `startTime`; since pushActionPair floors
   // each start at the running prevEndMs, out-of-order input would clamp those
   // late rows to the end of the timeline (clustering them after the last real
-  // command). A stable sort by start time restores true positions and keeps
-  // equal-time rows in insertion order (each command owns its own before/after
-  // pair, so pairing is unaffected).
+  // command). A stable sort by start time restores true positions. `sequence`
+  // then breaks ties the millisecond clock can't: a deferred row issued
+  // microseconds before the command that follows it reads as the same
+  // `startTime`, and insertion order put it after — which is how an assert that
+  // ran on the secure page landed below the logout click it preceded. Each
+  // command owns its own before/after pair, so pairing is unaffected.
   const ordered = [...commands].sort(
-    (a, b) => (a.startTime ?? a.timestamp) - (b.startTime ?? b.timestamp)
+    (a, b) =>
+      (a.startTime ?? a.timestamp) - (b.startTime ?? b.timestamp) ||
+      (a.sequence ?? 0) - (b.sequence ?? 0)
   )
   for (const cmd of ordered) {
     const action = mapCommandToAction(cmd.command)

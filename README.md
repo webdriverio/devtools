@@ -136,8 +136,8 @@ The trace artifact contains:
 - `trace.trace` — NDJSON `context-options` + `before`/`after` action events. When test hooks are available (Mocha's `it()` / Cucumber's `Scenario()`), each test becomes a `Tracing.tracingGroup` span — an open/close `before`/`after` pair with `method: "tracingGroup"` and `params.name` set to the test title. Child actions inside the group carry `parentId` pointing back to the group's `callId`, so timeline viewers render tests as labelled spans wrapping their commands.
 - `trace.network` — HAR-style network entries derived from the existing capture
 - `resources/page@<id>-<ts>.jpeg` — screenshot per user-facing action
-- `resources/elements-page@<id>-<ts>.json` — flat interactable element list extracted by the page-injected scripts in `@wdio/devtools-core/element-scripts`
-- `resources/snapshot-page@<id>-<ts>.txt` — depth-indented accessibility-tree snapshot (AI-friendly)
+- `resources/page@<id>-<ts>-elements.json` — flat interactable element list extracted by the page-injected scripts in `@wdio/devtools-core/element-scripts`
+- `resources/page@<id>-<ts>-snapshot.txt` — depth-indented accessibility-tree snapshot (AI-friendly)
 - `transcript.md` — human/LLM-readable Markdown transcript of the captured actions, with timing, selectors, and value annotations
 
 What counts as a user-facing action is filtered through an allow-list in `@wdio/devtools-core/action-mapping.ts` (`url`, `click`, `setValue`, `sendKeys`, `get`, etc.). Internal commands like `findElement`/`waitUntil`/`executeScript` don't produce trace entries.
@@ -158,7 +158,7 @@ npx show-trace path/to/trace.zip      # in a project that installs an adapter
 The player exposes everything captured in the archive:
 
 - **DOM time-travel** — the browser pane replays the page from the captured DOM **mutation stream**, so scrubbing the playhead reconstructs the live DOM at any point, not just a screenshot.
-- **A11y tab** — the accessibility tree (roles + accessible names) captured for the selected command; hover a row to outline the element in the snapshot, click to copy its locator.
+- **A11y tab** — the accessibility tree (roles + accessible names) captured for the selected command; hover a row to outline the element in the snapshot, click to copy its locator. Locators are generated in the recording runner's own dialect — an element identified by its text is `a*=Logout` under WebdriverIO and `//a[contains(., "Logout")]` under Selenium/Nightwatch, where the panel also names the strategy that resolves it (`By.xpath()`, `useXpath()` / `locateStrategy: 'xpath'`). Every other locator is portable CSS.
 - **Errors tab** — every failing `expect`/assertion and step failure collected in one place, each with a jump-to-source link to the command that threw.
 - **Element overlay (pick-locator)** — labelled, click-to-copy boxes drawn over every element the test interacted with, cross-linked to the A11y rows.
 - **Transcript tab + Copy-for-LLM** — the run's Markdown transcript with a one-click "copy prompt" that bundles it with any failing-command errors, paste-ready for an LLM.

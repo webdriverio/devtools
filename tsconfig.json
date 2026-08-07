@@ -33,6 +33,9 @@
       "@wdio/devtools-backend": ["./packages/backend/src/index.ts"],
       "@wdio/devtools-backend/*": ["./packages/backend/src/*"],
       "@wdio/devtools-script": ["./packages/script/src/index.ts"],
+      // Ahead of the wildcard: the collector's wire types sit at the package
+      // root, not under `src/`, so the `/*` mapping can't reach them.
+      "@wdio/devtools-script/types": ["./packages/script/types.d.ts"],
       "@wdio/devtools-script/*": ["./packages/script/src/*"],
       "@wdio/devtools-service": ["./packages/service/src/index.ts"],
       "@wdio/devtools-service/*": ["./packages/service/src/*"],

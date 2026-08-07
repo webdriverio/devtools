@@ -2,6 +2,16 @@ import { RetryTracker, toError } from '@wdio/devtools-core'
 import type { SessionCapturer } from '../session.js'
 import type { CapturedCommand, CommandLog, TestStats } from '../types.js'
 
+/** Fields the capturer's positional API doesn't carry. An absent `selector`
+ *  leaves the previous one standing: `replaceCommand` mutates the row in place,
+ *  so a retry must not blank the locator its first attempt resolved. */
+function applyCapturedFields(entry: CommandLog, cmd: CapturedCommand): void {
+  entry.startTime = cmd.startTime
+  if (cmd.selector) {
+    entry.selector = cmd.selector
+  }
+}
+
 /**
  * Capture (or replace, on a detected retry) a single CapturedCommand into the
  * SessionCapturer's command log. Returns the resulting CommandLog entry with
@@ -34,6 +44,7 @@ export async function captureOrReplaceCommand(opts: {
       cmd.timestamp
     )
     const entry = replaced.entry as CommandLog & { _id?: number }
+    applyCapturedFields(entry, cmd)
     retryTracker.setLastId(entry._id ?? null)
     capturer.sendReplaceCommand(replaced.oldTimestamp, entry)
     return entry
@@ -48,6 +59,7 @@ export async function captureOrReplaceCommand(opts: {
     cmd.callSource,
     cmd.timestamp
   )) as CommandLog & { _id?: number }
+  applyCapturedFields(entry, cmd)
   capturer.sendCommand(entry)
   retryTracker.recordCapture(cmdSig, entry._id ?? null)
   return entry

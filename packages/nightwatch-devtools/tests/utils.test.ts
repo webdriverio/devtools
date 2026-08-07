@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { resetSignatureCounters } from '@wdio/devtools-core'
 import {
   buildPluginMetadataOptions,
+  nightwatchRunnerId,
   determineTestState,
   extractTestMetadata,
   findStepDefinitionLine,
@@ -87,6 +88,24 @@ describe('incrementCounters', () => {
     incrementCounters(c, 'failed')
     incrementCounters(c, 'running')
     expect(c).toEqual({ passCount: 2, failCount: 2, skipCount: 1 })
+  })
+})
+
+describe('nightwatchRunnerId', () => {
+  it('distinguishes the cucumber runner from the vanilla one', () => {
+    // Both take the same locator dialect, but the id also drives the
+    // dashboard's run capabilities, where cucumber cannot run a single test.
+    expect(nightwatchRunnerId(true)).toBe('nightwatch-cucumber')
+    expect(nightwatchRunnerId(false)).toBe('nightwatch')
+  })
+
+  it('is the same value the metadata payload reports', () => {
+    for (const isCucumberRunner of [true, false]) {
+      expect(
+        buildPluginMetadataOptions({ isCucumberRunner, configPath: undefined })
+          .framework
+      ).toBe(nightwatchRunnerId(isCucumberRunner))
+    }
   })
 })
 

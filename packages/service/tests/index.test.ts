@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type * as DevtoolsCore from '@wdio/devtools-core'
+import {
+  INPUT_DISPATCH_MAX_HOLD_MS,
+  isInputDispatchInFlight
+} from '@wdio/devtools-core'
 import DevToolsHookService from '../src/index.js'
 
 // Controllable stack: `frames` defaults to a single user-spec frame (commands
@@ -30,6 +34,8 @@ const mockSessionCapturerInstance = {
   captureTrace: vi.fn().mockResolvedValue(undefined),
   resetScriptInjection: vi.fn(),
   noteResolvedSelector: vi.fn(),
+  resetLastSelector: vi.fn(),
+  resetRetryTracker: vi.fn(),
   captureSource: vi.fn(),
   captureAssertCommand: vi.fn(),
   cleanup: vi.fn(),
@@ -217,6 +223,51 @@ describe('DevtoolsService - Internal Command Filtering', () => {
     it('does not flush before a non-navigating command', async () => {
       await service.beforeCommand('getText' as any, ['#flash'])
       expect(mockSessionCapturerInstance.captureTrace).not.toHaveBeenCalled()
+    })
+  })
+
+  // A screenshot poll landing inside chromedriver's click, between computing the
+  // element's coordinates and dispatching at them, makes the click report success
+  // while activating nothing. The recorder drops a tick while this window is open,
+  // so the service has to open one around every input-dispatching command.
+  describe('beforeCommand - input-dispatch window', () => {
+    // The gate is module-scoped in core (one per adapter bundle), so a window
+    // left open by an earlier case in this file is still open here. Jump past the
+    // hold bound and read once, which is what prunes it.
+    const flushInputWindows = () => {
+      vi.useFakeTimers()
+      vi.setSystemTime(Date.now() + INPUT_DISPATCH_MAX_HOLD_MS + 1)
+      isInputDispatchInFlight()
+      vi.useRealTimers()
+    }
+
+    beforeEach(async () => {
+      await service.before({} as any, [], mockBrowser)
+      vi.clearAllMocks()
+      flushInputWindows()
+    })
+
+    it('holds the window open for the duration of an input command', async () => {
+      await service.beforeCommand('click' as any, ['.button'])
+      expect(isInputDispatchInFlight()).toBe(true)
+      await service.afterCommand('click' as any, ['.button'], {})
+      expect(isInputDispatchInFlight()).toBe(false)
+    })
+
+    it('opens no window for a command that dispatches no input', async () => {
+      await service.beforeCommand('getText' as any, ['#flash'])
+      expect(isInputDispatchInFlight()).toBe(false)
+      await service.afterCommand('getText' as any, ['#flash'], 'text')
+    })
+
+    // A window stranded by a command whose afterCommand never paired (a failed
+    // command, an internal injection call) would otherwise keep dropping frames
+    // into the next test until its bound expired.
+    it('closes the window at the next test boundary', async () => {
+      await service.beforeCommand('setValue' as any, ['#username', 'foo'])
+      expect(isInputDispatchInFlight()).toBe(true)
+      service.beforeTest({ file: '/test/specs/fake.spec.ts', title: 'next' })
+      expect(isInputDispatchInFlight()).toBe(false)
     })
   })
 
