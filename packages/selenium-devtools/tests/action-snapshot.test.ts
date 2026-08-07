@@ -66,6 +66,7 @@ function cmd(overrides: Partial<CapturedCommand>): CapturedCommand {
     command: 'click',
     args: [],
     timestamp: 0,
+    startTime: 0,
     fromElement: true,
     result: undefined,
     error: undefined,
@@ -111,5 +112,25 @@ describe('selenium action-snapshot timestamp binding', () => {
     )
     await Promise.all(snapshotCaptures)
     expect(actionSnapshots).toHaveLength(0)
+  })
+})
+
+describe('selenium action-snapshot locator dialect', () => {
+  it('injects the XPath text form, which By.xpath resolves', async () => {
+    // `a*=Logout` is WebdriverIO-only syntax; a Selenium user pastes the
+    // captured locator into `By.xpath`, so the capture must emit XPath.
+    const driver = fakeDriver()
+    const { ctx, snapshotCaptures } = makeCtx(driver)
+
+    await handleOnCommand(ctx, cmd({ command: 'click', timestamp: 1 }))
+    await Promise.all(snapshotCaptures)
+
+    const scripts = vi
+      .mocked(driver.executeScript)
+      .mock.calls.map(([src]) => String(src))
+    expect(scripts).not.toHaveLength(0)
+    for (const src of scripts) {
+      expect(src).not.toContain("tag + '*=' + text")
+    }
   })
 })

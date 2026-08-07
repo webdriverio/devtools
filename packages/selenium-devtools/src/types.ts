@@ -96,6 +96,10 @@ export interface CapturedCommand {
    *  duration instead of a synthetic 1ms. */
   startTime: number
   fromElement: boolean
+  /** Locator that produced the element this command acted on. An element command
+   *  carries no locator of its own — the earlier `findElement` consumed it — so
+   *  it is recovered from the handle and threaded onto the row here. */
+  selector?: string
 }
 
 export interface DriverPatcherHooks {

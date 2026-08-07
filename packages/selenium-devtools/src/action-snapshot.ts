@@ -7,6 +7,7 @@
 
 import { captureActionSnapshot as coreCapture } from '@wdio/devtools-core'
 import type { ActionSnapshot } from '@wdio/devtools-shared'
+import { SELENIUM_RUNNER_ID } from './constants.js'
 import { getDriverOriginals } from './driverPatcher.js'
 import type { SeleniumDriverLike } from './types.js'
 
@@ -19,6 +20,7 @@ export function captureActionSnapshot(
   return coreCapture({
     command,
     timestamp,
+    runner: SELENIUM_RUNNER_ID,
     runScript: (src) =>
       orig.executeScript
         ? orig.executeScript(driver, `return (${src})`)

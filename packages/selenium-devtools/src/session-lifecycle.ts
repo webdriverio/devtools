@@ -189,7 +189,7 @@ async function initPerDriverCapture(
   const { sessionId, metadata } = await buildDriverMetadata({
     driver,
     driverReadyTs,
-    runner: ctx.runner,
+    detectedRunner: ctx.runner,
     rerunCommand: ctx.options.rerunCommand,
     rerunTemplate: ctx.rerunTemplate,
     launchCommand: ctx.launchCommand
