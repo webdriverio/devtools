@@ -637,8 +637,8 @@ export class DevtoolsBrowser extends Element {
 
   /** Outline the element for an a11y-tree locator. Resolved through the same
    *  resolver the forward direction (the element overlay) uses, because the tree
-   *  captures interactive elements as WDIO text locators (`button*=Login`) that
-   *  querySelector cannot parse. */
+   *  captures text-matched elements as XPath (`//button[contains(., "Login")]`)
+   *  that querySelector cannot parse. */
   #highlightBySelector = (ev: Event) => {
     const detail = (ev as CustomEvent<{ selector?: string } | null>).detail
     const docEl = this.iframe?.contentDocument

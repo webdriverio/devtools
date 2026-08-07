@@ -1,10 +1,12 @@
-import type { CommandLog } from '@wdio/devtools-shared'
+import { TraceType } from '@wdio/devtools-shared'
+import type { CommandLog, Metadata, TestRunnerId } from '@wdio/devtools-shared'
 
 import '@components/workbench/a11y-tree.js'
 import type { DevtoolsA11yTree } from '@components/workbench/a11y-tree.js'
+import { metadataContext } from '@/controller/context.js'
 
 import { commandLog } from '../../support/builders.js'
-import { mount, settle } from '../../support/mount.js'
+import { mount, mountWithContext, settle } from '../../support/mount.js'
 import { shadow, shadowAll, text, texts } from '../../support/queries.js'
 import {
   BARE_MOBILE_HEADER,
@@ -18,13 +20,19 @@ import {
   LOGIN_ROLES,
   loginCommand,
   loginSnapshot,
+  LOGOUT_ROW,
+  LOGOUT_WDIO_LOCATOR,
+  LOGOUT_XPATH_LOCATOR,
   LONG_NAME,
   longNameSnapshot,
   MOBILE_HEADER,
   MOBILE_ROLES,
   mobileSnapshot,
+  NATIVE_CSS_LOCATOR,
   PAGE_HEADER,
   PASSWORD_LOCATOR,
+  SEARCH_ROW,
+  secureSnapshot,
   snapshotlessCommand,
   USERNAME_LOCATOR
 } from './a11y-fixtures.js'
@@ -43,6 +51,7 @@ const HINT_LEAD = '.copybar .lead'
 const HINT_LOCATOR = '.copybar .loc'
 const HINT_IDLE = '.copybar .idle'
 const HINT_CONFIRMATION = '.copybar .ok'
+const HINT_DIALECT = '.copybar .xp'
 const PLACEHOLDER = 'wdio-devtools-placeholder'
 const EMPTY_ICON = '.empty-state-icon'
 const EMPTY_HEADING = '.empty-state-text'
@@ -482,6 +491,131 @@ describe('wdio-devtools-a11y', () => {
 
       expect(rows(panel)).toHaveLength(LOGIN_ROLES.length)
       expect(shadowAll(panel, HOT_NODE)).toHaveLength(0)
+    })
+  })
+
+  // A captured text locator is XPath for the runners with no text syntax of
+  // their own, and neither of those auto-detects the leading `//` — pasted
+  // verbatim into Nightwatch's default CSS strategy it matches nothing. The
+  // panel is where the user copies it from, so it is where that has to be said.
+  describe('locator dialect note', () => {
+    async function mountWithRunner(
+      runner: TestRunnerId | undefined,
+      logoutLocator = LOGOUT_XPATH_LOCATOR
+    ): Promise<DevtoolsA11yTree> {
+      // Shaped as the trace reader rebuilds it: a standalone-trace metadata that
+      // carries the recording runner only when the zip named one.
+      const metadata: Metadata = {
+        type: TraceType.Standalone,
+        ...(runner ? { runner } : {})
+      }
+      const panel = await mountWithContext<DevtoolsA11yTree>(PANEL, [
+        { context: metadataContext, value: metadata }
+      ])
+      await showCommand(
+        panel,
+        commandLog({ snapshotText: secureSnapshot(logoutLocator) })
+      )
+      return panel
+    }
+
+    it('says nothing for the CSS locator a Nightwatch capture prefers', async () => {
+      // Nightwatch reaches the text branch only where no unique CSS locator
+      // exists, so the note has to follow the locator rather than the runner —
+      // same row, same runner, no instruction to give.
+      const panel = await mountWithRunner('nightwatch', NATIVE_CSS_LOCATOR)
+      await hover(panel, LOGOUT_ROW)
+
+      expect(text(shadow(panel, HINT_LOCATOR))).toBe(NATIVE_CSS_LOCATOR)
+      expect(shadowAll(panel, HINT_DIALECT)).toHaveLength(0)
+    })
+
+    it('tells a Nightwatch user which strategy the locator needs', async () => {
+      const panel = await mountWithRunner('nightwatch')
+      await hover(panel, LOGOUT_ROW)
+
+      expect(text(shadow(panel, HINT_LOCATOR))).toBe(LOGOUT_XPATH_LOCATOR)
+      expect(text(shadow(panel, HINT_DIALECT))).toBe(
+        "XPath — use useXpath() or locateStrategy: 'xpath'"
+      )
+    })
+
+    it('names the cucumber runner the same way', async () => {
+      const panel = await mountWithRunner('nightwatch-cucumber')
+      await hover(panel, LOGOUT_ROW)
+
+      expect(text(shadow(panel, HINT_DIALECT))).toBe(
+        "XPath — use useXpath() or locateStrategy: 'xpath'"
+      )
+    })
+
+    it('tells a Selenium user to wrap it in By.xpath', async () => {
+      const panel = await mountWithRunner('selenium-webdriver')
+      await hover(panel, LOGOUT_ROW)
+
+      expect(text(shadow(panel, HINT_DIALECT))).toBe('XPath — use By.xpath()')
+    })
+
+    it('says nothing to a WebdriverIO user, whose locator is already native', async () => {
+      const panel = await mountWithRunner('mocha', LOGOUT_WDIO_LOCATOR)
+      await hover(panel, LOGOUT_ROW)
+
+      expect(text(shadow(panel, HINT_LOCATOR))).toBe(LOGOUT_WDIO_LOCATOR)
+      expect(shadowAll(panel, HINT_DIALECT)).toHaveLength(0)
+    })
+
+    it('says nothing to a WebdriverIO user even for an XPath locator', async () => {
+      // WDIO auto-detects the leading `//`, so a trace recorded before the
+      // per-runner capture still needs no instruction there.
+      const panel = await mountWithRunner('cucumber')
+      await hover(panel, LOGOUT_ROW)
+
+      expect(shadowAll(panel, HINT_DIALECT)).toHaveLength(0)
+    })
+
+    it('says nothing when the zip named no runner', async () => {
+      const panel = await mountWithRunner(undefined)
+      await hover(panel, LOGOUT_ROW)
+
+      expect(text(shadow(panel, HINT_LOCATOR))).toBe(LOGOUT_XPATH_LOCATOR)
+      expect(shadowAll(panel, HINT_DIALECT)).toHaveLength(0)
+    })
+
+    it('says nothing for a CSS locator, which needs no strategy', async () => {
+      const panel = await mountWithRunner('nightwatch')
+      await hover(panel, SEARCH_ROW)
+
+      expect(text(shadow(panel, HINT_LOCATOR))).toBe('#search')
+      expect(shadowAll(panel, HINT_DIALECT)).toHaveLength(0)
+    })
+
+    it('keeps the note on the copy confirmation', async () => {
+      recordClipboard()
+      const panel = await mountWithRunner('nightwatch')
+      await clickRow(panel, LOGOUT_ROW)
+
+      expect(text(shadow(panel, HINT_CONFIRMATION))).toBe('✓ Copied')
+      expect(text(shadow(panel, HINT_DIALECT))).toBe(
+        "XPath — use useXpath() or locateStrategy: 'xpath'"
+      )
+    })
+
+    it('carries the note in the row title too', async () => {
+      const panel = await mountWithRunner('nightwatch')
+
+      expect(attrOf(rowAt(panel, LOGOUT_ROW), 'title')).toBe(
+        `Click to copy locator: ${LOGOUT_XPATH_LOCATOR} (XPath — use useXpath() or locateStrategy: 'xpath')`
+      )
+      expect(attrOf(rowAt(panel, SEARCH_ROW), 'title')).toBe(
+        'Click to copy locator: #search'
+      )
+    })
+
+    it('leaves the idle prompt alone before anything is hovered', async () => {
+      const panel = await mountWithRunner('nightwatch')
+
+      expect(shadowAll(panel, HINT_IDLE)).toHaveLength(1)
+      expect(shadowAll(panel, HINT_DIALECT)).toHaveLength(0)
     })
   })
 

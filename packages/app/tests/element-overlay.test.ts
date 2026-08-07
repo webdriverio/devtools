@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { describe, expect, it, beforeEach } from 'vitest'
+import { afterEach, describe, expect, it, beforeEach } from 'vitest'
 import { resolveTestSelector } from '../src/components/browser/element-overlay.js'
 
 describe('resolveTestSelector', () => {
@@ -21,7 +21,8 @@ describe('resolveTestSelector', () => {
   })
 
   it('resolves WDIO contains-text selectors querySelector cannot parse', () => {
-    // The exact locators from the failing trace.
+    // Still reached: hand-written WDIO tests use this syntax, and traces
+    // recorded before the capture emitted XPath carry it in their a11y trees.
     expect(resolveTestSelector(document, 'button*=Login')?.tagName).toBe(
       'BUTTON'
     )
@@ -41,6 +42,72 @@ describe('resolveTestSelector', () => {
   it('returns null when the locator is absent on the page', () => {
     expect(resolveTestSelector(document, '#missing')).toBeNull()
     expect(resolveTestSelector(document, 'button*=Register')).toBeNull()
+  })
+
+  describe('XPath locators — the form the capture emits for a text match', () => {
+    const nativeEvaluate = document.evaluate
+
+    afterEach(() => {
+      document.evaluate = nativeEvaluate
+    })
+
+    /** happy-dom ships no XPath engine, so the engine is stubbed to assert what
+     *  the resolver asks of it. Resolution against a real one is covered by the
+     *  browser spec in `test-ui/workbench/player/snapshot.test.ts`. The
+     *  double-cast is the stub satisfying only the one field the resolver reads
+     *  out of the `XPathResult` it never constructs. */
+    function stubXPath(result: Node | null): string[] {
+      const asked: string[] = []
+      document.evaluate = ((expression: string) => {
+        asked.push(expression)
+        return { singleNodeValue: result }
+      }) as unknown as Document['evaluate']
+      return asked
+    }
+
+    it('hands the expression to the document XPath engine verbatim', () => {
+      const button = document.querySelector('button')
+      const asked = stubXPath(button)
+
+      expect(
+        resolveTestSelector(document, '//button[contains(., "Login")]')
+      ).toBe(button)
+      expect(asked).toEqual(['//button[contains(., "Login")]'])
+    })
+
+    it('recognises every XPath shape a locator can arrive in', () => {
+      const asked = stubXPath(document.querySelector('a'))
+
+      for (const locator of [
+        '//a[contains(., "Logout")]',
+        '/html/body/a',
+        './/a',
+        '(//a[contains(., "Logout")])[1]'
+      ]) {
+        expect(resolveTestSelector(document, locator)).not.toBeNull()
+      }
+      expect(asked).toHaveLength(4)
+    })
+
+    it('draws nothing for a non-element result or a malformed expression', () => {
+      stubXPath(document.createTextNode('Logout'))
+      expect(resolveTestSelector(document, '//a/text()')).toBeNull()
+
+      document.evaluate = (() => {
+        throw new Error('Invalid expression')
+      }) as unknown as Document['evaluate']
+      expect(resolveTestSelector(document, '//a[contains(.,]')).toBeNull()
+    })
+
+    it('leaves CSS attribute selectors to querySelector', () => {
+      // `[href="/logout"]` contains a slash but is not XPath — the shape test
+      // must not steal it, since only querySelector can resolve it.
+      stubXPath(null)
+
+      expect(resolveTestSelector(document, 'a[href="/logout"]')?.tagName).toBe(
+        'A'
+      )
+    })
   })
 
   it('does not treat an expected-text assertion arg as a selector', () => {

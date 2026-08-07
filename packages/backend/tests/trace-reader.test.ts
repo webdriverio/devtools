@@ -212,6 +212,44 @@ describe('parseTraceZip', () => {
     expect(trace.suites).toEqual([])
   })
 
+  // The player names the locator dialect the capture used, which it can only do
+  // if the zip says which runner recorded it.
+  describe('recording runner', () => {
+    const withRunner = (runner: unknown) =>
+      zipSync({
+        'trace.trace': toNdjson([
+          {
+            type: 'context-options',
+            wallTime: WALL_TIME,
+            browserName: 'chrome',
+            contextId: 'context@abcd1234',
+            options: { viewport: { width: 1024, height: 768 } },
+            ...(runner === undefined ? {} : { runner })
+          }
+        ])
+      })
+
+    it('restores the runner the zip names', () => {
+      const { trace } = parseTraceZip(withRunner('nightwatch'))
+
+      expect(trace.metadata.runner).toBe('nightwatch')
+    })
+
+    it('leaves it unset for a zip recorded without one', () => {
+      // Our own older zips, and every foreign one — the reader already tolerates
+      // those and must not invent a runner for them.
+      const { trace } = parseTraceZip(withRunner(undefined))
+
+      expect(trace.metadata.runner).toBeUndefined()
+    })
+
+    it('drops a value that is not a known runner id', () => {
+      const { trace } = parseTraceZip(withRunner('playwright-test'))
+
+      expect(trace.metadata.runner).toBeUndefined()
+    })
+  })
+
   it('restores DOM mutations from a trace.mutations stream, dropping the marker', () => {
     const mutations = [
       {
