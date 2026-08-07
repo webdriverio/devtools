@@ -16,6 +16,7 @@ import {
   type CapturedPerformancePayload
 } from '@wdio/devtools-core'
 import { captureActionSnapshot } from './action-snapshot.js'
+import { nightwatchRunnerId } from './helpers/utils.js'
 import { NAVIGATION_COMMANDS } from './constants.js'
 import {
   parseNetworkFromPerfLogs,
@@ -28,7 +29,8 @@ import type {
   ActionSnapshot,
   CommandLog,
   DevToolsMode,
-  NightwatchBrowser
+  NightwatchBrowser,
+  TestRunnerId
 } from './types.js'
 
 const log = logger('@wdio/nightwatch-devtools:SessionCapturer')
@@ -60,6 +62,10 @@ export class SessionCapturer extends SessionCapturerBase {
 
   // Populated by captureCommand when mode === 'trace' (set by the plugin).
   traceMode: DevToolsMode = 'live'
+
+  /** Which Nightwatch runner is driving — set by the plugin, and passed to the
+   *  per-action capture so the injected scripts emit this runner's dialect. */
+  runner: TestRunnerId = nightwatchRunnerId(false)
   readonly actionSnapshots: ActionSnapshot[] = []
   readonly snapshotCaptures: Promise<void>[] = []
 
@@ -144,7 +150,12 @@ export class SessionCapturer extends SessionCapturerBase {
       return
     }
     this.snapshotCaptures.push(
-      captureActionSnapshot(this.#browser, command, timestamp).then((snap) => {
+      captureActionSnapshot(
+        this.#browser,
+        command,
+        timestamp,
+        this.runner
+      ).then((snap) => {
         if (snap) {
           upsertRichestSnapshot(this.actionSnapshots, snap)
         }

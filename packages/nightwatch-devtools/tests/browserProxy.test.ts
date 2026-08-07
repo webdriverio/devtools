@@ -407,3 +407,113 @@ describe('BrowserProxy negated native assertions (assert.not.* / verify.not.*)',
     expect(row.error).toBeDefined()
   })
 })
+
+describe('BrowserProxy native-assert buffer scope', () => {
+  beforeEach(() => {
+    getCallSourceFromStack.mockReset()
+    getCallSourceFromStack.mockReturnValue({
+      filePath: '/tests/steps.js',
+      callSource: '/tests/steps.js:31'
+    })
+  })
+
+  /** Browser whose assert method returns a promise the test controls, mirroring
+   *  Nightwatch's ES6-async command return (`node.deferred.promise`). */
+  function makeSettleableAssertBrowser() {
+    const settlers: Array<{
+      resolve: (v: unknown) => void
+      reject: (e: unknown) => void
+    }> = []
+    const method = vi.fn(
+      () =>
+        new Promise<unknown>((resolve, reject) => {
+          settlers.push({ resolve, reject })
+        })
+    )
+    const browser = {
+      assert: { urlContains: method },
+      verify: { urlContains: method }
+    } as unknown as NightwatchBrowser
+    return { browser, settlers }
+  }
+
+  function assertNs(browser: NightwatchBrowser) {
+    return (
+      browser as unknown as {
+        assert: { urlContains: (a: unknown) => unknown }
+      }
+    ).assert
+  }
+
+  it('survives a per-step resetCommandTracking (cucumber calls it between steps)', () => {
+    const { capturer } = makeCapturer()
+    const proxy = new BrowserProxy(capturer, makeTestManager(), () => ({
+      uid: 'scenario-1'
+    }))
+    const { browser } = makeSettleableAssertBrowser()
+    proxy.wrapBrowserCommands(browser)
+
+    assertNs(browser).urlContains('/secure')
+    // Cucumber resets dedup state at every BeforeStep. Clearing the assert
+    // buffer there dropped every assertion but the last step's.
+    proxy.resetCommandTracking()
+    assertNs(browser).urlContains('/login')
+
+    const calls = proxy.drainNativeAssertCalls()
+    expect(calls.map((c) => c.args[0])).toEqual(['/secure', '/login'])
+  })
+
+  it('clears the buffer on resetTestTracking (a new test unit starts fresh)', () => {
+    const { capturer } = makeCapturer()
+    const proxy = new BrowserProxy(capturer, makeTestManager(), () => ({
+      uid: 'scenario-1'
+    }))
+    const { browser } = makeSettleableAssertBrowser()
+    proxy.wrapBrowserCommands(browser)
+
+    assertNs(browser).urlContains('/secure')
+    proxy.resetTestTracking()
+
+    expect(proxy.drainNativeAssertCalls()).toEqual([])
+  })
+
+  it('records the outcome off the assertion promise for both settlements', async () => {
+    const { capturer } = makeCapturer()
+    const proxy = new BrowserProxy(capturer, makeTestManager(), () => ({
+      uid: 'scenario-1'
+    }))
+    const { browser, settlers } = makeSettleableAssertBrowser()
+    proxy.wrapBrowserCommands(browser)
+
+    const okPromise = assertNs(browser).urlContains('/secure')
+    const failPromise = assertNs(browser).urlContains('/nope')
+    const calls = proxy.drainNativeAssertCalls()
+
+    settlers[0].resolve('https://example.com/secure')
+    settlers[1].reject(new Error('expected "/nope" but got: "/secure"'))
+    await okPromise
+    await expect(failPromise).rejects.toThrow('but got')
+
+    expect(calls[0].observed?.passed).toBe(true)
+    expect(calls[1].observed?.passed).toBe(false)
+    expect(calls[1].observed?.message).toContain('but got')
+  })
+
+  it('leaves a non-thenable command return unobserved', () => {
+    const { capturer } = makeCapturer()
+    const proxy = new BrowserProxy(capturer, makeTestManager(), () => ({
+      uid: 'scenario-1'
+    }))
+    // Nightwatch returns the `api` object (not a promise) when commands aren't
+    // ES6-async; the results-bag path supplies the outcome there.
+    const browser = {
+      assert: { urlContains: vi.fn(() => browser) },
+      verify: { urlContains: vi.fn(() => browser) }
+    } as unknown as NightwatchBrowser
+    proxy.wrapBrowserCommands(browser)
+
+    assertNs(browser).urlContains('/secure')
+
+    expect(proxy.drainNativeAssertCalls()[0].observed).toBeUndefined()
+  })
+})

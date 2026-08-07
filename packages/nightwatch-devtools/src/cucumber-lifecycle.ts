@@ -267,8 +267,10 @@ export async function captureCucumberScenarioBeforeQuit(
     // Emit native asserts (assert.titleContains, …) while the session is live —
     // Nightwatch's afterEach path skips the cucumber runner, so this is the only
     // place scenario asserts get captured. drainNativeAssertCalls() is empty when
-    // captureAssertions is off. Pass/fail isn't correlated to cucumber's result
-    // shape yet, so rows may render neutral (never dropped) — tracked follow-up.
+    // captureAssertions is off. `currentTest` is undefined because a cucumber run
+    // installs Nightwatch's no-op SimplifiedReporter and never fills a results
+    // bag; each row's pass/fail comes from its own settled promise instead
+    // (`observedAssertOutcome`).
     const assertCalls = ctx.browserProxy?.drainNativeAssertCalls() ?? []
     if (assertCalls.length > 0) {
       await captureNativeAssertions(
@@ -279,9 +281,8 @@ export async function captureCucumberScenarioBeforeQuit(
         assertCalls
       )
     }
-    // Anchored: a scenario's per-scenario session is re-navigated, so the
-    // destination's async initial anchor may not have run — the documented
-    // cucumber `hasMutations:false` gap.
+    // Anchored: a scenario ending on a navigation leaves the destination's
+    // async initial anchor unrun, so its DOM would be absent from the slice.
     await ctx.sessionCapturer.captureTrace(browser, true)
     flushTestSlice(ctx)
     await ctx.emitTestArtifacts(

@@ -80,7 +80,8 @@ import { flushTestSlice, recordSpecSliceBoundary } from './trace-slices.js'
 import {
   getTestIcon,
   incrementCounters,
-  buildPluginMetadataOptions
+  buildPluginMetadataOptions,
+  nightwatchRunnerId
 } from './helpers/utils.js'
 
 const log = logger('@wdio/nightwatch-devtools')
@@ -319,6 +320,9 @@ class NightwatchDevToolsPlugin {
       },
       get configPath() {
         return self.#configPath
+      },
+      get runner() {
+        return nightwatchRunnerId(self.#isCucumberRunner)
       },
       getCurrentTest: () => self.#currentTest,
       getCurrentScenarioSuite: () => self.#currentScenarioSuite,

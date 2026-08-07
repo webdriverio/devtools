@@ -176,7 +176,7 @@ export function wrapBrowserOnce(
     ctx.browserProxy.wrapUrlMethod(browser)
     ctx.isScriptInjected = true
   }
-  ctx.browserProxy.resetCommandTracking()
+  ctx.browserProxy.resetTestTracking()
   ctx.browserProxy.wrapBrowserCommands(browser)
 }
 

@@ -10,19 +10,25 @@
 import { captureActionSnapshot as coreCapture } from '@wdio/devtools-core'
 import type { ActionSnapshot } from '@wdio/devtools-shared'
 import { webdriverExecute, webdriverGet } from './helpers/webdriverHttp.js'
-import type { NightwatchBrowser } from './types.js'
+import type { NightwatchBrowser, TestRunnerId } from './types.js'
 
 export function captureActionSnapshot(
   browser: NightwatchBrowser,
   command: string,
-  timestamp?: number
+  timestamp?: number,
+  runner?: TestRunnerId
 ): Promise<ActionSnapshot | null> {
   return coreCapture({
     command,
     timestamp,
+    runner,
     runScript: (src) => webdriverExecute(browser, `return (${src})`),
     takeScreenshot: () => webdriverGet<string>(browser, 'screenshot'),
-    getUrl: () => webdriverGet<string>(browser, 'url'),
-    getTitle: () => webdriverGet<string>(browser, 'title')
+    // `?? undefined`: the transport answers `null` on a failed read, which core's
+    // url/title probes type as `undefined` (only `takeScreenshot` accepts null).
+    getUrl: () =>
+      webdriverGet<string>(browser, 'url').then((v) => v ?? undefined),
+    getTitle: () =>
+      webdriverGet<string>(browser, 'title').then((v) => v ?? undefined)
   })
 }

@@ -30,6 +30,7 @@ import type {
   NightwatchBrowser,
   ScreencastOptions,
   SuiteStats,
+  TestRunnerId,
   TestStats
 } from './types.js'
 
@@ -42,6 +43,7 @@ export interface SessionInitCtx {
   readonly bidiEnabled: boolean
   readonly mode: DevToolsMode
   readonly captureAssertions: boolean
+  readonly runner: TestRunnerId
 
   sessionCapturer: SessionCapturer
   testReporter: TestReporter
@@ -145,6 +147,7 @@ function broadcastSessionMetadata(
     testEnv: opts.testEnv,
     host: opts.webdriver?.host,
     options: ctx.buildMetadataOptions(),
+    runner: ctx.runner,
     url: ''
   }
   ctx.sessionCapturer.metadata = metadata
@@ -282,6 +285,7 @@ export async function ensureSessionInitialized(
     browser
   )
   ctx.sessionCapturer.traceMode = ctx.mode
+  ctx.sessionCapturer.runner = ctx.runner
   if (ctx.mode !== 'trace') {
     const connected = await ctx.sessionCapturer.waitForConnection(3000)
     if (!connected) {
