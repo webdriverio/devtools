@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { ScreencastRecorderBase } from '../src/screencast.js'
+import {
+  INPUT_DISPATCH_MAX_HOLD_MS,
+  beginInputDispatch
+} from '../src/input-dispatch.js'
 
 class TestRecorder extends ScreencastRecorderBase<{ name: string }> {
   shotsTaken = 0
@@ -80,6 +84,62 @@ describe('ScreencastRecorderBase — polling path', () => {
     const after = r.bufferLength
     await vi.advanceTimersByTimeAsync(200) // no more frames
     expect(r.bufferLength).toBe(after)
+    vi.useRealTimers()
+  })
+})
+
+describe('ScreencastRecorderBase — input-dispatch gate', () => {
+  it('drops ticks while an input command is in flight, resumes once it settles', async () => {
+    vi.useFakeTimers()
+    const r = new TestRecorder({ pollIntervalMs: 50 })
+    await r.start({ name: 'driver' })
+    const suppressed = r.bufferLength
+    const close = beginInputDispatch('click')
+    try {
+      await vi.advanceTimersByTimeAsync(150) // 3 ticks, all skipped
+      expect(r.bufferLength).toBe(suppressed)
+    } finally {
+      close()
+    }
+    await vi.advanceTimersByTimeAsync(150)
+    expect(r.bufferLength).toBeGreaterThan(suppressed)
+    await r.stop()
+    vi.useRealTimers()
+  })
+
+  it('keeps polling through a command that dispatches no input', async () => {
+    vi.useFakeTimers()
+    const r = new TestRecorder({ pollIntervalMs: 50 })
+    await r.start({ name: 'driver' })
+    const before = r.bufferLength
+    const close = beginInputDispatch('getText')
+    try {
+      await vi.advanceTimersByTimeAsync(150)
+      expect(r.bufferLength).toBeGreaterThan(before)
+    } finally {
+      close()
+    }
+    await r.stop()
+    vi.useRealTimers()
+  })
+
+  it('resumes after the bound when a command never settles', async () => {
+    vi.useFakeTimers()
+    const r = new TestRecorder({ pollIntervalMs: 50 })
+    await r.start({ name: 'driver' })
+    const stalled = r.bufferLength
+    // Stands in for a command whose completion callback never fires — a failing
+    // Nightwatch test discards the rest of its queue.
+    const close = beginInputDispatch('click')
+    try {
+      await vi.advanceTimersByTimeAsync(150)
+      expect(r.bufferLength).toBe(stalled)
+      await vi.advanceTimersByTimeAsync(INPUT_DISPATCH_MAX_HOLD_MS)
+      expect(r.bufferLength).toBeGreaterThan(stalled)
+    } finally {
+      close()
+    }
+    await r.stop()
     vi.useRealTimers()
   })
 })
