@@ -23,6 +23,14 @@ const BASE_URL = 'https://the-internet.herokuapp.com'
 let flakyAttempts = 0
 
 describe('nightwatch-devtools smoke test', function () {
+  // Headless Chrome stops activating clicks after the first test in a session:
+  // a later submit dispatches, nothing navigates, and #flash never appears — so
+  // the always-failing test below timed out on its wait instead of reaching the
+  // assertion it exists to demonstrate.
+  afterEach(async function (browser) {
+    await browser.end()
+  })
+
   it('logs into the secure area with valid credentials', async function (browser) {
     console.log('[TEST] logging in with valid credentials')
     await browser.url(`${BASE_URL}/login`)
@@ -34,8 +42,8 @@ describe('nightwatch-devtools smoke test', function () {
     browser.assert.urlContains('/secure')
     browser.assert.textContains('#flash', 'You logged into a secure area')
 
-    await browser.waitForElementVisible('a[href="/logout"]', 5000)
-    await browser.click('a[href="/logout"]')
+    await browser.waitForElementVisible('a.button', 5000)
+    await browser.click('a.button')
     await browser.waitForElementVisible('#username', 5000)
     browser.assert.urlContains('/login')
     console.log('[TEST] logged back out')
@@ -46,14 +54,7 @@ describe('nightwatch-devtools smoke test', function () {
     await browser.url(`${BASE_URL}/login`)
     await browser.waitForElementVisible('#username', 5000)
 
-    // 1. Explicitly click the input to gain browser focus
-    await browser.click('#username')
-    await browser.clearValue('#username')
     await browser.setValue('#username', 'foobar')
-
-    // 2. Explicitly click the password input to move focus safely
-    await browser.click('#password')
-    await browser.clearValue('#password')
     await browser.setValue('#password', 'barfoo')
 
     await browser.click('button[type="submit"]')
