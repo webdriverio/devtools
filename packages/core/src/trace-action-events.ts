@@ -6,7 +6,7 @@ import type {
   CommandLog,
   TestMetadataMap
 } from '@wdio/devtools-shared'
-import { POINTABLE_METHODS } from '@wdio/devtools-shared'
+import { locatorsMatch, POINTABLE_METHODS } from '@wdio/devtools-shared'
 import {
   ASSERT_ACTION_CLASS,
   formatActionTitle,
@@ -271,7 +271,10 @@ function actionError(
 /** Centre of the element a pointer action matched, from the captured element
  *  rects at the command's completion. Undefined for non-pointer actions, a
  *  non-string selector, or a selector absent from the captured elements (e.g. a
- *  WDIO text/xpath locator `getSelector` didn't reproduce). */
+ *  WDIO text/xpath locator `getSelector` didn't reproduce). A runner that acts
+ *  through a resolved element handle leaves nothing selector-shaped in `args`
+ *  (Selenium: the handle is the receiver, the args hold only the typed value), so
+ *  the row's recorded locator is read first. */
 function resolveActionPoint(
   action: TraceAction,
   cmd: CommandLog,
@@ -280,7 +283,7 @@ function resolveActionPoint(
   if (action.class !== 'Element' || !POINTABLE_METHODS.has(action.method)) {
     return undefined
   }
-  const selector = cmd.args?.[0]
+  const selector = cmd.selector ?? cmd.args?.[0]
   if (typeof selector !== 'string') {
     return undefined
   }
@@ -291,7 +294,7 @@ function resolveActionPoint(
       selector?: string
       boundingBox?: { x: number; y: number; width: number; height: number }
     }
-    if (e.selector === selector && e.boundingBox) {
+    if (e.selector && locatorsMatch(e.selector, selector) && e.boundingBox) {
       const bb = e.boundingBox
       return { x: bb.x + bb.width / 2, y: bb.y + bb.height / 2 }
     }

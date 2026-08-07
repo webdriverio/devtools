@@ -124,6 +124,31 @@ describe('input point synthesis (A8)', () => {
     expect(point).toEqual({ x: 30, y: 25 })
   })
 
+  it('resolves the point from the row locator when args carry none', () => {
+    // Selenium acts through a resolved element handle — the receiver, not an
+    // argument — so `args` holds no locator and `selector` is the only evidence.
+    const point = pointOf(
+      [{ command: 'click', args: [], selector: '#go', timestamp: 2000 }],
+      [snap({ elements: [{ selector: '#go', boundingBox: box }] })]
+    )
+    expect(point).toEqual({ x: 30, y: 25 })
+  })
+
+  it('prefers the row locator over a fill value sitting in args[0]', () => {
+    const point = pointOf(
+      [
+        {
+          command: 'sendKeys',
+          args: ['tomsmith'],
+          selector: '#username',
+          timestamp: 2000
+        }
+      ],
+      [snap({ elements: [{ selector: '#username', boundingBox: box }] })]
+    )
+    expect(point).toEqual({ x: 30, y: 25 })
+  })
+
   it('omits the point when the selector is absent from captured elements', () => {
     const point = pointOf(
       [{ command: 'click', args: ['#go'], timestamp: 2000, startTime: 1950 }],
