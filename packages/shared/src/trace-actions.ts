@@ -145,3 +145,33 @@ const KEYBOARD_COMMANDS: ReadonlySet<string> = new Set([
 export function isKeyboardCommand(command: string): boolean {
   return KEYBOARD_COMMANDS.has(command)
 }
+
+/** Runner-native pointer commands the trace vocabulary deliberately doesn't
+ *  name — Nightwatch's low-level mouse API has no meaningful trace method, so
+ *  adding it to ACTION_MAP would put noise in the timeline. Listed here because
+ *  they still dispatch, and a command that dispatches unrecognized keeps the
+ *  screenshot poll running straight through it. */
+const UNMAPPED_POINTER_COMMANDS: ReadonlySet<string> = new Set([
+  'moveToElement',
+  'mouseButtonClick',
+  'mouseButtonDown',
+  'mouseButtonUp',
+  'rightClick',
+  'submitForm'
+])
+
+/**
+ * Whether a runner command makes the driver dispatch trusted input into the
+ * page. Derived from the vocabulary above rather than declared as a second list:
+ * a command qualifies when it types (`isKeyboardCommand`) or when its trace
+ * method acts at a point (`POINTABLE_METHODS`). A command wrongly classified as
+ * non-dispatching is the costly direction — it leaves the screencast poll racing
+ * the dispatch — so the unmapped pointer commands above are named explicitly.
+ */
+export function isInputDispatchingCommand(command: string): boolean {
+  if (isKeyboardCommand(command) || UNMAPPED_POINTER_COMMANDS.has(command)) {
+    return true
+  }
+  const action = ACTION_MAP[command]
+  return action !== undefined && POINTABLE_METHODS.has(action.method)
+}
