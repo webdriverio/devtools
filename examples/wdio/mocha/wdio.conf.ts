@@ -13,6 +13,11 @@ export const config: WebdriverIO.Config = {
       'goog:chromeOptions': {
         args: [
           '--headless',
+          // Chrome's password-leak check silently stops delivering ALL
+          // WebDriver-synthesized input to the tab ~1s after a breached
+          // credential is submitted (tomsmith/SuperSecretPassword! is in the
+          // corpus). Blocking only that host prevents it; see CLAUDE.md.
+          '--host-resolver-rules=MAP passwordsleakcheck-pa.googleapis.com 127.0.0.1',
           '--disable-gpu',
           '--remote-allow-origins=*',
           '--window-size=1600,900'

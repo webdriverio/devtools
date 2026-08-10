@@ -1,17 +1,9 @@
-import { browser, expect } from '@wdio/globals'
+import { expect } from '@wdio/globals'
 
 import LoginPage from '../../pageobjects/login.page.js'
 import SecurePage from '../../pageobjects/secure.page.js'
 
 describe('Login', () => {
-  // Headless Chrome stops activating clicks after the first test in a session:
-  // the second test's submit dispatches, nothing navigates, and #flash never
-  // appears. Reproduces with the devtools service removed and survives
-  // deleteCookies(), so a fresh session is the only reliable reset.
-  beforeEach(async () => {
-    await browser.reloadSession()
-  })
-
   it('logs into the secure area with valid credentials', async () => {
     console.log('[TEST] logging in with valid credentials')
     await LoginPage.open()

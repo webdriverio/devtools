@@ -23,14 +23,6 @@ const BASE_URL = 'https://the-internet.herokuapp.com'
 let flakyAttempts = 0
 
 describe('nightwatch-devtools smoke test', function () {
-  // Headless Chrome stops activating clicks after the first test in a session:
-  // a later submit dispatches, nothing navigates, and #flash never appears — so
-  // the always-failing test below timed out on its wait instead of reaching the
-  // assertion it exists to demonstrate.
-  afterEach(async function (browser) {
-    await browser.end()
-  })
-
   it('logs into the secure area with valid credentials', async function (browser) {
     console.log('[TEST] logging in with valid credentials')
     await browser.url(`${BASE_URL}/login`)
