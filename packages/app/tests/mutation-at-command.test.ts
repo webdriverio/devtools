@@ -9,8 +9,18 @@ function mut(timestamp: number): TraceMutation {
   return { type: 'childList', addedNodes: [], removedNodes: [], timestamp }
 }
 
-function cmd(timestamp: number, startTime?: number): CommandLog {
-  return { command: 'click', args: [], timestamp, startTime } as CommandLog
+function cmd(
+  timestamp: number,
+  startTime?: number,
+  sequence?: number
+): CommandLog {
+  return {
+    command: 'click',
+    args: [],
+    timestamp,
+    startTime,
+    sequence
+  } as CommandLog
 }
 
 describe('mutationForCommand', () => {
@@ -64,5 +74,53 @@ describe('mutationForCommand', () => {
   it('returns undefined without a command or without mutations', () => {
     expect(mutationForCommand(undefined, [], mutations)).toBeUndefined()
     expect(mutationForCommand(cmd(100), [], [])).toBeUndefined()
+  })
+})
+
+// Live mode appends commands in ARRIVAL order, and a deferred row — a
+// Nightwatch native assert, held back until its outcome is known and flushed in
+// one batch at test-end — arrives after rows it ran long before while carrying
+// its real, earlier start. Shape below mirrors the measured example run.
+describe('mutationForCommand with out-of-order arrival', () => {
+  // Three documents: login@100, secure@400, login again@700.
+  const stream = [mut(100), mut(400), mut(700), mut(1000)]
+  const firstDriver = cmd(350, 320, 1)
+  const deferredAssert = cmd(360, 360, 2)
+  const laterDriver = cmd(800, 700, 3)
+  const lastDriver = cmd(950, 900, 4)
+  // Exactly what the client receives: every driver row, then the assert batch.
+  const asArrived = [firstDriver, laterDriver, lastDriver, deferredAssert]
+
+  it('bounds a command by its timeline successor, not its array neighbour', () => {
+    // lastDriver's array neighbour is the assert that ran at 360, which bounded
+    // it back onto the FIRST document; nothing runs after it on the timeline,
+    // so its state is the newest captured DOM.
+    expect(mutationForCommand(lastDriver, asArrived, stream)).toBe(stream[3])
+  })
+
+  it('resolves a deferred row against the command that followed it', () => {
+    // The assert arrives last, so an array neighbour gives it no bound at all
+    // and it inherited the end of the run; its real successor starts at 700.
+    expect(mutationForCommand(deferredAssert, asArrived, stream)).toBe(
+      stream[1]
+    )
+  })
+
+  it('is unchanged when the array is already in timeline order', () => {
+    const inOrder = [firstDriver, deferredAssert, laterDriver, lastDriver]
+    for (const command of inOrder) {
+      expect(mutationForCommand(command, inOrder, stream)).toBe(
+        mutationForCommand(command, asArrived, stream)
+      )
+    }
+  })
+
+  it('breaks a full tie on array order so a sorted trace keeps its successor', () => {
+    // Same start and no `sequence` (a reconstructed trace carries neither) —
+    // the array is the only remaining evidence of which ran first.
+    const a = cmd(500, 400)
+    const b = cmd(600, 400)
+    expect(mutationForCommand(a, [a, b], stream)).toBe(stream[0])
+    expect(mutationForCommand(b, [a, b], stream)).toBe(stream[3])
   })
 })
