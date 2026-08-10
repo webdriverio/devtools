@@ -36,14 +36,14 @@ export function detectRunner(): 'jest' | 'mocha' | 'cucumber' | null {
 export function tryRegisterRunnerHooks(
   callbacks: RunnerHookCallbacks
 ): 'jest' | 'mocha' | 'cucumber' | false {
-  const runner = detectRunner()
-  if (runner === 'jest') {
+  const detectedRunner = detectRunner()
+  if (detectedRunner === 'jest') {
     return tryRegisterJestHooks(callbacks) ? 'jest' : false
   }
-  if (runner === 'mocha') {
+  if (detectedRunner === 'mocha') {
     return tryRegisterMochaHooks(callbacks) ? 'mocha' : false
   }
-  if (runner === 'cucumber') {
+  if (detectedRunner === 'cucumber') {
     return tryRegisterCucumberHooks(callbacks) ? 'cucumber' : false
   }
   return false

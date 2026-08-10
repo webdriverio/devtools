@@ -38,7 +38,9 @@ export interface PluginInternals {
     traceGranularity?: TraceGranularity
   }
   readonly screencastOptions: ScreencastOptions
-  readonly runner: string
+  /** The JS test runner `detectRunner` found (mocha/jest/cucumber). Distinct
+   *  from `Metadata.runner`, which names this adapter for every one of them. */
+  readonly detectedRunner: string
   readonly rerunTemplate: string | undefined
   readonly launchCommand: string | undefined
   readonly isReuse: boolean
@@ -53,7 +55,6 @@ export interface PluginInternals {
   testManager: TestManager | undefined
   screencast: ScreencastRecorder | undefined
   sessionId: string | undefined
-  scriptInjected: boolean
   testFilePath: string | undefined
   keepAliveTimer: ReturnType<typeof setInterval> | undefined
 
@@ -77,7 +78,6 @@ export interface PluginInternals {
 
   // Plugin-side delegates
   setFinalized(v: boolean): void
-  setScriptInjected(v: boolean): void
   ensureBackendStarted(): Promise<void>
   flushPendingTestActions(): void
   resetRetryTracker(): void

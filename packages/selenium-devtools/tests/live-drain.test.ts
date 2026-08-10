@@ -43,13 +43,11 @@ function makeCtx(mode: DevToolsMode) {
     testManager,
     retryTracker: new RetryTracker(),
     options: { captureScreenshots: false, mode },
-    scriptInjected: true,
     finalized: false,
     // No driver: keeps the trace-mode per-action snapshot path out of the way.
     driver: undefined,
     actionSnapshots: [] as ActionSnapshot[],
-    snapshotCaptures,
-    setScriptInjected: () => {}
+    snapshotCaptures
   } as unknown as OnCommandCtx
 
   return { ctx, snapshotCaptures, liveDrain, traceDrain, reinject }

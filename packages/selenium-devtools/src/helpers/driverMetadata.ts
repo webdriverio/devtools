@@ -100,7 +100,6 @@ export async function buildDriverMetadata(
         sessionId,
         runner: SELENIUM_RUNNER_ID,
         options: {
-          framework: SELENIUM_RUNNER_ID,
           baseDir: process.cwd(),
           rerunCommand: input.rerunCommand ?? input.rerunTemplate,
           launchCommand: input.launchCommand,

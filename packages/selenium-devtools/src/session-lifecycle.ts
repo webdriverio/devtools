@@ -18,6 +18,7 @@ import {
   flushRangeLogged,
   recordSliceBoundary as coreRecordSliceBoundary,
   recordSpecBoundary as coreRecordSpecBoundary,
+  registerCollectorPreload,
   resolveAdapterOutputDir,
   type SpecBoundaryContext,
   type SpecRange,
@@ -64,7 +65,9 @@ export interface SessionLifecycleCtx {
     emitArtifactsManifest?: boolean
   }
   readonly screencastOptions: ScreencastOptions
-  readonly runner: string
+  /** The JS test runner `detectRunner` found (mocha/jest/cucumber). Distinct
+   *  from `Metadata.runner`, which names this adapter for every one of them. */
+  readonly detectedRunner: string
   readonly rerunTemplate: string | undefined
   readonly launchCommand: string | undefined
   readonly isReuse: boolean
@@ -77,7 +80,6 @@ export interface SessionLifecycleCtx {
   testManager: TestManager | undefined
   screencast: ScreencastRecorder | undefined
   sessionId: string | undefined
-  scriptInjected: boolean
   testFilePath: string | undefined
   keepAliveTimer: ReturnType<typeof setInterval> | undefined
 
@@ -189,7 +191,7 @@ async function initPerDriverCapture(
   const { sessionId, metadata } = await buildDriverMetadata({
     driver,
     driverReadyTs,
-    detectedRunner: ctx.runner,
+    detectedRunner: ctx.detectedRunner,
     rerunCommand: ctx.options.rerunCommand,
     rerunTemplate: ctx.rerunTemplate,
     launchCommand: ctx.launchCommand
@@ -216,22 +218,56 @@ async function initPerDriverCapture(
       })()
     : Promise.resolve()
 
-  const bidiPromise = (async () => {
-    try {
-      const sinks = buildBidiSinks(ctx.sessionCapturer!)
-      const ok = await attachBidiHandlers(driver, sinks)
-      if (ok) {
-        ctx.sessionCapturer!.bidiActive = true
-        log.info(
-          '✓ BiDi data flow active — script-injected console/network suppressed'
-        )
-      }
-    } catch (err) {
-      log.warn(`BiDi attach threw: ${errorMessage(err)}`)
-    }
-  })()
+  await Promise.all([
+    screencastPromise,
+    attachBidi(ctx, driver),
+    registerPreload(ctx, driver)
+  ])
+}
 
-  await Promise.all([screencastPromise, bidiPromise])
+/** Route this driver's console/network through BiDi, which suppresses the
+ *  script-injected equivalents so neither stream double-reports. */
+async function attachBidi(
+  ctx: SessionLifecycleCtx,
+  driver: SeleniumDriverLike
+): Promise<void> {
+  try {
+    const attached = await attachBidiHandlers(
+      driver,
+      buildBidiSinks(ctx.sessionCapturer!)
+    )
+    if (attached) {
+      ctx.sessionCapturer!.bidiActive = true
+      log.info(
+        '✓ BiDi data flow active — script-injected console/network suppressed'
+      )
+    }
+  } catch (err) {
+    log.warn(`BiDi attach threw: ${errorMessage(err)}`)
+  }
+}
+
+/**
+ * Register the collector to run at document-start, so every document — including
+ * the ones a navigation creates without us noticing — instruments and anchors
+ * itself before any of its own script runs.
+ *
+ * Awaited as part of the per-driver bringup, which the patched `build()`
+ * thenable waits on: registering after the first `get` would leave that document
+ * on the `<script>` path it exists to replace. Self-degrades to per-document
+ * `<script>` injection when the session carries no BiDi channel.
+ */
+function registerPreload(
+  ctx: SessionLifecycleCtx,
+  driver: SeleniumDriverLike
+): Promise<void> {
+  return registerCollectorPreload(driver, (level, message) =>
+    log[level](message)
+  ).then((registered) => {
+    if (ctx.sessionCapturer) {
+      ctx.sessionCapturer.preloadRegistered = registered
+    }
+  })
 }
 
 export async function onDriverEnd(ctx: SessionLifecycleCtx): Promise<void> {
@@ -277,7 +313,6 @@ export async function onDriverEnd(ctx: SessionLifecycleCtx): Promise<void> {
   }
   ctx.driver = undefined
   ctx.screencast = undefined
-  ctx.scriptInjected = false
   ctx.sessionId = undefined
   ctx.resetRetryTracker()
 }

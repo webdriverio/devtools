@@ -26,6 +26,13 @@ export class SessionCapturer extends SessionCapturerBase {
 
   // True once BiDi inspectors are attached — script-trace path skips streams.
   bidiActive = false
+
+  /** True once the collector is registered as a document-start BiDi preload.
+   *  Every document then instruments itself before any of its own script runs,
+   *  which makes the `<script>`-append paths (eager injection on navigation,
+   *  post-navigation re-injection) unreachable rather than merely redundant. */
+  preloadRegistered = false
+
   #clientConnected = false
   #clientConnectedWaiters: Array<() => void> = []
   #onClientDisconnected?: () => void
@@ -329,13 +336,13 @@ export class SessionCapturer extends SessionCapturerBase {
   }
 
   /**
-   * After a click/submit that may have navigated, the previous page's injected
-   * `<script>` collector is gone (unlike WDIO's BiDi preload, it doesn't survive
-   * navigation). If the current document has no collector, the page was
-   * replaced — re-inject on it and drain so the destination DOM lands in the
-   * trace. No-op for a same-document click (the collector is still present).
-   * Relies on the default `normal` page-load strategy, so a navigating click
-   * has finished loading by the time this runs.
+   * Fallback path only — see `preloadRegistered`. With no document-start
+   * preload the previous page's appended `<script>` collector dies with its
+   * document, so a click/submit that navigated leaves the destination
+   * uninstrumented: re-inject on it and drain so its DOM lands in the trace.
+   * No-op for a same-document click (the collector is still present). Relies on
+   * the default `normal` page-load strategy, so a navigating click has finished
+   * loading by the time this runs.
    */
   async reinjectIfNavigated(): Promise<void> {
     const driver = this.#driver
@@ -367,12 +374,14 @@ export class SessionCapturer extends SessionCapturerBase {
 
   /**
    * Drain after a user command in live mode, queued behind the previous such
-   * drain. Anchored, which is also what recovers a navigation: a click that
-   * replaced the document leaves no collector, so the drain re-injects into the
-   * destination and its retry anchors it — no separate `reinjectIfNavigated`
-   * pass, which would double the round trips on every DOM-mutating command and
-   * whose readiness poll pushed the queue far enough behind the test that the
-   * destination was gone before it ran.
+   * drain. Anchored, which is also what recovers a navigation under the fallback
+   * injection: a click that replaced the document leaves no collector, so the
+   * drain re-injects into the destination and its retry anchors it — no separate
+   * `reinjectIfNavigated` pass, which would double the round trips on every
+   * DOM-mutating command and whose readiness poll pushed the queue far enough
+   * behind the test that the destination was gone before it ran. With the
+   * document-start preload there is nothing to recover: the destination has
+   * already anchored itself and this drain just collects it.
    *
    * Serialized because the driver patcher does not await `onCommand`: two
    * drains can overlap, and one that falls into collector recovery pays an

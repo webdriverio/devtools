@@ -51,12 +51,10 @@ function makeCtx(driver: SeleniumDriverLike) {
     testManager,
     retryTracker: new RetryTracker(),
     options: { captureScreenshots: false, mode: 'trace' },
-    scriptInjected: true,
     finalized: false,
     driver,
     actionSnapshots,
-    snapshotCaptures,
-    setScriptInjected: () => {}
+    snapshotCaptures
   } as unknown as OnCommandCtx
   return { ctx, capturer, actionSnapshots, snapshotCaptures }
 }

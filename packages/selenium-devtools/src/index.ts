@@ -76,12 +76,12 @@ import {
 const log = logger('@wdio/selenium-devtools')
 
 const PLUGIN_VERSION = detectOwnVersion()
-const RUNNER = detectRunner()
+const DETECTED_RUNNER = detectRunner()
 const SELENIUM_VERSION = detectSeleniumVersion() ?? 'unknown'
 
 log.info(`@wdio/selenium-devtools v${PLUGIN_VERSION} loaded`)
 log.info(`Workspace: ${process.cwd()}`)
-log.info(`Detected runner: ${RUNNER}`)
+log.info(`Detected runner: ${DETECTED_RUNNER}`)
 log.info(`Detected selenium-webdriver: v${SELENIUM_VERSION}`)
 
 class SeleniumDevToolsPlugin {
@@ -105,7 +105,6 @@ class SeleniumDevToolsPlugin {
   #backendStarted = false
   #backendStartPromise?: Promise<void>
   #driver?: SeleniumDriverLike
-  #scriptInjected = false
   #isReuse = false
   // Coalesce internal retries: same {command,args,src} replaces prior entry.
   #retryTracker = new RetryTracker()
@@ -180,7 +179,7 @@ class SeleniumDevToolsPlugin {
     if (policyWarning) {
       log.warn(policyWarning)
     }
-    this.#rerunManager = new RerunManager(RUNNER)
+    this.#rerunManager = new RerunManager(DETECTED_RUNNER)
     if (options.rerunCommand) {
       this.#rerunManager.configure(options.rerunCommand)
     }
@@ -383,8 +382,8 @@ class SeleniumDevToolsPlugin {
       get screencastOptions() {
         return self.#screencastOptions
       },
-      get runner() {
-        return RUNNER
+      get detectedRunner() {
+        return DETECTED_RUNNER
       },
       get rerunTemplate() {
         return self.#rerunManager.rerunTemplate
@@ -443,12 +442,6 @@ class SeleniumDevToolsPlugin {
       set sessionId(v) {
         self.#sessionId = v
       },
-      get scriptInjected() {
-        return self.#scriptInjected
-      },
-      set scriptInjected(v) {
-        self.#scriptInjected = v
-      },
       get testFilePath() {
         return self.#testFilePath
       },
@@ -490,9 +483,6 @@ class SeleniumDevToolsPlugin {
       },
       setFinalized: (v) => {
         self.#finalized = v
-      },
-      setScriptInjected: (v) => {
-        self.#scriptInjected = v
       },
       get actionSnapshots() {
         return self.#actionSnapshots

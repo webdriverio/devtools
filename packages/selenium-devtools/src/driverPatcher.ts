@@ -1,6 +1,10 @@
 import { createRequire } from 'node:module'
 import logger from '@wdio/logger'
-import { beginInputDispatch, errorMessage } from '@wdio/devtools-core'
+import {
+  beginInputDispatch,
+  errorMessage,
+  rememberReadValue
+} from '@wdio/devtools-core'
 import {
   ELEMENT_LOCATOR_METHODS,
   INTERNAL_DRIVER_METHODS,
@@ -9,7 +13,6 @@ import {
 } from './constants.js'
 import {
   rememberElementLocator,
-  rememberReadValue,
   selectorForElement
 } from './helpers/element-locators.js'
 import { getCallSourceFromStack } from './helpers/utils.js'
