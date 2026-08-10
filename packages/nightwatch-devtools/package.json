@@ -44,7 +44,7 @@
     "debugging",
     "testing"
   ],
-  "author": "WebdriverIO Team",
+  "author": "Vishnu Vardhan",
   "license": "MIT",
   "dependencies": {
     "@wdio/devtools-backend": "workspace:*",

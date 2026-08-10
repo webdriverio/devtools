@@ -2,6 +2,7 @@
   "name": "@wdio/devtools-core",
   "version": "1.0.1",
   "private": true,
+  "author": "Vishnu Vardhan",
   "description": "Framework-agnostic capture/reporter logic shared by @wdio/devtools-* adapters. Workspace-internal, never published \u2014 code is inlined into each consuming adapter at build time.",
   "repository": {
     "type": "git",
