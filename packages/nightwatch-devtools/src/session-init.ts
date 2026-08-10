@@ -9,6 +9,8 @@
  *   - Per-session bringup (capturer + reporter chain + metadata + BiDi + screencast)
  *   - Session-change cleanup
  *   - Screencast finalize-and-clear
+ *
+ * The recorder's own session binding lives in `screencast-session.ts`.
  */
 
 import logger from '@wdio/logger'
@@ -24,7 +26,11 @@ import { TestReporter } from './reporter.js'
 import { TestManager } from './helpers/testManager.js'
 import { SuiteManager } from './helpers/suiteManager.js'
 import { BrowserProxy } from './helpers/browserProxy.js'
-import { ScreencastRecorder } from './screencast.js'
+import type { ScreencastRecorder } from './screencast.js'
+import {
+  rotateScreencastForSession,
+  startScreencast
+} from './screencast-session.js'
 import type {
   DevToolsMode,
   NightwatchBrowser,
@@ -57,6 +63,8 @@ export interface SessionInitCtx {
   srcFolders: string[]
   screencastRecorder: ScreencastRecorder | undefined
   screencastSessionId: string | undefined
+  /** In-flight recorder rotation — see screencast-session.ts. */
+  screencastRotation: Promise<void> | undefined
   configPath: string | undefined
 
   getCurrentTest(): unknown
@@ -64,12 +72,12 @@ export interface SessionInitCtx {
   buildMetadataOptions(): unknown
   attemptFor(uid: string): number | undefined
   recordOutcome(uid: string, state: TestStats['state']): void
+  /** Drains the live recorder's frames into the run's filmstrip buffer, then
+   *  stops and clears it. */
+  finalizeCurrentScreencast(): Promise<void>
 }
 
-async function handleSessionChange(
-  ctx: SessionInitCtx,
-  finalizeCurrent: () => Promise<void>
-): Promise<void> {
+async function handleSessionChange(ctx: SessionInitCtx): Promise<void> {
   log.info('Browser session changed — reconnecting WebSocket only')
   ctx.isScriptInjected = false
   // Reset BiDi-attach state so the new session gets its own attach —
@@ -79,7 +87,7 @@ async function handleSessionChange(
   ctx.bidiAttachAttempted = false
   // Finalize the previous session's screencast BEFORE we tear down its
   // capturer — encode + broadcast use the existing WS connection.
-  await finalizeCurrent()
+  await ctx.finalizeCurrentScreencast()
   ctx.sessionCapturer?.cleanup()
   // Intentional null-out — the next call to ensureSessionInitialized
   // reassigns. Cast through unknown so the strict field type passes.
@@ -107,7 +115,11 @@ function initReporterChain(ctx: SessionInitCtx): void {
     ctx.sessionCapturer,
     ctx.testManager,
     () => ctx.getCurrentTest() ?? ctx.getCurrentScenarioSuite(),
-    ctx.captureAssertions
+    ctx.captureAssertions,
+    // Nightwatch raises no session event and never wraps `end`, so a command
+    // running under a new sessionId is the only trace a mid-run
+    // `browser.end()` leaves behind.
+    (browser) => rotateScreencastForSession(ctx, browser)
   )
 }
 
@@ -228,32 +240,9 @@ async function tryRegisterPreload(
   )
 }
 
-// Screencast: start a fresh recorder per browser session — every
-// reloadSession / per-test browser produces its own .webm, matching
-// the WDIO service behavior. Polling mode only (Nightwatch has no
-// stable CDP escape hatch). Finalized when the next session change
-// fires or when after() runs.
-async function tryStartScreencast(
-  ctx: SessionInitCtx,
-  browser: NightwatchBrowser,
-  sessionId: string | undefined
-): Promise<void> {
-  if (!ctx.screencastOptions.enabled || ctx.screencastRecorder || !sessionId) {
-    return
-  }
-  ctx.screencastRecorder = new ScreencastRecorder(
-    ctx.sessionCapturer,
-    ctx.screencastOptions
-  )
-  ctx.screencastSessionId = sessionId
-  log.info(`🎬 Starting screencast for session ${sessionId}`)
-  await ctx.screencastRecorder.start(browser)
-}
-
 export async function ensureSessionInitialized(
   ctx: SessionInitCtx,
-  browser: NightwatchBrowser,
-  finalizeCurrentScreencast: () => Promise<void>
+  browser: NightwatchBrowser
 ): Promise<void> {
   const currentSessionId = browser.sessionId
   const isSessionChange =
@@ -261,7 +250,7 @@ export async function ensureSessionInitialized(
     ctx.lastSessionId &&
     currentSessionId !== ctx.lastSessionId
   if (isSessionChange) {
-    await handleSessionChange(ctx, finalizeCurrentScreencast)
+    await handleSessionChange(ctx)
   }
   ctx.lastSessionId = currentSessionId ?? null
   if (ctx.sessionCapturer) {
@@ -300,7 +289,7 @@ export async function ensureSessionInitialized(
   broadcastSessionMetadata(ctx, browser)
   await tryAttachBidi(ctx, browser)
   await tryRegisterPreload(ctx, browser)
-  await tryStartScreencast(ctx, browser, browser.sessionId)
+  await startScreencast(ctx, browser, browser.sessionId)
 }
 
 export async function finalizeCurrentScreencast(

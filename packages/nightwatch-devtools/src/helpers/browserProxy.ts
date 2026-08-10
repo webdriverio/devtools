@@ -56,7 +56,8 @@ export class BrowserProxy {
     private sessionCapturer: SessionCapturer,
     private testManager: TestManager,
     private getCurrentTest: () => { uid?: string } | null,
-    private captureAssertions = true
+    private captureAssertions = true,
+    private observeSession?: (browser: NightwatchBrowser) => void
   ) {
     this.assertRecorder = new NativeAssertRecorder(
       sessionCapturer,
@@ -514,6 +515,9 @@ export class BrowserProxy {
     originalMethod: Function,
     args: unknown[]
   ): unknown {
+    // The command's session id is the only evidence a mid-run `browser.end()`
+    // leaves behind — Nightwatch raises no event and `end` is never wrapped.
+    this.observeSession?.(browser)
     this.testManager.startTestIfPending(
       this.testManager.detectTestBoundary(
         browserAny.currentTest as NightwatchCurrentTest

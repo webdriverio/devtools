@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { createHash } from 'node:crypto'
 import type { ScreencastFrame } from '@wdio/devtools-shared'
 import {
+  accumulatedScreencastFrames,
   thinScreencastFrames,
   buildDenseScreencast
 } from '../src/screencast-trace.js'
@@ -133,5 +134,29 @@ describe('buildDenseScreencast', () => {
       viewport
     )
     expect(resources[0]!.data.toString()).toBe('hello')
+  })
+})
+
+describe('accumulatedScreencastFrames', () => {
+  it('carries the drained sessions and the one still recording', () => {
+    // Regression: an adapter that read `recording?.frames ?? drained` dropped
+    // every frame captured before a mid-run session change.
+    const drained = [frame('a', 0), frame('b', 1)]
+    const recording = { frames: [frame('c', 2)] }
+    expect(accumulatedScreencastFrames(drained, recording)).toEqual([
+      ...drained,
+      ...recording.frames
+    ])
+  })
+
+  it('falls back to the drained frames when nothing is recording', () => {
+    const drained = [frame('a', 0)]
+    expect(accumulatedScreencastFrames(drained, undefined)).toEqual(drained)
+  })
+
+  it('returns a copy, so a caller cannot mutate the run buffer', () => {
+    const drained = [frame('a', 0)]
+    accumulatedScreencastFrames(drained, undefined).push(frame('z', 9))
+    expect(drained).toHaveLength(1)
   })
 })

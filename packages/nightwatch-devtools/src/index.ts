@@ -7,6 +7,7 @@
 
 import { fileURLToPath } from 'node:url'
 import {
+  accumulatedScreencastFrames,
   errorMessage,
   finalizeTraceExport,
   flushRangeLogged,
@@ -130,6 +131,7 @@ class NightwatchDevToolsPlugin {
   #screencastOptions: ScreencastOptions
   #screencastRecorder?: ScreencastRecorder
   #screencastSessionId?: string
+  #screencastRotation?: Promise<void>
 
   // Snapshotted before each recorder is nulled, so the export isn't blank.
   #filmstripFrames: ScreencastFrame[] = []
@@ -318,6 +320,12 @@ class NightwatchDevToolsPlugin {
       set screencastSessionId(v) {
         self.#screencastSessionId = v
       },
+      get screencastRotation() {
+        return self.#screencastRotation
+      },
+      set screencastRotation(v) {
+        self.#screencastRotation = v
+      },
       get configPath() {
         return self.#configPath
       },
@@ -348,6 +356,7 @@ class NightwatchDevToolsPlugin {
       attemptFor: (uid) => self.#attemptTracker.attemptFor(uid),
       buildMetadataOptions: () => self.#buildMetadataOptions(),
       ensureSessionInitialized: (b) => self.#ensureSessionInitialized(b),
+      finalizeCurrentScreencast: () => self.#finalizeCurrentScreencast(),
       wrapBrowserOnce: (b) => self.#wrapBrowserOnce(b),
       incrementCount: (s) => self.#incrementCount(s),
       testIcon: (s) => self.#testIcon(s),
@@ -404,9 +413,7 @@ class NightwatchDevToolsPlugin {
   }
 
   async #ensureSessionInitialized(browser: NightwatchBrowser) {
-    await ensureSessionInitialized(this.#getInternals(), browser, () =>
-      this.#finalizeCurrentScreencast()
-    )
+    await ensureSessionInitialized(this.#getInternals(), browser)
   }
 
   async #finalizeCurrentScreencast(): Promise<void> {
@@ -419,6 +426,13 @@ class NightwatchDevToolsPlugin {
       this.#filmstripFrames.push(...this.#screencastRecorder.frames)
     }
     await finalizeCurrentScreencast(this.#getInternals())
+  }
+
+  get #allScreencastFrames(): ScreencastFrame[] {
+    return accumulatedScreencastFrames(
+      this.#filmstripFrames,
+      this.#screencastRecorder
+    )
   }
 
   async cucumberBefore(browser: NightwatchBrowser, pickle: CucumberPickle) {
@@ -620,7 +634,7 @@ class NightwatchDevToolsPlugin {
       videoPolicy: this.options.video,
       failed,
       actionSnapshots: this.sessionCapturer.actionSnapshots,
-      frames: this.#screencastRecorder?.frames ?? this.#filmstripFrames,
+      frames: this.#allScreencastFrames,
       startWallTime: this.#currentTestStartWallTime,
       outcomes: uid ? this.#attemptTracker.forTest(uid, attempt) : [],
       uid,
@@ -634,6 +648,9 @@ class NightwatchDevToolsPlugin {
   }
 
   async after(browser?: NightwatchBrowser) {
+    // Drain first: a rotation still in flight would otherwise start its new
+    // recorder after this finalize and strand the poll interval.
+    await this.#screencastRotation
     await this.#finalizeCurrentScreencast()
     try {
       await this.#finalizeAllSuites(browser)
@@ -699,15 +716,8 @@ class NightwatchDevToolsPlugin {
         artifacts: this.#artifacts,
         traceFlushes: this.#traceFlushes,
         emitArtifactsManifest: this.options.emitArtifactsManifest,
-        // Accumulated (finalized-session) frames plus the live recorder's — a
-        // mid-run per-spec/per-test flush fires before the recorder is drained
-        // into #filmstripFrames, so its frames live only on the recorder still;
-        // at the final write the recorder is already nulled, so no double-count.
         screencastFrames: this.options.filmstrip
-          ? [
-              ...this.#filmstripFrames,
-              ...(this.#screencastRecorder?.frames ?? [])
-            ]
+          ? this.#allScreencastFrames
           : undefined,
         configPath: this.#configPath,
         testFilePath:

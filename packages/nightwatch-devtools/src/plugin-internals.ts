@@ -58,6 +58,7 @@ export interface PluginInternals {
   srcFolders: string[]
   screencastRecorder: ScreencastRecorder | undefined
   screencastSessionId: string | undefined
+  screencastRotation: Promise<void> | undefined
 
   /** Absolute path to the resolved Nightwatch config file, if known. Used as
    *  a fallback directory for screencast video output. */
@@ -75,6 +76,7 @@ export interface PluginInternals {
   clearExecutionData(): void
   buildMetadataOptions(): unknown
   ensureSessionInitialized(b: NightwatchBrowser): Promise<void>
+  finalizeCurrentScreencast(): Promise<void>
   wrapBrowserOnce(b: NightwatchBrowser): void
   incrementCount(state: TestStats['state']): void
   testIcon(state: TestStats['state']): string
