@@ -6,6 +6,7 @@ import logger from '@wdio/logger'
 import {
   errorMessage,
   patchNodeAssert,
+  resolveAssertTargetFromArgs,
   type CapturedAssert
 } from '@wdio/devtools-core'
 import type { SessionCapturer } from '../session.js'
@@ -22,7 +23,11 @@ export function wireAssertCapture(
 ): void {
   patchNodeAssert(
     (cmd) => captureAssert(getCapturer(), getTestUid(), cmd),
-    (level, message) => log[level](message)
+    (level, message) => log[level](message),
+    // No handle resolver: Nightwatch commands take selector strings, so an
+    // element object never reaches an assert — only the value's provenance,
+    // recorded by the command path (BrowserProxy), can name the target.
+    (args) => resolveAssertTargetFromArgs(args)
   )
 }
 
@@ -35,15 +40,14 @@ function captureAssert(
     return
   }
   capturer
-    .captureCommand(
-      cmd.command,
-      cmd.args,
-      cmd.result,
-      cmd.error,
+    .captureCommand(cmd.command, cmd.args, cmd.result, cmd.error, {
       testUid,
-      cmd.callSource,
-      cmd.timestamp
-    )
+      callSource: cmd.callSource,
+      timestamp: cmd.timestamp,
+      // The assert's args hold the compared VALUES, so provenance — recorded by
+      // the command path — is the row's only route to a locator.
+      selector: cmd.selector
+    })
     .catch((err) =>
       log.warn(`Failed to capture ${cmd.command}: ${errorMessage(err)}`)
     )

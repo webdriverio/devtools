@@ -9,13 +9,20 @@ import {
   NAVIGATION_COMMANDS
 } from '../constants.js'
 import { callbackError } from './callbackError.js'
+import { commandRowSelector, commandTargetSelector } from './assertTarget.js'
 import { getCallSourceFromStack } from './utils.js'
 import { serializeCommandResult } from './serializeCommandResult.js'
 import { NativeAssertRecorder } from './nativeAssertRecorder.js'
-import { RetryTracker, beginInputDispatch, toError } from '@wdio/devtools-core'
+import {
+  RetryTracker,
+  beginInputDispatch,
+  rememberReadValue,
+  toError
+} from '@wdio/devtools-core'
 import type { SessionCapturer } from '../session.js'
 import type { TestManager } from './testManager.js'
 import type {
+  CommandCaptureMeta,
   CommandInvocation,
   CommandLog,
   NativeAssertCall,
@@ -260,11 +267,7 @@ export class BrowserProxy {
     methodName: string,
     logArgs: unknown[],
     serializedResult: unknown,
-    effectiveUid: string,
-    callSource: string | undefined,
-    commandTimestamp: number,
-    invokedAt: number,
-    sequence: number,
+    meta: CommandCaptureMeta,
     commandError: Error | undefined
   ): void {
     // Same command fired again (internal retry) — replace the previous
@@ -275,12 +278,8 @@ export class BrowserProxy {
       logArgs,
       serializedResult,
       commandError,
-      effectiveUid,
-      callSource,
-      commandTimestamp
+      meta
     )
-    entry.startTime = invokedAt
-    entry.sequence = sequence
     this.retryTracker.setLastId(entry._id ?? null)
     this.sessionCapturer.sendReplaceCommand(oldTimestamp, entry)
     this.attachScreenshot(browser, entry, methodName, ' (retry)')
@@ -291,12 +290,8 @@ export class BrowserProxy {
     methodName: string,
     logArgs: unknown[],
     serializedResult: unknown,
-    effectiveUid: string,
-    callSource: string | undefined,
-    commandTimestamp: number,
+    meta: CommandCaptureMeta,
     cmdSig: string,
-    invokedAt: number,
-    sequence: number,
     commandError: Error | undefined
   ): void {
     // captureCommand() pushes the entry to commandsLog synchronously before
@@ -308,15 +303,7 @@ export class BrowserProxy {
     this.retryTracker.setLastSig(cmdSig)
     this.retryTracker.setLastId(null)
     this.sessionCapturer
-      .captureCommand(
-        methodName,
-        logArgs,
-        serializedResult,
-        commandError,
-        effectiveUid,
-        callSource,
-        commandTimestamp
-      )
+      .captureCommand(methodName, logArgs, serializedResult, commandError, meta)
       .catch((err) =>
         log.error(`Failed to capture ${methodName}: ${(err as Error).message}`)
       )
@@ -325,8 +312,6 @@ export class BrowserProxy {
         this.sessionCapturer.commandsLog.length - 1
       ]
     if (lastCommand) {
-      lastCommand.startTime = invokedAt
-      lastCommand.sequence = sequence
       this.retryTracker.setLastId((lastCommand as { _id?: number })._id ?? null)
       this.sessionCapturer.sendCommand(lastCommand)
       log.info(`[command] ${methodName}`)
@@ -393,6 +378,21 @@ export class BrowserProxy {
     }
   }
 
+  /** Serialize the result and record which element produced it, so a later
+   *  node:assert on that value can name its target (core's value→locator
+   *  registry). Fed for every command, so a page-level read records "no
+   *  element" — see `rememberReadValue` for why that sentinel matters. Folded
+   *  into one call because `makeCaptureCallback` is already over the line cap. */
+  private serializeAndAttributeResult(
+    methodName: string,
+    logArgs: unknown[],
+    callbackResult: unknown
+  ): unknown {
+    const result = serializeCommandResult(callbackResult, methodName)
+    rememberReadValue(result, commandTargetSelector(methodName, logArgs))
+    return result
+  }
+
   // Result-capturing callback factory — called by Nightwatch's async queue
   // when the command completes. This is where we get the *actual* result.
   private makeCaptureCallback(
@@ -421,7 +421,7 @@ export class BrowserProxy {
       const commandError = callbackError(callbackResult)
       const serializedResult = commandError
         ? undefined
-        : serializeCommandResult(callbackResult, methodName)
+        : this.serializeAndAttributeResult(methodName, logArgs, callbackResult)
       const effectiveUid = this.getCurrentTest()?.uid ?? testUid
       // Only surface commands that originate from a user-code frame. Commands
       // Nightwatch issues from inside its own queue (e.g. the getTitle a
@@ -429,17 +429,21 @@ export class BrowserProxy {
       // user frame on the stack, so they'd otherwise leak as top-level actions
       // with an "unknown" source. Mirrors the service's user-spec-source guard.
       if (effectiveUid && hasUserSource) {
+        const meta: CommandCaptureMeta = {
+          testUid: effectiveUid,
+          callSource,
+          timestamp: commandTimestamp,
+          startTime: invokedAt,
+          sequence,
+          selector: commandRowSelector(methodName, logArgs)
+        }
         if (this.retryTracker.isRetry(cmdSig)) {
           this.handleRetryReplacement(
             browser,
             methodName,
             logArgs,
             serializedResult,
-            effectiveUid,
-            callSource,
-            commandTimestamp,
-            invokedAt,
-            sequence,
+            meta,
             commandError
           )
         } else {
@@ -448,12 +452,8 @@ export class BrowserProxy {
             methodName,
             logArgs,
             serializedResult,
-            effectiveUid,
-            callSource,
-            commandTimestamp,
+            meta,
             cmdSig,
-            invokedAt,
-            sequence,
             commandError
           )
         }
@@ -579,14 +579,11 @@ export class BrowserProxy {
     log.error(`[command error] ${methodName}: ${normalizedError.message}`)
 
     this.sessionCapturer
-      .captureCommand(
-        methodName,
-        args,
-        undefined,
-        normalizedError,
-        currentTest.uid,
-        callSource
-      )
+      .captureCommand(methodName, args, undefined, normalizedError, {
+        testUid: currentTest.uid,
+        callSource,
+        selector: commandRowSelector(methodName, args)
+      })
       .catch((err) =>
         log.error(`Failed to capture ${methodName}: ${(err as Error).message}`)
       )

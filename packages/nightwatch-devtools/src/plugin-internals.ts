@@ -54,7 +54,9 @@ export interface PluginInternals {
 
   // Session state
   lastSessionId: string | null
-  bidiAttachAttempted: boolean
+  /** Session the BiDi attach + collector preload were last armed for; a command
+   *  seen under any other session is a mid-run `browser.end()`. */
+  armedSessionId: string | undefined
   srcFolders: string[]
   screencastRecorder: ScreencastRecorder | undefined
   screencastSessionId: string | undefined

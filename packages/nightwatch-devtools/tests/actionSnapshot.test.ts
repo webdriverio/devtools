@@ -27,15 +27,9 @@ describe('nightwatch action-snapshot timestamp binding', () => {
     // completes, so its own Date.now() never equalled cmd.timestamp — and the
     // exporter claims snapshots by exact equality, so nothing bound.
     const cap = makeCapturer()
-    await cap.captureCommand(
-      'click',
-      ['#btn'],
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      7777
-    )
+    await cap.captureCommand('click', ['#btn'], undefined, undefined, {
+      timestamp: 7777
+    })
     await Promise.all(cap.snapshotCaptures)
 
     expect(cap.actionSnapshots).toHaveLength(1)
@@ -67,15 +61,9 @@ describe('nightwatch action-snapshot timestamp binding', () => {
 
   it('does not capture outside trace mode', async () => {
     const cap = new SessionCapturer({}, makeMockBrowser())
-    await cap.captureCommand(
-      'click',
-      [],
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      100
-    )
+    await cap.captureCommand('click', [], undefined, undefined, {
+      timestamp: 100
+    })
     await Promise.all(cap.snapshotCaptures)
     expect(cap.actionSnapshots).toHaveLength(0)
     cap.cleanup()

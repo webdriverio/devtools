@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { selectorForReadValue } from '@wdio/devtools-core'
 import type {
+  CommandCaptureMeta,
   CommandLog,
   NightwatchBrowser,
   NightwatchCurrentTest
@@ -27,9 +29,7 @@ function makeCapturer() {
       args: unknown[],
       result: unknown,
       error: Error | undefined,
-      testUid?: string,
-      callSource?: string,
-      timestamp?: number
+      meta: CommandCaptureMeta = {}
     ) => {
       commandsLog.push({
         _id: counter++,
@@ -37,9 +37,8 @@ function makeCapturer() {
         args,
         result,
         error,
-        testUid,
-        callSource,
-        timestamp: timestamp ?? Date.now()
+        ...meta,
+        timestamp: meta.timestamp ?? Date.now()
       })
       return true
     }
@@ -130,6 +129,134 @@ describe('BrowserProxy internal-command suppression', () => {
 
     expect(captureCommand).not.toHaveBeenCalled()
     expect(commandsLog).toHaveLength(0)
+  })
+})
+
+describe('BrowserProxy read-value provenance', () => {
+  beforeEach(() => {
+    getCallSourceFromStack.mockReset()
+    getCallSourceFromStack.mockReturnValue({
+      filePath: '/tests/spec.js',
+      callSource: '/tests/spec.js:12'
+    })
+  })
+
+  /** Commands that echo a W3C-wrapped value into the capture callback, the way
+   *  Nightwatch's queue hands a read's result back. */
+  function makeReadBrowser(value: unknown) {
+    // The wrapper appends the capture callback as the LAST argument, so every
+    // fake command answers the same way regardless of its own arity.
+    const echo = (...args: unknown[]) => {
+      const cb = args[args.length - 1]
+      if (typeof cb === 'function') {
+        ;(cb as (r: unknown) => void)({ value })
+      }
+      return undefined
+    }
+    return {
+      getText: echo,
+      title: echo,
+      url: echo
+    } as unknown as NightwatchBrowser
+  }
+
+  function proxied(browser: NightwatchBrowser) {
+    const { capturer } = makeCapturer()
+    const proxy = new BrowserProxy(capturer, makeTestManager(), () => ({
+      uid: 'test-1'
+    }))
+    proxy.wrapBrowserCommands(browser)
+    return browser as unknown as Record<string, (...a: unknown[]) => unknown>
+  }
+
+  it('attributes an element read to the selector it was read from', () => {
+    // The link a node:assert has no other way to make: it compares VALUES, so
+    // only the command that produced the value knows which element it came from.
+    proxied(makeReadBrowser('provenance-flash-text')).getText('#flash')
+    expect(selectorForReadValue('provenance-flash-text')).toBe('#flash')
+  })
+
+  it('attributes a page-level read to no element (the null sentinel)', () => {
+    // `title` is not an element read, so its value must not keep an element's
+    // claim standing — otherwise a title assertion boxes an element that merely
+    // happens to read the same text (measured on the selenium mocha example).
+    const shared = 'provenance-shared-text'
+    proxied(makeReadBrowser(shared)).getText('h1')
+    expect(selectorForReadValue(shared)).toBe('h1')
+    proxied(makeReadBrowser(shared)).title()
+    expect(selectorForReadValue(shared)).toBeUndefined()
+  })
+
+  it('does not read a url argument as a locator', () => {
+    // `browser.url('https://…')` takes a string first too; treating it as a
+    // locator would attribute the page's own reads to an "element".
+    const browser = proxied(makeReadBrowser('provenance-url-result'))
+    browser.url('https://example.com/login')
+    expect(selectorForReadValue('provenance-url-result')).toBeUndefined()
+  })
+
+  it('records nothing for a failed read', () => {
+    // A timeout's message is not a value the element ever held.
+    const failing = {
+      getText: (_sel: unknown, cb: (r: unknown) => void) => {
+        cb({ error: 'timeout', message: 'Timed out on <#gone>' })
+        return undefined
+      }
+    } as unknown as NightwatchBrowser
+    proxied(failing).getText('#gone')
+    expect(selectorForReadValue('Timed out on <#gone>')).toBeUndefined()
+  })
+})
+
+describe('BrowserProxy row metadata', () => {
+  beforeEach(() => {
+    getCallSourceFromStack.mockReset()
+    getCallSourceFromStack.mockReturnValue({
+      filePath: '/tests/spec.js',
+      callSource: '/tests/spec.js:9'
+    })
+  })
+
+  /** A browser whose commands echo into the capture callback Nightwatch appends
+   *  as the last argument. */
+  function makeEchoBrowser() {
+    const echo = (...args: unknown[]) => {
+      const cb = args[args.length - 1]
+      if (typeof cb === 'function') {
+        ;(cb as (r: unknown) => void)({ value: null })
+      }
+      return undefined
+    }
+    return { click: echo, url: echo } as unknown as NightwatchBrowser
+  }
+
+  function capture(
+    run: (b: Record<string, (...a: unknown[]) => unknown>) => void
+  ) {
+    const { capturer, commandsLog } = makeCapturer()
+    const proxy = new BrowserProxy(capturer, makeTestManager(), () => ({
+      uid: 'test-1'
+    }))
+    const browser = makeEchoBrowser()
+    proxy.wrapBrowserCommands(browser)
+    run(browser as unknown as Record<string, (...a: unknown[]) => unknown>)
+    return commandsLog[0]
+  }
+
+  it('carries the target selector, issue order and invocation time on the row', () => {
+    // The row says what it targeted rather than leaving the exporter to fall
+    // back to args[0] — and both stamps ride in on the capture call instead of
+    // being written onto the pushed row afterwards.
+    const row = capture((b) => b.click('button[type="submit"]'))
+    expect(row.selector).toBe('button[type="submit"]')
+    expect(row.sequence).toBe(0)
+    expect(row.startTime).toBeTypeOf('number')
+    expect(row.startTime).toBeLessThanOrEqual(row.timestamp!)
+  })
+
+  it('leaves a page-level command with no selector', () => {
+    const row = capture((b) => b.url('https://example.com/login'))
+    expect(row.selector).toBeUndefined()
   })
 })
 

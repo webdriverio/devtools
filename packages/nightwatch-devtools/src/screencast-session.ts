@@ -13,9 +13,10 @@
  * Rotation is deliberately narrower than `handleSessionChange`: that path also
  * rebuilds the SessionCapturer, which in trace mode would discard every command,
  * console line, network entry and mutation the run has accumulated. It leaves
- * `lastSessionId` alone for the same reason — that desync is what keeps the next
- * `ensureSessionInitialized` able to do the full re-arm (BiDi, collector
- * preload) this cannot.
+ * `lastSessionId` alone for the same reason — that field is
+ * `ensureSessionInitialized`'s own bookkeeping. The other half of a session
+ * rebind, re-arming BiDi and the collector preload, hangs off the same detection
+ * in `session-init.ts` `rearmCaptureForSession`.
  */
 
 import logger from '@wdio/logger'

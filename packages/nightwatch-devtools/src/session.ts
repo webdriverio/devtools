@@ -27,6 +27,7 @@ import {
 import { webdriverExecute, webdriverGet } from './helpers/webdriverHttp.js'
 import type {
   ActionSnapshot,
+  CommandCaptureMeta,
   CommandLog,
   DevToolsMode,
   NightwatchBrowser,
@@ -100,9 +101,7 @@ export class SessionCapturer extends SessionCapturerBase {
     args: unknown[],
     result: unknown,
     error: Error | undefined,
-    testUid?: string,
-    callSource?: string,
-    timestamp?: number
+    meta: CommandCaptureMeta = {}
   ): Promise<boolean> {
     // Serialize error properly (Error objects don't JSON.stringify well)
     const serializedError = serializeError(error)
@@ -114,9 +113,12 @@ export class SessionCapturer extends SessionCapturerBase {
       args,
       result,
       error: serializedError,
-      timestamp: timestamp || Date.now(),
-      callSource,
-      testUid
+      timestamp: meta.timestamp || Date.now(),
+      startTime: meta.startTime,
+      sequence: meta.sequence,
+      callSource: meta.callSource,
+      testUid: meta.testUid,
+      selector: meta.selector
     }
 
     this.commandsLog.push(commandLogEntry)
@@ -218,9 +220,7 @@ export class SessionCapturer extends SessionCapturerBase {
     args: unknown[],
     result: unknown,
     error: Error | undefined,
-    testUid?: string,
-    callSource?: string,
-    timestamp?: number
+    meta: CommandCaptureMeta = {}
   ): { entry: CommandLog & { _id?: number }; oldTimestamp: number } {
     // Remove the superseded entry and capture its timestamp for the UI
     const idx = this.commandsLog.findIndex(
@@ -242,9 +242,12 @@ export class SessionCapturer extends SessionCapturerBase {
       args,
       result,
       error: serializedError,
-      timestamp: timestamp || Date.now(),
-      callSource,
-      testUid
+      timestamp: meta.timestamp || Date.now(),
+      startTime: meta.startTime,
+      sequence: meta.sequence,
+      callSource: meta.callSource,
+      testUid: meta.testUid,
+      selector: meta.selector
     }
     this.commandsLog.push(entry)
     return { entry, oldTimestamp }

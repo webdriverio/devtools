@@ -38,18 +38,22 @@ describe('SessionCapturer.captureCommand', () => {
     )
   })
 
-  it('uses provided timestamp when given', async () => {
+  it('carries the row metadata off the meta bag', async () => {
     const cap = makeCapturer()
-    await cap.captureCommand(
-      'x',
-      [],
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      12345
-    )
-    expect(cap.commandsLog[0].timestamp).toBe(12345)
+    await cap.captureCommand('getText', ['#flash'], undefined, undefined, {
+      timestamp: 12345,
+      startTime: 12300,
+      sequence: 7,
+      callSource: '/tests/spec.js:5',
+      selector: '#flash'
+    })
+    expect(cap.commandsLog[0]).toMatchObject({
+      timestamp: 12345,
+      startTime: 12300,
+      sequence: 7,
+      callSource: '/tests/spec.js:5',
+      selector: '#flash'
+    })
   })
 
   it('serializes Error before storing', async () => {
@@ -82,13 +86,9 @@ describe('SessionCapturer.captureCommand', () => {
 
   it('stores testUid on the captured entry', async () => {
     const cap = makeCapturer()
-    await cap.captureCommand(
-      'click',
-      ['.btn'],
-      undefined,
-      undefined,
-      'uid-nightwatch-1'
-    )
+    await cap.captureCommand('click', ['.btn'], undefined, undefined, {
+      testUid: 'uid-nightwatch-1'
+    })
     expect(cap.commandsLog[0].testUid).toBe('uid-nightwatch-1')
   })
 

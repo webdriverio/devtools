@@ -8,6 +8,7 @@
  * Includes:
  *   - Per-session bringup (capturer + reporter chain + metadata + BiDi + screencast)
  *   - Session-change cleanup
+ *   - Re-arming the per-session capture channels when a session is replaced
  *   - Screencast finalize-and-clear
  *
  * The recorder's own session binding lives in `screencast-session.ts`.
@@ -15,6 +16,7 @@
 
 import logger from '@wdio/logger'
 import {
+  errorMessage,
   finalizeScreencast,
   registerCollectorPreload,
   resolveAdapterOutputDir
@@ -59,7 +61,9 @@ export interface SessionInitCtx {
   isScriptInjected: boolean
 
   lastSessionId: string | null
-  bidiAttachAttempted: boolean
+  /** Session the BiDi attach + collector preload were last armed for — the
+   *  once-per-session guard for both, and the rotation detector. */
+  armedSessionId: string | undefined
   srcFolders: string[]
   screencastRecorder: ScreencastRecorder | undefined
   screencastSessionId: string | undefined
@@ -80,11 +84,6 @@ export interface SessionInitCtx {
 async function handleSessionChange(ctx: SessionInitCtx): Promise<void> {
   log.info('Browser session changed — reconnecting WebSocket only')
   ctx.isScriptInjected = false
-  // Reset BiDi-attach state so the new session gets its own attach —
-  // inspectors are bound to a specific driver instance and don't carry
-  // across sessions. Without this, only the first session captures via
-  // BiDi and the rest silently fall back to the perf-log path.
-  ctx.bidiAttachAttempted = false
   // Finalize the previous session's screencast BEFORE we tear down its
   // capturer — encode + broadcast use the existing WS connection.
   await ctx.finalizeCurrentScreencast()
@@ -118,8 +117,12 @@ function initReporterChain(ctx: SessionInitCtx): void {
     ctx.captureAssertions,
     // Nightwatch raises no session event and never wraps `end`, so a command
     // running under a new sessionId is the only trace a mid-run
-    // `browser.end()` leaves behind.
-    (browser) => rotateScreencastForSession(ctx, browser)
+    // `browser.end()` leaves behind. Both re-bindings hang off it; each latches
+    // and gates itself, so neither can suppress the other.
+    (browser) => {
+      rotateScreencastForSession(ctx, browser)
+      rearmCaptureForSession(ctx, browser)
+    }
   )
 }
 
@@ -188,16 +191,16 @@ function broadcastSessionMetadata(
 }
 
 // BiDi: opt-in. Requires `webSocketUrl: true` capability + a BiDi-capable
-// chromedriver. We attempt once per session; on failure or unavailability
-// the perf-log fallback path continues to work.
+// chromedriver. Attempted once per session (the caller's `armedSessionId` stamp
+// is that guard); on failure or unavailability the perf-log fallback path
+// continues to work.
 async function tryAttachBidi(
   ctx: SessionInitCtx,
   browser: NightwatchBrowser
 ): Promise<void> {
-  if (!ctx.bidiEnabled || ctx.bidiAttachAttempted) {
+  if (!ctx.bidiEnabled) {
     return
   }
-  ctx.bidiAttachAttempted = true
   const driver = (browser as { driver?: unknown }).driver
   if (!driver) {
     log.warn('bidi:true set but browser.driver unavailable — skipping')
@@ -237,6 +240,83 @@ async function tryRegisterPreload(
   ctx.sessionCapturer.preloadRegistered = await registerCollectorPreload(
     driver,
     (level, message) => log[level](message)
+  )
+}
+
+/**
+ * Arm the two capture channels that belong to ONE WebDriver session: the BiDi
+ * inspectors (bound to that session's driver object) and the document-start
+ * collector preload (registered on that session's BiDi channel). Neither
+ * survives the session, so a replaced session needs both again.
+ *
+ * The stamp is written before any await: on rotation this runs from the command
+ * hook, where the next command arrives long before a BiDi round trip completes,
+ * and the stamp is what keeps that flood from re-arming.
+ *
+ * The preload goes FIRST. Behind the attach it lost the race it exists to win —
+ * measured on a re-arm, the network subscribe took 6.2 s while the command that
+ * triggered the re-arm navigated, so the registration landed two seconds after
+ * the document it was meant to instrument was born. Sequential rather than
+ * parallel because both steps open the session's BiDi channel through the same
+ * unsynchronized `getBidi()` cache, and racing them opens two websockets of
+ * which `quit()` closes one.
+ */
+async function armCaptureForSession(
+  ctx: SessionInitCtx,
+  browser: NightwatchBrowser
+): Promise<void> {
+  ctx.armedSessionId = browser.sessionId ?? undefined
+  await tryRegisterPreload(ctx, browser)
+  await tryAttachBidi(ctx, browser)
+}
+
+/**
+ * Whether the browser is executing under a session the capture channels were
+ * never armed for. Requires an already-armed session: before bringup there is no
+ * capturer to arm onto, and `ensureSessionInitialized` owns that first arm.
+ */
+export function needsCaptureRearm(
+  ctx: Pick<SessionInitCtx, 'armedSessionId' | 'sessionCapturer'>,
+  sessionId: string | undefined
+): boolean {
+  return (
+    Boolean(ctx.sessionCapturer) &&
+    sessionId !== undefined &&
+    ctx.armedSessionId !== undefined &&
+    ctx.armedSessionId !== sessionId
+  )
+}
+
+/**
+ * Re-arm BiDi and the collector preload after a mid-run `browser.end()` replaced
+ * the session. Without it both are established exactly once, at bringup, and
+ * sessions 2..N silently fall back to `<script>` injection — the whole
+ * navigation race class the preload exists to remove comes back for the rest of
+ * the run.
+ *
+ * Deliberately narrower than `handleSessionChange`, which also rebuilds the
+ * SessionCapturer and would discard every command, console line, network entry
+ * and mutation the run has accumulated. Fire-and-forget, because a command must
+ * not wait on a BiDi handshake.
+ */
+export function rearmCaptureForSession(
+  ctx: SessionInitCtx,
+  browser: NightwatchBrowser
+): void {
+  const sessionId = browser.sessionId ?? undefined
+  if (!needsCaptureRearm(ctx, sessionId)) {
+    return
+  }
+  // Both claims belong to the session that just died. Until the new
+  // registration lands this session's documents are back on the `<script>`
+  // path — exactly what `anchorAfterNavigation` polls for — and a stale
+  // `bidiActive` would keep the perf-log network path gated off behind
+  // inspectors that no longer receive anything.
+  ctx.sessionCapturer.preloadRegistered = false
+  ctx.sessionCapturer.bidiActive = false
+  log.info(`Session replaced — re-arming capture for ${sessionId}`)
+  void armCaptureForSession(ctx, browser).catch((err) =>
+    log.warn(`Capture re-arm failed: ${errorMessage(err)}`)
   )
 }
 
@@ -287,8 +367,7 @@ export async function ensureSessionInitialized(
     rebindReporterToNewSession(ctx)
   }
   broadcastSessionMetadata(ctx, browser)
-  await tryAttachBidi(ctx, browser)
-  await tryRegisterPreload(ctx, browser)
+  await armCaptureForSession(ctx, browser)
   await startScreencast(ctx, browser, browser.sessionId)
 }
 

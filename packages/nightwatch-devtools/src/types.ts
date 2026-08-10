@@ -61,6 +61,23 @@ export interface CommandInvocation {
   hasUserSource: boolean
 }
 
+/** Everything a captured row carries beyond the call itself. Named rather than
+ *  positional so a field the command doesn't name — the target selector, which
+ *  a node:assert row can only learn from value provenance — reaches the row
+ *  through the capture call instead of being stamped on afterwards. */
+export interface CommandCaptureMeta {
+  testUid?: string
+  callSource?: string
+  /** Wall-clock at completion; defaults to capture time. */
+  timestamp?: number
+  /** Wall-clock at invocation, so the row spans its real duration. */
+  startTime?: number
+  /** Issue order — what the exporter sorts on when timestamps tie. */
+  sequence?: number
+  /** Element the row is about, when one is known. */
+  selector?: string
+}
+
 /** How a native assertion's own returned promise settled. */
 export interface AssertSettlement {
   rejected: boolean

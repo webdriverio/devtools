@@ -7,7 +7,6 @@
 
 import { fileURLToPath } from 'node:url'
 import {
-  accumulatedScreencastFrames,
   errorMessage,
   finalizeTraceExport,
   flushRangeLogged,
@@ -24,10 +23,8 @@ import { wireAssertCapture } from './helpers/assertCapture.js'
 import { stop as stopBackend } from '@wdio/devtools-backend'
 import {
   REUSE_ENV,
-  SCREENCAST_DEFAULTS,
   type CucumberPickle,
-  type CucumberPickleStep,
-  type ScreencastFrame
+  type CucumberPickleStep
 } from '@wdio/devtools-shared'
 import logger from '@wdio/logger'
 import {
@@ -42,7 +39,10 @@ import {
 import type { PluginInternals } from './plugin-internals.js'
 import type { SessionCapturer } from './session.js'
 import type { TestReporter } from './reporter.js'
-import type { ScreencastRecorder } from './screencast.js'
+import {
+  PluginScreencast,
+  resolveScreencastOptions
+} from './plugin-screencast.js'
 import type { TestManager } from './helpers/testManager.js'
 import type { SuiteManager } from './helpers/suiteManager.js'
 import type { BrowserProxy } from './helpers/browserProxy.js'
@@ -51,7 +51,6 @@ import type {
   NightwatchBrowser,
   NightwatchCurrentTest,
   NightwatchEventHub,
-  ScreencastOptions,
   SuiteStats,
   TestStats
 } from './types.js'
@@ -72,10 +71,7 @@ import {
   wrapBrowserOnce,
   closeOutTestcases
 } from './test-lifecycle.js'
-import {
-  ensureSessionInitialized,
-  finalizeCurrentScreencast
-} from './session-init.js'
+import { ensureSessionInitialized } from './session-init.js'
 import { captureNativeAssertions } from './helpers/nativeAssertions.js'
 import { flushTestSlice, recordSpecSliceBoundary } from './trace-slices.js'
 import {
@@ -128,15 +124,9 @@ class NightwatchDevToolsPlugin {
       : undefined
   }
 
-  #screencastOptions: ScreencastOptions
-  #screencastRecorder?: ScreencastRecorder
-  #screencastSessionId?: string
-  #screencastRotation?: Promise<void>
-
-  // Snapshotted before each recorder is nulled, so the export isn't blank.
-  #filmstripFrames: ScreencastFrame[] = []
+  #screencast: PluginScreencast
   #bidiEnabled = false
-  #bidiAttachAttempted = false
+  #armedSessionId: string | undefined
 
   /** Wall-clock ms at the current test/scenario start — the lower bound of that
    *  test's action-snapshot and video-frame window (per-test artifact slicing). */
@@ -148,28 +138,25 @@ class NightwatchDevToolsPlugin {
 
   constructor(options: DevToolsOptions = {}) {
     const mode = options.mode ?? 'live'
-    // Resolve the default ONCE and gate on the resolved value: reading the raw
+    // Resolve the defaults ONCE and gate on the resolved values: reading the raw
     // `options.filmstrip === true` left the default-on filmstrip inert unless a
     // config set it explicitly, so the recorder never started while
     // `this.options.filmstrip` claimed it was on.
     const filmstrip = options.filmstrip ?? true
     const video = options.video ?? 'off'
-    // Filmstrip OR a produce-only per-test video drives the recorder in trace
-    // mode; bare screencast (with neither on) stays a live-only feature.
-    const wantRecorder = mode === 'trace' && (filmstrip || video !== 'off')
-    const ignore =
-      mode === 'trace' && !wantRecorder && options.screencast?.enabled === true
-    if (ignore) {
-      log.warn('trace mode: ignoring screencast option (live-mode feature)')
-    }
-    let screencast = ignore ? {} : (options.screencast ?? {})
-    if (wantRecorder) {
-      screencast = { ...(options.screencast ?? {}), enabled: true }
+    const screencast = resolveScreencastOptions({
+      mode,
+      filmstrip,
+      video,
+      screencast: options.screencast
+    })
+    if (screencast.warning) {
+      log.warn(screencast.warning)
     }
     this.options = {
       port: options.port ?? 3000,
       hostname: options.hostname ?? 'localhost',
-      screencast,
+      screencast: screencast.options,
       bidi: options.bidi ?? false,
       captureAssertions: options.captureAssertions ?? true,
       mode,
@@ -187,7 +174,10 @@ class NightwatchDevToolsPlugin {
     if (policyWarning) {
       log.warn(policyWarning)
     }
-    this.#screencastOptions = { ...SCREENCAST_DEFAULTS, ...screencast }
+    this.#screencast = new PluginScreencast(
+      screencast.options,
+      filmstrip || video !== 'off'
+    )
     this.#bidiEnabled = options.bidi === true
   }
 
@@ -216,7 +206,7 @@ class NightwatchDevToolsPlugin {
         return self.options.mode
       },
       get screencastOptions() {
-        return self.#screencastOptions
+        return self.#screencast.options
       },
       get bidiEnabled() {
         return self.#bidiEnabled
@@ -296,11 +286,11 @@ class NightwatchDevToolsPlugin {
       set lastSessionId(v) {
         self.#lastSessionId = v
       },
-      get bidiAttachAttempted() {
-        return self.#bidiAttachAttempted
+      get armedSessionId() {
+        return self.#armedSessionId
       },
-      set bidiAttachAttempted(v) {
-        self.#bidiAttachAttempted = v
+      set armedSessionId(v) {
+        self.#armedSessionId = v
       },
       get srcFolders() {
         return self.#srcFolders
@@ -309,22 +299,22 @@ class NightwatchDevToolsPlugin {
         self.#srcFolders = v
       },
       get screencastRecorder() {
-        return self.#screencastRecorder
+        return self.#screencast.recorder
       },
       set screencastRecorder(v) {
-        self.#screencastRecorder = v
+        self.#screencast.recorder = v
       },
       get screencastSessionId() {
-        return self.#screencastSessionId
+        return self.#screencast.sessionId
       },
       set screencastSessionId(v) {
-        self.#screencastSessionId = v
+        self.#screencast.sessionId = v
       },
       get screencastRotation() {
-        return self.#screencastRotation
+        return self.#screencast.rotation
       },
       set screencastRotation(v) {
-        self.#screencastRotation = v
+        self.#screencast.rotation = v
       },
       get configPath() {
         return self.#configPath
@@ -417,22 +407,7 @@ class NightwatchDevToolsPlugin {
   }
 
   async #finalizeCurrentScreencast(): Promise<void> {
-    // Preserve pre-reload frames for the trace filmstrip AND the produce-only
-    // per-test video — either can drive the recorder in trace mode now.
-    if (
-      (this.options.filmstrip || this.options.video !== 'off') &&
-      this.#screencastRecorder
-    ) {
-      this.#filmstripFrames.push(...this.#screencastRecorder.frames)
-    }
-    await finalizeCurrentScreencast(this.#getInternals())
-  }
-
-  get #allScreencastFrames(): ScreencastFrame[] {
-    return accumulatedScreencastFrames(
-      this.#filmstripFrames,
-      this.#screencastRecorder
-    )
+    await this.#screencast.finalize(this.#getInternals())
   }
 
   async cucumberBefore(browser: NightwatchBrowser, pickle: CucumberPickle) {
@@ -634,14 +609,14 @@ class NightwatchDevToolsPlugin {
       videoPolicy: this.options.video,
       failed,
       actionSnapshots: this.sessionCapturer.actionSnapshots,
-      frames: this.#allScreencastFrames,
+      frames: this.#screencast.frames,
       startWallTime: this.#currentTestStartWallTime,
       outcomes: uid ? this.#attemptTracker.forTest(uid, attempt) : [],
       uid,
       attempt,
       sessionId: this.sessionCapturer?.metadata?.sessionId,
       outputDir: this.#outputDir,
-      captureFormat: this.#screencastOptions.captureFormat,
+      captureFormat: this.#screencast.options.captureFormat,
       onArtifact: (a) => this.#artifacts.push(a),
       onLog: (level, msg) => log[level](msg)
     })
@@ -650,7 +625,7 @@ class NightwatchDevToolsPlugin {
   async after(browser?: NightwatchBrowser) {
     // Drain first: a rotation still in flight would otherwise start its new
     // recorder after this finalize and strand the poll interval.
-    await this.#screencastRotation
+    await this.#screencast.rotation
     await this.#finalizeCurrentScreencast()
     try {
       await this.#finalizeAllSuites(browser)
@@ -717,7 +692,7 @@ class NightwatchDevToolsPlugin {
         traceFlushes: this.#traceFlushes,
         emitArtifactsManifest: this.options.emitArtifactsManifest,
         screencastFrames: this.options.filmstrip
-          ? this.#allScreencastFrames
+          ? this.#screencast.frames
           : undefined,
         configPath: this.#configPath,
         testFilePath:

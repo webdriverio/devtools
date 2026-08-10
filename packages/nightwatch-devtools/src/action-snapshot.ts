@@ -24,11 +24,7 @@ export function captureActionSnapshot(
     runner,
     runScript: (src) => webdriverExecute(browser, `return (${src})`),
     takeScreenshot: () => webdriverGet<string>(browser, 'screenshot'),
-    // `?? undefined`: the transport answers `null` on a failed read, which core's
-    // url/title probes type as `undefined` (only `takeScreenshot` accepts null).
-    getUrl: () =>
-      webdriverGet<string>(browser, 'url').then((v) => v ?? undefined),
-    getTitle: () =>
-      webdriverGet<string>(browser, 'title').then((v) => v ?? undefined)
+    getUrl: () => webdriverGet<string>(browser, 'url'),
+    getTitle: () => webdriverGet<string>(browser, 'title')
   })
 }

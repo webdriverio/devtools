@@ -304,6 +304,37 @@ describe('captureNativeAssertions (buffer → finalize at test-end)', () => {
     expect(calls[0].entry!.error).toBeDefined()
   })
 
+  it('carries the asserted element as the row selector, and only for element assertions', async () => {
+    const { capturer } = makeFakeCapturer()
+    const calls = [
+      call('assert', 'textContains', [
+        '#flash',
+        'You logged into a secure area'
+      ]),
+      call('assert', 'urlContains', ['/secure'])
+    ]
+    emitPending(capturer, calls, 'uid')
+    expect(calls[0].entry!.selector).toBe('#flash')
+    // The url assertion's arg is its expected value, not an element.
+    expect(calls[1].entry!.selector).toBeUndefined()
+
+    await captureNativeAssertions(
+      capturer,
+      browser,
+      currentTestWith([
+        passing(
+          "Testing if element <#flash> contains text 'You logged into a secure area'"
+        ),
+        passing("Testing if the URL contains '/secure'")
+      ]),
+      'uid',
+      calls
+    )
+    // Survives finalization — the row emitted at test-end is the buffered one.
+    expect(calls[0].entry!.selector).toBe('#flash')
+    expect(calls[1].entry!.selector).toBeUndefined()
+  })
+
   it('leaves an uncorrelated pending row in its neutral state (defensive)', async () => {
     const { capturer, sent, sendReplaceCommand } = makeFakeCapturer()
     const calls = [call('assert', 'ok', [true])]

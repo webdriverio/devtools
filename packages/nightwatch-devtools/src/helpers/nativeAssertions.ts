@@ -29,6 +29,7 @@ import {
   safeSerializeAssertArg,
   stripAnsi
 } from '@wdio/devtools-core'
+import { assertTargetSelector } from './assertTarget.js'
 import type { SessionCapturer } from '../session.js'
 import type {
   AssertSettlement,
@@ -280,6 +281,12 @@ export function pendingAssertionCommand(
   }
   if (screenshot) {
     entry.screenshot = screenshot
+  }
+  // Only element assertions name a target; a title/url/value one gets none, so
+  // the overlay never boxes an element the assertion wasn't about.
+  const selector = assertTargetSelector(call.method, call.args)
+  if (selector) {
+    entry.selector = selector
   }
   return entry
 }
