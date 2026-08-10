@@ -142,7 +142,7 @@ export class ScreencastLifecycle {
       }
       // Persist for the filmstrip too — the recorder below resets the buffer,
       // so a session/spec trace spanning this reload keeps its earlier frames.
-      if (this.#ctx.options.filmstrip) {
+      if (this.#filmstripOn()) {
         this.#filmstripFrames.push(...frames)
       }
     }

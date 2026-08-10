@@ -139,6 +139,35 @@ describe('ScreencastLifecycle.handleReload', () => {
     )
     expect(recorder.start).toHaveBeenCalledWith(browser)
   })
+
+  // The recorder's buffer resets per session, so a run that spans a reload keeps
+  // its earlier frames only if they were accumulated here. Reading the RAW
+  // option missed the default: filmstrip is on in trace mode unless opted out,
+  // so an unset option accumulated nothing and the export kept the last session.
+  it('accumulates across a reload when filmstrip is on by default', async () => {
+    const { lifecycle } = makeLifecycle({ mode: 'trace' })
+    await lifecycle.start(browser)
+    recorder.frames = [frame('a', 0), frame('b', 1)]
+
+    await lifecycle.handleReload('old-session')
+    recorder.frames = [frame('c', 2)]
+
+    expect(lifecycle.filmstripFramesForExport()).toEqual([
+      frame('a', 0),
+      frame('b', 1),
+      frame('c', 2)
+    ])
+  })
+
+  it('accumulates nothing when filmstrip is explicitly off', async () => {
+    const { lifecycle } = makeLifecycle({ mode: 'trace', filmstrip: false })
+    await lifecycle.start(browser)
+    recorder.frames = [frame('a', 0)]
+
+    await lifecycle.handleReload('old-session')
+
+    expect(lifecycle.filmstripFramesForExport()).toBeUndefined()
+  })
 })
 
 describe('ScreencastLifecycle.attachTestVideo', () => {
