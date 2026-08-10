@@ -21,6 +21,9 @@ const log = logger('@wdio/selenium-devtools:SessionCapturer')
 export class SessionCapturer extends SessionCapturerBase {
   #driver: SeleniumDriverLike | undefined
 
+  // Tail of the serialized live-mode drain queue — see drainAfterLiveCommand.
+  #liveDrain: Promise<void> = Promise.resolve()
+
   // True once BiDi inspectors are attached — script-trace path skips streams.
   bidiActive = false
   #clientConnected = false
@@ -360,6 +363,29 @@ export class SessionCapturer extends SessionCapturerBase {
       }
       log.warn(`Re-inject after navigation failed: ${msg}`)
     }
+  }
+
+  /**
+   * Drain after a user command in live mode, queued behind the previous such
+   * drain. Anchored, which is also what recovers a navigation: a click that
+   * replaced the document leaves no collector, so the drain re-injects into the
+   * destination and its retry anchors it — no separate `reinjectIfNavigated`
+   * pass, which would double the round trips on every DOM-mutating command and
+   * whose readiness poll pushed the queue far enough behind the test that the
+   * destination was gone before it ran.
+   *
+   * Serialized because the driver patcher does not await `onCommand`: two
+   * drains can overlap, and one that falls into collector recovery pays an
+   * injection plus a readiness poll — long enough to land its batch behind a
+   * later one. The dashboard walks the mutation stream in order and stops at
+   * the first entry past the selected row's window, so an overtaken batch
+   * strands every row after it on the previous document.
+   */
+  drainAfterLiveCommand(): Promise<void> {
+    this.#liveDrain = this.#liveDrain
+      .then(() => this.captureTrace(true))
+      .catch(() => {})
+    return this.#liveDrain
   }
 
   isNavigationCommand(command: string): boolean {

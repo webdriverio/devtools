@@ -4,12 +4,14 @@ import {
   applyPerformanceData,
   errorMessage,
   isSessionGoneError,
+  mapAssertCommand,
   mapCommandToAction,
   toError,
   upsertRichestSnapshot,
   type CapturedPerformancePayload,
   type RetryTracker
 } from '@wdio/devtools-core'
+import { ELEMENT_LOCATOR_METHODS } from '../constants.js'
 import { getDriverOriginals, getElementOriginals } from '../driverPatcher.js'
 import { captureOrReplaceCommand } from './captureOrReplaceCommand.js'
 import { captureActionSnapshot } from '../action-snapshot.js'
@@ -225,6 +227,54 @@ function maybeDrainAfterDomCommand(
 }
 
 /**
+ * Whether a live-mode command warrants a drain — everything except the three
+ * classes that can't have moved the page or already drained: a navigation
+ * (`captureNavigationTrace` drains AND re-anchors it), a locator resolution
+ * (reading the DOM can't change it), and a node:assert row (it never reaches
+ * the browser at all). Same deny-list shape the WDIO service's live drain uses,
+ * over selenium's own command vocabulary.
+ */
+function warrantsLiveDrain(
+  capturer: SessionCapturer,
+  cmd: CapturedCommand
+): boolean {
+  if (capturer.isNavigationCommand(cmd.command) && !cmd.fromElement) {
+    return false
+  }
+  if ((ELEMENT_LOCATOR_METHODS as readonly string[]).includes(cmd.command)) {
+    return false
+  }
+  return !mapAssertCommand(cmd.command)
+}
+
+/**
+ * Live mode carries no per-action DOM snapshot — that costs two injected
+ * scripts plus a screenshot per action and is deliberately trace-only — so the
+ * dashboard replays whatever the last drain delivered. With only the navigation
+ * hook draining, every row between two document loads showed the page as it
+ * loaded: an unfilled form after `sendKeys`, and the destination of a
+ * navigating click never anchored at all because the `<script>` collector dies
+ * with its document. Mirrors the service's `#drainAfterLiveCommand`.
+ */
+function maybeDrainAfterLiveCommand(
+  ctx: OnCommandCtx,
+  capturer: SessionCapturer,
+  cmd: CapturedCommand
+): void {
+  if (
+    ctx.options.mode === 'trace' ||
+    ctx.finalized ||
+    !warrantsLiveDrain(capturer, cmd)
+  ) {
+    return
+  }
+  // Tracked in `snapshotCaptures` for the same reason the trace path is: the
+  // driver patcher does not await `onCommand`, so an untracked drain can still
+  // be in flight when the session is torn down.
+  ctx.snapshotCaptures.push(capturer.drainAfterLiveCommand())
+}
+
+/**
  * Plugin-side handler for a single command capture event. Pulled out of the
  * plugin class so the hot path stays readable and the post-capture branches
  * (screenshot, find-result enrichment, navigation trace) are easier to test.
@@ -271,6 +321,7 @@ export async function handleOnCommand(
     )
   }
   maybeDrainAfterDomCommand(ctx, capturer, cmd)
+  maybeDrainAfterLiveCommand(ctx, capturer, cmd)
   queueActionSnapshot(ctx, cmd, entry.timestamp, error)
 }
 

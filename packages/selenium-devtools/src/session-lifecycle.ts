@@ -237,12 +237,17 @@ async function initPerDriverCapture(
 export async function onDriverEnd(ctx: SessionLifecycleCtx): Promise<void> {
   // Drain the live page's mutations before the driver quits — onDriverEnd runs
   // (via onBeforeQuit) while the session is still alive, so the final page's
-  // DOM + field edits reach capturer.mutations before the trace is written.
+  // DOM + field edits reach capturer.mutations before the trace is written (in
+  // live mode, before the dashboard loses the session).
   // Gated on ctx.driver so the post-quit onDriverEnd call skips a dead session.
-  if (ctx.options.mode === 'trace' && ctx.driver) {
+  if (ctx.driver && ctx.sessionCapturer) {
     // Anchored: a run ending on a navigation (logout → /login as the last
     // action) leaves the destination's async initial anchor unrun at teardown.
-    await ctx.sessionCapturer?.captureTrace(true)
+    // Live mode goes through the post-command queue instead, so the drains
+    // still in flight land before the session goes away.
+    await (ctx.options.mode === 'trace'
+      ? ctx.sessionCapturer.captureTrace(true)
+      : ctx.sessionCapturer.drainAfterLiveCommand())
   }
   if (ctx.screencast && ctx.sessionId) {
     if (ctx.options.mode === 'trace') {
