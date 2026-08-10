@@ -63,7 +63,10 @@ const SEMANTIC_CSS_SELECTOR_SCRIPT = `
         var testSel = '[data-testid="' + CSS.escape(testId) + '"]'
         if (document.querySelectorAll(testSel).length === 1) { return testSel }
       }
-      if (element.id) { return '#' + CSS.escape(element.id) }
+      if (element.id) {
+        var idSel = '#' + CSS.escape(element.id)
+        if (document.querySelectorAll(idSel).length === 1) { return idSel }
+      }
       var nameAttr = element.getAttribute('name')
       if (nameAttr) {
         var nameSel = tag + '[name="' + CSS.escape(nameAttr) + '"]'

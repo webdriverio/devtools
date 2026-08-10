@@ -157,6 +157,33 @@ describe('captured locators', () => {
     expect(locators).toContain('div.pick-me')
   })
 
+  it('skips a duplicated id, like every other CSS branch skips a non-unique match', () => {
+    // An id is only a locator while it is unique. Duplicate ids are invalid HTML
+    // but common in real pages, and `#dup` there resolves to whichever element
+    // the DOM happens to return first.
+    const nodes = a11yNodes(
+      `<button id="dup" type="submit">Alpha</button>
+       <button id="dup" type="reset">Beta</button>`,
+      'nightwatch'
+    )
+
+    expect(locatorFor(nodes, 'Alpha')).toBe('button[type="submit"]')
+    expect(locatorFor(nodes, 'Beta')).toBe('button[type="reset"]')
+  })
+
+  it('lets the text branch have its turn when a duplicated id is all the CSS branches had', () => {
+    // Nightwatch orders CSS first, so an unconditional `#id` consumed the
+    // element before the text branch — the one branch that could still identify
+    // it — was ever reached.
+    const nodes = a11yNodes(
+      `<div role="button" id="dup">Alpha</div>
+       <div role="button" id="dup">Beta</div>`,
+      'nightwatch'
+    )
+
+    expect(locatorFor(nodes, 'Alpha')).toBe('//div[contains(., "Alpha")]')
+  })
+
   it('prefers a native CSS locator to XPath for Nightwatch', () => {
     // The one runner that reads a bare locator string under a default CSS
     // strategy: `//button[…]` there needs useXpath(), `button[type="submit"]`

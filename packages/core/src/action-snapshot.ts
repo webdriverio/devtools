@@ -31,8 +31,8 @@ export interface CaptureActionSnapshotInput {
   /** Browser script runner — omit on native mobile where Appium can't execute JS. */
   runScript?: ScriptRunner
   takeScreenshot?: () => Promise<string | null | undefined>
-  getUrl?: () => Promise<string | undefined>
-  getTitle?: () => Promise<string | undefined>
+  getUrl?: () => Promise<string | null | undefined>
+  getTitle?: () => Promise<string | null | undefined>
   /** Page-source XML fetcher for native mobile — used instead of runScript. */
   getPageSource?: () => Promise<string | undefined>
   /** Platform identifier for mobile snapshot formatting ('android' | 'ios'). */

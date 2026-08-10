@@ -86,6 +86,23 @@ describe('captureActionSnapshot probe isolation', () => {
     expect(snap?.screenshot).toBe('BB')
   })
 
+  it('takes a null url/title the same way it takes a null screenshot', async () => {
+    // A raw-transport reader answers `null` on a failed read rather than
+    // rejecting, so the probes accept it and normalize it to `undefined` — the
+    // adapters must not have to coerce it themselves.
+    const snap = await captureActionSnapshot({
+      command: 'click',
+      timestamp: 13,
+      runScript: okScript,
+      getUrl: () => Promise.resolve(null),
+      getTitle: () => Promise.resolve(null),
+      takeScreenshot: () => Promise.resolve(null)
+    })
+    expect(snap?.url).toBeUndefined()
+    expect(snap?.title).toBeUndefined()
+    expect(snap?.screenshot).toBeUndefined()
+  })
+
   it('absorbs a rejecting screenshot without losing the rest', async () => {
     const snap = await captureActionSnapshot({
       command: 'click',
