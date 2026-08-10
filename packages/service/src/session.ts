@@ -8,7 +8,13 @@ import { SevereServiceError } from 'webdriverio'
 import type { WebDriverCommands } from '@wdio/protocols'
 
 import { PAGE_TRANSITION_COMMANDS } from './constants.js'
-import { decorateSelector, nextLastSelector } from './command-selectors.js'
+import {
+  decorateSelector,
+  forgetElementSelectors,
+  nextLastSelector,
+  rememberElementSelector,
+  selectorForCommand
+} from './command-selectors.js'
 import { isNativeMobile } from './mobile.js'
 import {
   CAPTURE_PERFORMANCE_SCRIPT,
@@ -64,6 +70,7 @@ export class SessionCapturer extends SessionCapturerBase {
   resetLastSelector(): void {
     this.#lastSelector = undefined
     this.#lastResolvedSelector = undefined
+    forgetElementSelectors()
   }
 
   /** Record the selector of an element-resolution command, ungated by the
@@ -166,7 +173,13 @@ export class SessionCapturer extends SessionCapturerBase {
     }
     const cmd = String(command)
     this.#lastSelector = nextLastSelector(cmd, args, this.#lastSelector)
-    decorateSelector(commandLogEntry, cmd, args, this.#lastSelector)
+    rememberElementSelector(cmd, args, result)
+    decorateSelector(
+      commandLogEntry,
+      cmd,
+      args,
+      selectorForCommand(args, this.#lastSelector)
+    )
 
     this.#captureOrReplace(commandLogEntry)
     // Capture trace + perf on commands that could trigger a page transition.
