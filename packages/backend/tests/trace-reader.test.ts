@@ -60,7 +60,7 @@ function fixtureZip(): Uint8Array {
       startTime: 100,
       class: 'Element',
       method: 'fill',
-      params: { selector: '#name', value: 'vishnu' },
+      params: { selector: '#name', value: 'frodo' },
       parentId: 'call@0'
     },
     { type: 'after', callId: 'call@2', endTime: 160 },
@@ -166,7 +166,7 @@ describe('parseTraceZip', () => {
       'click'
     ])
     expect(trace.commands[0].args).toEqual(['https://example.com'])
-    expect(trace.commands[1].args).toEqual(['#name', 'vishnu'])
+    expect(trace.commands[1].args).toEqual(['#name', 'frodo'])
     expect(trace.commands[2].args).toEqual(['#submit'])
     expect(trace.commands[2].error?.message).toBe('boom')
   })
