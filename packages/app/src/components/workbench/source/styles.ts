@@ -25,7 +25,6 @@ export const sourceStyles = css`
     gap: 3px;
     padding: 5px 8px 0;
     overflow-x: auto;
-    scrollbar-width: thin;
     background: color-mix(
       in srgb,
       var(--vscode-foreground) 4%,

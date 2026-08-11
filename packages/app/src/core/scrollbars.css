@@ -1,0 +1,82 @@
+/**
+ * The scrollbar system for every scroller in the app: shadow roots (core.css),
+ * the host document (index.css) and the replayed page inside the player's
+ * iframe (browser/snapshot.ts). A default scrollbar paints an opaque track that
+ * reads as a strip of chrome cut out of the panel; this one is a bare rounded
+ * thumb sitting on the panel's own background, painted only while the pointer
+ * or focus is inside the scroller it belongs to.
+ *
+ * `:host` carries the selectors an inner sheet needs for its own host element —
+ * harmless (and unmatched) in the document and the iframe.
+ */
+
+:host::-webkit-scrollbar,
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+:host::-webkit-scrollbar-track,
+:host::-webkit-scrollbar-corner,
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* The transparent border insets the painted thumb inside the lane; clipping to
+   the padding box is what keeps the border from taking the thumb's colour. */
+:host::-webkit-scrollbar-thumb,
+::-webkit-scrollbar-thumb {
+  background-color: transparent;
+  background-clip: padding-box;
+  border: 1px solid transparent;
+  border-radius: 999px;
+}
+
+:host(:hover)::-webkit-scrollbar-thumb,
+:host(:focus-within)::-webkit-scrollbar-thumb,
+*:hover::-webkit-scrollbar-thumb,
+*:focus-within::-webkit-scrollbar-thumb {
+  background-color: var(
+    --vscode-scrollbarSlider-background,
+    rgba(121, 121, 121, 0.4)
+  );
+}
+
+:host(:hover)::-webkit-scrollbar-thumb:hover,
+*:hover::-webkit-scrollbar-thumb:hover {
+  background-color: var(
+    --vscode-scrollbarSlider-hoverBackground,
+    rgba(100, 100, 100, 0.7)
+  );
+}
+
+:host(:hover)::-webkit-scrollbar-thumb:active,
+*:hover::-webkit-scrollbar-thumb:active {
+  background-color: var(
+    --vscode-scrollbarSlider-activeBackground,
+    rgba(191, 191, 191, 0.4)
+  );
+}
+
+/* The standard properties are scoped to engines without the WebKit
+   pseudo-elements: Chromium drops every ::-webkit-scrollbar rule above for an
+   element that also sets a non-auto scrollbar-width or scrollbar-color. */
+@supports not selector(::-webkit-scrollbar) {
+  :host,
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+  }
+
+  :host(:hover),
+  :host(:focus-within),
+  *:hover,
+  *:focus-within {
+    scrollbar-color: var(
+        --vscode-scrollbarSlider-background,
+        rgba(121, 121, 121, 0.4)
+      )
+      transparent;
+  }
+}

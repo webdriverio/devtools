@@ -1,4 +1,5 @@
 import { Element } from '@core/element'
+import scrollbarStyles from '@core/scrollbars.css?inline'
 import { html, nothing } from 'lit'
 import { consume } from '@lit/context'
 import { snapshotStyles } from './snapshot-styles.js'
@@ -399,11 +400,11 @@ export class DevtoolsBrowser extends Element {
     }
     doc.replaceChild(doc.importNode(html, true), docEl)
 
-    // Player chrome, not captured content: thin down the replayed page's own
-    // scrollbar so it reads as part of the mock browser window.
-    const scrollbarStyle = doc.createElement('style')
-    scrollbarStyle.textContent = ':root { scrollbar-width: thin }'
-    doc.head?.appendChild(scrollbarStyle)
+    // Player chrome, not captured content: the replayed page's own scrollbars
+    // get the app's styling, so they read as part of the mock browser window.
+    const scrollbarSheet = doc.createElement('style')
+    scrollbarSheet.textContent = scrollbarStyles
+    doc.head?.appendChild(scrollbarSheet)
 
     this.#setIframeSize()
   }
