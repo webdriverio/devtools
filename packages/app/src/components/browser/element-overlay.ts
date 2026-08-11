@@ -3,6 +3,8 @@
 // boxes inherit the iframe's scale transform (no manual coordinate math). Kept
 // out of snapshot.ts so that file stays focused on capture/replay.
 
+import { isXPathLocator } from '@wdio/devtools-shared'
+
 const OVERLAY_CLASS = '__wdio-el-overlay__'
 
 export interface OverlayHandlers {
@@ -10,7 +12,8 @@ export interface OverlayHandlers {
   onPick: (selector: string, label: string) => void
   /** Hover a box — reveal the matching a11y-tree row (by selector, else by the
    *  element's accessible name for locators the serializer captured a different
-   *  way, e.g. the test's `button[type=submit]` vs the tree's `button*=Login`). */
+   *  way, e.g. the test's `button[type=submit]` vs the tree's
+   *  `//button[contains(., "Login")]`). */
   onHover?: (selector: string, label: string) => void
   onLeave?: () => void
 }
@@ -37,15 +40,45 @@ function elementLabel(el: Element): string {
   return el.getAttribute('placeholder')?.trim() ?? ''
 }
 
-/** Resolve a test locator in the replayed document: native CSS first, then the
- *  WebdriverIO text-selectors querySelector can't parse (`tag=Exact`,
- *  `tag*=Contains`, and their tag-less forms). Returns the deepest text match
- *  so a container that merely encloses the text isn't boxed over the real
- *  element. Returns null when nothing matches (locator absent on this page). */
+/** `XPathResult.FIRST_ORDERED_NODE_TYPE`, read as a literal so the resolver
+ *  doesn't depend on the constant being reachable from this realm. */
+const XPATH_FIRST_ORDERED_NODE = 9
+
+/** First node an XPath locator matches, as the frameworks' own `By.xpath` /
+ *  `useXpath` do. Element-only: an expression selecting an attribute or text
+ *  node has nothing to draw a box over. */
+function resolveXPath(doc: Document, expression: string): Element | null {
+  try {
+    const node = doc.evaluate(
+      expression,
+      doc,
+      null,
+      XPATH_FIRST_ORDERED_NODE,
+      null
+    ).singleNodeValue
+    // nodeType, not `instanceof Element`: the replayed nodes belong to the
+    // iframe's realm, where the parent document's constructors don't match.
+    return node?.nodeType === 1 ? (node as Element) : null
+  } catch {
+    // Malformed expression, or a document with no XPath engine.
+    return null
+  }
+}
+
+/** Resolve a test locator in the replayed document: XPath first, then native
+ *  CSS, then the WebdriverIO text-selectors querySelector can't parse
+ *  (`tag=Exact`, `tag*=Contains`, and their tag-less forms) — those still arrive
+ *  from hand-written WDIO tests and from traces recorded before the capture
+ *  became portable. Returns the deepest text match so a container that merely
+ *  encloses the text isn't boxed over the real element. Returns null when
+ *  nothing matches (locator absent on this page). */
 export function resolveTestSelector(
   doc: Document,
   selector: string
 ): Element | null {
+  if (isXPathLocator(selector)) {
+    return resolveXPath(doc, selector)
+  }
   try {
     const css = doc.querySelector(selector)
     if (css) {

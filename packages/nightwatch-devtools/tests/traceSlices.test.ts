@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
+import { buildSpecCapturer } from '@wdio/devtools-core'
 import type { SpecRange, TraceArtifact } from '@wdio/devtools-core'
 import {
   recordTestSliceBoundary,
@@ -102,6 +103,54 @@ describe('test granularity — flushTestSlice', () => {
     const { ctx, flushTraceRange } = makeCtx(true, 'test')
     flushTestSlice(ctx)
     expect(flushTraceRange).not.toHaveBeenCalled()
+  })
+})
+
+describe('test slices over a capturer that survives its session', () => {
+  /** Append a scenario's worth of rows to the shared accumulators. */
+  const runScenario = (ctx: TestSliceCtx, rows: string[]) => {
+    const capturer = ctx.sessionCapturer as unknown as {
+      commandsLog: string[]
+      mutations: string[]
+    }
+    capturer.commandsLog.push(...rows)
+    capturer.mutations.push(`${rows[0]}-dom`)
+  }
+
+  it('starts each scenario slice where the previous one left off', () => {
+    // One capturer outlives every session, so a boundary's start indices are
+    // real offsets into the run's arrays.
+    const { ctx } = makeCtx(true, 'test')
+
+    recordTestSliceBoundary(ctx, '/login.feature', 'scenario-1')
+    runScenario(ctx, ['nav', 'wait', 'fill'])
+    flushTestSlice(ctx)
+    recordTestSliceBoundary(ctx, '/login.feature', 'scenario-2')
+    runScenario(ctx, ['nav-2', 'click-2'])
+    flushTestSlice(ctx)
+
+    expect(ctx.specRanges.map((r) => r.commandStartIdx)).toEqual([0, 3])
+    expect(ctx.specRanges.map((r) => r.mutationStartIdx)).toEqual([0, 1])
+  })
+
+  it('slices the second scenario down to its own rows', () => {
+    // The eager flush is open-ended (no nextRange), which is only correct
+    // because it runs before the next scenario's boundary — this is the guard.
+    const { ctx } = makeCtx(true, 'test')
+
+    recordTestSliceBoundary(ctx, '/login.feature', 'scenario-1')
+    runScenario(ctx, ['nav', 'wait', 'fill'])
+    flushTestSlice(ctx)
+    recordTestSliceBoundary(ctx, '/login.feature', 'scenario-2')
+    runScenario(ctx, ['nav-2', 'click-2'])
+    flushTestSlice(ctx)
+
+    const slice = buildSpecCapturer(
+      ctx.sessionCapturer as unknown as Parameters<typeof buildSpecCapturer>[0],
+      ctx.specRanges[1]
+    )
+    expect(slice.commandsLog).toEqual(['nav-2', 'click-2'])
+    expect(slice.mutations).toEqual(['nav-2-dom'])
   })
 })
 

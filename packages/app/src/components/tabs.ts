@@ -247,7 +247,6 @@ export class DevtoolsTab extends Element {
         flex-grow: 1;
         min-height: 0;
         overflow-y: auto;
-        scrollbar-width: none;
       }
 
       :host([active]) {

@@ -3,16 +3,20 @@
 // a clickable source location, and pass/fail colour.
 //
 // Nightwatch exposes no per-assertion hook. Each explicit call is intercepted
-// at CALL TIME (BrowserProxy.wrapAssertionNamespaces) and BUFFERED — concise
-// title, real args, callSource, the per-test testUid, and the preceding
-// screenshot — but NOT streamed, because streaming a neutral row mid-run would
-// render every assert green before its outcome is known. At test-end
-// `captureNativeAssertions` reads the pass/fail truth + verbose failure message
-// from the results bag and emits each row once, positioned on its real
-// execution window (the exporter re-sorts by the buffered call timestamp).
-// Correlating the recorded calls (not the raw results) also excludes
-// Nightwatch's implicit command-generated assertions (e.g.
+// at CALL TIME (NativeAssertRecorder) and BUFFERED — concise title, real args,
+// callSource, the per-test testUid, and the preceding screenshot — but NOT
+// streamed, because streaming a neutral row mid-run would render every assert
+// green before its outcome is known. At test-end `captureNativeAssertions` reads
+// the pass/fail truth + verbose failure message and emits each row once,
+// positioned on its real execution window (the exporter re-sorts by the buffered
+// call timestamp). Correlating the recorded calls (not the raw results) also
+// excludes Nightwatch's implicit command-generated assertions (e.g.
 // waitForElementVisible's "element was visible" entry).
+//
+// Two outcome sources, in this order: the per-test results bag (`correlate`),
+// then the settlement of the call's own promise (`observedAssertOutcome`). The
+// cucumber runner has no results bag at all, so the settlement is its only
+// source; the describe/it interface has a bag but no per-assertion window.
 //
 // The plugin `afterEach` fires once per describe-suite (not per `it`), so the
 // finalize reads assertions from `results.testcases` (all tests) — see
@@ -20,17 +24,21 @@
 
 import logger from '@wdio/logger'
 import {
+  errorMessage,
   matcherAssertionToCommandLog,
   safeSerializeAssertArg,
   stripAnsi
 } from '@wdio/devtools-core'
+import { assertTargetSelector } from './assertTarget.js'
 import type { SessionCapturer } from '../session.js'
 import type {
+  AssertSettlement,
   CollapsedAssertResult,
   CommandLog,
   NativeAssertCall,
   NightwatchBrowser,
-  NightwatchCurrentTest
+  NightwatchCurrentTest,
+  ObservedAssertOutcome
 } from '../types.js'
 
 const log = logger('@wdio/nightwatch-devtools:nativeAssertions')
@@ -98,6 +106,40 @@ function messageMatchesArgs(entry: NwAssertionEntry, args: unknown[]): boolean {
 interface Outcome {
   passed: boolean
   message: string
+}
+
+/** Pass/fail read off the assertion's own promise — the only outcome evidence
+ *  cucumber has, since its client is built with no reporter so `results` is
+ *  never populated. A fulfilment of `undefined` stays neutral: that is an
+ *  assertion enqueued but never executed, not a pass. Semantics and measurements
+ *  in CLAUDE.md § Known debt. */
+export function observedAssertOutcome({
+  rejected,
+  value,
+  settledAt
+}: AssertSettlement): ObservedAssertOutcome | undefined {
+  if (rejected || value instanceof Error) {
+    return {
+      passed: false,
+      message: stripAnsi(errorMessage(value)).trim(),
+      settledAt
+    }
+  }
+  if (value === undefined) {
+    return undefined
+  }
+  return { passed: true, message: '', settledAt }
+}
+
+/** Execution window recovered from the observed settlement: enqueue → settle.
+ *  The cucumber runner logs no commands, so `assertCommandTimings` yields
+ *  nothing there and the row would otherwise span a synthetic 1 ms. */
+function observedTiming(
+  call: NativeAssertCall
+): { startTime: number; endTime: number } | null {
+  return call.observed
+    ? { startTime: call.timestamp, endTime: call.observed.settledAt }
+    : null
 }
 
 /**
@@ -240,6 +282,12 @@ export function pendingAssertionCommand(
   if (screenshot) {
     entry.screenshot = screenshot
   }
+  // Only element assertions name a target; a title/url/value one gets none, so
+  // the overlay never boxes an element the assertion wasn't about.
+  const selector = assertTargetSelector(call.method, call.args)
+  if (selector) {
+    entry.selector = selector
+  }
   return entry
 }
 
@@ -269,8 +317,12 @@ function collapsedAssertResult(
 ): CollapsedAssertResult {
   const result: CollapsedAssertResult = {
     passed: outcome.passed,
-    expected: call.args.length <= 1 ? call.args[0] : call.args,
-    message: outcome.message
+    expected: call.args.length <= 1 ? call.args[0] : call.args
+  }
+  // Omitted rather than empty for a pass observed off the settlement: the
+  // promise carries no prose, and an empty message would render as a blank row.
+  if (outcome.message) {
+    result.message = outcome.message
   }
   const actual = outcome.passed
     ? undefined
@@ -366,13 +418,20 @@ export async function captureNativeAssertions(
     if (!call.entry) {
       return
     }
-    const outcome = outcomes[index]
+    // Results-bag correlation first (it also carries the verbose per-assertion
+    // message, which a settlement can't supply for a pass); the observed
+    // settlement is the fallback that makes cucumber rows coloured at all. The
+    // timing comes from whichever source supplied the outcome — a correlated row
+    // keeps its enqueue timestamp when the bag reports no window (the BDD
+    // interface always does), which is what `sequence` ordering relies on.
+    const correlated = outcomes[index]
+    const outcome = correlated ?? call.observed
     if (outcome) {
       finalizeAssertionRow(
         capturer,
         call,
         outcome,
-        timings[index],
+        correlated ? timings[index] : observedTiming(call),
         screenshot,
         testUid
       )

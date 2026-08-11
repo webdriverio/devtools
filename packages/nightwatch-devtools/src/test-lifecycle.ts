@@ -24,6 +24,7 @@ import type {
 import { DEFAULTS, TIMING, TEST_STATE } from './constants.js'
 import { resolveSpecFilePath } from './helpers/specFileResolver.js'
 import { closePreviousTest } from './helpers/closePreviousTest.js'
+import { matchTestName } from './helpers/runningTest.js'
 import { extractTestMetadata, determineTestState } from './helpers/utils.js'
 import { recordTestSliceBoundary, type TestSliceCtx } from './trace-slices.js'
 
@@ -99,16 +100,8 @@ export function pickCurrentTestName(
   testNames: string[],
   processedTests: Set<string>
 ): string | undefined {
-  const runtimeTestName =
-    typeof currentTest?.name === 'string' ? currentTest.name.trim() : undefined
-  const matchedRuntimeTestName = runtimeTestName
-    ? testNames.find(
-        (name) =>
-          runtimeTestName === name || runtimeTestName.endsWith(` ${name}`)
-      )
-    : undefined
   return (
-    matchedRuntimeTestName ||
+    matchTestName(currentTest?.name, testNames) ||
     testNames.find((name) => !processedTests.has(name))
   )
 }
@@ -176,7 +169,7 @@ export function wrapBrowserOnce(
     ctx.browserProxy.wrapUrlMethod(browser)
     ctx.isScriptInjected = true
   }
-  ctx.browserProxy.resetCommandTracking()
+  ctx.browserProxy.resetTestTracking()
   ctx.browserProxy.wrapBrowserCommands(browser)
 }
 

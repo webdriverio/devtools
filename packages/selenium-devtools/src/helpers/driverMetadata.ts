@@ -1,6 +1,7 @@
 import logger from '@wdio/logger'
 import { errorMessage } from '@wdio/devtools-core'
 import { TraceType } from '@wdio/devtools-shared'
+import { SELENIUM_RUNNER_ID } from '../constants.js'
 import type { SeleniumDriverLike } from '../types.js'
 
 const log = logger('@wdio/selenium-devtools:driverMetadata')
@@ -8,7 +9,9 @@ const log = logger('@wdio/selenium-devtools:driverMetadata')
 export interface DriverMetadataInput {
   driver: SeleniumDriverLike
   driverReadyTs: number
-  runner: string | null
+  /** The JS test runner `detectRunner` found (mocha/jest/cucumber). Distinct
+   *  from `Metadata.runner`, which names this adapter for every one of them. */
+  detectedRunner: string | null
   rerunCommand?: string
   rerunTemplate?: string
   launchCommand?: string
@@ -75,7 +78,7 @@ function logBrowserBoot(
 export async function buildDriverMetadata(
   input: DriverMetadataInput
 ): Promise<DriverMetadataResult> {
-  const { driver, driverReadyTs, runner } = input
+  const { driver, driverReadyTs, detectedRunner } = input
   try {
     const session = driver.getSession ? await driver.getSession() : undefined
     const capabilities = driver.getCapabilities
@@ -95,8 +98,8 @@ export async function buildDriverMetadata(
           capabilities ??
           {},
         sessionId,
+        runner: SELENIUM_RUNNER_ID,
         options: {
-          framework: 'selenium-webdriver',
           baseDir: process.cwd(),
           rerunCommand: input.rerunCommand ?? input.rerunTemplate,
           launchCommand: input.launchCommand,
@@ -104,7 +107,7 @@ export async function buildDriverMetadata(
           // leaf-step rerun stays disabled there.
           runCapabilities: {
             canRunSuites: true,
-            canRunTests: runner !== 'cucumber',
+            canRunTests: detectedRunner !== 'cucumber',
             canRunAll: true
           }
         }

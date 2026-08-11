@@ -28,6 +28,12 @@ function md(options: Record<string, unknown> = {}): Metadata {
   return { options } as unknown as Metadata
 }
 
+/** A trace zip's metadata: `runner` comes back off `context-options` and there
+ *  are no runner `options` at all. */
+function playerMd(runner: string): Metadata {
+  return { runner } as unknown as Metadata
+}
+
 function entry(type: 'test' | 'suite'): TestEntry {
   return { type, uid: 'u', label: 'u', children: [] }
 }
@@ -41,8 +47,21 @@ function runAllDetail(): TestRunDetail {
 }
 
 describe('getFramework', () => {
-  it('reads options.framework', () => {
+  it('reads the typed Metadata.runner', () => {
+    expect(getFramework(playerMd('nightwatch-cucumber'))).toBe(
+      'nightwatch-cucumber'
+    )
+  })
+  it('falls back to options.framework for a stream that carries no runner', () => {
+    // A zip recorded before `Metadata.runner` existed, or by a foreign tool.
     expect(getFramework(md({ framework: 'wdio' }))).toBe('wdio')
+  })
+  it('prefers the typed field when both carry the fact', () => {
+    const both = {
+      runner: 'nightwatch',
+      options: { framework: 'stale' }
+    } as unknown as Metadata
+    expect(getFramework(both)).toBe('nightwatch')
   })
   it('undefined when metadata missing', () => {
     expect(getFramework(undefined)).toBeUndefined()
@@ -72,6 +91,14 @@ describe('getRunCapabilities', () => {
       canRunSuites: true,
       canRunTests: true,
       canRunAll: true
+    })
+  })
+
+  it('reads the runner off a trace zip, which carries no runner options', () => {
+    expect(getRunCapabilities(playerMd('nightwatch'))).toEqual({
+      canRunSuites: true,
+      canRunTests: true,
+      canRunAll: false
     })
   })
 })

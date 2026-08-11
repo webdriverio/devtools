@@ -204,6 +204,19 @@ export function collectSuiteTestMetadata(
         kind: deriveAncestorKind(suite, parentKind)
       }
     ]
+    // A cucumber scenario is modelled as a SUITE, not a test — but it IS the
+    // test unit: the attempt ledger and the per-test slice boundary both key on
+    // its uid, and so does every command's testUid. Without an entry here the
+    // trace's group fell back to rendering that raw uid as the group's name.
+    // `state` comes along so retention keeps evaluating a real outcome.
+    if (deriveAncestorKind(suite, parentKind) === 'scenario') {
+      metadata.set(suite.uid, {
+        title: suite.title,
+        specFile: suite.file,
+        state: suite.state,
+        ancestry: ancestors
+      })
+    }
     for (const entry of suite.tests ?? []) {
       // Trees can contain string placeholders for tests not yet reconciled.
       if (typeof entry !== 'object' || entry === null) {

@@ -24,3 +24,9 @@ export function withTimeout<T>(
 
 /** Default ceiling for a single in-page snapshot probe. */
 export const SNAPSHOT_PROBE_TIMEOUT_MS = 2500
+
+/** Ceiling for a driver round-trip probe (screenshot, url, title). Larger than
+ *  the in-page ceiling because encoding a full-page screenshot legitimately
+ *  takes longer than reading the DOM, but still inside the adapters' 5s
+ *  settle window so a hung probe can't strand the whole capture. */
+export const SNAPSHOT_DRIVER_PROBE_TIMEOUT_MS = 4000

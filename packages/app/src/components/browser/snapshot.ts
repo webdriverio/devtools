@@ -1,4 +1,5 @@
 import { Element } from '@core/element'
+import scrollbarStyles from '@core/scrollbars.css?inline'
 import { html, nothing } from 'lit'
 import { consume } from '@lit/context'
 import { snapshotStyles } from './snapshot-styles.js'
@@ -16,11 +17,11 @@ import { booleanAttributeOn, isBooleanAttribute } from './boolean-attribute.js'
 import { type ComponentChildren, h, render, type VNode } from 'preact'
 import { customElement, query } from 'lit/decorators.js'
 import { transform } from './vnode-transform.js'
-import type { SimplifiedVNode } from '../../../../script/types'
+import type { SimplifiedVNode } from '@wdio/devtools-script/types'
 // Type-only, like the `script/types` import above: the collector owns the
 // characterData wire shape (parent ref + child index), so the replay reads it
 // from the same declaration that produces it.
-import type { TextMutation } from '../../../../script/src/mutations.js'
+import type { TextMutation } from '@wdio/devtools-script/mutations.js'
 import type { CommandLog } from '@wdio/devtools-shared'
 
 import {
@@ -399,11 +400,11 @@ export class DevtoolsBrowser extends Element {
     }
     doc.replaceChild(doc.importNode(html, true), docEl)
 
-    // Player chrome, not captured content: thin down the replayed page's own
-    // scrollbar so it reads as part of the mock browser window.
-    const scrollbarStyle = doc.createElement('style')
-    scrollbarStyle.textContent = ':root { scrollbar-width: thin }'
-    doc.head?.appendChild(scrollbarStyle)
+    // Player chrome, not captured content: the replayed page's own scrollbars
+    // get the app's styling, so they read as part of the mock browser window.
+    const scrollbarSheet = doc.createElement('style')
+    scrollbarSheet.textContent = scrollbarStyles
+    doc.head?.appendChild(scrollbarSheet)
 
     this.#setIframeSize()
   }
@@ -637,8 +638,8 @@ export class DevtoolsBrowser extends Element {
 
   /** Outline the element for an a11y-tree locator. Resolved through the same
    *  resolver the forward direction (the element overlay) uses, because the tree
-   *  captures interactive elements as WDIO text locators (`button*=Login`) that
-   *  querySelector cannot parse. */
+   *  captures text-matched elements as XPath (`//button[contains(., "Login")]`)
+   *  that querySelector cannot parse. */
   #highlightBySelector = (ev: Event) => {
     const detail = (ev as CustomEvent<{ selector?: string } | null>).detail
     const docEl = this.iframe?.contentDocument

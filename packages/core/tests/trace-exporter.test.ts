@@ -581,3 +581,48 @@ describe('exported trace stream — DOM mutations', () => {
     await fs.rm(outputDir, { recursive: true, force: true })
   })
 })
+
+// The zip carried no runner identity at all, so the player had no way to tell a
+// user which of the three frameworks' locator syntax the capture used.
+describe('exported trace stream — context-options runner', () => {
+  async function contextOptions(
+    metadata: TraceCapturer['metadata']
+  ): Promise<Record<string, unknown>> {
+    const outputDir = await fs.mkdtemp(path.join(os.tmpdir(), 'trace-runner-'))
+    const capturer: TraceCapturer = {
+      mutations: [],
+      traceLogs: [],
+      consoleLogs: [],
+      networkRequests: [],
+      commandsLog: [cmd('click')],
+      sources: new Map(),
+      metadata,
+      startWallTime: 1000
+    }
+    const dir = await writeTraceZip(capturer, {
+      outputDir,
+      sessionId: 'abc12345',
+      format: 'ndjson-directory'
+    })
+    const raw = await fs.readFile(path.join(dir, 'trace.trace'), 'utf8')
+    await fs.rm(outputDir, { recursive: true, force: true })
+    return JSON.parse(raw.trim().split('\n')[0]!) as Record<string, unknown>
+  }
+
+  it('writes the recording runner into the context-options event', async () => {
+    const ctx = await contextOptions({
+      type: TraceType.Testrunner,
+      runner: 'nightwatch-cucumber'
+    })
+
+    expect(ctx.type).toBe('context-options')
+    expect(ctx.runner).toBe('nightwatch-cucumber')
+  })
+
+  it('omits the field entirely when the capture named no runner', async () => {
+    // Byte-stable with the pre-field output, so an older reader is unaffected.
+    const ctx = await contextOptions({ type: TraceType.Testrunner })
+
+    expect('runner' in ctx).toBe(false)
+  })
+})

@@ -17,7 +17,7 @@ const EMPTY_DETAIL = '.empty-state-detail'
 const GLYPH = '🌳'
 const HEADING = 'No accessibility snapshot for this command'
 const DETAIL =
-  'Per-command accessibility capture is WebdriverIO-only — Selenium and Nightwatch traces do not include it.'
+  'Nothing was captured for this action — either the capture had not resolved when the trace slice was written, or the action ran on native mobile, which has no DOM tree.'
 
 const mountPlaceholder = (props?: Record<string, unknown>) =>
   mount<DevtoolsPlaceholder>(COMPONENT, props)

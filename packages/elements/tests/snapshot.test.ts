@@ -576,6 +576,25 @@ describe('accessibilityNodesToSnapshotNodes', () => {
     expect(result[0]!.tagName).toBe('a')
   })
 
+  it('derives tagName from the xpath the capture emits for a text match', () => {
+    const input = [
+      node({
+        role: 'link',
+        depth: 0,
+        name: 'Home',
+        selector: '//a[contains(., "Home")]'
+      }),
+      node({
+        role: 'button',
+        depth: 0,
+        name: 'Go',
+        selector: '//my-button[contains(., "Go")]'
+      })
+    ]
+    const result = accessibilityNodesToSnapshotNodes(input)
+    expect(result.map((n) => n.tagName)).toEqual(['a', 'my-button'])
+  })
+
   it('falls back to role for selectorless tag extraction', () => {
     const input = [
       node({ role: 'textbox', depth: 0, name: 'Email', selector: '#email' })

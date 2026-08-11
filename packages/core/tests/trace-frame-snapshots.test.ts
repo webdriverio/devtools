@@ -21,16 +21,37 @@ describe('FrameSnapshotIndex', () => {
     ])
   })
 
-  it('returns undefined for unmatched timestamps', () => {
-    const index = new FrameSnapshotIndex([snap()])
+  it('returns undefined when the index holds no captures at all', () => {
+    const index = new FrameSnapshotIndex([])
     expect(index.claimAfter(1234, 'call@2')).toBeUndefined()
     expect(index.refs()).toEqual([])
   })
 
-  it('consumes the snapshot on claim', () => {
+  it('shares one capture across actions completing at the same instant', () => {
+    // Nightwatch emits its native assertion rows in a batch whose execution
+    // windows collapse onto one instant; consuming left the rest blank.
     const index = new FrameSnapshotIndex([snap()])
-    index.claimAfter(2000, 'call@2')
-    expect(index.claimAfter(2000, 'call@3')).toBeUndefined()
+    expect(index.claimAfter(2000, 'call@2')).toBe('after@call@2')
+    expect(index.claimAfter(2000, 'call@3')).toBe('after@call@3')
+    expect(index.refs().map((r) => r.callId)).toEqual(['call@2', 'call@3'])
+    expect(index.refs()[1]!.snapshot).toEqual(snap())
+  })
+
+  it('falls back to the most recent capture before an uncaptured action', () => {
+    // An assertion reads the page rather than changing it, so it takes no
+    // capture of its own and inherits the preceding action's.
+    const index = new FrameSnapshotIndex([
+      snap(),
+      snap({ timestamp: 3000, command: 'setValue', screenshot: 'BB' })
+    ])
+    expect(index.claimAfter(3500, 'call@9')).toBe('after@call@9')
+    expect(index.refs()[0]!.snapshot.screenshot).toBe('BB')
+  })
+
+  it('still returns nothing for an action preceding every capture', () => {
+    const index = new FrameSnapshotIndex([snap()])
+    expect(index.claimAfter(1000, 'call@1')).toBeUndefined()
+    expect(index.refs()).toEqual([])
   })
 
   it('ignores snapshots without a screenshot', () => {
@@ -99,6 +120,31 @@ describe('input point synthesis (A8)', () => {
     const point = pointOf(
       [{ command: 'click', args: ['#go'], timestamp: 2000, startTime: 1950 }],
       [snap({ elements: [{ selector: '#go', boundingBox: box }] })]
+    )
+    expect(point).toEqual({ x: 30, y: 25 })
+  })
+
+  it('resolves the point from the row locator when args carry none', () => {
+    // Selenium acts through a resolved element handle — the receiver, not an
+    // argument — so `args` holds no locator and `selector` is the only evidence.
+    const point = pointOf(
+      [{ command: 'click', args: [], selector: '#go', timestamp: 2000 }],
+      [snap({ elements: [{ selector: '#go', boundingBox: box }] })]
+    )
+    expect(point).toEqual({ x: 30, y: 25 })
+  })
+
+  it('prefers the row locator over a fill value sitting in args[0]', () => {
+    const point = pointOf(
+      [
+        {
+          command: 'sendKeys',
+          args: ['tomsmith'],
+          selector: '#username',
+          timestamp: 2000
+        }
+      ],
+      [snap({ elements: [{ selector: '#username', boundingBox: box }] })]
     )
     expect(point).toEqual({ x: 30, y: 25 })
   })

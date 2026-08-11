@@ -31,6 +31,7 @@ import {
   CANCEL_TEXT,
   FLASH_TEXT,
   LOGIN_LABEL,
+  LOGIN_XPATH,
   NOTICE_LEAD,
   NOTICE_TAIL,
   NOTICE_TAIL_UPDATED,
@@ -176,6 +177,18 @@ const revealFromA11y = (selector: string) =>
   window.dispatchEvent(
     new CustomEvent('a11y-highlight', { detail: { selector } })
   )
+
+/** How many elements an XPath locator matches, straight from the browser's own
+ *  engine — `ORDERED_NODE_SNAPSHOT_TYPE`. */
+function matchCount(doc: Document, expression: string): number {
+  return doc.evaluate(
+    expression,
+    doc,
+    null,
+    XPathResult.ORDERED_NODE_SNAPSHOT_TYPE,
+    null
+  ).snapshotLength
+}
 
 const recordingArrives = () =>
   window.dispatchEvent(
@@ -1120,12 +1133,26 @@ describe('wdio-devtools-browser', () => {
       expect(boxesIn(el, HIGHLIGHT_BOX)).toHaveLength(1)
     })
 
-    it('outlines the element an a11y text locator points at', async () => {
+    it('outlines the element an a11y xpath locator points at', async () => {
+      const el = await mountBrowser(loginTrace)
+      const doc = await replayedPage(el)
+
+      // Only document.evaluate resolves it, which is why this case needs a real
+      // browser — and its uniqueness here is the property the capture's same-tag
+      // DOM count stands in for.
+      expect(matchCount(doc, LOGIN_XPATH)).toBe(1)
+
+      revealFromA11y(LOGIN_XPATH)
+
+      expect(boxesIn(el, HIGHLIGHT_BOX)).toHaveLength(1)
+    })
+
+    it('outlines the element a legacy text locator points at', async () => {
       const el = await mountBrowser(loginTrace)
       await replayedPage(el)
 
-      // The form the a11y tree captures its own locators in — querySelector
-      // cannot parse it, so only the shared resolver finds the element.
+      // Traces recorded before the capture emitted XPath carry this syntax, and
+      // a hand-written WDIO test still uses it, so the resolver keeps it.
       revealFromA11y(`button*=${LOGIN_LABEL}`)
 
       expect(boxesIn(el, HIGHLIGHT_BOX)).toHaveLength(1)
@@ -1135,10 +1162,12 @@ describe('wdio-devtools-browser', () => {
       const el = await mountBrowser(loginTrace)
       await replayedPage(el)
 
-      // Same locator syntax as above, so this is about the page not carrying
-      // the text — not about the syntax being unparseable.
+      // Both syntaxes resolve on this page for text it does carry (above), so
+      // this is about the text being absent rather than unparseable.
       revealFromA11y('button*=Log out')
+      expect(boxesIn(el, HIGHLIGHT_BOX)).toHaveLength(0)
 
+      revealFromA11y('//button[contains(., "Log out")]')
       expect(boxesIn(el, HIGHLIGHT_BOX)).toHaveLength(0)
     })
   })

@@ -107,6 +107,69 @@ describe('processTracePayload — mutations + traceLogs', () => {
   })
 })
 
+describe('processTracePayload — DOM anchor attribution', () => {
+  const anchor = (timestamp: number, url = 'https://example.com/next') => ({
+    type: 'childList',
+    url,
+    addedNodes: [{ tag: 'html' }],
+    removedNodes: [],
+    timestamp
+  })
+  const cmd = (timestamp: number) => ({ command: 'click', args: [], timestamp })
+
+  it('pulls the anchor onto the navigation still in flight', () => {
+    // Adapter stamps commands at invocation, so the navigate's row ends before
+    // the destination document exists and would replay the page it left.
+    cap.commandsLog.push(cmd(1000))
+    cap.process({ mutations: [anchor(1250)] })
+    expect(cap.mutations[0]!.timestamp).toBe(1000)
+  })
+
+  it('leaves the anchor alone once a command has completed after it', () => {
+    // Adapter stamps commands at completion: the navigate finished after the
+    // document was born, so its row already resolves this anchor. Pulling it
+    // back would hand the new page's DOM to actions still on the old one.
+    cap.commandsLog.push(cmd(1000), cmd(1400))
+    cap.process({ mutations: [anchor(1250)] })
+    expect(cap.mutations[0]!.timestamp).toBe(1250)
+  })
+
+  it('leaves the anchor alone when every command completed after it', () => {
+    cap.commandsLog.push(cmd(1400))
+    cap.process({ mutations: [anchor(1250)] })
+    expect(cap.mutations[0]!.timestamp).toBe(1250)
+  })
+
+  it('never pulls an anchor ahead of the document it replaces', () => {
+    cap.mutations.push({
+      type: 'attributes',
+      target: '7',
+      addedNodes: [],
+      removedNodes: [],
+      timestamp: 1100
+    })
+    cap.commandsLog.push(cmd(1000))
+    cap.process({ mutations: [anchor(1250)] })
+    expect(cap.mutations[1]!.timestamp).toBe(1100)
+  })
+
+  it('leaves observed diffs untouched', () => {
+    cap.commandsLog.push(cmd(1000))
+    cap.process({
+      mutations: [
+        {
+          type: 'attributes',
+          target: '35',
+          addedNodes: [],
+          removedNodes: [],
+          timestamp: 1250
+        }
+      ]
+    })
+    expect(cap.mutations[0]!.timestamp).toBe(1250)
+  })
+})
+
 describe('captureSource', () => {
   it('caches by file path — second read is a no-op', async () => {
     const filePath = new URL(import.meta.url).pathname

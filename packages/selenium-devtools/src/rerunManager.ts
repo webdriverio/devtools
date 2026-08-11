@@ -20,12 +20,15 @@ const FILTER_FLAG_ALIASES: Record<string, string[]> = {
 
 export class RerunManager {
   #launchCommand: string
-  #runner: string
+  #detectedRunner: string
   #rerunTemplate?: string
 
-  constructor(runner: string) {
+  /** `detectedRunner` is the JS test runner (mocha/jest/cucumber) whose CLI
+   *  flag the template replays — not `Metadata.runner`, which names the
+   *  adapter. */
+  constructor(detectedRunner: string) {
     this.#launchCommand = captureLaunchCommand()
-    this.#runner = runner
+    this.#detectedRunner = detectedRunner
   }
 
   configure(template: string | undefined) {
@@ -37,7 +40,7 @@ export class RerunManager {
     if (this.#rerunTemplate) {
       return this.#rerunTemplate
     }
-    const flag = FILTER_FLAGS[this.#runner]
+    const flag = FILTER_FLAGS[this.#detectedRunner]
     if (!flag) {
       return undefined
     }
@@ -50,7 +53,7 @@ export class RerunManager {
   }
 
   #stripFilterFlags(argv: string[]): string[] {
-    const aliases = FILTER_FLAG_ALIASES[this.#runner] ?? []
+    const aliases = FILTER_FLAG_ALIASES[this.#detectedRunner] ?? []
     if (aliases.length === 0) {
       return argv
     }

@@ -274,6 +274,68 @@ describe('patchNodeAssert', () => {
       expect(ASSERT_MUT['equal']).toBe(wrapped)
     })
   })
+
+  describe('assert target resolution', () => {
+    it('stamps the resolved selector on the capture', () => {
+      const captured: CapturedAssert[] = []
+      patchNodeAssert(
+        (c) => captured.push(c),
+        undefined,
+        () => '#flash'
+      )
+      assert.equal('logged in', 'logged in')
+      expect(captured[0].selector).toBe('#flash')
+    })
+
+    it('resolves from the RAW args, not the serialized ones', () => {
+      // The adapter recognises an element handle by object identity, which
+      // safeSerializeAssertArg destroys — so the resolver must see the originals.
+      const handle = { getId: () => 'e1' }
+      const seen: unknown[][] = []
+      const captured: CapturedAssert[] = []
+      patchNodeAssert(
+        (c) => captured.push(c),
+        undefined,
+        (args) => {
+          seen.push(args)
+          return args[0] === handle ? '#flash' : undefined
+        }
+      )
+      assert.ok(handle)
+      expect(seen[0][0]).toBe(handle)
+      expect(captured[0].selector).toBe('#flash')
+      expect(captured[0].args[0]).not.toBe(handle)
+    })
+
+    it('leaves selector absent when the resolver names nothing', () => {
+      const captured: CapturedAssert[] = []
+      patchNodeAssert(
+        (c) => captured.push(c),
+        undefined,
+        () => undefined
+      )
+      assert.equal(1, 1)
+      expect(captured[0].selector).toBeUndefined()
+      expect('selector' in captured[0]).toBe(false)
+    })
+
+    it('resolves once per call and reuses it for the failing emit', () => {
+      const captured: CapturedAssert[] = []
+      const resolve = vi.fn(() => '#flash')
+      patchNodeAssert((c) => captured.push(c), undefined, resolve)
+      expect(() => assert.equal('a', 'b')).toThrow()
+      expect(resolve).toHaveBeenCalledTimes(1)
+      expect(captured[0].selector).toBe('#flash')
+    })
+
+    it('skips resolution for an assert dropped as non-user-code', () => {
+      vi.mocked(getCallSourceFromStack).mockReturnValue(INTERNAL_FRAME)
+      const resolve = vi.fn(() => '#flash')
+      patchNodeAssert(() => {}, undefined, resolve)
+      assert.equal(1, 1)
+      expect(resolve).not.toHaveBeenCalled()
+    })
+  })
 })
 
 describe('capturedAssertToCommandLog', () => {
@@ -311,6 +373,15 @@ describe('capturedAssertToCommandLog', () => {
       stack: error.stack
     })
     expect(entry.testUid).toBeUndefined()
+  })
+
+  // Without this the row reaches the trace with no `locator` param and the
+  // player's element overlay has nothing to box the assertion's target with.
+  it('carries the resolved target selector onto the row', () => {
+    expect(
+      capturedAssertToCommandLog({ ...base, selector: '#flash' }).selector
+    ).toBe('#flash')
+    expect(capturedAssertToCommandLog(base).selector).toBeUndefined()
   })
 })
 
