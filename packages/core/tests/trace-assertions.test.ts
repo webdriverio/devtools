@@ -120,6 +120,150 @@ describe('buildActionEvents with assert commands', () => {
       (e): e is AfterEvent => e.type === 'after' && e.callId === callId
     )
 
+  it('marks a non-assert command whose result reports passed:false as failed', () => {
+    // Nightwatch's waitForElement* commands carry no Error, only the collapsed
+    // result, and they map to `Element` — so gating the collapsed-failure read on
+    // the assert class left the step a test most often fails on rendered green,
+    // with the timeout readable only in the result pane.
+    const commands: CommandLog[] = [
+      {
+        command: 'waitForElementVisible',
+        args: ['a*=Logout', 5000],
+        result: {
+          passed: false,
+          expected: 'visible',
+          actual: 'not found',
+          message: 'Timed out while waiting for element <a*=Logout>'
+        },
+        startTime: WALL + 10,
+        timestamp: WALL + 5010
+      }
+    ]
+    const events = buildActionEvents(commands, 'page@1', WALL)
+    const [row] = befores(events)
+    expect(row.apiName).toBe('element.waitForDisplayed')
+    expect(afterOf(events, row.callId)?.error?.message).toContain('Timed out')
+  })
+
+  it('falls back to a command-named message when the result carries none', () => {
+    const commands: CommandLog[] = [
+      {
+        command: 'waitForElementPresent',
+        args: ['#gone'],
+        result: { passed: false },
+        timestamp: WALL + 20
+      }
+    ]
+    const events = buildActionEvents(commands, 'page@1', WALL)
+    const [row] = befores(events)
+    expect(afterOf(events, row.callId)?.error?.message).toBe(
+      'waitForElementPresent failed'
+    )
+  })
+
+  it('marks a wait that resolved false as timed out', () => {
+    // Nightwatch reports waitForElement* timeouts through its own assertion
+    // channel, not the command callback — which hands back {value: null} and
+    // collapses to plain false. That boolean is the row's only evidence.
+    const commands: CommandLog[] = [
+      {
+        command: 'waitForElementVisible',
+        args: ['a*=Logout', 5000],
+        result: false,
+        startTime: WALL + 10,
+        timestamp: WALL + 5010
+      }
+    ]
+    const events = buildActionEvents(commands, 'page@1', WALL)
+    const [row] = befores(events)
+    expect(afterOf(events, row.callId)?.error?.message).toBe(
+      'waitForElementVisible timed out waiting for a*=Logout'
+    )
+  })
+
+  it('does not read false as a failure for a non-wait command', () => {
+    // `false` is a legitimate value for a boolean read.
+    const commands: CommandLog[] = [
+      {
+        command: 'isDisplayed',
+        args: ['#hidden'],
+        result: false,
+        timestamp: WALL + 40
+      }
+    ]
+    const events = buildActionEvents(commands, 'page@1', WALL)
+    const [row] = befores(events)
+    expect(afterOf(events, row.callId)?.error).toBeUndefined()
+  })
+
+  it('leaves a passing wait without an error', () => {
+    const commands: CommandLog[] = [
+      {
+        command: 'waitForElementVisible',
+        args: ['#username'],
+        result: true,
+        timestamp: WALL + 30
+      }
+    ]
+    const events = buildActionEvents(commands, 'page@1', WALL)
+    const [row] = befores(events)
+    expect(afterOf(events, row.callId)?.error).toBeUndefined()
+  })
+
+  it('orders an issued-earlier assert before a longer command sharing its start', () => {
+    // Nightwatch enqueues `browser.assert.*` synchronously and then awaits the
+    // next command, so both read the same millisecond `startTime`. The assert is
+    // appended to commandsLog in the test-end batch, i.e. AFTER the click, so
+    // without `sequence` the tie resolved in insertion order and the assert
+    // landed below the logout click it actually preceded.
+    const commands: CommandLog[] = [
+      {
+        command: 'click',
+        args: ['a*=Logout'],
+        startTime: WALL + 100,
+        timestamp: WALL + 5100,
+        sequence: 3
+      },
+      {
+        command: 'assert.urlContains',
+        args: ['/secure'],
+        result: 'passed',
+        startTime: WALL + 100,
+        timestamp: WALL + 100,
+        sequence: 1
+      },
+      {
+        command: 'assert.textContains',
+        args: ['#flash', 'You logged into a secure area'],
+        result: 'passed',
+        startTime: WALL + 100,
+        timestamp: WALL + 100,
+        sequence: 2
+      }
+    ]
+    const order = befores(buildActionEvents(commands, 'page@1', WALL)).map(
+      (b) => b.apiName
+    )
+    expect(order).toEqual([
+      'assert.urlContains',
+      'assert.textContains',
+      'element.click'
+    ])
+  })
+
+  it('falls back to insertion order when no sequence is stamped', () => {
+    const commands: CommandLog[] = [
+      { command: 'click', args: ['#a'], startTime: WALL, timestamp: WALL },
+      { command: 'click', args: ['#b'], startTime: WALL, timestamp: WALL }
+    ]
+    const order = befores(buildActionEvents(commands, 'page@1', WALL)).map(
+      (b) => b.title
+    )
+    expect(order).toEqual(order.slice().sort())
+    expect(order[0]).toContain('#a')
+    expect(order[1]).toContain('#b')
+  })
+
   it('emits an action pair with assert params, apiName and title', () => {
     const commands: CommandLog[] = [
       {

@@ -50,7 +50,9 @@ function capturedSteps(
   // here so the transcript matches execution order. Stable + a no-op for
   // already-ordered WDIO/Selenium command logs.
   const ordered = [...commands].sort(
-    (a, b) => (a.startTime ?? a.timestamp) - (b.startTime ?? b.timestamp)
+    (a, b) =>
+      (a.startTime ?? a.timestamp) - (b.startTime ?? b.timestamp) ||
+      (a.sequence ?? 0) - (b.sequence ?? 0)
   )
   const captured: { entry: CommandLog; action: TraceAction }[] = []
   for (const c of ordered) {

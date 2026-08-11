@@ -4,11 +4,14 @@ import {
   applyPerformanceData,
   errorMessage,
   isSessionGoneError,
+  mapAssertCommand,
   mapCommandToAction,
   toError,
+  upsertRichestSnapshot,
   type CapturedPerformancePayload,
   type RetryTracker
 } from '@wdio/devtools-core'
+import { ELEMENT_LOCATOR_METHODS } from '../constants.js'
 import { getDriverOriginals, getElementOriginals } from '../driverPatcher.js'
 import { captureOrReplaceCommand } from './captureOrReplaceCommand.js'
 import { captureActionSnapshot } from '../action-snapshot.js'
@@ -79,11 +82,10 @@ export async function enrichFindResult(
 }
 
 /**
- * On navigation commands, inject the page-side capture script (once per
- * session), capture Performance API data onto the command entry, and pull
- * the latest trace + browser logs. Fire-and-forget; errors are logged unless
- * the session has already finalized (post-quit errors are expected and
- * uninteresting).
+ * On navigation commands, drain the page-side collector and capture Performance
+ * API data onto the command entry, plus browser logs. Fire-and-forget; errors
+ * are logged unless the session has already finalized (post-quit errors are
+ * expected and uninteresting).
  *
  * When `entry` is provided, the shared `CAPTURE_PERFORMANCE_SCRIPT` runs
  * against the driver and attaches navigation / resources / cookies /
@@ -92,7 +94,6 @@ export async function enrichFindResult(
  */
 export function captureNavigationTrace(
   capturer: SessionCapturer,
-  onInjected: () => void,
   isFinalized: () => boolean,
   entry?: CommandLog,
   args?: unknown[],
@@ -100,16 +101,24 @@ export function captureNavigationTrace(
 ): void {
   void (async () => {
     try {
-      // A navigation replaced the document, so the previous page's collector is
-      // gone — (re)inject on every navigation so each visited page's DOM (and
-      // field edits) is captured, not just the first. onInjected keeps the
-      // first-injection flag other capture paths read.
-      onInjected()
-      await capturer.injectScript()
+      // Fallback path: an appended `<script>` dies with its document, so every
+      // navigation needs it back. Under the document-start preload the
+      // destination instrumented itself before any of its own script ran, and
+      // re-injecting would only cost a round trip.
+      if (!capturer.preloadRegistered) {
+        await capturer.injectScript()
+      }
+      // Drained BEFORE the performance read, which sits on a 500ms settle: the
+      // drain is what moves the destination's DOM anchor out of the page and
+      // into the trace, and the page can be gone by the time that settle ends.
+      // Anchored, because the fallback path's freshly injected collector anchors
+      // asynchronously and an unanchored drain would beat it. Which action owns
+      // the anchor is derived from the anchor's own document birth time at
+      // ingest, not from this call.
+      await capturer.captureTrace(true)
       if (entry && driver) {
         await capturePerformance(capturer, driver, entry, args)
       }
-      await capturer.captureTrace()
       if (!capturer.bidiActive) {
         await capturer.captureBrowserLogs()
       }
@@ -157,12 +166,10 @@ export interface OnCommandCtx {
   readonly testManager: TestManager | undefined
   readonly retryTracker: RetryTracker
   readonly options: { captureScreenshots: boolean; mode?: DevToolsMode }
-  readonly scriptInjected: boolean
   readonly finalized: boolean
   readonly driver: SeleniumDriverLike | undefined
   readonly actionSnapshots: ActionSnapshot[]
   readonly snapshotCaptures: Promise<void>[]
-  setScriptInjected(v: boolean): void
 }
 
 function attachScreenshotAsync(
@@ -184,9 +191,20 @@ function attachScreenshotAsync(
 /**
  * After a DOM-mutating element command (type/click/clear/submit): drain the
  * collector so the page's field edits land before the page is discarded, then —
- * if the command navigated (a submit click) — re-inject on the destination so
- * its DOM is captured too (the previous page's `<script>` collector didn't
- * survive the navigation). Fire-and-forget; trace mode only.
+ * on the fallback injection path only — re-inject on the destination if the
+ * command navigated (a submit click), since the previous page's `<script>`
+ * collector didn't survive it. Trace mode only.
+ *
+ * Under the document-start preload there is nothing to re-inject: a missing
+ * collector is the fallback path's only signal that the document was replaced,
+ * and the preload makes that signal permanently false. The destination anchored
+ * itself at its own birth time, so whichever drain reaches it next places the
+ * anchor correctly.
+ *
+ * Tracked in `snapshotCaptures` rather than left loose: the driver patcher does
+ * not await `onCommand`, so this races the next command, and an untracked drain
+ * could still be in flight when the trace is written — which is how a
+ * navigating click's destination DOM went missing from the trace entirely.
  */
 function maybeDrainAfterDomCommand(
   ctx: OnCommandCtx,
@@ -199,11 +217,68 @@ function maybeDrainAfterDomCommand(
     DOM_MUTATING_ELEMENT_COMMANDS.has(cmd.command) &&
     !ctx.finalized
   ) {
-    void (async () => {
-      await capturer.captureTrace()
-      await capturer.reinjectIfNavigated()
-    })().catch(() => {})
+    ctx.snapshotCaptures.push(
+      (async () => {
+        // Anchor on the FIRST drain too: if the command already navigated, this
+        // drain's own recovery re-injects on the destination, which then makes
+        // reinjectIfNavigated see a live collector and early-return — so the
+        // anchor there never runs and the destination's DOM is lost. Attributed
+        // to this command so the player shows the destination for THIS action.
+        await capturer.captureTrace(true)
+        if (!capturer.preloadRegistered) {
+          await capturer.reinjectIfNavigated()
+        }
+      })().catch(() => {})
+    )
   }
+}
+
+/**
+ * Whether a live-mode command warrants a drain — everything except the three
+ * classes that can't have moved the page or already drained: a navigation
+ * (`captureNavigationTrace` drains AND re-anchors it), a locator resolution
+ * (reading the DOM can't change it), and a node:assert row (it never reaches
+ * the browser at all). Same deny-list shape the WDIO service's live drain uses,
+ * over selenium's own command vocabulary.
+ */
+function warrantsLiveDrain(
+  capturer: SessionCapturer,
+  cmd: CapturedCommand
+): boolean {
+  if (capturer.isNavigationCommand(cmd.command) && !cmd.fromElement) {
+    return false
+  }
+  if ((ELEMENT_LOCATOR_METHODS as readonly string[]).includes(cmd.command)) {
+    return false
+  }
+  return !mapAssertCommand(cmd.command)
+}
+
+/**
+ * Live mode carries no per-action DOM snapshot — that costs two injected
+ * scripts plus a screenshot per action and is deliberately trace-only — so the
+ * dashboard replays whatever the last drain delivered. With only the navigation
+ * hook draining, every row between two document loads showed the page as it
+ * loaded: an unfilled form after `sendKeys`, and the destination of a
+ * navigating click never anchored at all because the `<script>` collector dies
+ * with its document. Mirrors the service's `#drainAfterLiveCommand`.
+ */
+function maybeDrainAfterLiveCommand(
+  ctx: OnCommandCtx,
+  capturer: SessionCapturer,
+  cmd: CapturedCommand
+): void {
+  if (
+    ctx.options.mode === 'trace' ||
+    ctx.finalized ||
+    !warrantsLiveDrain(capturer, cmd)
+  ) {
+    return
+  }
+  // Tracked in `snapshotCaptures` for the same reason the trace path is: the
+  // driver patcher does not await `onCommand`, so an untracked drain can still
+  // be in flight when the session is torn down.
+  ctx.snapshotCaptures.push(capturer.drainAfterLiveCommand())
 }
 
 /**
@@ -245,7 +320,6 @@ export async function handleOnCommand(
   if (capturer.isNavigationCommand(cmd.command) && !cmd.fromElement) {
     captureNavigationTrace(
       capturer,
-      () => ctx.setScriptInjected(true),
       () => ctx.finalized,
       entry,
       cmd.args,
@@ -253,19 +327,33 @@ export async function handleOnCommand(
     )
   }
   maybeDrainAfterDomCommand(ctx, capturer, cmd)
+  maybeDrainAfterLiveCommand(ctx, capturer, cmd)
+  queueActionSnapshot(ctx, cmd, entry.timestamp, error)
+}
+
+/** Fire-and-forget post-action snapshot, drained at finalize. Stamped with the
+ *  logged command's timestamp, not the capture's own: the capture resolves after
+ *  the command completes, and export claims snapshots by exact equality with the
+ *  command timestamp (FrameSnapshotIndex.claimAfter / elementsAt). */
+function queueActionSnapshot(
+  ctx: OnCommandCtx,
+  cmd: CapturedCommand,
+  timestamp: number,
+  error: unknown
+): void {
   if (
-    ctx.options.mode === 'trace' &&
-    !error &&
-    ctx.driver &&
-    mapCommandToAction(cmd.command)
+    ctx.options.mode !== 'trace' ||
+    error ||
+    !ctx.driver ||
+    !mapCommandToAction(cmd.command)
   ) {
-    const driver = ctx.driver
-    ctx.snapshotCaptures.push(
-      captureActionSnapshot(driver, cmd.command).then((snap) => {
-        if (snap) {
-          ctx.actionSnapshots.push(snap)
-        }
-      })
-    )
+    return
   }
+  ctx.snapshotCaptures.push(
+    captureActionSnapshot(ctx.driver, cmd.command, timestamp).then((snap) => {
+      if (snap) {
+        upsertRichestSnapshot(ctx.actionSnapshots, snap)
+      }
+    })
+  )
 }

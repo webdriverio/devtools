@@ -1,10 +1,13 @@
 /**
  * Example + config-sweep harness for @wdio/nightwatch-devtools.
  *
- * Walk the live/trace ladder by editing ONLY the mode/traceGranularity/
- * tracePolicy block in ../nightwatch.conf.cjs. The suite carries a passing
- * pair, an always-failing test (retain-on-failure target), and a flaky
- * fail-then-pass test (on-first-retry / attempt-capture target).
+ * Exercises the same the-internet login flow the WDIO and Selenium examples
+ * use, so a trace captured here is comparable across adapters. Walk the
+ * live/trace ladder by editing ONLY the mode/traceGranularity/tracePolicy
+ * block in ../nightwatch.conf.cjs. The suite carries a passing pair (a login
+ * round-trip and a DOM-mutation test), an always-failing test
+ * (retain-on-failure target), and a flaky fail-then-pass test
+ * (on-first-retry / attempt-capture target).
  *
  * Native asserts (browser.assert.*) double as the assertion-capture check:
  * the passing ones must render green ✓, the failing one red ✗.
@@ -14,35 +17,50 @@
  *   pnpm demo:nightwatch:retry    (rung 5 — adds --retries 1)
  */
 
+const BASE_URL = 'https://the-internet.herokuapp.com'
+
 // Survives Nightwatch's testcase retry so the flaky test fails once, then passes.
 let flakyAttempts = 0
 
 describe('nightwatch-devtools smoke test', function () {
-  it('loads example.com and reads the heading', async function (browser) {
-    await browser.url('https://example.com')
-    await browser.waitForElementVisible('body', 5000)
-    browser.assert.titleContains('Example')
+  it('logs into the secure area with valid credentials', async function (browser) {
+    console.log('[TEST] logging in with valid credentials')
+    await browser.url(`${BASE_URL}/login`)
+    await browser.waitForElementVisible('#username', 5000)
+    await browser.setValue('#username', 'tomsmith')
+    await browser.setValue('#password', 'SuperSecretPassword!')
+    await browser.click('button[type="submit"]')
+    await browser.waitForElementVisible('#flash', 5000)
+    browser.assert.urlContains('/secure')
+    browser.assert.textContains('#flash', 'You logged into a secure area')
+
+    await browser.waitForElementVisible('a.button', 5000)
+    await browser.click('a.button')
+    await browser.waitForElementVisible('#username', 5000)
+    browser.assert.urlContains('/login')
+    console.log('[TEST] logged back out')
   })
 
-  it('navigates and reads the page title', async function (browser) {
-    await browser.url('https://example.org')
-    await browser.waitForElementVisible('body', 5000)
-    browser.assert.titleContains('Example')
-  })
+  it('fails on a wrong flash message (retain-on-failure target)', async function (browser) {
+    console.log('[TEST] submitting invalid credentials')
+    await browser.url(`${BASE_URL}/login`)
+    await browser.waitForElementVisible('#username', 5000)
 
-  it('fails on a wrong title (retain-on-failure target)', async function (browser) {
-    await browser.url('https://example.com')
-    await browser.waitForElementVisible('body', 5000)
-    browser.assert.titleContains('This Is Not The Title')
+    await browser.setValue('#username', 'foobar')
+    await browser.setValue('#password', 'barfoo')
+
+    await browser.click('button[type="submit"]')
+    await browser.waitForElementVisible('#flash', 5000)
+    browser.assert.textContains('#flash', 'You logged into a secure area')
   })
 
   it('flaky: fails the first attempt, then passes (retry target)', async function (browser) {
-    await browser.url('https://example.com')
-    await browser.waitForElementVisible('body', 5000)
+    await browser.url(`${BASE_URL}/login`)
+    await browser.waitForElementVisible('#username', 5000)
     flakyAttempts += 1
     if (flakyAttempts === 1) {
       throw new Error('intentional first-attempt failure — should retry')
     }
-    browser.assert.titleContains('Example')
+    browser.assert.titleContains('The Internet')
   })
 })

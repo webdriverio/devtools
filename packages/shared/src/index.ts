@@ -3,6 +3,7 @@
 
 export * from './baseline.js'
 export * from './files.js'
+export * from './locator-dialect.js'
 export * from './routes.js'
 export * from './runner.js'
 export * from './snapshot-format.js'

@@ -5,6 +5,56 @@ import type { CommandLog } from '@wdio/devtools-shared'
 // stores; using the shared Node-side TraceMutation here would not be
 // assignable back into the player's global-typed render methods.
 
+/** Timeline position of a command: its issue clock, then the adapter's issue
+ *  counter, then its position in the array. The first two are the key
+ *  `buildActionEvents` orders the trace by; the array index is the last resort
+ *  so a fully-tied pair keeps arrival order (and a chronologically ordered
+ *  array — every trace — resolves to its own successor, unchanged). */
+type TimelinePosition = readonly [
+  start: number,
+  sequence: number,
+  index: number
+]
+
+const positionOf = (command: CommandLog, index: number): TimelinePosition => [
+  command.startTime ?? command.timestamp,
+  command.sequence ?? 0,
+  index
+]
+
+const isLater = (a: TimelinePosition, b: TimelinePosition): boolean =>
+  a[0] !== b[0] ? a[0] > b[0] : a[1] !== b[1] ? a[1] > b[1] : a[2] > b[2]
+
+/** Start of the command that follows this one ON THE TIMELINE, which is not the
+ *  one that follows it in the array: live mode appends commands in ARRIVAL
+ *  order, and a deferred row (a Nightwatch native assert, held back until its
+ *  outcome is known and flushed in a batch at test-end) arrives long after the
+ *  rows it ran between while carrying its real, much earlier start. Reading the
+ *  array neighbour then bounded a command by a time before it even ran, and the
+ *  replay resolved it to a document several navigations back — measured on the
+ *  BDD example, the run's last `waitForElementVisible('#username')` (on /login)
+ *  took its bound from an assert that had run 7.6s earlier and replayed
+ *  /secure. Traces are exported in timeline order, so there the successor is
+ *  the array neighbour and nothing changes. */
+function nextCommandStart(command: CommandLog, commands: CommandLog[]): number {
+  const idx = commands.indexOf(command)
+  if (idx === -1) {
+    return Infinity
+  }
+  const own = positionOf(command, idx)
+  let next: TimelinePosition | undefined
+  for (let i = 0; i < commands.length; i++) {
+    const candidate = positionOf(commands[i], i)
+    if (!isLater(candidate, own)) {
+      continue
+    }
+    if (next === undefined || isLater(next, candidate)) {
+      next = candidate
+    }
+  }
+  return next ? next[0] : Infinity
+}
+
 /** The DOM state a command left behind — i.e. its RESULT, not the page it
  *  started from. A navigating click's destination DOM is captured a few ms
  *  AFTER the click's own endTime (the mutation timestamp trails the command),
@@ -24,9 +74,7 @@ export function mutationForCommand(
   if (command === undefined || !mutations.length) {
     return undefined
   }
-  const idx = commands.indexOf(command)
-  const next = idx >= 0 ? commands[idx + 1] : undefined
-  const upperBound = next?.startTime ?? next?.timestamp ?? Infinity
+  const upperBound = nextCommandStart(command, commands)
   let best: TraceMutation | undefined
   for (const mutation of mutations) {
     if (mutation.timestamp < upperBound) {

@@ -12,6 +12,7 @@ import type {
   NightwatchTestCase,
   TestFileMetadata,
   StepLocation,
+  TestRunnerId,
   TestStats
 } from '../types.js'
 
@@ -50,12 +51,19 @@ export function incrementCounters(
   }
 }
 
+/** This adapter's runner identity. Both Nightwatch runners take the same
+ *  locator dialect, but the id also reaches the dashboard's run capabilities,
+ *  where the cucumber variant differs. */
+export function nightwatchRunnerId(isCucumberRunner: boolean): TestRunnerId {
+  return isCucumberRunner ? 'nightwatch-cucumber' : 'nightwatch'
+}
+
 export function buildPluginMetadataOptions(input: {
   isCucumberRunner: boolean
   configPath: string | undefined
 }) {
   return {
-    framework: input.isCucumberRunner ? 'nightwatch-cucumber' : 'nightwatch',
+    framework: nightwatchRunnerId(input.isCucumberRunner),
     configFile: input.configPath,
     baseDir: process.cwd(),
     runCapabilities: {

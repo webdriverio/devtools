@@ -216,7 +216,9 @@ describe('selenium SessionCapturer (with stashed executeScript)', () => {
         }
         if (s.includes('wdioTraceCollector')) {
           collectorReadyCalls++
-          return collectorReadyCalls >= 1
+          // Absent on the pre-injection probe, present once injected — the
+          // real sequence on a navigation destination.
+          return scriptInjected
         }
         return undefined
       })
@@ -224,6 +226,30 @@ describe('selenium SessionCapturer (with stashed executeScript)', () => {
       await cap.injectScript()
       expect(scriptInjected).toBe(true)
       expect(collectorReadyCalls).toBeGreaterThanOrEqual(1)
+    }
+  )
+
+  it.skipIf(!scriptPackageAvailable)(
+    'skips injection when a collector is already live on the document',
+    async () => {
+      // Injecting over a live collector replaces the global with a fresh
+      // instance and discards its buffered full-DOM anchor, which is how a
+      // navigation destination's DOM went missing from the trace entirely.
+      let scriptInjected = false
+      stubExec(async (_driver, script) => {
+        const s = String(script)
+        if (s.includes('createElement')) {
+          scriptInjected = true
+          return true
+        }
+        if (s.includes('wdioTraceCollector')) {
+          return true
+        }
+        return undefined
+      })
+      const cap = makeCapturer({ id: 'd' })
+      await cap.injectScript()
+      expect(scriptInjected).toBe(false)
     }
   )
 

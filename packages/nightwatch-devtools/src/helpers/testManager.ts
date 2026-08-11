@@ -7,6 +7,7 @@ import {
   type NightwatchTestCase
 } from '../types.js'
 import { determineTestState } from './utils.js'
+import { findRunningTest } from './runningTest.js'
 import type { TestReporter } from '../reporter.js'
 
 export class TestManager {
@@ -129,6 +130,19 @@ export class TestManager {
     }
 
     return currentTestName
+  }
+
+  /**
+   * The registered test for the testcase Nightwatch reports as running, read
+   * from live `browser.currentTest` state rather than from a hook — the only
+   * per-`it` signal the BDD interface gives a plugin (see ./runningTest.ts).
+   * Synchronous by construction: the command path resolves a row's test on the
+   * invocation stack, where an await would reorder capture.
+   */
+  runningTest(
+    currentTest: NightwatchCurrentTest | undefined
+  ): TestStats | undefined {
+    return findRunningTest(this.testReporter.getCurrentSuite(), currentTest)
   }
 
   /**

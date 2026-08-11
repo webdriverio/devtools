@@ -32,6 +32,11 @@ export interface CapturedAssert {
   error: Error | undefined
   callSource: string | undefined
   timestamp: number
+  /** Locator of the element the assertion was about, when the adapter can name
+   *  one from the raw args (see `patchNodeAssert`'s `resolveAssertTarget`).
+   *  Lands on `CommandLog.selector` so the player's overlay boxes the target the
+   *  way it does for a folded matcher row. */
+  selector?: string
 }
 
 /**
@@ -122,7 +127,8 @@ function makeAssertEmitters(
   methodName: string,
   args: unknown[],
   onCommand: (cmd: CapturedAssert) => void,
-  callerStack: string | undefined
+  callerStack: string | undefined,
+  resolveAssertTarget?: (args: unknown[]) => string | undefined
 ): { passed: () => void; failed: (err: unknown) => void } {
   const callInfo = getCallSourceFromStack(callerStack)
   // Drop asserts the user's test didn't fire directly: either no user-code frame
@@ -133,16 +139,25 @@ function makeAssertEmitters(
     return { passed: () => {}, failed: () => {} }
   }
   const startedAt = Date.now()
+  // Resolved from the RAW args: sanitizing loses the object identity an element
+  // handle is recognised by. After the user-code gate, so a dropped assert
+  // doesn't pay for it.
+  const selector = resolveAssertTarget?.(args)
   const sanitizedArgs = args.map(safeSerializeAssertArg)
-  const emit = (result: CapturedAssert['result'], error: Error | undefined) =>
-    onCommand({
+  const emit = (result: CapturedAssert['result'], error: Error | undefined) => {
+    const cmd: CapturedAssert = {
       command: `assert.${methodName}`,
       args: sanitizedArgs,
       result,
       error,
       callSource: callInfo.callSource,
       timestamp: startedAt
-    })
+    }
+    if (selector) {
+      cmd.selector = selector
+    }
+    onCommand(cmd)
+  }
   return {
     passed: () => emit('passed', undefined),
     failed: (err: unknown) => {
@@ -156,7 +171,8 @@ function makePatchedAssertMethod(
   methodName: string,
   assertObj: Record<string | symbol, unknown>,
   original: (...a: unknown[]) => unknown,
-  onCommand: (cmd: CapturedAssert) => void
+  onCommand: (cmd: CapturedAssert) => void,
+  resolveAssertTarget?: (args: unknown[]) => string | undefined
 ): (...args: unknown[]) => unknown {
   return function patchedAssert(this: unknown, ...args: unknown[]) {
     // Captured HERE so frames[0] is this wrapper and frames[1] is the assert's
@@ -166,7 +182,8 @@ function makePatchedAssertMethod(
       methodName,
       args,
       onCommand,
-      callerStack
+      callerStack,
+      resolveAssertTarget
     )
     let result: unknown
     // Node's internalMatch dispatches on `fn === assert.match` (Node ≤20), so
@@ -227,6 +244,9 @@ export function capturedAssertToCommandLog(
   if (cmd.callSource) {
     entry.callSource = cmd.callSource
   }
+  if (cmd.selector) {
+    entry.selector = cmd.selector
+  }
   if (testUid) {
     entry.testUid = testUid
   }
@@ -284,7 +304,8 @@ export function matcherAssertionToCommandLog(
  *  how many were patched. Used for both `assert.*` and `assert.strict.*`. */
 function patchAssertNamespace(
   nsObj: Record<string | symbol, unknown>,
-  onCommand: (cmd: CapturedAssert) => void
+  onCommand: (cmd: CapturedAssert) => void,
+  resolveAssertTarget?: (args: unknown[]) => string | undefined
 ): number {
   let count = 0
   for (const methodName of TRACKED_ASSERT_METHODS) {
@@ -296,7 +317,8 @@ function patchAssertNamespace(
       methodName,
       nsObj,
       original as (...a: unknown[]) => unknown,
-      onCommand
+      onCommand,
+      resolveAssertTarget
     )
     count++
   }
@@ -318,10 +340,16 @@ function patchAssertNamespace(
  *                  Receives the captured shape; do NOT throw — the wrapper
  *                  re-throws the original assert error after the callback.
  * @param onLog     Optional logger for lifecycle events. Default: silent.
+ * @param resolveAssertTarget
+ *                  Optional adapter hook naming the element an assert was about,
+ *                  from its raw args. node:assert takes values, not elements, so
+ *                  only the adapter that captured the reads can make the link;
+ *                  the result rides along as `CapturedAssert.selector`.
  */
 export function patchNodeAssert(
   onCommand: (cmd: CapturedAssert) => void,
-  onLog?: (level: 'info' | 'warn', message: string) => void
+  onLog?: (level: 'info' | 'warn', message: string) => void,
+  resolveAssertTarget?: (args: unknown[]) => string | undefined
 ): boolean {
   const log = (level: 'info' | 'warn', message: string) =>
     onLog?.(level, message)
@@ -342,7 +370,7 @@ export function patchNodeAssert(
   }
   assertObj[ASSERT_PATCHED_SYMBOL] = true
 
-  let patched = patchAssertNamespace(assertObj, onCommand)
+  let patched = patchAssertNamespace(assertObj, onCommand, resolveAssertTarget)
   // `import { strict as assert }` and `assert.strict.*` reference a separate
   // object with its own method identities; patch it too so strict-mode
   // assertions are captured the same as the default ones. `assert.strict` is a
@@ -352,7 +380,8 @@ export function patchNodeAssert(
   if (strict && (typeof strict === 'object' || typeof strict === 'function')) {
     patched += patchAssertNamespace(
       strict as Record<string | symbol, unknown>,
-      onCommand
+      onCommand,
+      resolveAssertTarget
     )
   }
 

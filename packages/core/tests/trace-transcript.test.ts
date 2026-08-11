@@ -42,6 +42,21 @@ function unattributedLines(lines: string[]): string[] {
 }
 
 describe('generateTranscript', () => {
+  // Nightwatch enqueues an assert and issues the next command in the SAME
+  // millisecond, so start times tie and only `sequence` — the issue counter —
+  // separates them. buildActionEvents breaks the tie that way; the transcript
+  // did not, so transcript.md could order the pair opposite to the Actions tree.
+  it('breaks a start-time tie on issue order, like the action stream', () => {
+    const lines = transcript([
+      cmd('click', { startTime: 500, timestamp: 600, sequence: 9 }),
+      cmd('assert.urlContains', { startTime: 500, timestamp: 550, sequence: 4 })
+    ])
+    const assertAt = lines.findIndex((l) => l.includes('urlContains'))
+    const clickAt = lines.findIndex((l) => l.includes('click'))
+    expect(assertAt).toBeGreaterThan(-1)
+    expect(assertAt).toBeLessThan(clickAt)
+  })
+
   it('orders commands by invocation time when captured out of order (Nightwatch batches asserts to test-end)', () => {
     // Array order puts a later navigation before an earlier-timestamped click,
     // mimicking Nightwatch buffering native asserts until test-end.

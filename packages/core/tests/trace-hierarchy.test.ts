@@ -90,3 +90,55 @@ describe('buildGroupPath', () => {
     ])
   })
 })
+
+// Some runners report a test's FULL title (`<suite> <test>`), so nesting it
+// under its own suite group rendered the suite name twice in the Actions tree.
+describe('buildGroupPath duplicate titles', () => {
+  const meta = (entries: Record<string, unknown>) =>
+    new Map(Object.entries(entries)) as never
+
+  it('strips an enclosing group name from the nested title', () => {
+    const path = buildGroupPath(
+      { command: 'click', args: [], timestamp: 0, testUid: 't1' } as never,
+      meta({
+        t1: {
+          title: 'smoke test logs in with valid credentials',
+          specFile: 'a.js',
+          ancestry: [{ uid: 's1', title: 'smoke test' }]
+        }
+      })
+    )
+    expect(path.map((n) => n.title)).toEqual([
+      'smoke test',
+      'logs in with valid credentials'
+    ])
+  })
+
+  it('leaves an already-short title alone', () => {
+    const path = buildGroupPath(
+      { command: 'click', args: [], timestamp: 0, testUid: 't1' } as never,
+      meta({
+        t1: {
+          title: 'logs in',
+          specFile: 'a.js',
+          ancestry: [{ uid: 's1', title: 'smoke test' }]
+        }
+      })
+    )
+    expect(path.map((n) => n.title)).toEqual(['smoke test', 'logs in'])
+  })
+
+  it('keeps the full title when stripping would leave nothing', () => {
+    const path = buildGroupPath(
+      { command: 'click', args: [], timestamp: 0, testUid: 't1' } as never,
+      meta({
+        t1: {
+          title: 'smoke test',
+          specFile: 'a.js',
+          ancestry: [{ uid: 's1', title: 'smoke test' }]
+        }
+      })
+    )
+    expect(path.map((n) => n.title)).toEqual(['smoke test', 'smoke test'])
+  })
+})

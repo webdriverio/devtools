@@ -1,13 +1,18 @@
 import { Element } from '@core/element'
+import { consume } from '@lit/context'
 import { html, css, nothing, type TemplateResult } from 'lit'
 import { customElement, state } from 'lit/decorators.js'
 
 import {
   isSnapshotHeaderLine,
+  isXPathLocator,
+  locatorDialect,
   SNAPSHOT_INDENT_UNIT,
   SNAPSHOT_LOCATOR_DELIM
 } from '@wdio/devtools-shared'
-import type { CommandLog } from '@wdio/devtools-shared'
+import type { CommandLog, Metadata } from '@wdio/devtools-shared'
+
+import { metadataContext } from '../../controller/context.js'
 
 import '../placeholder.js'
 
@@ -30,6 +35,11 @@ interface A11yNode {
  *  the same `show-command` event the browser pane listens to. */
 @customElement(COMPONENT)
 export class DevtoolsA11yTree extends Element {
+  /** Only `runner` is read — the captured text locators are in its dialect. */
+  @consume({ context: metadataContext, subscribe: true })
+  @state()
+  metadata: Metadata | undefined = undefined
+
   @state()
   private active?: CommandLog
 
@@ -197,6 +207,16 @@ export class DevtoolsA11yTree extends Element {
         color: var(--vscode-descriptionForeground);
         opacity: 0.7;
       }
+      /* Last in the bar and flex:none, so the locator ellipsizes before the
+         note does — the note is the part the user can't infer. */
+      .copybar .xp {
+        margin-left: 8px;
+        padding: 1px 6px;
+        border-radius: 4px;
+        color: var(--vscode-descriptionForeground);
+        background: var(--vscode-badge-background, rgba(255, 255, 255, 0.08));
+        flex: none;
+      }
       .scroll {
         flex: 1;
         min-height: 0;
@@ -297,6 +317,7 @@ export class DevtoolsA11yTree extends Element {
   #row(node: A11yNode): TemplateResult {
     const sel = node.selector
     const hot = this.#isRevealed(node)
+    const note = this.#xpathNote(sel)
     return html`<div
       class="node ${sel ? 'pick' : ''} ${hot ? 'hot' : ''}"
       style="padding-left:${8 + node.depth * 16}px"
@@ -309,7 +330,9 @@ export class DevtoolsA11yTree extends Element {
         this.#highlight(undefined)
       }}
       @click=${() => this.#copy(sel)}
-      title=${sel ? `Click to copy locator: ${sel}` : nothing}
+      title=${sel
+        ? `Click to copy locator: ${sel}${note ? ` (${note})` : ''}`
+        : nothing}
     >
       <span class="twig">•</span>
       <span class="role">${node.role}</span>
@@ -324,20 +347,35 @@ export class DevtoolsA11yTree extends Element {
     </div>`
   }
 
+  /** How to resolve a captured XPath locator in the recording runner — pasted
+   *  verbatim into a runner that doesn't auto-detect `//` it matches nothing. */
+  #xpathNote(selector?: string): string | undefined {
+    if (!selector || !isXPathLocator(selector)) {
+      return undefined
+    }
+    const hint = locatorDialect(this.metadata?.runner).xpathHint
+    return hint ? `XPath — use ${hint}` : undefined
+  }
+
+  #note(selector?: string): TemplateResult | typeof nothing {
+    const note = this.#xpathNote(selector)
+    return note ? html`<span class="xp">${note}</span>` : nothing
+  }
+
   /** The copy-hint bar's content: a copied confirmation, else the locator under
    *  the cursor (or the one the snapshot pane is pointing at), else the idle
    *  affordance prompt. */
   #hint(): TemplateResult {
     if (this.copiedSel) {
       return html`<span class="ok">✓ Copied</span
-        ><span class="loc">${this.copiedSel}</span>`
+        ><span class="loc">${this.copiedSel}</span>${this.#note(this.copiedSel)}`
     }
     const sel =
       this.hoveredSel ?? this.pinned?.selector ?? this.revealed?.selector
     if (sel) {
       return html`<span class="clip">⧉</span
         ><span class="lead">Click to copy locator:</span
-        ><span class="loc">${sel}</span>`
+        ><span class="loc">${sel}</span>${this.#note(sel)}`
     }
     return html`<span class="clip">⧉</span
       ><span class="idle"
@@ -346,14 +384,14 @@ export class DevtoolsA11yTree extends Element {
   }
 
   /** Why the panel is empty. A selected command with no `snapshotText` is a
-   *  capture gap, not an idle panel: per-command a11y capture is WDIO-only, so
-   *  Selenium and Nightwatch traces always land here. */
+   *  capture gap, not an idle panel — all three adapters capture the tree, so
+   *  what lands here is a command whose capture never bound to it. */
   #unavailable(): TemplateResult {
     return this.active
       ? html`<wdio-devtools-placeholder
           icon="${UNAVAILABLE_GLYPH}"
           heading="No accessibility snapshot for this command"
-          description="Per-command accessibility capture is WebdriverIO-only — Selenium and Nightwatch traces do not include it."
+          description="Nothing was captured for this action — either the capture had not resolved when the trace slice was written, or the action ran on native mobile, which has no DOM tree."
         ></wdio-devtools-placeholder>`
       : html`<wdio-devtools-placeholder
           icon="${UNAVAILABLE_GLYPH}"

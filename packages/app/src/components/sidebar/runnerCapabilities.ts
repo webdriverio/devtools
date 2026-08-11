@@ -36,10 +36,14 @@ export function getRunnerOptions(
   return metadata?.options as RunnerOptions | undefined
 }
 
+/** The runner that recorded this stream. `Metadata.runner` is the typed carrier;
+ *  the untyped `options.framework` is the same fact under an older name, kept as
+ *  a fallback so a zip recorded before the field existed — or by a foreign tool
+ *  that only wrote the option — still resolves. */
 export function getFramework(
   metadata: Metadata | undefined
 ): string | undefined {
-  return getRunnerOptions(metadata)?.framework
+  return metadata?.runner ?? getRunnerOptions(metadata)?.framework
 }
 
 export function getRunCapabilities(
@@ -49,7 +53,7 @@ export function getRunCapabilities(
   if (options?.runCapabilities) {
     return { ...DEFAULT_CAPABILITIES, ...options.runCapabilities }
   }
-  const framework = options?.framework?.toLowerCase() ?? ''
+  const framework = getFramework(metadata)?.toLowerCase() ?? ''
   return FRAMEWORK_CAPABILITIES[framework] || DEFAULT_CAPABILITIES
 }
 

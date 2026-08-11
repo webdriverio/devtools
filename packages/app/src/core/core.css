@@ -1,4 +1,5 @@
 @import url('./shadow-styles.css');
+@import url('./scrollbars.css');
 
 @layer base {
   :host {

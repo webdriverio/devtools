@@ -9,14 +9,174 @@
  * `@wdio/elements` — these are just the script bodies.
  */
 
+import { locatorDialect } from '@wdio/devtools-shared'
+import type {
+  LocatorDialect,
+  TestRunnerId,
+  TextLocatorDialect
+} from '@wdio/devtools-shared'
+
+/** Shared by both injected scripts below — the same visibility gate decides
+ *  which elements each one reports. */
+const IS_VISIBLE_SCRIPT = `
+    function isVisible(el) {
+      if (typeof el.checkVisibility === 'function') {
+        return el.checkVisibility({ opacityProperty: true, visibilityProperty: true, contentVisibilityAuto: true })
+      }
+      var style = window.getComputedStyle(el)
+      return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0' && el.offsetWidth > 0 && el.offsetHeight > 0
+    }
+`
+
+/** XPath 1.0 has no string escape, so a value carrying both quote kinds is
+ *  stitched from single-kind literals; a literal double quote can only enter the
+ *  expression as its own single-quoted token. */
+const XPATH_TEXT_LITERAL_SCRIPT = `
+    function xpathTextLiteral(value) {
+      if (value.indexOf('"') === -1) { return '"' + value + '"' }
+      if (value.indexOf("'") === -1) { return "'" + value + "'" }
+      var quoteToken = "'" + '"' + "'"
+      var parts = value.split('"')
+      var pieces = []
+      for (var p = 0; p < parts.length; p++) {
+        if (parts[p]) { pieces.push('"' + parts[p] + '"') }
+        if (p < parts.length - 1) { pieces.push(quoteToken) }
+      }
+      // concat() takes at least two arguments — a value that is nothing but
+      // double quotes yields one piece and needs no concat.
+      return pieces.length > 1 ? 'concat(' + pieces.join(', ') + ')' : pieces[0]
+    }
+`
+
+/** The meaning-bearing CSS branches: portable across all runners, so they are
+ *  dialect-independent. Null when none of them identifies the element uniquely,
+ *  which is what lets a caller order them against the text branch. */
+const SEMANTIC_CSS_SELECTOR_SCRIPT = `
+    function semanticCssSelector(element, tag) {
+      var ariaLabel = element.getAttribute('aria-label')
+      if (ariaLabel && ariaLabel.length <= 200) {
+        var sel = '[aria-label="' + CSS.escape(ariaLabel) + '"]'
+        if (document.querySelectorAll(sel).length === 1) { return sel }
+      }
+      var testId = element.getAttribute('data-testid')
+      if (testId) {
+        var testSel = '[data-testid="' + CSS.escape(testId) + '"]'
+        if (document.querySelectorAll(testSel).length === 1) { return testSel }
+      }
+      if (element.id) {
+        var idSel = '#' + CSS.escape(element.id)
+        if (document.querySelectorAll(idSel).length === 1) { return idSel }
+      }
+      var nameAttr = element.getAttribute('name')
+      if (nameAttr) {
+        var nameSel = tag + '[name="' + CSS.escape(nameAttr) + '"]'
+        if (document.querySelectorAll(nameSel).length === 1) { return nameSel }
+      }
+      var typeAttr = element.getAttribute('type')
+      if (typeAttr) {
+        var typeSel = tag + '[type="' + CSS.escape(typeAttr) + '"]'
+        if (document.querySelectorAll(typeSel).length === 1) { return typeSel }
+      }
+      if (element.className && typeof element.className === 'string') {
+        var classes = element.className.trim().split(/\\s+/).filter(Boolean)
+        for (var i = 0; i < classes.length; i++) {
+          var clsSel = tag + '.' + CSS.escape(classes[i])
+          if (document.querySelectorAll(clsSel).length === 1) { return clsSel }
+        }
+        if (classes.length >= 2) {
+          var twoClsSel = tag + classes.slice(0, 2).map(function(c) { return '.' + CSS.escape(c) }).join('')
+          if (document.querySelectorAll(twoClsSel).length === 1) { return twoClsSel }
+        }
+      }
+      return null
+    }
+`
+
+/** Last resort: a positional `:nth-of-type` path, which always resolves but
+ *  carries no meaning — hence every other branch getting first refusal. */
+const POSITIONAL_SELECTOR_SCRIPT = `
+    function positionalSelector(element) {
+      var current = element
+      var path = []
+      while (current && current !== document.documentElement) {
+        var seg = current.tagName.toLowerCase()
+        if (current.id) { path.unshift('#' + CSS.escape(current.id)); break }
+        var parent = current.parentElement
+        if (parent) {
+          var siblings = Array.from(parent.children).filter(function(c) { return c.tagName === current.tagName })
+          if (siblings.length > 1) { seg += ':nth-of-type(' + (siblings.indexOf(current) + 1) + ')' }
+        }
+        path.unshift(seg)
+        current = current.parentElement
+        if (path.length >= 4) { break }
+      }
+      return path.join(' > ')
+    }
+`
+
+/** The text branch's return expression. WebdriverIO's `tag*=text` compiles
+ *  internally to XPath with `"` quoting, so a text carrying a double quote would
+ *  yield a broken expression — those keep the XPath form, which it also resolves. */
+function textLocatorExpression(dialect: TextLocatorDialect): string {
+  const xpath = "'//' + tag + '[contains(., ' + xpathTextLiteral(text) + ')]'"
+  return dialect === 'webdriverio'
+    ? `text.indexOf('"') === -1 ? tag + '*=' + text : ${xpath}`
+    : xpath
+}
+
+/** Identify the element by its own text, in `dialect`'s grammar. Null when the
+ *  text neither exists nor singles it out, so it composes with the CSS branches
+ *  in either order. */
+function textSelectorScript(dialect: TextLocatorDialect): string {
+  return `
+    function textSelector(element, tag) {
+      var text = (element.textContent || '').trim().replace(/\\s+/g, ' ')
+      if (!text || text.length > 120) { return null }
+      var sameTagElements = document.querySelectorAll(tag)
+      var matchCount = 0
+      sameTagElements.forEach(function(el) { if (el.textContent.includes(text)) { matchCount++ } })
+      // The DOM predicate this counts is exactly XPath's
+      // \`//tag[contains(., text)]\`, so a single match here is a unique match
+      // there — the emitted expression carries the uniqueness just checked.
+      if (matchCount !== 1) { return null }
+      return ${textLocatorExpression(dialect)}
+    }
+`
+}
+
+/** Shared by both injected scripts below, so one grammar produces the locator in
+ *  `-snapshot.txt` and `-elements.json`. The dialect decides both what the text
+ *  branch emits and where it sits; the positional path stays last either way. */
+function getSelectorScript(dialect: LocatorDialect): string {
+  const preferred =
+    dialect.textBranch === 'first'
+      ? ['textSelector(element, tag)', 'semanticCssSelector(element, tag)']
+      : ['semanticCssSelector(element, tag)', 'textSelector(element, tag)']
+  return `
+    ${XPATH_TEXT_LITERAL_SCRIPT}
+    ${SEMANTIC_CSS_SELECTOR_SCRIPT}
+    ${POSITIONAL_SELECTOR_SCRIPT}
+    ${textSelectorScript(dialect.text)}
+
+    function getSelector(element) {
+      var tag = element.tagName.toLowerCase()
+      return ${preferred[0]} || ${preferred[1]} || positionalSelector(element)
+    }
+`
+}
+
 /**
  * Accessibility tree walk — returns a flat array of AccessibilityNode.
  *
  * Walks the DOM from `document.body`, assigning semantic roles (button, link,
  * textbox, heading, img, statictext, …) based on tag name, ARIA attributes,
- * and visibility. Each node carries a unique CSS selector.
+ * and visibility. Each node carries a unique locator, in `runner`'s own text
+ * dialect — omit it for the portable XPath form every runner resolves.
  */
-export function accessibilityTreeScript(inViewportOnly: boolean): string {
+export function accessibilityTreeScript(
+  inViewportOnly: boolean,
+  runner?: TestRunnerId
+): string {
   return `(function () {
     var INPUT_TYPE_ROLES = {
       text: 'textbox', search: 'searchbox', email: 'textbox', url: 'textbox',
@@ -108,58 +268,7 @@ export function accessibilityTreeScript(inViewportOnly: boolean): string {
       return ((el.textContent || '').trim().replace(/\\s+/g, ' ') || '').slice(0, 200)
     }
 
-    function getSelector(element) {
-      var tag = element.tagName.toLowerCase()
-      var text = (element.textContent || '').trim().replace(/\\s+/g, ' ')
-      if (text && text.length > 0 && text.length <= 120) {
-        var sameTagElements = document.querySelectorAll(tag)
-        var matchCount = 0
-        sameTagElements.forEach(function(el) { if (el.textContent.includes(text)) { matchCount++ } })
-        if (matchCount === 1) { return tag + '*=' + text }
-      }
-      var ariaLabel = element.getAttribute('aria-label')
-      if (ariaLabel && ariaLabel.length <= 200) {
-        var sel = '[aria-label="' + CSS.escape(ariaLabel) + '"]'
-        if (document.querySelectorAll(sel).length === 1) { return sel }
-      }
-      var testId = element.getAttribute('data-testid')
-      if (testId) {
-        var testSel = '[data-testid="' + CSS.escape(testId) + '"]'
-        if (document.querySelectorAll(testSel).length === 1) { return testSel }
-      }
-      if (element.id) { return '#' + CSS.escape(element.id) }
-      var nameAttr = element.getAttribute('name')
-      if (nameAttr) {
-        var nameSel = tag + '[name="' + CSS.escape(nameAttr) + '"]'
-        if (document.querySelectorAll(nameSel).length === 1) { return nameSel }
-      }
-      if (element.className && typeof element.className === 'string') {
-        var classes = element.className.trim().split(/\\s+/).filter(Boolean)
-        for (var i = 0; i < classes.length; i++) {
-          var clsSel = tag + '.' + CSS.escape(classes[i])
-          if (document.querySelectorAll(clsSel).length === 1) { return clsSel }
-        }
-        if (classes.length >= 2) {
-          var twoClsSel = tag + classes.slice(0, 2).map(function(c) { return '.' + CSS.escape(c) }).join('')
-          if (document.querySelectorAll(twoClsSel).length === 1) { return twoClsSel }
-        }
-      }
-      var current = element
-      var path = []
-      while (current && current !== document.documentElement) {
-        var seg = current.tagName.toLowerCase()
-        if (current.id) { path.unshift('#' + CSS.escape(current.id)); break }
-        var parent = current.parentElement
-        if (parent) {
-          var siblings = Array.from(parent.children).filter(function(c) { return c.tagName === current.tagName })
-          if (siblings.length > 1) { seg += ':nth-of-type(' + (siblings.indexOf(current) + 1) + ')' }
-        }
-        path.unshift(seg)
-        current = current.parentElement
-        if (path.length >= 4) { break }
-      }
-      return path.join(' > ')
-    }
+    ${getSelectorScript(locatorDialect(runner))}
 
     function getDirectText(el) {
       var text = ''
@@ -169,13 +278,7 @@ export function accessibilityTreeScript(inViewportOnly: boolean): string {
       return text.trim().replace(/\\s+/g, ' ')
     }
 
-    function isVisible(el) {
-      if (typeof el.checkVisibility === 'function') {
-        return el.checkVisibility({ opacityProperty: true, visibilityProperty: true, contentVisibilityAuto: true })
-      }
-      var style = window.getComputedStyle(el)
-      return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0' && el.offsetWidth > 0 && el.offsetHeight > 0
-    }
+    ${IS_VISIBLE_SCRIPT}
 
     function isInViewport(el) {
       var rect = el.getBoundingClientRect()
@@ -238,11 +341,13 @@ export function accessibilityTreeScript(inViewportOnly: boolean): string {
  *
  * Uses `querySelectorAll` with a broad interactable-selector list, then
  * filters by visibility and (optionally) viewport containment. Each element
- * gets a computed accessible name and a unique CSS selector.
+ * gets a computed accessible name and a unique locator, in `runner`'s own text
+ * dialect — omit it for the portable XPath form every runner resolves.
  */
 export function elementsScript(
   includeBounds: boolean,
-  inViewportOnly: boolean
+  inViewportOnly: boolean,
+  runner?: TestRunnerId
 ): string {
   return `(function () {
     var interactableSelectors = [
@@ -253,13 +358,7 @@ export function elementsScript(
       '[role="spinbutton"]', '[contenteditable="true"]', '[tabindex]:not([tabindex="-1"])'
     ].join(',')
 
-    function isVisible(element) {
-      if (typeof element.checkVisibility === 'function') {
-        return element.checkVisibility({ opacityProperty: true, visibilityProperty: true, contentVisibilityAuto: true })
-      }
-      var style = window.getComputedStyle(element)
-      return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0' && element.offsetWidth > 0 && element.offsetHeight > 0
-    }
+    ${IS_VISIBLE_SCRIPT}
 
     function getAccessibleName(el) {
       var ariaLabel = el.getAttribute('aria-label')
@@ -295,58 +394,7 @@ export function elementsScript(
       return ((el.textContent || '').trim().replace(/\\s+/g, ' ') || '').slice(0, 200)
     }
 
-    function getSelector(element) {
-      var tag = element.tagName.toLowerCase()
-      var text = (element.textContent || '').trim().replace(/\\s+/g, ' ')
-      if (text && text.length > 0 && text.length <= 120) {
-        var sameTagElements = document.querySelectorAll(tag)
-        var matchCount = 0
-        sameTagElements.forEach(function(el) { if (el.textContent.includes(text)) { matchCount++ } })
-        if (matchCount === 1) { return tag + '*=' + text }
-      }
-      var ariaLabel = element.getAttribute('aria-label')
-      if (ariaLabel && ariaLabel.length <= 200) {
-        var sel = '[aria-label="' + CSS.escape(ariaLabel) + '"]'
-        if (document.querySelectorAll(sel).length === 1) { return sel }
-      }
-      var testId = element.getAttribute('data-testid')
-      if (testId) {
-        var testSel = '[data-testid="' + CSS.escape(testId) + '"]'
-        if (document.querySelectorAll(testSel).length === 1) { return testSel }
-      }
-      if (element.id) { return '#' + CSS.escape(element.id) }
-      var nameAttr = element.getAttribute('name')
-      if (nameAttr) {
-        var nameSel = tag + '[name="' + CSS.escape(nameAttr) + '"]'
-        if (document.querySelectorAll(nameSel).length === 1) { return nameSel }
-      }
-      if (element.className && typeof element.className === 'string') {
-        var classes = element.className.trim().split(/\\s+/).filter(Boolean)
-        for (var i = 0; i < classes.length; i++) {
-          var clsSel = tag + '.' + CSS.escape(classes[i])
-          if (document.querySelectorAll(clsSel).length === 1) { return clsSel }
-        }
-        if (classes.length >= 2) {
-          var twoClsSel = tag + classes.slice(0, 2).map(function(c) { return '.' + CSS.escape(c) }).join('')
-          if (document.querySelectorAll(twoClsSel).length === 1) { return twoClsSel }
-        }
-      }
-      var current = element
-      var path = []
-      while (current && current !== document.documentElement) {
-        var seg = current.tagName.toLowerCase()
-        if (current.id) { path.unshift('#' + CSS.escape(current.id)); break }
-        var parent = current.parentElement
-        if (parent) {
-          var siblings = Array.from(parent.children).filter(function(c) { return c.tagName === current.tagName })
-          if (siblings.length > 1) { seg += ':nth-of-type(' + (siblings.indexOf(current) + 1) + ')' }
-        }
-        path.unshift(seg)
-        current = current.parentElement
-        if (path.length >= 4) { break }
-      }
-      return path.join(' > ')
-    }
+    ${getSelectorScript(locatorDialect(runner))}
 
     var elements = []
     var seen = new Set()

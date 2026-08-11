@@ -1,6 +1,7 @@
 import logger from '@wdio/logger'
 import {
   COLLECTOR_READY_EXPRESSION,
+  collectorDrainExpression,
   SessionCapturerBase,
   drainCollectorWithRecovery,
   errorMessage,
@@ -20,8 +21,18 @@ const log = logger('@wdio/selenium-devtools:SessionCapturer')
 export class SessionCapturer extends SessionCapturerBase {
   #driver: SeleniumDriverLike | undefined
 
+  // Tail of the serialized live-mode drain queue — see drainAfterLiveCommand.
+  #liveDrain: Promise<void> = Promise.resolve()
+
   // True once BiDi inspectors are attached — script-trace path skips streams.
   bidiActive = false
+
+  /** True once the collector is registered as a document-start BiDi preload.
+   *  Every document then instruments itself before any of its own script runs,
+   *  which makes the `<script>`-append paths (eager injection on navigation,
+   *  post-navigation re-injection) unreachable rather than merely redundant. */
+  preloadRegistered = false
+
   #clientConnected = false
   #clientConnectedWaiters: Array<() => void> = []
   #onClientDisconnected?: () => void
@@ -204,6 +215,18 @@ export class SessionCapturer extends SessionCapturerBase {
       return
     }
     try {
+      // Injecting over a live collector replaces `window.wdioTraceCollector`
+      // with a fresh instance and DISCARDS whatever it had buffered — including
+      // the destination's full-DOM anchor. Three call paths can reach the same
+      // document (navigation trace, post-command drain recovery, explicit
+      // re-inject), so the guard lives here rather than in each caller.
+      const present = await exec(
+        driver,
+        `return ${COLLECTOR_READY_EXPRESSION};`
+      )
+      if (present === true) {
+        return
+      }
       const scriptContent = await loadInjectableScript()
       await exec(
         driver,
@@ -229,7 +252,11 @@ export class SessionCapturer extends SessionCapturerBase {
     }
   }
 
-  async captureTrace(): Promise<void> {
+  /** `forceAnchor` forces a full-DOM anchor of the current document before
+   *  draining, so a freshly injected collector's async anchor isn't lost. Which
+   *  action the anchor belongs to is derived from the anchor itself at ingest,
+   *  not from this call — see `reattributeDomAnchors`. */
+  async captureTrace(forceAnchor = false): Promise<void> {
     const driver = this.#driver
     const exec = getDriverOriginals().executeScript
     if (!driver || !exec) {
@@ -240,20 +267,27 @@ export class SessionCapturer extends SessionCapturerBase {
       // (page navigation) between the existence check and the getTraceData
       // call. Two round-trips left a TOCTOU race that logged spurious
       // "Cannot read properties of undefined (reading 'getTraceData')" errors.
+      let recovered = false
       const traceData = await drainCollectorWithRecovery({
-        drain: () =>
-          exec(
-            driver,
-            `return ${COLLECTOR_READY_EXPRESSION} ? window.wdioTraceCollector.getTraceData() : null;`
-          ),
-        injectIntoCurrentDocument: () => this.injectScript(),
+        drain: () => exec(driver, collectorDrainExpression(forceAnchor)),
+        injectIntoCurrentDocument: async () => {
+          recovered = true
+          await this.injectScript()
+        },
         currentUrl: async () =>
           (await exec(driver, 'return location.href;')) as string | undefined,
         log: (level, message) => log[level](message)
       })
       if (!traceData) {
+        log.debug(
+          `drain: no payload (anchor=${forceAnchor} recovered=${recovered})`
+        )
         return
       }
+      const drained = (traceData as { mutations?: unknown[] }).mutations ?? []
+      log.debug(
+        `drain: ${drained.length} mutations (anchor=${forceAnchor} recovered=${recovered})`
+      )
       this.processTracePayload(traceData as Record<string, unknown>, {
         skipConsoleLogs: this.bidiActive,
         skipNetworkRequests: this.bidiActive
@@ -302,13 +336,13 @@ export class SessionCapturer extends SessionCapturerBase {
   }
 
   /**
-   * After a click/submit that may have navigated, the previous page's injected
-   * `<script>` collector is gone (unlike WDIO's BiDi preload, it doesn't survive
-   * navigation). If the current document has no collector, the page was
-   * replaced — re-inject on it and drain so the destination DOM lands in the
-   * trace. No-op for a same-document click (the collector is still present).
-   * Relies on the default `normal` page-load strategy, so a navigating click
-   * has finished loading by the time this runs.
+   * Fallback path only — see `preloadRegistered`. With no document-start
+   * preload the previous page's appended `<script>` collector dies with its
+   * document, so a click/submit that navigated leaves the destination
+   * uninstrumented: re-inject on it and drain so its DOM lands in the trace.
+   * No-op for a same-document click (the collector is still present). Relies on
+   * the default `normal` page-load strategy, so a navigating click has finished
+   * loading by the time this runs.
    */
   async reinjectIfNavigated(): Promise<void> {
     const driver = this.#driver
@@ -325,7 +359,10 @@ export class SessionCapturer extends SessionCapturerBase {
         return
       }
       await this.injectScript()
-      await this.captureTrace()
+      // Anchor forced: the freshly injected collector's initial anchor is async,
+      // so an unanchored drain here beats it and the destination's DOM is lost
+      // with the page.
+      await this.captureTrace(true)
     } catch (err) {
       const msg = errorMessage(err)
       if (isSessionGoneError(msg)) {
@@ -333,6 +370,31 @@ export class SessionCapturer extends SessionCapturerBase {
       }
       log.warn(`Re-inject after navigation failed: ${msg}`)
     }
+  }
+
+  /**
+   * Drain after a user command in live mode, queued behind the previous such
+   * drain. Anchored, which is also what recovers a navigation under the fallback
+   * injection: a click that replaced the document leaves no collector, so the
+   * drain re-injects into the destination and its retry anchors it — no separate
+   * `reinjectIfNavigated` pass, which would double the round trips on every
+   * DOM-mutating command and whose readiness poll pushed the queue far enough
+   * behind the test that the destination was gone before it ran. With the
+   * document-start preload there is nothing to recover: the destination has
+   * already anchored itself and this drain just collects it.
+   *
+   * Serialized because the driver patcher does not await `onCommand`: two
+   * drains can overlap, and one that falls into collector recovery pays an
+   * injection plus a readiness poll — long enough to land its batch behind a
+   * later one. The dashboard walks the mutation stream in order and stops at
+   * the first entry past the selected row's window, so an overtaken batch
+   * strands every row after it on the previous document.
+   */
+  drainAfterLiveCommand(): Promise<void> {
+    this.#liveDrain = this.#liveDrain
+      .then(() => this.captureTrace(true))
+      .catch(() => {})
+    return this.#liveDrain
   }
 
   isNavigationCommand(command: string): boolean {

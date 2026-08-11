@@ -1,7 +1,8 @@
 // Accessibility-snapshot text for the A11y tree panel. The panel takes no
-// properties and no context — it follows the `show-command` event — so a spec
-// hands these strings to a `CommandLog.snapshotText`, the field the trace reader
-// fills from the per-action `-snapshot.txt` resource.
+// properties — it follows the `show-command` event — so a spec hands these
+// strings to a `CommandLog.snapshotText`, the field the trace reader fills from
+// the per-action `-snapshot.txt` resource. Its one context is the session
+// metadata, read only for the runner that recorded the trace.
 //
 // The lines are composed from shared's snapshot-format tokens rather than typed
 // out: the producers (core's `serializeWebSnapshot` and `serializeMobileSnapshot`)
@@ -118,6 +119,38 @@ export const LOGIN_DEPTHS = LOGIN_NODES.map((node) => node.depth)
 
 /** A page the capture reached before any element was on it. */
 export const headerOnlySnapshot = PAGE_HEADER
+
+// The one branch of the capture that varies per runner: an element identified by
+// its own text. Selenium and Nightwatch get XPath (neither has a text syntax of
+// its own), WebdriverIO gets `tag*=`. Only the first needs the player to say so.
+
+export const LOGOUT_XPATH_LOCATOR = '//a[contains(., "Logout")]'
+export const LOGOUT_WDIO_LOCATOR = 'a*=Logout'
+
+/** What a Nightwatch capture emits for a control that has a unique native CSS
+ *  locator — there the text branch is only reached when none exists, so the same
+ *  row is XPath in one capture and CSS in another. */
+export const NATIVE_CSS_LOCATOR = 'button[type="submit"]'
+
+/** Secure-area page with a text-identified link plus one CSS-located control, so
+ *  a spec can check the note appears on the first and not the second. */
+export function secureSnapshot(logoutLocator: string): string {
+  return [
+    PAGE_HEADER,
+    a11yLine({ depth: 0, role: 'heading[2]', name: 'Secure Area' }),
+    a11yLine({
+      depth: 1,
+      role: 'link',
+      name: 'Logout',
+      selector: logoutLocator
+    }),
+    a11yLine({ depth: 1, role: 'textbox', name: 'Search', selector: '#search' })
+  ].join('\n')
+}
+
+/** Row index per node in `secureSnapshot`. */
+export const LOGOUT_ROW = 1
+export const SEARCH_ROW = 2
 
 // A native-mobile capture. `serializeMobileSnapshot` always opens with a header
 // of its own — `[<platform> …]`, never a `[Page …]` line — and its locators are

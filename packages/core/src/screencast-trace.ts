@@ -28,6 +28,20 @@ const DEFAULT_MAX_FRAMES = 600
 const DEFAULT_MIN_INTERVAL_MS = 100
 
 /**
+ * A run's whole filmstrip: the frames drained from sessions that have already
+ * ended plus the one still recording. Both sources are always needed — a
+ * mid-run per-spec/per-test flush fires before the live recorder is drained, so
+ * its frames exist only on the recorder, while at the final write the recorder
+ * is already gone. Reading either alone silently truncates the filmstrip.
+ */
+export function accumulatedScreencastFrames(
+  drained: readonly ScreencastFrame[],
+  recording: { readonly frames: readonly ScreencastFrame[] } | undefined
+): ScreencastFrame[] {
+  return [...drained, ...(recording?.frames ?? [])]
+}
+
+/**
  * Thin a continuous frame buffer down to a bounded event set. Keeps a frame
  * only when it is at least `minFrameIntervalMs` after the last kept frame and
  * its bytes differ from the last kept frame (a static run collapses to its
@@ -90,6 +104,12 @@ export function buildDenseScreencast(
   const resources: TraceZipResource[] = []
   const seen = new Set<string>()
   for (const frame of thinScreencastFrames(frames, options)) {
+    // One malformed frame must not cost the run its whole trace: a screenshot
+    // probe that answered a driver error object instead of base64 reached here
+    // and `Buffer.from` threw inside the export, losing every other event too.
+    if (typeof frame.data !== 'string' || !frame.data) {
+      continue
+    }
     const data = Buffer.from(frame.data, 'base64')
     const sha1 = createHash('sha1').update(data).digest('hex')
     const resourceName = `${sha1}.jpeg`

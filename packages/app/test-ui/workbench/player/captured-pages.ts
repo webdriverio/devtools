@@ -20,11 +20,14 @@ export const STALE_USERNAME = 'olduser'
 export const TYPED_USERNAME = 'tomsmith'
 export const FLASH_TEXT = 'You logged into a secure area!'
 
-/** Label of the submit button. The a11y tree captures interactive elements as
- *  WDIO text locators (`button*=Login`), so the reverse highlight has to resolve
- *  one — which needs an element whose TEXT identifies it. It is also the overlay's
- *  visible-text branch (see the three constants below). */
+/** Label of the submit button. The reverse highlight has to resolve the locator
+ *  the a11y tree captured, which for this element is its text — so the page needs
+ *  an element whose TEXT identifies it. It is also the overlay's visible-text
+ *  branch (see the three constants below). */
 export const LOGIN_LABEL = 'Login'
+
+/** The locator core's capture emits for that button — a text match, so XPath. */
+export const LOGIN_XPATH = `//button[contains(., "${LOGIN_LABEL}")]`
 
 /**
  * The captured page carries one element per branch of the accessible name the

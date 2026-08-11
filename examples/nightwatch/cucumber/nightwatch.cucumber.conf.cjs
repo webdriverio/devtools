@@ -62,7 +62,7 @@ module.exports = {
         // single run-end session write has no live session. Per-scenario 'test'
         // slices flush a zip at each scenario's pre-quit hook, while the session
         // is still alive.
-        traceGranularity: 'test',
+        traceGranularity: 'session',
         bidi: true
       })
     }

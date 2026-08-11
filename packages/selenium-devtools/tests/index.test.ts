@@ -1,4 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import {
+  INPUT_DISPATCH_MAX_HOLD_MS,
+  isInputDispatchInFlight
+} from '@wdio/devtools-core'
 import { createRequire } from 'node:module'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
@@ -471,6 +475,45 @@ describe('driverPatcher', () => {
     }
   })
 
+  // A screenshot poll landing inside chromedriver's click, between computing the
+  // element's coordinates and dispatching at them, makes the click report success
+  // while activating nothing. `settle` runs on every path, so the window it closes
+  // must survive a resolve, a reject and a sync throw.
+  it('holds a screencast-poll suppression window until an input command settles', async () => {
+    // The gate is module-scoped in core, so drop anything an earlier case left
+    // open: jump past the hold bound and read once, which is what prunes it.
+    vi.useFakeTimers()
+    vi.setSystemTime(Date.now() + INPUT_DISPATCH_MAX_HOLD_MS + 1)
+    isInputDispatchInFlight()
+    vi.useRealTimers()
+    ;(driverProto as any).click = function () {
+      return Promise.resolve('ok')
+    }
+    ;(driverProto as any).clickBoom = function () {
+      throw new Error('boom')
+    }
+    stash.driverFns.click = (driverProto as any).click
+    stash.driverFns.clickBoom = (driverProto as any).clickBoom
+
+    patchSelenium({ onDriverCreated: vi.fn(), onCommand: vi.fn() })
+    const fakeDriver = Object.create(driverProto)
+
+    const pending = (fakeDriver as any).click()
+    expect(isInputDispatchInFlight()).toBe(true)
+    await pending
+    await new Promise((r) => setImmediate(r))
+    expect(isInputDispatchInFlight()).toBe(false)
+
+    // A command that throws synchronously settles too, so its window closes.
+    expect(() => (fakeDriver as any).clickBoom()).toThrow('boom')
+    expect(isInputDispatchInFlight()).toBe(false)
+
+    for (const m of ['click', 'clickBoom']) {
+      delete (driverProto as any)[m]
+      delete stash.driverFns[m]
+    }
+  })
+
   it('captures sync, async, and throwing wrapper invocations through onCommand', async () => {
     const onCommand = vi.fn<(cmd: CapturedCommand) => void>()
     ;(driverProto as any).testSync = function (n: number) {
@@ -559,6 +602,53 @@ describe('driverPatcher', () => {
       'before-quit',
       'original-quit'
     ])
+  })
+
+  it('threads the locator that produced an element onto its element commands', async () => {
+    const onCommand = vi.fn<(cmd: CapturedCommand) => void>()
+    // One find per element, each resolving to its own handle — the shape
+    // `findElement(By.id('username')).sendKeys(…)` and `await find(...)` produce.
+    const elements = new Map<string, any>([
+      ['#username', new sw.WebElement({}, 'el-user')],
+      ['#password', new sw.WebElement({}, 'el-pass')]
+    ])
+    ;(driverProto as any).findElement = function (locator: any) {
+      const el = elements.get(
+        `#${locator.value.replace(/^\*\[id="|"\]$/g, '')}`
+      )
+      return new sw.WebElementPromise(this, Promise.resolve(el))
+    }
+    ;(elementProto as any).click = function () {
+      return Promise.resolve()
+    }
+    ;(elementProto as any).sendKeys = function () {
+      return Promise.resolve()
+    }
+    patchSelenium({ onDriverCreated: vi.fn(), onCommand })
+    const driver = Object.create(driverProto)
+
+    // Chained: the command runs against the promise, before the element exists.
+    await (driver as any).findElement(sw.By.id('username')).sendKeys('tomsmith')
+    // Awaited: the handle is a different object, and the find that produced it is
+    // no longer the most recent one — a "last selector" scheme would say #password.
+    const user = await (driver as any).findElement(sw.By.id('username'))
+    await (driver as any).findElement(sw.By.id('password'))
+    await user.click()
+    await new Promise((r) => setImmediate(r))
+
+    const selectorsByCommand = onCommand.mock.calls
+      .map(([cmd]) => cmd)
+      .filter((cmd) => cmd.fromElement)
+      .map((cmd) => [cmd.command, cmd.selector])
+    expect(selectorsByCommand).toEqual([
+      ['sendKeys', '#username'],
+      ['click', '#username']
+    ])
+    // A driver-level command owns its args and must not claim an element locator.
+    const find = onCommand.mock.calls
+      .map(([cmd]) => cmd)
+      .find((cmd) => cmd.command === 'findElement')
+    expect(find?.selector).toBeUndefined()
   })
 })
 

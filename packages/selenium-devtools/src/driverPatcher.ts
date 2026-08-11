@@ -1,13 +1,23 @@
 import { createRequire } from 'node:module'
 import logger from '@wdio/logger'
-import { errorMessage } from '@wdio/devtools-core'
 import {
+  beginInputDispatch,
+  errorMessage,
+  rememberReadValue
+} from '@wdio/devtools-core'
+import {
+  ELEMENT_LOCATOR_METHODS,
   INTERNAL_DRIVER_METHODS,
   PATCHED_SYMBOL,
   TRACKED_ELEMENT_METHODS
 } from './constants.js'
+import {
+  rememberElementLocator,
+  selectorForElement
+} from './helpers/element-locators.js'
 import { getCallSourceFromStack } from './helpers/utils.js'
 import type {
+  CapturedCommand,
   DriverOriginals,
   DriverPatcherHooks,
   ElementOriginals,
@@ -110,34 +120,71 @@ export function webElementSummary(el: unknown): string {
 // drops per-line `as any`.
 type Patchable = Record<string | symbol, unknown>
 
+function emitCommand(hooks: DriverPatcherHooks, cmd: CapturedCommand): void {
+  try {
+    hooks.onCommand(cmd)
+  } catch (err) {
+    log.warn(`onCommand hook threw for ${cmd.command}: ${errorMessage(err)}`)
+  }
+}
+
+/** Reports the command once it settles — see `CapturedCommand.timestamp` for why
+ *  the row is stamped at completion rather than at invocation. */
+function makeSettle(
+  hooks: DriverPatcherHooks,
+  meta: Omit<CapturedCommand, 'result' | 'rawResult' | 'error' | 'timestamp'>,
+  closeInputWindow: () => void
+): (result: unknown, error: Error | undefined) => void {
+  return (result, error) => {
+    closeInputWindow()
+    // An assertion names no element — it acts on the value a read resolved to —
+    // so the value is what carries the locator forward to the assertion row.
+    if (!error) {
+      rememberReadValue(result, meta.selector)
+    }
+    emitCommand(hooks, {
+      ...meta,
+      result: error ? undefined : safeSerialize(result),
+      rawResult: error ? undefined : result,
+      error,
+      timestamp: Date.now()
+    })
+  }
+}
+
 function makeWrappedMethod(
   original: (...args: unknown[]) => unknown,
   methodName: string,
   fromElement: boolean,
   hooks: DriverPatcherHooks
 ): (...args: unknown[]) => unknown {
+  const isLocatorCall =
+    !fromElement &&
+    (ELEMENT_LOCATOR_METHODS as readonly string[]).includes(methodName)
   return function (this: unknown, ...args: unknown[]): unknown {
-    const callInfo = getCallSourceFromStack()
-    const startedAt = Date.now()
-    const sanitizedArgs = args.map(safeSerialize)
-    const settle = (result: unknown, error: Error | undefined) => {
-      try {
-        hooks.onCommand({
-          command: methodName,
-          args: sanitizedArgs,
-          result: error ? undefined : safeSerialize(result),
-          rawResult: error ? undefined : result,
-          error,
-          callSource: callInfo.callSource,
-          timestamp: startedAt,
-          fromElement
-        })
-      } catch (hookErr) {
-        log.warn(
-          `onCommand hook threw for ${methodName}: ${(hookErr as Error).message}`
-        )
-      }
-    }
+    // Before the instrumentation below: serializing args and walking the stack
+    // both cost time that would otherwise land inside the row's own duration.
+    const startTime = Date.now()
+    // Suppresses the screencast recorder's screenshot polling until this command
+    // settles: a poll landing inside chromedriver's click, between computing the
+    // element's coordinates and dispatching at them, makes the click report
+    // success while activating nothing. Only the non-Chrome polling path is
+    // affected — Chrome uses push-based CDP screencast and never polls.
+    const closeInputWindow = beginInputDispatch(methodName)
+    const settle = makeSettle(
+      hooks,
+      {
+        command: methodName,
+        args: args.map(safeSerialize),
+        callSource: getCallSourceFromStack().callSource,
+        startTime,
+        fromElement,
+        // `this` is the only trace of which element the command targets — the
+        // locator was consumed by the findElement that produced it.
+        selector: fromElement ? selectorForElement(this) : undefined
+      },
+      closeInputWindow
+    )
 
     let result: unknown
     try {
@@ -146,6 +193,11 @@ function makeWrappedMethod(
       settle(undefined, err as Error)
       throw err
     }
+    // findElements resolves to its array later; only findElement hands back a
+    // usable handle here, which is what a chained call acts on.
+    if (isLocatorCall && isWebElementLike(result)) {
+      rememberElementLocator(result, args[0])
+    }
 
     // CRITICAL: return the original thenable. findElement returns a
     // WebElementPromise that carries sendKeys/click for chaining; a plain
@@ -153,7 +205,12 @@ function makeWrappedMethod(
     const thenable = result as { then?: PromiseLike<unknown>['then'] } | null
     if (thenable && typeof thenable.then === 'function') {
       thenable.then(
-        (v: unknown) => settle(v, undefined),
+        (v: unknown) => {
+          if (isLocatorCall) {
+            rememberElementLocator(v, args[0])
+          }
+          settle(v, undefined)
+        },
         (err: unknown) => settle(undefined, err as Error)
       )
       return result

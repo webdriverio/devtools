@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { createHash } from 'node:crypto'
 import type { ScreencastFrame } from '@wdio/devtools-shared'
 import {
+  accumulatedScreencastFrames,
   thinScreencastFrames,
   buildDenseScreencast
 } from '../src/screencast-trace.js'
@@ -133,5 +134,65 @@ describe('buildDenseScreencast', () => {
       viewport
     )
     expect(resources[0]!.data.toString()).toBe('hello')
+  })
+})
+
+describe('accumulatedScreencastFrames', () => {
+  it('carries the drained sessions and the one still recording', () => {
+    // Regression: an adapter that read `recording?.frames ?? drained` dropped
+    // every frame captured before a mid-run session change.
+    const drained = [frame('a', 0), frame('b', 1)]
+    const recording = { frames: [frame('c', 2)] }
+    expect(accumulatedScreencastFrames(drained, recording)).toEqual([
+      ...drained,
+      ...recording.frames
+    ])
+  })
+
+  it('falls back to the drained frames when nothing is recording', () => {
+    const drained = [frame('a', 0)]
+    expect(accumulatedScreencastFrames(drained, undefined)).toEqual(drained)
+  })
+
+  it('returns a copy, so a caller cannot mutate the run buffer', () => {
+    const drained = [frame('a', 0)]
+    accumulatedScreencastFrames(drained, undefined).push(frame('z', 9))
+    expect(drained).toHaveLength(1)
+  })
+})
+
+// A screenshot probe that answers a W3C error object instead of base64 used to
+// reach the exporter and throw inside Buffer.from, losing the run's whole trace
+// rather than one frame.
+describe('buildDenseScreencast malformed frames', () => {
+  const viewport = { width: 800, height: 600 }
+  const good = (data: string, timestamp: number) => ({ data, timestamp })
+
+  it('skips a frame whose data is not base64 text, keeping the rest', () => {
+    const frames = [
+      good('aGVsbG8=', 1000),
+      { data: { error: 'no such window' }, timestamp: 1200 },
+      good('d29ybGQ=', 1400)
+    ] as unknown as Parameters<typeof buildDenseScreencast>[0]
+
+    const { events, resources } = buildDenseScreencast(
+      frames,
+      'page@1',
+      1000,
+      viewport
+    )
+
+    expect(events).toHaveLength(2)
+    expect(resources).toHaveLength(2)
+  })
+
+  it('does not throw when every frame is malformed', () => {
+    const frames = [
+      { data: { error: 'no such window' }, timestamp: 1000 }
+    ] as unknown as Parameters<typeof buildDenseScreencast>[0]
+
+    expect(() =>
+      buildDenseScreencast(frames, 'page@1', 1000, viewport)
+    ).not.toThrow()
   })
 })
