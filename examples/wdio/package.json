@@ -12,11 +12,11 @@
     "@wdio/local-runner": "9.28.0",
     "@wdio/spec-reporter": "9.28.0",
     "@wdio/types": "9.28.0",
-    "expect-webdriverio": "^5.6.7",
+    "expect-webdriverio": "^6.0.1",
     "ts-node": "^10.9.2",
     "tsconfig-paths": "^4.2.0",
     "tsx": "^4.22.4",
-    "typescript": "^6.0.3"
+    "typescript": "^7.0.2"
   },
   "scripts": {
     "cucumber": "wdio run ./cucumber/wdio.conf.ts",
