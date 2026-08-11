@@ -11,6 +11,35 @@ export const PAGE_TRANSITION_COMMANDS: string[] = [
   'click'
 ]
 
+// Element-resolution commands. Tracked so an assertion can recover the element
+// expect() resolved internally — `expect($('#flash'))` fires one of these below
+// the top-level command boundary, where the normal selector tracking skips it.
+export const LOCATOR_COMMANDS: string[] = [
+  '$',
+  '$$',
+  'findElement',
+  'findElements'
+]
+
+// Element-scoped commands WDIO invokes with an element handle instead of the
+// selector, so the trace row inherits the last resolved locator (see
+// command-selectors.ts).
+export const SELECTOR_INHERITING_COMMANDS: string[] = [
+  'click',
+  'doubleClick',
+  'moveTo',
+  'scrollIntoView',
+  'touchAction',
+  'dragAndDrop',
+  'getText',
+  'getAttribute',
+  'clearValue',
+  'waitForExist',
+  'waitForDisplayed',
+  'waitForEnabled',
+  'waitForClickable'
+]
+
 // Console capture constants are defined in @wdio/devtools-core; re-exported
 // here so existing imports from ./constants.js continue to work.
 export {
@@ -43,7 +72,6 @@ export const INTERNAL_COMMANDS = [
   'emit',
   'browsingContextLocateNodes',
   'browsingContextNavigate',
-  'waitUntil',
   'getTitle',
   'getUrl',
   'getWindowSize',
@@ -51,7 +79,6 @@ export const INTERNAL_COMMANDS = [
   'deleteSession',
   'findElementFromShadowRoot',
   'findElementsFromShadowRoot',
-  'waitForExist',
   'browsingContextGetTree',
   'scriptCallFunction',
   'getElement',

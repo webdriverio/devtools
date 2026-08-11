@@ -1,4 +1,6 @@
-import { css } from 'lit'
+import { css, unsafeCSS } from 'lit'
+
+import { BROWSER_BACKDROP_GRADIENT } from '../../controller/constants.js'
 
 /** Component styles for `<wdio-devtools-snapshot>`. Pulled out of snapshot.ts
  *  so the main component file stays focused on the iframe/screencast logic. */
@@ -11,11 +13,7 @@ export const snapshotStyles = css`
     align-items: center;
     justify-content: center;
     box-sizing: border-box !important;
-    background: radial-gradient(
-      120% 120% at 50% 0%,
-      var(--vscode-editorWidget-background),
-      var(--vscode-editor-background)
-    );
+    background: ${unsafeCSS(BROWSER_BACKDROP_GRADIENT)};
   }
 
   section {
@@ -89,6 +87,22 @@ export const snapshotStyles = css`
     overflow: hidden;
     display: flex;
     flex-direction: column;
+  }
+
+  /* DOM-replay only: centre the viewport-sized sizer; below-the-fold content
+     scrolls INSIDE the iframe (native page scrollbar), so the player itself
+     never scrolls and no gutter appears beside the page. Not applied to the
+     screenshot / screencast branches, which rely on full-width children. */
+  .iframe-wrapper--replay {
+    align-items: center;
+  }
+
+  /* In-flow box sized (inline) to the scaled iframe footprint, giving the
+     absolutely-positioned scaled iframe (zero footprint on its own) something
+     for the wrapper's align-items to centre. */
+  .iframe-sizer {
+    position: relative;
+    flex: none;
   }
 
   /* Segmented control like the mockup: the border lives on the group; the

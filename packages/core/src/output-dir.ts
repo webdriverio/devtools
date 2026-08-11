@@ -25,6 +25,9 @@ export interface ResolveAdapterOutputDirInput {
 
 const NODE_MODULES_SEGMENT = `${path.sep}node_modules${path.sep}`
 
+/** All run output is grouped under this subfolder. */
+const OUTPUT_SUBDIR = 'test-results'
+
 function isWritable(dir: string): boolean {
   try {
     fs.accessSync(dir, fs.constants.W_OK)
@@ -36,9 +39,11 @@ function isWritable(dir: string): boolean {
 
 /**
  * Resolve the directory where an adapter should write output files
- * (screencast .webm, trace JSON, etc.).
+ * (screencast .webm, trace JSON, etc.). Every artifact is grouped under a
+ * single `test-results/` subfolder so a run's output is
+ * self-contained regardless of where the base directory resolves to.
  *
- * Priority:
+ * The base directory is resolved by priority:
  *   1. `userConfiguredDir` — explicit opt-in, honored as-is.
  *   2. `dirname(testFilePath)` — same folder as the spec that just ran.
  *   3. `dirname(configPath)` — fallback to the framework config dir.
@@ -56,6 +61,10 @@ function isWritable(dir: string): boolean {
 export function resolveAdapterOutputDir(
   input: ResolveAdapterOutputDirInput = {}
 ): string {
+  return path.join(resolveBaseDir(input), OUTPUT_SUBDIR)
+}
+
+function resolveBaseDir(input: ResolveAdapterOutputDirInput): string {
   const fallback = input.fallbackDir ?? process.cwd()
   // userConfiguredDir bypasses the node_modules and writability filters
   // because the user opted into it explicitly — surprising overrides are

@@ -5,25 +5,45 @@ import { customElement } from 'lit/decorators.js'
 import '~icons/custom/logo.svg'
 import '~icons/mdi/white-balance-sunny.js'
 import '~icons/mdi/moon-waning-crescent.js'
-import '~icons/mdi/file-upload-outline.js'
 
-import './inputs/traceLoader.js'
-import { DARK_MODE_KEY } from '../controller/constants.js'
-
-const darkModeInitValue = localStorage.getItem(DARK_MODE_KEY)
+import {
+  applyDarkMode,
+  onThemeChange,
+  prefersDarkMode,
+  storeDarkMode
+} from '../controller/theme.js'
 
 @customElement('wdio-devtools-header')
 export class DevtoolsHeader extends Element {
-  #darkMode =
-    typeof darkModeInitValue === 'string'
-      ? darkModeInitValue === 'true'
-      : window.matchMedia('(prefers-color-scheme: dark)').matches
+  // Read per instance, not once per module load: a header built after the theme
+  // changed elsewhere would otherwise render the icon of the old one.
+  #darkMode = prefersDarkMode()
+
+  #unwatchTheme?: () => void
 
   constructor() {
     super()
-    if (this.#darkMode) {
-      document.querySelector('body')?.classList.add('dark')
-    }
+    applyDarkMode(this.#darkMode)
+  }
+
+  connectedCallback(): void {
+    super.connectedCallback()
+    // Another window stored a theme, or the OS flipped while nothing is stored:
+    // either way the icon has to follow, or it contradicts the document.
+    this.#unwatchTheme = onThemeChange((dark) => this.#renderTheme(dark))
+  }
+
+  disconnectedCallback(): void {
+    super.disconnectedCallback()
+    this.#unwatchTheme?.()
+    this.#unwatchTheme = undefined
+  }
+
+  // The one place the header adopts a theme: icon and document move together.
+  #renderTheme(dark: boolean): void {
+    this.#darkMode = dark
+    applyDarkMode(dark)
+    this.requestUpdate()
   }
 
   static styles = [
@@ -72,7 +92,6 @@ export class DevtoolsHeader extends Element {
       <icon-custom-logo></icon-custom-logo>
       <h1>WebdriverIO Devtools</h1>
       <nav class="ml-auto mr-3">
-        <wdio-devtools-trace-loader as="button"></wdio-devtools-trace-loader>
         <button class="p-2" @click="${this.#switchMode}">
           <icon-mdi-moon-waning-crescent
             class="${this.#darkMode ? 'hidden' : 'show'}"
@@ -86,11 +105,9 @@ export class DevtoolsHeader extends Element {
   }
 
   #switchMode() {
-    const body = document.querySelector('body')
-    body?.classList.toggle('dark')
-    this.#darkMode = !this.#darkMode
-    localStorage.setItem(DARK_MODE_KEY, this.#darkMode ? 'true' : 'false')
-    this.requestUpdate()
+    const dark = !this.#darkMode
+    storeDarkMode(dark)
+    this.#renderTheme(dark)
   }
 }
 

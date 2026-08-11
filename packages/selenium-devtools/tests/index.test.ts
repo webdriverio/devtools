@@ -348,7 +348,17 @@ describe('SessionCapturer', () => {
       ]) {
         expect(capturer.isNavigationCommand(cmd)).toBe(true)
       }
-      for (const cmd of ['click', 'sendKeys', 'isDisplayed']) {
+      // `get*` readers and other non-navigating commands must not trigger
+      // navigation re-capture — matching is exact, not a substring test.
+      for (const cmd of [
+        'click',
+        'sendKeys',
+        'isDisplayed',
+        'getCurrentUrl',
+        'getTitle',
+        'getText',
+        'getAttribute'
+      ]) {
         expect(capturer.isNavigationCommand(cmd)).toBe(false)
       }
     } finally {
@@ -522,7 +532,9 @@ describe('driverPatcher', () => {
     }) as any
     stash.builderBuild = builderProto.build
 
-    const onDriverCreated = vi.fn(() => order.push('created'))
+    const onDriverCreated = vi.fn(() => {
+      order.push('created')
+    })
     patchSelenium({
       onBeforeBuild: vi.fn(() => order.push('before-build')),
       onDriverCreated,

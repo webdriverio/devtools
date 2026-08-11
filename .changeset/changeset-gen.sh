@@ -108,3 +108,39 @@ echo "✅ $OUT  (bump: $BUMP, scope: $PKG_DIR)"
 echo ""
 echo "--- Preview ---"
 cat "$OUT"
+
+# ---- If package is private, bump all published dependents ----
+IS_PRIVATE=$(jq -r '.private // false' "$PKG_DIR/package.json")
+if [ "$IS_PRIVATE" = "true" ]; then
+  echo ""
+  echo "📦 $PACKAGE is private — bumping published dependents..."
+
+  DEP_IDX=0
+  for f in packages/*/package.json; do
+    CONSUMER_NAME=$(jq -r '.name' "$f")
+    CONSUMER_PRIVATE=$(jq -r '.private // false' "$f")
+
+    [ "$CONSUMER_NAME" = "$PACKAGE" ] && continue
+    [ "$CONSUMER_PRIVATE" = "true" ] && continue
+
+    if grep -q "\"$PACKAGE\"" "$f" 2>/dev/null; then
+      DEP_IDX=$((DEP_IDX + 1))
+      echo "  → $CONSUMER_NAME (patch)"
+
+      DEP_SLUG=$(date +%s)-$(($$ % 10000))-$DEP_IDX-$(openssl rand -hex 2 2>/dev/null || echo "$RANDOM")
+      DEP_OUT=".changeset/$DEP_SLUG.md"
+
+      {
+        echo "---"
+        echo "\"$CONSUMER_NAME\": patch"
+        echo "---"
+        echo ""
+        echo "- Bump $PACKAGE dependency"
+      } > "$DEP_OUT"
+
+      echo "✅ $DEP_OUT"
+    fi
+  done
+
+  [ "$DEP_IDX" -eq 0 ] && echo "  (no published dependents found)"
+fi

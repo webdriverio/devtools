@@ -1,6 +1,6 @@
 {
   "name": "@wdio/devtools-app",
-  "version": "1.7.0",
+  "version": "1.9.0",
   "description": "Browser devtools extension for debugging WebdriverIO tests.",
   "type": "module",
   "repository": {
@@ -35,9 +35,13 @@
   "license": "MIT",
   "devDependencies": {
     "@tailwindcss/postcss": "^4.3.0",
+    "@wdio/browser-runner": "^9.30.0",
     "@wdio/devtools-shared": "workspace:^",
+    "@wdio/globals": "^9.29.1",
+    "@wdio/mocha-framework": "^9.30.0",
     "@wdio/reporter": "9.28.0",
     "autoprefixer": "^10.5.0",
+    "expect": "30.2.0",
     "postcss": "^8.5.15",
     "postcss-import": "^16.1.1",
     "rollup": "^4.61.0",

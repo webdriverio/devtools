@@ -3,6 +3,7 @@ import {
   CAPTURE_PERFORMANCE_SCRIPT,
   applyPerformanceData,
   errorMessage,
+  isSessionGoneError,
   mapCommandToAction,
   toError,
   type CapturedPerformancePayload,
@@ -22,6 +23,16 @@ import type {
 } from '../types.js'
 
 const log = logger('@wdio/selenium-devtools:commandPostActions')
+
+/** Element commands that edit the current document (field values, form state).
+ *  After these we drain the collector so the edits land in the mutation stream
+ *  before a navigation (e.g. a submit click) discards the page. */
+const DOM_MUTATING_ELEMENT_COMMANDS = new Set([
+  'click',
+  'sendKeys',
+  'clear',
+  'submit'
+])
 
 /**
  * Helpers that run AFTER an `onCommand` capture/replace has fired. Kept out
@@ -81,7 +92,6 @@ export async function enrichFindResult(
  */
 export function captureNavigationTrace(
   capturer: SessionCapturer,
-  alreadyInjected: boolean,
   onInjected: () => void,
   isFinalized: () => boolean,
   entry?: CommandLog,
@@ -90,10 +100,12 @@ export function captureNavigationTrace(
 ): void {
   void (async () => {
     try {
-      if (!alreadyInjected) {
-        onInjected()
-        await capturer.injectScript()
-      }
+      // A navigation replaced the document, so the previous page's collector is
+      // gone — (re)inject on every navigation so each visited page's DOM (and
+      // field edits) is captured, not just the first. onInjected keeps the
+      // first-injection flag other capture paths read.
+      onInjected()
+      await capturer.injectScript()
       if (entry && driver) {
         await capturePerformance(capturer, driver, entry, args)
       }
@@ -133,11 +145,7 @@ async function capturePerformance(
     const msg = errorMessage(err)
     // Session torn down between the navigation command and the deferred
     // perf-script execution — expected during teardown of the last test.
-    if (
-      msg.includes('ECONNREFUSED') ||
-      msg.includes('no such session') ||
-      msg.includes('invalid session id')
-    ) {
+    if (isSessionGoneError(msg)) {
       return
     }
     log.warn(`Performance capture failed: ${msg}`)
@@ -171,6 +179,31 @@ function attachScreenshotAsync(
       }
     })
     .catch(() => {})
+}
+
+/**
+ * After a DOM-mutating element command (type/click/clear/submit): drain the
+ * collector so the page's field edits land before the page is discarded, then —
+ * if the command navigated (a submit click) — re-inject on the destination so
+ * its DOM is captured too (the previous page's `<script>` collector didn't
+ * survive the navigation). Fire-and-forget; trace mode only.
+ */
+function maybeDrainAfterDomCommand(
+  ctx: OnCommandCtx,
+  capturer: SessionCapturer,
+  cmd: CapturedCommand
+): void {
+  if (
+    ctx.options.mode === 'trace' &&
+    cmd.fromElement &&
+    DOM_MUTATING_ELEMENT_COMMANDS.has(cmd.command) &&
+    !ctx.finalized
+  ) {
+    void (async () => {
+      await capturer.captureTrace()
+      await capturer.reinjectIfNavigated()
+    })().catch(() => {})
+  }
 }
 
 /**
@@ -212,7 +245,6 @@ export async function handleOnCommand(
   if (capturer.isNavigationCommand(cmd.command) && !cmd.fromElement) {
     captureNavigationTrace(
       capturer,
-      ctx.scriptInjected,
       () => ctx.setScriptInjected(true),
       () => ctx.finalized,
       entry,
@@ -220,6 +252,7 @@ export async function handleOnCommand(
       ctx.driver
     )
   }
+  maybeDrainAfterDomCommand(ctx, capturer, cmd)
   if (
     ctx.options.mode === 'trace' &&
     !error &&

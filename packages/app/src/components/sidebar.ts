@@ -21,6 +21,10 @@ export class DevtoolsSidebar extends Element {
         flex-direction: column;
         height: 100%;
         min-height: 0;
+        /* Without this, single-line test names make the automatic minimum
+           width beat the drag handle's flex-basis and the panel outgrows it. */
+        min-width: 0;
+        overflow: hidden;
       }
 
       .top {

@@ -62,6 +62,19 @@ export function errorMessage(value: unknown): string {
 }
 
 /**
+ * True when an error message signals the WebDriver session is gone or
+ * unreachable — expected when deferred/async capture work races session
+ * teardown. Adapters use it to swallow post-quit errors instead of logging noise.
+ */
+export function isSessionGoneError(message: string): boolean {
+  return (
+    message.includes('ECONNREFUSED') ||
+    message.includes('no such session') ||
+    message.includes('invalid session id')
+  )
+}
+
+/**
  * Normalize an Error to a plain object so its fields survive `JSON.stringify`
  * over the WS bridge. Error instances have `message`/`name`/`stack` as
  * non-enumerable, which `JSON.stringify` would drop.

@@ -23,3 +23,7 @@ export type { VisibleElementsResult } from './get-elements.js'
 export { serializeWebSnapshot, serializeMobileSnapshot } from './snapshot.js'
 export type { WebSnapshotOptions, MobileSnapshotOptions } from './snapshot.js'
 export type { JSONElement } from './locators/index.js'
+
+export { getSnapshot } from './get-snapshot.js'
+export type { GetSnapshotOptions } from './get-snapshot.js'
+export type { SnapshotResult, SnapshotElement } from './snapshot.js'

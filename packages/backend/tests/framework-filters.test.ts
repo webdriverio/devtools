@@ -57,6 +57,47 @@ describe('mocha filter builder', () => {
       fn({ specArg: undefined, payload: payload({ fullTitle: 'X' }) })
     ).toEqual(['--mochaOpts.grep', 'X'])
   })
+
+  // These assert BEHAVIOUR, not the pattern's spelling: mocha compiles the grep
+  // with `new RegExp(str)` and matches it against its own SPACE-joined full
+  // title, while WDIO reports `fullTitle` DOT-joined. Asserting the string
+  // shape hides that mismatch — the pattern can look perfectly escaped and
+  // still match no test, which surfaces only as "1 skipped".
+  const grepFor = (fullTitle: string): RegExp => {
+    const filters = fn({
+      specArg: '/a.test.ts',
+      payload: payload({ fullTitle })
+    })
+    return new RegExp(filters[filters.indexOf('--mochaOpts.grep') + 1])
+  }
+
+  it('matches a title whose suite name carries regex metacharacters', () => {
+    expect(
+      grepFor(
+        'Login (failing).asserts the wrong flash message so the run fails'
+      ).test('Login (failing) asserts the wrong flash message so the run fails')
+    ).toBe(true)
+  })
+
+  it('matches a plain dot-joined title', () => {
+    expect(
+      grepFor('Login.logs into the secure area with valid credentials').test(
+        'Login logs into the secure area with valid credentials'
+      )
+    ).toBe(true)
+  })
+
+  it('does not match a sibling test in the same spec', () => {
+    expect(
+      grepFor('Login.logs into the secure area with valid credentials').test(
+        'Login shows an error message for an invalid username'
+      )
+    ).toBe(false)
+  })
+
+  it('does not match a same-named test under a different suite', () => {
+    expect(grepFor('Login.logs in').test('Signup logs in')).toBe(false)
+  })
 })
 
 describe('jasmine filter builder', () => {
@@ -65,6 +106,15 @@ describe('jasmine filter builder', () => {
     expect(
       fn({ specArg: '/a.ts', payload: payload({ fullTitle: 'A' }) })
     ).toEqual(['--spec', '/a.ts', '--jasmineOpts.grep', 'A'])
+  })
+
+  it('matches a title whose suite name carries regex metacharacters', () => {
+    const filters = fn({
+      specArg: '/a.ts',
+      payload: payload({ fullTitle: 'Login (x).works [1]' })
+    })
+    const grep = new RegExp(filters[filters.indexOf('--jasmineOpts.grep') + 1])
+    expect(grep.test('Login (x) works [1]')).toBe(true)
   })
 })
 

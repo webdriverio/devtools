@@ -1,21 +1,49 @@
 /// <reference types="../../script/types.d.ts" />
-import fs from 'node:fs/promises'
-import path from 'node:path'
-
 import logger from '@wdio/logger'
 import {
-  deterministicUid,
+  attachTraceArtifact,
+  captureAndAttachScreenshot,
+  captureAndAttachVideo,
   errorMessage,
   finalizeScreencast,
+  finalizeTraceExport,
+  lastRenderedScreenshot,
   mapCommandToAction,
-  recordSpecBoundary,
+  recordSliceBoundary,
   resolveAdapterOutputDir,
+  stepMetadataUid,
+  TestAttemptTracker,
+  tracePolicyModeWarning,
   type SpecRange,
-  writeSpecTrace,
-  writeTraceZip
+  type TraceArtifact,
+  type TraceExportContext
 } from '@wdio/devtools-core'
-import { captureActionSnapshot } from './action-snapshot.js'
-import type { ActionSnapshot, TestMetadataMap } from '@wdio/devtools-shared'
+import { getAllureSink } from './allure.js'
+import { wireAssertCapture, type ExpectAssertion } from './assert-capture.js'
+import { AssertionTracker } from './assertion-tracker.js'
+import {
+  cucumberScenarioUid,
+  isFailedResult,
+  resolveTestAttempt,
+  stampTestState,
+  testMetadataUid,
+  type TestOutcomeResult
+} from './test-metadata.js'
+import { resolveCallSourceFromFrame } from './call-source.js'
+import { flushPrevSlice, flushTestSlice } from './trace-slices.js'
+import {
+  captureActionResult,
+  captureActionSnapshot
+} from './action-snapshot.js'
+import {
+  dedupeSnapshotsByTimestamp,
+  upsertRichestSnapshot
+} from './snapshot-dedupe.js'
+import type {
+  ActionSnapshot,
+  ScreencastFrame,
+  TestMetadataMap
+} from '@wdio/devtools-shared'
 import { SevereServiceError } from 'webdriverio'
 import type { Services, Capabilities, Options, Reporters } from '@wdio/types'
 import type { WebDriverCommands } from '@wdio/protocols'
@@ -23,17 +51,25 @@ import type { WebDriverCommands } from '@wdio/protocols'
 import { SessionCapturer } from './session.js'
 import { TestReporter } from './reporter.js'
 import { DevToolsAppLauncher } from './launcher.js'
-import { getBrowserObject, isUserSpecFile } from './utils.js'
+import {
+  chrome150InputRegressionWarning,
+  getBrowserObject,
+  isUserSpecFile
+} from './utils.js'
 import { ScreencastRecorder } from './screencast.js'
 import { attachBidiListeners } from './bidi-listeners.js'
 import { parse } from 'stack-trace'
 import {
   type ScreencastOptions,
   type ServiceOptions,
-  type TraceLog,
   TraceType
 } from './types.js'
-import { CONTEXT_CHANGE_COMMANDS, INTERNAL_COMMANDS } from './constants.js'
+import {
+  CONTEXT_CHANGE_COMMANDS,
+  INTERNAL_COMMANDS,
+  LOCATOR_COMMANDS,
+  PAGE_TRANSITION_COMMANDS
+} from './constants.js'
 import { isNativeMobile } from './mobile.js'
 import { detectInvocationConfigPath } from './standalone.js'
 
@@ -54,20 +90,38 @@ export default class DevToolsHookService implements Services.ServiceInstance {
   #testReporters: TestReporter[] = []
   #sessionCapturer = new SessionCapturer()
   #browser?: WebdriverIO.Browser
-  #bidiListenersSetup = false
   #screencastRecorder?: ScreencastRecorder
   #screencastOptions?: ScreencastOptions
   #options: ServiceOptions
   #actionSnapshots: ActionSnapshot[] = []
+  #assertionTracker: AssertionTracker
 
   constructor(serviceOptions: ServiceOptions = {}) {
     this.#options = serviceOptions
-    if (serviceOptions.mode === 'trace' && serviceOptions.screencast?.enabled) {
-      log.warn('trace mode: ignoring screencast option (live-mode feature)')
-      this.#screencastOptions = undefined
-    } else {
-      this.#screencastOptions = serviceOptions.screencast
+    this.#assertionTracker = new AssertionTracker({
+      getCapturer: () => this.#sessionCapturer,
+      getBrowser: () => this.#browser,
+      getTestUid: () => this.#currentTestUid,
+      getStepUid: () => this.#currentStepUid,
+      options: this.#options,
+      actionSnapshots: this.#actionSnapshots
+    })
+    const policyWarning = tracePolicyModeWarning(
+      serviceOptions.tracePolicy,
+      serviceOptions.mode
+    )
+    if (policyWarning) {
+      log.warn(policyWarning)
     }
+    if (serviceOptions.mode === 'trace' && serviceOptions.screencast?.enabled) {
+      log.warn(
+        'trace mode: `screencast.enabled` is ignored — use `video` to record; ' +
+          'the tuning fields (quality/interval) still apply'
+      )
+    }
+    // Tuning is kept for both modes; whether we actually record is decided by
+    // #shouldRecordScreencast (screencast.enabled in live, `video` in trace).
+    this.#screencastOptions = serviceOptions.screencast
   }
 
   /**
@@ -78,9 +132,42 @@ export default class DevToolsHookService implements Services.ServiceInstance {
 
   /** Current test UID, set in beforeTest(), used by afterCommand() to tag commands. */
   #currentTestUid?: string
+  /** Current Cucumber step UID, set in beforeStep(), used by afterCommand() to
+   *  nest commands under the step in the trace group tree (C2). */
+  #currentStepUid?: string
+  /** Per-scenario step counter for stable, collision-free step uids. */
+  #currentStepIndex = 0
+  /** True when @wdio/allure-reporter is in the WDIO config (detected in
+   *  beforeSession) — auto-enables the artifacts manifest even if the option
+   *  isn't set, since session/spec-scoped Allure attach reads it. */
+  #allureReporterConfigured = false
+
+  /** Wall-clock ms at the current test's start, set in beforeTest/beforeScenario;
+   *  the lower bound of that test's video frame window (per-test slicing). */
+  #currentTestStartWallTime = 0
+
+  /** Recorder frames snapshotted in onReload before reloadSession replaces the
+   *  recorder — so the ending test's per-test video can still be sliced in
+   *  afterScenario (which runs AFTER the cucumber After hook's reloadSession). */
+  #pendingVideoFrames?: {
+    testUid: string | undefined
+    startWallTime: number
+    frames: ScreencastFrame[]
+  }
+
+  /** Filmstrip frames accumulated across reloadSession() boundaries — the
+   *  recorder's buffer resets per session, so this persists earlier sessions'
+   *  frames (like #actionSnapshots) and is concatenated with the live recorder's
+   *  frames at export, then windowed per slice in core. Filmstrip mode only. */
+  #filmstripFrames: ScreencastFrame[] = []
 
   /** Map of testUid → metadata for trace group events and per-spec partitioning. */
   #testMetadata: TestMetadataMap = new Map()
+
+  /** Per-test attempt counter. specFileRetries spawns a fresh worker (hence a
+   *  fresh instance) per retry, so this only reflects same-process retries
+   *  (Mocha this.retries(n)); cross-worker attempts rely on the WDIO result. */
+  #attemptTracker = new TestAttemptTracker()
 
   /** Index ranges into the session capturer's flat arrays, one per spec file. */
   #specRanges: SpecRange[] = []
@@ -88,25 +175,116 @@ export default class DevToolsHookService implements Services.ServiceInstance {
   /** Set of spec files already flushed to disk. */
   #flushedSpecs = new Set<string>()
 
-  /** Build the boundary context for recordSpecBoundary — the same shape is
+  /** Every trace/video artifact seen this run (retained or not), for the
+   *  end-of-run artifacts manifest. Populated via the context's onArtifact. */
+  #artifacts: TraceArtifact[] = []
+
+  /** Build the boundary context for recordSliceBoundary — the same shape is
    *  needed in both beforeTest and beforeScenario. */
   get #boundaryContext() {
     return {
       specRanges: this.#specRanges,
       flushedSpecs: this.#flushedSpecs,
-      capturer: this.#sessionCapturer,
-      actionSnapshots: this.#actionSnapshots
+      capturer: this.#sessionCapturer
     }
   }
 
-  /** Fire-and-forget flush of a previous spec's trace. The error log is
-   *  inline so the spec-file reference stays precise. */
-  #fireAndForgetFlush(prevRange: SpecRange): void {
-    void this.#flushSpecTrace(prevRange).catch((err) =>
-      log.warn(
-        `Failed to flush trace for spec "${prevRange.specFile}": ${errorMessage(err)}`
-      )
+  /** Record a trace-slice boundary. `spec` slices per file; `test` per test
+   *  (retries keyed per attempt by core); `session` records nothing. The
+   *  previous-slice flush fires for `spec`; `test` slices eager-flush at their
+   *  own test end (see #eagerFlushTestSlice) so this is only a missed-slice net. */
+  #recordBoundary(specFile: string | undefined, testUid?: string): void {
+    if (!specFile) {
+      return
+    }
+    const prevRange = recordSliceBoundary(
+      this.#boundaryContext,
+      this.#options.traceGranularity,
+      specFile,
+      testUid
     )
+    if (prevRange && this.#browser) {
+      flushPrevSlice(this.#traceContext(this.#browser), prevRange)
+    }
+  }
+
+  /** Record a screencast this session? Live mode: `screencast.enabled`. Trace
+   *  mode: a non-`off` `video` policy (frames sliced per test at flush) or
+   *  `filmstrip` (dense frames written into the trace itself). */
+  /** Filmstrip defaults ON in trace mode; explicit `filmstrip: false` opts out. */
+  #filmstripOn(): boolean {
+    return this.#options.filmstrip ?? true
+  }
+
+  #shouldRecordScreencast(): boolean {
+    if (this.#options.mode === 'trace') {
+      return (
+        (!!this.#options.video && this.#options.video !== 'off') ||
+        this.#filmstripOn()
+      )
+    }
+    return !!this.#screencastOptions?.enabled
+  }
+
+  /** Whole-run filmstrip frames for the export context: earlier sessions'
+   *  accumulated frames plus the live recorder's, or undefined when filmstrip
+   *  is off (so the trace stays byte-stable with today's output). */
+  #filmstripFramesForExport(): ScreencastFrame[] | undefined {
+    if (!this.#filmstripOn()) {
+      return undefined
+    }
+    return [
+      ...this.#filmstripFrames,
+      ...(this.#screencastRecorder?.frames ?? [])
+    ]
+  }
+
+  /** Eager per-test flush at test end (test granularity only), run after the
+   *  outcome is stamped so this attempt's metadata is written before a retry
+   *  overwrites it; the end-of-run finalizer then dedupes it via the key set. */
+  async #eagerFlushTestSlice(
+    testUid: string
+  ): Promise<TraceArtifact | undefined> {
+    if (
+      this.#options.traceGranularity !== 'test' ||
+      this.#options.mode !== 'trace' ||
+      !this.#browser
+    ) {
+      return undefined
+    }
+    return flushTestSlice(
+      this.#traceContext(this.#browser),
+      this.#specRanges,
+      testUid
+    )
+  }
+
+  /** Assemble the framework-agnostic trace-export context from this service's
+   *  state. Output dir ignores the spec range — WDIO writes next to config. */
+  #traceContext(browser: WebdriverIO.Browser): TraceExportContext {
+    return {
+      mode: this.#options.mode,
+      policy: this.#options.tracePolicy,
+      granularity: this.#options.traceGranularity,
+      format: this.#options.traceFormat,
+      capturer: this.#sessionCapturer,
+      actionSnapshots: this.#actionSnapshots,
+      screencastFrames: this.#filmstripFramesForExport(),
+      sessionId: browser.sessionId,
+      capabilities: browser.capabilities,
+      testMetadata: this.#testMetadata,
+      attemptInfoAvailable: true,
+      outcomes: this.#attemptTracker,
+      ranges: this.#specRanges,
+      flushed: this.#flushedSpecs,
+      resolveOutputDir: () => this.#outputDir,
+      prepareSnapshots: dedupeSnapshotsByTimestamp,
+      log: (level, msg) => log[level](msg),
+      emitManifest:
+        this.#options.emitArtifactsManifest ?? this.#allureReporterConfigured,
+      collectedArtifacts: this.#artifacts,
+      onArtifact: (a) => this.#artifacts.push(a)
+    }
   }
 
   /**
@@ -125,6 +303,11 @@ export default class DevToolsHookService implements Services.ServiceInstance {
   ) {
     this.#browser = browser
 
+    const versionWarning = chrome150InputRegressionWarning(browser.capabilities)
+    if (versionWarning) {
+      log.warn(versionWarning)
+    }
+
     /**
      * create a new session capturer instance with the devtools options
      */
@@ -134,6 +317,13 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     this.#sessionCapturer = new SessionCapturer(
       wdioCaps['wdio:devtoolsOptions']
     )
+
+    if (this.#options.captureAssertions !== false) {
+      wireAssertCapture(
+        () => this.#sessionCapturer,
+        () => this.#currentTestUid
+      )
+    }
 
     /**
      * Block until injection completes BEFORE any test commands.
@@ -150,13 +340,22 @@ export default class DevToolsHookService implements Services.ServiceInstance {
       }
     }
 
+    // WDIO has already subscribed the BiDi events by now, so attaching here
+    // issues no mid-run protocol traffic and misses no early events.
+    if (browser.isBidi) {
+      attachBidiListeners(browser, this.#sessionCapturer)
+    }
+
     /**
-     * Start screencast recording if the user has enabled it.
-     * Options come from the service constructor (services: [['devtools', { screencast: { enabled: true } }]]).
-     * Failures are non-fatal — a warning is logged and the session continues.
+     * Start screencast recording when enabled — `screencast.enabled` in live
+     * mode, or a non-`off` `video` policy (per-test slicing at flush) or
+     * `filmstrip` (dense frames into the trace) in trace mode. Failures are
+     * non-fatal — logged, session continues.
      */
-    if (this.#screencastOptions?.enabled) {
-      this.#screencastRecorder = new ScreencastRecorder(this.#screencastOptions)
+    if (this.#shouldRecordScreencast()) {
+      this.#screencastRecorder = new ScreencastRecorder(
+        this.#screencastOptions ?? {}
+      )
       await this.#screencastRecorder.start(browser)
     }
 
@@ -176,6 +375,26 @@ export default class DevToolsHookService implements Services.ServiceInstance {
           })
         )
     }
+
+    /**
+     * Runtime DOM snapshot for agent auto-healing loops. Calls into
+     * @wdio/elements' getSnapshot() directly — no trace-mode overhead,
+     * no screenshot round-trip, no page-settling.
+     *
+     * Returns { text, elements } — see @wdio/elements SnapshotResult.
+     */
+    browser.addCommand(
+      'getSnapshot',
+      async (options?: { inViewportOnly?: boolean }) => {
+        try {
+          const { getSnapshot } = await import('@wdio/elements')
+          return await getSnapshot(browser, options ?? { inViewportOnly: true })
+        } catch (err) {
+          log.warn(`getSnapshot failed: ${errorMessage(err)}`)
+          return { text: '[Snapshot unavailable]', elements: {} }
+        }
+      }
+    )
   }
 
   // The method signature is corrected to use W3CCapabilities
@@ -199,6 +418,12 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     }
 
     if ('reporters' in config) {
+      // Detect the Allure reporter (before we append our own) so the artifacts
+      // manifest auto-enables for session/spec-scoped Allure attach.
+      this.#allureReporterConfigured = (config.reporters || []).some((r) => {
+        const name = Array.isArray(r) ? r[0] : r
+        return typeof name === 'string' && name.includes('allure')
+      })
       const self = this
       config.reporters = [
         ...(config.reporters || []),
@@ -222,34 +447,34 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     }
   }
 
-  /**
-   * Hook for Cucumber framework.
-   * Detects feature-file boundaries for per-spec tracing and tags commands
-   * with a stable testUid so tracingGroup spans render in the trace output.
-   * WDIO passes the Cucumber World as the first argument.
-   */
-  beforeScenario(world?: { pickle?: { uri?: string; name?: string } }) {
+  /** Cucumber hook: records feature-file boundaries and tags commands with a stable testUid. */
+  beforeScenario(world?: {
+    pickle?: { uri?: string; name?: string; astNodeIds?: readonly string[] }
+  }) {
     this.resetStack()
+    this.#currentTestStartWallTime = Date.now()
+    this.#currentStepIndex = 0
+    this.#currentStepUid = undefined
 
     const featureFile = world?.pickle?.uri
     const scenarioName = world?.pickle?.name
+    // Derived before recording the boundary so `test` granularity keys the
+    // slice on the same uid the metadata map uses.
+    const uid =
+      featureFile && scenarioName
+        ? cucumberScenarioUid(
+            featureFile,
+            scenarioName,
+            world?.pickle?.astNodeIds
+          )
+        : undefined
 
-    // ── Per-spec boundary detection (Cucumber) ──
-    if (featureFile) {
-      const prevRange = recordSpecBoundary(
-        this.#boundaryContext,
-        featureFile,
-        this.#options.traceGranularity
-      )
-      if (prevRange) {
-        this.#fireAndForgetFlush(prevRange)
-      }
-    }
+    this.#recordBoundary(featureFile, uid)
 
     // ── Test identity for command tagging ──
-    if (featureFile && scenarioName) {
-      const uid = deterministicUid(featureFile, scenarioName)
+    if (uid && scenarioName && featureFile) {
       this.#currentTestUid = uid
+      this.#attemptTracker.recordStart(uid, featureFile)
       this.#testMetadata.set(uid, {
         title: scenarioName,
         specFile: featureFile
@@ -257,67 +482,198 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     }
   }
 
-  /**
-   * Hook for Mocha/Jasmine frameworks.
-   * It does the exact same thing as beforeScenario.
-   */
+  /** Mocha/Jasmine hook: the beforeScenario equivalent for file-based specs. */
   beforeTest(test?: { file?: string; title?: string; fullTitle?: string }) {
     this.resetStack()
-
-    const newSpec = test?.file
-
-    // ── Per-spec boundary detection ──
-    // Only tracked when traceGranularity is 'spec'. Records array index
-    // ranges so #flushSpecTrace can slice the accumulated data per spec.
-    if (newSpec) {
-      const prevRange = recordSpecBoundary(
-        this.#boundaryContext,
-        newSpec,
-        this.#options.traceGranularity
-      )
-      if (prevRange) {
-        this.#fireAndForgetFlush(prevRange)
-      }
-    }
+    this.#currentTestStartWallTime = Date.now()
 
     // Track test identity for command tagging. Generate a stable UID
     // from file + title so commands can be partitioned across reruns.
     // WDIO's Test type always provides `fullTitle`; `title` is a
-    // fallback for non-WDIO frameworks.
+    // fallback for non-WDIO frameworks. Derived before the boundary so
+    // `test` granularity keys the slice on the metadata-map uid.
     const testTitle = test?.fullTitle || test?.title
-    if (test?.file && testTitle) {
-      const uid = deterministicUid(test.file, testTitle)
+    const uid = testTitle ? testMetadataUid(test?.file, testTitle) : undefined
+
+    this.#recordBoundary(test?.file, uid)
+
+    if (uid && testTitle) {
       this.#currentTestUid = uid
+      this.#attemptTracker.recordStart(uid, test?.file)
       this.#testMetadata.set(uid, {
         title: testTitle,
-        specFile: test.file
-      })
-    } else if (testTitle) {
-      this.#currentTestUid = testTitle
-      this.#testMetadata.set(testTitle, {
-        title: testTitle,
-        specFile: test.file ?? ''
+        specFile: test?.file ?? ''
       })
     }
   }
 
-  async afterScenario() {
-    await this.#finalizePerScenario()
+  // Tag the scenario's commands with a stable per-step uid so the trace nests
+  // them under the step (Feature→Scenario→Step). The uid combines the scenario
+  // uid with a per-scenario counter, so repeated step text can't collide.
+  beforeStep(step?: { text?: string; keyword?: string }) {
+    if (!this.#currentTestUid) {
+      return
+    }
+    this.#currentStepIndex += 1
+    const uid = stepMetadataUid(this.#currentTestUid, this.#currentStepIndex)
+    const title =
+      [step?.keyword, step?.text].filter(Boolean).join('').trim() ||
+      `Step ${this.#currentStepIndex}`
+    this.#currentStepUid = uid
+    this.#testMetadata.set(uid, {
+      title,
+      specFile: this.#testMetadata.get(this.#currentTestUid)?.specFile ?? ''
+    })
   }
 
-  async afterTest() {
+  // afterStep fires right after each step, so the failing assertion lands next
+  // to the step's actions rather than after reloadSession at scenario end.
+  afterStep(
+    _step?: unknown,
+    _scenario?: unknown,
+    result?: { error?: unknown }
+  ) {
+    this.#currentStepUid = undefined
+    this.#assertionTracker.handleOutcome(result?.error)
+  }
+
+  /** Stamp final state + the resolved 0-based attempt onto the test's metadata
+   *  entry, taking the max of the tracker count and WDIO's retry field. */
+  #stampOutcome(uid: string, result?: TestOutcomeResult): void {
+    const fallback = this.#attemptTracker.attemptFor(uid) ?? 0
+    const attempt = resolveTestAttempt(result, fallback)
+    stampTestState(this.#testMetadata, uid, result, attempt)
+    // Feed the per-attempt ledger so session/spec retention sees this attempt's
+    // real outcome, not just the final state that overwrites #testMetadata.
+    this.#attemptTracker.recordOutcome(
+      uid,
+      this.#testMetadata.get(uid)?.state,
+      attempt
+    )
+  }
+
+  async afterScenario(
+    world?: {
+      pickle?: { uri?: string; name?: string; astNodeIds?: readonly string[] }
+    },
+    result?: TestOutcomeResult
+  ) {
+    const { uri, name, astNodeIds } = world?.pickle ?? {}
+    const uid =
+      uri && name ? cucumberScenarioUid(uri, name, astNodeIds) : undefined
+    if (uid) {
+      this.#stampOutcome(uid, result)
+    }
     await this.#finalizePerScenario()
+    await this.#emitTestArtifacts(uid, isFailedResult(result))
+  }
+
+  async afterTest(
+    test?: { file?: string; title?: string; fullTitle?: string },
+    _context?: unknown,
+    result?: TestOutcomeResult
+  ) {
+    this.#assertionTracker.handleOutcome(result?.error)
+    const testTitle = test?.fullTitle || test?.title
+    const uid = testTitle ? testMetadataUid(test?.file, testTitle) : undefined
+    if (uid) {
+      this.#stampOutcome(uid, result)
+    }
+    await this.#finalizePerScenario()
+    await this.#emitTestArtifacts(uid, isFailedResult(result))
+  }
+
+  /** At test end, while the per-test hook is still open: eager-flush this test's
+   *  slice (so it captures the final snapshot + stamped outcome) and attach the
+   *  retained trace to Allure, then capture the per-test screenshot per policy
+   *  and attach it too. Each part no-ops when its feature is off. */
+  async #emitTestArtifacts(
+    uid: string | undefined,
+    failed: boolean
+  ): Promise<void> {
+    const attach = await getAllureSink()
+    const onLog = (level: 'info' | 'warn', msg: string) => log[level](msg)
+    if (uid) {
+      const artifact = await this.#eagerFlushTestSlice(uid)
+      if (artifact) {
+        await attachTraceArtifact(artifact, attach, onLog)
+      }
+    }
+    await captureAndAttachScreenshot({
+      mode: this.#options.mode,
+      granularity: this.#options.traceGranularity,
+      policy: this.#options.screenshot,
+      failed,
+      screenshotBase64: lastRenderedScreenshot(
+        this.#actionSnapshots,
+        this.#currentTestStartWallTime
+      ),
+      sessionId: this.#browser?.sessionId,
+      outputDir: this.#outputDir,
+      testUid: uid,
+      attach,
+      onArtifact: (a) => this.#artifacts.push(a)
+    })
+    // Authoritative attempt for this test (stamped into metadata by
+    // #stampOutcome, which ran just before this). Scopes retention + the video
+    // filename to this attempt so retries don't overwrite each other.
+    const attempt = uid ? this.#testMetadata.get(uid)?.attempt : undefined
+    // Prefer frames snapshotted in onReload (reloadSession tears the recorder
+    // down before this hook); fall back to the live recorder otherwise.
+    const pending =
+      this.#pendingVideoFrames?.testUid === uid
+        ? this.#pendingVideoFrames
+        : undefined
+    this.#pendingVideoFrames = undefined
+    await captureAndAttachVideo({
+      mode: this.#options.mode,
+      granularity: this.#options.traceGranularity,
+      policy: this.#options.video,
+      frames: pending?.frames ?? this.#screencastRecorder?.frames,
+      startWallTime: pending?.startWallTime ?? this.#currentTestStartWallTime,
+      outcomes: uid ? this.#attemptTracker.forTest(uid, attempt) : [],
+      attempt,
+      outputDir: this.#outputDir,
+      testUid: uid,
+      sessionId: this.#browser?.sessionId,
+      captureFormat: this.#screencastOptions?.captureFormat,
+      attach,
+      onArtifact: (a) => this.#artifacts.push(a),
+      onLog
+    })
+  }
+
+  /** expect-webdriverio matcher hooks — delegated to the assertion tracker. */
+  beforeAssertion(params: {
+    matcherName: string
+    expectedValue?: unknown
+  }): void {
+    this.#assertionTracker.beforeAssertion(params)
+  }
+
+  afterAssertion(params: ExpectAssertion): Promise<void> {
+    return this.#assertionTracker.afterAssertion(params)
   }
 
   async #finalizePerScenario() {
     if (this.#options.mode !== 'trace' || !this.#browser) {
       return
     }
+    // Drain the collector one final time while the session is still alive, so the
+    // DOM the LAST command produced is recorded — a closing navigation (e.g. a
+    // logout landing back on the login page) fires no subsequent beforeCommand,
+    // which is where every other drain happens, so its destination DOM would
+    // otherwise never be captured before teardown. forceAnchor: the destination's
+    // async initial anchor may not have run yet, so anchor it synchronously here.
+    await this.#sessionCapturer.captureTrace(this.#browser, true)
     const stamp = this.#lastActionTimestamp()
     const snap = await captureActionSnapshot(this.#browser, '__final__')
     if (snap) {
       snap.timestamp = stamp
-      this.#actionSnapshots.push(snap)
+      // The last action's post-capture shares this timestamp and resources are
+      // named by timestamp, so keep only the richer screenshot — a blank
+      // end-of-scenario frame must not clobber the action's real result.
+      upsertRichestSnapshot(this.#actionSnapshots, snap)
     }
   }
 
@@ -334,32 +690,9 @@ export default class DevToolsHookService implements Services.ServiceInstance {
 
   private resetStack() {
     this.#commandStack = []
+    this.#assertionTracker.reset()
     this.#sessionCapturer.resetLastSelector()
     this.#sessionCapturer.resetRetryTracker()
-  }
-
-  #resolveCallSourceFromFrame(
-    frame: ReturnType<typeof parse>[number]
-  ): string | undefined {
-    const rawFile = frame.getFileName() ?? undefined
-    let absPath = rawFile
-    if (rawFile?.startsWith('file://')) {
-      try {
-        const url = new URL(rawFile)
-        absPath = decodeURIComponent(url.pathname)
-      } catch {
-        absPath = rawFile
-      }
-    }
-    if (absPath?.includes('?')) {
-      absPath = absPath.split('?')[0]
-    }
-    if (absPath === undefined) {
-      return undefined
-    }
-    const line = frame.getLineNumber() ?? undefined
-    const column = frame.getColumnNumber() ?? undefined
-    return `${absPath}:${line ?? 0}:${column ?? 0}`
   }
 
   #pushTopLevelCommandFrame(
@@ -383,11 +716,6 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     if (!this.#browser) {
       return
     }
-    // BiDi listeners attach on the first command (before any execute).
-    if (!this.#bidiListenersSetup && this.#browser.isBidi) {
-      this.#bidiListenersSetup = true
-      attachBidiListeners(this.#browser, this.#sessionCapturer)
-    }
     // On first URL navigation, mark the start of meaningful recording so
     // leading blank frames (pre-test pauses, etc.) are trimmed from the video.
     // Fires regardless of runner (Mocha, Jasmine, Cucumber, standalone).
@@ -395,31 +723,60 @@ export default class DevToolsHookService implements Services.ServiceInstance {
       this.#screencastRecorder?.setStartMarker()
       this.#sessionCapturer.sendUpstream('metadata', { url: args[0] })
     }
-    // Smart stack filtering to detect top-level user commands.
+    // Smart stack filtering to detect top-level user commands. This bookkeeping
+    // is synchronous and must settle BEFORE any await below, because afterCommand
+    // pops exactly what beforeCommand pushed — a stack push stranded behind an
+    // await would let a same-tick afterCommand miss the frame.
     Error.stackTraceLimit = 20
     const stack = parse(new Error('')).reverse()
     const source = stack.find((frame) => isUserSpecFile(frame.getFileName()))
-    if (source && this.#commandStack.length === 0) {
+    // A matcher's value-read (getText/isExisting) is captured normally like any
+    // command; afterAssertion later folds it into the expect.<matcher> row (see
+    // coalesceAssertionIntoLastRead) — no suppression window needed here.
+    const topLevelUserCommand = source && this.#commandStack.length === 0
+    if (topLevelUserCommand) {
       this.#pushTopLevelCommandFrame(
         command,
-        this.#resolveCallSourceFromFrame(source)
+        resolveCallSourceFromFrame(source)
       )
-
-      // Pre-action capture: state BEFORE this action executes.  Will be
-      // stamped at the previous action's end time (or 0 for the first).
-      if (
-        this.#options.mode === 'trace' &&
-        this.#browser &&
-        mapCommandToAction(command) &&
-        !INTERNAL_COMMANDS.includes(command)
-      ) {
-        const snap = await captureActionSnapshot(this.#browser, command)
-        if (snap) {
-          snap.timestamp = this.#lastActionTimestamp()
-          this.#actionSnapshots.push(snap)
-        }
-      }
     }
+    // Flush the outgoing page's buffered mutations (e.g. field edits from prior
+    // fills — value/checked changes fire no page transition) BEFORE a navigating
+    // command discards its collector, else the replay shows empty inputs. Runs
+    // in live mode too: navigation drops the old document's collector, so the
+    // post-navigation afterCommand drain would hit the fresh page and lose them.
+    if (PAGE_TRANSITION_COMMANDS.includes(command)) {
+      await this.#sessionCapturer.captureTrace(this.#browser)
+    }
+    // Pre-action capture: state BEFORE this action executes. Stamped at the
+    // previous action's end time (or 0 for the first). Trace mode only.
+    if (
+      topLevelUserCommand &&
+      this.#options.mode === 'trace' &&
+      this.#browser &&
+      mapCommandToAction(command) &&
+      !INTERNAL_COMMANDS.includes(command)
+    ) {
+      const snap = await captureActionSnapshot(this.#browser, command)
+      if (snap) {
+        snap.timestamp = this.#lastActionTimestamp()
+        this.#actionSnapshots.push(snap)
+      }
+      // Tag the current document so the post-action capture can tell whether
+      // this action navigated (a new document drops the tag).
+      await this.#markDocument()
+    }
+  }
+
+  #markDocument(): Promise<unknown> {
+    if (!this.#browser || isNativeMobile(this.#browser)) {
+      return Promise.resolve()
+    }
+    return this.#browser
+      .execute(() => {
+        ;(window as Window & { __wdioSnapMark?: boolean }).__wdioSnapMark = true
+      })
+      .catch(() => undefined)
   }
 
   async afterCommand(
@@ -433,6 +790,18 @@ export default class DevToolsHookService implements Services.ServiceInstance {
       return
     }
 
+    // Record every element resolution, even those below the top-level command
+    // boundary — an `expect($('#flash'))` resolves its element inside the
+    // matcher, so this is the only place the assertion's target selector is
+    // observable (see SessionCapturer.noteResolvedSelector).
+    if (
+      LOCATOR_COMMANDS.includes(command as string) &&
+      typeof args[0] === 'string' &&
+      args[0]
+    ) {
+      this.#sessionCapturer.noteResolvedSelector(args[0])
+    }
+
     /* Ensure that the command is captured only if it matches the last command in the stack.
      * This prevents capturing commands that are not top-level user commands.
      */
@@ -440,7 +809,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     if (frame?.command === command) {
       this.#commandStack.pop()
       if (this.#browser) {
-        return await this.#sessionCapturer.afterCommand(
+        const captured = await this.#sessionCapturer.afterCommand(
           this.#browser,
           command,
           args,
@@ -448,8 +817,20 @@ export default class DevToolsHookService implements Services.ServiceInstance {
           error,
           frame.callSource,
           frame.startTimestamp,
-          this.#currentTestUid
+          this.#currentTestUid,
+          this.#currentStepUid
         )
+        if (this.#options.mode === 'trace') {
+          await captureActionResult(
+            this.#browser,
+            command,
+            this.#actionSnapshots,
+            () => this.#lastActionTimestamp()
+          )
+        } else {
+          await this.#drainAfterLiveCommand(command)
+        }
+        return captured
       }
     }
 
@@ -459,38 +840,31 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     }
   }
 
-  /**
-   * Slice the session capturer's accumulated arrays for a single spec file
-   * and write a standalone trace artifact. Called at spec boundaries and
-   * from after() for the final spec.
-   */
-  async #flushSpecTrace(
-    range: SpecRange,
-    nextRange?: SpecRange
-  ): Promise<string | undefined> {
-    if (!this.#browser || this.#flushedSpecs.has(range.specFile)) {
-      return undefined
+  /** Live mode has no per-action DOM snapshot (that's trace mode), so the
+   *  dashboard's replay is only as fresh as the last drain. Field edits fire no
+   *  page transition, so without this every action between two navigations
+   *  replays the page as it looked at load — an un-filled form after setValue.
+   *  Page-transition commands already drain inside the capturer, and resolving
+   *  a locator can't change the DOM — skipping both keeps the added round trips
+   *  to the commands that can actually move the page (which matters: capture
+   *  traffic is what triggers the Chrome 150 headless input regression). */
+  async #drainAfterLiveCommand(command: keyof WebDriverCommands) {
+    if (
+      !this.#browser ||
+      isNativeMobile(this.#browser) ||
+      PAGE_TRANSITION_COMMANDS.includes(command) ||
+      LOCATOR_COMMANDS.includes(command)
+    ) {
+      return
     }
-    this.#flushedSpecs.add(range.specFile)
-
-    const tracePath = await writeSpecTrace({
-      range,
-      nextRange,
-      capturer: this.#sessionCapturer,
-      actionSnapshots: this.#actionSnapshots,
-      sessionId: this.#browser.sessionId,
-      outputDir: this.#outputDir,
-      format: this.#options.traceFormat,
-      testMetadata: this.#testMetadata,
-      capabilities: this.#browser.capabilities
-    })
-    log.info(`Trace for spec "${range.specFile}" saved to ${tracePath}`)
-    return tracePath
+    await this.#sessionCapturer.captureTrace(this.#browser)
   }
 
   /**
    * after hook is triggered at the end of every worker session, therefore
-   * we can use it to write all trace information to a file
+   * we can use it to write all trace information to a file. `trace` mode
+   * writes the shareable trace.zip (opened via `pnpm show-trace`); `live`
+   * mode streams to the dashboard over WS and persists nothing to disk.
    */
   async after() {
     if (!this.#browser) {
@@ -500,81 +874,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     // Stop and encode the screencast for the current session.
     await this.#finalizeScreencast(this.#browser.sessionId)
 
-    const outputDir = this.#outputDir
-    const { ...options } = this.#browser.options
-    const traceLog: TraceLog = {
-      mutations: this.#sessionCapturer.mutations,
-      logs: this.#sessionCapturer.traceLogs,
-      consoleLogs: this.#sessionCapturer.consoleLogs,
-      networkRequests: this.#sessionCapturer.networkRequests,
-      metadata: {
-        ...this.#sessionCapturer.metadata!,
-        type: this.captureType,
-        options,
-        capabilities: this.#browser.capabilities as Capabilities.W3CCapabilities
-      },
-      commands: this.#sessionCapturer.commandsLog,
-      sources: Object.fromEntries(this.#sessionCapturer.sources),
-      suites: this.#testReporters.map((reporter) => reporter.report),
-      ...(this.#actionSnapshots.length
-        ? { actionSnapshots: this.#actionSnapshots }
-        : {})
-    }
-
-    if (this.#options.mode === 'trace') {
-      if (this.#options.traceGranularity === 'spec') {
-        // Per-spec traces — flush any remaining unfilled ranges, or
-        // fall back to session-level if no boundaries were detected
-        // (e.g. an unsupported runner or standalone session).
-        if (this.#specRanges.length > 0) {
-          for (const range of this.#specRanges) {
-            await this.#flushSpecTrace(range)
-          }
-        } else {
-          log.warn(
-            'traceGranularity is "spec" but no spec boundaries were ' +
-              'detected (framework may not support service-level test ' +
-              'hooks). Falling back to session-level trace.'
-          )
-          try {
-            const tracePath = await writeTraceZip(this.#sessionCapturer, {
-              outputDir,
-              sessionId: this.#browser.sessionId,
-              capabilities: this.#browser.capabilities,
-              actionSnapshots: this.#actionSnapshots.length
-                ? this.#actionSnapshots
-                : undefined,
-              format: this.#options.traceFormat,
-              testMetadata: this.#testMetadata
-            })
-            log.info(`Trace saved to ${tracePath}`)
-          } catch (err) {
-            log.error(`Trace write failed: ${errorMessage(err)}`)
-          }
-        }
-      } else {
-        // Session-level trace (default) — single artifact for the
-        // entire worker session.
-        const tracePath = await writeTraceZip(this.#sessionCapturer, {
-          outputDir,
-          sessionId: this.#browser.sessionId,
-          capabilities: this.#browser.capabilities,
-          actionSnapshots: this.#actionSnapshots.length
-            ? this.#actionSnapshots
-            : undefined,
-          format: this.#options.traceFormat,
-          testMetadata: this.#testMetadata
-        })
-        log.info(`Trace saved to ${tracePath}`)
-      }
-    } else {
-      const traceFilePath = path.join(
-        outputDir,
-        `wdio-trace-${this.#browser.sessionId}.json`
-      )
-      await fs.writeFile(traceFilePath, JSON.stringify(traceLog))
-      log.info(`DevTools trace saved to ${traceFilePath}`)
-    }
+    await finalizeTraceExport(this.#traceContext(this.#browser))
 
     // Clean up console patching
     this.#sessionCapturer.cleanup()
@@ -588,8 +888,34 @@ export default class DevToolsHookService implements Services.ServiceInstance {
    * on the new session so the second scenario is also covered.
    */
   async onReload(oldSessionId: string, _newSessionId: string) {
-    if (!this.#screencastOptions?.enabled || !this.#browser) {
+    // reloadSession starts a fresh session with no preload script (BiDi preload
+    // scripts are per-session), so DOM-mutation capture would silently stop
+    // after the first session — every post-reload scenario would replay the
+    // prior session's last DOM. Re-arm capture for the new session here,
+    // independent of screencast, so it runs before the early-return below.
+    this.#sessionCapturer.resetScriptInjection()
+    await this.#ensureInjected('reloadSession')
+
+    if (!this.#shouldRecordScreencast() || !this.#browser) {
       return
+    }
+
+    // Trace mode: the ending test's afterScenario runs AFTER this reload (a
+    // cucumber `After(() => reloadSession())` is WDIO boilerplate), by which
+    // point the recorder below has replaced these frames. Snapshot them now,
+    // keyed to the ending test, so afterScenario can still slice its video.
+    if (this.#options.mode === 'trace' && this.#screencastRecorder) {
+      const frames = [...this.#screencastRecorder.frames]
+      this.#pendingVideoFrames = {
+        testUid: this.#currentTestUid,
+        startWallTime: this.#currentTestStartWallTime,
+        frames
+      }
+      // Persist for the filmstrip too — the recorder below resets the buffer,
+      // so a session/spec trace spanning this reload keeps its earlier frames.
+      if (this.#options.filmstrip) {
+        this.#filmstripFrames.push(...frames)
+      }
     }
 
     // Finalize the recording from the old session (CDP is already gone, so
@@ -597,7 +923,9 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     await this.#finalizeScreencast(oldSessionId)
 
     // Start a new recorder for the new session.
-    this.#screencastRecorder = new ScreencastRecorder(this.#screencastOptions)
+    this.#screencastRecorder = new ScreencastRecorder(
+      this.#screencastOptions ?? {}
+    )
     await this.#screencastRecorder.start(this.#browser)
   }
 
@@ -631,6 +959,13 @@ export default class DevToolsHookService implements Services.ServiceInstance {
    */
   async #finalizeScreencast(sessionId: string) {
     if (!this.#screencastRecorder) {
+      return
+    }
+    // Trace mode: the video is emitted per-test (sliced in #emitTestArtifacts),
+    // and there's no dashboard to receive a session recording — so just stop the
+    // recorder to release resources; never encode an orphan session-wide webm.
+    if (this.#options.mode === 'trace') {
+      await this.#screencastRecorder.stop()
       return
     }
     // Skip ghost sessions: browser.reloadSession() creates a new session at
@@ -671,18 +1006,12 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     }
     try {
       this.#injecting = true
-      const markerPresent = await this.#browser.execute(() => {
-        return Boolean(
-          (window as unknown as { __WDIO_DEVTOOLS_MARK?: unknown })
-            .__WDIO_DEVTOOLS_MARK
-        )
-      })
-      if (markerPresent) {
-        return
-      }
       await this.#sessionCapturer.injectScript(getBrowserObject(this.#browser))
     } catch (err) {
-      log.warn(`[inject] failed (reason=${reason}): ${errorMessage(err)}`)
+      // Not recoverable here, and silence would mean losing DOM capture for the
+      // rest of the session with no symptom other than a stale replay. The
+      // per-drain recovery in core is the safety net for the current document.
+      log.error(`[inject] failed (reason=${reason}): ${errorMessage(err)}`)
     } finally {
       this.#injecting = false
     }

@@ -4,7 +4,7 @@ export const POPOUT_QUERY = {
   uidKey: 'uid'
 } as const
 
-export const POPOUT_WINDOW = {
+const POPOUT_WINDOW = {
   width: 1400,
   height: 900,
   features: 'resizable=yes,scrollbars=yes'

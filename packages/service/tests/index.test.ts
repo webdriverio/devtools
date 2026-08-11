@@ -2,19 +2,36 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type * as DevtoolsCore from '@wdio/devtools-core'
 import DevToolsHookService from '../src/index.js'
 
-const fakeFrame = {
-  getFileName: () => '/test/specs/fake.spec.ts',
-  getLineNumber: () => 1,
-  getColumnNumber: () => 1
-}
+// Controllable stack: `frames` defaults to a single user-spec frame (commands
+// read as top-level). A test can splice in `matcherFrame` to simulate a command
+// issued from inside an expect-webdriverio matcher.
+const stackMock = vi.hoisted(() => {
+  const userFrame = {
+    getFileName: () => '/test/specs/fake.spec.ts',
+    getLineNumber: () => 1,
+    getColumnNumber: () => 1
+  }
+  const matcherFrame = {
+    getFileName: () =>
+      '/node_modules/expect-webdriverio/lib/matchers/toHaveText.js',
+    getLineNumber: () => 1,
+    getColumnNumber: () => 1
+  }
+  return { frames: [userFrame], userFrame, matcherFrame }
+})
 // Create mock instance that will be returned by SessionCapturer constructor
 vi.mock('stack-trace', () => ({
-  parse: () => [fakeFrame]
+  parse: () => stackMock.frames
 }))
 const mockSessionCapturerInstance = {
   afterCommand: vi.fn(),
   sendUpstream: vi.fn(),
   injectScript: vi.fn().mockResolvedValue(undefined),
+  captureTrace: vi.fn().mockResolvedValue(undefined),
+  resetScriptInjection: vi.fn(),
+  noteResolvedSelector: vi.fn(),
+  captureSource: vi.fn(),
+  captureAssertCommand: vi.fn(),
   cleanup: vi.fn(),
   commandsLog: [],
   sources: new Map(),
@@ -74,6 +91,7 @@ describe('DevtoolsService - Internal Command Filtering', () => {
   const mockBrowser = {
     isBidi: true,
     sessionId: 'test-session',
+    addCommand: vi.fn(),
     scriptAddPreloadScript: vi.fn().mockResolvedValue(undefined),
     takeScreenshot: vi.fn().mockResolvedValue('screenshot'),
     execute: vi.fn().mockResolvedValue({
@@ -105,13 +123,7 @@ describe('DevtoolsService - Internal Command Filtering', () => {
 
   describe('beforeCommand', () => {
     it('should not add internal commands to command stack', () => {
-      const internalCommands = [
-        'getTitle',
-        'waitUntil',
-        'getUrl',
-        'execute',
-        'findElement'
-      ]
+      const internalCommands = ['getTitle', 'getUrl', 'execute', 'findElement']
       internalCommands.forEach((cmd) => service.beforeCommand(cmd as any, []))
       expect(true).toBe(true)
     })
@@ -137,19 +149,34 @@ describe('DevtoolsService - Internal Command Filtering', () => {
       executeCommand('url', ['https://example.com'])
       executeCommand('getTitle', [], 'Page Title') // internal
       executeCommand('click', ['.button'])
-      executeCommand('waitUntil', [expect.any(Function)], true) // internal
+      executeCommand('waitUntil', [expect.any(Function)], true) // a user wait
       executeCommand('getText', ['.result'], 'Success')
 
-      // Only user commands (url, click, getText) should be captured
-      expect(mockSessionCapturerInstance.afterCommand).toHaveBeenCalledTimes(3)
+      // getTitle is internal; the rest — including the wait — are user actions.
+      expect(mockSessionCapturerInstance.afterCommand).toHaveBeenCalledTimes(4)
 
       const capturedCommands =
         mockSessionCapturerInstance.afterCommand.mock.calls.map(
           (call) => call[1]
         )
-      expect(capturedCommands).toEqual(['url', 'click', 'getText'])
+      expect(capturedCommands).toEqual(['url', 'click', 'waitUntil', 'getText'])
       expect(capturedCommands).not.toContain('getTitle')
-      expect(capturedCommands).not.toContain('waitUntil')
+    })
+
+    it('captures a wait once and suppresses the commands it polls', () => {
+      // waitUntil opens; its predicate polls isDisplayed while the wait is
+      // still on the stack, so those polls are top-level-suppressed.
+      service.beforeCommand('waitUntil' as any, [expect.any(Function)])
+      service.beforeCommand('isDisplayed' as any, [])
+      service.afterCommand('isDisplayed' as any, [], false)
+      service.beforeCommand('isDisplayed' as any, [])
+      service.afterCommand('isDisplayed' as any, [], true)
+      service.afterCommand('waitUntil' as any, [expect.any(Function)], true)
+
+      const captured = mockSessionCapturerInstance.afterCommand.mock.calls.map(
+        (call) => call[1]
+      )
+      expect(captured).toEqual(['waitUntil'])
     })
 
     // Service-fired commands (preload injection, Puppeteer handle for CDP,
@@ -168,6 +195,85 @@ describe('DevtoolsService - Internal Command Filtering', () => {
       }
     )
   })
+
+  // Live mode (default) relies solely on the mutation stream for DOM replay. A
+  // navigating command discards the outgoing page's collector, so its buffered
+  // field edits must be flushed in beforeCommand — else the replayed action
+  // shows empty inputs. This drain used to be gated to trace mode.
+  describe('beforeCommand - pre-navigation flush (live mode)', () => {
+    beforeEach(async () => {
+      await service.before({} as any, [], mockBrowser)
+      vi.clearAllMocks()
+    })
+
+    it.each(['url', 'navigateTo', 'click', 'elementClick'])(
+      'flushes buffered mutations before navigating command %s',
+      async (cmd) => {
+        await service.beforeCommand(cmd as any, ['a[href="/logout"]'])
+        expect(mockSessionCapturerInstance.captureTrace).toHaveBeenCalled()
+      }
+    )
+
+    it('does not flush before a non-navigating command', async () => {
+      await service.beforeCommand('getText' as any, ['#flash'])
+      expect(mockSessionCapturerInstance.captureTrace).not.toHaveBeenCalled()
+    })
+  })
+
+  // Field edits (value/checked) fire no page transition, so with a
+  // navigation-only drain they stayed buffered in the page until the next
+  // navigation — every action in between replayed the form as it loaded, empty.
+  // Trace mode is unaffected: it captures a real per-action DOM snapshot.
+  describe('afterCommand - per-command drain (live mode)', () => {
+    beforeEach(async () => {
+      await service.before({} as any, [], mockBrowser)
+      vi.clearAllMocks()
+    })
+
+    it('drains after a top-level non-navigating command', async () => {
+      service.beforeCommand('setValue' as any, ['#username', 'foobar'])
+      await service.afterCommand('setValue' as any, ['#username', 'foobar'], {})
+      expect(mockSessionCapturerInstance.captureTrace).toHaveBeenCalledTimes(1)
+    })
+
+    it('does not drain after a locator command', async () => {
+      service.beforeCommand('$' as any, ['#username'])
+      await service.afterCommand('$' as any, ['#username'], {})
+      expect(mockSessionCapturerInstance.captureTrace).not.toHaveBeenCalled()
+    })
+
+    it('leaves the navigation drain to the capturer', async () => {
+      vi.clearAllMocks()
+      service.beforeCommand('click' as any, ['button'])
+      // beforeCommand's pre-navigation flush is the only drain the plugin owns
+      // for a navigating command — the post-command one lives in the capturer.
+      expect(mockSessionCapturerInstance.captureTrace).toHaveBeenCalledTimes(1)
+      await service.afterCommand('click' as any, ['button'], {})
+      expect(mockSessionCapturerInstance.captureTrace).toHaveBeenCalledTimes(1)
+    })
+
+    it('does not drain in trace mode', async () => {
+      // Trace mode runs the per-action snapshot path instead, which needs the
+      // page-settle surface the shared stub doesn't carry.
+      const traceBrowser = {
+        ...mockBrowser,
+        waitUntil: vi.fn().mockResolvedValue(true),
+        pause: vi.fn().mockResolvedValue(undefined),
+        getUrl: vi.fn().mockResolvedValue('http://test.com'),
+        getTitle: vi.fn().mockResolvedValue('title')
+      } as any
+      const traceService = new DevToolsHookService({ mode: 'trace' })
+      await traceService.before({} as any, [], traceBrowser)
+      vi.clearAllMocks()
+      traceService.beforeCommand('setValue' as any, ['#username', 'foobar'])
+      await traceService.afterCommand(
+        'setValue' as any,
+        ['#username', 'foobar'],
+        {}
+      )
+      expect(mockSessionCapturerInstance.captureTrace).not.toHaveBeenCalled()
+    })
+  })
 })
 
 describe('DevtoolsService - Screencast Integration', () => {
@@ -175,6 +281,7 @@ describe('DevtoolsService - Screencast Integration', () => {
   const mockBrowser = {
     isBidi: true,
     sessionId: 'session-123',
+    addCommand: vi.fn(),
     scriptAddPreloadScript: vi.fn().mockResolvedValue(undefined),
     takeScreenshot: vi.fn().mockResolvedValue('screenshot'),
     execute: vi.fn().mockResolvedValue({
@@ -250,6 +357,21 @@ describe('DevtoolsService - Screencast Integration', () => {
 
     // Encode-error swallowing is the responsibility of the shared finalize
     // helper itself (covered in core/tests). Service just needs to invoke it.
+  })
+
+  it('trace mode: filmstrip defaults on and starts the recorder; filmstrip:false + no video leaves it off', async () => {
+    // filmstrip defaults ON in trace mode → recorder runs (its frames become the
+    // dense trace filmstrip) even with no explicit option.
+    service = new DevToolsHookService({ mode: 'trace' })
+    await service.before({} as any, [], mockBrowser)
+    expect(mockScreencastRecorder.start).toHaveBeenCalledWith(mockBrowser)
+
+    vi.clearAllMocks()
+
+    // explicit filmstrip:false and no video → no recorder (one frame per action)
+    service = new DevToolsHookService({ mode: 'trace', filmstrip: false })
+    await service.before({} as any, [], mockBrowser)
+    expect(mockScreencastRecorder.start).not.toHaveBeenCalled()
   })
 
   it('onReload finalizes old session and starts fresh recorder', async () => {

@@ -15,10 +15,19 @@ import '~icons/mdi/target.js'
 import '~icons/mdi/keyboard-outline.js'
 import '~icons/mdi/cursor-default-click-outline.js'
 import '~icons/mdi/check-circle-outline.js'
+import '~icons/mdi/close-circle-outline.js'
 import '~icons/mdi/text.js'
 import '~icons/mdi/code-tags.js'
 
 const SOURCE_COMPONENT = 'wdio-devtools-command-item'
+
+function capitalizeAssertLabel(label: string): string {
+  return label.replace(
+    /^(assert|expect|verify)\./,
+    (_m, prefix: string) =>
+      prefix.charAt(0).toUpperCase() + prefix.slice(1) + '.'
+  )
+}
 
 const CATEGORY_COLOR: Record<ActionCategory, string> = {
   navigation: 'text-chartsBlue',
@@ -33,19 +42,43 @@ export class CommandItem extends ActionItem {
   @property({ type: Object, attribute: true })
   entry?: CommandLog
 
+  willUpdate(): void {
+    this.failed = Boolean(this.entry?.error)
+  }
+
   #highlightLine() {
-    const event = new CustomEvent('show-command', {
-      detail: {
-        command: this.entry,
-        elapsedTime: this.elapsedTime
-      }
-    })
-    window.dispatchEvent(event)
+    if (!this.entry) {
+      return
+    }
+    this.requestReveal()
+    window.dispatchEvent(
+      // Typed as the contract, which is what makes the two nullable fields below
+      // a compile error rather than a blank chip in the Log tab.
+      new CustomEvent<CommandEventProps>('show-command', {
+        detail: {
+          command: this.entry,
+          // The offset this row displays. A row that was handed none is at the
+          // start of its list, so it reads zero like every other emitter's first
+          // action — `undefined` would drop the Log tab's chip entirely.
+          elapsedTime: this.elapsedTime ?? 0
+        }
+      })
+    )
   }
 
   #renderIcon(command: string): TemplateResult {
-    const cls = `${ICON_CLASS} ${CATEGORY_COLOR[commandCategory(command)]}`
-    switch (commandIcon(command)) {
+    // Failed commands render red (matching the label); a failed assertion also
+    // swaps its green ✓-circle for a red ✗-circle so it never reads as passed.
+    const cls = `${ICON_CLASS} ${
+      this.failed ? 'text-chartsRed' : CATEGORY_COLOR[commandCategory(command)]
+    }`
+    const icon = commandIcon(command)
+    if (this.failed && icon === 'assert') {
+      return html`<icon-mdi-close-circle-outline
+        class="${cls}"
+      ></icon-mdi-close-circle-outline>`
+    }
+    switch (icon) {
       case 'navigate':
         return html`<icon-mdi-arrow-top-right
           class="${cls}"
@@ -85,8 +118,8 @@ export class CommandItem extends ActionItem {
         @click="${() => this.#highlightLine()}"
       >
         ${this.iconChip(this.#renderIcon(entry.command))}
-        <code class="text-[12.5px] flex-wrap text-left break-all"
-          >${entry.command}</code
+        <code class="label text-[12.5px] ${this.failed ? 'text-chartsRed' : ''}"
+          >${capitalizeAssertLabel(entry.title ?? entry.command)}</code
         >
         ${this.renderTime()}
       </button>

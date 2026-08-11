@@ -19,6 +19,7 @@ export type TestStatsFragment = Omit<Partial<TestStats>, 'uid' | 'state'> & {
   callSource?: string
   featureFile?: string
   featureLine?: number
+  file?: string
 }
 
 export type SuiteStatsFragment = Omit<

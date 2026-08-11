@@ -14,13 +14,20 @@ export enum Direction {
 type DragControllerHost = HTMLElement & ReactiveControllerHost
 type AsyncGetElFn = () => Element | Promise<Element | null>
 
+/** Bounds accept getters so panes with a layout-dependent budget clamp live. */
+type Bound = number | (() => number)
+
 interface DragControllerOptions {
   initialPosition: number
   direction: Direction
   localStorageKey?: string
-  minPosition?: number
-  maxPosition?: number
+  minPosition?: Bound
+  maxPosition?: Bound
   getContainerEl: AsyncGetElFn
+}
+
+function resolveBound(bound: Bound | undefined): number | undefined {
+  return typeof bound === 'function' ? bound() : bound
 }
 
 type State = 'dragging' | 'idle'
@@ -56,22 +63,14 @@ export class DragController implements ReactiveController {
     Promise.all([this.#getDraggableEl(), options.getContainerEl()]).then(
       ([draggableEl, containerEl]) => {
         if (!draggableEl || !containerEl) {
-          // Retry after a short delay
+          // Retry after a short delay. Quietly: a host renders only the sliders
+          // its current mode needs, so a handle whose pane is absent is expected
+          // — hostUpdated → #maybeReinit picks it up if it ever appears.
           setTimeout(async () => {
             const [retryDraggableEl, retryContainerEl] = await Promise.all([
               this.#getDraggableEl(),
               options.getContainerEl()
             ])
-            if (!retryDraggableEl) {
-              console.warn(
-                'getDraggableEl() did not return an element HTMLElement'
-              )
-            }
-            if (!retryContainerEl) {
-              console.warn(
-                'getContainerEl() did not return an element HTMLElement'
-              )
-            }
             if (retryDraggableEl && retryContainerEl) {
               this.#draggableEl = retryDraggableEl as HTMLElement
               this.#containerEl = retryContainerEl as HTMLElement
@@ -107,16 +106,18 @@ export class DragController implements ReactiveController {
   }
 
   #setPosition(x: number, y: number) {
+    const min = resolveBound(this.#options.minPosition) ?? 0
+    const max = resolveBound(this.#options.maxPosition)
     if (this.#options.direction === Direction.horizontal) {
-      let nx = Math.max(x, this.#options.minPosition || 0)
-      if (this.#options.maxPosition !== undefined) {
-        nx = Math.min(nx, this.#options.maxPosition)
+      let nx = Math.max(x, min)
+      if (max !== undefined) {
+        nx = Math.min(nx, max)
       }
       this.#x = nx
     } else {
-      let ny = Math.max(y, this.#options.minPosition || 0)
-      if (this.#options.maxPosition !== undefined) {
-        ny = Math.min(ny, this.#options.maxPosition)
+      let ny = Math.max(y, min)
+      if (max !== undefined) {
+        ny = Math.min(ny, max)
       }
       this.#y = ny
     }
@@ -247,6 +248,17 @@ export class DragController implements ReactiveController {
     // if slider was removed (collapsed) and re-added, re-init pointer tracker
     if (this.#draggableEl !== draggableEl) {
       this.#draggableEl = draggableEl as HTMLElement
+      // The container often doesn't exist at construction (the sidebar renders
+      // only after a connection), so it must be resolved here too — otherwise
+      // the tracker attaches but #handleWindowMove bails on a null container
+      // and the drag silently no-ops.
+      if (!this.#containerEl) {
+        const containerEl = await this.#options.getContainerEl()
+        if (containerEl) {
+          this.#containerEl = containerEl as HTMLElement
+          window.onresize = () => this.#adjustPosition()
+        }
+      }
       this.#init()
     }
   }

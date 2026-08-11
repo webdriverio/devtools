@@ -14,8 +14,6 @@ import {
   baselineContext,
   selectedTestUidContext,
   commandContext,
-  consoleLogContext,
-  networkRequestContext,
   suiteContext
 } from '../../controller/context.js'
 import type { SuiteStatsFragment } from '../../controller/types.js'
@@ -23,18 +21,10 @@ import {
   pairSteps,
   classifyDivergence,
   cleanErrorMessage,
+  firstDivergentIndex,
   type ComparePairedStep,
   type DivergenceKind
 } from './compare/compareUtils.js'
-
-interface RenderPairCtx {
-  pair: ComparePairedStep
-  kind: DivergenceKind
-  isTruncation: boolean
-  oneSideEntirelyEmpty: boolean
-  expanded: boolean
-  isFirstDivergent: boolean
-}
 import { BASELINE_API, type BaselineClearRequest } from '@wdio/devtools-shared'
 import { POPOUT_QUERY, buildPopoutFeatures } from './compare/constants.js'
 import { renderMarker } from './compare/markers.js'
@@ -47,6 +37,17 @@ import {
 import { renderDetailBlock } from './compare/renderDetailBlock.js'
 
 const COMPONENT = 'wdio-devtools-compare'
+
+/** What both cells of one step row share: the pairing, the row's divergence
+ *  kind, and the row-level flags the cell renderers branch on. */
+interface RenderPairCtx {
+  pair: ComparePairedStep
+  kind: DivergenceKind
+  isTruncation: boolean
+  oneSideEntirelyEmpty: boolean
+  expanded: boolean
+  isFirstDivergent: boolean
+}
 
 @customElement(COMPONENT)
 export class DevtoolsCompare extends Element {
@@ -63,14 +64,6 @@ export class DevtoolsCompare extends Element {
   @consume({ context: commandContext, subscribe: true })
   @state()
   liveCommands: CommandLog[] | undefined = undefined
-
-  @consume({ context: consoleLogContext, subscribe: true })
-  @state()
-  liveConsoleLogs: ConsoleLogs[] | undefined = undefined
-
-  @consume({ context: networkRequestContext, subscribe: true })
-  @state()
-  liveNetwork: NetworkRequest[] | undefined = undefined
 
   @consume({ context: suiteContext, subscribe: true })
   @state()
@@ -137,14 +130,18 @@ export class DevtoolsCompare extends Element {
    *  test's step time windows (mirrors the backend's snapshot filter). */
   #liveCommandsForSelectedUid(): CommandLog[] {
     const all = this.liveCommands || []
-    const steps = this.#liveStepsForSelectedUid()
+    // A step the runner reported with neither bound windows nothing, and must
+    // not widen the window of a step that does carry one.
+    const steps = this.#liveStepsForSelectedUid().filter(
+      (s) => typeof s.start === 'number' || typeof s.end === 'number'
+    )
     if (steps.length === 0) {
       return all
     }
     let start = Number.POSITIVE_INFINITY
     let end = 0
     for (const s of steps) {
-      if (s.start !== null && s.start !== undefined && s.start < start) {
+      if (typeof s.start === 'number' && s.start < start) {
         start = s.start
       }
       const candidateEnd = s.end ?? Date.now()
@@ -152,8 +149,10 @@ export class DevtoolsCompare extends Element {
         end = candidateEnd
       }
     }
+    // An unreported start is unknown, not unbounded: keep filtering by the end
+    // rather than re-admitting the commands of whichever test ran next.
     if (!Number.isFinite(start)) {
-      return all
+      start = 0
     }
     return all.filter(
       (c) => c.timestamp !== null && c.timestamp >= start && c.timestamp <= end
@@ -281,7 +280,7 @@ export class DevtoolsCompare extends Element {
     const visiblePairs = this.differencesOnly
       ? pairs.filter((p) => p.divergent || !p.baseline || !p.latest)
       : pairs
-    const firstDivergent = pairs.findIndex((p) => p.divergent)
+    const firstDivergent = firstDivergentIndex(pairs)
     const errorMessage = baseline.test.error?.message
       ? cleanErrorMessage(baseline.test.error.message)
       : undefined

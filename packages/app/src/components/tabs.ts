@@ -2,12 +2,24 @@ import { Element } from '@core/element'
 import { html, css, nothing } from 'lit'
 import { customElement, property } from 'lit/decorators.js'
 
+/** Badge colour variant; `danger` tints the count red (e.g. the Errors tab). */
+type BadgeTone = 'default' | 'danger'
+
 const TABS_COMPONENT = 'wdio-devtools-tabs'
 @customElement(TABS_COMPONENT)
 export class DevtoolsTabs extends Element {
   #activeTab: string | undefined
   #tabList: string[] = []
   #badgeCheckInterval?: number
+
+  // Programmatic tab open (e.g. clicking an element overlay box jumps to A11y).
+  // Guarded by activateTab, so only the tabs instance that owns the label reacts.
+  #onOpenTab = (e: Event) => {
+    const label = (e as CustomEvent<{ label?: string }>).detail?.label
+    if (label) {
+      this.activateTab(label)
+    }
+  }
 
   @property({ type: String })
   cacheId?: string
@@ -50,15 +62,27 @@ export class DevtoolsTabs extends Element {
         );
         color: var(--vscode-descriptionForeground);
       }
+      .tab-badge--danger {
+        background: color-mix(
+          in srgb,
+          var(--vscode-charts-red) 18%,
+          transparent
+        );
+        color: var(--vscode-charts-red);
+      }
     `
   ]
 
   #getTabButton(tabId: string) {
     const tabElement = this.tabs.find(
       (el) => el.getAttribute('label') === tabId
-    )
-    const badge = (tabElement as { badge?: number } | undefined)?.badge
+    ) as { badge?: number; badgeTone?: BadgeTone } | undefined
+    const badge = tabElement?.badge
     const showBadge = badge && badge > 0
+    const badgeClass =
+      tabElement?.badgeTone === 'danger'
+        ? 'tab-badge tab-badge--danger'
+        : 'tab-badge'
 
     return html`
       <button
@@ -69,7 +93,9 @@ export class DevtoolsTabs extends Element {
           : 'border-transparent'}"
       >
         <span>${tabId}</span>
-        ${showBadge ? html`<span class="tab-badge">${badge}</span>` : nothing}
+        ${showBadge
+          ? html`<span class="${badgeClass}">${badge}</span>`
+          : nothing}
       </button>
     `
   }
@@ -102,10 +128,7 @@ export class DevtoolsTabs extends Element {
     if (!activeTab) {
       return
     }
-    this.#activeTab = tabId
-    this.tabs.forEach((el) => el.removeAttribute('active'))
-    activeTab?.setAttribute('active', '')
-    this.requestUpdate()
+    this.#openTab(activeTab, tabId)
 
     /**
      * cache tab id in local storage
@@ -115,39 +138,51 @@ export class DevtoolsTabs extends Element {
     }
   }
 
+  #openTab(tab: Element, label: string) {
+    this.#activeTab = label
+    this.tabs.forEach((el) => el.removeAttribute('active'))
+    tab.setAttribute('active', '')
+    this.requestUpdate()
+  }
+
+  // A conditional tab (Compare) can unmount while it is the open one, and a
+  // remembered label can name a tab this mount never renders — both would leave
+  // the strip with no panel open. The cached choice is left as the user set it.
+  #openFallbackTabWhenActiveIsGone() {
+    if (this.#activeTab && this.#tabList.includes(this.#activeTab)) {
+      return
+    }
+    const fallback =
+      this.tabs.find((el) => el.hasAttribute('active')) ?? this.tabs[0]
+    const label = fallback?.getAttribute('label')
+    if (fallback && label) {
+      this.#openTab(fallback, label)
+    }
+  }
+
   #refreshTabList() {
-    this.#tabList =
-      this.tabs
-        .map((el) => el.getAttribute('label') as string)
-        .filter(Boolean) || []
+    this.#tabList = this.tabs
+      .map((el) => el.getAttribute('label') as string)
+      .filter(Boolean)
+    this.#openFallbackTabWhenActiveIsGone()
     this.requestUpdate()
   }
 
   connectedCallback() {
     super.connectedCallback()
+    window.addEventListener('open-dock-tab', this.#onOpenTab as EventListener)
     setTimeout(() => {
-      // wait till innerHTML is parsed
+      // wait till innerHTML is parsed; this opens the tab claiming to be active,
+      // or the first one
       this.#refreshTabList()
 
       /**
-       * get tab id either from local storage or a tab element that
-       * has an "active" attribute
+       * reopen the remembered tab; a label this mount doesn't render is ignored,
+       * which leaves the tab opened above in place
        */
-      this.#activeTab =
-        (this.cacheId && localStorage.getItem(this.cacheId)) ||
-        this.tabs
-          .find((el) => el.hasAttribute('active'))
-          ?.getAttribute('label') ||
-        undefined
-
-      /**
-       * set active tab or first tab as active
-       */
-      if (!this.#activeTab) {
-        this.#activeTab = this.#tabList[0]
-        this.tabs[0]?.setAttribute('active', '')
-      } else {
-        this.activateTab(this.#activeTab)
+      const remembered = this.cacheId && localStorage.getItem(this.cacheId)
+      if (remembered) {
+        this.activateTab(remembered)
       }
 
       this.requestUpdate()
@@ -171,6 +206,10 @@ export class DevtoolsTabs extends Element {
 
   disconnectedCallback() {
     super.disconnectedCallback()
+    window.removeEventListener(
+      'open-dock-tab',
+      this.#onOpenTab as EventListener
+    )
     if (this.#badgeCheckInterval) {
       clearInterval(this.#badgeCheckInterval)
     }
@@ -196,6 +235,9 @@ const TAB_COMPONENT = 'wdio-devtools-tab'
 export class DevtoolsTab extends Element {
   @property({ type: Number })
   badge?: number
+
+  @property({ type: String })
+  badgeTone?: BadgeTone
 
   static styles = [
     ...Element.styles,

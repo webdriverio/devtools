@@ -5,7 +5,20 @@
  * text files that LLMs can consume without any parsing.
  */
 
-import type { AccessibilityNode } from './element-types.js'
+import type {
+  AccessibilityNode,
+  SnapshotNode,
+  SnapshotElement,
+  SnapshotResult
+} from './element-types.js'
+
+import {
+  SNAPSHOT_INDENT_UNIT,
+  SNAPSHOT_PAGE_HEADER,
+  SNAPSHOT_LOCATOR_DELIM,
+  SNAPSHOT_PURPOSE_TOKEN
+} from '@wdio/devtools-shared'
+
 import type { JSONElement } from './locators/types.js'
 import { parseAndroidBounds, parseIOSBounds } from './locators/xml-parsing.js'
 import {
@@ -76,7 +89,7 @@ export function serializeWebSnapshot(
 ): string {
   const { inViewportOnly = true } = options
 
-  let header = '[Page'
+  let header = SNAPSHOT_PAGE_HEADER
   if (context?.title) {
     header += `: ${context.title}`
   }
@@ -98,31 +111,11 @@ export function serializeWebSnapshot(
       continue
     }
 
-    const indent = '  '.repeat(node.depth + 1) // +1 indents everything under the header
+    const indent = SNAPSHOT_INDENT_UNIT.repeat(node.depth + 1) // +1 indents everything under the header
     const isInteractive = INTERACTIVE_ROLES.has(node.role)
 
-    // Skip statictext that merely echoes the parent link/button name.
-    // Example: link "Highlights" → a*=Highlights doesn't need
-    //   statictext "Highlights" as a child because it adds no information.
-    if (node.role === 'statictext' && node.name) {
-      let echoedByParent = false
-      for (let j = i - 1; j >= 0; j--) {
-        if (nodes[j].depth < node.depth) {
-          const parentRole = nodes[j].role
-          const parentName = nodes[j].name
-          if (
-            INTERACTIVE_ROLES.has(parentRole) &&
-            parentName &&
-            parentName.includes(node.name)
-          ) {
-            echoedByParent = true
-          }
-          break // only check the immediate structural parent
-        }
-      }
-      if (echoedByParent) {
-        continue
-      }
+    if (isStatictextEchoedByParent(nodes, i)) {
+      continue
     }
 
     // Heading gets level suffix: heading[2]
@@ -142,13 +135,17 @@ export function serializeWebSnapshot(
         // duplicate selectors like six "Add to Wishlist" buttons.
         lines.push(
           purpose
-            ? `${indent}${roleLabel} "${node.name}" ∈ "${purpose}"  →  ${node.selector}`
-            : `${indent}${roleLabel} "${node.name}"  →  ${node.selector}`
+            ? `${indent}${roleLabel} "${node.name}" ${SNAPSHOT_PURPOSE_TOKEN} "${purpose}"  ${SNAPSHOT_LOCATOR_DELIM}  ${node.selector}`
+            : `${indent}${roleLabel} "${node.name}"  ${SNAPSHOT_LOCATOR_DELIM}  ${node.selector}`
         )
       } else if (purpose) {
-        lines.push(`${indent}${roleLabel} ∈ "${purpose}"  →  ${node.selector}`)
+        lines.push(
+          `${indent}${roleLabel} ${SNAPSHOT_PURPOSE_TOKEN} "${purpose}"  ${SNAPSHOT_LOCATOR_DELIM}  ${node.selector}`
+        )
       } else {
-        lines.push(`${indent}${roleLabel}  →  ${node.selector}`)
+        lines.push(
+          `${indent}${roleLabel}  ${SNAPSHOT_LOCATOR_DELIM}  ${node.selector}`
+        )
       }
     } else {
       // Container / structural: show role + name when present, no selector
@@ -166,6 +163,35 @@ export function serializeWebSnapshot(
 // ---------------------------------------------------------------------------
 // Mobile snapshot helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Returns true when `nodes[index]` is a statictext whose accessible name
+ * is already echoed by its immediate interactive parent — such a node
+ * adds no information and should be suppressed from the output.
+ */
+function isStatictextEchoedByParent(
+  nodes: AccessibilityNode[],
+  index: number
+): boolean {
+  const node = nodes[index]!
+  if (node.role !== 'statictext' || !node.name) {
+    return false
+  }
+  for (let j = index - 1; j >= 0; j--) {
+    if (nodes[j]!.depth < node.depth) {
+      const parent = nodes[j]!
+      if (
+        INTERACTIVE_ROLES.has(parent.role) &&
+        parent.name &&
+        parent.name.includes(node.name)
+      ) {
+        return true
+      }
+      break
+    }
+  }
+  return false
+}
 
 /** Shorten fully-qualified Android/iOS class names to the last segment. */
 function simplifyTag(tagName: string): string {
@@ -242,6 +268,28 @@ function classifyMobileRole(
     return ANDROID_ROLE_MAP[tagName] || simplifyTag(tagName)
   }
   return IOS_ROLE_MAP[tagName] || simplifyTag(tagName)
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Clickable container whose label lives on a child TextView. */
+function getFirstChildText(element: JSONElement): string | undefined {
+  // Breadth-first: direct children checked before grandchildren.
+  // This prefers a direct sibling label over a deeply nested one.
+  const queue: JSONElement[] = [...(element.children || [])]
+  while (queue.length > 0) {
+    const el = queue.shift()!
+    const text = el.attributes?.text?.trim()
+    if (text) {
+      return text
+    }
+    if (el.children) {
+      queue.push(...el.children)
+    }
+  }
+  return undefined
 }
 
 // ---------------------------------------------------------------------------
@@ -423,6 +471,7 @@ interface MobileFlatNode {
   /** True when the element has clickable/focusable/checkable — the intended tap target. */
   isExplicitInteractive: boolean
   isInViewport: boolean
+  tagName: string
 }
 
 /**
@@ -438,7 +487,7 @@ function collectMobileNodes(
 ): void {
   const attrs = element.attributes
   const role = classifyMobileRole(element.tagName, platform)
-  const name = getMobileNodeIdentity(attrs, platform)
+  let name = getMobileNodeIdentity(attrs, platform)
   const explicit = isExplicitlyInteractive(attrs, platform)
   const interactive = isMobileInteractive(element, platform)
   const inViewport = isMobileInViewport(element, platform, walkOpts.viewport)
@@ -461,7 +510,8 @@ function collectMobileNodes(
         depth,
         isInteractive: false,
         isExplicitInteractive: false,
-        isInViewport: false
+        isInViewport: false,
+        tagName: element.tagName
       })
       return
     }
@@ -495,6 +545,23 @@ function collectMobileNodes(
           ? getBestAndroidLocator(attrs)
           : getBestIOSLocator(attrs)) ?? ''
     }
+
+    // When the only locator is class-based and the element has no name,
+    // pull a label from a child — common in Android native apps where a
+    // clickable container row's label lives on a child TextView.  We
+    // enrich the name rather than replacing the selector so the locator
+    // still targets the correct (parent) element.
+    if (
+      !name &&
+      platform === 'android' &&
+      (locator.startsWith('class:') ||
+        locator.startsWith('android=new UiSelector().className("'))
+    ) {
+      const childText = getFirstChildText(element)
+      if (childText && childText.length < 100) {
+        name = childText
+      }
+    }
   }
 
   nodes.push({
@@ -504,7 +571,8 @@ function collectMobileNodes(
     depth,
     isInteractive: interactive,
     isExplicitInteractive: explicit,
-    isInViewport: inViewport
+    isInViewport: inViewport,
+    tagName: element.tagName
   })
 
   for (const child of element.children || []) {
@@ -616,7 +684,7 @@ function renderMobileNodes(nodes: MobileFlatNode[]): string[] {
 
   for (let i = 0; i < nodes.length; i++) {
     const node = nodes[i]
-    const indent = '  '.repeat(node.depth + 1)
+    const indent = SNAPSHOT_INDENT_UNIT.repeat(node.depth + 1)
 
     // Collapse anonymous layout containers at depth ≥ 2.
     // Keep depth 0-1 structural chrome and any named container.
@@ -669,13 +737,17 @@ function renderMobileNodes(nodes: MobileFlatNode[]): string[] {
       if (node.name) {
         lines.push(
           purpose
-            ? `${indent}${node.role} "${node.name}" ∈ "${purpose}"  →  ${selector}`
-            : `${indent}${node.role} "${node.name}"  →  ${selector}`
+            ? `${indent}${node.role} "${node.name}" ${SNAPSHOT_PURPOSE_TOKEN} "${purpose}"  ${SNAPSHOT_LOCATOR_DELIM}  ${selector}`
+            : `${indent}${node.role} "${node.name}"  ${SNAPSHOT_LOCATOR_DELIM}  ${selector}`
         )
       } else if (purpose) {
-        lines.push(`${indent}${node.role} ∈ "${purpose}"  →  ${selector}`)
+        lines.push(
+          `${indent}${node.role} ${SNAPSHOT_PURPOSE_TOKEN} "${purpose}"  ${SNAPSHOT_LOCATOR_DELIM}  ${selector}`
+        )
       } else {
-        lines.push(`${indent}${node.role}  →  ${selector}`)
+        lines.push(
+          `${indent}${node.role}  ${SNAPSHOT_LOCATOR_DELIM}  ${selector}`
+        )
       }
     } else {
       // Container / structural / non-locatable
@@ -755,4 +827,225 @@ export function serializeMobileSnapshot(
 
   const lines = renderMobileNodes(nodes)
   return [header, ...lines].join('\n')
+}
+
+// ---------------------------------------------------------------------------
+// Unified snapshot formatter — web + mobile share the same render pass.
+// ---------------------------------------------------------------------------
+
+/** Derive a tag name from a CSS selector prefix (e.g. "button*=Submit" → "button"). */
+function extractTagFromSelector(selector: string, fallback: string): string {
+  // Matches tag name followed by a CSS selector combinator or operator.
+  // Supports hyphenated custom elements (my-component) and pseudo-classes (:nth-of-type).
+  const match = selector.match(
+    /^([a-z][a-z0-9]*(?:-[a-z][a-z0-9]*)*)[*.#\[:=(^$~]/
+  )
+  if (match) {
+    return match[1]
+  }
+  const spaceMatch = selector.match(/^([a-z][a-z0-9]*(?:-[a-z][a-z0-9]*)*)\s/)
+  if (spaceMatch) {
+    return spaceMatch[1]
+  }
+  return fallback
+}
+
+/** Walk backwards to find the nearest structural container name for ∈ context. */
+function findContextName(
+  nodes: SnapshotNode[],
+  index: number
+): string | undefined {
+  const myDepth = nodes[index].depth
+  for (let i = index - 1; i >= 0; i--) {
+    if (nodes[i].depth <= myDepth && nodes[i].name) {
+      if (nodes[i].depth === myDepth && nodes[i].isInteractive) {
+        continue
+      }
+      // Suppressed tag-interactive nodes (isInteractive=false but role is a
+      // mobile-interactable label like 'statictext') shouldn't provide context
+      // at same depth — their name is label text, not a container identity.
+      // Mirrors mobileInferPurpose which skips same-depth nodes not in
+      // MOBILE_STRUCTURAL_ROLES (which excludes 'statictext').
+      if (nodes[i].depth === myDepth && nodes[i].role === 'statictext') {
+        continue
+      }
+      return nodes[i].name
+    }
+  }
+  return undefined
+}
+
+/**
+ * Core formatter — converts a flat SnapshotNode[] into a text tree with
+ * eN virtual IDs and an elements map for selector resolution.
+ *
+ * Platform-agnostic: both web and mobile pipelines feed into this function.
+ */
+export function buildSnapshot(
+  header: string,
+  nodes: SnapshotNode[]
+): SnapshotResult {
+  const selectorCounts = new Map<string, number>()
+  for (const node of nodes) {
+    if (node.isInteractive && node.selector) {
+      selectorCounts.set(
+        node.selector,
+        (selectorCounts.get(node.selector) ?? 0) + 1
+      )
+    }
+  }
+
+  const lines: string[] = [header]
+  const elements: Record<string, SnapshotElement> = {}
+  const selectorIndex = new Map<string, number>()
+  let counter = 1
+
+  for (let i = 0; i < nodes.length; i++) {
+    const node = nodes[i]
+    const indent = '  '.repeat(node.depth + 1)
+
+    if (node.isInteractive && node.selector) {
+      let selector = node.selector
+      const total = selectorCounts.get(selector) ?? 1
+      if (total > 1) {
+        const idx = selectorIndex.get(selector) ?? 0
+        selectorIndex.set(selector, idx + 1)
+        selector = `${selector}.instance(${idx})`
+      }
+
+      const eId = `e${counter++}`
+
+      const roleLabel =
+        node.role === 'heading' && node.level
+          ? `heading[${node.level}]`
+          : node.role
+
+      const context = findContextName(nodes, i)
+      if (node.name && context) {
+        lines.push(
+          `${indent}${eId}  ${roleLabel} "${node.name}" ∈ "${context}"  →  ${selector}`
+        )
+      } else if (node.name) {
+        lines.push(
+          `${indent}${eId}  ${roleLabel} "${node.name}"  →  ${selector}`
+        )
+      } else if (context) {
+        lines.push(
+          `${indent}${eId}  ${roleLabel} ∈ "${context}"  →  ${selector}`
+        )
+      } else {
+        lines.push(`${indent}${eId}  ${roleLabel}  →  ${selector}`)
+      }
+
+      elements[eId] = {
+        selector: node.selector,
+        ...(selector !== node.selector ? { qualifiedSelector: selector } : {}),
+        tagName: node.tagName,
+        role: node.role,
+        text: node.name
+      }
+    } else {
+      const roleLabel =
+        node.role === 'heading' && node.level
+          ? `heading[${node.level}]`
+          : node.role
+      lines.push(
+        node.name
+          ? `${indent}${roleLabel} "${node.name}"`
+          : `${indent}${roleLabel}`
+      )
+    }
+  }
+
+  return { text: lines.join('\n'), elements }
+}
+
+// ---------------------------------------------------------------------------
+// Web adapter — AccessibilityNode[] → SnapshotNode[]
+// ---------------------------------------------------------------------------
+
+export function accessibilityNodesToSnapshotNodes(
+  nodes: AccessibilityNode[],
+  options?: { inViewportOnly?: boolean }
+): SnapshotNode[] {
+  const { inViewportOnly = true } = options ?? {}
+
+  const result: SnapshotNode[] = []
+
+  for (let i = 0; i < nodes.length; i++) {
+    const node = nodes[i]
+
+    if (inViewportOnly && node.isInViewport === false) {
+      continue
+    }
+
+    const isInteractive = INTERACTIVE_ROLES.has(node.role)
+
+    if (isStatictextEchoedByParent(nodes, i)) {
+      continue
+    }
+
+    // Interactive nodes without a selector can't be acted on — skip them
+    // so they don't leak as non-actionable entries in the text tree.
+    // Matches the guard in serializeWebSnapshot (line 141).
+    if (isInteractive && !node.selector) {
+      continue
+    }
+
+    const tagName =
+      isInteractive && node.selector
+        ? extractTagFromSelector(node.selector, node.role)
+        : node.role
+
+    result.push({
+      role: node.role,
+      name: node.name,
+      selector: node.selector,
+      depth: node.depth,
+      isInteractive,
+      tagName,
+      level: node.level || undefined
+    })
+  }
+
+  return result
+}
+
+// ---------------------------------------------------------------------------
+// Mobile adapter — JSONElement tree → SnapshotNode[]
+// ---------------------------------------------------------------------------
+
+export function jsonElementToSnapshotNodes(
+  root: JSONElement,
+  platform: 'android' | 'ios',
+  options?: {
+    inViewportOnly?: boolean
+    viewport?: { width: number; height: number }
+    sourceXML?: string
+  }
+): SnapshotNode[] {
+  const { inViewportOnly = true } = options ?? {}
+  const effectiveViewport = options?.viewport ?? { width: 9999, height: 9999 }
+  const automationName = platform === 'android' ? 'uiautomator2' : 'xcuitest'
+  const effectiveXML = options?.sourceXML || root.attributes._sourceXML
+
+  const mobileNodes: MobileFlatNode[] = []
+  collectMobileNodes(root, platform, 0, mobileNodes, {
+    inViewportOnly,
+    viewport: effectiveViewport,
+    sourceXML: effectiveXML,
+    automationName: effectiveXML ? automationName : undefined
+  })
+
+  suppressTagOnlyChildren(mobileNodes)
+
+  return mobileNodes.map((m) => ({
+    role: m.role,
+    name: m.name,
+    selector: m.selector,
+    depth: m.depth,
+    isInteractive: m.isInteractive,
+    tagName: m.tagName,
+    level: undefined
+  }))
 }

@@ -1,6 +1,7 @@
 // Thin yazl wrapper that packages a trace into a single Buffer.
 // Ported from Vince Graics' PR #209.
 
+import { TRACE_ZIP_ENTRIES } from '@wdio/devtools-shared'
 import yazl from 'yazl'
 
 export interface TraceZipResource {
@@ -16,6 +17,8 @@ export interface TraceZipInputs {
   networkNdjson: Buffer
   /** Human/LLM-readable Markdown transcript. */
   transcriptMd?: string
+  /** NDJSON DOM mutation stream (one mutation per line). Omitted/empty → no entry. */
+  mutationsNdjson?: Buffer
   /** Files written under `resources/` — typically screenshots + element snapshots. */
   resources: TraceZipResource[]
 }
@@ -23,16 +26,25 @@ export interface TraceZipInputs {
 export function buildTraceZip(inputs: TraceZipInputs): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const zipFile = new yazl.ZipFile()
-    zipFile.addBuffer(Buffer.from(inputs.traceNdjson, 'utf8'), 'trace.trace')
-    zipFile.addBuffer(inputs.networkNdjson, 'trace.network')
+    zipFile.addBuffer(
+      Buffer.from(inputs.traceNdjson, 'utf8'),
+      TRACE_ZIP_ENTRIES.trace
+    )
+    zipFile.addBuffer(inputs.networkNdjson, TRACE_ZIP_ENTRIES.network)
     if (inputs.transcriptMd) {
       zipFile.addBuffer(
         Buffer.from(inputs.transcriptMd, 'utf8'),
-        'transcript.md'
+        TRACE_ZIP_ENTRIES.transcript
       )
     }
+    if (inputs.mutationsNdjson?.length) {
+      zipFile.addBuffer(inputs.mutationsNdjson, TRACE_ZIP_ENTRIES.mutations)
+    }
     for (const resource of inputs.resources) {
-      zipFile.addBuffer(resource.data, `resources/${resource.resourceName}`)
+      zipFile.addBuffer(
+        resource.data,
+        `${TRACE_ZIP_ENTRIES.resourcesDir}/${resource.resourceName}`
+      )
     }
     zipFile.end()
     const chunks: Buffer[] = []

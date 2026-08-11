@@ -1,5 +1,7 @@
 import type { CommandLog } from '@wdio/devtools-shared'
 
+import { stripAnsi } from '../console-filter.js'
+
 export interface ComparePairedStep {
   index: number
   baseline?: CommandLog
@@ -49,9 +51,18 @@ export function commandsEqual(
     return false
   }
   // Skip `result` comparison: W3C element refs get a fresh id each session.
-  const aErr = a.error ? a.error.message || String(a.error) : ''
-  const bErr = b.error ? b.error.message || String(b.error) : ''
-  return aErr === bErr
+  return errorText(a.error) === errorText(b.error)
+}
+
+/** Message → name → `String()`, mirroring the Errors panel's chain. A
+ *  message-less error must not fall straight through to `[object Object]`:
+ *  that equalises two genuinely different errors, so the divergence they
+ *  represent never surfaces. */
+export function errorText(error: CommandLog['error']): string {
+  if (!error) {
+    return ''
+  }
+  return error.message?.trim() || error.name?.trim() || String(error)
 }
 
 export function classifyDivergence(
@@ -67,9 +78,7 @@ export function classifyDivergence(
   if (stableStringify(a.args) !== stableStringify(b.args)) {
     return 'args'
   }
-  const aErr = a.error ? a.error.message || String(a.error) : ''
-  const bErr = b.error ? b.error.message || String(b.error) : ''
-  if (aErr !== bErr) {
+  if (errorText(a.error) !== errorText(b.error)) {
     return 'error'
   }
   return 'none'
@@ -96,15 +105,15 @@ export function safeJson(value: unknown): string {
 /** Strip ANSI escapes and collapse blank-line runs so the error banner
  *  doesn't grow tall from formatting whitespace. */
 export function cleanErrorMessage(msg: string): string {
-  return msg
-    .replace(/\[[0-9;]*m/g, '')
-    .replace(/\[\d+m/g, '')
+  return stripAnsi(msg)
     .replace(/\n{3,}/g, '\n\n')
     .trim()
 }
 
+// Single spaces, not `\s+`: the step text is whitespace-normalised before it is
+// matched, which keeps every quantifier out of the optional groups.
 const STEP_VERB_RE =
-  /^(?:I should see|should see|should have|should be|should contain|should equal|should match|see|have|equals?|matches?|contains?)\s+(?:a\s+)?(?:flash\s+message\s+saying\s+|text\s+|message\s+saying\s+|message\s+|value\s+)?(.+)$/i
+  /^(?:I should see|should see|should have|should be|should contain|should equal|should match|see|have|equals?|matches?|contains?) (?:a )?(?:flash message saying |text |message saying |message |value )?(.+)$/i
 
 /** Best-effort extraction of the expected value from a Cucumber step title
  *  (strip the keyword + common verb phrase, return the parameterized tail). */
@@ -117,6 +126,7 @@ export function extractExpectedFromStepText(
   const stripped = stepText
     .replace(/^\d+:\s*/, '')
     .replace(/^(Given|When|Then|And|But)\s+/i, '')
+    .replace(/\s+/g, ' ')
     .trim()
   const m = stripped.match(STEP_VERB_RE)
   if (m && m[1]) {

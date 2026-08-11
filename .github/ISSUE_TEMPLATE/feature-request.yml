@@ -37,6 +37,7 @@ body:
       options:
         - Dashboard UI
         - Capture / reporting core
+        - Element snapshot / locator API (@wdio/elements)
         - WebdriverIO adapter
         - Nightwatch adapter
         - Selenium adapter

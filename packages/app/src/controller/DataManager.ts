@@ -1,10 +1,13 @@
-import { ContextProvider } from '@lit/context'
+import { ContextProvider, type Context, type ContextType } from '@lit/context'
 import type { ReactiveController, ReactiveControllerHost } from 'lit'
 import type {
+  ConsoleLog,
   Metadata,
   CommandLog,
+  NetworkRequest,
   TraceLog,
-  PreservedAttempt
+  PreservedAttempt,
+  TracePlayerData
 } from '@wdio/devtools-shared'
 
 import {
@@ -19,10 +22,14 @@ import {
   suiteContext,
   hasConnectionContext,
   baselineContext,
-  selectedTestUidContext
+  selectedTestUidContext,
+  framesContext,
+  actionGroupsContext,
+  transcriptContext
 } from './context.js'
-import { BASELINE_WS_SCOPE, WS_SCOPE } from '@wdio/devtools-shared'
+import { BASELINE_WS_SCOPE, TRACE_API, WS_SCOPE } from '@wdio/devtools-shared'
 import { CACHE_ID } from './constants.js'
+import { RUN_ALL_UID } from '../components/sidebar/constants.js'
 import { rerunState } from './rerunState.js'
 import type { SuiteStatsFragment, SocketMessage } from './types.js'
 import { canonicalizeUids, mergeSuite } from './suite-merge.js'
@@ -61,54 +68,55 @@ export class DataManagerController implements ReactiveController {
   hasConnectionProvider: ContextProvider<typeof hasConnectionContext>
   baselineContextProvider: ContextProvider<typeof baselineContext>
   selectedTestUidContextProvider: ContextProvider<typeof selectedTestUidContext>
+  framesContextProvider: ContextProvider<typeof framesContext>
+  actionGroupsContextProvider: ContextProvider<typeof actionGroupsContext>
+  transcriptContextProvider: ContextProvider<typeof transcriptContext>
+
+  #playerMode = false
 
   constructor(host: ReactiveControllerHost & HTMLElement) {
     ;(this.#host = host).addController(this)
-    this.mutationsContextProvider = new ContextProvider(this.#host, {
-      context: mutationContext,
-      initialValue: []
-    })
-    this.logsContextProvider = new ContextProvider(this.#host, {
-      context: logContext,
-      initialValue: []
-    })
-    this.consoleLogsContextProvider = new ContextProvider(this.#host, {
-      context: consoleLogContext,
-      initialValue: []
-    })
-    this.networkRequestsContextProvider = new ContextProvider(this.#host, {
-      context: networkRequestContext,
-      initialValue: []
-    })
-    this.metadataContextProvider = new ContextProvider(this.#host, {
-      context: metadataContext
-    })
-    this.metadataBySessionContextProvider = new ContextProvider(this.#host, {
-      context: metadataBySessionContext,
-      initialValue: {}
-    })
-    this.commandsContextProvider = new ContextProvider(this.#host, {
-      context: commandContext,
-      initialValue: []
-    })
-    this.sourcesContextProvider = new ContextProvider(this.#host, {
-      context: sourceContext
-    })
-    this.suitesContextProvider = new ContextProvider(this.#host, {
-      context: suiteContext
-    })
-    this.hasConnectionProvider = new ContextProvider(this.#host, {
-      context: hasConnectionContext,
-      initialValue: false
-    })
-    this.baselineContextProvider = new ContextProvider(this.#host, {
-      context: baselineContext,
-      initialValue: new Map<string, PreservedAttempt>()
-    })
-    this.selectedTestUidContextProvider = new ContextProvider(this.#host, {
-      context: selectedTestUidContext,
-      initialValue: undefined
-    })
+    this.mutationsContextProvider = this.#provide(mutationContext, [])
+    this.logsContextProvider = this.#provide(logContext, [])
+    this.consoleLogsContextProvider = this.#provide(consoleLogContext, [])
+    this.networkRequestsContextProvider = this.#provide(
+      networkRequestContext,
+      []
+    )
+    this.metadataContextProvider = this.#provide(metadataContext)
+    this.metadataBySessionContextProvider = this.#provide(
+      metadataBySessionContext,
+      {}
+    )
+    this.commandsContextProvider = this.#provide(commandContext, [])
+    this.sourcesContextProvider = this.#provide(sourceContext)
+    this.suitesContextProvider = this.#provide(suiteContext)
+    this.hasConnectionProvider = this.#provide(hasConnectionContext, false)
+    this.baselineContextProvider = this.#provide(
+      baselineContext,
+      new Map<string, PreservedAttempt>()
+    )
+    this.selectedTestUidContextProvider = this.#provide(
+      selectedTestUidContext,
+      undefined
+    )
+    this.framesContextProvider = this.#provide(framesContext, [])
+    this.actionGroupsContextProvider = this.#provide(
+      actionGroupsContext,
+      undefined
+    )
+    this.transcriptContextProvider = this.#provide(transcriptContext, undefined)
+  }
+
+  #provide<T extends Context<unknown, unknown>>(
+    context: T,
+    initialValue?: ContextType<T>
+  ): ContextProvider<T> {
+    return new ContextProvider(this.#host, { context, initialValue })
+  }
+
+  get playerMode() {
+    return this.#playerMode
   }
 
   setSelectedTestUid(uid: string | undefined) {
@@ -156,21 +164,21 @@ export class DataManagerController implements ReactiveController {
     // of the previous run's terminal state (passed/failed).
     if (!uid) {
       rerunState.activeRerunSuiteUid = undefined
-      this.#markTestAsRunning('*', 'suite')
+      this.#markTestAsRunning(RUN_ALL_UID, 'suite')
       return
     }
 
     // Track the top-level rerun suite uid so we can identify child-scenario
     // clears (from the Nightwatch backend) and skip their data wipes.
-    if (!isChildOfActiveRerun && entryType === 'suite' && uid !== '*') {
+    if (!isChildOfActiveRerun && entryType === 'suite' && uid !== RUN_ALL_UID) {
       rerunState.activeRerunSuiteUid = uid
     }
 
     // Track explicit single-test reruns so merge logic can keep sibling tests
     // stable while the backend emits suite-level "pending" snapshots.
-    if (entryType === 'test' && uid !== '*') {
+    if (entryType === 'test' && uid !== RUN_ALL_UID) {
       this.#activeRerunTestUid = uid
-    } else if (entryType === 'suite' || uid === '*') {
+    } else if (entryType === 'suite' || uid === RUN_ALL_UID) {
       this.#activeRerunTestUid = undefined
     }
 
@@ -182,7 +190,7 @@ export class DataManagerController implements ReactiveController {
   #markTestAsRunning(uid: string, entryType?: 'suite' | 'test') {
     const suites = this.suitesContextProvider.value || []
     const updated =
-      uid === '*'
+      uid === RUN_ALL_UID
         ? markAllRunning(suites)
         : markSpecificRunning(suites, uid, entryType)
     this.suitesContextProvider.setValue(updated)
@@ -190,6 +198,37 @@ export class DataManagerController implements ReactiveController {
   }
 
   hostConnected() {
+    void this.#bootstrap()
+  }
+
+  // Trace-player mode (`pnpm show-trace`) serves the reconstructed trace at
+  // TRACE_API.get. Probe it first; if present, load it and skip the live WS.
+  async #bootstrap() {
+    try {
+      const response = await fetch(TRACE_API.get)
+      // 204 = live mode (the route is always registered but serves no trace);
+      // any 2xx with a body is a reconstructed trace to play.
+      if (response.ok && response.status !== 204) {
+        this.loadPlayerData((await response.json()) as TracePlayerData)
+        return
+      }
+    } catch {
+      // Not serving a trace — fall through to the live WS connection.
+    }
+    this.#connectWebSocket()
+  }
+
+  loadPlayerData(data: TracePlayerData) {
+    this.#playerMode = true
+    this.framesContextProvider.setValue(data.frames)
+    this.actionGroupsContextProvider.setValue(data.groups)
+    this.transcriptContextProvider.setValue(data.transcript)
+    this.loadTraceFile(data.trace)
+    this.hasConnectionProvider.setValue(true)
+    this.#host.requestUpdate()
+  }
+
+  #connectWebSocket() {
     const wsUrl = `ws://${window.location.host}/client`
     const ws = (this.#ws = new WebSocket(wsUrl))
 
@@ -289,7 +328,7 @@ export class DataManagerController implements ReactiveController {
     } else if (scope === 'metadata') {
       this.#handleMetadataUpdate(data as Metadata)
     } else if (scope === 'consoleLogs') {
-      this.#handleConsoleLogsUpdate(data as string[])
+      this.#handleConsoleLogsUpdate(data as ConsoleLog[])
     } else if (scope === 'networkRequests') {
       this.#handleNetworkRequestsUpdate(data as NetworkRequest[])
     } else if (scope === 'sources') {
@@ -378,7 +417,7 @@ export class DataManagerController implements ReactiveController {
     )
   }
 
-  #handleConsoleLogsUpdate(data: string[]) {
+  #handleConsoleLogsUpdate(data: ConsoleLog[]) {
     this.consoleLogsContextProvider.setValue([
       ...(this.consoleLogsContextProvider.value || []),
       ...data
@@ -490,7 +529,14 @@ export class DataManagerController implements ReactiveController {
   }
 
   loadTraceFile(traceFile: TraceLog) {
-    localStorage.setItem(CACHE_ID, JSON.stringify(traceFile))
+    try {
+      localStorage.setItem(CACHE_ID, JSON.stringify(traceFile))
+    } catch (err) {
+      console.warn(
+        'Trace too large to cache in localStorage; skipping cache.',
+        err
+      )
+    }
     this.mutationsContextProvider.setValue(
       traceFile.mutations as TraceMutation[]
     )

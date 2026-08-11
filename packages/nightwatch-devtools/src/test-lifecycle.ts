@@ -9,7 +9,6 @@
  */
 
 import logger from '@wdio/logger'
-import type { SessionCapturer } from './session.js'
 import type { TestReporter } from './reporter.js'
 import type { TestManager } from './helpers/testManager.js'
 import type { SuiteManager } from './helpers/suiteManager.js'
@@ -26,11 +25,11 @@ import { DEFAULTS, TIMING, TEST_STATE } from './constants.js'
 import { resolveSpecFilePath } from './helpers/specFileResolver.js'
 import { closePreviousTest } from './helpers/closePreviousTest.js'
 import { extractTestMetadata, determineTestState } from './helpers/utils.js'
+import { recordTestSliceBoundary, type TestSliceCtx } from './trace-slices.js'
 
 const log = logger('@wdio/nightwatch-devtools:test-lifecycle')
 
-export interface TestLifecycleCtx {
-  readonly sessionCapturer: SessionCapturer
+export interface TestLifecycleCtx extends TestSliceCtx {
   readonly testReporter: TestReporter
   readonly testManager: TestManager
   readonly suiteManager: SuiteManager
@@ -41,6 +40,7 @@ export interface TestLifecycleCtx {
   incrementCount(state: TestStats['state']): void
   testIcon(state: TestStats['state']): string
   setCurrentTest(t: unknown): void
+  recordAttempt(uid: string, specFile?: string): number
 }
 
 interface SuiteMetadata {
@@ -117,13 +117,19 @@ export async function startNextTest(
   ctx: TestLifecycleCtx,
   currentSuite: SuiteStats,
   currentTestName: string,
-  processedTests: Set<string>
+  processedTests: Set<string>,
+  specFile: string | null
 ): Promise<void> {
   if (processedTests.size === 0) {
     ctx.suiteManager.markSuiteAsRunning(currentSuite)
   }
   const test = ctx.testManager.findTestInSuite(currentSuite, currentTestName)
   if (test) {
+    // Nightwatch has no per-test retry index; the tracker is the retry signal.
+    test.retries = ctx.recordAttempt(test.uid, specFile ?? undefined)
+    if (specFile) {
+      recordTestSliceBoundary(ctx, specFile, test.uid)
+    }
     test.state = TEST_STATE.RUNNING as TestStats['state']
     test.start = new Date()
     test.end = null

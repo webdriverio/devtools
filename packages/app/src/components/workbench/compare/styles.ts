@@ -16,12 +16,15 @@ export const compareStyles = css`
   }
 
   /* ── Toolbar ── */
+  /* One row, always. Wrapping dropped the actions onto a second line at ordinary
+     panel widths, which read as two unrelated toolbars. The pills shrink and
+     ellipsize instead, and the controls keep their size so they stay clickable. */
   .topbar {
     flex: 0 0 auto;
     display: flex;
     align-items: center;
     gap: 10px;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     padding: 10px 14px;
     border-bottom: 1px solid var(--vscode-panel-border);
   }
@@ -29,6 +32,12 @@ export const compareStyles = css`
     display: inline-flex;
     align-items: center;
     gap: 7px;
+    /* Shrinkable, so a long baseline label narrows rather than pushing the
+       controls out of the row. */
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
     font-family: var(--vscode-editor-font-family, monospace);
     font-size: 11.5px;
     padding: 4px 11px;
@@ -60,12 +69,16 @@ export const compareStyles = css`
   .scope {
     font-size: 11px;
     color: var(--vscode-editorLineNumber-foreground);
+    white-space: nowrap;
   }
   .actions-group {
     margin-left: auto;
     display: flex;
     align-items: center;
     gap: 8px;
+    /* Never shrink or wrap: these are the row's controls. */
+    flex: 0 0 auto;
+    white-space: nowrap;
   }
   .toggle-label {
     display: inline-flex;
@@ -224,14 +237,6 @@ export const compareStyles = css`
   .marker.error {
     color: var(--vscode-charts-red);
     background: color-mix(in srgb, var(--vscode-charts-red) 16%, transparent);
-  }
-  .marker.result {
-    color: var(--vscode-charts-yellow);
-    background: color-mix(
-      in srgb,
-      var(--vscode-charts-yellow) 16%,
-      transparent
-    );
   }
   .marker.info {
     color: var(--vscode-charts-yellow);

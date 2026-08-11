@@ -105,12 +105,65 @@ function isSameElement(node1: XMLNode, node2: XMLNode): boolean {
 }
 
 /**
+ * Sanitize page source XML that may contain HTML artifacts (WebView content).
+ *
+ * Handles two classes of invalid XML that xmldom's strict parser rejects:
+ * 1. Bare ampersands — `&` not part of a valid XML entity (e.g. `&nbsp;`,
+ *    `&copy;`, bare `&` in URLs) → replaced with `&amp;`.
+ * 2. HTML void elements without explicit self-closure (`<link>`, `<meta>`,
+ *    `<br>`, `<img>`, `<input>`, `<hr>`, `<source>`, `<area>`, `<base>`,
+ *    `<col>`, `<embed>`, `<track>`, `<wbr>`) → closed with `/>`.
+ */
+function sanitizePageSource(sourceXML: string): string {
+  // Pass 1: escape bare ampersands — & not followed by a known XML entity.
+  let sanitized = sourceXML.replace(
+    /&(?!(?:amp|lt|gt|quot|apos|#\d+|#x[0-9a-fA-F]+);)/g,
+    '&amp;'
+  )
+
+  // Pass 2: self-close known HTML void elements.
+  const VOID_ELEMENTS = [
+    'link',
+    'meta',
+    'br',
+    'hr',
+    'img',
+    'input',
+    'source',
+    'area',
+    'base',
+    'col',
+    'embed',
+    'track',
+    'wbr'
+  ]
+
+  for (const tag of VOID_ELEMENTS) {
+    // <tagname ...> → <tagname .../>  (not already self-closed)
+    sanitized = sanitized.replace(
+      // eslint-disable-next-line security/detect-non-literal-regexp -- tag from hardcoded list
+      new RegExp(`<${tag}(\\s[^>]*?[^/])>`, 'gi'),
+      `<${tag}$1/>`
+    )
+    // <tagname> → <tagname/>  (no attributes)
+    sanitized = sanitized.replace(
+      // eslint-disable-next-line security/detect-non-literal-regexp -- tag from hardcoded list
+      new RegExp(`<${tag}>`, 'gi'),
+      `<${tag}/>`
+    )
+  }
+
+  return sanitized
+}
+
+/**
  * Convert XML page source to JSON tree structure
  */
 export function xmlToJSON(sourceXML: string): JSONElement | null {
   try {
+    const sanitized = sanitizePageSource(sourceXML)
     const parser = new DOMParser()
-    const sourceDoc = parser.parseFromString(sourceXML, 'text/xml')
+    const sourceDoc = parser.parseFromString(sanitized, 'text/xml')
 
     // xmldom 0.9+ throws ParseError for fatal errors (caught below); this catches non-fatal cases
     const parseErrors = sourceDoc.getElementsByTagName('parsererror')
@@ -143,8 +196,9 @@ export function xmlToJSON(sourceXML: string): JSONElement | null {
  */
 export function xmlToDOM(sourceXML: string): XMLDocument | null {
   try {
+    const sanitized = sanitizePageSource(sourceXML)
     const parser = new DOMParser()
-    const doc = parser.parseFromString(sourceXML, 'text/xml')
+    const doc = parser.parseFromString(sanitized, 'text/xml')
 
     // xmldom 0.9+ throws ParseError for fatal errors (caught below); this catches non-fatal cases
     const parseErrors = doc.getElementsByTagName('parsererror')

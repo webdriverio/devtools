@@ -46,8 +46,10 @@ const ACTION_BTN =
 const ACTION_ICON = 'w-[15px] h-[15px]'
 @customElement(TEST_ENTRY)
 export class ExplorerTestEntry extends CollapseableEntry {
-  @property({ attribute: 'is-collapsed' })
-  isCollapsed = 'false'
+  /** Present ⇔ the children are hidden. Reflected so the tree-wide controls in
+   *  `CollapseableEntry` can read a row's state straight off the DOM. */
+  @property({ type: Boolean, reflect: true, attribute: 'is-collapsed' })
+  isCollapsed = false
 
   @property({ type: String })
   uid?: string
@@ -91,6 +93,12 @@ export class ExplorerTestEntry extends CollapseableEntry {
   @property({ type: Boolean, reflect: true })
   selected = false
 
+  /** Whether this row shows its name in full. Owned by the explorer, which keeps
+   *  exactly one row revealed; `selected` can't drive it because the tree
+   *  auto-selects the running test, expanding a row nobody touched. */
+  @property({ type: Boolean, reflect: true })
+  revealed = false
+
   @property({ type: Boolean, reflect: true })
   root = false
 
@@ -108,6 +116,18 @@ export class ExplorerTestEntry extends CollapseableEntry {
         font-size: 12.5px;
         /* matches the icon box height so the icon aligns with the first line */
         line-height: 18px;
+        /* One line per row so every entry in the tree is the same height */
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      /* Clicking a row is the only way to read a name it had to clip. Wrapping
+         anywhere because a name can be one unbroken token (a URL) that plain
+         wrapping would still clip. */
+      :host([revealed]) ::slotted(label) {
+        white-space: normal;
+        overflow-wrap: anywhere;
       }
 
       :host([selected]) .row {
@@ -161,20 +181,20 @@ export class ExplorerTestEntry extends CollapseableEntry {
   ]
 
   #toggleEntry() {
-    this.setAttribute('is-collapsed', `${!(this.isCollapsed === 'true')}`)
-    const isCollapsed = this.isCollapsed === 'true'
+    // Toggle the attribute, not the property: Lit reflects a property on the
+    // next update, but the listeners below read the DOM synchronously.
+    this.toggleAttribute('is-collapsed', !this.isCollapsed)
+    // The row's own control mirrors its own children, not its descendants'.
+    this.allowCollapseAll = !this.isCollapsed
     this.dispatchEvent(
       new CustomEvent('entry-collapse-change', {
         detail: {
-          isCollapsed,
+          isCollapsed: this.isCollapsed,
           entry: this
         },
         bubbles: true
       })
     )
-    if (isCollapsed) {
-      this.allowCollapseAll = false
-    }
     this.requestUpdate()
   }
 
@@ -229,7 +249,9 @@ export class ExplorerTestEntry extends CollapseableEntry {
 
   #stopEntry(event: Event) {
     event.stopPropagation()
-    if (!this.uid || this.runDisabled) {
+    // No `runDisabled` guard: stopping is not a launch capability (see
+    // #renderRunStopButtons).
+    if (!this.uid) {
       return
     }
     const detail: TestRunDetail = {
@@ -287,10 +309,11 @@ export class ExplorerTestEntry extends CollapseableEntry {
     return this.state === TestState.RUNNING
   }
   get testStateIcon() {
-    // Fixed-height box (= the label's line-height) centred so the icon aligns
-    // with the first line of the title whether it wraps or not — no margin hacks.
+    // Vertically centred in the row so the status icon lines up with the
+    // row's action buttons (run/stop), which are also centre-aligned.
     const box = (inner: unknown) =>
-      html`<span class="w-4 h-[18px] shrink-0 flex items-center justify-center"
+      html`<span
+        class="w-4 h-[18px] shrink-0 self-center grid place-items-center"
         >${inner}</span
       >`
     if (this.isRunning) {
@@ -356,8 +379,10 @@ export class ExplorerTestEntry extends CollapseableEntry {
   }
 
   #renderRunStopButtons() {
+    // `runDisabled` gates LAUNCHING only: /api/tests/stop takes no body and
+    // stops the whole run, so a run in flight is always stoppable.
     if (this.isRunning) {
-      return this.runDisabled ? nothing : this.#renderStopButton()
+      return this.#renderStopButton()
     }
     return html`
       ${this.#renderRunButton()}
@@ -401,13 +426,15 @@ export class ExplorerTestEntry extends CollapseableEntry {
 
   render() {
     const hasNoChildren = !this.hasChildren
-    const isCollapsed = this.isCollapsed === 'true'
+    const isCollapsed = this.isCollapsed
     return html`
       <section
         class="row flex w-full items-start text-sm group/sidebar rounded-md my-0.5 px-1 py-1 cursor-pointer hover:bg-toolbarHoverBackground"
       >
         <button
-          class="flex-none pointer px-2 h-8 ${hasNoChildren ? 'hidden' : ''}"
+          class="flex-none pointer px-2 h-[18px] flex items-center justify-center ${hasNoChildren
+            ? 'hidden'
+            : ''}"
           @click="${() => this.#toggleEntry()}"
         >
           <icon-mdi-menu-down
@@ -417,13 +444,13 @@ export class ExplorerTestEntry extends CollapseableEntry {
           ></icon-mdi-menu-down>
         </button>
         <span
-          class="flex items-start shrink flex-nowrap min-w-0 leading-[18px] ${hasNoChildren
+          class="flex items-start flex-nowrap min-w-0 flex-1 leading-[18px] ${hasNoChildren
             ? 'pl-9'
             : ''}"
           @click="${() => this.#selectEntry()}"
         >
           ${this.root ? nothing : this.testStateIcon}
-          <slot name="label" class="mx-2 block flex-initial shrink"></slot>
+          <slot name="label" class="mx-2 block min-w-0 flex-1"></slot>
         </span>
         ${this.#renderToolbar(hasNoChildren)}
       </section>

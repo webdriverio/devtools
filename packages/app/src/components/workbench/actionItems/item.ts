@@ -7,6 +7,9 @@ import { formatDuration, durationHeat, type DurationHeat } from './duration.js'
 
 export type ActionEntry = TraceMutation | CommandLog
 
+/** What a row reports as its identity: an action by reference, a group by key. */
+export type RowRevealKey = string | ActionEntry
+
 /** Icon sized to sit inside the `.ic` chip rendered by `iconChip`. */
 export const ICON_CLASS = 'w-[15px] h-[15px] block shrink-0'
 
@@ -29,6 +32,31 @@ export class ActionItem extends Element {
   @property({ type: Boolean, reflect: true })
   active = false
 
+  /** Whether this row's action errored — drives the red row treatment. */
+  @property({ type: Boolean, reflect: true })
+  failed = false
+
+  /** Whether this row shows its label in full. Owned by the list, which keeps
+   *  exactly one row revealed; `active` can't drive it because the player clock
+   *  marks the action at the playhead, expanding rows nobody touched. */
+  @property({ type: Boolean, reflect: true })
+  revealed = false
+
+  /** Identity this row echoes back on click, for the list to compare. */
+  @property({ attribute: false })
+  revealKey?: RowRevealKey
+
+  /** Click-only by construction, which is what keeps playback out of it. */
+  protected requestReveal() {
+    this.dispatchEvent(
+      new CustomEvent<RowRevealKey | undefined>('row-reveal', {
+        detail: this.revealKey,
+        bubbles: true,
+        composed: true
+      })
+    )
+  }
+
   static styles = [
     ...Element.styles,
     css`
@@ -40,6 +68,24 @@ export class ActionItem extends Element {
 
       button {
         position: relative;
+        /* Same height for every row whether or not it carries an icon chip
+           (chip 26px + its 4px margins). */
+        min-height: 34px;
+      }
+
+      /* One line per row; clicking a row is what reflows its full text. */
+      .label {
+        flex: 1 1 auto;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        text-align: left;
+        padding-right: 8px;
+      }
+      :host([revealed]) .label {
+        white-space: normal;
+        overflow-wrap: anywhere;
       }
 
       .ic {
@@ -67,6 +113,19 @@ export class ActionItem extends Element {
       :host([active]) .ic {
         border-color: var(--accent);
       }
+      :host([failed]) button {
+        background: color-mix(
+          in srgb,
+          var(--vscode-charts-red) 8%,
+          transparent
+        );
+        box-shadow: inset 2px 0 0 var(--vscode-charts-red);
+      }
+      :host([failed][active]) button {
+        box-shadow:
+          inset 2px 0 0 var(--vscode-charts-red),
+          inset 0 0 0 1px var(--vscode-panel-border);
+      }
     `
   ]
 
@@ -85,7 +144,7 @@ export class ActionItem extends Element {
     const heatCls = HEAT_CLASS[durationHeat(this.duration)]
     return html`
       <span
-        class="text-[10px] grow-0 shrink rounded-xl ml-auto px-1.5 py-px font-medium ${heatCls}"
+        class="text-[10px] flex-none whitespace-nowrap rounded-xl ml-auto px-1.5 py-px font-medium ${heatCls}"
         >${formatDuration(this.duration)}</span
       >
     `

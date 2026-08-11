@@ -19,11 +19,13 @@ import {
   getFramework,
   getLaunchCommand,
   getRerunCommand,
-  getRunCapabilities,
+  getRunAllDisabledReason,
   getRunDisabledReason,
+  isRunAll,
   isRunDisabled,
   isRunDisabledDetail
 } from './runnerCapabilities.js'
+import { RUN_ALL_UID } from './constants.js'
 import {
   BASELINE_API,
   TESTS_API,
@@ -48,6 +50,7 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
   #statusFilter: TestStatus | null = null
   #selectedUid?: string
   #autoSelectedUid?: string
+  #revealedUid?: string
   #filterListener = this.#filterTests.bind(this)
   #statusFilterListener = this.#applyStatusFilter.bind(this)
   #selectListener = this.#handleSelect.bind(this)
@@ -63,6 +66,7 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
         display: flex;
         flex-direction: column;
         min-height: 0;
+        min-width: 0;
         flex: 1 1 auto;
       }
 
@@ -138,7 +142,12 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
   }
 
   #handleSelect(event: CustomEvent<string>) {
-    this.#selectedUid = event.detail
+    const uid = event.detail
+    // Only one row shows its full name at a time: clicking a row folds whichever
+    // was open, and clicking the open one folds it. The event is click-only, so
+    // the tree auto-selecting the running test never expands anything.
+    this.#revealedUid = uid === this.#revealedUid ? undefined : uid
+    this.#selectedUid = uid
     this.requestUpdate()
   }
 
@@ -180,7 +189,7 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
     // Forward preserveBaseline so the backend knows whether to drop baselines.
     const payload: RunnerRequestBody = {
       ...detail,
-      runAll: detail.uid === '*',
+      runAll: isRunAll(detail),
       framework: this.#getFramework(),
       specFile: detail.specFile || this.#deriveSpecFile(detail),
       configFile: this.#getConfigPath(),
@@ -293,26 +302,25 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
   }
 
   #runAllSuites() {
-    if (!this.#getRunCapabilities().canRunSuites) {
-      this.#surfaceCapabilityWarning({
-        entryType: 'suite',
-        uid: '*'
-      } as TestRunDetail)
+    // Judged against the same capability the control is rendered from, so a
+    // dispatch that never went through the disabled button is refused too.
+    const detail: TestRunDetail = { uid: RUN_ALL_UID, entryType: 'suite' }
+    if (this.#isRunDisabledDetail(detail)) {
+      this.#surfaceCapabilityWarning(detail)
       return
     }
 
     // Clear execution data and mark all tests as running
     this.dispatchEvent(
       new CustomEvent('clear-execution-data', {
-        detail: { uid: '*', entryType: 'suite' },
+        detail,
         bubbles: true,
         composed: true
       })
     )
 
     const payload: RunnerRequestBody = {
-      uid: '*',
-      entryType: 'suite',
+      ...detail,
       runAll: true,
       framework: this.#getFramework(),
       configFile: this.#getConfigPath(),
@@ -331,8 +339,8 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
   #getFramework() {
     return getFramework(this.metadata)
   }
-  #getRunCapabilities() {
-    return getRunCapabilities(this.metadata)
+  #getRunAllDisabledReason() {
+    return getRunAllDisabledReason(this.metadata)
   }
   #isRunDisabled(entry: TestEntry) {
     return isRunDisabled(this.metadata, entry)
@@ -374,6 +382,7 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
         ?has-children="${entry.children && entry.children.length > 0}"
         ?selected="${entry.uid ===
         (this.#selectedUid ?? this.#autoSelectedUid)}"
+        ?revealed="${entry.uid === this.#revealedUid}"
         ?root="${isRoot}"
         .runDisabled=${this.#isRunDisabled(entry)}
         .runDisabledReason=${this.#getRunDisabledReason(entry)}
@@ -403,28 +412,31 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
   }
 
   #renderHeaderToolbar() {
-    const canRunAll = this.#getRunCapabilities().canRunAll
+    const runAllRefusal = this.#getRunAllDisabledReason()
+    const canRunAll = !runAllRefusal
     const runBtnCls = canRunAll
       ? 'hover:bg-toolbarHoverBackground'
       : 'opacity-30 cursor-not-allowed'
-    const iconCls = (color: string) => (canRunAll ? `group-hover:${color}` : '')
     return html`
       <nav class="flex ml-auto gap-0.5 text-[16px] text-descriptionForeground">
         <button
           class="p-1 rounded group ${runBtnCls}"
           ?disabled=${!canRunAll}
-          title="Run all"
+          title="${runAllRefusal ?? 'Run all'}"
           @click="${() => this.#runAllSuites()}"
         >
-          <icon-mdi-play class="${iconCls('text-chartsGreen')}"></icon-mdi-play>
+          <icon-mdi-play
+            class="${canRunAll ? 'group-hover:text-chartsGreen' : ''}"
+          ></icon-mdi-play>
         </button>
+        <!-- Not gated on a run capability: those describe what a framework can
+             launch, and stopping needs none (see runnerCapabilities.ts). -->
         <button
-          class="p-1 rounded group ${runBtnCls}"
-          ?disabled=${!canRunAll}
+          class="p-1 rounded group hover:bg-toolbarHoverBackground"
           title="Stop"
           @click="${() => this.#stopActiveRun()}"
         >
-          <icon-mdi-stop class="${iconCls('text-chartsRed')}"></icon-mdi-stop>
+          <icon-mdi-stop class="group-hover:text-chartsRed"></icon-mdi-stop>
         </button>
         <button
           class="p-1 rounded hover:bg-toolbarHoverBackground group"

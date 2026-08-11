@@ -32,8 +32,13 @@ function isValidValue(value: string | undefined): value is string {
 /**
  * Escape special characters in text for use in selectors
  */
-function escapeText(text: string): string {
-  return text.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n')
+export function escapeText(text: string): string {
+  return text
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"')
+    .replace(/\n/g, '\\n')
+    .replace(/\r/g, '\\r')
+    .replace(/\t/g, '\\t')
 }
 
 /**

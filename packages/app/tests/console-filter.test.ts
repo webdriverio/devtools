@@ -5,7 +5,7 @@ import {
   stripAnsi
 } from '../src/components/workbench/console-filter.js'
 
-const ESC = ''
+const ESC = '\u001b'
 
 function log(
   type: ConsoleLogs['type'],
@@ -20,6 +20,14 @@ describe('stripAnsi', () => {
     expect(stripAnsi(`${ESC}[90m2026-06-16${ESC}[39m INFO`)).toBe(
       '2026-06-16 INFO'
     )
+  })
+
+  // A cursor sequence, not colour: the pattern must accept any trailing letter,
+  // or the ESC stays behind as an invisible byte in the rendered log line.
+  it('removes non-colour escape sequences', () => {
+    const cleaned = stripAnsi(`${ESC}[2Kdownloading${ESC}[1G done`)
+    expect(cleaned).toBe('downloading done')
+    expect([...cleaned].filter((c) => c < ' ')).toEqual([])
   })
 
   it('leaves plain text untouched', () => {
@@ -63,9 +71,33 @@ describe('filterConsoleLogs', () => {
     expect(errs[0].args).toEqual(['boom failed'])
   })
 
-  it('treats a missing type as "log"', () => {
+  it('files every captured level under its own filter and no other', () => {
+    const levels: ConsoleLogs['type'][] = [
+      'trace',
+      'debug',
+      'log',
+      'info',
+      'warn',
+      'error'
+    ]
+    const entries = levels.map((level) => log(level, [level]))
+
+    for (const level of levels) {
+      expect(filterConsoleLogs(entries, level, '')).toEqual([
+        log(level, [level])
+      ])
+    }
+  })
+
+  // `ConsoleLog.type` is required, so an entry without one is wire data that
+  // broke the contract — and the panel already tags such a row with the level it
+  // actually carries (`log-type-undefined`). Defaulting to `log` here handed the
+  // Logs tab a row that does not claim to be a log; the two now agree.
+  it('files an entry with no level under no level filter', () => {
     const untyped = [{ args: ['x'], timestamp: 0 } as unknown as ConsoleLogs]
-    expect(filterConsoleLogs(untyped, 'log', '')).toHaveLength(1)
+
+    expect(filterConsoleLogs(untyped, 'log', '')).toEqual([])
+    expect(filterConsoleLogs(untyped, 'all', '')).toHaveLength(1)
   })
 
   it('matches search case-insensitively against the message', () => {

@@ -4,6 +4,7 @@ import { remote } from 'webdriverio'
 import { start } from '@wdio/devtools-backend'
 import logger from '@wdio/logger'
 import { REUSE_ENV, RUNNER_ENV } from '@wdio/devtools-shared'
+import { resolveRunId } from '@wdio/devtools-core'
 import { DEFAULT_LAUNCH_CAPS } from './constants.js'
 import type { ServiceOptions, ExtendedCapabilities } from './types.js'
 
@@ -110,6 +111,10 @@ export class DevToolsAppLauncher {
   }
 
   async onPrepare(_: never, caps: ExtendedCapabilities[]) {
+    // Stamped here, in the launcher, because workers inherit its environment:
+    // every worker this run forks then reports the same run id, which is what
+    // stops the backend reading the next spec's worker as a new run.
+    resolveRunId()
     if (this.#options.mode === 'trace') {
       log.info('Trace mode — skipping backend and Chrome window')
       return

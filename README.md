@@ -4,6 +4,29 @@ A powerful browser devtools extension for debugging, visualizing, and controllin
 
 Works with **WebdriverIO**, **[Nightwatch.js](./packages/nightwatch-devtools/README.md)**, and **[Selenium WebDriver](./packages/selenium-devtools/README.md)** (any test runner) — same backend, same UI, same capture infrastructure.
 
+It runs in two modes: **live** — an interactive dashboard that opens as your tests run — and **trace** — a portable `trace.zip` artifact for offline replay, CI, and AI-agent diffing.
+
+## Quick Start
+
+Install the adapter for your framework, add it to your config, and run — the DevTools dashboard opens automatically.
+
+```bash
+npm install @wdio/devtools-service --save-dev   # WebdriverIO (Nightwatch / Selenium below)
+```
+
+```js
+// wdio.conf.js
+export const config = {
+  services: ['devtools'] // live mode — opens the dashboard on run
+}
+```
+
+```bash
+npx wdio run wdio.conf.js
+```
+
+Want a portable artifact instead of a live UI (CI / agent diffing)? Switch to **trace mode** — see [Configuration](#configuration) and [Usage](#usage). Full setup for each framework: [Installation](#installation) · [Nightwatch](#nightwatch-integration) · [Selenium](#selenium-integration).
+
 ## Features
 
 ### 🎯 Interactive Test Execution
@@ -70,7 +93,38 @@ When BiDi is active in Selenium or Nightwatch, the per-command Chrome performanc
 
 ### 📦 Trace mode (trace.zip)
 
-Headless capture path — no DevTools UI window opens. At session end the adapter writes a trace artifact next to the user's output directory, suitable for offline replay, AI-agent diffing, or any consumer that prefers a portable artifact over a live UI.
+The dashboard runs in one of **two modes**, set per adapter via the shared `mode` option:
+
+- **`live`** (default) — the interactive DevTools UI window described above.
+- **`trace`** — a headless capture path that writes a portable trace archive, opened later in the **trace player**.
+
+All three adapters (`@wdio/devtools-service`, `@wdio/selenium-devtools`, `@wdio/nightwatch-devtools`) emit the **same normalized trace** through the shared `@wdio/devtools-core` capture library, so one archive format and one player serve every framework.
+
+The trace **format and the player are identical** across the three adapters, but **capture completeness varies** — WebdriverIO is the most complete; Selenium and Nightwatch cover the core flow with some gaps (e.g. inline-Allure per-test artifacts, retry-aware retention, Cucumber step nesting, auto BiDi). Each adapter's README lists its specifics.
+
+**Trace-mode support by adapter:**
+
+| Capability | WebdriverIO | Selenium | Nightwatch |
+|---|---|---|---|
+| Trace mode + `show-trace` player | ✅ | ✅ | ✅ |
+| DOM time-travel (mutation capture) | ✅ | ✅ ¹ | ✅ |
+| Dense filmstrip (`filmstrip`) | ✅ CDP push | ✅ CDP push | ⚠️ polling only |
+| Per-test granularity (`traceGranularity: 'test'`) | ✅ | ✅ | ⚠️ ² |
+| Retry-aware retention (`tracePolicy`) | ✅ | ✅ | ⚠️ ³ |
+| Cucumber step nesting | Scenario→Step ⁴ | ✅ full | Feature→Scenario ⁵ |
+| Inline Allure attach | ✅ | ✅ | ⚠️ produce-only ⁶ |
+| Assertion capture (`captureAssertions`) | ✅ | ✅ | ✅ |
+| Auto BiDi capture | ✅ auto | ✅ auto | ⚠️ opt-in ⁷ |
+
+¹ Selenium reconstructs the DOM per navigation; anchor timing is approximate (a navigation's snapshot can lag the command that triggered it).
+² Nightwatch's Cucumber and exports-object interfaces get real per-test slicing; the BDD `describe/it` interface collapses to a single session-scoped slice keyed to the first test.
+³ Only `retain-on-failure` works; the other retry-aware policies degrade to it because Nightwatch's `--retries` re-runs a testcase internally without re-firing the per-test hooks.
+⁴ WebdriverIO does not yet carry feature-level ancestry, so its Cucumber nesting is Scenario→Step.
+⁵ Nightwatch does not yet stamp per-step nesting (Feature→Scenario only).
+⁶ Nightwatch has no live Allure attach API, so per-test `screenshot`/`video` are written to disk and listed in the manifest but not attached to an Allure test.
+⁷ Opt-in via `bidi: true` + `webSocketUrl: true` in capabilities.
+
+In trace mode no DevTools UI window opens. At session end the adapter writes trace artifacts into a `test-results/` folder (created next to the resolved spec/config directory), suitable for offline replay, AI-agent diffing, or any consumer that prefers a portable artifact over a live UI.
 
 | Adapter | How to enable |
 |---|---|
@@ -79,7 +133,7 @@ Headless capture path — no DevTools UI window opens. At session end the adapte
 | **Nightwatch** | `globals: nightwatchDevtools({ mode: 'trace' })` |
 
 The trace artifact contains:
-- `trace.trace` — NDJSON `context-options` + `before`/`after` action events. When test hooks are available (Mocha's `it()` / Cucumber's `Scenario()`), each test becomes a [`Tracing.tracingGroup`](https://github.com/VibiumDev/vibium/blob/main/docs/explanation/recording-format.md#action-groups-user-defined) span — an open/close `before`/`after` pair with `method: "tracingGroup"` and `params.name` set to the test title. Child actions inside the group carry `parentId` pointing back to the group's `callId`, so timeline viewers render tests as labelled spans wrapping their commands.
+- `trace.trace` — NDJSON `context-options` + `before`/`after` action events. When test hooks are available (Mocha's `it()` / Cucumber's `Scenario()`), each test becomes a `Tracing.tracingGroup` span — an open/close `before`/`after` pair with `method: "tracingGroup"` and `params.name` set to the test title. Child actions inside the group carry `parentId` pointing back to the group's `callId`, so timeline viewers render tests as labelled spans wrapping their commands.
 - `trace.network` — HAR-style network entries derived from the existing capture
 - `resources/page@<id>-<ts>.jpeg` — screenshot per user-facing action
 - `resources/elements-page@<id>-<ts>.json` — flat interactable element list extracted by the page-injected scripts in `@wdio/devtools-core/element-scripts`
@@ -92,7 +146,29 @@ Trace mode and live mode are **mutually exclusive** — `screencast` options are
 
 #### Viewing traces
 
-Drop the `.zip` into [player.vibium.dev](https://player.vibium.dev) or run `npx playwright show-trace <path>`. The format follows the [Vibium recording format](https://github.com/VibiumDev/vibium/blob/main/docs/explanation/recording-format.md) spec — a Playwright-compatible NDJSON schema that the ecosystem already renders. This is the same format [`@wdio/mcp`](https://webdriver.io/docs/mcp) uses for AI-driven session recording.
+**First-party player — `show-trace`.** Open a `.zip` in the WebdriverIO DevTools UI itself:
+
+```sh
+pnpm show-trace path/to/trace.zip     # from this repo
+npx show-trace path/to/trace.zip      # in a project that installs an adapter
+```
+
+`show-trace` reconstructs the trace and serves the same DevTools UI in a dedicated **player** mode: the action list on the left, the page snapshot in the browser pane, and a bottom timeline with a filmstrip, action/network tracks, a draggable playhead, and playback controls (play/step/speed). Click a **Network** bar to open its request detail; press **`?`** for keyboard shortcuts (`Space` play/pause, `←`/`→` step, `Home`/`End`, `,`/`.` speed).
+
+The player exposes everything captured in the archive:
+
+- **DOM time-travel** — the browser pane replays the page from the captured DOM **mutation stream**, so scrubbing the playhead reconstructs the live DOM at any point, not just a screenshot.
+- **A11y tab** — the accessibility tree (roles + accessible names) captured for the selected command; hover a row to outline the element in the snapshot, click to copy its locator.
+- **Errors tab** — every failing `expect`/assertion and step failure collected in one place, each with a jump-to-source link to the command that threw.
+- **Element overlay (pick-locator)** — labelled, click-to-copy boxes drawn over every element the test interacted with, cross-linked to the A11y rows.
+- **Transcript tab + Copy-for-LLM** — the run's Markdown transcript with a one-click "copy prompt" that bundles it with any failing-command errors, paste-ready for an LLM.
+- **Cucumber Feature → Scenario → Step nesting** — tests render as labelled `tracingGroup` spans wrapping their commands, with Cucumber steps nested under their scenario.
+- **Dense filmstrip** — with `filmstrip` enabled, the timeline scrubs a continuous screencast for smooth playback rather than one frame per action.
+- **Timeline input markers** — keyboard actions and pointer hits (commands with a captured hit point) get distinct glyphs on the timeline.
+
+The `show-trace` bin is exposed by each adapter (`@wdio/devtools-service`, `@wdio/nightwatch-devtools`, `@wdio/selenium-devtools`), so `pnpm show-trace <zip>` / `npx show-trace <zip>` work in any project that installs one — no extra dependency.
+
+**Other viewers.** The trace uses a portable NDJSON schema, so the same `.zip` also opens in other compatible standalone trace viewers that read the format, and — because it shares that on-disk format — is what an Allure report's **embedded trace viewer** (Allure ≥ 2.35) reads. See the [backend README](./packages/backend/README.md#trace-serving--show-trace) for the reader details.
 
 #### Options
 
@@ -100,7 +176,15 @@ Drop the `.zip` into [player.vibium.dev](https://player.vibium.dev) or run `npx 
 |--------|--------|---------|-------------|
 | `mode` | `'live'` \| `'trace'` | `'live'` | `'live'` launches the DevTools UI; `'trace'` writes an offline artifact. |
 | `traceFormat` | `'zip'` \| `'ndjson-directory'` | `'zip'` | Output layout. `'zip'` writes a single archive; `'ndjson-directory'` unpacks into `trace-<id>/`. |
-| `traceGranularity` | `'session'` \| `'spec'` | `'session'` | `'session'` writes one trace per worker; `'spec'` writes one trace per spec file — smaller artifacts, easier to navigate. |
+| `traceGranularity` | `'session'` \| `'spec'` \| `'test'` | `'session'` | `'session'` writes one trace per worker; `'spec'` one per spec file; `'test'` one per test into its own `<spec>-<title>-<browser>[-retryN]/trace.zip` folder — the smallest, most navigable artifacts, and the best pairing for a retention policy. |
+| `tracePolicy` | `'on'` \| `'retain-on-failure'` \| `'retain-on-first-failure'` \| `'on-first-retry'` \| `'on-all-retries'` \| `'retain-on-failure-and-retries'` | `'on'` | Which traces to keep. `'on'` keeps every trace; the rest keep only failing/retried tests — pairs well with `traceGranularity: 'test'`. |
+| `captureAssertions` | `boolean` | `true` | Capture assertions as action rows: `node:assert` (all adapters), WebdriverIO `expect(...)` matchers, and Nightwatch `browser.assert`/`verify`. Set `false` to opt out. |
+| `filmstrip` | `boolean` | `true` | Record a dense, continuous screencast *into* the trace for smooth scrubbing in the player (not just one frame per action). Dense frames sit alongside the per-action frames; thinned + content-addressed at export. Runs the screencast recorder (CDP push on Chrome, polling elsewhere). |
+| `emitArtifactsManifest` | `boolean` | auto | Write `devtools-artifacts-<sessionId>.json` next to the trace — the index reporters/CI read to discover produced artifacts. Off by default; auto-enabled when an Allure reporter is detected (Nightwatch stays opt-in). |
+
+The per-test **`screenshot`** and **`video`** artifact options live on the WebdriverIO and Selenium adapters (not the shared base), are gated to `traceGranularity: 'test'`, and attach inline to Allure — see the [WebdriverIO](./packages/service/README.md#allure-integration) and [Selenium](./packages/selenium-devtools/README.md) READMEs for the full per-adapter option tables.
+
+**Allure integration.** When an Allure reporter is present, per-test traces, screenshots, and videos attach to each test's card (`traceGranularity: 'test'`); coarser granularities write the artifacts to disk and list them in the manifest. Details and the report-noise settings are in the [WebdriverIO adapter README](./packages/service/README.md#allure-integration).
 
 WDIO config example:
 
@@ -118,7 +202,7 @@ services: [[DevToolsHookService, {
 
 Adapters detect mobile sessions via `platformName: 'android' | 'ios'` (case-insensitive) and adjust the per-action snapshot to extract elements from the mobile XML tree instead of the DOM. The trace's `context-options` records `title: 'android' — <deviceName>` / `'ios' — <deviceName>` so the viewer labels frames correctly.
 
-A reference WDIO config is at [examples/wdio/wdio.mobile.conf.ts](examples/wdio/wdio.mobile.conf.ts). Prereqs to run it end-to-end with a local emulator:
+A reference WDIO config is at [examples/wdio/cucumber/wdio.mobile.conf.ts](examples/wdio/cucumber/wdio.mobile.conf.ts). Prereqs to run it end-to-end with a local emulator:
 
 1. **Java JDK** — `brew install --cask temurin`
 2. **Android SDK** — `brew install --cask android-commandlinetools` then `yes | sdkmanager --licenses && sdkmanager "platform-tools" "emulator" "system-images;android-34;google_apis_playstore;arm64-v8a"`. The brew cask installs sdkmanager under `/opt/homebrew/share/android-commandlinetools/`, and sdkmanager downloads other SDK pieces alongside it — set `ANDROID_HOME` to that path (not `~/Library/Android/sdk/`).
@@ -196,37 +280,80 @@ npm install @wdio/selenium-devtools
 
 ## Configuration
 
-Add the service to your `wdio.conf.js`:
+**Live mode** (default) — opens the dashboard:
 
 ```javascript
+// wdio.conf.js
 export const config = {
-    // ...
-    services: ['devtools']
+  services: ['devtools']
 }
 ```
 
+**Trace mode** — writes a portable `trace.zip` under `test-results/`, no UI window:
+
+```javascript
+export const config = {
+  services: [['devtools', { mode: 'trace' }]]
+}
+```
+
+Common options (all optional):
+
+| Option | Values | Default | Notes |
+|---|---|---|---|
+| `mode` | `'live'` \| `'trace'` | `'live'` | Dashboard vs. portable artifact |
+| `traceFormat` | `'zip'` \| `'ndjson-directory'` | `'zip'` | Trace mode only |
+| `traceGranularity` | `'session'` \| `'spec'` \| `'test'` | `'session'` | One trace per session / spec / test |
+| `tracePolicy` | `'on'` \| `'retain-on-failure'` \| … | `'on'` | Which traces to keep (trace mode) |
+| `filmstrip` | `boolean` | `true` | Dense screencast into the trace |
+| `screenshot` | `'off'` \| `'on'` \| `'only-on-failure'` | `'off'` | Per-test; needs `traceGranularity: 'test'` |
+| `video` | `'off'` \| `<tracePolicy>` | `'off'` | Per-test; needs `traceGranularity: 'test'` |
+| `captureAssertions` | `boolean` | `true` | Capture assertions as action rows |
+
+**Full option reference:** [`@wdio/devtools-service` README](./packages/service/README.md#reference) — plus the [Nightwatch](./packages/nightwatch-devtools/README.md#reference) and [Selenium](./packages/selenium-devtools/README.md#reference) references.
+
 ## Usage
 
+### Live mode
+
 1. Run your WebdriverIO tests
-2. The devtools UI automatically opens in an external browser window at `http://localhost:3000`
+2. The devtools UI automatically opens in an external browser window
 3. Tests begin executing immediately with real-time visualization
 4. View live browser preview, test progress, and command execution
-5. After initial run completes, use play buttons to rerun individual tests or suites
-6. Click stop button anytime to terminate running tests
-7. Explore actions, metadata, console logs, and source code in the workbench tabs
+5. After the initial run, use the play buttons to rerun individual tests or suites
+6. Click stop anytime to terminate running tests
+7. Explore actions, metadata, console logs, and source in the workbench tabs
+
+### Trace mode
+
+With `mode: 'trace'` no UI opens — the run writes a portable `trace.zip` under `test-results/`. Open it in the first-party player (the `show-trace` bin ships with each adapter):
+
+```bash
+pnpm show-trace test-results/trace-<sessionId>.zip
+# or from a project that installs an adapter:
+npx show-trace <path-to-trace.zip>
+```
+
+<p align="center">
+  <img src="assets/trace-player.gif" alt="Trace Player Demo" width="600" />
+</p>
+
+See the [Trace mode](./packages/service/README.md#trace-mode) section for the full artifact contents and player features.
 
 ## Development
 
 ```bash
-# Install dependencies
-pnpm install
+pnpm install          # install workspace dependencies
+pnpm build            # build all packages
+pnpm test             # run the vitest suite
+pnpm test:coverage    # run with coverage (thresholds enforced in CI)
+pnpm lint             # lint all packages
 
-# Build all packages
-pnpm build
-
-# Run demo
-pnpm demo:wdio
+# Run an example project for manual UI / runtime verification:
+pnpm demo:wdio        # or: pnpm demo:nightwatch / pnpm demo:selenium
 ```
+
+See **[CONTRIBUTING.md](./CONTRIBUTING.md)** for the full contributor workflow and **[ARCHITECTURE.md](./ARCHITECTURE.md)** for where each piece lives.
 
 ## Nightwatch Integration
 
@@ -249,6 +376,7 @@ packages/
 ├── app/                   # Frontend Lit-based UI application
 ├── backend/               # Fastify server, WS gateway, baseline store, rerun spawner
 ├── script/                # Browser-injected trace collection script (runs in the page under test)
+├── elements/              # Element-detection scripts — getSnapshot, a11y tree, element list (@wdio/elements)
 ├── service/               # WebdriverIO adapter (@wdio/devtools-service)
 ├── nightwatch-devtools/   # Nightwatch adapter (@wdio/nightwatch-devtools)
 └── selenium-devtools/     # Selenium WebDriver adapter (@wdio/selenium-devtools)
@@ -258,7 +386,13 @@ packages/
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+Contributions are welcome! Start here:
+
+- **[CONTRIBUTING.md](./CONTRIBUTING.md)** — dev setup, running tests & lint, changesets, and the pre-push / PR checklist.
+- **[ARCHITECTURE.md](./ARCHITECTURE.md)** — the package map and the "where does my change go?" decision tree.
+- **[CLAUDE.md](./CLAUDE.md)** — the repo conventions (single source of truth, thin adapters, testing floor, commit style).
+
+Rule of thumb: **one concern per PR**, and any change that would otherwise land in two or more adapters belongs in `core`.
 
 ## :page_facing_up: License
 

@@ -1,6 +1,6 @@
 {
   "name": "@wdio/devtools-script",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "description": "Script to be injected into a page to trace the page",
   "author": "Christian Bromann <mail@bromann.dev>",
   "repository": {
@@ -26,6 +26,7 @@
     "vite-plugin-singlefile": "^2.3.3"
   },
   "devDependencies": {
+    "@wdio/devtools-shared": "workspace:^",
     "vite": "^8.0.16"
   },
   "license": "MIT"

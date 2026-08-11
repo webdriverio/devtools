@@ -2,6 +2,7 @@ import http from 'node:http'
 import logger from '@wdio/logger'
 import {
   SessionCapturerBase,
+  drainCollectorWithRecovery,
   errorMessage,
   loadInjectableScript,
   mapChromeBrowserLogs,
@@ -214,6 +215,41 @@ export class SessionCapturer extends SessionCapturerBase {
   }
 
   /**
+   * Ingest a pre-built assertion entry (native `browser.assert`/`verify`
+   * synthesized from Nightwatch's results, or a node:assert capture) into the
+   * same command stream driver commands use. Unlike {@link captureCommand} this
+   * preserves the entry's `title` (the human assertion message) and never
+   * dedups — each call is a distinct action row. Assigns a fresh `_id` and a
+   * matching stable public `id` (so a later `sendReplaceCommand` can update
+   * this exact row in place — native asserts stream a pending row at call time,
+   * then finalize their pass/fail), pushes, and broadcasts.
+   */
+  captureAssertCommand(entry: CommandLog): void {
+    const withId = entry as CommandLog & { _id?: number }
+    withId._id = this.commandCounter++
+    withId.id = withId._id
+    this.commandsLog.push(withId)
+    if (
+      this.traceMode === 'trace' &&
+      !entry.error &&
+      this.#browser &&
+      mapCommandToAction(entry.command)
+    ) {
+      const browser = this.#browser
+      this.snapshotCaptures.push(
+        captureActionSnapshot(browser, entry.command, () =>
+          this.takeScreenshotViaHttp(browser)
+        ).then((snap) => {
+          if (snap) {
+            this.actionSnapshots.push(snap)
+          }
+        })
+      )
+    }
+    this.sendCommand(withId)
+  }
+
+  /**
    * Replace an already-captured command entry (used for retried commands so
    * only the final execution result is shown in the UI).
    * Removes the old entry from commandsLog, revokes its sent-status so the
@@ -418,11 +454,11 @@ export class SessionCapturer extends SessionCapturerBase {
         this.networkRequests as NetworkEntry[]
       )
       if (deduped.length > 0) {
-        // NetworkEntry has `type?: string`; the shared NetworkRequest needs
-        // `type: string` so default the field at this framework boundary.
+        // A perf-log entry that never saw its response event carries no type;
+        // default it to the vocabulary's residual at this framework boundary.
         const normalized = deduped.map((d) => ({
           ...d,
-          type: d.type ?? 'unknown'
+          type: d.type ?? 'other'
         }))
         this.networkRequests.push(...normalized)
         this.sendUpstream('networkRequests', normalized)
@@ -448,16 +484,24 @@ export class SessionCapturer extends SessionCapturerBase {
     // the only safe form; a separate existence check would race page navigation
     // (the collector can disappear between the two round-trips).
     try {
-      const result = await browser.execute(`
-        if (typeof window.wdioTraceCollector === 'undefined') {
-          return null;
-        }
-        return window.wdioTraceCollector.getTraceData();
-      `)
+      const traceData = await drainCollectorWithRecovery({
+        drain: async () => {
+          const result = await browser.execute(`
+            if (typeof window.wdioTraceCollector === 'undefined') {
+              return null;
+            }
+            return window.wdioTraceCollector.getTraceData();
+          `)
+          return unwrapDriverValue<Record<string, unknown> | null>(result)
+        },
+        injectIntoCurrentDocument: () => this.injectScript(browser),
+        currentUrl: async () =>
+          unwrapDriverValue<string | undefined>(
+            await browser.execute('return location.href;')
+          ),
+        log: (level, message) => log[level](message)
+      })
 
-      const traceData = unwrapDriverValue<Record<string, unknown> | null>(
-        result
-      )
       if (!traceData) {
         return
       }

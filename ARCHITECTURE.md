@@ -140,11 +140,19 @@ Contains: DOM mutation observers, page-side trace collection, a small logger. It
 
 The execution environment is the browser, not Node, so this package cannot import from `core` (Node-only) or from non-browser-safe parts of `shared`.
 
+### `packages/elements`
+
+The WDIO-typed element-detection API (`@wdio/elements`): `getSnapshot`, `getElements`, the accessibility-tree and interactable-element readers. Unlike `shared` and `core` this package **is** published, so its exported names are public API.
+
+Imports from: `core`. The script bodies, serializers, types, and locator generation all live in `core` (`element-scripts.ts`, `element-snapshot.ts`, `element-types.ts`, `locators/`) because they're framework-agnostic; this package holds only the wrappers that take a `WebdriverIO.Browser` — which `core` can't type against. The arrow never reverses: `core` does not import `elements`, and the adapters' per-action capture (`captureActionSnapshot`) calls core's script bodies directly rather than going through this package. `elements/snapshot.ts` and `elements/locators/index.ts` are re-export shims kept for API stability.
+
+The DOM-walking scripts run in the page via `browser.execute`, so — like `script` — they avoid Node-only APIs.
+
 ### `examples/`
 
 Per-framework demo projects used for manual verification.
 
-- `examples/wdio/` — WebdriverIO with Mocha (default). Run via `pnpm demo:wdio`.
+- `examples/wdio/` — WebdriverIO, split into `cucumber/` and `mocha/` (shared page objects in `pageobjects/`). Run via `pnpm demo:wdio` (Cucumber) or `pnpm demo:wdio:mocha`.
 - `examples/nightwatch/` — Nightwatch (both vanilla and Cucumber). Run via `pnpm demo:nightwatch`.
 - `examples/selenium/` — Selenium with subdirs for `mocha-test/`, `jest-test/`, `cucumber-test/`, `jasmine-test/`, `vitest-test/`. `pnpm demo:selenium` runs mocha; `pnpm --filter @wdio/selenium-devtools example:<runner>` runs the others.
 
@@ -227,7 +235,7 @@ The architecture above is the actual state of the repo. Where it diverges from t
 Notable in-place pieces worth knowing about:
 
 - `replaceCommand` has two semantics across adapters — Selenium mutates the existing entry in place (preserves `_id`/`id` continuity for chained calls); Nightwatch splices and reissues with a new `_id`. Both call the same `core/suite-helpers` factories; the storage strategy stays adapter-specific because the runner integrations differ.
-- `patchNodeAssert` is wired only in `selenium-devtools` (Selenium's primary assertion style is `node:assert`). The shared helper lives in `core/assert-patcher`; Service and Nightwatch can opt in via a one-line call when they need to, but it's not auto-enabled because both communities lean on chai/expect.
+- `patchNodeAssert` (via `core/assert-patcher`) is wired in all three adapters, default-on behind each adapter's `captureAssertions` option (opt out with `captureAssertions: false`), so `node:assert` — and, where the framework exposes assertion hooks, `expect` matchers — surface as trace action rows. Framework matcher libraries differ (Service taps expect-webdriverio's hooks; Nightwatch native `assert`/`verify` and Selenium's `node:assert` surface via their reconcile/patch paths), so the remaining gap is Selenium's jest-style `expect()`.
 - BiDi is auto-attached in Service and Selenium. Nightwatch is opt-in via `bidi: true` and requires `webSocketUrl: true` in capabilities — historically Nightwatch users haven't all enabled BiDi by default.
 - Performance API capture (`CAPTURE_PERFORMANCE_SCRIPT`) is identical across all three adapters; each wires it into its own afterCommand-equivalent path.
 - Output directory for screencast videos and trace files is resolved through `core/resolveAdapterOutputDir` — adapters feed `userConfiguredDir` (WDIO honors `wdio.conf.ts`'s `outputDir`/`rootDir`), `testFilePath` (Selenium/Nightwatch), and `configPath` (Nightwatch), and the helper picks the first writable, non-`node_modules/` candidate.

@@ -7,9 +7,12 @@ import type {
   LogSource,
   Metadata,
   NetworkRequest,
+  SerializedError,
   TraceMutation
 } from '@wdio/devtools-shared'
-import { WS_PATHS, WS_SCOPE } from '@wdio/devtools-shared'
+import { WORKER_WS_QUERY, WS_PATHS, WS_SCOPE } from '@wdio/devtools-shared'
+import { mapCommandToAction } from './action-mapping.js'
+import { resolveRunId } from './run-id.js'
 import {
   CONSOLE_METHODS,
   LOG_SOURCES,
@@ -19,6 +22,7 @@ import {
   isInternalStreamLine,
   stripAnsi
 } from './console.js'
+import { TerminalLineThrottle } from './terminal-throttle.js'
 
 /**
  * Foundation class for adapter SessionCapturers. Owns the cross-framework
@@ -37,7 +41,8 @@ export interface SessionCapturerOptions {
    * Set when this capturer reconnects mid-run (e.g. after `browser.end()` opens
    * a new session). Tells the backend to keep the accumulated run state instead
    * of resetting it — otherwise earlier tests' commands are wiped and Preserve
-   * & Rerun on those tests finds nothing.
+   * & Rerun on those tests finds nothing. Every socket also carries the run id,
+   * which covers the same-run case a process can't flag: the next spec's worker.
    */
   reconnect?: boolean
 }
@@ -60,6 +65,11 @@ export abstract class SessionCapturerBase {
   // stdout, OR when stream forwarding wants to log via console.
   #isCapturingConsole = false
   #isCapturingStream = false
+  // Collapses high-frequency identical terminal lines (e.g. WDIO's per-command
+  // COMMAND/RESULT logger frames reprinted every ~100ms during an expect poll)
+  // so they don't flood the console lane. Terminal-source only — user
+  // console.* is source='test' and never throttled.
+  #terminalThrottle = new TerminalLineThrottle()
 
   // Command bookkeeping — used by adapters that emit commands themselves
   // (nightwatch, selenium). The WDIO service adapter doesn't call sendCommand
@@ -90,9 +100,12 @@ export abstract class SessionCapturerBase {
   constructor(opts: SessionCapturerOptions = {}) {
     const { hostname, port, reconnect } = opts
     if (hostname && port) {
-      const query = reconnect ? '?reconnect=1' : ''
+      const query = new URLSearchParams({
+        [WORKER_WS_QUERY.runId]: resolveRunId(),
+        ...(reconnect ? { [WORKER_WS_QUERY.reconnect]: '1' } : {})
+      })
       this.ws = new WebSocket(
-        `ws://${hostname}:${port}${WS_PATHS.worker}${query}`
+        `ws://${hostname}:${port}${WS_PATHS.worker}?${query}`
       )
       this.ws.on('open', () => {
         this.#hasConnected = true
@@ -204,6 +217,35 @@ export abstract class SessionCapturerBase {
       oldTimestamp,
       command: toSend
     })
+  }
+
+  /**
+   * Mark the most recent user action of a test as failed — for framework
+   * failures that aren't captured as their own command. Broadcasts the swap so
+   * live mode highlights it too. Returns false when no eligible action is found,
+   * OR when that most-recent action already carries an error: the failure is
+   * then already represented (e.g. an expect matcher captured as its own row via
+   * afterAssertion), so it must not bleed onto an earlier *passing* action.
+   */
+  failLastAction(testUid: string | undefined, error: SerializedError): boolean {
+    for (let i = this.commandsLog.length - 1; i >= 0; i--) {
+      const command = this.commandsLog[i]
+      if (!mapCommandToAction(command.command)) {
+        continue
+      }
+      if (testUid && command.testUid !== testUid) {
+        continue
+      }
+      // First (most-recent) action for this test. If it's already failed, the
+      // failure is captured — stop rather than marking an earlier passing one.
+      if (command.error) {
+        return false
+      }
+      command.error = error
+      this.sendReplaceCommand(command.timestamp, command)
+      return true
+    }
+    return false
   }
 
   /**
@@ -408,7 +450,8 @@ export abstract class SessionCapturerBase {
           if (
             !clean ||
             this.isInternalStreamLine(clean) ||
-            SPINNER_RE.test(clean)
+            SPINNER_RE.test(clean) ||
+            !this.#terminalThrottle.shouldEmit(clean)
           ) {
             continue
           }

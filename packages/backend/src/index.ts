@@ -22,6 +22,8 @@ import { resolveByteRange } from './video-range.js'
 import {
   BASELINE_API,
   BASELINE_WS_SCOPE,
+  TRACE_API,
+  WORKER_WS_QUERY,
   WS_PATHS,
   WS_SCOPE,
   type BaselinePreserveRequest,
@@ -29,7 +31,8 @@ import {
   type BaselineGetParams,
   type BaselineGetQuery,
   type BaselineSavedWsPayload,
-  type BaselineClearedWsPayload
+  type BaselineClearedWsPayload,
+  type TracePlayerData
 } from '@wdio/devtools-shared'
 import type { RunnerRequestBody } from './types.js'
 
@@ -38,6 +41,10 @@ let server: FastifyInstance | undefined
 interface DevtoolsBackendOptions {
   port?: number
   hostname?: string
+  /** When set, the server runs in trace-serve mode: it exposes the
+   *  reconstructed trace at TRACE_API.get for `pnpm show-trace` and no worker
+   *  ever connects. */
+  trace?: TracePlayerData
 }
 
 const log = logger('@wdio/devtools-backend')
@@ -53,6 +60,10 @@ const clients = new Set<WebSocket>()
 // rerun-child leaves the parent unreachable and `clientDisconnected` is lost.
 let workerSocket: WebSocket | undefined
 let parentWorkerSocket: WebSocket | undefined
+
+// Run the accumulated state belongs to. Compared against each connecting
+// worker's `runId` so a new spec's worker is told apart from a new run.
+let activeRunId: string | undefined
 
 // sessionId → absolute path of the encoded .webm; queried by /api/video/:sessionId.
 const videoRegistry = new Map<string, string>()
@@ -127,6 +138,12 @@ async function handleTestRun(
   if (!body?.uid || !body.entryType) {
     return reply.code(400).send({ error: 'Invalid run payload' })
   }
+  // Logged through fastify so it survives a config `logLevel` that silences
+  // @wdio/logger: a rerun that filters to nothing reports only "spec skipped",
+  // and these fields are what decide the filter.
+  reply.log.info(
+    `run ${body.entryType} uid=${body.uid} framework=${body.framework} spec=${body.specFile} title=${JSON.stringify(body.fullTitle)}`
+  )
   // Broadcast a clear so popouts (which only see WS events) wipe too.
   broadcastToClients(
     JSON.stringify({
@@ -300,14 +317,22 @@ function registerWorkerWebSocket(s: FastifyInstance): void {
       // a different failed test still finds data; #updateNode handles window
       // expansion across reruns of the same test.
       const isRerunChild = testRunner.consumeRerunChildFlag()
+      const query = req.query as { reconnect?: string; runId?: string }
       // A mid-run session-change reconnect (e.g. after `browser.end()`) reopens
       // this socket; keep the accumulated run state so earlier tests' commands
       // survive for Preserve & Rerun instead of being wiped.
-      const isReconnect =
-        (req.query as { reconnect?: string })?.reconnect === '1'
-      if (!isRerunChild && !isReconnect) {
+      const isReconnect = query?.[WORKER_WS_QUERY.reconnect] === '1'
+      // A run opens one worker socket per spec file, so the second spec's
+      // worker is a fresh connect with neither flag set. Its run id matches,
+      // which is what keeps earlier specs preservable.
+      const runId = query?.[WORKER_WS_QUERY.runId]
+      const isSameRun = Boolean(runId) && runId === activeRunId
+      if (!isRerunChild && !isReconnect && !isSameRun) {
         messageBuffer.length = 0
         baselineStore.resetActiveRun()
+        // Rerun children report their own id; leaving it unrecorded keeps the
+        // parent run's identity, so its later workers still read as same-run.
+        activeRunId = runId
       }
       workerSocket = socket
       if (!isRerunChild) {
@@ -358,6 +383,18 @@ function registerVideoRoute(s: FastifyInstance): void {
   )
 }
 
+function registerTraceRoute(
+  s: FastifyInstance,
+  trace: TracePlayerData | undefined
+): void {
+  // Always registered so live mode gets a definitive 204 here instead of a 404
+  // from the static handler — the app probes this on boot to choose between
+  // player and live-WS mode, and a 204 keeps the common (live) path quiet.
+  s.get(TRACE_API.get, async (_request, reply) =>
+    trace ? reply.send(trace) : reply.code(204).send()
+  )
+}
+
 export async function start(
   opts: DevtoolsBackendOptions = {}
 ): Promise<{ server: FastifyInstance; port: number }> {
@@ -374,6 +411,7 @@ export async function start(
   await server.register(websocket)
   await server.register(staticServer, { root: appPath })
 
+  registerTraceRoute(server, opts.trace)
   registerTestRoutes(server, host, port)
   registerBaselineRoutes(server)
   registerClientWebSocket(server)

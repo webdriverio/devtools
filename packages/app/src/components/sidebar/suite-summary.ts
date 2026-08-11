@@ -2,57 +2,36 @@ import type {
   SuiteStatsFragment,
   TestStatsFragment
 } from '../../controller/types.js'
-import { TestState } from './types.js'
+import {
+  emptyTally,
+  tallyOutcomes,
+  type GroupOutcome,
+  type StateTally
+} from '../../utils/test-outcome.js'
 
-export interface SuiteSummary {
-  passed: number
-  failed: number
-  running: number
-  skipped: number
-  pending: number
-  total: number
-}
+/** The card counts states the same way the tree derives them, so the tally is
+ *  the shared one under a name the summary reads better with. */
+export type SuiteSummary = StateTally
+export type RunStatus = GroupOutcome
 
-export type RunStatus = 'running' | 'failed' | 'passed' | 'idle'
+/**
+ * The headline run state shown in the status pill — the same derivation the
+ * tree rows use, so a run can never read "Idle" next to a green suite.
+ */
+export { deriveOutcome as deriveRunStatus } from '../../utils/test-outcome.js'
 
-const emptySummary = (): SuiteSummary => ({
-  passed: 0,
-  failed: 0,
-  running: 0,
-  skipped: 0,
-  pending: 0,
-  total: 0
-})
-
-function tally(test: TestStatsFragment, summary: SuiteSummary): void {
-  summary.total += 1
-  switch (test.state) {
-    case TestState.PASSED:
-      summary.passed += 1
-      break
-    case TestState.FAILED:
-      summary.failed += 1
-      break
-    case TestState.RUNNING:
-      summary.running += 1
-      break
-    case TestState.SKIPPED:
-      summary.skipped += 1
-      break
-    default:
-      summary.pending += 1
-  }
-}
-
-function walk(suite: SuiteStatsFragment, summary: SuiteSummary): void {
+function collectTests(
+  suite: SuiteStatsFragment,
+  tests: TestStatsFragment[]
+): void {
   for (const test of suite.tests ?? []) {
     if (test) {
-      tally(test, summary)
+      tests.push(test)
     }
   }
   for (const child of suite.suites ?? []) {
     if (child) {
-      walk(child, summary)
+      collectTests(child, tests)
     }
   }
 }
@@ -66,9 +45,8 @@ function walk(suite: SuiteStatsFragment, summary: SuiteSummary): void {
 export function computeSuiteSummary(
   suites: Record<string, SuiteStatsFragment>[] | undefined
 ): SuiteSummary {
-  const summary = emptySummary()
   if (!suites) {
-    return summary
+    return emptyTally()
   }
   const roots = suites
     .flatMap((chunk) => Object.values(chunk))
@@ -76,30 +54,9 @@ export function computeSuiteSummary(
   const unique = Array.from(
     new Map(roots.map((suite) => [suite.uid, suite])).values()
   )
+  const tests: TestStatsFragment[] = []
   for (const suite of unique) {
-    walk(suite, summary)
+    collectTests(suite, tests)
   }
-  return summary
-}
-
-/**
- * The headline run state shown in the status pill. Running wins over a stale
- * terminal count (a rerun leaves old passed/failed values until results
- * arrive); a finished run is failed if any test failed, otherwise passed.
- */
-export function deriveRunStatus(summary: SuiteSummary): RunStatus {
-  const terminal = summary.passed + summary.failed + summary.skipped
-  if (summary.total === 0) {
-    return 'idle'
-  }
-  if (summary.running > 0 || (summary.pending > 0 && terminal > 0)) {
-    return 'running'
-  }
-  if (summary.failed > 0) {
-    return 'failed'
-  }
-  if (terminal === 0) {
-    return 'idle'
-  }
-  return 'passed'
+  return tallyOutcomes(tests)
 }

@@ -25,7 +25,10 @@ export function parseNode(
   const props: Record<string, unknown> = {}
 
   if (fragment.nodeName === '#comment') {
-    return (fragment as vComment).data
+    // Drop comment content — returning its data rendered the comment as visible
+    // text on replay (e.g. an IE conditional comment's `<![endif]` showed as
+    // text and added a line box that shifted the whole page layout down).
+    return ''
   }
   if (fragment.nodeName === '#text') {
     return (fragment as vText).value
@@ -57,6 +60,17 @@ export function parseDocument(node: HTMLElement) {
 }
 
 export function parseFragment(node: Element) {
+  // Only an Element has `outerHTML`: handed a Text or Comment child, parse5
+  // reads `length` off undefined and throws, and the catch below then serializes
+  // its own STACK TRACE into the page as a `<div class="parseFragmentWrapper">`.
+  // Text arrives as its data — the replay inserts a bare string as a text node —
+  // and a comment is dropped, matching `parseNode`'s policy for one it parses.
+  if (node?.nodeType === Node.TEXT_NODE) {
+    return node.textContent || ''
+  }
+  if (node?.nodeType === Node.COMMENT_NODE) {
+    return ''
+  }
   try {
     const fragment = parseFragmentImport(node.outerHTML)
     return parseNode(fragment)
@@ -95,6 +109,10 @@ export async function waitForBody() {
   clearTimeout(waitForTimeout)
 }
 
+/** Attribute stamped on every captured element to correlate it across the
+ *  mutation stream. Owned here; consumers use REF_ATTR / hasRef / getRef. */
+export const REF_ATTR = 'data-wdio-ref'
+
 let refId = 0
 /**
  * assign a uid to each element so we can reference it later in the vdom
@@ -108,18 +126,22 @@ export function assignRef(elem: Element) {
     return
   }
 
-  if (!elem.hasAttribute('data-wdio-ref')) {
-    elem.setAttribute('data-wdio-ref', `${++refId}`)
+  if (!elem.hasAttribute(REF_ATTR)) {
+    elem.setAttribute(REF_ATTR, `${++refId}`)
   }
 
   Array.from(elem.querySelectorAll('*')).forEach((el) => {
-    el.setAttribute('data-wdio-ref', `${++refId}`)
+    el.setAttribute(REF_ATTR, `${++refId}`)
   })
+}
+
+export function hasRef(elem: Element): boolean {
+  return elem.hasAttribute(REF_ATTR)
 }
 
 export function getRef(elem: Node) {
   if (!elem || !(elem as Element).getAttribute) {
     return null
   }
-  return (elem as Element).getAttribute('data-wdio-ref')
+  return (elem as Element).getAttribute(REF_ATTR)
 }

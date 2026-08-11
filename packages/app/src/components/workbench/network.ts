@@ -1,15 +1,17 @@
 import { Element } from '@core/element'
+import type { NetworkRequest } from '@wdio/devtools-shared'
 import { html, nothing } from 'lit'
 import { networkStyles } from './network/styles.js'
 import { customElement, state } from 'lit/decorators.js'
 import { consume } from '@lit/context'
 import { networkRequestContext } from '../../controller/context.js'
 import {
+  FAILED_STATUS_LABEL,
   RESOURCE_TYPES,
-  TYPE_DOT_CLASS
+  TYPE_DOT_CLASS,
+  type ResourceFilter
 } from '../../utils/network-constants.js'
 import {
-  formatBytes,
   formatTime,
   statusKind,
   getResourceType,
@@ -22,6 +24,11 @@ import {
   waterfallBar,
   type WaterfallScale
 } from './network/waterfall.js'
+import {
+  formatTransferSize,
+  renderNetworkRequestDetail,
+  requestFailed
+} from './network/request-detail.js'
 
 import '../placeholder.js'
 
@@ -37,7 +44,7 @@ export class DevtoolsNetwork extends Element {
   selectedRequest?: NetworkRequest
 
   @state()
-  filterType: string = 'All'
+  filterType: ResourceFilter = 'All'
 
   @state()
   searchQuery: string = ''
@@ -136,12 +143,19 @@ export class DevtoolsNetwork extends Element {
   }
 
   #renderRequestRow(request: NetworkRequest, range: WaterfallScale) {
-    const kind = statusKind(request.status, Boolean(request.error))
+    const kind = statusKind(request.status, requestFailed(request))
     const dotClass = TYPE_DOT_CLASS[getResourceType(request)]
-    // Only draw a bar when we have a real duration; missing/zero timing shows
-    // an empty track + a dash instead of a stray sliver.
-    const hasTiming = typeof request.time === 'number' && request.time > 0
+    // A zero duration is a measurement (a cached or same-tick response), so the
+    // cell reports it; only the bar is held back, because a zero-width bar draws
+    // as a stray sliver rather than as a duration.
+    const duration = typeof request.time === 'number' ? request.time : undefined
+    const hasBar = duration !== undefined && duration > 0
     const bar = waterfallBar(request, range)
+    // A transport failure is captured as status 0, which is not a code — it reads
+    // as ERR so a dead request is never mistaken for one still in flight, which
+    // is what the dash means.
+    const statusLabel =
+      request.status || (requestFailed(request) ? FAILED_STATUS_LABEL : '—')
     return html`
       <div
         class="grid request-row ${this.selectedRequest?.id === request.id
@@ -158,14 +172,14 @@ export class DevtoolsNetwork extends Element {
         <span class="req-method">${request.method}</span>
         <span class="req-status kind-${kind}">
           <i class="status-dot"></i>
-          ${request.status || (request.error ? 'ERR' : '—')}
+          ${statusLabel}
         </span>
         <span class="req-type truncate" title="${contentType(request)}"
           >${contentType(request)}</span
         >
         <span class="req-wf">
           <span class="wf-track">
-            ${hasTiming
+            ${hasBar
               ? html`<span
                   class="wf-bar kind-${kind}"
                   style="left:${bar.offset}%;width:${bar.width}%"
@@ -173,10 +187,10 @@ export class DevtoolsNetwork extends Element {
               : nothing}
           </span>
         </span>
-        <span class="req-dur ${hasTiming ? '' : 'req-dur-empty'}"
-          >${hasTiming ? formatTime(request.time) : '—'}</span
+        <span class="req-dur ${duration === undefined ? 'req-dur-empty' : ''}"
+          >${duration === undefined ? '—' : formatTime(duration)}</span
         >
-        <span class="req-size">${formatBytes(request.size)}</span>
+        <span class="req-size">${formatTransferSize(request.size)}</span>
       </div>
     `
   }
@@ -185,8 +199,8 @@ export class DevtoolsNetwork extends Element {
     if (!this.networkRequests || this.networkRequests.length === 0) {
       return html`
         <wdio-devtools-placeholder
-          icon="network"
-          title="No network requests captured"
+          icon="🌐"
+          heading="No network requests captured"
           description="Network requests will appear here as your tests run"
         ></wdio-devtools-placeholder>
       `
@@ -212,97 +226,11 @@ export class DevtoolsNetwork extends Element {
               </div>`
             : filteredRequests.map((r) => this.#renderRequestRow(r, range))}
         </div>
-        ${this.selectedRequest ? this.#renderRequestDetail() : nothing}
+        ${this.selectedRequest
+          ? renderNetworkRequestDetail(this.selectedRequest)
+          : nothing}
       </div>
     `
-  }
-
-  #renderKv(key: string, value: unknown, valueClass = '') {
-    return html`
-      <div class="kv">
-        <span class="k">${key}</span>
-        <span class="v ${valueClass}">${value}</span>
-      </div>
-    `
-  }
-
-  #renderHeadersSection(
-    title: string,
-    headers: Record<string, string> | undefined
-  ) {
-    if (!headers || Object.keys(headers).length === 0) {
-      return nothing
-    }
-    return html`
-      <div class="detail-section">
-        <div class="detail-title">${title}</div>
-        <div class="kv-card">
-          ${Object.entries(headers).map(([k, v]) => this.#renderKv(k, v))}
-        </div>
-      </div>
-    `
-  }
-
-  #renderBodySection(title: string, body: string | undefined) {
-    if (!body) {
-      return nothing
-    }
-    return html`
-      <div class="detail-section">
-        <div class="detail-title">${title}</div>
-        <div class="kv-card">
-          <div class="kv">
-            <span class="v"><pre>${this.#formatBody(body)}</pre></span>
-          </div>
-        </div>
-      </div>
-    `
-  }
-
-  #renderGeneralSection(req: NetworkRequest) {
-    const kind = statusKind(req.status, Boolean(req.error))
-    return html`
-      <div class="detail-section">
-        <div class="detail-title">General</div>
-        <div class="kv-card">
-          ${this.#renderKv('Request URL', req.url)}
-          ${this.#renderKv('Method', req.method)}
-          ${this.#renderKv(
-            'Status',
-            html`${req.status || '—'} ${req.statusText || ''}`,
-            `kind-${kind}`
-          )}
-          ${this.#renderKv('Type', contentType(req))}
-          ${req.time ? this.#renderKv('Time', formatTime(req.time)) : nothing}
-          ${req.size ? this.#renderKv('Size', formatBytes(req.size)) : nothing}
-          ${req.error
-            ? this.#renderKv('Error', req.error, 'kind-error')
-            : nothing}
-        </div>
-      </div>
-    `
-  }
-
-  #renderRequestDetail() {
-    const req = this.selectedRequest!
-    return html`
-      <div class="request-detail">
-        ${this.#renderGeneralSection(req)}
-        ${this.#renderHeadersSection('Request Headers', req.requestHeaders)}
-        ${this.#renderBodySection('Request Body', req.requestBody)}
-        ${this.#renderHeadersSection('Response Headers', req.responseHeaders)}
-        ${this.#renderBodySection('Response Body', req.responseBody)}
-      </div>
-    `
-  }
-
-  #formatBody(body: string): string {
-    try {
-      const parsed = JSON.parse(body)
-      return JSON.stringify(parsed, null, 2)
-    } catch {
-      return body
-    }
   }
 }
 

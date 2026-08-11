@@ -1,20 +1,41 @@
 import { Element } from '@core/element'
-import { html, css } from 'lit'
+import { html, css, nothing } from 'lit'
 import { customElement, state } from 'lit/decorators.js'
+import { repeat } from 'lit/directives/repeat.js'
 import { consume } from '@lit/context'
 
-import type { CommandLog } from '@wdio/devtools-shared'
-import { mutationContext, commandContext } from '../../controller/context.js'
+import type {
+  CommandLog,
+  TraceActionChild,
+  TraceActionGroupNode
+} from '@wdio/devtools-shared'
+import {
+  mutationContext,
+  commandContext,
+  actionGroupsContext
+} from '../../controller/context.js'
 
 import '../placeholder.js'
 import './actionItems/command.js'
+import './actionItems/group.js'
 import './actionItems/mutation.js'
-import { stepDurations } from './actionItems/duration.js'
-import { activeTimestampAt } from './active-entry.js'
+import type { RowRevealKey } from './actionItems/item.js'
+import { elapsedSince } from '../../utils/elapsed.js'
+import { entryDuration, stepDurations } from './actionItems/duration.js'
+import { activeSpanAt } from './active-entry.js'
+import {
+  defaultExpanded,
+  flattenActionTree,
+  rowKey,
+  type ActionTreeRow
+} from './action-tree.js'
 
 type TimelineEntry = TraceMutation | CommandLog
 
 const SOURCE_COMPONENT = 'wdio-devtools-actions'
+
+/** Horizontal shift per tree depth level in the player's action tree. */
+const TREE_INDENT_PX = 14
 
 @customElement(SOURCE_COMPONENT)
 export class DevtoolsActions extends Element {
@@ -25,6 +46,10 @@ export class DevtoolsActions extends Element {
         display: flex;
         flex-direction: column;
         width: 100%;
+        /* The panel's width is fixed by its drag handle; single-line rows must
+           clip inside it rather than widen it (or scroll it) to fit. */
+        min-width: 0;
+        overflow-x: hidden;
       }
 
       /* Wraps the rows so the rail spans the full content height — the host
@@ -47,6 +72,11 @@ export class DevtoolsActions extends Element {
         background: var(--vscode-panel-border);
         pointer-events: none;
       }
+
+      /* Tree mode indents rows, so the straight rail no longer lines up. */
+      .timeline.tree::before {
+        display: none;
+      }
     `
   ]
 
@@ -56,11 +86,42 @@ export class DevtoolsActions extends Element {
   @consume({ context: commandContext, subscribe: true })
   commands: CommandLog[] = []
 
+  @consume({ context: actionGroupsContext, subscribe: true })
+  groups?: TraceActionChild[]
+
   // The selected timeline row, tracked by object reference — timestamps aren't
   // unique (commands logged in the same millisecond would all match), so
   // reference identity is what highlights exactly one row.
   @state()
   private activeEntry?: TimelineEntry
+
+  // User chevron toggles, by group callId; unset groups follow the default
+  // (failed or containing the active command → open).
+  @state()
+  private expandOverrides: ReadonlyMap<string, boolean> = new Map()
+
+  // The one row showing its label in full. Held here, not per row, so clicking
+  // a row folds whichever was open — otherwise every row the user ever clicked
+  // stays wrapped and the panel goes ragged again.
+  @state()
+  private revealedRow?: RowRevealKey
+
+  #onRowReveal = (event: Event) => {
+    const key = (event as CustomEvent<RowRevealKey | undefined>).detail
+    this.revealedRow = key === this.revealedRow ? undefined : key
+  }
+
+  #onGroupToggle = (event: Event) => {
+    const { callId, expanded } = (
+      event as CustomEvent<{ callId?: string; expanded: boolean }>
+    ).detail
+    if (!callId) {
+      return
+    }
+    const next = new Map(this.expandOverrides)
+    next.set(callId, !expanded)
+    this.expandOverrides = next
+  }
 
   #onShowCommand = (event: Event) => {
     const command = (event as CustomEvent<{ command?: CommandLog }>).detail
@@ -86,12 +147,7 @@ export class DevtoolsActions extends Element {
   // every timeupdate tick.
   #onScreencastProgress = (event: Event) => {
     const { time } = (event as CustomEvent<{ time: number }>).detail
-    const entries = this.#sortedEntries()
-    const timestamp = activeTimestampAt(
-      entries.map((entry) => entry.timestamp),
-      time
-    )
-    const active = entries.find((entry) => entry.timestamp === timestamp)
+    const active = activeSpanAt(this.#sortedEntries(), time)
     if (active === this.activeEntry) {
       return
     }
@@ -146,42 +202,120 @@ export class DevtoolsActions extends Element {
     }
   }
 
+  // Player tree mode: group rows expand/collapse; leaf rows are the same
+  // command items as the flat list, indented under their group.
+  #renderTree(rootChildren: TraceActionChild[]) {
+    const commands = this.commands || []
+    const activeIndex =
+      this.activeEntry && 'command' in this.activeEntry
+        ? commands.indexOf(this.activeEntry)
+        : -1
+    const isExpanded = (group: TraceActionGroupNode) =>
+      this.expandOverrides.get(group.callId) ??
+      defaultExpanded(group, activeIndex >= 0 ? activeIndex : undefined)
+    const rows = flattenActionTree(rootChildren, isExpanded)
+    const gaps = stepDurations(commands.map((command) => command.timestamp))
+    return html`<div
+      class="timeline tree"
+      @group-toggle=${this.#onGroupToggle}
+      @row-reveal=${this.#onRowReveal}
+    >
+      ${repeat(rows, rowKey, (row) => this.#renderTreeRow(row, commands, gaps))}
+    </div>`
+  }
+
+  #renderTreeRow(
+    row: ActionTreeRow,
+    commands: CommandLog[],
+    gaps: Array<number | undefined>
+  ) {
+    const indent = `padding-left: ${row.depth * TREE_INDENT_PX}px`
+    const key = rowKey(row)
+    if (row.kind === 'group') {
+      return html`
+        <wdio-devtools-group-item
+          style=${indent}
+          .group=${row.group}
+          ?expanded=${row.expanded}
+          .revealKey=${key}
+          ?revealed=${key === this.revealedRow}
+        ></wdio-devtools-group-item>
+      `
+    }
+    const entry = commands[row.commandIndex]
+    if (!entry) {
+      return nothing
+    }
+    // Reconstructed zips carry the real invocation span; gap is the fallback.
+    const duration = entryDuration(entry, gaps[row.commandIndex])
+    return html`
+      <wdio-devtools-command-item
+        style=${indent}
+        elapsedTime=${elapsedSince(commands, entry)}
+        .duration=${duration}
+        .entry=${entry}
+        ?active=${entry === this.activeEntry}
+        .revealKey=${key}
+        ?revealed=${key === this.revealedRow}
+      ></wdio-devtools-command-item>
+    `
+  }
+
   render() {
+    if (this.groups?.length) {
+      return this.#renderTree(this.groups)
+    }
     const entries = this.#sortedEntries()
 
     if (!entries.length) {
       return html`<wdio-devtools-placeholder></wdio-devtools-placeholder>`
     }
-    const baselineTimestamp = entries[0]?.timestamp ?? 0
     const durations = stepDurations(entries.map((entry) => entry.timestamp))
 
-    const rows = entries.map((entry, index) => {
-      const elapsedTime = entry.timestamp - baselineTimestamp
-      const duration = durations[index]
-      const active = entry === this.activeEntry
+    // Keyed by reference, the same identity `activeEntry` uses: timestamps
+    // aren't unique, and an index would hand a row's local state to whatever
+    // entry sorts into that position next.
+    const rows = repeat(
+      entries,
+      (entry) => entry,
+      (entry, index) => {
+        // Timed against the merged list, so the top row always reads zero — a
+        // document load can precede the first command.
+        const elapsedTime = elapsedSince(entries, entry)
+        const duration = entryDuration(entry, durations[index])
+        const active = entry === this.activeEntry
 
-      if ('command' in entry) {
+        const revealed = entry === this.revealedRow
+
+        if ('command' in entry) {
+          return html`
+            <wdio-devtools-command-item
+              elapsedTime=${elapsedTime}
+              .duration=${duration}
+              .entry=${entry}
+              ?active=${active}
+              .revealKey=${entry}
+              ?revealed=${revealed}
+            ></wdio-devtools-command-item>
+          `
+        }
+
         return html`
-          <wdio-devtools-command-item
+          <wdio-devtools-mutation-item
             elapsedTime=${elapsedTime}
             .duration=${duration}
             .entry=${entry}
             ?active=${active}
-          ></wdio-devtools-command-item>
+            .revealKey=${entry}
+            ?revealed=${revealed}
+          ></wdio-devtools-mutation-item>
         `
       }
+    )
 
-      return html`
-        <wdio-devtools-mutation-item
-          elapsedTime=${elapsedTime}
-          .duration=${duration}
-          .entry=${entry}
-          ?active=${active}
-        ></wdio-devtools-mutation-item>
-      `
-    })
-
-    return html`<div class="timeline">${rows}</div>`
+    return html`<div class="timeline" @row-reveal=${this.#onRowReveal}>
+      ${rows}
+    </div>`
   }
 }
 
