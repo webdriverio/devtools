@@ -13,7 +13,8 @@ import {
   pollUntilReady,
   serializeError,
   upsertRichestSnapshot,
-  type CapturedPerformancePayload
+  type CapturedPerformancePayload,
+  type SessionCapturerOptions
 } from '@wdio/devtools-core'
 import { captureActionSnapshot } from './action-snapshot.js'
 import { nightwatchRunnerId } from './helpers/utils.js'
@@ -71,17 +72,20 @@ export class SessionCapturer extends SessionCapturerBase {
   readonly snapshotCaptures: Promise<void>[] = []
 
   constructor(
-    devtoolsOptions: {
-      hostname?: string
-      port?: number
-      reconnect?: boolean
-    } = {},
+    devtoolsOptions: SessionCapturerOptions = {},
     browser?: NightwatchBrowser
   ) {
     super(devtoolsOptions)
     this.#browser = browser
     this.patchConsole()
     this.patchStreams()
+  }
+
+  /** Re-target at the browser the run now drives — the capturer's only
+   *  session-bound state, so a replaced session is a re-target, not a rebuild
+   *  (mirrors selenium's `setDriver`). */
+  setBrowser(browser: NightwatchBrowser): void {
+    this.#browser = browser
   }
 
   protected override onWsOpen(): void {

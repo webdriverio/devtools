@@ -27,14 +27,10 @@ export class NativeAssertRecorder {
   private calls: NativeAssertCall[] = []
 
   constructor(
-    private capturer: SessionCapturer,
+    private readonly capturer: SessionCapturer,
     private getCurrentTest: () => { uid?: string } | null,
     private nextSequence: () => number
   ) {}
-
-  updateSessionCapturer(capturer: SessionCapturer): void {
-    this.capturer = capturer
-  }
 
   clear(): void {
     this.calls = []

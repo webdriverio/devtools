@@ -154,8 +154,8 @@ describe('rearmCaptureForSession', () => {
   })
 
   it('leaves the accumulated capture state untouched', async () => {
-    // Deliberately narrower than handleSessionChange, which rebuilds the
-    // SessionCapturer and in trace mode drops the whole run so far.
+    // The re-arm swaps the session's capture channels; the run's capturer and
+    // everything it has accumulated outlive every session it is pointed at.
     const { ctx, capturer } = makeCtx()
     const capturerRef = ctx.sessionCapturer
 

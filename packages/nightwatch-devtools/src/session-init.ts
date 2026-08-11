@@ -6,8 +6,8 @@
  * exposing only the fields and methods these helpers need.
  *
  * Includes:
- *   - Per-session bringup (capturer + reporter chain + metadata + BiDi + screencast)
- *   - Session-change cleanup
+ *   - Per-run bringup (capturer + reporter chain + metadata + BiDi + screencast)
+ *   - Re-targeting that one capturer when the session under it is replaced
  *   - Re-arming the per-session capture channels when a session is replaced
  *   - Screencast finalize-and-clear
  *
@@ -81,18 +81,6 @@ export interface SessionInitCtx {
   finalizeCurrentScreencast(): Promise<void>
 }
 
-async function handleSessionChange(ctx: SessionInitCtx): Promise<void> {
-  log.info('Browser session changed — reconnecting WebSocket only')
-  ctx.isScriptInjected = false
-  // Finalize the previous session's screencast BEFORE we tear down its
-  // capturer — encode + broadcast use the existing WS connection.
-  await ctx.finalizeCurrentScreencast()
-  ctx.sessionCapturer?.cleanup()
-  // Intentional null-out — the next call to ensureSessionInitialized
-  // reassigns. Cast through unknown so the strict field type passes.
-  ctx.sessionCapturer = null as unknown as SessionCapturer
-}
-
 function initReporterChain(ctx: SessionInitCtx): void {
   // First-time setup: create reporter chain once for the entire run.
   // These must NOT be recreated on session change — doing so generates a
@@ -126,20 +114,6 @@ function initReporterChain(ctx: SessionInitCtx): void {
   )
 }
 
-function rebindReporterToNewSession(ctx: SessionInitCtx): void {
-  // Session change: update the reporter's upstream callback to use the new
-  // WebSocket, update the proxy's capturer reference (avoids re-wrapping
-  // already-wrapped browser methods which would double-capture commands),
-  // then replay current suite state to the newly-connected UI.
-  ctx.testReporter.updateUpstream((suitesData) => {
-    if (ctx.sessionCapturer) {
-      ctx.sessionCapturer.sendUpstream('suites', suitesData)
-    }
-  })
-  ctx.browserProxy.updateSessionCapturer(ctx.sessionCapturer)
-  ctx.testReporter.updateSuites()
-}
-
 function broadcastSessionMetadata(
   ctx: SessionInitCtx,
   browser: NightwatchBrowser
@@ -165,6 +139,7 @@ function broadcastSessionMetadata(
     runner: ctx.runner,
     url: ''
   }
+  // Single-valued, so a run-spanning trace carries the LAST session's identity.
   ctx.sessionCapturer.metadata = metadata
   ctx.sessionCapturer.sendUpstream('metadata', metadata)
 
@@ -288,21 +263,20 @@ export function needsCaptureRearm(
 }
 
 /**
- * Re-arm BiDi and the collector preload after a mid-run `browser.end()` replaced
- * the session. Without it both are established exactly once, at bringup, and
- * sessions 2..N silently fall back to `<script>` injection — the whole
- * navigation race class the preload exists to remove comes back for the rest of
- * the run.
+ * Re-arm BiDi and the collector preload after the session was replaced. Without
+ * it both are established exactly once, at bringup, and sessions 2..N silently
+ * fall back to `<script>` injection — the whole navigation race class the
+ * preload exists to remove comes back for the rest of the run.
  *
- * Deliberately narrower than `handleSessionChange`, which also rebuilds the
- * SessionCapturer and would discard every command, console line, network entry
- * and mutation the run has accumulated. Fire-and-forget, because a command must
- * not wait on a BiDi handshake.
+ * The `needsCaptureRearm` guard is what makes it idempotent: the command hook
+ * and `ensureSessionInitialized` both detect the same replacement, and
+ * `armCaptureForSession` stamps `armedSessionId` before its first await, so
+ * whichever gets there first latches the other out.
  */
-export function rearmCaptureForSession(
+async function armReplacedSession(
   ctx: SessionInitCtx,
   browser: NightwatchBrowser
-): void {
+): Promise<void> {
   const sessionId = browser.sessionId ?? undefined
   if (!needsCaptureRearm(ctx, sessionId)) {
     return
@@ -315,9 +289,35 @@ export function rearmCaptureForSession(
   ctx.sessionCapturer.preloadRegistered = false
   ctx.sessionCapturer.bidiActive = false
   log.info(`Session replaced — re-arming capture for ${sessionId}`)
-  void armCaptureForSession(ctx, browser).catch((err) =>
+  await armCaptureForSession(ctx, browser)
+}
+
+/** Fire-and-forget {@link armReplacedSession}, for the command hook — a command
+ *  must not wait on a BiDi handshake. */
+export function rearmCaptureForSession(
+  ctx: SessionInitCtx,
+  browser: NightwatchBrowser
+): void {
+  void armReplacedSession(ctx, browser).catch((err) =>
     log.warn(`Capture re-arm failed: ${errorMessage(err)}`)
   )
+}
+
+/** Re-run the per-session bringup against a replaced session, keeping the run's
+ *  one capturer. Both halves are the guarded helpers the command hook uses, so a
+ *  replacement both paths see is armed and rotated once. */
+async function rebindSessionToBrowser(
+  ctx: SessionInitCtx,
+  browser: NightwatchBrowser
+): Promise<void> {
+  log.info('Browser session changed — re-targeting the run capturer')
+  // Also gates `wrapUrlMethod`, which is per browser OBJECT — cucumber hands
+  // over a new one per scenario.
+  ctx.isScriptInjected = false
+  broadcastSessionMetadata(ctx, browser)
+  await armReplacedSession(ctx, browser)
+  rotateScreencastForSession(ctx, browser)
+  await ctx.screencastRotation
 }
 
 export async function ensureSessionInitialized(
@@ -329,11 +329,14 @@ export async function ensureSessionInitialized(
     currentSessionId &&
     ctx.lastSessionId &&
     currentSessionId !== ctx.lastSessionId
-  if (isSessionChange) {
-    await handleSessionChange(ctx)
-  }
   ctx.lastSessionId = currentSessionId ?? null
   if (ctx.sessionCapturer) {
+    // Unconditional: cucumber hands over a new browser object per scenario, and
+    // a stale reference answers neither probe the capturer runs against it.
+    ctx.sessionCapturer.setBrowser(browser)
+    if (isSessionChange) {
+      await rebindSessionToBrowser(ctx, browser)
+    }
     return
   }
   await new Promise((resolve) =>
@@ -342,15 +345,7 @@ export async function ensureSessionInitialized(
   // Trace mode: empty opts skip SessionCapturerBase's WS init — no backend
   // to forward events to anyway.
   ctx.sessionCapturer = new SessionCapturer(
-    ctx.mode === 'trace'
-      ? {}
-      : {
-          port: ctx.port,
-          hostname: ctx.hostname,
-          // A session change reopens the WS mid-run — tell the backend to keep
-          // the accumulated run state so earlier tests' commands survive.
-          reconnect: Boolean(isSessionChange)
-        },
+    ctx.mode === 'trace' ? {} : { port: ctx.port, hostname: ctx.hostname },
     browser
   )
   ctx.sessionCapturer.traceMode = ctx.mode
@@ -361,11 +356,7 @@ export async function ensureSessionInitialized(
       log.error('❌ Worker WebSocket failed to connect!')
     }
   }
-  if (!ctx.testReporter) {
-    initReporterChain(ctx)
-  } else {
-    rebindReporterToNewSession(ctx)
-  }
+  initReporterChain(ctx)
   broadcastSessionMetadata(ctx, browser)
   await armCaptureForSession(ctx, browser)
   await startScreencast(ctx, browser, browser.sessionId)

@@ -10,13 +10,13 @@
  * `browser.end()` between `it`s. A command executing under a different
  * `sessionId` is the sole evidence the session was replaced.
  *
- * Rotation is deliberately narrower than `handleSessionChange`: that path also
- * rebuilds the SessionCapturer, which in trace mode would discard every command,
- * console line, network entry and mutation the run has accumulated. It leaves
- * `lastSessionId` alone for the same reason — that field is
- * `ensureSessionInitialized`'s own bookkeeping. The other half of a session
- * rebind, re-arming BiDi and the collector preload, hangs off the same detection
- * in `session-init.ts` `rearmCaptureForSession`.
+ * Rotation touches the recorder and nothing else — the run's SessionCapturer
+ * outlives every session it is pointed at. It leaves `lastSessionId` alone
+ * because that field is `ensureSessionInitialized`'s own bookkeeping. The other
+ * half of a session rebind, re-arming BiDi and the collector preload, hangs off
+ * the same detection in `session-init.ts` `rearmCaptureForSession`. Both halves
+ * are self-guarding, so `ensureSessionInitialized` reuses them for the session
+ * replacement it detects itself.
  */
 
 import logger from '@wdio/logger'

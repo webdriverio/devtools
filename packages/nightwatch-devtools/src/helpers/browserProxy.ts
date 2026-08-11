@@ -68,7 +68,7 @@ export class BrowserProxy {
   private browser: NightwatchBrowser | null = null
 
   constructor(
-    private sessionCapturer: SessionCapturer,
+    private readonly sessionCapturer: SessionCapturer,
     private testManager: TestManager,
     private getCurrentTest: () => { uid?: string } | null,
     private captureAssertions = true,
@@ -102,15 +102,6 @@ export class BrowserProxy {
    *  onto the same test the surrounding commands landed on. */
   rowTestUid(): string | undefined {
     return this.rowTest()?.uid
-  }
-
-  /**
-   * Update the session capturer reference after a WebDriver session change.
-   * Does NOT re-wrap browser methods — wrapping is permanent per browser object.
-   */
-  updateSessionCapturer(capturer: SessionCapturer): void {
-    this.sessionCapturer = capturer
-    this.assertRecorder.updateSessionCapturer(capturer)
   }
 
   /** Per-command-scope dedup state only. Cucumber calls this per STEP, so it
