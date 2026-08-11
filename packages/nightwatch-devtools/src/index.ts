@@ -397,7 +397,10 @@ class NightwatchDevToolsPlugin {
     if (this.options.captureAssertions) {
       wireAssertCapture(
         () => this.sessionCapturer,
-        () => this.#currentTestUid()
+        // Rows are tagged per-`it` (BrowserProxy.rowTestUid); `#currentTestUid`
+        // — the lifecycle test, which the BDD interface pins to the module's
+        // first `it` — is only the fallback, and stays the artifact/slice key.
+        () => this.browserProxy?.rowTestUid() ?? this.#currentTestUid()
       )
     }
   }

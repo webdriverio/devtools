@@ -59,6 +59,14 @@ export class BrowserProxy {
 
   private assertRecorder: NativeAssertRecorder
 
+  /**
+   * The browser every captured row is issued on. Nightwatch mutates ONE browser
+   * object in place — even across a mid-run session replacement — so this stays
+   * valid for the whole run, and it is how `browser.currentTest` is read from
+   * the assert path, which runs outside any command callback.
+   */
+  private browser: NightwatchBrowser | null = null
+
   constructor(
     private sessionCapturer: SessionCapturer,
     private testManager: TestManager,
@@ -68,9 +76,32 @@ export class BrowserProxy {
   ) {
     this.assertRecorder = new NativeAssertRecorder(
       sessionCapturer,
-      getCurrentTest,
+      () => this.rowTest(),
       () => this.issueCounter++
     )
+  }
+
+  /**
+   * The test a captured row belongs to: the `it` Nightwatch reports as running
+   * right now, falling back to the lifecycle test. On the BDD `describe/it`
+   * interface the lifecycle test is the module's FIRST `it` for every row in the
+   * file (its `beforeEach` fires once per module), so without the live read
+   * every command in the module carried one uid and the trace's action tree
+   * collapsed to a single test group. The fallback is what the runners with no
+   * per-testcase state keep using — cucumber has no `currentTest` at all.
+   */
+  private rowTest(): { uid?: string } | null {
+    return (
+      this.testManager.runningTest(this.browser?.currentTest) ??
+      this.getCurrentTest()
+    )
+  }
+
+  /** The uid rows are stamped with — see {@link rowTest}. Public so the
+   *  node:assert capture wiring, which has no command of its own, tags its rows
+   *  onto the same test the surrounding commands landed on. */
+  rowTestUid(): string | undefined {
+    return this.rowTest()?.uid
   }
 
   /**
@@ -204,6 +235,10 @@ export class BrowserProxy {
   }
 
   wrapBrowserCommands(browser: NightwatchBrowser): void {
+    // Held before the already-wrapped guard: the reference is what `rowTest`
+    // reads `currentTest` off, and a re-entry is exactly a run that never
+    // re-wraps.
+    this.browser = browser
     if (this.proxiedBrowsers.has(browser as object)) {
       return
     }
@@ -422,7 +457,7 @@ export class BrowserProxy {
       const serializedResult = commandError
         ? undefined
         : this.serializeAndAttributeResult(methodName, logArgs, callbackResult)
-      const effectiveUid = this.getCurrentTest()?.uid ?? testUid
+      const effectiveUid = this.rowTestUid() ?? testUid
       // Only surface commands that originate from a user-code frame. Commands
       // Nightwatch issues from inside its own queue (e.g. the getTitle a
       // `browser.assert.titleContains` runs) execute in a detached tick with no
@@ -539,7 +574,7 @@ export class BrowserProxy {
       hasUserSource,
       invokedAt,
       sequence,
-      this.getCurrentTest()?.uid,
+      this.rowTestUid(),
       userCallback
     )
     // Suppress screencast polling while this command may be dispatching input: a
@@ -570,7 +605,7 @@ export class BrowserProxy {
     error: unknown,
     callSource: string | undefined
   ): void {
-    const currentTest = this.getCurrentTest()
+    const currentTest = this.rowTest()
     if (!currentTest) {
       return
     }

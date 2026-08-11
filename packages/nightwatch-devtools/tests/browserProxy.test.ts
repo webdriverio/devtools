@@ -4,7 +4,9 @@ import type {
   CommandCaptureMeta,
   CommandLog,
   NightwatchBrowser,
-  NightwatchCurrentTest
+  NightwatchCurrentTest,
+  SuiteStats,
+  TestStats
 } from '../src/types.js'
 
 // browserProxy resolves the caller's source via this helper; stub it so each
@@ -16,6 +18,7 @@ const { getCallSourceFromStack } = vi.hoisted(() => ({
 vi.mock('../src/helpers/utils.js', () => ({ getCallSourceFromStack }))
 
 import { BrowserProxy } from '../src/helpers/browserProxy.js'
+import { findRunningTest } from '../src/helpers/runningTest.js'
 import { captureNativeAssertions } from '../src/helpers/nativeAssertions.js'
 import type { SessionCapturer } from '../src/session.js'
 import type { TestManager } from '../src/helpers/testManager.js'
@@ -66,10 +69,17 @@ function makeCapturer() {
   return { capturer, commandsLog, captureCommand, captureAssertCommand }
 }
 
-function makeTestManager() {
+/** `runningTest` answers "no per-`it` testcase" by default, which is the
+ *  cucumber/unparsed-spec shape: rows then fall back to the lifecycle test. */
+function makeTestManager(
+  runningTest?: (
+    currentTest: NightwatchCurrentTest | undefined
+  ) => TestStats | undefined
+) {
   return {
     detectTestBoundary: vi.fn(() => ''),
-    startTestIfPending: vi.fn()
+    startTestIfPending: vi.fn(),
+    runningTest: vi.fn(runningTest ?? (() => undefined))
   } as unknown as TestManager
 }
 
@@ -83,6 +93,107 @@ function makeBrowser() {
     }
   } as unknown as NightwatchBrowser
 }
+
+describe('BrowserProxy per-testcase row tagging', () => {
+  beforeEach(() => {
+    getCallSourceFromStack.mockReset()
+    getCallSourceFromStack.mockReturnValue({
+      filePath: '/tests/spec.js',
+      callSource: '/tests/spec.js:9'
+    })
+  })
+
+  const SUITE = {
+    uid: 'suite-uid',
+    title: 'smoke',
+    tests: [
+      { uid: 'uid-a', title: 'first it', state: 'pending' },
+      { uid: 'uid-b', title: 'second it', state: 'pending' }
+    ]
+  } as unknown as SuiteStats
+
+  /** Browser whose `currentTest` is live state the runner mutates per `it` —
+   *  Nightwatch installs it as a getter over the reporter's current testcase. */
+  function makeTestcaseBrowser() {
+    const browser = {
+      currentTest: { name: 'first it' } as NightwatchCurrentTest,
+      click: (...args: unknown[]) => {
+        const cb = args[args.length - 1]
+        if (typeof cb === 'function') {
+          ;(cb as (r: unknown) => void)({ value: null })
+        }
+        return undefined
+      },
+      assert: { urlContains: vi.fn() },
+      verify: { urlContains: vi.fn() }
+    } as unknown as NightwatchBrowser
+    return browser
+  }
+
+  function proxyOver(browser: NightwatchBrowser) {
+    const { capturer, commandsLog } = makeCapturer()
+    const proxy = new BrowserProxy(
+      capturer,
+      makeTestManager((currentTest) => findRunningTest(SUITE, currentTest)),
+      // The lifecycle test: on the BDD interface `beforeEach` fires once per
+      // module, so it is pinned to the FIRST `it` for the whole file.
+      () => ({ uid: 'uid-a' })
+    )
+    proxy.wrapBrowserCommands(browser)
+    return { proxy, commandsLog }
+  }
+
+  it('tags each command with the `it` Nightwatch is running, not the module’s first', () => {
+    const browser = makeTestcaseBrowser()
+    const { commandsLog } = proxyOver(browser)
+    const b = browser as unknown as Record<string, (...a: unknown[]) => unknown>
+
+    b.click('#a')
+    ;(browser.currentTest as NightwatchCurrentTest).name = 'second it'
+    b.click('#b')
+
+    expect(commandsLog.map((c) => c.testUid)).toEqual(['uid-a', 'uid-b'])
+  })
+
+  it('keeps one uid while the reported testcase is unchanged', () => {
+    const browser = makeTestcaseBrowser()
+    const { commandsLog } = proxyOver(browser)
+    const b = browser as unknown as Record<string, (...a: unknown[]) => unknown>
+
+    b.click('#a')
+    b.click('#b')
+
+    expect(commandsLog.map((c) => c.testUid)).toEqual(['uid-a', 'uid-a'])
+  })
+
+  it('tags a native assert buffered at call time with the running `it` too', () => {
+    // Assert rows are emitted in a test-end batch but positioned back on their
+    // real execution window, so a stale uid would reopen an earlier test's group
+    // in the middle of a later one.
+    const browser = makeTestcaseBrowser()
+    const { proxy } = proxyOver(browser)
+    ;(browser.currentTest as NightwatchCurrentTest).name = 'second it'
+    ;(
+      browser as unknown as { assert: { urlContains: (a: unknown) => unknown } }
+    ).assert.urlContains('/secure')
+
+    expect(proxy.drainNativeAssertCalls()[0].entry?.testUid).toBe('uid-b')
+  })
+
+  it('falls back to the lifecycle test when no testcase is reported (cucumber)', () => {
+    // Cucumber's client carries no `currentTest`; its rows stay on the
+    // per-scenario lifecycle test, which is what keeps its groups unchanged.
+    const browser = makeTestcaseBrowser()
+    ;(browser as { currentTest?: NightwatchCurrentTest }).currentTest =
+      undefined
+    const { commandsLog } = proxyOver(browser)
+    ;(browser as unknown as Record<string, (...a: unknown[]) => unknown>).click(
+      '#a'
+    )
+
+    expect(commandsLog[0].testUid).toBe('uid-a')
+  })
+})
 
 describe('BrowserProxy internal-command suppression', () => {
   beforeEach(() => {
