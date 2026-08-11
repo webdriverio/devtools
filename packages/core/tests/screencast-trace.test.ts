@@ -160,3 +160,39 @@ describe('accumulatedScreencastFrames', () => {
     expect(drained).toHaveLength(1)
   })
 })
+
+// A screenshot probe that answers a W3C error object instead of base64 used to
+// reach the exporter and throw inside Buffer.from, losing the run's whole trace
+// rather than one frame.
+describe('buildDenseScreencast malformed frames', () => {
+  const viewport = { width: 800, height: 600 }
+  const good = (data: string, timestamp: number) => ({ data, timestamp })
+
+  it('skips a frame whose data is not base64 text, keeping the rest', () => {
+    const frames = [
+      good('aGVsbG8=', 1000),
+      { data: { error: 'no such window' }, timestamp: 1200 },
+      good('d29ybGQ=', 1400)
+    ] as unknown as Parameters<typeof buildDenseScreencast>[0]
+
+    const { events, resources } = buildDenseScreencast(
+      frames,
+      'page@1',
+      1000,
+      viewport
+    )
+
+    expect(events).toHaveLength(2)
+    expect(resources).toHaveLength(2)
+  })
+
+  it('does not throw when every frame is malformed', () => {
+    const frames = [
+      { data: { error: 'no such window' }, timestamp: 1000 }
+    ] as unknown as Parameters<typeof buildDenseScreencast>[0]
+
+    expect(() =>
+      buildDenseScreencast(frames, 'page@1', 1000, viewport)
+    ).not.toThrow()
+  })
+})

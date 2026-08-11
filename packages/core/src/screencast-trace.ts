@@ -104,6 +104,12 @@ export function buildDenseScreencast(
   const resources: TraceZipResource[] = []
   const seen = new Set<string>()
   for (const frame of thinScreencastFrames(frames, options)) {
+    // One malformed frame must not cost the run its whole trace: a screenshot
+    // probe that answered a driver error object instead of base64 reached here
+    // and `Buffer.from` threw inside the export, losing every other event too.
+    if (typeof frame.data !== 'string' || !frame.data) {
+      continue
+    }
     const data = Buffer.from(frame.data, 'base64')
     const sha1 = createHash('sha1').update(data).digest('hex')
     const resourceName = `${sha1}.jpeg`

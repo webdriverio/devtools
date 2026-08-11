@@ -92,6 +92,18 @@ function sessionEndpoint(
   return `http://${driverHost}:${driverPort}/session/${sessionId}/${path}`
 }
 
+/** A W3C error payload: `value` carries `error`/`message` instead of the
+ *  command's result. Shape-checked rather than status-checked because chromedriver
+ *  answers some failures with a 200. */
+function isWebdriverError(value: unknown): boolean {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    !Array.isArray(value) &&
+    typeof (value as { error?: unknown }).error === 'string'
+  )
+}
+
 /** Resolves the W3C `value` field, or null on any transport/parse/timeout
  *  failure — a probe is best-effort and never fails the user's test. */
 function request<T>(
@@ -119,7 +131,13 @@ function request<T>(
         })
         res.on('end', () => {
           try {
-            resolve((JSON.parse(raw).value as T) ?? null)
+            const value = JSON.parse(raw).value
+            // A W3C error answers 200-shaped JSON whose `value` is
+            // `{error, message, stacktrace}` — an OBJECT where the caller
+            // expects its payload. Casting that through as `T` put an error
+            // object into a screencast frame's `data`, and the run's whole
+            // trace was then lost to `Buffer.from(object)` at export.
+            resolve(isWebdriverError(value) ? null : ((value as T) ?? null))
           } catch {
             log.warn(`Failed to parse response from ${endpoint}`)
             resolve(null)
