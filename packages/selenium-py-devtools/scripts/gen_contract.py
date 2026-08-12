@@ -87,7 +87,7 @@ def main() -> int:
         f"CONTROL_SCOPES = frozenset({sorted(control.values())!r})",
         "",
     ]
-    out = shared.parent / "selenium-py-devtools" / "src" / "wdio_selenium_devtools" / "_contract.py"
+    out = shared.parent / "selenium-py-devtools" / "src" / "devtools_selenium" / "_contract.py"
     out.write_text("\n".join(lines))
     print(f"wrote {out.relative_to(root)}  (contract v{version}, "
           f"{len(data_keys)} data scopes, {len(control)} control scopes)")

@@ -11,5 +11,5 @@ SCOPE_SCREENCAST = "screencast"
 SCOPE_SOURCES = "sources"
 SCOPE_MUTATIONS = "mutations"
 
-DATA_SCOPES = frozenset(['actionSnapshots', 'commands', 'config', 'consoleLogs', 'logs', 'metadata', 'mutations', 'networkRequests', 'screencast', 'sources', 'suites'])
+DATA_SCOPES = frozenset(['actionSnapshots', 'commands', 'config', 'consoleLogs', 'logs', 'metadata', 'mutations', 'networkRequests', 'screencast', 'screencastFrames', 'sources', 'suites'])
 CONTROL_SCOPES = frozenset(['clearCommands', 'clearExecutionData', 'clientConnected', 'clientDisconnected', 'config', 'replaceCommand', 'testStopped'])

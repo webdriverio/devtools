@@ -1,8 +1,8 @@
 import json
 import unittest
 
-from wdio_selenium_devtools import frames
-from wdio_selenium_devtools.utils import to_jsonable
+from devtools_selenium import frames
+from devtools_selenium.utils import to_jsonable
 
 
 class TestFrames(unittest.TestCase):

@@ -9,8 +9,8 @@ import threading
 import unittest
 from unittest import mock
 
-from wdio_selenium_devtools import lifecycle
-from wdio_selenium_devtools.lifecycle import BrowserHandle
+from devtools_selenium import lifecycle
+from devtools_selenium.lifecycle import BrowserHandle
 
 
 class FakeProc:

@@ -1,7 +1,7 @@
 """pytest plugin — feeds the suite/test tree to the dashboard.
 
 The analogue of the JS adapter's mocha/jest hooks. Inert unless the run opts in
-via ``WDIO_DEVTOOLS=1`` or ``DEVTOOLS_PORT=...`` so installing the package never
+via ``DEVTOOLS_ENABLE=1`` or ``DEVTOOLS_PORT=...`` so installing the package never
 hijacks an unrelated pytest run. On opt-in it enables capture at session start,
 stamps per-test timing, and re-sends the ``suites`` frame as each test reports.
 """
@@ -11,7 +11,7 @@ from __future__ import annotations
 import os
 from typing import Dict
 
-import wdio_selenium_devtools as devtools
+import devtools_selenium as devtools
 from . import frames
 from .constants import ENV_OPT_IN, ENV_PORT
 from .utils import now_ms
@@ -78,7 +78,7 @@ def pytest_configure(config) -> None:  # noqa: ANN001
         instrumentation.set_external_suites(True)
         url = devtools.dashboard_url()
         if capturer is not None and url:
-            print(f"\n[wdio-devtools] dashboard live at {url}\n")
+            print(f"\n[devtools] dashboard live at {url}\n")
 
 
 def pytest_runtest_logstart(nodeid, location) -> None:  # noqa: ANN001
@@ -112,12 +112,12 @@ def pytest_sessionfinish(session, exitstatus) -> None:  # noqa: ANN001
         capturer.send_suites(_registry.snapshot())
     # Keep the dashboard open for inspection after the run — exit when the user
     # closes the window (clientDisconnected). Only when we actually opened a
-    # window; CI (WDIO_DEVTOOLS_OPEN=0) tears down immediately.
+    # window; CI (DEVTOOLS_OPEN=0) tears down immediately.
     from . import lifecycle
 
     if lifecycle.dashboard_window_open():
         print(
-            "\n[wdio-devtools] dashboard is live — close the window to finish "
+            "\n[devtools] dashboard is live — close the window to finish "
             "(Ctrl-C also works).\n"
         )
         lifecycle.wait_for_shutdown()

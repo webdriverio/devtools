@@ -2,7 +2,7 @@ import io
 import sys
 import unittest
 
-from wdio_selenium_devtools.terminal import TerminalCapturer, _TeeStream
+from devtools_selenium.terminal import TerminalCapturer, _TeeStream
 
 
 class FakeCapturer:
@@ -32,7 +32,7 @@ class TestTee(unittest.TestCase):
     def test_skips_self_prefixed_and_blank_lines(self):
         emitted = []
         tee = _TeeStream(io.StringIO(), emitted.append)
-        tee.write("[wdio-devtools] internal\n\n   \nreal line\n")
+        tee.write("[devtools] internal\n\n   \nreal line\n")
         self.assertEqual(emitted, ["real line"])
 
     def test_delegates_unknown_attrs(self):

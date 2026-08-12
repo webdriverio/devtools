@@ -53,7 +53,7 @@ _QUIET_ERRORS = ("ECONNREFUSED", "no such session", "invalid session id")
 
 
 def _warn(message: str) -> None:
-    print(f"[wdio-devtools] snapshot: {message}", file=sys.stderr)
+    print(f"[devtools] snapshot: {message}", file=sys.stderr)
 
 
 def _is_quiet_error(exc: BaseException) -> bool:

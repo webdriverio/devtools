@@ -1,7 +1,7 @@
 import logging
 import unittest
 
-from wdio_selenium_devtools.logcapture import (
+from devtools_selenium.logcapture import (
     LOGGER_NAME,
     LogCapturer,
     _DashboardHandler,

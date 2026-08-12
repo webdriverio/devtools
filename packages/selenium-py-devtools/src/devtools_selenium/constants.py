@@ -15,9 +15,9 @@ CONNECT_TIMEOUT_S = 5.0
 ENV_HOST = "DEVTOOLS_HOST"
 ENV_PORT = "DEVTOOLS_PORT"
 ENV_BACKEND_CMD = "DEVTOOLS_BACKEND_CMD"
-ENV_OPT_IN = "WDIO_DEVTOOLS"
-ENV_BIDI = "WDIO_DEVTOOLS_BIDI"  # "0"/"false"/"no"/"off" disables BiDi auto-enable
-ENV_OPEN = "WDIO_DEVTOOLS_OPEN"  # "0"/"false"/"no"/"off" disables dashboard auto-open
+ENV_OPT_IN = "DEVTOOLS_ENABLE"
+ENV_BIDI = "DEVTOOLS_BIDI"  # "0"/"false"/"no"/"off" disables BiDi auto-enable
+ENV_OPEN = "DEVTOOLS_OPEN"  # "0"/"false"/"no"/"off" disables dashboard auto-open
 
 # ── Backend launch ───────────────────────────────────────────────────────────
 # Pinned backend version fetched via npx from a published install. There is no

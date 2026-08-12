@@ -1,7 +1,7 @@
 import unittest
 
-from wdio_selenium_devtools import instrumentation
-from wdio_selenium_devtools.capturer import SessionCapturer
+from devtools_selenium import instrumentation
+from devtools_selenium.capturer import SessionCapturer
 
 
 class FakeTransport:

@@ -35,6 +35,6 @@ jobs:
       - name: Contract is in sync with shared
         run: |
           python scripts/gen_contract.py
-          git diff --exit-code src/wdio_selenium_devtools/_contract.py
+          git diff --exit-code src/devtools_selenium/_contract.py
       - name: 🧪 Unit tests
         run: PYTHONPATH=src python -m unittest discover -s tests

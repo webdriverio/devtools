@@ -40,7 +40,7 @@ ScreenshotFn = Callable[[], Optional[str]]
 
 
 def _warn(message: str) -> None:
-    print(f"[wdio-devtools] screencast: {message}", file=sys.stderr)
+    print(f"[devtools] screencast: {message}", file=sys.stderr)
 
 
 class ScreencastRecorder:

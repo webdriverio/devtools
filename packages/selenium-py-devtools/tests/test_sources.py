@@ -2,7 +2,7 @@ import os
 import tempfile
 import unittest
 
-from wdio_selenium_devtools import sources
+from devtools_selenium import sources
 
 
 class TestReadSource(unittest.TestCase):

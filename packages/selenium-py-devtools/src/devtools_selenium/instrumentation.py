@@ -27,7 +27,7 @@ from .sources import read_source
 from .utils import call_source, now_ms
 
 # Operational logging — surfaced in the dashboard Console (the 'runner' stream).
-_log = logging.getLogger("wdio_selenium_devtools")
+_log = logging.getLogger("devtools_selenium")
 
 # Marks the adapter's OWN execute_script calls (snapshot inject/readback) so
 # patched_execute skips capturing them as user commands.
@@ -209,7 +209,7 @@ def _enable_bidi_capability(params: Any) -> None:
     """Request BiDi at session creation by injecting ``webSocketUrl`` into the
     newSession capabilities — the one point (before the session exists) where we
     can. This makes console/network capture work out-of-box, matching the JS
-    adapters. Opt out with ``WDIO_DEVTOOLS_BIDI=0``. Never blocks a session."""
+    adapters. Opt out with ``DEVTOOLS_BIDI=0``. Never blocks a session."""
     if os.environ.get(ENV_BIDI, "").strip().lower() in ("0", "false", "no", "off"):
         return
     try:

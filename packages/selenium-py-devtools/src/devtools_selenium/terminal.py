@@ -4,7 +4,7 @@ browser logs. ``logging`` output is handled separately by ``logcapture`` (it
 usually goes to stderr), so we tee stdout only to avoid double-capturing logs.
 
 Tees stdout (still writes to the real terminal) and splits on newlines. The
-adapter's own ``[wdio-devtools]`` lines are skipped so they don't echo back.
+adapter's own ``[devtools]`` lines are skipped so they don't echo back.
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ import threading
 from typing import Any, Callable, Optional
 
 # The adapter's own log lines carry this prefix — never re-capture them.
-_SELF_PREFIX = "[wdio-devtools]"
+_SELF_PREFIX = "[devtools]"
 
 
 class _TeeStream:

@@ -50,7 +50,7 @@ _MACOS_CHROME_CANDIDATES = (
 
 
 def _log(msg: str) -> None:
-    print(f"[wdio-devtools] {msg}", file=sys.stderr)
+    print(f"[devtools] {msg}", file=sys.stderr)
 
 
 # ── Browser handle ───────────────────────────────────────────────────────────
@@ -147,14 +147,14 @@ _FALSY = ("0", "false", "no", "off", "")
 def auto_open_enabled() -> bool:
     """Whether the dashboard window should auto-open. Default ON, opt-out only.
 
-    Rule: open unless ``WDIO_DEVTOOLS_OPEN`` is set to a falsy value
+    Rule: open unless ``DEVTOOLS_OPEN`` is set to a falsy value
     (``0``/``false``/``no``/``off``/empty). This matches the JS adapters, whose
     ``openUi`` option defaults true regardless of TTY.
 
     The previous "default off when stdout isn't a TTY" gate silently disabled
     auto-open for the common case — running from an IDE or ``python demo.py``
     with no attached TTY — so the user opened the URL in their main Chrome
-    instead. CI/headless runs disable it explicitly with ``WDIO_DEVTOOLS_OPEN=0``.
+    instead. CI/headless runs disable it explicitly with ``DEVTOOLS_OPEN=0``.
     """
     val = os.environ.get(ENV_OPEN)
     if val is None:

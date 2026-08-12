@@ -1,12 +1,12 @@
 """A normal Selenium (Python) test — with WebdriverIO DevTools added.
 
 Only two lines differ from a plain Selenium script (marked ← devtools):
-``import wdio_selenium_devtools`` and ``devtools.enable()``. Everything the
+``import devtools_selenium`` and ``devtools.enable()``. Everything the
 driver does is then captured and shown live in the DevTools dashboard.
 
 Run it:
 
-    pip install wdio-selenium-devtools selenium
+    pip install devtools-selenium selenium
     python examples/selenium/python-test/web_form.py
 
 The dashboard opens in a dedicated window and captures every command. It stays
@@ -16,7 +16,7 @@ ChromeDriver matching your Chrome (Selenium 4.6+ auto-manages one if none is on
 PATH).
 """
 
-import wdio_selenium_devtools as devtools  # ← devtools
+import devtools_selenium as devtools  # ← devtools
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By

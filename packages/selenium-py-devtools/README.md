@@ -1,4 +1,4 @@
-# wdio-selenium-devtools (Python)
+# devtools-selenium (Python)
 
 Python Selenium adapter for the WebdriverIO DevTools dashboard — the fourth
 adapter alongside the JS WebdriverIO / Nightwatch / Selenium-JS ones. It feeds
@@ -13,7 +13,7 @@ tears down with the run. Verified against real headless Chrome. See
 ## Install (dev)
 
 ```bash
-pip install -e packages/selenium-py-devtools   # or: pip install wdio-selenium-devtools (when published)
+pip install -e packages/selenium-py-devtools   # or: pip install devtools-selenium (when published)
 ```
 
 The transport is **dependency-free** (stdlib WebSocket client). The only thing
@@ -24,7 +24,7 @@ on top of your own `selenium` install is this package; `pytest` is optional.
 **With pytest (recommended) — no code changes to your tests:**
 
 ```bash
-WDIO_DEVTOOLS=1 pytest tests/       # DEVTOOLS_PORT=<n> also opts in (and attaches)
+DEVTOOLS_ENABLE=1 pytest tests/       # DEVTOOLS_PORT=<n> also opts in (and attaches)
 ```
 
 The bundled plugin auto-captures the run, opens the dashboard in a dedicated
@@ -35,7 +35,7 @@ window (or Ctrl-C) to finish. Nothing devtools-specific goes in your test files.
 script (`devtools.enable()` + `devtools.wait_for_dashboard_close()`):
 
 ```python
-import wdio_selenium_devtools as devtools
+import devtools_selenium as devtools
 
 devtools.enable()                     # open dashboard + capture every command
 # ... your normal selenium code, ending with driver.quit() ...
@@ -43,7 +43,9 @@ devtools.wait_for_dashboard_close()   # keep the UI open to inspect (no-op if he
 devtools.disable()
 ```
 
-Runnable example: [`examples/selenium/python-test/web_form.py`](../../examples/selenium/python-test/web_form.py).
+Runnable examples: [`web_form_minimal.py`](../../examples/selenium/python-test/web_form_minimal.py)
+is the three-line version above; [`web_form.py`](../../examples/selenium/python-test/web_form.py)
+is the fuller one (headless, sized viewport, explicit `disable()`).
 If the backend can't be launched or reached, `enable()` warns and returns
 `None` — capture is skipped, your tests still run.
 
@@ -69,7 +71,7 @@ delegate to `self._parent.execute`, so the one wrapper sees them as
 
 **BiDi is auto-enabled** — the adapter injects the `webSocketUrl` capability
 into the `newSession` request so console/network work out-of-box (opt out with
-`WDIO_DEVTOOLS_BIDI=0`). **Screencast** needs `ffmpeg` on PATH to encode the
+`DEVTOOLS_BIDI=0`). **Screencast** needs `ffmpeg` on PATH to encode the
 `.webm`; without it, recording is skipped (one warning, no error).
 
 ## Dashboard window lifecycle
@@ -77,12 +79,12 @@ into the `newSession` request so console/network work out-of-box (opt out with
 Like the JS adapters, `enable()` opens the dashboard in a dedicated, closable
 Chrome window; closing that window (backend `clientDisconnected`) shuts the run
 down, and ending the process (exit / Ctrl-C) closes the window. Auto-open is on
-when stdout is a TTY; force it with `WDIO_DEVTOOLS_OPEN=1` or disable with `=0`.
+when stdout is a TTY; force it with `DEVTOOLS_OPEN=1` or disable with `=0`.
 
 ## Layout
 
 ```
-src/wdio_selenium_devtools/
+src/devtools_selenium/
   __init__.py         public API — enable() / disable() / get_capturer()
   constants.py        defaults, env-var names, skip sets, pinned backend version
   types.py            TypedDicts for the wire payloads (mirror packages/shared)
@@ -111,7 +113,7 @@ coupling is handled explicitly rather than via a `workspace:^`-style resolver:
 
 | | Local (monorepo) | Published |
 |---|---|---|
-| **Adapter** (this package) | `pip install -e` | PyPI: `pip install wdio-selenium-devtools` |
+| **Adapter** (this package) | `pip install -e` | PyPI: `pip install devtools-selenium` |
 | **Backend + UI** (Node) | `node packages/backend/dist/index.js` | npm: `npx @wdio/devtools-backend@<pinned>` |
 | **Wire contract** (`shared`) | regenerated into `_contract.py` | the generated `_contract.py` ships in the wheel |
 
@@ -142,7 +144,7 @@ PYTHONPATH=src python3 -m unittest discover -s tests -v
 
 # e2e (needs selenium + a running backend; Selenium Manager fetches the driver):
 DEVTOOLS_PORT=3000 PYTHONPATH=src python3 e2e_check.py
-DEVTOOLS_PORT=3000 PYTHONPATH=src pytest e2e/test_smoke.py -p wdio_selenium_devtools.pytest_plugin -q
+DEVTOOLS_PORT=3000 PYTHONPATH=src pytest e2e/test_smoke.py -p devtools_selenium.pytest_plugin -q
 ```
 
 ## Release (approach A)
@@ -163,7 +165,7 @@ The wheel does **not** bundle the backend — approach A fetches a pinned
 **One-time setup before the first publish** (this is what claims the PyPI name):
 
 1. On PyPI, add a **pending trusted publisher** for project
-   `wdio-selenium-devtools` → owner `webdriverio`, repo `devtools`, workflow
+   `devtools-selenium` → owner `webdriverio`, repo `devtools`, workflow
    `python-release.yml`, environment `pypi` (repeat on TestPyPI with env
    `testpypi` if you want a dry run first).
 2. Create matching GitHub **Environments** `pypi` (and `testpypi`).

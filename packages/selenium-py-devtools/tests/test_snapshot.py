@@ -2,8 +2,8 @@ import os
 import tempfile
 import unittest
 
-from wdio_selenium_devtools import snapshot
-from wdio_selenium_devtools.snapshot import (
+from devtools_selenium import snapshot
+from devtools_selenium.snapshot import (
     SnapshotCapturer,
     load_injectable_script,
     normalize_mutations,

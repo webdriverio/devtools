@@ -33,7 +33,7 @@ from .utils import now_ms
 
 
 def _warn(message: str) -> None:
-    print(f"[wdio-devtools] BiDi: {message}", file=sys.stderr)
+    print(f"[devtools] BiDi: {message}", file=sys.stderr)
 
 
 # ── pure mapping helpers (no selenium) ───────────────────────────────────────

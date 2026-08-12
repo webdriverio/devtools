@@ -1,14 +1,14 @@
-"""wdio-selenium-devtools — Python Selenium adapter for the DevTools dashboard.
+"""devtools-selenium — Python Selenium adapter for the DevTools dashboard.
 
 Public API:
 
-    import wdio_selenium_devtools as devtools
+    import devtools_selenium as devtools
     devtools.enable()          # connect + instrument; reads DEVTOOLS_HOST/PORT
     ...  run selenium ...
     devtools.disable()
 
 Under pytest, the bundled plugin calls these for you (gated on the
-``WDIO_DEVTOOLS`` / ``DEVTOOLS_PORT`` env vars). The transport has no
+``DEVTOOLS_ENABLE`` / ``DEVTOOLS_PORT`` env vars). The transport has no
 third-party dependency; the only requirement on top is selenium itself.
 """
 
@@ -63,7 +63,7 @@ def enable(
         else:
             host, port, process = backend.launch_or_attach()
     except (OSError, RuntimeError, TimeoutError) as exc:
-        print(f"[wdio-devtools] could not start dashboard ({exc}); "
+        print(f"[devtools] could not start dashboard ({exc}); "
               f"continuing without capture", file=sys.stderr)
         return None
 
@@ -72,7 +72,7 @@ def enable(
         transport.connect()
     except OSError as exc:
         print(
-            f"[wdio-devtools] dashboard not reachable at {host}:{port} "
+            f"[devtools] dashboard not reachable at {host}:{port} "
             f"({exc}); continuing without capture",
             file=sys.stderr,
         )
@@ -143,6 +143,6 @@ def wait_for_dashboard_close() -> None:
     run after your test finishes. Returns immediately if no dashboard window is
     open (headless/CI) — safe to always call before ``disable()``."""
     if lifecycle.dashboard_window_open():
-        print(f"[wdio-devtools] dashboard live at {dashboard_url()} — "
+        print(f"[devtools] dashboard live at {dashboard_url()} — "
               "close the window to finish.", file=sys.stderr)
         lifecycle.wait_for_shutdown()
