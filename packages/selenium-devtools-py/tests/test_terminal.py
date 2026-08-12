@@ -2,7 +2,7 @@ import io
 import sys
 import unittest
 
-from devtools_selenium.terminal import TerminalCapturer, _TeeStream
+from selenium_devtools.terminal import TerminalCapturer, _TeeStream
 
 
 class FakeCapturer:

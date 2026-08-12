@@ -14,7 +14,7 @@ serving. ``web_form.py`` next door is the fuller variant (headless, sized
 viewport, explicit teardown).
 """
 
-import devtools_selenium as devtools
+import selenium_devtools as devtools
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 

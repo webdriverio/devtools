@@ -13,7 +13,7 @@ import logging
 from typing import Any, Dict
 
 #: The adapter's logger name — operational events are logged under it.
-LOGGER_NAME = "devtools_selenium"
+LOGGER_NAME = "selenium_devtools"
 
 _LEVEL_MAP = {
     logging.DEBUG: "debug",

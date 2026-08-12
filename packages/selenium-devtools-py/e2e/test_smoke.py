@@ -2,7 +2,7 @@
 
 Run against a running backend:
     DEVTOOLS_PORT=63763 PYTHONPATH=src \
-      pytest e2e/test_smoke.py -p devtools_selenium.pytest_plugin -q
+      pytest e2e/test_smoke.py -p selenium_devtools.pytest_plugin -q
 
 Uses a data: URL so it needs no network.
 """

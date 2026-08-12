@@ -2,7 +2,7 @@ name: Manual PyPI Publish
 
 # Mirrors release.yml's manual, button-triggered shape for the Python adapter.
 # Unlike npm (NPM_TOKEN), PyPI uses trusted publishing (OIDC) — no secret.
-# Bump the version in packages/selenium-py-devtools/pyproject.toml before running.
+# Bump the version in packages/selenium-devtools-py/pyproject.toml before running.
 
 on:
   workflow_dispatch:
@@ -18,7 +18,7 @@ on:
 
 defaults:
   run:
-    working-directory: packages/selenium-py-devtools
+    working-directory: packages/selenium-devtools-py
 
 jobs:
   release:
@@ -43,10 +43,10 @@ jobs:
         if: ${{ inputs.target == 'pypi' }}
         uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # release/v1
         with:
-          packages-dir: packages/selenium-py-devtools/dist
+          packages-dir: packages/selenium-devtools-py/dist
       - name: 🚀 Publish to TestPyPI
         if: ${{ inputs.target == 'testpypi' }}
         uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # release/v1
         with:
-          packages-dir: packages/selenium-py-devtools/dist
+          packages-dir: packages/selenium-devtools-py/dist
           repository-url: https://test.pypi.org/legacy/

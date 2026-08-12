@@ -1,6 +1,6 @@
 import unittest
 
-from devtools_selenium.capturer import SessionCapturer
+from selenium_devtools.capturer import SessionCapturer
 
 
 class FakeTransport:

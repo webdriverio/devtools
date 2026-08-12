@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from devtools_selenium import backend
+from selenium_devtools import backend
 
 
 class TestBackendResolution(unittest.TestCase):

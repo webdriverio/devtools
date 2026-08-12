@@ -5,12 +5,12 @@ on:
     branches:
       - main
     paths:
-      - packages/selenium-py-devtools/**
+      - packages/selenium-devtools-py/**
       - packages/shared/**
       - .github/workflows/python.yml
   pull_request:
     paths:
-      - packages/selenium-py-devtools/**
+      - packages/selenium-devtools-py/**
       - packages/shared/**
       - .github/workflows/python.yml
 
@@ -19,7 +19,7 @@ permissions:
 
 defaults:
   run:
-    working-directory: packages/selenium-py-devtools
+    working-directory: packages/selenium-devtools-py
 
 jobs:
   test:
@@ -35,6 +35,6 @@ jobs:
       - name: Contract is in sync with shared
         run: |
           python scripts/gen_contract.py
-          git diff --exit-code src/devtools_selenium/_contract.py
+          git diff --exit-code src/selenium_devtools/_contract.py
       - name: 🧪 Unit tests
         run: PYTHONPATH=src python -m unittest discover -s tests

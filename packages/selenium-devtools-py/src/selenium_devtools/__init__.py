@@ -1,8 +1,8 @@
-"""devtools-selenium — Python Selenium adapter for the DevTools dashboard.
+"""selenium-devtools-py — Python Selenium adapter for the DevTools dashboard.
 
 Public API:
 
-    import devtools_selenium as devtools
+    import selenium_devtools as devtools
     devtools.enable()          # connect + instrument; reads DEVTOOLS_HOST/PORT
     ...  run selenium ...
     devtools.disable()

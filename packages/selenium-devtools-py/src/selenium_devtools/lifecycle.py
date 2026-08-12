@@ -126,7 +126,7 @@ def _default_opener(url: str) -> BrowserHandle:
         _log(f"Chrome not found; open the dashboard manually: {url}")
         return BrowserHandle()
 
-    user_data_dir = tempfile.mkdtemp(prefix="selenium-py-devtools-ui-")
+    user_data_dir = tempfile.mkdtemp(prefix="selenium-devtools-py-ui-")
     args = [
         chrome,
         f"--user-data-dir={user_data_dir}",  # forces a separate Chrome instance

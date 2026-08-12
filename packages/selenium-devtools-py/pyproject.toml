@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "devtools-selenium"
+name = "selenium-devtools-py"
 version = "0.1.0"
 description = "Python Selenium adapter for the WebdriverIO DevTools dashboard"
 readme = "README.md"
@@ -22,7 +22,7 @@ test = ["pytest>=7", "selenium>=4.6"]
 
 # Auto-discovered by pytest; inert unless DEVTOOLS_ENABLE / DEVTOOLS_PORT is set.
 [project.entry-points.pytest11]
-devtools_selenium = "devtools_selenium.pytest_plugin"
+selenium_devtools = "selenium_devtools.pytest_plugin"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/devtools_selenium"]
+packages = ["src/selenium_devtools"]

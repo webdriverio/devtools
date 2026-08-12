@@ -1,7 +1,7 @@
 import threading
 import unittest
 
-from devtools_selenium.transport import WSClient
+from selenium_devtools.transport import WSClient
 
 
 class TestClose(unittest.TestCase):

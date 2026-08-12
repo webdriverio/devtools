@@ -9,8 +9,8 @@ import threading
 import unittest
 from unittest import mock
 
-from devtools_selenium import lifecycle
-from devtools_selenium.lifecycle import BrowserHandle
+from selenium_devtools import lifecycle
+from selenium_devtools.lifecycle import BrowserHandle
 
 
 class FakeProc:
@@ -89,7 +89,7 @@ class TestDefaultOpener(unittest.TestCase):
                 lifecycle, "_find_chrome", return_value="/fake/Chrome"), \
                 mock.patch.object(
                     lifecycle.tempfile, "mkdtemp",
-                    return_value="/tmp/selenium-py-devtools-ui-x"), \
+                    return_value="/tmp/selenium-devtools-py-ui-x"), \
                 mock.patch.object(
                     lifecycle.subprocess, "Popen",
                     return_value=fake_proc) as popen:
@@ -99,7 +99,7 @@ class TestDefaultOpener(unittest.TestCase):
         # A distinct --user-data-dir is what forces a separate Chrome instance
         # (cannot merge into the user's running Chrome).
         self.assertIn(
-            "--user-data-dir=/tmp/selenium-py-devtools-ui-x", args)
+            "--user-data-dir=/tmp/selenium-devtools-py-ui-x", args)
         self.assertIn("--new-window", args)
         self.assertIn("--app=http://localhost:3000", args)
         self.assertEqual(args[0], "/fake/Chrome")
@@ -107,7 +107,7 @@ class TestDefaultOpener(unittest.TestCase):
         self.assertNotIn("http://localhost:3000", args)
         self.assertIs(handle.proc, fake_proc)
         self.assertEqual(
-            handle.user_data_dir, "/tmp/selenium-py-devtools-ui-x")
+            handle.user_data_dir, "/tmp/selenium-devtools-py-ui-x")
 
     def test_chrome_not_found_returns_empty_handle_without_spawning(self):
         with mock.patch.object(lifecycle, "_find_chrome", return_value=None), \

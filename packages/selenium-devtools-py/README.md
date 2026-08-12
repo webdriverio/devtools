@@ -1,4 +1,4 @@
-# devtools-selenium (Python)
+# selenium-devtools-py (Python)
 
 Python Selenium adapter for the WebdriverIO DevTools dashboard — the fourth
 adapter alongside the JS WebdriverIO / Nightwatch / Selenium-JS ones. It feeds
@@ -13,7 +13,7 @@ tears down with the run. Verified against real headless Chrome. See
 ## Install (dev)
 
 ```bash
-pip install -e packages/selenium-py-devtools   # or: pip install devtools-selenium (when published)
+pip install -e packages/selenium-devtools-py   # or: pip install selenium-devtools-py (when published)
 ```
 
 The transport is **dependency-free** (stdlib WebSocket client). The only thing
@@ -35,7 +35,7 @@ window (or Ctrl-C) to finish. Nothing devtools-specific goes in your test files.
 script (`devtools.enable()` + `devtools.wait_for_dashboard_close()`):
 
 ```python
-import devtools_selenium as devtools
+import selenium_devtools as devtools
 
 devtools.enable()                     # open dashboard + capture every command
 # ... your normal selenium code, ending with driver.quit() ...
@@ -84,7 +84,7 @@ when stdout is a TTY; force it with `DEVTOOLS_OPEN=1` or disable with `=0`.
 ## Layout
 
 ```
-src/devtools_selenium/
+src/selenium_devtools/
   __init__.py         public API — enable() / disable() / get_capturer()
   constants.py        defaults, env-var names, skip sets, pinned backend version
   types.py            TypedDicts for the wire payloads (mirror packages/shared)
@@ -113,7 +113,7 @@ coupling is handled explicitly rather than via a `workspace:^`-style resolver:
 
 | | Local (monorepo) | Published |
 |---|---|---|
-| **Adapter** (this package) | `pip install -e` | PyPI: `pip install devtools-selenium` |
+| **Adapter** (this package) | `pip install -e` | PyPI: `pip install selenium-devtools-py` |
 | **Backend + UI** (Node) | `node packages/backend/dist/index.js` | npm: `npx @wdio/devtools-backend@<pinned>` |
 | **Wire contract** (`shared`) | regenerated into `_contract.py` | the generated `_contract.py` ships in the wheel |
 
@@ -130,7 +130,7 @@ no auto-resolution, so it's bumped deliberately alongside a contract change.
 Regenerate the contract after any change to `packages/shared`:
 
 ```bash
-python3 packages/selenium-py-devtools/scripts/gen_contract.py
+python3 packages/selenium-devtools-py/scripts/gen_contract.py
 ```
 
 It fails loudly if a scope the adapter needs disappeared from `shared` — a
@@ -144,7 +144,7 @@ PYTHONPATH=src python3 -m unittest discover -s tests -v
 
 # e2e (needs selenium + a running backend; Selenium Manager fetches the driver):
 DEVTOOLS_PORT=3000 PYTHONPATH=src python3 e2e_check.py
-DEVTOOLS_PORT=3000 PYTHONPATH=src pytest e2e/test_smoke.py -p devtools_selenium.pytest_plugin -q
+DEVTOOLS_PORT=3000 PYTHONPATH=src pytest e2e/test_smoke.py -p selenium_devtools.pytest_plugin -q
 ```
 
 ## Release (approach A)
@@ -165,7 +165,7 @@ The wheel does **not** bundle the backend — approach A fetches a pinned
 **One-time setup before the first publish** (this is what claims the PyPI name):
 
 1. On PyPI, add a **pending trusted publisher** for project
-   `devtools-selenium` → owner `webdriverio`, repo `devtools`, workflow
+   `selenium-devtools-py` → owner `webdriverio`, repo `devtools`, workflow
    `python-release.yml`, environment `pypi` (repeat on TestPyPI with env
    `testpypi` if you want a dry run first).
 2. Create matching GitHub **Environments** `pypi` (and `testpypi`).

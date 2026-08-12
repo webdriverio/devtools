@@ -11,7 +11,7 @@ from __future__ import annotations
 import os
 from typing import Dict
 
-import devtools_selenium as devtools
+import selenium_devtools as devtools
 from . import frames
 from .constants import ENV_OPT_IN, ENV_PORT
 from .utils import now_ms

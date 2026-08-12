@@ -1,7 +1,7 @@
 import logging
 import unittest
 
-from devtools_selenium.logcapture import (
+from selenium_devtools.logcapture import (
     LOGGER_NAME,
     LogCapturer,
     _DashboardHandler,

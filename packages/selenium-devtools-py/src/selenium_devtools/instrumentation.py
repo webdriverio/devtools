@@ -27,7 +27,7 @@ from .sources import read_source
 from .utils import call_source, now_ms
 
 # Operational logging — surfaced in the dashboard Console (the 'runner' stream).
-_log = logging.getLogger("devtools_selenium")
+_log = logging.getLogger("selenium_devtools")
 
 # Marks the adapter's OWN execute_script calls (snapshot inject/readback) so
 # patched_execute skips capturing them as user commands.

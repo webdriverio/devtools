@@ -3,8 +3,8 @@ import shutil
 import tempfile
 import unittest
 
-from devtools_selenium.capturer import SessionCapturer
-from devtools_selenium.screencast import ScreencastRecorder
+from selenium_devtools.capturer import SessionCapturer
+from selenium_devtools.screencast import ScreencastRecorder
 
 # 16x16 PNG — a real decodable frame with even dimensions so libvpx/yuv420p can
 # actually encode a video (odd/1px dimensions make ffmpeg reject the stream).

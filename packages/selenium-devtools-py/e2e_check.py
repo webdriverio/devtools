@@ -10,7 +10,7 @@ Uses a data: URL so it needs no network.
 import sys
 import time
 
-import devtools_selenium as devtools
+import selenium_devtools as devtools
 
 PAGE = "data:text/html,<h1>Hello DevTools</h1><a href='%23x'>link</a>"
 
