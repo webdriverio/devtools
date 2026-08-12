@@ -14,6 +14,9 @@ on:
       - packages/shared/**
       - .github/workflows/python.yml
 
+permissions:
+  contents: read
+
 defaults:
   run:
     working-directory: packages/selenium-py-devtools
