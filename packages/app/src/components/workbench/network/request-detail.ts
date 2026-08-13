@@ -107,12 +107,16 @@ function generalSection(req: NetworkRequest) {
           `kind-${kind}`
         )}
         ${kv('Type', contentType(req))}
-        ${typeof req.time === 'number'
-          ? kv('Time', formatTime(req.time))
-          : nothing}
-        ${typeof req.size === 'number'
-          ? kv('Size', formatTransferSize(req.size))
-          : nothing}
+        ${
+          typeof req.time === 'number'
+            ? kv('Time', formatTime(req.time))
+            : nothing
+        }
+        ${
+          typeof req.size === 'number'
+            ? kv('Size', formatTransferSize(req.size))
+            : nothing
+        }
         ${req.error ? kv('Error', req.error, 'kind-error') : nothing}
       </div>
     </div>

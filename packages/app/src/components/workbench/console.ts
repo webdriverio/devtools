@@ -269,9 +269,11 @@ export class DevtoolsConsoleLogs extends Element {
       <div class="log-entry log-type-${log.type}">
         <div class="log-time">${this.#formatElapsedTime(log.timestamp)}</div>
         <div class="log-icon">${icon}</div>
-        ${badge
-          ? html`<span class="log-badge ${badge.class}">${badge.label}</span>`
-          : html`<span></span>`}
+        ${
+          badge
+            ? html`<span class="log-badge ${badge.class}">${badge.label}</span>`
+            : html`<span></span>`
+        }
         <span class="log-message">${formatConsoleArgs(log.args)}</span>
       </div>
     `
@@ -289,11 +291,13 @@ export class DevtoolsConsoleLogs extends Element {
     return html`
       ${this.#renderToolbar()}
       <div class="console-container">
-        ${visible.length
-          ? visible.map((log) => this.#renderLogEntry(log))
-          : html`<div class="empty-state-text" style="padding: 16px 14px">
-              No logs match the current filter.
-            </div>`}
+        ${
+          visible.length
+            ? visible.map((log) => this.#renderLogEntry(log))
+            : html`<div class="empty-state-text" style="padding: 16px 14px">
+                No logs match the current filter.
+              </div>`
+        }
       </div>
     `
   }

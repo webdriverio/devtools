@@ -228,11 +228,13 @@ export class DevtoolsMetadata extends Element {
           ></icon-mdi-chevron-right>
           ${label}
         </h4>
-        ${open
-          ? html`<div class="meta-card">
-              ${entries.map(([k, v]) => this.#renderRow(k, v))}
-            </div>`
-          : nothing}
+        ${
+          open
+            ? html`<div class="meta-card">
+                ${entries.map(([k, v]) => this.#renderRow(k, v))}
+              </div>`
+            : nothing
+        }
       </div>
     `
   }
