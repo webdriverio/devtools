@@ -308,8 +308,7 @@ export class SessionCapturer extends SessionCapturerBase {
       // Brief settle so navigation entries are populated before we read them.
       await new Promise((resolve) => setTimeout(resolve, 500))
       const payload = (await browser.execute(CAPTURE_PERFORMANCE_SCRIPT)) as
-        | CapturedPerformancePayload
-        | undefined
+        CapturedPerformancePayload | undefined
       if (applyPerformanceData(entry, payload, args[0] as string | undefined)) {
         this.sendUpstream('commands', [entry])
       }

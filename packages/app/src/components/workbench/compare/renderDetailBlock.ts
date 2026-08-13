@@ -63,8 +63,7 @@ export function renderDetailStepBanner(
   return html`<pre
     style="opacity:0.85; border-left:2px solid ${color}; padding-left:0.5rem;"
   >
-step: ${stepText || step.uid}</pre
-  >`
+step: ${stepText || step.uid}</pre>`
 }
 
 export function renderExpectedActualAssertion(
@@ -74,34 +73,36 @@ export function renderExpectedActualAssertion(
   fallbackExpected: string | undefined
 ): TemplateResult {
   return html`
-    ${expected !== undefined
-      ? html`<pre
-          style="color:var(--vscode-charts-green,#73c373); white-space:pre-wrap; word-break:break-word;"
-        >
-expected: ${safeJson(expected)}</pre
-        >`
-      : fallbackExpected
+    ${
+      expected !== undefined
         ? html`<pre
             style="color:var(--vscode-charts-green,#73c373); white-space:pre-wrap; word-break:break-word;"
-            title="Derived from the step text (the assertion library didn't surface a structured expected value)"
           >
-expected (from step): ${fallbackExpected}</pre
-          >`
-        : nothing}
-    ${actual !== undefined
-      ? html`<pre
-          style="color:var(--vscode-charts-orange,#d19a66); white-space:pre-wrap; word-break:break-word;"
-        >
-actual:   ${safeJson(actual)}</pre
-        >`
-      : nothing}
-    ${assertionMessage
-      ? html`<pre
-          style="color:var(--vscode-charts-red,#f48771); white-space:pre-wrap; word-break:break-word; max-height:200px; overflow:auto;"
-        >
-assertion: ${assertionMessage}</pre
-        >`
-      : nothing}
+expected: ${safeJson(expected)}</pre>`
+        : fallbackExpected
+          ? html`<pre
+              style="color:var(--vscode-charts-green,#73c373); white-space:pre-wrap; word-break:break-word;"
+              title="Derived from the step text (the assertion library didn't surface a structured expected value)"
+            >
+expected (from step): ${fallbackExpected}</pre>`
+          : nothing
+    }
+    ${
+      actual !== undefined
+        ? html`<pre
+            style="color:var(--vscode-charts-orange,#d19a66); white-space:pre-wrap; word-break:break-word;"
+          >
+actual:   ${safeJson(actual)}</pre>`
+        : nothing
+    }
+    ${
+      assertionMessage
+        ? html`<pre
+            style="color:var(--vscode-charts-red,#f48771); white-space:pre-wrap; word-break:break-word; max-height:200px; overflow:auto;"
+          >
+assertion: ${assertionMessage}</pre>`
+        : nothing
+    }
   `
 }
 
@@ -134,34 +135,41 @@ export function renderDetailBlock(
       <h4>${label} · ${cmd.command}</h4>
       ${renderDetailStepBanner(data.step, data.stepText)}
       <pre>args: ${data.argsStr}</pre>
-      ${assertVals
-        ? renderExpectedActualAssertion(
-            assertVals.expected,
-            assertVals.actual,
-            undefined,
-            undefined
-          )
-        : html`
-            ${cmd.error
-              ? html`<pre style="color:var(--vscode-charts-red,#f48771);">
-error: ${cleanErrorMessage(errorText(cmd.error))}</pre
-                >`
-              : html`<pre>result: ${data.resultStr}</pre>`}
-            ${renderExpectedActualAssertion(
-              data.expected,
-              data.actual,
-              data.assertionMessage,
-              data.fallbackExpected
-            )}
-          `}
-      ${cmd.screenshot
-        ? html`<img
-            src="${cmd.screenshot.startsWith('data:')
-              ? cmd.screenshot
-              : `data:image/png;base64,${cmd.screenshot}`}"
-            style="max-width:100%; margin-top:0.25rem; border:1px solid var(--vscode-panel-border,#2a2a2a);"
-          />`
-        : nothing}
+      ${
+        assertVals
+          ? renderExpectedActualAssertion(
+              assertVals.expected,
+              assertVals.actual,
+              undefined,
+              undefined
+            )
+          : html`
+              ${
+                cmd.error
+                  ? html`<pre style="color:var(--vscode-charts-red,#f48771);">
+error: ${cleanErrorMessage(errorText(cmd.error))}</pre>`
+                  : html`<pre>result: ${data.resultStr}</pre>`
+              }
+              ${renderExpectedActualAssertion(
+                data.expected,
+                data.actual,
+                data.assertionMessage,
+                data.fallbackExpected
+              )}
+            `
+      }
+      ${
+        cmd.screenshot
+          ? html`<img
+              src="${
+                cmd.screenshot.startsWith('data:')
+                  ? cmd.screenshot
+                  : `data:image/png;base64,${cmd.screenshot}`
+              }"
+              style="max-width:100%; margin-top:0.25rem; border:1px solid var(--vscode-panel-border,#2a2a2a);"
+            />`
+          : nothing
+      }
     </div>
   `
 }

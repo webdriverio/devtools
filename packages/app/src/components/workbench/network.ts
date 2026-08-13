@@ -158,9 +158,9 @@ export class DevtoolsNetwork extends Element {
       request.status || (requestFailed(request) ? FAILED_STATUS_LABEL : '—')
     return html`
       <div
-        class="grid request-row ${this.selectedRequest?.id === request.id
-          ? 'selected'
-          : ''}"
+        class="grid request-row ${
+          this.selectedRequest?.id === request.id ? 'selected' : ''
+        }"
         @click="${() => this.#selectRequest(request)}"
       >
         <span class="req-name">
@@ -179,12 +179,14 @@ export class DevtoolsNetwork extends Element {
         >
         <span class="req-wf">
           <span class="wf-track">
-            ${hasBar
-              ? html`<span
-                  class="wf-bar kind-${kind}"
-                  style="left:${bar.offset}%;width:${bar.width}%"
-                ></span>`
-              : nothing}
+            ${
+              hasBar
+                ? html`<span
+                    class="wf-bar kind-${kind}"
+                    style="left:${bar.offset}%;width:${bar.width}%"
+                  ></span>`
+                : nothing
+            }
           </span>
         </span>
         <span class="req-dur ${duration === undefined ? 'req-dur-empty' : ''}"
@@ -220,15 +222,19 @@ export class DevtoolsNetwork extends Element {
             <div class="col-num">Duration</div>
             <div class="col-num">Size</div>
           </div>
-          ${filteredRequests.length === 0
-            ? html`<div class="filter-empty">
-                No requests match your filter
-              </div>`
-            : filteredRequests.map((r) => this.#renderRequestRow(r, range))}
+          ${
+            filteredRequests.length === 0
+              ? html`<div class="filter-empty">
+                  No requests match your filter
+                </div>`
+              : filteredRequests.map((r) => this.#renderRequestRow(r, range))
+          }
         </div>
-        ${this.selectedRequest
-          ? renderNetworkRequestDetail(this.selectedRequest)
-          : nothing}
+        ${
+          this.selectedRequest
+            ? renderNetworkRequestDetail(this.selectedRequest)
+            : nothing
+        }
       </div>
     `
   }

@@ -46,15 +46,14 @@ export class GroupItem extends ActionItem {
         @click="${() => this.#toggle()}"
       >
         <icon-mdi-chevron-right
-          class="w-[14px] h-[14px] block shrink-0 mx-1 transition-transform ${this
-            .expanded
-            ? 'rotate-90'
-            : ''}"
+          class="w-[14px] h-[14px] block shrink-0 mx-1 transition-transform ${
+            this.expanded ? 'rotate-90' : ''
+          }"
         ></icon-mdi-chevron-right>
         <span
-          class="label text-[12.5px] font-medium ${this.failed
-            ? 'text-chartsRed'
-            : ''}"
+          class="label text-[12.5px] font-medium ${
+            this.failed ? 'text-chartsRed' : ''
+          }"
           >${this.group.title}</span
         >
         ${this.renderTime()}

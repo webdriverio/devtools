@@ -286,12 +286,14 @@ export class DevtoolsCompare extends Element {
       : undefined
     return html`
       ${this.#renderTopbar(baseline, latestCommands.length)}
-      ${errorMessage
-        ? html`<div class="error-banner">
-            <div class="error-banner-title">Why the baseline failed</div>
-            <div class="error-banner-message">${errorMessage}</div>
-          </div>`
-        : nothing}
+      ${
+        errorMessage
+          ? html`<div class="error-banner">
+              <div class="error-banner-title">Why the baseline failed</div>
+              <div class="error-banner-message">${errorMessage}</div>
+            </div>`
+          : nothing
+      }
       <div class="cmp-colhead">
         <div class="col-header">${this.swapped ? 'Latest' : 'Baseline'}</div>
         <div class="col-header">${this.swapped ? 'Baseline' : 'Latest'}</div>
@@ -338,24 +340,26 @@ export class DevtoolsCompare extends Element {
       <div class="step-row">
         ${this.#renderPairCell(left, leftSide, ctx)}
         ${this.#renderPairCell(right, rightSide, ctx)}
-        ${expanded
-          ? html`
-              <div class="detail-panel">
-                <div class="detail-grid">
-                  ${this.#renderDetailBlock(
-                    this.swapped ? 'Latest' : 'Baseline',
-                    left,
-                    this.swapped ? 'latest' : 'baseline'
-                  )}
-                  ${this.#renderDetailBlock(
-                    this.swapped ? 'Baseline' : 'Latest',
-                    right,
-                    this.swapped ? 'baseline' : 'latest'
-                  )}
+        ${
+          expanded
+            ? html`
+                <div class="detail-panel">
+                  <div class="detail-grid">
+                    ${this.#renderDetailBlock(
+                      this.swapped ? 'Latest' : 'Baseline',
+                      left,
+                      this.swapped ? 'latest' : 'baseline'
+                    )}
+                    ${this.#renderDetailBlock(
+                      this.swapped ? 'Baseline' : 'Latest',
+                      right,
+                      this.swapped ? 'baseline' : 'latest'
+                    )}
+                  </div>
                 </div>
-              </div>
-            `
-          : nothing}
+              `
+            : nothing
+        }
       </div>
     `
   }
@@ -427,9 +431,11 @@ export class DevtoolsCompare extends Element {
         data-first-divergent="${ctx.isFirstDivergent ? 'true' : 'false'}"
         @click="${() => this.#toggleExpand(ctx.pair.index)}"
       >
-        ${cmd
-          ? html`${ctx.pair.index + 1}. <code>${cmd.command}</code>${marker}`
-          : html`—`}
+        ${
+          cmd
+            ? html`${ctx.pair.index + 1}. <code>${cmd.command}</code>${marker}`
+            : html`—`
+        }
       </div>
     `
   }

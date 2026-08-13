@@ -315,24 +315,30 @@ export class DevtoolsCommandLogs extends Element {
       <div class="cmd-head">
         <span class="cat-dot cat-${category}"></span>
         <span class="cmd-name">${this.command.command}</span>
-        ${this.elapsedTime !== undefined
-          ? html`<span class="cmd-dur"
-              >${formatDuration(this.elapsedTime)}</span
-            >`
-          : nothing}
-        ${definition
-          ? html`<a class="cmd-ref" href="${definition.ref}" target="_blank"
-              >Reference ↗</a
-            >`
-          : nothing}
+        ${
+          this.elapsedTime !== undefined
+            ? html`<span class="cmd-dur"
+                >${formatDuration(this.elapsedTime)}</span
+              >`
+            : nothing
+        }
+        ${
+          definition
+            ? html`<a class="cmd-ref" href="${definition.ref}" target="_blank"
+                >Reference ↗</a
+              >`
+            : nothing
+        }
       </div>
       <div class="cmd-body">
-        ${definition?.description
-          ? html`<div class="dsec">
-              <h4>Description</h4>
-              <div class="cmd-desc">${definition.description}</div>
-            </div>`
-          : nothing}
+        ${
+          definition?.description
+            ? html`<div class="dsec">
+                <h4>Description</h4>
+                <div class="cmd-desc">${definition.description}</div>
+              </div>`
+            : nothing
+        }
         ${this.#renderParameters()} ${this.#renderResult()}
       </div>
     `

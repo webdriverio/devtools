@@ -10,11 +10,7 @@ export interface ComparePairedStep {
 }
 
 export type DivergenceKind =
-  | 'none'
-  | 'commandName'
-  | 'args'
-  | 'error'
-  | 'missing'
+  'none' | 'commandName' | 'args' | 'error' | 'missing'
 
 /** Pair commands by index. Once a real divergence is detected the fork bit
  *  sticks — downstream rows are also marked divergent. */

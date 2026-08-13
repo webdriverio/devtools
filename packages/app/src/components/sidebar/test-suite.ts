@@ -362,17 +362,19 @@ export class ExplorerTestEntry extends CollapseableEntry {
       : 'Run this entry'
     return html`
       <button
-        class="${ACTION_BTN} ${this.runDisabled
-          ? 'opacity-60 cursor-not-allowed hover:bg-transparent'
-          : ''}"
+        class="${ACTION_BTN} ${
+          this.runDisabled
+            ? 'opacity-60 cursor-not-allowed hover:bg-transparent'
+            : ''
+        }"
         title="${runTooltip}"
         ?disabled=${this.runDisabled}
         @click="${(event: Event) => this.#runEntry(event)}"
       >
         <icon-mdi-play
-          class="${ACTION_ICON} ${this.runDisabled
-            ? ''
-            : 'group-hover/button:text-chartsGreen'}"
+          class="${ACTION_ICON} ${
+            this.runDisabled ? '' : 'group-hover/button:text-chartsGreen'
+          }"
         ></icon-mdi-play>
       </button>
     `
@@ -386,19 +388,21 @@ export class ExplorerTestEntry extends CollapseableEntry {
     }
     return html`
       ${this.#renderRunButton()}
-      ${this.hasFailed && !this.runDisabled
-        ? html`
-            <button
-              class="${ACTION_BTN}"
-              title="Preserve current run and rerun for comparison"
-              @click="${(event: Event) => this.#preserveAndRerun(event)}"
-            >
-              <icon-mdi-bug-play
-                class="${ACTION_ICON} group-hover/button:text-chartsBlue"
-              ></icon-mdi-bug-play>
-            </button>
-          `
-        : nothing}
+      ${
+        this.hasFailed && !this.runDisabled
+          ? html`
+              <button
+                class="${ACTION_BTN}"
+                title="Preserve current run and rerun for comparison"
+                @click="${(event: Event) => this.#preserveAndRerun(event)}"
+              >
+                <icon-mdi-bug-play
+                  class="${ACTION_ICON} group-hover/button:text-chartsBlue"
+                ></icon-mdi-bug-play>
+              </button>
+            `
+          : nothing
+      }
     `
   }
 
@@ -408,18 +412,20 @@ export class ExplorerTestEntry extends CollapseableEntry {
         class="row-actions flex items-center gap-0.5 flex-none self-center ml-auto mr-1 transition-opacity opacity-0 group-hover/sidebar:opacity-100"
       >
         ${this.#renderRunStopButtons()}
-        ${!hasNoChildren
-          ? html`
-              <button
-                class="${ACTION_BTN}"
-                @click="${() => this.#toggleEntry()}"
-              >
-                ${this.renderCollapseOrExpandIcon(
-                  `${ACTION_ICON} group-hover:text-chartsBlue`
-                )}
-              </button>
-            `
-          : nothing}
+        ${
+          !hasNoChildren
+            ? html`
+                <button
+                  class="${ACTION_BTN}"
+                  @click="${() => this.#toggleEntry()}"
+                >
+                  ${this.renderCollapseOrExpandIcon(
+                    `${ACTION_ICON} group-hover:text-chartsBlue`
+                  )}
+                </button>
+              `
+            : nothing
+        }
       </nav>
     `
   }
@@ -432,21 +438,21 @@ export class ExplorerTestEntry extends CollapseableEntry {
         class="row flex w-full items-start text-sm group/sidebar rounded-md my-0.5 px-1 py-1 cursor-pointer hover:bg-toolbarHoverBackground"
       >
         <button
-          class="flex-none pointer px-2 h-[18px] flex items-center justify-center ${hasNoChildren
-            ? 'hidden'
-            : ''}"
+          class="flex-none pointer px-2 h-[18px] flex items-center justify-center ${
+            hasNoChildren ? 'hidden' : ''
+          }"
           @click="${() => this.#toggleEntry()}"
         >
           <icon-mdi-menu-down
-            class="text-[11px] transition-transform block text-disabledForeground ${isCollapsed
-              ? '-rotate-90'
-              : ''}"
+            class="text-[11px] transition-transform block text-disabledForeground ${
+              isCollapsed ? '-rotate-90' : ''
+            }"
           ></icon-mdi-menu-down>
         </button>
         <span
-          class="flex items-start flex-nowrap min-w-0 flex-1 leading-[18px] ${hasNoChildren
-            ? 'pl-9'
-            : ''}"
+          class="flex items-start flex-nowrap min-w-0 flex-1 leading-[18px] ${
+            hasNoChildren ? 'pl-9' : ''
+          }"
           @click="${() => this.#selectEntry()}"
         >
           ${this.root ? nothing : this.testStateIcon}
@@ -455,9 +461,9 @@ export class ExplorerTestEntry extends CollapseableEntry {
         ${this.#renderToolbar(hasNoChildren)}
       </section>
       <section
-        class="ml-3 border-l border-panelBorder pl-1 ${!isCollapsed
-          ? ''
-          : 'hidden'}"
+        class="ml-3 border-l border-panelBorder pl-1 ${
+          !isCollapsed ? '' : 'hidden'
+        }"
       >
         <slot name="children"></slot>
       </section>

@@ -802,8 +802,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
    */
   get #outputDir(): string {
     const opts = this.#browser?.options as
-      | { outputDir?: string; rootDir?: string }
-      | undefined
+      { outputDir?: string; rootDir?: string } | undefined
     return resolveAdapterOutputDir({
       userConfiguredDir: opts?.outputDir || opts?.rootDir
     })

@@ -181,42 +181,54 @@ export class DevtoolsErrors extends Element {
       return nothing
     }
     return html`<div class="error-diff">
-      ${error.actual !== undefined
-        ? html`<span class="label">Actual</span
-            ><span class="received">${error.actual}</span>`
-        : nothing}
-      ${error.expected !== undefined
-        ? html`<span class="label">Expected</span
-            ><span class="expected">${error.expected}</span>`
-        : nothing}
+      ${
+        error.actual !== undefined
+          ? html`<span class="label">Actual</span
+              ><span class="received">${error.actual}</span>`
+          : nothing
+      }
+      ${
+        error.expected !== undefined
+          ? html`<span class="label">Expected</span
+              ><span class="expected">${error.expected}</span>`
+          : nothing
+      }
     </div>`
   }
 
   #renderEntry(error: CollectedError): TemplateResult {
     return html`
       <div class="error-entry">
-        ${error.title
-          ? html`<div class="error-title">${error.title}</div>`
-          : nothing}
-        ${error.callSource
-          ? html`<button
-              class="error-loc"
-              title="Open source at this line"
-              @click="${() => this.#openSource(error.callSource!)}"
-            >
-              @${shortSource(error.callSource)}
-            </button>`
-          : nothing}
-        ${this.#showsHeadline(error)
-          ? html`<div class="error-message">${error.message}</div>`
-          : nothing}
+        ${
+          error.title
+            ? html`<div class="error-title">${error.title}</div>`
+            : nothing
+        }
+        ${
+          error.callSource
+            ? html`<button
+                class="error-loc"
+                title="Open source at this line"
+                @click="${() => this.#openSource(error.callSource!)}"
+              >
+                @${shortSource(error.callSource)}
+              </button>`
+            : nothing
+        }
+        ${
+          this.#showsHeadline(error)
+            ? html`<div class="error-message">${error.message}</div>`
+            : nothing
+        }
         ${this.#renderDiff(error)}
-        ${error.stack
-          ? html`<details class="error-stack">
-              <summary>Stack</summary>
-              <pre>${error.stack}</pre>
-            </details>`
-          : nothing}
+        ${
+          error.stack
+            ? html`<details class="error-stack">
+                <summary>Stack</summary>
+                <pre>${error.stack}</pre>
+              </details>`
+            : nothing
+        }
       </div>
     `
   }

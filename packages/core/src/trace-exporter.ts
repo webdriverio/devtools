@@ -171,8 +171,7 @@ function buildContextOptions(
   wallTime: number
 ): ContextOptionsEvent {
   const caps = trace.metadata.capabilities as
-    | Record<string, unknown>
-    | undefined
+    Record<string, unknown> | undefined
   const { browserName, title } = resolveContextNaming(caps)
   const viewport = trace.metadata.viewport ?? { width: 1280, height: 720 }
   return {
