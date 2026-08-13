@@ -106,6 +106,7 @@ The server adapters connect to and the app talks to.
 
 Contains:
 
+- Two build entries: `index.ts` is the **library** entry (`dist/index.js`) the adapters import in-process for `start`/`stop`, and `server.ts` is the **CLI** entry (`dist/server.js`, executable, shipped as the `devtools-backend` bin) that starts the same server standalone. `server.ts` is a leaf entry on purpose: a self-start guard inside `index.ts` is dead, because `show-trace.ts` imports it and tsup hoists a shared entry's body into `dist/chunk-*.js`, where `import.meta.url` never matches `process.argv[1]`.
 - Fastify HTTP server.
 - WebSocket gateway: one connection per adapter worker, one per app client.
 - Baseline store (in-memory) for preserve-and-rerun; reuses `shared` types directly via thin `*Like` aliases (`baseline/types.ts`).

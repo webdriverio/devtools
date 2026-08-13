@@ -6,7 +6,7 @@ at runtime, and the resolution order encodes the local-vs-published split:
 
     1. DEVTOOLS_PORT set        → attach to an already-running backend (CI, manual)
     2. DEVTOOLS_BACKEND_CMD set → spawn that explicit command
-    3. monorepo dist present    → node packages/backend/dist/index.js      (LOCAL dev)
+    3. monorepo dist present    → node packages/backend/dist/server.js     (LOCAL dev)
     4. else                     → npx @wdio/devtools-backend@<pinned>       (PUBLISHED)
 
 The pinned version below is bumped deliberately alongside a contract change —
@@ -45,10 +45,13 @@ _PORT_RE = re.compile(r"listening at .*:(\d+)")
 
 def _find_monorepo_backend(start: Optional[Path] = None) -> Optional[Path]:
     """Walk up from ``start`` (default: this module) for a built backend. Present
-    only in a monorepo checkout; None from an installed wheel."""
+    only in a monorepo checkout; None from an installed wheel.
+
+    Targets ``server.js``, the backend's CLI entry, NOT ``index.js``: that one is
+    the library entry the JS adapters import, and running it starts nothing."""
     base = start or Path(__file__).resolve()
     for parent in base.parents:
-        candidate = parent / "packages" / "backend" / "dist" / "index.js"
+        candidate = parent / "packages" / "backend" / "dist" / "server.js"
         if candidate.exists():
             return candidate
     return None

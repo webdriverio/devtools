@@ -22,8 +22,9 @@ ENV_OPEN = "DEVTOOLS_OPEN"  # "0"/"false"/"no"/"off" disables dashboard auto-ope
 # ── Backend launch ───────────────────────────────────────────────────────────
 # Pinned backend version fetched via npx from a published install. There is no
 # cross-ecosystem resolver, so this constant *is* the version link — bump it in
-# the same change that regenerates _contract.py.
-BACKEND_NPM_VERSION = "1.7.0"
+# the same change that regenerates _contract.py. 1.10.0 is the first version
+# carrying the `devtools-backend` bin; `npx` cannot start anything older.
+BACKEND_NPM_VERSION = "1.10.0"
 BACKEND_NPM_PACKAGE = "@wdio/devtools-backend"
 BACKEND_SPAWN_TIMEOUT_S = 40.0
 

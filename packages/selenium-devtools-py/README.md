@@ -114,14 +114,14 @@ coupling is handled explicitly rather than via a `workspace:^`-style resolver:
 | | Local (monorepo) | Published |
 |---|---|---|
 | **Adapter** (this package) | `pip install -e` | PyPI: `pip install selenium-devtools-py` |
-| **Backend + UI** (Node) | `node packages/backend/dist/index.js` | npm: `npx @wdio/devtools-backend@<pinned>` |
+| **Backend + UI** (Node) | `node packages/backend/dist/server.js` | npm: `npx @wdio/devtools-backend@<pinned>` |
 | **Wire contract** (`shared`) | regenerated into `_contract.py` | the generated `_contract.py` ships in the wheel |
 
 `enable()` obtains the backend in this order (local vs published falls out of it):
 
 1. `DEVTOOLS_PORT` set → attach to an already-running backend (CI, manual).
 2. `DEVTOOLS_BACKEND_CMD` set → spawn that explicit command.
-3. monorepo `packages/backend/dist/index.js` present → spawn it (**local dev**).
+3. monorepo `packages/backend/dist/server.js` present → spawn it (**local dev**).
 4. else → `npx @wdio/devtools-backend@<BACKEND_NPM_VERSION>` (**published**).
 
 The pinned `BACKEND_NPM_VERSION` in `backend.py` is the version link — there is

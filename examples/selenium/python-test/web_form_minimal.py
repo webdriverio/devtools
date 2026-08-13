@@ -3,15 +3,14 @@
 This is the script reproduced in the integration one-pager, so keep the two in
 sync when either changes.
 
-Run it against a dashboard backend that is already listening:
+Run it:
 
-    node -e "import('./packages/backend/dist/index.js').then(m => m.start())"   # one terminal
-    DEVTOOLS_PORT=3000 python examples/selenium/python-test/web_form_minimal.py
+    pip install -e packages/selenium-devtools-py
+    python examples/selenium/python-test/web_form_minimal.py
 
-Letting ``enable()`` launch the backend itself does not work yet: the backend
-ships no runnable entry, so ``node packages/backend/dist/index.js`` exits without
-serving. ``web_form.py`` next door is the fuller variant (headless, sized
-viewport, explicit teardown).
+``enable()`` starts the dashboard backend itself when none is running. Set
+DEVTOOLS_PORT instead to attach to one you already have open. ``web_form.py``
+next door is the fuller variant (headless, sized viewport, explicit teardown).
 """
 
 import selenium_devtools as devtools

@@ -50,11 +50,11 @@ class TestBackendResolution(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             dist = Path(tmp) / "packages" / "backend" / "dist"
             dist.mkdir(parents=True)
-            (dist / "index.js").write_text("//")
+            (dist / "server.js").write_text("//")
             start = Path(tmp) / "a" / "b" / "mod.py"
             start.parent.mkdir(parents=True)
             self.assertEqual(
-                backend._find_monorepo_backend(start=start), dist / "index.js"
+                backend._find_monorepo_backend(start=start), dist / "server.js"
             )
 
     def test_no_monorepo_backend_when_absent(self):
