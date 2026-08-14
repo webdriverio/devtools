@@ -38,7 +38,7 @@ class SessionCapturer:
         self._tx = transport
         self._command_counter = 0
         self._lock = threading.Lock()
-        self._metadata_sent = False
+        self._metadata_sent: set = set()  # session ids already announced
         self.session_id: Optional[str] = None
 
     # ── metadata ───────────────────────────────────────────────────────────────
@@ -46,9 +46,13 @@ class SessionCapturer:
     def ensure_metadata(
         self, session_id: str, capabilities: Optional[dict], url: Optional[str]
     ) -> None:
-        if self._metadata_sent or not session_id:
+        """Announce a session once. Keyed by id, not a boolean: one process can
+        drive several sessions (a function-scoped pytest fixture makes a driver
+        per test), and the UI keys metadata by sessionId so each one is kept
+        rather than overwriting the first."""
+        if not session_id or session_id in self._metadata_sent:
             return
-        self._metadata_sent = True
+        self._metadata_sent.add(session_id)
         self.session_id = session_id
         self._tx.send_json(
             SCOPE_METADATA,
@@ -107,15 +111,18 @@ class SessionCapturer:
         frame_count: int,
         duration: int,
         start_time: Optional[int],
+        session_id: Optional[str] = None,
     ) -> None:
-        # Screencast is a single post-run frame keyed to the session; skip if
-        # metadata never resolved a session id (nothing for the UI to attach to).
-        if not self.session_id:
+        # Keyed to the session the frames came from. `session_id` is passed
+        # explicitly when finalizing a session that has already been replaced,
+        # so the video is not filed under whichever session is current.
+        target = session_id or self.session_id
+        if not target:
             return
         self._tx.send_json(
             SCOPE_SCREENCAST,
             frames.screencast(
-                session_id=self.session_id,
+                session_id=target,
                 video_path=video_path,
                 video_file=video_file,
                 frame_count=frame_count,

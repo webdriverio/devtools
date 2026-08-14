@@ -141,7 +141,10 @@ def _capture_source(capturer: SessionCapturer, call_src: Optional[str]) -> None:
 # page-side mutation buffer so the snapshot iframe stays current.
 _state: dict = {
     "installed": False, "cls": None, "orig": None,
-    "screencast": None, "snapshot": None, "setup_done": False,
+    "screencast": None, "snapshot": None,
+    # Session id the per-session bringup last ran for. A boolean here silently
+    # skipped bringup for every session after the first.
+    "armed_session": None,
     "output_dir": None,  # test-results dir beside the test file (see output_dir.py)
     "default_suite": None,  # synthesized suite for non-framework (script) runs
 }
@@ -226,6 +229,26 @@ def _enable_bidi_capability(params: Any) -> None:
         pass
 
 
+def _finalize_screencast(capturer: SessionCapturer, session_id: Optional[str]) -> None:
+    """Encode and forward the recording for ``session_id``. Attributed explicitly,
+    because a rotation finalizes the session that just ended while a newer one is
+    already current."""
+    recorder = _state.get("screencast")
+    if recorder is None:
+        return
+    _state["screencast"] = None
+    try:
+        info = recorder.finalize(
+            session_id or "session", output_dir=_state.get("output_dir")
+        )
+    except Exception as exc:  # noqa: BLE001
+        _log.warning("screencast finalize threw: %s", exc)
+        return
+    if info is not None:
+        capturer.send_screencast(**info, session_id=session_id)
+        _log.info("screencast saved: %s", info.get("video_path"))
+
+
 def _ensure_session_setup(driver: Any, capturer: SessionCapturer) -> None:
     """Once per session — on the first real command — send metadata, attach
     BiDi, and start the screencast.
@@ -236,12 +259,18 @@ def _ensure_session_setup(driver: Any, capturer: SessionCapturer) -> None:
     real command the driver is fully initialized. Each step is independently
     defensive — a BiDi or screencast failure is a logged no-op.
     """
-    if _state.get("setup_done"):
-        return
     session_id = getattr(driver, "session_id", None)
-    if not session_id:
-        return  # driver not ready yet; retry on the next command
-    _state["setup_done"] = True
+    if not session_id or session_id == _state.get("armed_session"):
+        return  # not ready yet, or already armed for this session
+    previous = _state.get("armed_session")
+    if previous:
+        # A second driver in the same process. Close out the previous session
+        # before arming this one, or its video and DOM would be attributed here.
+        _flush_mutations(capturer)
+        _state["snapshot"] = None
+        _finalize_screencast(capturer, previous)
+        _log.info("session %s replaced by %s; re-arming capture", previous, session_id)
+    _state["armed_session"] = session_id
     capturer.ensure_metadata(session_id, getattr(driver, "caps", None), None)
     _log.info("session %s started", session_id)
     _send_default_suite(capturer, "running")  # tree entry for plain-script runs
@@ -271,30 +300,25 @@ def _ensure_session_setup(driver: Any, capturer: SessionCapturer) -> None:
         _log.warning("snapshot start threw: %s", exc)
 
 
-def _on_quit(capturer: SessionCapturer) -> None:
+def _on_quit(capturer: SessionCapturer, driver: Any = None) -> None:
     """On driver.quit(): finalize the screencast and forward its metadata.
 
     ``quit`` is in the skip set, so this is the last hook before the session is
     gone — encode here while a session id is still known."""
+    quitting = getattr(driver, "session_id", None) if driver is not None else None
+    armed = _state.get("armed_session")
+    if quitting and armed and quitting != armed:
+        # Another driver is the live one; leave its capture alone.
+        return
     # Drain any final mutations while the session (and page) still exist.
     _flush_mutations(capturer)
     _state["snapshot"] = None
     if _state.get("default_suite") is not None:
         _send_default_suite(capturer, "passed")  # mark the script run complete
-    recorder = _state.get("screencast")
-    if recorder is None:
-        return
-    _state["screencast"] = None
-    try:
-        info = recorder.finalize(
-            capturer.session_id or "session", output_dir=_state.get("output_dir")
-        )
-    except Exception as exc:  # noqa: BLE001
-        _log.warning("screencast finalize threw: %s", exc)
-        return
-    if info is not None:
-        capturer.send_screencast(**info)
-        _log.info("screencast saved: %s", info.get("video_path"))
+    _finalize_screencast(capturer, quitting or armed or capturer.session_id)
+    # Cleared so a driver created later re-arms instead of being treated as this
+    # session and losing its metadata, BiDi, DOM and video.
+    _state["armed_session"] = None
 
 
 def install(capturer: SessionCapturer, webdriver_cls: Optional[type] = None) -> None:
@@ -317,7 +341,7 @@ def install(capturer: SessionCapturer, webdriver_cls: Optional[type] = None) -> 
             # Finalize the screencast BEFORE quit tears the session down — after
             # orig_execute the driver's WebSocket/session is gone.
             if driver_command == "quit":
-                _on_quit(capturer)
+                _on_quit(capturer, self)
             elif driver_command == "newSession":
                 _enable_bidi_capability(params)  # request BiDi before the session opens
             return orig_execute(self, driver_command, params)
@@ -366,7 +390,7 @@ def install(capturer: SessionCapturer, webdriver_cls: Optional[type] = None) -> 
     _sources_sent.clear()
     _state.update(
         installed=True, cls=webdriver_cls, orig=orig_execute,
-        setup_done=False, output_dir=None, default_suite=None,
+        armed_session=None, output_dir=None, default_suite=None,
     )
 
 
@@ -376,12 +400,12 @@ def uninstall() -> None:
         recorder.stop()  # never leave a poll thread running past teardown
     if not _state["installed"]:
         _state.update(
-            screencast=None, snapshot=None, setup_done=False,
+            screencast=None, snapshot=None, armed_session=None,
             output_dir=None, default_suite=None,
         )
         return
     _state["cls"].execute = _state["orig"]  # type: ignore[union-attr]
     _state.update(
         installed=False, cls=None, orig=None, screencast=None, snapshot=None,
-        setup_done=False, output_dir=None, default_suite=None,
+        armed_session=None, output_dir=None, default_suite=None,
     )

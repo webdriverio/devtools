@@ -235,3 +235,144 @@ class TestDefaultSuite(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MultiSessionDriver(FakeDriver):
+    """Driver whose session id is fixed at construction, so one process can hold
+    two of them at once — what a function-scoped pytest fixture produces."""
+
+    def __init__(self, session_id):
+        super().__init__()
+        self._sid = session_id
+        self.session_id = session_id
+
+    def execute(self, command, params=None):
+        if command == "quit":
+            return {"value": None}
+        return {"value": f"ok:{command}"}
+
+    # Deliberately no get_screenshot_as_base64: with one, arming starts a real
+    # ScreencastRecorder, and finalize shells out to ffmpeg, which wrote a .webm
+    # into the repo when these tests ran. Rotation is covered below with a stub.
+
+
+class TestMultipleSessions(unittest.TestCase):
+    """A second WebDriver in one process must be captured in full. Previously
+    `setup_done` and `_metadata_sent` were booleans, so sessions after the first
+    were attributed to session one and lost metadata, BiDi, DOM and video, and
+    the first `quit()` tore down capture for whichever driver was still live."""
+
+    def setUp(self):
+        instrumentation.uninstall()
+        self.tx = FakeTransport()
+        self.cap = SessionCapturer(self.tx)
+        self.attached = []
+        self._bidi = mock.patch.object(
+            instrumentation.bidi, "attach",
+            side_effect=lambda d, c: self.attached.append(d.session_id) or True,
+        )
+        self._bidi.start()
+        instrumentation.install(self.cap, MultiSessionDriver)
+
+    def tearDown(self):
+        instrumentation.uninstall()
+        self._bidi.stop()
+
+    def _scopes(self, scope):
+        return [d for s, d in self.tx.sent if s == scope]
+
+    def _sessions_announced(self):
+        return [m["sessionId"] for m in self._scopes("metadata")]
+
+    def test_each_session_announces_its_own_metadata(self):
+        MultiSessionDriver("sess-a").execute("get", {"url": "https://a/"})
+        MultiSessionDriver("sess-b").execute("get", {"url": "https://b/"})
+        self.assertEqual(self._sessions_announced(), ["sess-a", "sess-b"])
+
+    def test_bidi_attaches_once_per_session(self):
+        MultiSessionDriver("sess-a").execute("get", {"url": "https://a/"})
+        MultiSessionDriver("sess-b").execute("get", {"url": "https://b/"})
+        self.assertEqual(self.attached, ["sess-a", "sess-b"])
+
+    def test_repeated_commands_on_one_session_arm_it_once(self):
+        driver = MultiSessionDriver("sess-a")
+        driver.execute("get", {"url": "https://a/"})
+        driver.execute("click", {"id": "x"})
+        self.assertEqual(self._sessions_announced(), ["sess-a"])
+        self.assertEqual(self.attached, ["sess-a"])
+
+    def test_quitting_one_driver_leaves_the_other_capturing(self):
+        first = MultiSessionDriver("sess-a")
+        first.execute("get", {"url": "https://a/"})
+        second = MultiSessionDriver("sess-b")
+        second.execute("get", {"url": "https://b/"})
+        first.execute("quit")  # the stale driver, not the armed one
+        self.assertEqual(instrumentation._state["armed_session"], "sess-b")
+        second.execute("click", {"id": "x"})
+        commands = [d[0]["command"] for s, d in self.tx.sent if s == "commands"]
+        self.assertIn("click", commands)
+
+    def test_quitting_the_armed_driver_clears_arming_so_the_next_rearms(self):
+        first = MultiSessionDriver("sess-a")
+        first.execute("get", {"url": "https://a/"})
+        first.execute("quit")
+        self.assertIsNone(instrumentation._state["armed_session"])
+        MultiSessionDriver("sess-b").execute("get", {"url": "https://b/"})
+        self.assertEqual(self._sessions_announced(), ["sess-a", "sess-b"])
+
+
+class StubRecorder:
+    """Reports a finished encode without running ffmpeg or touching the disk."""
+
+    def __init__(self):
+        self.frames = []
+
+    def start(self, driver):
+        pass
+
+    def add_frame(self, shot):
+        self.frames.append(shot)
+
+    def stop(self):
+        pass
+
+    def finalize(self, session_id, output_dir=None):
+        return {
+            "video_path": f"/tmp/{session_id}.webm",
+            "video_file": f"{session_id}.webm",
+            "frame_count": 1,
+            "duration": 10,
+            "start_time": 1000,
+        }
+
+
+class TestScreencastAttributionAcrossSessions(unittest.TestCase):
+    """A rotated recording belongs to the session that produced it. send_screencast
+    keyed on the capturer's latest session id, so replacing a session filed the
+    previous session's video under the new one."""
+
+    def setUp(self):
+        instrumentation.uninstall()
+        self.tx = FakeTransport()
+        self.cap = SessionCapturer(self.tx)
+        self._rec = mock.patch.object(
+            instrumentation, "ScreencastRecorder", StubRecorder
+        )
+        self._rec.start()
+        self._bidi = mock.patch.object(
+            instrumentation.bidi, "attach", return_value=False
+        )
+        self._bidi.start()
+        instrumentation.install(self.cap, MultiSessionDriver)
+
+    def tearDown(self):
+        instrumentation.uninstall()
+        self._bidi.stop()
+        self._rec.stop()
+
+    def test_the_previous_sessions_video_is_filed_under_that_session(self):
+        MultiSessionDriver("sess-a").execute("get", {"url": "https://a/"})
+        MultiSessionDriver("sess-b").execute("get", {"url": "https://b/"})
+        videos = [d for s, d in self.tx.sent if s == "screencast"]
+        self.assertEqual([v["sessionId"] for v in videos], ["sess-a"])
+        self.assertEqual(videos[0]["videoFile"], "sess-a.webm")
