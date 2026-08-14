@@ -43,9 +43,8 @@ devtools.wait_for_dashboard_close()   # keep the UI open to inspect (no-op if he
 devtools.disable()
 ```
 
-Runnable examples: [`web_form_minimal.py`](../../examples/selenium/python-test/web_form_minimal.py)
-is the three-line version above; [`web_form.py`](../../examples/selenium/python-test/web_form.py)
-is the fuller one (headless, sized viewport, explicit `disable()`).
+Runnable example: [`web_form.py`](../../examples/selenium/python-test/web_form.py),
+the three-line version above.
 If the backend can't be launched or reached, `enable()` warns and returns
 `None` — capture is skipped, your tests still run.
 
@@ -103,7 +102,7 @@ scripts/gen_contract.py   regenerate _contract.py from shared (dev-time; also a 
 tests/                stdlib-unittest unit tests (no selenium/pytest needed)
 e2e_check.py          real-Chrome smoke (plain script)
 e2e/test_smoke.py     real-Chrome smoke (pytest + plugin)
-(examples live at repo root: examples/selenium/python-test/web_form.py)
+(example lives at repo root: examples/selenium/python-test/web_form.py)
 ```
 
 ## Backend & publishing

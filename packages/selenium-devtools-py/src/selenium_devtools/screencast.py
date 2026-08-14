@@ -31,6 +31,7 @@ import tempfile
 from typing import Any, Callable, List, Optional
 
 from .constants import SCREENCAST_IMAGE_FORMAT, SCREENCAST_MIN_FRAMES
+from .output_dir import OUTPUT_SUBDIR, ensure_output_dir
 from .types import ScreencastFrame
 from .utils import now_ms
 
@@ -161,9 +162,13 @@ class ScreencastRecorder:
 
 
 def _writable_dir(preferred: Optional[str]) -> str:
-    candidate = preferred or os.getcwd()
-    if os.path.isdir(candidate) and os.access(candidate, os.W_OK):
-        return candidate
+    """The directory to encode into. ``preferred`` is the resolved
+    ``test-results`` path, which will not exist on a first run, so it is created
+    here; a failure falls back to the temp dir rather than losing the video."""
+    candidate = preferred or os.path.join(os.getcwd(), OUTPUT_SUBDIR)
+    created = ensure_output_dir(candidate)
+    if created:
+        return created
     return tempfile.gettempdir()
 
 

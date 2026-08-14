@@ -21,6 +21,7 @@ from typing import Any, Optional
 from . import bidi, frames
 from .capturer import SessionCapturer
 from .constants import BIDI_CAPABILITY, ENV_BIDI, SKIP_COMMANDS, SKIP_STACK_FRAMES
+from .output_dir import resolve_adapter_output_dir
 from .screencast import ScreencastRecorder
 from .snapshot import SnapshotCapturer, start_snapshot_capture
 from .sources import read_source
@@ -124,7 +125,7 @@ def _capture_source(capturer: SessionCapturer, call_src: Optional[str]) -> None:
         return
     # Screencast output lands next to the (first) test file, not the cwd.
     if _state.get("output_dir") is None:
-        _state["output_dir"] = os.path.dirname(path)
+        _state["output_dir"] = resolve_adapter_output_dir(test_file_path=path)
     if path in _sources_sent:
         return
     try:
@@ -141,7 +142,7 @@ def _capture_source(capturer: SessionCapturer, call_src: Optional[str]) -> None:
 _state: dict = {
     "installed": False, "cls": None, "orig": None,
     "screencast": None, "snapshot": None, "setup_done": False,
-    "output_dir": None,  # dir of the test file — where the screencast .webm lands
+    "output_dir": None,  # test-results dir beside the test file (see output_dir.py)
     "default_suite": None,  # synthesized suite for non-framework (script) runs
 }
 

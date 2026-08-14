@@ -1,2 +1,3 @@
-# Screencast videos are generated next to the test file.
+# Run output goes to test-results/, which the root .gitignore already covers.
+# *.webm stays for videos written by older versions of the adapter.
 *.webm

@@ -1,49 +1,35 @@
-"""A normal Selenium (Python) test — with WebdriverIO DevTools added.
+"""The smallest useful DevTools example: three devtools lines, one Selenium test.
 
-Only two lines differ from a plain Selenium script (marked ← devtools):
-``import selenium_devtools`` and ``devtools.enable()``. Everything the
-driver does is then captured and shown live in the DevTools dashboard.
+This is the script reproduced in the integration one-pager, so keep the two in
+sync when either changes.
 
 Run it:
 
-    pip install selenium-devtools-py selenium
+    pip install -e packages/selenium-devtools-py
     python examples/selenium/python-test/web_form.py
 
-The dashboard opens in a dedicated window and captures every command. It stays
-open after the test so you can inspect it — close the window (or Ctrl-C) to
-finish. The screencast .webm is written next to this file. Requires a
-ChromeDriver matching your Chrome (Selenium 4.6+ auto-manages one if none is on
-PATH).
+``enable()`` starts the dashboard backend itself when none is running. Set
+DEVTOOLS_PORT instead to attach to one you already have open. Run output (the
+screencast .webm) lands in ``test-results/`` beside this file, matching the JS
+adapters.
 """
 
-import selenium_devtools as devtools  # ← devtools
+import selenium_devtools as devtools
 from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
+from selenium.webdriver.chrome.options import Options
 
-devtools.enable()  # ← devtools: open the dashboard + capture every command
+devtools.enable()  # opens the dashboard, starts capturing
 
 options = Options()
-options.add_argument("--headless=new")  # remove this line to watch the browser
-options.add_argument("--window-size=1280,1024")  # bigger viewport → fuller screencast
+options.add_argument("--headless=new")  # drop this line to watch the browser
+options.add_argument("--window-size=1280,1024")  # bigger viewport, fuller screencast
 driver = webdriver.Chrome(options=options)
 try:
     driver.get("https://www.selenium.dev/selenium/web/web-form.html")
-
-    title = driver.title
-
-    driver.implicitly_wait(0.5)
-
-    text_box = driver.find_element(by=By.NAME, value="my-text")
-    submit_button = driver.find_element(by=By.CSS_SELECTOR, value="button")
-
-    text_box.send_keys("Selenium")
-    submit_button.click()
-
-    message = driver.find_element(by=By.ID, value="message")
-    text = message.text
-    print("form submitted, received message:", text)  # shows in the dashboard's Console
+    driver.find_element(By.NAME, "my-text").send_keys("Selenium")
+    driver.find_element(By.CSS_SELECTOR, "button").click()
+    print(driver.find_element(By.ID, "message").text)
 finally:
     driver.quit()
-    devtools.wait_for_dashboard_close()  # ← devtools: keep the UI open to inspect
-    devtools.disable()  # ← devtools
+    devtools.wait_for_dashboard_close()  # hold the UI open to inspect
