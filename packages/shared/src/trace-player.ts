@@ -34,8 +34,7 @@ export interface TraceActionGroupNode {
 
 /** One tree slot: a nested group or an index into `trace.commands`. */
 export type TraceActionChild =
-  | { group: TraceActionGroupNode }
-  | { commandIndex: number }
+  { group: TraceActionGroupNode } | { commandIndex: number }
 
 /** Payload served at `TRACE_API.get`. Carries the reconstructed TraceLog plus
  *  the frame filmstrip and clock window the player's timeline needs. */

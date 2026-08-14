@@ -1,9 +1,5 @@
 export type ActionCategory =
-  | 'navigation'
-  | 'input'
-  | 'assertion'
-  | 'query'
-  | 'other'
+  'navigation' | 'input' | 'assertion' | 'query' | 'other'
 
 const NAVIGATION = new Set([
   'url',

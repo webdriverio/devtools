@@ -11,8 +11,7 @@ const IMAGE_STYLE = 'display:block;width:100vw;height:100vh;object-fit:contain'
 
 /** Serialized DOM node: text, or a [TAG, attributes, ...children] tuple. */
 export type FrameSnapshotNode =
-  | string
-  | [string, Record<string, string>, ...FrameSnapshotNode[]]
+  string | [string, Record<string, string>, ...FrameSnapshotNode[]]
 
 export interface FrameSnapshotResourceOverride {
   url: string

@@ -153,9 +153,11 @@ export class DevtoolsTranscript extends Element {
         @click=${() => this.#copy()}
         title="Copy the transcript + failures as an LLM prompt"
       >
-        ${this.copied
-          ? html`<icon-mdi-check></icon-mdi-check>`
-          : html`<icon-mdi-content-copy></icon-mdi-content-copy>`}
+        ${
+          this.copied
+            ? html`<icon-mdi-check></icon-mdi-check>`
+            : html`<icon-mdi-content-copy></icon-mdi-content-copy>`
+        }
       </button>
       <pre>${this.transcript}</pre>
       ${nothing}

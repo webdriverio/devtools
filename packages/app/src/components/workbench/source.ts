@@ -318,23 +318,25 @@ export class DevtoolsSource extends Element {
       <div class="src-files">${this.#renderFileTabs(active)}</div>
       <div class="src-meta">
         <div class="src-path" title=${active}>
-          ${truncated
-            ? html`<span class="sep">…/</span>`
-            : nothing}${dirSegments.map(
+          ${
+            truncated ? html`<span class="sep">…/</span>` : nothing
+          }${dirSegments.map(
             (seg) => html`<span>${seg}</span><span class="sep">/</span>`
           )}<span class="base">${base}</span>
         </div>
-        ${showChip
-          ? html`<button
-              class="cs-chip"
-              title="Jump to the line that triggered this command"
-              @click=${() => this.#refreshCallSite()}
-            >
-              <span class="dot"></span
-              ><span class="cmd">${this.callSiteCommand}</span
-              ><span class="ln">L${this.callSiteLine}</span>
-            </button>`
-          : nothing}
+        ${
+          showChip
+            ? html`<button
+                class="cs-chip"
+                title="Jump to the line that triggered this command"
+                @click=${() => this.#refreshCallSite()}
+              >
+                <span class="dot"></span
+                ><span class="cmd">${this.callSiteCommand}</span
+                ><span class="ln">L${this.callSiteLine}</span>
+              </button>`
+            : nothing
+        }
         <div class="src-actions">
           <button class="src-act" @click=${() => this.#copyPath(active)}>
             Copy path
@@ -372,11 +374,13 @@ export class DevtoolsSource extends Element {
     const hasContent = this.#contentFor(active) !== undefined
     return html`<div class="source-root">
       ${this.#renderToolbar(active)}
-      ${hasContent
-        ? html`<div class="source-container"></div>`
-        : html`<div class="src-empty">
-            Source for ${fileBasename(active)} was not captured in this trace.
-          </div>`}
+      ${
+        hasContent
+          ? html`<div class="source-container"></div>`
+          : html`<div class="src-empty">
+              Source for ${fileBasename(active)} was not captured in this trace.
+            </div>`
+      }
     </div>`
   }
 }

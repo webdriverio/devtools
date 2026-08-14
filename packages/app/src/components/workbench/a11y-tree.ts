@@ -330,20 +330,26 @@ export class DevtoolsA11yTree extends Element {
         this.#highlight(undefined)
       }}
       @click=${() => this.#copy(sel)}
-      title=${sel
-        ? `Click to copy locator: ${sel}${note ? ` (${note})` : ''}`
-        : nothing}
+      title=${
+        sel
+          ? `Click to copy locator: ${sel}${note ? ` (${note})` : ''}`
+          : nothing
+      }
     >
       <span class="twig">•</span>
       <span class="role">${node.role}</span>
-      ${node.name
-        ? html`<span class="nm">"${this.#trunc(node.name)}"</span>`
-        : nothing}
-      ${sel
-        ? html`<span class="sel"
-            >${this.copiedSel === sel ? 'copied ✓' : sel}</span
-          >`
-        : nothing}
+      ${
+        node.name
+          ? html`<span class="nm">"${this.#trunc(node.name)}"</span>`
+          : nothing
+      }
+      ${
+        sel
+          ? html`<span class="sel"
+              >${this.copiedSel === sel ? 'copied ✓' : sel}</span
+            >`
+          : nothing
+      }
     </div>`
   }
 
@@ -368,7 +374,8 @@ export class DevtoolsA11yTree extends Element {
   #hint(): TemplateResult {
     if (this.copiedSel) {
       return html`<span class="ok">✓ Copied</span
-        ><span class="loc">${this.copiedSel}</span>${this.#note(this.copiedSel)}`
+        ><span class="loc">${this.copiedSel}</span
+        >${this.#note(this.copiedSel)}`
     }
     const sel =
       this.hoveredSel ?? this.pinned?.selector ?? this.revealed?.selector

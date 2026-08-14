@@ -279,10 +279,9 @@ export class DevtoolsWorkbench extends Element {
     return html`
       <wdio-devtools-tabs
         cacheId="activeActionsTab"
-        class="h-full flex flex-col border-r-[1px] border-r-panelBorder ${this
-          .#workbenchSidebarCollapsed
-          ? 'hidden'
-          : ''}"
+        class="h-full flex flex-col border-r-[1px] border-r-panelBorder ${
+          this.#workbenchSidebarCollapsed ? 'hidden' : ''
+        }"
       >
         <wdio-devtools-tab label="Actions">
           <wdio-devtools-actions></wdio-devtools-actions>
@@ -380,14 +379,16 @@ export class DevtoolsWorkbench extends Element {
       >
         <wdio-devtools-errors></wdio-devtools-errors>
       </wdio-devtools-tab>
-      ${this.playerMode
-        ? html`<wdio-devtools-tab label="A11y">
-              <wdio-devtools-a11y></wdio-devtools-a11y>
-            </wdio-devtools-tab>
-            <wdio-devtools-tab label="Transcript">
-              <wdio-devtools-transcript></wdio-devtools-transcript>
-            </wdio-devtools-tab>`
-        : nothing}
+      ${
+        this.playerMode
+          ? html`<wdio-devtools-tab label="A11y">
+                <wdio-devtools-a11y></wdio-devtools-a11y>
+              </wdio-devtools-tab>
+              <wdio-devtools-tab label="Transcript">
+                <wdio-devtools-transcript></wdio-devtools-transcript>
+              </wdio-devtools-tab>`
+          : nothing
+      }
       ${this.#renderCompareTabForSelectedTest()}
     `
   }
@@ -396,10 +397,9 @@ export class DevtoolsWorkbench extends Element {
     return html`
       <wdio-devtools-tabs
         cacheId="activeWorkbenchTab"
-        class="relative z-10 border-t-[1px] border-t-panelBorder ${this
-          .#toolbarCollapsed
-          ? 'hidden'
-          : ''} flex-1 min-h-0"
+        class="relative z-10 border-t-[1px] border-t-panelBorder ${
+          this.#toolbarCollapsed ? 'hidden' : ''
+        } flex-1 min-h-0"
       >
         ${this.#renderDockTabItems()}
         <nav class="ml-auto" slot="actions">
@@ -428,16 +428,18 @@ export class DevtoolsWorkbench extends Element {
         class="basis-auto text-gray-500 flex items-center justify-center flex-1 min-h-0"
         style="${this.#computeBrowserPaneStyle()}${playerPaneExtra}"
       >
-        ${this.playerMode
-          ? html`<div
-              class="h-full max-w-full mx-auto"
-              style="aspect-ratio:${this.#playerAspectRatio()};"
-            >
-              <wdio-devtools-browser
-                style="background:transparent"
-              ></wdio-devtools-browser>
-            </div>`
-          : html`<wdio-devtools-browser></wdio-devtools-browser>`}
+        ${
+          this.playerMode
+            ? html`<div
+                class="h-full max-w-full mx-auto"
+                style="aspect-ratio:${this.#playerAspectRatio()};"
+              >
+                <wdio-devtools-browser
+                  style="background:transparent"
+                ></wdio-devtools-browser>
+              </div>`
+            : html`<wdio-devtools-browser></wdio-devtools-browser>`
+        }
       </section>
     `
   }
@@ -471,28 +473,34 @@ export class DevtoolsWorkbench extends Element {
           ${this.#renderActionsSidebar()}
         </section>
         ${this.#renderSidebarRestoreButton()}
-        ${!this.#workbenchSidebarCollapsed
-          ? this.#dragHorizontal.getSlider('z-30')
-          : nothing}
+        ${
+          !this.#workbenchSidebarCollapsed
+            ? this.#dragHorizontal.getSlider('z-30')
+            : nothing
+        }
         <section
           data-vertical-resizer-window
           class="relative flex flex-col flex-grow min-w-0 min-h-0 overflow-hidden"
         >
-          ${this.playerMode
-            ? html`<wdio-devtools-trace-player-controls
-                class="flex-none h-10 border-b-[1px] border-b-panelBorder"
-              ></wdio-devtools-trace-player-controls>`
-            : nothing}
+          ${
+            this.playerMode
+              ? html`<wdio-devtools-trace-player-controls
+                  class="flex-none h-10 border-b-[1px] border-b-panelBorder"
+                ></wdio-devtools-trace-player-controls>`
+              : nothing
+          }
           <section
             class="relative flex flex-col flex-1 min-w-0 min-h-0 overflow-hidden"
           >
             ${this.#renderBrowserPane()}
-            ${!this.#toolbarCollapsed
-              ? (this.playerMode
-                  ? this.#dragVerticalPlayer
-                  : this.#dragVertical
-                ).getSlider('z-[999] pointer-events-auto')
-              : nothing}
+            ${
+              !this.#toolbarCollapsed
+                ? (this.playerMode
+                    ? this.#dragVerticalPlayer
+                    : this.#dragVertical
+                  ).getSlider('z-[999] pointer-events-auto')
+                : nothing
+            }
             ${this.#renderWorkbenchTabs()}
           </section>
         </section>

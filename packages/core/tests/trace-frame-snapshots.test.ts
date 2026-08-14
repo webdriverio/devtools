@@ -111,8 +111,7 @@ describe('input point synthesis (A8)', () => {
       new FrameSnapshotIndex(snaps)
     )
     const after = events.find((e) => e.type === 'after') as
-      | AfterEvent
-      | undefined
+      AfterEvent | undefined
     return after?.point
   }
 
