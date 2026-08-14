@@ -184,8 +184,7 @@ export class DevtoolsBrowser extends Element {
     // first resize event), or may arrive without dimensions — fall back to
     // sensible defaults so we never throw.
     const viewport = metadata.viewport as
-      | { width?: number; height?: number }
-      | undefined
+      { width?: number; height?: number } | undefined
     const viewportWidth = viewport?.width || 1280
     const viewportHeight = viewport?.height || 800
     if (!viewportWidth || !viewportHeight) {
@@ -810,11 +809,11 @@ export class DevtoolsBrowser extends Element {
     return html`<button
       title="Element overlay — outline what the test interacted with"
       @click=${() => this.#toggleOverlay()}
-      style="display:inline-grid;place-items:center;width:24px;height:24px;margin:0 8px;flex:none;border-radius:6px;cursor:pointer;border:1px solid var(--vscode-panel-border, #2a2a31);background:${on
-        ? 'var(--accent, #ff6a3d)'
-        : 'transparent'};color:${on
-        ? '#1a0d06'
-        : 'var(--vscode-descriptionForeground, #8b8b96)'};"
+      style="display:inline-grid;place-items:center;width:24px;height:24px;margin:0 8px;flex:none;border-radius:6px;cursor:pointer;border:1px solid var(--vscode-panel-border, #2a2a31);background:${
+        on ? 'var(--accent, #ff6a3d)' : 'transparent'
+      };color:${
+        on ? '#1a0d06' : 'var(--vscode-descriptionForeground, #8b8b96)'
+      };"
     >
       <icon-mdi-cursor-default-click-outline
         style="width:14px;height:14px;"
@@ -840,28 +839,30 @@ export class DevtoolsBrowser extends Element {
         >
           Screencast
         </button>
-        ${this.#videos.length > 1
-          ? html`<select
-              class="video-select"
-              ?disabled=${this.#viewMode !== 'video'}
-              @change=${(e: Event) => {
-                this.#setActiveVideo(
-                  Number((e.target as HTMLSelectElement).value)
-                )
-                this.#setViewMode('video')
-              }}
-            >
-              ${this.#videos.map(
-                (_v, i) =>
-                  html`<option
-                    value=${i}
-                    ?selected=${this.#activeVideoIdx === i}
-                  >
-                    Recording ${i + 1}
-                  </option>`
-              )}
-            </select>`
-          : nothing}
+        ${
+          this.#videos.length > 1
+            ? html`<select
+                class="video-select"
+                ?disabled=${this.#viewMode !== 'video'}
+                @change=${(e: Event) => {
+                  this.#setActiveVideo(
+                    Number((e.target as HTMLSelectElement).value)
+                  )
+                  this.#setViewMode('video')
+                }}
+              >
+                ${this.#videos.map(
+                  (_v, i) =>
+                    html`<option
+                      value=${i}
+                      ?selected=${this.#activeVideoIdx === i}
+                    >
+                      Recording ${i + 1}
+                    </option>`
+                )}
+              </select>`
+            : nothing
+        }
       </div>
     `
   }
@@ -897,8 +898,9 @@ export class DevtoolsBrowser extends Element {
           style="position:relative;flex:1;min-height:0;"
         >
           <img
-            src="data:${imageMime(this.#screenshotData)};base64,${this
-              .#screenshotData}"
+            src="data:${imageMime(this.#screenshotData)};base64,${
+              this.#screenshotData
+            }"
           />
         </div>
       </div>`

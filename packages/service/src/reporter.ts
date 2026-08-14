@@ -197,8 +197,7 @@ export class TestReporter extends WebdriverIOReporter {
     // only if the pickle data isn't available.
     if (isScenario(suiteStats) && suiteStats.file?.endsWith('.feature')) {
       const cucumberArg = (suiteStats as { argument?: unknown }).argument as
-        | { uri?: string; line?: number }
-        | undefined
+        { uri?: string; line?: number } | undefined
       const pickleUri =
         cucumberArg?.uri ?? suiteStats.pickle?.uri ?? suiteStats.uri
       const pickleLine =
@@ -261,8 +260,7 @@ export class TestReporter extends WebdriverIOReporter {
 
     // For Cucumber: capture feature file URI and line from pickle
     const cucumberArg = (testStats as { argument?: unknown }).argument as
-      | { uri?: string; line?: number }
-      | undefined
+      { uri?: string; line?: number } | undefined
     if (cucumberArg?.uri && typeof cucumberArg.line === 'number') {
       testStats.featureFile = cucumberArg.uri
       testStats.featureLine = cucumberArg.line

@@ -33,8 +33,7 @@ export const config: WebdriverIO.Config = {
       {
         // Trace by default (regen); DEVTOOLS_MODE=live flips to live for live-parity recording.
         mode: (process.env.DEVTOOLS_MODE === 'live' ? 'live' : 'trace') as
-          | 'live'
-          | 'trace',
+          'live' | 'trace',
         // Granularity/policy default to session/on and are env-overridable so
         // one config can walk the whole grid, e.g.
         //   DEVTOOLS_TRACE_GRANULARITY=test DEVTOOLS_TRACE_POLICY=retain-on-failure

@@ -21,13 +21,15 @@ export function renderBrowserChrome(
       <div
         class="flex items-center mx-4 my-2 pr-2 bg-input-background text-inputForeground border border-editorSuggestWidgetBorder rounded leading-7 flex-1 min-w-0 overflow-hidden"
       >
-        ${displayUrl?.startsWith('https')
-          ? html`<icon-mdi-lock
-              class="w-[16px] h-[16px] m-1 mr-2 flex-shrink-0 text-chartsGreen"
-            ></icon-mdi-lock>`
-          : html`<icon-mdi-world
-              class="w-[20px] h-[20px] m-1 mr-2 flex-shrink-0"
-            ></icon-mdi-world>`}
+        ${
+          displayUrl?.startsWith('https')
+            ? html`<icon-mdi-lock
+                class="w-[16px] h-[16px] m-1 mr-2 flex-shrink-0 text-chartsGreen"
+              ></icon-mdi-lock>`
+            : html`<icon-mdi-world
+                class="w-[20px] h-[20px] m-1 mr-2 flex-shrink-0"
+              ></icon-mdi-world>`
+        }
         <span class="truncate">${displayUrl}</span>
       </div>
       ${viewToggle}

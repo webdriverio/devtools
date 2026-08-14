@@ -87,15 +87,18 @@ export class DevtoolsTabs extends Element {
     return html`
       <button
         @click="${() => this.activateTab(tabId)}"
-        class="tab-btn transition-colors px-4 py-2 border-b-2 flex items-center gap-2 ${this
-          .#activeTab === tabId
-          ? 'tab-btn--active border-accent'
-          : 'border-transparent'}"
+        class="tab-btn transition-colors px-4 py-2 border-b-2 flex items-center gap-2 ${
+          this.#activeTab === tabId
+            ? 'tab-btn--active border-accent'
+            : 'border-transparent'
+        }"
       >
         <span>${tabId}</span>
-        ${showBadge
-          ? html`<span class="${badgeClass}">${badge}</span>`
-          : nothing}
+        ${
+          showBadge
+            ? html`<span class="${badgeClass}">${badge}</span>`
+            : nothing
+        }
       </button>
     `
   }
@@ -217,14 +220,16 @@ export class DevtoolsTabs extends Element {
 
   render() {
     return html`
-      ${this.#tabList.length
-        ? html`
-            <nav class="flex w-full bg-sideBarBackground shadow-md z-10">
-              ${this.#tabList.map((tab) => this.#getTabButton(tab))}
-              <slot name="actions"></slot>
-            </nav>
-          `
-        : nothing}
+      ${
+        this.#tabList.length
+          ? html`
+              <nav class="flex w-full bg-sideBarBackground shadow-md z-10">
+                ${this.#tabList.map((tab) => this.#getTabButton(tab))}
+                <slot name="actions"></slot>
+              </nav>
+            `
+          : nothing
+      }
       <slot></slot>
     `
   }

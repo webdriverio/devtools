@@ -97,15 +97,21 @@ export class DevtoolsPlaceholder extends Element {
     }
     return html`
       <div class="empty-state">
-        ${this.icon
-          ? html`<div class="empty-state-icon">${this.icon}</div>`
-          : nothing}
-        ${this.heading
-          ? html`<div class="empty-state-text">${this.heading}</div>`
-          : nothing}
-        ${this.description
-          ? html`<div class="empty-state-detail">${this.description}</div>`
-          : nothing}
+        ${
+          this.icon
+            ? html`<div class="empty-state-icon">${this.icon}</div>`
+            : nothing
+        }
+        ${
+          this.heading
+            ? html`<div class="empty-state-text">${this.heading}</div>`
+            : nothing
+        }
+        ${
+          this.description
+            ? html`<div class="empty-state-detail">${this.description}</div>`
+            : nothing
+        }
       </div>
     `
   }

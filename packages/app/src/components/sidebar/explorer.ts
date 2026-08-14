@@ -379,25 +379,28 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
         feature-line="${entry.featureLine ?? ''}"
         suite-type="${entry.suiteType || ''}"
         ?has-children="${entry.children && entry.children.length > 0}"
-        ?selected="${entry.uid ===
-        (this.#selectedUid ?? this.#autoSelectedUid)}"
+        ?selected="${
+          entry.uid === (this.#selectedUid ?? this.#autoSelectedUid)
+        }"
         ?revealed="${entry.uid === this.#revealedUid}"
         ?root="${isRoot}"
         .runDisabled=${this.#isRunDisabled(entry)}
         .runDisabledReason=${this.#getRunDisabledReason(entry)}
       >
         <label slot="label">${entry.label}</label>
-        ${entry.children && entry.children.length
-          ? html`
-              <wdio-test-suite slot="children">
-                ${repeat(
-                  entry.children,
-                  (child) => child.uid,
-                  (child) => this.#renderEntry(child)
-                )}
-              </wdio-test-suite>
-            `
-          : nothing}
+        ${
+          entry.children && entry.children.length
+            ? html`
+                <wdio-test-suite slot="children">
+                  ${repeat(
+                    entry.children,
+                    (child) => child.uid,
+                    (child) => this.#renderEntry(child)
+                  )}
+                </wdio-test-suite>
+              `
+            : nothing
+        }
       </wdio-test-entry>
     `
   }
@@ -471,15 +474,17 @@ export class DevtoolsSidebarExplorer extends CollapseableEntry {
         ${this.#renderHeaderToolbar()}
       </header>
       <wdio-test-suite>
-        ${suites.length
-          ? repeat(
-              suites,
-              (suite) => suite.uid,
-              (suite) => this.#renderEntry(suite, true)
-            )
-          : html`<div class="text-sm px-4 py-2">
-              <p class="text-disabledForeground">No tests to display</p>
-            </div>`}
+        ${
+          suites.length
+            ? repeat(
+                suites,
+                (suite) => suite.uid,
+                (suite) => this.#renderEntry(suite, true)
+              )
+            : html`<div class="text-sm px-4 py-2">
+                <p class="text-disabledForeground">No tests to display</p>
+              </div>`
+        }
       </wdio-test-suite>
     `
   }

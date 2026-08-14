@@ -54,9 +54,11 @@ export class MutationItem extends ActionItem {
       )}
       <span class="label">
         ${this.#renderNodeAmount(mutation.addedNodes, 'added')}
-        ${mutation.addedNodes.length && mutation.removedNodes.length
-          ? ' and '
-          : nothing}
+        ${
+          mutation.addedNodes.length && mutation.removedNodes.length
+            ? ' and '
+            : nothing
+        }
         ${this.#renderNodeAmount(mutation.removedNodes, 'removed')}
       </span>
       ${this.renderTime()}

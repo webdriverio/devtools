@@ -73,7 +73,7 @@
     "mocha": "^11.7.6",
     "selenium-webdriver": "^4.44.0",
     "tsup": "^8.5.1",
-    "typescript": "^7.0.2",
+    "typescript": "^6.0.3",
     "vitest": "^4.1.8"
   },
   "peerDependencies": {

@@ -328,8 +328,9 @@ export class TraceTimeline extends Element {
           const fraction = tick / this.#duration
           return html`<span
             class="absolute top-0.5 whitespace-nowrap"
-            style="left:${fraction * 100}%; transform:translateX(-${fraction *
-            100}%);"
+            style="left:${fraction * 100}%; transform:translateX(-${
+              fraction * 100
+            }%);"
             >${formatTickLabel(tick)}</span
           >`
         })}
@@ -353,13 +354,16 @@ export class TraceTimeline extends Element {
           const fraction = this.#fraction(frame.timestamp)
           const active = frame.timestamp === activeFrame
           return html`<button
-            class="absolute top-0.5 bottom-0.5 aspect-video border rounded overflow-hidden hover:border-chartsBlue hover:z-10 ${active
-              ? `border-chartsBlue ring-1 ring-chartsBlue${
-                  this.playing ? '' : ' z-10'
-                }`
-              : 'border-panelBorder'}"
-            style="left:${fraction * 100}%; transform:translateX(-${fraction *
-            100}%);"
+            class="absolute top-0.5 bottom-0.5 aspect-video border rounded overflow-hidden hover:border-chartsBlue hover:z-10 ${
+              active
+                ? `border-chartsBlue ring-1 ring-chartsBlue${
+                    this.playing ? '' : ' z-10'
+                  }`
+                : 'border-panelBorder'
+            }"
+            style="left:${fraction * 100}%; transform:translateX(-${
+              fraction * 100
+            }%);"
             title="${formatTimecode(frame.timestamp - this.#start)}"
             @click="${() => this.#seekToTimestamp(frame.timestamp)}"
           >
