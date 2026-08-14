@@ -1,17 +1,23 @@
 name: Python Adapter
 
+# Deliberately NOT triggered by packages/shared/**, even though the adapter's
+# wire contract is generated from it. Doing so put a Python check on every PR
+# that touched shared, which is most of them, and a red Python job would block
+# work unrelated to this adapter. The trade-off: a shared change that breaks the
+# contract is not caught here at the moment it lands. It is still caught by the
+# drift check below on the next PR that touches this package, which regenerates
+# _contract.py and fails on any diff. Revisit once the adapter is published and
+# the coupling is worth the noise.
 on:
   push:
     branches:
       - main
     paths:
       - packages/selenium-devtools-py/**
-      - packages/shared/**
       - .github/workflows/python.yml
   pull_request:
     paths:
       - packages/selenium-devtools-py/**
-      - packages/shared/**
       - .github/workflows/python.yml
 
 permissions:

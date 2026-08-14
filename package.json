@@ -13,6 +13,7 @@
     "demo:nightwatch": "pnpm --filter @wdio/nightwatch-devtools example",
     "demo:nightwatch:retry": "pnpm --filter @wdio/nightwatch-devtools example:retry",
     "demo:selenium": "pnpm --filter @wdio/selenium-devtools example",
+    "demo:python": "python3 examples/selenium/python-test/web_form.py",
     "dev": "pnpm --parallel dev",
     "preview": "pnpm --parallel preview",
     "test": "vitest run",

@@ -44,7 +44,15 @@ devtools.disable()
 ```
 
 Runnable example: [`web_form.py`](../../examples/selenium/python-test/web_form.py),
-the three-line version above.
+the three-line version above. From the repo root, after `pip install -e` above and
+a `pnpm build` so the backend exists:
+
+```bash
+pnpm demo:python
+```
+
+Unlike `demo:wdio` and friends, this needs the Python package installed and uses
+whatever `python3` resolves to on your PATH.
 If the backend can't be launched or reached, `enable()` warns and returns
 `None` — capture is skipped, your tests still run.
 
