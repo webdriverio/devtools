@@ -1,6 +1,9 @@
+import os
+import tempfile
 import unittest
+from unittest import mock
 
-from selenium_devtools import instrumentation
+from selenium_devtools import instrumentation, snapshot
 from selenium_devtools.capturer import SessionCapturer
 
 
@@ -146,7 +149,19 @@ class FakeDriverWithScript(FakeDriver):
 
 
 class TestSnapshotWiring(unittest.TestCase):
+    """Covers the drain plumbing, not the collector's contents, so it stands in a
+    stub for the bundle. `packages/script/dist/script.js` is a gitignored build
+    artifact, and these tests would otherwise pass only on a machine that had
+    built it and fail on CI, which is what happened."""
+
     def setUp(self):
+        self._stub = tempfile.NamedTemporaryFile("w", suffix=".js", delete=False)
+        self._stub.write("window.wdioTraceCollector = { getTraceData: () => null }\n")
+        self._stub.close()
+        self._script_patch = mock.patch.object(
+            snapshot, "resolve_script_path", return_value=self._stub.name
+        )
+        self._script_patch.start()
         instrumentation.uninstall()
         self.tx = FakeTransport()
         self.cap = SessionCapturer(self.tx)
@@ -155,6 +170,8 @@ class TestSnapshotWiring(unittest.TestCase):
 
     def tearDown(self):
         instrumentation.uninstall()
+        self._script_patch.stop()
+        os.unlink(self._stub.name)
 
     def _mutations(self):
         return [d for s, d in self.tx.sent if s == "mutations"]

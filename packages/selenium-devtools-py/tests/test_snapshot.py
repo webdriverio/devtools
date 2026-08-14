@@ -28,9 +28,14 @@ class FakeExec:
 
 
 class TestScriptResolution(unittest.TestCase):
+    # `packages/script/dist/script.js` is a gitignored build artifact, so a CI job
+    # that only sets up Python has no copy. Mirrors the JS suite's
+    # `it.skipIf(!scriptPackageAvailable)` guard on the same dependency.
+    @unittest.skipUnless(
+        resolve_script_path(), "packages/script/dist/script.js is not built"
+    )
     def test_resolves_monorepo_script(self):
         path = resolve_script_path()
-        # The built runtime exists in this repo; resolution must find it.
         self.assertIsNotNone(path)
         self.assertTrue(path.endswith(os.path.join("script", "dist", "script.js")))
         self.assertTrue(os.path.isfile(path))
