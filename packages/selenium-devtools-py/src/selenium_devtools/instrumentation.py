@@ -21,7 +21,13 @@ from typing import Any, Optional
 
 from . import bidi, frames
 from .capturer import SessionCapturer
-from .constants import BIDI_CAPABILITY, ENV_BIDI, SKIP_COMMANDS, SKIP_STACK_FRAMES
+from .constants import (
+    BIDI_CAPABILITY,
+    ENV_BIDI,
+    LOGGER_NAME,
+    SKIP_COMMANDS,
+    SKIP_STACK_FRAMES,
+)
 from .output_dir import resolve_adapter_output_dir
 from .screencast import ScreencastRecorder
 from .snapshot import SnapshotCapturer, start_snapshot_capture
@@ -29,7 +35,7 @@ from .sources import read_source
 from .utils import call_source, now_ms
 
 # Operational logging — surfaced in the dashboard Console (the 'runner' stream).
-_log = logging.getLogger("selenium_devtools")
+_log = logging.getLogger(f"{LOGGER_NAME}.instrumentation")
 
 # Marks the adapter's OWN execute_script calls (snapshot inject/readback) so
 # patched_execute skips capturing them as user commands.

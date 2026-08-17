@@ -12,8 +12,9 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict
 
-#: The adapter's logger name — operational events are logged under it.
-LOGGER_NAME = "selenium_devtools"
+from .constants import LOGGER_NAME
+
+__all__ = ["LOGGER_NAME", "LogCapturer"]
 
 _LEVEL_MAP = {
     logging.DEBUG: "debug",

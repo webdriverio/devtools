@@ -5,6 +5,14 @@ from __future__ import annotations
 
 import os
 
+# ── Logging ──────────────────────────────────────────────────────────────────
+# The adapter's logger name. Every operational message logs under this or a
+# child of it, which is the only route to the dashboard Console: `LogCapturer`
+# forwards logging records, `terminal.py` tees stdout by design, and a raw
+# stderr print reaches neither. Modules use `LOGGER_NAME + ".<module>"` so the
+# source shows up in the Console without a hand-written prefix.
+LOGGER_NAME = "selenium_devtools"
+
 # ── Connection defaults ──────────────────────────────────────────────────────
 DEFAULT_HOST = "localhost"
 DEFAULT_PORT = 3000
