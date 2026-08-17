@@ -9,6 +9,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 
 import {
+  dropCoveredRecords,
   MUTATION_OBSERVER_CONFIG,
   serializeMutation,
   shouldCapture
@@ -26,7 +27,7 @@ async function capture(mutate: () => void): Promise<TraceMutation[]> {
   // MutationObserver delivers in a microtask; happy-dom needs a macrotask turn.
   await new Promise((resolve) => setTimeout(resolve, 0))
   observer.disconnect()
-  return records
+  return dropCoveredRecords(records)
     .filter(shouldCapture)
     .map((m) => serializeMutation(m, TIMESTAMP))
 }
@@ -34,14 +35,14 @@ async function capture(mutate: () => void): Promise<TraceMutation[]> {
 const textOf = (selector: string) =>
   document.querySelector(selector)!.firstChild as Text
 
-describe('mutation serialization', () => {
-  beforeEach(() => {
-    if (!document.body) {
-      document.documentElement.appendChild(document.createElement('body'))
-    }
-    document.body.innerHTML = ''
-  })
+beforeEach(() => {
+  if (!document.body) {
+    document.documentElement.appendChild(document.createElement('body'))
+  }
+  document.body.innerHTML = ''
+})
 
+describe('mutation serialization', () => {
   it('observes character data — the record type a text patch produces', () => {
     // `textNode.data = …` is how every mainstream framework patches text; an
     // observer without this flag never produces a record for it at all.
@@ -213,5 +214,93 @@ describe('mutation serialization', () => {
     // only by the null in its place.
     expect(mutations.flatMap((m) => m.removedNodes)).toEqual([null])
     expect(mutations.flatMap((m) => m.addedNodes)).toEqual(['new'])
+  })
+})
+
+describe('records covered by another record in the same batch', () => {
+  it('keeps only the outermost insertion when a parent and its child are added together', async () => {
+    assignRef(document.body)
+
+    const mutations = await capture(() => {
+      const parent = document.createElement('div')
+      parent.id = 'parent'
+      document.body.appendChild(parent)
+      // Same batch, and `parent` is already in the document — so this insertion
+      // gets its own record while also landing inside `parent`'s serialization.
+      const child = document.createElement('input')
+      child.id = 'child'
+      parent.appendChild(child)
+    })
+
+    expect(mutations).toHaveLength(1)
+    expect(mutations[0].target).toBe(getRef(document.body))
+    expect(JSON.stringify(mutations[0].addedNodes)).toContain('"id":"child"')
+  })
+
+  it('drops a whole nested chain, however deep', async () => {
+    assignRef(document.body)
+
+    const mutations = await capture(() => {
+      const a = document.createElement('div')
+      document.body.appendChild(a)
+      const b = document.createElement('div')
+      a.appendChild(b)
+      const c = document.createElement('form')
+      b.appendChild(c)
+      c.appendChild(document.createElement('input'))
+    })
+
+    expect(mutations).toHaveLength(1)
+    const serialized = JSON.stringify(mutations[0].addedNodes)
+    expect(serialized).toContain('form')
+    expect(serialized).toContain('input')
+  })
+
+  it('drops an attribute change made inside a subtree the batch added', async () => {
+    assignRef(document.body)
+
+    const mutations = await capture(() => {
+      const el = document.createElement('div')
+      document.body.appendChild(el)
+      // Already reflected: the payload is serialized after this runs.
+      el.setAttribute('class', 'ready')
+    })
+
+    expect(mutations).toHaveLength(1)
+    expect(mutations[0].type).toBe('childList')
+    expect(JSON.stringify(mutations[0].addedNodes)).toContain('"class":"ready"')
+  })
+
+  it('keeps an insertion into an element the batch did NOT add', async () => {
+    document.body.innerHTML = '<div id="host"></div>'
+    assignRef(document.body)
+    const host = document.querySelector('#host')!
+    assignRef(host)
+
+    const mutations = await capture(() => {
+      host.appendChild(document.createElement('span'))
+    })
+
+    // The host predates the batch, so nothing else carries this insertion.
+    expect(mutations).toHaveLength(1)
+    expect(mutations[0].target).toBe(getRef(host))
+  })
+
+  it('keeps a later batch adding into a subtree an earlier batch created', async () => {
+    assignRef(document.body)
+
+    await capture(() => {
+      const el = document.createElement('div')
+      el.id = 'grown'
+      document.body.appendChild(el)
+    })
+    // A separate batch: the first payload was serialized before this existed,
+    // so this insertion is the only record of it.
+    const later = await capture(() => {
+      document.querySelector('#grown')!.appendChild(document.createElement('p'))
+    })
+
+    expect(later).toHaveLength(1)
+    expect(later[0].target).toBe(getRef(document.querySelector('#grown')!))
   })
 })

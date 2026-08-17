@@ -184,9 +184,9 @@ describe('rearmCaptureForSession', () => {
   })
 
   it('drops the dead session claims at detection, before the new ones land', () => {
-    // anchorAfterNavigation stands its settle poll down when the preload is
-    // registered, and captureNetworkFromPerformanceLogs stands down when BiDi
-    // is active — between sessions neither claim is true any more.
+    // The `<script>` fallback re-injects only where no preload is claimed, and
+    // captureNetworkFromPerformanceLogs stands down when BiDi is active —
+    // between sessions neither claim is true any more.
     const { ctx, capturer } = makeCtx()
 
     rearm(ctx, fakeBrowser('session-2'))

@@ -755,3 +755,74 @@ describe('BrowserProxy native-assert buffer scope', () => {
     expect(proxy.drainNativeAssertCalls()[0].observed).toBeUndefined()
   })
 })
+
+describe('BrowserProxy capture ordering after a DOM-mutating command', () => {
+  beforeEach(() => {
+    getCallSourceFromStack.mockReset()
+    getCallSourceFromStack.mockReturnValue({
+      filePath: '/tests/spec.js',
+      callSource: '/tests/spec.js:9'
+    })
+  })
+
+  function clickBrowser() {
+    const echo = (...args: unknown[]) => {
+      const cb = args[args.length - 1]
+      if (typeof cb === 'function') {
+        ;(cb as (r: unknown) => void)({ value: null })
+      }
+      return undefined
+    }
+    return { click: echo, getTitle: echo } as unknown as NightwatchBrowser
+  }
+
+  function run(command: string) {
+    const { capturer, captureCommand } = makeCapturer()
+    const proxy = new BrowserProxy(capturer, makeTestManager(), () => ({
+      uid: 'uid-a'
+    }))
+    const browser = clickBrowser()
+    proxy.wrapBrowserCommands(browser)
+    ;(browser as unknown as Record<string, (...a: unknown[]) => unknown>)[
+      command
+    ]('#a')
+    return { capturer, captureCommand }
+  }
+
+  // The collector's buffer dies with the document, so a drain issued behind the
+  // snapshot probes and the screenshot loses the race against a submit's
+  // navigation and the field edits are gone.
+  it('drains the outgoing page before it captures the command', () => {
+    const { capturer, captureCommand } = run('click')
+    const captureTrace = capturer.captureTrace as unknown as ReturnType<
+      typeof vi.fn
+    >
+
+    expect(captureTrace).toHaveBeenCalledTimes(1)
+    expect(captureTrace.mock.invocationCallOrder[0]).toBeLessThan(
+      captureCommand.mock.invocationCallOrder[0]
+    )
+  })
+
+  // The destination anchor polls for the collector to DISAPPEAR, so it gains
+  // nothing from going early and would push the row's own screenshot and DOM
+  // snapshot behind a second round trip.
+  it('anchors the destination after the command is captured', () => {
+    const { capturer, captureCommand } = run('click')
+    const anchor = capturer.anchorAfterNavigation as unknown as ReturnType<
+      typeof vi.fn
+    >
+
+    expect(anchor).toHaveBeenCalledTimes(1)
+    expect(anchor.mock.invocationCallOrder[0]).toBeGreaterThan(
+      captureCommand.mock.invocationCallOrder[0]
+    )
+  })
+
+  it('does neither for a command that cannot change the DOM', () => {
+    const { capturer } = run('getTitle')
+
+    expect(capturer.captureTrace).not.toHaveBeenCalled()
+    expect(capturer.anchorAfterNavigation).not.toHaveBeenCalled()
+  })
+})

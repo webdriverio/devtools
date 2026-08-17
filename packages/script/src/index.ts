@@ -1,5 +1,6 @@
 import { waitForBody, getRef } from './utils.js'
 import {
+  dropCoveredRecords,
   MUTATION_OBSERVER_CONFIG,
   serializeMutation,
   shouldCapture
@@ -17,7 +18,7 @@ try {
 
   const observer = new MutationObserver((ml) => {
     const timestamp = Date.now()
-    const mutationList = ml.filter(shouldCapture)
+    const mutationList = dropCoveredRecords(ml).filter(shouldCapture)
     log(`observed ${mutationList.length} mutations`)
     try {
       collector.captureMutation(

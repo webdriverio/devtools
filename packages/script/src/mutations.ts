@@ -65,6 +65,41 @@ export function shouldCapture(m: MutationRecord): boolean {
   return m.type !== 'characterData' || Boolean(textNodeAddress(m.target))
 }
 
+/** True when `node` is, or sits inside, a subtree this batch already added. */
+function coveredByAddedSubtree(node: Node | null, added: Set<Node>): boolean {
+  for (let current = node; current; current = current.parentNode) {
+    if (added.has(current)) {
+      return true
+    }
+  }
+  return false
+}
+
+/** Drop the records another record's payload already carries: a batch is
+ *  serialized at CALLBACK time, so an added subtree holds every descendant the
+ *  same batch went on to insert, and replaying those insertions too grafts the
+ *  content in once per level. Every record describes that one final DOM, so
+ *  order within the batch is irrelevant and this filters against all of them. */
+export function dropCoveredRecords(
+  records: MutationRecord[]
+): MutationRecord[] {
+  const added = new Set<Node>()
+  for (const m of records) {
+    if (m.type !== 'childList') {
+      continue
+    }
+    for (const node of Array.from(m.addedNodes)) {
+      if (node.nodeType === Node.ELEMENT_NODE) {
+        added.add(node)
+      }
+    }
+  }
+  if (added.size === 0) {
+    return records
+  }
+  return records.filter((m) => !coveredByAddedSubtree(m.target, added))
+}
+
 export function serializeMutation(
   m: MutationRecord,
   timestamp: number

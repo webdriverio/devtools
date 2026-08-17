@@ -22,6 +22,10 @@
     "show-trace": "./dist/show-trace.js"
   },
   "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "typeScriptVersion": "^5.0.0",
   "scripts": {
     "dev": "run-p dev:*",

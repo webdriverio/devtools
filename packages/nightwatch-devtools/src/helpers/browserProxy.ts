@@ -328,6 +328,8 @@ export class BrowserProxy {
     // synchronous push lands.
     this.retryTracker.setLastSig(cmdSig)
     this.retryTracker.setLastId(null)
+    // Issued first, and only this one — see `drainOutgoingPage`.
+    this.drainOutgoingPage(browser, methodName)
     this.sessionCapturer
       .captureCommand(methodName, logArgs, serializedResult, commandError, meta)
       .catch((err) =>
@@ -343,36 +345,11 @@ export class BrowserProxy {
       log.info(`[command] ${methodName}`)
       this.attachScreenshot(browser, lastCommand, methodName)
     }
-    this.maybeRepollMutations(browser, methodName)
+    this.anchorDestination(browser, methodName)
   }
 
-  /**
-   * After a DOM-mutating command, drain the collector — TWICE, for two different
-   * reasons that no single drain can serve.
-   *
-   * The first drain fires synchronously, with no setTimeout in front. It used to
-   * defer 200ms to stay off Nightwatch's callback stack, safe only because the
-   * drain went through `browser.execute`, a QUEUED command; over the raw HTTP
-   * transport it touches no queue, and because a driver serialises requests per
-   * session, a drain issued here is served BEFORE the next queued command. That
-   * is what captures the OUTGOING page's field edits — deferred, a submit click
-   * navigated first and they died with the page, so the `#password` fill row
-   * replayed with an empty password box.
-   *
-   * The second drain is what anchors the DESTINATION, and it has to wait: a
-   * Nightwatch click resolves before its navigation commits, so the first drain
-   * still finds the outgoing page's collector, recovers nothing, and the new
-   * document is never anchored — every action on it then replayed the page it
-   * came from (measured: 5 of 20 rows). `anchorAfterNavigation` keys off the
-   * document actually being replaced rather than off which command ran, so it
-   * covers any route to a new document — a submit click, a JS redirect, a
-   * same-command re-navigation — without a list of commands to keep in sync.
-   */
-  private maybeRepollMutations(
-    browser: NightwatchBrowser,
-    methodName: string
-  ): void {
-    const isDomMutating =
+  private isDomMutating(methodName: string): boolean {
+    return (
       (NAVIGATION_COMMANDS as readonly string[]).includes(methodName) ||
       [
         'click',
@@ -386,10 +363,51 @@ export class BrowserProxy {
         'forward',
         'refresh'
       ].includes(methodName)
-    if (!isDomMutating) {
+    )
+  }
+
+  /**
+   * Drains the OUTGOING page's field edits, which die with the document the
+   * moment a submit navigates. It goes over the raw HTTP transport, so it
+   * touches no Nightwatch queue, and a driver serialises requests per session —
+   * so it is served before the next queued command only for as long as it stays
+   * the FIRST request this class issues when a command completes. That call
+   * position, and the drain-before-perf-logs order inside `captureTrace`, are
+   * both load-bearing: behind the snapshot probes and the screenshot it needed
+   * about 130 ms of head start and got 18 ms, and the last field a test filled
+   * before submitting replayed as an empty box.
+   *
+   * It deliberately carries only this one request. `anchorAfterNavigation` is
+   * issued later, from `anchorDestination`, so the row's own screenshot and DOM
+   * snapshot are not pushed behind two round trips.
+   */
+  private drainOutgoingPage(
+    browser: NightwatchBrowser,
+    methodName: string
+  ): void {
+    if (!this.isDomMutating(methodName)) {
       return
     }
     this.sessionCapturer.captureTrace(browser, true).catch(() => {})
+  }
+
+  /**
+   * Anchors the DESTINATION, and it has to wait: a Nightwatch click resolves
+   * before its navigation commits, so the outgoing drain still finds the old
+   * page's collector, recovers nothing, and the new document is never anchored —
+   * every action on it then replayed the page it came from (measured: 5 of 20
+   * rows). `anchorAfterNavigation` keys off the document actually being replaced
+   * rather than off which command ran, so it covers any route to a new document —
+   * a submit click, a JS redirect, a same-command re-navigation — without a list
+   * of commands to keep in sync.
+   */
+  private anchorDestination(
+    browser: NightwatchBrowser,
+    methodName: string
+  ): void {
+    if (!this.isDomMutating(methodName)) {
+      return
+    }
     // Tracked so finalize awaits it — an untracked anchor drain can still be in
     // flight when the trace is written, which loses the document entirely.
     this.sessionCapturer.snapshotCaptures.push(
