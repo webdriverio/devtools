@@ -36,9 +36,35 @@ __all__ = [
 
 _log = logging.getLogger(f"{LOGGER_NAME}.enable")
 
+def _install_excepthook() -> None:
+    """Record an exception that reaches top level, so teardown can report the
+    run as failed. Chained, never replacing: a user's own hook (pytest, an error
+    reporter) still runs, and the original is restored on disable()."""
+    if _active.get("excepthook") is not None:
+        return
+    previous = sys.excepthook
+
+    def hook(exc_type, exc, tb):  # noqa: ANN001
+        # SystemExit(0) is a clean exit, not a failure — `sys.exit()` at the end
+        # of a passing script must not paint the run red.
+        if not (exc_type is SystemExit and getattr(exc, "code", 0) in (0, None)):
+            instrumentation.mark_run_failed()
+        previous(exc_type, exc, tb)
+
+    _active["excepthook"] = previous
+    sys.excepthook = hook
+
+
+def _restore_excepthook() -> None:
+    previous = _active.get("excepthook")
+    if previous is not None:
+        sys.excepthook = previous
+        _active["excepthook"] = None
+
+
 _active: dict = {
     "capturer": None, "transport": None, "process": None, "url": None,
-    "handle": None, "terminal": None, "logs": None,
+    "handle": None, "terminal": None, "logs": None, "excepthook": None,
 }
 
 
@@ -86,6 +112,7 @@ def enable(
 
     capturer = SessionCapturer(transport)
     instrumentation.install(capturer, webdriver_cls)
+    _install_excepthook()
     # Surface the runner's output in the dashboard Console: Python logging
     # (selenium + the adapter's own events) and the test's stdout.
     logs = LogCapturer(capturer)
@@ -110,6 +137,13 @@ def disable() -> None:
     # Close the dashboard window + unregister exit/signal handlers first, so a
     # re-enable() starts clean. Idempotent and defensive — never raises.
     lifecycle.unregister_exit_handlers()
+    _restore_excepthook()
+    capturer = _active["capturer"]
+    if capturer is not None:
+        # Runs after the excepthook, so the outcome is settled — this is what
+        # corrects the guess quit() had to make while the exception was still
+        # unwinding. Must precede transport.close(), or it never reaches the UI.
+        instrumentation.finalize_run(capturer)
     instrumentation.uninstall()
     term = _active["terminal"]
     if term is not None:  # restore stdout/stderr before tearing the transport down
@@ -129,7 +163,7 @@ def disable() -> None:
             process.kill()  # backend ignored SIGTERM — force it
     _active.update(
         capturer=None, transport=None, process=None, url=None, handle=None,
-        terminal=None, logs=None,
+        terminal=None, logs=None, excepthook=None,
     )
 
 

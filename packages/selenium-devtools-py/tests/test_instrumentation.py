@@ -214,6 +214,8 @@ class TestDefaultSuite(unittest.TestCase):
     def tearDown(self):
         instrumentation.uninstall()
         instrumentation.set_external_suites(False)
+        instrumentation._state["run_failed"] = False
+        instrumentation._state["default_suite"] = None
 
     def _suites(self):
         return [d for s, d in self.tx.sent if s == "suites"]
@@ -252,6 +254,65 @@ class TestDefaultSuite(unittest.TestCase):
 
         self.assertEqual(suite["uid"], "/tmp/demo/login.py")
         self.assertEqual(suite["tests"][0]["file"], "/tmp/demo/login.py")
+
+    def _final_state(self):
+        """State of the synthetic test in the LAST suites frame sent."""
+        return list(self._suites()[-1][0].values())[0]["tests"][0]["state"]
+
+    def test_a_clean_run_reports_passed(self):
+        self.driver.execute("newSession")
+        self.driver.execute("get", {"url": "https://x/"})
+        self.driver.execute("quit")
+
+        self.assertEqual(self._final_state(), "passed")
+
+    def test_quitting_while_an_exception_unwinds_reports_failed(self):
+        # A script quits from a `finally`, so at quit time the exception is
+        # still in flight — the only moment the dashboard can be told before
+        # `wait_for_dashboard_close` blocks on it.
+        self.driver.execute("newSession")
+        self.driver.execute("get", {"url": "https://x/"})
+        try:
+            try:
+                raise AssertionError("the test failed")
+            finally:
+                self.driver.execute("quit")
+        except AssertionError:
+            pass
+
+        self.assertEqual(self._final_state(), "failed")
+
+    def test_finalize_corrects_a_quit_time_guess_in_both_directions(self):
+        # quit() over-reports when called from inside an unrelated `except`,
+        # where the exception was handled and the run may still pass. finalize
+        # runs after the excepthook, when the outcome is actually known.
+        self.driver.execute("newSession")
+        self.driver.execute("get", {"url": "https://x/"})
+        try:
+            raise ValueError("handled by the user")
+        except ValueError:
+            self.driver.execute("quit")
+        self.assertEqual(self._final_state(), "failed")  # the guess
+
+        instrumentation.finalize_run(self.cap)
+        self.assertEqual(self._final_state(), "passed")  # corrected
+
+    def test_finalize_reports_failed_once_the_excepthook_fired(self):
+        self.driver.execute("newSession")
+        self.driver.execute("get", {"url": "https://x/"})
+        self.driver.execute("quit")
+        self.assertEqual(self._final_state(), "passed")
+
+        instrumentation.mark_run_failed()  # what the excepthook does
+        instrumentation.finalize_run(self.cap)
+
+        self.assertEqual(self._final_state(), "failed")
+
+    def test_finalize_is_a_noop_without_a_synthetic_suite(self):
+        # A framework owns the tree, or no driver ever started: nothing to say.
+        instrumentation.finalize_run(self.cap)
+
+        self.assertEqual(self._suites(), [])
 
     def test_default_suite_suppressed_when_framework_reports(self):
         instrumentation.set_external_suites(True)  # e.g. pytest plugin active

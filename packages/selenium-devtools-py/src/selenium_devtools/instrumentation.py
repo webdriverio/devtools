@@ -170,6 +170,9 @@ _state: dict = {
     "sessions": weakref.WeakKeyDictionary(),
     "output_dir": None,  # test-results dir beside the test file (see output_dir.py)
     "default_suite": None,  # synthesized suite for non-framework (script) runs
+    # Set by enable()'s excepthook when an exception reaches top level. The
+    # synthetic suite's final state reads this rather than assuming success.
+    "run_failed": False,
 }
 
 
@@ -358,7 +361,38 @@ def _on_quit(capturer: SessionCapturer, driver: Any) -> None:
         return  # this driver never armed capture; nothing of its own to close
     _close_entry(capturer, entry)
     if not len(sessions) and _state.get("default_suite") is not None:
-        _send_default_suite(capturer, "passed")  # the whole script run is done
+        _send_default_suite(capturer, _live_run_state())  # the script run is done
+
+
+def _live_run_state() -> str:
+    """Best guess at the run's outcome AT QUIT TIME, which is the last moment
+    the dashboard can be updated before `wait_for_dashboard_close` blocks on it.
+
+    A script quits its driver from a `finally`, and while an exception unwinds
+    through that block `sys.exc_info()` still reports it — so this is right for
+    the case that matters, a test that raised. It over-reports when quit() is
+    called from inside an unrelated `except` handler, where the exception was
+    caught and the run may still pass; `finalize_run` corrects that at teardown,
+    once whether anything reached top level is actually known.
+    """
+    if _state.get("run_failed"):
+        return "failed"
+    return "failed" if sys.exc_info()[0] is not None else "passed"
+
+
+def mark_run_failed() -> None:
+    """Record that an exception reached top level (see `enable`'s excepthook)."""
+    _state["run_failed"] = True
+
+
+def finalize_run(capturer: SessionCapturer) -> None:
+    """Send the run's AUTHORITATIVE outcome at teardown. Runs after the
+    excepthook, so `run_failed` is settled by now — this is what corrects a
+    quit-time guess, in either direction. No-op when no synthetic suite exists
+    (a framework owns the tree, or no driver ever started)."""
+    if _state.get("default_suite") is None:
+        return
+    _send_default_suite(capturer, "failed" if _state.get("run_failed") else "passed")
 
 
 def install(capturer: SessionCapturer, webdriver_cls: Optional[type] = None) -> None:
