@@ -19,9 +19,11 @@ readback failure is a logged no-op — capture never breaks the user's test.
 
 from __future__ import annotations
 
+import logging
 import os
-import sys
 from typing import Any, Callable, List, Optional
+
+from .constants import LOGGER_NAME
 
 #: A ``driver.execute_script(script, *args)`` shaped callable — injectable so
 #: tests drive injection/readback without a real driver.
@@ -52,8 +54,11 @@ _READY_SCRIPT = 'return typeof window.wdioTraceCollector !== "undefined";'
 _QUIET_ERRORS = ("ECONNREFUSED", "no such session", "invalid session id")
 
 
+_log = logging.getLogger(f"{LOGGER_NAME}.snapshot")
+
+
 def _warn(message: str) -> None:
-    print(f"[devtools] snapshot: {message}", file=sys.stderr)
+    _log.warning(message)
 
 
 def _is_quiet_error(exc: BaseException) -> bool:

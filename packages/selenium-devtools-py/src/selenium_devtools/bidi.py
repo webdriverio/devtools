@@ -19,7 +19,7 @@ Two selenium-version realities shape this module (selenium 4.36):
 
 from __future__ import annotations
 
-import sys
+import logging
 from typing import Any, Dict, List, Optional, Tuple
 
 from .capturer import SessionCapturer
@@ -28,12 +28,15 @@ from .constants import (
     BIDI_LEVEL_MAP,
     BIDI_NET_BEFORE_REQUEST,
     BIDI_NET_RESPONSE_COMPLETED,
+    LOGGER_NAME,
 )
 from .utils import now_ms
 
+_log = logging.getLogger(f"{LOGGER_NAME}.bidi")
+
 
 def _warn(message: str) -> None:
-    print(f"[devtools] BiDi: {message}", file=sys.stderr)
+    _log.warning(message)
 
 
 # ── pure mapping helpers (no selenium) ───────────────────────────────────────

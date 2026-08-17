@@ -19,16 +19,16 @@ inert (important for unittest).
 from __future__ import annotations
 
 import atexit
+import logging
 import os
 import shutil
 import signal
 import subprocess
-import sys
 import tempfile
 import threading
 from typing import Callable, Optional
 
-from .constants import ENV_OPEN
+from .constants import ENV_OPEN, LOGGER_NAME
 
 # ── Local timing constants (lifecycle-specific) ──────────────────────────────
 # These live here because constants.py is owned elsewhere; they could move there
@@ -49,8 +49,7 @@ _MACOS_CHROME_CANDIDATES = (
 )
 
 
-def _log(msg: str) -> None:
-    print(f"[devtools] {msg}", file=sys.stderr)
+_log = logging.getLogger(f"{LOGGER_NAME}.lifecycle")
 
 
 # ── Browser handle ───────────────────────────────────────────────────────────
@@ -123,7 +122,7 @@ def _default_opener(url: str) -> BrowserHandle:
     """
     chrome = _find_chrome()
     if chrome is None:
-        _log(f"Chrome not found; open the dashboard manually: {url}")
+        _log.warning(f"Chrome not found; open the dashboard manually: {url}")
         return BrowserHandle()
 
     user_data_dir = tempfile.mkdtemp(prefix="selenium-devtools-py-ui-")
@@ -137,7 +136,7 @@ def _default_opener(url: str) -> BrowserHandle:
         f"--app={url}",  # dedicated dashboard window, chrome-less
     ]
     proc = subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    _log(f"Opened DevTools UI in a dedicated window: {url}")
+    _log.info(f"Opened DevTools UI in a dedicated window: {url}")
     return BrowserHandle(proc=proc, user_data_dir=user_data_dir)
 
 
@@ -177,7 +176,7 @@ def open_dashboard(
     try:
         return opener(url)
     except (OSError, ValueError) as exc:
-        _log(f"could not open dashboard window ({exc}); open manually: {url}")
+        _log.warning(f"could not open dashboard window ({exc}); open manually: {url}")
         return None
 
 
@@ -224,7 +223,7 @@ def _run_disable() -> None:
     try:
         fn()
     except Exception as exc:  # disable must never re-raise into a handler
-        _log(f"error during disable(): {exc}")
+        _log.warning(f"error during disable(): {exc}")
 
 
 def _close_handle() -> None:
@@ -242,7 +241,7 @@ def on_control(scope: str, data: dict) -> None:
     thread, so that thread can unwind cleanly). ``clientConnected`` is a no-op.
     """
     if scope == "clientDisconnected":
-        _log("dashboard closed; shutting down")
+        _log.info("dashboard closed; shutting down")
         _trigger_shutdown(exit_after=True)
 
 
@@ -320,7 +319,7 @@ def register_exit_handlers(
             signal.signal(signal.SIGINT, _on_signal)
             signal.signal(signal.SIGTERM, _on_signal)
         except (ValueError, OSError) as exc:
-            _log(f"could not install signal handlers ({exc})")
+            _log.warning(f"could not install signal handlers ({exc})")
 
 
 def unregister_exit_handlers() -> None:

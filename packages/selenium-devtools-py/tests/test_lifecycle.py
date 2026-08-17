@@ -5,6 +5,7 @@ and the shutdown path's hard-exit timer is asserted on rather than run.
 """
 
 import os
+import sys
 import threading
 import unittest
 from unittest import mock
@@ -144,9 +145,11 @@ class TestAutoOpenEnabled(unittest.TestCase):
         # Regardless of TTY: unset means open (opt-out design). A non-TTY IDE /
         # `python demo.py` run must still auto-open into a dedicated window.
         os.environ.pop(lifecycle.ENV_OPEN, None)
-        with mock.patch.object(lifecycle.sys.stdout, "isatty", return_value=False):
+        # Patch the real stdout: the module reads no `sys` of its own, which is
+        # the point — the answer must not depend on the stream being a TTY.
+        with mock.patch.object(sys.stdout, "isatty", return_value=False):
             self.assertTrue(lifecycle.auto_open_enabled())
-        with mock.patch.object(lifecycle.sys.stdout, "isatty", return_value=True):
+        with mock.patch.object(sys.stdout, "isatty", return_value=True):
             self.assertTrue(lifecycle.auto_open_enabled())
 
 

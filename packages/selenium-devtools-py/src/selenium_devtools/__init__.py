@@ -14,6 +14,7 @@ third-party dependency; the only requirement on top is selenium itself.
 
 from __future__ import annotations
 
+import logging
 import os
 import subprocess
 import sys
@@ -22,7 +23,7 @@ from typing import Optional
 from . import backend, instrumentation, lifecycle
 from ._contract import CONTRACT_VERSION
 from .capturer import SessionCapturer
-from .constants import DEFAULT_HOST, DEFAULT_PORT, ENV_HOST, ENV_PORT
+from .constants import DEFAULT_HOST, DEFAULT_PORT, ENV_HOST, ENV_PORT, LOGGER_NAME
 from .logcapture import LogCapturer
 from .terminal import TerminalCapturer
 from .transport import WSClient
@@ -32,6 +33,8 @@ __all__ = [
     "enable", "disable", "get_capturer", "dashboard_url",
     "wait_for_dashboard_close", "CONTRACT_VERSION",
 ]
+
+_log = logging.getLogger(f"{LOGGER_NAME}.enable")
 
 _active: dict = {
     "capturer": None, "transport": None, "process": None, "url": None,
@@ -63,18 +66,19 @@ def enable(
         else:
             host, port, process = backend.launch_or_attach()
     except (OSError, RuntimeError, TimeoutError) as exc:
-        print(f"[devtools] could not start dashboard ({exc}); "
-              f"continuing without capture", file=sys.stderr)
+        # No dashboard exists to receive this, so it can only reach the user's
+        # own logging config — or `logging.lastResort`, which still puts a
+        # WARNING on stderr when nothing is configured.
+        _log.warning("could not start dashboard (%s); continuing without capture", exc)
         return None
 
     transport = WSClient(host, port, on_control=lifecycle.on_control)
     try:
         transport.connect()
     except OSError as exc:
-        print(
-            f"[devtools] dashboard not reachable at {host}:{port} "
-            f"({exc}); continuing without capture",
-            file=sys.stderr,
+        _log.warning(
+            "dashboard not reachable at %s:%s (%s); continuing without capture",
+            host, port, exc,
         )
         if process is not None:
             process.terminate()
@@ -143,6 +147,9 @@ def wait_for_dashboard_close() -> None:
     run after your test finishes. Returns immediately if no dashboard window is
     open (headless/CI) — safe to always call before ``disable()``."""
     if lifecycle.dashboard_window_open():
+        # Deliberately NOT the logger: this tells the user why their terminal is
+        # blocking, so it has to be on the terminal even when the dashboard is
+        # taking the log stream, and `logging.lastResort` ignores INFO.
         print(f"[devtools] dashboard live at {dashboard_url()} — "
               "close the window to finish.", file=sys.stderr)
         lifecycle.wait_for_shutdown()

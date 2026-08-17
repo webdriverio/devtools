@@ -23,15 +23,19 @@ nothing. Capture never breaks the user's test.
 
 from __future__ import annotations
 
+import logging
 import os
 import shutil
 import subprocess
-import sys
 import tempfile
 import weakref
 from typing import Any, Callable, List, Optional
 
-from .constants import SCREENCAST_IMAGE_FORMAT, SCREENCAST_MIN_FRAMES
+from .constants import (
+    LOGGER_NAME,
+    SCREENCAST_IMAGE_FORMAT,
+    SCREENCAST_MIN_FRAMES,
+)
 from .output_dir import OUTPUT_SUBDIR, ensure_output_dir
 from .types import ScreencastFrame
 from .utils import now_ms
@@ -41,8 +45,11 @@ from .utils import now_ms
 ScreenshotFn = Callable[[], Optional[str]]
 
 
+_log = logging.getLogger(f"{LOGGER_NAME}.screencast")
+
+
 def _warn(message: str) -> None:
-    print(f"[devtools] screencast: {message}", file=sys.stderr)
+    _log.warning(message)
 
 
 def _weak_screenshot(driver: Any) -> ScreenshotFn:
