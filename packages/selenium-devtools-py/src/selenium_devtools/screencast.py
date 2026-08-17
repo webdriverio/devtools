@@ -28,6 +28,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import weakref
 from typing import Any, Callable, List, Optional
 
 from .constants import SCREENCAST_IMAGE_FORMAT, SCREENCAST_MIN_FRAMES
@@ -42,6 +43,20 @@ ScreenshotFn = Callable[[], Optional[str]]
 
 def _warn(message: str) -> None:
     print(f"[devtools] screencast: {message}", file=sys.stderr)
+
+
+def _weak_screenshot(driver: Any) -> ScreenshotFn:
+    """A screenshot callable that holds the driver weakly."""
+    try:
+        ref = weakref.ref(driver)
+    except TypeError:  # not weak-referenceable; fall back to the bound method
+        return driver.get_screenshot_as_base64
+
+    def take() -> Optional[str]:
+        live = ref()
+        return live.get_screenshot_as_base64() if live is not None else None
+
+    return take
 
 
 class ScreencastRecorder:
@@ -64,7 +79,10 @@ class ScreencastRecorder:
         if screenshot_fn is not None:
             self._screenshot = screenshot_fn
         elif driver is not None and hasattr(driver, "get_screenshot_as_base64"):
-            self._screenshot = driver.get_screenshot_as_base64
+            # Resolved through a weakref, not stored as a bound method: a bound
+            # method keeps the driver alive for as long as the recorder does, so
+            # a driver dropped without quit() could never be collected.
+            self._screenshot = _weak_screenshot(driver)
         else:
             _warn("driver has no get_screenshot_as_base64 — recording skipped")
             return

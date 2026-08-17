@@ -237,6 +237,12 @@ if __name__ == "__main__":
     unittest.main()
 
 
+def live_session_ids():
+    """Session ids currently being captured. The state is keyed by driver, so
+    read the ids out of the entries rather than off the keys."""
+    return {e["session_id"] for e in instrumentation._state["sessions"].values()}
+
+
 class MultiSessionDriver(FakeDriver):
     """Driver whose session id is fixed at construction, so one process can hold
     two of them at once — what a function-scoped pytest fixture produces."""
@@ -304,7 +310,7 @@ class TestMultipleSessions(unittest.TestCase):
     def test_two_live_drivers_are_tracked_independently(self):
         MultiSessionDriver("sess-a").execute("get", {"url": "https://a/"})
         MultiSessionDriver("sess-b").execute("get", {"url": "https://b/"})
-        self.assertEqual(set(instrumentation._state["sessions"]), {"sess-a", "sess-b"})
+        self.assertEqual(live_session_ids(), {"sess-a", "sess-b"})
 
     # The interleaved case: alternating commands must not re-arm anything.
     # Re-attaching BiDi per alternation duplicates console and network events,
@@ -326,7 +332,7 @@ class TestMultipleSessions(unittest.TestCase):
         second = MultiSessionDriver("sess-b")
         second.execute("get", {"url": "https://b/"})
         first.execute("quit")
-        self.assertEqual(set(instrumentation._state["sessions"]), {"sess-b"})
+        self.assertEqual(live_session_ids(), {"sess-b"})
         second.execute("click", {"id": "x"})
         commands = [d[0]["command"] for s, d in self.tx.sent if s == "commands"]
         self.assertIn("click", commands)
@@ -335,7 +341,7 @@ class TestMultipleSessions(unittest.TestCase):
         first = MultiSessionDriver("sess-a")
         first.execute("get", {"url": "https://a/"})
         first.execute("quit")
-        self.assertEqual(instrumentation._state["sessions"], {})
+        self.assertEqual(live_session_ids(), set())
         MultiSessionDriver("sess-b").execute("get", {"url": "https://b/"})
         self.assertEqual(self._sessions_announced(), ["sess-a", "sess-b"])
         self.assertEqual(self.attached, ["sess-a", "sess-b"])
@@ -410,3 +416,145 @@ class TestScreencastAttributionAcrossSessions(unittest.TestCase):
         self.assertEqual([v["sessionId"] for v in self._videos()], ["sess-b", "sess-a"])
         self.assertEqual([v["videoFile"] for v in self._videos()],
                          ["sess-b.webm", "sess-a.webm"])
+
+
+class SessionlessQuitDriver(MultiSessionDriver):
+    """A driver that reaches quit with no session id: it never started one, or
+    something cleared it first."""
+
+    def execute(self, command, params=None):
+        if command == "quit":
+            self.session_id = None
+        return super().execute(command, params)
+
+
+class TestQuitTargetsItsOwnSession(unittest.TestCase):
+    """`quit` must close the session belonging to the driver that quit. Picking
+    'the only live session' when the quitting driver had none finalized a driver
+    that was still running, losing its DOM and video from that point on."""
+
+    def setUp(self):
+        instrumentation.uninstall()
+        self.tx = FakeTransport()
+        self.cap = SessionCapturer(self.tx)
+        self._rec = mock.patch.object(
+            instrumentation, "ScreencastRecorder", StubRecorder
+        )
+        self._rec.start()
+        self._bidi = mock.patch.object(
+            instrumentation.bidi, "attach", return_value=False
+        )
+        self._bidi.start()
+        instrumentation.install(self.cap, MultiSessionDriver)
+
+    def tearDown(self):
+        instrumentation.uninstall()
+        self._bidi.stop()
+        self._rec.stop()
+
+    def test_a_sessionless_quit_does_not_close_someone_elses_session(self):
+        live = MultiSessionDriver("sess-a")
+        live.execute("get", {"url": "https://a/"})
+        SessionlessQuitDriver("sess-never").execute("quit")  # never armed
+        self.assertEqual(live_session_ids(), {"sess-a"})
+        self.assertEqual([d for s, d in self.tx.sent if s == "screencast"], [])
+
+    def test_a_driver_whose_id_was_cleared_still_closes_its_own_session(self):
+        first = SessionlessQuitDriver("sess-a")
+        first.execute("get", {"url": "https://a/"})
+        second = MultiSessionDriver("sess-b")
+        second.execute("get", {"url": "https://b/"})
+        first.execute("quit")  # clears its own session_id before we see it
+        self.assertEqual(live_session_ids(), {"sess-b"})
+        videos = [d for s, d in self.tx.sent if s == "screencast"]
+        self.assertEqual([v["sessionId"] for v in videos], ["sess-a"])
+
+
+class TestOwnershipFollowsTheDriver(unittest.TestCase):
+    """Consequences of keying capture on the driver rather than the session id."""
+
+    def setUp(self):
+        instrumentation.uninstall()
+        self.tx = FakeTransport()
+        self.cap = SessionCapturer(self.tx)
+        self._rec = mock.patch.object(
+            instrumentation, "ScreencastRecorder", StubRecorder
+        )
+        self._rec.start()
+        # `new=` installs a plain function rather than a MagicMock. A MagicMock
+        # records call_args, which would hold the driver and defeat the very
+        # collection this class asserts.
+        self._bidi = mock.patch.object(
+            instrumentation.bidi, "attach", new=lambda driver, capturer: False
+        )
+        self._bidi.start()
+        instrumentation.install(self.cap, MultiSessionDriver)
+
+    def tearDown(self):
+        instrumentation.uninstall()
+        self._bidi.stop()
+        self._rec.stop()
+
+    def test_one_driver_starting_a_new_session_closes_its_previous_one(self):
+        driver = MultiSessionDriver("sess-a")
+        driver.execute("get", {"url": "https://a/"})
+        driver.session_id = "sess-a2"  # the same driver, a replaced session
+        driver.execute("get", {"url": "https://a2/"})
+        self.assertEqual(live_session_ids(), {"sess-a2"})
+        videos = [d for s, d in self.tx.sent if s == "screencast"]
+        self.assertEqual([v["sessionId"] for v in videos], ["sess-a"])
+
+    # A driver dropped without quit() must not hold its recorder open for the
+    # rest of the run; weak keys let it go with the driver.
+    def test_an_abandoned_driver_is_not_retained(self):
+        import gc
+
+        driver = MultiSessionDriver("sess-gone")
+        driver.execute("get", {"url": "https://x/"})
+        self.assertEqual(live_session_ids(), {"sess-gone"})
+        del driver
+        gc.collect()
+        self.assertEqual(live_session_ids(), set())
+
+
+class ScreenshotSessionDriver(MultiSessionDriver):
+    """Fixed session id AND a screenshot method, so the REAL ScreencastRecorder
+    arms against it."""
+
+    def get_screenshot_as_base64(self):
+        return "c2hvdA=="
+
+
+class TestCaptureDoesNotOutliveItsDriver(unittest.TestCase):
+    """The real recorder, not a stub. `start()` used to store
+    `driver.get_screenshot_as_base64`, a bound method, which kept the driver
+    alive for as long as the recorder did, so a driver dropped without quit()
+    could never be collected and its recorder stayed open for the whole run."""
+
+    def setUp(self):
+        instrumentation.uninstall()
+        self.tx = FakeTransport()
+        self.cap = SessionCapturer(self.tx)
+        self._bidi = mock.patch.object(
+            instrumentation.bidi, "attach", new=lambda driver, capturer: False
+        )
+        self._bidi.start()
+        instrumentation.install(self.cap, ScreenshotSessionDriver)
+
+    def tearDown(self):
+        instrumentation.uninstall()
+        self._bidi.stop()
+
+    def test_the_recorder_does_not_retain_its_driver(self):
+        import gc
+        import weakref
+
+        driver = ScreenshotSessionDriver("sess-real")
+        driver.execute("get", {"url": "https://x/"})
+        entry = list(instrumentation._state["sessions"].values())[0]
+        self.assertIsNotNone(entry["screencast"])  # a real recorder is armed
+        ref = weakref.ref(driver)
+        del driver
+        gc.collect()
+        self.assertIsNone(ref(), "the recorder is still holding the driver")
+        self.assertEqual(live_session_ids(), set())

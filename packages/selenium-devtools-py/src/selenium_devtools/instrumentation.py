@@ -16,6 +16,7 @@ import logging
 import os
 import sys
 import threading
+import weakref
 from typing import Any, Optional
 
 from . import bidi, frames
@@ -102,10 +103,18 @@ def _guarded_execute_script(driver: Any) -> Any:
     adapter's own snapshot injection/readback, which must never show up in the
     Actions timeline (the getTraceData/inject scripts are not user commands)."""
 
+    try:
+        ref: Any = weakref.ref(driver)
+    except TypeError:  # not weak-referenceable; the closure holds it directly
+        ref = lambda: driver  # noqa: E731
+
     def run(script: str, *args: Any) -> Any:
+        live = ref()
+        if live is None:  # driver gone; nothing left to read the page with
+            return None
         _internal.active = True
         try:
-            return driver.execute_script(script, *args)
+            return live.execute_script(script, *args)
         finally:
             _internal.active = False
 
@@ -141,11 +150,13 @@ def _capture_source(capturer: SessionCapturer, call_src: Optional[str]) -> None:
 # page-side mutation buffer so the snapshot iframe stays current.
 _state: dict = {
     "installed": False, "cls": None, "orig": None,
-    # Capture state per LIVE session id: {sid: {"screencast": rec, "snapshot": cap}}.
-    # A single shared slot cannot hold two drivers at once: with one, arming a
-    # second session tore down the first's recorder and collector, and two
-    # drivers issuing interleaved commands truncated both.
-    "sessions": {},
+    # Capture state keyed by the DRIVER that owns it, weakly:
+    #   {driver: {"session_id": sid, "screencast": rec, "snapshot": cap}}
+    # The driver is the owner; the session id is a label on that state which can
+    # be stale or absent, so keying on the id forced a guess about which session
+    # a quit belonged to. Weak keys also let an abandoned driver be collected
+    # instead of holding its recorder open for the rest of the run.
+    "sessions": weakref.WeakKeyDictionary(),
     "output_dir": None,  # test-results dir beside the test file (see output_dir.py)
     "default_suite": None,  # synthesized suite for non-framework (script) runs
 }
@@ -230,6 +241,14 @@ def _enable_bidi_capability(params: Any) -> None:
         pass
 
 
+def _close_entry(capturer: SessionCapturer, entry: dict) -> None:
+    """Drain and encode one driver's capture, attributed to the session it was
+    recorded under."""
+    _flush_mutations(capturer, entry)
+    entry["snapshot"] = None
+    _finalize_screencast(capturer, entry["session_id"], entry)
+
+
 def _finalize_screencast(
     capturer: SessionCapturer, session_id: str, entry: dict
 ) -> None:
@@ -249,13 +268,13 @@ def _finalize_screencast(
 
 
 def _ensure_session_setup(driver: Any, capturer: SessionCapturer) -> Optional[dict]:
-    """Bring capture up for this driver's session, once, and return its state.
+    """Bring capture up for this driver, once, and return its state.
 
-    Keyed by session id and never re-run for a session already armed: two live
-    drivers issuing interleaved commands would otherwise re-attach BiDi handlers
-    on every alternation (duplicating console and network events) and restart the
-    recorder and collector (truncating both). Sessions are independent, so a
-    second driver adds an entry rather than replacing one.
+    Keyed by the driver, so two live drivers are independent and interleaved
+    commands re-arm nothing: re-attaching BiDi would duplicate console and
+    network events, and restarting the recorder and collector would truncate
+    both. A driver whose session id changes has genuinely started a new session,
+    so its own previous one is closed out first.
 
     This CANNOT run in the newSession branch: selenium assigns ``session_id`` /
     ``caps`` only *after* the newSession execute() returns, so at that point the
@@ -267,11 +286,21 @@ def _ensure_session_setup(driver: Any, capturer: SessionCapturer) -> Optional[di
     if not session_id:
         return None  # driver not ready yet; retry on the next command
     sessions = _state["sessions"]
-    existing = sessions.get(session_id)
-    if existing is not None:
-        return existing
-    entry: dict = {"screencast": None, "snapshot": None}
-    sessions[session_id] = entry
+    try:
+        entry = sessions.get(driver)
+    except TypeError:  # unhashable driver: capture is skipped, never fatal
+        _log.warning("driver is not hashable; capture disabled for it")
+        return None
+    if entry is not None:
+        if entry["session_id"] == session_id:
+            return entry
+        _close_entry(capturer, entry)  # same driver, new session
+    entry = {"session_id": session_id, "screencast": None, "snapshot": None}
+    try:
+        sessions[driver] = entry
+    except TypeError:  # not weak-referenceable
+        _log.warning("driver cannot be tracked; capture disabled for it")
+        return None
     capturer.ensure_metadata(session_id, getattr(driver, "caps", None), None)
     _log.info("session %s started", session_id)
     _send_default_suite(capturer, "running")  # tree entry for plain-script runs
@@ -301,26 +330,23 @@ def _ensure_session_setup(driver: Any, capturer: SessionCapturer) -> Optional[di
     return entry
 
 
-def _on_quit(capturer: SessionCapturer, driver: Any = None) -> None:
-    """On driver.quit(): close out THAT driver's session.
+def _on_quit(capturer: SessionCapturer, driver: Any) -> None:
+    """On driver.quit(): close out THIS driver's capture.
 
     ``quit`` is in the skip set, so this is the last hook before the session is
-    gone: drain and encode here, while its id is still known. Other live sessions
-    are untouched, and the synthetic script suite is completed only when the last
-    one goes, so a script driving two browsers is not marked done at the first
-    quit."""
-    session_id = getattr(driver, "session_id", None) if driver is not None else None
+    gone: drain and encode here, while it still exists. Other drivers are
+    untouched, and the synthetic script suite completes only when the last driver
+    goes, so a script driving two browsers is not marked done at the first quit.
+    """
     sessions = _state["sessions"]
-    if session_id is None and len(sessions) == 1:
-        session_id = next(iter(sessions))  # single-session run, driver not passed
-    entry = sessions.pop(session_id, None) if session_id else None
+    try:
+        entry = sessions.pop(driver, None)
+    except TypeError:
+        entry = None
     if entry is None:
-        return
-    # Drain any final mutations while the session (and page) still exist.
-    _flush_mutations(capturer, entry)
-    entry["snapshot"] = None
-    _finalize_screencast(capturer, session_id, entry)
-    if not sessions and _state.get("default_suite") is not None:
+        return  # this driver never armed capture; nothing of its own to close
+    _close_entry(capturer, entry)
+    if not len(sessions) and _state.get("default_suite") is not None:
         _send_default_suite(capturer, "passed")  # the whole script run is done
 
 
@@ -394,7 +420,7 @@ def install(capturer: SessionCapturer, webdriver_cls: Optional[type] = None) -> 
     _sources_sent.clear()
     _state.update(
         installed=True, cls=webdriver_cls, orig=orig_execute,
-        sessions={}, output_dir=None, default_suite=None,
+        sessions=weakref.WeakKeyDictionary(), output_dir=None, default_suite=None,
     )
 
 
@@ -406,11 +432,12 @@ def uninstall() -> None:
             recorder.stop()
     if not _state["installed"]:
         _state.update(
-            sessions={}, output_dir=None, default_suite=None,
+            sessions=weakref.WeakKeyDictionary(),
+            output_dir=None, default_suite=None,
         )
         return
     _state["cls"].execute = _state["orig"]  # type: ignore[union-attr]
     _state.update(
-        installed=False, cls=None, orig=None, sessions={},
-        output_dir=None, default_suite=None,
+        installed=False, cls=None, orig=None,
+        sessions=weakref.WeakKeyDictionary(), output_dir=None, default_suite=None,
     )
