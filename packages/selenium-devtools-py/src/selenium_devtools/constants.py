@@ -5,6 +5,22 @@ from __future__ import annotations
 
 import os
 
+# ── Runner identity ──────────────────────────────────────────────────────────
+# The id itself is `RUNNER_ID` in the GENERATED `_contract.py`, derived from
+# shared's TEST_RUNNER_IDS so a rename there fails generation rather than
+# shipping a value the app narrows away.
+#
+# What the dashboard's Run / Rerun / Run-all controls may offer. The adapter
+# sends no rerun or launch command, and the backend's spawn path is the wdio
+# binary, so every launch control is refused: absent this the app falls back to
+# `DEFAULT_CAPABILITIES` (all true) and the buttons render enabled, then fail on
+# click. Revisit with the Preserve-and-Rerun work.
+RUN_CAPABILITIES = {
+    "canRunSuites": False,
+    "canRunTests": False,
+    "canRunAll": False,
+}
+
 # ── Logging ──────────────────────────────────────────────────────────────────
 # The adapter's logger name. Every operational message logs under this or a
 # child of it, which is the only route to the dashboard Console: `LogCapturer`

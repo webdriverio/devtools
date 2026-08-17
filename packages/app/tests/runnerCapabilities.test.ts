@@ -193,4 +193,35 @@ describe('config + command getters', () => {
     expect(getRerunCommand(undefined)).toBeUndefined()
     expect(getLaunchCommand(undefined)).toBeUndefined()
   })
+
+  // The exact metadata the Python adapter sends. It services no launch control,
+  // and without the explicit refusal the fallback is DEFAULT_CAPABILITIES (all
+  // true), so every button renders enabled and fails on click.
+  it('refuses every launch control for a python-selenium stream', () => {
+    const pythonMetadata = {
+      runner: 'selenium-webdriver',
+      testEnv: 'python-selenium',
+      options: {
+        runCapabilities: {
+          canRunSuites: false,
+          canRunTests: false,
+          canRunAll: false
+        }
+      }
+    } as unknown as Metadata
+
+    expect(getFramework(pythonMetadata)).toBe('selenium-webdriver')
+    expect(getRunCapabilities(pythonMetadata)).toEqual({
+      canRunSuites: false,
+      canRunTests: false,
+      canRunAll: false
+    })
+    expect(getRunAllDisabledReason(pythonMetadata)).toBe(RUN_ALL_REFUSAL)
+    expect(isRunDisabled(pythonMetadata, { type: 'test' } as TestEntry)).toBe(
+      true
+    )
+    expect(isRunDisabled(pythonMetadata, { type: 'suite' } as TestEntry)).toBe(
+      true
+    )
+  })
 })

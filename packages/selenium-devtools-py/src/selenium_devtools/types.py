@@ -81,6 +81,8 @@ class Metadata(TypedDict, total=False):
     capabilities: Dict[str, Any]
     desiredCapabilities: Dict[str, Any]
     testEnv: str
+    runner: str
+    options: Dict[str, Any]
 
 
 class TestStats(TypedDict, total=False):
