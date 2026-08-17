@@ -5,6 +5,14 @@ from __future__ import annotations
 
 import os
 
+# ── Synthetic suite for a plain script ───────────────────────────────────────
+# A script with no test framework still needs one entry in the tree, so the file
+# becomes the suite and the whole run becomes a single implicit test under it.
+# The test is named for what it is rather than for the file, which read as
+# `login.py` nested inside `login.py`. Shared by the title and the uid so the
+# two cannot drift.
+DEFAULT_TEST_TITLE = "session"
+
 # ── Logging ──────────────────────────────────────────────────────────────────
 # The adapter's logger name. Every operational message logs under this or a
 # child of it, which is the only route to the dashboard Console: `LogCapturer`

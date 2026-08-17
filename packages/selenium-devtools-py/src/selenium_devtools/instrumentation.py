@@ -23,6 +23,7 @@ from . import bidi, frames
 from .capturer import SessionCapturer
 from .constants import (
     BIDI_CAPABILITY,
+    DEFAULT_TEST_TITLE,
     ENV_BIDI,
     LOGGER_NAME,
     SKIP_COMMANDS,
@@ -88,17 +89,21 @@ def _send_default_suite(capturer: SessionCapturer, state: str) -> None:
     if _external_suites:
         return
     entry = os.path.abspath(sys.argv[0]) if sys.argv and sys.argv[0] else ""
-    title = os.path.basename(entry) or "Selenium session"
+    suite_title = os.path.basename(entry) or "Selenium session"
     ds = _state.get("default_suite")
     start = ds["start"] if ds else now_ms()
     _state["default_suite"] = {"start": start}
     end = start if state == "running" else now_ms()
+    # Named the way the pytest plugin names a real test: the file is the suite,
+    # the test carries its own name, and fullTitle joins the two.
     test = frames.test_stats(
-        uid=f"{entry or title}::session", title=title, full_title=title,
-        parent=title, state=state, file=entry, start_ms=start, end_ms=end,
+        uid=f"{entry or suite_title}::{DEFAULT_TEST_TITLE}",
+        title=DEFAULT_TEST_TITLE,
+        full_title=f"{suite_title} › {DEFAULT_TEST_TITLE}",
+        parent=suite_title, state=state, file=entry, start_ms=start, end_ms=end,
     )
     suite = frames.suite_stats(
-        uid=entry or title, title=title, file=entry, start_ms=start,
+        uid=entry or suite_title, title=suite_title, file=entry, start_ms=start,
         tests=[test], state=state, end_ms=(None if state == "running" else end),
     )
     capturer.send_suites([suite])

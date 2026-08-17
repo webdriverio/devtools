@@ -226,6 +226,33 @@ class TestDefaultSuite(unittest.TestCase):
         first = list(suites[0][0].values())[0]  # {uid: SuiteStats}[]
         self.assertEqual(first["tests"][0]["state"], "running")
 
+    def _run_as(self, script):
+        """Drive one command with sys.argv[0] pinned, so the synthesized names
+        come from a known entry script rather than from the test runner."""
+        with mock.patch("selenium_devtools.instrumentation.sys.argv", [script]):
+            self.driver.execute("newSession")
+            self.driver.execute("get", {"url": "https://x/"})
+        return list(self._suites()[0][0].values())[0]
+
+    def test_the_synthetic_test_is_named_session_not_the_file(self):
+        # The file is the suite; naming its single test after the file too made
+        # the tree read `login.py` nested inside `login.py`.
+        suite = self._run_as("/tmp/demo/login.py")
+        test = suite["tests"][0]
+
+        self.assertEqual(suite["title"], "login.py")
+        self.assertEqual(test["title"], "session")
+        # Mirrors the pytest plugin: parent is the suite, fullTitle joins them.
+        self.assertEqual(test["parent"], "login.py")
+        self.assertEqual(test["fullTitle"], "login.py \u203a session")
+        self.assertEqual(test["uid"], "/tmp/demo/login.py::session")
+
+    def test_the_suite_still_carries_the_entry_file(self):
+        suite = self._run_as("/tmp/demo/login.py")
+
+        self.assertEqual(suite["uid"], "/tmp/demo/login.py")
+        self.assertEqual(suite["tests"][0]["file"], "/tmp/demo/login.py")
+
     def test_default_suite_suppressed_when_framework_reports(self):
         instrumentation.set_external_suites(True)  # e.g. pytest plugin active
         self.driver.execute("newSession")
