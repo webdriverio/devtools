@@ -106,8 +106,13 @@ BIDI_LEVEL_MAP = {
 # screencast.py for why a background poll thread is avoided. Screenshots via
 # WebDriver are always PNG.
 SCREENCAST_IMAGE_FORMAT = "png"
-# Skip encoding below this many frames — a single still isn't a video.
-SCREENCAST_MIN_FRAMES = 2
+# Frames below which encoding is skipped. 1, mirroring core's
+# `finalizeScreencast` default: one frame is still the page the run ended on,
+# and is worth more than no artifact. It used to be 2, which was survivable only
+# because `start()` padded every session with a seed frame — and that seed was a
+# shot of about:blank taken before the first command, so a short run's "video"
+# was black plus one real frame.
+SCREENCAST_MIN_FRAMES = 1
 # Output filename stem; the session id + .webm suffix are appended.
 SCREENCAST_FILENAME_PREFIX = "selenium-py-video"
 # The `screencast` wire scope is generated into _contract.py (SCOPE_SCREENCAST).

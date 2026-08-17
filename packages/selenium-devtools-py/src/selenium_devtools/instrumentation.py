@@ -478,11 +478,12 @@ def uninstall() -> None:
     if not _state["installed"]:
         _state.update(
             sessions=weakref.WeakKeyDictionary(),
-            output_dir=None, default_suite=None,
+            output_dir=None, default_suite=None, run_failed=False,
         )
         return
     _state["cls"].execute = _state["orig"]  # type: ignore[union-attr]
     _state.update(
         installed=False, cls=None, orig=None,
         sessions=weakref.WeakKeyDictionary(), output_dir=None, default_suite=None,
+        run_failed=False,
     )

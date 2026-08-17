@@ -152,6 +152,15 @@ class TestFinalize(unittest.TestCase):
         rec = ScreencastRecorder()
         self.assertIsNone(rec.finalize("sess-1"))
 
+    # Removing the pre-command seed frame left a one-command session holding a
+    # single frame. The floor was 2, which only ever passed because that seed
+    # padded it — so a short run would have lost its artifact entirely. core's
+    # `finalizeScreencast` defaults to 1 and Python now matches.
+    def test_the_default_floor_keeps_a_single_frame_session(self):
+        from selenium_devtools.constants import SCREENCAST_MIN_FRAMES
+
+        self.assertEqual(SCREENCAST_MIN_FRAMES, 1)
+
     def test_finalize_below_min_frames_returns_none(self):
         rec = ScreencastRecorder()
         rec.start(driver=None, screenshot_fn=lambda: "one")

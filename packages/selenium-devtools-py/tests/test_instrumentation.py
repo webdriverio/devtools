@@ -314,6 +314,15 @@ class TestDefaultSuite(unittest.TestCase):
 
         self.assertEqual(self._suites(), [])
 
+    def test_a_failed_run_does_not_taint_the_next_one(self):
+        # `run_failed` is module state. uninstall() resets the rest of the
+        # per-run keys; leaving this one set reported a second, passing
+        # enable/disable cycle in the same process as failed.
+        instrumentation.mark_run_failed()
+        instrumentation.uninstall()
+
+        self.assertFalse(instrumentation._state["run_failed"])
+
     def test_default_suite_suppressed_when_framework_reports(self):
         instrumentation.set_external_suites(True)  # e.g. pytest plugin active
         self.driver.execute("newSession")
