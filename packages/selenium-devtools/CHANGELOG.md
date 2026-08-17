@@ -1,5 +1,17 @@
 # @wdio/selenium-devtools
 
+## 1.5.1
+
+### Patch Changes
+
+- c8cf114: Pick up the merged `yazl` 2 to 3 update, the library the trace zip is written with. It is a runtime dependency, so the published range only changes when the package is released.
+- Updated dependencies [7fdbe55]
+- Updated dependencies [f158645]
+- Updated dependencies [c8cf114]
+- Updated dependencies [4993f4a]
+  - @wdio/devtools-backend@1.10.0
+  - @wdio/devtools-script@1.7.2
+
 ## 1.5.0
 
 ### Minor Changes

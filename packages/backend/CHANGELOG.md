@@ -1,5 +1,22 @@
 # @wdio/devtools-backend
 
+## 1.10.0
+
+### Minor Changes
+
+- 7fdbe55: The backend ships a runnable entry, so a non-Node adapter can start the dashboard itself.
+
+  - `dist/server.js` is a new CLI entry, exposed as the `devtools-backend` bin. `node packages/backend/dist/server.js` and `npx @wdio/devtools-backend` both start the live dashboard, and `--port` / `--hostname` / `--help` are accepted.
+  - `dist/index.js` stays the library entry the JS adapters import in-process. Its "start if run directly" guard is gone rather than repaired: `show-trace.ts` imports `start` from index, which makes index a shared module whose body tsup hoists into `dist/chunk-*.js`, and there `import.meta.url` is the chunk's path and can never equal `process.argv[1]`. The guard was therefore dead in every build, which is why `node dist/index.js` imported a module and exited 0 without serving. A leaf entry keeps its body in its own output file, so the new file needs no guard at all.
+  - `dev:app` now runs `dist/server.js`, since it was watching an entry that could not start.
+
+### Patch Changes
+
+- f158645: The published tarball ships `dist` and the README only. Without a `files` field, and with no `.npmignore` in the package, npm was including every `.ts` in `src/` and the whole of `tests/`. That matters now that `npx @wdio/devtools-backend` is a supported entry point rather than an internal dependency.
+- c8cf114: Pick up the merged dependency updates for the server's own stack: `@fastify/rate-limit` 10 to 11 and `@fastify/static` 9 to 10, plus `@wdio/cli` 9.28.0 to 9.30.1 and `@wdio/logger` 9.18.0 to 9.29.1. All four are runtime dependencies, so the published ranges only change when the package is released — which matters more than usual now that `npx @wdio/devtools-backend` is a supported entry point and resolves them itself.
+- Updated dependencies [c8cf114]
+  - @wdio/devtools-app@1.10.1
+
 ## 1.9.1
 
 ### Patch Changes

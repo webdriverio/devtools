@@ -1,5 +1,13 @@
 # @wdio/devtools-app
 
+## 1.10.1
+
+### Patch Changes
+
+- c8cf114: Pick up the merged `@wdio/protocols` update, 9.28.0 to 9.30.1. It is a runtime dependency, so the published range only changes when the package is released.
+- Updated dependencies [c8cf114]
+  - @wdio/devtools-service@10.9.1
+
 ## 1.10.0
 
 ### Minor Changes

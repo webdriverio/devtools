@@ -1,5 +1,17 @@
 # @wdio/devtools-service
 
+## 10.9.1
+
+### Patch Changes
+
+- c8cf114: Pick up the merged dependency updates. `yazl` moves 2 to 3 (and `@types/yazl` with it), which is the library the trace zip is written with; `@wdio/reporter` and `@wdio/types` move 9.28.0 to 9.30.1 and `@wdio/logger` 9.18.0 to 9.29.1. These are runtime dependencies, so the published range only changes when the package is released.
+- Updated dependencies [7fdbe55]
+- Updated dependencies [f158645]
+- Updated dependencies [c8cf114]
+- Updated dependencies [4993f4a]
+  - @wdio/devtools-backend@1.10.0
+  - @wdio/devtools-script@1.7.2
+
 ## 10.9.0
 
 ### Minor Changes
