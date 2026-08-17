@@ -290,13 +290,17 @@ export class SessionCapturer extends SessionCapturerBase {
    * it too; a command that navigated nowhere polls out and costs one drain of an
    * empty buffer.
    *
-   * The baseline is the last origin THIS capturer saw, not the one read on
-   * entry: a navigation that commits before the first probe would otherwise read
-   * the destination as its own baseline and never report a change.
+   * The baseline is the last origin THIS capturer saw, never one read on entry.
+   * Reading it here would compare the document against itself: a command that
+   * completes AFTER its navigation committed (`browser.url` waits for load, so
+   * that is the normal case) would baseline the destination and then report no
+   * change, dropping the very anchor this exists to take. With no baseline yet
+   * a navigation cannot be ruled out either, so the first DOM-mutating command
+   * of a run anchors unconditionally rather than guessing — `captureCurrentDom`
+   * is idempotent per document, so an already-anchored page costs one drain.
    */
   async anchorAfterNavigation(browser: NightwatchBrowser): Promise<void> {
-    const before =
-      this.lastDocumentOrigin ?? (await this.documentOrigin(browser))
+    const before = this.lastDocumentOrigin
     const replaced = await pollUntilReady(
       async () => {
         const now = await this.documentOrigin(browser)
@@ -304,7 +308,7 @@ export class SessionCapturer extends SessionCapturerBase {
           return false
         }
         this.lastDocumentOrigin = now
-        return now !== before
+        return before === undefined || now !== before
       },
       { attempts: 5, intervalMs: 150 }
     )

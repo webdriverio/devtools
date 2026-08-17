@@ -466,14 +466,33 @@ describe('SessionCapturer.anchorAfterNavigation', () => {
   })
 
   // A command that navigated nowhere must not force an anchor of the page it
-  // is already on.
+  // is already on. The first call establishes the baseline, so this asserts on
+  // the second.
   it('does not drain when the document is never replaced', async () => {
     const { browser, seen, close } = await driverServing([1000])
     const cap = makeCapturer(browser)
     cap.preloadRegistered = true
     try {
       await cap.anchorAfterNavigation(browser)
+      seen.length = 0
+      await cap.anchorAfterNavigation(browser)
       expect(seen).not.toContain('drain')
+    } finally {
+      await close()
+    }
+  })
+
+  // `browser.url` waits for load, so the run's first DOM-mutating command
+  // normally completes with the destination already current. Baselining against
+  // the document we are standing on would compare it with itself and drop the
+  // anchor, leaving the trace on the page before it.
+  it('anchors the first command even when its navigation already committed', async () => {
+    const { browser, seen, close } = await driverServing([2000])
+    const cap = makeCapturer(browser)
+    cap.preloadRegistered = true
+    try {
+      await cap.anchorAfterNavigation(browser)
+      expect(seen).toContain('drain')
     } finally {
       await close()
     }
