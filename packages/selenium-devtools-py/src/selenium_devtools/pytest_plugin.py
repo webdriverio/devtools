@@ -230,24 +230,47 @@ def pytest_runtest_logstart(nodeid, location) -> None:  # noqa: ANN001
     _publish(capturer)
 
 
+def reported_state(report) -> Optional[str]:  # noqa: ANN001
+    """The terminal state a report carries, or None when it must not change the
+    test's state.
+
+    pytest reports three phases per test, and only `call` carries an outcome in
+    the ordinary case. The other two matter when they FAIL: a failed setup means
+    the test never ran (pytest calls it an error) and no `call` report ever
+    arrives, so acting only on `call` left it running for the rest of the
+    session; a failed teardown means the body passed but its fixture teardown
+    broke, which is a failure pytest reports and the tree would otherwise show
+    green.
+
+    Passing setup and teardown reports carry nothing: acting on a passing setup
+    would mark a test passed before it ran, and acting on a passing teardown
+    would overwrite a failed `call` with its clean teardown.
+    """
+    if report.when == "call":
+        if report.skipped:
+            return "skipped"
+        return "passed" if report.passed else "failed"
+    if report.when == "setup" and report.skipped:
+        return "skipped"
+    if report.failed:  # setup or teardown error
+        return "failed"
+    return None
+
+
 def pytest_runtest_logreport(report) -> None:  # noqa: ANN001
     if not _opted_in():
         return
     capturer = devtools.get_capturer()
     if capturer is None:
         return
-    # 'call' carries pass/fail; a skip surfaces at 'setup'.
-    if report.when == "call" or (report.when == "setup" and report.skipped):
-        state = (
-            "skipped" if report.skipped
-            else "passed" if report.passed
-            else "failed"
-        )
-        file, line, name = report.location
-        _registry.record(
-            report.nodeid, file, name, line or 0, state, abs_file=_absolute(file)
-        )
-        _publish(capturer)
+    state = reported_state(report)
+    if state is None:
+        return
+    file, line, name = report.location
+    _registry.record(
+        report.nodeid, file, name, line or 0, state, abs_file=_absolute(file)
+    )
+    _publish(capturer)
 
 
 def pytest_sessionfinish(session, exitstatus) -> None:  # noqa: ANN001

@@ -9,7 +9,7 @@ captured from a run of a file holding a class-based and a module-level test:
 
 import unittest
 
-from selenium_devtools.pytest_plugin import _SuiteRegistry
+from selenium_devtools.pytest_plugin import _SuiteRegistry, reported_state
 from selenium_devtools.utils import iso
 
 FILE = "test_login_pytest.py"
@@ -245,6 +245,45 @@ class TestCollectionOrderIsCarried(unittest.TestCase):
         reg.record(f"{FILE}::test_plain", FILE, "test_plain", 0, "passed")
 
         self.assertNotIn("order", reg.snapshot()[0]["tests"][0])
+
+
+class _Report:
+    """The three fields the plugin reads off a pytest TestReport."""
+
+    def __init__(self, when, outcome):
+        self.when = when
+        self.passed = outcome == "passed"
+        self.failed = outcome == "failed"
+        self.skipped = outcome == "skipped"
+
+
+class TestEveryPhaseThatCarriesAnOutcome(unittest.TestCase):
+    """Acting only on `call` left a test whose SETUP failed running for the rest
+    of the session — no call report ever arrives — and showed a test whose
+    TEARDOWN failed as green."""
+
+    def test_the_call_phase_carries_the_ordinary_outcome(self):
+        self.assertEqual(reported_state(_Report("call", "passed")), "passed")
+        self.assertEqual(reported_state(_Report("call", "failed")), "failed")
+        self.assertEqual(reported_state(_Report("call", "skipped")), "skipped")
+
+    def test_a_failed_setup_is_terminal(self):
+        # pytest calls this an error and emits no call report at all.
+        self.assertEqual(reported_state(_Report("setup", "failed")), "failed")
+
+    def test_a_failed_teardown_fails_the_test(self):
+        self.assertEqual(reported_state(_Report("teardown", "failed")), "failed")
+
+    def test_a_skip_surfaces_at_setup(self):
+        self.assertEqual(reported_state(_Report("setup", "skipped")), "skipped")
+
+    def test_a_passing_setup_says_nothing(self):
+        # Acting on it would mark the test passed before its body ran.
+        self.assertIsNone(reported_state(_Report("setup", "passed")))
+
+    def test_a_passing_teardown_says_nothing(self):
+        # Acting on it would overwrite a failed call with its clean teardown.
+        self.assertIsNone(reported_state(_Report("teardown", "passed")))
 
 
 class TestStateRollsUp(unittest.TestCase):
