@@ -372,4 +372,110 @@ describe('SessionCapturer.captureTrace', () => {
       await new Promise<void>((r) => server.close(() => r()))
     }
   })
+
+  // The collector's buffer dies with the document, so on a navigating command
+  // the drain has to reach the driver first; performance logs only accumulate,
+  // so they lose nothing by waiting.
+  it('drains the collector before it reads the performance logs', async () => {
+    const http = await import('node:http')
+    const order: string[] = []
+    const server = http.createServer((_req, res) => {
+      order.push('drain')
+      res.setHeader('content-type', 'application/json')
+      res.end(JSON.stringify({ value: null }))
+    })
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()))
+    const port = (server.address() as { port: number }).port
+    const browser = makeMockBrowser({
+      getLog: vi.fn(async () => {
+        order.push('perf-logs')
+        return []
+      }),
+      sessionId: 'sess-order',
+      transport: { settings: { webdriver: { host: '127.0.0.1', port } } }
+    })
+    const cap = makeCapturer(browser)
+    try {
+      await cap.captureTrace(browser)
+      // A `null` payload also sends the drain through its recovery probes, so
+      // assert on the boundary: every driver request comes first, and the
+      // performance logs run last — and still run at all, which the early
+      // return inside the drain would otherwise skip.
+      expect(order[0]).toBe('drain')
+      expect(order[order.length - 1]).toBe('perf-logs')
+      expect(order.filter((step) => step === 'perf-logs')).toHaveLength(1)
+    } finally {
+      await new Promise<void>((r) => server.close(() => r()))
+    }
+  })
+})
+
+describe('SessionCapturer.anchorAfterNavigation', () => {
+  /** A driver whose `performance.timeOrigin` reads follow `origins`, and whose
+   *  drain answers an anchored payload. Every request is one JSON response, so
+   *  the sequence of reads is what drives the poll. */
+  async function driverServing(origins: number[]) {
+    const http = await import('node:http')
+    const seen: string[] = []
+    let read = 0
+    const server = http.createServer((req, res) => {
+      let raw = ''
+      req.on('data', (c) => {
+        raw += c
+      })
+      req.on('end', () => {
+        const isOriginRead = raw.includes('timeOrigin')
+        seen.push(isOriginRead ? 'origin' : 'drain')
+        res.setHeader('content-type', 'application/json')
+        res.end(
+          JSON.stringify({
+            value: isOriginRead
+              ? (origins[Math.min(read++, origins.length - 1)] ?? null)
+              : { mutations: [], networkRequests: [], consoleLogs: [] }
+          })
+        )
+      })
+    })
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()))
+    const port = (server.address() as { port: number }).port
+    const browser = makeMockBrowser({
+      getLog: vi.fn(async () => []),
+      sessionId: 'sess-anchor',
+      transport: { settings: { webdriver: { host: '127.0.0.1', port } } }
+    })
+    return {
+      browser,
+      seen,
+      close: () => new Promise<void>((r) => server.close(() => r()))
+    }
+  }
+
+  // The destination used to be anchored only by a drain slow enough to land
+  // after the navigation. `performance.timeOrigin` is the document's own birth
+  // time, so a change in it IS the replacement, whatever the latency.
+  it('drains once the document origin changes', async () => {
+    const { browser, seen, close } = await driverServing([1000, 1000, 2000])
+    const cap = makeCapturer(browser)
+    cap.preloadRegistered = true
+    try {
+      await cap.anchorAfterNavigation(browser)
+      expect(seen).toContain('drain')
+    } finally {
+      await close()
+    }
+  })
+
+  // A command that navigated nowhere must not force an anchor of the page it
+  // is already on.
+  it('does not drain when the document is never replaced', async () => {
+    const { browser, seen, close } = await driverServing([1000])
+    const cap = makeCapturer(browser)
+    cap.preloadRegistered = true
+    try {
+      await cap.anchorAfterNavigation(browser)
+      expect(seen).not.toContain('drain')
+    } finally {
+      await close()
+    }
+  })
 })

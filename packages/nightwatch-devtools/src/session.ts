@@ -257,6 +257,20 @@ export class SessionCapturer extends SessionCapturerBase {
     return { entry, oldTimestamp }
   }
 
+  /** Birth time of the document this capturer last observed, so a replacement
+   *  is still visible to a poll that starts after the navigation committed. */
+  private lastDocumentOrigin: number | undefined
+
+  /** The current document's own birth time, which is what a DOM anchor is
+   *  stamped with. Undefined when the session cannot answer. */
+  private async documentOrigin(
+    browser: NightwatchBrowser
+  ): Promise<number | undefined> {
+    return webdriverExecute<number>(browser, 'return performance.timeOrigin;')
+      .then((origin) => origin ?? undefined)
+      .catch(() => undefined)
+  }
+
   /**
    * Wait for a navigation to actually replace the document, then drain with a
    * forced anchor so the destination's DOM enters the stream.
@@ -264,26 +278,35 @@ export class SessionCapturer extends SessionCapturerBase {
    * A Nightwatch click resolves BEFORE its navigation commits, so the drain that
    * runs at command completion still finds the outgoing page's collector: it
    * recovers nothing, and the destination is never anchored — every action on the
-   * new page then replays the page it came from. Waiting for the collector to
-   * disappear is the signal that the document was replaced; a command that
-   * navigated nowhere polls out and costs one drain of an empty buffer.
+   * new page then replays the page it came from.
+   *
+   * The replacement signal is the document's own `performance.timeOrigin`
+   * changing, NOT the collector going missing. Under the preload every document
+   * instruments itself at document-start, so the collector is never absent and
+   * that older signal stood permanently false — the destination was then only
+   * ever anchored by a drain that happened to be slow enough to land after the
+   * navigation, and tightening that latency lost the destination page entirely.
+   * A same-URL re-navigation is a new document and a new origin, so this covers
+   * it too; a command that navigated nowhere polls out and costs one drain of an
+   * empty buffer.
+   *
+   * The baseline is the last origin THIS capturer saw, not the one read on
+   * entry: a navigation that commits before the first probe would otherwise read
+   * the destination as its own baseline and never report a change.
    */
   async anchorAfterNavigation(browser: NightwatchBrowser): Promise<void> {
+    const before =
+      this.lastDocumentOrigin ?? (await this.documentOrigin(browser))
     const replaced = await pollUntilReady(
-      async () =>
-        (await webdriverExecute<boolean>(
-          browser,
-          `return ${COLLECTOR_READY_EXPRESSION};`
-        )) !== true,
-      // With the preload active every document instruments itself at
-      // document-start, so there is normally nothing to catch — but ONE probe
-      // still runs rather than standing down entirely, because a document created
-      // before the registration landed has no collector and nothing else would
-      // ever notice. Without the preload this is the only detector, so it keeps
-      // the full settle poll.
-      this.preloadRegistered
-        ? { attempts: 1, intervalMs: 0 }
-        : { attempts: 5, intervalMs: 150 }
+      async () => {
+        const now = await this.documentOrigin(browser)
+        if (now === undefined) {
+          return false
+        }
+        this.lastDocumentOrigin = now
+        return now !== before
+      },
+      { attempts: 5, intervalMs: 150 }
     )
     if (!replaced) {
       return
@@ -457,9 +480,6 @@ export class SessionCapturer extends SessionCapturerBase {
     }
   }
 
-  /**
-   * Capture trace data from the browser (network requests, console logs, etc.)
-   */
   /** `forceAnchor` forces a full-DOM anchor of the current document before
    *  draining, so a freshly injected collector's async anchor isn't lost.
    *  `anchorTimestamp` is the command this drain's anchors were CAUSED by — pass
@@ -470,10 +490,18 @@ export class SessionCapturer extends SessionCapturerBase {
     forceAnchor = false,
     anchorTimestamp?: number
   ) {
-    // Capture network requests from Chrome performance logs
+    // Performance logs only accumulate, so they lose nothing by waiting, while
+    // the drain is racing the page it reads from (`drainOutgoingPage`).
+    await this.drainCollector(browser, forceAnchor, anchorTimestamp)
     await this.captureNetworkFromPerformanceLogs(browser)
+  }
 
-    // Also try the injected wdioTraceCollector script for XHR/fetch and mutations.
+  private async drainCollector(
+    browser: NightwatchBrowser,
+    forceAnchor: boolean,
+    anchorTimestamp?: number
+  ) {
+    // Try the injected wdioTraceCollector script for XHR/fetch and mutations.
     // Atomic check+read — the inline `typeof === 'undefined' → null` guard is
     // the only safe form; a separate existence check would race page navigation
     // (the collector can disappear between the two round-trips).
