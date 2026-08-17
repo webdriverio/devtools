@@ -12,6 +12,30 @@ class TestFrames(unittest.TestCase):
         self.assertEqual(m["sessionId"], "sess-1")
         self.assertEqual(m["capabilities"]["browserName"], "chrome")
 
+    def test_metadata_names_the_runner(self):
+        # The app narrows this through `isTestRunnerId`; an absent or foreign
+        # value falls back to the same defaults, which is what left the locator
+        # dialect and the a11y XPath hint wrong for a Python run.
+        m = frames.metadata("sess-1")
+        self.assertEqual(m["runner"], "selenium-webdriver")
+
+    def test_metadata_refuses_the_launch_controls(self):
+        # Without this the app falls back to DEFAULT_CAPABILITIES (all true), so
+        # Run / Rerun / Run-all render enabled and fail on click.
+        caps = frames.metadata("sess-1")["options"]["runCapabilities"]
+        self.assertEqual(
+            caps,
+            {"canRunSuites": False, "canRunTests": False, "canRunAll": False},
+        )
+
+    def test_metadata_does_not_share_the_capability_constant(self):
+        # A caller mutating one frame's options must not rewrite the module
+        # constant for every later session.
+        frames.metadata("sess-1")["options"]["runCapabilities"]["canRunAll"] = True
+        self.assertFalse(
+            frames.metadata("sess-2")["options"]["runCapabilities"]["canRunAll"]
+        )
+
     def test_command_log_includes_error_only_when_present(self):
         ok = frames.command_log(
             command="get", args=["u"], result=None, timestamp=2, start_time=1,

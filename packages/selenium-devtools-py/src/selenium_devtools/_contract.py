@@ -13,3 +13,6 @@ SCOPE_MUTATIONS = "mutations"
 
 DATA_SCOPES = frozenset(['actionSnapshots', 'commands', 'config', 'consoleLogs', 'logs', 'metadata', 'mutations', 'networkRequests', 'screencast', 'screencastFrames', 'sources', 'suites'])
 CONTROL_SCOPES = frozenset(['clearCommands', 'clearExecutionData', 'clientConnected', 'clientDisconnected', 'config', 'replaceCommand', 'testStopped'])
+
+RUNNER_ID = "selenium-webdriver"
+TEST_RUNNER_IDS = frozenset(['cucumber', 'jasmine', 'mocha', 'nightwatch', 'nightwatch-cucumber', 'selenium-webdriver'])
