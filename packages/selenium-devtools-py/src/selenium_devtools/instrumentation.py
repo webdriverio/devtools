@@ -365,19 +365,26 @@ def _on_quit(capturer: SessionCapturer, driver: Any) -> None:
 
 
 def _live_run_state() -> str:
-    """Best guess at the run's outcome AT QUIT TIME, which is the last moment
-    the dashboard can be updated before `wait_for_dashboard_close` blocks on it.
+    """The run's outcome AT QUIT TIME, which is the last moment the dashboard
+    can be updated before `wait_for_dashboard_close` blocks on it.
 
     A script quits its driver from a `finally`, and while an exception unwinds
-    through that block `sys.exc_info()` still reports it — so this is right for
-    the case that matters, a test that raised. It over-reports when quit() is
-    called from inside an unrelated `except` handler, where the exception was
-    caught and the run may still pass; `finalize_run` corrects that at teardown,
-    once whether anything reached top level is actually known.
+    through that block `sys.exc_info()` still reports it — so this catches the
+    case that matters, a test that raised, long before the exception reaches
+    top level.
+
+    Observing one makes the failure STICKY. Teardown can easily run before the
+    excepthook fires: the user's own `finally` calls `disable()` while the
+    exception is still unwinding, and closing the dashboard window runs the
+    whole teardown on the WS reader thread, where this thread's `exc_info` is
+    empty anyway. Any of those would otherwise finalize a failed run as passed.
     """
     if _state.get("run_failed"):
         return "failed"
-    return "failed" if sys.exc_info()[0] is not None else "passed"
+    if sys.exc_info()[0] is not None:
+        mark_run_failed()
+        return "failed"
+    return "passed"
 
 
 def mark_run_failed() -> None:
@@ -386,10 +393,20 @@ def mark_run_failed() -> None:
 
 
 def finalize_run(capturer: SessionCapturer) -> None:
-    """Send the run's AUTHORITATIVE outcome at teardown. Runs after the
-    excepthook, so `run_failed` is settled by now — this is what corrects a
-    quit-time guess, in either direction. No-op when no synthetic suite exists
-    (a framework owns the tree, or no driver ever started)."""
+    """Send the run's final outcome at teardown.
+
+    Only ever ESCALATES: a failure recorded at quit time survives, because
+    teardown is not guaranteed to know better. It runs before the excepthook
+    whenever the user calls `disable()` from their own `finally`, and on the WS
+    reader thread when the dashboard window is closed — in both cases a failed
+    run would otherwise be finalized as passed, which hides a real failure. The
+    cost is that quitting from inside an unrelated `except` handler reports a
+    run that went on to pass as failed; a false red prompts a look, a false
+    green does not.
+
+    No-op when no synthetic suite exists (a framework owns the tree, or no
+    driver ever started).
+    """
     if _state.get("default_suite") is None:
         return
     _send_default_suite(capturer, "failed" if _state.get("run_failed") else "passed")

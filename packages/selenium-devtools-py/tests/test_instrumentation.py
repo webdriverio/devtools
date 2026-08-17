@@ -282,20 +282,34 @@ class TestDefaultSuite(unittest.TestCase):
 
         self.assertEqual(self._final_state(), "failed")
 
-    def test_finalize_corrects_a_quit_time_guess_in_both_directions(self):
-        # quit() over-reports when called from inside an unrelated `except`,
-        # where the exception was handled and the run may still pass. finalize
-        # runs after the excepthook, when the outcome is actually known.
+    def test_a_failure_seen_at_quit_survives_teardown(self):
+        # THE regression: teardown routinely runs BEFORE the excepthook — the
+        # user's own `finally` calls disable() while the exception is still
+        # unwinding, and closing the dashboard runs teardown on the WS reader
+        # thread, where this thread's exc_info is empty. Finalizing from
+        # `run_failed` alone reported those runs as passed.
         self.driver.execute("newSession")
         self.driver.execute("get", {"url": "https://x/"})
         try:
-            raise ValueError("handled by the user")
-        except ValueError:
-            self.driver.execute("quit")
-        self.assertEqual(self._final_state(), "failed")  # the guess
+            try:
+                raise AssertionError("the test failed")
+            finally:
+                self.driver.execute("quit")
+                instrumentation.finalize_run(self.cap)  # user's own disable()
+        except AssertionError:
+            pass
 
+        self.assertEqual(self._final_state(), "failed")
+
+    def test_the_outcome_never_downgrades_to_passed(self):
+        # Escalate-only: nothing at teardown can turn a recorded failure green.
+        instrumentation.mark_run_failed()
+        self.driver.execute("newSession")
+        self.driver.execute("get", {"url": "https://x/"})
+        self.driver.execute("quit")
         instrumentation.finalize_run(self.cap)
-        self.assertEqual(self._final_state(), "passed")  # corrected
+
+        self.assertEqual(self._final_state(), "failed")
 
     def test_finalize_reports_failed_once_the_excepthook_fired(self):
         self.driver.execute("newSession")
