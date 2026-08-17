@@ -141,10 +141,11 @@ def _capture_source(capturer: SessionCapturer, call_src: Optional[str]) -> None:
 # page-side mutation buffer so the snapshot iframe stays current.
 _state: dict = {
     "installed": False, "cls": None, "orig": None,
-    "screencast": None, "snapshot": None,
-    # Session id the per-session bringup last ran for. A boolean here silently
-    # skipped bringup for every session after the first.
-    "armed_session": None,
+    # Capture state per LIVE session id: {sid: {"screencast": rec, "snapshot": cap}}.
+    # A single shared slot cannot hold two drivers at once: with one, arming a
+    # second session tore down the first's recorder and collector, and two
+    # drivers issuing interleaved commands truncated both.
+    "sessions": {},
     "output_dir": None,  # test-results dir beside the test file (see output_dir.py)
     "default_suite": None,  # synthesized suite for non-framework (script) runs
 }
@@ -167,9 +168,9 @@ def _take_screenshot(driver: Any) -> Optional[str]:
     return shot if isinstance(shot, str) and shot else None
 
 
-def _add_screencast_frame(shot: Optional[str]) -> None:
-    """Buffer an already-captured screenshot as a screencast frame."""
-    recorder = _state.get("screencast")
+def _add_screencast_frame(entry: dict, shot: Optional[str]) -> None:
+    """Buffer an already-captured screenshot as a frame of ITS OWN session."""
+    recorder = entry.get("screencast")
     if recorder is None or not shot:
         return
     try:
@@ -178,26 +179,26 @@ def _add_screencast_frame(shot: Optional[str]) -> None:
         _log.warning("screencast add_frame threw: %s", exc)
 
 
-def _refresh_snapshot(capturer: SessionCapturer) -> None:
+def _refresh_snapshot(capturer: SessionCapturer, entry: dict) -> None:
     """After a command, keep the snapshot current: re-inject the collector if the
     page navigated (self-healing — a click can submit a form and wipe it), then
     drain the mutation buffer. Called after every command, not just explicit
     navigations, so the initial full-document snapshot is captured even if it
     wasn't ready the instant the navigation returned."""
-    snapshot = _state.get("snapshot")
+    snapshot = entry.get("snapshot")
     if snapshot is None:
         return
     try:
         snapshot.inject()  # no-op if already present; re-installs after navigation
     except Exception as exc:  # noqa: BLE001 — never break the test
         _log.warning("snapshot re-inject threw: %s", exc)
-    _flush_mutations(capturer)
+    _flush_mutations(capturer, entry)
 
 
-def _flush_mutations(capturer: SessionCapturer) -> None:
+def _flush_mutations(capturer: SessionCapturer, entry: dict) -> None:
     """Drain the page-side mutation buffer and forward it — no-op if the
     collector was never injected. Defensive: never breaks the user's test."""
-    snapshot: SnapshotCapturer | None = _state.get("snapshot")
+    snapshot: SnapshotCapturer | None = entry.get("snapshot")
     if snapshot is None:
         return
     try:
@@ -229,18 +230,16 @@ def _enable_bidi_capability(params: Any) -> None:
         pass
 
 
-def _finalize_screencast(capturer: SessionCapturer, session_id: Optional[str]) -> None:
-    """Encode and forward the recording for ``session_id``. Attributed explicitly,
-    because a rotation finalizes the session that just ended while a newer one is
-    already current."""
-    recorder = _state.get("screencast")
+def _finalize_screencast(
+    capturer: SessionCapturer, session_id: str, entry: dict
+) -> None:
+    """Encode and forward one session's recording, attributed to that session
+    rather than to whichever session happens to be current."""
+    recorder = entry.pop("screencast", None)
     if recorder is None:
         return
-    _state["screencast"] = None
     try:
-        info = recorder.finalize(
-            session_id or "session", output_dir=_state.get("output_dir")
-        )
+        info = recorder.finalize(session_id, output_dir=_state.get("output_dir"))
     except Exception as exc:  # noqa: BLE001
         _log.warning("screencast finalize threw: %s", exc)
         return
@@ -249,9 +248,14 @@ def _finalize_screencast(capturer: SessionCapturer, session_id: Optional[str]) -
         _log.info("screencast saved: %s", info.get("video_path"))
 
 
-def _ensure_session_setup(driver: Any, capturer: SessionCapturer) -> None:
-    """Once per session — on the first real command — send metadata, attach
-    BiDi, and start the screencast.
+def _ensure_session_setup(driver: Any, capturer: SessionCapturer) -> Optional[dict]:
+    """Bring capture up for this driver's session, once, and return its state.
+
+    Keyed by session id and never re-run for a session already armed: two live
+    drivers issuing interleaved commands would otherwise re-attach BiDi handlers
+    on every alternation (duplicating console and network events) and restart the
+    recorder and collector (truncating both). Sessions are independent, so a
+    second driver adds an entry rather than replacing one.
 
     This CANNOT run in the newSession branch: selenium assigns ``session_id`` /
     ``caps`` only *after* the newSession execute() returns, so at that point the
@@ -260,17 +264,14 @@ def _ensure_session_setup(driver: Any, capturer: SessionCapturer) -> None:
     defensive — a BiDi or screencast failure is a logged no-op.
     """
     session_id = getattr(driver, "session_id", None)
-    if not session_id or session_id == _state.get("armed_session"):
-        return  # not ready yet, or already armed for this session
-    previous = _state.get("armed_session")
-    if previous:
-        # A second driver in the same process. Close out the previous session
-        # before arming this one, or its video and DOM would be attributed here.
-        _flush_mutations(capturer)
-        _state["snapshot"] = None
-        _finalize_screencast(capturer, previous)
-        _log.info("session %s replaced by %s; re-arming capture", previous, session_id)
-    _state["armed_session"] = session_id
+    if not session_id:
+        return None  # driver not ready yet; retry on the next command
+    sessions = _state["sessions"]
+    existing = sessions.get(session_id)
+    if existing is not None:
+        return existing
+    entry: dict = {"screencast": None, "snapshot": None}
+    sessions[session_id] = entry
     capturer.ensure_metadata(session_id, getattr(driver, "caps", None), None)
     _log.info("session %s started", session_id)
     _send_default_suite(capturer, "running")  # tree entry for plain-script runs
@@ -282,7 +283,7 @@ def _ensure_session_setup(driver: Any, capturer: SessionCapturer) -> None:
     try:
         recorder = ScreencastRecorder()
         recorder.start(driver)
-        _state["screencast"] = recorder
+        entry["screencast"] = recorder
         _log.info("screencast recording started")
     except Exception as exc:  # noqa: BLE001
         _log.warning("screencast start threw: %s", exc)
@@ -290,35 +291,37 @@ def _ensure_session_setup(driver: Any, capturer: SessionCapturer) -> None:
         # Inject the packages/script DOM observer so the snapshot iframe fills.
         # Use a capture-bypassing execute_script so injection/readback scripts
         # don't pollute the Actions timeline.
-        snapshot = start_snapshot_capture(
+        entry["snapshot"] = start_snapshot_capture(
             driver, execute_fn=_guarded_execute_script(driver)
         )
-        _state["snapshot"] = snapshot
-        if snapshot is not None:
+        if entry["snapshot"] is not None:
             _log.info("DOM snapshot collector injected")
     except Exception as exc:  # noqa: BLE001
         _log.warning("snapshot start threw: %s", exc)
+    return entry
 
 
 def _on_quit(capturer: SessionCapturer, driver: Any = None) -> None:
-    """On driver.quit(): finalize the screencast and forward its metadata.
+    """On driver.quit(): close out THAT driver's session.
 
     ``quit`` is in the skip set, so this is the last hook before the session is
-    gone — encode here while a session id is still known."""
-    quitting = getattr(driver, "session_id", None) if driver is not None else None
-    armed = _state.get("armed_session")
-    if quitting and armed and quitting != armed:
-        # Another driver is the live one; leave its capture alone.
+    gone: drain and encode here, while its id is still known. Other live sessions
+    are untouched, and the synthetic script suite is completed only when the last
+    one goes, so a script driving two browsers is not marked done at the first
+    quit."""
+    session_id = getattr(driver, "session_id", None) if driver is not None else None
+    sessions = _state["sessions"]
+    if session_id is None and len(sessions) == 1:
+        session_id = next(iter(sessions))  # single-session run, driver not passed
+    entry = sessions.pop(session_id, None) if session_id else None
+    if entry is None:
         return
     # Drain any final mutations while the session (and page) still exist.
-    _flush_mutations(capturer)
-    _state["snapshot"] = None
-    if _state.get("default_suite") is not None:
-        _send_default_suite(capturer, "passed")  # mark the script run complete
-    _finalize_screencast(capturer, quitting or armed or capturer.session_id)
-    # Cleared so a driver created later re-arms instead of being treated as this
-    # session and losing its metadata, BiDi, DOM and video.
-    _state["armed_session"] = None
+    _flush_mutations(capturer, entry)
+    entry["snapshot"] = None
+    _finalize_screencast(capturer, session_id, entry)
+    if not sessions and _state.get("default_suite") is not None:
+        _send_default_suite(capturer, "passed")  # the whole script run is done
 
 
 def install(capturer: SessionCapturer, webdriver_cls: Optional[type] = None) -> None:
@@ -348,7 +351,7 @@ def install(capturer: SessionCapturer, webdriver_cls: Optional[type] = None) -> 
 
         # First real command: the driver is now fully initialized — set up
         # metadata/BiDi/screencast once, before executing so BiDi sees this cmd.
-        _ensure_session_setup(self, capturer)
+        entry = _ensure_session_setup(self, capturer)
         start = now_ms()
         src = call_source(_skip_frames())
         _capture_source(capturer, src)  # Source tab: send the test file once
@@ -382,30 +385,32 @@ def install(capturer: SessionCapturer, webdriver_cls: Optional[type] = None) -> 
         _log.debug("command: %s", driver_command)
         # Keep the snapshot iframe current after every command (a click can
         # navigate too, not just get/back/…), re-injecting if the page changed.
-        _refresh_snapshot(capturer)
-        _add_screencast_frame(shot)
+        if entry is not None:
+            _refresh_snapshot(capturer, entry)
+            _add_screencast_frame(entry, shot)
         return result
 
     webdriver_cls.execute = patched_execute  # type: ignore[assignment]
     _sources_sent.clear()
     _state.update(
         installed=True, cls=webdriver_cls, orig=orig_execute,
-        armed_session=None, output_dir=None, default_suite=None,
+        sessions={}, output_dir=None, default_suite=None,
     )
 
 
 def uninstall() -> None:
-    recorder = _state.get("screencast")
-    if recorder is not None:
-        recorder.stop()  # never leave a poll thread running past teardown
+    # Never leave a recorder running past teardown, for any session still live.
+    for entry in list(_state.get("sessions", {}).values()):
+        recorder = entry.get("screencast")
+        if recorder is not None:
+            recorder.stop()
     if not _state["installed"]:
         _state.update(
-            screencast=None, snapshot=None, armed_session=None,
-            output_dir=None, default_suite=None,
+            sessions={}, output_dir=None, default_suite=None,
         )
         return
     _state["cls"].execute = _state["orig"]  # type: ignore[union-attr]
     _state.update(
-        installed=False, cls=None, orig=None, screencast=None, snapshot=None,
-        armed_session=None, output_dir=None, default_suite=None,
+        installed=False, cls=None, orig=None, sessions={},
+        output_dir=None, default_suite=None,
     )

@@ -301,24 +301,44 @@ class TestMultipleSessions(unittest.TestCase):
         self.assertEqual(self._sessions_announced(), ["sess-a"])
         self.assertEqual(self.attached, ["sess-a"])
 
+    def test_two_live_drivers_are_tracked_independently(self):
+        MultiSessionDriver("sess-a").execute("get", {"url": "https://a/"})
+        MultiSessionDriver("sess-b").execute("get", {"url": "https://b/"})
+        self.assertEqual(set(instrumentation._state["sessions"]), {"sess-a", "sess-b"})
+
+    # The interleaved case: alternating commands must not re-arm anything.
+    # Re-attaching BiDi per alternation duplicates console and network events,
+    # and restarting the recorder and collector truncates both streams.
+    def test_interleaved_commands_do_not_rearm(self):
+        first = MultiSessionDriver("sess-a")
+        second = MultiSessionDriver("sess-b")
+        first.execute("get", {"url": "https://a/"})
+        second.execute("get", {"url": "https://b/"})
+        first.execute("click", {"id": "x"})
+        second.execute("click", {"id": "y"})
+        first.execute("getElementText", {"id": "x"})
+        self.assertEqual(self.attached, ["sess-a", "sess-b"])
+        self.assertEqual(self._sessions_announced(), ["sess-a", "sess-b"])
+
     def test_quitting_one_driver_leaves_the_other_capturing(self):
         first = MultiSessionDriver("sess-a")
         first.execute("get", {"url": "https://a/"})
         second = MultiSessionDriver("sess-b")
         second.execute("get", {"url": "https://b/"})
-        first.execute("quit")  # the stale driver, not the armed one
-        self.assertEqual(instrumentation._state["armed_session"], "sess-b")
+        first.execute("quit")
+        self.assertEqual(set(instrumentation._state["sessions"]), {"sess-b"})
         second.execute("click", {"id": "x"})
         commands = [d[0]["command"] for s, d in self.tx.sent if s == "commands"]
         self.assertIn("click", commands)
 
-    def test_quitting_the_armed_driver_clears_arming_so_the_next_rearms(self):
+    def test_a_driver_created_after_a_quit_is_armed_in_full(self):
         first = MultiSessionDriver("sess-a")
         first.execute("get", {"url": "https://a/"})
         first.execute("quit")
-        self.assertIsNone(instrumentation._state["armed_session"])
+        self.assertEqual(instrumentation._state["sessions"], {})
         MultiSessionDriver("sess-b").execute("get", {"url": "https://b/"})
         self.assertEqual(self._sessions_announced(), ["sess-a", "sess-b"])
+        self.assertEqual(self.attached, ["sess-a", "sess-b"])
 
 
 class StubRecorder:
@@ -370,9 +390,23 @@ class TestScreencastAttributionAcrossSessions(unittest.TestCase):
         self._bidi.stop()
         self._rec.stop()
 
-    def test_the_previous_sessions_video_is_filed_under_that_session(self):
-        MultiSessionDriver("sess-a").execute("get", {"url": "https://a/"})
+    def _videos(self):
+        return [d for s, d in self.tx.sent if s == "screencast"]
+
+    def test_a_live_session_is_not_finalized_when_another_starts(self):
+        first = MultiSessionDriver("sess-a")
+        first.execute("get", {"url": "https://a/"})
         MultiSessionDriver("sess-b").execute("get", {"url": "https://b/"})
-        videos = [d for s, d in self.tx.sent if s == "screencast"]
-        self.assertEqual([v["sessionId"] for v in videos], ["sess-a"])
-        self.assertEqual(videos[0]["videoFile"], "sess-a.webm")
+        # sess-a is still live: encoding it here would truncate its video.
+        self.assertEqual(self._videos(), [])
+
+    def test_each_session_video_is_filed_under_that_session_on_its_own_quit(self):
+        first = MultiSessionDriver("sess-a")
+        second = MultiSessionDriver("sess-b")
+        first.execute("get", {"url": "https://a/"})
+        second.execute("get", {"url": "https://b/"})
+        second.execute("quit")
+        first.execute("quit")
+        self.assertEqual([v["sessionId"] for v in self._videos()], ["sess-b", "sess-a"])
+        self.assertEqual([v["videoFile"] for v in self._videos()],
+                         ["sess-b.webm", "sess-a.webm"])
