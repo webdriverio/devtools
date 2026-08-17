@@ -77,10 +77,19 @@ class ScreencastRecorder:
     # ── public API ────────────────────────────────────────────────────────────
 
     def start(self, driver: Any, screenshot_fn: Optional[ScreenshotFn] = None) -> None:
-        """Arm the recorder and capture a seed frame. ``screenshot_fn`` is
-        injectable for tests; by default it reads
-        ``driver.get_screenshot_as_base64``. Frames are captured on the main
-        thread via :meth:`capture` — no background polling. Safe to call twice."""
+        """Arm the recorder. ``screenshot_fn`` is injectable for tests; by
+        default it reads ``driver.get_screenshot_as_base64``. Frames are
+        captured on the main thread via :meth:`capture` — no background
+        polling. Safe to call twice.
+
+        Deliberately captures NO seed frame. Arming happens on the first
+        command, before that command runs, so on a fresh driver the page is
+        still ``about:blank`` — a page the test never saw. The encoder holds
+        each frame for its real inter-frame duration, so that blank was then
+        shown for the whole of the opening navigation: measured at 3-4s of
+        blank on videos only 3-7s long. The first frame now comes from the
+        first command's own screenshot, which the command hook already buffers.
+        """
         if self._active:
             return
         if screenshot_fn is not None:
@@ -94,7 +103,6 @@ class ScreencastRecorder:
             _warn("driver has no get_screenshot_as_base64 — recording skipped")
             return
         self._active = True
-        self.capture()  # best-effort seed frame
 
     def capture(self) -> bool:
         """Capture one frame synchronously (main thread). No-op if not armed.

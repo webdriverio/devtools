@@ -40,8 +40,8 @@ def _stub_shots(*values):
 
 class TestBuffering(unittest.TestCase):
     def test_capture_buffers_frames_per_call(self):
-        # Frames are captured synchronously, one per capture() — the seed frame
-        # from start() plus one for each explicit capture.
+        # Frames are captured synchronously, one per capture(). start() arms the
+        # recorder and buffers nothing.
         rec = ScreencastRecorder()
         rec.start(driver=None, screenshot_fn=_stub_shots("a", "b", "c"))
         rec.capture()
@@ -77,11 +77,31 @@ class TestBuffering(unittest.TestCase):
             return "shot"
 
         rec = ScreencastRecorder()
-        rec.start(driver=None, screenshot_fn=flaky)  # seed ok (call 1)
+        rec.start(driver=None, screenshot_fn=flaky)  # arms only, takes no frame
+        self.assertTrue(rec.capture())  # call 1 succeeds
         self.assertFalse(rec.capture())  # call 2 raises → skipped, not fatal
         self.assertTrue(rec.is_recording)  # still armed
         self.assertTrue(rec.capture())  # call 3 succeeds
-        self.assertGreaterEqual(len(rec.frames), 2)
+        self.assertEqual(len(rec.frames), 2)
+
+    # The recorder is armed on the first command, BEFORE that command runs, so
+    # on a fresh driver the page is still about:blank. A seed frame there is a
+    # page the test never saw, and the encoder holds each frame for its real
+    # inter-frame duration — so it played as several seconds of blank across the
+    # opening navigation.
+    def test_start_buffers_no_frame_of_the_page_before_the_first_command(self):
+        rec = ScreencastRecorder()
+        rec.start(driver=None, screenshot_fn=lambda: "about-blank")
+
+        self.assertTrue(rec.is_recording)
+        self.assertEqual(rec.frames, [])
+
+    def test_the_first_frame_is_the_first_commands_screenshot(self):
+        rec = ScreencastRecorder()
+        rec.start(driver=None, screenshot_fn=lambda: "about-blank")
+        rec.add_frame("first-real-page")
+
+        self.assertEqual([f["data"] for f in rec.frames], ["first-real-page"])
 
     def test_duration_zero_below_two_frames(self):
         rec = ScreencastRecorder()
@@ -94,10 +114,17 @@ class TestBuffering(unittest.TestCase):
             def get_screenshot_as_base64(self):
                 return "shot"
 
+        # Bound to a name on purpose: the recorder holds the driver WEAKLY, so
+        # a temporary would be collected the moment start() returned and the
+        # capture below would find nothing. A real run holds its own driver.
+        driver = Driver()
         rec = ScreencastRecorder()
-        rec.start(Driver())  # seed frame via driver's screenshot
+        rec.start(driver)
         self.assertTrue(rec.is_recording)
-        self.assertGreaterEqual(len(rec.frames), 1)
+        self.assertEqual(rec.frames, [])  # armed, nothing buffered yet
+
+        rec.capture()  # the driver's own method is what gets called
+        self.assertEqual([f["data"] for f in rec.frames], ["shot"])
 
     def test_start_skips_when_driver_has_no_screenshot(self):
         rec = ScreencastRecorder()
