@@ -418,6 +418,15 @@ def finalize_run(capturer: SessionCapturer) -> None:
     """
     if _state.get("default_suite") is None:
         return
+    if threading.current_thread() is not threading.main_thread():
+        # Off-thread teardown means the run was INTERRUPTED, by construction:
+        # `lifecycle._trigger_shutdown` hands teardown to whoever is parked in
+        # wait_for_shutdown and only runs it itself when nobody is, then hard
+        # exits. So getting here on the WS reader thread says the script was
+        # still mid-flight when the dashboard closed. Its outcome is unknowable
+        # from here — `sys.exc_info` is thread-local — and it has no outcome
+        # yet in any case, so the tree keeps showing `running`, which is true.
+        return
     # Reads the live exception too, not just the recorded flag: a script that
     # calls disable() from its `finally` WITHOUT quitting the driver first never
     # reaches _on_quit, so nothing else would ever observe the failure — the

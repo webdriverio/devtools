@@ -359,6 +359,33 @@ class TestDefaultSuite(unittest.TestCase):
 
         self.assertTrue(instrumentation._state["run_failed"])
 
+    def test_an_interrupted_run_is_not_finalized_from_the_reader_thread(self):
+        # Closing the dashboard mid-flight runs teardown on the WS reader
+        # thread, where the script's exception is invisible. lifecycle only
+        # takes that path when nobody is parked in wait_for_shutdown — so the
+        # script was still running, and publishing any terminal state would be a
+        # guess. The tree keeps `running`, which is what actually happened.
+        import threading
+
+        self.driver.execute("newSession")
+        self.driver.execute("get", {"url": "https://x/"})
+        self.assertEqual(self._final_state(), "running")
+
+        done = threading.Thread(
+            target=lambda: instrumentation.finalize_run(self.cap)
+        )
+        done.start()
+        done.join()
+
+        self.assertEqual(self._final_state(), "running")
+
+    def test_the_main_thread_still_finalizes_normally(self):
+        self.driver.execute("newSession")
+        self.driver.execute("get", {"url": "https://x/"})
+        instrumentation.finalize_run(self.cap)
+
+        self.assertEqual(self._final_state(), "passed")
+
     def test_record_live_failure_is_silent_on_a_clean_run(self):
         instrumentation.record_live_failure()
 
