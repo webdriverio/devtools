@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from typing import Any, List, Optional
 
+from ._contract import RUNNER_ID
+from .constants import RUN_CAPABILITIES
 from .types import (
     CommandLog,
     ConsoleLog,
@@ -35,6 +37,11 @@ def metadata(
         "capabilities": caps,
         "desiredCapabilities": caps,
         "testEnv": "python-selenium",
+        # The typed carrier the app reads first. `options.framework` is the same
+        # fact under an older name and is deliberately not sent, so this stream
+        # carries one answer rather than two.
+        "runner": RUNNER_ID,
+        "options": {"runCapabilities": dict(RUN_CAPABILITIES)},
     }
 
 

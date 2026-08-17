@@ -19,6 +19,12 @@ import re
 import sys
 from pathlib import Path
 
+# The runner id this adapter reports as. Generated rather than hand-written so
+# a rename in shared's TEST_RUNNER_IDS fails generation instead of silently
+# shipping a value the app's `isTestRunnerId` narrows away — which degrades to
+# the same fallbacks as sending nothing.
+REQUIRED_RUNNER_ID = "selenium-webdriver"
+
 # Data scopes the Python adapter emits — each must exist as a TraceLog key.
 REQUIRED_DATA_SCOPES = {
     "SCOPE_METADATA": "metadata",
@@ -58,11 +64,20 @@ def _ws_scopes(routes_ts: str) -> dict[str, str]:
     return dict(re.findall(r"(\w+):\s*'([^']+)'", m.group(1)))
 
 
+def _test_runner_ids(types_ts: str) -> list[str]:
+    m = re.search(r"export const TEST_RUNNER_IDS = \[(.*?)\] as const", types_ts, re.DOTALL)
+    if not m:
+        raise SystemExit("could not find `TEST_RUNNER_IDS` in shared/types.ts")
+    return re.findall(r"'([^']+)'", m.group(1))
+
+
 def main() -> int:
     root = _repo_root()
     shared = root / "packages" / "shared"
     version = _shared_version(shared)
-    data_keys = _trace_log_keys((shared / "src" / "types.ts").read_text())
+    types_ts = (shared / "src" / "types.ts").read_text()
+    data_keys = _trace_log_keys(types_ts)
+    runner_ids = _test_runner_ids(types_ts)
     control = _ws_scopes((shared / "src" / "routes.ts").read_text())
 
     # Drift-guard.
@@ -71,6 +86,13 @@ def main() -> int:
         raise SystemExit(
             f"contract drift: scope(s) {missing} no longer in shared TraceLog "
             f"(present: {data_keys}). Update the adapter or shared."
+        )
+
+    if REQUIRED_RUNNER_ID not in runner_ids:
+        raise SystemExit(
+            f"contract drift: runner id {REQUIRED_RUNNER_ID!r} is no longer in "
+            f"shared TEST_RUNNER_IDS (present: {runner_ids}). Update the adapter "
+            "or shared."
         )
 
     lines = [
@@ -85,6 +107,9 @@ def main() -> int:
         "",
         f"DATA_SCOPES = frozenset({sorted(data_keys)!r})",
         f"CONTROL_SCOPES = frozenset({sorted(control.values())!r})",
+        "",
+        f'RUNNER_ID = "{REQUIRED_RUNNER_ID}"',
+        f"TEST_RUNNER_IDS = frozenset({sorted(runner_ids)!r})",
         "",
     ]
     out = shared.parent / "selenium-devtools-py" / "src" / "selenium_devtools" / "_contract.py"
