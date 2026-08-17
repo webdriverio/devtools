@@ -9,7 +9,7 @@ stamps per-test timing, and re-sends the ``suites`` frame as each test reports.
 from __future__ import annotations
 
 import os
-from typing import Dict
+from typing import Dict, Optional
 
 import selenium_devtools as devtools
 from . import frames
@@ -21,48 +21,129 @@ def _opted_in() -> bool:
     return bool(os.environ.get(ENV_OPT_IN) or os.environ.get(ENV_PORT))
 
 
+def _rolled_up_state(tests: list, suites: list) -> str:
+    """A group is failed if anything under it failed, else passed once nothing
+    is still running. Mirrors how the JS reporters roll a describe block up."""
+    states = [t["state"] for t in tests] + [s["state"] for s in suites]
+    if "failed" in states:
+        return "failed"
+    if "running" in states:
+        return "running"
+    return "passed" if "passed" in states else "skipped"
+
+
 class _SuiteRegistry:
-    """Groups tests by file into the SuiteStats[] the dashboard expects."""
+    """Builds the SuiteStats[] tree the dashboard expects.
+
+    pytest has no describe/it blocks: a module groups tests, and a CLASS groups
+    them one level deeper. `report.location` flattens that middle level into the
+    name (`TestLogin.test_valid`), so the class is split back out of the nodeid
+    (`file::Class::test`) into a nested suite — otherwise a class-based suite
+    renders as flat rows under the file, while the equivalent mocha `describe`
+    nests.
+    """
 
     def __init__(self) -> None:
         self._suites: Dict[str, dict] = {}
+        self._classes: Dict[str, dict] = {}
         self._tests: Dict[str, dict] = {}
         self._starts: Dict[str, int] = {}
 
     def mark_start(self, nodeid: str) -> None:
         self._starts.setdefault(nodeid, now_ms())
 
-    def record(self, nodeid: str, file: str, name: str, line: int, state: str) -> None:
+    def record(
+        self,
+        nodeid: str,
+        file: str,
+        name: str,
+        line: int,
+        state: str,
+        abs_file: Optional[str] = None,
+    ) -> None:
+        # `file` is pytest's rootdir-relative path: it prefixes every nodeid, so
+        # it stays the grouping key and the readable title. `abs_file` is the
+        # same file resolved absolutely, and is what goes on the wire — the
+        # `sources` map is keyed by each command's absolute callSource, and the
+        # app pairs the two by exact path, so a relative one leaves the Source
+        # tab reporting the file as never captured the moment a test is picked.
+        path = abs_file or file
         start = self._starts.get(nodeid, now_ms())
         end = now_ms()
-        suite = self._suites.setdefault(
+        file_suite = self._suites.setdefault(
             file,
-            frames.suite_stats(uid=file, title=file, file=file,
+            frames.suite_stats(uid=file, title=file, file=path,
                                start_ms=start, tests=[]),
         )
+        # `file::Class::test` has a class; `file::test` does not. Parametrized
+        # ids (`test[a-b]`) keep their brackets in the leaf, never in the class.
+        parts = nodeid.split("::")
+        class_name = parts[1] if len(parts) > 2 else None
+        # The name pytest reports is `Class.test` for a method; the leaf row
+        # shows just the test, since the class is now its own node.
+        title = name.split(".", 1)[1] if class_name and "." in name else name
+
+        parent_uid = f"{file}::{class_name}" if class_name else file
+        parent_title = class_name or file
         self._tests[nodeid] = frames.test_stats(
             uid=nodeid,
-            title=name,
+            title=title,
             full_title=f"{file} › {name}",
-            parent=file,
+            parent=parent_title,
             state=state,
-            file=file,
+            file=path,
             start_ms=start,
             end_ms=end,
-            call_source=f"{file}:{line + 1}",
+            call_source=f"{path}:{line + 1}",
         )
-        suite["tests"] = [t for nid, t in self._tests.items()
-                          if nid.split("::", 1)[0] == file]
-        suite["end"] = self._tests[nodeid]["end"]
-        suite["state"] = "failed" if any(
-            t["state"] == "failed" for t in suite["tests"]
-        ) else state
+        if class_name:
+            class_suite = self._classes.setdefault(
+                parent_uid,
+                frames.suite_stats(uid=parent_uid, title=class_name, file=path,
+                                   start_ms=start, tests=[]),
+            )
+            class_suite["parent"] = file
+            class_suite["fullTitle"] = f"{file} › {class_name}"
+            class_suite["tests"] = self._tests_under(parent_uid, depth=3)
+            class_suite["end"] = self._tests[nodeid]["end"]
+            class_suite["state"] = _rolled_up_state(class_suite["tests"], [])
+
+        file_suite["tests"] = self._tests_under(file, depth=2)
+        file_suite["suites"] = [
+            s for uid, s in self._classes.items()
+            if uid.split("::", 1)[0] == file
+        ]
+        file_suite["end"] = self._tests[nodeid]["end"]
+        file_suite["state"] = _rolled_up_state(
+            file_suite["tests"], file_suite["suites"]
+        )
+
+    def _tests_under(self, prefix: str, *, depth: int) -> list:
+        """Tests whose nodeid sits DIRECTLY under `prefix` — `depth` is how many
+        `::` segments such a nodeid has, so a class's tests never also count as
+        the file's."""
+        return [
+            t for nid, t in self._tests.items()
+            if nid.startswith(f"{prefix}::") and len(nid.split("::")) == depth
+        ]
 
     def snapshot(self) -> list:
         return list(self._suites.values())
 
 
 _registry = _SuiteRegistry()
+
+#: pytest's rootdir, captured at configure. `report.location[0]` is relative to
+#: it, and the dashboard pairs a test with its captured source by exact path.
+_rootdir: Optional[str] = None
+
+
+def _absolute(file: str) -> str:
+    """`file` resolved against pytest's rootdir. Already-absolute paths and an
+    unknown rootdir both pass through, so this can never make a path worse."""
+    if os.path.isabs(file) or not _rootdir:
+        return file
+    return os.path.normpath(os.path.join(_rootdir, file))
 
 # Note: test-file source capture for the Source tab lives in instrumentation.py
 # (keyed by each command's callSource path), so it works for plain scripts too —
@@ -71,6 +152,10 @@ _registry = _SuiteRegistry()
 
 def pytest_configure(config) -> None:  # noqa: ANN001
     if _opted_in():
+        global _rootdir
+        # `rootpath` on pytest 7+, `rootdir` before it.
+        root = getattr(config, "rootpath", None) or getattr(config, "rootdir", None)
+        _rootdir = str(root) if root else None
         capturer = devtools.enable()
         # pytest owns the suite tree — suppress the adapter's default script suite.
         from . import instrumentation
@@ -100,7 +185,9 @@ def pytest_runtest_logreport(report) -> None:  # noqa: ANN001
             else "failed"
         )
         file, line, name = report.location
-        _registry.record(report.nodeid, file, name, line or 0, state)
+        _registry.record(
+            report.nodeid, file, name, line or 0, state, abs_file=_absolute(file)
+        )
         capturer.send_suites(_registry.snapshot())
 
 
