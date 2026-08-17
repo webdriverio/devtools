@@ -379,12 +379,21 @@ def _live_run_state() -> str:
     whole teardown on the WS reader thread, where this thread's `exc_info` is
     empty anyway. Any of those would otherwise finalize a failed run as passed.
     """
-    if _state.get("run_failed"):
-        return "failed"
+    record_live_failure()
+    return "failed" if _state.get("run_failed") else "passed"
+
+
+def record_live_failure() -> None:
+    """Record an exception unwinding on THIS thread, if there is one.
+
+    `sys.exc_info()` is thread-local, so it must be read on the thread that is
+    actually unwinding. Teardown is not always that thread: closing the
+    dashboard window runs the whole shutdown on the WS reader thread, where this
+    reads empty however the script is doing. Callers on the main thread invoke
+    this before handing control away, so the observation survives.
+    """
     if sys.exc_info()[0] is not None:
         mark_run_failed()
-        return "failed"
-    return "passed"
 
 
 def mark_run_failed() -> None:

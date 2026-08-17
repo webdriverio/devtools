@@ -183,6 +183,12 @@ def wait_for_dashboard_close() -> None:
     run after your test finishes. Returns immediately if no dashboard window is
     open (headless/CI) — safe to always call before ``disable()``."""
     if lifecycle.dashboard_window_open():
+        # Last chance to see this run's exception on the thread that HAS it.
+        # A script reaches here from its `finally` with the failure still
+        # unwinding, then blocks; closing the window then runs the whole
+        # teardown on the WS reader thread, where `sys.exc_info()` is empty and
+        # the run would be finalized as passed.
+        instrumentation.record_live_failure()
         # Deliberately NOT the logger: this tells the user why their terminal is
         # blocking, so it has to be on the terminal even when the dashboard is
         # taking the log stream, and `logging.lastResort` ignores INFO.

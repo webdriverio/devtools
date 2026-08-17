@@ -1,4 +1,5 @@
 import os
+import sys
 import tempfile
 import unittest
 from unittest import mock
@@ -317,6 +318,51 @@ class TestDefaultSuite(unittest.TestCase):
             pass
 
         self.assertEqual(self._final_state(), "failed")
+
+    def test_a_failure_survives_a_teardown_run_on_another_thread(self):
+        # Closing the dashboard runs the whole teardown on the WS reader thread,
+        # where sys.exc_info() is empty however the script is doing. The main
+        # thread records the failure before it blocks, so the later finalize —
+        # simulated here by finalizing once the exception is no longer in flight
+        # on this thread — still reports it.
+        self.driver.execute("newSession")
+        self.driver.execute("get", {"url": "https://x/"})
+        try:
+            try:
+                raise AssertionError("the test failed")
+            finally:
+                instrumentation.record_live_failure()  # wait_for_dashboard_close
+        except AssertionError:
+            pass
+
+        self.assertIsNone(sys.exc_info()[0])  # the WS thread's view: nothing
+        instrumentation.finalize_run(self.cap)
+
+        self.assertEqual(self._final_state(), "failed")
+
+    def test_waiting_for_the_dashboard_records_the_live_failure(self):
+        # Pins the CALL SITE, not just the helper: wait_for_dashboard_close is
+        # the last code to run on the main thread before the process parks, so
+        # if it does not observe the exception nothing else can.
+        import selenium_devtools as devtools
+
+        with mock.patch.object(
+            devtools.lifecycle, "dashboard_window_open", return_value=True
+        ), mock.patch.object(devtools.lifecycle, "wait_for_shutdown"):
+            try:
+                try:
+                    raise AssertionError("the test failed")
+                finally:
+                    devtools.wait_for_dashboard_close()
+            except AssertionError:
+                pass
+
+        self.assertTrue(instrumentation._state["run_failed"])
+
+    def test_record_live_failure_is_silent_on_a_clean_run(self):
+        instrumentation.record_live_failure()
+
+        self.assertFalse(instrumentation._state["run_failed"])
 
     def test_the_outcome_never_downgrades_to_passed(self):
         # Escalate-only: nothing at teardown can turn a recorded failure green.
