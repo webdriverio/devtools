@@ -18,15 +18,16 @@
     }
   },
   "bin": {
+    "devtools-backend": "./dist/server.js",
     "show-trace": "./dist/show-trace.js"
   },
   "types": "./dist/index.d.ts",
   "typeScriptVersion": "^5.0.0",
   "scripts": {
     "dev": "run-p dev:*",
-    "dev:ts": "tsup src/index.ts src/show-trace.ts --format esm --dts --watch",
-    "dev:app": "nodemon --watch ./dist ./dist/index.js",
-    "build": "tsup src/index.ts src/show-trace.ts --format esm --dts --clean",
+    "dev:ts": "tsup src/index.ts src/show-trace.ts src/server.ts --format esm --dts --watch",
+    "dev:app": "nodemon --watch ./dist ./dist/server.js",
+    "build": "tsup src/index.ts src/show-trace.ts src/server.ts --format esm --dts --clean",
     "lint": "eslint .",
     "prepublishOnly": "pnpm build"
   },

@@ -1,5 +1,4 @@
 import fs from 'node:fs'
-import url from 'node:url'
 
 import Fastify, {
   type FastifyInstance,
@@ -442,14 +441,4 @@ export async function stop() {
   clients.clear()
 
   await server.close()
-}
-
-/**
- * start server if this file is called directly
- */
-if (import.meta.url.startsWith('file:')) {
-  const modulePath = url.fileURLToPath(import.meta.url)
-  if (process.argv[1] === modulePath) {
-    start()
-  }
 }
