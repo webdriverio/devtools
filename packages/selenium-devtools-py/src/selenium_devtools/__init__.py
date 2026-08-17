@@ -140,9 +140,11 @@ def disable() -> None:
     _restore_excepthook()
     capturer = _active["capturer"]
     if capturer is not None:
-        # Runs after the excepthook, so the outcome is settled — this is what
-        # corrects the guess quit() had to make while the exception was still
-        # unwinding. Must precede transport.close(), or it never reaches the UI.
+        # NOT guaranteed to run after the excepthook: a script calling disable()
+        # from its own `finally` gets here while the exception is still
+        # unwinding, and this tears the transport down, so nothing the hook
+        # learns afterwards could still be sent. `finalize_run` therefore reads
+        # the live exception itself. Must precede transport.close() either way.
         instrumentation.finalize_run(capturer)
     instrumentation.uninstall()
     term = _active["terminal"]

@@ -409,7 +409,11 @@ def finalize_run(capturer: SessionCapturer) -> None:
     """
     if _state.get("default_suite") is None:
         return
-    _send_default_suite(capturer, "failed" if _state.get("run_failed") else "passed")
+    # Reads the live exception too, not just the recorded flag: a script that
+    # calls disable() from its `finally` WITHOUT quitting the driver first never
+    # reaches _on_quit, so nothing else would ever observe the failure — the
+    # excepthook fires only after teardown has already torn the transport down.
+    _send_default_suite(capturer, _live_run_state())
 
 
 def install(capturer: SessionCapturer, webdriver_cls: Optional[type] = None) -> None:

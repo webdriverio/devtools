@@ -301,6 +301,23 @@ class TestDefaultSuite(unittest.TestCase):
 
         self.assertEqual(self._final_state(), "failed")
 
+    def test_a_failure_is_caught_even_when_the_driver_was_never_quit(self):
+        # disable() from a `finally` without driver.quit() first: _on_quit never
+        # runs, so nothing records the failure, and the excepthook fires only
+        # after teardown has torn the transport down. finalize_run has to read
+        # the live exception itself or the failed run is sent as passed.
+        self.driver.execute("newSession")
+        self.driver.execute("get", {"url": "https://x/"})
+        try:
+            try:
+                raise AssertionError("the test failed")
+            finally:
+                instrumentation.finalize_run(self.cap)  # no quit()
+        except AssertionError:
+            pass
+
+        self.assertEqual(self._final_state(), "failed")
+
     def test_the_outcome_never_downgrades_to_passed(self):
         # Escalate-only: nothing at teardown can turn a recorded failure green.
         instrumentation.mark_run_failed()
