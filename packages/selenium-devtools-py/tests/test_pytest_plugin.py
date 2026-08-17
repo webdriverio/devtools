@@ -10,6 +10,7 @@ captured from a run of a file holding a class-based and a module-level test:
 import unittest
 
 from selenium_devtools.pytest_plugin import _SuiteRegistry
+from selenium_devtools.utils import iso
 
 FILE = "test_login_pytest.py"
 
@@ -138,6 +139,112 @@ class TestTheFileOnTheWireIsAbsolute(unittest.TestCase):
         self.assertEqual(
             [t["title"] for t in file_suite["suites"][0]["tests"]], ["test_valid"]
         )
+
+
+class TestTheTreeAppearsBeforeAnythingRuns(unittest.TestCase):
+    """Commands stream from the first driver command, but the suites frame used
+    to wait for the first test to REPORT — so the tree stayed empty through the
+    whole first test while the Actions list filled up beside it."""
+
+    def test_a_collected_test_is_pending_with_no_end(self):
+        reg = _SuiteRegistry()
+        reg.record(f"{FILE}::test_plain", FILE, "test_plain", 0, "pending")
+        [file_suite] = reg.snapshot()
+
+        test = file_suite["tests"][0]
+        self.assertEqual(test["state"], "pending")
+        self.assertIsNone(file_suite["end"])  # nothing has finished yet
+
+    def test_a_wholly_pending_tree_reads_pending(self):
+        reg = _SuiteRegistry()
+        for nid, name in (
+            (f"{FILE}::TestLogin::test_valid", "TestLogin.test_valid"),
+            (f"{FILE}::test_plain", "test_plain"),
+        ):
+            reg.record(nid, FILE, name, 0, "pending")
+        [file_suite] = reg.snapshot()
+
+        self.assertEqual(file_suite["state"], "pending")
+        self.assertEqual(file_suite["suites"][0]["state"], "pending")
+
+    def test_the_running_test_is_visible_as_running(self):
+        reg = _SuiteRegistry()
+        nid = f"{FILE}::test_plain"
+        reg.record(nid, FILE, "test_plain", 0, "pending")
+        reg.mark_start(nid)
+        reg.record(nid, FILE, "test_plain", 0, "running")
+        [file_suite] = reg.snapshot()
+
+        self.assertEqual(file_suite["tests"][0]["state"], "running")
+        self.assertEqual(file_suite["state"], "running")
+
+    def test_one_finished_test_makes_the_group_running_not_pending(self):
+        # Half-done is in progress, not "not started".
+        reg = _SuiteRegistry()
+        reg.record(f"{FILE}::b", FILE, "b", 0, "pending")
+        reg.record(f"{FILE}::a", FILE, "a", 0, "passed")
+
+        self.assertEqual(reg.snapshot()[0]["state"], "running")
+
+    def test_a_pending_test_does_not_freeze_a_start_time(self):
+        # Recorded at collection, started later: the duration must come from the
+        # real start, not from when pytest happened to collect it.
+        reg = _SuiteRegistry()
+        nid = f"{FILE}::test_plain"
+        reg.record(nid, FILE, "test_plain", 0, "pending")
+        reg.mark_start(nid)
+        started = reg._starts[nid]
+        reg.record(nid, FILE, "test_plain", 0, "passed")
+
+        self.assertEqual(reg.snapshot()[0]["tests"][0]["start"], iso(started))
+
+    def test_a_failure_still_wins_over_pending_siblings(self):
+        reg = _SuiteRegistry()
+        reg.record(f"{FILE}::b", FILE, "b", 0, "pending")
+        reg.record(f"{FILE}::a", FILE, "a", 0, "failed")
+
+        self.assertEqual(reg.snapshot()[0]["state"], "failed")
+
+
+class TestCollectionOrderIsCarried(unittest.TestCase):
+    """The tree renders a suite's own tests then its nested suites, which IS
+    mocha's execution order (`Runner.runSuite` runs `suite.tests` first). pytest
+    runs in collection order and interleaves the two, so it stamps `order` and
+    the app merges the buckets by it."""
+
+    def _file_suite(self):
+        reg = _SuiteRegistry()
+        for index, (nid, name) in enumerate((
+            (f"{FILE}::TestLogin::test_valid", "TestLogin.test_valid"),
+            (f"{FILE}::TestLogin::test_invalid", "TestLogin.test_invalid"),
+            (f"{FILE}::test_the_login_page_loads", "test_the_login_page_loads"),
+        )):
+            reg.record(nid, FILE, name, 0, "pending", order=index)
+        return reg.snapshot()[0]
+
+    def test_a_class_sits_where_its_first_test_starts(self):
+        file_suite = self._file_suite()
+
+        self.assertEqual(file_suite["suites"][0]["order"], 0)
+        self.assertEqual(file_suite["tests"][0]["order"], 2)
+
+    def test_the_declared_order_survives_a_later_state_change(self):
+        # record() runs again at start and at completion; the collection index
+        # is assigned once and must not be lost.
+        reg = _SuiteRegistry()
+        nid = f"{FILE}::test_plain"
+        reg.record(nid, FILE, "test_plain", 0, "pending", order=7)
+        reg.record(nid, FILE, "test_plain", 0, "passed")
+
+        self.assertEqual(reg.snapshot()[0]["tests"][0]["order"], 7)
+
+    def test_no_order_is_stamped_when_none_was_given(self):
+        # The plain-script path and any caller that does not know an order must
+        # leave the frame exactly as it was.
+        reg = _SuiteRegistry()
+        reg.record(f"{FILE}::test_plain", FILE, "test_plain", 0, "passed")
+
+        self.assertNotIn("order", reg.snapshot()[0]["tests"][0])
 
 
 class TestStateRollsUp(unittest.TestCase):

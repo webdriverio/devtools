@@ -366,3 +366,61 @@ describe('getTestEntry', () => {
     expect(entry.children).toEqual([])
   })
 })
+
+describe('child ordering', () => {
+  // mocha's `Runner.runSuite` runs `suite.tests` and only then walks
+  // `suite.suites`, so a root-level `it()` written after a `describe()` still
+  // executes first. Runners with that shape send no `order` and must keep it.
+  it('leaves an unstamped suite as its own tests then its nested suites', () => {
+    const entry = getTestEntry(
+      suite('file', {
+        tests: [passed('root-it')],
+        suites: [suite('describe', { tests: [passed('nested-it')] })]
+      }),
+      keepAll
+    )
+
+    expect(entry.children?.map((c) => c.uid)).toEqual(['root-it', 'describe'])
+  })
+
+  // pytest runs in collection order and interleaves module-level tests with
+  // classes, so it stamps `order` and the two buckets merge by it.
+  it('merges the buckets by order when every child carries one', () => {
+    const entry = getTestEntry(
+      suite('file', {
+        tests: [test('module-level', { state: 'pending', order: 2 })],
+        suites: [
+          suite('TestLogin', {
+            order: 0,
+            tests: [passed('a'), passed('b')]
+          })
+        ]
+      }),
+      keepAll
+    )
+
+    // The class runs first, so it renders first — the module-level test that
+    // runs last must not be hoisted above it just for being a direct test.
+    expect(entry.children?.map((c) => c.uid)).toEqual([
+      'TestLogin',
+      'module-level'
+    ])
+  })
+
+  it('falls back to the default when only some children are stamped', () => {
+    // A partial stamp would sort the unstamped children into a position
+    // nothing asked for, so the whole suite keeps the default shape.
+    const entry = getTestEntry(
+      suite('file', {
+        tests: [test('module-level', { state: 'pending', order: 2 })],
+        suites: [suite('TestLogin', { tests: [passed('a')] })]
+      }),
+      keepAll
+    )
+
+    expect(entry.children?.map((c) => c.uid)).toEqual([
+      'module-level',
+      'TestLogin'
+    ])
+  })
+})

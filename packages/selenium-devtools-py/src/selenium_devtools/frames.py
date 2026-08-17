@@ -155,8 +155,9 @@ def test_stats(
     start_ms: int,
     end_ms: int,
     call_source: Optional[str] = None,
+    order: Optional[int] = None,
 ) -> TestStats:
-    return {
+    entry: TestStats = {
         "uid": uid,
         "cid": "0-0",
         "title": title,
@@ -171,6 +172,12 @@ def test_stats(
         "_duration": max(0, end_ms - start_ms),
         "callSource": call_source,
     }
+    # Only stamped when the runner's execution order differs from the tree's
+    # default (a suite's own tests, then its nested suites) — see shared's
+    # `order`. Absent keeps the frame identical to before.
+    if order is not None:
+        entry["order"] = order
+    return entry
 
 
 def suite_stats(
@@ -182,8 +189,9 @@ def suite_stats(
     tests: List[TestStats],
     end_ms: Optional[int] = None,
     state: Optional[str] = None,
+    order: Optional[int] = None,
 ) -> SuiteStats:
-    return {
+    entry: SuiteStats = {
         "uid": uid,
         "cid": "0-0",
         "title": title,
@@ -198,3 +206,6 @@ def suite_stats(
         "hooks": [],
         "_duration": max(0, (end_ms - start_ms)) if end_ms is not None else 0,
     }
+    if order is not None:
+        entry["order"] = order
+    return entry
