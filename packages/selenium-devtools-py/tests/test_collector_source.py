@@ -8,6 +8,8 @@ checkout, so a pip install used to lose DOM replay with nothing to explain it.
 
 import http.server
 import threading
+import urllib.error
+import urllib.request
 import unittest
 from unittest import mock
 
@@ -91,6 +93,56 @@ class TestFetchingTheCollector(unittest.TestCase):
                 self.assertIsNone(collector_source.fetch_collector_source(host, port))
         finally:
             stop()
+
+    def test_a_failure_is_asked_only_once(self):
+        # The collector is re-injected after EVERY command, so an unreachable
+        # backend would repeat a synchronous request per command — up to the
+        # connect timeout each — turning a degraded run into an unusably slow
+        # one. The answer cannot change mid-run.
+        attempts = {"n": 0}
+
+        def counting(*_args, **_kwargs):
+            attempts["n"] += 1
+            raise urllib.error.URLError("refused")
+
+        with mock.patch.object(urllib.request, "urlopen", counting):
+            with self.assertLogs("selenium_devtools.collector", level="WARNING"):
+                self.assertIsNone(collector_source.fetch_collector_source("h", 1))
+            for _ in range(10):  # nine more commands
+                self.assertIsNone(collector_source.fetch_collector_source("h", 1))
+
+        self.assertEqual(attempts["n"], 1)
+
+    def test_a_failure_against_one_backend_is_retried_against_another(self):
+        collector_source._cache.update(
+            origin="http://old:1/api/collector", source=None, settled=True
+        )
+        host, port, stop = _serving("NEW")
+        try:
+            self.assertEqual(collector_source.fetch_collector_source(host, port), "NEW")
+        finally:
+            stop()
+
+    def test_an_ipv6_host_gets_authority_brackets(self):
+        # `DEVTOOLS_HOST` may carry a bare literal and the backend's own log
+        # prints one. Without brackets the URL is malformed and the fetch fails
+        # even though the socket transport connected to that same host.
+        self.assertEqual(
+            collector_source.collector_url("::1", 3000),
+            "http://[::1]:3000/api/collector",
+        )
+
+    def test_an_already_bracketed_host_is_not_double_wrapped(self):
+        self.assertEqual(
+            collector_source.collector_url("[::1]", 3000),
+            "http://[::1]:3000/api/collector",
+        )
+
+    def test_a_hostname_is_left_alone(self):
+        self.assertEqual(
+            collector_source.collector_url("localhost", 3000),
+            "http://localhost:3000/api/collector",
+        )
 
     def test_the_url_comes_from_the_generated_contract(self):
         from selenium_devtools._contract import COLLECTOR_PATH

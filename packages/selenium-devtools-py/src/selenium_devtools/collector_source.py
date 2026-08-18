@@ -28,18 +28,30 @@ from .constants import CONNECT_TIMEOUT_S, LOGGER_NAME
 
 _log = logging.getLogger(f"{LOGGER_NAME}.collector")
 
-#: Source cached for the process, keyed by the backend it came from. A second
-#: `enable()` against a different backend must not reuse the first one's bundle.
-_cache: dict = {"origin": None, "source": None}
+#: Outcome cached for the process, keyed by the backend it came from. A second
+#: `enable()` against a different backend must not reuse the first one's answer.
+#:
+#: FAILURE is cached too, as `source=None` with `settled=True`. The collector is
+#: re-injected after EVERY command, so an unreachable backend would otherwise
+#: repeat a synchronous request — up to `CONNECT_TIMEOUT_S` each — once per
+#: command, turning a degraded run into an unusably slow one and flooding the
+#: log with the same warning. The answer cannot change mid-run: either this
+#: backend serves the collector or it does not.
+_cache: dict = {"origin": None, "source": None, "settled": False}
 
 
 def collector_url(host: str, port: int) -> str:
-    return f"http://{host}:{port}{COLLECTOR_PATH}"
+    """The collector's URL on a backend. A bare IPv6 literal (``::1``, which
+    `DEVTOOLS_HOST` may carry and the backend's own log prints) needs authority
+    brackets, or the URL is malformed and the fetch fails even though the socket
+    transport connected to that same host quite happily."""
+    url_host = f"[{host}]" if ":" in host and not host.startswith("[") else host
+    return f"http://{url_host}:{port}{COLLECTOR_PATH}"
 
 
 def reset_cache() -> None:
-    """Drop the cached source. Called on teardown so a re-enable re-fetches."""
-    _cache.update(origin=None, source=None)
+    """Drop the cached outcome. Called on teardown so a re-enable re-fetches."""
+    _cache.update(origin=None, source=None, settled=False)
 
 
 def fetch_collector_source(host: str, port: int) -> Optional[str]:
@@ -51,8 +63,13 @@ def fetch_collector_source(host: str, port: int) -> Optional[str]:
     rather than a stderr line nobody reads.
     """
     url = collector_url(host, port)
-    if _cache["origin"] == url and _cache["source"] is not None:
+    if _cache["origin"] == url and _cache["settled"]:
         return _cache["source"]
+
+    def settle(source: Optional[str]) -> Optional[str]:
+        _cache.update(origin=url, source=source, settled=True)
+        return source
+
     try:
         with urllib.request.urlopen(url, timeout=CONNECT_TIMEOUT_S) as response:
             source = response.read().decode("utf-8")
@@ -64,17 +81,17 @@ def fetch_collector_source(host: str, port: int) -> Optional[str]:
             "older than the version that added %s, so DOM replay is disabled",
             host, port, exc.code, COLLECTOR_PATH,
         )
-        return None
+        return settle(None)
     except (urllib.error.URLError, OSError, UnicodeDecodeError) as exc:
         _log.warning(
             "could not fetch the collector from %s (%s) — DOM replay is disabled",
             url, exc,
         )
-        return None
+        return settle(None)
     if not source:
         _log.warning("the backend served an empty collector — DOM replay is disabled")
-        return None
-    _cache.update(origin=url, source=source)
+        return settle(None)
+    settle(source)
     # Says which path supplied the collector. Without it a run that quietly fell
     # back to the monorepo file looks identical to one served over HTTP, which
     # is the difference between working and not working once installed.
