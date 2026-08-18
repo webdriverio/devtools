@@ -15,6 +15,15 @@ Two selenium-version realities shape this module (selenium 4.36):
 * selenium's high-level ``network.add_request_handler`` *intercepts* (pauses)
   requests. We deliberately avoid it: we subscribe to the network events via
   the low-level connection so requests are observed but never stalled.
+
+The network half of that has a ceiling: selenium 4.44 regenerated the BiDi layer
+from a schema, dropping ``NetworkEvent`` and renaming ``Network.conn`` to
+``_conn``, so ``_attach_network`` degrades to a warning there and the Network tab
+stays empty. ``pyproject.toml`` caps the extra below it. The observe-only
+replacement is ``Network._event_manager.add_event_handler``, whose callback
+receives a deserialized event rather than one carrying ``.params`` — a port, not
+a rename, tracked as issue #293. Console capture and the preload are unaffected;
+``tests/test_selenium_surface.py`` guards all of it against the installed version.
 """
 
 from __future__ import annotations

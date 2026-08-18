@@ -10,6 +10,15 @@ These assert against the INSTALLED selenium, so they fail loudly on a bump. They
 check shape only — no browser, no session — because the point is to detect a
 rename or relocation, not to test selenium's behaviour.
 
+That prediction was already history when these first ran: selenium 4.44 shipped
+the regenerated layer, and CI (which resolves a newer selenium than a local 3.9
+can install) failed on the first run. `NetworkEvent` is gone from `bidi.network`
+and `Network.conn` is now `_conn`, so network capture has been silently dead on
+4.44+ — no error, just an empty Network tab behind one warning. The observe-only
+replacement is `Network._event_manager.add_event_handler`, whose callback takes a
+deserialized event object rather than `.params`, so adopting it is a port and not
+a rename (issue #293). Until that lands the extra is capped below 4.44.
+
 Skipped when selenium is absent. That is not free: the CI job must install the
 adapter's own runtime dependency or these never run where they are meant to
 protect. selenium is an OPTIONAL extra of this package, so the job must select it —
@@ -17,26 +26,76 @@ protect. selenium is an OPTIONAL extra of this package, so the job must select i
 `pip install -e .` installs nothing and every guard here silently skips.
 """
 
+import importlib.metadata
 import importlib.util
 import inspect
 import unittest
 
 _HAS_SELENIUM = importlib.util.find_spec("selenium") is not None
 
+# selenium 4.44 regenerated the BiDi layer from a schema: `NetworkEvent` left
+# `bidi.network` and `Network.conn` became `_conn`. `pyproject.toml` caps the
+# extra below it for that reason; this is the same fact in the place a failure
+# is read, so a run against a newer selenium says WHY rather than raising an
+# ImportError and an AttributeError from two unrelated-looking tests.
+FIRST_UNSUPPORTED_SELENIUM = (4, 44)
+
+
+def _installed_selenium() -> tuple:
+    """(major, minor) of the installed selenium, (0, 0) if unreadable."""
+    try:
+        raw = importlib.metadata.version("selenium")
+    except importlib.metadata.PackageNotFoundError:
+        return (0, 0)
+    parts = []
+    for chunk in raw.split(".")[:2]:
+        digits = "".join(ch for ch in chunk if ch.isdigit())
+        parts.append(int(digits) if digits else 0)
+    return tuple(parts) if len(parts) == 2 else (0, 0)
+
+
+_NETWORK_SURFACE_MOVED = _installed_selenium() >= FIRST_UNSUPPORTED_SELENIUM
+
 
 @unittest.skipUnless(_HAS_SELENIUM, "selenium is not installed")
-class TestTheBiDiInternalsTheAdapterUses(unittest.TestCase):
+class TestTheSupportedSeleniumRange(unittest.TestCase):
+    def test_the_installed_selenium_still_carries_the_network_surface(self):
+        """One legible failure for the whole network breakage.
+
+        The two guards below are skipped past the cap so this is the only thing
+        that reports it — a reader gets the version and the reason, not two
+        stack traces about a missing name and a missing attribute."""
+        installed = _installed_selenium()
+
+        self.assertLess(
+            installed,
+            FIRST_UNSUPPORTED_SELENIUM,
+            f"selenium {'.'.join(str(p) for p in installed)} is at or past "
+            f"{'.'.join(str(p) for p in FIRST_UNSUPPORTED_SELENIUM)}, which "
+            "regenerated the BiDi layer: bidi.py subscribes to network events "
+            "through NetworkEvent and Network.conn, and neither exists any "
+            "more, so network capture silently degrades to nothing. Console "
+            "capture and the preload are unaffected. Porting to the new "
+            "_event_manager surface is issue #293; until then pyproject caps "
+            "the selenium extra below this release.",
+        )
+
+
+@unittest.skipUnless(_HAS_SELENIUM, "selenium is not installed")
+@unittest.skipIf(
+    _NETWORK_SURFACE_MOVED,
+    "selenium is past the supported range — TestTheSupportedSeleniumRange reports it",
+)
+class TestTheNetworkInternalsTheAdapterUses(unittest.TestCase):
     """`bidi.py` reaches through `driver.network.conn` to subscribe WITHOUT
-    interception — selenium's high-level `add_request_handler` pauses requests,
-    which would stall a user's page loads. That is a deliberate trade of public
-    API for not breaking the page, and it is what these pin."""
+    interception — selenium's `add_request_handler` registers an intercept even
+    in its high-level style, which pauses each request until selenium continues
+    it. That is a deliberate trade of public API for not stalling a user's page
+    loads, and it is what these pin.
 
-    def test_the_driver_exposes_the_bidi_channels(self):
-        from selenium.webdriver.remote.webdriver import WebDriver
-
-        # Properties on the class, so this needs no live session.
-        self.assertIsInstance(getattr(WebDriver, "script", None), property)
-        self.assertIsInstance(getattr(WebDriver, "network", None), property)
+    Only this class is gated on the cap: the console, preload and driver-channel
+    guards below still hold on newer selenium, and skipping them there would
+    drop the coverage exactly where a bump is most likely to move something."""
 
     def test_the_network_channel_still_carries_the_low_level_connection(self):
         from selenium.webdriver.common.bidi.network import Network
@@ -59,6 +118,20 @@ class TestTheBiDiInternalsTheAdapterUses(unittest.TestCase):
         # Constructed as `NetworkEvent(name)` and `Session(conn).subscribe(...)`.
         self.assertTrue(callable(NetworkEvent))
         self.assertTrue(hasattr(Session, "subscribe"))
+
+
+@unittest.skipUnless(_HAS_SELENIUM, "selenium is not installed")
+class TestTheChannelsThatSurvivedTheBiDiRegeneration(unittest.TestCase):
+    """Console capture and the document-start preload go through `driver.script`,
+    which 4.44's regeneration left alone. Deliberately NOT gated on the cap, so
+    these keep guarding on whatever selenium is installed."""
+
+    def test_the_driver_exposes_the_bidi_channels(self):
+        from selenium.webdriver.remote.webdriver import WebDriver
+
+        # Properties on the class, so this needs no live session.
+        self.assertIsInstance(getattr(WebDriver, "script", None), property)
+        self.assertIsInstance(getattr(WebDriver, "network", None), property)
 
     def test_the_console_channel_keeps_its_handler_api(self):
         from selenium.webdriver.common.bidi.script import Script
