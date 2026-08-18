@@ -43,7 +43,7 @@ jobs:
       # so a bump that moved those internals used to pass CI green and degrade
       # at runtime. Installing the package is what makes those guards real.
       - name: Install the adapter and its runtime dependency
-        run: pip install -e .
+        run: pip install -e '.[selenium]'
 
       - name: Contract is in sync with shared
         run: |

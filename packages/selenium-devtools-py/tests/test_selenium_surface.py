@@ -12,7 +12,9 @@ rename or relocation, not to test selenium's behaviour.
 
 Skipped when selenium is absent. That is not free: the CI job must install the
 adapter's own runtime dependency or these never run where they are meant to
-protect. See the `pip install -e .` step in `.github/workflows/python.yml`.
+protect. selenium is an OPTIONAL extra of this package, so the job must select it —
+`pip install -e '.[selenium]'` in `.github/workflows/python.yml`. A plain
+`pip install -e .` installs nothing and every guard here silently skips.
 """
 
 import importlib.util
@@ -40,8 +42,15 @@ class TestTheBiDiInternalsTheAdapterUses(unittest.TestCase):
         from selenium.webdriver.common.bidi.network import Network
 
         # `driver.network.conn` is the whole reason this module reaches inside.
+        # Asserted against the constructed object rather than the source text:
+        # what the adapter depends on is that `.conn` is reachable and is the
+        # connection it was given, not how selenium happens to write the
+        # assignment. A sentinel stands in for the connection — no session is
+        # needed to answer the question.
         self.assertIn("conn", inspect.signature(Network.__init__).parameters)
-        self.assertIn("self.conn", inspect.getsource(Network.__init__))
+
+        sentinel = object()
+        self.assertIs(Network(sentinel).conn, sentinel)
 
     def test_the_event_and_session_types_are_where_the_adapter_imports_them(self):
         from selenium.webdriver.common.bidi.network import NetworkEvent
