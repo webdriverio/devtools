@@ -6,6 +6,7 @@ fact. A preload runs in EVERY document before that document's own script, which
 removes the whole class of "when do we re-inject / who owns this DOM" races.
 """
 
+import importlib.util
 import unittest
 from unittest import mock
 
@@ -99,6 +100,14 @@ class TestTheScriptPathIsGatedNotDeleted(unittest.TestCase):
         self.assertGreater(calls["n"], 0)
 
 
+#: selenium is the adapter's only runtime requirement, but the package is
+#: deliberately importable and unit-testable without it — the CI job installs
+#: nothing and runs `PYTHONPATH=src python -m unittest`. Mirrors the
+#: `resolve_script_path()` guard in test_snapshot.py on the same principle.
+_HAS_SELENIUM = importlib.util.find_spec("selenium") is not None
+
+
+@unittest.skipUnless(_HAS_SELENIUM, "selenium is not installed")
 class TestTheSeleniumSurfaceWeDependOn(unittest.TestCase):
     """`pin()` is public, but its docstring says "current browsing context" while
     we depend on it registering GLOBALLY so documents created later are covered.
