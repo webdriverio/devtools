@@ -93,12 +93,17 @@ def wrap_injectable(script_content: str) -> str:
     return f"(async function() {{ {script_content} }})()"
 
 
-def load_injectable_script(
+def collector_source_text(
     path: Optional[str] = None,
     *,
     backend: Optional[tuple] = None,
 ) -> Optional[str]:
-    """The IIFE-wrapped collector source, or None if it cannot be obtained.
+    """The collector's RAW source, or None if it cannot be obtained.
+
+    Raw rather than wrapped, because the two ways of installing it need
+    different envelopes: a ``<script>`` body needs the async IIFE
+    (`wrap_injectable`), while a BiDi preload script is itself a function
+    declaration and takes the source in its body.
 
     ``backend`` is the ``(host, port)`` of the connected backend, which serves
     the collector out of the package it depends on — the only route that works
@@ -110,7 +115,7 @@ def load_injectable_script(
     if path is None and backend is not None:
         source = fetch_collector_source(*backend)
         if source is not None:
-            return wrap_injectable(source)
+            return source
     resolved = path or resolve_script_path()
     if not resolved:
         _warn(
@@ -120,11 +125,20 @@ def load_injectable_script(
         return None
     try:
         with open(resolved, "r", encoding="utf-8") as handle:
-            content = handle.read()
+            return handle.read()
     except OSError as exc:
         _warn(f"could not read injected script ({resolved}): {exc}")
         return None
-    return wrap_injectable(content)
+
+
+def load_injectable_script(
+    path: Optional[str] = None,
+    *,
+    backend: Optional[tuple] = None,
+) -> Optional[str]:
+    """The IIFE-wrapped collector source for the ``<script>`` path, or None."""
+    source = collector_source_text(path, backend=backend)
+    return None if source is None else wrap_injectable(source)
 
 
 def normalize_mutations(trace_data: Any) -> List[Any]:
@@ -155,11 +169,16 @@ class SnapshotCapturer:
         *,
         script_path: Optional[str] = None,
         backend: Optional[tuple] = None,
+        preloaded: bool = False,
     ) -> None:
         self._execute = execute_fn
         self._script_path = script_path
         self._backend = backend
-        self._injected = False
+        # A document-start preload already installed the collector in every
+        # document of this session, so there is nothing to inject — but the
+        # capturer is still what DRAINS the buffer, so it is still needed.
+        self._preloaded = preloaded
+        self._injected = preloaded
 
     @property
     def injected(self) -> bool:
@@ -171,7 +190,11 @@ class SnapshotCapturer:
         Navigation wipes the injected collector, so we probe the live page each
         call and re-install if it's gone (matching the JS adapter, which injects
         per navigation) rather than trusting a one-time flag. Failures are logged
-        no-ops."""
+        no-ops. A no-op when a document-start preload is registered: the
+        collector is present in every document before any of its script runs,
+        which is the whole point of the preload."""
+        if self._preloaded:
+            return True
         wrapped = load_injectable_script(self._script_path, backend=self._backend)
         if wrapped is None:
             return False
@@ -212,6 +235,7 @@ def start_snapshot_capture(
     script_path: Optional[str] = None,
     execute_fn: Optional[ExecuteFn] = None,
     backend: Optional[tuple] = None,
+    preloaded: bool = False,
 ) -> Optional[SnapshotCapturer]:
     """Build a ``SnapshotCapturer`` and attempt the first injection. Returns the
     capturer — including when that injection fails, so a later command can retry
@@ -223,7 +247,9 @@ def start_snapshot_capture(
     if not callable(run):
         _warn("driver has no execute_script — snapshot capture skipped")
         return None
-    capturer = SnapshotCapturer(run, script_path=script_path, backend=backend)
+    capturer = SnapshotCapturer(
+        run, script_path=script_path, backend=backend, preloaded=preloaded
+    )
     # The capturer is returned even when this first injection fails. It used to
     # return None, which made the failure terminal: the caller stores None, its
     # post-command refresh skips a missing capturer, and `inject()` is never
