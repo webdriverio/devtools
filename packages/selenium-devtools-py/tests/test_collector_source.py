@@ -158,6 +158,35 @@ class TestFetchingTheCollector(unittest.TestCase):
         self.assertEqual(calls["n"], collector_source.COLLECTOR_RETRY_LIMIT)
         self.assertIn("giving up on the collector", "\n".join(logs.output))
 
+    def test_a_server_error_is_retried_because_the_route_exists(self):
+        # 503/500/502/429 mean the route is there but could not be served just
+        # now. Settling those would cost the run its DOM replay over a blip,
+        # while retrying a genuinely permanent error costs a few bounded tries.
+        clock = {"t": 0.0}
+        calls = {"n": 0}
+        real_urlopen = urllib.request.urlopen
+
+        def flaky(*args, **kwargs):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise urllib.error.HTTPError(
+                    "http://h/api/collector", 503, "Service Unavailable", {}, None
+                )
+            return real_urlopen(*args, **kwargs)
+
+        host, port, stop = _serving("RECOVERED")
+        try:
+            with mock.patch.object(collector_source.time, "monotonic", lambda: clock["t"]), \
+                 mock.patch.object(urllib.request, "urlopen", flaky):
+                with self.assertLogs("selenium_devtools.collector", level="WARNING"):
+                    self.assertIsNone(collector_source.fetch_collector_source(host, port))
+                clock["t"] += 999
+                self.assertEqual(
+                    collector_source.fetch_collector_source(host, port), "RECOVERED"
+                )
+        finally:
+            stop()
+
     def test_a_route_that_does_not_exist_is_never_retried(self):
         # A 404 is the server ANSWERING: this backend has no such route, which
         # cannot change mid-run. Retrying it would be pure cost.

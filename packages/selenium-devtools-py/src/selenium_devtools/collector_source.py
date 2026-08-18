@@ -127,8 +127,17 @@ def fetch_collector_source(host: str, port: int) -> Optional[str]:
         with urllib.request.urlopen(url, timeout=CONNECT_TIMEOUT_S) as response:
             source = response.read().decode("utf-8")
     except urllib.error.HTTPError as exc:
-        # A 404 is the specific, actionable case: the backend predates the
-        # route, so say which version introduced it rather than just the code.
+        # 404 is the only status that settles the question: this backend has no
+        # such route and will not grow one mid-run. Everything else — 429, 500,
+        # 502, 503, a proxy hiccup — means the route exists but could not be
+        # served just now, which is precisely what the retry is for. The
+        # asymmetry is deliberate: wrongly retrying a permanent error costs a
+        # bounded few attempts, while wrongly settling a temporary one costs the
+        # run its DOM replay.
+        if exc.code != 404:
+            return retry_later(f"HTTP {exc.code}")
+        # Worth naming specifically: an old backend is the likely cause, and the
+        # fix is upgrading it rather than debugging the adapter.
         _log.warning(
             "backend at %s:%s does not serve the collector (HTTP %s) — it is "
             "older than the version that added %s, so DOM replay is disabled",
