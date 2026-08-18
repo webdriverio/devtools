@@ -64,6 +64,17 @@ def _ws_scopes(routes_ts: str) -> dict[str, str]:
     return dict(re.findall(r"(\w+):\s*'([^']+)'", m.group(1)))
 
 
+def _collector_path(collector_ts: str) -> str:
+    """The route the backend serves the page-side collector from."""
+    m = re.search(r"export const COLLECTOR_API = \{(.*?)\} as const", collector_ts, re.DOTALL)
+    if not m:
+        raise SystemExit("could not find `COLLECTOR_API` in shared/collector.ts")
+    got = re.search(r"get:\s*'([^']+)'", m.group(1))
+    if not got:
+        raise SystemExit("`COLLECTOR_API` has no `get` route")
+    return got.group(1)
+
+
 def _test_runner_ids(types_ts: str) -> list[str]:
     m = re.search(r"export const TEST_RUNNER_IDS = \[(.*?)\] as const", types_ts, re.DOTALL)
     if not m:
@@ -78,6 +89,7 @@ def main() -> int:
     types_ts = (shared / "src" / "types.ts").read_text()
     data_keys = _trace_log_keys(types_ts)
     runner_ids = _test_runner_ids(types_ts)
+    collector_path = _collector_path((shared / "src" / "collector.ts").read_text())
     control = _ws_scopes((shared / "src" / "routes.ts").read_text())
 
     # Drift-guard.
@@ -108,6 +120,7 @@ def main() -> int:
         f"DATA_SCOPES = frozenset({sorted(data_keys)!r})",
         f"CONTROL_SCOPES = frozenset({sorted(control.values())!r})",
         "",
+        f'COLLECTOR_PATH = "{collector_path}"',
         f'RUNNER_ID = "{REQUIRED_RUNNER_ID}"',
         f"TEST_RUNNER_IDS = frozenset({sorted(runner_ids)!r})",
         "",

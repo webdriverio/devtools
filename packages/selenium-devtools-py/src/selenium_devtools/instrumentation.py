@@ -21,6 +21,7 @@ from typing import Any, Optional
 
 from . import bidi, frames
 from .capturer import SessionCapturer
+from .collector_source import reset_cache as reset_collector_cache
 from .constants import (
     BIDI_CAPABILITY,
     DEFAULT_TEST_TITLE,
@@ -193,6 +194,16 @@ def _take_screenshot(driver: Any) -> Optional[str]:
     return shot if isinstance(shot, str) and shot else None
 
 
+def _backend_origin(capturer: SessionCapturer) -> Optional[tuple]:
+    """``(host, port)`` of the connected backend, which serves the collector.
+    None when the transport does not expose one, so injection falls back to the
+    monorepo path rather than failing."""
+    tx = getattr(capturer, "_tx", None)
+    host = getattr(tx, "host", None)
+    port = getattr(tx, "port", None)
+    return (host, port) if host and port else None
+
+
 def _add_screencast_frame(entry: dict, shot: Optional[str]) -> None:
     """Buffer an already-captured screenshot as a frame of ITS OWN session."""
     recorder = entry.get("screencast")
@@ -233,6 +244,11 @@ def _flush_mutations(capturer: SessionCapturer, entry: dict) -> None:
         return
     if mutations:
         capturer.send_mutations(mutations)
+        # Debug, not info: this fires after every command. It is the only signal
+        # that DOM replay is actually receiving anything — the panel being empty
+        # otherwise looks the same whether the collector never loaded or the
+        # page simply did not change.
+        _log.debug("captured %d DOM mutation(s)", len(mutations))
 
 
 def _enable_bidi_capability(params: Any) -> None:
@@ -335,7 +351,9 @@ def _ensure_session_setup(driver: Any, capturer: SessionCapturer) -> Optional[di
         # Use a capture-bypassing execute_script so injection/readback scripts
         # don't pollute the Actions timeline.
         entry["snapshot"] = start_snapshot_capture(
-            driver, execute_fn=_guarded_execute_script(driver)
+            driver,
+            execute_fn=_guarded_execute_script(driver),
+            backend=_backend_origin(capturer),
         )
         if entry["snapshot"] is not None:
             _log.info("DOM snapshot collector injected")
@@ -509,6 +527,10 @@ def install(capturer: SessionCapturer, webdriver_cls: Optional[type] = None) -> 
 
 
 def uninstall() -> None:
+    # The collector is cached per backend for the run's lifetime; a re-enable
+    # may point at a different one, so the cache goes with the rest of the
+    # per-run state.
+    reset_collector_cache()
     # Never leave a recorder running past teardown, for any session still live.
     for entry in list(_state.get("sessions", {}).values()):
         recorder = entry.get("screencast")
