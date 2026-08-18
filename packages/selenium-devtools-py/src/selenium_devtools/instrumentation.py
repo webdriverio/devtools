@@ -19,7 +19,7 @@ import threading
 import weakref
 from typing import Any, Optional
 
-from . import bidi, frames
+from . import bidi, bidi_preload, frames
 from .capturer import SessionCapturer
 from .collector_source import reset_cache as reset_collector_cache
 from .constants import (
@@ -32,7 +32,11 @@ from .constants import (
 )
 from .output_dir import resolve_adapter_output_dir
 from .screencast import ScreencastRecorder
-from .snapshot import SnapshotCapturer, start_snapshot_capture
+from .snapshot import (
+    SnapshotCapturer,
+    collector_source_text,
+    start_snapshot_capture,
+)
 from .sources import read_source
 from .utils import call_source, now_ms
 
@@ -325,7 +329,10 @@ def _ensure_session_setup(driver: Any, capturer: SessionCapturer) -> Optional[di
         if entry["session_id"] == session_id:
             return entry
         _close_entry(capturer, entry)  # same driver, new session
-    entry = {"session_id": session_id, "screencast": None, "snapshot": None}
+    entry = {
+        "session_id": session_id, "screencast": None, "snapshot": None,
+        "preloaded": False,
+    }
     try:
         sessions[driver] = entry
     except TypeError:  # not weak-referenceable
@@ -347,16 +354,30 @@ def _ensure_session_setup(driver: Any, capturer: SessionCapturer) -> Optional[di
     except Exception as exc:  # noqa: BLE001
         _log.warning("screencast start threw: %s", exc)
     try:
+        # Register the collector at document-start FIRST, while this runs before
+        # the session's first command executes — a preload registered after a
+        # navigation has already missed the document it needed to instrument.
+        # Falls back to per-document `<script>` injection when BiDi is absent.
+        origin = _backend_origin(capturer)
+        source = collector_source_text(backend=origin)
+        preloaded = bool(
+            source and bidi_preload.register_collector_preload(driver, source)
+        )
+        entry["preloaded"] = preloaded
         # Inject the packages/script DOM observer so the snapshot iframe fills.
         # Use a capture-bypassing execute_script so injection/readback scripts
-        # don't pollute the Actions timeline.
+        # don't pollute the Actions timeline. With the preload registered the
+        # capturer injects nothing and exists only to DRAIN the buffer.
         entry["snapshot"] = start_snapshot_capture(
             driver,
             execute_fn=_guarded_execute_script(driver),
-            backend=_backend_origin(capturer),
+            backend=origin,
+            preloaded=preloaded,
         )
         snapshot_cap = entry["snapshot"]
-        if snapshot_cap is not None and snapshot_cap.injected:
+        if preloaded:
+            pass  # already reported by register_collector_preload
+        elif snapshot_cap is not None and snapshot_cap.injected:
             _log.info("DOM snapshot collector injected")
         elif snapshot_cap is not None:
             # Kept rather than dropped, so a later command retries. Saying so

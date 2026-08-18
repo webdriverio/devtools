@@ -50,6 +50,10 @@ _READ_TRACE_SCRIPT = (
 #: Cheap readiness probe used after injection.
 _READY_SCRIPT = 'return typeof window.wdioTraceCollector !== "undefined";'
 
+#: Distinguishes "the read itself failed" from "the collector is absent here",
+#: which the page returns as a plain null and which is the recovery signal.
+_UNREADABLE = object()
+
 #: Session-lost signatures — expected during teardown, so silenced rather than
 #: logged (matches the JS adapter's error filter).
 _QUIET_ERRORS = ("ECONNREFUSED", "no such session", "invalid session id")
@@ -93,12 +97,17 @@ def wrap_injectable(script_content: str) -> str:
     return f"(async function() {{ {script_content} }})()"
 
 
-def load_injectable_script(
+def collector_source_text(
     path: Optional[str] = None,
     *,
     backend: Optional[tuple] = None,
 ) -> Optional[str]:
-    """The IIFE-wrapped collector source, or None if it cannot be obtained.
+    """The collector's RAW source, or None if it cannot be obtained.
+
+    Raw rather than wrapped, because the two ways of installing it need
+    different envelopes: a ``<script>`` body needs the async IIFE
+    (`wrap_injectable`), while a BiDi preload script is itself a function
+    declaration and takes the source in its body.
 
     ``backend`` is the ``(host, port)`` of the connected backend, which serves
     the collector out of the package it depends on — the only route that works
@@ -110,7 +119,7 @@ def load_injectable_script(
     if path is None and backend is not None:
         source = fetch_collector_source(*backend)
         if source is not None:
-            return wrap_injectable(source)
+            return source
     resolved = path or resolve_script_path()
     if not resolved:
         _warn(
@@ -120,11 +129,20 @@ def load_injectable_script(
         return None
     try:
         with open(resolved, "r", encoding="utf-8") as handle:
-            content = handle.read()
+            return handle.read()
     except OSError as exc:
         _warn(f"could not read injected script ({resolved}): {exc}")
         return None
-    return wrap_injectable(content)
+
+
+def load_injectable_script(
+    path: Optional[str] = None,
+    *,
+    backend: Optional[tuple] = None,
+) -> Optional[str]:
+    """The IIFE-wrapped collector source for the ``<script>`` path, or None."""
+    source = collector_source_text(path, backend=backend)
+    return None if source is None else wrap_injectable(source)
 
 
 def normalize_mutations(trace_data: Any) -> List[Any]:
@@ -155,11 +173,16 @@ class SnapshotCapturer:
         *,
         script_path: Optional[str] = None,
         backend: Optional[tuple] = None,
+        preloaded: bool = False,
     ) -> None:
         self._execute = execute_fn
         self._script_path = script_path
         self._backend = backend
-        self._injected = False
+        # A document-start preload already installed the collector in every
+        # document of this session, so there is nothing to inject — but the
+        # capturer is still what DRAINS the buffer, so it is still needed.
+        self._preloaded = preloaded
+        self._injected = preloaded
 
     @property
     def injected(self) -> bool:
@@ -171,10 +194,13 @@ class SnapshotCapturer:
         Navigation wipes the injected collector, so we probe the live page each
         call and re-install if it's gone (matching the JS adapter, which injects
         per navigation) rather than trusting a one-time flag. Failures are logged
-        no-ops."""
-        wrapped = load_injectable_script(self._script_path, backend=self._backend)
-        if wrapped is None:
-            return False
+        no-ops. A no-op when a document-start preload is registered: the
+        collector is present in every document before any of its script runs,
+        which is the whole point of the preload. A document where the preload
+        nonetheless did not take is recovered by `pull_mutations`, whose own null
+        is the only signal that says so."""
+        if self._preloaded:
+            return True
         try:
             if self._execute(_READY_SCRIPT) is True:
                 self._injected = True
@@ -182,6 +208,18 @@ class SnapshotCapturer:
         except BaseException as exc:  # noqa: BLE001 — probe failure → try install
             if not _is_quiet_error(exc):
                 _warn(f"readiness probe failed: {exc}")
+        self._injected = self._install_now()
+        if not self._injected:
+            _warn("collector not detected immediately after injection")
+        return self._injected
+
+    def _install_now(self) -> bool:
+        """Install the collector into the CURRENT document via ``<script>``.
+        Used both by `inject` and by the drain's recovery, which already knows
+        the collector is absent and so skips the readiness probe."""
+        wrapped = load_injectable_script(self._script_path, backend=self._backend)
+        if wrapped is None:
+            return False
         try:
             self._execute(_INJECT_SCRIPT, wrapped)
             ready = self._execute(_READY_SCRIPT)
@@ -190,20 +228,36 @@ class SnapshotCapturer:
                 _warn(f"injection failed: {exc}")
             return False
         self._injected = ready is True
-        if ready is not True:
-            _warn("collector not detected immediately after injection")
         return self._injected
 
-    def pull_mutations(self) -> List[Any]:
-        """Read and drain the buffered mutations (``getTraceData()`` resets the
-        page-side buffer). Returns [] on any failure or when nothing's buffered."""
+    def _read_trace(self) -> Any:
+        """The page's trace payload, None when the collector is absent from this
+        document, or `_UNREADABLE` when the read itself failed."""
         try:
-            trace_data = self._execute(_READ_TRACE_SCRIPT)
+            return self._execute(_READ_TRACE_SCRIPT)
         except BaseException as exc:  # noqa: BLE001
             if not _is_quiet_error(exc):
                 _warn(f"trace read failed: {exc}")
+            return _UNREADABLE
+
+    def pull_mutations(self) -> List[Any]:
+        """Read and drain the buffered mutations (``getTraceData()`` resets the
+        page-side buffer). Returns [] on any failure or when nothing's buffered.
+
+        A null payload means the collector is not in THIS document, and that is
+        the only signal which says so — a preload can still miss one (its script
+        can throw, or a document can predate registration), and with the preload
+        registered nothing else probes. Recovered once here, mirroring core's
+        `drainCollectorWithRecovery`, which costs nothing on the happy path
+        because the drain happens either way."""
+        data = self._read_trace()
+        if data is _UNREADABLE:
             return []
-        return normalize_mutations(trace_data)
+        if data is None and self._install_now():
+            data = self._read_trace()
+            if data is _UNREADABLE:
+                return []
+        return normalize_mutations(data)
 
 
 def start_snapshot_capture(
@@ -212,6 +266,7 @@ def start_snapshot_capture(
     script_path: Optional[str] = None,
     execute_fn: Optional[ExecuteFn] = None,
     backend: Optional[tuple] = None,
+    preloaded: bool = False,
 ) -> Optional[SnapshotCapturer]:
     """Build a ``SnapshotCapturer`` and attempt the first injection. Returns the
     capturer — including when that injection fails, so a later command can retry
@@ -223,7 +278,9 @@ def start_snapshot_capture(
     if not callable(run):
         _warn("driver has no execute_script — snapshot capture skipped")
         return None
-    capturer = SnapshotCapturer(run, script_path=script_path, backend=backend)
+    capturer = SnapshotCapturer(
+        run, script_path=script_path, backend=backend, preloaded=preloaded
+    )
     # The capturer is returned even when this first injection fails. It used to
     # return None, which made the failure terminal: the caller stores None, its
     # post-command refresh skips a missing capturer, and `inject()` is never
