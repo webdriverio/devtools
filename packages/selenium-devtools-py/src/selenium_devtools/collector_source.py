@@ -19,25 +19,44 @@ navigation-time round trip for an unchanging 200KB body would be pure cost.
 from __future__ import annotations
 
 import logging
+import time
 import urllib.error
 import urllib.request
 from typing import Optional
 
 from ._contract import COLLECTOR_PATH
-from .constants import CONNECT_TIMEOUT_S, LOGGER_NAME
+from .constants import (
+    COLLECTOR_RETRY_COOLDOWN_S,
+    COLLECTOR_RETRY_LIMIT,
+    CONNECT_TIMEOUT_S,
+    LOGGER_NAME,
+)
 
 _log = logging.getLogger(f"{LOGGER_NAME}.collector")
 
 #: Outcome cached for the process, keyed by the backend it came from. A second
 #: `enable()` against a different backend must not reuse the first one's answer.
 #:
-#: FAILURE is cached too, as `source=None` with `settled=True`. The collector is
-#: re-injected after EVERY command, so an unreachable backend would otherwise
-#: repeat a synchronous request — up to `CONNECT_TIMEOUT_S` each — once per
-#: command, turning a degraded run into an unusably slow one and flooding the
-#: log with the same warning. The answer cannot change mid-run: either this
-#: backend serves the collector or it does not.
-_cache: dict = {"origin": None, "source": None, "settled": False}
+#: A failure is cached too, because the collector is re-injected after EVERY
+#: command and an unanswered request costs up to `CONNECT_TIMEOUT_S` each time.
+#: But how long it is cached depends on WHY it failed:
+#:
+#:   * `settled` — the server answered a refusal (a 404: this backend has no
+#:     such route). That cannot change while the run lasts, so it is never
+#:     asked again.
+#:   * `attempts` / `last_try` — nothing answered, or the answer was unusable.
+#:     A timeout, reset or DNS failure during the first request is exactly the
+#:     kind that recovers, and a published install has no filesystem fallback
+#:     to fall back to, so it is retried — after a cooldown, and only up to
+#:     `COLLECTOR_RETRY_LIMIT` times so an unreachable backend costs a bounded
+#:     amount rather than the whole run.
+_cache: dict = {
+    "origin": None,
+    "source": None,
+    "settled": False,
+    "attempts": 0,
+    "last_try": 0.0,
+}
 
 
 def collector_url(host: str, port: int) -> str:
@@ -51,7 +70,16 @@ def collector_url(host: str, port: int) -> str:
 
 def reset_cache() -> None:
     """Drop the cached outcome. Called on teardown so a re-enable re-fetches."""
-    _cache.update(origin=None, source=None, settled=False)
+    _cache.update(origin=None, source=None, settled=False, attempts=0, last_try=0.0)
+
+
+def _retry_is_due() -> bool:
+    """False while a transient failure is still cooling off. Without this the
+    per-command re-injection would turn every retry into a request per command,
+    which is the cost the cache exists to avoid."""
+    if _cache["attempts"] == 0:
+        return True
+    return time.monotonic() - _cache["last_try"] >= COLLECTOR_RETRY_COOLDOWN_S
 
 
 def fetch_collector_source(host: str, port: int) -> Optional[str]:
@@ -63,12 +91,37 @@ def fetch_collector_source(host: str, port: int) -> Optional[str]:
     rather than a stderr line nobody reads.
     """
     url = collector_url(host, port)
-    if _cache["origin"] == url and _cache["settled"]:
+    if _cache["origin"] != url:  # a different backend answers for itself
+        reset_cache()
+    if _cache["settled"]:
         return _cache["source"]
+    if not _retry_is_due():
+        return None
 
     def settle(source: Optional[str]) -> Optional[str]:
+        """Record a final answer — never asked again for this backend."""
         _cache.update(origin=url, source=source, settled=True)
         return source
+
+    def retry_later(reason: str) -> Optional[str]:
+        """Record a transient failure. Retried after the cooldown, up to the
+        limit, then given up on so the cost stays bounded."""
+        _cache.update(
+            origin=url, source=None, attempts=_cache["attempts"] + 1,
+            last_try=time.monotonic(),
+        )
+        if _cache["attempts"] >= COLLECTOR_RETRY_LIMIT:
+            _log.warning(
+                "giving up on the collector after %d attempts (%s) — "
+                "DOM replay is disabled for this run",
+                _cache["attempts"], reason,
+            )
+            return settle(None)
+        _log.warning(
+            "could not fetch the collector from %s (%s) — retrying on a later "
+            "command", url, reason,
+        )
+        return None
 
     try:
         with urllib.request.urlopen(url, timeout=CONNECT_TIMEOUT_S) as response:
@@ -83,14 +136,11 @@ def fetch_collector_source(host: str, port: int) -> Optional[str]:
         )
         return settle(None)
     except (urllib.error.URLError, OSError, UnicodeDecodeError) as exc:
-        _log.warning(
-            "could not fetch the collector from %s (%s) — DOM replay is disabled",
-            url, exc,
-        )
-        return settle(None)
+        # Nothing answered: a timeout, reset or DNS failure. Exactly the kind
+        # that recovers, and the kind a first request is most likely to hit.
+        return retry_later(str(exc))
     if not source:
-        _log.warning("the backend served an empty collector — DOM replay is disabled")
-        return settle(None)
+        return retry_later("the backend served an empty collector")
     settle(source)
     # Says which path supplied the collector. Without it a run that quietly fell
     # back to the monorepo file looks identical to one served over HTTP, which

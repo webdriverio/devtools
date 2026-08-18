@@ -94,11 +94,10 @@ class TestFetchingTheCollector(unittest.TestCase):
         finally:
             stop()
 
-    def test_a_failure_is_asked_only_once(self):
-        # The collector is re-injected after EVERY command, so an unreachable
-        # backend would repeat a synchronous request per command — up to the
-        # connect timeout each — turning a degraded run into an unusably slow
-        # one. The answer cannot change mid-run.
+    def test_a_transient_failure_is_not_retried_within_the_cooldown(self):
+        # The collector is re-injected after EVERY command, so without a
+        # cooldown a retry becomes a request per command — up to the connect
+        # timeout each — turning a degraded run into an unusably slow one.
         attempts = {"n": 0}
 
         def counting(*_args, **_kwargs):
@@ -112,6 +111,74 @@ class TestFetchingTheCollector(unittest.TestCase):
                 self.assertIsNone(collector_source.fetch_collector_source("h", 1))
 
         self.assertEqual(attempts["n"], 1)
+
+    def test_a_transient_failure_recovers_once_the_backend_comes_back(self):
+        # A timeout or reset on the FIRST request is exactly the kind that
+        # recovers, and a published install has no filesystem collector to fall
+        # back to — caching that as final would disable DOM replay for the whole
+        # run over a blip.
+        clock = {"t": 1000.0}
+        calls = {"n": 0}
+        real_urlopen = urllib.request.urlopen
+
+        def flaky(*args, **kwargs):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise urllib.error.URLError("connection reset")
+            return real_urlopen(*args, **kwargs)
+
+        host, port, stop = _serving("RECOVERED")
+        try:
+            with mock.patch.object(collector_source.time, "monotonic", lambda: clock["t"]), \
+                 mock.patch.object(urllib.request, "urlopen", flaky):
+                with self.assertLogs("selenium_devtools.collector", level="WARNING"):
+                    self.assertIsNone(collector_source.fetch_collector_source(host, port))
+                clock["t"] += 999  # cooldown elapses; the next command tries again
+                self.assertEqual(
+                    collector_source.fetch_collector_source(host, port), "RECOVERED"
+                )
+        finally:
+            stop()
+
+    def test_retries_are_bounded_so_a_dead_backend_has_a_known_cost(self):
+        clock = {"t": 0.0}
+        calls = {"n": 0}
+
+        def always_down(*_args, **_kwargs):
+            calls["n"] += 1
+            raise urllib.error.URLError("refused")
+
+        with mock.patch.object(collector_source.time, "monotonic", lambda: clock["t"]), \
+             mock.patch.object(urllib.request, "urlopen", always_down):
+            with self.assertLogs("selenium_devtools.collector", level="WARNING") as logs:
+                for _ in range(20):  # twenty commands
+                    self.assertIsNone(collector_source.fetch_collector_source("h", 1))
+                    clock["t"] += 999  # each one past the cooldown
+
+        self.assertEqual(calls["n"], collector_source.COLLECTOR_RETRY_LIMIT)
+        self.assertIn("giving up on the collector", "\n".join(logs.output))
+
+    def test_a_route_that_does_not_exist_is_never_retried(self):
+        # A 404 is the server ANSWERING: this backend has no such route, which
+        # cannot change mid-run. Retrying it would be pure cost.
+        calls = {"n": 0}
+        real_urlopen = urllib.request.urlopen
+
+        def counting(*args, **kwargs):
+            calls["n"] += 1
+            return real_urlopen(*args, **kwargs)
+
+        host, port, stop = _serving("nope", status=404)
+        try:
+            with mock.patch.object(urllib.request, "urlopen", counting):
+                with self.assertLogs("selenium_devtools.collector", level="WARNING"):
+                    self.assertIsNone(collector_source.fetch_collector_source(host, port))
+                for _ in range(5):
+                    self.assertIsNone(collector_source.fetch_collector_source(host, port))
+        finally:
+            stop()
+
+        self.assertEqual(calls["n"], 1)
 
     def test_a_failure_against_one_backend_is_retried_against_another(self):
         collector_source._cache.update(

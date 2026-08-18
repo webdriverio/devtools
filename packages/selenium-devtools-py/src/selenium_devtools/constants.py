@@ -29,6 +29,18 @@ RUN_CAPABILITIES = {
 # two cannot drift.
 DEFAULT_TEST_TITLE = "session"
 
+# ── Collector delivery ───────────────────────────────────────────────────────
+# A collector fetch that fails for a TRANSIENT reason is retried, because the
+# collector is the only source of DOM replay for a published install and a
+# blip during the first request would otherwise disable it for the whole run.
+# Bounded on both axes: a cooldown so the per-command re-injection cannot turn
+# retries into a request per command, and a cap so a backend that is simply
+# never going to answer costs a known amount rather than the whole run.
+# A refusal the server actually answered (a 404 — the route does not exist) is
+# not transient and is never retried.
+COLLECTOR_RETRY_LIMIT = 3
+COLLECTOR_RETRY_COOLDOWN_S = 2.0
+
 # ── Logging ──────────────────────────────────────────────────────────────────
 # The adapter's logger name. Every operational message logs under this or a
 # child of it, which is the only route to the dashboard Console: `LogCapturer`
