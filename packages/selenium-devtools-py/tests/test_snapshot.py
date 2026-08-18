@@ -118,12 +118,16 @@ class TestSnapshotCapturerInject(unittest.TestCase):
         installs = [c for c in exec_fn.calls if "createElement" in c[0]]
         self.assertEqual(len(installs), 2)
 
-    def test_inject_missing_script_is_noop(self):
+    def test_inject_without_a_source_installs_nothing(self):
+        # The readiness probe comes first now, so an already-instrumented page
+        # costs no source load at all. With no source AND no collector present,
+        # nothing is installed and the capturer stays uninjected.
         exec_fn = FakeExec()
         cap = SnapshotCapturer(exec_fn, script_path="/no/such.js")
+
         self.assertFalse(cap.inject())
         self.assertFalse(cap.injected)
-        self.assertEqual(exec_fn.calls, [])  # script missing → no execute at all
+        self.assertEqual([c for c in exec_fn.calls if "createElement" in c[0]], [])
 
     def test_inject_swallows_execute_errors(self):
         def boom(script, *args):
@@ -196,19 +200,21 @@ class TestStartSnapshotCapture(unittest.TestCase):
 
     def test_a_later_command_can_still_install_the_collector(self):
         # The retry path only exists if the capturer is still around to use it.
-        calls = {"n": 0}
+        ready = {"present": False}
 
         class Driver:
             def execute_script(self, script, *args):
-                calls["n"] += 1
-                return True  # the page reports the collector present
+                if "createElement" in script:
+                    ready["present"] = True  # the install lands
+                    return True
+                return ready["present"]  # the readiness probe
 
         with mock.patch(
             "selenium_devtools.snapshot.load_injectable_script",
-            side_effect=[None, "SOURCE"],  # first attempt has no source, then it does
+            side_effect=[None, "SOURCE"],  # no source first, then it arrives
         ):
             capturer = start_snapshot_capture(Driver(), script_path="/no/such.js")
-            self.assertFalse(capturer.injected)
+            self.assertFalse(capturer.injected)  # nothing to install yet
 
             self.assertTrue(capturer.inject())  # the next command retries
 

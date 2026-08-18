@@ -100,6 +100,49 @@ class TestTheScriptPathIsGatedNotDeleted(unittest.TestCase):
         self.assertGreater(calls["n"], 0)
 
 
+class TestADocumentThePreloadMissed(unittest.TestCase):
+    """A preload covers every document in principle, but its script can throw,
+    and a document can predate registration. With the preload registered nothing
+    probes any more, so the drain's own null is the only signal that a document
+    has no collector — and it has to act on it."""
+
+    def test_the_drain_recovers_a_document_without_a_collector(self):
+        state = {"present": False}
+        seen = []
+
+        def execute(script, *_args):
+            seen.append(script)
+            if "createElement" in script:
+                state["present"] = True
+                return True
+            if "getTraceData" in script:
+                return {"mutations": [{"type": "childList"}]} if state["present"] else None
+            return state["present"]  # readiness probe
+
+        capturer = SnapshotCapturer(execute, preloaded=True)
+        with mock.patch(
+            "selenium_devtools.snapshot.load_injectable_script", return_value="SRC"
+        ):
+            mutations = capturer.pull_mutations()
+
+        self.assertEqual(len(mutations), 1)  # recovered rather than silently empty
+        self.assertTrue(any("createElement" in s for s in seen))
+
+    def test_a_healthy_preloaded_document_is_not_reinstalled(self):
+        # Recovery must cost nothing on the happy path — the drain already
+        # happens, and a document that answers needs no <script> at all.
+        seen = []
+
+        def execute(script, *_args):
+            seen.append(script)
+            return {"mutations": []}
+
+        capturer = SnapshotCapturer(execute, preloaded=True)
+        capturer.pull_mutations()
+
+        self.assertEqual([s for s in seen if "createElement" in s], [])
+
+
 #: selenium is the adapter's only runtime requirement, but the package is
 #: deliberately importable and unit-testable without it — the CI job installs
 #: nothing and runs `PYTHONPATH=src python -m unittest`. Mirrors the

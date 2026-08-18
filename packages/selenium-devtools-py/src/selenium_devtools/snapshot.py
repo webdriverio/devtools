@@ -50,6 +50,10 @@ _READ_TRACE_SCRIPT = (
 #: Cheap readiness probe used after injection.
 _READY_SCRIPT = 'return typeof window.wdioTraceCollector !== "undefined";'
 
+#: Distinguishes "the read itself failed" from "the collector is absent here",
+#: which the page returns as a plain null and which is the recovery signal.
+_UNREADABLE = object()
+
 #: Session-lost signatures — expected during teardown, so silenced rather than
 #: logged (matches the JS adapter's error filter).
 _QUIET_ERRORS = ("ECONNREFUSED", "no such session", "invalid session id")
@@ -192,12 +196,11 @@ class SnapshotCapturer:
         per navigation) rather than trusting a one-time flag. Failures are logged
         no-ops. A no-op when a document-start preload is registered: the
         collector is present in every document before any of its script runs,
-        which is the whole point of the preload."""
+        which is the whole point of the preload. A document where the preload
+        nonetheless did not take is recovered by `pull_mutations`, whose own null
+        is the only signal that says so."""
         if self._preloaded:
             return True
-        wrapped = load_injectable_script(self._script_path, backend=self._backend)
-        if wrapped is None:
-            return False
         try:
             if self._execute(_READY_SCRIPT) is True:
                 self._injected = True
@@ -205,6 +208,18 @@ class SnapshotCapturer:
         except BaseException as exc:  # noqa: BLE001 — probe failure → try install
             if not _is_quiet_error(exc):
                 _warn(f"readiness probe failed: {exc}")
+        self._injected = self._install_now()
+        if not self._injected:
+            _warn("collector not detected immediately after injection")
+        return self._injected
+
+    def _install_now(self) -> bool:
+        """Install the collector into the CURRENT document via ``<script>``.
+        Used both by `inject` and by the drain's recovery, which already knows
+        the collector is absent and so skips the readiness probe."""
+        wrapped = load_injectable_script(self._script_path, backend=self._backend)
+        if wrapped is None:
+            return False
         try:
             self._execute(_INJECT_SCRIPT, wrapped)
             ready = self._execute(_READY_SCRIPT)
@@ -213,20 +228,36 @@ class SnapshotCapturer:
                 _warn(f"injection failed: {exc}")
             return False
         self._injected = ready is True
-        if ready is not True:
-            _warn("collector not detected immediately after injection")
         return self._injected
 
-    def pull_mutations(self) -> List[Any]:
-        """Read and drain the buffered mutations (``getTraceData()`` resets the
-        page-side buffer). Returns [] on any failure or when nothing's buffered."""
+    def _read_trace(self) -> Any:
+        """The page's trace payload, None when the collector is absent from this
+        document, or `_UNREADABLE` when the read itself failed."""
         try:
-            trace_data = self._execute(_READ_TRACE_SCRIPT)
+            return self._execute(_READ_TRACE_SCRIPT)
         except BaseException as exc:  # noqa: BLE001
             if not _is_quiet_error(exc):
                 _warn(f"trace read failed: {exc}")
+            return _UNREADABLE
+
+    def pull_mutations(self) -> List[Any]:
+        """Read and drain the buffered mutations (``getTraceData()`` resets the
+        page-side buffer). Returns [] on any failure or when nothing's buffered.
+
+        A null payload means the collector is not in THIS document, and that is
+        the only signal which says so — a preload can still miss one (its script
+        can throw, or a document can predate registration), and with the preload
+        registered nothing else probes. Recovered once here, mirroring core's
+        `drainCollectorWithRecovery`, which costs nothing on the happy path
+        because the drain happens either way."""
+        data = self._read_trace()
+        if data is _UNREADABLE:
             return []
-        return normalize_mutations(trace_data)
+        if data is None and self._install_now():
+            data = self._read_trace()
+            if data is _UNREADABLE:
+                return []
+        return normalize_mutations(data)
 
 
 def start_snapshot_capture(
