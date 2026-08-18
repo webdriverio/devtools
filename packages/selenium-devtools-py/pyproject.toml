@@ -16,14 +16,17 @@ keywords = ["selenium", "webdriver", "devtools", "pytest", "debugging"]
 # only patch it when present, so it's not a hard requirement to import.
 dependencies = []
 
-# Capped below 4.44: that release regenerated the BiDi layer from a schema and
-# took `NetworkEvent` out of `bidi.network` while renaming `Network.conn` to
-# `_conn` — the two internals `bidi.py` subscribes to network events through.
-# Console capture and the document-start preload are unaffected. The cap states
-# a breakage that already exists rather than causing one; lifting it needs the
-# port to the new `_event_manager` surface (issue #293).
 [project.optional-dependencies]
-selenium = ["selenium>=4.6,<4.44"]
+# Deliberately UNCAPPED, even though network capture needs selenium < 4.44 (that
+# release regenerated the BiDi layer, moving the internals `bidi.py` subscribes
+# through; issue #293). A cap here would downgrade anyone already on a newer
+# selenium, and hard-fail the install for a project that requires one — a cost
+# paid by every user to describe a partial degradation that only affects the
+# Network tab. `bidi.py` reports it at runtime instead, naming the version.
+selenium = ["selenium>=4.6"]
+# The TEST environment is capped, because the surface guards assert against
+# whatever is installed and only mean something on a version the adapter fully
+# supports. Constraining the dev environment costs no user anything.
 test = ["pytest>=7", "selenium>=4.6,<4.44"]
 
 # Auto-discovered by pytest; inert unless DEVTOOLS_ENABLE / DEVTOOLS_PORT is set.

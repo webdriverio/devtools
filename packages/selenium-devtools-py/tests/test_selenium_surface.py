@@ -26,35 +26,18 @@ protect. selenium is an OPTIONAL extra of this package, so the job must select i
 `pip install -e .` installs nothing and every guard here silently skips.
 """
 
-import importlib.metadata
 import importlib.util
 import inspect
 import unittest
 
+from selenium_devtools.constants import SELENIUM_NETWORK_SURFACE_MOVED_AT
+from selenium_devtools.utils import selenium_version
+
 _HAS_SELENIUM = importlib.util.find_spec("selenium") is not None
 
-# selenium 4.44 regenerated the BiDi layer from a schema: `NetworkEvent` left
-# `bidi.network` and `Network.conn` became `_conn`. `pyproject.toml` caps the
-# extra below it for that reason; this is the same fact in the place a failure
-# is read, so a run against a newer selenium says WHY rather than raising an
-# ImportError and an AttributeError from two unrelated-looking tests.
-FIRST_UNSUPPORTED_SELENIUM = (4, 44)
-
-
-def _installed_selenium() -> tuple:
-    """(major, minor) of the installed selenium, (0, 0) if unreadable."""
-    try:
-        raw = importlib.metadata.version("selenium")
-    except importlib.metadata.PackageNotFoundError:
-        return (0, 0)
-    parts = []
-    for chunk in raw.split(".")[:2]:
-        digits = "".join(ch for ch in chunk if ch.isdigit())
-        parts.append(int(digits) if digits else 0)
-    return tuple(parts) if len(parts) == 2 else (0, 0)
-
-
-_NETWORK_SURFACE_MOVED = _installed_selenium() >= FIRST_UNSUPPORTED_SELENIUM
+# The version fact itself lives in constants.py, because bidi.py needs it too —
+# it is what turns the runtime degradation into a warning naming the version.
+_NETWORK_SURFACE_MOVED = selenium_version() >= SELENIUM_NETWORK_SURFACE_MOVED_AT
 
 
 @unittest.skipUnless(_HAS_SELENIUM, "selenium is not installed")
@@ -62,22 +45,27 @@ class TestTheSupportedSeleniumRange(unittest.TestCase):
     def test_the_installed_selenium_still_carries_the_network_surface(self):
         """One legible failure for the whole network breakage.
 
-        The two guards below are skipped past the cap so this is the only thing
-        that reports it — a reader gets the version and the reason, not two
-        stack traces about a missing name and a missing attribute."""
-        installed = _installed_selenium()
+        The two guards below are skipped past that version so this is the only
+        thing that reports it — a reader gets the version and the reason, not two
+        stack traces about a missing name and a missing attribute.
+
+        This failing is NOT a broken install: the user-facing extra is uncapped,
+        so a developer can legitimately have a newer selenium here. It means the
+        adapter has not caught up, and `bidi.py` says the same thing at runtime
+        to the user who is actually losing the Network tab."""
+        installed = selenium_version()
 
         self.assertLess(
             installed,
-            FIRST_UNSUPPORTED_SELENIUM,
+            SELENIUM_NETWORK_SURFACE_MOVED_AT,
             f"selenium {'.'.join(str(p) for p in installed)} is at or past "
-            f"{'.'.join(str(p) for p in FIRST_UNSUPPORTED_SELENIUM)}, which "
-            "regenerated the BiDi layer: bidi.py subscribes to network events "
-            "through NetworkEvent and Network.conn, and neither exists any "
-            "more, so network capture silently degrades to nothing. Console "
+            f"{'.'.join(str(p) for p in SELENIUM_NETWORK_SURFACE_MOVED_AT)}, "
+            "which regenerated the BiDi layer: bidi.py subscribes to network "
+            "events through NetworkEvent and Network.conn, and neither exists "
+            "any more, so network capture silently degrades to nothing. Console "
             "capture and the preload are unaffected. Porting to the new "
-            "_event_manager surface is issue #293; until then pyproject caps "
-            "the selenium extra below this release.",
+            "_event_manager surface is issue #293; the `test` extra pins below "
+            "this release so CI runs the guards on a supported selenium.",
         )
 
 

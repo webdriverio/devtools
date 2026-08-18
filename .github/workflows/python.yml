@@ -42,8 +42,13 @@ jobs:
       # pin its BiDi surface (tests/test_selenium_surface.py) skip without it —
       # so a bump that moved those internals used to pass CI green and degrade
       # at runtime. Installing the package is what makes those guards real.
+      #
+      # `[test]`, not `[selenium]`: the test extra is the capped one. The user-
+      # facing extra is uncapped on purpose (see pyproject), so installing it
+      # here would resolve a selenium the adapter cannot fully capture on and
+      # fail the guards for a reason CI cannot fix.
       - name: Install the adapter and its runtime dependency
-        run: pip install -e '.[selenium]'
+        run: pip install -e '.[test]'
 
       - name: Contract is in sync with shared
         run: |
