@@ -1,4 +1,5 @@
 import os
+import sys
 import tempfile
 import unittest
 from unittest import mock
@@ -214,6 +215,8 @@ class TestDefaultSuite(unittest.TestCase):
     def tearDown(self):
         instrumentation.uninstall()
         instrumentation.set_external_suites(False)
+        instrumentation._state["run_failed"] = False
+        instrumentation._state["default_suite"] = None
 
     def _suites(self):
         return [d for s, d in self.tx.sent if s == "suites"]
@@ -252,6 +255,177 @@ class TestDefaultSuite(unittest.TestCase):
 
         self.assertEqual(suite["uid"], "/tmp/demo/login.py")
         self.assertEqual(suite["tests"][0]["file"], "/tmp/demo/login.py")
+
+    def _final_state(self):
+        """State of the synthetic test in the LAST suites frame sent."""
+        return list(self._suites()[-1][0].values())[0]["tests"][0]["state"]
+
+    def test_a_clean_run_reports_passed(self):
+        self.driver.execute("newSession")
+        self.driver.execute("get", {"url": "https://x/"})
+        self.driver.execute("quit")
+
+        self.assertEqual(self._final_state(), "passed")
+
+    def test_quitting_while_an_exception_unwinds_reports_failed(self):
+        # A script quits from a `finally`, so at quit time the exception is
+        # still in flight — the only moment the dashboard can be told before
+        # `wait_for_dashboard_close` blocks on it.
+        self.driver.execute("newSession")
+        self.driver.execute("get", {"url": "https://x/"})
+        try:
+            try:
+                raise AssertionError("the test failed")
+            finally:
+                self.driver.execute("quit")
+        except AssertionError:
+            pass
+
+        self.assertEqual(self._final_state(), "failed")
+
+    def test_a_failure_seen_at_quit_survives_teardown(self):
+        # THE regression: teardown routinely runs BEFORE the excepthook — the
+        # user's own `finally` calls disable() while the exception is still
+        # unwinding, and closing the dashboard runs teardown on the WS reader
+        # thread, where this thread's exc_info is empty. Finalizing from
+        # `run_failed` alone reported those runs as passed.
+        self.driver.execute("newSession")
+        self.driver.execute("get", {"url": "https://x/"})
+        try:
+            try:
+                raise AssertionError("the test failed")
+            finally:
+                self.driver.execute("quit")
+                instrumentation.finalize_run(self.cap)  # user's own disable()
+        except AssertionError:
+            pass
+
+        self.assertEqual(self._final_state(), "failed")
+
+    def test_a_failure_is_caught_even_when_the_driver_was_never_quit(self):
+        # disable() from a `finally` without driver.quit() first: _on_quit never
+        # runs, so nothing records the failure, and the excepthook fires only
+        # after teardown has torn the transport down. finalize_run has to read
+        # the live exception itself or the failed run is sent as passed.
+        self.driver.execute("newSession")
+        self.driver.execute("get", {"url": "https://x/"})
+        try:
+            try:
+                raise AssertionError("the test failed")
+            finally:
+                instrumentation.finalize_run(self.cap)  # no quit()
+        except AssertionError:
+            pass
+
+        self.assertEqual(self._final_state(), "failed")
+
+    def test_a_failure_survives_a_teardown_run_on_another_thread(self):
+        # Closing the dashboard runs the whole teardown on the WS reader thread,
+        # where sys.exc_info() is empty however the script is doing. The main
+        # thread records the failure before it blocks, so the later finalize —
+        # simulated here by finalizing once the exception is no longer in flight
+        # on this thread — still reports it.
+        self.driver.execute("newSession")
+        self.driver.execute("get", {"url": "https://x/"})
+        try:
+            try:
+                raise AssertionError("the test failed")
+            finally:
+                instrumentation.record_live_failure()  # wait_for_dashboard_close
+        except AssertionError:
+            pass
+
+        self.assertIsNone(sys.exc_info()[0])  # the WS thread's view: nothing
+        instrumentation.finalize_run(self.cap)
+
+        self.assertEqual(self._final_state(), "failed")
+
+    def test_waiting_for_the_dashboard_records_the_live_failure(self):
+        # Pins the CALL SITE, not just the helper: wait_for_dashboard_close is
+        # the last code to run on the main thread before the process parks, so
+        # if it does not observe the exception nothing else can.
+        import selenium_devtools as devtools
+
+        with mock.patch.object(
+            devtools.lifecycle, "dashboard_window_open", return_value=True
+        ), mock.patch.object(devtools.lifecycle, "wait_for_shutdown"):
+            try:
+                try:
+                    raise AssertionError("the test failed")
+                finally:
+                    devtools.wait_for_dashboard_close()
+            except AssertionError:
+                pass
+
+        self.assertTrue(instrumentation._state["run_failed"])
+
+    def test_an_interrupted_run_is_not_finalized_from_the_reader_thread(self):
+        # Closing the dashboard mid-flight runs teardown on the WS reader
+        # thread, where the script's exception is invisible. lifecycle only
+        # takes that path when nobody is parked in wait_for_shutdown — so the
+        # script was still running, and publishing any terminal state would be a
+        # guess. The tree keeps `running`, which is what actually happened.
+        import threading
+
+        self.driver.execute("newSession")
+        self.driver.execute("get", {"url": "https://x/"})
+        self.assertEqual(self._final_state(), "running")
+
+        done = threading.Thread(
+            target=lambda: instrumentation.finalize_run(self.cap)
+        )
+        done.start()
+        done.join()
+
+        self.assertEqual(self._final_state(), "running")
+
+    def test_the_main_thread_still_finalizes_normally(self):
+        self.driver.execute("newSession")
+        self.driver.execute("get", {"url": "https://x/"})
+        instrumentation.finalize_run(self.cap)
+
+        self.assertEqual(self._final_state(), "passed")
+
+    def test_record_live_failure_is_silent_on_a_clean_run(self):
+        instrumentation.record_live_failure()
+
+        self.assertFalse(instrumentation._state["run_failed"])
+
+    def test_the_outcome_never_downgrades_to_passed(self):
+        # Escalate-only: nothing at teardown can turn a recorded failure green.
+        instrumentation.mark_run_failed()
+        self.driver.execute("newSession")
+        self.driver.execute("get", {"url": "https://x/"})
+        self.driver.execute("quit")
+        instrumentation.finalize_run(self.cap)
+
+        self.assertEqual(self._final_state(), "failed")
+
+    def test_finalize_reports_failed_once_the_excepthook_fired(self):
+        self.driver.execute("newSession")
+        self.driver.execute("get", {"url": "https://x/"})
+        self.driver.execute("quit")
+        self.assertEqual(self._final_state(), "passed")
+
+        instrumentation.mark_run_failed()  # what the excepthook does
+        instrumentation.finalize_run(self.cap)
+
+        self.assertEqual(self._final_state(), "failed")
+
+    def test_finalize_is_a_noop_without_a_synthetic_suite(self):
+        # A framework owns the tree, or no driver ever started: nothing to say.
+        instrumentation.finalize_run(self.cap)
+
+        self.assertEqual(self._suites(), [])
+
+    def test_a_failed_run_does_not_taint_the_next_one(self):
+        # `run_failed` is module state. uninstall() resets the rest of the
+        # per-run keys; leaving this one set reported a second, passing
+        # enable/disable cycle in the same process as failed.
+        instrumentation.mark_run_failed()
+        instrumentation.uninstall()
+
+        self.assertFalse(instrumentation._state["run_failed"])
 
     def test_default_suite_suppressed_when_framework_reports(self):
         instrumentation.set_external_suites(True)  # e.g. pytest plugin active

@@ -170,6 +170,9 @@ _state: dict = {
     "sessions": weakref.WeakKeyDictionary(),
     "output_dir": None,  # test-results dir beside the test file (see output_dir.py)
     "default_suite": None,  # synthesized suite for non-framework (script) runs
+    # Set by enable()'s excepthook when an exception reaches top level. The
+    # synthetic suite's final state reads this rather than assuming success.
+    "run_failed": False,
 }
 
 
@@ -358,7 +361,77 @@ def _on_quit(capturer: SessionCapturer, driver: Any) -> None:
         return  # this driver never armed capture; nothing of its own to close
     _close_entry(capturer, entry)
     if not len(sessions) and _state.get("default_suite") is not None:
-        _send_default_suite(capturer, "passed")  # the whole script run is done
+        _send_default_suite(capturer, _live_run_state())  # the script run is done
+
+
+def _live_run_state() -> str:
+    """The run's outcome AT QUIT TIME, which is the last moment the dashboard
+    can be updated before `wait_for_dashboard_close` blocks on it.
+
+    A script quits its driver from a `finally`, and while an exception unwinds
+    through that block `sys.exc_info()` still reports it — so this catches the
+    case that matters, a test that raised, long before the exception reaches
+    top level.
+
+    Observing one makes the failure STICKY. Teardown can easily run before the
+    excepthook fires: the user's own `finally` calls `disable()` while the
+    exception is still unwinding, and closing the dashboard window runs the
+    whole teardown on the WS reader thread, where this thread's `exc_info` is
+    empty anyway. Any of those would otherwise finalize a failed run as passed.
+    """
+    record_live_failure()
+    return "failed" if _state.get("run_failed") else "passed"
+
+
+def record_live_failure() -> None:
+    """Record an exception unwinding on THIS thread, if there is one.
+
+    `sys.exc_info()` is thread-local, so it must be read on the thread that is
+    actually unwinding. Teardown is not always that thread: closing the
+    dashboard window runs the whole shutdown on the WS reader thread, where this
+    reads empty however the script is doing. Callers on the main thread invoke
+    this before handing control away, so the observation survives.
+    """
+    if sys.exc_info()[0] is not None:
+        mark_run_failed()
+
+
+def mark_run_failed() -> None:
+    """Record that an exception reached top level (see `enable`'s excepthook)."""
+    _state["run_failed"] = True
+
+
+def finalize_run(capturer: SessionCapturer) -> None:
+    """Send the run's final outcome at teardown.
+
+    Only ever ESCALATES: a failure recorded at quit time survives, because
+    teardown is not guaranteed to know better. It runs before the excepthook
+    whenever the user calls `disable()` from their own `finally`, and on the WS
+    reader thread when the dashboard window is closed — in both cases a failed
+    run would otherwise be finalized as passed, which hides a real failure. The
+    cost is that quitting from inside an unrelated `except` handler reports a
+    run that went on to pass as failed; a false red prompts a look, a false
+    green does not.
+
+    No-op when no synthetic suite exists (a framework owns the tree, or no
+    driver ever started).
+    """
+    if _state.get("default_suite") is None:
+        return
+    if threading.current_thread() is not threading.main_thread():
+        # Off-thread teardown means the run was INTERRUPTED, by construction:
+        # `lifecycle._trigger_shutdown` hands teardown to whoever is parked in
+        # wait_for_shutdown and only runs it itself when nobody is, then hard
+        # exits. So getting here on the WS reader thread says the script was
+        # still mid-flight when the dashboard closed. Its outcome is unknowable
+        # from here — `sys.exc_info` is thread-local — and it has no outcome
+        # yet in any case, so the tree keeps showing `running`, which is true.
+        return
+    # Reads the live exception too, not just the recorded flag: a script that
+    # calls disable() from its `finally` WITHOUT quitting the driver first never
+    # reaches _on_quit, so nothing else would ever observe the failure — the
+    # excepthook fires only after teardown has already torn the transport down.
+    _send_default_suite(capturer, _live_run_state())
 
 
 def install(capturer: SessionCapturer, webdriver_cls: Optional[type] = None) -> None:
@@ -444,11 +517,12 @@ def uninstall() -> None:
     if not _state["installed"]:
         _state.update(
             sessions=weakref.WeakKeyDictionary(),
-            output_dir=None, default_suite=None,
+            output_dir=None, default_suite=None, run_failed=False,
         )
         return
     _state["cls"].execute = _state["orig"]  # type: ignore[union-attr]
     _state.update(
         installed=False, cls=None, orig=None,
         sessions=weakref.WeakKeyDictionary(), output_dir=None, default_suite=None,
+        run_failed=False,
     )

@@ -22,13 +22,17 @@ def _opted_in() -> bool:
 
 
 def _rolled_up_state(tests: list, suites: list) -> str:
-    """A group is failed if anything under it failed, else passed once nothing
-    is still running. Mirrors how the JS reporters roll a describe block up."""
+    """A group is failed if anything under it failed, else running while any
+    child still has work left, else its children's outcome. Mirrors how the JS
+    reporters roll a describe block up. A group is only `pending` while NONE of
+    its children has started — one finished test makes the group in-progress."""
     states = [t["state"] for t in tests] + [s["state"] for s in suites]
     if "failed" in states:
         return "failed"
     if "running" in states:
         return "running"
+    if "pending" in states:
+        return "pending" if all(s == "pending" for s in states) else "running"
     return "passed" if "passed" in states else "skipped"
 
 
@@ -48,6 +52,10 @@ class _SuiteRegistry:
         self._classes: Dict[str, dict] = {}
         self._tests: Dict[str, dict] = {}
         self._starts: Dict[str, int] = {}
+        # Collection index per nodeid. pytest runs in collection order and
+        # interleaves module-level tests with classes, which the tree's default
+        # (a suite's own tests, then its nested suites) cannot express.
+        self._order: Dict[str, int] = {}
 
     def mark_start(self, nodeid: str) -> None:
         self._starts.setdefault(nodeid, now_ms())
@@ -60,6 +68,7 @@ class _SuiteRegistry:
         line: int,
         state: str,
         abs_file: Optional[str] = None,
+        order: Optional[int] = None,
     ) -> None:
         # `file` is pytest's rootdir-relative path: it prefixes every nodeid, so
         # it stays the grouping key and the readable title. `abs_file` is the
@@ -68,8 +77,14 @@ class _SuiteRegistry:
         # app pairs the two by exact path, so a relative one leaves the Source
         # tab reporting the file as never captured the moment a test is picked.
         path = abs_file or file
+        if order is not None:
+            self._order[nodeid] = order
+        position = self._order.get(nodeid)
+        # `_starts` is only populated once the test actually starts, so a test
+        # recorded at COLLECTION does not freeze a start time it never had.
         start = self._starts.get(nodeid, now_ms())
-        end = now_ms()
+        done = state not in ("pending", "running")
+        end = now_ms() if done else start
         file_suite = self._suites.setdefault(
             file,
             frames.suite_stats(uid=file, title=file, file=path,
@@ -95,17 +110,23 @@ class _SuiteRegistry:
             start_ms=start,
             end_ms=end,
             call_source=f"{path}:{line + 1}",
+            order=position,
         )
         if class_name:
             class_suite = self._classes.setdefault(
                 parent_uid,
                 frames.suite_stats(uid=parent_uid, title=class_name, file=path,
-                                   start_ms=start, tests=[]),
+                                   start_ms=start, tests=[], order=position),
             )
             class_suite["parent"] = file
             class_suite["fullTitle"] = f"{file} › {class_name}"
             class_suite["tests"] = self._tests_under(parent_uid, depth=3)
-            class_suite["end"] = self._tests[nodeid]["end"]
+            positions = [
+                t["order"] for t in class_suite["tests"] if "order" in t
+            ]
+            if positions:
+                class_suite["order"] = min(positions)
+            class_suite["end"] = self._tests[nodeid]["end"] if done else None
             class_suite["state"] = _rolled_up_state(class_suite["tests"], [])
 
         file_suite["tests"] = self._tests_under(file, depth=2)
@@ -113,7 +134,7 @@ class _SuiteRegistry:
             s for uid, s in self._classes.items()
             if uid.split("::", 1)[0] == file
         ]
-        file_suite["end"] = self._tests[nodeid]["end"]
+        file_suite["end"] = self._tests[nodeid]["end"] if done else None
         file_suite["state"] = _rolled_up_state(
             file_suite["tests"], file_suite["suites"]
         )
@@ -166,9 +187,74 @@ def pytest_configure(config) -> None:  # noqa: ANN001
             print(f"\n[devtools] dashboard live at {url}\n")
 
 
+def _publish(capturer) -> None:  # noqa: ANN001
+    capturer.send_suites(_registry.snapshot())
+
+
+def pytest_collection_finish(session) -> None:  # noqa: ANN001
+    """Publish the whole tree before anything runs.
+
+    Commands stream from the first driver command, but the suites frame used to
+    wait for the first test to REPORT — so the tree stayed empty through the
+    whole first test while the Actions list filled up beside it. Collection is
+    the earliest point pytest knows the full shape; every item goes out pending
+    and each one's state is corrected as it starts and finishes.
+    """
+    if not _opted_in():
+        return
+    capturer = devtools.get_capturer()
+    if capturer is None:
+        return
+    for index, item in enumerate(getattr(session, "items", []) or []):
+        file, line, name = item.location
+        _registry.record(
+            item.nodeid, file, name, line or 0, "pending",
+            abs_file=_absolute(file), order=index,
+        )
+    _publish(capturer)
+
+
 def pytest_runtest_logstart(nodeid, location) -> None:  # noqa: ANN001
-    if _opted_in():
-        _registry.mark_start(nodeid)
+    if not _opted_in():
+        return
+    _registry.mark_start(nodeid)
+    capturer = devtools.get_capturer()
+    if capturer is None:
+        return
+    # Flip this one to running so the tree shows WHICH test is executing, not
+    # just that something is.
+    file, line, name = location
+    _registry.record(
+        nodeid, file, name, line or 0, "running", abs_file=_absolute(file)
+    )
+    _publish(capturer)
+
+
+def reported_state(report) -> Optional[str]:  # noqa: ANN001
+    """The terminal state a report carries, or None when it must not change the
+    test's state.
+
+    pytest reports three phases per test, and only `call` carries an outcome in
+    the ordinary case. The other two matter when they FAIL: a failed setup means
+    the test never ran (pytest calls it an error) and no `call` report ever
+    arrives, so acting only on `call` left it running for the rest of the
+    session; a failed teardown means the body passed but its fixture teardown
+    broke, which is a failure pytest reports and the tree would otherwise show
+    green.
+
+    Passing setup and teardown reports carry nothing: acting on a passing setup
+    would mark a test passed before it ran, and acting on a passing teardown
+    would overwrite a failed `call` with its clean teardown.
+    """
+    if report.when == "call":
+        if report.skipped:
+            return "skipped"
+        return "passed" if report.passed else "failed"
+    if report.when == "setup" and report.skipped:
+        return "skipped"
+    if report.failed:  # setup or teardown error
+        return "failed"
+    return None
 
 
 def pytest_runtest_logreport(report) -> None:  # noqa: ANN001
@@ -177,18 +263,14 @@ def pytest_runtest_logreport(report) -> None:  # noqa: ANN001
     capturer = devtools.get_capturer()
     if capturer is None:
         return
-    # 'call' carries pass/fail; a skip surfaces at 'setup'.
-    if report.when == "call" or (report.when == "setup" and report.skipped):
-        state = (
-            "skipped" if report.skipped
-            else "passed" if report.passed
-            else "failed"
-        )
-        file, line, name = report.location
-        _registry.record(
-            report.nodeid, file, name, line or 0, state, abs_file=_absolute(file)
-        )
-        capturer.send_suites(_registry.snapshot())
+    state = reported_state(report)
+    if state is None:
+        return
+    file, line, name = report.location
+    _registry.record(
+        report.nodeid, file, name, line or 0, state, abs_file=_absolute(file)
+    )
+    _publish(capturer)
 
 
 def pytest_sessionfinish(session, exitstatus) -> None:  # noqa: ANN001
@@ -196,7 +278,7 @@ def pytest_sessionfinish(session, exitstatus) -> None:  # noqa: ANN001
         return
     capturer = devtools.get_capturer()
     if capturer is not None:
-        capturer.send_suites(_registry.snapshot())
+        _publish(capturer)
     # Keep the dashboard open for inspection after the run — exit when the user
     # closes the window (clientDisconnected). Only when we actually opened a
     # window; CI (DEVTOOLS_OPEN=0) tears down immediately.

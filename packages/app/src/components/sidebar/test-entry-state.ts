@@ -19,6 +19,35 @@ function isSuiteFragment(entry: Fragment): entry is SuiteStatsFragment {
   return isSuiteEntry(entry)
 }
 
+/**
+ * A suite's children in the order they RUN.
+ *
+ * The default is its own tests followed by its nested suites, which is not an
+ * arbitrary choice: mocha's `Runner.runSuite` runs `suite.tests` and only then
+ * walks `suite.suites`, so a root-level `it()` written after a `describe()`
+ * still executes first. jasmine matches it. Those runners set no `order` and
+ * keep this shape.
+ *
+ * pytest instead runs in collection order and interleaves module-level tests
+ * with classes, so it stamps `order` and the two buckets are merged by it. Only
+ * applied when EVERY child carries one — a partially stamped suite would sort
+ * the unstamped children into a position nothing asked for.
+ */
+function orderedChildren(entry: SuiteStatsFragment): Fragment[] {
+  const children: Fragment[] = [...(entry.tests ?? []), ...(entry.suites ?? [])]
+  const ordered = children.filter(
+    (child) => typeof (child as { order?: number }).order === 'number'
+  )
+  if (ordered.length !== children.length) {
+    return children
+  }
+  return [...children].sort(
+    (a, b) =>
+      ((a as { order?: number }).order ?? 0) -
+      ((b as { order?: number }).order ?? 0)
+  )
+}
+
 /** How an outcome renders in the tree: a queued entry spins because the run
  *  reached it, and an entry nothing has reported on shows the not-run circle
  *  rather than a green check. */
@@ -46,7 +75,7 @@ export function getTestEntry(
   filterEntry: (entry: TestEntry) => boolean
 ): TestEntry {
   if (isSuiteFragment(entry)) {
-    const entries = [...(entry.tests ?? []), ...(entry.suites ?? [])]
+    const entries = orderedChildren(entry)
     // A suite whose children are themselves suites is a feature/file-level
     // container (Cucumber feature or test file). Tag it as 'feature' so the
     // backend runner can distinguish it from a scenario/spec-level suite and

@@ -99,6 +99,7 @@ class TestStats(TypedDict, total=False):
     retries: int
     _duration: int
     callSource: Optional[str]
+    order: int
 
 
 class SuiteStats(TypedDict, total=False):
@@ -115,3 +116,4 @@ class SuiteStats(TypedDict, total=False):
     suites: List["SuiteStats"]
     hooks: List[Any]
     _duration: int
+    order: int

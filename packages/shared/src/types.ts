@@ -614,6 +614,7 @@ export interface TestStats {
   error?: ReporterError
   hooks?: unknown[]
   callSource?: string
+  order?: number
 }
 
 export interface SuiteStats {
@@ -632,6 +633,7 @@ export interface SuiteStats {
   _duration: number
   parent?: string
   callSource?: string
+  order?: number
   /** Cucumber-only: the .feature file path. Distinct from `file` because the
    *  root suite's `file` stays at cwd to keep its stable UID; rerun payloads
    *  use this to drive feature-level filtering. */
