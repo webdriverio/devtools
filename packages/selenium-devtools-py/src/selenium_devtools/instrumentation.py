@@ -355,8 +355,13 @@ def _ensure_session_setup(driver: Any, capturer: SessionCapturer) -> Optional[di
             execute_fn=_guarded_execute_script(driver),
             backend=_backend_origin(capturer),
         )
-        if entry["snapshot"] is not None:
+        snapshot_cap = entry["snapshot"]
+        if snapshot_cap is not None and snapshot_cap.injected:
             _log.info("DOM snapshot collector injected")
+        elif snapshot_cap is not None:
+            # Kept rather than dropped, so a later command retries. Saying so
+            # matters: the panel stays empty until one succeeds.
+            _log.info("DOM snapshot collector not installed yet — will retry")
     except Exception as exc:  # noqa: BLE001
         _log.warning("snapshot start threw: %s", exc)
     return entry

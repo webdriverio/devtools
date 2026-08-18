@@ -213,9 +213,9 @@ def start_snapshot_capture(
     execute_fn: Optional[ExecuteFn] = None,
     backend: Optional[tuple] = None,
 ) -> Optional[SnapshotCapturer]:
-    """Build a ``SnapshotCapturer`` and inject the collector. Returns the capturer
-    (so callers can pull later), or None if the driver can't run scripts /
-    injection fails. Never raises.
+    """Build a ``SnapshotCapturer`` and attempt the first injection. Returns the
+    capturer — including when that injection fails, so a later command can retry
+    it — or None only when the driver cannot run scripts at all. Never raises.
 
     ``execute_fn`` overrides ``driver.execute_script`` — the adapter passes a
     capture-bypassing variant so injection/readback don't appear as commands."""
@@ -224,6 +224,10 @@ def start_snapshot_capture(
         _warn("driver has no execute_script — snapshot capture skipped")
         return None
     capturer = SnapshotCapturer(run, script_path=script_path, backend=backend)
-    if not capturer.inject():
-        return None
+    # The capturer is returned even when this first injection fails. It used to
+    # return None, which made the failure terminal: the caller stores None, its
+    # post-command refresh skips a missing capturer, and `inject()` is never
+    # called again — so a collector fetch that failed once could never be
+    # retried, and the page's own navigations could never re-install it either.
+    capturer.inject()
     return capturer
