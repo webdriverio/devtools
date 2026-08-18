@@ -1,6 +1,7 @@
 import os
 import tempfile
 import unittest
+from unittest import mock
 
 from selenium_devtools import snapshot
 from selenium_devtools.snapshot import (
@@ -179,15 +180,42 @@ class TestStartSnapshotCapture(unittest.TestCase):
     def test_none_when_driver_has_no_execute_script(self):
         self.assertIsNone(start_snapshot_capture(object()))
 
-    def test_none_when_injection_fails(self):
+    def test_the_capturer_survives_a_failed_first_injection(self):
+        # Returning None here made the failure terminal: the caller stores None,
+        # its post-command refresh skips a missing capturer, and inject() is
+        # never called again — so a collector fetch that failed once could never
+        # be retried, and a navigation could never re-install it either.
         class Driver:
             def execute_script(self, script, *args):
                 return None
 
-        # No script on disk → injection returns None.
-        self.assertIsNone(
-            start_snapshot_capture(Driver(), script_path="/no/such.js")
-        )
+        capturer = start_snapshot_capture(Driver(), script_path="/no/such.js")
+
+        self.assertIsNotNone(capturer)
+        self.assertFalse(capturer.injected)
+
+    def test_a_later_command_can_still_install_the_collector(self):
+        # The retry path only exists if the capturer is still around to use it.
+        calls = {"n": 0}
+
+        class Driver:
+            def execute_script(self, script, *args):
+                calls["n"] += 1
+                return True  # the page reports the collector present
+
+        with mock.patch(
+            "selenium_devtools.snapshot.load_injectable_script",
+            side_effect=[None, "SOURCE"],  # first attempt has no source, then it does
+        ):
+            capturer = start_snapshot_capture(Driver(), script_path="/no/such.js")
+            self.assertFalse(capturer.injected)
+
+            self.assertTrue(capturer.inject())  # the next command retries
+
+        self.assertTrue(capturer.injected)
+
+    def test_none_only_when_the_driver_cannot_run_scripts(self):
+        self.assertIsNone(start_snapshot_capture(object()))
 
 
 if __name__ == "__main__":

@@ -23,6 +23,7 @@ import logging
 import os
 from typing import Any, Callable, List, Optional
 
+from .collector_source import fetch_collector_source
 from .constants import LOGGER_NAME
 
 #: A ``driver.execute_script(script, *args)`` shaped callable — injectable so
@@ -92,12 +93,30 @@ def wrap_injectable(script_content: str) -> str:
     return f"(async function() {{ {script_content} }})()"
 
 
-def load_injectable_script(path: Optional[str] = None) -> Optional[str]:
-    """Read the browser runtime and return the IIFE-wrapped source, or None if
-    it can't be found/read. Path is injectable so tests avoid disk."""
+def load_injectable_script(
+    path: Optional[str] = None,
+    *,
+    backend: Optional[tuple] = None,
+) -> Optional[str]:
+    """The IIFE-wrapped collector source, or None if it cannot be obtained.
+
+    ``backend`` is the ``(host, port)`` of the connected backend, which serves
+    the collector out of the package it depends on — the only route that works
+    for an installed wheel, since `packages/script/dist/script.js` exists solely
+    in a monorepo checkout. An explicit ``path`` wins so tests can avoid both,
+    and the filesystem walk remains the fallback for a checkout running against
+    a backend older than the route.
+    """
+    if path is None and backend is not None:
+        source = fetch_collector_source(*backend)
+        if source is not None:
+            return wrap_injectable(source)
     resolved = path or resolve_script_path()
     if not resolved:
-        _warn("packages/script/dist/script.js not found — snapshot capture disabled")
+        _warn(
+            "collector unavailable from the backend and not found on disk — "
+            "DOM replay is disabled for this run"
+        )
         return None
     try:
         with open(resolved, "r", encoding="utf-8") as handle:
@@ -130,9 +149,16 @@ class SnapshotCapturer:
     a one-shot "already injected" flag mirroring the JS adapter.
     """
 
-    def __init__(self, execute_fn: ExecuteFn, *, script_path: Optional[str] = None) -> None:
+    def __init__(
+        self,
+        execute_fn: ExecuteFn,
+        *,
+        script_path: Optional[str] = None,
+        backend: Optional[tuple] = None,
+    ) -> None:
         self._execute = execute_fn
         self._script_path = script_path
+        self._backend = backend
         self._injected = False
 
     @property
@@ -146,7 +172,7 @@ class SnapshotCapturer:
         call and re-install if it's gone (matching the JS adapter, which injects
         per navigation) rather than trusting a one-time flag. Failures are logged
         no-ops."""
-        wrapped = load_injectable_script(self._script_path)
+        wrapped = load_injectable_script(self._script_path, backend=self._backend)
         if wrapped is None:
             return False
         try:
@@ -185,10 +211,11 @@ def start_snapshot_capture(
     *,
     script_path: Optional[str] = None,
     execute_fn: Optional[ExecuteFn] = None,
+    backend: Optional[tuple] = None,
 ) -> Optional[SnapshotCapturer]:
-    """Build a ``SnapshotCapturer`` and inject the collector. Returns the capturer
-    (so callers can pull later), or None if the driver can't run scripts /
-    injection fails. Never raises.
+    """Build a ``SnapshotCapturer`` and attempt the first injection. Returns the
+    capturer — including when that injection fails, so a later command can retry
+    it — or None only when the driver cannot run scripts at all. Never raises.
 
     ``execute_fn`` overrides ``driver.execute_script`` — the adapter passes a
     capture-bypassing variant so injection/readback don't appear as commands."""
@@ -196,7 +223,11 @@ def start_snapshot_capture(
     if not callable(run):
         _warn("driver has no execute_script — snapshot capture skipped")
         return None
-    capturer = SnapshotCapturer(run, script_path=script_path)
-    if not capturer.inject():
-        return None
+    capturer = SnapshotCapturer(run, script_path=script_path, backend=backend)
+    # The capturer is returned even when this first injection fails. It used to
+    # return None, which made the failure terminal: the caller stores None, its
+    # post-command refresh skips a missing capturer, and `inject()` is never
+    # called again — so a collector fetch that failed once could never be
+    # retried, and the page's own navigations could never re-install it either.
+    capturer.inject()
     return capturer

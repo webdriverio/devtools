@@ -2,6 +2,7 @@
 // across @wdio/devtools-* packages. See ARCHITECTURE.md §2 and CLAUDE.md §2.1.
 
 export * from './baseline.js'
+export * from './collector.js'
 export * from './files.js'
 export * from './locator-dialect.js'
 export * from './routes.js'

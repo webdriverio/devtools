@@ -1,0 +1,282 @@
+"""Where the page-side collector comes from.
+
+The backend serves it out of the `@wdio/devtools-script` package it depends on.
+That is the only route that works for an installed wheel: the filesystem walk
+looks for `packages/script/dist/script.js`, which exists only in a monorepo
+checkout, so a pip install used to lose DOM replay with nothing to explain it.
+"""
+
+import http.server
+import threading
+import urllib.error
+import urllib.request
+import unittest
+from unittest import mock
+
+from selenium_devtools import collector_source
+
+
+def _serving(handler_body, status=200):
+    """A one-request HTTP server on a free port. Returns (host, port, stop)."""
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):  # noqa: N802
+            self.send_response(status)
+            self.send_header("Content-Type", "application/javascript")
+            self.end_headers()
+            self.wfile.write(handler_body.encode())
+
+        def log_message(self, *_args):  # keep the test output quiet
+            pass
+
+    server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    host, port = server.server_address
+    return host, port, server.shutdown
+
+
+class TestFetchingTheCollector(unittest.TestCase):
+    def setUp(self):
+        collector_source.reset_cache()
+
+    tearDown = setUp
+
+    def test_returns_the_served_source(self):
+        host, port, stop = _serving("window.wdioTraceCollector = {}")
+        try:
+            self.assertEqual(
+                collector_source.fetch_collector_source(host, port),
+                "window.wdioTraceCollector = {}",
+            )
+        finally:
+            stop()
+
+    def test_caches_so_a_navigation_does_not_refetch(self):
+        # The collector is injected per document; re-fetching 200KB on every
+        # navigation would be pure cost for a body that cannot change.
+        host, port, stop = _serving("SOURCE")
+        try:
+            self.assertEqual(collector_source.fetch_collector_source(host, port), "SOURCE")
+        finally:
+            stop()  # the server is gone; a second fetch must not need it
+        self.assertEqual(collector_source.fetch_collector_source(host, port), "SOURCE")
+
+    def test_a_different_backend_is_not_served_the_cached_body(self):
+        collector_source._cache.update(origin="http://elsewhere/api/collector", source="OLD")
+        host, port, stop = _serving("NEW")
+        try:
+            self.assertEqual(collector_source.fetch_collector_source(host, port), "NEW")
+        finally:
+            stop()
+
+    def test_an_older_backend_degrades_with_a_reason(self):
+        # A 404 means the backend predates the route. Capture must not break,
+        # but the run has lost DOM replay and has to say so.
+        host, port, stop = _serving("nope", status=404)
+        try:
+            with self.assertLogs("selenium_devtools.collector", level="WARNING") as logs:
+                self.assertIsNone(collector_source.fetch_collector_source(host, port))
+        finally:
+            stop()
+        self.assertIn("older than the version", "\n".join(logs.output))
+
+    def test_an_unreachable_backend_degrades_with_a_reason(self):
+        with self.assertLogs("selenium_devtools.collector", level="WARNING") as logs:
+            self.assertIsNone(collector_source.fetch_collector_source("127.0.0.1", 1))
+        self.assertIn("could not fetch the collector", "\n".join(logs.output))
+
+    def test_an_empty_body_is_not_a_collector(self):
+        host, port, stop = _serving("")
+        try:
+            with self.assertLogs("selenium_devtools.collector", level="WARNING"):
+                self.assertIsNone(collector_source.fetch_collector_source(host, port))
+        finally:
+            stop()
+
+    def test_a_transient_failure_is_not_retried_within_the_cooldown(self):
+        # The collector is re-injected after EVERY command, so without a
+        # cooldown a retry becomes a request per command — up to the connect
+        # timeout each — turning a degraded run into an unusably slow one.
+        attempts = {"n": 0}
+
+        def counting(*_args, **_kwargs):
+            attempts["n"] += 1
+            raise urllib.error.URLError("refused")
+
+        with mock.patch.object(urllib.request, "urlopen", counting):
+            with self.assertLogs("selenium_devtools.collector", level="WARNING"):
+                self.assertIsNone(collector_source.fetch_collector_source("h", 1))
+            for _ in range(10):  # nine more commands
+                self.assertIsNone(collector_source.fetch_collector_source("h", 1))
+
+        self.assertEqual(attempts["n"], 1)
+
+    def test_a_transient_failure_recovers_once_the_backend_comes_back(self):
+        # A timeout or reset on the FIRST request is exactly the kind that
+        # recovers, and a published install has no filesystem collector to fall
+        # back to — caching that as final would disable DOM replay for the whole
+        # run over a blip.
+        clock = {"t": 1000.0}
+        calls = {"n": 0}
+        real_urlopen = urllib.request.urlopen
+
+        def flaky(*args, **kwargs):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise urllib.error.URLError("connection reset")
+            return real_urlopen(*args, **kwargs)
+
+        host, port, stop = _serving("RECOVERED")
+        try:
+            with mock.patch.object(collector_source.time, "monotonic", lambda: clock["t"]), \
+                 mock.patch.object(urllib.request, "urlopen", flaky):
+                with self.assertLogs("selenium_devtools.collector", level="WARNING"):
+                    self.assertIsNone(collector_source.fetch_collector_source(host, port))
+                clock["t"] += 999  # cooldown elapses; the next command tries again
+                self.assertEqual(
+                    collector_source.fetch_collector_source(host, port), "RECOVERED"
+                )
+        finally:
+            stop()
+
+    def test_retries_are_bounded_so_a_dead_backend_has_a_known_cost(self):
+        clock = {"t": 0.0}
+        calls = {"n": 0}
+
+        def always_down(*_args, **_kwargs):
+            calls["n"] += 1
+            raise urllib.error.URLError("refused")
+
+        with mock.patch.object(collector_source.time, "monotonic", lambda: clock["t"]), \
+             mock.patch.object(urllib.request, "urlopen", always_down):
+            with self.assertLogs("selenium_devtools.collector", level="WARNING") as logs:
+                for _ in range(20):  # twenty commands
+                    self.assertIsNone(collector_source.fetch_collector_source("h", 1))
+                    clock["t"] += 999  # each one past the cooldown
+
+        self.assertEqual(calls["n"], collector_source.COLLECTOR_RETRY_LIMIT)
+        self.assertIn("giving up on the collector", "\n".join(logs.output))
+
+    def test_a_server_error_is_retried_because_the_route_exists(self):
+        # 503/500/502/429 mean the route is there but could not be served just
+        # now. Settling those would cost the run its DOM replay over a blip,
+        # while retrying a genuinely permanent error costs a few bounded tries.
+        clock = {"t": 0.0}
+        calls = {"n": 0}
+        real_urlopen = urllib.request.urlopen
+
+        def flaky(*args, **kwargs):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise urllib.error.HTTPError(
+                    "http://h/api/collector", 503, "Service Unavailable", {}, None
+                )
+            return real_urlopen(*args, **kwargs)
+
+        host, port, stop = _serving("RECOVERED")
+        try:
+            with mock.patch.object(collector_source.time, "monotonic", lambda: clock["t"]), \
+                 mock.patch.object(urllib.request, "urlopen", flaky):
+                with self.assertLogs("selenium_devtools.collector", level="WARNING"):
+                    self.assertIsNone(collector_source.fetch_collector_source(host, port))
+                clock["t"] += 999
+                self.assertEqual(
+                    collector_source.fetch_collector_source(host, port), "RECOVERED"
+                )
+        finally:
+            stop()
+
+    def test_a_route_that_does_not_exist_is_never_retried(self):
+        # A 404 is the server ANSWERING: this backend has no such route, which
+        # cannot change mid-run. Retrying it would be pure cost.
+        calls = {"n": 0}
+        real_urlopen = urllib.request.urlopen
+
+        def counting(*args, **kwargs):
+            calls["n"] += 1
+            return real_urlopen(*args, **kwargs)
+
+        host, port, stop = _serving("nope", status=404)
+        try:
+            with mock.patch.object(urllib.request, "urlopen", counting):
+                with self.assertLogs("selenium_devtools.collector", level="WARNING"):
+                    self.assertIsNone(collector_source.fetch_collector_source(host, port))
+                for _ in range(5):
+                    self.assertIsNone(collector_source.fetch_collector_source(host, port))
+        finally:
+            stop()
+
+        self.assertEqual(calls["n"], 1)
+
+    def test_a_failure_against_one_backend_is_retried_against_another(self):
+        collector_source._cache.update(
+            origin="http://old:1/api/collector", source=None, settled=True
+        )
+        host, port, stop = _serving("NEW")
+        try:
+            self.assertEqual(collector_source.fetch_collector_source(host, port), "NEW")
+        finally:
+            stop()
+
+    def test_an_ipv6_host_gets_authority_brackets(self):
+        # `DEVTOOLS_HOST` may carry a bare literal and the backend's own log
+        # prints one. Without brackets the URL is malformed and the fetch fails
+        # even though the socket transport connected to that same host.
+        self.assertEqual(
+            collector_source.collector_url("::1", 3000),
+            "http://[::1]:3000/api/collector",
+        )
+
+    def test_an_already_bracketed_host_is_not_double_wrapped(self):
+        self.assertEqual(
+            collector_source.collector_url("[::1]", 3000),
+            "http://[::1]:3000/api/collector",
+        )
+
+    def test_a_hostname_is_left_alone(self):
+        self.assertEqual(
+            collector_source.collector_url("localhost", 3000),
+            "http://localhost:3000/api/collector",
+        )
+
+    def test_the_url_comes_from_the_generated_contract(self):
+        from selenium_devtools._contract import COLLECTOR_PATH
+
+        self.assertEqual(
+            collector_source.collector_url("h", 1), f"http://h:1{COLLECTOR_PATH}"
+        )
+
+
+class TestInjectionPrefersTheBackend(unittest.TestCase):
+    def setUp(self):
+        collector_source.reset_cache()
+
+    tearDown = setUp
+
+    def test_a_published_install_gets_the_collector_from_the_backend(self):
+        from selenium_devtools import snapshot
+
+        # No monorepo path: exactly what site-packages looks like.
+        # Patched on `snapshot`, not on `collector_source`: snapshot imports
+        # the function by name, so it holds its own reference.
+        with mock.patch.object(snapshot, "resolve_script_path", return_value=None), \
+             mock.patch.object(snapshot, "fetch_collector_source", return_value="SRC"):
+            wrapped = snapshot.load_injectable_script(backend=("h", 1))
+
+        self.assertIn("SRC", wrapped)
+
+    def test_the_monorepo_path_still_works_against_an_older_backend(self):
+        from selenium_devtools import snapshot
+
+        with mock.patch.object(
+            snapshot, "fetch_collector_source", return_value=None
+        ), mock.patch.object(snapshot, "resolve_script_path", return_value=None):
+            with self.assertLogs("selenium_devtools.snapshot", level="WARNING") as logs:
+                self.assertIsNone(snapshot.load_injectable_script(backend=("h", 1)))
+
+        self.assertIn("DOM replay is disabled", "\n".join(logs.output))
+
+
+if __name__ == "__main__":
+    unittest.main()

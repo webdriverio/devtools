@@ -283,6 +283,9 @@ importers:
       '@wdio/devtools-app':
         specifier: workspace:^
         version: link:../app
+      '@wdio/devtools-script':
+        specifier: workspace:^
+        version: link:../script
       '@wdio/logger':
         specifier: 9.29.1
         version: 9.29.1
