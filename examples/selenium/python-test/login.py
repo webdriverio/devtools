@@ -47,7 +47,7 @@ try:
     # wait.until(EC.visibility_of_element_located((By.ID, "flash")))
     assert "/secure" in driver.current_url, driver.current_url
     flash = driver.find_element(By.ID, "flash").text
-    assert "You logged into a secure area1" in flash, flash
+    assert "You logged into a secure area" in flash, flash
 
     # wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, "a.button")))
     driver.find_element(By.CSS_SELECTOR, "a.button").click()
