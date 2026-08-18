@@ -3,7 +3,8 @@ import { start } from '../src/index.js'
 import * as utils from '../src/utils.js'
 
 vi.mock('../src/utils.js', () => ({
-  getDevtoolsApp: vi.fn()
+  getDevtoolsApp: vi.fn(),
+  getCollectorSource: vi.fn()
 }))
 
 vi.mock('ws')
@@ -29,6 +30,7 @@ describe('backend index', () => {
   describe('video endpoint', () => {
     it('should return 404 for unknown session and respect rate limit', async () => {
       vi.mocked(utils.getDevtoolsApp).mockResolvedValue('/mock/app/path')
+      vi.mocked(utils.getCollectorSource).mockResolvedValue('// collector')
       const { server } = await start({ port: 0 })
 
       // Unknown sessionId → 404
@@ -52,6 +54,7 @@ describe('backend index', () => {
   describe('API endpoints', () => {
     it('should handle test run and stop requests with validation', async () => {
       vi.mocked(utils.getDevtoolsApp).mockResolvedValue('/mock/app/path')
+      vi.mocked(utils.getCollectorSource).mockResolvedValue('// collector')
       const { server } = await start({ port: 0 })
       const { testRunner } = await import('../src/runner.js')
       const runSpy = vi.spyOn(testRunner, 'run').mockResolvedValue()
@@ -106,6 +109,7 @@ describe('backend index', () => {
 
     it('should handle test run errors gracefully', async () => {
       vi.mocked(utils.getDevtoolsApp).mockResolvedValue('/mock/app/path')
+      vi.mocked(utils.getCollectorSource).mockResolvedValue('// collector')
       const { server } = await start({ port: 0 })
       const { testRunner } = await import('../src/runner.js')
       vi.spyOn(testRunner, 'run').mockRejectedValue(

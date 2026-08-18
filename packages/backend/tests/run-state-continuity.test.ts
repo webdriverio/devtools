@@ -21,7 +21,8 @@ import { baselineStore } from '../src/baselineStore.js'
 import * as utils from '../src/utils.js'
 
 vi.mock('../src/utils.js', () => ({
-  getDevtoolsApp: vi.fn()
+  getDevtoolsApp: vi.fn(),
+  getCollectorSource: vi.fn()
 }))
 
 const WAIT_TIMEOUT_MS = 2000
@@ -30,6 +31,7 @@ let server: FastifyInstance | undefined
 
 async function boot(): Promise<{ server: FastifyInstance; port: number }> {
   vi.mocked(utils.getDevtoolsApp).mockResolvedValue(os.tmpdir())
+  vi.mocked(utils.getCollectorSource).mockResolvedValue('// collector')
   const started = await start({ port: 0 })
   server = started.server
   return started

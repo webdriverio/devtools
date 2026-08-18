@@ -12,7 +12,7 @@ import getPort from 'get-port'
 import logger from '@wdio/logger'
 import { WebSocket } from 'ws'
 
-import { getDevtoolsApp } from './utils.js'
+import { getCollectorSource, getDevtoolsApp } from './utils.js'
 import { DEFAULT_PORT } from './constants.js'
 import { testRunner } from './runner.js'
 import { baselineStore } from './baselineStore.js'
@@ -21,6 +21,8 @@ import { resolveByteRange } from './video-range.js'
 import {
   BASELINE_API,
   BASELINE_WS_SCOPE,
+  COLLECTOR_API,
+  COLLECTOR_CONTENT_TYPE,
   TRACE_API,
   WORKER_WS_QUERY,
   WS_PATHS,
@@ -382,6 +384,17 @@ function registerVideoRoute(s: FastifyInstance): void {
   )
 }
 
+/**
+ * Serve the page-side collector so an adapter can inject it without owning a
+ * copy. Read once at registration: the bundle cannot change while the process
+ * runs, and this keeps a per-navigation fetch off the disk.
+ */
+function registerCollectorRoute(s: FastifyInstance, source: string): void {
+  s.get(COLLECTOR_API.get, async (_request, reply) =>
+    reply.type(COLLECTOR_CONTENT_TYPE).send(source)
+  )
+}
+
 function registerTraceRoute(
   s: FastifyInstance,
   trace: TracePlayerData | undefined
@@ -405,12 +418,16 @@ export async function start(
   }
 
   const appPath = await getDevtoolsApp()
+  // Resolved before the server binds: a backend that cannot serve the collector
+  // should fail at startup, not when an adapter first asks for it mid-run.
+  const collectorSource = await getCollectorSource()
   server = Fastify({ logger: true })
   await server.register(rateLimit, { max: 100, timeWindow: '1 minute' })
   await server.register(websocket)
   await server.register(staticServer, { root: appPath })
 
   registerTraceRoute(server, opts.trace)
+  registerCollectorRoute(server, collectorSource)
   registerTestRoutes(server, host, port)
   registerBaselineRoutes(server)
   registerClientWebSocket(server)
