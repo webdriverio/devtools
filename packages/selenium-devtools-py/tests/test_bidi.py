@@ -1,4 +1,5 @@
 import unittest
+from unittest import mock
 
 from selenium_devtools import bidi
 from selenium_devtools.capturer import SessionCapturer
@@ -368,6 +369,42 @@ class TestAttachDefensive(unittest.TestCase):
 
         # Must not raise; a plain object degrades to a log-level empty-text entry.
         self.assertTrue(bidi.attach(Driver(), cap))
+
+
+class TestWhyNetworkCaptureIsOff(unittest.TestCase):
+    """The user-facing extra is uncapped, so a user CAN be on a selenium whose
+    BiDi layer moved. This warning is then the only signal that the Network tab
+    will stay empty, so it has to name the cause rather than echo an ImportError
+    that reads like a broken install."""
+
+    def test_a_moved_surface_is_reported_as_a_version_gap(self):
+        major, minor = bidi.SELENIUM_NETWORK_SURFACE_MOVED_AT
+        with mock.patch.object(
+            bidi, "selenium_version", return_value=(major, minor + 1)
+        ):
+            reason = bidi.network_unavailable_reason(
+                ImportError("cannot import name 'NetworkEvent'")
+            )
+
+        # BOTH versions, and they are different things: what the user has, and
+        # where the surface moved. Asserted on the ATTRIBUTION, not on the
+        # version appearing somewhere — the moved-at version is also named in
+        # the "selenium < X captures network" advice, so a bare assertIn passes
+        # even when the sentence blames the installed version for the move.
+        self.assertIn(f"on selenium {major}.{minor + 1}", reason)
+        self.assertIn(f"selenium {major}.{minor} regenerated", reason)
+        self.assertIn("293", reason)  # where the fix is tracked
+        # The half that still works must be said, or this reads as total loss.
+        self.assertIn("Console", reason)
+
+    def test_an_ordinary_failure_still_reports_the_exception(self):
+        # Below the moved version the cause is NOT the selenium release, so
+        # blaming it would send the reader somewhere with no answer.
+        with mock.patch.object(bidi, "selenium_version", return_value=(4, 36)):
+            reason = bidi.network_unavailable_reason(RuntimeError("no bidi socket"))
+
+        self.assertIn("no bidi socket", reason)
+        self.assertNotIn("293", reason)
 
 
 if __name__ == "__main__":

@@ -100,6 +100,12 @@ BIDI_CAPABILITY = "webSocketUrl"
 # would stall the user's page loads if a callback failed to continue them).
 BIDI_NET_BEFORE_REQUEST = "network.beforeRequestSent"
 BIDI_NET_RESPONSE_COMPLETED = "network.responseCompleted"
+# selenium 4.44 regenerated the BiDi layer from a schema: ``NetworkEvent`` left
+# ``bidi.network`` and ``Network.conn`` became ``_conn``, so the subscribe above
+# cannot be built there and network capture degrades to nothing. Console capture
+# and the preload are unaffected. One source of truth for that version, read by
+# bidi.py (to explain the degradation at runtime) and by the surface guards.
+SELENIUM_NETWORK_SURFACE_MOVED_AT = (4, 44)
 # selenium's BiDi log entries already carry lowercase levels; this normalizes
 # the stragglers to the shared LogLevel union. Unmapped levels fall back to log.
 BIDI_LEVEL_MAP = {

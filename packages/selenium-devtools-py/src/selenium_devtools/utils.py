@@ -19,6 +19,25 @@ def iso(ms: int) -> str:
     return f"{base}.{ms % 1000:03d}Z"
 
 
+def selenium_version() -> tuple[int, int]:
+    """(major, minor) of the installed selenium, (0, 0) when unreadable.
+
+    Read from package metadata rather than ``selenium.__version__`` so it costs
+    no import of selenium itself, and answers for a caller that never imports it.
+    """
+    try:
+        import importlib.metadata
+
+        raw = importlib.metadata.version("selenium")
+    except Exception:  # noqa: BLE001 — absent, or metadata unreadable
+        return (0, 0)
+    parts = []
+    for chunk in raw.split(".")[:2]:
+        digits = "".join(ch for ch in chunk if ch.isdigit())
+        parts.append(int(digits) if digits else 0)
+    return (parts[0], parts[1]) if len(parts) == 2 else (0, 0)
+
+
 def to_jsonable(value: Any, _depth: int = 0) -> Any:
     """Coerce an arbitrary value into something json.dumps can handle.
 

@@ -15,6 +15,15 @@ Two selenium-version realities shape this module (selenium 4.36):
 * selenium's high-level ``network.add_request_handler`` *intercepts* (pauses)
   requests. We deliberately avoid it: we subscribe to the network events via
   the low-level connection so requests are observed but never stalled.
+
+The network half of that has a ceiling: selenium 4.44 regenerated the BiDi layer
+from a schema, dropping ``NetworkEvent`` and renaming ``Network.conn`` to
+``_conn``, so ``_attach_network`` degrades to a warning there and the Network tab
+stays empty. ``pyproject.toml`` caps the extra below it. The observe-only
+replacement is ``Network._event_manager.add_event_handler``, whose callback
+receives a deserialized event rather than one carrying ``.params`` — a port, not
+a rename, tracked as issue #293. Console capture and the preload are unaffected;
+``tests/test_selenium_surface.py`` guards all of it against the installed version.
 """
 
 from __future__ import annotations
@@ -29,8 +38,9 @@ from .constants import (
     BIDI_NET_BEFORE_REQUEST,
     BIDI_NET_RESPONSE_COMPLETED,
     LOGGER_NAME,
+    SELENIUM_NETWORK_SURFACE_MOVED_AT,
 )
-from .utils import now_ms
+from .utils import now_ms, selenium_version
 
 _log = logging.getLogger(f"{LOGGER_NAME}.bidi")
 
@@ -342,6 +352,29 @@ def _attach_console(driver: Any, capturer: SessionCapturer) -> bool:
         return False
 
 
+def network_unavailable_reason(exc: Exception) -> str:
+    """Why network capture is off, naming the selenium version when that is why.
+
+    The bare exception is unreadable as a cause: on selenium 4.44+ it surfaces as
+    ``cannot import name 'NetworkEvent'``, which reads like a broken install
+    rather than a version the adapter has not caught up with. Console capture and
+    the DOM preload keep working, so this warning is the only signal the user
+    gets that the Network tab will stay empty.
+    """
+    version = selenium_version()
+    if version >= SELENIUM_NETWORK_SURFACE_MOVED_AT:
+        installed = ".".join(str(part) for part in version)
+        moved_at = ".".join(str(p) for p in SELENIUM_NETWORK_SURFACE_MOVED_AT)
+        return (
+            f"network capture is unavailable on selenium {installed}: selenium "
+            f"{moved_at} regenerated the BiDi layer and moved the internals this "
+            "subscribes through. Console, DOM and command capture are "
+            f"unaffected, and selenium < {moved_at} captures network. Tracked at "
+            "https://github.com/webdriverio/devtools/issues/293"
+        )
+    return f"network channel unavailable: {exc}"
+
+
 def _attach_network(driver: Any, capturer: SessionCapturer) -> bool:
     """Subscribe to network events WITHOUT interception (see module docstring).
 
@@ -353,7 +386,7 @@ def _attach_network(driver: Any, capturer: SessionCapturer) -> bool:
         from selenium.webdriver.common.bidi.network import NetworkEvent  # lazy
         from selenium.webdriver.common.bidi.session import Session  # lazy
     except Exception as exc:  # noqa: BLE001
-        _warn(f"network channel unavailable: {exc}")
+        _warn(network_unavailable_reason(exc))
         return False
 
     pending: Dict[str, Dict[str, Any]] = {}
