@@ -6,7 +6,6 @@ fact. A preload runs in EVERY document before that document's own script, which
 removes the whole class of "when do we re-inject / who owns this DOM" races.
 """
 
-import importlib.util
 import unittest
 from unittest import mock
 
@@ -143,39 +142,8 @@ class TestADocumentThePreloadMissed(unittest.TestCase):
         self.assertEqual([s for s in seen if "createElement" in s], [])
 
 
-#: selenium is the adapter's only runtime requirement, but the package is
-#: deliberately importable and unit-testable without it — the CI job installs
-#: nothing and runs `PYTHONPATH=src python -m unittest`. Mirrors the
-#: `resolve_script_path()` guard in test_snapshot.py on the same principle.
-_HAS_SELENIUM = importlib.util.find_spec("selenium") is not None
-
-
-@unittest.skipUnless(_HAS_SELENIUM, "selenium is not installed")
-class TestTheSeleniumSurfaceWeDependOn(unittest.TestCase):
-    """`pin()` is public, but its docstring says "current browsing context" while
-    we depend on it registering GLOBALLY so documents created later are covered.
-    That reliance is undocumented, so it is pinned here: if selenium ever scopes
-    `pin` to one context, this fails instead of the preload silently covering
-    only the first document."""
-
-    def test_pin_registers_without_a_browsing_context(self):
-        from selenium.webdriver.common.bidi.script import Script
-
-        seen = {}
-
-        def fake_add(self, function_declaration, *args, **kwargs):
-            seen["args"] = args
-            seen["kwargs"] = kwargs
-            return "id"
-
-        # A bare instance: constructing a real Script needs a live driver, and
-        # only the dispatch from pin() to _add_preload_script is under test.
-        script = Script.__new__(Script)
-        with mock.patch.object(Script, "_add_preload_script", fake_add):
-            script.pin("async () => {}")
-
-        self.assertEqual(seen["args"], ())
-        self.assertIsNone(seen["kwargs"].get("contexts"))
+# The `pin()` global-registration guard this depends on lives with the rest of
+# the selenium surface, in test_selenium_surface.py.
 
 
 if __name__ == "__main__":
