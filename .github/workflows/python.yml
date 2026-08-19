@@ -43,10 +43,11 @@ jobs:
       # so a bump that moved those internals used to pass CI green and degrade
       # at runtime. Installing the package is what makes those guards real.
       #
-      # `[test]`, not `[selenium]`: the test extra is the capped one. The user-
-      # facing extra is uncapped on purpose (see pyproject), so installing it
-      # here would resolve a selenium the adapter cannot fully capture on and
-      # fail the guards for a reason CI cannot fix.
+      # The matrix is load-bearing, not just breadth: network capture has two
+      # subscription paths, one per selenium BiDi surface, and the python version
+      # is what selects which selenium resolves. 3.9 caps at a pre-4.44 selenium
+      # and exercises the connection path; 3.12 resolves the latest and exercises
+      # the event-handler path. Dropping either job leaves one path untested.
       - name: Install the adapter and its runtime dependency
         run: pip install -e '.[test]'
 
