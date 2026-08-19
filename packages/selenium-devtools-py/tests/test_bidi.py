@@ -1,3 +1,5 @@
+import sys
+import types
 import unittest
 from unittest import mock
 
@@ -371,11 +373,201 @@ class TestAttachDefensive(unittest.TestCase):
         self.assertTrue(bidi.attach(Driver(), cap))
 
 
+def fake_network_module(with_event_manager=True):
+    """A stand-in for selenium 4.44+'s regenerated `bidi.network`.
+
+    Faked rather than skipped-without-selenium: the installed selenium here is
+    4.36, so the 4.44+ path has no other way to be exercised, and it is the path
+    every new user is on.
+    """
+    module = types.ModuleType("selenium.webdriver.common.bidi.network")
+
+    class EventConfig:
+        def __init__(self, event_key, bidi_event, event_class):
+            self.event_key = event_key
+            self.bidi_event = bidi_event
+            self.event_class = event_class
+
+    class Network:
+        EVENT_CONFIGS = {}
+
+        def __init__(self):
+            self.handlers = {}
+            # selenium builds its deserializers here, from the configs that
+            # exist at construction time. Mirrored because that timing is the
+            # whole reason registration has to come first.
+            self.deserializers = {
+                config.bidi_event: config.event_class
+                for config in self.EVENT_CONFIGS.values()
+            }
+
+        def add_event_handler(self, event, callback, contexts=None):
+            # selenium raises for an unregistered key rather than ignoring it.
+            config = self.EVENT_CONFIGS.get(event)
+            if config is None:
+                raise ValueError(f"Event '{event}' not found")
+            self.handlers[event] = callback
+            return len(self.handlers)
+
+    if not with_event_manager:
+        del Network.add_event_handler
+        del Network.EVENT_CONFIGS
+
+    module.EventConfig = EventConfig
+    module.Network = Network
+    return module
+
+
+class NewSeleniumDriver:
+    """A 4.44+ driver. Records WHEN `.network` is first touched, because the
+    deserializers are built in `Network.__init__` — registering after that is
+    too late, and the failure would be silent."""
+
+    def __init__(self, network, log):
+        self.caps = {"webSocketUrl": "ws://x"}
+        self._network = network
+        self._log = log
+
+    @property
+    def network(self):
+        self._log.append("network accessed")
+        return self._network
+
+    @property
+    def script(self):
+        raise RuntimeError("console not under test")
+
+
+class TestTheEventManagerPath(unittest.TestCase):
+    """selenium 4.44+ — subscribing through the public `add_event_handler`."""
+
+    def test_raw_params_reach_the_handlers_and_are_captured(self):
+        module = fake_network_module()
+        network = module.Network()
+        capturer = SessionCapturer(FakeTransport())
+
+        with mock.patch.dict(
+            sys.modules, {"selenium.webdriver.common.bidi.network": module}
+        ):
+            self.assertTrue(bidi._attach_network(NewSeleniumDriver(network, []), capturer))
+
+            sent = network.handlers["devtools_before_request_sent"]
+            done = network.handlers["devtools_response_completed"]
+
+        # Raw params, exactly as selenium's dict-config deserializer delivers.
+        sent({"request": {"request": "R1", "url": "https://x/a.js", "method": "GET"},
+              "timestamp": 1000})
+        done({"request": {"request": "R1"}, "timestamp": 1200,
+              "response": {"status": 200, "statusText": "OK",
+                           "mimeType": "text/javascript", "bytesReceived": 12}})
+
+        # capture_network sends one batch per call, each a list of one frame.
+        frames = [
+            batch[0] for scope, batch in capturer._tx.sent
+            if scope == "networkRequests"
+        ]
+        self.assertEqual(len(frames), 2)
+        self.assertEqual(frames[0]["url"], "https://x/a.js")
+        self.assertEqual(frames[1]["status"], 200)  # correlated with the request
+
+    def test_configs_are_registered_before_network_is_constructed(self):
+        """The ordering IS the mechanism. `Network.__init__` builds one
+        deserializer per event from the configs present at that moment, so
+        registering after the first `driver.network` silently keeps the lossy
+        typed path and every entry loses its request id."""
+        log = []
+
+        class RecordingConfigs(dict):
+            def setdefault(self, *args, **kwargs):
+                log.append("registered")
+                return super().setdefault(*args, **kwargs)
+
+        module = fake_network_module()
+        module.Network.EVENT_CONFIGS = RecordingConfigs()
+
+        with mock.patch.dict(
+            sys.modules, {"selenium.webdriver.common.bidi.network": module}
+        ):
+            bidi._attach_network(
+                NewSeleniumDriver(module.Network(), log), SessionCapturer(FakeTransport())
+            )
+
+        self.assertEqual(log[0], "registered")
+        self.assertIn("network accessed", log)
+
+    def test_both_events_register_a_raw_config(self):
+        module = fake_network_module()
+        with mock.patch.dict(
+            sys.modules, {"selenium.webdriver.common.bidi.network": module}
+        ):
+            self.assertTrue(bidi.register_raw_event_configs())
+
+        configs = module.Network.EVENT_CONFIGS
+        for bidi_event, key in bidi.BIDI_NET_EVENT_KEYS.items():
+            self.assertEqual(configs[key].bidi_event, bidi_event)
+            # dict is what makes selenium pass the params through untouched.
+            self.assertIs(configs[key].event_class, dict)
+
+    def test_legacy_selenium_keeps_the_connection_path(self):
+        module = fake_network_module(with_event_manager=False)
+        with mock.patch.dict(
+            sys.modules, {"selenium.webdriver.common.bidi.network": module}
+        ):
+            self.assertFalse(bidi.register_raw_event_configs())
+
+
+class TestEventParams(unittest.TestCase):
+    def test_a_raw_dict_is_its_own_params(self):
+        self.assertEqual(bidi.event_params({"request": {}}), {"request": {}})
+
+    def test_a_legacy_event_object_is_unwrapped(self):
+        event = types.SimpleNamespace(params={"request": {"url": "u"}})
+        self.assertEqual(bidi.event_params(event), {"request": {"url": "u"}})
+
+    def test_anything_else_degrades_to_empty(self):
+        self.assertEqual(bidi.event_params(object()), {})
+
+
+class TestADegradedEventIsReported(unittest.TestCase):
+    """If a future selenium reinstates a typed class for these events, the
+    request is stripped and nothing can be correlated. That must not look like
+    a quiet network-free page — it is the failure this port exists to end."""
+
+    def setUp(self):
+        bidi._reported_incomplete.clear()
+
+    def test_an_event_without_a_request_warns(self):
+        with self.assertLogs("selenium_devtools.bidi", level="WARNING") as logs:
+            self.assertTrue(bidi._incomplete_event({"initiator": {}}, "network.x"))
+
+        self.assertIn("cannot be correlated", "\n".join(logs.output))
+
+    def test_it_warns_once_per_event_not_once_per_request(self):
+        # The condition is a property of the selenium build, not of a request:
+        # warning per event would put one line per HTTP request into the user's
+        # console and bury the message.
+        with self.assertLogs("selenium_devtools.bidi", level="WARNING") as logs:
+            for _ in range(5):
+                self.assertTrue(bidi._incomplete_event({}, "network.x"))
+
+        self.assertEqual(len(logs.output), 1)
+
+    def test_each_event_type_reports_separately(self):
+        with self.assertLogs("selenium_devtools.bidi", level="WARNING") as logs:
+            bidi._incomplete_event({}, "network.beforeRequestSent")
+            bidi._incomplete_event({}, "network.responseCompleted")
+
+        self.assertEqual(len(logs.output), 2)
+
+    def test_a_complete_event_is_silent(self):
+        self.assertFalse(bidi._incomplete_event({"request": {"request": "R"}}, "network.x"))
+
+
 class TestWhyNetworkCaptureIsOff(unittest.TestCase):
-    """The user-facing extra is uncapped, so a user CAN be on a selenium whose
-    BiDi layer moved. This warning is then the only signal that the Network tab
-    will stay empty, so it has to name the cause rather than echo an ImportError
-    that reads like a broken install."""
+    """The connection path is unreachable on 4.44+, so arriving there means the
+    regenerated layer is installed but did not present the API that defines it.
+    That is a combination the adapter does not know about, and the warning has to
+    say so rather than echo an ImportError that reads like a broken install."""
 
     def test_a_moved_surface_is_reported_as_a_version_gap(self):
         major, minor = bidi.SELENIUM_NETWORK_SURFACE_MOVED_AT
@@ -392,19 +584,22 @@ class TestWhyNetworkCaptureIsOff(unittest.TestCase):
         # the "selenium < X captures network" advice, so a bare assertIn passes
         # even when the sentence blames the installed version for the move.
         self.assertIn(f"on selenium {major}.{minor + 1}", reason)
-        self.assertIn(f"selenium {major}.{minor} regenerated", reason)
-        self.assertIn("293", reason)  # where the fix is tracked
-        # The half that still works must be said, or this reads as total loss.
+        self.assertIn(f"{major}.{minor}+ event-handler API", reason)
+        # The underlying error, and the half that still works — without it this
+        # reads as total loss.
+        self.assertIn("cannot import name", reason)
         self.assertIn("Console", reason)
+        self.assertIn("report", reason)
 
     def test_an_ordinary_failure_still_reports_the_exception(self):
-        # Below the moved version the cause is NOT the selenium release, so
-        # blaming it would send the reader somewhere with no answer.
+        # Below the moved version the connection path is the ONLY path, so a
+        # failure there is ordinary and blaming the selenium release would send
+        # the reader somewhere with no answer.
         with mock.patch.object(bidi, "selenium_version", return_value=(4, 36)):
             reason = bidi.network_unavailable_reason(RuntimeError("no bidi socket"))
 
         self.assertIn("no bidi socket", reason)
-        self.assertNotIn("293", reason)
+        self.assertNotIn("event-handler API", reason)
 
 
 if __name__ == "__main__":
