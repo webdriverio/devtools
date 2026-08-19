@@ -748,6 +748,63 @@ class TestTheEventManagerPath(unittest.TestCase):
         self.assertNotIn("devtools_before_request_sent", module.Network.EVENT_CONFIGS)
 
 
+class TestTheTeardownSummary(unittest.TestCase):
+    """One line at the end instead of one per request.
+
+    `_WATCH` raises this package's logger to DEBUG so its records reach the
+    dashboard Console, which means a per-event debug line is a Console line per
+    request — beside a Network tab already listing every one of them."""
+
+    def test_a_clean_run_reports_only_the_count(self):
+        self.assertEqual(
+            bidi.network_summary({"captured": 13, "pending": {}}),
+            "network: 13 request(s) captured",
+        )
+
+    def test_requests_without_a_response_are_called_out(self):
+        # The count is the cheap half. This is the half the Network tab cannot
+        # show: a request whose response never arrived.
+        summary = bidi.network_summary({"captured": 5, "pending": {"R7": {}, "R8": {}}})
+
+        self.assertIn("5 request(s) captured", summary)
+        self.assertIn("2 still awaiting a response", summary)
+
+    def test_nothing_captured_and_nothing_pending_says_nothing(self):
+        # A session that made no requests should not add a line to the Console.
+        self.assertIsNone(bidi.network_summary({"captured": 0, "pending": {}}))
+        self.assertIsNone(bidi.network_summary({}))
+        self.assertIsNone(bidi.network_summary(None))
+
+    def test_the_counts_come_from_real_capture(self):
+        module = fake_network_module()
+        network = module.Network()
+        stats = {}
+
+        with mock.patch.dict(
+            sys.modules, {"selenium.webdriver.common.bidi.network": module}
+        ):
+            bidi._attach_network(
+                NewSeleniumDriver(network, []), SessionCapturer(FakeTransport()), stats
+            )
+
+        for request_id in ("R1", "R2"):
+            TestTheEventManagerPath._dispatch(
+                network, "network.beforeRequestSent",
+                {"request": {"request": request_id, "url": "https://x/a", "method": "GET"},
+                 "timestamp": 1000},
+            )
+        # Only one of the two answers.
+        TestTheEventManagerPath._dispatch(
+            network, "network.responseCompleted",
+            {"request": {"request": "R1"}, "timestamp": 1200,
+             "response": {"status": 200}},
+        )
+
+        self.assertEqual(bidi.network_summary(stats),
+                         "network: 1 request(s) captured, 1 still awaiting a response "
+                         "at teardown")
+
+
 class TestEventParams(unittest.TestCase):
     def test_a_raw_dict_is_its_own_params(self):
         self.assertEqual(bidi.event_params({"request": {}}), {"request": {}})

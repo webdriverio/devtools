@@ -516,12 +516,23 @@ def _incomplete_event(params: Dict[str, Any], label: str) -> bool:
     return True
 
 
-def _attach_network(driver: Any, capturer: SessionCapturer) -> bool:
+def _attach_network(
+    driver: Any, capturer: SessionCapturer, stats: Optional[Dict[str, Any]] = None
+) -> bool:
     """Subscribe to network events WITHOUT interception (see module docstring).
 
     Returns False (and logs) on any failure — network BiDi is best-effort.
+
+    ``stats`` is filled in for the caller to report at teardown, rather than
+    logged per event: the dashboard's Network tab already lists every request, so
+    a running count is one Console line per request saying what the UI beside it
+    already shows. What the tab cannot show is a request whose response never
+    arrived, which is what ``pending`` still holding entries at the end means.
     """
+    stats = stats if stats is not None else {}
+    stats["captured"] = 0
     pending: Dict[str, Dict[str, Any]] = {}
+    stats["pending"] = pending
     # Both handlers are inert until every subscription is in place — see
     # _subscribe_via_event_manager for why a half-subscribed pair is worse than
     # no capture at all.
@@ -541,8 +552,6 @@ def _attach_network(driver: Any, capturer: SessionCapturer) -> bool:
         except Exception as exc:  # noqa: BLE001
             _warn(f"beforeRequestSent handler threw: {exc}")
 
-    captured = {"n": 0}
-
     def on_response_completed(event: Any) -> None:
         if not active["ok"]:
             return
@@ -554,13 +563,7 @@ def _attach_network(driver: Any, capturer: SessionCapturer) -> bool:
             if kwargs is not None:
                 pending.pop(kwargs["request_id"], None)
                 capturer.capture_network(**kwargs)
-                captured["n"] += 1
-                # The first one is the proof the subscription is live end to
-                # end; the rest are a count, because an empty Network tab and a
-                # tab nobody looked at are indistinguishable after the fact.
-                if captured["n"] == 1:
-                    _log.info("network capture live, first response: %s", kwargs["url"])
-                _log.debug("network entries captured: %d", captured["n"])
+                stats["captured"] += 1
         except Exception as exc:  # noqa: BLE001
             _warn(f"responseCompleted handler threw: {exc}")
 
@@ -615,19 +618,42 @@ def _subscribe_via_event_manager(
             _undo_registration(manager, bidi_event, wrapper, callback_id)
         return False
     active["ok"] = True
-    _log.info(
-        "network capture subscribed via the event-handler API (selenium %s)",
-        ".".join(str(p) for p in selenium_version()),
-    )
     return True
 
 
-def attach(driver: Any, capturer: SessionCapturer) -> bool:
+def network_summary(stats: Optional[Dict[str, Any]]) -> Optional[str]:
+    """One line describing what network capture actually did, or None when there
+    is nothing worth saying.
+
+    Reported once at teardown rather than per event. The count is the cheap half;
+    the useful half is requests still pending, which means a response never
+    arrived and is the one thing the Network tab cannot show on its own.
+    """
+    if not stats:
+        return None
+    captured = stats.get("captured", 0)
+    unanswered = len(stats.get("pending") or ())
+    if not captured and not unanswered:
+        return None
+    if unanswered:
+        return (
+            f"network: {captured} request(s) captured, "
+            f"{unanswered} still awaiting a response at teardown"
+        )
+    return f"network: {captured} request(s) captured"
+
+
+def attach(
+    driver: Any, capturer: SessionCapturer, stats: Optional[Dict[str, Any]] = None
+) -> bool:
     """Wire BiDi console + network capture onto ``driver``.
 
     Returns True if at least one channel attached. A driver without the
     ``webSocketUrl`` capability (BiDi not enabled at build time) is skipped with
     a one-line warning — capture continues via the command stream only.
+
+    ``stats`` is an optional bag the caller keeps, to be passed to
+    ``network_summary`` when the session ends.
     """
     if not _bidi_enabled(driver):
         _warn(
@@ -638,6 +664,6 @@ def attach(driver: Any, capturer: SessionCapturer) -> bool:
     attached = 0
     if _attach_console(driver, capturer):
         attached += 1
-    if _attach_network(driver, capturer):
+    if _attach_network(driver, capturer, stats):
         attached += 1
     return attached > 0
