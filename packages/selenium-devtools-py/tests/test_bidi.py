@@ -621,6 +621,49 @@ class TestTheEventManagerPath(unittest.TestCase):
         self.assertIsInstance(seen[0], module.BeforeRequestSentParameters)
         self.assertEqual(seen[0].initiator, {"type": "script"})
 
+    def test_a_half_subscribed_pair_captures_nothing(self):
+        """The first registration succeeding and the second failing must not
+        leave capture half-on.
+
+        beforeRequestSent alone emits a pending frame per request that only
+        responseCompleted finalizes, so the Network tab would fill with requests
+        stuck pending and the pending map would grow for the rest of the session
+        — while attach() reported failure and the caller believed nothing was
+        capturing.
+        """
+        module = fake_network_module()
+        network = module.Network()
+        capturer = SessionCapturer(FakeTransport())
+
+        real_subscribe = network._event_manager.subscribe_to_event
+
+        def failing_subscribe(bidi_event, contexts=None):
+            if bidi_event == "network.responseCompleted":
+                raise RuntimeError("websocket went away")
+            return real_subscribe(bidi_event, contexts)
+
+        network._event_manager.subscribe_to_event = failing_subscribe
+
+        with mock.patch.dict(
+            sys.modules, {"selenium.webdriver.common.bidi.network": module}
+        ):
+            with self.assertLogs("selenium_devtools.bidi", level="WARNING"):
+                attached = bidi._attach_network(
+                    NewSeleniumDriver(network, []), capturer
+                )
+
+        self.assertFalse(attached)
+
+        # The first callback IS still registered — there is no unregister path.
+        # It must simply do nothing.
+        self._dispatch(network, "network.beforeRequestSent", {
+            "request": {"request": "R1", "url": "https://x/a.js", "method": "GET"},
+            "timestamp": 1000,
+        })
+
+        frames = [s for s, _ in capturer._tx.sent if s == "networkRequests"]
+        self.assertEqual(frames, [])
+
     def test_a_selenium_without_the_event_api_is_reported_not_silent(self):
         """There is no second path to fall back to, so a selenium that cannot
         provide this has to say so. Silence here is an empty Network tab with no

@@ -492,8 +492,14 @@ def _attach_network(driver: Any, capturer: SessionCapturer) -> bool:
     Returns False (and logs) on any failure — network BiDi is best-effort.
     """
     pending: Dict[str, Dict[str, Any]] = {}
+    # Both handlers are inert until every subscription is in place — see
+    # _subscribe_via_event_manager for why a half-subscribed pair is worse than
+    # no capture at all.
+    active = {"ok": False}
 
     def on_request_sent(event: Any) -> None:
+        if not active["ok"]:
+            return
         try:
             params = event_params(event)
             if _incomplete_event(params, BIDI_NET_BEFORE_REQUEST):
@@ -508,6 +514,8 @@ def _attach_network(driver: Any, capturer: SessionCapturer) -> bool:
     captured = {"n": 0}
 
     def on_response_completed(event: Any) -> None:
+        if not active["ok"]:
+            return
         try:
             params = event_params(event)
             if _incomplete_event(params, BIDI_NET_RESPONSE_COMPLETED):
@@ -527,18 +535,32 @@ def _attach_network(driver: Any, capturer: SessionCapturer) -> bool:
             _warn(f"responseCompleted handler threw: {exc}")
 
     return _subscribe_via_event_manager(
-        driver, on_request_sent, on_response_completed
+        driver,
+        {
+            BIDI_NET_BEFORE_REQUEST: on_request_sent,
+            BIDI_NET_RESPONSE_COMPLETED: on_response_completed,
+        },
+        active,
     )
 
 
 def _subscribe_via_event_manager(
-    driver: Any, on_request_sent: Any, on_response_completed: Any
+    driver: Any, handlers: Dict[str, Any], active: Dict[str, bool]
 ) -> bool:
-    """selenium 4.44+: subscribe through the public ``add_event_handler``.
+    """selenium 4.44+: subscribe each handler to its BiDi event.
 
     Deliberately not ``add_request_handler``/``add_response_handler``: both
     register an intercept even in their high-level form, which pauses every
     request until selenium continues it. This only observes.
+
+    ``active`` is flipped once EVERY handler is registered, and the handlers
+    consult it, so capture runs only on the complete set. A half-subscribed pair
+    is worse than none: ``beforeRequestSent`` on its own emits a pending frame
+    per request that only ``responseCompleted`` finalizes, so the Network tab
+    fills with requests stuck pending and ``pending`` grows for the rest of the
+    session. That covers the gap between the two subscribes as well as an
+    outright failure, and it needs no unregister path — which would be more
+    private surface, and could fail in turn while handling a failure.
     """
     if not supports_event_handler_api():
         # Checked rather than caught, so a too-old selenium is reported as a
@@ -547,18 +569,18 @@ def _subscribe_via_event_manager(
         return False
     try:
         network = driver.network
-        _add_raw_event_handler(network, BIDI_NET_BEFORE_REQUEST, on_request_sent)
-        _add_raw_event_handler(
-            network, BIDI_NET_RESPONSE_COMPLETED, on_response_completed
-        )
-        _log.info(
-            "network capture subscribed via the event-handler API (selenium %s)",
-            ".".join(str(p) for p in selenium_version()),
-        )
-        return True
+        for bidi_event, callback in handlers.items():
+            _add_raw_event_handler(network, bidi_event, callback)
     except Exception as exc:  # noqa: BLE001
-        _warn(f"network subscribe failed: {exc}")
+        _warn(f"network subscribe failed, no network events captured: {exc}")
         return False
+    active["ok"] = True
+    _log.info(
+        "network capture subscribed via the event-handler API (selenium %s)",
+        ".".join(str(p) for p in selenium_version()),
+    )
+    return True
+
 
 def attach(driver: Any, capturer: SessionCapturer) -> bool:
     """Wire BiDi console + network capture onto ``driver``.
