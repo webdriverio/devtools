@@ -71,6 +71,22 @@ class TestTheRegeneratedNetworkSurface(unittest.TestCase):
         for method in ("subscribe_to_event", "add_callback_to_tracking"):
             self.assertTrue(callable(getattr(_EventManager, method, None)), method)
 
+    def test_a_registration_can_be_unwound(self):
+        """A failed attach undoes what it did. Without these, an abandoned
+        callback keeps the event's count above zero and a later consumer can
+        never unsubscribe it."""
+        from selenium.webdriver.common.bidi._event_manager import _EventManager
+        from selenium.webdriver.remote.websocket_connection import WebSocketConnection
+
+        self.assertTrue(callable(getattr(WebSocketConnection, "remove_callback", None)))
+        for method in ("remove_callback_from_tracking", "unsubscribe_from_event"):
+            self.assertTrue(callable(getattr(_EventManager, method, None)), method)
+
+        # The unwind relies on this staying conditional: it must not tear down a
+        # subscription another consumer still has callbacks on.
+        source = inspect.getsource(_EventManager.unsubscribe_from_event)
+        self.assertIn('entry["callbacks"]', source)
+
     def test_the_connection_deserializes_per_callback(self):
         """The property the whole design rests on: `add_callback` closes over the
         deserializer it is HANDED. If it ever resolved one per event instead, the

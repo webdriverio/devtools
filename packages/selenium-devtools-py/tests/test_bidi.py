@@ -416,15 +416,21 @@ def fake_network_module(with_event_manager=True):
         publish it to a shared map."""
 
         def __init__(self):
-            self.callbacks = {}
+            self.callbacks = {}  # event name -> [(callback_id, fn)]
             self.next_id = 0
 
         def add_callback(self, event, callback):
             self.next_id += 1
             self.callbacks.setdefault(event.event_class, []).append(
-                lambda params: callback(event.from_json(params))
+                (self.next_id, lambda params: callback(event.from_json(params)))
             )
             return self.next_id
+
+        def remove_callback(self, event, callback_id):
+            entries = self.callbacks.get(event.event_class, [])
+            self.callbacks[event.event_class] = [
+                entry for entry in entries if entry[0] != callback_id
+            ]
 
     class EventManager:
         def __init__(self, configs):
@@ -442,6 +448,18 @@ def fake_network_module(with_event_manager=True):
 
         def add_callback_to_tracking(self, bidi_event, callback_id):
             self.tracked.append((bidi_event, callback_id))
+
+        def remove_callback_from_tracking(self, bidi_event, callback_id):
+            self.tracked.remove((bidi_event, callback_id))
+
+        def unsubscribe_from_event(self, bidi_event):
+            # Selenium only unsubscribes when no callbacks remain, so a live
+            # consumer's subscription cannot be taken down by someone else's
+            # unwind. Mirrored, or the test would pass on a wrong implementation.
+            if any(event == bidi_event for event, _ in self.tracked):
+                return
+            while bidi_event in self.subscribed:
+                self.subscribed.remove(bidi_event)
 
     class Network:
         EVENT_CONFIGS = {
@@ -504,8 +522,8 @@ class TestTheEventManagerPath(unittest.TestCase):
     @staticmethod
     def _dispatch(network, bidi_event, params):
         """Deliver an event the way selenium's connection does."""
-        for callback in network._event_manager.conn.callbacks[bidi_event]:
-            callback(params)
+        for _callback_id, fn in network._event_manager.conn.callbacks[bidi_event]:
+            fn(params)
 
     def test_raw_params_reach_the_handlers_and_are_captured(self):
         module = fake_network_module()
@@ -654,15 +672,51 @@ class TestTheEventManagerPath(unittest.TestCase):
 
         self.assertFalse(attached)
 
-        # The first callback IS still registered — there is no unregister path.
-        # It must simply do nothing.
+        manager = network._event_manager
+        # Nothing left behind. An abandoned callback would keep the event's
+        # callback count above zero, so a later consumer removing THEIR handler
+        # would no longer unsubscribe and the browser would keep sending it.
+        self.assertEqual(manager.conn.callbacks.get("network.beforeRequestSent"), [])
+        self.assertEqual(manager.tracked, [])
+        self.assertNotIn("network.beforeRequestSent", manager.subscribed)
+
+        # And no data even if something did survive: the flag is the guarantee,
+        # the unwind is best-effort.
         self._dispatch(network, "network.beforeRequestSent", {
             "request": {"request": "R1", "url": "https://x/a.js", "method": "GET"},
             "timestamp": 1000,
         })
-
         frames = [s for s, _ in capturer._tx.sent if s == "networkRequests"]
         self.assertEqual(frames, [])
+
+    def test_an_unwind_never_takes_down_a_live_subscription(self):
+        """`unsubscribe_from_event` only fires with no callbacks left, so another
+        consumer already listening to the same event keeps theirs."""
+        module = fake_network_module()
+        network = module.Network()
+        manager = network._event_manager
+
+        # A consumer subscribed before the adapter attaches.
+        manager.subscribe_to_event("network.beforeRequestSent")
+        manager.add_callback_to_tracking("network.beforeRequestSent", 999)
+
+        def failing_subscribe(bidi_event, contexts=None):
+            if bidi_event == "network.responseCompleted":
+                raise RuntimeError("websocket went away")
+            manager.subscribed.append(bidi_event)
+
+        manager.subscribe_to_event = failing_subscribe
+
+        with mock.patch.dict(
+            sys.modules, {"selenium.webdriver.common.bidi.network": module}
+        ):
+            with self.assertLogs("selenium_devtools.bidi", level="WARNING"):
+                bidi._attach_network(
+                    NewSeleniumDriver(network, []), SessionCapturer(FakeTransport())
+                )
+
+        self.assertIn("network.beforeRequestSent", manager.subscribed)
+        self.assertIn(("network.beforeRequestSent", 999), manager.tracked)
 
     def test_a_selenium_without_the_event_api_is_reported_not_silent(self):
         """There is no second path to fall back to, so a selenium that cannot

@@ -447,13 +447,43 @@ def _add_raw_event_handler(network: Any, bidi_event: str, callback: Any) -> None
     window exists.
     """
     manager = network._event_manager
-    callback_id = manager.conn.add_callback(_RawEvent(bidi_event), callback)
+    wrapper = _RawEvent(bidi_event)
+    callback_id = manager.conn.add_callback(wrapper, callback)
     manager.subscribe_to_event(bidi_event)
     # Selenium counts callbacks per event to decide when a subscription is no
     # longer needed. Ours is registered on the connection directly, so without
     # this it is invisible to that count and another consumer removing their
     # handler would unsubscribe the event out from under us.
     manager.add_callback_to_tracking(bidi_event, callback_id)
+    # Returned so a failed attach can undo exactly what it did.
+    return wrapper, callback_id
+
+
+def _undo_registration(
+    manager: Any, bidi_event: str, wrapper: Any, callback_id: Any
+) -> None:
+    """Best-effort unwind of one registration.
+
+    Being counted in selenium's bookkeeping is what makes leaving one behind
+    harmful: an abandoned callback keeps the event's callback count above zero,
+    so a later consumer removing THEIR handler no longer unsubscribes, and the
+    browser keeps sending the event for the rest of the session.
+
+    Each step is guarded on its own. The registration may have failed part-way,
+    and a step with nothing to undo must not stop the ones that do. The callback
+    and its count go first so ``unsubscribe_from_event`` sees an empty list —
+    it only unsubscribes when no callbacks remain, so this cannot take down a
+    subscription another consumer is still using.
+    """
+    for label, undo in (
+        ("callback", lambda: manager.conn.remove_callback(wrapper, callback_id)),
+        ("count", lambda: manager.remove_callback_from_tracking(bidi_event, callback_id)),
+        ("subscription", lambda: manager.unsubscribe_from_event(bidi_event)),
+    ):
+        try:
+            undo()
+        except Exception as exc:  # noqa: BLE001 — unwinding must not raise
+            _log.debug("could not unwind the %s for %s: %s", label, bidi_event, exc)
 
 
 _reported_incomplete: set = set()
@@ -553,26 +583,36 @@ def _subscribe_via_event_manager(
     register an intercept even in their high-level form, which pauses every
     request until selenium continues it. This only observes.
 
-    ``active`` is flipped once EVERY handler is registered, and the handlers
-    consult it, so capture runs only on the complete set. A half-subscribed pair
-    is worse than none: ``beforeRequestSent`` on its own emits a pending frame
-    per request that only ``responseCompleted`` finalizes, so the Network tab
-    fills with requests stuck pending and ``pending`` grows for the rest of the
-    session. That covers the gap between the two subscribes as well as an
-    outright failure, and it needs no unregister path — which would be more
-    private surface, and could fail in turn while handling a failure.
+    A failure part-way through is handled twice over, because the two problems
+    are different. ``active`` is flipped only once EVERY handler is registered,
+    and the handlers consult it, so no incomplete DATA is ever produced:
+    ``beforeRequestSent`` on its own emits a pending frame per request that only
+    ``responseCompleted`` finalizes, which would fill the Network tab with
+    requests stuck pending and grow ``pending`` for the rest of the session. That
+    also covers the gap between the two subscribes, not just an outright failure.
+    Then the registrations already made are unwound, so no STATE is left behind
+    either — see ``_undo_registration`` for why an abandoned one is not inert.
+    The flag is the guarantee; the unwind is best-effort and may find nothing.
     """
     if not supports_event_handler_api():
         # Checked rather than caught, so a too-old selenium is reported as a
         # version floor instead of an AttributeError about a generated attribute.
         _warn(network_unavailable_reason(AttributeError("no BiDi event API")))
         return False
+    manager = None
+    registered = []
     try:
         network = driver.network
+        manager = network._event_manager
         for bidi_event, callback in handlers.items():
-            _add_raw_event_handler(network, bidi_event, callback)
+            wrapper, callback_id = _add_raw_event_handler(
+                network, bidi_event, callback
+            )
+            registered.append((bidi_event, wrapper, callback_id))
     except Exception as exc:  # noqa: BLE001
         _warn(f"network subscribe failed, no network events captured: {exc}")
+        for bidi_event, wrapper, callback_id in registered:
+            _undo_registration(manager, bidi_event, wrapper, callback_id)
         return False
     active["ok"] = True
     _log.info(
