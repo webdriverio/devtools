@@ -12,17 +12,17 @@ rename or relocation, not to test selenium's behaviour.
 
 That prediction was already history when these first ran: selenium 4.44 shipped
 the regenerated layer, and CI (which resolves a newer selenium than a local 3.9
-can install) failed on the first run. `NetworkEvent` is gone from `bidi.network`
-and `Network.conn` is now `_conn`, so network capture has been silently dead on
-4.44+ — no error, just an empty Network tab behind one warning. The observe-only
-replacement is `Network._event_manager.add_event_handler`, whose callback takes a
-deserialized event object rather than `.params`, so adopting it is a port and not
-a rename (issue #293). Until that lands the extra is capped below 4.44.
+can install) failed on the first run, on a breakage that had already shipped.
+
+`bidi.py` now has a path for each surface, so BOTH are guarded here and which
+class applies is decided by the installed version. Neither is optional: whichever
+one the installed selenium presents is the only thing standing between a working
+Network tab and an empty one.
 
 Skipped when selenium is absent. That is not free: the CI job must install the
 adapter's own runtime dependency or these never run where they are meant to
 protect. selenium is an OPTIONAL extra of this package, so the job must select it —
-`pip install -e '.[selenium]'` in `.github/workflows/python.yml`. A plain
+`pip install -e '.[test]'` in `.github/workflows/python.yml`. A plain
 `pip install -e .` installs nothing and every guard here silently skips.
 """
 
@@ -41,49 +41,80 @@ _NETWORK_SURFACE_MOVED = selenium_version() >= SELENIUM_NETWORK_SURFACE_MOVED_AT
 
 
 @unittest.skipUnless(_HAS_SELENIUM, "selenium is not installed")
-class TestTheSupportedSeleniumRange(unittest.TestCase):
-    def test_the_installed_selenium_still_carries_the_network_surface(self):
-        """One legible failure for the whole network breakage.
+@unittest.skipIf(not _NETWORK_SURFACE_MOVED, "selenium predates the regenerated layer")
+class TestTheRegeneratedNetworkSurface(unittest.TestCase):
+    """selenium 4.44+ — what `_subscribe_via_event_manager` needs to exist.
 
-        The two guards below are skipped past that version so this is the only
-        thing that reports it — a reader gets the version and the reason, not two
-        stack traces about a missing name and a missing attribute.
+    `EVENT_CONFIGS` is a public class attribute and `add_event_handler` a public
+    method, so this is a supported-API dependency rather than reaching inside.
+    What is NOT public is that one deserializer is built per BiDi event at
+    `Network.__init__`, which is why registering a `dict` config wins and why it
+    must happen before the first `driver.network`. That is the fragile part, and
+    the shape assertions below are what would catch it changing."""
 
-        This failing is NOT a broken install: the user-facing extra is uncapped,
-        so a developer can legitimately have a newer selenium here. It means the
-        adapter has not caught up, and `bidi.py` says the same thing at runtime
-        to the user who is actually losing the Network tab."""
-        installed = selenium_version()
+    def test_the_public_event_handler_api_is_present(self):
+        from selenium.webdriver.common.bidi.network import Network
 
-        self.assertLess(
-            installed,
-            SELENIUM_NETWORK_SURFACE_MOVED_AT,
-            f"selenium {'.'.join(str(p) for p in installed)} is at or past "
-            f"{'.'.join(str(p) for p in SELENIUM_NETWORK_SURFACE_MOVED_AT)}, "
-            "which regenerated the BiDi layer: bidi.py subscribes to network "
-            "events through NetworkEvent and Network.conn, and neither exists "
-            "any more, so network capture silently degrades to nothing. Console "
-            "capture and the preload are unaffected. Porting to the new "
-            "_event_manager surface is issue #293; the `test` extra pins below "
-            "this release so CI runs the guards on a supported selenium.",
+        self.assertTrue(callable(getattr(Network, "add_event_handler", None)))
+        self.assertIsInstance(getattr(Network, "EVENT_CONFIGS", None), dict)
+
+    def test_event_configs_carry_the_two_events_capture_needs(self):
+        from selenium.webdriver.common.bidi.network import Network
+
+        from selenium_devtools.constants import (
+            BIDI_NET_BEFORE_REQUEST,
+            BIDI_NET_RESPONSE_COMPLETED,
         )
+
+        # Registration reuses selenium's own EventConfig shape, so the names it
+        # subscribes by have to be the ones selenium routes on.
+        wired = {config.bidi_event for config in Network.EVENT_CONFIGS.values()}
+        self.assertIn(BIDI_NET_BEFORE_REQUEST, wired)
+        self.assertIn(BIDI_NET_RESPONSE_COMPLETED, wired)
+
+    def test_event_config_takes_the_three_fields_registration_supplies(self):
+        from selenium.webdriver.common.bidi.network import EventConfig
+
+        config = EventConfig("k", "network.responseCompleted", dict)
+
+        self.assertEqual(config.event_key, "k")
+        self.assertEqual(config.bidi_event, "network.responseCompleted")
+        self.assertIs(config.event_class, dict)
+
+    def test_the_generated_event_classes_are_still_lossy(self):
+        """The reason raw `dict` configs are registered at all.
+
+        If selenium ever models the full event, this fails and the registration
+        can go — the typed object would then carry the request and timestamp. It
+        failing is good news, not a break."""
+        import dataclasses
+
+        from selenium.webdriver.common.bidi.network import (
+            BeforeRequestSentParameters,
+        )
+
+        if not dataclasses.is_dataclass(BeforeRequestSentParameters):
+            self.skipTest("no longer a dataclass — registration needs rechecking")
+        declared = {f.name for f in dataclasses.fields(BeforeRequestSentParameters)}
+        self.assertNotIn("request", declared)
+        self.assertNotIn("timestamp", declared)
 
 
 @unittest.skipUnless(_HAS_SELENIUM, "selenium is not installed")
-@unittest.skipIf(
-    _NETWORK_SURFACE_MOVED,
-    "selenium is past the supported range — TestTheSupportedSeleniumRange reports it",
-)
-class TestTheNetworkInternalsTheAdapterUses(unittest.TestCase):
-    """`bidi.py` reaches through `driver.network.conn` to subscribe WITHOUT
-    interception — selenium's `add_request_handler` registers an intercept even
-    in its high-level style, which pauses each request until selenium continues
-    it. That is a deliberate trade of public API for not stalling a user's page
-    loads, and it is what these pin.
+@unittest.skipIf(_NETWORK_SURFACE_MOVED, "selenium uses the regenerated surface")
+class TestThePreRegenerationNetworkInternals(unittest.TestCase):
+    """selenium ≤4.43 — what `_subscribe_via_connection` needs to exist.
 
-    Only this class is gated on the cap: the console, preload and driver-channel
-    guards below still hold on newer selenium, and skipping them there would
-    drop the coverage exactly where a bump is most likely to move something."""
+    It reaches through `driver.network.conn` because every selenium API that
+    takes a request or response handler registers an intercept, which pauses
+    each request until selenium continues it. On these versions there is no
+    observe-only alternative, so the private access is the price of not
+    changing the timing of the page under test.
+
+    Gated to versions where this path actually runs. The console, preload and
+    driver-channel guards below are gated on nothing, because they hold on every
+    version and skipping them would drop coverage where a bump is most likely to
+    move something."""
 
     def test_the_network_channel_still_carries_the_low_level_connection(self):
         from selenium.webdriver.common.bidi.network import Network
