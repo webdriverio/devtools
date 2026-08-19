@@ -24,8 +24,8 @@ from a schema, and the pre-4.44 one no longer exists there:
   generated event dataclasses are lossy (``BeforeRequestSentParameters``
   declares only ``initiator``, and its deserializer DROPS every param not
   declared, taking the request, its id and the timestamp with it), so
-  ``register_raw_event_configs`` registers configs whose event class is ``dict``
-  and the handlers receive raw params.
+  ``_add_raw_event_handler`` swaps in a pass-through deserializer for the
+  registration and puts selenium's own back immediately.
 * **≤4.43** — ``driver.network.conn`` plus ``NetworkEvent``, which is all those
   versions offer.
 
@@ -390,8 +390,8 @@ def event_params(event: Any) -> Dict[str, Any]:
 
     Legacy selenium hands the callback a ``NetworkEvent`` carrying ``.params``;
     4.44+ hands it whatever its deserializer produced, which is the raw params
-    dict for the configs registered by ``register_raw_event_configs``. Both
-    collapse here so the mapping helpers below only ever see a plain dict.
+    dict for the handlers registered by ``_add_raw_event_handler``. Both collapse
+    here so the mapping helpers below only ever see a plain dict.
     """
     if isinstance(event, dict):
         return event
@@ -399,32 +399,72 @@ def event_params(event: Any) -> Dict[str, Any]:
     return params if isinstance(params, dict) else {}
 
 
-def register_raw_event_configs() -> bool:
-    """Register raw-params event configs on selenium 4.44+. False = legacy path.
+_MISSING = object()
 
-    MUST run before anything touches ``driver.network``: the deserializers are
-    built once, in ``Network.__init__``, from whatever configs exist then.
 
-    Registered under the adapter's own keys so the result does not depend on
-    selenium's own duplicate config entries — it ships two keys mapping to
-    ``network.beforeRequestSent`` with different classes, and which one wins is
-    decided by dict iteration order. Ours are added last and win either way.
+class _RawEvent:
+    """The deserializer selenium's dispatch expects, passing params through.
 
-    Side effect worth knowing: deserializers are keyed by BiDi event, not by
-    config key, so this also makes selenium's own ``response_completed`` handlers
-    receive the raw dict in this process. Nothing else in a test run subscribes
-    to it, and the dict carries strictly more than the dataclass it replaces.
+    Selenium identifies an event by ``event_class`` and deserializes it with
+    ``from_json``; its own wrapper builds a generated dataclass there, which for
+    these two events silently discards the request and the timestamp.
     """
+
+    def __init__(self, bidi_event: str) -> None:
+        self.event_class = bidi_event
+
+    def from_json(self, params: Any) -> Any:
+        return params
+
+
+def supports_event_handler_api() -> bool:
+    """True when selenium presents the 4.44+ event-handler API. Detection only —
+    nothing is mutated, so the caller can pick a path without side effects."""
     try:
         from selenium.webdriver.common.bidi.network import EventConfig, Network
     except ImportError:
         return False  # ≤4.43: no generated layer, use the connection path
-    configs = getattr(Network, "EVENT_CONFIGS", None)
-    if not isinstance(configs, dict) or not hasattr(Network, "add_event_handler"):
-        return False
-    for bidi_event, key in BIDI_NET_EVENT_KEYS.items():
-        configs.setdefault(key, EventConfig(key, bidi_event, dict))
-    return True
+    return bool(
+        EventConfig
+        and isinstance(getattr(Network, "EVENT_CONFIGS", None), dict)
+        and hasattr(Network, "add_event_handler")
+    )
+
+
+def _add_raw_event_handler(network: Any, bidi_event: str, callback: Any) -> None:
+    """Subscribe ``callback`` to ``bidi_event`` with the RAW params, leaving
+    selenium's shared state exactly as it was found.
+
+    Selenium picks the deserializer out of a per-BiDi-event map, so receiving raw
+    params means putting ours in that map. It is swapped in only for the duration
+    of the registration and the ORIGINAL OBJECT is put back, because
+    ``add_callback`` closes over the deserializer it was given: our handler keeps
+    the raw one for the life of the session, while every other handler — before
+    or after, ours or the user's — keeps selenium's own.
+
+    Restoring matters beyond tidiness. Left in place this would hand raw dicts to
+    any other subscriber of these events in the process, breaking attribute
+    access on the generated objects they expect, and it would outlive the adapter.
+    """
+    from selenium.webdriver.common.bidi.network import EventConfig
+
+    key = BIDI_NET_EVENT_KEYS[bidi_event]
+    configs = network.EVENT_CONFIGS
+    wrappers = network._event_manager._event_wrappers
+
+    had_key = key in configs
+    saved = wrappers.get(bidi_event, _MISSING)
+    configs[key] = EventConfig(key, bidi_event, dict)
+    wrappers[bidi_event] = _RawEvent(bidi_event)
+    try:
+        network.add_event_handler(key, callback)
+    finally:
+        if not had_key:
+            configs.pop(key, None)
+        if saved is _MISSING:
+            wrappers.pop(bidi_event, None)
+        else:
+            wrappers[bidi_event] = saved
 
 
 _reported_incomplete: set = set()
@@ -462,7 +502,7 @@ def _attach_network(driver: Any, capturer: SessionCapturer) -> bool:
 
     Returns False (and logs) on any failure — network BiDi is best-effort.
     """
-    use_event_manager = register_raw_event_configs()
+    use_event_manager = supports_event_handler_api()
 
     pending: Dict[str, Dict[str, Any]] = {}
 
@@ -517,11 +557,9 @@ def _subscribe_via_event_manager(
     """
     try:
         network = driver.network
-        network.add_event_handler(
-            BIDI_NET_EVENT_KEYS[BIDI_NET_BEFORE_REQUEST], on_request_sent
-        )
-        network.add_event_handler(
-            BIDI_NET_EVENT_KEYS[BIDI_NET_RESPONSE_COMPLETED], on_response_completed
+        _add_raw_event_handler(network, BIDI_NET_BEFORE_REQUEST, on_request_sent)
+        _add_raw_event_handler(
+            network, BIDI_NET_RESPONSE_COMPLETED, on_response_completed
         )
         _log.info(
             "network capture subscribed via the event-handler API (selenium %s)",

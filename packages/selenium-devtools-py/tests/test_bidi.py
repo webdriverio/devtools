@@ -388,30 +388,66 @@ def fake_network_module(with_event_manager=True):
             self.bidi_event = bidi_event
             self.event_class = event_class
 
+    class TypedWrapper:
+        """selenium's own deserializer: builds the generated dataclass, which
+        for these events keeps only its one declared field."""
+
+        def __init__(self, bidi_event, event_class):
+            self.event_class = bidi_event
+            self._python_class = event_class
+
+        def from_json(self, params):
+            if self._python_class is dict:
+                return params
+            declared = getattr(self._python_class, "DECLARED", ())
+            return self._python_class(
+                **{k: v for k, v in params.items() if k in declared}
+            )
+
+    class BeforeRequestSentParameters:
+        DECLARED = ("initiator",)
+
+        def __init__(self, initiator=None):
+            self.initiator = initiator
+
     class Network:
-        EVENT_CONFIGS = {}
+        EVENT_CONFIGS = {
+            "before_request_sent": EventConfig(
+                "before_request_sent",
+                "network.beforeRequestSent",
+                BeforeRequestSentParameters,
+            ),
+            "response_completed": EventConfig(
+                "response_completed", "network.responseCompleted", dict
+            ),
+        }
 
         def __init__(self):
             self.handlers = {}
-            # selenium builds its deserializers here, from the configs that
-            # exist at construction time. Mirrored because that timing is the
-            # whole reason registration has to come first.
-            self.deserializers = {
-                config.bidi_event: config.event_class
-                for config in self.EVENT_CONFIGS.values()
-            }
+            # selenium builds one deserializer per BiDi event here, and
+            # `add_callback` then CLOSES OVER the one it is handed — which is
+            # what makes restoring the map afterwards safe.
+            self._event_manager = types.SimpleNamespace(
+                _event_wrappers={
+                    config.bidi_event: TypedWrapper(
+                        config.bidi_event, config.event_class
+                    )
+                    for config in self.EVENT_CONFIGS.values()
+                }
+            )
 
         def add_event_handler(self, event, callback, contexts=None):
             # selenium raises for an unregistered key rather than ignoring it.
             config = self.EVENT_CONFIGS.get(event)
             if config is None:
                 raise ValueError(f"Event '{event}' not found")
-            self.handlers[event] = callback
+            wrapper = self._event_manager._event_wrappers[config.bidi_event]
+            self.handlers[event] = lambda params: callback(wrapper.from_json(params))
             return len(self.handlers)
 
     if not with_event_manager:
         del Network.add_event_handler
-        del Network.EVENT_CONFIGS
+        Network.EVENT_CONFIGS = None
 
     module.EventConfig = EventConfig
     module.Network = Network
@@ -470,50 +506,78 @@ class TestTheEventManagerPath(unittest.TestCase):
         self.assertEqual(frames[0]["url"], "https://x/a.js")
         self.assertEqual(frames[1]["status"], 200)  # correlated with the request
 
-    def test_configs_are_registered_before_network_is_constructed(self):
-        """The ordering IS the mechanism. `Network.__init__` builds one
-        deserializer per event from the configs present at that moment, so
-        registering after the first `driver.network` silently keeps the lossy
-        typed path and every entry loses its request id."""
-        log = []
+    def test_selenium_shared_state_is_left_exactly_as_found(self):
+        """The deserializer swap must not outlive the registration.
 
-        class RecordingConfigs(dict):
-            def setdefault(self, *args, **kwargs):
-                log.append("registered")
-                return super().setdefault(*args, **kwargs)
-
+        Left in place it would hand raw dicts to any other subscriber of these
+        events in the process — breaking attribute access on the generated
+        objects they expect — and would persist after the adapter is done.
+        """
         module = fake_network_module()
-        module.Network.EVENT_CONFIGS = RecordingConfigs()
+        network = module.Network()
+
+        configs_before = dict(module.Network.EVENT_CONFIGS)
+        wrappers = network._event_manager._event_wrappers
+        wrappers_before = dict(wrappers)
 
         with mock.patch.dict(
             sys.modules, {"selenium.webdriver.common.bidi.network": module}
         ):
-            bidi._attach_network(
-                NewSeleniumDriver(module.Network(), log), SessionCapturer(FakeTransport())
+            self.assertTrue(
+                bidi._attach_network(
+                    NewSeleniumDriver(network, []), SessionCapturer(FakeTransport())
+                )
             )
 
-        self.assertEqual(log[0], "registered")
-        self.assertIn("network accessed", log)
+        self.assertEqual(module.Network.EVENT_CONFIGS, configs_before)
+        # Identity, not equality: selenium's own deserializer OBJECTS are back,
+        # so a handler registered later behaves exactly as it would have.
+        self.assertEqual(wrappers, wrappers_before)
+        for event, wrapper in wrappers_before.items():
+            self.assertIs(wrappers[event], wrapper)
 
-    def test_both_events_register_a_raw_config(self):
+    def test_our_handler_keeps_raw_params_after_the_restore(self):
+        """`add_callback` closes over the deserializer it was handed, so putting
+        selenium's back does not reach into a handler already registered. This is
+        the assumption the whole isolation rests on."""
         module = fake_network_module()
+        network = module.Network()
+        capturer = SessionCapturer(FakeTransport())
+
         with mock.patch.dict(
             sys.modules, {"selenium.webdriver.common.bidi.network": module}
         ):
-            self.assertTrue(bidi.register_raw_event_configs())
+            bidi._attach_network(NewSeleniumDriver(network, []), capturer)
 
-        configs = module.Network.EVENT_CONFIGS
-        for bidi_event, key in bidi.BIDI_NET_EVENT_KEYS.items():
-            self.assertEqual(configs[key].bidi_event, bidi_event)
-            # dict is what makes selenium pass the params through untouched.
-            self.assertIs(configs[key].event_class, dict)
+        # Dispatched AFTER the restore, through selenium's own registration.
+        network.handlers["devtools_before_request_sent"](
+            {"request": {"request": "R1", "url": "https://x/a.js", "method": "GET"},
+             "timestamp": 1000}
+        )
+
+        frames = [
+            batch[0] for scope, batch in capturer._tx.sent
+            if scope == "networkRequests"
+        ]
+        self.assertEqual(len(frames), 1)
+        self.assertEqual(frames[0]["url"], "https://x/a.js")
 
     def test_legacy_selenium_keeps_the_connection_path(self):
         module = fake_network_module(with_event_manager=False)
         with mock.patch.dict(
             sys.modules, {"selenium.webdriver.common.bidi.network": module}
         ):
-            self.assertFalse(bidi.register_raw_event_configs())
+            self.assertFalse(bidi.supports_event_handler_api())
+
+    def test_the_regenerated_layer_selects_the_event_handler_path(self):
+        module = fake_network_module()
+        with mock.patch.dict(
+            sys.modules, {"selenium.webdriver.common.bidi.network": module}
+        ):
+            self.assertTrue(bidi.supports_event_handler_api())
+
+        # Detection alone must not touch anything — the caller uses it to pick.
+        self.assertNotIn("devtools_before_request_sent", module.Network.EVENT_CONFIGS)
 
 
 class TestEventParams(unittest.TestCase):
