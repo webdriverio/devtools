@@ -61,28 +61,28 @@ class TestTheRegeneratedNetworkSurface(unittest.TestCase):
         self.assertTrue(callable(getattr(Network, "add_event_handler", None)))
         self.assertIsInstance(getattr(Network, "EVENT_CONFIGS", None), dict)
 
-    def test_event_configs_carry_the_two_events_capture_needs(self):
-        from selenium.webdriver.common.bidi.network import Network
+    def test_the_event_manager_carries_what_registration_calls(self):
+        from selenium.webdriver.common.bidi._event_manager import _EventManager
 
-        from selenium_devtools.constants import (
-            BIDI_NET_BEFORE_REQUEST,
-            BIDI_NET_RESPONSE_COMPLETED,
-        )
+        # `_add_raw_event_handler` is this class's own add_event_handler body
+        # with the deserializer passed in rather than looked up, so it calls
+        # exactly these. Private, and pinned for that reason.
+        self.assertIn("conn", inspect.signature(_EventManager.__init__).parameters)
+        for method in ("subscribe_to_event", "add_callback_to_tracking"):
+            self.assertTrue(callable(getattr(_EventManager, method, None)), method)
 
-        # Registration reuses selenium's own EventConfig shape, so the names it
-        # subscribes by have to be the ones selenium routes on.
-        wired = {config.bidi_event for config in Network.EVENT_CONFIGS.values()}
-        self.assertIn(BIDI_NET_BEFORE_REQUEST, wired)
-        self.assertIn(BIDI_NET_RESPONSE_COMPLETED, wired)
+    def test_the_connection_deserializes_per_callback(self):
+        """The property the whole design rests on: `add_callback` closes over the
+        deserializer it is HANDED. If it ever resolved one per event instead, the
+        adapter could no longer keep raw params to itself and would be back to
+        publishing its own into shared state."""
+        from selenium.webdriver.remote.websocket_connection import WebSocketConnection
 
-    def test_event_config_takes_the_three_fields_registration_supplies(self):
-        from selenium.webdriver.common.bidi.network import EventConfig
+        source = inspect.getsource(WebSocketConnection.add_callback)
 
-        config = EventConfig("k", "network.responseCompleted", dict)
-
-        self.assertEqual(config.event_key, "k")
-        self.assertEqual(config.bidi_event, "network.responseCompleted")
-        self.assertIs(config.event_class, dict)
+        # The callback body must call from_json on the passed-in event object.
+        self.assertIn("event.from_json", source)
+        self.assertIn("event.event_class", source)
 
     def test_the_generated_event_classes_are_still_lossy(self):
         """The reason raw `dict` configs are registered at all.

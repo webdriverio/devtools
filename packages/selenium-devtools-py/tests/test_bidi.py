@@ -410,6 +410,39 @@ def fake_network_module(with_event_manager=True):
         def __init__(self, initiator=None):
             self.initiator = initiator
 
+    class Conn:
+        """The websocket connection. `add_callback` CLOSES OVER the deserializer
+        it is handed, which is what lets the adapter pass its own in rather than
+        publish it to a shared map."""
+
+        def __init__(self):
+            self.callbacks = {}
+            self.next_id = 0
+
+        def add_callback(self, event, callback):
+            self.next_id += 1
+            self.callbacks.setdefault(event.event_class, []).append(
+                lambda params: callback(event.from_json(params))
+            )
+            return self.next_id
+
+    class EventManager:
+        def __init__(self, configs):
+            self.conn = Conn()
+            self.subscribed = []
+            self.tracked = []
+            # One deserializer per BiDi event, shared by every subscriber.
+            self._event_wrappers = {
+                config.bidi_event: TypedWrapper(config.bidi_event, config.event_class)
+                for config in configs.values()
+            }
+
+        def subscribe_to_event(self, bidi_event, contexts=None):
+            self.subscribed.append(bidi_event)
+
+        def add_callback_to_tracking(self, bidi_event, callback_id):
+            self.tracked.append((bidi_event, callback_id))
+
     class Network:
         EVENT_CONFIGS = {
             "before_request_sent": EventConfig(
@@ -423,27 +456,17 @@ def fake_network_module(with_event_manager=True):
         }
 
         def __init__(self):
-            self.handlers = {}
-            # selenium builds one deserializer per BiDi event here, and
-            # `add_callback` then CLOSES OVER the one it is handed — which is
-            # what makes restoring the map afterwards safe.
-            self._event_manager = types.SimpleNamespace(
-                _event_wrappers={
-                    config.bidi_event: TypedWrapper(
-                        config.bidi_event, config.event_class
-                    )
-                    for config in self.EVENT_CONFIGS.values()
-                }
-            )
+            self._event_manager = EventManager(self.EVENT_CONFIGS)
 
         def add_event_handler(self, event, callback, contexts=None):
-            # selenium raises for an unregistered key rather than ignoring it.
+            """Selenium's own registration, which the adapter does NOT use: it
+            takes the deserializer from the shared map. Kept so a test can
+            register through it and prove it still gets selenium's own."""
             config = self.EVENT_CONFIGS.get(event)
             if config is None:
                 raise ValueError(f"Event '{event}' not found")
             wrapper = self._event_manager._event_wrappers[config.bidi_event]
-            self.handlers[event] = lambda params: callback(wrapper.from_json(params))
-            return len(self.handlers)
+            return self._event_manager.conn.add_callback(wrapper, callback)
 
     if not with_event_manager:
         del Network.add_event_handler
@@ -451,6 +474,7 @@ def fake_network_module(with_event_manager=True):
 
     module.EventConfig = EventConfig
     module.Network = Network
+    module.BeforeRequestSentParameters = BeforeRequestSentParameters
     return module
 
 
@@ -475,7 +499,13 @@ class NewSeleniumDriver:
 
 
 class TestTheEventManagerPath(unittest.TestCase):
-    """selenium 4.44+ — subscribing through the public `add_event_handler`."""
+    """selenium 4.44+ — registering against the regenerated BiDi layer."""
+
+    @staticmethod
+    def _dispatch(network, bidi_event, params):
+        """Deliver an event the way selenium's connection does."""
+        for callback in network._event_manager.conn.callbacks[bidi_event]:
+            callback(params)
 
     def test_raw_params_reach_the_handlers_and_are_captured(self):
         module = fake_network_module()
@@ -485,17 +515,19 @@ class TestTheEventManagerPath(unittest.TestCase):
         with mock.patch.dict(
             sys.modules, {"selenium.webdriver.common.bidi.network": module}
         ):
-            self.assertTrue(bidi._attach_network(NewSeleniumDriver(network, []), capturer))
+            self.assertTrue(
+                bidi._attach_network(NewSeleniumDriver(network, []), capturer)
+            )
 
-            sent = network.handlers["devtools_before_request_sent"]
-            done = network.handlers["devtools_response_completed"]
-
-        # Raw params, exactly as selenium's dict-config deserializer delivers.
-        sent({"request": {"request": "R1", "url": "https://x/a.js", "method": "GET"},
-              "timestamp": 1000})
-        done({"request": {"request": "R1"}, "timestamp": 1200,
-              "response": {"status": 200, "statusText": "OK",
-                           "mimeType": "text/javascript", "bytesReceived": 12}})
+        self._dispatch(network, "network.beforeRequestSent", {
+            "request": {"request": "R1", "url": "https://x/a.js", "method": "GET"},
+            "timestamp": 1000,
+        })
+        self._dispatch(network, "network.responseCompleted", {
+            "request": {"request": "R1"}, "timestamp": 1200,
+            "response": {"status": 200, "statusText": "OK",
+                         "mimeType": "text/javascript", "bytesReceived": 12},
+        })
 
         # capture_network sends one batch per call, each a list of one frame.
         frames = [
@@ -506,12 +538,39 @@ class TestTheEventManagerPath(unittest.TestCase):
         self.assertEqual(frames[0]["url"], "https://x/a.js")
         self.assertEqual(frames[1]["status"], 200)  # correlated with the request
 
-    def test_selenium_shared_state_is_left_exactly_as_found(self):
-        """The deserializer swap must not outlive the registration.
+    def test_both_events_are_subscribed_and_counted(self):
+        # Registering on the connection directly bypasses selenium's own
+        # bookkeeping, so the subscribe and the callback count are done
+        # explicitly — without the count, another consumer removing their
+        # handler would unsubscribe the event out from under us.
+        module = fake_network_module()
+        network = module.Network()
 
-        Left in place it would hand raw dicts to any other subscriber of these
-        events in the process — breaking attribute access on the generated
-        objects they expect — and would persist after the adapter is done.
+        with mock.patch.dict(
+            sys.modules, {"selenium.webdriver.common.bidi.network": module}
+        ):
+            bidi._attach_network(
+                NewSeleniumDriver(network, []), SessionCapturer(FakeTransport())
+            )
+
+        manager = network._event_manager
+        self.assertEqual(
+            sorted(manager.subscribed),
+            ["network.beforeRequestSent", "network.responseCompleted"],
+        )
+        self.assertEqual(
+            sorted(event for event, _ in manager.tracked),
+            ["network.beforeRequestSent", "network.responseCompleted"],
+        )
+
+    def test_nothing_another_subscriber_reads_is_written(self):
+        """The adapter's deserializer must never be visible to anyone else.
+
+        Publishing it into the shared per-event map would be the public-API
+        route, but there is no safe window: the swap has to span the websocket
+        subscribe inside `add_event_handler`, and any handler registered during
+        that round trip would close over ours and receive dicts where it expects
+        selenium's generated objects.
         """
         module = fake_network_module()
         network = module.Network()
@@ -530,37 +589,37 @@ class TestTheEventManagerPath(unittest.TestCase):
             )
 
         self.assertEqual(module.Network.EVENT_CONFIGS, configs_before)
-        # Identity, not equality: selenium's own deserializer OBJECTS are back,
-        # so a handler registered later behaves exactly as it would have.
+        # Identity, not equality: the very objects are untouched, so a handler
+        # registered at ANY time behaves exactly as it would have.
         self.assertEqual(wrappers, wrappers_before)
         for event, wrapper in wrappers_before.items():
             self.assertIs(wrappers[event], wrapper)
 
-    def test_our_handler_keeps_raw_params_after_the_restore(self):
-        """`add_callback` closes over the deserializer it was handed, so putting
-        selenium's back does not reach into a handler already registered. This is
-        the assumption the whole isolation rests on."""
+    def test_a_concurrent_subscriber_still_gets_selenium_deserializer(self):
+        """The race Greptile raised, made concrete: someone else registering for
+        the SAME event still gets the generated object, not our dict."""
         module = fake_network_module()
         network = module.Network()
-        capturer = SessionCapturer(FakeTransport())
+        seen = []
 
         with mock.patch.dict(
             sys.modules, {"selenium.webdriver.common.bidi.network": module}
         ):
-            bidi._attach_network(NewSeleniumDriver(network, []), capturer)
+            bidi._attach_network(
+                NewSeleniumDriver(network, []), SessionCapturer(FakeTransport())
+            )
+            # Selenium's own registration, for an event the adapter also holds.
+            network.add_event_handler("before_request_sent", seen.append)
 
-        # Dispatched AFTER the restore, through selenium's own registration.
-        network.handlers["devtools_before_request_sent"](
-            {"request": {"request": "R1", "url": "https://x/a.js", "method": "GET"},
-             "timestamp": 1000}
-        )
+        self._dispatch(network, "network.beforeRequestSent", {
+            "request": {"request": "R1", "url": "https://x/a.js", "method": "GET"},
+            "initiator": {"type": "script"}, "timestamp": 1000,
+        })
 
-        frames = [
-            batch[0] for scope, batch in capturer._tx.sent
-            if scope == "networkRequests"
-        ]
-        self.assertEqual(len(frames), 1)
-        self.assertEqual(frames[0]["url"], "https://x/a.js")
+        self.assertEqual(len(seen), 1)
+        # The generated dataclass, with attribute access intact — NOT a dict.
+        self.assertIsInstance(seen[0], module.BeforeRequestSentParameters)
+        self.assertEqual(seen[0].initiator, {"type": "script"})
 
     def test_a_selenium_without_the_event_api_is_reported_not_silent(self):
         """There is no second path to fall back to, so a selenium that cannot

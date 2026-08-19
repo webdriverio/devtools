@@ -107,16 +107,6 @@ BIDI_NET_RESPONSE_COMPLETED = "network.responseCompleted"
 # than raising an AttributeError, and so the surface guards know what they apply
 # to. Also the reason ``requires-python`` is >=3.10: selenium 4.44 requires it.
 SELENIUM_MINIMUM_VERSION = (4, 44)
-# Keys the adapter registers into ``Network.EVENT_CONFIGS`` on 4.44+, so its
-# handlers receive RAW event params. Registered under our own names rather than
-# reusing selenium's, because selenium's generated event dataclasses model only
-# each event's own extension field — ``BeforeRequestSentParameters`` declares
-# just ``initiator`` — and its deserializer DROPS every param not declared, so
-# the typed path loses the request, its id and the timestamp.
-BIDI_NET_EVENT_KEYS = {
-    BIDI_NET_BEFORE_REQUEST: "devtools_before_request_sent",
-    BIDI_NET_RESPONSE_COMPLETED: "devtools_response_completed",
-}
 # selenium's BiDi log entries already carry lowercase levels; this normalizes
 # the stragglers to the shared LogLevel union. Unmapped levels fall back to log.
 BIDI_LEVEL_MAP = {

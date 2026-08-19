@@ -27,8 +27,8 @@ Its generated event dataclasses cannot be used as delivered:
 ``BeforeRequestSentParameters`` declares only ``initiator`` and the deserializer
 DROPS every param not declared, taking the request, its id and the timestamp
 with it — which leaves a response with nothing to correlate against. So
-``_add_raw_event_handler`` swaps in a pass-through deserializer for the
-registration and puts selenium's own back immediately.
+``_add_raw_event_handler`` registers the callback with a pass-through
+deserializer of its own, writing nothing that another subscriber reads.
 
 ``tests/test_selenium_surface.py`` guards that surface against the installed
 selenium.
@@ -44,7 +44,6 @@ from .constants import (
     BIDI_CAPABILITY,
     BIDI_LEVEL_MAP,
     BIDI_NET_BEFORE_REQUEST,
-    BIDI_NET_EVENT_KEYS,
     BIDI_NET_RESPONSE_COMPLETED,
     LOGGER_NAME,
     SELENIUM_MINIMUM_VERSION,
@@ -400,9 +399,6 @@ def event_params(event: Any) -> Dict[str, Any]:
     return event if isinstance(event, dict) else {}
 
 
-_MISSING = object()
-
-
 class _RawEvent:
     """The deserializer selenium's dispatch expects, passing params through.
 
@@ -419,53 +415,45 @@ class _RawEvent:
 
 
 def supports_event_handler_api() -> bool:
-    """True when selenium presents the event-handler API capture subscribes
-    through. Detection only — nothing is mutated."""
+    """True when selenium presents the regenerated BiDi network layer.
+
+    Detection only — nothing is mutated. ``add_event_handler`` is the marker
+    rather than something this calls: it is public, it arrived with the layer,
+    and the event manager behind it is per-instance so there is nothing to check
+    for on the class. A manager that is then missing its parts raises inside
+    ``_add_raw_event_handler`` and is reported there.
+    """
     try:
-        from selenium.webdriver.common.bidi.network import EventConfig, Network
+        from selenium.webdriver.common.bidi.network import Network
     except ImportError:
         return False
-    return bool(
-        EventConfig
-        and isinstance(getattr(Network, "EVENT_CONFIGS", None), dict)
-        and hasattr(Network, "add_event_handler")
-    )
+    return hasattr(Network, "add_event_handler")
 
 
 def _add_raw_event_handler(network: Any, bidi_event: str, callback: Any) -> None:
-    """Subscribe ``callback`` to ``bidi_event`` with the RAW params, leaving
-    selenium's shared state exactly as it was found.
+    """Subscribe ``callback`` to ``bidi_event`` with the RAW params.
 
-    Selenium picks the deserializer out of a per-BiDi-event map, so receiving raw
-    params means putting ours in that map. It is swapped in only for the duration
-    of the registration and the ORIGINAL OBJECT is put back, because
-    ``add_callback`` closes over the deserializer it was given: our handler keeps
-    the raw one for the life of the session, while every other handler — before
-    or after, ours or the user's — keeps selenium's own.
+    This is selenium's own ``add_event_handler`` body with one substitution: it
+    looks its deserializer up in a per-event map shared by every subscriber, and
+    we hand ours in directly. ``add_callback`` closes over the deserializer it is
+    given, so ours holds for the life of the session.
 
-    Restoring matters beyond tidiness. Left in place this would hand raw dicts to
-    any other subscriber of these events in the process, breaking attribute
-    access on the generated objects they expect, and it would outlive the adapter.
+    Writing ours into that map instead would keep the registration on the public
+    API, but there is no safe window in which to do it: the swap has to stay in
+    place across ``add_event_handler``, which subscribes over the websocket, and
+    any handler another thread registers for the same event during that round
+    trip closes over OUR deserializer and receives dicts where it expects
+    selenium's generated objects. Passing it in writes nothing shared, so no such
+    window exists.
     """
-    from selenium.webdriver.common.bidi.network import EventConfig
-
-    key = BIDI_NET_EVENT_KEYS[bidi_event]
-    configs = network.EVENT_CONFIGS
-    wrappers = network._event_manager._event_wrappers
-
-    had_key = key in configs
-    saved = wrappers.get(bidi_event, _MISSING)
-    configs[key] = EventConfig(key, bidi_event, dict)
-    wrappers[bidi_event] = _RawEvent(bidi_event)
-    try:
-        network.add_event_handler(key, callback)
-    finally:
-        if not had_key:
-            configs.pop(key, None)
-        if saved is _MISSING:
-            wrappers.pop(bidi_event, None)
-        else:
-            wrappers[bidi_event] = saved
+    manager = network._event_manager
+    callback_id = manager.conn.add_callback(_RawEvent(bidi_event), callback)
+    manager.subscribe_to_event(bidi_event)
+    # Selenium counts callbacks per event to decide when a subscription is no
+    # longer needed. Ours is registered on the connection directly, so without
+    # this it is invisible to that count and another consumer removing their
+    # handler would unsubscribe the event out from under us.
+    manager.add_callback_to_tracking(bidi_event, callback_id)
 
 
 _reported_incomplete: set = set()
