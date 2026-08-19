@@ -562,12 +562,24 @@ class TestTheEventManagerPath(unittest.TestCase):
         self.assertEqual(len(frames), 1)
         self.assertEqual(frames[0]["url"], "https://x/a.js")
 
-    def test_legacy_selenium_keeps_the_connection_path(self):
+    def test_a_selenium_without_the_event_api_is_reported_not_silent(self):
+        """There is no second path to fall back to, so a selenium that cannot
+        provide this has to say so. Silence here is an empty Network tab with no
+        stated cause, which is the failure this whole port exists to end."""
         module = fake_network_module(with_event_manager=False)
+
         with mock.patch.dict(
             sys.modules, {"selenium.webdriver.common.bidi.network": module}
         ):
             self.assertFalse(bidi.supports_event_handler_api())
+            with self.assertLogs("selenium_devtools.bidi", level="WARNING") as logs:
+                # `.network` is never reached: the check happens before it.
+                attached = bidi._attach_network(
+                    NewSeleniumDriver(None, []), SessionCapturer(FakeTransport())
+                )
+
+        self.assertFalse(attached)
+        self.assertIn("network capture", "\n".join(logs.output))
 
     def test_the_regenerated_layer_selects_the_event_handler_path(self):
         module = fake_network_module()
@@ -584,12 +596,14 @@ class TestEventParams(unittest.TestCase):
     def test_a_raw_dict_is_its_own_params(self):
         self.assertEqual(bidi.event_params({"request": {}}), {"request": {}})
 
-    def test_a_legacy_event_object_is_unwrapped(self):
-        event = types.SimpleNamespace(params={"request": {"url": "u"}})
-        self.assertEqual(bidi.event_params(event), {"request": {"url": "u"}})
-
     def test_anything_else_degrades_to_empty(self):
+        # The value comes from selenium's dispatch, so a release that hands the
+        # callback an object must become a warning from _incomplete_event, not
+        # an AttributeError raised inside the handler.
         self.assertEqual(bidi.event_params(object()), {})
+        self.assertEqual(
+            bidi.event_params(types.SimpleNamespace(params={"request": {}})), {}
+        )
 
 
 class TestADegradedEventIsReported(unittest.TestCase):
@@ -628,42 +642,34 @@ class TestADegradedEventIsReported(unittest.TestCase):
 
 
 class TestWhyNetworkCaptureIsOff(unittest.TestCase):
-    """The connection path is unreachable on 4.44+, so arriving there means the
-    regenerated layer is installed but did not present the API that defines it.
-    That is a combination the adapter does not know about, and the warning has to
-    say so rather than echo an ImportError that reads like a broken install."""
+    """pyproject requires the selenium that carries the BiDi event API, but a
+    user can still be below it — an existing environment, a transitive pin, a
+    resolver that backed off. The bare failure is then an AttributeError about a
+    generated attribute, which reads like a broken install rather than a floor."""
 
-    def test_a_moved_surface_is_reported_as_a_version_gap(self):
-        major, minor = bidi.SELENIUM_NETWORK_SURFACE_MOVED_AT
+    def test_a_selenium_below_the_floor_is_named_as_the_cause(self):
+        major, minor = bidi.SELENIUM_MINIMUM_VERSION
         with mock.patch.object(
-            bidi, "selenium_version", return_value=(major, minor + 1)
+            bidi, "selenium_version", return_value=(major, minor - 1)
         ):
-            reason = bidi.network_unavailable_reason(
-                ImportError("cannot import name 'NetworkEvent'")
-            )
+            reason = bidi.network_unavailable_reason(AttributeError("no attribute"))
 
-        # BOTH versions, and they are different things: what the user has, and
-        # where the surface moved. Asserted on the ATTRIBUTION, not on the
-        # version appearing somewhere — the moved-at version is also named in
-        # the "selenium < X captures network" advice, so a bare assertIn passes
-        # even when the sentence blames the installed version for the move.
-        self.assertIn(f"on selenium {major}.{minor + 1}", reason)
-        self.assertIn(f"{major}.{minor}+ event-handler API", reason)
-        # The underlying error, and the half that still works — without it this
-        # reads as total loss.
-        self.assertIn("cannot import name", reason)
+        self.assertIn(f"{major}.{minor - 1} is installed", reason)  # what they have
+        self.assertIn(f">= {major}.{minor}", reason)  # what is needed
+        self.assertIn("pip install --upgrade", reason)  # how to fix it
+        # The half that still works, or this reads as total loss.
         self.assertIn("Console", reason)
-        self.assertIn("report", reason)
 
-    def test_an_ordinary_failure_still_reports_the_exception(self):
-        # Below the moved version the connection path is the ONLY path, so a
-        # failure there is ordinary and blaming the selenium release would send
-        # the reader somewhere with no answer.
-        with mock.patch.object(bidi, "selenium_version", return_value=(4, 36)):
+    def test_a_failure_on_a_supported_selenium_reports_the_exception(self):
+        # At or above the floor the version is NOT the cause, so blaming it would
+        # send the reader somewhere with no answer.
+        with mock.patch.object(
+            bidi, "selenium_version", return_value=bidi.SELENIUM_MINIMUM_VERSION
+        ):
             reason = bidi.network_unavailable_reason(RuntimeError("no bidi socket"))
 
         self.assertIn("no bidi socket", reason)
-        self.assertNotIn("event-handler API", reason)
+        self.assertNotIn("pip install --upgrade", reason)
 
 
 if __name__ == "__main__":

@@ -100,11 +100,13 @@ BIDI_CAPABILITY = "webSocketUrl"
 # would stall the user's page loads if a callback failed to continue them).
 BIDI_NET_BEFORE_REQUEST = "network.beforeRequestSent"
 BIDI_NET_RESPONSE_COMPLETED = "network.responseCompleted"
-# selenium 4.44 regenerated the BiDi layer from a schema: ``NetworkEvent`` left
-# ``bidi.network`` and ``Network.conn`` became ``_conn``, so the subscribe above
-# cannot be built there. One source of truth for that version, read by bidi.py to
-# pick its subscription path and by the surface guards.
-SELENIUM_NETWORK_SURFACE_MOVED_AT = (4, 44)
+# The adapter targets the regenerated BiDi layer, which selenium 4.44 shipped —
+# it is what ``Network.add_event_handler`` and ``EVENT_CONFIGS`` arrived in, and
+# the pre-4.44 internals network capture used instead were removed in the same
+# release. Declared in pyproject too; here so a wrong install is explained rather
+# than raising an AttributeError, and so the surface guards know what they apply
+# to. Also the reason ``requires-python`` is >=3.10: selenium 4.44 requires it.
+SELENIUM_MINIMUM_VERSION = (4, 44)
 # Keys the adapter registers into ``Network.EVENT_CONFIGS`` on 4.44+, so its
 # handlers receive RAW event params. Registered under our own names rather than
 # reusing selenium's, because selenium's generated event dataclasses model only

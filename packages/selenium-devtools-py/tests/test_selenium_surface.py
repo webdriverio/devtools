@@ -11,13 +11,15 @@ check shape only — no browser, no session — because the point is to detect a
 rename or relocation, not to test selenium's behaviour.
 
 That prediction was already history when these first ran: selenium 4.44 shipped
-the regenerated layer, and CI (which resolves a newer selenium than a local 3.9
-can install) failed on the first run, on a breakage that had already shipped.
+the regenerated layer, and CI (which resolves a newer selenium than the local
+python could install) failed on the first run, on a breakage that had already
+shipped. The adapter now targets that layer, and these guard it.
 
-`bidi.py` now has a path for each surface, so BOTH are guarded here and which
-class applies is decided by the installed version. Neither is optional: whichever
-one the installed selenium presents is the only thing standing between a working
-Network tab and an empty one.
+Skipped below the version the package requires, rather than failing: the floor
+is declared in `pyproject.toml`, and a developer whose environment predates it
+should be told these did not run, not handed a wall of failures about attributes
+their selenium was never going to have. CI installs from that floor, so they run
+where they matter.
 
 Skipped when selenium is absent. That is not free: the CI job must install the
 adapter's own runtime dependency or these never run where they are meant to
@@ -30,27 +32,28 @@ import importlib.util
 import inspect
 import unittest
 
-from selenium_devtools.constants import SELENIUM_NETWORK_SURFACE_MOVED_AT
+from selenium_devtools.constants import SELENIUM_MINIMUM_VERSION
 from selenium_devtools.utils import selenium_version
 
 _HAS_SELENIUM = importlib.util.find_spec("selenium") is not None
-
-# The version fact itself lives in constants.py, because bidi.py needs it too —
-# it is what turns the runtime degradation into a warning naming the version.
-_NETWORK_SURFACE_MOVED = selenium_version() >= SELENIUM_NETWORK_SURFACE_MOVED_AT
+_BELOW_MINIMUM = selenium_version() < SELENIUM_MINIMUM_VERSION
+_TOO_OLD = (
+    f"selenium is below the {'.'.join(str(p) for p in SELENIUM_MINIMUM_VERSION)} "
+    "this package requires"
+)
 
 
 @unittest.skipUnless(_HAS_SELENIUM, "selenium is not installed")
-@unittest.skipIf(not _NETWORK_SURFACE_MOVED, "selenium predates the regenerated layer")
+@unittest.skipIf(_BELOW_MINIMUM, _TOO_OLD)
 class TestTheRegeneratedNetworkSurface(unittest.TestCase):
-    """selenium 4.44+ — what `_subscribe_via_event_manager` needs to exist.
+    """What `_subscribe_via_event_manager` needs to exist.
 
     `EVENT_CONFIGS` is a public class attribute and `add_event_handler` a public
     method, so this is a supported-API dependency rather than reaching inside.
-    What is NOT public is that one deserializer is built per BiDi event at
-    `Network.__init__`, which is why registering a `dict` config wins and why it
-    must happen before the first `driver.network`. That is the fragile part, and
-    the shape assertions below are what would catch it changing."""
+    What is NOT public is that one deserializer is built per BiDi event and held
+    in a map, which is what `_add_raw_event_handler` swaps and restores. That is
+    the fragile part, and the shape assertions below are what would catch it
+    changing."""
 
     def test_the_public_event_handler_api_is_present(self):
         from selenium.webdriver.common.bidi.network import Network
@@ -101,49 +104,10 @@ class TestTheRegeneratedNetworkSurface(unittest.TestCase):
 
 
 @unittest.skipUnless(_HAS_SELENIUM, "selenium is not installed")
-@unittest.skipIf(_NETWORK_SURFACE_MOVED, "selenium uses the regenerated surface")
-class TestThePreRegenerationNetworkInternals(unittest.TestCase):
-    """selenium ≤4.43 — what `_subscribe_via_connection` needs to exist.
-
-    It reaches through `driver.network.conn` because every selenium API that
-    takes a request or response handler registers an intercept, which pauses
-    each request until selenium continues it. On these versions there is no
-    observe-only alternative, so the private access is the price of not
-    changing the timing of the page under test.
-
-    Gated to versions where this path actually runs. The console, preload and
-    driver-channel guards below are gated on nothing, because they hold on every
-    version and skipping them would drop coverage where a bump is most likely to
-    move something."""
-
-    def test_the_network_channel_still_carries_the_low_level_connection(self):
-        from selenium.webdriver.common.bidi.network import Network
-
-        # `driver.network.conn` is the whole reason this module reaches inside.
-        # Asserted against the constructed object rather than the source text:
-        # what the adapter depends on is that `.conn` is reachable and is the
-        # connection it was given, not how selenium happens to write the
-        # assignment. A sentinel stands in for the connection — no session is
-        # needed to answer the question.
-        self.assertIn("conn", inspect.signature(Network.__init__).parameters)
-
-        sentinel = object()
-        self.assertIs(Network(sentinel).conn, sentinel)
-
-    def test_the_event_and_session_types_are_where_the_adapter_imports_them(self):
-        from selenium.webdriver.common.bidi.network import NetworkEvent
-        from selenium.webdriver.common.bidi.session import Session
-
-        # Constructed as `NetworkEvent(name)` and `Session(conn).subscribe(...)`.
-        self.assertTrue(callable(NetworkEvent))
-        self.assertTrue(hasattr(Session, "subscribe"))
-
-
-@unittest.skipUnless(_HAS_SELENIUM, "selenium is not installed")
 class TestTheChannelsThatSurvivedTheBiDiRegeneration(unittest.TestCase):
     """Console capture and the document-start preload go through `driver.script`,
-    which 4.44's regeneration left alone. Deliberately NOT gated on the cap, so
-    these keep guarding on whatever selenium is installed."""
+    which 4.44's regeneration left alone. Deliberately NOT gated on the version
+    floor, so these keep guarding on whatever selenium is installed."""
 
     def test_the_driver_exposes_the_bidi_channels(self):
         from selenium.webdriver.remote.webdriver import WebDriver
