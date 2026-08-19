@@ -19,6 +19,12 @@ pip install -e packages/selenium-devtools-py   # or: pip install selenium-devtoo
 The transport is **dependency-free** (stdlib WebSocket client). The only thing
 on top of your own `selenium` install is this package; `pytest` is optional.
 
+**Requires Python 3.10+ and selenium 4.44+.** Network capture subscribes through
+the public BiDi event API that selenium regenerated in 4.44 — before that the
+only way to observe requests without pausing them was a private connection,
+which the same release removed. 4.44 requires Python 3.10, which sets the
+Python floor too.
+
 ## Use
 
 **With pytest (recommended) — no code changes to your tests:**
@@ -159,7 +165,7 @@ DEVTOOLS_PORT=3000 PYTHONPATH=src pytest e2e/test_smoke.py -p selenium_devtools.
 Two workflows, mirroring the JS split (`ci.yml` tests / `release.yml` publish):
 
 - **`python.yml`** — runs on PRs + pushes touching this package or `shared`:
-  unit tests on Python 3.9 + 3.12, and a contract-drift check (regenerate
+  unit tests on Python 3.10 + 3.13, and a contract-drift check (regenerate
   `_contract.py`, fail on any diff). Zero repo config needed.
 - **`python-release.yml`** — **manual** (`workflow_dispatch`, like the JS
   "Manual NPM Publish"), target `pypi` or `testpypi`. Builds the sdist + wheel

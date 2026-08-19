@@ -32,7 +32,9 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ['3.9', '3.12']
+        # The floor the package declares, and the newest — 3.10 because selenium
+        # 4.44 requires it, and network capture requires 4.44+.
+        python-version: ['3.10', '3.13']
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
@@ -42,12 +44,6 @@ jobs:
       # pin its BiDi surface (tests/test_selenium_surface.py) skip without it —
       # so a bump that moved those internals used to pass CI green and degrade
       # at runtime. Installing the package is what makes those guards real.
-      #
-      # The matrix is load-bearing, not just breadth: network capture has two
-      # subscription paths, one per selenium BiDi surface, and the python version
-      # is what selects which selenium resolves. 3.9 caps at a pre-4.44 selenium
-      # and exercises the connection path; 3.12 resolves the latest and exercises
-      # the event-handler path. Dropping either job leaves one path untested.
       - name: Install the adapter and its runtime dependency
         run: pip install -e '.[test]'
 

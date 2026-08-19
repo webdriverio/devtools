@@ -7,7 +7,9 @@ name = "selenium-devtools-py"
 version = "0.1.0"
 description = "Python Selenium adapter for the WebdriverIO DevTools dashboard"
 readme = "README.md"
-requires-python = ">=3.9"
+# >=3.10 because selenium 4.44 requires it, and network capture needs 4.44+.
+# Not an independent choice: 3.9 left security support in October 2025.
+requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [{ name = "WebdriverIO" }]
 keywords = ["selenium", "webdriver", "devtools", "pytest", "debugging"]
@@ -17,13 +19,13 @@ keywords = ["selenium", "webdriver", "devtools", "pytest", "debugging"]
 dependencies = []
 
 [project.optional-dependencies]
-# Uncapped on both sides. selenium 4.44 regenerated the BiDi layer and moved the
-# internals network capture subscribes through; `bidi.py` now has a path for each
-# surface, so there is no range to exclude. The CI matrix is what keeps that
-# honest — its 3.9 job resolves a pre-4.44 selenium and its 3.12 job the latest,
-# so both paths run on every PR.
-selenium = ["selenium>=4.6"]
-test = ["pytest>=7", "selenium>=4.6"]
+# 4.44 is where selenium regenerated the BiDi layer, and with it the public
+# event API network capture subscribes through. Earlier versions offered only a
+# private connection, which 4.44 removed — supporting both would mean carrying
+# two subscription paths for releases that predate this package's own first one.
+# Uncapped above: 4.44+ is a floor, not a range.
+selenium = ["selenium>=4.44"]
+test = ["pytest>=7", "selenium>=4.44"]
 
 # Auto-discovered by pytest; inert unless DEVTOOLS_ENABLE / DEVTOOLS_PORT is set.
 [project.entry-points.pytest11]
