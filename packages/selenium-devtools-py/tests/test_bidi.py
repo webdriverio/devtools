@@ -689,6 +689,41 @@ class TestTheEventManagerPath(unittest.TestCase):
         frames = [s for s, _ in capturer._tx.sent if s == "networkRequests"]
         self.assertEqual(frames, [])
 
+    def test_a_failure_mid_registration_unwinds_the_in_flight_callback(self):
+        """The callback is installed before the steps that can raise, so the
+        registration that FAILED is the one most easily missed.
+
+        Recording it only after subscribing leaves it on the connection with
+        nothing referencing it, and a session that re-attaches accumulates one
+        more on every failure.
+        """
+        module = fake_network_module()
+        network = module.Network()
+        manager = network._event_manager
+
+        # Fails on the FIRST event, i.e. part-way through its own registration
+        # rather than after an earlier one completed.
+        def failing_subscribe(bidi_event, contexts=None):
+            raise RuntimeError("websocket went away")
+
+        manager.subscribe_to_event = failing_subscribe
+
+        with mock.patch.dict(
+            sys.modules, {"selenium.webdriver.common.bidi.network": module}
+        ):
+            with self.assertLogs("selenium_devtools.bidi", level="WARNING"):
+                attached = bidi._attach_network(
+                    NewSeleniumDriver(network, []), SessionCapturer(FakeTransport())
+                )
+
+        self.assertFalse(attached)
+        self.assertEqual(
+            [entries for entries in manager.conn.callbacks.values() if entries], []
+        )
+        # Never tracked, because add_callback_to_tracking is after the failure —
+        # so the unwind's own steps must tolerate having nothing to remove.
+        self.assertEqual(manager.tracked, [])
+
     def test_an_unwind_never_takes_down_a_live_subscription(self):
         """`unsubscribe_from_event` only fires with no callbacks left, so another
         consumer already listening to the same event keeps theirs."""

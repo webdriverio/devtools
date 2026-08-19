@@ -430,8 +430,11 @@ def supports_event_handler_api() -> bool:
     return hasattr(Network, "add_event_handler")
 
 
-def _add_raw_event_handler(network: Any, bidi_event: str, callback: Any) -> None:
-    """Subscribe ``callback`` to ``bidi_event`` with the RAW params.
+def _add_raw_event_handler(
+    network: Any, bidi_event: str, callback: Any, registered: List[Any]
+) -> None:
+    """Subscribe ``callback`` to ``bidi_event`` with the RAW params, appending
+    what it installed to ``registered`` so a failed attach can undo it.
 
     This is selenium's own ``add_event_handler`` body with one substitution: it
     looks its deserializer up in a per-event map shared by every subscriber, and
@@ -449,14 +452,16 @@ def _add_raw_event_handler(network: Any, bidi_event: str, callback: Any) -> None
     manager = network._event_manager
     wrapper = _RawEvent(bidi_event)
     callback_id = manager.conn.add_callback(wrapper, callback)
+    # Recorded the moment the callback exists, BEFORE the two steps that can
+    # raise. Recording it after them instead leaves the one registration in
+    # flight invisible to the unwind — precisely the one that failed.
+    registered.append((bidi_event, wrapper, callback_id))
     manager.subscribe_to_event(bidi_event)
     # Selenium counts callbacks per event to decide when a subscription is no
     # longer needed. Ours is registered on the connection directly, so without
     # this it is invisible to that count and another consumer removing their
     # handler would unsubscribe the event out from under us.
     manager.add_callback_to_tracking(bidi_event, callback_id)
-    # Returned so a failed attach can undo exactly what it did.
-    return wrapper, callback_id
 
 
 def _undo_registration(
@@ -608,10 +613,7 @@ def _subscribe_via_event_manager(
         network = driver.network
         manager = network._event_manager
         for bidi_event, callback in handlers.items():
-            wrapper, callback_id = _add_raw_event_handler(
-                network, bidi_event, callback
-            )
-            registered.append((bidi_event, wrapper, callback_id))
+            _add_raw_event_handler(network, bidi_event, callback, registered)
     except Exception as exc:  # noqa: BLE001
         _warn(f"network subscribe failed, no network events captured: {exc}")
         for bidi_event, wrapper, callback_id in registered:
