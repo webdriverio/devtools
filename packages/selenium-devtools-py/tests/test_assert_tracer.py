@@ -155,6 +155,48 @@ class TestWhatItReports(unittest.TestCase):
         [call] = [c for c in self.recorder.calls if c["source"]]
         self.assertFalse(call["passed"])
 
+    def test_a_multiline_assert_that_fails_reports_only_a_failure(self):
+        """CPython does not walk a multi-line statement in order.
+
+        Measured for an assert spanning four lines: the first line event is the
+        SECOND line, the first line fires twice in the middle, and the statement
+        can finish without its first line firing at all. Keying on "is this the
+        assert's first line" produced a green row mid-statement and then a
+        failure — two rows for one assert, the first of them a lie.
+        """
+        def run():
+            url = "https://example.com/login"
+            assert (
+                "/secure"
+                in url
+            ), url
+
+        with self.assertRaises(AssertionError):
+            run()
+        self.tracer.uninstall()
+
+        [call] = [c for c in self.recorder.calls if c["source"]]
+        self.assertFalse(call["passed"])
+        # The unparsed condition, not the `assert (` the first physical line holds.
+        self.assertEqual(call["source"], "'/secure' in url")
+
+    def test_a_multiline_assert_that_passes_reports_once(self):
+        # The mirror case: its first line never fires, so keying on the start
+        # meant this assert produced no row at all.
+        def run():
+            url = "https://example.com/secure"
+            assert (
+                "/secure"
+                in url
+            ), url
+
+        run()
+        self.tracer.uninstall()
+
+        [call] = [c for c in self.recorder.calls if c["source"]]
+        self.assertTrue(call["passed"])
+        self.assertEqual(call["source"], "'/secure' in url")
+
     def test_a_side_effecting_operand_is_never_read(self):
         reads = []
 

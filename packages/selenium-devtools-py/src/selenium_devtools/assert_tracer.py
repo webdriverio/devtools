@@ -24,6 +24,7 @@ The cost is a trace function, so this is deliberately narrow:
 
 from __future__ import annotations
 
+import ast
 import linecache
 import logging
 import os
@@ -35,9 +36,50 @@ from .constants import LOGGER_NAME
 
 _log = logging.getLogger(f"{LOGGER_NAME}.asserts")
 
-# (source, operands) per (filename, lineno), because a loop hits the same assert
-# repeatedly and parsing is the expensive half of this.
-_PARSE_CACHE: Dict[Tuple[str, int], Tuple[Optional[str], bool]] = {}
+# Per file: {first line of an `assert` -> (last line, condition source)}. Keyed by
+# the whole file rather than by line because a statement can SPAN lines, and a
+# single line cannot tell you where it ends — `assert (` parses as nothing, and
+# resolving on the next line event would call the assert done while it was still
+# evaluating. Cached because a loop hits the same assert repeatedly.
+_ASSERT_SPANS: Dict[str, Dict[int, Tuple[int, Optional[str]]]] = {}
+
+
+def _assert_lines(filename: str) -> Dict[int, Tuple[int, Optional[str]]]:
+    """Every line belonging to an `assert`, mapped to (its statement's first
+    line, its condition source).
+
+    Indexed by EVERY line of the statement, not just its first, because CPython
+    does not walk a multi-line statement in order. Measured for an assert
+    spanning lines 17-20::
+
+        line=18  line=19  line=18  line=17  line=20  line=17  line=18  exception
+
+    The first event is 18, the first line fires twice in the middle, and in
+    another case line 17 never fires at all. So "is this line the start of an
+    assert" is unanswerable; "which assert does this line belong to" is not.
+    """
+    cached = _ASSERT_SPANS.get(filename)
+    if cached is not None:
+        return cached
+    lines: Dict[int, Tuple[int, Optional[str]]] = {}
+    try:
+        tree = ast.parse("".join(linecache.getlines(filename)))
+    except Exception as exc:  # noqa: BLE001 — an unparseable file simply has none
+        _log.debug("could not read asserts from %s: %s", filename, exc)
+        _ASSERT_SPANS[filename] = lines
+        return lines
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assert):
+            continue
+        end = getattr(node, "end_lineno", None) or node.lineno
+        try:
+            condition = ast.unparse(node.test)
+        except Exception:  # noqa: BLE001 — the row still gets its outcome
+            condition = None
+        for lineno in range(node.lineno, end + 1):
+            lines[lineno] = (node.lineno, condition)
+    _ASSERT_SPANS[filename] = lines
+    return lines
 
 
 class ScriptAssertionTracer:
@@ -123,9 +165,7 @@ class ScriptAssertionTracer:
     def _trace_lines(self, frame: Any, event: str, arg: Any) -> Any:
         try:
             if event == "line":
-                # Reaching a new line means the previous assert did not raise.
-                self._resolve(frame, error=None)
-                self._arm(frame)
+                self._on_line(frame)
             elif event == "exception":
                 raised = arg[1] if isinstance(arg, tuple) and len(arg) > 1 else None
                 if isinstance(raised, AssertionError):
@@ -144,27 +184,54 @@ class ScriptAssertionTracer:
             _log.debug("assertion tracing threw: %s", exc)
         return self._lines
 
-    def _arm(self, frame: Any) -> None:
-        """Record the assert about to execute, with the values it will compare.
+    def _on_line(self, frame: Any) -> None:
+        """Track which assert statement, if any, execution is inside.
 
-        Read now, before the statement runs: afterwards a failing comparison's
-        operands may be gone, and re-reading them could run user code.
+        Line numbers within a statement arrive out of order, so the only durable
+        question is which statement OWNS the current line. Leaving one means it
+        completed without raising; entering a different one means the previous
+        completed too.
         """
-        lineno = frame.f_lineno
         filename = frame.f_code.co_filename
-        source, is_assert = self._parsed(filename, lineno)
-        if not is_assert:
+        owner = _assert_lines(filename).get(frame.f_lineno)
+        pending = self._pending.get(id(frame))
+        pending_start = pending[3] if pending is not None else None
+
+        if owner is None:
+            if pending is not None:
+                self._resolve(frame, error=None)  # left the statement, no raise
             return
+
+        start, condition = owner
+        if pending_start == start:
+            return  # still inside the same statement, wherever within it
+        if pending is not None:
+            self._resolve(frame, error=None)
+        self._arm(frame, filename, start, condition)
+
+    def _arm(
+        self, frame: Any, filename: str, start: int, condition: Optional[str]
+    ) -> None:
+        """Record the assert now executing, with the values it compares.
+
+        Read from the frame now rather than after: a failing comparison's
+        operands may be gone by then, and re-reading them could run user code.
+        The condition is the UNPARSED expression, so a multi-line assert is
+        labelled with what it tests rather than the `assert (` its first physical
+        line happens to hold.
+        """
         _, operands = assertions.parse_assert_statement(
-            linecache.getline(filename, lineno), frame
+            f"assert {condition}" if condition else "", frame
         )
-        self._pending[id(frame)] = (source, operands, f"{filename}:{lineno}")
+        self._pending[id(frame)] = (
+            condition, operands, f"{filename}:{start}", start,
+        )
 
     def _resolve(self, frame: Any, *, error: Optional[BaseException]) -> None:
         pending = self._pending.pop(id(frame), None)
         if pending is None:
             return
-        source, operands, location = pending
+        source, operands, location, _start = pending
         self._on_assertion(
             passed=error is None,
             source=source,
@@ -172,18 +239,3 @@ class ScriptAssertionTracer:
             location=location,
             error=error,
         )
-
-    @staticmethod
-    def _parsed(filename: str, lineno: int) -> Tuple[Optional[str], bool]:
-        """(condition source, is-an-assert) for one line, cached."""
-        key = (filename, lineno)
-        cached = _PARSE_CACHE.get(key)
-        if cached is not None:
-            return cached
-        line = linecache.getline(filename, lineno)
-        is_assert = line.strip().startswith("assert ")
-        source = (
-            assertions.parse_assert_statement(line, None)[0] if is_assert else None
-        )
-        _PARSE_CACHE[key] = (source, is_assert)
-        return source, is_assert
