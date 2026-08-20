@@ -16,8 +16,11 @@ import socket
 import struct
 import threading
 from typing import Callable, Optional
+from urllib.parse import quote
 
+from ._contract import WORKER_QUERY_RUN_ID
 from .constants import CONNECT_TIMEOUT_S, WORKER_PATH
+from .run_id import resolve_run_id
 
 
 class WSClient:
@@ -40,12 +43,31 @@ class WSClient:
 
     # ── lifecycle ────────────────────────────────────────────────────────────
 
+    def request_target(self) -> str:
+        """The request-line target, carrying this run's identity on the worker
+        upgrade.
+
+        The backend reads the query as it upgrades, so it has to be on the
+        request line — there is nowhere later to put it. A connect whose runId
+        matches the active run keeps the accumulated state; one carrying no runId
+        reads as a new run and wipes it, which is why a second connect within a
+        run cannot omit it.
+
+        Scoped to the worker path because that is where the contract scopes it
+        and where the backend reads it. Sending it elsewhere would attach a
+        parameter nothing reads, which invites the next reader to believe it
+        means something there.
+        """
+        if self.path != WORKER_PATH:
+            return self.path
+        return f"{self.path}?{WORKER_QUERY_RUN_ID}={quote(resolve_run_id())}"
+
     def connect(self, timeout: float = CONNECT_TIMEOUT_S) -> None:
         sock = socket.create_connection((self.host, self.port), timeout=timeout)
         key = base64.b64encode(os.urandom(16)).decode()
         sock.sendall(
             (
-                f"GET {self.path} HTTP/1.1\r\n"
+                f"GET {self.request_target()} HTTP/1.1\r\n"
                 f"Host: {self.host}:{self.port}\r\n"
                 "Upgrade: websocket\r\n"
                 "Connection: Upgrade\r\n"
