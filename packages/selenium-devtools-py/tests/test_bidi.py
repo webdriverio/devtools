@@ -897,9 +897,12 @@ class TestWhyNetworkCaptureIsOff(unittest.TestCase):
 
     def test_a_selenium_below_the_floor_is_named_as_the_cause(self):
         major, minor = bidi.SELENIUM_MINIMUM_VERSION
+        # A supported interpreter, so the remedy is the selenium upgrade. Below
+        # the python floor the message says something different — see
+        # TestTheRemedyIsPossible.
         with mock.patch.object(
             bidi, "selenium_version", return_value=(major, minor - 1)
-        ):
+        ), mock.patch.object(bidi.sys, "version_info", (3, 12, 0)):
             reason = bidi.network_unavailable_reason(AttributeError("no attribute"))
 
         self.assertIn(f"{major}.{minor - 1} is installed", reason)  # what they have
@@ -922,3 +925,27 @@ class TestWhyNetworkCaptureIsOff(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestTheRemedyIsPossible(unittest.TestCase):
+    """The advice has to be actionable. Below the python floor no selenium at or
+    above the version floor will install at all, so telling the reader to upgrade
+    selenium sends them in a circle."""
+
+    def test_on_a_supported_python_it_advises_the_upgrade(self):
+        major, minor = bidi.SELENIUM_MINIMUM_VERSION
+        with mock.patch.object(bidi, "selenium_version", return_value=(major, minor - 1)), \
+             mock.patch.object(bidi.sys, "version_info", (3, 12, 0)):
+            reason = bidi.network_unavailable_reason(AttributeError("x"))
+
+        self.assertIn("pip install --upgrade", reason)
+
+    def test_below_the_python_floor_it_says_the_upgrade_is_impossible(self):
+        major, minor = bidi.SELENIUM_MINIMUM_VERSION
+        with mock.patch.object(bidi, "selenium_version", return_value=(major, minor - 1)), \
+             mock.patch.object(bidi.sys, "version_info", (3, 9, 6)):
+            reason = bidi.network_unavailable_reason(AttributeError("x"))
+
+        self.assertNotIn("pip install --upgrade", reason)
+        self.assertIn("requires Python", reason)
+        self.assertIn("3.9.6", reason)  # what they are on

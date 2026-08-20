@@ -17,6 +17,11 @@ dist-ssr
 .vscode/*
 !.vscode/extensions.json
 .idea
+# Python: a virtualenv under any name, and the bytecode pytest rewrites into the
+# tree next to the tests it collects.
+.venv*
+__pycache__/
+*.py[cod]
 .DS_Store
 *.suo
 *.ntvs*

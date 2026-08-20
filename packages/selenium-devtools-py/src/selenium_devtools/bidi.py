@@ -37,6 +37,7 @@ selenium.
 from __future__ import annotations
 
 import logging
+import sys
 from typing import Any, Dict, List, Optional, Tuple
 
 from .capturer import SessionCapturer
@@ -46,6 +47,7 @@ from .constants import (
     BIDI_NET_BEFORE_REQUEST,
     BIDI_NET_RESPONSE_COMPLETED,
     LOGGER_NAME,
+    PYTHON_MINIMUM_VERSION,
     SELENIUM_MINIMUM_VERSION,
 )
 from .utils import now_ms, selenium_version
@@ -374,11 +376,25 @@ def network_unavailable_reason(exc: Exception) -> str:
     required = ".".join(str(p) for p in SELENIUM_MINIMUM_VERSION)
     if version < SELENIUM_MINIMUM_VERSION:
         installed = ".".join(str(part) for part in version)
+        needs_python = ".".join(str(p) for p in PYTHON_MINIMUM_VERSION)
+        # On an interpreter below the floor the upgrade is impossible, not merely
+        # untried: every selenium at or above `required` refuses to install
+        # there. Advising it would send the reader in a circle.
+        remedy = (
+            f"`pip install --upgrade 'selenium>={required}'` restores it."
+            if sys.version_info >= PYTHON_MINIMUM_VERSION
+            else (
+                f"selenium {required} requires Python {needs_python}, and this is "
+                f"{'.'.join(str(p) for p in sys.version_info[:3])} — no selenium "
+                "upgrade is possible here; run on Python "
+                f"{needs_python} or newer."
+            )
+        )
         return (
             f"network capture needs selenium >= {required} and {installed} is "
             "installed: the BiDi event API it subscribes through arrived in "
             f"{required}. Console, DOM and command capture are unaffected. "
-            f"`pip install --upgrade 'selenium>={required}'` restores it."
+            f"{remedy}"
         )
     return (
         f"network capture could not attach on selenium {'.'.join(str(p) for p in version)}"

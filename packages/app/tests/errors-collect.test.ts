@@ -387,6 +387,40 @@ describe('collectErrors', () => {
     expect(error.message).not.toContain('at World')
   })
 
+  it('reads the diff off a bare `assert` row', () => {
+    // Python's `assert` is a statement, not a method, so its rows are named
+    // exactly `assert`. Requiring a dotted name dropped their whole
+    // Expected/Received block, leaving only the message.
+    const [error] = collectErrors(
+      [
+        command({
+          command: 'assert',
+          args: ["'/secure' in url"],
+          result: { passed: false, expected: '/secure', actual: '/login' },
+          error: { name: 'AssertionError', message: '/login' }
+        })
+      ],
+      []
+    )
+    expect(error.expected).toBe("'/secure'")
+    expect(error.actual).toBe("'/login'")
+  })
+
+  it('still ignores a non-assertion row that merely has a result', () => {
+    const [error] = collectErrors(
+      [
+        command({
+          command: 'assertively_named_command',
+          result: { passed: false, expected: 'x', actual: 'y' },
+          error: { name: 'Error', message: 'boom' }
+        })
+      ],
+      []
+    )
+    expect(error.expected).toBeUndefined()
+    expect(error.actual).toBeUndefined()
+  })
+
   it('extracts indented Expected/Received and dedents the value', () => {
     const raw =
       'Expect $(`#flash`) to have text\n\n' +

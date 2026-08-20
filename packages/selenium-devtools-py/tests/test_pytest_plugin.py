@@ -7,8 +7,12 @@ captured from a run of a file holding a class-based and a module-level test:
     LOCATION=('t.py', 7, 'test_plain')            NODEID='t.py::test_plain'
 """
 
+import types
 import unittest
+from unittest import mock
 
+from selenium_devtools import assertions
+from selenium_devtools import pytest_plugin as plugin
 from selenium_devtools.pytest_plugin import _SuiteRegistry, reported_state
 from selenium_devtools.utils import iso
 
@@ -307,3 +311,224 @@ class TestStateRollsUp(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class _Capturer:
+    """Records what capture_command was handed, in the adapter's own kwargs."""
+
+    def __init__(self):
+        self.commands = []
+
+    def capture_command(self, **kwargs):
+        self.commands.append(kwargs)
+
+
+class _Item:
+    def __init__(self, path=FILE, nodeid=f"{FILE}::test_x"):
+        self.path = path
+        self.nodeid = nodeid
+
+
+class _ExcInfo:
+    """Stands in for pytest's ExceptionInfo — only what the plugin reads."""
+
+    def __init__(self, value, statement="assert '/secure' in url", lineno=16):
+        self.value = value
+        entry = types.SimpleNamespace(path=FILE, lineno=lineno, statement=statement)
+        self.traceback = [entry]
+
+
+class TestAssertionRows(unittest.TestCase):
+    """Python's `assert` is a statement, so the values come from pytest's own
+    hooks — the operands from one, the outcome from another."""
+
+    def setUp(self):
+        plugin._comparisons.clear()
+        self.capturer = _Capturer()
+        self._opted = mock.patch.object(plugin, "_opted_in", return_value=True)
+        self._opted.start()
+        self._get = mock.patch.object(
+            plugin.devtools, "get_capturer", return_value=self.capturer
+        )
+        self._get.start()
+
+    def tearDown(self):
+        self._opted.stop()
+        self._get.stop()
+
+    def test_a_passing_assertion_carries_the_operands(self):
+        plugin.pytest_assertrepr_compare(None, "==", "Example Domain", "Example Domain")
+        plugin.pytest_assertion_pass(
+            _Item(), 3, 'title == "Example Domain"', "explanation"
+        )
+
+        [row] = self.capturer.commands
+        self.assertEqual(row["command"], "assert")
+        self.assertEqual(row["args"], ['title == "Example Domain"'])
+        self.assertEqual(
+            row["result"],
+            {"passed": True, "expected": "Example Domain", "actual": "Example Domain"},
+        )
+        self.assertIsNone(row["error"])
+        self.assertEqual(row["call_source"], f"{FILE}:3")
+
+    def test_a_passing_assertion_with_no_comparison_still_gets_a_row(self):
+        # `assert x` has no operands; the row is its source text and outcome.
+        plugin.pytest_assertion_pass(_Item(), 7, "[1, 2, 3]", "[1, 2, 3]")
+
+        [row] = self.capturer.commands
+        self.assertEqual(row["result"], {"passed": True})
+
+    def test_a_failing_assertion_is_marked_failed_and_carries_the_error(self):
+        # The Errors tab collects rows carrying `error`, so a failing assertion
+        # has to populate both that and `passed: False`.
+        plugin.pytest_assertrepr_compare(
+            None, "in", "/secure", "https://example.com/login"
+        )
+        error = AssertionError("assert '/secure' in 'https://example.com/login'")
+
+        plugin.pytest_exception_interact(
+            None, types.SimpleNamespace(excinfo=_ExcInfo(error)), None
+        )
+
+        [row] = self.capturer.commands
+        self.assertIs(row["result"]["passed"], False)
+        self.assertEqual(row["result"]["expected"], "/secure")
+        self.assertEqual(row["result"]["actual"], "https://example.com/login")
+        self.assertIs(row["error"], error)
+        self.assertEqual(row["args"], ["'/secure' in url"])
+
+    def test_a_non_assertion_failure_produces_no_row(self):
+        # A TimeoutException is a test error, not an assertion. Emitting a row
+        # would invent an assertion the user never wrote.
+        plugin.pytest_assertrepr_compare(None, "==", "a", "b")
+
+        plugin.pytest_exception_interact(
+            None, types.SimpleNamespace(excinfo=_ExcInfo(RuntimeError("boom"))), None
+        )
+
+        self.assertEqual(self.capturer.commands, [])
+
+    def test_a_non_assertion_failure_discards_buffered_operands(self):
+        # Left in place, the next assertion would report values belonging to a
+        # comparison that failed for another reason entirely.
+        plugin.pytest_assertrepr_compare(None, "==", "stale", "values")
+        plugin.pytest_exception_interact(
+            None, types.SimpleNamespace(excinfo=_ExcInfo(RuntimeError("boom"))), None
+        )
+
+        plugin.pytest_assertion_pass(_Item(), 9, "something_else", "expl")
+
+        [row] = self.capturer.commands
+        self.assertEqual(row["result"], {"passed": True})  # no inherited operands
+
+    def test_a_plain_script_assert_needs_no_pytest(self):
+        # instrumentation.py serves scripts; this only asserts the shared helper
+        # reads a traceback, since a script has no hooks at all.
+        try:
+            raise AssertionError("boom")
+        except AssertionError as exc:
+            location, source = assertions.assert_site_from_traceback(
+                exc.__traceback__
+            )
+
+        self.assertIn("test_pytest_plugin.py", location or "")
+        self.assertIsNotNone(source)
+
+    def test_capture_is_silent_when_not_opted_in(self):
+        self._opted.stop()
+        with mock.patch.object(plugin, "_opted_in", return_value=False):
+            plugin.pytest_assertion_pass(_Item(), 3, "x == 1", "expl")
+        self._opted.start()
+
+        self.assertEqual(self.capturer.commands, [])
+
+
+class TestTheBytecodeCacheHint(unittest.TestCase):
+    """Whether the pass hook is live is decided by what pytest COMPILED, and the
+    fix is deleting cached bytecode — which is not always beside the file."""
+
+    def test_it_names_the_central_cache_when_one_is_configured(self):
+        # macOS's system python sets sys.pycache_prefix, so clearing the
+        # __pycache__ next to the test does nothing at all. Naming the wrong path
+        # is worse than naming none: the reader follows it, sees no change, and
+        # concludes the advice was wrong rather than the location.
+        with mock.patch.object(plugin.sys, "pycache_prefix", "/central/cache"):
+            hint = plugin._bytecode_cache_hint()
+
+        self.assertIn("/central/cache", hint)
+        self.assertIn("pycache_prefix", hint)
+
+    def test_it_falls_back_to_the_local_pycache(self):
+        with mock.patch.object(plugin.sys, "pycache_prefix", None):
+            self.assertIn("__pycache__", plugin._bytecode_cache_hint())
+
+
+class _Config:
+    """A pytest Config stand-in whose `getini` TYPE-CHECKS, as pytest 9 does."""
+
+    def __init__(self, *, strict=True, initial=None):
+        self.inicfg = dict(initial or {})
+        self._inicache = {}
+        self._strict = strict
+
+    def getini(self, name):
+        if name in self._inicache:
+            return self._inicache[name]
+        value = self.inicfg.get(name, False)
+        if self._strict and isinstance(value, str):
+            raise TypeError(
+                f"config option {name!r} expects a bool, got str: {value!r}"
+            )
+        self._inicache[name] = value
+        return value
+
+
+class TestEnablingThePassHook(unittest.TestCase):
+    """The value is consumed during COLLECTION, per module, by the rewriter — so
+    one pytest will not accept it becomes a collection error in the user's run
+    rather than a failure at the point it was set."""
+
+    def test_the_value_survives_a_type_checking_getini(self):
+        # pytest 9 rejects the string an ini file would carry. Setting "true"
+        # here aborted collection with a TypeError for the whole run.
+        config = _Config()
+
+        plugin._enable_assertion_pass_hook(config)
+
+        self.assertIs(config.getini("enable_assertion_pass_hook"), True)
+
+    def test_a_rejected_value_is_reverted_not_left_behind(self):
+        class Hostile(_Config):
+            def getini(self, name):
+                raise TypeError("no value is acceptable")
+
+        config = Hostile()
+
+        with self.assertLogs("selenium_devtools.pytest", level="WARNING"):
+            plugin._enable_assertion_pass_hook(config)
+
+        # Left set, the rewriter would hit the same rejection during collection
+        # and take the run down with it.
+        self.assertNotIn("enable_assertion_pass_hook", config.inicfg)
+
+    def test_a_users_own_setting_is_restored_on_rejection(self):
+        class Hostile(_Config):
+            def getini(self, name):
+                raise TypeError("nope")
+
+        config = Hostile(initial={"enable_assertion_pass_hook": False})
+
+        with self.assertLogs("selenium_devtools.pytest", level="WARNING"):
+            plugin._enable_assertion_pass_hook(config)
+
+        self.assertIs(config.inicfg["enable_assertion_pass_hook"], False)
+
+    def test_the_memoized_value_is_dropped_so_the_rewriter_re_reads(self):
+        # getini caches on first read, and something reads it before this hook.
+        config = _Config()
+        config._inicache["enable_assertion_pass_hook"] = False
+
+        plugin._enable_assertion_pass_hook(config)
+
+        self.assertIs(config.getini("enable_assertion_pass_hook"), True)

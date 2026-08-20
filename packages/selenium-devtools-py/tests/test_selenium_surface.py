@@ -21,11 +21,11 @@ should be told these did not run, not handed a wall of failures about attributes
 their selenium was never going to have. CI installs from that floor, so they run
 where they matter.
 
-Skipped when selenium is absent. That is not free: the CI job must install the
-adapter's own runtime dependency or these never run where they are meant to
-protect. selenium is an OPTIONAL extra of this package, so the job must select it —
-`pip install -e '.[test]'` in `.github/workflows/python.yml`. A plain
-`pip install -e .` installs nothing and every guard here silently skips.
+Skipped when selenium is absent, which a real install no longer is: selenium is a
+hard dependency in `pyproject.toml`, so `pip install -e .` brings a version at or
+above the floor and these guards run. The skip remains for the case that made it
+necessary — a checkout with nothing installed, where importing the package must
+still work.
 """
 
 import importlib.util

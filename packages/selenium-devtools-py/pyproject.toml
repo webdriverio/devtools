@@ -14,18 +14,23 @@ license = { text = "MIT" }
 authors = [{ name = "WebdriverIO" }]
 keywords = ["selenium", "webdriver", "devtools", "pytest", "debugging"]
 
-# Transport is dependency-free (stdlib). selenium is the user's own dep; we
-# only patch it when present, so it's not a hard requirement to import.
-dependencies = []
+# The transport itself is stdlib-only; selenium is the one real dependency, and
+# it is REQUIRED rather than an extra. This is a Selenium adapter — it can do
+# nothing without it — and stating the floor here is the only way pip enforces
+# it. As an optional extra it was enforced only for whoever thought to type
+# `pip install 'selenium-devtools-py[selenium]'`, so an existing 4.36 install
+# satisfied the requirement and network capture degraded with pip none the wiser.
+#
+# 4.44 is where selenium regenerated the BiDi layer, and with it the public event
+# API network capture subscribes through; earlier versions offered only a private
+# connection, which 4.44 removed. Uncapped above: a floor, not a range. It is
+# also what sets `requires-python` — 4.44 needs 3.10.
+dependencies = ["selenium>=4.44"]
 
 [project.optional-dependencies]
-# 4.44 is where selenium regenerated the BiDi layer, and with it the public
-# event API network capture subscribes through. Earlier versions offered only a
-# private connection, which 4.44 removed — supporting both would mean carrying
-# two subscription paths for releases that predate this package's own first one.
-# Uncapped above: 4.44+ is a floor, not a range.
-selenium = ["selenium>=4.44"]
-test = ["pytest>=7", "selenium>=4.44"]
+# Test-only additions. selenium is not repeated: it is a hard dependency above,
+# so a second declaration here could drift from it.
+test = ["pytest>=7"]
 
 # Auto-discovered by pytest; inert unless DEVTOOLS_ENABLE / DEVTOOLS_PORT is set.
 [project.entry-points.pytest11]
