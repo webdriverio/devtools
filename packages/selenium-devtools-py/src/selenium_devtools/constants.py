@@ -82,6 +82,21 @@ SKIP_COMMANDS = frozenset(
      "screenshot", "elementScreenshot"}
 )
 
+# Commands after which the page-side mutation buffer is NOT drained. Resolving a
+# locator reads the DOM and cannot change it, so the drain it used to trigger was
+# a round trip that could only ever return an empty buffer — measured at 4 of the
+# 9 commands in a login flow. Deliberately a DENY-list: an unrecognized command
+# still drains, so a command that does move the page is never silently skipped.
+#
+# Mirrors selenium-devtools' `warrantsLiveDrain`, which excludes the same class.
+# Its other two exclusions don't apply here: this adapter has no separate
+# navigation drain (so navigations must keep draining), and an assert row is
+# recorded straight through `capture_command` and never reaches this path.
+NO_DRAIN_COMMANDS = frozenset(
+    {"findElement", "findElements", "findChildElement", "findChildElements",
+     "findElementFromShadowRoot", "findElementsFromShadowRoot"}
+)
+
 # Stack-frame path fragment to skip when resolving a command's call source —
 # the adapter's own package. The selenium library dir is added at runtime by
 # instrumentation (resolved from selenium.__file__), NOT matched by the
@@ -107,6 +122,13 @@ BIDI_NET_RESPONSE_COMPLETED = "network.responseCompleted"
 # than raising an AttributeError, and so the surface guards know what they apply
 # to. Also the reason ``requires-python`` is >=3.10: selenium 4.44 requires it.
 SELENIUM_MINIMUM_VERSION = (4, 44)
+# Seconds between polls while a BiDi command waits for its reply.
+# `WebSocketConnection._wait_until` is a `sleep(interval)` loop, so selenium's
+# 0.1 default costs up to 100 ms per BiDi command however fast the browser
+# answers — the interval bounds the wait, it does not shorten the timeout, which
+# is consumed in interval-sized steps either way. 10 ms trades at most 100
+# wakeups/second, only while a command is actually in flight.
+BIDI_RESPONSE_POLL_INTERVAL_S = 0.01
 # selenium's BiDi log entries already carry lowercase levels; this normalizes
 # the stragglers to the shared LogLevel union. Unmapped levels fall back to log.
 BIDI_LEVEL_MAP = {

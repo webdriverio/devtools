@@ -186,11 +186,135 @@ class TestSnapshotWiring(unittest.TestCase):
         installs = [s for s in self.driver._script_calls if "createElement" in s]
         self.assertEqual(len(installs), 1)
 
-    def test_every_command_refreshes_snapshot(self):
-        # Snapshot is drained after every command (a click can navigate too),
-        # not only on get/back/…, so the iframe stays current.
+    def test_page_moving_command_refreshes_snapshot(self):
+        # Drained after any command that could have moved the page, not only
+        # get/back/… — a click can navigate too, so the iframe stays current.
         self.driver.execute("click", {"id": "btn"})
         self.assertEqual(len(self._mutations()), 1)
+
+    def test_locator_command_skips_the_drain(self):
+        # Resolving a locator reads the DOM and cannot change it, so the drain
+        # it used to trigger could only ever return an empty buffer.
+        self.driver.execute(
+            "findElement", {"using": "css selector", "value": "#a"}
+        )
+        self.assertEqual(self._mutations(), [])
+        reads = [s for s in self.driver._script_calls if "getTraceData" in s]
+        self.assertEqual(reads, [])  # no round trip at all, not just no payload
+
+    def test_locator_command_is_still_captured(self):
+        # Only the drain is skipped — the row itself is still what the user
+        # wrote, and still appears in the Actions timeline.
+        self.driver.execute(
+            "findElement", {"using": "css selector", "value": "#a"}
+        )
+        cmds = [d[0] for s, d in self.tx.sent if s == "commands"]
+        self.assertEqual(len(cmds), 1)
+        self.assertEqual(cmds[0]["command"], "findElement")
+
+    def test_unrecognized_command_still_drains(self):
+        # Deny-list, not allow-list: a command this adapter has never heard of
+        # must keep draining, or a future selenium command that moves the page
+        # would silently stop being captured.
+        self.driver.execute("someFutureCommand", {})
+        self.assertEqual(len(self._mutations()), 1)
+
+
+class TestWarrantsDrain(unittest.TestCase):
+    """The predicate alone — no driver, no capture plumbing."""
+
+    def test_locators_are_denied(self):
+        for command in (
+            "findElement", "findElements", "findChildElement",
+            "findChildElements", "findElementFromShadowRoot",
+            "findElementsFromShadowRoot",
+        ):
+            self.assertFalse(instrumentation.warrants_drain(command), command)
+
+    def test_page_moving_and_unknown_commands_are_allowed(self):
+        for command in ("get", "click", "sendKeys", "back", "someFutureCommand"):
+            self.assertTrue(instrumentation.warrants_drain(command), command)
+
+
+class FakeClientConfig:
+    def __init__(self, interval=0.1):
+        self.websocket_interval = interval
+
+
+class FakeExecutor:
+    def __init__(self, config):
+        self.client_config = config
+
+
+class TestBidiPollInterval(unittest.TestCase):
+    """`_tune_bidi_poll_interval` — the reply-poll interval, lowered before the
+    socket that reads it is built."""
+
+    def setUp(self):
+        instrumentation.uninstall()
+        self.tx = FakeTransport()
+        self.cap = SessionCapturer(self.tx)
+
+    def tearDown(self):
+        instrumentation.uninstall()
+
+    def _driver(self, config):
+        driver = FakeDriver()
+        driver.command_executor = FakeExecutor(config)
+        return driver
+
+    def test_default_interval_is_lowered(self):
+        config = FakeClientConfig(0.1)
+        instrumentation._tune_bidi_poll_interval(self._driver(config))
+        self.assertEqual(
+            config.websocket_interval,
+            instrumentation.BIDI_RESPONSE_POLL_INTERVAL_S,
+        )
+
+    def test_a_smaller_user_interval_is_left_alone(self):
+        # Only ever lowers: someone who chose finer polling keeps it.
+        config = FakeClientConfig(0.001)
+        instrumentation._tune_bidi_poll_interval(self._driver(config))
+        self.assertEqual(config.websocket_interval, 0.001)
+
+    def test_executor_without_client_config_is_a_noop(self):
+        # Not every command_executor is a RemoteConnection.
+        driver = FakeDriver()
+        driver.command_executor = object()
+        instrumentation._tune_bidi_poll_interval(driver)  # must not raise
+
+    def test_driver_without_executor_is_a_noop(self):
+        instrumentation._tune_bidi_poll_interval(FakeDriver())  # must not raise
+
+    def test_tuning_runs_before_bidi_attach(self):
+        # The socket is built on the first `driver.script` touch, which is
+        # attach — so tuning after it would never reach the connection.
+        order = []
+
+        def record_tune(_driver):
+            order.append("tune")
+
+        def record_attach(*_args, **_kwargs):
+            order.append("attach")
+            return False
+
+        driver = self._driver(FakeClientConfig(0.1))
+        driver.session_id = "sess-1"
+        with mock.patch.object(
+            instrumentation, "_tune_bidi_poll_interval", record_tune
+        ), mock.patch.object(instrumentation.bidi, "attach", record_attach):
+            instrumentation._ensure_session_setup(driver, self.cap)
+        self.assertEqual(order, ["tune", "attach"])
+
+    def test_config_without_the_setting_is_a_noop(self):
+        # Nothing to tune when selenium does not expose the interval — writing
+        # an attribute it never reads would only look like it worked.
+        class BareConfig:
+            pass
+
+        config = BareConfig()
+        instrumentation._tune_bidi_poll_interval(self._driver(config))
+        self.assertFalse(hasattr(config, "websocket_interval"))
 
 
 class TestSkipFrames(unittest.TestCase):
@@ -690,7 +814,7 @@ class TestOwnershipFollowsTheDriver(unittest.TestCase):
         # records call_args, which would hold the driver and defeat the very
         # collection this class asserts.
         self._bidi = mock.patch.object(
-            instrumentation.bidi, "attach", new=lambda driver, capturer: False
+            instrumentation.bidi, "attach", new=lambda driver, capturer, stats=None: False
         )
         self._bidi.start()
         instrumentation.install(self.cap, MultiSessionDriver)
@@ -741,7 +865,7 @@ class TestCaptureDoesNotOutliveItsDriver(unittest.TestCase):
         self.tx = FakeTransport()
         self.cap = SessionCapturer(self.tx)
         self._bidi = mock.patch.object(
-            instrumentation.bidi, "attach", new=lambda driver, capturer: False
+            instrumentation.bidi, "attach", new=lambda driver, capturer, stats=None: False
         )
         self._bidi.start()
         instrumentation.install(self.cap, ScreenshotSessionDriver)
