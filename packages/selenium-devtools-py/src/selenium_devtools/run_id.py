@@ -37,4 +37,28 @@ def resolve_run_id() -> str:
         return existing
     run_id = str(uuid.uuid4())
     os.environ[ENV_RUN_ID] = run_id
+    _generated.add(run_id)
     return run_id
+
+
+# Ids this process minted, as opposed to inherited. Only these may be cleared.
+_generated: set = set()
+
+
+def reset_run_id() -> None:
+    """Forget an id this process generated, so the next run is a NEW run.
+
+    A process can host several logical runs — ``enable()``, ``disable()``,
+    ``enable()`` — and an id that outlives the first makes the backend read the
+    second as a continuation, so it keeps the first run's commands, logs, network
+    data and baselines. Sending no id at all used to make every connect wipe,
+    which is why this only became reachable once the id started being sent.
+
+    Only an id we MINTED is cleared. One a launcher exported before forking
+    belongs to the parent and is how siblings agree they are one run; discarding
+    it here would split a parallel run into one run per worker.
+    """
+    current = os.environ.get(ENV_RUN_ID)
+    if current and current in _generated:
+        _generated.discard(current)
+        os.environ.pop(ENV_RUN_ID, None)
