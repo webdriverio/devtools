@@ -476,7 +476,11 @@ class TestMultipleSessions(unittest.TestCase):
         self.attached = []
         self._bidi = mock.patch.object(
             instrumentation.bidi, "attach",
-            side_effect=lambda d, c: self.attached.append(d.session_id) or True,
+            # `stats` is the bag attach fills for the teardown summary; accepted
+            # here so the stub keeps matching the real signature.
+            side_effect=lambda d, c, stats=None: (
+                self.attached.append(d.session_id) or True
+            ),
         )
         self._bidi.start()
         instrumentation.install(self.cap, MultiSessionDriver)

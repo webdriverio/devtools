@@ -6,24 +6,32 @@ event→frame mapping helpers (``console_kwargs`` / ``request_sent_kwargs`` /
 without selenium; ``attach`` does the selenium wiring and is defensive — a BiDi
 failure is a logged no-op, never a raised error into the user's test.
 
-Two selenium-version realities shape this module (selenium 4.36):
+Two constants shape this module:
 
 * BiDi only opens when the session was created with ``webSocketUrl`` truthy
   (``options.web_socket_url = True`` at build). We can't set that from inside
   the ``execute`` wrapper — the session already exists — so attach() checks the
   capability and degrades if it's missing.
-* selenium's high-level ``network.add_request_handler`` *intercepts* (pauses)
-  requests. We deliberately avoid it: we subscribe to the network events via
-  the low-level connection so requests are observed but never stalled.
+* Network events are OBSERVED, never intercepted. Every selenium API that takes
+  a request or response handler registers an intercept, which pauses each
+  request until selenium continues it; that would change the timing of the page
+  under test. Both paths below subscribe instead.
 
-The network half of that has a ceiling: selenium 4.44 regenerated the BiDi layer
-from a schema, dropping ``NetworkEvent`` and renaming ``Network.conn`` to
-``_conn``, so ``_attach_network`` degrades to a warning there and the Network tab
-stays empty. ``pyproject.toml`` caps the extra below it. The observe-only
-replacement is ``Network._event_manager.add_event_handler``, whose callback
-receives a deserialized event rather than one carrying ``.params`` — a port, not
-a rename, tracked as issue #293. Console capture and the preload are unaffected;
-``tests/test_selenium_surface.py`` guards all of it against the installed version.
+Network capture subscribes through ``Network.add_event_handler``, the public
+observe-only API in the BiDi layer selenium regenerated in 4.44. Before that
+release the only way to observe was a private connection plus ``NetworkEvent``,
+both of which 4.44 removed; the adapter requires 4.44+ rather than carrying a
+second path for versions predating its own first release.
+
+Its generated event dataclasses cannot be used as delivered:
+``BeforeRequestSentParameters`` declares only ``initiator`` and the deserializer
+DROPS every param not declared, taking the request, its id and the timestamp
+with it — which leaves a response with nothing to correlate against. So
+``_add_raw_event_handler`` registers the callback with a pass-through
+deserializer of its own, writing nothing that another subscriber reads.
+
+``tests/test_selenium_surface.py`` guards that surface against the installed
+selenium.
 """
 
 from __future__ import annotations
@@ -38,7 +46,7 @@ from .constants import (
     BIDI_NET_BEFORE_REQUEST,
     BIDI_NET_RESPONSE_COMPLETED,
     LOGGER_NAME,
-    SELENIUM_NETWORK_SURFACE_MOVED_AT,
+    SELENIUM_MINIMUM_VERSION,
 )
 from .utils import now_ms, selenium_version
 
@@ -170,8 +178,8 @@ def _format_stacktrace(stacktrace: Any) -> str:
 def request_sent_kwargs(params: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """kwargs for the initial (pending) network frame, or None if unidentifiable.
 
-    ``params`` is the BiDi ``network.beforeRequestSent`` event params — the
-    ``.params`` dict on selenium's NetworkEvent.
+    ``params`` is the raw BiDi ``network.beforeRequestSent`` event params, as
+    delivered by ``event_params``.
     """
     request = params.get("request") or {}
     request_id = str(request.get("request") or params.get("id") or "")
@@ -353,47 +361,196 @@ def _attach_console(driver: Any, capturer: SessionCapturer) -> bool:
 
 
 def network_unavailable_reason(exc: Exception) -> str:
-    """Why network capture is off, naming the selenium version when that is why.
+    """Why network capture could not attach, naming a too-old selenium as the
+    cause when it is one.
 
-    The bare exception is unreadable as a cause: on selenium 4.44+ it surfaces as
-    ``cannot import name 'NetworkEvent'``, which reads like a broken install
-    rather than a version the adapter has not caught up with. Console capture and
-    the DOM preload keep working, so this warning is the only signal the user
-    gets that the Network tab will stay empty.
+    The adapter needs the BiDi layer selenium regenerated in 4.44, and pyproject
+    requires it, but a user can still end up below that — an existing
+    environment, a transitive pin, a resolver that had to back off. The bare
+    exception is then an AttributeError about a generated attribute, which reads
+    like a broken install rather than a version floor.
     """
     version = selenium_version()
-    if version >= SELENIUM_NETWORK_SURFACE_MOVED_AT:
+    required = ".".join(str(p) for p in SELENIUM_MINIMUM_VERSION)
+    if version < SELENIUM_MINIMUM_VERSION:
         installed = ".".join(str(part) for part in version)
-        moved_at = ".".join(str(p) for p in SELENIUM_NETWORK_SURFACE_MOVED_AT)
         return (
-            f"network capture is unavailable on selenium {installed}: selenium "
-            f"{moved_at} regenerated the BiDi layer and moved the internals this "
-            "subscribes through. Console, DOM and command capture are "
-            f"unaffected, and selenium < {moved_at} captures network. Tracked at "
-            "https://github.com/webdriverio/devtools/issues/293"
+            f"network capture needs selenium >= {required} and {installed} is "
+            "installed: the BiDi event API it subscribes through arrived in "
+            f"{required}. Console, DOM and command capture are unaffected. "
+            f"`pip install --upgrade 'selenium>={required}'` restores it."
         )
-    return f"network channel unavailable: {exc}"
+    return (
+        f"network capture could not attach on selenium {'.'.join(str(p) for p in version)}"
+        f" ({exc}). Console, DOM and command capture are unaffected. Please "
+        "report this: https://github.com/webdriverio/devtools/issues"
+    )
 
 
-def _attach_network(driver: Any, capturer: SessionCapturer) -> bool:
-    """Subscribe to network events WITHOUT interception (see module docstring).
+def event_params(event: Any) -> Dict[str, Any]:
+    """The BiDi event params dict.
 
-    Uses the low-level connection so requests are only observed. Returns False
-    (and logs) on any failure — network BiDi is best-effort.
+    ``_RawEvent`` passes selenium's params straight through, so this is already a
+    dict on every healthy path. It stays as the boundary check because the value
+    comes from selenium's dispatch rather than from us: a future release that
+    hands the callback something else is then an empty dict and a warning from
+    ``_incomplete_event``, not an AttributeError inside the handler.
+    """
+    return event if isinstance(event, dict) else {}
+
+
+class _RawEvent:
+    """The deserializer selenium's dispatch expects, passing params through.
+
+    Selenium identifies an event by ``event_class`` and deserializes it with
+    ``from_json``; its own wrapper builds a generated dataclass there, which for
+    these two events silently discards the request and the timestamp.
+    """
+
+    def __init__(self, bidi_event: str) -> None:
+        self.event_class = bidi_event
+
+    def from_json(self, params: Any) -> Any:
+        return params
+
+
+def supports_event_handler_api() -> bool:
+    """True when selenium presents the regenerated BiDi network layer.
+
+    Detection only — nothing is mutated. ``add_event_handler`` is the marker
+    rather than something this calls: it is public, it arrived with the layer,
+    and the event manager behind it is per-instance so there is nothing to check
+    for on the class. A manager that is then missing its parts raises inside
+    ``_add_raw_event_handler`` and is reported there.
     """
     try:
-        conn = driver.network.conn
-        from selenium.webdriver.common.bidi.network import NetworkEvent  # lazy
-        from selenium.webdriver.common.bidi.session import Session  # lazy
-    except Exception as exc:  # noqa: BLE001
-        _warn(network_unavailable_reason(exc))
+        from selenium.webdriver.common.bidi.network import Network
+    except ImportError:
         return False
+    return hasattr(Network, "add_event_handler")
 
+
+def _add_raw_event_handler(
+    network: Any, bidi_event: str, callback: Any, registered: List[Any]
+) -> None:
+    """Subscribe ``callback`` to ``bidi_event`` with the RAW params, appending
+    what it installed to ``registered`` so a failed attach can undo it.
+
+    This is selenium's own ``add_event_handler`` body with one substitution: it
+    looks its deserializer up in a per-event map shared by every subscriber, and
+    we hand ours in directly. ``add_callback`` closes over the deserializer it is
+    given, so ours holds for the life of the session.
+
+    Writing ours into that map instead would keep the registration on the public
+    API, but there is no safe window in which to do it: the swap has to stay in
+    place across ``add_event_handler``, which subscribes over the websocket, and
+    any handler another thread registers for the same event during that round
+    trip closes over OUR deserializer and receives dicts where it expects
+    selenium's generated objects. Passing it in writes nothing shared, so no such
+    window exists.
+    """
+    manager = network._event_manager
+    wrapper = _RawEvent(bidi_event)
+    callback_id = manager.conn.add_callback(wrapper, callback)
+    # Recorded the moment the callback exists, BEFORE the two steps that can
+    # raise. Recording it after them instead leaves the one registration in
+    # flight invisible to the unwind — precisely the one that failed.
+    registered.append((bidi_event, wrapper, callback_id))
+    manager.subscribe_to_event(bidi_event)
+    # Selenium counts callbacks per event to decide when a subscription is no
+    # longer needed. Ours is registered on the connection directly, so without
+    # this it is invisible to that count and another consumer removing their
+    # handler would unsubscribe the event out from under us.
+    manager.add_callback_to_tracking(bidi_event, callback_id)
+
+
+def _undo_registration(
+    manager: Any, bidi_event: str, wrapper: Any, callback_id: Any
+) -> None:
+    """Best-effort unwind of one registration.
+
+    Being counted in selenium's bookkeeping is what makes leaving one behind
+    harmful: an abandoned callback keeps the event's callback count above zero,
+    so a later consumer removing THEIR handler no longer unsubscribes, and the
+    browser keeps sending the event for the rest of the session.
+
+    Each step is guarded on its own. The registration may have failed part-way,
+    and a step with nothing to undo must not stop the ones that do. The callback
+    and its count go first so ``unsubscribe_from_event`` sees an empty list —
+    it only unsubscribes when no callbacks remain, so this cannot take down a
+    subscription another consumer is still using.
+    """
+    for label, undo in (
+        ("callback", lambda: manager.conn.remove_callback(wrapper, callback_id)),
+        ("count", lambda: manager.remove_callback_from_tracking(bidi_event, callback_id)),
+        ("subscription", lambda: manager.unsubscribe_from_event(bidi_event)),
+    ):
+        try:
+            undo()
+        except Exception as exc:  # noqa: BLE001 — unwinding must not raise
+            _log.debug("could not unwind the %s for %s: %s", label, bidi_event, exc)
+
+
+_reported_incomplete: set = set()
+
+
+def _incomplete_event(params: Dict[str, Any], label: str) -> bool:
+    """True (and warns ONCE per event type) when an event arrived without the
+    fields capture needs.
+
+    The 4.44+ path relies on selenium deserializing to the raw params, so a
+    future release that reinstates a typed class for these events would strip
+    the request and timestamp and leave every entry uncorrelated. That would
+    otherwise show up as a quietly empty Network tab — the exact failure this
+    port exists to end — so it is stated instead.
+
+    Once, because the condition is a property of the selenium build rather than
+    of a request: warning per event would put one line per HTTP request of the
+    run into the user's console and bury the message it is trying to deliver.
+    """
+    if params.get("request") is not None:
+        return False
+    if label not in _reported_incomplete:
+        _reported_incomplete.add(label)
+        _warn(
+            f"{label} arrived without a request field, so it cannot be "
+            f"correlated — selenium delivered {sorted(params) or 'nothing'}. "
+            "Network capture is degraded; please report this with your selenium "
+            "version. Further occurrences are not logged."
+        )
+    return True
+
+
+def _attach_network(
+    driver: Any, capturer: SessionCapturer, stats: Optional[Dict[str, Any]] = None
+) -> bool:
+    """Subscribe to network events WITHOUT interception (see module docstring).
+
+    Returns False (and logs) on any failure — network BiDi is best-effort.
+
+    ``stats`` is filled in for the caller to report at teardown, rather than
+    logged per event: the dashboard's Network tab already lists every request, so
+    a running count is one Console line per request saying what the UI beside it
+    already shows. What the tab cannot show is a request whose response never
+    arrived, which is what ``pending`` still holding entries at the end means.
+    """
+    stats = stats if stats is not None else {}
+    stats["captured"] = 0
     pending: Dict[str, Dict[str, Any]] = {}
+    stats["pending"] = pending
+    # Both handlers are inert until every subscription is in place — see
+    # _subscribe_via_event_manager for why a half-subscribed pair is worse than
+    # no capture at all.
+    active = {"ok": False}
 
     def on_request_sent(event: Any) -> None:
+        if not active["ok"]:
+            return
         try:
-            kwargs = request_sent_kwargs(getattr(event, "params", {}) or {})
+            params = event_params(event)
+            if _incomplete_event(params, BIDI_NET_BEFORE_REQUEST):
+                return
+            kwargs = request_sent_kwargs(params)
             if kwargs is not None:
                 pending[kwargs["request_id"]] = kwargs
                 capturer.capture_network(**kwargs)
@@ -401,38 +558,104 @@ def _attach_network(driver: Any, capturer: SessionCapturer) -> bool:
             _warn(f"beforeRequestSent handler threw: {exc}")
 
     def on_response_completed(event: Any) -> None:
+        if not active["ok"]:
+            return
         try:
-            kwargs = response_completed_kwargs(
-                getattr(event, "params", {}) or {}, pending
-            )
+            params = event_params(event)
+            if _incomplete_event(params, BIDI_NET_RESPONSE_COMPLETED):
+                return
+            kwargs = response_completed_kwargs(params, pending)
             if kwargs is not None:
                 pending.pop(kwargs["request_id"], None)
                 capturer.capture_network(**kwargs)
+                stats["captured"] += 1
         except Exception as exc:  # noqa: BLE001
             _warn(f"responseCompleted handler threw: {exc}")
 
-    try:
-        conn.execute(
-            Session(conn).subscribe(
-                BIDI_NET_BEFORE_REQUEST, BIDI_NET_RESPONSE_COMPLETED
-            )
-        )
-        conn.add_callback(NetworkEvent(BIDI_NET_BEFORE_REQUEST), on_request_sent)
-        conn.add_callback(
-            NetworkEvent(BIDI_NET_RESPONSE_COMPLETED), on_response_completed
-        )
-        return True
-    except Exception as exc:  # noqa: BLE001
-        _warn(f"network subscribe failed: {exc}")
+    return _subscribe_via_event_manager(
+        driver,
+        {
+            BIDI_NET_BEFORE_REQUEST: on_request_sent,
+            BIDI_NET_RESPONSE_COMPLETED: on_response_completed,
+        },
+        active,
+    )
+
+
+def _subscribe_via_event_manager(
+    driver: Any, handlers: Dict[str, Any], active: Dict[str, bool]
+) -> bool:
+    """selenium 4.44+: subscribe each handler to its BiDi event.
+
+    Deliberately not ``add_request_handler``/``add_response_handler``: both
+    register an intercept even in their high-level form, which pauses every
+    request until selenium continues it. This only observes.
+
+    A failure part-way through is handled twice over, because the two problems
+    are different. ``active`` is flipped only once EVERY handler is registered,
+    and the handlers consult it, so no incomplete DATA is ever produced:
+    ``beforeRequestSent`` on its own emits a pending frame per request that only
+    ``responseCompleted`` finalizes, which would fill the Network tab with
+    requests stuck pending and grow ``pending`` for the rest of the session. That
+    also covers the gap between the two subscribes, not just an outright failure.
+    Then the registrations already made are unwound, so no STATE is left behind
+    either — see ``_undo_registration`` for why an abandoned one is not inert.
+    The flag is the guarantee; the unwind is best-effort and may find nothing.
+    """
+    if not supports_event_handler_api():
+        # Checked rather than caught, so a too-old selenium is reported as a
+        # version floor instead of an AttributeError about a generated attribute.
+        _warn(network_unavailable_reason(AttributeError("no BiDi event API")))
         return False
+    manager = None
+    registered = []
+    try:
+        network = driver.network
+        manager = network._event_manager
+        for bidi_event, callback in handlers.items():
+            _add_raw_event_handler(network, bidi_event, callback, registered)
+    except Exception as exc:  # noqa: BLE001
+        _warn(f"network subscribe failed, no network events captured: {exc}")
+        for bidi_event, wrapper, callback_id in registered:
+            _undo_registration(manager, bidi_event, wrapper, callback_id)
+        return False
+    active["ok"] = True
+    return True
 
 
-def attach(driver: Any, capturer: SessionCapturer) -> bool:
+def network_summary(stats: Optional[Dict[str, Any]]) -> Optional[str]:
+    """One line describing what network capture actually did, or None when there
+    is nothing worth saying.
+
+    Reported once at teardown rather than per event. The count is the cheap half;
+    the useful half is requests still pending, which means a response never
+    arrived and is the one thing the Network tab cannot show on its own.
+    """
+    if not stats:
+        return None
+    captured = stats.get("captured", 0)
+    unanswered = len(stats.get("pending") or ())
+    if not captured and not unanswered:
+        return None
+    if unanswered:
+        return (
+            f"network: {captured} request(s) captured, "
+            f"{unanswered} still awaiting a response at teardown"
+        )
+    return f"network: {captured} request(s) captured"
+
+
+def attach(
+    driver: Any, capturer: SessionCapturer, stats: Optional[Dict[str, Any]] = None
+) -> bool:
     """Wire BiDi console + network capture onto ``driver``.
 
     Returns True if at least one channel attached. A driver without the
     ``webSocketUrl`` capability (BiDi not enabled at build time) is skipped with
     a one-line warning — capture continues via the command stream only.
+
+    ``stats`` is an optional bag the caller keeps, to be passed to
+    ``network_summary`` when the session ends.
     """
     if not _bidi_enabled(driver):
         _warn(
@@ -443,6 +666,6 @@ def attach(driver: Any, capturer: SessionCapturer) -> bool:
     attached = 0
     if _attach_console(driver, capturer):
         attached += 1
-    if _attach_network(driver, capturer):
+    if _attach_network(driver, capturer, stats):
         attached += 1
     return attached > 0

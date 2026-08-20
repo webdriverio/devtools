@@ -7,7 +7,9 @@ name = "selenium-devtools-py"
 version = "0.1.0"
 description = "Python Selenium adapter for the WebdriverIO DevTools dashboard"
 readme = "README.md"
-requires-python = ">=3.9"
+# >=3.10 because selenium 4.44 requires it, and network capture needs 4.44+.
+# Not an independent choice: 3.9 left security support in October 2025.
+requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [{ name = "WebdriverIO" }]
 keywords = ["selenium", "webdriver", "devtools", "pytest", "debugging"]
@@ -17,17 +19,13 @@ keywords = ["selenium", "webdriver", "devtools", "pytest", "debugging"]
 dependencies = []
 
 [project.optional-dependencies]
-# Deliberately UNCAPPED, even though network capture needs selenium < 4.44 (that
-# release regenerated the BiDi layer, moving the internals `bidi.py` subscribes
-# through; issue #293). A cap here would downgrade anyone already on a newer
-# selenium, and hard-fail the install for a project that requires one — a cost
-# paid by every user to describe a partial degradation that only affects the
-# Network tab. `bidi.py` reports it at runtime instead, naming the version.
-selenium = ["selenium>=4.6"]
-# The TEST environment is capped, because the surface guards assert against
-# whatever is installed and only mean something on a version the adapter fully
-# supports. Constraining the dev environment costs no user anything.
-test = ["pytest>=7", "selenium>=4.6,<4.44"]
+# 4.44 is where selenium regenerated the BiDi layer, and with it the public
+# event API network capture subscribes through. Earlier versions offered only a
+# private connection, which 4.44 removed — supporting both would mean carrying
+# two subscription paths for releases that predate this package's own first one.
+# Uncapped above: 4.44+ is a floor, not a range.
+selenium = ["selenium>=4.44"]
+test = ["pytest>=7", "selenium>=4.44"]
 
 # Auto-discovered by pytest; inert unless DEVTOOLS_ENABLE / DEVTOOLS_PORT is set.
 [project.entry-points.pytest11]

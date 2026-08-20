@@ -281,6 +281,9 @@ def _close_entry(capturer: SessionCapturer, entry: dict) -> None:
     _flush_mutations(capturer, entry)
     entry["snapshot"] = None
     _finalize_screencast(capturer, entry["session_id"], entry)
+    summary = bidi.network_summary(entry.get("network"))
+    if summary:
+        _log.info(summary)
 
 
 def _finalize_screencast(
@@ -342,7 +345,10 @@ def _ensure_session_setup(driver: Any, capturer: SessionCapturer) -> Optional[di
     _log.info("session %s started", session_id)
     _send_default_suite(capturer, "running")  # tree entry for plain-script runs
     try:
-        if bidi.attach(driver, capturer):
+        # Filled in as events arrive; reported once by _on_quit, because the
+        # Network tab already lists every request as it happens.
+        entry["network"] = {}
+        if bidi.attach(driver, capturer, entry["network"]):
             _log.info("BiDi attached — capturing console + network")
     except Exception as exc:  # noqa: BLE001 — capture must never break the test
         _log.warning("BiDi attach threw: %s", exc)
@@ -536,7 +542,9 @@ def install(capturer: SessionCapturer, webdriver_cls: Optional[type] = None) -> 
             call_source=src,
             screenshot=shot,
         )
-        _log.debug("command: %s", driver_command)
+        # No per-command line here: the Actions timeline lists every command as
+        # it happens, and `_WATCH` puts this logger's debug records in the same
+        # Console the user is reading, so it was one duplicate line per command.
         # Keep the snapshot iframe current after every command (a click can
         # navigate too, not just get/back/…), re-injecting if the page changed.
         if entry is not None:
