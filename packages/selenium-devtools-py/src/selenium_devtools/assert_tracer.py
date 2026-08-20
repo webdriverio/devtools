@@ -127,10 +127,17 @@ class ScriptAssertionTracer:
                 self._resolve(frame, error=None)
                 self._arm(frame)
             elif event == "exception":
-                error = arg[1] if isinstance(arg, tuple) and len(arg) > 1 else None
-                self._resolve(
-                    frame, error=error if isinstance(error, AssertionError) else None
-                )
+                raised = arg[1] if isinstance(arg, tuple) and len(arg) > 1 else None
+                if isinstance(raised, AssertionError):
+                    self._resolve(frame, error=raised)
+                else:
+                    # The assert's own expression raised, so it reached no
+                    # verdict at all: `assert "/x" in None` is a TypeError, not
+                    # a failure and certainly not a pass. There are three
+                    # outcomes here, not two — collapsing this one into "no
+                    # error" painted the line GREEN for an assertion that never
+                    # ran to completion, which is worse than showing nothing.
+                    self._pending.pop(id(frame), None)
             elif event == "return":
                 self._resolve(frame, error=None)
         except Exception as exc:  # noqa: BLE001 — tracing must never break the run

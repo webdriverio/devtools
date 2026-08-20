@@ -118,6 +118,43 @@ class TestWhatItReports(unittest.TestCase):
         self.assertEqual(len(reported), 1)
         self.assertTrue(reported[0]["passed"])  # the assert did pass
 
+    def test_an_assert_whose_expression_raises_reports_no_verdict(self):
+        """Three outcomes, not two.
+
+        `assert "/x" in None` raises TypeError: the assertion reached no verdict,
+        so it neither passed nor failed. Treating a non-AssertionError as "no
+        error" painted the line GREEN for an assertion that never ran to
+        completion — a false pass, which is worse than showing nothing.
+
+        Distinct from an exception on a LATER line, which resolves the pending
+        assert legitimately; that case is covered separately below.
+        """
+        def run():
+            url = None
+            assert "/secure" in url
+
+        with self.assertRaises(TypeError):
+            run()
+        self.tracer.uninstall()
+
+        self.assertEqual([c for c in self.recorder.calls if c["source"]], [])
+
+    def test_an_assertion_error_from_the_expression_is_still_a_failure(self):
+        # A raise INSIDE the expression that happens to be an AssertionError is
+        # indistinguishable from the assert failing, and is reported as failed.
+        def boom():
+            raise AssertionError("inner")
+
+        def run():
+            assert boom()
+
+        with self.assertRaises(AssertionError):
+            run()
+        self.tracer.uninstall()
+
+        [call] = [c for c in self.recorder.calls if c["source"]]
+        self.assertFalse(call["passed"])
+
     def test_a_side_effecting_operand_is_never_read(self):
         reads = []
 
