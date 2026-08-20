@@ -107,6 +107,12 @@ BIDI_NET_RESPONSE_COMPLETED = "network.responseCompleted"
 # than raising an AttributeError, and so the surface guards know what they apply
 # to. Also the reason ``requires-python`` is >=3.10: selenium 4.44 requires it.
 SELENIUM_MINIMUM_VERSION = (4, 44)
+# The interpreter that selenium version needs, which is why ``requires-python``
+# is >=3.10. Held here so a runtime message can tell the two failures apart: an
+# old selenium on a new python is an upgrade away, an old selenium on python 3.9
+# is not — every release at or above the floor refuses to install there, so
+# advising the upgrade would send the reader in a circle.
+PYTHON_MINIMUM_VERSION = (3, 10)
 # selenium's BiDi log entries already carry lowercase levels; this normalizes
 # the stragglers to the shared LogLevel union. Unmapped levels fall back to log.
 BIDI_LEVEL_MAP = {

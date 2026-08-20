@@ -16,14 +16,20 @@ tears down with the run. Verified against real headless Chrome. See
 pip install -e packages/selenium-devtools-py   # or: pip install selenium-devtools-py (when published)
 ```
 
-The transport is **dependency-free** (stdlib WebSocket client). The only thing
-on top of your own `selenium` install is this package; `pytest` is optional.
+The transport is **dependency-free** (stdlib WebSocket client). `selenium>=4.44`
+is installed with the package; `pytest` is optional.
 
 **Requires Python 3.10+ and selenium 4.44+.** Network capture subscribes through
 the public BiDi event API that selenium regenerated in 4.44 — before that the
 only way to observe requests without pausing them was a private connection,
 which the same release removed. 4.44 requires Python 3.10, which sets the
 Python floor too.
+
+Both floors are declared in `pyproject.toml` (`requires-python` and
+`dependencies`), so pip enforces them at install time rather than leaving you to
+discover an empty Network tab at runtime. If pip resolves an older selenium
+anyway — a pin elsewhere in your project, or an existing environment — the
+adapter says so on the first command instead of degrading quietly.
 
 ## Use
 
