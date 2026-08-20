@@ -1,3 +1,4 @@
+import { COLLECTOR_SINK_GLOBAL } from '@wdio/devtools-shared'
 import { getLogs, clearLogs } from './logger.js'
 import { ConsoleLogCollector } from './collectors/consoleLogs.js'
 import { NetworkRequestCollector } from './collectors/networkRequests.js'
@@ -45,12 +46,51 @@ export class DataCollector {
   #consoleLogs = new ConsoleLogCollector()
   #networkRequests = new NetworkRequestCollector()
 
+  /** Where mutations go when a BiDi channel is available. Undefined means the
+   *  buffer is the only transport and something must come and drain it. */
+  #sink: ((payload: string) => void) | undefined
+
+  /**
+   * Push mutations through `sink` instead of buffering them for a drain.
+   *
+   * The payload is a JSON STRING, not an object. BiDi serializes a channel's
+   * argument as a RemoteValue under an object-depth limit, which would silently
+   * truncate the document anchor — the one payload that is an arbitrarily deep
+   * tree. A string is depth-1 and survives whole.
+   *
+   * Anything already buffered is flushed immediately, so a sink installed after
+   * the first capture loses nothing.
+   */
+  setSink(sink: (payload: string) => void) {
+    this.#sink = sink
+    if (this.#mutations.length) {
+      const buffered = this.#mutations
+      this.#mutations = []
+      this.#emit(buffered)
+    }
+  }
+
+  /** Hand `mutations` to the sink, or put them back in the buffer if it fails.
+   *  A channel dies with its session, and teardown is exactly when the last
+   *  mutations arrive — dropping them there would lose the final page state. */
+  #emit(mutations: TraceMutation[]) {
+    try {
+      this.#sink?.(JSON.stringify(mutations))
+    } catch {
+      this.#mutations.push(...mutations)
+    }
+  }
+
   captureError(err: Error) {
     const error = err.stack || err.message
     this.#errors.push(error)
   }
 
   captureMutation(mutations: TraceMutation[]) {
+    if (this.#sink) {
+      this.#emit(mutations)
+      return
+    }
     this.#mutations.push(...mutations)
   }
 
@@ -115,3 +155,14 @@ export class DataCollector {
 
 export type DataCollectorType = DataCollector
 export const collector = (window.wdioTraceCollector = new DataCollector())
+
+// Claim the channel a BiDi preload left here, before anything is captured. This
+// runs in the collector's own module body, which the bundle evaluates ahead of
+// the observer setup and the document anchor — so with a preload in place every
+// mutation this session produces is pushed, and nothing waits for a drain.
+const pendingSink = (window as unknown as Record<string, unknown>)[
+  COLLECTOR_SINK_GLOBAL
+]
+if (typeof pendingSink === 'function') {
+  collector.setSink(pendingSink as (payload: string) => void)
+}
