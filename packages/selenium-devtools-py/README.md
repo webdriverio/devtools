@@ -6,9 +6,9 @@ the **same backend and UI**, unchanged, over the language-neutral
 `{scope, data}` WebSocket contract.
 
 **Status: Phase 1 + 2.** Live command capture + test tree; browser console &
-network via BiDi; screencast video; and a dashboard window that auto-opens and
-tears down with the run. Verified against real headless Chrome. See
-[Roadmap](#roadmap) for what's deferred.
+network via BiDi; assertion rows; screencast video; and a dashboard window that
+auto-opens and tears down with the run. Verified against real headless Chrome.
+See [Roadmap](#roadmap) for what's deferred.
 
 ## Install (dev)
 
@@ -80,7 +80,8 @@ is on `PATH`; otherwise keep it current (`brew upgrade chromedriver`).
 | Session metadata | read `session_id` + `caps` on the first ready command | `metadata` | 1 |
 | Test / suite tree | pytest plugin (`pytest_runtest_logreport` / `sessionfinish`) | `suites` | 1 |
 | Browser console + JS errors | Selenium **BiDi** (`driver.script` handlers) | `consoleLogs` | 2 |
-| Network requests | Selenium **BiDi** (low-level subscribe, no interception) | `networkRequests` | 2 |
+| Network requests | Selenium **BiDi** (`Network.add_event_handler`, observe-only — never an intercept, which would pause every request) | `networkRequests` | 2 |
+| Assertions | pytest hooks under pytest; line tracing for a plain script | `commands` | 2 |
 | DOM snapshot (preview iframe) | inject `packages/script`, re-inject per navigation, drain mutations | `mutations` | 2 |
 | Screencast video | screenshot polling → ffmpeg-encoded `.webm` | `screencast` | 2 |
 
@@ -92,6 +93,32 @@ delegate to `self._parent.execute`, so the one wrapper sees them as
 into the `newSession` request so console/network work out-of-box (opt out with
 `DEVTOOLS_BIDI=0`). **Screencast** needs `ffmpeg` on PATH to encode the
 `.webm`; without it, recording is skipped (one warning, no error).
+
+### Assertions
+
+Passing and failing `assert` statements appear as rows carrying **expected** and
+**actual**, and failures reach the Errors tab. Python's `assert` is a statement
+rather than a call, so unlike the JS adapters' `node:assert` patching there is
+nothing to wrap — the outcome comes from the runner, and how much is available
+differs by runner.
+
+**Under pytest**, from its assertion rewriter, so every row carries real values.
+Passing assertions need pytest's `enable_assertion_pass_hook`, which the plugin
+switches on for itself. One caveat: pytest decides per module, while *rewriting*
+it, whether to emit that hook — so a module whose rewritten bytecode was cached
+before the plugin was installed keeps reporting failures only. The adapter says
+so once at collection and names the cache to delete, which is **not** always the
+`__pycache__` beside your tests: with `sys.pycache_prefix` set (macOS's system
+python sets it by default) every rewritten module goes to one central tree
+instead.
+
+**In a plain script** (`python login.py`) there is no rewriter — by the time
+`enable()` runs the module is already compiled — so outcomes come from the
+interpreter's line events, and values are read from the frame that is about to
+run the assert. Only reads that cannot execute your code are resolved: a literal
+or a local resolves, an attribute or a call does not, because evaluating
+`driver.current_url` again would issue another WebDriver command. Those rows
+carry the condition and the error without values.
 
 ## Dashboard window lifecycle
 
@@ -195,9 +222,9 @@ rejects re-uploading an existing version).
 
 ## Roadmap
 
-- **Phase 2 (done)** — BiDi console/network + screenshot-polling screencast.
-  Not yet: a CDP `Page.startScreencast` push-mode fast-path, per-command
-  screenshots, and performance capture.
+- **Phase 2 (done)** — BiDi console/network, assertion rows, and
+  screenshot-polling screencast. Not yet: a CDP `Page.startScreencast` push-mode
+  fast-path, per-command screenshots, and performance capture.
 - **Phase 3** — trace export, preserve-and-rerun, action snapshots. Per the
   architecture, the heavy post-processing is a candidate to live server-side in
   the backend (written once) rather than re-implemented here.
