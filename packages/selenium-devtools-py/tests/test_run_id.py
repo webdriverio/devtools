@@ -67,15 +67,29 @@ class TestResolvingTheRunId(unittest.TestCase):
 
         self.assertNotEqual(resolve_run_id(), first)
 
-    def test_reset_leaves_an_inherited_id_alone(self):
-        # A launcher exports this before forking, and it is how siblings agree
-        # they are one run. Clearing it here would split a parallel run into one
-        # run per worker.
+    def test_reset_leaves_an_inherited_id_in_the_environment(self):
+        # Not ours to delete: it belongs to whoever exported it before this
+        # process started. Sibling agreement depends on it surviving.
         os.environ[ENV_RUN_ID] = "from-the-launcher"
 
         reset_run_id()
 
         self.assertEqual(os.environ.get(ENV_RUN_ID), "from-the-launcher")
+
+    def test_an_inherited_id_is_not_REUSED_after_its_run_ended(self):
+        """Surviving in the environment is not the same as being reused.
+
+        Sibling agreement is a question about how a run STARTS, so it says
+        nothing about a run starting after another ended here. Adopting the id
+        again would have the backend keep the finished run's data — the exact
+        leak that clearing only self-minted ids left open.
+        """
+        os.environ[ENV_RUN_ID] = "from-the-launcher"
+        first = resolve_run_id()
+        reset_run_id()
+
+        self.assertEqual(first, "from-the-launcher")  # adopted for run 1
+        self.assertNotEqual(resolve_run_id(), first)  # but not for run 2
 
     def test_reset_is_safe_when_nothing_was_generated(self):
         reset_run_id()  # must not raise
