@@ -122,6 +122,12 @@ BIDI_NET_RESPONSE_COMPLETED = "network.responseCompleted"
 # than raising an AttributeError, and so the surface guards know what they apply
 # to. Also the reason ``requires-python`` is >=3.10: selenium 4.44 requires it.
 SELENIUM_MINIMUM_VERSION = (4, 44)
+# The interpreter that selenium version needs, which is why ``requires-python``
+# is >=3.10. Held here so a runtime message can tell the two failures apart: an
+# old selenium on a new python is an upgrade away, an old selenium on python 3.9
+# is not — every release at or above the floor refuses to install there, so
+# advising the upgrade would send the reader in a circle.
+PYTHON_MINIMUM_VERSION = (3, 10)
 # Seconds between polls while a BiDi command waits for its reply.
 # `WebSocketConnection._wait_until` is a `sleep(interval)` loop, so selenium's
 # 0.1 default costs up to 100 ms per BiDi command however fast the browser

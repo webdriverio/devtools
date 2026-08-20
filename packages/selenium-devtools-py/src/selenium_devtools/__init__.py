@@ -112,6 +112,9 @@ def enable(
 
     capturer = SessionCapturer(transport)
     instrumentation.install(capturer, webdriver_cls)
+    # Plain scripts only: a framework plugin calls
+    # `set_external_suites`, which turns this back off.
+    instrumentation.start_assertion_tracing(capturer)
     _install_excepthook()
     # Surface the runner's output in the dashboard Console: Python logging
     # (selenium + the adapter's own events) and the test's stdout.

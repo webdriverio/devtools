@@ -19,7 +19,8 @@ import threading
 import weakref
 from typing import Any, Optional
 
-from . import bidi, bidi_preload, frames
+from . import assertions, bidi, bidi_preload, frames
+from .assert_tracer import ScriptAssertionTracer
 from .capturer import SessionCapturer
 from .collector_source import reset_cache as reset_collector_cache
 from .constants import (
@@ -87,6 +88,66 @@ def set_external_suites(value: bool = True) -> None:
     default single-session suite used for plain scripts)."""
     global _external_suites
     _external_suites = value
+    if value:
+        # The framework's own assertion hooks are better than line tracing: they
+        # report real operands for every assertion rather than the subset that is
+        # safe to read, and cost nothing per line.
+        stop_assertion_tracing()
+
+
+def _entry_script() -> Optional[str]:
+    """The file whose `assert` statements are the user's own.
+
+    ``__main__.__file__`` rather than ``sys.argv[0]``: they agree for
+    ``python login.py``, but argv[0] is whatever launched the process — a runner
+    stub, or ``-c`` — while ``__main__`` is always the module actually executing.
+    """
+    main = sys.modules.get("__main__")
+    return getattr(main, "__file__", None) or (sys.argv[0] if sys.argv else None)
+
+
+def start_assertion_tracing(capturer: SessionCapturer) -> bool:
+    """Watch the entry script's `assert` statements. True when tracing started.
+
+    Plain scripts only — see `assert_tracer` for why a passing assert is
+    otherwise invisible, and for what this declines to do.
+    """
+    if _state.get("assert_tracer") is not None:
+        return False
+
+    def report(*, passed, source, operands, location, error) -> None:  # noqa: ANN001
+        op, left, right = operands if operands else (None, None, None)
+        if error is not None:
+            # The teardown path reports the failure that ends the run; without
+            # this it would report this same assertion a second time.
+            _state["assertion_reported"] = True
+        now = now_ms()
+        try:
+            capturer.capture_command(
+                command=assertions.ASSERT_COMMAND,
+                args=[source] if source else [],
+                result=assertions.collapsed_result(
+                    passed=passed, op=op, left=left, right=right,
+                    message=str(error) if error is not None else None,
+                ),
+                error=error,
+                start_time=now,
+                call_source=location,
+            )
+        except Exception as exc:  # noqa: BLE001 — capture must never break the run
+            _log.debug("could not record an assertion: %s", exc)
+
+    tracer = ScriptAssertionTracer(report, _entry_script())
+    if not tracer.install():
+        return False
+    _state["assert_tracer"] = tracer
+    return True
+
+
+def stop_assertion_tracing() -> None:
+    tracer = _state.pop("assert_tracer", None)
+    if tracer is not None:
+        tracer.uninstall()
 
 
 def _send_default_suite(capturer: SessionCapturer, state: str) -> None:
@@ -458,8 +519,56 @@ def _on_quit(capturer: SessionCapturer, driver: Any) -> None:
     if entry is None:
         return  # this driver never armed capture; nothing of its own to close
     _close_entry(capturer, entry)
+    _capture_unwinding_assertion(capturer)
     if not len(sessions) and _state.get("default_suite") is not None:
         _send_default_suite(capturer, _live_run_state())  # the script run is done
+
+
+def _capture_unwinding_assertion(capturer: SessionCapturer) -> None:
+    """Emit a row for a plain script's failing `assert`.
+
+    A script quits its driver from a `finally`, so an assertion that failed is
+    still unwinding through this call and `sys.exc_info()` reports it — the same
+    property `record_live_failure` relies on for the run's outcome. Without this
+    the run goes red with nothing in the Actions list or the Errors tab saying
+    which assertion did it.
+
+    pytest runs are served by the plugin's own hooks and never reach here: those
+    have a rewriter, so they get operands and passing rows too. A script has
+    neither, so the row carries its source line and message alone.
+    """
+    if _state.get("assertion_reported"):
+        return  # a run has one failure; quitting a second driver must not repeat it
+    exc = sys.exc_info()[1]
+    if not isinstance(exc, AssertionError):
+        return
+    _state["assertion_reported"] = True
+    location, raw = assertions.assert_site_from_traceback(exc.__traceback__)
+    # The values, where they can be read without re-running anything. Without
+    # them the Errors tab shows only the message, and an assertion's whole point
+    # is the two values that differ.
+    condition, operands = assertions.parse_assert_statement(
+        raw or "", assertions.innermost_frame(exc)
+    )
+    op, left, right = operands if operands else (None, None, None)
+    now = now_ms()
+    try:
+        capturer.capture_command(
+            command=assertions.ASSERT_COMMAND,
+            args=[condition or raw] if (condition or raw) else [],
+            result=assertions.collapsed_result(
+                passed=False,
+                op=op,
+                left=left,
+                right=right,
+                message=str(exc) or None,
+            ),
+            error=exc,
+            start_time=now,
+            call_source=location,
+        )
+    except Exception as exc_inner:  # noqa: BLE001 — capture must never break teardown
+        _log.debug("could not record the failing assertion: %s", exc_inner)
 
 
 def _live_run_state() -> str:
@@ -611,6 +720,9 @@ def install(capturer: SessionCapturer, webdriver_cls: Optional[type] = None) -> 
 
 
 def uninstall() -> None:
+    # Tracing goes first: leaving a trace function installed past teardown slows
+    # every line the process runs afterwards, for nothing.
+    stop_assertion_tracing()
     # The collector is cached per backend for the run's lifetime; a re-enable
     # may point at a different one, so the cache goes with the rest of the
     # per-run state.
