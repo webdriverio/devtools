@@ -24,11 +24,21 @@ export type ControlScope =
 
 export type WsMessageScope = TraceScope | ControlScope
 
-/** Payload broadcast under the `clearExecutionData` scope. */
+/**
+ * Payload broadcast under the `clearExecutionData` scope.
+ *
+ * Two unrelated events arrive under this one scope, and only the sender can
+ * tell them apart: a RUN STARTING because someone pressed Run/Rerun, and a
+ * single entry resetting inside a run already in flight (Nightwatch re-emits a
+ * cucumber scenario suite that way). `runStart` marks the first, so a receiver
+ * never has to infer it from the uid — inferring it from the uid is what made
+ * the second rerun of a session keep the first one's console and network rows.
+ */
 export interface ClearExecutionDataWsPayload {
   uid?: string
   entryType?: 'suite' | 'test'
   clearSuiteTree?: boolean
+  runStart?: boolean
 }
 
 /** Discriminated-union envelope for every message that crosses the WS. */
