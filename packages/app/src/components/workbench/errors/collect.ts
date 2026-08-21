@@ -30,7 +30,11 @@ export interface CollectedError {
   actual?: string
 }
 
-const ASSERTION_COMMAND_RE = /^(expect|assert|verify)\./
+// A dotted name (`assert.equal`, `expect.toHaveText`) OR the bare keyword: an
+// adapter can only name the row after a method when the assertion IS one.
+// Python's `assert` is a statement, so its rows are called exactly `assert`, and
+// requiring the dot dropped their Expected/Received block on the floor.
+const ASSERTION_COMMAND_RE = /^(expect|assert|verify)(\.|$)/
 
 /** Headline used when the whole message body was the Expected/Received block, so
  *  there is nothing left to head the row with. */
