@@ -5,6 +5,7 @@ connects, so who decides the id — and when — is the whole behaviour.
 """
 
 import os
+import pathlib
 import unittest
 from unittest import mock
 
@@ -44,11 +45,12 @@ class TestResolvingTheRunId(unittest.TestCase):
         self.assertEqual(resolve_run_id(), resolve_run_id())
 
     def test_two_processes_that_both_start_cold_disagree(self):
-        # The known limit, and why it is a limit rather than a bug: with no
-        # launcher-side hook to stamp first, xdist workers each generate their
-        # own. Deriving one from the parent pid would group siblings but would
-        # also make two sequential runs share an id and inherit each other's
-        # state. Tracked as #297.
+        # Two processes with no shared environment are genuinely separate runs —
+        # two independent `pytest` invocations, say. NOT the xdist case: those
+        # workers inherit the controller's variable and agree (measured, #297).
+        # Deriving an id from the parent pid would group cold siblings but would
+        # also make two sequential runs share one and inherit each other's
+        # state.
         first = resolve_run_id()
         os.environ.pop(ENV_RUN_ID, None)  # a sibling with a cold environment
 
@@ -107,6 +109,31 @@ class TestResolvingTheRunId(unittest.TestCase):
 
         self.assertIsNone(os.environ.get(ENV_RUN_ID))
         self.assertNotEqual(mine, "inherited")
+
+    def test_a_child_process_inherits_the_id_through_the_environment(self):
+        """The property pytest-xdist relies on, pinned (#297).
+
+        xdist spawns workers as child processes, so they inherit this variable
+        and adopt the controller's id — which is why parallel pytest needs no
+        launcher hook. Asserted through a real subprocess rather than by reading
+        the code, because "the environment propagates" is the whole claim.
+        """
+        import subprocess
+        import sys
+        import textwrap
+
+        parent_id = resolve_run_id()
+        child = subprocess.run(
+            [sys.executable, "-c", textwrap.dedent("""
+                import sys
+                sys.path.insert(0, %r)
+                from selenium_devtools.run_id import resolve_run_id
+                print(resolve_run_id())
+            """) % str(pathlib.Path(__file__).resolve().parents[1] / "src")],
+            capture_output=True, text=True, env=os.environ.copy(),
+        )
+
+        self.assertEqual(child.stdout.strip(), parent_id, child.stderr)
 
     def test_the_env_var_is_the_one_the_js_side_publishes(self):
         # Generated from shared's RUNNER_ENV, so a Python worker and a JS worker
