@@ -32,11 +32,21 @@ def resolve_run_id() -> str:
     whatever the environment still holds, and reusing the id would have the
     backend keep the finished run's commands, logs, network data and baselines.
 
-    That is the known limit for multi-process pytest (xdist): the plugin loads
-    per worker with no launcher-side hook to stamp first, so siblings disagree.
-    Deriving a fallback from the parent pid would group them, but would also make
-    two sequential single-process runs share an id and inherit each other's
-    state — which is why the per-process fallback stands. Tracked as issue #297.
+    **pytest-xdist needs nothing extra, measured rather than assumed** (#297).
+    The plugin loads in the CONTROLLER as well, and its ``pytest_configure``
+    resolves the id — via ``enable()`` opening the socket — before xdist spawns
+    any worker. execnet spawns workers as child processes, so they inherit this
+    variable and adopt it. Measured with the real plugin against a real backend:
+    ``-n 2`` and ``-n 4`` produced 3 and 5 processes and **one** run id, and the
+    backend saw three worker connects all carrying it. The controller is the
+    launcher the JS adapters lack, which is why their equivalent gap (jest and
+    vitest workers, nightwatch ``test_workers``) does not apply here.
+
+    What still reads as separate runs is genuinely separate: two independent
+    ``pytest`` invocations, or any worker whose environment does not carry the
+    variable. Deriving a fallback from the parent pid would group those, but
+    would also make two sequential single-process runs share an id and inherit
+    each other's state, so the per-process fallback stands.
     """
     global _run_ended
     existing = os.environ.get(ENV_RUN_ID)

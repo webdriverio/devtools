@@ -30,7 +30,12 @@ dependencies = ["selenium>=4.44"]
 [project.optional-dependencies]
 # Test-only additions. selenium is not repeated: it is a hard dependency above,
 # so a second declaration here could drift from it.
-test = ["pytest>=7"]
+#
+# pytest-xdist is not optional for CI: tests/test_xdist_run_identity.py skips
+# without it, and that file is the only check that parallel workers share one
+# run id. Skipping is silent, so omitting it leaves the guarantee unverified
+# exactly where it is meant to be enforced.
+test = ["pytest>=7", "pytest-xdist>=3"]
 
 # Auto-discovered by pytest; inert unless DEVTOOLS_ENABLE / DEVTOOLS_PORT is set.
 [project.entry-points.pytest11]

@@ -123,6 +123,24 @@ or a local resolves, an attribute or a call does not, because evaluating
 `driver.current_url` again would issue another WebDriver command. Those rows
 carry the condition and the error without values.
 
+### Parallel runs (`pytest -n`)
+
+**pytest-xdist works with no extra configuration.** Every process reporting into
+one run has to agree on a run id, or the backend treats each connect as a new run
+and wipes what the previous one captured. With xdist they do agree: the plugin
+loads in the **controller** as well, and enabling capture there resolves the id
+before xdist spawns any worker — workers are child processes, so they inherit it.
+
+Measured with the real plugin against a real backend: `-n 2` and `-n 4` gave 3
+and 5 processes and **one** run id, with the backend seeing three worker connects
+all carrying it. This is where the JS adapters differ — jest/vitest workers and
+nightwatch `test_workers` load their plugin per worker with no launcher-side
+hook, so each reads as its own run.
+
+What still reads as separate runs genuinely is: two independent `pytest`
+invocations, or a worker started without the environment. Export
+`DEVTOOLS_RUN_ID` yourself to join such processes into one run.
+
 ## Dashboard window lifecycle
 
 Like the JS adapters, `enable()` opens the dashboard in a dedicated, closable
