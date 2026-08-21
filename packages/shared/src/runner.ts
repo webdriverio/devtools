@@ -45,6 +45,27 @@ export const RUNNER_ENV = {
   NIGHTWATCH_BIN: 'DEVTOOLS_NIGHTWATCH_BIN'
 } as const
 
+/**
+ * Slots an adapter leaves in its `rerunCommand`, which the backend fills in
+ * when the dashboard reruns one entry. The two differ in what they select by,
+ * and the difference is not cosmetic:
+ *
+ * - `testName` is a NAME PATTERN. It is regex-escaped on substitution because
+ *   every runner that consumes it filters by regex (mocha `--grep`, jest
+ *   `--testNamePattern`, cucumber `--name`).
+ * - `testId` is an EXACT id, substituted verbatim and shell-quoted. pytest
+ *   selects by nodeid (`file.py::Class::test`), matched literally, so the
+ *   escaping `testName` needs would corrupt it — measured, `pytest
+ *   'test_thing\.py::test_a'` collects nothing.
+ *
+ * A template carries one or the other; `testId` is filled from the entry's
+ * `uid`, `testName` from its label.
+ */
+export const RERUN_SLOT = {
+  testName: '{{testName}}',
+  testId: '{{testId}}'
+} as const
+
 /** POST /api/tests/run body. */
 export interface RunnerRequestBody {
   uid: string

@@ -329,6 +329,102 @@ describe('TestRunner', () => {
     )
   })
 
+  // A pytest nodeid is matched LITERALLY, so the escaping the name-pattern
+  // runners need would turn it into an id no test has. Measured: `pytest
+  // 'test_thing\.py::test_a'` collects nothing and exits 0, so a broken slot
+  // reads as a rerun that ran and passed.
+  describe('exact-id rerun templates', () => {
+    const pythonRerun = `python3 -m pytest ${'{{testId}}'}`
+    const spawnedArgs = () => vi.mocked(spawn).mock.calls.at(-1)![1] as string[]
+
+    beforeEach(() => {
+      vi.mocked(spawn).mockReturnValue(createMockChild())
+    })
+
+    it('substitutes the uid verbatim, never regex-escaped', async () => {
+      await testRunner.run({
+        uid: 'examples/test_login.py::TestLogin::test_valid',
+        entryType: 'test',
+        label: 'test_valid',
+        rerunCommand: pythonRerun
+      })
+
+      expect(spawnedArgs()).toEqual([
+        '-m',
+        'pytest',
+        'examples/test_login.py::TestLogin::test_valid'
+      ])
+    })
+
+    it('keeps a parametrized id with spaces as a single argument', async () => {
+      await testRunner.run({
+        uid: 'test_login.py::test_x[a b]',
+        entryType: 'test',
+        label: 'test_x[a b]',
+        rerunCommand: pythonRerun
+      })
+
+      expect(spawnedArgs()).toContain('test_login.py::test_x[a b]')
+    })
+
+    it('selects a suite by its id too — a nodeid addresses a file', async () => {
+      await testRunner.run({
+        uid: 'examples/test_login.py',
+        entryType: 'suite',
+        label: 'test_login.py',
+        rerunCommand: pythonRerun
+      })
+
+      expect(spawnedArgs()).toContain('examples/test_login.py')
+    })
+
+    it('prefers the uid over the label, which is only a display name', async () => {
+      await testRunner.run({
+        uid: 'examples/test_login.py::test_valid',
+        entryType: 'test',
+        label: 'logs in with valid credentials',
+        rerunCommand: pythonRerun
+      })
+
+      expect(spawnedArgs()).not.toContain('logs in with valid credentials')
+    })
+
+    it('targets on the uid alone, with no display name to fall back on', async () => {
+      await testRunner.run({
+        uid: 'examples/test_login.py::test_valid',
+        entryType: 'test',
+        rerunCommand: pythonRerun,
+        launchCommand: 'python3 -m pytest examples/'
+      })
+
+      expect(spawnedArgs()).toContain('examples/test_login.py::test_valid')
+    })
+
+    it('falls back to the launch command for a run-all', async () => {
+      await testRunner.run({
+        uid: '__RUN_ALL__',
+        entryType: 'suite',
+        runAll: true,
+        rerunCommand: pythonRerun,
+        launchCommand: 'python3 -m pytest examples/'
+      })
+
+      expect(spawnedArgs()).toEqual(['-m', 'pytest', 'examples/'])
+    })
+
+    it('still regex-escapes a name-pattern template', async () => {
+      await testRunner.run({
+        uid: 'some-uid',
+        entryType: 'test',
+        label: 'Login (failing)',
+        rerunCommand: `npx mocha --grep "${'{{testName}}'}"`
+      })
+
+      expect(spawnedArgs()).toContain('--grep')
+      expect(spawnedArgs()).toContain('Login \\(failing\\)')
+    })
+  })
+
   describe('registerConfigFile', () => {
     it('uses a worker-registered config path ahead of the default search', async () => {
       const registered = '/proj/wdio.BUILD.conf.ts'

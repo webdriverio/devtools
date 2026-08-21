@@ -6,6 +6,7 @@ import kill from 'tree-kill'
 import logger from '@wdio/logger'
 import { parse as shellParse, quote as shellQuote } from 'shell-quote'
 import {
+  RERUN_SLOT,
   REUSE_ENV,
   RUNNER_ENV,
   type RunnerRequestBody
@@ -23,7 +24,7 @@ const log = logger('@wdio/devtools-runner')
  * the user-supplied rerun template can't trigger backtracking regardless of
  * how many spaces it contains. See CodeQL js/polynomial-redos for context.
  */
-const NAME_SLOT = '--name "{{testName}}"'
+const NAME_SLOT = `--name "${RERUN_SLOT.testName}"`
 function hasNameTestNameSlot(template: string): boolean {
   return template.includes(NAME_SLOT)
 }
@@ -184,12 +185,24 @@ class TestRunner {
   #resolveGenericCommand(payload: RunnerRequestBody): string {
     const template = payload.rerunCommand
     const fallback = payload.launchCommand || ''
+    // Which slot the template carries decides what selects the entry: an exact
+    // id comes from `uid`, a name pattern from the label. A run with no usable
+    // selector is not targetable and falls back to relaunching everything.
+    const usesTestId = Boolean(template?.includes(RERUN_SLOT.testId))
+    const name = payload.label || payload.fullTitle || ''
     const isTargetedRerun =
       !payload.runAll &&
       (payload.entryType === 'test' || payload.entryType === 'suite') &&
-      Boolean(payload.label || payload.fullTitle)
+      Boolean(usesTestId ? payload.uid : name)
     if (!template || !isTargetedRerun) {
       return fallback || template || ''
+    }
+    if (usesTestId) {
+      // Shell-quoted but never regex-escaped: the id is matched literally, and
+      // a parametrized pytest nodeid can carry brackets and spaces
+      // (`test_login.py::test_x[a b]`). Split/join rather than a regex so the
+      // template can't drive backtracking (see the CodeQL note above).
+      return template.split(RERUN_SLOT.testId).join(shellQuote([payload.uid]))
     }
     // Cucumber's `--name` matches scenario titles, never feature titles.
     // Feature-level reruns must drop `--name` and pass the .feature path as a
@@ -209,10 +222,9 @@ class TestRunner {
       const stripped = stripNameTestNameSlot(template)
       return `${stripped} ${shellQuote([featureSpec])}`
     }
-    const name = payload.label || payload.fullTitle || ''
     // The slot is double-quoted in the template, so the backslashes the escape
     // adds survive shell parsing and reach the runner as literals.
-    return template.replace(/\{\{testName\}\}/g, escapeFilterRegex(name))
+    return template.split(RERUN_SLOT.testName).join(escapeFilterRegex(name))
   }
 
   #parseGenericCommand(command: string): { file: string; args: string[] } {
