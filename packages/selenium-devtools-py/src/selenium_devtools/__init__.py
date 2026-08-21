@@ -20,7 +20,7 @@ import subprocess
 import sys
 from typing import Optional
 
-from . import backend, instrumentation, lifecycle
+from . import backend, instrumentation, lifecycle, rerun
 from ._contract import CONTRACT_VERSION
 from .capturer import SessionCapturer
 from .run_id import reset_run_id
@@ -84,6 +84,12 @@ def enable(
     """
     if _active["capturer"] is not None:
         return _active["capturer"]
+
+    # Before the backend is launched: the directory a rerun spawns in travels
+    # through the environment the backend process inherits. A framework plugin
+    # has already published richer commands by now and this leaves those alone.
+    rerun.configure_script()
+    rerun.log_published()
 
     process = None
     try:
@@ -163,6 +169,9 @@ def disable() -> None:
     # A new enable() in this process is a NEW run, so the id must not outlive
     # this one — the backend would otherwise keep the previous run's data.
     reset_run_id()
+    # Same reasoning: a re-enable() re-derives its commands rather than
+    # inheriting the ones this run published.
+    rerun.reset()
     process = _active["process"]
     if process is not None:  # only set when we launched it ourselves
         process.terminate()

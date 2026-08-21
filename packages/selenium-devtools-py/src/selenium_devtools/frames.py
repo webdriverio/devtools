@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import Any, List, Optional
 
 from ._contract import RUNNER_ID
-from .constants import RUN_CAPABILITIES
+from .constants import RUN_CAPABILITIES_NONE
 from .types import (
     CommandLog,
     ConsoleLog,
@@ -28,6 +28,7 @@ def metadata(
     session_id: str,
     capabilities: Optional[dict] = None,
     url: Optional[str] = None,
+    run_options: Optional[dict] = None,
 ) -> Metadata:
     caps = capabilities or {}
     return {
@@ -41,7 +42,11 @@ def metadata(
         # fact under an older name and is deliberately not sent, so this stream
         # carries one answer rather than two.
         "runner": RUNNER_ID,
-        "options": {"runCapabilities": dict(RUN_CAPABILITIES)},
+        # What the dashboard's run controls may offer, plus the commands that
+        # service them. Built by `rerun.py` and passed in, so this stays pure.
+        "options": dict(run_options)
+        if run_options
+        else {"runCapabilities": dict(RUN_CAPABILITIES_NONE)},
     }
 
 
