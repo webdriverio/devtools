@@ -17,3 +17,6 @@ CONTROL_SCOPES = frozenset(['clearCommands', 'clearExecutionData', 'clientConnec
 COLLECTOR_PATH = "/api/collector"
 RUNNER_ID = "selenium-webdriver"
 TEST_RUNNER_IDS = frozenset(['cucumber', 'jasmine', 'mocha', 'nightwatch', 'nightwatch-cucumber', 'selenium-webdriver'])
+
+WORKER_QUERY_RUN_ID = "runId"
+ENV_RUN_ID = "DEVTOOLS_RUN_ID"

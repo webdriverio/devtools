@@ -23,6 +23,7 @@ from typing import Optional
 from . import backend, instrumentation, lifecycle
 from ._contract import CONTRACT_VERSION
 from .capturer import SessionCapturer
+from .run_id import reset_run_id
 from .constants import DEFAULT_HOST, DEFAULT_PORT, ENV_HOST, ENV_PORT, LOGGER_NAME
 from .logcapture import LogCapturer
 from .terminal import TerminalCapturer
@@ -159,6 +160,9 @@ def disable() -> None:
     transport = _active["transport"]
     if transport is not None:
         transport.close()
+    # A new enable() in this process is a NEW run, so the id must not outlive
+    # this one — the backend would otherwise keep the previous run's data.
+    reset_run_id()
     process = _active["process"]
     if process is not None:  # only set when we launched it ourselves
         process.terminate()
