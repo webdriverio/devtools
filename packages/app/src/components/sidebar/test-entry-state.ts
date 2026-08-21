@@ -28,8 +28,10 @@ function isSuiteFragment(entry: Fragment): entry is SuiteStatsFragment {
  * still executes first. jasmine matches it. Those runners set no `order` and
  * keep this shape.
  *
- * pytest instead runs in collection order and interleaves module-level tests
- * with classes, so it stamps `order` and the two buckets are merged by it. Only
+ * pytest instead interleaves module-level tests with classes, so it stamps
+ * `order` and the two buckets are merged by it. That stamp is the child's
+ * source line, not its position in the run: a rerun collects one test, and an
+ * index from that collection would say 0 and move the row to the top. Only
  * applied when EVERY child carries one — a partially stamped suite would sort
  * the unstamped children into a position nothing asked for.
  */

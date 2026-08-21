@@ -166,6 +166,14 @@ export function mergeChildSuites(
 // mark them 'pending' so they render as a spinner instead of a stale check.
 // Exception: child-scope rerun (activeRerunSuiteUid differs from the
 // incoming feature suite's uid) — sibling scenarios keep terminal states.
+//
+// Also skipped during a SINGLE-TEST rerun, which `mergeTests` already freezes
+// siblings for — this is the same rule for the other kind of sibling. A child
+// suite on the path to the target re-reports its own state anyway, while one
+// off the path never reports again, so flipping it to 'pending' left it
+// spinning for the rest of the session. Reproduced on pytest, whose tree puts
+// a class suite beside a module-level test: rerunning the module-level test
+// left the class in flight with all its tests still showing green.
 function resetStaleChildrenOnRerun(
   mergedSuites: SuiteStatsFragment['suites'] | undefined,
   incoming: SuiteStatsFragment,
@@ -173,7 +181,12 @@ function resetStaleChildrenOnRerun(
 ): SuiteStatsFragment['suites'] | undefined {
   const isChildRerun =
     !!ctx.activeRerunSuiteUid && ctx.activeRerunSuiteUid !== incoming.uid
-  if (incoming.state !== 'pending' || !mergedSuites || isChildRerun) {
+  if (
+    incoming.state !== 'pending' ||
+    !mergedSuites ||
+    isChildRerun ||
+    ctx.activeRerunTestUid
+  ) {
     return mergedSuites
   }
   return mergedSuites.map((s) =>

@@ -11,7 +11,7 @@ from __future__ import annotations
 import threading
 from typing import Any, List, Optional, Protocol
 
-from . import frames
+from . import frames, rerun
 from ._contract import (
     SCOPE_COMMANDS,
     SCOPE_CONSOLE_LOGS,
@@ -56,7 +56,12 @@ class SessionCapturer:
         self.session_id = session_id
         self._tx.send_json(
             SCOPE_METADATA,
-            frames.metadata(session_id, to_jsonable(capabilities or {}), url),
+            frames.metadata(
+                session_id,
+                to_jsonable(capabilities or {}),
+                url,
+                run_options=rerun.run_options(),
+            ),
         )
 
     # ── commands ───────────────────────────────────────────────────────────────
