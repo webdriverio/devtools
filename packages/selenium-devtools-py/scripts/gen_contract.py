@@ -75,6 +75,24 @@ def _collector_path(collector_ts: str) -> str:
     return got.group(1)
 
 
+def _collector_push(collector_ts: str) -> dict[str, str]:
+    """The two names the page-side push path is wired through.
+
+    Single-sourced in shared because three writers exist — core's preload
+    wrapper, the collector that reads the global, and this adapter — and a name
+    that drifts on one side is a silent loss of DOM replay: the collector keeps
+    buffering, nothing ever arrives, and the preview panel looks exactly like a
+    page that never changed.
+    """
+    names = {}
+    for const in ("COLLECTOR_SINK_GLOBAL", "COLLECTOR_MUTATION_CHANNEL"):
+        m = re.search(rf"export const {const} = '([^']+)'", collector_ts)
+        if not m:
+            raise SystemExit(f"could not find `{const}` in shared/collector.ts")
+        names[const] = m.group(1)
+    return names
+
+
 def _worker_query(routes_ts: str) -> dict[str, str]:
     """Query-param names on the worker upgrade.
 
@@ -113,7 +131,9 @@ def main() -> int:
     types_ts = (shared / "src" / "types.ts").read_text()
     data_keys = _trace_log_keys(types_ts)
     runner_ids = _test_runner_ids(types_ts)
-    collector_path = _collector_path((shared / "src" / "collector.ts").read_text())
+    collector_ts = (shared / "src" / "collector.ts").read_text()
+    collector_path = _collector_path(collector_ts)
+    push = _collector_push(collector_ts)
     routes_ts = (shared / "src" / "routes.ts").read_text()
     control = _ws_scopes(routes_ts)
     worker_query = _worker_query(routes_ts)
@@ -155,6 +175,8 @@ def main() -> int:
         f"CONTROL_SCOPES = frozenset({sorted(control.values())!r})",
         "",
         f'COLLECTOR_PATH = "{collector_path}"',
+        f'COLLECTOR_SINK_GLOBAL = "{push["COLLECTOR_SINK_GLOBAL"]}"',
+        f'COLLECTOR_MUTATION_CHANNEL = "{push["COLLECTOR_MUTATION_CHANNEL"]}"',
         f'RUNNER_ID = "{REQUIRED_RUNNER_ID}"',
         f"TEST_RUNNER_IDS = frozenset({sorted(runner_ids)!r})",
         "",

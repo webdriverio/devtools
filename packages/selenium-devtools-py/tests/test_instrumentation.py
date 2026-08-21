@@ -5,6 +5,10 @@ import unittest
 from unittest import mock
 
 from selenium_devtools import instrumentation, snapshot
+from selenium_devtools._contract import (
+    COLLECTOR_MUTATION_CHANNEL,
+    COLLECTOR_SINK_GLOBAL,
+)
 from selenium_devtools.capturer import SessionCapturer
 
 
@@ -234,6 +238,130 @@ class TestWarrantsDrain(unittest.TestCase):
     def test_page_moving_and_unknown_commands_are_allowed(self):
         for command in ("get", "click", "sendKeys", "back", "someFutureCommand"):
             self.assertTrue(instrumentation.warrants_drain(command), command)
+
+    def test_nothing_is_drained_while_the_page_is_pushing(self):
+        # The buffer a drain would read is empty by construction once the page
+        # emits over its channel, and the drain is a synchronous round trip on
+        # the user's own command path.
+        for command in ("get", "click", "sendKeys", "someFutureCommand"):
+            self.assertFalse(
+                instrumentation.warrants_drain(command, pushing=True), command
+            )
+
+
+class FakeBidiScript:
+    """`driver.script` for a session that can take a preload and a channel."""
+
+    def __init__(self):
+        self.preloads = []
+        self._handlers = {}
+
+    def add_preload_script(self, function_declaration=None, arguments=None, **_kw):
+        self.preloads.append((function_declaration, arguments))
+        return {"script": "preload-id"}
+
+    def add_event_handler(self, event, callback, contexts=None):
+        self._handlers[len(self._handlers)] = callback
+        return len(self._handlers) - 1
+
+    def remove_event_handler(self, event, callback_id):
+        self._handlers.pop(callback_id, None)
+
+    def push(self, payload):
+        """One `script.message` on the collector's channel."""
+        message = {
+            "channel": COLLECTOR_MUTATION_CHANNEL,
+            "data": {"type": "string", "value": payload},
+        }
+        for callback in list(self._handlers.values()):
+            callback(message)
+
+
+class PushingDriver(FakeDriverWithScript):
+    """A BiDi session, so the preload registers and opens the channel."""
+
+    def __init__(self):
+        super().__init__()
+        self.caps = {"browserName": "chrome", "webSocketUrl": "ws://x"}
+        self._bidi_script = FakeBidiScript()
+
+    @property
+    def script(self):
+        return self._bidi_script
+
+
+class TestPushedMutationsReplaceTheDrain(unittest.TestCase):
+    """With a channel open the page sends its own batches, so the per-command
+    round trip goes away — and the session-end drain stays as the safety net."""
+
+    def setUp(self):
+        self._stub = tempfile.NamedTemporaryFile("w", suffix=".js", delete=False)
+        # Names the sink global, which is what marks a collector build able to
+        # push — one that doesn't is deliberately never handed a channel.
+        self._stub.write(
+            f'window["{COLLECTOR_SINK_GLOBAL}"];'
+            " window.wdioTraceCollector = { getTraceData: () => null }\n"
+        )
+        self._stub.close()
+        self._script_patch = mock.patch.object(
+            snapshot, "resolve_script_path", return_value=self._stub.name
+        )
+        self._script_patch.start()
+        # Console/network attach is not under test here, and this driver has no
+        # `network` — patched with a plain lambda so nothing records the driver.
+        self._bidi = mock.patch.object(
+            instrumentation.bidi, "attach",
+            new=lambda driver, capturer, stats=None: False,
+        )
+        self._bidi.start()
+        instrumentation.uninstall()
+        self.tx = FakeTransport()
+        self.cap = SessionCapturer(self.tx)
+        instrumentation.install(self.cap, PushingDriver)
+        self.driver = PushingDriver()
+
+    def tearDown(self):
+        instrumentation.uninstall()
+        self._bidi.stop()
+        self._script_patch.stop()
+        os.unlink(self._stub.name)
+
+    def _mutations(self):
+        return [d for s, d in self.tx.sent if s == "mutations"]
+
+    def test_the_preload_registers_with_a_channel(self):
+        self.driver.execute("get", {"url": "https://x/"})
+        declaration, arguments = self.driver.script.preloads[0]
+        self.assertIn(COLLECTOR_SINK_GLOBAL, declaration)
+        self.assertEqual(
+            arguments,
+            [{"type": "channel", "value": {"channel": COLLECTOR_MUTATION_CHANNEL}}],
+        )
+
+    def test_a_pushing_session_is_never_drained_per_command(self):
+        self.driver.execute("get", {"url": "https://x/"})
+        self.driver.execute("click", {"id": "btn"})
+        reads = [s for s in self.driver._script_calls if "getTraceData" in s]
+        self.assertEqual(reads, [])  # no round trip on the command path at all
+
+    def test_a_pushed_batch_reaches_the_dashboard(self):
+        self.driver.execute("get", {"url": "https://x/"})
+        self.driver.script.push('[{"type":"childList","target":"1"}]')
+
+        self.assertEqual(
+            self._mutations(), [[{"type": "childList", "target": "1"}]]
+        )
+
+    def test_the_session_end_drain_still_runs(self):
+        # It is what collects a document the preload missed, and the batch the
+        # page puts back when its channel dies during teardown.
+        self.driver.execute("get", {"url": "https://x/"})
+        self.driver._collector_installed = True  # a document that buffered
+        self.driver.execute("quit")
+
+        self.assertEqual(
+            self._mutations(), [[{"type": "childList", "target": "1"}]]
+        )
 
 
 class FakeClientConfig:

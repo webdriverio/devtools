@@ -50,7 +50,7 @@ from .constants import (
     PYTHON_MINIMUM_VERSION,
     SELENIUM_MINIMUM_VERSION,
 )
-from .utils import now_ms, selenium_version
+from .utils import attr_or, now_ms, selenium_version
 
 _log = logging.getLogger(f"{LOGGER_NAME}.bidi")
 
@@ -111,7 +111,7 @@ def _args_from_entry(entry: Any) -> Optional[List[Any]]:
     Returns None (not []) when ``args`` is absent so the caller can fall back to
     ``.text`` — an empty list is a real console call with no arguments.
     """
-    raw = _attr(entry, "args", None)
+    raw = attr_or(entry, "args", None)
     if not isinstance(raw, list):
         return None
     return [remote_value_to_py(v) for v in raw]
@@ -126,12 +126,12 @@ def console_kwargs(entry: Any) -> Tuple[str, List[Any]]:
     debug) over ``level`` (coarser), and maps every RemoteValue arg, falling
     back to ``.text`` only when no ``args`` are present.
     """
-    level = _attr(entry, "method", None) or _attr(entry, "level", "info")
+    level = attr_or(entry, "method", None) or attr_or(entry, "level", "info")
     args = _args_from_entry(entry)
     if args is None:
-        text = _attr(entry, "text", None)
+        text = attr_or(entry, "text", None)
         if text is None:
-            text = _attr(entry, "message", "")
+            text = attr_or(entry, "message", "")
         args = [text]
     return normalize_level(level), args
 
@@ -143,11 +143,11 @@ def js_error_kwargs(entry: Any) -> Tuple[str, List[Any]]:
     rather than ``args``. We render message + formatted stack as a single arg so
     the Console panel shows the full error, never an empty/duplicate entry.
     """
-    text = _attr(entry, "text", None)
+    text = attr_or(entry, "text", None)
     if text is None:
-        text = _attr(entry, "message", "")
+        text = attr_or(entry, "message", "")
     message = str(text or "")
-    stack = _format_stacktrace(_attr(entry, "stacktrace", None))
+    stack = _format_stacktrace(attr_or(entry, "stacktrace", None))
     combined = f"{message}\n{stack}" if stack else message
     return "error", [combined]
 
@@ -290,12 +290,6 @@ def headers_to_object(headers: Any) -> Optional[Dict[str, str]]:
         else:
             out[name] = str(value)
     return out
-
-
-def _attr(obj: Any, name: str, default: Any) -> Any:
-    if isinstance(obj, dict):
-        return obj.get(name, default)
-    return getattr(obj, name, default)
 
 
 def _int_or(value: Any, fallback: Any) -> Any:
