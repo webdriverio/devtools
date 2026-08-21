@@ -261,8 +261,13 @@ function registerPreload(
   ctx: SessionLifecycleCtx,
   driver: SeleniumDriverLike
 ): Promise<void> {
-  return registerCollectorPreload(driver, (level, message) =>
-    log[level](message)
+  return registerCollectorPreload(
+    driver,
+    (level, message) => log[level](message),
+    // Pushed mutations arrive on their own, so the per-command drain has
+    // nothing left to fetch. The drain stays wired for the sessions that never
+    // get a channel — a page with no BiDi, or one whose subscribe failed.
+    (mutations) => ctx.sessionCapturer?.ingestPushedMutations(mutations)
   ).then((registered) => {
     if (ctx.sessionCapturer) {
       ctx.sessionCapturer.preloadRegistered = registered

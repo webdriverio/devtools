@@ -307,6 +307,20 @@ export abstract class SessionCapturerBase {
   }
 
   /**
+   * Ingest mutations the page PUSHED over its BiDi channel, rather than ones a
+   * drain went and asked for.
+   *
+   * Deliberately routed through `processTracePayload` instead of appending
+   * directly: the anchor reattribution, the accumulated array and the upstream
+   * scope are one path, and a second entry point would be the kind of duplicate
+   * that drifts. Pushed batches carry no `anchorTimestamp` — an anchor now
+   * arrives at its own birth time, which is what the inference wanted all along.
+   */
+  ingestPushedMutations(mutations: TraceMutation[]): void {
+    this.processTracePayload({ mutations })
+  }
+
+  /**
    * Ingest the `{ mutations, traceLogs, consoleLogs, networkRequests, metadata }`
    * payload returned by the page-side `wdioTraceCollector.getTraceData()`.
    * Tags console logs with `source: 'browser'`, pushes each array into the

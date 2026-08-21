@@ -25,9 +25,11 @@ from .capturer import SessionCapturer
 from .collector_source import reset_cache as reset_collector_cache
 from .constants import (
     BIDI_CAPABILITY,
+    BIDI_RESPONSE_POLL_INTERVAL_S,
     DEFAULT_TEST_TITLE,
     ENV_BIDI,
     LOGGER_NAME,
+    NO_DRAIN_COMMANDS,
     SKIP_COMMANDS,
     SKIP_STACK_FRAMES,
 )
@@ -223,12 +225,11 @@ def _capture_source(capturer: SessionCapturer, call_src: Optional[str]) -> None:
     _sources_sent.add(path)
     capturer.send_sources({path: text})
 
-# Selenium command names that change the document — after these we drain the
-# page-side mutation buffer so the snapshot iframe stays current.
 _state: dict = {
     "installed": False, "cls": None, "orig": None,
     # Capture state keyed by the DRIVER that owns it, weakly:
-    #   {driver: {"session_id": sid, "screencast": rec, "snapshot": cap}}
+    #   {driver: {"session_id": sid, "screencast": rec, "snapshot": cap,
+    #             "preloaded": bool, "pushing": bool, "network": stats}}
     # The driver is the owner; the session id is a label on that state which can
     # be stale or absent, so keying on the id forced a guess about which session
     # a quit belonged to. Weak keys also let an abandoned driver be collected
@@ -280,12 +281,32 @@ def _add_screencast_frame(entry: dict, shot: Optional[str]) -> None:
         _log.warning("screencast add_frame threw: %s", exc)
 
 
+def warrants_drain(driver_command: str, *, pushing: bool = False) -> bool:
+    """Whether the mutation buffer is worth draining after this command.
+
+    Nothing is, once the page PUSHES its mutations over a BiDi channel: the
+    buffer a drain would read is empty by construction, and the drain is a
+    synchronous round trip on the user's own command path. The session-end drain
+    in ``_close_entry`` stays either way — it is what collects a document the
+    preload missed, whose ``<script>`` collector has no channel to push down, and
+    the batch the page put back after a channel died in teardown.
+
+    Otherwise everything except locator resolution, which reads the DOM and so
+    cannot have changed it — see ``NO_DRAIN_COMMANDS`` for why that is a
+    deny-list.
+    """
+    if pushing:
+        return False
+    return driver_command not in NO_DRAIN_COMMANDS
+
+
 def _refresh_snapshot(capturer: SessionCapturer, entry: dict) -> None:
     """After a command, keep the snapshot current: re-inject the collector if the
     page navigated (self-healing — a click can submit a form and wipe it), then
-    drain the mutation buffer. Called after every command, not just explicit
-    navigations, so the initial full-document snapshot is captured even if it
-    wasn't ready the instant the navigation returned."""
+    drain the mutation buffer. Called after every command that could have moved
+    the page, not just explicit navigations, so the initial full-document
+    snapshot is captured even if it wasn't ready the instant the navigation
+    returned."""
     snapshot = entry.get("snapshot")
     if snapshot is None:
         return
@@ -334,6 +355,39 @@ def _enable_bidi_capability(params: Any) -> None:
         always.setdefault(BIDI_CAPABILITY, True)
     except Exception:  # noqa: BLE001 — capability injection is best-effort
         pass
+
+
+def _tune_bidi_poll_interval(driver: Any) -> None:
+    """Shrink selenium's BiDi reply poll, before the socket that reads it exists.
+
+    ``WebSocketConnection`` waits for a reply in a ``sleep(interval)`` loop, and
+    takes the interval as a constructor argument that ``_start_bidi()`` reads off
+    ``command_executor.client_config``. That construction is LAZY — the first
+    touch of ``driver.script`` / ``driver.network`` builds it — and the adapter's
+    own ``bidi.attach`` is that first touch, so setting it here lands before the
+    only connection this session gets.
+
+    Only ever LOWERS it: a user who chose a smaller interval deliberately keeps
+    theirs. A driver whose executor has no client config (not a
+    ``RemoteConnection``) is left alone, as is one whose config does not expose
+    the setting at all — there is then nothing selenium would read. A socket
+    already built by the user's own code before the first command keeps its
+    interval: the poll is then selenium's default, which is the pre-existing
+    behaviour rather than a regression.
+    """
+    try:
+        config = getattr(getattr(driver, "command_executor", None),
+                         "client_config", None)
+        current = getattr(config, "websocket_interval", None) if config else None
+        if current is None or current <= BIDI_RESPONSE_POLL_INTERVAL_S:
+            return
+        config.websocket_interval = BIDI_RESPONSE_POLL_INTERVAL_S
+        _log.debug(
+            "BiDi reply poll interval %s -> %s",
+            current, BIDI_RESPONSE_POLL_INTERVAL_S,
+        )
+    except Exception as exc:  # noqa: BLE001 — a tuning failure must not break capture
+        _log.debug("could not tune the BiDi poll interval: %s", exc)
 
 
 def _close_entry(capturer: SessionCapturer, entry: dict) -> None:
@@ -395,7 +449,7 @@ def _ensure_session_setup(driver: Any, capturer: SessionCapturer) -> Optional[di
         _close_entry(capturer, entry)  # same driver, new session
     entry = {
         "session_id": session_id, "screencast": None, "snapshot": None,
-        "preloaded": False,
+        "preloaded": False, "pushing": False,
     }
     try:
         sessions[driver] = entry
@@ -405,6 +459,9 @@ def _ensure_session_setup(driver: Any, capturer: SessionCapturer) -> Optional[di
     capturer.ensure_metadata(session_id, getattr(driver, "caps", None), None)
     _log.info("session %s started", session_id)
     _send_default_suite(capturer, "running")  # tree entry for plain-script runs
+    # Before attach, which is the first `driver.script` touch and so the point
+    # the BiDi socket is built — the interval is read at construction.
+    _tune_bidi_poll_interval(driver)
     try:
         # Filled in as events arrive; reported once by _on_quit, because the
         # Network tab already lists every request as it happens.
@@ -427,14 +484,22 @@ def _ensure_session_setup(driver: Any, capturer: SessionCapturer) -> Optional[di
         # Falls back to per-document `<script>` injection when BiDi is absent.
         origin = _backend_origin(capturer)
         source = collector_source_text(backend=origin)
-        preloaded = bool(
-            source and bidi_preload.register_collector_preload(driver, source)
-        )
+        registration = bidi_preload.NOT_REGISTERED
+        if source:
+            # The sink is the capturer's own send, so a pushed batch reaches the
+            # dashboard from the WebSocket reader thread without touching the
+            # command path — which is the point: no drain, no round trip.
+            registration = bidi_preload.register_collector_preload(
+                driver, source, capturer.send_mutations
+            )
+        preloaded = registration.registered
         entry["preloaded"] = preloaded
+        entry["pushing"] = registration.pushing
         # Inject the packages/script DOM observer so the snapshot iframe fills.
         # Use a capture-bypassing execute_script so injection/readback scripts
         # don't pollute the Actions timeline. With the preload registered the
-        # capturer injects nothing and exists only to DRAIN the buffer.
+        # capturer injects nothing, and with a channel open it is only the
+        # session-end safety net rather than the transport.
         entry["snapshot"] = start_snapshot_capture(
             driver,
             execute_fn=_guarded_execute_script(driver),
@@ -654,10 +719,12 @@ def install(capturer: SessionCapturer, webdriver_cls: Optional[type] = None) -> 
         # No per-command line here: the Actions timeline lists every command as
         # it happens, and `_WATCH` puts this logger's debug records in the same
         # Console the user is reading, so it was one duplicate line per command.
-        # Keep the snapshot iframe current after every command (a click can
-        # navigate too, not just get/back/…), re-injecting if the page changed.
+        # Keep the snapshot iframe current after every command that could have
+        # moved the page (a click can navigate too, not just get/back/…),
+        # re-injecting if the page changed.
         if entry is not None:
-            _refresh_snapshot(capturer, entry)
+            if warrants_drain(driver_command, pushing=entry["pushing"]):
+                _refresh_snapshot(capturer, entry)
             _add_screencast_frame(entry, shot)
         return result
 

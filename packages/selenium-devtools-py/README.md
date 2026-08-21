@@ -82,7 +82,7 @@ is on `PATH`; otherwise keep it current (`brew upgrade chromedriver`).
 | Browser console + JS errors | Selenium **BiDi** (`driver.script` handlers) | `consoleLogs` | 2 |
 | Network requests | Selenium **BiDi** (`Network.add_event_handler`, observe-only — never an intercept, which would pause every request) | `networkRequests` | 2 |
 | Assertions | pytest hooks under pytest; line tracing for a plain script | `commands` | 2 |
-| DOM snapshot (preview iframe) | inject `packages/script`, re-inject per navigation, drain mutations | `mutations` | 2 |
+| DOM snapshot (preview iframe) | `packages/script` registered at document-start (**BiDi** preload), pushing mutations back over a BiDi channel; without BiDi, injected per navigation and drained after each command | `mutations` | 2 |
 | Screencast video | screenshot polling → ffmpeg-encoded `.webm` | `screencast` | 2 |
 
 Element actions (`click`, `send_keys`, `text`, …) are captured for free: they
@@ -91,8 +91,11 @@ delegate to `self._parent.execute`, so the one wrapper sees them as
 
 **BiDi is auto-enabled** — the adapter injects the `webSocketUrl` capability
 into the `newSession` request so console/network work out-of-box (opt out with
-`DEVTOOLS_BIDI=0`). **Screencast** needs `ffmpeg` on PATH to encode the
-`.webm`; without it, recording is skipped (one warning, no error).
+`DEVTOOLS_BIDI=0`). It also buys the higher-fidelity DOM path: with BiDi the
+page pushes its own mutations, so no command pays for a drain round trip;
+without it every command that could have moved the page pays for one. **Screencast**
+needs `ffmpeg` on PATH to encode the `.webm`; without it, recording is skipped
+(one warning, no error).
 
 ### Assertions
 
