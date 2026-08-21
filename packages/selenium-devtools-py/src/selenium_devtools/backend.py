@@ -4,6 +4,7 @@ Python can't declare a dependency on the Node ``@wdio/devtools-backend`` the way
 the JS adapters do (no cross-ecosystem resolution). So the backend is obtained
 at runtime, and the resolution order encodes the local-vs-published split:
 
+    0. reuse handshake set      → attach to the backend that spawned us (RERUN)
     1. DEVTOOLS_PORT set        → attach to an already-running backend (CI, manual)
     2. DEVTOOLS_BACKEND_CMD set → spawn that explicit command
     3. monorepo dist present    → node packages/backend/dist/server.js     (LOCAL dev)
@@ -15,6 +16,7 @@ there is no auto-resolution, so this constant *is* the version link.
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 import shlex
@@ -25,6 +27,7 @@ import time
 from pathlib import Path
 from typing import List, Optional, Tuple
 
+from ._contract import ENV_REUSE, ENV_REUSE_HOST, ENV_REUSE_PORT
 from .constants import (
     BACKEND_NPM_PACKAGE,
     BACKEND_NPM_VERSION,
@@ -33,7 +36,10 @@ from .constants import (
     ENV_BACKEND_CMD,
     ENV_HOST,
     ENV_PORT,
+    LOGGER_NAME,
 )
+
+_log = logging.getLogger(f"{LOGGER_NAME}.backend")
 
 # Match the ACTUAL bound port from Fastify's "Server listening at http://…:PORT"
 # line — NOT the earlier "Starting … on port 3000" line, which is only the
@@ -92,10 +98,40 @@ def _spawn_and_wait_for_port(
     raise TimeoutError("backend did not report a port within the timeout")
 
 
+def reuse_target() -> Optional[Tuple[str, int]]:
+    """The backend that spawned us, when this process is a rerun child.
+
+    The dashboard's Rerun spawns a fresh process and points it back at itself
+    through these three variables. Without honouring them the child launches a
+    SECOND backend and opens a SECOND dashboard window, reporting its run
+    there — so the window the user pressed Rerun in never updates, which looks
+    like a rerun that captured nothing.
+    """
+    if os.environ.get(ENV_REUSE) != "1":
+        return None
+    host = os.environ.get(ENV_REUSE_HOST)
+    port = os.environ.get(ENV_REUSE_PORT)
+    if not host or not port:
+        return None
+    try:
+        return host, int(port)
+    except ValueError:
+        _log.warning("ignoring reuse handshake: %s is not a port (%r)",
+                     ENV_REUSE_PORT, port)
+        return None
+
+
 def launch_or_attach() -> Tuple[str, int, Optional[subprocess.Popen]]:
     """Return ``(host, port, process)``. ``process`` is None when we attached to
     a backend we don't own (caller must not terminate it)."""
     host = os.environ.get(ENV_HOST, DEFAULT_HOST)
+
+    # Ahead of DEVTOOLS_PORT: this is the backend that asked for this run, so it
+    # wins over an ambient preference the parent happened to be started with.
+    reuse = reuse_target()
+    if reuse is not None:
+        _log.info("reusing the dashboard that requested this run at %s:%s", *reuse)
+        return reuse[0], reuse[1], None
 
     if os.environ.get(ENV_PORT):
         return host, int(os.environ[ENV_PORT]), None

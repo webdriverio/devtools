@@ -138,6 +138,58 @@ What still reads as separate runs genuinely is: two independent `pytest`
 invocations, or a worker started without the environment. Export
 `DEVTOOLS_RUN_ID` yourself to join such processes into one run.
 
+### Run controls (Run, Rerun, Run-all)
+
+**All three work, under pytest and for a plain script alike.** A rerun is not a
+message to the running process — the backend spawns a fresh one from a command
+the adapter publishes at startup, so what the buttons can do is fixed before any
+test runs, and the adapter advertises exactly that (a control it cannot service
+stays disabled with a reason rather than failing on click).
+
+Under pytest each control selects what its row names. For a plain script the
+tree is one synthetic suite holding one synthetic test — both denote the whole
+run, so all three controls relaunch the script, which is what that tree means.
+
+The rerun reports into **the dashboard you pressed the button in**: the backend
+points the process it spawns back at itself (`DEVTOOLS_APP_REUSE` /`_HOST`
+/`_PORT`), so the child attaches to that backend and opens no second window.
+
+The command is your own invocation, re-derived:
+
+```
+you ran:   pytest examples/ -k login -n 4
+run-all:   <this python> -m pytest /abs/examples -k login -n 4
+one test:  <this python> -m pytest <the test's nodeid>
+```
+
+Three things about that are deliberate:
+
+- **The interpreter is the one running your tests**, not whatever `python3`
+  resolves to on the backend's PATH — that need not be the venv holding selenium
+  and this adapter.
+- **A single test is selected by nodeid**, so the same slot serves a test, a
+  class and a file (`file.py::Class::test`, `file.py::Class`, `file.py`). No
+  filter flag is involved, and nothing is matched by name.
+- **Options that narrow the run are dropped from a targeted rerun** — `-k`,
+  `-m`, `--deselect`, `--lf`/`--ff`/`--sw`, and `-n`/`--dist`. A rerun already
+  names its test, so a surviving filter could only narrow that further, usually
+  to nothing — which pytest reports as a clean exit, so it would look like it
+  worked. The xdist flags go for a second reason: a one-test rerun has nothing
+  to parallelise, and each worker would connect as its own run.
+
+The rerun spawns in pytest's **rootdir**, because a nodeid is reported relative
+to rootdir while a path argument resolves against the process's directory. If
+you launch pytest from somewhere other than its rootdir, an option carrying a
+*relative* path (`-c`, `--junitxml`) resolves against rootdir on the rerun; the
+positional paths in the run-all command are made absolute for that reason.
+
+Two limits worth knowing: the directory reaches the backend through the
+environment, so a dashboard that was already running when you connected keeps
+the directory it was started in; and a rerun under `pytest -n` is issued to a
+freshly spawned single process, which is what you want, but the backend has one
+worker slot — so with several parallel workers connected the dashboard's state
+belongs to whichever connected last.
+
 ## Dashboard window lifecycle
 
 Like the JS adapters, `enable()` opens the dashboard in a dedicated, closable
@@ -162,6 +214,7 @@ src/selenium_devtools/
   screencast.py       screenshot-polling recorder + ffmpeg webm encode
   backend.py          launch-or-attach the Node backend + port discovery
   lifecycle.py        dashboard window open/close + shutdown-on-disconnect
+  rerun.py            launch/rerun commands the dashboard's run controls spawn
   pytest_plugin.py    suite/test tree feeder (opt-in)
 scripts/gen_contract.py   regenerate _contract.py from shared (dev-time; also a drift-guard)
 tests/                stdlib-unittest unit tests (no selenium/pytest needed)
@@ -243,7 +296,8 @@ rejects re-uploading an existing version).
 - **Phase 2 (done)** — BiDi console/network, assertion rows, and
   screenshot-polling screencast. Not yet: a CDP `Page.startScreencast` push-mode
   fast-path, per-command screenshots, and performance capture.
-- **Phase 3** — trace export, preserve-and-rerun, action snapshots. Per the
+- **Phase 3** — trace export, preserve-and-diff, action snapshots. Run controls
+  (Run / Rerun / Run-all) are done — see above. Per the
   architecture, the heavy post-processing is a candidate to live server-side in
   the backend (written once) rather than re-implemented here.
 
