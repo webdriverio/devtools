@@ -75,6 +75,30 @@ def _collector_path(collector_ts: str) -> str:
     return got.group(1)
 
 
+def _worker_query(routes_ts: str) -> dict[str, str]:
+    """Query-param names on the worker upgrade.
+
+    Generated rather than written by hand for the same reason the scopes are:
+    the backend decides whether to keep or wipe accumulated run state by reading
+    these exact keys, and a name that drifts loses that state silently — every
+    connect reads as a new run, which is indistinguishable from working.
+    """
+    m = re.search(
+        r"export const WORKER_WS_QUERY = \{(.*?)\n\} as const", routes_ts, re.DOTALL
+    )
+    if not m:
+        raise SystemExit("could not find `WORKER_WS_QUERY` in shared/routes.ts")
+    return dict(re.findall(r"(\w+):\s*'([^']+)'", m.group(1)))
+
+
+def _run_id_env(runner_ts: str) -> str:
+    """The env var carrying run identity between a launcher and its workers."""
+    m = re.search(r"RUN_ID:\s*'([^']+)'", runner_ts)
+    if not m:
+        raise SystemExit("could not find `RUNNER_ENV.RUN_ID` in shared/runner.ts")
+    return m.group(1)
+
+
 def _test_runner_ids(types_ts: str) -> list[str]:
     m = re.search(r"export const TEST_RUNNER_IDS = \[(.*?)\] as const", types_ts, re.DOTALL)
     if not m:
@@ -90,7 +114,10 @@ def main() -> int:
     data_keys = _trace_log_keys(types_ts)
     runner_ids = _test_runner_ids(types_ts)
     collector_path = _collector_path((shared / "src" / "collector.ts").read_text())
-    control = _ws_scopes((shared / "src" / "routes.ts").read_text())
+    routes_ts = (shared / "src" / "routes.ts").read_text()
+    control = _ws_scopes(routes_ts)
+    worker_query = _worker_query(routes_ts)
+    run_id_env = _run_id_env((shared / "src" / "runner.ts").read_text())
 
     # Drift-guard.
     missing = [v for v in REQUIRED_DATA_SCOPES.values() if v not in data_keys]
@@ -98,6 +125,13 @@ def main() -> int:
         raise SystemExit(
             f"contract drift: scope(s) {missing} no longer in shared TraceLog "
             f"(present: {data_keys}). Update the adapter or shared."
+        )
+
+    if "runId" not in worker_query:
+        raise SystemExit(
+            "contract drift: `runId` is no longer a key of shared "
+            f"WORKER_WS_QUERY (present: {sorted(worker_query)}). The worker "
+            "socket carries it, and without it every connect reads as a new run."
         )
 
     if REQUIRED_RUNNER_ID not in runner_ids:
@@ -123,6 +157,9 @@ def main() -> int:
         f'COLLECTOR_PATH = "{collector_path}"',
         f'RUNNER_ID = "{REQUIRED_RUNNER_ID}"',
         f"TEST_RUNNER_IDS = frozenset({sorted(runner_ids)!r})",
+        "",
+        f'WORKER_QUERY_RUN_ID = "{worker_query["runId"]}"',
+        f'ENV_RUN_ID = "{run_id_env}"',
         "",
     ]
     out = shared.parent / "selenium-devtools-py" / "src" / "selenium_devtools" / "_contract.py"

@@ -1,23 +1,29 @@
 name: Python Adapter
 
-# Deliberately NOT triggered by packages/shared/**, even though the adapter's
-# wire contract is generated from it. Doing so put a Python check on every PR
-# that touched shared, which is most of them, and a red Python job would block
-# work unrelated to this adapter. The trade-off: a shared change that breaks the
-# contract is not caught here at the moment it lands. It is still caught by the
-# drift check below on the next PR that touches this package, which regenerates
-# _contract.py and fails on any diff. Revisit once the adapter is published and
-# the coupling is worth the noise.
+# Triggered by packages/shared/src/** as well, because the adapter's wire
+# contract is GENERATED from it: scope names, the runner id, the collector route,
+# the worker query keys and the run-id env var. A rename there leaves the
+# committed `_contract.py` stale, and stale means the adapter keeps sending a name
+# nothing reads — a silent loss, not an error.
+#
+# This was previously excluded to keep a Python job off every PR that touches
+# shared. The objection was that a red Python job would block work unrelated to
+# this adapter; it does not hold, because the only thing a shared change can turn
+# red here is the drift check, and drift IS related — it means that PR broke this
+# contract. The tests do not read shared at all. Scoped to `src/` so a version
+# bump or a README edit under shared does not trigger it.
 on:
   push:
     branches:
       - main
     paths:
       - packages/selenium-devtools-py/**
+      - packages/shared/src/**
       - .github/workflows/python.yml
   pull_request:
     paths:
       - packages/selenium-devtools-py/**
+      - packages/shared/src/**
       - .github/workflows/python.yml
 
 permissions:
