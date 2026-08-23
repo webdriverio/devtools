@@ -295,6 +295,22 @@ describe('wdio-devtools-browser', () => {
       expect(text(shadow(el, ADDRESS_BAR))).toBe(LOGIN_URL)
     })
 
+    it('replays on the FIRST selection made after a recording arrives', async () => {
+      // A recording switches the view to video on its own, and in video mode the
+      // template renders the player and NO iframe. Selecting a command used to
+      // replay into that missing iframe and leave the pane blank, so the row had
+      // to be clicked twice — and since every run with a screencast auto-switches,
+      // the first row clicked after any run hit it.
+      const el = await mountBrowser(loginTrace)
+      await replayedPage(el)
+      recordingArrives()
+      await settle(el)
+
+      const doc = await replayAfter(el, () => selectCommand(loginTrace.submit))
+
+      expect(doc.querySelector('#flash')).toBeTruthy()
+    })
+
     it('shows the DOM of the first capture before any command is selected', async () => {
       const el = await mountBrowser(loginTrace)
       const doc = await replayedPage(el)
