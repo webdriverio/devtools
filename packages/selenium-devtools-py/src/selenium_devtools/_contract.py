@@ -15,6 +15,8 @@ DATA_SCOPES = frozenset(['actionSnapshots', 'commands', 'config', 'consoleLogs',
 CONTROL_SCOPES = frozenset(['clearCommands', 'clearExecutionData', 'clientConnected', 'clientDisconnected', 'config', 'replaceCommand', 'testStopped'])
 
 COLLECTOR_PATH = "/api/collector"
+COLLECTOR_SINK_GLOBAL = "__wdioTraceSink"
+COLLECTOR_MUTATION_CHANNEL = "wdio-trace-mutations"
 RUNNER_ID = "selenium-webdriver"
 TEST_RUNNER_IDS = frozenset(['cucumber', 'jasmine', 'mocha', 'nightwatch', 'nightwatch-cucumber', 'selenium-webdriver'])
 

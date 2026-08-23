@@ -138,32 +138,53 @@ class TestTheChannelsThatSurvivedTheBiDiRegeneration(unittest.TestCase):
         for method in ("add_console_message_handler", "add_javascript_error_handler"):
             self.assertTrue(hasattr(Script, method), method)
 
-    def test_pin_registers_a_preload_without_a_browsing_context(self):
-        """The document-start preload depends on `pin()` registering GLOBALLY so
-        documents created later are covered. Its docstring says "current
-        browsing context", but it forwards no `contexts` and BiDi reads that as
-        every context. Undocumented, so pinned: if selenium ever scopes `pin`,
-        this fails instead of the preload silently covering only the first
-        document."""
-        from unittest import mock
+    def test_a_preload_registers_globally_and_carries_its_channel(self):
+        """Two properties the document-start preload rests on.
 
+        It must register GLOBALLY so documents created later are covered — which
+        is exactly the set it exists to catch — and `add_preload_script` forwards
+        no `contexts` unless given one, which BiDi reads as every context. And it
+        must pass the channel through `arguments`, which is what the collector
+        pushes its mutations down. Scoped to one context the preload would cover
+        only the first document; without the argument the push path silently
+        degrades to a drain per command."""
         from selenium.webdriver.common.bidi.script import Script
 
-        seen = {}
+        sent = {}
 
-        def fake_add(self, function_declaration, *args, **kwargs):
-            seen["args"] = args
-            seen["kwargs"] = kwargs
-            return "id"
+        class FakeConn:
+            def execute(self, command):
+                # command_builder yields the {method, params} it would send.
+                sent.update(next(command))
+                return {"script": "id"}
 
         # A bare instance: constructing a real Script needs a live driver, and
-        # only the dispatch from pin() to _add_preload_script is under test.
+        # only the params this call builds are under test.
         script = Script.__new__(Script)
-        with mock.patch.object(Script, "_add_preload_script", fake_add):
-            script.pin("async () => {}")
+        script._conn = FakeConn()
+        channel = {"type": "channel", "value": {"channel": "c"}}
+        script.add_preload_script(
+            function_declaration="async (emit) => {}", arguments=[channel]
+        )
 
-        self.assertEqual(seen["args"], ())
-        self.assertIsNone(seen["kwargs"].get("contexts"))
+        self.assertEqual(sent["method"], "script.addPreloadScript")
+        self.assertNotIn("contexts", sent["params"])
+        self.assertEqual(sent["params"]["arguments"], [channel])
+
+    def test_the_pushed_mutation_channel_has_an_event_to_subscribe_to(self):
+        """`script.message` is how a channel's emitted argument comes back, and
+        the adapter subscribes by the EVENT_CONFIGS key rather than the wire
+        name. A rename of either would leave the preload pushing into a channel
+        nobody reads — mutations would simply stop arriving."""
+        from selenium.webdriver.common.bidi.script import Script
+
+        from selenium_devtools.bidi_preload import _MESSAGE_EVENT
+
+        config = Script.EVENT_CONFIGS.get(_MESSAGE_EVENT)
+        self.assertIsNotNone(config)
+        self.assertEqual(config.bidi_event, "script.message")
+        for method in ("add_event_handler", "remove_event_handler"):
+            self.assertTrue(callable(getattr(Script, method, None)), method)
 
 
 @unittest.skipUnless(_HAS_SELENIUM, "selenium is not installed")

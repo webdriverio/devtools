@@ -70,3 +70,74 @@ describe('captureCurrentDom', () => {
     expect(after).toEqual(before)
   })
 })
+
+describe('setSink', () => {
+  const mutation = (target: string) =>
+    ({
+      type: 'attributes',
+      target,
+      addedNodes: [],
+      removedNodes: [],
+      timestamp: 1
+    }) as TraceMutation
+
+  it('pushes mutations instead of buffering them', () => {
+    const sent: string[] = []
+    const c = new DataCollector()
+    c.setSink((payload) => sent.push(payload))
+    c.captureMutation([mutation('1')])
+    expect(JSON.parse(sent[0])).toEqual([mutation('1')])
+    // Pushed, so a drain has nothing left to hand over — otherwise every
+    // mutation would reach the dashboard twice.
+    expect(c.getTraceData().mutations).toHaveLength(0)
+  })
+
+  it('emits a JSON string, not an object', () => {
+    // BiDi serializes a channel argument under an object-depth limit, which
+    // would truncate the document anchor. A string is depth-1.
+    const sent: unknown[] = []
+    const c = new DataCollector()
+    c.setSink((payload) => sent.push(payload))
+    c.captureMutation([mutation('1')])
+    expect(typeof sent[0]).toBe('string')
+  })
+
+  it('flushes what was buffered before the sink arrived', () => {
+    const sent: string[] = []
+    const c = new DataCollector()
+    c.captureMutation([mutation('early')])
+    c.setSink((payload) => sent.push(payload))
+    expect(JSON.parse(sent[0])).toEqual([mutation('early')])
+    expect(c.getTraceData().mutations).toHaveLength(0)
+  })
+
+  it('does not emit an empty flush when nothing was buffered', () => {
+    const sent: string[] = []
+    const c = new DataCollector()
+    c.setSink((payload) => sent.push(payload))
+    expect(sent).toHaveLength(0)
+  })
+
+  it('falls back to the buffer when the channel throws', () => {
+    // A channel dies with its session and teardown is when the last mutations
+    // arrive, so dropping them would lose the final page state. A later drain
+    // still recovers them.
+    const c = new DataCollector()
+    c.setSink(() => {
+      throw new Error('channel gone')
+    })
+    c.captureMutation([mutation('late')])
+    expect(c.getTraceData().mutations).toEqual([mutation('late')])
+  })
+
+  it('sends the document anchor through the channel', () => {
+    // The anchor is the largest and earliest payload; if it took the buffer
+    // while everything else pushed, replay would start from nothing.
+    const sent: string[] = []
+    const c = new DataCollector()
+    c.setSink((payload) => sent.push(payload))
+    c.captureCurrentDom()
+    expect(sent).toHaveLength(1)
+    expect(JSON.parse(sent[0])[0]).toMatchObject({ type: 'childList' })
+  })
+})

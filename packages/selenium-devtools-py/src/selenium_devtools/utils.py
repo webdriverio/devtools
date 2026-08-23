@@ -38,6 +38,18 @@ def selenium_version() -> tuple[int, int]:
     return (parts[0], parts[1]) if len(parts) == 2 else (0, 0)
 
 
+def attr_or(obj: Any, name: str, default: Any) -> Any:
+    """Read ``name`` off a selenium BiDi payload, whichever shape it arrives in.
+
+    Selenium deserializes an event into a generated dataclass and falls back to
+    the raw params dict when that fails, so every reader of one has to accept
+    both. Shared by the console/network mapping and the pushed-mutation channel.
+    """
+    if isinstance(obj, dict):
+        return obj.get(name, default)
+    return getattr(obj, name, default)
+
+
 def to_jsonable(value: Any, _depth: int = 0) -> Any:
     """Coerce an arbitrary value into something json.dumps can handle.
 
