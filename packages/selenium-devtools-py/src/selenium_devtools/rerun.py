@@ -67,11 +67,14 @@ _SHORT_VALUE_FILTERS = tuple(opt for opt in _VALUE_FILTERS if len(opt) == 2)
 
 _options: Dict[str, object] = {"runCapabilities": dict(RUN_CAPABILITIES_NONE)}
 
-# Whether the value in ENV_RUNNER_CWD is one WE put there. Deliberately not
-# cleared by `reset()`: it records that this process owns the variable, which
-# stays true across a disable/enable, and forgetting it would leave the second
-# run reading the first run's directory as if a user had set it.
-_owns_runner_cwd = False
+# The value we last wrote to ENV_RUNNER_CWD, or None if we never wrote one.
+# The VALUE and not a "we wrote it once" flag, because two different things
+# have to be told apart at the second run: our own leftover, which must be
+# replaced, and a value the caller put there since, which must be respected.
+# A flag says only that we wrote at some point and cannot distinguish them.
+# Deliberately not cleared by `reset()` — what this process wrote survives a
+# disable/enable, and forgetting it would read our leftover as an instruction.
+_stamped_runner_cwd: Optional[str] = None
 
 
 def run_options() -> Dict[str, object]:
@@ -88,13 +91,13 @@ def reset() -> None:
 def _reset_for_tests() -> None:
     """Reset module state between unit tests (never used in production).
 
-    Includes the ENV_RUNNER_CWD ownership, which a real process keeps for its
+    Includes the ENV_RUNNER_CWD stamp, which a real process keeps for its
     lifetime and `reset()` therefore leaves alone — a test needs the
     fresh-process state instead.
     """
-    global _owns_runner_cwd
+    global _stamped_runner_cwd
     reset()
-    _owns_runner_cwd = False
+    _stamped_runner_cwd = None
 
 
 def configure_script(argv: Optional[Sequence[str]] = None) -> None:
@@ -169,16 +172,18 @@ def _stamp_runner_cwd(base_dir: str) -> None:
     The backend reads this from its own environment, so it only lands if we own
     that process — an already-running dashboard keeps the cwd it was started in.
 
-    Set by us, it is REPLACED: a second `enable()` in one process is a second
-    run, and keeping the first one's directory would spawn its reruns in the
-    wrong project, where every nodeid names a path that does not exist. Set by
-    anyone else, it is left alone — an explicit `DEVTOOLS_RUNNER_CWD` is an
-    instruction, not a leftover.
+    Still holding what we wrote, it is REPLACED: a second `enable()` in one
+    process is a second run, and keeping the first one's directory would spawn
+    its reruns in the wrong project, where every nodeid names a path that does
+    not exist. Holding anything else, it is left alone — an explicit
+    `DEVTOOLS_RUNNER_CWD` is an instruction, whenever it was exported.
     """
-    global _owns_runner_cwd
-    if _owns_runner_cwd or ENV_RUNNER_CWD not in os.environ:
-        os.environ[ENV_RUNNER_CWD] = os.path.abspath(base_dir)
-        _owns_runner_cwd = True
+    global _stamped_runner_cwd
+    current = os.environ.get(ENV_RUNNER_CWD)
+    if current is not None and current != _stamped_runner_cwd:
+        return
+    _stamped_runner_cwd = os.path.abspath(base_dir)
+    os.environ[ENV_RUNNER_CWD] = _stamped_runner_cwd
 
 
 def _strip_filters(args: Sequence[str]) -> List[str]:

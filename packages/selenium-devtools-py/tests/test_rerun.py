@@ -259,6 +259,29 @@ class TestTheDirectoryTheRerunSpawnsIn(RerunTestCase):
 
         self.assertEqual(os.environ[ENV_RUNNER_CWD], "/somewhere/else")
 
+    def test_an_override_between_two_runs_is_respected(self):
+        # Exported AFTER a run this adapter stamped, which is the case a plain
+        # "we wrote it once" flag gets wrong: the value in the environment is no
+        # longer the one we wrote, so it is the caller's and not our leftover.
+        self.configure_pytest(["tests/"], ["tests/"], rootdir="/repo-a")
+        rerun.reset()
+        os.environ[ENV_RUNNER_CWD] = "/chosen/by/the/caller"
+
+        self.configure_pytest(["tests/"], ["tests/"], rootdir="/repo-b")
+
+        self.assertEqual(os.environ[ENV_RUNNER_CWD], "/chosen/by/the/caller")
+
+    def test_unsetting_it_between_two_runs_stamps_again(self):
+        # The other side of the same comparison: nobody set it, so there is no
+        # instruction to respect and the second run needs its own directory.
+        self.configure_pytest(["tests/"], ["tests/"], rootdir="/repo-a")
+        rerun.reset()
+        del os.environ[ENV_RUNNER_CWD]
+
+        self.configure_pytest(["tests/"], ["tests/"], rootdir="/repo-b")
+
+        self.assertEqual(os.environ[ENV_RUNNER_CWD], "/repo-b")
+
 
 class TestQuoting(RerunTestCase):
     def test_a_path_with_a_space_survives_the_shell(self):
