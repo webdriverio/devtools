@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 
 from selenium_devtools import backend
+from selenium_devtools._contract import ENV_REUSE, ENV_REUSE_HOST, ENV_REUSE_PORT
 
 
 class TestBackendResolution(unittest.TestCase):
@@ -65,6 +66,72 @@ class TestBackendResolution(unittest.TestCase):
 
     def test_pinned_backend_version_is_set(self):
         self.assertRegex(backend.BACKEND_NPM_VERSION, r"^\d+\.\d+\.\d+$")
+
+
+class TestRerunChildReportsIntoTheDashboardThatAskedForIt(unittest.TestCase):
+    """A rerun is a fresh process the backend spawns, pointed back at itself.
+
+    Ignoring that handshake is silent in the worst way: the child launches a
+    second backend and reports its run there, so the window the user pressed
+    Rerun in never updates.
+    """
+
+    KEYS = (ENV_REUSE, ENV_REUSE_HOST, ENV_REUSE_PORT, "DEVTOOLS_PORT",
+            "DEVTOOLS_HOST", "DEVTOOLS_BACKEND_CMD")
+
+    def setUp(self):
+        self._saved = {k: os.environ.get(k) for k in self.KEYS}
+        for k in self.KEYS:
+            os.environ.pop(k, None)
+
+    def tearDown(self):
+        for k, v in self._saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+    def _handshake(self, host="127.0.0.1", port="5599"):
+        os.environ[ENV_REUSE] = "1"
+        os.environ[ENV_REUSE_HOST] = host
+        os.environ[ENV_REUSE_PORT] = port
+
+    def test_it_attaches_to_the_inherited_backend_without_spawning(self):
+        self._handshake()
+
+        host, port, proc = backend.launch_or_attach()
+
+        self.assertEqual((host, port), ("127.0.0.1", 5599))
+        self.assertIsNone(proc)  # attached, so teardown must not kill it
+
+    def test_the_handshake_wins_over_an_ambient_port_preference(self):
+        # DEVTOOLS_PORT is inherited from the parent's environment, but the
+        # backend that requested this run is the one it must report to.
+        os.environ["DEVTOOLS_PORT"] = "4321"
+        self._handshake(port="5599")
+
+        _, port, _ = backend.launch_or_attach()
+
+        self.assertEqual(port, 5599)
+
+    def test_no_handshake_means_no_reuse(self):
+        self.assertIsNone(backend.reuse_target())
+
+    def test_a_partial_or_malformed_handshake_is_ignored(self):
+        for label, env in (
+            ("no host", {ENV_REUSE: "1", ENV_REUSE_PORT: "5599"}),
+            ("no port", {ENV_REUSE: "1", ENV_REUSE_HOST: "127.0.0.1"}),
+            ("flag off", {ENV_REUSE: "0", ENV_REUSE_HOST: "h", ENV_REUSE_PORT: "1"}),
+            ("port not a number",
+             {ENV_REUSE: "1", ENV_REUSE_HOST: "h", ENV_REUSE_PORT: "later"}),
+        ):
+            with self.subTest(label):
+                for k in (ENV_REUSE, ENV_REUSE_HOST, ENV_REUSE_PORT):
+                    os.environ.pop(k, None)
+                os.environ.update(env)
+
+                # Degrades to launching its own backend rather than raising.
+                self.assertIsNone(backend.reuse_target())
 
 
 if __name__ == "__main__":

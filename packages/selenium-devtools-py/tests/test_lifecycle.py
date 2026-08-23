@@ -10,6 +10,8 @@ import threading
 import unittest
 from unittest import mock
 
+from selenium_devtools._contract import ENV_REUSE, ENV_REUSE_HOST, ENV_REUSE_PORT
+
 from selenium_devtools import lifecycle
 from selenium_devtools.lifecycle import BrowserHandle
 
@@ -120,16 +122,24 @@ class TestDefaultOpener(unittest.TestCase):
         handle.close()  # empty handle stays safe to close
 
 
+_REUSE_KEYS = (ENV_REUSE, ENV_REUSE_HOST, ENV_REUSE_PORT)
+
+
 class TestAutoOpenEnabled(unittest.TestCase):
     def setUp(self):
-        self._saved = os.environ.get(lifecycle.ENV_OPEN)
-        os.environ.pop(lifecycle.ENV_OPEN, None)
+        # The reuse handshake also decides this, so clear it — otherwise these
+        # cases would answer for the wrong reason inside a rerun child.
+        keys = (lifecycle.ENV_OPEN, *_REUSE_KEYS)
+        self._saved = {k: os.environ.get(k) for k in keys}
+        for k in keys:
+            os.environ.pop(k, None)
 
     def tearDown(self):
-        if self._saved is None:
-            os.environ.pop(lifecycle.ENV_OPEN, None)
-        else:
-            os.environ[lifecycle.ENV_OPEN] = self._saved
+        for k, v in self._saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
 
     def test_env_falsy_disables(self):
         for val in ("0", "false", "no", "off", ""):
@@ -151,6 +161,33 @@ class TestAutoOpenEnabled(unittest.TestCase):
             self.assertTrue(lifecycle.auto_open_enabled())
         with mock.patch.object(sys.stdout, "isatty", return_value=True):
             self.assertTrue(lifecycle.auto_open_enabled())
+
+    def test_a_rerun_child_opens_no_second_window(self):
+        # The window that pressed Rerun is already up and watching the backend
+        # this run reports to. Opening another takes the focus to show the same
+        # stream — and it was the visible symptom of ignoring the handshake.
+        os.environ[ENV_REUSE] = "1"
+        os.environ[ENV_REUSE_HOST] = "127.0.0.1"
+        os.environ[ENV_REUSE_PORT] = "5599"
+
+        self.assertFalse(lifecycle.auto_open_enabled())
+
+    def test_an_explicit_open_does_not_override_the_handshake(self):
+        # DEVTOOLS_OPEN is inherited from the parent run, so it says nothing
+        # about whether THIS process should open a window.
+        os.environ[lifecycle.ENV_OPEN] = "1"
+        os.environ[ENV_REUSE] = "1"
+        os.environ[ENV_REUSE_HOST] = "127.0.0.1"
+        os.environ[ENV_REUSE_PORT] = "5599"
+
+        self.assertFalse(lifecycle.auto_open_enabled())
+
+    def test_an_incomplete_handshake_still_opens(self):
+        # No usable target means this process launches its own backend, and
+        # then a window is the only way to see it.
+        os.environ[ENV_REUSE] = "1"
+
+        self.assertTrue(lifecycle.auto_open_enabled())
 
 
 class TestShutdownFlow(unittest.TestCase):

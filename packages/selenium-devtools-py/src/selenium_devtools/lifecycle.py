@@ -147,14 +147,20 @@ def auto_open_enabled() -> bool:
     """Whether the dashboard window should auto-open. Default ON, opt-out only.
 
     Rule: open unless ``DEVTOOLS_OPEN`` is set to a falsy value
-    (``0``/``false``/``no``/``off``/empty). This matches the JS adapters, whose
-    ``openUi`` option defaults true regardless of TTY.
+    (``0``/``false``/``no``/``off``/empty), or this process is a rerun child —
+    the window that pressed Rerun is already up and watching the very backend
+    this run reports to, so a second one would take the focus to show the same
+    stream. Mirrors the JS adapters, which gate `openUi` on reuse the same way.
 
     The previous "default off when stdout isn't a TTY" gate silently disabled
     auto-open for the common case — running from an IDE or ``python demo.py``
     with no attached TTY — so the user opened the URL in their main Chrome
     instead. CI/headless runs disable it explicitly with ``DEVTOOLS_OPEN=0``.
     """
+    from . import backend  # local: keeps module import order free of a cycle
+
+    if backend.reuse_target() is not None:
+        return False
     val = os.environ.get(ENV_OPEN)
     if val is None:
         return True

@@ -99,6 +99,46 @@ def _run_id_env(runner_ts: str) -> str:
     return m.group(1)
 
 
+def _rerun_slot(runner_ts: str) -> dict[str, str]:
+    """Slots the backend substitutes into a ``rerunCommand``.
+
+    Generated because the adapter WRITES the slot and the backend READS it. A
+    drifted name is not a type error on either side: the template keeps a
+    literal ``{{...}}``, the shell hands it to pytest as a file name, and the
+    rerun fails as a collection error naming a path nobody wrote.
+    """
+    m = re.search(
+        r"export const RERUN_SLOT = \{(.*?)\n\} as const", runner_ts, re.DOTALL
+    )
+    if not m:
+        raise SystemExit("could not find `RERUN_SLOT` in shared/runner.ts")
+    return dict(re.findall(r"(\w+):\s*'([^']+)'", m.group(1)))
+
+
+def _reuse_env(runner_ts: str) -> dict[str, str]:
+    """Env vars the backend sets on a rerun child to point it at itself.
+
+    Generated because only the backend writes them and only an adapter reads
+    them. A name that drifts is silent in the worst way: the child launches a
+    SECOND dashboard and reports into it, so the rerun looks like it worked
+    while the window the user clicked in stays empty.
+    """
+    m = re.search(
+        r"export const REUSE_ENV = \{(.*?)\n\} as const", runner_ts, re.DOTALL
+    )
+    if not m:
+        raise SystemExit("could not find `REUSE_ENV` in shared/runner.ts")
+    return dict(re.findall(r"(\w+):\s*'([^']+)'", m.group(1)))
+
+
+def _runner_cwd_env(runner_ts: str) -> str:
+    """The env var naming the directory the backend spawns a rerun in."""
+    m = re.search(r"RUNNER_CWD:\s*'([^']+)'", runner_ts)
+    if not m:
+        raise SystemExit("could not find `RUNNER_ENV.RUNNER_CWD` in shared/runner.ts")
+    return m.group(1)
+
+
 def _test_runner_ids(types_ts: str) -> list[str]:
     m = re.search(r"export const TEST_RUNNER_IDS = \[(.*?)\] as const", types_ts, re.DOTALL)
     if not m:
@@ -117,7 +157,11 @@ def main() -> int:
     routes_ts = (shared / "src" / "routes.ts").read_text()
     control = _ws_scopes(routes_ts)
     worker_query = _worker_query(routes_ts)
-    run_id_env = _run_id_env((shared / "src" / "runner.ts").read_text())
+    runner_ts = (shared / "src" / "runner.ts").read_text()
+    run_id_env = _run_id_env(runner_ts)
+    rerun_slot = _rerun_slot(runner_ts)
+    runner_cwd_env = _runner_cwd_env(runner_ts)
+    reuse_env = _reuse_env(runner_ts)
 
     # Drift-guard.
     missing = [v for v in REQUIRED_DATA_SCOPES.values() if v not in data_keys]
@@ -132,6 +176,21 @@ def main() -> int:
             "contract drift: `runId` is no longer a key of shared "
             f"WORKER_WS_QUERY (present: {sorted(worker_query)}). The worker "
             "socket carries it, and without it every connect reads as a new run."
+        )
+
+    if "testId" not in rerun_slot:
+        raise SystemExit(
+            "contract drift: `testId` is no longer a key of shared RERUN_SLOT "
+            f"(present: {sorted(rerun_slot)}). The rerun template selects by "
+            "pytest nodeid, and no other slot is substituted verbatim."
+        )
+
+    missing_reuse = [k for k in ("REUSE", "HOST", "PORT") if k not in reuse_env]
+    if missing_reuse:
+        raise SystemExit(
+            f"contract drift: REUSE_ENV key(s) {missing_reuse} no longer in "
+            f"shared (present: {sorted(reuse_env)}). A rerun child needs all "
+            "three to report into the dashboard that launched it."
         )
 
     if REQUIRED_RUNNER_ID not in runner_ids:
@@ -160,6 +219,13 @@ def main() -> int:
         "",
         f'WORKER_QUERY_RUN_ID = "{worker_query["runId"]}"',
         f'ENV_RUN_ID = "{run_id_env}"',
+        "",
+        f'RERUN_SLOT_TEST_ID = "{rerun_slot["testId"]}"',
+        f'ENV_RUNNER_CWD = "{runner_cwd_env}"',
+        "",
+        f'ENV_REUSE = "{reuse_env["REUSE"]}"',
+        f'ENV_REUSE_HOST = "{reuse_env["HOST"]}"',
+        f'ENV_REUSE_PORT = "{reuse_env["PORT"]}"',
         "",
     ]
     out = shared.parent / "selenium-devtools-py" / "src" / "selenium_devtools" / "_contract.py"

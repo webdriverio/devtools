@@ -14,7 +14,7 @@ import sys
 from typing import Dict, Optional
 
 import selenium_devtools as devtools
-from . import assertions, frames
+from . import assertions, frames, rerun
 from .constants import ENV_OPT_IN, ENV_PORT, LOGGER_NAME
 from .utils import now_ms
 
@@ -60,10 +60,6 @@ class _SuiteRegistry:
         self._classes: Dict[str, dict] = {}
         self._tests: Dict[str, dict] = {}
         self._starts: Dict[str, int] = {}
-        # Collection index per nodeid. pytest runs in collection order and
-        # interleaves module-level tests with classes, which the tree's default
-        # (a suite's own tests, then its nested suites) cannot express.
-        self._order: Dict[str, int] = {}
 
     def mark_start(self, nodeid: str) -> None:
         self._starts.setdefault(nodeid, now_ms())
@@ -76,7 +72,6 @@ class _SuiteRegistry:
         line: int,
         state: str,
         abs_file: Optional[str] = None,
-        order: Optional[int] = None,
     ) -> None:
         # `file` is pytest's rootdir-relative path: it prefixes every nodeid, so
         # it stays the grouping key and the readable title. `abs_file` is the
@@ -85,9 +80,16 @@ class _SuiteRegistry:
         # app pairs the two by exact path, so a relative one leaves the Source
         # tab reporting the file as never captured the moment a test is picked.
         path = abs_file or file
-        if order is not None:
-            self._order[nodeid] = order
-        position = self._order.get(nodeid)
+        # Sibling position is the SOURCE LINE, never this run's collection
+        # index. pytest runs in collection order and interleaves module-level
+        # tests with classes, which the tree's default (a suite's own tests,
+        # then its nested suites) cannot express — but an index describes only
+        # the collection it came from. A rerun collects one test, so its index
+        # is 0 and the row jumps to the top of its file, taking the class suite
+        # it used to sit below with it. A line is a property of the test, so it
+        # survives a partial collection; within a module pytest collects in
+        # definition order, so the two agree wherever both are meaningful.
+        position = line
         # `_starts` is only populated once the test actually starts, so a test
         # recorded at COLLECTION does not freeze a start time it never had.
         start = self._starts.get(nodeid, now_ms())
@@ -225,6 +227,25 @@ def _forget_ini_cache(config) -> None:  # noqa: ANN001
         cache.pop("enable_assertion_pass_hook", None)
 
 
+def _configure_rerun(config, rootdir: Optional[str]) -> None:  # noqa: ANN001
+    """Hand pytest's own view of its invocation to the rerun builder.
+
+    `invocation_params.args` is the raw argument list and `config.args` the
+    file/dir/nodeid arguments pytest resolved out of it — asking pytest which
+    were positional is what makes stripping them safe, since inferring it needs
+    a table of every option that takes a value. Both are read here, before
+    `enable()`, because the directory a rerun spawns in reaches the backend
+    through the environment its process inherits.
+    """
+    params = getattr(config, "invocation_params", None)
+    args = list(getattr(params, "args", ()) or ())
+    rerun.configure_pytest(
+        args=args,
+        positionals=list(getattr(config, "args", ()) or ()),
+        rootdir=rootdir,
+    )
+
+
 def pytest_configure(config) -> None:  # noqa: ANN001
     if _opted_in():
         _enable_assertion_pass_hook(config)
@@ -232,6 +253,7 @@ def pytest_configure(config) -> None:  # noqa: ANN001
         # `rootpath` on pytest 7+, `rootdir` before it.
         root = getattr(config, "rootpath", None) or getattr(config, "rootdir", None)
         _rootdir = str(root) if root else None
+        _configure_rerun(config, _rootdir)
         capturer = devtools.enable()
         # pytest owns the suite tree — suppress the adapter's default script suite.
         from . import instrumentation
@@ -261,11 +283,11 @@ def pytest_collection_finish(session) -> None:  # noqa: ANN001
     if capturer is None:
         return
     items = getattr(session, "items", []) or []
-    for index, item in enumerate(items):
+    for item in items:
         file, line, name = item.location
         _registry.record(
             item.nodeid, file, name, line or 0, "pending",
-            abs_file=_absolute(file), order=index,
+            abs_file=_absolute(file),
         )
     _publish(capturer)
     _report_passing_assertion_support(items)

@@ -830,6 +830,56 @@ describe('DataManagerController', () => {
       expect(manager.suitesContextProvider.value).toEqual([])
     })
 
+    it('wipes execution data on every run start, not just the first', async () => {
+      // The second rerun of a session used to keep the first one's rows: a
+      // suite rerun latches its uid to recognise Nightwatch's mid-run child
+      // clears, and the latch outlived the run — so the next run start, at a
+      // different scope, was misread as a child clear and skipped its wipe.
+      const { manager, deliver } = await boot()
+      deliver('suites', suitesFrame(suite('login-suite')))
+
+      deliver(WS_SCOPE.clearExecutionData, {
+        uid: 'login-suite',
+        entryType: 'suite',
+        runStart: true
+      })
+      deliver('commands', [command()])
+      deliver('consoleLogs', [{ type: 'log', args: ['from the first rerun'] }])
+      deliver('networkRequests', [request()])
+
+      // A second run at a DIFFERENT scope — the file, or Tests.
+      deliver(WS_SCOPE.clearExecutionData, {
+        uid: RUN_ALL_UID,
+        entryType: 'suite',
+        runStart: true
+      })
+
+      expect(manager.commandsContextProvider.value).toEqual([])
+      expect(manager.consoleLogsContextProvider.value).toEqual([])
+      expect(manager.networkRequestsContextProvider.value).toEqual([])
+    })
+
+    it('still spares a sibling when one entry resets mid-run', async () => {
+      // Nightwatch re-emits a cucumber scenario suite while the run is in
+      // flight, and only that scenario's data may go. That clear carries no
+      // `runStart`, which is what distinguishes it.
+      const { manager, deliver } = await boot()
+      deliver('suites', suitesFrame(suite('feature')))
+      deliver(WS_SCOPE.clearExecutionData, {
+        uid: 'feature',
+        entryType: 'suite',
+        runStart: true
+      })
+      deliver('commands', [command()])
+
+      deliver(WS_SCOPE.clearExecutionData, {
+        uid: 'feature/scenario-2',
+        entryType: 'suite'
+      })
+
+      expect(manager.commandsContextProvider.value).toHaveLength(1)
+    })
+
     it('fails the tests still in flight when the run is stopped', async () => {
       const { manager, deliver } = await boot()
       deliver(

@@ -146,10 +146,12 @@ async function handleTestRun(
     `run ${body.entryType} uid=${body.uid} framework=${body.framework} spec=${body.specFile} title=${JSON.stringify(body.fullTitle)}`
   )
   // Broadcast a clear so popouts (which only see WS events) wipe too.
+  // `runStart` says this clear is a run beginning rather than one entry
+  // resetting mid-run, which the receiver cannot tell from the uid alone.
   broadcastToClients(
     JSON.stringify({
       scope: WS_SCOPE.clearExecutionData,
-      data: { uid: body.uid, entryType: body.entryType }
+      data: { uid: body.uid, entryType: body.entryType, runStart: true }
     })
   )
   // Plain Rerun hides the Compare tab by dropping all baselines.

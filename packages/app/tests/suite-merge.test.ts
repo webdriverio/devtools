@@ -223,6 +223,39 @@ describe('mergeSuite', () => {
     )
   })
 
+  it('keeps a sibling child suite settled during a single-test rerun', () => {
+    // pytest's tree puts a class suite beside a module-level test. Rerunning
+    // that test re-emits the file suite as 'pending' with only the one test it
+    // collected — the class is never mentioned again, so flipping it to
+    // 'pending' left it spinning for the rest of the session with all of its
+    // own tests still showing green. Sibling TESTS are already frozen by
+    // mergeTests; this is the same rule for the other kind of sibling.
+    const existing = suite('file.py', {
+      tests: [test('file.py::test_module_level')],
+      suites: [
+        suite('file.py::TestLogin', {
+          state: 'passed',
+          tests: [test('file.py::TestLogin::test_valid')]
+        })
+      ]
+    })
+    const incoming = suite('file.py', {
+      state: 'pending',
+      tests: [test('file.py::test_module_level', { state: 'pending' })],
+      suites: []
+    })
+
+    const merged = mergeSuite(
+      existing,
+      incoming,
+      ctx({ activeRerunTestUid: 'file.py::test_module_level' })
+    )
+
+    const cls = merged.suites?.find((s) => s.uid === 'file.py::TestLogin')
+    expect(cls?.state).toBe('passed')
+    expect(cls?.end).toBeDefined()
+  })
+
   it('strips undefined/null state from incoming to preserve existing state', () => {
     const existing = suite('s', { state: 'passed' })
     const incoming = suite('s', {

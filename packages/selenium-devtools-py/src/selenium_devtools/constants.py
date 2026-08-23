@@ -10,12 +10,12 @@ import os
 # shared's TEST_RUNNER_IDS so a rename there fails generation rather than
 # shipping a value the app narrows away.
 #
-# What the dashboard's Run / Rerun / Run-all controls may offer. The adapter
-# sends no rerun or launch command, and the backend's spawn path is the wdio
-# binary, so every launch control is refused: absent this the app falls back to
-# `DEFAULT_CAPABILITIES` (all true) and the buttons render enabled, then fail on
-# click. Revisit with the Preserve-and-Rerun work.
-RUN_CAPABILITIES = {
+# Every run control refused — what `rerun.py` publishes until it has built a
+# command, and what it keeps for a run it cannot address. Sending this matters:
+# absent an explicit bag the app falls back to `DEFAULT_CAPABILITIES` (all
+# true), so the buttons render enabled and fail on click, and the backend's
+# fallback for a rerun it was given no command for is the wdio binary.
+RUN_CAPABILITIES_NONE = {
     "canRunSuites": False,
     "canRunTests": False,
     "canRunAll": False,

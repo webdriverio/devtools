@@ -210,45 +210,61 @@ class TestTheTreeAppearsBeforeAnythingRuns(unittest.TestCase):
         self.assertEqual(reg.snapshot()[0]["state"], "failed")
 
 
-class TestCollectionOrderIsCarried(unittest.TestCase):
+class TestSiblingPositionIsCarried(unittest.TestCase):
     """The tree renders a suite's own tests then its nested suites, which IS
     mocha's execution order (`Runner.runSuite` runs `suite.tests` first). pytest
-    runs in collection order and interleaves the two, so it stamps `order` and
-    the app merges the buckets by it."""
+    interleaves the two, so it stamps `order` and the app merges the buckets by
+    it. That position is the source LINE — see the comment in `record`."""
 
-    def _file_suite(self):
+    # A class holding two tests, and a module-level test written after it.
+    CLASS_TESTS = (
+        (f"{FILE}::TestLogin::test_valid", "TestLogin.test_valid", 10),
+        (f"{FILE}::TestLogin::test_invalid", "TestLogin.test_invalid", 20),
+    )
+    MODULE_TEST = (f"{FILE}::test_the_login_page_loads",
+                   "test_the_login_page_loads", 40)
+
+    def _full_collection(self):
         reg = _SuiteRegistry()
-        for index, (nid, name) in enumerate((
-            (f"{FILE}::TestLogin::test_valid", "TestLogin.test_valid"),
-            (f"{FILE}::TestLogin::test_invalid", "TestLogin.test_invalid"),
-            (f"{FILE}::test_the_login_page_loads", "test_the_login_page_loads"),
-        )):
-            reg.record(nid, FILE, name, 0, "pending", order=index)
-        return reg.snapshot()[0]
+        for nid, name, line in (*self.CLASS_TESTS, self.MODULE_TEST):
+            reg.record(nid, FILE, name, line, "pending")
+        return reg
 
     def test_a_class_sits_where_its_first_test_starts(self):
-        file_suite = self._file_suite()
+        file_suite = self._full_collection().snapshot()[0]
 
-        self.assertEqual(file_suite["suites"][0]["order"], 0)
-        self.assertEqual(file_suite["tests"][0]["order"], 2)
+        self.assertEqual(file_suite["suites"][0]["order"], 10)
+        self.assertEqual(file_suite["tests"][0]["order"], 40)
 
-    def test_the_declared_order_survives_a_later_state_change(self):
-        # record() runs again at start and at completion; the collection index
-        # is assigned once and must not be lost.
+    def test_the_position_survives_a_later_state_change(self):
+        # record() runs again at start and at completion; the position must not
+        # move as the state settles.
         reg = _SuiteRegistry()
         nid = f"{FILE}::test_plain"
-        reg.record(nid, FILE, "test_plain", 0, "pending", order=7)
-        reg.record(nid, FILE, "test_plain", 0, "passed")
+        reg.record(nid, FILE, "test_plain", 7, "pending")
+        reg.record(nid, FILE, "test_plain", 7, "passed")
 
         self.assertEqual(reg.snapshot()[0]["tests"][0]["order"], 7)
 
-    def test_no_order_is_stamped_when_none_was_given(self):
-        # The plain-script path and any caller that does not know an order must
-        # leave the frame exactly as it was.
-        reg = _SuiteRegistry()
-        reg.record(f"{FILE}::test_plain", FILE, "test_plain", 0, "passed")
+    def test_a_rerun_of_one_test_leaves_it_where_it_was(self):
+        # A rerun is a fresh process collecting ONE test, so its collection
+        # index is 0 — stamping that would send the row to the top of its file,
+        # above the class it was written below. The line does not move.
+        full = self._full_collection().snapshot()[0]
 
-        self.assertNotIn("order", reg.snapshot()[0]["tests"][0])
+        rerun = _SuiteRegistry()
+        nid, name, line = self.MODULE_TEST
+        rerun.record(nid, FILE, name, line, "passed")
+
+        self.assertEqual(
+            rerun.snapshot()[0]["tests"][0]["order"],
+            full["tests"][0]["order"],
+        )
+        # …and still after the class it sits below.
+        self.assertGreater(
+            rerun.snapshot()[0]["tests"][0]["order"],
+            full["suites"][0]["order"],
+        )
 
 
 class _Report:

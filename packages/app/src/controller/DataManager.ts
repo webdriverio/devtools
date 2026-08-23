@@ -260,8 +260,18 @@ export class DataManagerController implements ReactiveController {
   }
 
   #handleClearExecutionScope(data: unknown): void {
-    const { uid, entryType, clearSuiteTree } =
+    const { uid, entryType, clearSuiteTree, runStart } =
       data as SocketMessage<'clearExecutionData'>['data']
+    // A run is starting, so nothing is in flight for the child-clear rules
+    // below to apply to. Those latches track ONE rerun; left standing they
+    // made the next rerun at a different scope look like a child clear of the
+    // last one, and its wipe was skipped — so pressing Rerun on a suite and
+    // then on the file (or on Tests) kept the previous run's actions, console
+    // and network rows and grew them run after run.
+    if (runStart) {
+      rerunState.activeRerunSuiteUid = undefined
+      this.#activeRerunTestUid = undefined
+    }
     this.clearExecutionData(uid, entryType)
     if (clearSuiteTree) {
       this.suitesContextProvider.setValue([])
