@@ -1,20 +1,25 @@
 """Screencast recorder — the Python analogue of core's ``ScreencastRecorderBase``.
 
-Frames are captured **synchronously on the main thread, one per command**
-(``driver.get_screenshot_as_base64()``), driven from the instrumentation hook.
-A background poll thread is deliberately NOT used: Selenium's session is not
-thread-safe, and a screenshot fired from a daemon thread races the main thread's
-commands and DOM-trace readback on the same connection — corrupting both the
-video and the snapshot. The reference JS adapters avoid this too (CDP push-mode
-screencast / per-command screenshots on the command queue), so we mirror that.
+The recorder owns a frame buffer and the encode; it does not care where frames
+came from. Two sources feed it:
+
+* **Chrome, pushed.** :mod:`.cdp_screencast` subscribes to
+  ``Page.screencastFrame`` and hands each frame to :meth:`add_frame`. Preferred
+  where it is available, because the browser decides when the picture changed.
+* **Everything else, one frame per command.** A screenshot taken
+  **synchronously on the main thread**, driven from the instrumentation hook.
+
+A background poll thread is deliberately NOT used for that second path:
+Selenium's session is not thread-safe, and a screenshot fired from a daemon
+thread races the main thread's commands and DOM-trace readback on the same
+connection, corrupting both the video and the snapshot. Push mode escapes that
+because CDP events arrive on their own websocket rather than the session's
+command channel — which is why it is a different mechanism rather than the same
+poll loop moved.
 
 On ``stop`` the buffered frames are encoded to a ``.webm`` via ffmpeg *if it's on
 PATH* — ffmpeg is an optional dependency, so its absence is a one-line warning
 and a skipped encode, never an error.
-
-A CDP push-mode fast-path (Chrome ``Page.startScreencast`` via
-``execute_cdp_cmd``) is a future optimization — noted here, not implemented;
-per-command capture works on every browser selenium drives.
 
 Everything is defensive: a transient screenshot failure (e.g. mid-navigation) is
 skipped and recording continues; a recorder that never captured a frame encodes
@@ -28,12 +33,14 @@ import os
 import shutil
 import subprocess
 import tempfile
+import threading
 import weakref
 from typing import Any, Callable, List, Optional
 
 from .constants import (
     LOGGER_NAME,
     SCREENCAST_IMAGE_FORMAT,
+    SCREENCAST_MAX_BUFFER_FRAMES,
     SCREENCAST_MIN_FRAMES,
 )
 from .output_dir import OUTPUT_SUBDIR, ensure_output_dir
@@ -67,12 +74,22 @@ def _weak_screenshot(driver: Any) -> ScreenshotFn:
 
 
 class ScreencastRecorder:
-    def __init__(self, *, ffmpeg_path: Optional[str] = None) -> None:
+    def __init__(
+        self,
+        *,
+        ffmpeg_path: Optional[str] = None,
+        max_frames: int = SCREENCAST_MAX_BUFFER_FRAMES,
+    ) -> None:
         # Resolve ffmpeg once; None means "encoding unavailable, skip it".
         self._ffmpeg = ffmpeg_path or shutil.which("ffmpeg")
         self._frames: List[ScreencastFrame] = []
         self._screenshot: Optional[ScreenshotFn] = None
         self._active = False
+        self._max_frames = max(2, max_frames)
+        self._buffer_lock = threading.Lock()
+        # Frames offered, and how many are offered per one kept. See `_buffer`.
+        self._seen = 0
+        self._stride = 1
 
     # ── public API ────────────────────────────────────────────────────────────
 
@@ -121,19 +138,56 @@ class ScreencastRecorder:
         except Exception:  # noqa: BLE001 — transient miss; keep recording
             return False
         if isinstance(data, str) and data:
-            self._frames.append({"data": data, "timestamp": now_ms()})
+            self._buffer(data)
             return True
         return False
 
     def add_frame(self, data: Optional[str]) -> bool:
-        """Buffer a frame from an ALREADY-captured base64 screenshot — lets the
-        caller reuse the per-command screenshot it took for the command entry
-        instead of paying for a second screenshot round-trip. No-op if not armed
-        or the data is empty. Returns True iff a frame was buffered."""
+        """Buffer a frame from an ALREADY-captured base64 image.
+
+        Serves both sources: the per-command path reuses the screenshot it
+        already took for the command entry rather than paying for a second
+        round-trip, and CDP push mode hands over frames the browser sent
+        unasked. No-op if not armed or the data is empty. Returns True iff a
+        frame was buffered.
+
+        Called from the CDP websocket's reader thread as well as the test's, so
+        the append is guarded — a list append is atomic under the GIL but the
+        decimation below is a read-modify-write.
+        """
         if not self._active or not isinstance(data, str) or not data:
             return False
-        self._frames.append({"data": data, "timestamp": now_ms()})
+        self._buffer(data)
         return True
+
+    def _buffer(self, data: str) -> None:
+        with self._buffer_lock:
+            self._seen += 1
+            # Thin the INCOMING frames by however often the buffer has been
+            # halved. Without this the buffer drifts toward holding only the end
+            # of the run: each decimation halves what is already held while new
+            # frames keep arriving unthinned. Measured on a 40-frame run at a cap
+            # of 6, it kept frames 0, 1, 35, 37, 38, 39 — the last second of the
+            # run and nothing from the middle of it.
+            if self._seen % self._stride:
+                return
+            self._frames.append({"data": data, "timestamp": now_ms()})
+            if len(self._frames) > self._max_frames:
+                self._decimate()
+                self._stride *= 2
+
+    def _decimate(self) -> None:
+        """Halve the buffer, keeping the first and last frames.
+
+        Push mode streams from the browser, so the buffer is not bounded by the
+        test's own length the way per-command capture is. Dropping every other
+        middle frame keeps the run evenly covered: the encoder derives each
+        frame's on-screen duration from the timestamps, so the survivors simply
+        hold longer. Truncating either end would lose the start or the finish of
+        the run outright, which is the part someone is usually looking for.
+        """
+        frames = self._frames
+        self._frames = [frames[0], *frames[1:-1:2], frames[-1]]
 
     def stop(self) -> None:
         """Disarm the recorder. Idempotent; safe even if start() never ran."""

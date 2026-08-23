@@ -242,3 +242,60 @@ class TestScreencastDeliveryEndToEnd(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestTheBufferIsBounded(unittest.TestCase):
+    """Per-command capture is bounded by the test's own length — one frame per
+    command. A pushed stream is not, so the recorder caps what it holds."""
+
+    def _armed(self, cap):
+        rec = ScreencastRecorder(max_frames=cap)
+        rec.start(None, screenshot_fn=lambda: _PNG_FRAME)
+        return rec
+
+    def test_the_buffer_stops_growing_at_the_cap(self):
+        rec = self._armed(8)
+
+        for i in range(200):
+            rec.add_frame(f"frame-{i}")
+
+        self.assertLessEqual(len(rec.frames), 8)
+
+    def test_the_whole_run_stays_covered_not_just_its_end(self):
+        # The property that matters, and the one endpoints alone cannot check:
+        # truncating the tail still leaves frame-0 and whatever arrived since the
+        # last decimation, so it LOOKS like both ends survived. What separates a
+        # video of the run from a video of its last moments is whether anything
+        # from the middle is still there.
+        rec = self._armed(6)
+
+        for i in range(40):
+            rec.add_frame(f"frame-{i}")
+        kept = [int(f["data"].split("-")[1]) for f in rec.frames]
+
+        self.assertEqual(kept[0], 0)
+        middle = [k for k in kept if 10 <= k <= 30]
+        self.assertTrue(middle, f"nothing from the middle of the run: {kept}")
+
+    def test_the_end_of_a_long_run_survives(self):
+        # At the real cap the stride only starts thinning after the buffer is
+        # full, so the newest frame — the state the run ended in — is kept.
+        rec = self._armed(2000)
+
+        for i in range(12000):
+            rec.add_frame(f"frame-{i}")
+        kept = [int(f["data"].split("-")[1]) for f in rec.frames]
+
+        self.assertEqual(kept[0], 0)
+        self.assertEqual(kept[-1], 11999)
+        self.assertLessEqual(len(kept), 2000)
+
+    def test_a_run_under_the_cap_keeps_every_frame_in_order(self):
+        rec = self._armed(100)
+
+        for i in range(10):
+            rec.add_frame(f"frame-{i}")
+
+        self.assertEqual(
+            [f["data"] for f in rec.frames], [f"frame-{i}" for i in range(10)]
+        )
