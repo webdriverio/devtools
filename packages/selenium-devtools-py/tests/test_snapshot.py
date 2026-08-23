@@ -159,6 +159,108 @@ class TestSnapshotCapturerPull(unittest.TestCase):
         self.assertEqual(cap.pull_mutations(), [])  # no raise
 
 
+class FakeCollector:
+    """A page-side collector modelled closely enough to tell an anchored drain
+    from an unanchored one.
+
+    The real collector schedules its first full-DOM anchor asynchronously (after
+    `waitForBody`), so a drain arriving before that has run finds an empty
+    buffer unless it anchors the document itself. `captureCurrentDom` is guarded
+    by an `#anchored` flag that survives the buffer reset, which is what makes
+    forcing it on every drain free rather than a full DOM per command.
+    """
+
+    def __init__(self, present: bool = True, url: str = "https://x/secure"):
+        self.present = present
+        self.url = url
+        self.anchored = False
+        self.anchor_calls = 0
+        self.drains = 0
+        self._buffer: list = []
+
+    def __call__(self, script, *args):
+        if "captureCurrentDom" not in script and "getTraceData" not in script:
+            return None  # an injection or readiness probe, not our concern
+        if not self.present:
+            return None  # the collector is not in this document
+        if "captureCurrentDom" in script:
+            self.anchor_calls += 1
+            if not self.anchored:
+                self.anchored = True
+                self._buffer.append(
+                    {"type": "childList", "url": self.url, "addedNodes": ["<html>"]}
+                )
+        self.drains += 1
+        payload = {"mutations": list(self._buffer)}
+        self._buffer.clear()  # getTraceData resets the page-side buffer
+        return payload
+
+
+class TestTheDrainAnchorsTheDocument(unittest.TestCase):
+    """A navigation destination has to be anchored by the drain itself.
+
+    Without it a short-lived page is never anchored at all: its own async anchor
+    has not run when the drain arrives, and its buffer dies with the page — so
+    every action on that document replays the one before it.
+    """
+
+    def test_a_document_that_has_not_self_anchored_is_anchored_by_the_drain(self):
+        collector = FakeCollector()
+        cap = SnapshotCapturer(collector)
+
+        mutations = cap.pull_mutations()
+
+        self.assertEqual(len(mutations), 1)
+        self.assertEqual(mutations[0]["url"], "https://x/secure")
+        self.assertEqual(collector.anchor_calls, 1)
+
+    def test_anchoring_is_forced_on_every_drain_but_emits_the_document_once(self):
+        # Idempotence is what makes forcing unconditional affordable: the anchor
+        # is requested every time and the page answers with it only once.
+        collector = FakeCollector()
+        cap = SnapshotCapturer(collector)
+
+        first = cap.pull_mutations()
+        second = cap.pull_mutations()
+
+        self.assertEqual(len(first), 1)
+        self.assertEqual(second, [])
+        self.assertEqual(collector.anchor_calls, 2)
+
+    def test_the_guard_runs_before_the_collector_is_touched(self):
+        # Order matters in the one eval: calling captureCurrentDom on a document
+        # without a collector throws, and the drain must answer null instead.
+        script = snapshot._DRAIN_SCRIPT
+        guard = script.index("wdioTraceCollector !== ")
+        anchor = script.index("captureCurrentDom")
+        read = script.index("getTraceData")
+
+        self.assertLess(guard, anchor)
+        self.assertLess(anchor, read)
+        self.assertIn("return null", script[:anchor])
+
+    def test_an_absent_collector_still_answers_empty(self):
+        cap = SnapshotCapturer(FakeCollector(present=False))
+
+        self.assertEqual(cap.pull_mutations(), [])
+
+    def test_a_recovered_collector_is_anchored_by_the_retry(self):
+        # The collector was missing, an injection installed it, and the retry is
+        # the only chance to anchor a document whose own anchor has not run.
+        collector = FakeCollector(present=False)
+        cap = SnapshotCapturer(collector)
+
+        def install() -> bool:
+            collector.present = True
+            return True
+
+        with mock.patch.object(cap, "_install_now", side_effect=install):
+            mutations = cap.pull_mutations()
+
+        self.assertEqual(len(mutations), 1)
+        self.assertEqual(collector.anchor_calls, 1)
+
+
 class TestStartSnapshotCapture(unittest.TestCase):
     def _tmp_script(self):
         fh = tempfile.NamedTemporaryFile("w", suffix=".js", delete=False)

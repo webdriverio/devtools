@@ -39,16 +39,32 @@ _INJECT_SCRIPT = (
     "return true;"
 )
 
-#: Atomic check+read: the collector may vanish (navigation) between an
-#: existence check and the read, so both happen in one eval — mirrors the
+#: Whether the collector is present in THIS document. One definition, because
+#: the readiness probe and the drain's own guard must agree — mirrors core's
+#: `COLLECTOR_READY_EXPRESSION`.
+_COLLECTOR_READY = 'typeof window.wdioTraceCollector !== "undefined"'
+
+#: Atomic anchor+read: the collector may vanish (navigation) between an
+#: existence check and the read, so all of it happens in one eval — mirrors the
 #: TOCTOU fix in selenium-devtools/session.ts.
-_READ_TRACE_SCRIPT = (
-    'return typeof window.wdioTraceCollector !== "undefined"'
-    " ? window.wdioTraceCollector.getTraceData() : null;"
+#:
+#: The anchor is FORCED, and that is the point of this script. A collector's
+#: initial full-DOM anchor is scheduled asynchronously (after `waitForBody`), so
+#: a drain issued right after a navigation beats it and reads an empty buffer —
+#: and the destination's buffer then dies with the page, leaving the navigating
+#: action with no DOM at all. Forcing costs nothing after the first anchor of a
+#: document: `captureCurrentDom` is guarded by the collector's own `#anchored`
+#: flag, which deliberately survives its `reset()`. Every caller of core's
+#: `collectorDrainExpression` passes `forceAnchor: true` for the same reason, so
+#: this carries no flag to get wrong.
+_DRAIN_SCRIPT = (
+    f"if (!({_COLLECTOR_READY})) {{ return null; }} "
+    "window.wdioTraceCollector.captureCurrentDom(); "
+    "return window.wdioTraceCollector.getTraceData();"
 )
 
 #: Cheap readiness probe used after injection.
-_READY_SCRIPT = 'return typeof window.wdioTraceCollector !== "undefined";'
+_READY_SCRIPT = f"return {_COLLECTOR_READY};"
 
 #: Distinguishes "the read itself failed" from "the collector is absent here",
 #: which the page returns as a plain null and which is the recovery signal.
@@ -230,31 +246,38 @@ class SnapshotCapturer:
         self._injected = ready is True
         return self._injected
 
-    def _read_trace(self) -> Any:
-        """The page's trace payload, None when the collector is absent from this
-        document, or `_UNREADABLE` when the read itself failed."""
+    def _drain(self) -> Any:
+        """Anchor this document and take its trace payload. None when the
+        collector is absent from the document, `_UNREADABLE` when the eval
+        itself failed."""
         try:
-            return self._execute(_READ_TRACE_SCRIPT)
+            return self._execute(_DRAIN_SCRIPT)
         except BaseException as exc:  # noqa: BLE001
             if not _is_quiet_error(exc):
                 _warn(f"trace read failed: {exc}")
             return _UNREADABLE
 
     def pull_mutations(self) -> List[Any]:
-        """Read and drain the buffered mutations (``getTraceData()`` resets the
-        page-side buffer). Returns [] on any failure or when nothing's buffered.
+        """Anchor the current document and drain the buffered mutations
+        (``getTraceData()`` resets the page-side buffer). Returns [] on any
+        failure or when nothing's buffered.
 
         A null payload means the collector is not in THIS document, and that is
         the only signal which says so — a preload can still miss one (its script
         can throw, or a document can predate registration), and with the preload
         registered nothing else probes. Recovered once here, mirroring core's
         `drainCollectorWithRecovery`, which costs nothing on the happy path
-        because the drain happens either way."""
-        data = self._read_trace()
+        because the drain happens either way.
+
+        The retry after a recovery is the case the forced anchor exists for: a
+        collector installed a moment ago has not run its own async anchor yet,
+        so an unanchored read would return an empty buffer and the document
+        would never be anchored at all."""
+        data = self._drain()
         if data is _UNREADABLE:
             return []
         if data is None and self._install_now():
-            data = self._read_trace()
+            data = self._drain()
             if data is _UNREADABLE:
                 return []
         return normalize_mutations(data)

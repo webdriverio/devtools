@@ -82,7 +82,7 @@ is on `PATH`; otherwise keep it current (`brew upgrade chromedriver`).
 | Browser console + JS errors | Selenium **BiDi** (`driver.script` handlers) | `consoleLogs` | 2 |
 | Network requests | Selenium **BiDi** (`Network.add_event_handler`, observe-only — never an intercept, which would pause every request) | `networkRequests` | 2 |
 | Assertions | pytest hooks under pytest; line tracing for a plain script | `commands` | 2 |
-| DOM snapshot (preview iframe) | inject `packages/script`, re-inject per navigation, drain mutations | `mutations` | 2 |
+| DOM snapshot (preview iframe) | inject `packages/script`, re-inject per navigation, drain mutations with a forced document anchor | `mutations` | 2 |
 | Screencast video | screenshot polling → ffmpeg-encoded `.webm` | `screencast` | 2 |
 
 Element actions (`click`, `send_keys`, `text`, …) are captured for free: they
