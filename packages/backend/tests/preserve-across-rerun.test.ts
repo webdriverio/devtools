@@ -37,6 +37,7 @@ vi.mock('../src/utils.js', () => ({
 const WAIT_TIMEOUT_MS = 2000
 const SUITE_UID = 'examples/test_login.py'
 const TEST_UID = 'examples/test_login.py::TestLogin::test_rejects_invalid'
+const SIBLING_TEST_UID = 'examples/test_login.py::TestLogin::test_logs_in'
 
 let server: FastifyInstance | undefined
 
@@ -46,6 +47,11 @@ beforeEach(() => {
 })
 
 afterEach(async () => {
+  // The run requests spawn a real (trivial) child; make sure none outlives the
+  // test, and clear the rerun-child flag so it cannot leak into the next one.
+  const { testRunner } = await import('../src/runner.js')
+  testRunner.stop()
+  testRunner.consumeRerunChildFlag()
   await server?.close()
   server = undefined
   vi.restoreAllMocks()
@@ -89,22 +95,32 @@ async function closeWorker(socket: WebSocket): Promise<void> {
   })
 }
 
-/** One attempt of one test: the suite tree plus the commands inside its
- *  window, in the order and shape an adapter sends them. */
+/** One attempt: the suite tree plus the commands inside each test's window, in
+ *  the order and shape an adapter sends them. `withSibling` adds a second
+ *  failed test, for asserting what a rerun does to the rest of the run. */
 async function reportAttempt(
   socket: WebSocket,
-  opts: { start: number; state: 'passed' | 'failed'; command: string }
+  opts: {
+    start: number
+    state: 'passed' | 'failed'
+    command: string
+    withSibling?: boolean
+  }
 ): Promise<void> {
   const end = opts.start + 100
-  socket.send(
-    JSON.stringify({
-      scope: 'commands',
-      data: [
-        { timestamp: opts.start + 50, command: opts.command, args: [], id: 1 }
-      ]
-    })
-  )
-  socket.send(
+  const testNode = (
+    uid: string,
+    title: string,
+    stage: 'running' | 'final'
+  ) => ({
+    uid,
+    title,
+    fullTitle: `${SUITE_UID} › ${title}`,
+    start: opts.start,
+    end: stage === 'final' ? end : null,
+    state: stage === 'final' ? opts.state : 'running'
+  })
+  const suitesFrame = (stage: 'running' | 'final') =>
     JSON.stringify({
       scope: 'suites',
       data: [
@@ -114,43 +130,85 @@ async function reportAttempt(
             title: SUITE_UID,
             file: SUITE_UID,
             start: opts.start,
-            end,
-            state: opts.state,
+            end: stage === 'final' ? end : null,
+            state: stage === 'final' ? opts.state : 'running',
             tests: [
-              {
-                uid: TEST_UID,
-                title: 'test_rejects_invalid',
-                fullTitle: `${SUITE_UID} › test_rejects_invalid`,
-                start: opts.start,
-                end,
-                state: opts.state
-              }
+              testNode(TEST_UID, 'test_rejects_invalid', stage),
+              ...(opts.withSibling
+                ? [testNode(SIBLING_TEST_UID, 'test_logs_in', stage)]
+                : [])
             ],
             suites: []
           }
         }
       ]
     })
+  // The order every adapter uses: the tree goes out when the test STARTS, the
+  // commands stream inside it, and the tree goes out again with the outcome.
+  // It matters here — `#updateNode` drops the previous attempt's commands the
+  // moment it sees a new attempt, so commands sent before that frame would be
+  // discarded as if they belonged to the run being replaced.
+  socket.send(suitesFrame('running'))
+  socket.send(
+    JSON.stringify({
+      scope: 'commands',
+      data: [
+        {
+          timestamp: opts.start + 50,
+          command: opts.command,
+          args: [],
+          id: 1,
+          testUid: TEST_UID
+        },
+        ...(opts.withSibling
+          ? [
+              {
+                timestamp: opts.start + 60,
+                command: 'siblingCommand',
+                args: [],
+                id: 2,
+                testUid: SIBLING_TEST_UID
+              }
+            ]
+          : [])
+      ]
+    })
   )
-  await waitFor(
-    () => Boolean(baselineStore.snapshot(TEST_UID, 'test')),
-    'the backend to record the attempt'
-  )
+  socket.send(suitesFrame('final'))
+  // Keyed to THIS attempt's window AND outcome, not merely to a snapshot
+  // existing: a rerun-child connect keeps the previous attempt, so "a snapshot
+  // exists" is already true and would let the assertions race the frames.
+  await waitFor(() => {
+    const snap = baselineStore.snapshot(TEST_UID, 'test')
+    return snap?.window.start === opts.start && snap?.test.state === opts.state
+  }, 'the backend to record the attempt')
 }
 
+/**
+ * A real run request, spawning a real (trivial) child.
+ *
+ * `testRunner.run` is deliberately NOT mocked: it is what arms the rerun-child
+ * flag the next worker handshake consumes, and that flag is the whole
+ * difference between the two paths a connect can take. Mocking it made this
+ * file's rerun exercise an ordinary new-run reset — the opposite branch from
+ * the one a spawned rerun uses — so a regression in rerun-child continuity
+ * could not have failed anything here.
+ *
+ * `launchCommand` keeps the spawn cheap and makes the generic path the one
+ * taken, which is also the path the Python adapter's reruns use.
+ */
 async function requestRun(
   target: FastifyInstance,
   preserveBaseline: boolean
 ): Promise<number> {
-  const { testRunner } = await import('../src/runner.js')
-  vi.spyOn(testRunner, 'run').mockResolvedValue()
   const res = await target.inject({
     method: 'POST',
     url: TESTS_API.run,
     payload: {
       uid: TEST_UID,
       entryType: 'test',
-      preserveBaseline
+      preserveBaseline,
+      launchCommand: `${process.execPath} -e ""`
     }
   })
   return res.statusCode
@@ -240,6 +298,87 @@ describe('preserve and rerun across the run boundary', () => {
     expect(baseline.window.start).not.toBe(latest.window.start)
     expect(baseline.commands).toHaveLength(1)
     expect(latest.commands).toHaveLength(1)
+
+    await closeWorker(rerun)
+  })
+
+  it('keeps the baseline when a run starts outside the dashboard', async () => {
+    // No run request, so no rerun-child flag: the worker connects under a new
+    // id and the backend resets what it is accumulating. That is the path taken
+    // when someone preserves a failure and then re-runs pytest from their own
+    // terminal, and the preserved attempt has to outlive the reset — it lives
+    // outside the active-run accumulator precisely so it can.
+    const { server: target, port } = await boot()
+    const first = await connectWorker(port, 'run-1')
+    await reportAttempt(first, {
+      start: 1000,
+      state: 'failed',
+      command: 'clickElement'
+    })
+    await target.inject({
+      method: 'POST',
+      url: BASELINE_API.preserve,
+      payload: { testUid: TEST_UID, scope: 'test' }
+    })
+    await closeWorker(first)
+
+    const fresh = await connectWorker(port, 'run-2-from-the-terminal')
+    await reportAttempt(fresh, {
+      start: 5000,
+      state: 'passed',
+      command: 'clickElement'
+    })
+
+    const pair = await target.inject({
+      method: 'GET',
+      url: `/api/baseline/${encodeURIComponent(TEST_UID)}?scope=test`
+    })
+    const { baseline, latest } = JSON.parse(pair.body)
+
+    expect(baseline?.test?.state).toBe('failed')
+    expect(latest?.test?.state).toBe('passed')
+
+    await closeWorker(fresh)
+  })
+
+  it('keeps the rest of the run, so another failed test stays preservable', async () => {
+    // This is what makes the connect a RERUN CHILD rather than a new run: the
+    // flag armed by the spawn suppresses the reset, so the tests the rerun did
+    // not re-report are still there. Without it the sibling's data is wiped and
+    // preserving it answers 409 — which is also why this file does not mock
+    // `testRunner.run`, since the mock skips arming the flag and quietly puts
+    // the whole scenario on the other branch.
+    const { server: target, port } = await boot()
+    const first = await connectWorker(port, 'run-1')
+    await reportAttempt(first, {
+      start: 1000,
+      state: 'failed',
+      command: 'clickElement',
+      withSibling: true
+    })
+    await target.inject({
+      method: 'POST',
+      url: BASELINE_API.preserve,
+      payload: { testUid: TEST_UID, scope: 'test' }
+    })
+    await requestRun(target, true)
+    await closeWorker(first)
+
+    const rerun = await connectWorker(port, 'run-2-spawned-by-the-rerun')
+    await reportAttempt(rerun, {
+      start: 5000,
+      state: 'passed',
+      command: 'clickElement'
+    })
+
+    const sibling = await target.inject({
+      method: 'POST',
+      url: BASELINE_API.preserve,
+      payload: { testUid: SIBLING_TEST_UID, scope: 'test' }
+    })
+
+    expect(sibling.statusCode).toBe(200)
+    expect(JSON.parse(sibling.body).attempt.test.state).toBe('failed')
 
     await closeWorker(rerun)
   })
