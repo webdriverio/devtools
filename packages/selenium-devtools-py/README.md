@@ -83,7 +83,7 @@ is on `PATH`; otherwise keep it current (`brew upgrade chromedriver`).
 | Network requests | Selenium **BiDi** (`Network.add_event_handler`, observe-only — never an intercept, which would pause every request) | `networkRequests` | 2 |
 | Assertions | pytest hooks under pytest; line tracing for a plain script | `commands` | 2 |
 | DOM snapshot (preview iframe) | inject `packages/script`, re-inject per navigation, drain mutations with a forced document anchor | `mutations` | 2 |
-| Screencast video | screenshot polling → ffmpeg-encoded `.webm` | `screencast` | 2 |
+| Screencast video | Chrome: CDP `Page.startScreencast` (pushed frames); elsewhere one screenshot per command → ffmpeg-encoded `.webm` | `screencast` | 2 |
 
 Element actions (`click`, `send_keys`, `text`, …) are captured for free: they
 delegate to `self._parent.execute`, so the one wrapper sees them as
