@@ -190,6 +190,27 @@ freshly spawned single process, which is what you want, but the backend has one
 worker slot — so with several parallel workers connected the dashboard's state
 belongs to whichever connected last.
 
+### Preserve & Rerun (compare two runs)
+
+A failed row carries a second button beside Rerun. It snapshots the attempt you
+are looking at, reruns the test, and the **Compare** tab then diffs the two —
+commands, console and network side by side, each attributed to its own attempt's
+time window.
+
+Nothing here is Python-specific: the snapshot is taken by the backend from the
+stream this adapter already sends, so it works for the same rows the run
+controls do. Two behaviours are worth knowing because they are easy to read as
+bugs:
+
+- **The snapshot is taken before the rerun starts**, which is what lets it
+  survive. A rerun is a freshly spawned process and reports under its own run
+  id, so the backend resets what it is *currently* accumulating — the preserved
+  attempt lives outside that and is untouched. Preserving *after* a new run has
+  connected is refused (HTTP 409): the run in flight never held that attempt.
+- **A plain Rerun drops every baseline.** Only Preserve & Rerun keeps one, so
+  the Compare tab disappears after an ordinary rerun rather than diffing
+  against something you did not ask to keep.
+
 ## Dashboard window lifecycle
 
 Like the JS adapters, `enable()` opens the dashboard in a dedicated, closable
@@ -296,8 +317,8 @@ rejects re-uploading an existing version).
 - **Phase 2 (done)** — BiDi console/network, assertion rows, and
   screenshot-polling screencast. Not yet: a CDP `Page.startScreencast` push-mode
   fast-path, per-command screenshots, and performance capture.
-- **Phase 3** — trace export, preserve-and-diff, action snapshots. Run controls
-  (Run / Rerun / Run-all) are done — see above. Per the
+- **Phase 3** — trace export and action snapshots. Run controls (Run / Rerun /
+  Run-all) and Preserve & Rerun are done — see above. Per the
   architecture, the heavy post-processing is a candidate to live server-side in
   the backend (written once) rather than re-implemented here.
 
