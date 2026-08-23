@@ -271,6 +271,22 @@ class TestTheDirectoryTheRerunSpawnsIn(RerunTestCase):
 
         self.assertEqual(os.environ[ENV_RUNNER_CWD], "/chosen/by/the/caller")
 
+    def test_an_override_equal_to_our_own_stamp_is_indistinguishable(self):
+        # Accepted limitation, pinned here so it reads as a decision rather
+        # than an oversight. The environment is the only channel, and a caller
+        # who exports the SAME path the adapter already stamped leaves it
+        # byte-identical to our leftover — no comparison can separate the two,
+        # so the second run treats it as ours. Pinning a directory across runs
+        # is done by exporting it BEFORE the first `enable()`, which is never
+        # claimed as ours (the two tests above).
+        self.configure_pytest(["tests/"], ["tests/"], rootdir="/repo-a")
+        rerun.reset()
+        os.environ[ENV_RUNNER_CWD] = "/repo-a"
+
+        self.configure_pytest(["tests/"], ["tests/"], rootdir="/repo-b")
+
+        self.assertEqual(os.environ[ENV_RUNNER_CWD], "/repo-b")
+
     def test_unsetting_it_between_two_runs_stamps_again(self):
         # The other side of the same comparison: nobody set it, so there is no
         # instruction to respect and the second run needs its own directory.
