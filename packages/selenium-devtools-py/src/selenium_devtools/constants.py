@@ -82,6 +82,11 @@ SKIP_COMMANDS = frozenset(
      "screenshot", "elementScreenshot"}
 )
 
+# Commands that land on a new document, and are therefore worth asking the page
+# for its navigation timings afterwards. `get` carries the url; the history ones
+# do not, so their row reports the document's own url instead.
+NAVIGATION_COMMANDS = frozenset({"get", "refresh", "goBack", "goForward"})
+
 # Stack-frame path fragment to skip when resolving a command's call source —
 # the adapter's own package. The selenium library dir is added at runtime by
 # instrumentation (resolved from selenium.__file__), NOT matched by the

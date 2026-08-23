@@ -19,7 +19,7 @@ import threading
 import weakref
 from typing import Any, Optional
 
-from . import assertions, bidi, bidi_preload, frames
+from . import assertions, bidi, bidi_preload, frames, performance
 from .assert_tracer import ScriptAssertionTracer
 from .capturer import SessionCapturer
 from .cdp_screencast import start_push_screencast
@@ -29,6 +29,7 @@ from .constants import (
     DEFAULT_TEST_TITLE,
     ENV_BIDI,
     LOGGER_NAME,
+    NAVIGATION_COMMANDS,
     SKIP_COMMANDS,
     SKIP_STACK_FRAMES,
 )
@@ -281,6 +282,38 @@ def _stop_push_screencast(entry: dict) -> None:
                   push.frame_count)
     except Exception as exc:  # noqa: BLE001 — teardown must not raise
         _log.debug("stopping the push screencast threw: %s", exc)
+
+
+def _attach_performance(
+    capturer: SessionCapturer, driver: Any, row: dict, params: Any
+) -> None:
+    """Ask the page for its navigation timings and replace the row with them.
+
+    Only the page can answer this, so the row goes out twice: once when the
+    command completes, and again enriched. Read on THIS thread immediately after
+    the command rather than after a settle — selenium's navigation returns after
+    the load event, so the entries are already there, and a sleep here would be
+    a real delay in the user's test rather than the detached await the JS
+    adapters can afford. A read that lands too early anyway carries no
+    `navigation` entry and is discarded.
+    """
+    if row is None:
+        return
+    try:
+        payload = _guarded_execute_script(driver)(
+            performance.CAPTURE_PERFORMANCE_SCRIPT
+        )
+    except Exception as exc:  # noqa: BLE001 — capture must never break the test
+        _log.debug("performance capture failed: %s", exc)
+        return
+    if not performance.apply_performance_data(
+        row, payload, performance.navigated_url(params)
+    ):
+        return
+    try:
+        capturer.send_replace_command(row["timestamp"], row)
+    except Exception as exc:  # noqa: BLE001
+        _log.debug("could not replace the navigation row: %s", exc)
 
 
 def _add_screencast_frame(entry: dict, shot: Optional[str]) -> None:
@@ -673,7 +706,7 @@ def install(capturer: SessionCapturer, webdriver_cls: Optional[type] = None) -> 
         # command (so selecting it shows the page) AND reused as a screencast
         # frame, so we pay for only a single screenshot round-trip either way.
         shot = _take_screenshot(self)
-        capturer.capture_command(
+        row = capturer.capture_command(
             command=driver_command,
             args=params,
             result=value,
@@ -681,6 +714,8 @@ def install(capturer: SessionCapturer, webdriver_cls: Optional[type] = None) -> 
             call_source=src,
             screenshot=shot,
         )
+        if driver_command in NAVIGATION_COMMANDS:
+            _attach_performance(capturer, self, row, params)
         # No per-command line here: the Actions timeline lists every command as
         # it happens, and `_WATCH` puts this logger's debug records in the same
         # Console the user is reading, so it was one duplicate line per command.

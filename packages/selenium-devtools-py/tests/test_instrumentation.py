@@ -828,3 +828,84 @@ class TestPushScreencastWiring(unittest.TestCase):
 
     def test_no_stream_is_a_no_op(self):
         instrumentation._stop_push_screencast({})  # must not raise
+
+
+class TestNavigationRowsGetTheirTimings(unittest.TestCase):
+    """The dispatch, driven through the real command hook: a correct
+    `performance` module proves nothing about which commands consult it."""
+
+    PAYLOAD = {
+        "navigation": {"url": "https://x/secure", "timing": {"loadTime": 700}},
+        "resources": [],
+        "cookies": "",
+        "documentInfo": {"title": "Secure Area"},
+    }
+
+    class Driver:
+        session_id = "sess-9"
+        caps = {"browserName": "chrome"}
+
+        def __init__(self, payload):
+            self._payload = payload
+
+        def execute(self, command, params=None):
+            return {"value": f"ok:{command}"}
+
+        def execute_script(self, script, *args):
+            # Real selenium routes execute_script through the same `execute`
+            # chokepoint the adapter patches, which is the whole reason the
+            # adapter's own reads must go through the guarded executor.
+            self.execute("executeScript", {"script": script, "args": list(args)})
+            if "getEntriesByType" in script:
+                return self._payload
+            return None
+
+        def get_screenshot_as_base64(self):
+            return "shot"
+
+    def setUp(self):
+        self.cap = SessionCapturer(FakeTransport())
+        instrumentation.uninstall()
+        instrumentation.install(self.cap, self.Driver)
+        self.addCleanup(instrumentation.uninstall)
+
+    def _replacements(self):
+        return [
+            data
+            for scope, data in self.cap._tx.sent
+            if scope == "replaceCommand"
+        ]
+
+    def test_a_navigation_row_is_replaced_with_its_timings(self):
+        driver = self.Driver(self.PAYLOAD)
+
+        driver.execute("get", {"url": "https://x/secure"})
+
+        (frame,) = self._replacements()
+        self.assertEqual(frame["command"]["command"], "get")
+        self.assertEqual(
+            frame["command"]["performance"]["navigation"]["timing"]["loadTime"], 700
+        )
+
+    def test_the_timings_read_does_not_appear_in_the_actions_timeline(self):
+        # The adapter's own read goes through the guarded executor. Unguarded it
+        # would land in the same `execute` it was called from and show up as an
+        # `executeScript` row beside every navigation.
+        driver = self.Driver(self.PAYLOAD)
+
+        driver.execute("get", {"url": "https://x/secure"})
+
+        commands = [
+            row["command"]
+            for scope, rows in self.cap._tx.sent
+            if scope == "commands"
+            for row in rows
+        ]
+        self.assertEqual(commands, ["get"])
+
+    def test_a_command_that_does_not_navigate_is_left_alone(self):
+        driver = self.Driver(self.PAYLOAD)
+
+        driver.execute("findElement", {"using": "css selector", "value": "#a"})
+
+        self.assertEqual(self._replacements(), [])
