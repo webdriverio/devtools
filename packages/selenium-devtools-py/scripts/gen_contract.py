@@ -25,6 +25,13 @@ from pathlib import Path
 # the same fallbacks as sending nothing.
 REQUIRED_RUNNER_ID = "selenium-webdriver"
 
+# Control scopes the adapter SENDS (as opposed to receives). Generated for the
+# same reason the data scopes are: a renamed scope is silent — the frame is
+# delivered and dropped, so a command row simply never updates.
+REQUIRED_CONTROL_SCOPES = {
+    "SCOPE_REPLACE_COMMAND": "replaceCommand",
+}
+
 # Data scopes the Python adapter emits — each must exist as a TraceLog key.
 REQUIRED_DATA_SCOPES = {
     "SCOPE_METADATA": "metadata",
@@ -178,6 +185,15 @@ def main() -> int:
             "socket carries it, and without it every connect reads as a new run."
         )
 
+    missing_control = [
+        v for v in REQUIRED_CONTROL_SCOPES.values() if v not in control.values()
+    ]
+    if missing_control:
+        raise SystemExit(
+            f"contract drift: control scope(s) {missing_control} no longer in "
+            f"shared WS_SCOPE (present: {sorted(control.values())})."
+        )
+
     if "testId" not in rerun_slot:
         raise SystemExit(
             "contract drift: `testId` is no longer a key of shared RERUN_SLOT "
@@ -207,6 +223,8 @@ def main() -> int:
         "",
     ]
     for const, value in REQUIRED_DATA_SCOPES.items():
+        lines.append(f'{const} = "{value}"')
+    for const, value in REQUIRED_CONTROL_SCOPES.items():
         lines.append(f'{const} = "{value}"')
     lines += [
         "",
