@@ -763,3 +763,68 @@ class TestCaptureDoesNotOutliveItsDriver(unittest.TestCase):
         gc.collect()
         self.assertIsNone(ref(), "the recorder is still holding the driver")
         self.assertEqual(live_session_ids(), set())
+
+
+class TestPushScreencastWiring(unittest.TestCase):
+    """Which source the video is made of, and that the stream is turned off.
+
+    Both are decided in `instrumentation`, so a correct `cdp_screencast` proves
+    nothing about them on its own.
+    """
+
+    class Recorder:
+        def __init__(self):
+            self.frames = []
+
+        def add_frame(self, data):
+            self.frames.append(data)
+            return True
+
+    class Push:
+        def __init__(self, *, raises=False):
+            self.stopped = 0
+            self.frame_count = 3
+            self._raises = raises
+
+        def stop(self):
+            self.stopped += 1
+            if self._raises:
+                raise RuntimeError("session already gone")
+
+    def test_per_command_shots_are_skipped_while_the_browser_streams(self):
+        # The pushed frames already cover the timeline; a per-command shot would
+        # duplicate one of them at a slightly different moment.
+        rec = self.Recorder()
+        entry = {"screencast": rec, "screencast_push": self.Push()}
+
+        instrumentation._add_screencast_frame(entry, "shot")
+
+        self.assertEqual(rec.frames, [])
+
+    def test_per_command_shots_are_the_recording_without_a_stream(self):
+        rec = self.Recorder()
+        entry = {"screencast": rec, "screencast_push": None}
+
+        instrumentation._add_screencast_frame(entry, "shot")
+
+        self.assertEqual(rec.frames, ["shot"])
+
+    def test_the_stream_is_stopped_once_and_forgotten(self):
+        # Left running, the browser keeps sending frames into a buffer that has
+        # already been read and encoded.
+        push = self.Push()
+        entry = {"screencast_push": push}
+
+        instrumentation._stop_push_screencast(entry)
+        instrumentation._stop_push_screencast(entry)
+
+        self.assertEqual(push.stopped, 1)
+        self.assertNotIn("screencast_push", entry)
+
+    def test_a_stream_that_throws_on_stop_does_not_break_teardown(self):
+        entry = {"screencast_push": self.Push(raises=True)}
+
+        instrumentation._stop_push_screencast(entry)  # must not raise
+
+    def test_no_stream_is_a_no_op(self):
+        instrumentation._stop_push_screencast({})  # must not raise

@@ -22,6 +22,7 @@ from typing import Any, Optional
 from . import assertions, bidi, bidi_preload, frames
 from .assert_tracer import ScriptAssertionTracer
 from .capturer import SessionCapturer
+from .cdp_screencast import start_push_screencast
 from .collector_source import reset_cache as reset_collector_cache
 from .constants import (
     BIDI_CAPABILITY,
@@ -269,10 +270,29 @@ def _backend_origin(capturer: SessionCapturer) -> Optional[tuple]:
     return (host, port) if host and port else None
 
 
+def _stop_push_screencast(entry: dict) -> None:
+    """End the browser's frame stream for one driver. Never raises."""
+    push = entry.pop("screencast_push", None)
+    if push is None:
+        return
+    try:
+        push.stop()
+        _log.info("screencast: %d frame(s) streamed from the browser",
+                  push.frame_count)
+    except Exception as exc:  # noqa: BLE001 — teardown must not raise
+        _log.debug("stopping the push screencast threw: %s", exc)
+
+
 def _add_screencast_frame(entry: dict, shot: Optional[str]) -> None:
-    """Buffer an already-captured screenshot as a frame of ITS OWN session."""
+    """Buffer an already-captured screenshot as a frame of ITS OWN session.
+
+    Skipped while the browser is streaming: the pushed frames already cover the
+    timeline, and interleaving a per-command shot would duplicate it at a
+    slightly different moment. The screenshot is still taken — the command ROW
+    carries it — so this only decides what the video is made of.
+    """
     recorder = entry.get("screencast")
-    if recorder is None or not shot:
+    if recorder is None or not shot or entry.get("screencast_push") is not None:
         return
     try:
         recorder.add_frame(shot)
@@ -339,6 +359,9 @@ def _enable_bidi_capability(params: Any) -> None:
 def _close_entry(capturer: SessionCapturer, entry: dict) -> None:
     """Drain and encode one driver's capture, attributed to the session it was
     recorded under."""
+    # Before the encode: a frame still arriving would land after the buffer was
+    # read, and the browser keeps sending until it is told to stop.
+    _stop_push_screencast(entry)
     _flush_mutations(capturer, entry)
     entry["snapshot"] = None
     _finalize_screencast(capturer, entry["session_id"], entry)
@@ -417,7 +440,14 @@ def _ensure_session_setup(driver: Any, capturer: SessionCapturer) -> Optional[di
         recorder = ScreencastRecorder()
         recorder.start(driver)
         entry["screencast"] = recorder
-        _log.info("screencast recording started")
+        # Prefer the browser's own frame stream. It returns None on anything but
+        # a Chromium driver with a reachable CDP endpoint, and then the
+        # per-command screenshots the command hook already buffers are the
+        # recording — so this is an upgrade, never a requirement.
+        push = start_push_screencast(driver, recorder.add_frame)
+        entry["screencast_push"] = push
+        if push is None:
+            _log.info("screencast recording started (one frame per command)")
     except Exception as exc:  # noqa: BLE001
         _log.warning("screencast start threw: %s", exc)
     try:
@@ -679,6 +709,7 @@ def uninstall() -> None:
     reset_collector_cache()
     # Never leave a recorder running past teardown, for any session still live.
     for entry in list(_state.get("sessions", {}).values()):
+        _stop_push_screencast(entry)
         recorder = entry.get("screencast")
         if recorder is not None:
             recorder.stop()
