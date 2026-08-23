@@ -21,12 +21,14 @@ SCRIPT = os.path.abspath(__file__)
 
 class RerunTestCase(unittest.TestCase):
     def setUp(self) -> None:
-        rerun.reset()
+        # `_reset_for_tests`, not `reset`: ownership of ENV_RUNNER_CWD outlives
+        # a reset by design, so each case has to start as a fresh process would.
+        rerun._reset_for_tests()
         self._saved_cwd = os.environ.pop(ENV_RUNNER_CWD, None)
         self.addCleanup(self._restore)
 
     def _restore(self) -> None:
-        rerun.reset()
+        rerun._reset_for_tests()
         os.environ.pop(ENV_RUNNER_CWD, None)
         if self._saved_cwd is not None:
             os.environ[ENV_RUNNER_CWD] = self._saved_cwd
@@ -233,6 +235,27 @@ class TestTheDirectoryTheRerunSpawnsIn(RerunTestCase):
         os.environ[ENV_RUNNER_CWD] = "/somewhere/else"
 
         self.configure_pytest(["tests/"], ["tests/"])
+
+        self.assertEqual(os.environ[ENV_RUNNER_CWD], "/somewhere/else")
+
+    def test_a_second_run_in_one_process_restamps_the_directory(self):
+        # disable() + enable() again, for a project somewhere else. Keeping the
+        # first run's directory would spawn its reruns in the wrong project,
+        # where every nodeid names a path that does not exist.
+        self.configure_pytest(["tests/"], ["tests/"], rootdir="/repo-a")
+        rerun.reset()  # what disable() does
+        self.configure_pytest(["tests/"], ["tests/"], rootdir="/repo-b")
+
+        self.assertEqual(os.environ[ENV_RUNNER_CWD], "/repo-b")
+
+    def test_an_explicit_setting_survives_a_second_run_too(self):
+        # The replacement above must not turn into ownership of a value someone
+        # else set: an explicit DEVTOOLS_RUNNER_CWD is an instruction.
+        os.environ[ENV_RUNNER_CWD] = "/somewhere/else"
+
+        self.configure_pytest(["tests/"], ["tests/"], rootdir="/repo-a")
+        rerun.reset()
+        self.configure_pytest(["tests/"], ["tests/"], rootdir="/repo-b")
 
         self.assertEqual(os.environ[ENV_RUNNER_CWD], "/somewhere/else")
 

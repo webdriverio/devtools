@@ -67,6 +67,12 @@ _SHORT_VALUE_FILTERS = tuple(opt for opt in _VALUE_FILTERS if len(opt) == 2)
 
 _options: Dict[str, object] = {"runCapabilities": dict(RUN_CAPABILITIES_NONE)}
 
+# Whether the value in ENV_RUNNER_CWD is one WE put there. Deliberately not
+# cleared by `reset()`: it records that this process owns the variable, which
+# stays true across a disable/enable, and forgetting it would leave the second
+# run reading the first run's directory as if a user had set it.
+_owns_runner_cwd = False
+
 
 def run_options() -> Dict[str, object]:
     """The `options` bag the metadata frame carries."""
@@ -77,6 +83,18 @@ def reset() -> None:
     """Forget what was configured — a re-`enable()` reconfigures from scratch."""
     global _options
     _options = {"runCapabilities": dict(RUN_CAPABILITIES_NONE)}
+
+
+def _reset_for_tests() -> None:
+    """Reset module state between unit tests (never used in production).
+
+    Includes the ENV_RUNNER_CWD ownership, which a real process keeps for its
+    lifetime and `reset()` therefore leaves alone — a test needs the
+    fresh-process state instead.
+    """
+    global _owns_runner_cwd
+    reset()
+    _owns_runner_cwd = False
 
 
 def configure_script(argv: Optional[Sequence[str]] = None) -> None:
@@ -150,8 +168,17 @@ def _stamp_runner_cwd(base_dir: str) -> None:
 
     The backend reads this from its own environment, so it only lands if we own
     that process — an already-running dashboard keeps the cwd it was started in.
+
+    Set by us, it is REPLACED: a second `enable()` in one process is a second
+    run, and keeping the first one's directory would spawn its reruns in the
+    wrong project, where every nodeid names a path that does not exist. Set by
+    anyone else, it is left alone — an explicit `DEVTOOLS_RUNNER_CWD` is an
+    instruction, not a leftover.
     """
-    os.environ.setdefault(ENV_RUNNER_CWD, os.path.abspath(base_dir))
+    global _owns_runner_cwd
+    if _owns_runner_cwd or ENV_RUNNER_CWD not in os.environ:
+        os.environ[ENV_RUNNER_CWD] = os.path.abspath(base_dir)
+        _owns_runner_cwd = True
 
 
 def _strip_filters(args: Sequence[str]) -> List[str]:
