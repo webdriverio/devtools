@@ -299,3 +299,60 @@ class TestTheBufferIsBounded(unittest.TestCase):
         self.assertEqual(
             [f["data"] for f in rec.frames], [f"frame-{i}" for i in range(10)]
         )
+
+
+class TestTheVideoEndsWhereTheRunDid(unittest.TestCase):
+    """Thinning the incoming frames keeps the buffer's coverage even, but it also
+    means the last frame offered is only kept when the run happens to end on a
+    stride position. The end is what a failure is usually inspected for, so it
+    cannot be left to that coincidence."""
+
+    def _run(self, cap, count):
+        rec = ScreencastRecorder(max_frames=cap)
+        rec.start(None, screenshot_fn=lambda: _PNG_FRAME)
+        for i in range(count):
+            rec.add_frame(f"frame-{i}")
+        rec.stop()
+        return [int(f["data"].split("-")[1]) for f in rec.frames]
+
+    def test_a_run_ending_between_stride_positions_still_ends_on_its_last_frame(self):
+        # 41 frames at a cap of 6 leaves the final frame off a stride position,
+        # which used to discard it and end the video on an already-stale state.
+        for cap, count in ((6, 41), (8, 201), (6, 40), (2000, 11997)):
+            with self.subTest(cap=cap, count=count):
+                kept = self._run(cap, count)
+                self.assertEqual(kept[-1], count - 1)
+                self.assertLessEqual(len(kept), cap + 1)
+
+    def test_the_run_stays_covered_as_well_as_ending_correctly(self):
+        # Keeping the tail must not come at the cost of the spread — otherwise
+        # the fix trades one end of the video for the middle of it.
+        kept = self._run(6, 41)
+
+        self.assertEqual(kept[0], 0)
+        self.assertTrue(
+            [k for k in kept if 10 <= k <= 30], f"nothing from the middle: {kept}"
+        )
+
+    def test_stopping_twice_does_not_duplicate_the_final_frame(self):
+        rec = ScreencastRecorder(max_frames=6)
+        rec.start(None, screenshot_fn=lambda: _PNG_FRAME)
+        for i in range(41):
+            rec.add_frame(f"frame-{i}")
+
+        rec.stop()
+        rec.stop()
+        kept = [f["data"] for f in rec.frames]
+
+        self.assertEqual(kept.count("frame-40"), 1)
+
+    def test_a_run_that_never_hit_the_cap_is_unchanged_by_stopping(self):
+        rec = ScreencastRecorder(max_frames=100)
+        rec.start(None, screenshot_fn=lambda: _PNG_FRAME)
+        for i in range(10):
+            rec.add_frame(f"frame-{i}")
+        before = [f["data"] for f in rec.frames]
+
+        rec.stop()
+
+        self.assertEqual([f["data"] for f in rec.frames], before)

@@ -90,6 +90,9 @@ class ScreencastRecorder:
         # Frames offered, and how many are offered per one kept. See `_buffer`.
         self._seen = 0
         self._stride = 1
+        # The newest frame the stride skipped, held rather than dropped so the
+        # recording can still end on it. See `_keep_tail`.
+        self._pending_tail: Optional[ScreencastFrame] = None
 
     # ── public API ────────────────────────────────────────────────────────────
 
@@ -170,7 +173,14 @@ class ScreencastRecorder:
             # of 6, it kept frames 0, 1, 35, 37, 38, 39 — the last second of the
             # run and nothing from the middle of it.
             if self._seen % self._stride:
+                # Held, not discarded: if the recording ends here this is the
+                # newest frame there is, and `_keep_tail` folds it in. A video
+                # that ends on a retained stride position instead shows a state
+                # the run had already left — and the end is what a failure is
+                # usually inspected for.
+                self._pending_tail = {"data": data, "timestamp": now_ms()}
                 return
+            self._pending_tail = None
             self._frames.append({"data": data, "timestamp": now_ms()})
             if len(self._frames) > self._max_frames:
                 self._decimate()
@@ -192,6 +202,26 @@ class ScreencastRecorder:
     def stop(self) -> None:
         """Disarm the recorder. Idempotent; safe even if start() never ran."""
         self._active = False
+        self._keep_tail()
+
+    def _keep_tail(self) -> None:
+        """Fold the newest skipped frame in, so the video ends where the run did.
+
+        Thinning the incoming frames is what keeps the buffer's coverage even
+        (see `_buffer`), but it also means the last frame offered is only kept
+        when the run happens to end on a stride position. `finalize` stops the
+        recorder before reading the buffer, which is what makes this the last
+        word on what the video ends with.
+        """
+        with self._buffer_lock:
+            tail = self._pending_tail
+            self._pending_tail = None
+            if tail is None:
+                return
+            # No cap check: this adds exactly one frame to a buffer already at
+            # or under the cap, and the recorder is stopped, so there is no
+            # later growth for a decimation to be protecting against.
+            self._frames.append(tail)
 
     @property
     def frames(self) -> List[ScreencastFrame]:
