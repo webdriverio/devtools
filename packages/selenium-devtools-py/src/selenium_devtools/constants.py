@@ -82,6 +82,11 @@ SKIP_COMMANDS = frozenset(
      "screenshot", "elementScreenshot"}
 )
 
+# Commands that land on a new document, and are therefore worth asking the page
+# for its navigation timings afterwards. `get` carries the url; the history ones
+# do not, so their row reports the document's own url instead.
+NAVIGATION_COMMANDS = frozenset({"get", "refresh", "goBack", "goForward"})
+
 # Stack-frame path fragment to skip when resolving a command's call source —
 # the adapter's own package. The selenium library dir is added at runtime by
 # instrumentation (resolved from selenium.__file__), NOT matched by the
@@ -138,6 +143,12 @@ SCREENCAST_IMAGE_FORMAT = "png"
 # shot of about:blank taken before the first command, so a short run's "video"
 # was black plus one real frame.
 SCREENCAST_MIN_FRAMES = 1
+# Buffered frames before the recorder halves what it holds. Per-command capture
+# needs no cap — it takes one frame per command, so the test's own length bounds
+# it — but CDP push mode streams from the browser and would grow without one.
+# Mirrors core's `maxBufferFrames` default, decimating rather than truncating so
+# both ends of the run survive.
+SCREENCAST_MAX_BUFFER_FRAMES = 2000
 # Output filename stem; the session id + .webm suffix are appended.
 SCREENCAST_FILENAME_PREFIX = "selenium-py-video"
 # The `screencast` wire scope is generated into _contract.py (SCOPE_SCREENCAST).

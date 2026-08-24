@@ -336,11 +336,20 @@ export class DevtoolsBrowser extends Element {
         commandPageUrl(command, this.commands ?? [], this.mutations ?? []) ??
         this.#activeUrl
     }
-    // Switch to snapshot mode so the command snapshot is visible instead of the video.
+    // Switch to snapshot mode so the command snapshot is visible instead of the
+    // video, and let that render LAND before replaying into it. In video mode
+    // `#renderViewport` renders the player and no iframe at all, so a replay
+    // issued here targeted an element that did not exist yet: the pane stayed
+    // blank until the row was clicked a second time, by which point the render
+    // this method requested had finally created the iframe. A recording arriving
+    // switches the view on its own (`#handleScreencastReady`), so the very first
+    // row clicked after any run with a screencast hit it.
     this.#viewMode = 'snapshot'
+    this.requestUpdate()
+    await this.updateComplete
     // DOM time-travel: rebuild the iframe DOM to the command's RESULT state (see
-    // #mutationForCommand). #renderBrowserState requestUpdates internally, so
-    // only request one here when there's no mutation stream (screenshot fallback).
+    // #mutationForCommand). The await above has already rendered the screenshot
+    // fallback, so only the replay is left to do.
     const target = mutationForCommand(
       command,
       this.commands ?? [],
@@ -348,8 +357,6 @@ export class DevtoolsBrowser extends Element {
     )
     if (target) {
       await this.#renderBrowserState(target)
-    } else {
-      this.requestUpdate()
     }
   }
 

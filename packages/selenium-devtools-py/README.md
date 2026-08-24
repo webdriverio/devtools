@@ -83,7 +83,8 @@ is on `PATH`; otherwise keep it current (`brew upgrade chromedriver`).
 | Network requests | Selenium **BiDi** (`Network.add_event_handler`, observe-only — never an intercept, which would pause every request) | `networkRequests` | 2 |
 | Assertions | pytest hooks under pytest; line tracing for a plain script | `commands` | 2 |
 | DOM snapshot (preview iframe) | inject `packages/script`, re-inject per navigation, drain mutations with a forced document anchor | `mutations` | 2 |
-| Screencast video | screenshot polling → ffmpeg-encoded `.webm` | `screencast` | 2 |
+| Screencast video | Chrome: CDP `Page.startScreencast` (pushed frames); elsewhere one screenshot per command → ffmpeg-encoded `.webm` | `screencast` | 2 |
+| Navigation + resource timing | read from the page after a navigation, then the command row is re-sent with it | `commands` | 2 |
 
 Element actions (`click`, `send_keys`, `text`, …) are captured for free: they
 delegate to `self._parent.execute`, so the one wrapper sees them as
@@ -318,7 +319,8 @@ rejects re-uploading an existing version).
   screenshot-polling screencast. Not yet: a CDP `Page.startScreencast` push-mode
   fast-path, per-command screenshots, and performance capture.
 - **Phase 3** — trace export and action snapshots. Run controls (Run / Rerun /
-  Run-all) and Preserve & Rerun are done — see above. Per the
+  Run-all), Preserve & Rerun, the pushed screencast and performance timings are
+  done — see above. Per the
   architecture, the heavy post-processing is a candidate to live server-side in
   the backend (written once) rather than re-implemented here.
 

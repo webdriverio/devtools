@@ -18,11 +18,12 @@ from ._contract import (
     SCOPE_METADATA,
     SCOPE_MUTATIONS,
     SCOPE_NETWORK_REQUESTS,
+    SCOPE_REPLACE_COMMAND,
     SCOPE_SCREENCAST,
     SCOPE_SOURCES,
     SCOPE_SUITES,
 )
-from .types import SuiteStats
+from .types import CommandLog, SuiteStats
 from .utils import now_ms, to_jsonable
 
 
@@ -76,7 +77,7 @@ class SessionCapturer:
         start_time: int,
         call_source: Optional[str],
         screenshot: Optional[str] = None,
-    ) -> None:
+    ) -> CommandLog:
         with self._lock:
             self._command_counter += 1
             command_id = self._command_counter
@@ -93,6 +94,21 @@ class SessionCapturer:
             screenshot=screenshot,
         )
         self._tx.send_json(SCOPE_COMMANDS, [entry])
+        # Returned so a caller that learns more about the command AFTER it was
+        # reported — a navigation's timings, which only the page can answer for
+        # — can enrich this exact row and replace it.
+        return entry
+
+    def send_replace_command(self, old_timestamp: int, entry: CommandLog) -> None:
+        """Swap an already-reported row for an enriched copy of itself.
+
+        Keyed by the row's timestamp, which is what the dashboard matches on;
+        the adapter's own `id` counter restarts per process and would collide
+        across a rerun.
+        """
+        self._tx.send_json(
+            SCOPE_REPLACE_COMMAND, {"oldTimestamp": old_timestamp, "command": entry}
+        )
 
     # ── console / network ────────────────────────────────────────────────────────
 
