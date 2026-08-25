@@ -4,7 +4,7 @@ import {
   mapAssertCommand,
   type CommandLog
 } from '@wdio/devtools-shared'
-import { formatActionTitle, mapCommandToAction } from '../src/action-mapping.js'
+import { formatActionTitle, mapCommandToAction } from '@wdio/devtools-shared'
 import {
   buildActionEvents,
   type AfterEvent,

@@ -1,4 +1,4 @@
-import type { ConsoleLog, LogLevel, LogSource } from '@wdio/devtools-shared'
+import type { ConsoleLog, LogLevel, LogSource } from './types.js'
 
 /**
  * Console methods we intercept to forward test/runner-process output into the
@@ -74,8 +74,6 @@ export const LOG_SOURCES = {
   TEST: 'test',
   TERMINAL: 'terminal'
 } as const satisfies Record<string, LogSource>
-
-export type { LogSource } from '@wdio/devtools-shared'
 
 /**
  * Classify a line of unstructured terminal output by scanning for log-level

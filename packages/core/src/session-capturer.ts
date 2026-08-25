@@ -11,7 +11,7 @@ import type {
   TraceMutation
 } from '@wdio/devtools-shared'
 import { WORKER_WS_QUERY, WS_PATHS, WS_SCOPE } from '@wdio/devtools-shared'
-import { mapCommandToAction } from './action-mapping.js'
+import { mapCommandToAction } from '@wdio/devtools-shared'
 import { resolveRunId } from './run-id.js'
 import { reattributeDomAnchors } from './trace-mutations.js'
 import {
@@ -22,7 +22,7 @@ import {
   detectLogLevel,
   isInternalStreamLine,
   stripAnsi
-} from './console.js'
+} from '@wdio/devtools-shared'
 import { TerminalLineThrottle } from './terminal-throttle.js'
 
 /**

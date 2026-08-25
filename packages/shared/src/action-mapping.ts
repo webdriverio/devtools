@@ -1,6 +1,6 @@
-// Helpers over the trace action vocabulary. ACTION_MAP itself lives in
-// @wdio/devtools-shared so the reader (backend) can derive its inverse from the
-// same source. Ported from Vince Graics' PR #209 (`@wdio/tracing-service`); the
+// Helpers over the trace action vocabulary, beside the ACTION_MAP they read —
+// here rather than in `core` because both the capture side and the trace
+// transforms need them, and the transforms must not depend on adapter logic. Ported from Vince Graics' PR #209 (`@wdio/tracing-service`); the
 // existing devtools UI uses its own denylist (`INTERNAL_COMMANDS`) — this map
 // is for the trace.zip exporter to filter + rename in one step.
 
@@ -9,7 +9,7 @@ import {
   ASSERT_ACTION_CLASS,
   mapAssertCommand,
   type TraceAction
-} from '@wdio/devtools-shared'
+} from './trace-actions.js'
 
 export type { TraceAction }
 export { ASSERT_ACTION_CLASS, mapAssertCommand }

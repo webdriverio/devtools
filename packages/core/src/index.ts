@@ -1,7 +1,17 @@
 // Framework-agnostic capture/reporter logic shared by @wdio/devtools-*
 // adapters. See ARCHITECTURE.md §2 and CLAUDE.md §2.2.
 
-export * from './action-mapping.js'
+// `action-mapping` and `console` moved to `shared` — the trace transforms need
+// them and must not depend on adapter logic. Re-exported here, and only these
+// names, so adapters keep importing them from `core` unchanged.
+export {
+  ASSERT_ACTION_CLASS,
+  FILL_METHODS,
+  formatActionTitle,
+  mapAssertCommand,
+  mapCommandToAction,
+  type TraceAction
+} from '@wdio/devtools-shared'
 export * from './action-snapshot.js'
 export * from './artifact-naming.js'
 export * from './artifacts-manifest.js'
@@ -29,7 +39,21 @@ export * from './trace-snapshots.js'
 export * from './trace-zip-writer.js'
 export * from './bidi.js'
 export * from './bidi-preload.js'
-export * from './console.js'
+export {
+  ANSI_REGEX,
+  CONSOLE_METHODS,
+  ERROR_INDICATORS,
+  LOG_LEVEL_PATTERNS,
+  LOG_SOURCES,
+  SPINNER_RE,
+  chromeLogLevelToLogLevel,
+  createConsoleLogEntry,
+  detectLogLevel,
+  isInternalStreamLine,
+  mapChromeBrowserLogs,
+  stripAnsi,
+  type LogSource
+} from '@wdio/devtools-shared'
 export * from './uid.js'
 export * from './net.js'
 export * from './request-type.js'
