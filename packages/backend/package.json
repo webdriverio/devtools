@@ -55,6 +55,7 @@
     "@types/shell-quote": "^1.7.5",
     "@types/ws": "^8.18.1",
     "@wdio/devtools-shared": "workspace:^",
+    "@wdio/devtools-trace": "workspace:^",
     "nodemon": "^3.1.14",
     "tsup": "^8.5.1"
   }

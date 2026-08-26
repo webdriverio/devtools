@@ -1,8 +1,8 @@
 // Pure helpers for reconstructing a player payload from trace.zip events.
 // No I/O — the reader pipeline (trace-reader.ts) composes these.
 
-import { createHash } from 'node:crypto'
 import { strFromU8 } from 'fflate'
+import { sourceResourceName } from '@wdio/devtools-trace/trace-sources'
 import {
   isTestRunnerId,
   TraceType,
@@ -210,11 +210,6 @@ export function buildConsoleLogs(
   return logs.sort((a, b) => a.timestamp - b.timestamp)
 }
 
-// Local copy of core's sha1 helper — the backend only imports from shared.
-function sha1Hex(data: string): string {
-  return createHash('sha1').update(data).digest('hex')
-}
-
 // Older zips glued ':<line>[:<column>]' onto the frame's file (and shifted
 // line/column); peel up to two numeric suffixes — the innermost is the real
 // line. `at < 2` keeps bare Windows drive specs (`C:...`) intact.
@@ -286,7 +281,7 @@ export function buildSources(
     if (file in sources) {
       continue
     }
-    const data = files[`resources/src@${sha1Hex(file)}.txt`]
+    const data = files[`resources/${sourceResourceName(file)}`]
     if (data) {
       sources[file] = strFromU8(data)
     }
