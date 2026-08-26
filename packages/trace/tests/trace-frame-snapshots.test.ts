@@ -5,7 +5,7 @@ import {
   FrameSnapshotIndex,
   type AfterEvent,
   type FrameSnapshotRef
-} from '@wdio/devtools-core'
+} from '@wdio/devtools-trace'
 import type { ActionSnapshot, CommandLog } from '@wdio/devtools-shared'
 
 function snap(overrides: Partial<ActionSnapshot> = {}): ActionSnapshot {

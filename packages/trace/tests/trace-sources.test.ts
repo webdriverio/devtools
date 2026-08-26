@@ -4,7 +4,7 @@ import {
   callSourceToStack,
   sha1Hex,
   sourceResourceName
-} from '@wdio/devtools-core'
+} from '@wdio/devtools-trace'
 
 describe('callSourceToStack', () => {
   it('parses <file>:<line> into a single frame', () => {

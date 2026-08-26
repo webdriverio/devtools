@@ -13,7 +13,7 @@ import type {
 import { WORKER_WS_QUERY, WS_PATHS, WS_SCOPE } from '@wdio/devtools-shared'
 import { mapCommandToAction } from '@wdio/devtools-shared'
 import { resolveRunId } from './run-id.js'
-import { reattributeDomAnchors } from './trace-mutations.js'
+import { reattributeDomAnchors } from '@wdio/devtools-trace/trace-mutations'
 import {
   CONSOLE_METHODS,
   LOG_SOURCES,

@@ -10,7 +10,7 @@ import {
   type AfterEvent,
   type BeforeEvent,
   type TraceCapturer
-} from '@wdio/devtools-core'
+} from '@wdio/devtools-trace'
 import { TraceType, type CommandLog } from '@wdio/devtools-shared'
 
 const isBefore = (event: ActionEvent): event is BeforeEvent =>

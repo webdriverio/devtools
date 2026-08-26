@@ -29,7 +29,10 @@ import {
 } from './spec-trace-helpers.js'
 import { shouldRetainTrace, type TestOutcome } from './trace-retention.js'
 import type { RetryOutcomeView } from './attempt-tracker.js'
-import { writeTraceZip, type TraceCapturer } from './trace-exporter.js'
+import {
+  writeTraceZip,
+  type TraceCapturer
+} from '@wdio/devtools-trace/trace-exporter'
 
 /** One artifact produced (or, when `retained` is false, decided-against) by a
  *  trace-mode run — a trace slice, a screencast video, or a per-test

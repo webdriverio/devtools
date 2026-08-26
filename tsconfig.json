@@ -28,6 +28,8 @@
       "@wdio/devtools-shared/*": ["./packages/shared/src/*"],
       "@wdio/devtools-core": ["./packages/core/src/index.ts"],
       "@wdio/devtools-core/*": ["./packages/core/src/*"],
+      "@wdio/devtools-trace": ["./packages/trace/src/index.ts"],
+      "@wdio/devtools-trace/*": ["./packages/trace/src/*"],
       "@wdio/elements": ["./packages/elements/src/index.ts"],
       "@wdio/elements/*": ["./packages/elements/src/*"],
       "@wdio/devtools-backend": ["./packages/backend/src/index.ts"],
