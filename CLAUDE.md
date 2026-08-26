@@ -10,7 +10,7 @@ Anyone working in the repo, human or AI agent, can use this as the source of tru
 
 A devtools dashboard for end-to-end browser tests. Three test frameworks (WebdriverIO, Nightwatch, Selenium) push the same normalized event stream through a single backend into a single Lit-based browser UI. The adapters are deliberately thin — they translate framework hooks into calls on a shared core capture/reporting library and own only the framework-specific glue.
 
-Package map and data flow are in [ARCHITECTURE.md](./ARCHITECTURE.md). The summary: `shared` for types and contracts, `core` for framework-agnostic capture, three adapters (`service`, `nightwatch-devtools`, `selenium-devtools`) for framework glue, `backend` for the server, `app` for the UI, `script` for the page-injected runtime.
+Package map and data flow are in [ARCHITECTURE.md](./ARCHITECTURE.md). The summary: `shared` for types and contracts, `trace` for the event→zip transforms, `core` for framework-agnostic capture, three adapters (`service`, `nightwatch-devtools`, `selenium-devtools`) for framework glue, `backend` for the server, `app` for the UI, `script` for the page-injected runtime.
 
 ---
 
@@ -48,6 +48,7 @@ Defined in root `tsconfig.json`:
 | `@wdio/selenium-devtools` / `*` | `packages/selenium-devtools/src/...` |
 | `@wdio/devtools-shared` / `*` | `packages/shared/src/...` |
 | `@wdio/devtools-core` / `*` | `packages/core/src/...` |
+| `@wdio/devtools-trace` / `*` | `packages/trace/src/...` |
 | `@wdio/elements` / `*` | `packages/elements/src/...` |
 
 These exist so imports stay short and grep-able. Long relative paths (`../../../components/…`) aren't used.
@@ -71,6 +72,14 @@ Anything that captures, parses, normalizes, formats, or transports test-event da
 If the same logical change would land in two or more adapters, the logic belongs in core. This rule produced the current `SessionCapturerBase`, `TestReporterBase`, `ScreencastRecorderBase`, `resolveAdapterOutputDir`, and the pure helpers around console capture, error serialization, UID generation, stack-trace parsing, BiDi attachment, and screencast finalization.
 
 Some helpers are framework-agnostic by nature but used in only one adapter today (e.g. nightwatch's `parseNetworkFromPerfLogs` for CDP perf-log parsing, selenium's `detectRunner`/`captureLaunchCommand`). They stay in their adapter until a second consumer appears; at that point they move to core.
+
+### Trace-format transforms live in `trace`, one layer below `core`
+
+`packages/trace` holds the pure transforms that turn captured events into trace-zip content — the zip writer, action events, group paths, frame snapshots, mutations, HAR, sources, transcript. `core` keeps the adapter-side *orchestration and policy* that calls them: `trace-finalizer`, `spec-trace-helpers`, `trace-retention`.
+
+The split is not aesthetic. **`backend` may not import `core`** (it would pull framework-adapter logic into the server), but it does need to build a trace on behalf of an adapter that can't — the Python adapter ships no Node. `trace` is the layer both can reach, so it may import `shared` and nothing else; a single import of `core` from it re-creates the cycle the split exists to remove, and ESLint enforces that.
+
+The test for a new helper: *would the backend ever need this to build a zip?* If yes, `trace`. If it needs a driver, a framework hook, or a capture session, `core`.
 
 ### Adapters are thin and isolated
 
@@ -96,13 +105,14 @@ No `any` crosses a package boundary. When a framework API forces a loosely-typed
 
 ### Workspace-internal packages stay bundled
 
-`packages/shared` and `packages/core` are `"private": true` and never published. Each consumer inlines their code into its own `dist/` at build time.
+`packages/shared`, `packages/trace` and `packages/core` are `"private": true` and never published. Each consumer inlines their code into its own `dist/` at build time.
 
-- Both deps are listed in `devDependencies` with `workspace:^`, never in `dependencies`. Vite and tsup both externalize anything in `dependencies` by default; `devDependencies` is what gets inlined.
-- Neither is added to a bundler's `external` config. Vite's `external` callback receives both the bare package name *and* the resolved absolute path (e.g. `/Users/.../packages/core/src/index.ts`); a check for only one form silently externalizes the other.
+- All three are listed in `devDependencies` with `workspace:^`, never in `dependencies`. Vite and tsup both externalize anything in `dependencies` by default; `devDependencies` is what gets inlined.
+- None of them is added to a bundler's `external` config. Vite's `external` callback receives both the bare package name *and* the resolved absolute path (e.g. `/Users/.../packages/core/src/index.ts`); a check for only one form silently externalizes the other.
+- That callback enumerates the private packages, so **adding a fourth one means editing it** — a package missing from the list falls through to the default and is externalized silently, producing a dist that dies at install with `ERR_MODULE_NOT_FOUND`. It is a `PRIVATE_WORKSPACE_PACKAGES` array rather than a chain of `||`s for exactly that reason. Adding a workspace package also means adding it to `pnpm-workspace.yaml`, whose `packages:` list is explicit rather than a glob.
 - The same callback receives bare relative imports (`./utils.js`, `../constants.js`). A check that allows only `./` will externalize `../`-style imports from subfolders and the dist crashes with `ERR_MODULE_NOT_FOUND` at install time.
 - `packages/service/vite.config.ts` is the canonical pattern for getting both right.
-- After any change to a bundler config or build script, `grep -nE "(from|require\()\s*['\"](@wdio/devtools-(core|shared)|.*/packages/(core|shared)/)" packages/<pkg>/dist/*.js` should return nothing. That's how you catch the absolute-path leak. Match on the `from`/`require(` prefix, not the bare package name: `LIBRARY_NAME = "@wdio/devtools-core"` (written into the trace's `context-options`) and `Symbol.for("@wdio/devtools-core/assert-patched")` are inlined string *values* that legitimately survive bundling, so a bare-name grep always reports a false leak.
+- After any change to a bundler config or build script, `grep -nE "(from|require\()\s*['\"](@wdio/devtools-(core|shared|trace)|.*/packages/(core|shared|trace)/)" packages/<pkg>/dist/*.js` should return nothing. That's how you catch the absolute-path leak. Match on the `from`/`require(` prefix, not the bare package name: `LIBRARY_NAME = "@wdio/devtools-core"` (written into the trace's `context-options`) and `Symbol.for("@wdio/devtools-core/assert-patched")` are inlined string *values* that legitimately survive bundling, so a bare-name grep always reports a false leak.
 
 Bundlers in use: **vite** for `app`, `service`, `script`; **tsup** for `backend`, `nightwatch-devtools`, `selenium-devtools`.
 
@@ -190,13 +200,14 @@ A handful of tests need `@wdio/devtools-script` to be built first (the browser-i
 The decision tree from [ARCHITECTURE.md "Where things live"](./ARCHITECTURE.md#where-things-live) is the starting point. The general shape:
 
 - Shared concept → `shared`.
+- Pure transform producing trace-zip content → `trace`.
 - Framework-agnostic capture/reporting logic → `core`.
 - Framework-specific glue → the matching adapter.
 - Server route/WS handler → `backend` (contract in `shared` first).
 - UI → `app`.
 - Code that runs in the browser under test → `script`.
 
-When the right place is ambiguous (something between `shared` and `core`, or between `core` and an adapter), the question that resolves it is: *who else would want this?* If the answer is "any future adapter would," it's `core`. If "only the framework with X-specific API does," it's the adapter.
+When the right place is ambiguous (something between `shared` and `core`, or between `core` and an adapter), the question that resolves it is: *who else would want this?* If the answer is "any future adapter would," it's `core`. If "only the framework with X-specific API does," it's the adapter. If "the backend would, to build a zip for an adapter that can't," it's `trace`.
 
 ### While editing
 
