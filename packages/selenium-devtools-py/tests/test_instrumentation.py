@@ -781,10 +781,18 @@ class TestPushScreencastWiring(unittest.TestCase):
             return True
 
     class Push:
-        def __init__(self, *, raises=False):
+        def __init__(self, *, raises=False, raises_begin=False):
             self.stopped = 0
             self.frame_count = 3
             self._raises = raises
+            self.began = 0
+            self._raises_begin = raises_begin
+
+        def begin_run(self, seed=None):
+            if self._raises_begin:
+                raise RuntimeError("socket already gone")
+            self.began += 1
+            self.seed = seed
 
         def stop(self):
             self.stopped += 1
@@ -800,6 +808,20 @@ class TestPushScreencastWiring(unittest.TestCase):
         instrumentation._add_screencast_frame(entry, "shot")
 
         self.assertEqual(rec.frames, [])
+
+    def test_the_stream_is_told_when_the_run_begins(self):
+        push = self.Push()
+        instrumentation._begin_screencast_run({"screencast_push": push})
+        self.assertEqual(push.began, 1)
+
+    def test_beginning_the_run_copes_with_no_stream_and_no_entry(self):
+        # Polling mode, and the pre-session case where setup returned nothing.
+        instrumentation._begin_screencast_run({"screencast_push": None})
+        instrumentation._begin_screencast_run(None)
+
+    def test_a_stream_that_raises_on_begin_does_not_break_the_command(self):
+        push = self.Push(raises_begin=True)
+        instrumentation._begin_screencast_run({"screencast_push": push})
 
     def test_per_command_shots_are_the_recording_without_a_stream(self):
         rec = self.Recorder()
@@ -909,3 +931,132 @@ class TestNavigationRowsGetTheirTimings(unittest.TestCase):
         driver.execute("findElement", {"using": "css selector", "value": "#a"})
 
         self.assertEqual(self._replacements(), [])
+
+
+class TestTheStreamIsOpenedByTheCommandHook(unittest.TestCase):
+    """The gate is useless unless the hook actually opens it.
+
+    This is the level the original regression happened at: the per-command
+    recorder's "no frame from before the run" fix was guarded by a test on the
+    recorder, so when a pushed stream became a SECOND frame producer the guard
+    kept passing and 3-4s of blank came back. A unit test of the gate cannot
+    catch a missing call site, so this drives the real command hook.
+    """
+
+    class Push:
+        def __init__(self, order):
+            self.began = 0
+            self.seed = None
+            self._order = order
+
+        def begin_run(self, seed=None):
+            self.began += 1
+            self.seed = seed
+            self._order.append("gate")
+
+        def stop(self):
+            pass
+
+    def setUp(self):
+        instrumentation.uninstall()
+        self.order = []
+        outer = self.order
+
+        class OrderDriver(ScreenshotDriver):
+            def execute(self, command, params=None):
+                outer.append("command")
+                return FakeDriver.execute(self, command, params)
+
+        self.cap = SessionCapturer(FakeTransport())
+        instrumentation.install(self.cap, OrderDriver)
+        self.driver = OrderDriver()
+        self.push = self.Push(self.order)
+        # Pin the entry the hook works from: the real setup path needs a live
+        # session, and what is under test is the hook, not session bring-up.
+        self._patch = mock.patch.object(
+            instrumentation,
+            "_ensure_session_setup",
+            return_value={"screencast_push": self.push, "screencast": None},
+        )
+        self._patch.start()
+
+    def tearDown(self):
+        self._patch.stop()
+        instrumentation.uninstall()
+
+    def test_running_a_command_opens_the_gate(self):
+        self.driver.execute("get", {"url": "https://x/"})
+
+        self.assertGreaterEqual(self.push.began, 1)
+
+    def test_the_gate_is_seeded_with_that_commands_screenshot(self):
+        # Chrome sends frames only on composite, so a page that has finished
+        # painting may push nothing until the test next changes it.
+        self.driver.execute("get", {"url": "https://x/"})
+
+        self.assertEqual(self.push.seed, "c2hvdA==")
+
+    def test_the_gate_opens_after_the_command_not_before(self):
+        # Before the command, the page is still whatever preceded it — on a
+        # fresh driver an unpainted about:blank that the browser keeps pushing
+        # for the whole opening navigation. Opening early was measured to leave
+        # the blank in place, just sourced from a frame ~0.8s later.
+        self.driver.execute("get", {"url": "https://x/"})
+
+        self.assertEqual(self.order[:2], ["command", "gate"])
+
+
+class TestSessionSetupIssuesNoUserCommands(unittest.TestCase):
+    """Arming the screencast must not appear in the Actions timeline.
+
+    Resolving the CDP target reads `driver.current_window_handle`, which in
+    selenium issues a real WebDriver command. Uncaptured, it re-entered the
+    hook as a user command — and because session setup runs ON the first
+    command, that read BECAME the first command. Its post-command screenshot is
+    the page before the run: an unpainted surface, which then led the video for
+    the whole opening navigation (measured: uniform frame, YMIN=YMAX=31, held
+    3.8s of a 4.2s video).
+    """
+
+    def setUp(self):
+        instrumentation.uninstall()
+        self.tx = FakeTransport()
+        self.cap = SessionCapturer(self.tx)
+
+    def tearDown(self):
+        instrumentation.uninstall()
+
+    def test_reading_the_window_handle_while_arming_is_not_captured(self):
+        seen = []
+
+        class HandleReadingDriver(FakeDriver):
+            """Its window-handle property goes through execute(), as selenium's
+            does — a double that bypassed execute() could not catch this."""
+
+            def __init__(self):
+                FakeDriver.__init__(self)
+                self.session_id = "sess-1"  # setup bails without one
+
+            @property
+            def current_window_handle(self):
+                return self.execute("w3cGetCurrentWindowHandle")["value"]
+
+            def execute(self, command, params=None):
+                seen.append(command)
+                return FakeDriver.execute(self, command, params)
+
+        instrumentation.install(self.cap, HandleReadingDriver)
+        driver = HandleReadingDriver()
+
+        with mock.patch.object(
+            instrumentation,
+            "start_push_screencast",
+            side_effect=lambda d, _sink: d.current_window_handle and None,
+        ):
+            driver.execute("get", {"url": "https://x/"})
+
+        # The driver really was asked for its handle...
+        self.assertIn("w3cGetCurrentWindowHandle", seen)
+        # ...but only `get` reached the timeline.
+        captured = [d[0]["command"] for s, d in self.tx.sent if s == "commands"]
+        self.assertEqual(captured, ["get"])

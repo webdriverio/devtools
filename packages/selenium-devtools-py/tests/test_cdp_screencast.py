@@ -149,10 +149,18 @@ class connected:
         return False
 
 
-def start(driver=None, sink=None, connection=None, **kwargs):
+def start(driver=None, sink=None, connection=None, running=True, **kwargs):
+    """A started stream. `running=True` opens the pre-run gate, which the
+    command hook opens for real when the test's first command begins — most
+    tests here are about what happens DURING a run, so it is the default."""
     conn = connection if connection is not None else FakeConnection()
     with connected(conn, **kwargs):
-        return start_push_screencast(driver or fake_driver(), sink or (lambda d: None))
+        recorder = start_push_screencast(
+            driver or fake_driver(), sink or (lambda d: None)
+        )
+    if recorder is not None and running:
+        recorder.begin_run()
+    return recorder
 
 
 class TestItNeedsASocketOfItsOwn(unittest.TestCase):
@@ -378,3 +386,107 @@ class TestALocalBrowserIsFoundThroughItsDebugger(unittest.TestCase):
     def test_an_unreachable_debugger_does_not_raise_into_the_run(self):
         with mock.patch("urllib.request.urlopen", side_effect=OSError("refused")):
             self.assertIsNone(start(self._driver()))
+
+
+class TestNoFrameFromBeforeTheRun(unittest.TestCase):
+    """The video must start on a page the test actually drove.
+
+    Chrome sends its current frame the moment `startScreencast` is accepted,
+    and the stream is armed during session setup — before the first command
+    runs — so on a fresh driver that frame is an unpainted `about:blank`.
+    Nothing composites again until the destination paints, and the encoder
+    holds every frame for its real inter-frame duration, so that one frame
+    played for the whole opening navigation: 3-4s of blank on 4-6s videos.
+
+    The per-command recorder hit this too and fixed it by taking no seed frame
+    (`stop recording a frame of the page before the run`). A pushed stream
+    cannot fix it that way, because the browser decides when to send — hence
+    the gate.
+    """
+
+    def test_a_frame_pushed_before_the_first_command_is_dropped(self):
+        conn = FakeConnection()
+        seen = []
+        recorder = start(sink=seen.append, connection=conn, running=False)
+
+        conn.push(data="YWJvdXQ6Ymxhbms=", session_id=1)
+
+        self.assertEqual(seen, [])
+        self.assertEqual(recorder.frame_count, 0)
+
+    # Dropping is not the same as ignoring: Chrome sends nothing further after
+    # a frame it was not told about, so a dropped frame still has to be acked
+    # or the recording ends here instead of skipping one frame.
+    def test_a_dropped_frame_is_still_acknowledged(self):
+        conn = FakeConnection()
+        recorder = start(connection=conn, running=False)
+
+        conn.push(data="YWJvdXQ6Ymxhbms=", session_id=7)
+
+        self.assertEqual(conn.acks, [7])
+        self.assertEqual(recorder.frame_count, 0)
+
+    # The gate has to open AFTER the command, not before it. Opened before, the
+    # opening navigation's own frames pass — and for those 3 seconds the page is
+    # still the blank one, so the video began with exactly the blank this gate
+    # exists to remove. Measured: first kept frame moved from ~0s to ~0.8s of a
+    # 6s video, and the blank stayed.
+    def test_the_seed_is_the_first_frame_so_the_video_starts_on_a_real_page(self):
+        conn = FakeConnection()
+        seen = []
+        recorder = start(sink=seen.append, connection=conn, running=False)
+
+        conn.push(data="Ymxhbms=", session_id=1)   # during the navigation
+        recorder.begin_run(seed="bG9hZGVk")        # command returned
+        conn.push(data="bmV4dA==", session_id=2)
+
+        self.assertEqual(seen, ["bG9hZGVk", "bmV4dA=="])
+        self.assertEqual(recorder.frame_count, 2)
+
+    def test_only_the_first_call_seeds(self):
+        # The hook calls begin_run after every command, not just the first.
+        conn = FakeConnection()
+        seen = []
+        recorder = start(sink=seen.append, connection=conn, running=False)
+
+        recorder.begin_run(seed="Zmlyc3Q=")
+        recorder.begin_run(seed="c2Vjb25k")
+
+        self.assertEqual(seen, ["Zmlyc3Q="])
+
+    def test_no_seed_still_opens_the_gate(self):
+        # A screenshot can fail; that must not leave the stream shut.
+        conn = FakeConnection()
+        seen = []
+        recorder = start(sink=seen.append, connection=conn, running=False)
+
+        recorder.begin_run(seed=None)
+        conn.push(data="cGFnZQ==", session_id=1)
+
+        self.assertEqual(seen, ["cGFnZQ=="])
+
+    def test_frames_are_kept_once_the_first_command_begins(self):
+        conn = FakeConnection()
+        seen = []
+        recorder = start(sink=seen.append, connection=conn, running=False)
+
+        conn.push(data="Ymxhbms=", session_id=1)
+        recorder.begin_run()
+        conn.push(data="cGFnZQ==", session_id=2)
+
+        self.assertEqual(seen, ["cGFnZQ=="])
+        self.assertEqual(recorder.frame_count, 1)
+        self.assertEqual(conn.acks, [1, 2])
+
+    def test_begin_run_is_idempotent(self):
+        # The command hook calls it on every command rather than tracking which
+        # one was first.
+        conn = FakeConnection()
+        seen = []
+        recorder = start(sink=seen.append, connection=conn, running=False)
+
+        recorder.begin_run()
+        recorder.begin_run()
+        conn.push(data="cGFnZQ==", session_id=1)
+
+        self.assertEqual(seen, ["cGFnZQ=="])
