@@ -8,7 +8,8 @@ export function freshRun(): ActiveRun {
     mutations: [],
     sources: {},
     nodes: new Map(),
-    startedAt: Date.now()
+    startedAt: Date.now(),
+    traceLogs: []
   }
 }
 

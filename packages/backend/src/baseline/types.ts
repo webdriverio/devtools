@@ -1,9 +1,11 @@
 import type {
   CommandLog,
   ConsoleLog,
+  Metadata,
   NetworkRequest,
   TestError,
-  TestStatus
+  TestStatus,
+  TraceMutation
 } from '@wdio/devtools-shared'
 
 // Backend storage uses the canonical shared types. The `*Like` aliases below
@@ -13,13 +15,10 @@ export type CommandLogLike = CommandLog
 export type ConsoleLogLike = ConsoleLog
 export type NetworkRequestLike = NetworkRequest
 
-// Mutations stay loose: the concrete shape (TraceMutation) lives in
-// packages/script (browser-side, depends on DOM types) and isn't safe to
-// import here.
-export interface MutationLike {
-  timestamp: number
-  [key: string]: unknown
-}
+// `TraceMutation` in shared is deliberately the Node-safe version of the
+// browser-side shape — string literals instead of DOM node types — so it flows
+// here without dragging the DOM lib into shared's compilation.
+export type MutationLike = TraceMutation
 
 export type NodeState = TestStatus
 export type NodeError = TestError
@@ -48,4 +47,11 @@ export interface ActiveRun {
   sources: Record<string, string>
   nodes: Map<string, TimeWindowNode>
   startedAt: number
+  /** Last `metadata` frame the worker sent. Preserve & Rerun never needed it;
+   *  a trace artifact does — it carries the session identity and capabilities
+   *  the viewer reads. */
+  metadata?: Metadata
+  /** Raw `logs` frames, the trace's transcript source. Only the JS adapters
+   *  send these, so this is routinely empty. */
+  traceLogs: string[]
 }
