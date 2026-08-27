@@ -36,7 +36,13 @@ _log = logging.getLogger(f"{LOGGER_NAME}.backend")
 # mentions one — `my-wrapper v20.11.1 (shim)` read as Node 20, which passes the
 # floor and then fails to run the backend with the cryptic error this module
 # exists to replace.
-_VERSION_RE = re.compile(r"v?(\d+)\.(\d+)\.(\d+)")
+#
+# The optional suffix is what a prerelease or nightly reports —
+# `v20.0.0-rc.1`, `v22.0.0-nightly2024010112345abcde`. Those are usable Node
+# builds, and rejecting them refused capture outright on a runtime that would
+# have worked. It stays inside the anchor, so prose still fails to match: a
+# wrapper's ` (shim)` carries spaces and parentheses that no suffix can.
+_VERSION_RE = re.compile(r"v?(\d+)\.(\d+)\.(\d+)(?:[-+][0-9A-Za-z.-]+)?")
 
 #: Appended to every failure, so the message always carries a way forward that
 #: does not involve installing anything.

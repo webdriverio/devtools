@@ -31,6 +31,20 @@ class TestReadingTheVersion(unittest.TestCase):
         with mock.patch("subprocess.run", return_value=_completed("18.0.0")):
             self.assertEqual(node_runtime.node_version("node"), (18, 0, 0))
 
+    # A prerelease or nightly is a usable Node, and refusing one refuses
+    # capture outright on a runtime that would have worked. The whole-line
+    # anchor that keeps wrappers out must not also keep these out.
+    def test_prerelease_and_nightly_builds_are_accepted(self):
+        for text, expected in [
+            ("v20.0.0-rc.1", (20, 0, 0)),
+            ("v22.0.0-nightly2024010112345abcde", (22, 0, 0)),
+            ("v21.0.0-pre", (21, 0, 0)),
+            ("v18.0.0+build.5", (18, 0, 0)),
+        ]:
+            with self.subTest(text=text):
+                with mock.patch("subprocess.run", return_value=_completed(text)):
+                    self.assertEqual(node_runtime.node_version("node"), expected)
+
     def test_surrounding_whitespace_is_still_accepted(self):
         # Node terminates its output with a newline, so whole-line matching has
         # to strip before it compares or every real Node would be refused.
