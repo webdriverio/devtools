@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildConsoleEvents } from '@wdio/devtools-core'
+import { buildConsoleEvents } from '@wdio/devtools-trace'
 import type { ConsoleLog } from '@wdio/devtools-shared'
 
 const WALL_TIME = 1000

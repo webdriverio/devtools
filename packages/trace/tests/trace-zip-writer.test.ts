@@ -3,7 +3,7 @@
 // writer's output to `TRACE_ZIP_ENTRIES` in shared, so renaming an entry on one
 // side fails here rather than when someone opens a real trace.
 
-import { buildTraceZip, type TraceZipInputs } from '@wdio/devtools-core'
+import { buildTraceZip, type TraceZipInputs } from '@wdio/devtools-trace'
 import { TRACE_ZIP_ENTRIES } from '@wdio/devtools-shared'
 import { unzipSync } from 'fflate'
 import { describe, expect, it } from 'vitest'

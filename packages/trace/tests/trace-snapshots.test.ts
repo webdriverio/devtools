@@ -6,7 +6,7 @@ import {
   upsertRichestSnapshot,
   writeTraceZip,
   type TraceCapturer
-} from '@wdio/devtools-core'
+} from '@wdio/devtools-trace'
 import { TraceType, type ActionSnapshot } from '@wdio/devtools-shared'
 
 const BLANK = 'AA'

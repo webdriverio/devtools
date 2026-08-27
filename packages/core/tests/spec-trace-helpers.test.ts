@@ -3,6 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, it, expect } from 'vitest'
 import {
+  buildGroupPath,
   buildSpecCapturer,
   buildSpecSessionId,
   buildTestSliceFolder,
@@ -21,7 +22,11 @@ import {
   type TraceCapturer,
   type WriteSpecTraceInput
 } from '@wdio/devtools-core'
-import { TraceType, type TestMetadataMap } from '@wdio/devtools-shared'
+import {
+  TraceType,
+  type CommandLog,
+  type TestMetadataMap
+} from '@wdio/devtools-shared'
 
 function capturer(): TraceCapturer {
   const cmd = (i: number) => ({
@@ -163,6 +168,35 @@ describe('filterTestMetadataByUid', () => {
     expect([...filterTestMetadataByUid(all, 'u1').keys()]).toEqual([
       'u1',
       stepMetadataUid('u1', 1)
+    ])
+  })
+
+  // The chain a per-test trace slice actually goes through, and the reason this
+  // one test spans core and trace: the two halves were individually defensible —
+  // the filter narrowed to one test, the path fell back to the uid — and only
+  // their composition showed the defect, every Gherkin step rendering as
+  // `stable-…:step:1` in the viewer.
+  it('names steps from a per-test-filtered metadata map', () => {
+    const all: TestMetadataMap = new Map([
+      ['sc1', { title: 'Scenario', specFile: '/login.feature' }],
+      [
+        stepMetadataUid('sc1', 1),
+        { title: 'When I log in', specFile: '/login.feature' }
+      ],
+      ['sc2', { title: 'Other', specFile: '/login.feature' }]
+    ])
+    const command: CommandLog = {
+      command: 'click',
+      args: ['#go'],
+      timestamp: 1,
+      testUid: 'sc1',
+      stepUid: stepMetadataUid('sc1', 1)
+    }
+    expect(
+      buildGroupPath(command, filterTestMetadataByUid(all, 'sc1'))
+    ).toEqual([
+      { uid: 'sc1', title: 'Scenario' },
+      { uid: stepMetadataUid('sc1', 1), title: 'When I log in' }
     ])
   })
 })

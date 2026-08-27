@@ -13,7 +13,7 @@ import {
   mapCommandToAction,
   FILL_METHODS,
   type TraceAction
-} from './action-mapping.js'
+} from '@wdio/devtools-shared'
 import { callSourceToStack, type StackFrame } from './trace-sources.js'
 import type { FrameSnapshotIndex } from './trace-frame-snapshots.js'
 import { buildGroupPath } from './trace-hierarchy.js'

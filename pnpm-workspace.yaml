@@ -1,6 +1,7 @@
 # pnpm-workspace.yaml
 packages:
   - 'packages/shared'
+  - 'packages/trace'
   - 'packages/core'
   - 'packages/elements'
   - 'packages/backend'

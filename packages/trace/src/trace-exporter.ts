@@ -17,7 +17,7 @@ import type {
   TraceLog,
   TraceMutation
 } from '@wdio/devtools-shared'
-import { mapCommandToAction } from './action-mapping.js'
+import { mapCommandToAction } from '@wdio/devtools-shared'
 import {
   buildConsoleEvents,
   type ConsoleEvent,

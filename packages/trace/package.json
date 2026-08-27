@@ -1,0 +1,35 @@
+{
+  "name": "@wdio/devtools-trace",
+  "version": "1.0.0",
+  "private": true,
+  "author": "Vishnu Vardhan",
+  "description": "Trace-format transforms — turns captured events into the trace zip. Split out of core so the backend can build a trace for adapters that cannot (CLAUDE.md §2.2 bars backend from core). Workspace-internal, never published — code is inlined into each consuming package at build time.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/webdriverio/devtools.git",
+    "directory": "packages/trace"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./*": {
+      "types": "./src/*.ts",
+      "default": "./src/*.ts"
+    }
+  },
+  "types": "./src/index.ts",
+  "scripts": {
+    "lint": "eslint ."
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@types/yazl": "^3.3.1",
+    "@wdio/devtools-shared": "workspace:^",
+    "fflate": "^0.8.2",
+    "yazl": "^3.3.1"
+  }
+}

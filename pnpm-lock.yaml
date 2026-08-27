@@ -310,6 +310,9 @@ importers:
       ws:
         specifier: ^8.21.0
         version: 8.21.0
+      yazl:
+        specifier: ^3.3.1
+        version: 3.3.1
     devDependencies:
       '@types/shell-quote':
         specifier: ^1.7.5
@@ -320,6 +323,9 @@ importers:
       '@wdio/devtools-shared':
         specifier: workspace:^
         version: link:../shared
+      '@wdio/devtools-trace':
+        specifier: workspace:^
+        version: link:../trace
       nodemon:
         specifier: ^3.1.14
         version: 3.1.14
@@ -332,21 +338,18 @@ importers:
       '@types/ws':
         specifier: ^8.18.1
         version: 8.18.1
-      '@types/yazl':
-        specifier: ^3.3.1
-        version: 3.3.1
       '@wdio/devtools-script':
         specifier: workspace:*
         version: link:../script
       '@wdio/devtools-shared':
         specifier: workspace:^
         version: link:../shared
+      '@wdio/devtools-trace':
+        specifier: workspace:^
+        version: link:../trace
       '@xmldom/xmldom':
         specifier: ^0.9.8
         version: 0.9.10
-      fflate:
-        specifier: ^0.8.2
-        version: 0.8.3
       stacktrace-parser:
         specifier: ^0.1.11
         version: 0.1.11
@@ -356,9 +359,6 @@ importers:
       xpath:
         specifier: ^0.0.34
         version: 0.0.34
-      yazl:
-        specifier: ^3.3.1
-        version: 3.3.1
 
   packages/elements:
     dependencies:
@@ -664,6 +664,21 @@ importers:
         version: 5.0.2(@microsoft/api-extractor@7.58.9(@types/node@26.2.0))(esbuild@0.28.2)(rolldown@1.2.3)(rollup@4.62.0)(typescript@6.0.3)(vite@8.2.1(@types/node@26.2.0)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.11)(yaml@2.9.0))
 
   packages/shared: {}
+
+  packages/trace:
+    devDependencies:
+      '@types/yazl':
+        specifier: ^3.3.1
+        version: 3.3.1
+      '@wdio/devtools-shared':
+        specifier: workspace:^
+        version: link:../shared
+      fflate:
+        specifier: ^0.8.2
+        version: 0.8.3
+      yazl:
+        specifier: ^3.3.1
+        version: 3.3.1
 
 packages:
 

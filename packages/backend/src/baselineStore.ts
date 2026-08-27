@@ -3,12 +3,11 @@
  * into an accumulator, then time-window-filters per test/suite on demand.
  */
 import logger from '@wdio/logger'
+import type { Metadata } from '@wdio/devtools-shared'
 
 import type {
   ActiveRun,
   CommandLogLike,
-  ConsoleLogLike,
-  MutationLike,
   NetworkRequestLike,
   NodeError,
   NodeState,
@@ -22,6 +21,14 @@ import { commandsForNode } from './baseline/command-attribution.js'
 export type { PreservedAttempt, PreservedStep } from './baseline/types.js'
 
 const log = logger('@wdio/devtools-baseline')
+
+/** Append a wire payload that should be a list. A scope arriving as anything
+ *  else is a malformed frame, not a reason to throw inside the message loop. */
+function appendArray<T>(target: T[], data: unknown): void {
+  if (Array.isArray(data)) {
+    target.push(...(data as T[]))
+  }
+}
 
 class BaselineStore {
   #activeRun: ActiveRun = freshRun()
@@ -38,9 +45,7 @@ class BaselineStore {
     }
     switch (scope) {
       case 'commands':
-        if (Array.isArray(data)) {
-          this.#activeRun.commands.push(...(data as CommandLogLike[]))
-        }
+        appendArray(this.#activeRun.commands, data)
         return
       case 'replaceCommand': {
         // A command is sent first, then re-sent with late-attached fields
@@ -56,9 +61,7 @@ class BaselineStore {
         return
       }
       case 'consoleLogs':
-        if (Array.isArray(data)) {
-          this.#activeRun.consoleLogs.push(...(data as ConsoleLogLike[]))
-        }
+        appendArray(this.#activeRun.consoleLogs, data)
         return
       case 'networkRequests':
         if (Array.isArray(data)) {
@@ -66,17 +69,29 @@ class BaselineStore {
         }
         return
       case 'mutations':
-        if (Array.isArray(data)) {
-          this.#activeRun.mutations.push(...(data as MutationLike[]))
-        }
+        appendArray(this.#activeRun.mutations, data)
         return
       case 'sources':
         Object.assign(this.#activeRun.sources, data as Record<string, string>)
+        return
+      case 'metadata':
+        // Last one wins, mirroring the exporter: a run that replaces its
+        // session carries the latest session's identity.
+        this.#activeRun.metadata = data as Metadata
+        return
+      case 'logs':
+        appendArray(this.#activeRun.traceLogs, data)
         return
       case 'suites':
         this.#ingestSuites(data)
         return
     }
+  }
+
+  /** The run accumulated so far. Read-only by contract — the trace exporter
+   *  reads it; nothing outside this class writes to it. */
+  activeRun(): Readonly<ActiveRun> {
+    return this.#activeRun
   }
 
   // Mirrors the app's command replacement: match by stable `id`, then by the

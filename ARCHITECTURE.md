@@ -16,7 +16,10 @@ A devtools dashboard for end-to-end browser tests. Three test frameworks (Webdri
         │
         ▼
      [core]           framework-agnostic capture/reporting library
-        │
+        │                      │
+        │                      ▼
+        │                  [trace]  ◀── also used by backend
+        │                           pure transforms: events → trace.zip
         ▼ (WS frames typed by shared)
    [backend]          Fastify + WS gateway + baseline store + rerun spawner
         │
@@ -30,7 +33,7 @@ A separate piece, **`packages/script`**, is injected into the browser under test
 
 ## Packages
 
-The workspace is a pnpm monorepo. Two of the packages (`shared`, `core`) are workspace-internal — they're marked `"private": true` and never published; consumers bundle their code into their own `dist/`.
+The workspace is a pnpm monorepo. Three of the packages (`shared`, `trace`, `core`) are workspace-internal — they're marked `"private": true` and never published; consumers bundle their code into their own `dist/`.
 
 ### `packages/shared`
 
@@ -48,9 +51,28 @@ Contains the canonical definitions for:
 
 Imports from: nothing. Imported by: every other package.
 
+### `packages/trace`
+
+Trace-format transforms: captured events in, `trace.zip` out. Workspace-internal; inlined into each consumer at build time.
+
+Split out of `core` because **two layers need it and only one of them may import `core`**. Adapters build their own trace through `core`; the backend builds one on behalf of an adapter that cannot run Node-side trace code (the Python adapter), and §2.2 bars the backend from `core`. Everything here is a pure transform over `shared` types — no framework API, no driver, no capture, no I/O beyond writing the zip.
+
+Contains:
+
+- `writeTraceZip` / `buildTraceZip` — the zip writer and its resource model (`TraceZipResource`).
+- `buildActionEvents` — commands → the ordered before/after event stream the player replays, including the `(startTime, sequence, index)` ordering key.
+- `buildGroupPath` — the suite/test/step hierarchy a row is nested under.
+- `buildImageFrameSnapshots` / `upsertRichestSnapshot` / `buildDenseScreencast` / `thinScreencastFrames` — filmstrip and per-action frame snapshots.
+- `buildMutationsNdjson` / `reattributeDomAnchors` — the DOM mutation stream and its anchor repositioning.
+- `buildConsoleEvents`, `networkRequestToHar`, `buildSourceResources` / `sourceResourceName` / `callSourceToStack`, `generateTranscript`, `sha1Hex`.
+
+Imports from: `shared`. Imported by: `core` (which re-exports it, so adapters reach it unchanged) and `backend`.
+
 ### `packages/core`
 
 Framework-agnostic capture and reporting library. Workspace-internal; inlined into each adapter at build time.
+
+Adapter-side trace *orchestration and policy* stay here — `trace-finalizer` (what to write and when), `spec-trace-helpers` (slice boundaries and per-test slicing), `trace-retention` (`shouldRetainTrace`, which also governs screenshot and video retention). The transforms they call live in `trace`.
 
 Contains:
 
@@ -60,7 +82,7 @@ Contains:
 - `resolveAdapterOutputDir` — the dir-resolution helper that picks where screencast/trace files land (test-file dir → config dir → cwd, with a `node_modules/` skip).
 - Pure helpers: `assert-patcher`, `bidi` (`attachBidiHandlers`, `loadSeleniumSubmodule`, `arrayHeadersToObject`), `console` (`stripAnsi`, `detectLogLevel`, `createConsoleLogEntry`, `mapChromeBrowserLogs`, `chromeLogLevelToLogLevel`), `error` (`serializeError`, `errorMessage`), `finalize-screencast`, `net` (`isPortInUse`, `findFreePort`, `getRequestType`), `performance-capture` (`CAPTURE_PERFORMANCE_SCRIPT`, `applyPerformanceData`), `retry-tracker`, `script-loader` (`loadInjectableScript`, `pollUntilReady`), `stack` (`isUserCodeFrame`, `normalizeFilePath`, `getCallSourceFromStack`), `suite-helpers`, `test-discovery` (`findTestDefinitions`, `extractTestMetadata`), `uid` (`generateStableUid`, `deterministicUid`, `resetSignatureCounters`), `video-encoder` (`encodeToVideo`).
 
-Imports from: `shared`. Imported by: all three adapter packages.
+Imports from: `shared`, `trace`. Imported by: all three adapter packages.
 
 ### `packages/service` — WebdriverIO adapter
 
@@ -215,6 +237,7 @@ The repo has converged on a clear ownership story. When in doubt, the top-down d
 
 - A type, constant, enum, schema, or contract used by more than one package → **`shared`**.
 - Capture, parsing, normalization, sourcemap, UID, reporter, screencast, or WS-framing logic that doesn't depend on a specific framework's API → **`core`**.
+- A pure transform that turns captured events into trace-zip content → **`trace`**. The test is whether the backend would ever need it: it builds traces for adapters that can't, and it may not import `core`.
 - A specific framework's hook, driver patch, or runner integration → the matching **adapter** package. Adapter code calls `core` for the actual work and only owns the hook registration.
 - A backend HTTP route, WS handler, or rerun behavior → **`backend`**, with the contract added to `shared` first.
 - UI → **`app`**, consuming `shared` contracts only.
@@ -225,7 +248,7 @@ A few cross-cutting conventions follow from this layout:
 - Adapter packages don't import each other. Anything two adapters would both want lives in `core`.
 - Backend doesn't import adapter packages, and adapter packages don't import backend or app.
 - The script package is a leaf — adapters load its built bundle as a string and inject it; they don't import from it at runtime.
-- `shared` and `core` are private workspace packages. Consumers bundle them. The bundler config has to inline them (not externalize) or the published artifact won't resolve — see the build-config notes in `CLAUDE.md`.
+- `shared`, `trace`, and `core` are private workspace packages. Consumers bundle them. The bundler config has to inline them (not externalize) or the published artifact won't resolve — see the build-config notes in `CLAUDE.md`.
 
 ---
 

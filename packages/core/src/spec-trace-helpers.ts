@@ -15,8 +15,8 @@ import type {
   TraceFormat,
   TraceGranularity
 } from '@wdio/devtools-shared'
-import type { TraceCapturer } from './trace-exporter.js'
-import { writeTraceZip } from './trace-exporter.js'
+import type { TraceCapturer } from '@wdio/devtools-trace/trace-exporter'
+import { writeTraceZip } from '@wdio/devtools-trace/trace-exporter'
 import { deterministicUid, isStepUidOf } from './uid.js'
 import { trimChar } from './artifact-naming.js'
 

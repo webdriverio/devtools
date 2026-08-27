@@ -5,6 +5,9 @@ import { defineConfig } from 'vite'
 
 const __dirname = url.fileURLToPath(new URL('.', import.meta.url))
 
+/** Workspace-internal `@wdio/devtools-*` packages, by directory name. */
+const PRIVATE_WORKSPACE_PACKAGES = ['core', 'shared', 'trace']
+
 // https://vitejs.dev/config/
 export default defineConfig({
   optimizeDeps: {
@@ -33,20 +36,21 @@ export default defineConfig({
       output: {
         entryFileNames: '[name].js'
       },
-      // Inline private workspace packages (@wdio/devtools-core,
-      // @wdio/devtools-shared) — they are not published, so the dist must
-      // not contain runtime `import` statements for them. The `id` here can
-      // be EITHER the unresolved package name OR an already-resolved absolute
-      // path (vite resolves workspace symlinks before calling this), so we
-      // check for both forms. See CLAUDE.md §2.6.
+      // Inline private workspace packages — they are not published, so the
+      // dist must not contain runtime `import` statements for them. The `id`
+      // here can be EITHER the unresolved package name OR an already-resolved
+      // absolute path (vite resolves workspace symlinks before calling this),
+      // so both forms are checked. A package missing from this list is
+      // silently externalized and the dist then dies at install time with
+      // ERR_MODULE_NOT_FOUND, so it is a list rather than a chain of ors.
+      // See CLAUDE.md §2.6.
       external: (id) => {
-        const isPrivateWorkspaceDep =
-          id === '@wdio/devtools-core' ||
-          id === '@wdio/devtools-shared' ||
-          id.startsWith('@wdio/devtools-core/') ||
-          id.startsWith('@wdio/devtools-shared/') ||
-          id.includes('/packages/core/') ||
-          id.includes('/packages/shared/')
+        const isPrivateWorkspaceDep = PRIVATE_WORKSPACE_PACKAGES.some(
+          (name) =>
+            id === `@wdio/devtools-${name}` ||
+            id.startsWith(`@wdio/devtools-${name}/`) ||
+            id.includes(`/packages/${name}/`)
+        )
         if (isPrivateWorkspaceDep) {
           return false
         }

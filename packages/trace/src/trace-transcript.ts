@@ -7,8 +7,8 @@ import {
   mapCommandToAction,
   FILL_METHODS,
   type TraceAction
-} from './action-mapping.js'
-import { stripAnsi } from './console.js'
+} from '@wdio/devtools-shared'
+import { stripAnsi } from '@wdio/devtools-shared'
 
 /** Render `text` as one numbered markdown list item, indenting every line after
  *  the first to the marker's content column (`'1. '` → 3, `'10. '` → 4 — an

@@ -525,3 +525,34 @@ describe('baselineStore', () => {
     expect(snap.test.state).toBe('running')
   })
 })
+
+// Preserve & Rerun never needed either of these, so both were dropped on the
+// floor. A trace built from the accumulated run does need them: `metadata`
+// carries the session identity and capabilities the viewer reads, and `logs`
+// is the transcript's source.
+describe('baselineStore — scopes the trace export reads', () => {
+  beforeEach(() => {
+    baselineStore.resetActiveRun()
+  })
+
+  it('keeps the latest metadata frame', () => {
+    baselineStore.recordEvent('metadata', { sessionId: 'a' })
+    baselineStore.recordEvent('metadata', { sessionId: 'b' })
+    expect(baselineStore.activeRun().metadata).toEqual({ sessionId: 'b' })
+  })
+
+  it('appends log frames in arrival order and ignores a non-array', () => {
+    baselineStore.recordEvent('logs', ['one'])
+    baselineStore.recordEvent('logs', ['two', 'three'])
+    baselineStore.recordEvent('logs', 'not-an-array')
+    expect(baselineStore.activeRun().traceLogs).toEqual(['one', 'two', 'three'])
+  })
+
+  it('starts a new run with neither carried over', () => {
+    baselineStore.recordEvent('metadata', { sessionId: 'a' })
+    baselineStore.recordEvent('logs', ['one'])
+    baselineStore.resetActiveRun()
+    expect(baselineStore.activeRun().metadata).toBeUndefined()
+    expect(baselineStore.activeRun().traceLogs).toEqual([])
+  })
+})

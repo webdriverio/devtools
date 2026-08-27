@@ -6,7 +6,7 @@ import {
 } from '@wdio/devtools-shared'
 import { getCallSourceFromStack, isAssertFromUserCode } from './stack.js'
 import { toError } from './error.js'
-import { stripAnsi } from './console.js'
+import { stripAnsi } from '@wdio/devtools-shared'
 
 export { TRACKED_ASSERT_METHODS }
 

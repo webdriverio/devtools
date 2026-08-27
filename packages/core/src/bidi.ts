@@ -8,7 +8,7 @@ import {
   LOG_SOURCES,
   chromeLogLevelToLogLevel,
   type LogSource
-} from './console.js'
+} from '@wdio/devtools-shared'
 import { errorMessage } from './error.js'
 import { getRequestType } from './net.js'
 

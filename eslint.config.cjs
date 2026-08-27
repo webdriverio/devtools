@@ -281,7 +281,7 @@ module.exports = [
             {
               group: ['@wdio/devtools-core', '@wdio/devtools-core/*'],
               message:
-                'Backend must not depend on core (CLAUDE.md §2.2). core is framework-agnostic adapter logic; backend only needs shared contracts.'
+                'Backend must not depend on core (CLAUDE.md §2.2). core is framework-agnostic ADAPTER logic. For trace-format transforms use @wdio/devtools-trace, which sits below both; anything else belongs in shared.'
             }
           ]
         }
@@ -326,6 +326,11 @@ module.exports = [
               group: ['@wdio/devtools-core', '@wdio/devtools-core/*'],
               message:
                 'App must not import from core (CLAUDE.md §2.2). core is framework-agnostic adapter logic; the app receives normalized events over WS.'
+            },
+            {
+              group: ['@wdio/devtools-trace', '@wdio/devtools-trace/*'],
+              message:
+                'App must not import from trace (CLAUDE.md §2.2). trace WRITES the zip; the app reads one the backend has already parsed for it.'
             }
           ]
         }
@@ -369,6 +374,55 @@ module.exports = [
               group: ['@/*', '@components/*'],
               message:
                 'core must not depend on app (CLAUDE.md §2.2). core is Node-side adapter logic.'
+            }
+          ]
+        }
+      ]
+    }
+  },
+
+  // CLAUDE.md §2.2 — trace sits below core and backend, and both import it.
+  // It holds pure transforms over shared types only: anything it pulled from
+  // core would re-create the dependency the split exists to remove.
+  {
+    files: ['packages/trace/**/*.{ts,tsx,js,mjs,cjs}'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['@wdio/devtools-core', '@wdio/devtools-core/*'],
+              message:
+                'trace must not depend on core (CLAUDE.md §2.2). core imports trace; keeping the arrow one-way is what lets backend use trace at all.'
+            },
+            {
+              group: ['@wdio/devtools-backend', '@wdio/devtools-backend/*'],
+              message:
+                'trace must not depend on backend (CLAUDE.md §2.2). trace is the lower layer.'
+            },
+            {
+              group: ['@wdio/devtools-service', '@wdio/devtools-service/*'],
+              message:
+                'trace must not depend on any adapter (CLAUDE.md §2.2). Adapters import trace, not the other way around.'
+            },
+            {
+              group: [
+                '@wdio/nightwatch-devtools',
+                '@wdio/nightwatch-devtools/*'
+              ],
+              message:
+                'trace must not depend on any adapter (CLAUDE.md §2.2). Adapters import trace, not the other way around.'
+            },
+            {
+              group: ['@wdio/selenium-devtools', '@wdio/selenium-devtools/*'],
+              message:
+                'trace must not depend on any adapter (CLAUDE.md §2.2). Adapters import trace, not the other way around.'
+            },
+            {
+              group: ['@/*', '@components/*'],
+              message:
+                'trace must not depend on app (CLAUDE.md §2.2). trace is Node-side transform logic.'
             }
           ]
         }

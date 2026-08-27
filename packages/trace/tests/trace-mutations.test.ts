@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   buildMutationsNdjson,
   reattributeDomAnchors
-} from '@wdio/devtools-core'
+} from '@wdio/devtools-trace'
 import {
   isMutationsTruncationMarker,
   type TraceMutation

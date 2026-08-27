@@ -1,7 +1,9 @@
 // Single source of truth for types, constants, and HTTP/WS contracts shared
 // across @wdio/devtools-* packages. See ARCHITECTURE.md §2 and CLAUDE.md §2.1.
 
+export * from './action-mapping.js'
 export * from './baseline.js'
+export * from './console.js'
 export * from './collector.js'
 export * from './files.js'
 export * from './locator-dialect.js'
@@ -10,6 +12,7 @@ export * from './runner.js'
 export * from './snapshot-format.js'
 export * from './timing.js'
 export * from './trace-actions.js'
+export * from './trace-export.js'
 export * from './trace-file.js'
 export * from './trace-player.js'
 export * from './types.js'

@@ -361,7 +361,12 @@ function registerWorkerWebSocket(s: FastifyInstance): void {
           testRunner,
           videoRegistry,
           broadcastToClients,
-          clientCount: () => clients.size
+          clientCount: () => clients.size,
+          replyToWorker: (message) => {
+            if (socket.readyState === WebSocket.OPEN) {
+              socket.send(message)
+            }
+          }
         })
       )
     }

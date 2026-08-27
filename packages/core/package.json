@@ -44,14 +44,12 @@
   "license": "MIT",
   "devDependencies": {
     "@types/ws": "^8.18.1",
-    "@types/yazl": "^3.3.1",
     "@wdio/devtools-script": "workspace:*",
     "@wdio/devtools-shared": "workspace:^",
+    "@wdio/devtools-trace": "workspace:^",
     "@xmldom/xmldom": "^0.9.8",
-    "fflate": "^0.8.2",
     "stacktrace-parser": "^0.1.11",
     "ws": "^8.21.0",
-    "xpath": "^0.0.34",
-    "yazl": "^3.3.1"
+    "xpath": "^0.0.34"
   }
 }
