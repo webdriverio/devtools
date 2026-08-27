@@ -9,6 +9,7 @@ running still needs no local Node at all.
 
 import subprocess
 import unittest
+from pathlib import Path
 from unittest import mock
 
 from selenium_devtools import backend, node_runtime
@@ -111,10 +112,22 @@ class TestWhichPathsNeedNode(unittest.TestCase):
         self.assertEqual((port, proc), (5555, None))
         required.assert_not_called()
 
-    def test_the_spawning_path_checks_before_it_spawns(self):
+    def _spawning_run(self, monorepo_dist, npx="/usr/bin/npx"):
+        """Drive launch_or_attach down a spawning branch, recording the order.
+
+        Both branches are pinned explicitly. Letting `_find_monorepo_backend`
+        answer for real made this test depend on whether `pnpm build` had run —
+        green locally with a built dist, and in CI (which runs the Python job
+        without building) it fell through to the npx branch and died on the
+        empty `os.environ`, because `shutil.which` reads PATH from it.
+        """
         calls = []
         with mock.patch.object(backend, "reuse_target", return_value=None), mock.patch(
             "os.environ", {}
+        ), mock.patch.object(
+            backend, "_find_monorepo_backend", return_value=monorepo_dist
+        ), mock.patch(
+            "shutil.which", return_value=npx
         ), mock.patch.object(
             backend, "require_node", side_effect=lambda: calls.append("checked") or "/n"
         ), mock.patch.object(
@@ -123,10 +136,33 @@ class TestWhichPathsNeedNode(unittest.TestCase):
             side_effect=lambda cmd, **kw: calls.append(cmd) or (mock.Mock(), 6001),
         ):
             _, port, _ = backend.launch_or_attach()
+        return port, calls
+
+    def test_the_monorepo_path_checks_before_it_spawns(self):
+        port, calls = self._spawning_run(Path("/repo/packages/backend/dist/server.js"))
         self.assertEqual(port, 6001)
         # Checked FIRST, then spawned with the node it resolved.
         self.assertEqual(calls[0], "checked")
-        self.assertEqual(calls[1][0], "/n")
+        self.assertEqual(calls[1], ["/n", "/repo/packages/backend/dist/server.js"])
+
+    def test_the_npx_path_checks_before_it_spawns(self):
+        # The published path: no monorepo dist, so the backend is fetched.
+        port, calls = self._spawning_run(None)
+        self.assertEqual(port, 6001)
+        self.assertEqual(calls[0], "checked")
+        self.assertEqual(calls[1][0], "/usr/bin/npx")
+
+    def test_node_without_npx_beside_it_is_reported_as_such(self):
+        with mock.patch.object(backend, "reuse_target", return_value=None), mock.patch(
+            "os.environ", {}
+        ), mock.patch.object(
+            backend, "_find_monorepo_backend", return_value=None
+        ), mock.patch(
+            "shutil.which", return_value=None
+        ), mock.patch.object(backend, "require_node", return_value="/n"):
+            with self.assertRaises(RuntimeError) as ctx:
+                backend.launch_or_attach()
+        self.assertIn("no npx alongside it", str(ctx.exception))
 
 
 if __name__ == "__main__":
