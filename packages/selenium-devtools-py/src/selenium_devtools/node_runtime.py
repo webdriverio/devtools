@@ -31,6 +31,11 @@ from .constants import LOGGER_NAME, MIN_NODE_MAJOR, NODE_VERSION_TIMEOUT_S
 
 _log = logging.getLogger(f"{LOGGER_NAME}.backend")
 
+# Matched against the WHOLE line: `node --version` prints exactly `vX.Y.Z`, and
+# searching for a version anywhere in the output accepts a wrapper that merely
+# mentions one — `my-wrapper v20.11.1 (shim)` read as Node 20, which passes the
+# floor and then fails to run the backend with the cryptic error this module
+# exists to replace.
 _VERSION_RE = re.compile(r"v?(\d+)\.(\d+)\.(\d+)")
 
 #: Appended to every failure, so the message always carries a way forward that
@@ -60,7 +65,7 @@ def node_version(executable: str) -> Optional[Tuple[int, int, int]]:
         return None
     if result.returncode != 0:
         return None
-    match = _VERSION_RE.search(result.stdout or "")
+    match = _VERSION_RE.fullmatch((result.stdout or "").strip())
     if match is None:
         return None
     return (int(match.group(1)), int(match.group(2)), int(match.group(3)))

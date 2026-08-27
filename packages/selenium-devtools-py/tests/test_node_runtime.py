@@ -31,11 +31,25 @@ class TestReadingTheVersion(unittest.TestCase):
         with mock.patch("subprocess.run", return_value=_completed("18.0.0")):
             self.assertEqual(node_runtime.node_version("node"), (18, 0, 0))
 
+    def test_surrounding_whitespace_is_still_accepted(self):
+        # Node terminates its output with a newline, so whole-line matching has
+        # to strip before it compares or every real Node would be refused.
+        with mock.patch("subprocess.run", return_value=_completed("  v18.20.4\n")):
+            self.assertEqual(node_runtime.node_version("node"), (18, 20, 4))
+
     def test_anything_unreadable_is_none_rather_than_a_guess(self):
         # A shim on PATH that is not really Node, a non-zero exit, a hang, a
         # binary that cannot be executed at all.
+        #
+        # The middle three are the ones that matter and the ones the first
+        # version of this test missed: output that CONTAINS a version is not
+        # output that IS one. Read with `search`, a wrapper mentioning v20
+        # passed the floor and the backend then failed to start anyway.
         cases = [
             _completed("not a version"),
+            _completed("my-wrapper v20.11.1 (shim)"),
+            _completed("Deno 1.2.3"),
+            _completed("v20.11.1 and then some"),
             _completed("v20.11.1", returncode=1),
             _completed(""),
         ]
@@ -89,13 +103,21 @@ class TestRequiringNode(unittest.TestCase):
 
 
 class TestWhichPathsNeedNode(unittest.TestCase):
-    """Attaching needs no local Node; only the two spawning branches do."""
+    """Attaching needs no local Node; only the two spawning branches do.
+
+    Every patch here targets ``backend.require_node``, not
+    ``node_runtime.require_node``. ``backend`` does ``from .node_runtime import
+    require_node``, which binds the function into its own namespace at import,
+    so patching the source module leaves the caller pointing at the original —
+    the assertion then holds against a mock nothing ever calls. Measured: with
+    the check hoisted above the attach branches, the reuse test still passed.
+    """
 
     def test_the_reuse_handshake_never_checks(self):
         with mock.patch.object(
             backend, "reuse_target", return_value=("127.0.0.1", 4321)
         ), mock.patch.object(
-            node_runtime, "require_node", side_effect=AssertionError("must not check")
+            backend, "require_node", side_effect=AssertionError("must not check")
         ) as required:
             host, port, proc = backend.launch_or_attach()
         self.assertEqual((host, port, proc), ("127.0.0.1", 4321, None))
@@ -106,7 +128,7 @@ class TestWhichPathsNeedNode(unittest.TestCase):
             "os.environ",
             {"DEVTOOLS_PORT": "5555"},
         ), mock.patch.object(
-            node_runtime, "require_node", side_effect=AssertionError("must not check")
+            backend, "require_node", side_effect=AssertionError("must not check")
         ) as required:
             _, port, proc = backend.launch_or_attach()
         self.assertEqual((port, proc), (5555, None))
