@@ -13,12 +13,16 @@ vi.mock('node:fs', () => ({
   }
 }))
 
-// Mock the module resolution to prevent resolveWdioBin from failing during import
 vi.mock('node:module', () => ({
   createRequire: () => ({
     resolve: () => '/mock/wdio/cli/index.js'
   })
 }))
+
+// What resolveWdioBin derives from the resolve mock above. It is checked with
+// existsSync at SPAWN time, so any test that narrows the existsSync mock to its
+// own config path has to allow this too.
+const MOCK_WDIO_BIN = '/mock/wdio/bin/wdio.js'
 
 // Now import after mocks are set up
 const { testRunner } = await import('../src/runner.js')
@@ -152,7 +156,7 @@ describe('TestRunner', () => {
 
       // Test with spec file location
       vi.mocked(fs.existsSync).mockImplementation(
-        (path) => path === configInTestDir
+        (path) => path === configInTestDir || path === MOCK_WDIO_BIN
       )
       await testRunner.run({ uid: 'test-1', entryType: 'test', specFile })
       expect(vi.mocked(spawn).mock.calls[0][1]).toContain(configInTestDir)
@@ -160,7 +164,9 @@ describe('TestRunner', () => {
 
       // Test with env variable
       process.env.DEVTOOLS_WDIO_CONFIG = envConfig
-      vi.mocked(fs.existsSync).mockImplementation((path) => path === envConfig)
+      vi.mocked(fs.existsSync).mockImplementation(
+        (path) => path === envConfig || path === MOCK_WDIO_BIN
+      )
       await testRunner.run({ uid: 'test-2', entryType: 'test' })
       expect(vi.mocked(spawn).mock.calls[1][1]).toContain(envConfig)
       testRunner.stop()
@@ -429,7 +435,7 @@ describe('TestRunner', () => {
     it('uses a worker-registered config path ahead of the default search', async () => {
       const registered = '/proj/wdio.BUILD.conf.ts'
       vi.mocked(fs.existsSync).mockImplementation(
-        (p) => p === registered || p === mockConfigPath
+        (p) => p === registered || p === mockConfigPath || p === MOCK_WDIO_BIN
       )
       const { testRunner: tr } = await import('../src/runner.js')
       tr.registerConfigFile(registered)
