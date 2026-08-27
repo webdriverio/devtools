@@ -114,6 +114,8 @@ No `any` crosses a package boundary. When a framework API forces a loosely-typed
 - `packages/service/vite.config.ts` is the canonical pattern for getting both right.
 - After any change to a bundler config or build script, `grep -nE "(from|require\()\s*['\"](@wdio/devtools-(core|shared|trace)|.*/packages/(core|shared|trace)/)" packages/<pkg>/dist/*.js` should return nothing. That's how you catch the absolute-path leak. Match on the `from`/`require(` prefix, not the bare package name: `LIBRARY_NAME = "@wdio/devtools-core"` (written into the trace's `context-options`) and `Symbol.for("@wdio/devtools-core/assert-patched")` are inlined string *values* that legitimately survive bundling, so a bare-name grep always reports a false leak.
 
+- A **CJS-only dependency must be externalized, not inlined**, or esbuild rewrites its `require` into a shim that throws `Dynamic require of "fs" is not supported` the moment the module loads. Declaring it in `dependencies` is what externalizes it; that is why all three adapters — and now `backend` — list `yazl` there rather than in `devDependencies`. This is the opposite of the workspace-internal rule above, and for the same underlying reason: `dependencies` is externalized, `devDependencies` is inlined. Neither `pnpm build` nor `pnpm test` nor the leak grep notices — every one of them passes on a dist that dies on first import — so `packages/backend/tests/dist-bundling.test.ts` asserts the shim is absent.
+
 Bundlers in use: **vite** for `app`, `service`, `script`; **tsup** for `backend`, `nightwatch-devtools`, `selenium-devtools`.
 
 ### Separation of concerns within a file
