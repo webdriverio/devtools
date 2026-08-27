@@ -39,7 +39,7 @@
     "@fastify/rate-limit": "^11.2.0",
     "@fastify/static": "^10.1.3",
     "@fastify/websocket": "^11.2.0",
-    "@wdio/cli": "9.30.1",
+    "@wdio/cli": "9.31.2",
     "@wdio/devtools-app": "workspace:^",
     "@wdio/devtools-script": "workspace:^",
     "@wdio/logger": "9.29.1",
