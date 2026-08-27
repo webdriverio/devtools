@@ -19,6 +19,15 @@ pip install -e packages/selenium-devtools-py   # or: pip install selenium-devtoo
 The transport is **dependency-free** (stdlib WebSocket client). `selenium>=4.44`
 is installed with the package; `pytest` is optional.
 
+**Requires Node.js 18+ on your PATH.** The dashboard backend is a Node app and
+pip cannot resolve it, so it is fetched at runtime with `npx`. This is not only
+for the dashboard window: the page collector is served by the backend and the
+whole event stream goes through its WebSocket, so **without Node there is no
+capture at all**. `enable()` checks for it up front and names what is missing
+rather than failing later as a spawn timeout. To use a backend you are already
+running — in CI, or one started by hand — set `DEVTOOLS_PORT` and no local Node
+is needed.
+
 **Requires Python 3.10+ and selenium 4.44+.** Network capture subscribes through
 the public BiDi event API that selenium regenerated in 4.44 — before that the
 only way to observe requests without pausing them was a private connection,
