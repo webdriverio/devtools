@@ -1,5 +1,9 @@
+import fs from 'node:fs/promises'
+import os from 'node:os'
+import path from 'node:path'
 import { describe, it, expect, vi } from 'vitest'
-import { WS_SCOPE } from '@wdio/devtools-shared'
+import { TRACE_EXPORT_SCOPE, WS_SCOPE } from '@wdio/devtools-shared'
+import { freshRun } from '../src/baseline/utils.js'
 import {
   createWorkerMessageHandler,
   type WorkerMessageContext
@@ -154,5 +158,37 @@ describe('createWorkerMessageHandler — pass-through behavior', () => {
     // Falls through to the catch + raw forward branch
     expect(broadcastToClients).toHaveBeenCalledWith(garbage.toString())
     expect(baselineStore.recordEvent).not.toHaveBeenCalled()
+  })
+})
+
+// An export request is addressed to the backend, not to the dashboard. It has
+// to be claimed like the other control scopes — forwarded, it would reach every
+// open tab; accumulated, it would land in the run as a bogus event.
+describe('createWorkerMessageHandler — traceExport', () => {
+  it('claims the frame: neither broadcast nor teed into the accumulator', async () => {
+    const outputDir = await fs.mkdtemp(path.join(os.tmpdir(), 'wmh-export-'))
+    try {
+      const { ctx, broadcastToClients, baselineStore } = makeCtx()
+      const activeRun = vi.fn(() => ({
+        ...freshRun(),
+        commands: [{ command: 'click', args: ['#go'], timestamp: 1 }]
+      }))
+      ;(baselineStore as unknown as { activeRun: unknown }).activeRun =
+        activeRun
+      const handler = createWorkerMessageHandler(ctx)
+
+      handler(
+        buf({
+          scope: TRACE_EXPORT_SCOPE.request,
+          data: { requestId: 'r1', outputDir, sessionId: 's1' }
+        })
+      )
+
+      expect(broadcastToClients).not.toHaveBeenCalled()
+      expect(baselineStore.recordEvent).not.toHaveBeenCalled()
+      expect(activeRun).toHaveBeenCalled()
+    } finally {
+      await fs.rm(outputDir, { recursive: true, force: true })
+    }
   })
 })

@@ -2,6 +2,7 @@ import logger from '@wdio/logger'
 import { WS_SCOPE } from '@wdio/devtools-shared'
 import type { baselineStore as BaselineStore } from './baselineStore.js'
 import type { testRunner as TestRunner } from './runner.js'
+import { tryHandleTraceExportMessage } from './trace-export-message.js'
 
 const log = logger('@wdio/devtools-backend')
 
@@ -11,6 +12,9 @@ export interface WorkerMessageContext {
   videoRegistry: Map<string, string>
   broadcastToClients: (message: string) => void
   clientCount: () => number
+  /** Back down the worker's own socket. Absent when the socket has already
+   *  gone, which is ordinary at the end of a run. */
+  replyToWorker?: (message: string) => void
 }
 
 // Returns true if the message was fully handled and shouldn't be forwarded.
@@ -88,6 +92,14 @@ export function createWorkerMessageHandler(
     try {
       const parsed = JSON.parse(message.toString())
       if (tryHandleControlMessage(parsed, ctx)) {
+        return
+      }
+      if (
+        tryHandleTraceExportMessage(parsed, {
+          activeRun: () => ctx.baselineStore.activeRun(),
+          replyToWorker: ctx.replyToWorker
+        })
+      ) {
         return
       }
       // Tee the event into the baseline accumulator for time-window
