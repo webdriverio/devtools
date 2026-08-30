@@ -316,6 +316,32 @@ def _attach_performance(
         _log.debug("could not replace the navigation row: %s", exc)
 
 
+def _begin_screencast_run(entry: Optional[dict], shot: Optional[str] = None) -> None:
+    """Let a pushed stream start keeping frames. Idempotent, never raises.
+
+    Called once a command has COMPLETED, so the first frame kept is of a page
+    the test actually produced. The per-command recorder needs no equivalent —
+    it only ever buffers a screenshot the hook already took — but a pushed
+    stream sends frames the browser chose to send, starting with the blank page
+    that precedes the first navigation.
+
+    ``shot`` seeds the stream with that command's own screenshot. Chrome sends
+    frames only when something composites, so a stream opened on a page that
+    has finished painting may send nothing until the test next changes it; the
+    seed is what makes the video start here rather than at that next change.
+    It is one frame at the moment the gate opens, not the per-command
+    interleaving that `_add_screencast_frame` deliberately skips while
+    streaming.
+    """
+    push = (entry or {}).get("screencast_push")
+    if push is None:
+        return
+    try:
+        push.begin_run(seed=shot)
+    except Exception as exc:  # noqa: BLE001 — never break the test
+        _log.debug("screencast begin_run threw: %s", exc)
+
+
 def _add_screencast_frame(entry: dict, shot: Optional[str]) -> None:
     """Buffer an already-captured screenshot as a frame of ITS OWN session.
 
@@ -477,7 +503,20 @@ def _ensure_session_setup(driver: Any, capturer: SessionCapturer) -> Optional[di
         # a Chromium driver with a reachable CDP endpoint, and then the
         # per-command screenshots the command hook already buffers are the
         # recording — so this is an upgrade, never a requirement.
-        push = start_push_screencast(driver, recorder.add_frame)
+        # Guarded: resolving the CDP target reads `driver.current_window_handle`,
+        # and in selenium that property issues a real WebDriver command. Left
+        # uncaptured it re-entered this hook as a user command — a
+        # `w3cGetCurrentWindowHandle` row at the head of every run, and, because
+        # session setup happens ON the first command, it BECAME the first
+        # command. Its post-command screenshot is the page before the run: an
+        # unpainted surface, which then led the video for the whole opening
+        # navigation. Measured: a uniform frame (YMIN=YMAX=31) held 3.8s of a
+        # 4.2s video.
+        _internal.active = True
+        try:
+            push = start_push_screencast(driver, recorder.add_frame)
+        finally:
+            _internal.active = False
         entry["screencast_push"] = push
         if push is None:
             _log.info("screencast recording started (one frame per command)")
@@ -723,6 +762,11 @@ def install(capturer: SessionCapturer, webdriver_cls: Optional[type] = None) -> 
         # navigate too, not just get/back/…), re-injecting if the page changed.
         if entry is not None:
             _refresh_snapshot(capturer, entry)
+            # After the command, not before: until it returns, the page is
+            # whatever preceded it — on the first command of a fresh driver
+            # that is an unpainted about:blank, and a pushed stream sends
+            # frames of it throughout the opening navigation.
+            _begin_screencast_run(entry, shot)
             _add_screencast_frame(entry, shot)
         return result
 

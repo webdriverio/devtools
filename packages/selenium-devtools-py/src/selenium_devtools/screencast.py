@@ -54,6 +54,10 @@ ScreenshotFn = Callable[[], Optional[str]]
 
 _log = logging.getLogger(f"{LOGGER_NAME}.screencast")
 
+#: Set DEVTOOLS_SCREENCAST_DEBUG=1 to log every buffered frame's arrival time
+#: and byte size. Off by default — one line per frame is thousands per run.
+_DEBUG_FRAMES = bool(os.environ.get("DEVTOOLS_SCREENCAST_DEBUG"))
+
 
 def _warn(message: str) -> None:
     _log.warning(message)
@@ -164,6 +168,16 @@ class ScreencastRecorder:
         return True
 
     def _buffer(self, data: str) -> None:
+        if _DEBUG_FRAMES:
+            # Diagnostic for "the video starts on a blank page": a solid-colour
+            # unpainted surface encodes to a fraction of a real page's bytes, so
+            # size plus arrival time identifies which frame led the recording.
+            _log.info(
+                "frame #%d t=+%dms bytes=%d",
+                self._seen + 1,
+                now_ms() - (self._frames[0]["timestamp"] if self._frames else now_ms()),
+                len(data),
+            )
         with self._buffer_lock:
             self._seen += 1
             # Thin the INCOMING frames by however often the buffer has been

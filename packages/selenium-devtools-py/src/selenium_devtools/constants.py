@@ -72,6 +72,13 @@ BACKEND_NPM_VERSION = "1.10.0"
 BACKEND_NPM_PACKAGE = "@wdio/devtools-backend"
 BACKEND_SPAWN_TIMEOUT_S = 40.0
 
+# The backend is a Node app, so Python users need a Node runtime. 18 is the
+# floor its dependencies require; below it the process starts and then dies on
+# syntax it cannot parse, which surfaces here only as "exited before reporting
+# a port". Checked up front so the message names the real problem.
+MIN_NODE_MAJOR = 18
+NODE_VERSION_TIMEOUT_S = 5.0
+
 # ── Instrumentation ──────────────────────────────────────────────────────────
 # Selenium commands that are bookkeeping/noise rather than user-meaningful.
 # `screenshot`/`elementScreenshot` are skipped so the screencast recorder's

@@ -69,6 +69,17 @@ class PushScreencast:
         self._callback_id: Optional[int] = None
         self._frames = 0
         self._stopped = False
+        #: Frames are discarded until the test's first command starts. Chrome
+        #: sends its current frame the moment `startScreencast` is accepted,
+        #: and arming happens during session setup — before that command runs —
+        #: so on a fresh driver that frame is an unpainted `about:blank` the
+        #: test never saw. Nothing composites again until the destination
+        #: paints, and the encoder holds every frame for its real inter-frame
+        #: duration, so that one frame played for the whole opening navigation:
+        #: measured at 3-4s of blank on 4-6s videos. The per-command recorder
+        #: had the same bug and fixed it by taking no seed frame; a pushed
+        #: stream cannot, because the browser decides when to send.
+        self._accepting = False
         #: True once the browser accepted `startScreencast`. Decides whether a
         #: stop command is owed on the way out.
         self.streaming = False
@@ -80,20 +91,41 @@ class PushScreencast:
     def frame_count(self) -> int:
         return self._frames
 
+    def begin_run(self, seed: Optional[str] = None) -> None:
+        """Start keeping frames, from the first COMPLETED command onward.
+
+        `seed` is that command's own screenshot. Chrome sends a frame only when
+        something composites, so a stream opened on a page that has finished
+        painting may send nothing until the test next changes it — the seed is
+        what makes the video begin here rather than at that next change.
+
+        Idempotent, and only the first call seeds: the hook calls this after
+        every command rather than tracking which one was first.
+        """
+        with self._lock:
+            if self._accepting:
+                return
+            self._accepting = True
+        if seed:
+            self._frames += 1
+            self._sink(seed)
+
     def _on_frame(self, event: Any) -> None:
         """Buffer one pushed frame and acknowledge it.
 
         Runs on the websocket reader thread. The ack has to happen even when
-        the sink refuses the frame — an unacked frame is the last one Chrome
-        sends, so dropping the ack would silently end the recording.
+        the frame is refused — an unacked frame is the last one Chrome sends,
+        so dropping the ack would silently end the recording rather than skip
+        a frame. That applies to the pre-run frames dropped here too.
         """
         with self._lock:
             if self._stopped:
                 return
+            accepting = self._accepting
         session_id = getattr(event, "session_id", None)
         try:
             data = getattr(event, "data", None)
-            if isinstance(data, str) and data:
+            if accepting and isinstance(data, str) and data:
                 self._frames += 1
                 self._sink(data)
         except Exception as exc:  # noqa: BLE001 — never kill the reader thread

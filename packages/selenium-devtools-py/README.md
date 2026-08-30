@@ -19,6 +19,15 @@ pip install -e packages/selenium-devtools-py   # or: pip install selenium-devtoo
 The transport is **dependency-free** (stdlib WebSocket client). `selenium>=4.44`
 is installed with the package; `pytest` is optional.
 
+**Requires Node.js 18+ on your PATH.** The dashboard backend is a Node app and
+pip cannot resolve it, so it is fetched at runtime with `npx`. This is not only
+for the dashboard window: the page collector is served by the backend and the
+whole event stream goes through its WebSocket, so **without Node there is no
+capture at all**. `enable()` checks for it up front and names what is missing
+rather than failing later as a spawn timeout. To use a backend you are already
+running — in CI, or one started by hand — set `DEVTOOLS_PORT` and no local Node
+is needed.
+
 **Requires Python 3.10+ and selenium 4.44+.** Network capture subscribes through
 the public BiDi event API that selenium regenerated in 4.44 — before that the
 only way to observe requests without pausing them was a private connection,
@@ -63,8 +72,20 @@ a `pnpm build` so the backend exists:
 pnpm demo:python
 ```
 
-Unlike `demo:wdio` and friends, this needs the Python package installed and uses
-whatever `python3` resolves to on your PATH.
+Unlike `demo:wdio` and friends, this runs bare `python3` — the same command you
+would run yourself, deliberately, so the example stays a working example rather
+than something only this repo can launch. That means it uses whichever `python3`
+your shell resolves, and it needs the adapter installed into *that* interpreter.
+From an unactivated shell you get `No module named 'selenium_devtools'` (or
+`No module named pytest`), which names neither the venv nor the fix — so set one
+up once and activate it before running the demos:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e packages/selenium-devtools-py
+```
+
 If the backend can't be launched or reached, `enable()` warns and returns
 `None` — capture is skipped, your tests still run.
 

@@ -10,6 +10,9 @@ at runtime, and the resolution order encodes the local-vs-published split:
     3. monorepo dist present    → node packages/backend/dist/server.js     (LOCAL dev)
     4. else                     → npx @wdio/devtools-backend@<pinned>       (PUBLISHED)
 
+Steps 3 and 4 spawn Node, so they are gated on :func:`node_runtime.require_node`
+— steps 0 and 1 attach to a backend someone else is running and need none.
+
 The pinned version below is bumped deliberately alongside a contract change —
 there is no auto-resolution, so this constant *is* the version link.
 """
@@ -28,6 +31,7 @@ from pathlib import Path
 from typing import List, Optional, Tuple
 
 from ._contract import ENV_REUSE, ENV_REUSE_HOST, ENV_REUSE_PORT
+from .node_runtime import require_node
 from .constants import (
     BACKEND_NPM_PACKAGE,
     BACKEND_NPM_VERSION,
@@ -141,16 +145,22 @@ def launch_or_attach() -> Tuple[str, int, Optional[subprocess.Popen]]:
         proc, port = _spawn_and_wait_for_port(shlex.split(explicit))
         return host, port, proc
 
+    # Only the spawning paths need a local Node. Attaching to a backend someone
+    # else is already running (the two branches above) needs none.
+    node = require_node()
+
     local = _find_monorepo_backend()
     if local is not None:
-        proc, port = _spawn_and_wait_for_port(["node", str(local)])
+        proc, port = _spawn_and_wait_for_port([node, str(local)])
         return host, port, proc
 
     npx = shutil.which("npx")
     if npx is None:
         raise RuntimeError(
-            "Node.js not found — install Node 18+ (the dashboard backend is a Node "
-            "app), or set DEVTOOLS_PORT to an already-running dashboard."
+            f'Found Node at "{node}" but no npx alongside it, which is how the '
+            f"dashboard backend ({BACKEND_NPM_PACKAGE}) is fetched. npx ships "
+            "with npm — reinstall Node from https://nodejs.org, or set "
+            "DEVTOOLS_PORT to an already-running dashboard."
         )
     proc, port = _spawn_and_wait_for_port(
         [npx, "-y", f"{BACKEND_NPM_PACKAGE}@{BACKEND_NPM_VERSION}"]

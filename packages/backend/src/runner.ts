@@ -15,7 +15,6 @@ import { WDIO_CONFIG_FILENAMES, NIGHTWATCH_CONFIG_FILENAMES } from './types.js'
 import { escapeFilterRegex, getFilterBuilder } from './framework-filters.js'
 import { resolveNightwatchBin, resolveWdioBin } from './bin-resolver.js'
 
-const wdioBin = resolveWdioBin()
 const log = logger('@wdio/devtools-runner')
 
 /**
@@ -104,9 +103,17 @@ class TestRunner {
           configPath,
           ...this.#buildFilters(payload)
         ].filter(Boolean)
-      : [wdioBin, 'run', configPath, ...this.#buildFilters(payload)].filter(
-          Boolean
-        )
+      : [
+          // Resolved here, not at module scope: it throws when @wdio/cli is
+          // absent, which at import time killed the whole backend before it
+          // served anything — for Nightwatch, Selenium and Python users who
+          // never reach this branch, with an error naming a WDIO env var they
+          // have never heard of. Mirrors resolveNightwatchBin above.
+          resolveWdioBin(),
+          'run',
+          configPath,
+          ...this.#buildFilters(payload)
+        ].filter(Boolean)
     if (isNightwatch) {
       if (payload.entryType === 'test' && payload.label) {
         childEnv[REUSE_ENV.RERUN_ENTRY_TYPE] = 'test'
