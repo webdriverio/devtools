@@ -528,8 +528,8 @@ class TestConcurrentExportsAreSerialized(unittest.TestCase):
         self.assertEqual(second_result, [None])
         self.assertTrue(self.pkg._active["traced"])
 
-    def test_teardown_waits_for_an_export_already_in_flight(self):
-        # Otherwise disable() closes the transport the export is listening on.
+    def test_main_thread_teardown_waits_for_an_export_in_flight(self):
+        # Safe to wait here: the reader thread is free to deliver the reply.
         order = []
         release = threading.Event()
         started = threading.Event()
@@ -547,10 +547,44 @@ class TestConcurrentExportsAreSerialized(unittest.TestCase):
             worker = threading.Thread(target=self.pkg.export_trace)
             worker.start()
             self.assertTrue(started.wait(2))
-            teardown = threading.Thread(target=self.pkg.disable)
-            teardown.start()
-            release.set()
+            releaser = threading.Timer(0.05, release.set)
+            releaser.start()
+            self.pkg.disable()          # on the MAIN thread
             worker.join(3)
-            teardown.join(3)
+            releaser.cancel()
 
         self.assertEqual(order, ["export-done", "closed"])
+
+    # The deadlock this exists to prevent: `_trigger_shutdown` runs teardown on
+    # the WS reader thread when nobody is parked in wait_for_shutdown, and that
+    # thread is the only one that can deliver the reply the in-flight export is
+    # blocked on. Waiting there stalls both until the timeout, and the
+    # shutdown's os._exit timer may kill the process first.
+    def test_off_thread_teardown_never_waits_on_an_export(self):
+        started = threading.Event()
+        release = threading.Event()
+        finished = threading.Event()
+
+        def slow_export(*args, **kwargs):
+            started.set()
+            release.wait(5)
+            return "/out/trace.zip"
+
+        with mock.patch.object(trace_export, "export", side_effect=slow_export):
+            worker = threading.Thread(target=self.pkg.export_trace)
+            worker.start()
+            self.assertTrue(started.wait(2))
+
+            # Stands in for the reader thread arriving with clientDisconnected.
+            def off_thread_teardown():
+                self.pkg.export_trace()
+                finished.set()
+
+            threading.Thread(target=off_thread_teardown).start()
+            returned = finished.wait(1.0)
+            release.set()
+            worker.join(5)
+
+        self.assertTrue(
+            returned, "off-thread export blocked on the in-flight one"
+        )

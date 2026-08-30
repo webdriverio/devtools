@@ -91,8 +91,9 @@ def _trace_enabled(trace: Optional[bool]) -> bool:
 #: is mid-export on the main one, and `trace_export` holds ONE pending slot: a
 #: second request replaces it, so the first caller's reply is dropped and it
 #: waits out the full timeout while the backend writes the same archive twice.
-#: Holding this across the wait is also what stops teardown closing the
-#: transport out from under an export still listening on it.
+#: Holding it across the wait is also what stops a MAIN-THREAD teardown closing
+#: the transport out from under an export still listening on it. Off-thread
+#: callers must not wait on it at all — see export_trace.
 _export_lock = threading.Lock()
 
 
@@ -111,7 +112,18 @@ def export_trace(output_dir: Optional[str] = None) -> Optional[str]:
     waited on twice, once here and once at teardown; losing the artifact
     outright is the worse of the two, and by then the run is already broken.
     """
-    with _export_lock:
+    # Off the main thread this never waits. Teardown can arrive on the WS
+    # reader thread — `_trigger_shutdown` runs it there when nobody is parked
+    # in wait_for_shutdown — and that thread is the ONLY one that can deliver
+    # the reply an in-flight export is blocked on. Waiting for that export from
+    # here deadlocks both until the timeout, and the shutdown's `os._exit`
+    # timer may kill the process first. An interrupted run losing its archive
+    # is the better failure; by construction it was interrupted.
+    on_main = threading.current_thread() is threading.main_thread()
+    if not _export_lock.acquire(blocking=on_main):
+        _log.debug("a trace export is already in flight; not starting another")
+        return None
+    try:
         if not _active["trace"] or _active["traced"]:
             return None
         path = _export_trace(
@@ -123,6 +135,8 @@ def export_trace(output_dir: Optional[str] = None) -> Optional[str]:
         if path is not None:
             _active["traced"] = True
         return path
+    finally:
+        _export_lock.release()
 
 
 def _export_trace(
