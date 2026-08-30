@@ -526,6 +526,11 @@ def pytest_sessionfinish(session, exitstatus) -> None:  # noqa: ANN001
     capturer = devtools.get_capturer()
     if capturer is not None:
         _publish(capturer)
+    # Before the window wait: the archive belongs to the RUN, and everything
+    # below this line is about the user's session with the dashboard. Blocking
+    # it behind a window close would mean CI — which opens none — only ever got
+    # the artifact during process teardown.
+    devtools.export_trace()
     # Keep the dashboard open for inspection after the run — exit when the user
     # closes the window (clientDisconnected). Only when we actually opened a
     # window; CI (DEVTOOLS_OPEN=0) tears down immediately.

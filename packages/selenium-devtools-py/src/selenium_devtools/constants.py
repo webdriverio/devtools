@@ -76,6 +76,15 @@ BACKEND_SPAWN_TIMEOUT_S = 40.0
 # floor its dependencies require; below it the process starts and then dies on
 # syntax it cannot parse, which surfaces here only as "exited before reporting
 # a port". Checked up front so the message names the real problem.
+# How long to wait for the backend to answer a trace export. The archive is
+# assembled from a whole run's frames, so it is not instant; but a run that
+# captured everything and then hung waiting for a file is worse than one that
+# reports the wait timed out.
+TRACE_EXPORT_TIMEOUT_S = 60.0
+
+#: Opt in to writing a trace archive at the end of the run.
+ENV_TRACE = "DEVTOOLS_TRACE"
+
 MIN_NODE_MAJOR = 18
 NODE_VERSION_TIMEOUT_S = 5.0
 

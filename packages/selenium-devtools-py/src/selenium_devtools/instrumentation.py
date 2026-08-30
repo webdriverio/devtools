@@ -57,6 +57,11 @@ _sources_sent: set = set()
 _skip_frames_cache: Optional[tuple] = None
 
 
+class _SkipScreencast(Exception):
+    """Control-flow marker: no recorder for this session. Named rather than a
+    branch so the reason lands in one place with the other bring-up failures."""
+
+
 def _skip_frames() -> tuple:
     """Call-source skip fragments: the adapter package + the REAL selenium
     library dir (resolved from selenium.__file__), cached. Resolving the actual
@@ -241,6 +246,10 @@ _state: dict = {
     # Set by enable()'s excepthook when an exception reaches top level. The
     # synthetic suite's final state reads this rather than assuming success.
     "run_failed": False,
+    # Trace mode. The archive carries per-command screenshots, not the
+    # screencast — `screencastFrames` does not cross the wire yet — so
+    # recording one writes a .webm nothing reads. Set by install().
+    "trace": False,
 }
 
 
@@ -314,6 +323,18 @@ def _attach_performance(
         capturer.send_replace_command(row["timestamp"], row)
     except Exception as exc:  # noqa: BLE001
         _log.debug("could not replace the navigation row: %s", exc)
+
+
+def resolved_output_dir() -> Optional[str]:
+    """The ``test-results`` dir this run resolved from its first test file, or
+    None if no command carried a user call source. Screencast videos already
+    write here; a trace belongs beside them rather than in the cwd, which for a
+    runner invoked from a repo root is the repo root.
+
+    Cleared by ``uninstall``, so a caller tearing a run down must read it before
+    that rather than after.
+    """
+    return _state.get("output_dir")
 
 
 def _begin_screencast_run(entry: Optional[dict], shot: Optional[str] = None) -> None:
@@ -496,6 +517,10 @@ def _ensure_session_setup(driver: Any, capturer: SessionCapturer) -> Optional[di
     except Exception as exc:  # noqa: BLE001 — capture must never break the test
         _log.warning("BiDi attach threw: %s", exc)
     try:
+        if _state["trace"]:
+            # The archive's frames are the per-command screenshots; the video is
+            # a live-dashboard artifact, and trace mode opens no dashboard.
+            raise _SkipScreencast
         recorder = ScreencastRecorder()
         recorder.start(driver)
         entry["screencast"] = recorder
@@ -520,6 +545,8 @@ def _ensure_session_setup(driver: Any, capturer: SessionCapturer) -> Optional[di
         entry["screencast_push"] = push
         if push is None:
             _log.info("screencast recording started (one frame per command)")
+    except _SkipScreencast:
+        _log.info("trace mode — skipping the screencast recording")
     except Exception as exc:  # noqa: BLE001
         _log.warning("screencast start threw: %s", exc)
     try:
@@ -695,7 +722,12 @@ def finalize_run(capturer: SessionCapturer) -> None:
     _send_default_suite(capturer, _live_run_state())
 
 
-def install(capturer: SessionCapturer, webdriver_cls: Optional[type] = None) -> None:
+def install(
+    capturer: SessionCapturer,
+    webdriver_cls: Optional[type] = None,
+    *,
+    trace: bool = False,
+) -> None:
     if _state["installed"]:
         return
     if webdriver_cls is None:
@@ -775,6 +807,7 @@ def install(capturer: SessionCapturer, webdriver_cls: Optional[type] = None) -> 
     _state.update(
         installed=True, cls=webdriver_cls, orig=orig_execute,
         sessions=weakref.WeakKeyDictionary(), output_dir=None, default_suite=None,
+        trace=trace,
     )
 
 
