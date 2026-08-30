@@ -469,3 +469,88 @@ class FakeDriverForTrace:
 
     def get_screenshot_as_base64(self):
         return "c2hvdA=="
+
+
+class TestConcurrentExportsAreSerialized(unittest.TestCase):
+    """`trace_export` holds ONE pending slot.
+
+    Two overlapping exports both replace it, so the first caller's reply is
+    dropped and it waits out the full 60s timeout while the backend builds the
+    same archive twice at the same path. Reachable because teardown can run on
+    the WS reader thread — `lifecycle._trigger_shutdown` hands it to whoever is
+    parked, and runs it itself when nobody is — while a caller is mid-export on
+    the main thread.
+    """
+
+    def setUp(self):
+        import selenium_devtools as pkg
+
+        self.pkg = pkg
+        self.saved = dict(pkg._active)
+        pkg._active.update(
+            capturer=None, transport=FakeTransport(), process=None, url=None,
+            handle=None, terminal=None, logs=None, excepthook=None,
+            trace=True, traced=False,
+        )
+
+    def tearDown(self):
+        self.pkg._active.clear()
+        self.pkg._active.update(self.saved)
+        trace_export.reset()
+
+    def test_only_one_request_is_sent_when_two_callers_overlap(self):
+        started = threading.Event()
+        release = threading.Event()
+        calls = []
+
+        def slow_export(*args, **kwargs):
+            calls.append(kwargs.get("session_id"))
+            started.set()
+            release.wait(2)
+            return "/out/trace.zip"
+
+        with mock.patch.object(trace_export, "export", side_effect=slow_export):
+            first = threading.Thread(target=self.pkg.export_trace)
+            first.start()
+            self.assertTrue(started.wait(2), "first export never started")
+            # Second caller arrives while the first is still waiting on the
+            # backend — it must not replace the pending slot.
+            second_result = []
+            second = threading.Thread(
+                target=lambda: second_result.append(self.pkg.export_trace())
+            )
+            second.start()
+            release.set()
+            first.join(3)
+            second.join(3)
+
+        self.assertEqual(len(calls), 1, "a second request was sent")
+        self.assertEqual(second_result, [None])
+        self.assertTrue(self.pkg._active["traced"])
+
+    def test_teardown_waits_for_an_export_already_in_flight(self):
+        # Otherwise disable() closes the transport the export is listening on.
+        order = []
+        release = threading.Event()
+        started = threading.Event()
+
+        def slow_export(*args, **kwargs):
+            started.set()
+            release.wait(2)
+            order.append("export-done")
+            return "/out/trace.zip"
+
+        tx = self.pkg._active["transport"]
+        tx.close = lambda: order.append("closed")
+
+        with mock.patch.object(trace_export, "export", side_effect=slow_export):
+            worker = threading.Thread(target=self.pkg.export_trace)
+            worker.start()
+            self.assertTrue(started.wait(2))
+            teardown = threading.Thread(target=self.pkg.disable)
+            teardown.start()
+            release.set()
+            worker.join(3)
+            teardown.join(3)
+
+        self.assertEqual(order, ["export-done", "closed"])

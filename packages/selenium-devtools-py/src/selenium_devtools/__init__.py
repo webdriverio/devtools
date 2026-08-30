@@ -18,6 +18,7 @@ import logging
 import os
 import subprocess
 import sys
+import threading
 from typing import Optional
 
 from . import backend, instrumentation, lifecycle, rerun, trace_export
@@ -86,7 +87,16 @@ def _trace_enabled(trace: Optional[bool]) -> bool:
     return os.environ.get(ENV_TRACE, "").lower() in ("1", "true", "yes")
 
 
-def export_trace() -> Optional[str]:
+#: Serializes exports. Teardown can run on the WS reader thread while a caller
+#: is mid-export on the main one, and `trace_export` holds ONE pending slot: a
+#: second request replaces it, so the first caller's reply is dropped and it
+#: waits out the full timeout while the backend writes the same archive twice.
+#: Holding this across the wait is also what stops teardown closing the
+#: transport out from under an export still listening on it.
+_export_lock = threading.Lock()
+
+
+def export_trace(output_dir: Optional[str] = None) -> Optional[str]:
     """Write this run's trace archive now. No-op unless trace mode is on.
 
     Called when the RUN finishes rather than when the process tears down. An
@@ -101,14 +111,18 @@ def export_trace() -> Optional[str]:
     waited on twice, once here and once at teardown; losing the artifact
     outright is the worse of the two, and by then the run is already broken.
     """
-    if not _active["trace"] or _active["traced"]:
-        return None
-    path = _export_trace(
-        _active["capturer"], instrumentation.resolved_output_dir()
-    )
-    if path is not None:
-        _active["traced"] = True
-    return path
+    with _export_lock:
+        if not _active["trace"] or _active["traced"]:
+            return None
+        path = _export_trace(
+            _active["capturer"],
+            output_dir
+            if output_dir is not None
+            else instrumentation.resolved_output_dir(),
+        )
+        if path is not None:
+            _active["traced"] = True
+        return path
 
 
 def _export_trace(
@@ -239,10 +253,9 @@ def disable() -> None:
         logs.stop()
     # Fallback for a plain script that never called export_trace() itself.
     # Before the transport closes: the answer comes back on this same socket.
-    if _active["trace"] and not _active["traced"]:
-        # No latch needed: the reset below clears the run either way, and
-        # nothing else runs after this.
-        _export_trace(capturer, output_dir)
+    # Through export_trace, not around it: one lock and one latch, so a public
+    # call still in flight is waited for rather than raced.
+    export_trace(output_dir)
     transport = _active["transport"]
     if transport is not None:
         transport.close()
