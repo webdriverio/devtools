@@ -323,6 +323,30 @@ class TestTheArchiveBelongsToTheRun(unittest.TestCase):
         self.assertIsNone(second)
         ex.assert_called_once()
 
+    # Only a SUCCESSFUL export closes the door. This is public API, so a caller
+    # may run it early, get nothing, and still expect an archive at the end;
+    # latching on the attempt spends that one chance on a transport that was
+    # not ready.
+    def test_a_failed_export_leaves_the_teardown_fallback_armed(self):
+        self._armed()
+        with mock.patch.object(trace_export, "export", return_value=None):
+            self.assertIsNone(self.pkg.export_trace())
+        self.assertFalse(self.pkg._active["traced"])
+
+    def test_teardown_still_writes_after_a_failed_attempt(self):
+        self._armed()
+        with mock.patch.object(trace_export, "export", return_value=None):
+            self.pkg.export_trace()
+        with mock.patch.object(trace_export, "export", return_value="/o/t.zip") as ex:
+            self.pkg.disable()
+        ex.assert_called_once()
+
+    def test_a_successful_export_closes_it(self):
+        self._armed()
+        with mock.patch.object(trace_export, "export", return_value="/o/t.zip"):
+            self.pkg.export_trace()
+        self.assertTrue(self.pkg._active["traced"])
+
     def test_it_does_nothing_when_trace_mode_is_off(self):
         self._armed(trace=False)
         with mock.patch.object(trace_export, "export") as ex:

@@ -87,20 +87,28 @@ def _trace_enabled(trace: Optional[bool]) -> bool:
 
 
 def export_trace() -> Optional[str]:
-    """Write this run's trace archive now. No-op unless trace mode is on, and
-    idempotent — the first caller wins.
+    """Write this run's trace archive now. No-op unless trace mode is on.
 
     Called when the RUN finishes rather than when the process tears down. An
     interactive run blocks on the dashboard window in between, and CI has no
     window at all; an artifact that depends on either is an artifact that is
     missing exactly when it is wanted.
+
+    Only a SUCCESSFUL export closes the door on the teardown fallback. This is
+    public, so a caller may run it early, get nothing, and still expect an
+    archive at the end — latching on the attempt would spend that one chance on
+    a transport that was not ready. The cost is that an unresponsive backend is
+    waited on twice, once here and once at teardown; losing the artifact
+    outright is the worse of the two, and by then the run is already broken.
     """
     if not _active["trace"] or _active["traced"]:
         return None
-    _active["traced"] = True
-    return _export_trace(
+    path = _export_trace(
         _active["capturer"], instrumentation.resolved_output_dir()
     )
+    if path is not None:
+        _active["traced"] = True
+    return path
 
 
 def _export_trace(
@@ -232,7 +240,8 @@ def disable() -> None:
     # Fallback for a plain script that never called export_trace() itself.
     # Before the transport closes: the answer comes back on this same socket.
     if _active["trace"] and not _active["traced"]:
-        _active["traced"] = True
+        # No latch needed: the reset below clears the run either way, and
+        # nothing else runs after this.
         _export_trace(capturer, output_dir)
     transport = _active["transport"]
     if transport is not None:
