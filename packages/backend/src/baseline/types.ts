@@ -1,4 +1,5 @@
 import type {
+  ActionSnapshot,
   CommandLog,
   ConsoleLog,
   Metadata,
@@ -55,6 +56,11 @@ export interface ActiveRun {
   /** Raw `logs` frames, the trace's transcript source. Only the JS adapters
    *  send these, so this is routinely empty. */
   traceLogs: string[]
+  /** Per-action snapshots: the page's element tree beside each action, which
+   *  is what the A11y tab reads. A defined TraceLog scope no adapter sent
+   *  until now — the exporter synthesizes bare ones from command screenshots
+   *  when it gets none, which carries a picture but no elements. */
+  actionSnapshots: ActionSnapshot[]
   /** Dense screencast frames for the trace filmstrip. The JS adapters hand
    *  their recorder's buffer straight to the exporter in-process; an adapter
    *  that exports through here has to send them, so they accumulate like any

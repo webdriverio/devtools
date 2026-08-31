@@ -548,6 +548,22 @@ describe('baselineStore — scopes the trace export reads', () => {
     expect(baselineStore.activeRun().traceLogs).toEqual(['one', 'two', 'three'])
   })
 
+  // Both are streams an adapter that exports through the backend has to send,
+  // because it has no in-process handle to the exporter.
+  it('accumulates action snapshots and screencast frames', () => {
+    baselineStore.recordEvent('actionSnapshots', [
+      { timestamp: 1, command: 'clickElement', elements: [{ selector: '#go' }] }
+    ])
+    baselineStore.recordEvent('screencastFrames', [{ data: 'a', timestamp: 1 }])
+    baselineStore.recordEvent('screencastFrames', [{ data: 'b', timestamp: 2 }])
+    baselineStore.recordEvent('actionSnapshots', 'not-an-array')
+
+    expect(baselineStore.activeRun().actionSnapshots).toHaveLength(1)
+    expect(
+      baselineStore.activeRun().screencastFrames.map((f) => f.data)
+    ).toEqual(['a', 'b'])
+  })
+
   it('starts a new run with neither carried over', () => {
     baselineStore.recordEvent('metadata', { sessionId: 'a' })
     baselineStore.recordEvent('logs', ['one'])
