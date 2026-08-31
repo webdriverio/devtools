@@ -11,12 +11,14 @@ SCOPE_SCREENCAST = "screencast"
 SCOPE_SOURCES = "sources"
 SCOPE_MUTATIONS = "mutations"
 SCOPE_SCREENCAST_FRAMES = "screencastFrames"
+SCOPE_ACTION_SNAPSHOTS = "actionSnapshots"
 SCOPE_REPLACE_COMMAND = "replaceCommand"
 
 DATA_SCOPES = frozenset(['actionSnapshots', 'commands', 'config', 'consoleLogs', 'logs', 'metadata', 'mutations', 'networkRequests', 'screencast', 'screencastFrames', 'sources', 'suites'])
 CONTROL_SCOPES = frozenset(['clearCommands', 'clearExecutionData', 'clientConnected', 'clientDisconnected', 'config', 'replaceCommand', 'testStopped'])
 
 COLLECTOR_PATH = "/api/collector"
+ELEMENT_SCRIPTS_PATH = "/api/element-scripts"
 RUNNER_ID = "selenium-webdriver"
 TEST_RUNNER_IDS = frozenset(['cucumber', 'jasmine', 'mocha', 'nightwatch', 'nightwatch-cucumber', 'selenium-webdriver'])
 
