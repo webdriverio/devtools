@@ -33,6 +33,25 @@ class CommandLog(TypedDict, total=False):
     callSource: Optional[str]
     id: int
     screenshot: str
+    selector: str
+
+
+class ElementScripts(TypedDict):
+    """Body of the backend's element-scripts route: two injectable expressions."""
+
+    accessibilityTree: str
+    elements: str
+
+
+class ActionSnapshot(TypedDict, total=False):
+    """One action's view of the page. `accessibilityTree` ships raw because the
+    serializer is TypeScript — the backend turns it into the A11y tab's text."""
+
+    timestamp: int
+    command: str
+    screenshot: str
+    elements: List[Any]
+    accessibilityTree: List[Any]
 
 
 class ConsoleLog(TypedDict):
