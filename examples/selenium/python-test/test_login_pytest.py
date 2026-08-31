@@ -69,7 +69,11 @@ class TestLogin:
 
     def test_logs_in_with_valid_credentials(self, driver):
         flash = _login(driver, USERNAME, PASSWORD)
-        assert "/secure" in driver.current_url, driver.current_url
+        # Bound to a local like `flash`, not asserted on the property: a failing
+        # `assert cond, msg` evaluates `msg` too, and both are the same browser
+        # round trip — so the trace grows a second, identical command row.
+        current_url = driver.current_url
+        assert "/secure" in current_url, current_url
         assert "You logged into a secure area" in flash, flash
 
         WebDriverWait(driver, TIMEOUT).until(
@@ -79,11 +83,13 @@ class TestLogin:
         WebDriverWait(driver, TIMEOUT).until(
             EC.visibility_of_element_located((By.ID, "username"))
         )
-        assert "/login" in driver.current_url, driver.current_url
+        current_url = driver.current_url
+        assert "/login" in current_url, current_url
 
     def test_rejects_invalid_credentials(self, driver):
         flash = _login(driver, USERNAME, "wrong-password")
-        assert "/login" in driver.current_url, driver.current_url
+        current_url = driver.current_url
+        assert "/login" in current_url, current_url
         assert "Your password is invalid" in flash, flash
 
 
@@ -93,4 +99,5 @@ def test_the_login_page_loads(driver):
     WebDriverWait(driver, TIMEOUT).until(
         EC.visibility_of_element_located((By.ID, "login"))
     )
-    assert driver.title == "The Internet", driver.title
+    title = driver.title
+    assert title == "The Internet", title

@@ -33,6 +33,9 @@ devtools.enable()  # opens the dashboard, starts capturing
 options = Options()
 options.add_argument("--headless=new")  # drop this line to watch the browser
 options.add_argument("--window-size=1280,1024")
+options.add_argument(
+    "--host-resolver-rules=MAP passwordsleakcheck-pa.googleapis.com 127.0.0.1"
+)
 
 driver = webdriver.Chrome(options=options)
 wait = WebDriverWait(driver, TIMEOUT)
@@ -44,16 +47,17 @@ try:
     driver.find_element(By.ID, "password").send_keys(PASSWORD)
     driver.find_element(By.CSS_SELECTOR, 'button[type="submit"]').click()
 
-    # wait.until(EC.visibility_of_element_located((By.ID, "flash")))
-    assert "/secure" in driver.current_url, driver.current_url
+    current_url = driver.current_url
+    assert "/secure" in current_url, current_url
     flash = driver.find_element(By.ID, "flash").text
     assert "You logged into a secure area" in flash, flash
 
     # wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, "a.button")))
-    driver.find_element(By.CSS_SELECTOR, "a.button").click()
+    driver.find_element(By.XPATH, '//a[contains(., "Logout")]').click()
 
     # wait.until(EC.visibility_of_element_located((By.ID, "username")))
-    assert "/login" in driver.current_url, driver.current_url
+    current_url = driver.current_url
+    assert "/login" in current_url, current_url
     print("[TEST] logged back out")
 finally:
     driver.quit()
