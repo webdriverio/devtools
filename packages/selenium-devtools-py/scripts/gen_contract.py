@@ -42,6 +42,9 @@ REQUIRED_DATA_SCOPES = {
     "SCOPE_SCREENCAST": "screencast",
     "SCOPE_SOURCES": "sources",
     "SCOPE_MUTATIONS": "mutations",
+    # The dense filmstrip. The JS adapters hand their recorder's buffer to the
+    # exporter in-process; an adapter exporting through the backend sends it.
+    "SCOPE_SCREENCAST_FRAMES": "screencastFrames",
 }
 
 

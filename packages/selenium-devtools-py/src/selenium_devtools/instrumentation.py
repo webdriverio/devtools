@@ -246,10 +246,15 @@ _state: dict = {
     # Set by enable()'s excepthook when an exception reaches top level. The
     # synthetic suite's final state reads this rather than assuming success.
     "run_failed": False,
-    # Trace mode. The archive carries per-command screenshots, not the
-    # screencast — `screencastFrames` does not cross the wire yet — so
-    # recording one writes a .webm nothing reads. Set by install().
+    # Trace mode. Set by install().
     "trace": False,
+    # Record a dense filmstrip into the trace. Only meaningful in trace mode;
+    # the recorder runs in live mode regardless, for the dashboard video.
+    "filmstrip": False,
+    # Frames kept from every session's recorder as it finalizes, because that
+    # is the only moment they are reachable. Run-scoped: a run may replace its
+    # driver, and the filmstrip is the whole run.
+    "filmstrip_frames": [],
 }
 
 
@@ -323,6 +328,34 @@ def _attach_performance(
         capturer.send_replace_command(row["timestamp"], row)
     except Exception as exc:  # noqa: BLE001
         _log.debug("could not replace the navigation row: %s", exc)
+
+
+def screencast_frames() -> list:
+    """Every frame this run's recorders buffered, in time order.
+
+    Two sources, because a frame is only reachable from one of them at a time:
+
+    * sessions that already quit — kept as they finalized, since
+      `_finalize_screencast` pops the recorder off the entry and `sessions` is
+      keyed weakly by a driver about to be collected;
+    * sessions still live — read straight off their recorder, because an export
+      can run before the last driver quits, and `uninstall` then stops those
+      recorders without keeping anything.
+
+    Sorted rather than concatenated: sessions are appended in quit order, and a
+    replaced session can finish after a later one started.
+    """
+    frames: list = list(_state["filmstrip_frames"])
+    for entry in list(_state.get("sessions", {}).values()):
+        recorder = entry.get("screencast")
+        if recorder is None:
+            continue
+        try:
+            frames.extend(recorder.frames)
+        except Exception as exc:  # noqa: BLE001 — a poorer filmstrip, not a failed run
+            _log.debug("could not read a live recorder's frames: %s", exc)
+    frames.sort(key=lambda f: f.get("timestamp", 0))
+    return frames
 
 
 def resolved_output_dir() -> Optional[str]:
@@ -458,6 +491,21 @@ def _finalize_screencast(
     recorder = entry.pop("screencast", None)
     if recorder is None:
         return
+    # Take the buffer BEFORE anything else. This is the last moment it exists:
+    # the entry drops its recorder on the line above, and `sessions` is keyed
+    # weakly by a driver that quit and is about to be collected — so reading it
+    # at export time, as this first did, always found nothing.
+    if _state["filmstrip"]:
+        try:
+            _state["filmstrip_frames"].extend(recorder.frames)
+        except Exception as exc:  # noqa: BLE001 — a poorer filmstrip, not a failed run
+            _log.debug("could not keep the filmstrip frames: %s", exc)
+    if _state["trace"]:
+        # No video in trace mode: the frames ARE the filmstrip, and a .webm is
+        # a live-dashboard artifact with no dashboard to play it. Stopping
+        # rather than finalizing is what skips the encode.
+        recorder.stop()
+        return
     try:
         info = recorder.finalize(session_id, output_dir=_state.get("output_dir"))
     except Exception as exc:  # noqa: BLE001
@@ -517,9 +565,11 @@ def _ensure_session_setup(driver: Any, capturer: SessionCapturer) -> Optional[di
     except Exception as exc:  # noqa: BLE001 — capture must never break the test
         _log.warning("BiDi attach threw: %s", exc)
     try:
-        if _state["trace"]:
-            # The archive's frames are the per-command screenshots; the video is
-            # a live-dashboard artifact, and trace mode opens no dashboard.
+        if _state["trace"] and not _state["filmstrip"]:
+            # With no filmstrip the archive's frames are the per-command
+            # screenshots alone, and the video is a live-dashboard artifact —
+            # trace mode opens no dashboard, so a recorder here writes a .webm
+            # nothing reads.
             raise _SkipScreencast
         recorder = ScreencastRecorder()
         recorder.start(driver)
@@ -727,6 +777,7 @@ def install(
     webdriver_cls: Optional[type] = None,
     *,
     trace: bool = False,
+    filmstrip: bool = False,
 ) -> None:
     if _state["installed"]:
         return
@@ -807,7 +858,7 @@ def install(
     _state.update(
         installed=True, cls=webdriver_cls, orig=orig_execute,
         sessions=weakref.WeakKeyDictionary(), output_dir=None, default_suite=None,
-        trace=trace,
+        trace=trace, filmstrip=filmstrip, filmstrip_frames=[],
     )
 
 
@@ -820,11 +871,20 @@ def uninstall() -> None:
     # per-run state.
     reset_collector_cache()
     # Never leave a recorder running past teardown, for any session still live.
+    # Keep the buffer first: `disable()` uninstalls BEFORE its fallback export,
+    # and `sessions` is replaced below, so a session that never quit would
+    # otherwise have its frames dropped here — the plain-script path exactly.
     for entry in list(_state.get("sessions", {}).values()):
         _stop_push_screencast(entry)
         recorder = entry.get("screencast")
-        if recorder is not None:
-            recorder.stop()
+        if recorder is None:
+            continue
+        if _state["filmstrip"]:
+            try:
+                _state["filmstrip_frames"].extend(recorder.frames)
+            except Exception as exc:  # noqa: BLE001 — a poorer filmstrip, not a failed run
+                _log.debug("could not keep a live recorder's frames: %s", exc)
+        recorder.stop()
     if not _state["installed"]:
         _state.update(
             sessions=weakref.WeakKeyDictionary(),

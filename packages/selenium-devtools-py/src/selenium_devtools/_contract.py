@@ -10,6 +10,7 @@ SCOPE_SUITES = "suites"
 SCOPE_SCREENCAST = "screencast"
 SCOPE_SOURCES = "sources"
 SCOPE_MUTATIONS = "mutations"
+SCOPE_SCREENCAST_FRAMES = "screencastFrames"
 SCOPE_REPLACE_COMMAND = "replaceCommand"
 
 DATA_SCOPES = frozenset(['actionSnapshots', 'commands', 'config', 'consoleLogs', 'logs', 'metadata', 'mutations', 'networkRequests', 'screencast', 'screencastFrames', 'sources', 'suites'])

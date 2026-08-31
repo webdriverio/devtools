@@ -30,6 +30,7 @@ from .constants import (
     DEFAULT_HOST,
     DEFAULT_PORT,
     ENV_HOST,
+    ENV_FILMSTRIP,
     ENV_PORT,
     ENV_TRACE,
     LOGGER_NAME,
@@ -75,8 +76,20 @@ def _restore_excepthook() -> None:
 _active: dict = {
     "capturer": None, "transport": None, "process": None, "url": None,
     "handle": None, "terminal": None, "logs": None, "excepthook": None,
-    "trace": False, "traced": False,
+    "trace": False, "traced": False, "filmstrip_mark": None,
 }
+
+
+def _filmstrip_enabled(filmstrip: Optional[bool]) -> bool:
+    """Whether trace mode records a dense filmstrip. Default ON, as in the JS
+    adapters (`BaseDevToolsOptions.filmstrip`), opt-out only — the argument
+    wins, then the environment."""
+    if filmstrip is not None:
+        return filmstrip
+    value = os.environ.get(ENV_FILMSTRIP)
+    if value is None:
+        return True
+    return value.lower() not in ("0", "false", "no", "off", "")
 
 
 def _trace_enabled(trace: Optional[bool]) -> bool:
@@ -148,6 +161,40 @@ def _export_trace(
         session_id = (
             getattr(capturer, "session_id", None) or resolve_run_id()
         )
+        # Before the request, not with it: the buffer holds up to a couple of
+        # thousand JPEGs, and the backend accumulates them like any other
+        # stream.
+        #
+        # Only what has not gone out already. A failed export is retried at
+        # teardown, and the backend APPENDS these — it has no key to replace or
+        # dedupe on — so resending the buffer would put every frame in the trace
+        # twice.
+        #
+        # Keyed on the newest timestamp sent, NOT on how many were sent. A live
+        # recorder decimates its bounded buffer in place
+        # (`screencast._decimate` halves it, keeping the ends), so between two
+        # attempts the list can SHRINK and every index shift — an offset would
+        # then skip frames it never sent. Decimation drops frames but never
+        # renumbers the survivors, and timestamps are monotonic per recorder, so
+        # the watermark stays meaningful however the buffer is rewritten.
+        # None, not 0: "nothing sent yet" is not a timestamp, and a frame
+        # stamped 0 would be filtered out by one.
+        #
+        # The boundary is INCLUSIVE, so a retry may resend the frame the last
+        # attempt ended on. Timestamps are milliseconds and two frames can share
+        # one, and an exclusive boundary would drop the unsent twin — a gap in
+        # the filmstrip. A resend costs nothing much instead: the exporter
+        # content-addresses frame bytes, so the duplicate shares one resource.
+        # Losing a frame beats duplicating one only if you never look at it.
+        mark = _active["filmstrip_mark"]
+        pending = [
+            f
+            for f in instrumentation.screencast_frames()
+            if mark is None or f.get("timestamp", 0) >= mark
+        ]
+        sent = trace_export.send_frames(_active["transport"], pending)
+        if sent:
+            _active["filmstrip_mark"] = pending[sent - 1].get("timestamp", mark)
         return trace_export.export(
             _active["transport"],
             output_dir=output_dir or resolve_adapter_output_dir(),
@@ -164,6 +211,7 @@ def enable(
     *,
     webdriver_cls: Optional[type] = None,
     trace: Optional[bool] = None,
+    filmstrip: Optional[bool] = None,
 ) -> Optional[SessionCapturer]:
     """Connect to the backend and instrument Selenium. Idempotent.
 
@@ -178,6 +226,7 @@ def enable(
     # Decided before anything reads it: the screencast recorder, the dashboard
     # window and the teardown export all branch on this.
     trace_mode = _trace_enabled(trace)
+    filmstrip_mode = trace_mode and _filmstrip_enabled(filmstrip)
 
     # Before the backend is launched: the directory a rerun spawns in travels
     # through the environment the backend process inherits. A framework plugin
@@ -212,7 +261,9 @@ def enable(
         return None
 
     capturer = SessionCapturer(transport)
-    instrumentation.install(capturer, webdriver_cls, trace=trace_mode)
+    instrumentation.install(
+        capturer, webdriver_cls, trace=trace_mode, filmstrip=filmstrip_mode
+    )
     # Plain scripts only: a framework plugin calls
     # `set_external_suites`, which turns this back off.
     instrumentation.start_assertion_tracing(capturer)
@@ -226,7 +277,7 @@ def enable(
     url = f"http://{host}:{port}"
     _active.update(
         capturer=capturer, transport=transport, process=process, url=url,
-        terminal=term, logs=logs, trace=trace_mode, traced=False,
+        terminal=term, logs=logs, trace=trace_mode, traced=False, filmstrip_mark=None,
     )
 
     # Open the dashboard window and wire exit/signal + control-frame teardown so
@@ -289,7 +340,7 @@ def disable() -> None:
     trace_export.reset()
     _active.update(
         capturer=None, transport=None, process=None, url=None, handle=None,
-        terminal=None, logs=None, excepthook=None, trace=False, traced=False,
+        terminal=None, logs=None, excepthook=None, trace=False, traced=False, filmstrip_mark=None,
     )
 
 

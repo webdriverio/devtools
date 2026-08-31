@@ -3,6 +3,7 @@ import type {
   ConsoleLog,
   Metadata,
   NetworkRequest,
+  ScreencastFrame,
   TestError,
   TestStatus,
   TraceMutation
@@ -54,4 +55,9 @@ export interface ActiveRun {
   /** Raw `logs` frames, the trace's transcript source. Only the JS adapters
    *  send these, so this is routinely empty. */
   traceLogs: string[]
+  /** Dense screencast frames for the trace filmstrip. The JS adapters hand
+   *  their recorder's buffer straight to the exporter in-process; an adapter
+   *  that exports through here has to send them, so they accumulate like any
+   *  other stream. Empty unless the adapter asked for a filmstrip. */
+  screencastFrames: ScreencastFrame[]
 }

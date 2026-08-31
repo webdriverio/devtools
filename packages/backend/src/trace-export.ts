@@ -82,6 +82,12 @@ export async function exportActiveRunTrace(
     sessionId: request.sessionId,
     ...(request.format ? { format: request.format } : {}),
     ...(request.fileStem ? { fileStem: request.fileStem } : {}),
+    // Omitted when empty rather than passed as []: the exporter treats absence
+    // as "no dense filmstrip" and keeps the sparse per-action one, which is
+    // what an adapter that did not ask for frames should still get.
+    ...(run.screencastFrames.length
+      ? { screencastFrames: run.screencastFrames }
+      : {}),
     testMetadata: testMetadataFromNodes(run.nodes)
   })
 }
