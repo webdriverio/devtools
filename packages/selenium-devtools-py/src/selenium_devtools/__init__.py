@@ -76,7 +76,7 @@ def _restore_excepthook() -> None:
 _active: dict = {
     "capturer": None, "transport": None, "process": None, "url": None,
     "handle": None, "terminal": None, "logs": None, "excepthook": None,
-    "trace": False, "traced": False, "filmstrip_sent": 0,
+    "trace": False, "traced": False, "filmstrip_mark": None,
 }
 
 
@@ -168,14 +168,26 @@ def _export_trace(
         # Only what has not gone out already. A failed export is retried at
         # teardown, and the backend APPENDS these — it has no key to replace or
         # dedupe on — so resending the buffer would put every frame in the trace
-        # twice. Slicing by count is sound because the list only grows at the
-        # end: sessions run one at a time, so a later frame carries a later
-        # timestamp and the sorted prefix is stable.
-        already = _active["filmstrip_sent"]
-        pending = instrumentation.screencast_frames()[already:]
-        _active["filmstrip_sent"] = already + trace_export.send_frames(
-            _active["transport"], pending
-        )
+        # twice.
+        #
+        # Keyed on the newest timestamp sent, NOT on how many were sent. A live
+        # recorder decimates its bounded buffer in place
+        # (`screencast._decimate` halves it, keeping the ends), so between two
+        # attempts the list can SHRINK and every index shift — an offset would
+        # then skip frames it never sent. Decimation drops frames but never
+        # renumbers the survivors, and timestamps are monotonic per recorder, so
+        # the watermark stays meaningful however the buffer is rewritten.
+        # None, not 0: "nothing sent yet" is not a timestamp, and a frame
+        # stamped 0 would be filtered out by one.
+        mark = _active["filmstrip_mark"]
+        pending = [
+            f
+            for f in instrumentation.screencast_frames()
+            if mark is None or f.get("timestamp", 0) > mark
+        ]
+        sent = trace_export.send_frames(_active["transport"], pending)
+        if sent:
+            _active["filmstrip_mark"] = pending[sent - 1].get("timestamp", mark)
         return trace_export.export(
             _active["transport"],
             output_dir=output_dir or resolve_adapter_output_dir(),
@@ -258,7 +270,7 @@ def enable(
     url = f"http://{host}:{port}"
     _active.update(
         capturer=capturer, transport=transport, process=process, url=url,
-        terminal=term, logs=logs, trace=trace_mode, traced=False, filmstrip_sent=0,
+        terminal=term, logs=logs, trace=trace_mode, traced=False, filmstrip_mark=None,
     )
 
     # Open the dashboard window and wire exit/signal + control-frame teardown so
@@ -321,7 +333,7 @@ def disable() -> None:
     trace_export.reset()
     _active.update(
         capturer=None, transport=None, process=None, url=None, handle=None,
-        terminal=None, logs=None, excepthook=None, trace=False, traced=False, filmstrip_sent=0,
+        terminal=None, logs=None, excepthook=None, trace=False, traced=False, filmstrip_mark=None,
     )
 
 

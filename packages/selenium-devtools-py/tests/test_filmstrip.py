@@ -289,9 +289,9 @@ class TestALiveSessionStillContributes(unittest.TestCase):
 
 
 class TestRetriesDoNotDuplicateFrames(unittest.TestCase):
-    """A failed export is retried at teardown, and the backend APPENDS these —
-    it has no key to replace or dedupe on — so resending the buffer would put
-    every frame in the trace twice."""
+    """A failed export is retried at teardown (#340), and the backend APPENDS
+    these — it has no key to replace or dedupe on — so resending the buffer
+    would put every frame in the trace twice."""
 
     def setUp(self):
         import selenium_devtools as pkg
@@ -303,23 +303,23 @@ class TestRetriesDoNotDuplicateFrames(unittest.TestCase):
         self.pkg._active.clear()
         self.pkg._active.update(self.saved)
 
-    def _arm(self, sent=0):
+    def _arm(self):
         self.pkg._active.update(
             capturer=None, transport=FakeTransport(), process=None, url=None,
             handle=None, terminal=None, logs=None, excepthook=None,
-            trace=True, traced=False, filmstrip_sent=sent,
+            trace=True, traced=False, filmstrip_mark=None,
         )
 
-    def _export_with(self, buf):
+    def _export_with(self, buf, *, accepted=None):
+        """Run one export attempt over `buf`; returns the send_frames mock."""
+        take = (lambda tx, f: len(f)) if accepted is None else (lambda tx, f: accepted)
         with mock.patch.object(
             instrumentation, "screencast_frames", return_value=buf
         ), mock.patch.object(
             instrumentation, "resolved_output_dir", return_value="/out"
         ), mock.patch.object(
-            trace_export, "send_frames", side_effect=lambda tx, f: len(f)
-        ) as send, mock.patch.object(
-            trace_export, "export", return_value=None
-        ):
+            trace_export, "send_frames", side_effect=take
+        ) as send, mock.patch.object(trace_export, "export", return_value=None):
             self.pkg.export_trace()
         return send
 
@@ -327,26 +327,41 @@ class TestRetriesDoNotDuplicateFrames(unittest.TestCase):
         self._arm()
         buf = frames(10)
         self._export_with(buf)
-        self.assertEqual(self.pkg._active["filmstrip_sent"], 10)
-
-        send = self._export_with(buf)          # the teardown retry
+        send = self._export_with(buf)
         self.assertEqual(send.call_args[0][1], [], "resent the whole buffer")
 
     def test_a_retry_sends_only_what_a_partial_send_missed(self):
         self._arm()
         buf = frames(10)
-        with mock.patch.object(
-            instrumentation, "screencast_frames", return_value=buf
-        ), mock.patch.object(
-            instrumentation, "resolved_output_dir", return_value="/out"
-        ), mock.patch.object(
-            trace_export, "send_frames", return_value=4
-        ), mock.patch.object(trace_export, "export", return_value=None):
-            self.pkg.export_trace()
-        self.assertEqual(self.pkg._active["filmstrip_sent"], 4)
-
+        self._export_with(buf, accepted=4)
         send = self._export_with(buf)
         self.assertEqual(
-            [f["data"] for f in send.call_args[0][1]],
-            [f["data"] for f in buf[4:]],
+            [f["timestamp"] for f in send.call_args[0][1]],
+            [f["timestamp"] for f in buf[4:]],
         )
+
+    # The buffer is BOUNDED and decimated in place — `screencast._decimate`
+    # halves it, keeping the ends — so between two attempts the list can shrink
+    # and every index shift. An offset would skip frames it never sent.
+    def test_a_decimated_buffer_between_attempts_loses_nothing(self):
+        self._arm()
+        first = frames(10)                       # timestamps 0..9
+        self._export_with(first, accepted=6)     # 0..5 accepted
+
+        # The live recorder halves its buffer, then records more.
+        decimated = [first[0], *first[1:-1:2], first[-1]] + frames(3, start=10)
+        send = self._export_with(decimated)
+
+        resent = [f["timestamp"] for f in send.call_args[0][1]]
+        self.assertNotIn(0, resent, "resent a frame the backend already has")
+        # Everything newer than the watermark, however the buffer was rewritten.
+        # 6 and 8 are absent because decimation REMOVED them — they no longer
+        # exist to send. Everything still in the buffer and newer than the
+        # watermark goes, however the indices moved.
+        self.assertEqual(resent, [7, 9, 10, 11, 12])
+
+    def test_frames_older_than_the_watermark_are_never_resent(self):
+        self._arm()
+        self._export_with(frames(5))
+        send = self._export_with(frames(5, start=0) + frames(2, start=5))
+        self.assertEqual([f["timestamp"] for f in send.call_args[0][1]], [5, 6])
