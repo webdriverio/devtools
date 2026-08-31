@@ -76,7 +76,7 @@ def _restore_excepthook() -> None:
 _active: dict = {
     "capturer": None, "transport": None, "process": None, "url": None,
     "handle": None, "terminal": None, "logs": None, "excepthook": None,
-    "trace": False, "traced": False,
+    "trace": False, "traced": False, "filmstrip_sent": 0,
 }
 
 
@@ -164,8 +164,17 @@ def _export_trace(
         # Before the request, not with it: the buffer holds up to a couple of
         # thousand JPEGs, and the backend accumulates them like any other
         # stream.
-        trace_export.send_frames(
-            _active["transport"], instrumentation.screencast_frames()
+        #
+        # Only what has not gone out already. A failed export is retried at
+        # teardown, and the backend APPENDS these — it has no key to replace or
+        # dedupe on — so resending the buffer would put every frame in the trace
+        # twice. Slicing by count is sound because the list only grows at the
+        # end: sessions run one at a time, so a later frame carries a later
+        # timestamp and the sorted prefix is stable.
+        already = _active["filmstrip_sent"]
+        pending = instrumentation.screencast_frames()[already:]
+        _active["filmstrip_sent"] = already + trace_export.send_frames(
+            _active["transport"], pending
         )
         return trace_export.export(
             _active["transport"],
@@ -249,7 +258,7 @@ def enable(
     url = f"http://{host}:{port}"
     _active.update(
         capturer=capturer, transport=transport, process=process, url=url,
-        terminal=term, logs=logs, trace=trace_mode, traced=False,
+        terminal=term, logs=logs, trace=trace_mode, traced=False, filmstrip_sent=0,
     )
 
     # Open the dashboard window and wire exit/signal + control-frame teardown so
@@ -312,7 +321,7 @@ def disable() -> None:
     trace_export.reset()
     _active.update(
         capturer=None, transport=None, process=None, url=None, handle=None,
-        terminal=None, logs=None, excepthook=None, trace=False, traced=False,
+        terminal=None, logs=None, excepthook=None, trace=False, traced=False, filmstrip_sent=0,
     )
 
 

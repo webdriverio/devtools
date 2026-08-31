@@ -333,12 +333,29 @@ def _attach_performance(
 def screencast_frames() -> list:
     """Every frame this run's recorders buffered, in time order.
 
-    Collected as each session finalizes rather than read here: by export time
-    the recorders are gone. A run may replace its driver, so this is the
-    concatenation across sessions, sorted because they are appended in quit
-    order and a replaced session can finish after a later one started.
+    Two sources, because a frame is only reachable from one of them at a time:
+
+    * sessions that already quit — kept as they finalized, since
+      `_finalize_screencast` pops the recorder off the entry and `sessions` is
+      keyed weakly by a driver about to be collected;
+    * sessions still live — read straight off their recorder, because an export
+      can run before the last driver quits, and `uninstall` then stops those
+      recorders without keeping anything.
+
+    Sorted rather than concatenated: sessions are appended in quit order, and a
+    replaced session can finish after a later one started.
     """
-    return sorted(_state["filmstrip_frames"], key=lambda f: f.get("timestamp", 0))
+    frames: list = list(_state["filmstrip_frames"])
+    for entry in list(_state.get("sessions", {}).values()):
+        recorder = entry.get("screencast")
+        if recorder is None:
+            continue
+        try:
+            frames.extend(recorder.frames)
+        except Exception as exc:  # noqa: BLE001 — a poorer filmstrip, not a failed run
+            _log.debug("could not read a live recorder's frames: %s", exc)
+    frames.sort(key=lambda f: f.get("timestamp", 0))
+    return frames
 
 
 def resolved_output_dir() -> Optional[str]:

@@ -235,3 +235,118 @@ class TestTheRecorderRunsForTheFilmstrip(unittest.TestCase):
     def test_live_mode_records_regardless(self):
         # The dashboard video does not depend on the filmstrip option.
         self._bring_up(trace=False, filmstrip=False).assert_called_once()
+
+
+class TestALiveSessionStillContributes(unittest.TestCase):
+    """An export can run before the last driver quits.
+
+    Frames are only reachable from one place at a time: a finalized session's
+    buffer was kept as it finalized, a live one's is still on its recorder — and
+    `uninstall` stops live recorders without keeping anything, so reading only
+    the finalized accumulator drops whatever the last session recorded.
+    """
+
+    class Recorder:
+        def __init__(self, buf):
+            self._buf = buf
+
+        @property
+        def frames(self):
+            return list(self._buf)
+
+    def test_a_live_recorder_is_read_as_well(self):
+        with mock.patch.dict(
+            instrumentation._state,
+            {
+                "filmstrip_frames": frames(2, start=0),
+                "sessions": {"d": {"screencast": self.Recorder(frames(2, start=100))}},
+            },
+        ):
+            collected = instrumentation.screencast_frames()
+        self.assertEqual([f["timestamp"] for f in collected], [0, 1, 100, 101])
+
+    def test_a_live_session_alone_is_enough(self):
+        with mock.patch.dict(
+            instrumentation._state,
+            {
+                "filmstrip_frames": [],
+                "sessions": {"d": {"screencast": self.Recorder(frames(3))}},
+            },
+        ):
+            self.assertEqual(len(instrumentation.screencast_frames()), 3)
+
+    def test_a_recorder_that_raises_does_not_break_the_export(self):
+        class Broken:
+            @property
+            def frames(self):
+                raise RuntimeError("session gone")
+
+        with mock.patch.dict(
+            instrumentation._state,
+            {"filmstrip_frames": frames(2), "sessions": {"d": {"screencast": Broken()}}},
+        ):
+            self.assertEqual(len(instrumentation.screencast_frames()), 2)
+
+
+class TestRetriesDoNotDuplicateFrames(unittest.TestCase):
+    """A failed export is retried at teardown, and the backend APPENDS these —
+    it has no key to replace or dedupe on — so resending the buffer would put
+    every frame in the trace twice."""
+
+    def setUp(self):
+        import selenium_devtools as pkg
+
+        self.pkg = pkg
+        self.saved = dict(pkg._active)
+
+    def tearDown(self):
+        self.pkg._active.clear()
+        self.pkg._active.update(self.saved)
+
+    def _arm(self, sent=0):
+        self.pkg._active.update(
+            capturer=None, transport=FakeTransport(), process=None, url=None,
+            handle=None, terminal=None, logs=None, excepthook=None,
+            trace=True, traced=False, filmstrip_sent=sent,
+        )
+
+    def _export_with(self, buf):
+        with mock.patch.object(
+            instrumentation, "screencast_frames", return_value=buf
+        ), mock.patch.object(
+            instrumentation, "resolved_output_dir", return_value="/out"
+        ), mock.patch.object(
+            trace_export, "send_frames", side_effect=lambda tx, f: len(f)
+        ) as send, mock.patch.object(
+            trace_export, "export", return_value=None
+        ):
+            self.pkg.export_trace()
+        return send
+
+    def test_a_retry_sends_nothing_when_everything_went_out(self):
+        self._arm()
+        buf = frames(10)
+        self._export_with(buf)
+        self.assertEqual(self.pkg._active["filmstrip_sent"], 10)
+
+        send = self._export_with(buf)          # the teardown retry
+        self.assertEqual(send.call_args[0][1], [], "resent the whole buffer")
+
+    def test_a_retry_sends_only_what_a_partial_send_missed(self):
+        self._arm()
+        buf = frames(10)
+        with mock.patch.object(
+            instrumentation, "screencast_frames", return_value=buf
+        ), mock.patch.object(
+            instrumentation, "resolved_output_dir", return_value="/out"
+        ), mock.patch.object(
+            trace_export, "send_frames", return_value=4
+        ), mock.patch.object(trace_export, "export", return_value=None):
+            self.pkg.export_trace()
+        self.assertEqual(self.pkg._active["filmstrip_sent"], 4)
+
+        send = self._export_with(buf)
+        self.assertEqual(
+            [f["data"] for f in send.call_args[0][1]],
+            [f["data"] for f in buf[4:]],
+        )
