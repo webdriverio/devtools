@@ -871,11 +871,20 @@ def uninstall() -> None:
     # per-run state.
     reset_collector_cache()
     # Never leave a recorder running past teardown, for any session still live.
+    # Keep the buffer first: `disable()` uninstalls BEFORE its fallback export,
+    # and `sessions` is replaced below, so a session that never quit would
+    # otherwise have its frames dropped here — the plain-script path exactly.
     for entry in list(_state.get("sessions", {}).values()):
         _stop_push_screencast(entry)
         recorder = entry.get("screencast")
-        if recorder is not None:
-            recorder.stop()
+        if recorder is None:
+            continue
+        if _state["filmstrip"]:
+            try:
+                _state["filmstrip_frames"].extend(recorder.frames)
+            except Exception as exc:  # noqa: BLE001 — a poorer filmstrip, not a failed run
+                _log.debug("could not keep a live recorder's frames: %s", exc)
+        recorder.stop()
     if not _state["installed"]:
         _state.update(
             sessions=weakref.WeakKeyDictionary(),

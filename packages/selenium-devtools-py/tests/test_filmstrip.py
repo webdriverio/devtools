@@ -323,22 +323,42 @@ class TestRetriesDoNotDuplicateFrames(unittest.TestCase):
             self.pkg.export_trace()
         return send
 
-    def test_a_retry_sends_nothing_when_everything_went_out(self):
+    # The boundary is inclusive, so a retry re-sends the one frame the last
+    # attempt ended on — never the buffer. The exporter content-addresses frame
+    # bytes, so that duplicate shares a resource with the original.
+    def test_a_retry_resends_only_the_boundary_frame(self):
         self._arm()
         buf = frames(10)
         self._export_with(buf)
         send = self._export_with(buf)
-        self.assertEqual(send.call_args[0][1], [], "resent the whole buffer")
+        self.assertEqual(
+            [f["timestamp"] for f in send.call_args[0][1]], [9],
+            "resent more than the boundary frame",
+        )
 
-    def test_a_retry_sends_only_what_a_partial_send_missed(self):
+    def test_a_retry_sends_what_a_partial_send_missed(self):
         self._arm()
         buf = frames(10)
-        self._export_with(buf, accepted=4)
+        self._export_with(buf, accepted=4)   # 0..3 accepted, watermark 3
         send = self._export_with(buf)
         self.assertEqual(
-            [f["timestamp"] for f in send.call_args[0][1]],
-            [f["timestamp"] for f in buf[4:]],
+            [f["timestamp"] for f in send.call_args[0][1]], [3, 4, 5, 6, 7, 8, 9]
         )
+
+    # Two frames can share a millisecond. An exclusive boundary dropped the
+    # unsent twin — a hole in the filmstrip — because the watermark had already
+    # advanced past its timestamp.
+    def test_a_frame_sharing_the_boundary_millisecond_is_not_lost(self):
+        self._arm()
+        twin_a = {"data": "a", "timestamp": 5}
+        twin_b = {"data": "b", "timestamp": 5}
+        buf = frames(5) + [twin_a, twin_b] + frames(2, start=6)
+
+        self._export_with(buf, accepted=6)   # ends on twin_a, watermark 5
+        send = self._export_with(buf)
+
+        resent = [f["data"] for f in send.call_args[0][1]]
+        self.assertIn("b", resent, "dropped the unsent twin")
 
     # The buffer is BOUNDED and decimated in place — `screencast._decimate`
     # halves it, keeping the ends — so between two attempts the list can shrink
@@ -346,7 +366,7 @@ class TestRetriesDoNotDuplicateFrames(unittest.TestCase):
     def test_a_decimated_buffer_between_attempts_loses_nothing(self):
         self._arm()
         first = frames(10)                       # timestamps 0..9
-        self._export_with(first, accepted=6)     # 0..5 accepted
+        self._export_with(first, accepted=6)     # 0..5 accepted, watermark 5
 
         # The live recorder halves its buffer, then records more.
         decimated = [first[0], *first[1:-1:2], first[-1]] + frames(3, start=10)
@@ -354,14 +374,60 @@ class TestRetriesDoNotDuplicateFrames(unittest.TestCase):
 
         resent = [f["timestamp"] for f in send.call_args[0][1]]
         self.assertNotIn(0, resent, "resent a frame the backend already has")
-        # Everything newer than the watermark, however the buffer was rewritten.
         # 6 and 8 are absent because decimation REMOVED them — they no longer
-        # exist to send. Everything still in the buffer and newer than the
-        # watermark goes, however the indices moved.
-        self.assertEqual(resent, [7, 9, 10, 11, 12])
+        # exist to send. 5 is the inclusive boundary.
+        self.assertEqual(resent, [5, 7, 9, 10, 11, 12])
 
     def test_frames_older_than_the_watermark_are_never_resent(self):
         self._arm()
-        self._export_with(frames(5))
+        self._export_with(frames(5))             # watermark 4
         send = self._export_with(frames(5, start=0) + frames(2, start=5))
-        self.assertEqual([f["timestamp"] for f in send.call_args[0][1]], [5, 6])
+        self.assertEqual([f["timestamp"] for f in send.call_args[0][1]], [4, 5, 6])
+
+
+class TestUninstallKeepsLiveFrames(unittest.TestCase):
+    """`disable()` uninstalls BEFORE its fallback export, and uninstall replaces
+    `sessions` — so a session that never quit would have its frames dropped
+    before anything could read them. That is the plain-script path exactly: no
+    per-test fixture quits the driver, so the last session is always live."""
+
+    class Recorder:
+        def __init__(self, buf):
+            self._buf = buf
+            self.stopped = 0
+
+        @property
+        def frames(self):
+            return list(self._buf)
+
+        def stop(self):
+            self.stopped += 1
+
+    def tearDown(self):
+        instrumentation.uninstall()
+
+    def _uninstall_with(self, *, filmstrip):
+        rec = self.Recorder(frames(4))
+        sessions = {"driver": {"screencast": rec}}
+        with mock.patch.dict(
+            instrumentation._state,
+            {
+                "sessions": sessions,
+                "filmstrip": filmstrip,
+                "filmstrip_frames": [],
+                "installed": False,
+            },
+        ):
+            instrumentation.uninstall()
+            kept = list(instrumentation._state["filmstrip_frames"])
+        return rec, kept
+
+    def test_a_live_recorders_buffer_survives_uninstall(self):
+        rec, kept = self._uninstall_with(filmstrip=True)
+        self.assertEqual(len(kept), 4)
+        self.assertEqual(rec.stopped, 1, "recorder left running past teardown")
+
+    def test_nothing_is_kept_without_a_filmstrip(self):
+        rec, kept = self._uninstall_with(filmstrip=False)
+        self.assertEqual(kept, [])
+        self.assertEqual(rec.stopped, 1)

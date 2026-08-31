@@ -179,11 +179,18 @@ def _export_trace(
         # the watermark stays meaningful however the buffer is rewritten.
         # None, not 0: "nothing sent yet" is not a timestamp, and a frame
         # stamped 0 would be filtered out by one.
+        #
+        # The boundary is INCLUSIVE, so a retry may resend the frame the last
+        # attempt ended on. Timestamps are milliseconds and two frames can share
+        # one, and an exclusive boundary would drop the unsent twin — a gap in
+        # the filmstrip. A resend costs nothing much instead: the exporter
+        # content-addresses frame bytes, so the duplicate shares one resource.
+        # Losing a frame beats duplicating one only if you never look at it.
         mark = _active["filmstrip_mark"]
         pending = [
             f
             for f in instrumentation.screencast_frames()
-            if mark is None or f.get("timestamp", 0) > mark
+            if mark is None or f.get("timestamp", 0) >= mark
         ]
         sent = trace_export.send_frames(_active["transport"], pending)
         if sent:
