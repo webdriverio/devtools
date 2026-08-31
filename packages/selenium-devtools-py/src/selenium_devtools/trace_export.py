@@ -28,8 +28,13 @@ import uuid
 from dataclasses import dataclass
 from typing import Any, Optional
 
-from ._contract import SCOPE_SCREENCAST_FRAMES, SCOPE_TRACE_EXPORT
+from ._contract import (
+    SCOPE_ACTION_SNAPSHOTS,
+    SCOPE_SCREENCAST_FRAMES,
+    SCOPE_TRACE_EXPORT,
+)
 from .constants import (
+    ACTION_SNAPSHOT_BATCH,
     LOGGER_NAME,
     SCREENCAST_FRAME_BATCH,
     TRACE_EXPORT_TIMEOUT_S,
@@ -109,6 +114,30 @@ def send_frames(transport: Any, frames: list) -> int:
         sent += len(batch)
     if sent:
         _log.debug("streamed %d filmstrip frame(s) for the trace", sent)
+    return sent
+
+
+def send_action_snapshots(transport: Any, snapshots: list) -> int:
+    """Stream the per-action element trees ahead of the export request.
+
+    Batched like the filmstrip and for the same reason: each snapshot carries a
+    screenshot and an element tree, so a run's worth in one message is large
+    enough to matter on a socket that masks its payload a byte at a time.
+    """
+    if not snapshots or transport is None:
+        return 0
+    sent = 0
+    for start in range(0, len(snapshots), ACTION_SNAPSHOT_BATCH):
+        batch = snapshots[start : start + ACTION_SNAPSHOT_BATCH]
+        try:
+            if not transport.send_json(SCOPE_ACTION_SNAPSHOTS, batch):
+                break
+        except Exception as exc:  # noqa: BLE001 — never break the test
+            _log.debug("action snapshot batch dropped: %s", exc)
+            break
+        sent += len(batch)
+    if sent:
+        _log.debug("streamed %d action snapshot(s) for the trace", sent)
     return sent
 
 
