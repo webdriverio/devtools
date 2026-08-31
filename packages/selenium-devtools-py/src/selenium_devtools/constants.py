@@ -85,6 +85,16 @@ TRACE_EXPORT_TIMEOUT_S = 60.0
 #: Opt in to writing a trace archive at the end of the run.
 ENV_TRACE = "DEVTOOLS_TRACE"
 
+#: Opt OUT of the dense filmstrip in trace mode (on by default, as in the JS
+#: adapters). Falsy values disable it.
+ENV_FILMSTRIP = "DEVTOOLS_FILMSTRIP"
+
+#: Filmstrip frames per websocket message. The buffer can hold
+#: SCREENCAST_MAX_BUFFER_FRAMES JPEGs, which in one message would approach the
+#: socket's payload limit; the transport also masks payloads in a per-byte
+#: Python loop (~57 MB/s measured), so smaller messages keep the stall short.
+SCREENCAST_FRAME_BATCH = 50
+
 MIN_NODE_MAJOR = 18
 NODE_VERSION_TIMEOUT_S = 5.0
 

@@ -30,6 +30,7 @@ from .constants import (
     DEFAULT_HOST,
     DEFAULT_PORT,
     ENV_HOST,
+    ENV_FILMSTRIP,
     ENV_PORT,
     ENV_TRACE,
     LOGGER_NAME,
@@ -77,6 +78,18 @@ _active: dict = {
     "handle": None, "terminal": None, "logs": None, "excepthook": None,
     "trace": False, "traced": False,
 }
+
+
+def _filmstrip_enabled(filmstrip: Optional[bool]) -> bool:
+    """Whether trace mode records a dense filmstrip. Default ON, as in the JS
+    adapters (`BaseDevToolsOptions.filmstrip`), opt-out only — the argument
+    wins, then the environment."""
+    if filmstrip is not None:
+        return filmstrip
+    value = os.environ.get(ENV_FILMSTRIP)
+    if value is None:
+        return True
+    return value.lower() not in ("0", "false", "no", "off", "")
 
 
 def _trace_enabled(trace: Optional[bool]) -> bool:
@@ -148,6 +161,12 @@ def _export_trace(
         session_id = (
             getattr(capturer, "session_id", None) or resolve_run_id()
         )
+        # Before the request, not with it: the buffer holds up to a couple of
+        # thousand JPEGs, and the backend accumulates them like any other
+        # stream.
+        trace_export.send_frames(
+            _active["transport"], instrumentation.screencast_frames()
+        )
         return trace_export.export(
             _active["transport"],
             output_dir=output_dir or resolve_adapter_output_dir(),
@@ -164,6 +183,7 @@ def enable(
     *,
     webdriver_cls: Optional[type] = None,
     trace: Optional[bool] = None,
+    filmstrip: Optional[bool] = None,
 ) -> Optional[SessionCapturer]:
     """Connect to the backend and instrument Selenium. Idempotent.
 
@@ -178,6 +198,7 @@ def enable(
     # Decided before anything reads it: the screencast recorder, the dashboard
     # window and the teardown export all branch on this.
     trace_mode = _trace_enabled(trace)
+    filmstrip_mode = trace_mode and _filmstrip_enabled(filmstrip)
 
     # Before the backend is launched: the directory a rerun spawns in travels
     # through the environment the backend process inherits. A framework plugin
@@ -212,7 +233,9 @@ def enable(
         return None
 
     capturer = SessionCapturer(transport)
-    instrumentation.install(capturer, webdriver_cls, trace=trace_mode)
+    instrumentation.install(
+        capturer, webdriver_cls, trace=trace_mode, filmstrip=filmstrip_mode
+    )
     # Plain scripts only: a framework plugin calls
     # `set_external_suites`, which turns this back off.
     instrumentation.start_assertion_tracing(capturer)

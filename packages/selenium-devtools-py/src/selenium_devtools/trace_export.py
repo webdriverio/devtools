@@ -28,8 +28,12 @@ import uuid
 from dataclasses import dataclass
 from typing import Any, Optional
 
-from ._contract import SCOPE_TRACE_EXPORT
-from .constants import LOGGER_NAME, TRACE_EXPORT_TIMEOUT_S
+from ._contract import SCOPE_SCREENCAST_FRAMES, SCOPE_TRACE_EXPORT
+from .constants import (
+    LOGGER_NAME,
+    SCREENCAST_FRAME_BATCH,
+    TRACE_EXPORT_TIMEOUT_S,
+)
 
 _log = logging.getLogger(f"{LOGGER_NAME}.trace")
 
@@ -76,6 +80,36 @@ def reset() -> None:
     global _pending
     with _lock:
         _pending = None
+
+
+def send_frames(transport: Any, frames: list) -> int:
+    """Stream the filmstrip to the backend ahead of the export request.
+
+    In batches: a run's buffer reaches the recorder's cap of a couple of
+    thousand JPEG frames, and one message carrying all of them would sit near
+    the socket's payload limit — and the transport masks its payload in a
+    per-byte Python loop, measured at ~57 MB/s, so a single huge frame is a
+    visible stall as well as a risk.
+
+    Returns how many frames were accepted. A partial send is not an error worth
+    failing the run over: the exporter thins the filmstrip anyway, and fewer
+    frames is a poorer video rather than a broken trace.
+    """
+    if not frames or transport is None:
+        return 0
+    sent = 0
+    for start in range(0, len(frames), SCREENCAST_FRAME_BATCH):
+        batch = frames[start : start + SCREENCAST_FRAME_BATCH]
+        try:
+            if not transport.send_json(SCOPE_SCREENCAST_FRAMES, batch):
+                break
+        except Exception as exc:  # noqa: BLE001 — never break the test
+            _log.debug("filmstrip batch dropped: %s", exc)
+            break
+        sent += len(batch)
+    if sent:
+        _log.debug("streamed %d filmstrip frame(s) for the trace", sent)
+    return sent
 
 
 def export(
