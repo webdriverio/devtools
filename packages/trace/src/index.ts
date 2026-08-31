@@ -9,6 +9,7 @@
 // capture. Adapter-side policy and orchestration stay in `core`
 // (`trace-finalizer`, `spec-trace-helpers`, `trace-retention`).
 
+export * from './a11y-snapshot.js'
 export * from './sha1.js'
 export * from './screencast-trace.js'
 export * from './trace-action-events.js'

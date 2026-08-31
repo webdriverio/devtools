@@ -12,9 +12,17 @@ import type {
   SnapshotResult
 } from './element-types.js'
 
+// The web serializer lives in `trace` because the backend builds the trace for
+// an adapter that cannot, and §2.2 bars the backend from importing core.
+export {
+  serializeWebSnapshot,
+  type WebSnapshotOptions
+} from '@wdio/devtools-trace/a11y-snapshot'
+
 import {
   SNAPSHOT_INDENT_UNIT,
-  SNAPSHOT_PAGE_HEADER,
+  INTERACTIVE_ROLES,
+  isStatictextEchoedByParent,
   SNAPSHOT_LOCATOR_DELIM,
   SNAPSHOT_PURPOSE_TOKEN,
   xpathLocatorTag
@@ -28,171 +36,9 @@ import {
 } from './locators/constants.js'
 import { getSuggestedLocators } from './locators/locator-generation.js'
 
-/**
- * Roles that can be interacted with — rendered with `→ selector`.
- * Structural roles (heading, img, form, nav, …) are intentionally excluded.
- */
-const INTERACTIVE_ROLES = new Set([
-  'button',
-  'link',
-  'textbox',
-  'checkbox',
-  'radio',
-  'combobox',
-  'slider',
-  'searchbox',
-  'spinbutton',
-  'switch',
-  'tab',
-  'menuitem',
-  'option'
-])
-
-/**
- * Walk backwards from `index` to find the nearest ancestor or preceding
- * structural sibling with a non-empty name.  Same-depth nodes are only
- * used when they are structural (img, heading, statictext, …) — never
- * another interactive element.
- */
-function inferPurpose(
-  nodes: AccessibilityNode[],
-  index: number
-): string | undefined {
-  const myDepth = nodes[index].depth
-  for (let i = index - 1; i >= 0; i--) {
-    if (nodes[i].depth <= myDepth && nodes[i].name) {
-      // Same-depth sibling: only structural elements count
-      if (nodes[i].depth === myDepth && INTERACTIVE_ROLES.has(nodes[i].role)) {
-        continue
-      }
-      return nodes[i].name
-    }
-  }
-  return undefined
-}
-
-export interface WebSnapshotOptions {
-  /** Only include nodes whose bounding rect intersects the viewport (default true). */
-  inViewportOnly?: boolean
-}
-
-/**
- * Serialize a web accessibility tree into a depth-indented text snapshot.
- *
- * @param nodes   Flat ordered node list from getBrowserAccessibilityTree()
- * @param context  Optional page context for the header line
- * @param options  {@link WebSnapshotOptions}
- */
-export function serializeWebSnapshot(
-  nodes: AccessibilityNode[],
-  context?: { url?: string; title?: string },
-  options: WebSnapshotOptions = {}
-): string {
-  const { inViewportOnly = true } = options
-
-  let header = SNAPSHOT_PAGE_HEADER
-  if (context?.title) {
-    header += `: ${context.title}`
-  }
-  if (context?.url) {
-    header += ` — ${context.url}`
-  }
-  header += ']'
-
-  const lines: string[] = [header]
-
-  for (let i = 0; i < nodes.length; i++) {
-    const node = nodes[i]
-
-    // When viewport filtering is on, skip nodes that are known to be off-screen.
-    // Nodes from a tree captured with inViewportOnly=false will have
-    // isInViewport populated; nodes from a pre-filtered tree all have
-    // isInViewport=true (or undefined for pre-existing data).
-    if (inViewportOnly && node.isInViewport === false) {
-      continue
-    }
-
-    const indent = SNAPSHOT_INDENT_UNIT.repeat(node.depth + 1) // +1 indents everything under the header
-    const isInteractive = INTERACTIVE_ROLES.has(node.role)
-
-    if (isStatictextEchoedByParent(nodes, i)) {
-      continue
-    }
-
-    // Heading gets level suffix: heading[2]
-    const roleLabel =
-      node.role === 'heading' && node.level
-        ? `heading[${node.level}]`
-        : node.role
-
-    if (isInteractive) {
-      // No selector → agent can't act on this node; skip entirely
-      if (!node.selector) {
-        continue
-      }
-      const purpose = inferPurpose(nodes, i)
-      if (node.name) {
-        // Show parent context when available — disambiguates
-        // duplicate selectors like six "Add to Wishlist" buttons.
-        lines.push(
-          purpose
-            ? `${indent}${roleLabel} "${node.name}" ${SNAPSHOT_PURPOSE_TOKEN} "${purpose}"  ${SNAPSHOT_LOCATOR_DELIM}  ${node.selector}`
-            : `${indent}${roleLabel} "${node.name}"  ${SNAPSHOT_LOCATOR_DELIM}  ${node.selector}`
-        )
-      } else if (purpose) {
-        lines.push(
-          `${indent}${roleLabel} ${SNAPSHOT_PURPOSE_TOKEN} "${purpose}"  ${SNAPSHOT_LOCATOR_DELIM}  ${node.selector}`
-        )
-      } else {
-        lines.push(
-          `${indent}${roleLabel}  ${SNAPSHOT_LOCATOR_DELIM}  ${node.selector}`
-        )
-      }
-    } else {
-      // Container / structural: show role + name when present, no selector
-      lines.push(
-        node.name
-          ? `${indent}${roleLabel} "${node.name}"`
-          : `${indent}${roleLabel}`
-      )
-    }
-  }
-
-  return lines.join('\n')
-}
-
 // ---------------------------------------------------------------------------
 // Mobile snapshot helpers
 // ---------------------------------------------------------------------------
-
-/**
- * Returns true when `nodes[index]` is a statictext whose accessible name
- * is already echoed by its immediate interactive parent — such a node
- * adds no information and should be suppressed from the output.
- */
-function isStatictextEchoedByParent(
-  nodes: AccessibilityNode[],
-  index: number
-): boolean {
-  const node = nodes[index]!
-  if (node.role !== 'statictext' || !node.name) {
-    return false
-  }
-  for (let j = index - 1; j >= 0; j--) {
-    if (nodes[j]!.depth < node.depth) {
-      const parent = nodes[j]!
-      if (
-        INTERACTIVE_ROLES.has(parent.role) &&
-        parent.name &&
-        parent.name.includes(node.name)
-      ) {
-        return true
-      }
-      break
-    }
-  }
-  return false
-}
 
 /** Shorten fully-qualified Android/iOS class names to the last segment. */
 function simplifyTag(tagName: string): string {
