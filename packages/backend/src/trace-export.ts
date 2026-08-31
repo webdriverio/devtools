@@ -7,7 +7,12 @@
  * shape and the exporter's, plus the two derivations the wire does not carry.
  */
 
-import type { TestMetadataMap, TraceExportRequest } from '@wdio/devtools-shared'
+import type {
+  ActionSnapshot,
+  TestMetadataMap,
+  TraceExportRequest
+} from '@wdio/devtools-shared'
+import { serializeWebSnapshot } from '@wdio/devtools-trace/a11y-snapshot'
 import {
   writeTraceZip,
   type TraceCapturer
@@ -35,6 +40,30 @@ export function testMetadataFromNodes(
     })
   }
   return metadata
+}
+
+/**
+ * Serialize any raw accessibility tree into the text the A11y tab parses.
+ *
+ * An adapter that exports through here captured the tree with a page-side
+ * script but cannot serialize it — that transform is TypeScript. A snapshot
+ * that already carries `snapshotText` is left alone: the JS adapters serialize
+ * in-process and theirs is authoritative.
+ */
+function serializeTrees(snapshots: ActionSnapshot[]): ActionSnapshot[] {
+  return snapshots.map((snap) => {
+    if (snap.snapshotText || !snap.accessibilityTree?.length) {
+      return snap
+    }
+    const { accessibilityTree, ...rest } = snap
+    return {
+      ...rest,
+      snapshotText: serializeWebSnapshot(accessibilityTree, {
+        url: snap.url,
+        title: snap.title
+      })
+    }
+  })
 }
 
 /**
@@ -82,6 +111,12 @@ export async function exportActiveRunTrace(
     sessionId: request.sessionId,
     ...(request.format ? { format: request.format } : {}),
     ...(request.fileStem ? { fileStem: request.fileStem } : {}),
+    // Absence is meaningful here too, and differently: given none, the
+    // exporter synthesizes bare snapshots from commands carrying screenshots,
+    // so an adapter that sends nothing still gets pictures — just no elements.
+    ...(run.actionSnapshots.length
+      ? { actionSnapshots: serializeTrees(run.actionSnapshots) }
+      : {}),
     // Omitted when empty rather than passed as []: the exporter treats absence
     // as "no dense filmstrip" and keeps the sparse per-action one, which is
     // what an adapter that did not ask for frames should still get.
