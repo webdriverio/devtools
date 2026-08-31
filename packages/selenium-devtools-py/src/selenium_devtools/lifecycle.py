@@ -251,6 +251,29 @@ def _close_handle() -> None:
         handle.close()
 
 
+def _on_process_exit() -> None:
+    """Tear capture down when the process simply ends.
+
+    Every other route to teardown runs disable(): Ctrl-C and SIGTERM through
+    `_on_signal`, the dashboard window closing through `on_control`. A script
+    that just reaches the end of its `finally` had only ever closed the window
+    here — invisible in live mode, where capture streams as it happens and
+    teardown adds nothing, but the trace archive is written AT teardown, so a
+    plain script in trace mode produced no file at all.
+
+    No `_has_waiter` check, unlike `_trigger_shutdown`: a waiter that would own
+    teardown has necessarily returned by the time atexit runs.
+    """
+    global _shutting_down
+    with _shutdown_lock:
+        if _shutting_down:
+            return  # a signal or the dashboard already tore this run down
+        _shutting_down = True
+    _shutdown_event.set()
+    _run_disable()
+    _close_handle()
+
+
 def on_control(scope: str, data: dict) -> None:
     """WS control-frame handler: shut down when the dashboard client leaves.
 
@@ -334,7 +357,7 @@ def register_exit_handlers(
         return
     _handlers_registered = True
 
-    atexit.register(_close_handle)
+    atexit.register(_on_process_exit)
 
     if threading.current_thread() is threading.main_thread():
         try:
@@ -352,7 +375,7 @@ def unregister_exit_handlers() -> None:
     _close_handle()
     if _handlers_registered:
         try:
-            atexit.unregister(_close_handle)
+            atexit.unregister(_on_process_exit)
         except Exception:
             pass
         if threading.current_thread() is threading.main_thread():
