@@ -4,6 +4,7 @@
 export * from './action-mapping.js'
 export * from './baseline.js'
 export * from './console.js'
+export * from './element-scripts.js'
 export * from './collector.js'
 export * from './files.js'
 export * from './locator-dialect.js'
