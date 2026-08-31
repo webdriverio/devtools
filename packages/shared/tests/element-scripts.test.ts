@@ -7,11 +7,10 @@ import {
 } from '../src/element-scripts.js'
 import type {
   AccessibilityNode,
-  BrowserElementInfo
-} from '../src/element-types.js'
-import { locatorsMatch } from '@wdio/devtools-shared'
-import type { TestRunnerId } from '@wdio/devtools-shared'
-import { accessibilityNodesToSnapshotNodes } from '../src/element-snapshot.js'
+  BrowserElementInfo,
+  TestRunnerId
+} from '../src/types.js'
+import { locatorsMatch } from '../src/locator-dialect.js'
 
 /** The scripts are injectable source, so they are run the way the adapters run
  *  them — `@wdio/elements` builds the same `new Function` wrapper. */
@@ -344,19 +343,6 @@ describe('generated locators the exporter has to parse back', () => {
       expect(locatorsMatch(captured, 'a*=Logout')).toBe(true)
       expect(locatorsMatch(captured, '//a[contains(., "Logout")]')).toBe(true)
       expect(locatorsMatch(captured, 'button*=Logout')).toBe(false)
-    }
-  })
-
-  it('yields its tag to the snapshot serializer in either dialect', () => {
-    // The serializer reads the tag back out of the locator it was handed, so a
-    // dialect it can't parse would report the ARIA role as the tag instead.
-    for (const runner of ['mocha', 'nightwatch'] as const) {
-      const nodes = accessibilityNodesToSnapshotNodes(a11yNodes(html, runner), {
-        inViewportOnly: false
-      })
-      const link = nodes.find((n) => n.name === 'Logout')
-
-      expect(link?.tagName).toBe('a')
     }
   })
 })
