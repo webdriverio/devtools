@@ -218,3 +218,26 @@ describe('raw W3C protocol names', () => {
     }
   })
 })
+
+describe('assertion command names', () => {
+  it('resolves the dotted forms every adapter emits', () => {
+    for (const command of [
+      'assert.equal',
+      'assert.notEqual',
+      'assert.strictEqual',
+      'assert.notStrictEqual',
+      'assert.ok',
+      'verify.ok',
+      'expect.toBe'
+    ]) {
+      expect(mapCommandToAction(command)?.class).toBe('Assert')
+    }
+  })
+
+  it('does not resolve a namespace with no method', () => {
+    // The Python adapter emitted a bare `assert` and the trace exporter drops
+    // what it cannot map, so those rows showed live and in no trace.
+    expect(mapCommandToAction('assert')).toBeNull()
+    expect(mapCommandToAction('expect')).toBeNull()
+  })
+})

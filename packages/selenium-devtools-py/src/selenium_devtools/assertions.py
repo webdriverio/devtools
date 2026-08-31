@@ -29,10 +29,27 @@ from typing import Any, Dict, Optional, Tuple
 # Getting this backwards silently swaps every containment row's two values.
 _EXPECTATION_ON_LEFT = frozenset({"in", "not in"})
 
-# The row label. One name for every assertion, because Python's `assert` has no
-# matcher vocabulary to name it by — the expression itself carries the meaning
-# and travels as the row's argument.
-ASSERT_COMMAND = "assert"
+# The row label. `assert.<method>`, never a bare `assert`: shared's ACTION_MAP
+# matches `^(?:assert|verify|expect)\.(\w+)$`, and the trace exporter silently
+# drops a command it cannot map — so a bare name produced rows that showed in
+# live mode and vanished from every trace.
+ASSERT_COMMAND = "assert.ok"
+
+# Python's operators named as node:assert's methods, so a row renders the way
+# the JS adapters' do. Anything without a direct equivalent — the orderings,
+# containment, and `assert x` with no operator at all — is `ok`, which is
+# exactly what node:assert calls a bare truthiness check.
+_OPERATOR_METHODS = {
+    "==": "equal",
+    "!=": "notEqual",
+    "is": "strictEqual",
+    "is not": "notStrictEqual",
+}
+
+
+def assert_command(op: Optional[str] = None) -> str:
+    """The command name for an assertion on ``op``."""
+    return f"assert.{_OPERATOR_METHODS.get(op or '', 'ok')}"
 
 
 def expected_and_actual(op: str, left: Any, right: Any) -> Tuple[Any, Any]:
@@ -63,8 +80,12 @@ def collapsed_result(
     result: Dict[str, Any] = {"passed": passed}
     if op is not None:
         expected, actual = expected_and_actual(op, left, right)
-        result["expected"] = expected
-        result["actual"] = actual
+        # Whichever side resolved. `"/login" in driver.current_url` can only ever
+        # know the literal, and reporting one value beats reporting none.
+        if expected is not _UNRESOLVED:
+            result["expected"] = expected
+        if actual is not _UNRESOLVED:
+            result["actual"] = actual
     # `assert cond, msg` makes the message whatever `msg` evaluated to, and the
     # idiomatic `assert needle in haystack, haystack` makes that the actual value
     # — so it would render as a third row repeating the second verbatim.
@@ -118,9 +139,10 @@ def parse_assert_statement(
     """(condition source, operands) read from a plain script's `assert` line.
 
     A script's assert is never rewritten, so this is the only route to the values
-    — and it is deliberately partial. Operands come back only for a single
-    comparison whose sides are both safe to read; everything else yields the
-    condition text alone, which is still more than the bare message.
+    — and it is deliberately partial. Operands come back for a single comparison
+    with at least one side safe to read, the unreadable side left as the
+    ``_UNRESOLVED`` sentinel for `collapsed_result` to drop; everything else
+    yields the condition text alone, which is still more than the bare message.
     """
     text = (line or "").strip()
     # Falls back to the text with the keyword removed, so an assert this cannot
@@ -145,7 +167,10 @@ def parse_assert_statement(
         return source, None
     left = _resolve_operand(test.left, frame)
     right = _resolve_operand(test.comparators[0], frame)
-    if left is _UNRESOLVED or right is _UNRESOLVED:
+    # One side is enough. Requiring both dropped the literal in the shape a
+    # browser test asserts most — `"/login" in driver.current_url` — where the
+    # unreadable side is exactly the one that must not be re-run.
+    if left is _UNRESOLVED and right is _UNRESOLVED:
         return source, None
     return source, (op, left, right)
 

@@ -379,7 +379,9 @@ class TestAssertionRows(unittest.TestCase):
         )
 
         [row] = self.capturer.commands
-        self.assertEqual(row["command"], "assert")
+        # Named for the operator, so shared's ACTION_MAP resolves it — a bare
+        # "assert" is dropped by the trace exporter.
+        self.assertEqual(row["command"], "assert.equal")
         self.assertEqual(row["args"], ['title == "Example Domain"'])
         self.assertEqual(
             row["result"],

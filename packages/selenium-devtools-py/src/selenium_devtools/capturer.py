@@ -23,7 +23,7 @@ from ._contract import (
     SCOPE_SOURCES,
     SCOPE_SUITES,
 )
-from .types import CommandLog, SuiteStats
+from .types import CommandLog, SuiteStats, Viewport
 from .utils import now_ms, to_jsonable
 
 
@@ -45,7 +45,11 @@ class SessionCapturer:
     # ── metadata ───────────────────────────────────────────────────────────────
 
     def ensure_metadata(
-        self, session_id: str, capabilities: Optional[dict], url: Optional[str]
+        self,
+        session_id: str,
+        capabilities: Optional[dict],
+        url: Optional[str],
+        viewport: Optional[Viewport] = None,
     ) -> None:
         """Announce a session once. Keyed by id, not a boolean: one process can
         drive several sessions (a function-scoped pytest fixture makes a driver
@@ -62,6 +66,7 @@ class SessionCapturer:
                 to_jsonable(capabilities or {}),
                 url,
                 run_options=rerun.run_options(),
+                viewport=viewport,
             ),
         )
 

@@ -1107,3 +1107,68 @@ class TestSessionSetupIssuesNoUserCommands(unittest.TestCase):
         # ...but only `get` reached the timeline.
         captured = [d[0]["command"] for s, d in self.tx.sent if s == "commands"]
         self.assertEqual(captured, ["get"])
+
+
+class ViewportDriver(FakeDriver):
+    """Answers the viewport probe; every other script read returns None."""
+
+    def __init__(self, size=None):
+        super().__init__()
+        self.session_id = "sess-9"  # already-initialized session
+        self.scripts = []
+        self._size = size if size is not None else [1280, 1024]
+
+    def execute_script(self, script, *args):
+        self.scripts.append(script)
+        return self._size if "innerWidth" in script else None
+
+
+class TestViewportMetadata(unittest.TestCase):
+    """The player frames the replay from this; absent, it uses 1280x720."""
+
+    def setUp(self):
+        instrumentation.uninstall()
+        self.tx = FakeTransport()
+        instrumentation.install(SessionCapturer(self.tx), ViewportDriver)
+        self.addCleanup(instrumentation.uninstall)
+
+    def _metadata(self):
+        return [d for s, d in self.tx.sent if s == "metadata"]
+
+    def test_the_session_metadata_carries_the_real_viewport(self):
+        driver = ViewportDriver()
+        driver.execute("get", {"url": "https://x/"})
+
+        [meta] = self._metadata()
+        self.assertEqual(meta["viewport"], {"width": 1280, "height": 1024})
+
+    def test_the_probe_does_not_become_a_command_row(self):
+        # Unguarded it re-enters the same hook and every run opens with an
+        # executeScript row.
+        driver = ViewportDriver()
+        driver.execute("get", {"url": "https://x/"})
+
+        rows = [d[0]["command"] for s, d in self.tx.sent if s == "commands"]
+        self.assertEqual(rows, ["get"])
+
+    def test_a_driver_that_cannot_answer_omits_it(self):
+        instrumentation.uninstall()
+        tx = FakeTransport()
+        instrumentation.install(SessionCapturer(tx), FakeDriver)  # no execute_script
+        driver = FakeDriver()
+        driver.execute("newSession")  # FakeDriver gets its session id here
+        driver.execute("get", {"url": "https://x/"})
+
+        [meta] = [d for s, d in tx.sent if s == "metadata"]
+        self.assertNotIn("viewport", meta)
+
+    def test_a_nonsense_size_is_refused(self):
+        for bad in ([0, 800], [1280, -1], ["1280", 800], [1280], "1280x800"):
+            with self.subTest(size=bad):
+                instrumentation.uninstall()
+                tx = FakeTransport()
+                instrumentation.install(SessionCapturer(tx), ViewportDriver)
+                ViewportDriver(bad).execute("get", {"url": "https://x/"})
+
+                [meta] = [d for s, d in tx.sent if s == "metadata"]
+                self.assertNotIn("viewport", meta)

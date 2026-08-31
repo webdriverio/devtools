@@ -509,7 +509,7 @@ def _emit_assertion(
     op, left, right = comparison if comparison else (None, None, None)
     now = now_ms()
     capturer.capture_command(
-        command=assertions.ASSERT_COMMAND,
+        command=assertions.assert_command(op),
         args=[source] if source else [],
         result=assertions.collapsed_result(
             passed=passed, op=op, left=left, right=right

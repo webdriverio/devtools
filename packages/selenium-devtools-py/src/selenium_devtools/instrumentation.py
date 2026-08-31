@@ -42,7 +42,7 @@ from .snapshot import (
     start_snapshot_capture,
 )
 from .sources import read_source
-from .types import ActionSnapshot, ElementScripts
+from .types import ActionSnapshot, ElementScripts, Viewport
 from .utils import call_source, now_ms
 
 # Operational logging — surfaced in the dashboard Console (the 'runner' stream).
@@ -131,7 +131,7 @@ def start_assertion_tracing(capturer: SessionCapturer) -> bool:
         now = now_ms()
         try:
             capturer.capture_command(
-                command=assertions.ASSERT_COMMAND,
+                command=assertions.assert_command(op),
                 args=[source] if source else [],
                 result=assertions.collapsed_result(
                     passed=passed, op=op, left=left, right=right,
@@ -578,6 +578,33 @@ def _finalize_screencast(
         _log.info("screencast saved: %s", info.get("video_path"))
 
 
+def _viewport(driver: Any) -> Optional[Viewport]:
+    """The page's own viewport, for the player's frame geometry.
+
+    Without it the reader falls back to a hard-coded 1280x720 and the replay is
+    framed at proportions the run never had. `window.innerWidth/Height` rather
+    than `get_window_size`, which reports the OS window including its chrome —
+    the service reads `window.visualViewport` for the same reason.
+
+    Guarded, or the read lands back in the command hook as an `executeScript`
+    row at the head of every run.
+    """
+    run = _guarded_execute_script(driver)
+    try:
+        size = run("return [window.innerWidth, window.innerHeight]")
+    except Exception as exc:  # noqa: BLE001 — a default frame, not a failed run
+        _log.debug("viewport read failed: %s", exc)
+        return None
+    if not isinstance(size, list) or len(size) != 2:
+        return None
+    width, height = size
+    if not isinstance(width, int) or not isinstance(height, int):
+        return None
+    if width <= 0 or height <= 0:
+        return None
+    return {"width": width, "height": height}
+
+
 def _ensure_session_setup(driver: Any, capturer: SessionCapturer) -> Optional[dict]:
     """Bring capture up for this driver, once, and return its state.
 
@@ -615,7 +642,9 @@ def _ensure_session_setup(driver: Any, capturer: SessionCapturer) -> Optional[di
     except TypeError:  # not weak-referenceable
         _log.warning("driver cannot be tracked; capture disabled for it")
         return None
-    capturer.ensure_metadata(session_id, getattr(driver, "caps", None), None)
+    capturer.ensure_metadata(
+        session_id, getattr(driver, "caps", None), None, viewport=_viewport(driver)
+    )
     _log.info("session %s started", session_id)
     _send_default_suite(capturer, "running")  # tree entry for plain-script runs
     try:
@@ -747,7 +776,7 @@ def _capture_unwinding_assertion(capturer: SessionCapturer) -> None:
     now = now_ms()
     try:
         capturer.capture_command(
-            command=assertions.ASSERT_COMMAND,
+            command=assertions.assert_command(op),
             args=[condition or raw] if (condition or raw) else [],
             result=assertions.collapsed_result(
                 passed=False,

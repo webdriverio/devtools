@@ -36,6 +36,11 @@ class CommandLog(TypedDict, total=False):
     selector: str
 
 
+class Viewport(TypedDict):
+    width: int
+    height: int
+
+
 class ElementScripts(TypedDict):
     """Body of the backend's element-scripts route: two injectable expressions."""
 
@@ -102,6 +107,7 @@ class Metadata(TypedDict, total=False):
     testEnv: str
     runner: str
     options: Dict[str, Any]
+    viewport: Viewport
 
 
 class TestStats(TypedDict, total=False):
