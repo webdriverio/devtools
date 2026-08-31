@@ -346,3 +346,28 @@ describe('generated locators the exporter has to parse back', () => {
     }
   })
 })
+
+describe('captured input values', () => {
+  it('keeps a plain field value', () => {
+    document.body.innerHTML = '<input id="u" type="text" value="tomsmith">'
+    expect(
+      interactables('<input id="u" type="text" value="tomsmith">')[0].value
+    ).toBe('tomsmith')
+  })
+
+  it('never captures a password, which would travel with the trace zip', () => {
+    const els = interactables(
+      '<input id="p" type="password" value="SuperSecretPassword!">'
+    )
+
+    expect(els).toHaveLength(1)
+    expect(els[0].value).toBe('')
+    expect(JSON.stringify(els)).not.toContain('SuperSecretPassword')
+  })
+
+  it('matches the type case-insensitively, as the HTML parser does', () => {
+    expect(
+      interactables('<input id="p" type="PASSWORD" value="hunter2">')[0].value
+    ).toBe('')
+  })
+})

@@ -445,11 +445,14 @@ export function elementsScript(
       var rect = htmlEl.getBoundingClientRect()
       var isInVp = rect.top >= 0 && rect.left >= 0 && rect.bottom <= (window.innerHeight || document.documentElement.clientHeight) && rect.right <= (window.innerWidth || document.documentElement.clientWidth)
       if (${inViewportOnly} && !isInVp) { return }
+      var elType = htmlEl.getAttribute('type') || ''
       var entry = {
         tagName: htmlEl.tagName.toLowerCase(),
         name: getAccessibleName(htmlEl),
-        type: htmlEl.getAttribute('type') || '',
-        value: inputEl.value || '',
+        type: elType,
+        // A trace zip is a portable artifact, and nothing downstream reads a
+        // password's value — the a11y name comes from the label, not the field.
+        value: elType.toLowerCase() === 'password' ? '' : inputEl.value || '',
         href: htmlEl.getAttribute('href') || '',
         selector: getSelector(htmlEl),
         isInViewport: isInVp
