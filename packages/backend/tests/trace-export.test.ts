@@ -26,6 +26,13 @@ import {
 import { freshRun } from '../src/baseline/utils.js'
 import type { ActiveRun, TimeWindowNode } from '../src/baseline/types.js'
 
+/** Smallest valid JPEG — the exporter content-addresses frame bytes, so they
+ *  have to be real image data rather than a placeholder string. */
+const JPEG_1PX =
+  '/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0a' +
+  'HBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAABAAAAAAAA' +
+  'AAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AKp//2Q=='
+
 const dirs: string[] = []
 
 afterEach(async () => {
@@ -246,6 +253,43 @@ describe('exportActiveRunTrace', () => {
     )
     expect(options).toHaveLength(1)
     expect(JSON.stringify(options[0])).toContain('chrome')
+  })
+
+  // The JS adapters hand their recorder's buffer straight to the exporter
+  // in-process; an adapter exporting through the backend has to send it, so the
+  // frames arrive as a stream and have to survive the round trip into the zip.
+  it('writes the dense filmstrip when frames were streamed', async () => {
+    const outputDir = await tmpDir()
+    const zipPath = await exportActiveRunTrace(
+      run({
+        screencastFrames: [
+          { data: JPEG_1PX, timestamp: 1100 },
+          { data: JPEG_1PX, timestamp: 1200 }
+        ]
+      }),
+      { outputDir, sessionId: 'sess-film' }
+    )
+
+    const events = await traceEvents(zipPath)
+    const frames = events.filter(
+      (e) => e.type === TRACE_EVENT_TYPES.screencastFrame
+    )
+    expect(frames.length).toBeGreaterThan(0)
+  })
+
+  // Absence means "no dense filmstrip", which keeps the sparse per-action one.
+  // Passing an empty array instead would be a different thing to the exporter.
+  it('writes no screencast-frame events when none were streamed', async () => {
+    const outputDir = await tmpDir()
+    const zipPath = await exportActiveRunTrace(run(), {
+      outputDir,
+      sessionId: 'sess-nofilm'
+    })
+
+    const frames = (await traceEvents(zipPath)).filter(
+      (e) => e.type === TRACE_EVENT_TYPES.screencastFrame
+    )
+    expect(frames).toEqual([])
   })
 
   it('honours fileStem so a per-test slice can name its own artifact', async () => {

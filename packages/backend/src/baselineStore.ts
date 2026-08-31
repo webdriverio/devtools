@@ -82,6 +82,11 @@ class BaselineStore {
       case 'logs':
         appendArray(this.#activeRun.traceLogs, data)
         return
+      case 'screencastFrames':
+        // Sent in batches: a run's buffer can reach the recorder's cap, and one
+        // message carrying all of it would sit near the socket's payload limit.
+        appendArray(this.#activeRun.screencastFrames, data)
+        return
       case 'suites':
         this.#ingestSuites(data)
         return
