@@ -21,7 +21,14 @@ import sys
 import threading
 from typing import Optional
 
-from . import backend, instrumentation, lifecycle, rerun, trace_export
+from . import (
+    backend,
+    element_scripts,
+    instrumentation,
+    lifecycle,
+    rerun,
+    trace_export,
+)
 from ._contract import CONTRACT_VERSION
 from .capturer import SessionCapturer
 from .output_dir import resolve_adapter_output_dir
@@ -30,6 +37,7 @@ from .constants import (
     DEFAULT_HOST,
     DEFAULT_PORT,
     ENV_HOST,
+    ENV_A11Y,
     ENV_FILMSTRIP,
     ENV_PORT,
     ENV_TRACE,
@@ -87,6 +95,18 @@ def _filmstrip_enabled(filmstrip: Optional[bool]) -> bool:
     if filmstrip is not None:
         return filmstrip
     value = os.environ.get(ENV_FILMSTRIP)
+    if value is None:
+        return True
+    return value.lower() not in ("0", "false", "no", "off", "")
+
+
+def _a11y_enabled(a11y: Optional[bool]) -> bool:
+    """Whether trace mode captures the per-action element tree. Default ON —
+    the A11y tab is empty without it — opt out with DEVTOOLS_A11Y=0. Two extra
+    round trips per command is the cost, which live mode never pays."""
+    if a11y is not None:
+        return a11y
+    value = os.environ.get(ENV_A11Y)
     if value is None:
         return True
     return value.lower() not in ("0", "false", "no", "off", "")
@@ -193,6 +213,11 @@ def _export_trace(
             if mark is None or f.get("timestamp", 0) >= mark
         ]
         sent = trace_export.send_frames(_active["transport"], pending)
+        # Same pass: both are streams the backend has no other way to get, and
+        # both have to land before the request that reads them.
+        trace_export.send_action_snapshots(
+            _active["transport"], instrumentation.action_snapshots()
+        )
         if sent:
             _active["filmstrip_mark"] = pending[sent - 1].get("timestamp", mark)
         return trace_export.export(
@@ -212,6 +237,7 @@ def enable(
     webdriver_cls: Optional[type] = None,
     trace: Optional[bool] = None,
     filmstrip: Optional[bool] = None,
+    a11y: Optional[bool] = None,
 ) -> Optional[SessionCapturer]:
     """Connect to the backend and instrument Selenium. Idempotent.
 
@@ -227,6 +253,7 @@ def enable(
     # window and the teardown export all branch on this.
     trace_mode = _trace_enabled(trace)
     filmstrip_mode = trace_mode and _filmstrip_enabled(filmstrip)
+    a11y_mode = trace_mode and _a11y_enabled(a11y)
 
     # Before the backend is launched: the directory a rerun spawns in travels
     # through the environment the backend process inherits. A framework plugin
@@ -262,8 +289,17 @@ def enable(
 
     capturer = SessionCapturer(transport)
     instrumentation.install(
-        capturer, webdriver_cls, trace=trace_mode, filmstrip=filmstrip_mode
+        capturer,
+        webdriver_cls,
+        trace=trace_mode,
+        filmstrip=filmstrip_mode,
+        a11y=a11y_mode,
     )
+    if a11y_mode:
+        # Fetched here, not per action: the scripts are the same all run, and
+        # a backend too old to serve them should cost one request, not one per
+        # command. None leaves the capture a no-op.
+        instrumentation.set_element_scripts(element_scripts.fetch(host, port))
     # Plain scripts only: a framework plugin calls
     # `set_external_suites`, which turns this back off.
     instrumentation.start_assertion_tracing(capturer)
