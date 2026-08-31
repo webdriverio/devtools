@@ -61,6 +61,7 @@ def command_log(
     call_source: Optional[str],
     command_id: int,
     screenshot: Optional[str] = None,
+    selector: Optional[str] = None,
 ) -> CommandLog:
     entry: CommandLog = {
         "command": command,
@@ -71,6 +72,8 @@ def command_log(
         "callSource": call_source,
         "id": command_id,
     }
+    if selector:
+        entry["selector"] = selector
     if error is not None:
         entry["error"] = {
             "name": type(error).__name__,

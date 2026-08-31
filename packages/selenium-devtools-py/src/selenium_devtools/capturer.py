@@ -77,6 +77,7 @@ class SessionCapturer:
         start_time: int,
         call_source: Optional[str],
         screenshot: Optional[str] = None,
+        selector: Optional[str] = None,
     ) -> CommandLog:
         with self._lock:
             self._command_counter += 1
@@ -92,6 +93,7 @@ class SessionCapturer:
             call_source=call_source,
             command_id=command_id,
             screenshot=screenshot,
+            selector=selector,
         )
         self._tx.send_json(SCOPE_COMMANDS, [entry])
         # Returned so a caller that learns more about the command AFTER it was
