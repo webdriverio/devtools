@@ -112,7 +112,39 @@ export const ACTION_MAP: Record<string, TraceAction> = {
   // isSelected share the command name across runners and need no alias.
   getCssValue: { class: 'Element', method: 'getCSSProperty' },
   getRect: { class: 'Element', method: 'getRect' },
-  getCurrentUrl: { class: 'Page', method: 'getUrl' }
+  getCurrentUrl: { class: 'Page', method: 'getUrl' },
+  // Raw W3C protocol names. The JS adapters wrap a client library and report
+  // its method names, but an adapter that patches the protocol chokepoint —
+  // the Python one, and any future language binding — reports what WebDriver
+  // itself calls the command. Unmapped commands are dropped from a trace
+  // outright (`trace-action-events.ts` skips them), so without these a Python
+  // run exported 7 actions where the live dashboard had shown ~60: `get`,
+  // `getCurrentUrl` and `getTitle` survived only because those three names
+  // happen to be shared with the vocabulary above.
+  //
+  // `findElement`/`findElements` are deliberately absent, matching the JS
+  // adapters: locating an element is plumbing for the action that follows, not
+  // an action a reader wants a row for. So is `w3cExecuteScript`: selenium
+  // implements `is_displayed()` and the expected-condition waits by running its
+  // own JS atoms through it, so mapping it filled the trace with
+  // `Page.evaluate("/* isDisplayed */ …")` rows the test never wrote. The JS
+  // Selenium adapter's `executeScript` is unmapped for the same reason, and a
+  // user's own `execute_script` is the cost both pay.
+  clickElement: { class: 'Element', method: 'click' },
+  sendKeysToElement: { class: 'Element', method: 'fill' },
+  clearElement: { class: 'Element', method: 'clear' },
+  getElementText: { class: 'Element', method: 'getText' },
+  getElementAttribute: { class: 'Element', method: 'getAttribute' },
+  getElementProperty: { class: 'Element', method: 'getProperty' },
+  getElementValueOfCssProperty: { class: 'Element', method: 'getCSSProperty' },
+  getElementTagName: { class: 'Element', method: 'getTagName' },
+  getElementRect: { class: 'Element', method: 'getRect' },
+  isElementEnabled: { class: 'Element', method: 'isEnabled' },
+  isElementSelected: { class: 'Element', method: 'isSelected' },
+  goBack: { class: 'Page', method: 'goBack' },
+  goForward: { class: 'Page', method: 'goForward' },
+  switchToWindow: { class: 'Page', method: 'switchToWindow' },
+  switchToParentFrame: { class: 'Frame', method: 'goto' }
 }
 
 /** Trace methods (ACTION_MAP values) that act at a point on the page — the

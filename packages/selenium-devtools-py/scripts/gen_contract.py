@@ -71,6 +71,22 @@ def _ws_scopes(routes_ts: str) -> dict[str, str]:
     return dict(re.findall(r"(\w+):\s*'([^']+)'", m.group(1)))
 
 
+def _trace_export_scopes(trace_export_ts: str) -> dict[str, str]:
+    """`TRACE_EXPORT_SCOPE` — the worker↔backend frames that ask the backend to
+    build a trace and answer with where it landed. Python cannot run the
+    transforms itself, so these two strings are the whole route to a trace."""
+    m = re.search(
+        r"export const TRACE_EXPORT_SCOPE = \{(.*?)\n\} as const",
+        trace_export_ts,
+        re.DOTALL,
+    )
+    if not m:
+        raise SystemExit(
+            "could not find `TRACE_EXPORT_SCOPE` in shared/trace-export.ts"
+        )
+    return dict(re.findall(r"(\w+):\s*'([^']+)'", m.group(1)))
+
+
 def _collector_path(collector_ts: str) -> str:
     """The route the backend serves the page-side collector from."""
     m = re.search(r"export const COLLECTOR_API = \{(.*?)\} as const", collector_ts, re.DOTALL)
@@ -161,6 +177,9 @@ def main() -> int:
     data_keys = _trace_log_keys(types_ts)
     runner_ids = _test_runner_ids(types_ts)
     collector_path = _collector_path((shared / "src" / "collector.ts").read_text())
+    trace_export = _trace_export_scopes(
+        (shared / "src" / "trace-export.ts").read_text()
+    )
     routes_ts = (shared / "src" / "routes.ts").read_text()
     control = _ws_scopes(routes_ts)
     worker_query = _worker_query(routes_ts)
@@ -209,6 +228,14 @@ def main() -> int:
             "three to report into the dashboard that launched it."
         )
 
+    missing_export = [k for k in ("request", "result") if k not in trace_export]
+    if missing_export:
+        raise SystemExit(
+            f"contract drift: TRACE_EXPORT_SCOPE key(s) {missing_export} no "
+            f"longer in shared (present: {sorted(trace_export)}). Python has no "
+            "other route to a trace — it cannot run the transforms itself."
+        )
+
     if REQUIRED_RUNNER_ID not in runner_ids:
         raise SystemExit(
             f"contract drift: runner id {REQUIRED_RUNNER_ID!r} is no longer in "
@@ -240,6 +267,9 @@ def main() -> int:
         "",
         f'RERUN_SLOT_TEST_ID = "{rerun_slot["testId"]}"',
         f'ENV_RUNNER_CWD = "{runner_cwd_env}"',
+        "",
+        f'SCOPE_TRACE_EXPORT = "{trace_export["request"]}"',
+        f'SCOPE_TRACE_EXPORTED = "{trace_export["result"]}"',
         "",
         f'ENV_REUSE = "{reuse_env["REUSE"]}"',
         f'ENV_REUSE_HOST = "{reuse_env["HOST"]}"',

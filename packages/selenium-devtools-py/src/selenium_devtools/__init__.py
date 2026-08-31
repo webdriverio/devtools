@@ -18,13 +18,22 @@ import logging
 import os
 import subprocess
 import sys
+import threading
 from typing import Optional
 
-from . import backend, instrumentation, lifecycle, rerun
+from . import backend, instrumentation, lifecycle, rerun, trace_export
 from ._contract import CONTRACT_VERSION
 from .capturer import SessionCapturer
-from .run_id import reset_run_id
-from .constants import DEFAULT_HOST, DEFAULT_PORT, ENV_HOST, ENV_PORT, LOGGER_NAME
+from .output_dir import resolve_adapter_output_dir
+from .run_id import reset_run_id, resolve_run_id
+from .constants import (
+    DEFAULT_HOST,
+    DEFAULT_PORT,
+    ENV_HOST,
+    ENV_PORT,
+    ENV_TRACE,
+    LOGGER_NAME,
+)
 from .logcapture import LogCapturer
 from .terminal import TerminalCapturer
 from .transport import WSClient
@@ -66,7 +75,87 @@ def _restore_excepthook() -> None:
 _active: dict = {
     "capturer": None, "transport": None, "process": None, "url": None,
     "handle": None, "terminal": None, "logs": None, "excepthook": None,
+    "trace": False, "traced": False,
 }
+
+
+def _trace_enabled(trace: Optional[bool]) -> bool:
+    """Whether this run writes a trace archive. The argument wins over the
+    environment so a script can opt out of an exported default."""
+    if trace is not None:
+        return trace
+    return os.environ.get(ENV_TRACE, "").lower() in ("1", "true", "yes")
+
+
+#: Serializes exports. Teardown can run on the WS reader thread while a caller
+#: is mid-export on the main one, and `trace_export` holds ONE pending slot: a
+#: second request replaces it, so the first caller's reply is dropped and it
+#: waits out the full timeout while the backend writes the same archive twice.
+#: Holding it across the wait is also what stops a MAIN-THREAD teardown closing
+#: the transport out from under an export still listening on it. Off-thread
+#: callers must not wait on it at all — see export_trace.
+_export_lock = threading.Lock()
+
+
+def export_trace(output_dir: Optional[str] = None) -> Optional[str]:
+    """Write this run's trace archive now. No-op unless trace mode is on.
+
+    Called when the RUN finishes rather than when the process tears down. An
+    interactive run blocks on the dashboard window in between, and CI has no
+    window at all; an artifact that depends on either is an artifact that is
+    missing exactly when it is wanted.
+
+    Only a SUCCESSFUL export closes the door on the teardown fallback. This is
+    public, so a caller may run it early, get nothing, and still expect an
+    archive at the end — latching on the attempt would spend that one chance on
+    a transport that was not ready. The cost is that an unresponsive backend is
+    waited on twice, once here and once at teardown; losing the artifact
+    outright is the worse of the two, and by then the run is already broken.
+    """
+    # Off the main thread this never waits. Teardown can arrive on the WS
+    # reader thread — `_trigger_shutdown` runs it there when nobody is parked
+    # in wait_for_shutdown — and that thread is the ONLY one that can deliver
+    # the reply an in-flight export is blocked on. Waiting for that export from
+    # here deadlocks both until the timeout, and the shutdown's `os._exit`
+    # timer may kill the process first. An interrupted run losing its archive
+    # is the better failure; by construction it was interrupted.
+    on_main = threading.current_thread() is threading.main_thread()
+    if not _export_lock.acquire(blocking=on_main):
+        _log.debug("a trace export is already in flight; not starting another")
+        return None
+    try:
+        if not _active["trace"] or _active["traced"]:
+            return None
+        path = _export_trace(
+            _active["capturer"],
+            output_dir
+            if output_dir is not None
+            else instrumentation.resolved_output_dir(),
+        )
+        if path is not None:
+            _active["traced"] = True
+        return path
+    finally:
+        _export_lock.release()
+
+
+def _export_trace(
+    capturer: Optional[SessionCapturer], output_dir: Optional[str]
+) -> Optional[str]:
+    """Ask the backend for this run's archive. Never raises — a run that
+    captured everything and failed to write a file still passed."""
+    try:
+        session_id = (
+            getattr(capturer, "session_id", None) or resolve_run_id()
+        )
+        return trace_export.export(
+            _active["transport"],
+            output_dir=output_dir or resolve_adapter_output_dir(),
+            session_id=session_id,
+        )
+    except Exception as exc:  # noqa: BLE001
+        _log.warning("trace export skipped (%s)", exc)
+    return None
 
 
 def enable(
@@ -74,6 +163,7 @@ def enable(
     port: Optional[int] = None,
     *,
     webdriver_cls: Optional[type] = None,
+    trace: Optional[bool] = None,
 ) -> Optional[SessionCapturer]:
     """Connect to the backend and instrument Selenium. Idempotent.
 
@@ -84,6 +174,10 @@ def enable(
     """
     if _active["capturer"] is not None:
         return _active["capturer"]
+
+    # Decided before anything reads it: the screencast recorder, the dashboard
+    # window and the teardown export all branch on this.
+    trace_mode = _trace_enabled(trace)
 
     # Before the backend is launched: the directory a rerun spawns in travels
     # through the environment the backend process inherits. A framework plugin
@@ -118,7 +212,7 @@ def enable(
         return None
 
     capturer = SessionCapturer(transport)
-    instrumentation.install(capturer, webdriver_cls)
+    instrumentation.install(capturer, webdriver_cls, trace=trace_mode)
     # Plain scripts only: a framework plugin calls
     # `set_external_suites`, which turns this back off.
     instrumentation.start_assertion_tracing(capturer)
@@ -132,12 +226,16 @@ def enable(
     url = f"http://{host}:{port}"
     _active.update(
         capturer=capturer, transport=transport, process=process, url=url,
-        terminal=term, logs=logs,
+        terminal=term, logs=logs, trace=trace_mode, traced=False,
     )
 
     # Open the dashboard window and wire exit/signal + control-frame teardown so
     # closing the window (clientDisconnected) or ending the process both tidy up.
-    handle = lifecycle.open_dashboard(url) if lifecycle.auto_open_enabled() else None
+    handle = (
+        lifecycle.open_dashboard(url)
+        if lifecycle.auto_open_enabled(trace=trace_mode)
+        else None
+    )
     _active["handle"] = handle
     lifecycle.register_exit_handlers(disable, handle)
     return capturer
@@ -156,6 +254,10 @@ def disable() -> None:
         # learns afterwards could still be sent. `finalize_run` therefore reads
         # the live exception itself. Must precede transport.close() either way.
         instrumentation.finalize_run(capturer)
+    # Read before uninstall clears it: the trace belongs beside this run's
+    # video, and the fallback is the cwd — the repo root, for a runner invoked
+    # from one.
+    output_dir = instrumentation.resolved_output_dir()
     instrumentation.uninstall()
     term = _active["terminal"]
     if term is not None:  # restore stdout/stderr before tearing the transport down
@@ -163,6 +265,11 @@ def disable() -> None:
     logs = _active["logs"]
     if logs is not None:  # detach the logging handler + restore logger levels
         logs.stop()
+    # Fallback for a plain script that never called export_trace() itself.
+    # Before the transport closes: the answer comes back on this same socket.
+    # Through export_trace, not around it: one lock and one latch, so a public
+    # call still in flight is waited for rather than raced.
+    export_trace(output_dir)
     transport = _active["transport"]
     if transport is not None:
         transport.close()
@@ -179,9 +286,10 @@ def disable() -> None:
             process.wait(timeout=5)
         except subprocess.TimeoutExpired:
             process.kill()  # backend ignored SIGTERM — force it
+    trace_export.reset()
     _active.update(
         capturer=None, transport=None, process=None, url=None, handle=None,
-        terminal=None, logs=None, excepthook=None,
+        terminal=None, logs=None, excepthook=None, trace=False, traced=False,
     )
 
 

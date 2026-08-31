@@ -28,6 +28,8 @@ import tempfile
 import threading
 from typing import Callable, Optional
 
+from . import trace_export
+from ._contract import SCOPE_TRACE_EXPORTED
 from .constants import ENV_OPEN, LOGGER_NAME
 
 # ── Local timing constants (lifecycle-specific) ──────────────────────────────
@@ -143,8 +145,15 @@ def _default_opener(url: str) -> BrowserHandle:
 _FALSY = ("0", "false", "no", "off", "")
 
 
-def auto_open_enabled() -> bool:
+def auto_open_enabled(*, trace: bool = False) -> bool:
     """Whether the dashboard window should auto-open. Default ON, opt-out only.
+
+    Trace mode opens none. The artifact is the output there, and the run blocks
+    on the window until a human closes it — so a window would turn writing a
+    file into an interactive session. The backend still starts, because it is
+    what builds the archive; only the window is suppressed. That is as close to
+    the JS adapters' backend-free trace mode as an adapter that cannot run the
+    transforms itself can get.
 
     Rule: open unless ``DEVTOOLS_OPEN`` is set to a falsy value
     (``0``/``false``/``no``/``off``/empty), or this process is a rerun child —
@@ -157,6 +166,9 @@ def auto_open_enabled() -> bool:
     with no attached TTY — so the user opened the URL in their main Chrome
     instead. CI/headless runs disable it explicitly with ``DEVTOOLS_OPEN=0``.
     """
+    if trace:
+        return False
+
     from . import backend  # local: keeps module import order free of a cycle
 
     if backend.reuse_target() is not None:
@@ -245,7 +257,13 @@ def on_control(scope: str, data: dict) -> None:
     ``clientDisconnected`` means the user closed the dashboard window, so we
     tear capture down and exit the process (on a short timer, off the WS reader
     thread, so that thread can unwind cleanly). ``clientConnected`` is a no-op.
+
+    ``traceExported`` answers a request the teardown is blocked on, so it is
+    routed rather than acted on here.
     """
+    if scope == SCOPE_TRACE_EXPORTED:
+        trace_export.on_result(data)
+        return
     if scope == "clientDisconnected":
         _log.info("dashboard closed; shutting down")
         _trigger_shutdown(exit_after=True)

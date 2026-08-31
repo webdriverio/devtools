@@ -161,3 +161,60 @@ describe('ACTION_MAP forward/reverse integrity', () => {
     expect(urlCommands[0]).toBe('getUrl')
   })
 })
+
+// The JS adapters wrap a client library and report its method names; an adapter
+// that patches the protocol chokepoint reports what WebDriver calls the command.
+// Unmapped commands are dropped from a trace outright, so a Python run exported
+// 7 actions where the live dashboard had shown ~60 — `get`, `getCurrentUrl` and
+// `getTitle` survived only by sharing a name with the vocabulary above.
+describe('raw W3C protocol names', () => {
+  it('maps element commands onto the same actions the JS adapters produce', () => {
+    const pairs: [string, string][] = [
+      ['clickElement', 'click'],
+      ['sendKeysToElement', 'fill'],
+      ['clearElement', 'clear'],
+      ['getElementText', 'getText'],
+      ['getElementAttribute', 'getAttribute'],
+      ['getElementTagName', 'getTagName'],
+      ['isElementEnabled', 'isEnabled'],
+      ['isElementSelected', 'isSelected']
+    ]
+    for (const [command, method] of pairs) {
+      expect(mapCommandToAction(command)).toEqual({
+        class: 'Element',
+        method
+      })
+    }
+  })
+
+  it('agrees with the client-library name for the same concept', () => {
+    // One name per concept: a click is a click whichever adapter reported it.
+    for (const [w3c, js] of [
+      ['clickElement', 'click'],
+      ['sendKeysToElement', 'sendKeys'],
+      ['getElementText', 'getText'],
+      ['getElementAttribute', 'getAttribute']
+    ]) {
+      expect(mapCommandToAction(w3c)).toEqual(mapCommandToAction(js))
+    }
+  })
+
+  // Locating an element is plumbing for the action that follows. The JS
+  // adapters emit no row for it and neither should a protocol-level one.
+  it('leaves finds and window bookkeeping unmapped', () => {
+    for (const command of [
+      'findElement',
+      'findElements',
+      'findChildElement',
+      'w3cGetCurrentWindowHandle',
+      // selenium runs its own atoms through this — is_displayed(), and every
+      // expected-condition wait — so a mapped one fills the trace with
+      // `evaluate("/* isDisplayed */ …")` rows the test never wrote. The JS
+      // adapter's `executeScript` is unmapped too.
+      'w3cExecuteScript',
+      'w3cExecuteScriptAsync'
+    ]) {
+      expect(mapCommandToAction(command)).toBeNull()
+    }
+  })
+})
