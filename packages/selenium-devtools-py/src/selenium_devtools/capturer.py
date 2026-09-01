@@ -23,7 +23,7 @@ from ._contract import (
     SCOPE_SOURCES,
     SCOPE_SUITES,
 )
-from .types import CommandLog, SuiteStats
+from .types import CommandLog, SuiteStats, Viewport
 from .utils import now_ms, to_jsonable
 
 
@@ -45,7 +45,11 @@ class SessionCapturer:
     # ── metadata ───────────────────────────────────────────────────────────────
 
     def ensure_metadata(
-        self, session_id: str, capabilities: Optional[dict], url: Optional[str]
+        self,
+        session_id: str,
+        capabilities: Optional[dict],
+        url: Optional[str],
+        viewport: Optional[Viewport] = None,
     ) -> None:
         """Announce a session once. Keyed by id, not a boolean: one process can
         drive several sessions (a function-scoped pytest fixture makes a driver
@@ -62,6 +66,7 @@ class SessionCapturer:
                 to_jsonable(capabilities or {}),
                 url,
                 run_options=rerun.run_options(),
+                viewport=viewport,
             ),
         )
 
@@ -77,6 +82,7 @@ class SessionCapturer:
         start_time: int,
         call_source: Optional[str],
         screenshot: Optional[str] = None,
+        selector: Optional[str] = None,
     ) -> CommandLog:
         with self._lock:
             self._command_counter += 1
@@ -92,6 +98,7 @@ class SessionCapturer:
             call_source=call_source,
             command_id=command_id,
             screenshot=screenshot,
+            selector=selector,
         )
         self._tx.send_json(SCOPE_COMMANDS, [entry])
         # Returned so a caller that learns more about the command AFTER it was

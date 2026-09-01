@@ -77,5 +77,28 @@ class TestJsonable(unittest.TestCase):
         self.assertEqual(to_jsonable(Weird()), "<weird>")
 
 
+class MetadataViewportTest(unittest.TestCase):
+    """Without a viewport the trace reader frames the replay at a hard-coded
+    1280x720, which is whatever the run's window was not."""
+
+    def test_a_viewport_is_carried(self):
+        entry = frames.metadata("s1", viewport={"width": 1280, "height": 1024})
+
+        self.assertEqual(entry["viewport"], {"width": 1280, "height": 1024})
+
+    def test_it_is_copied_rather_than_aliased(self):
+        source = {"width": 800, "height": 600}
+        entry = frames.metadata("s1", viewport=source)
+        source["width"] = 1
+
+        self.assertEqual(entry["viewport"]["width"], 800)
+
+    def test_an_unknown_viewport_is_omitted_not_zeroed(self):
+        # The reader's own default beats a zero-sized frame, and the app reads
+        # absent as unknown.
+        self.assertNotIn("viewport", frames.metadata("s1"))
+        self.assertNotIn("viewport", frames.metadata("s1", viewport=None))
+
+
 if __name__ == "__main__":
     unittest.main()

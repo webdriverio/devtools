@@ -17,13 +17,14 @@ import os
 import sys
 import threading
 import weakref
-from typing import Any, Optional
+from typing import Any, List, Optional
 
-from . import assertions, bidi, bidi_preload, frames, performance
+from . import assertions, bidi, bidi_preload, element_locators, frames, performance
 from .assert_tracer import ScriptAssertionTracer
 from .capturer import SessionCapturer
 from .cdp_screencast import start_push_screencast
 from .collector_source import reset_cache as reset_collector_cache
+from .element_scripts import reset_cache as reset_element_scripts_cache
 from .constants import (
     BIDI_CAPABILITY,
     DEFAULT_TEST_TITLE,
@@ -41,6 +42,7 @@ from .snapshot import (
     start_snapshot_capture,
 )
 from .sources import read_source
+from .types import ActionSnapshot, ElementScripts, Viewport
 from .utils import call_source, now_ms
 
 # Operational logging — surfaced in the dashboard Console (the 'runner' stream).
@@ -129,7 +131,7 @@ def start_assertion_tracing(capturer: SessionCapturer) -> bool:
         now = now_ms()
         try:
             capturer.capture_command(
-                command=assertions.ASSERT_COMMAND,
+                command=assertions.assert_command(op),
                 args=[source] if source else [],
                 result=assertions.collapsed_result(
                     passed=passed, op=op, left=left, right=right,
@@ -248,6 +250,12 @@ _state: dict = {
     "run_failed": False,
     # Trace mode. Set by install().
     "trace": False,
+    # Capture the page's element tree per action, for the trace's A11y tab.
+    "a11y": False,
+    # The page-side scripts, fetched from the backend once per run.
+    "element_scripts": None,
+    # One per action that returned elements; sent before the export.
+    "action_snapshots": [],
     # Record a dense filmstrip into the trace. Only meaningful in trace mode;
     # the recorder runs in live mode regardless, for the dashboard video.
     "filmstrip": False,
@@ -330,6 +338,18 @@ def _attach_performance(
         _log.debug("could not replace the navigation row: %s", exc)
 
 
+def action_snapshots() -> List[ActionSnapshot]:
+    """Per-action element trees captured this run, oldest first."""
+    return list(_state["action_snapshots"])
+
+
+def set_element_scripts(scripts: Optional[ElementScripts]) -> None:
+    """Hand over the page-side scripts fetched from the backend. Without them
+    `_capture_action_snapshot` is a no-op, which is the state on a backend too
+    old to serve them."""
+    _state["element_scripts"] = scripts
+
+
 def screencast_frames() -> list:
     """Every frame this run's recorders buffered, in time order.
 
@@ -368,6 +388,48 @@ def resolved_output_dir() -> Optional[str]:
     that rather than after.
     """
     return _state.get("output_dir")
+
+
+def _capture_action_snapshot(
+    driver: Any, command: str, timestamp: int, shot: Optional[str]
+) -> None:
+    """Read the page's element tree beside one action, for the trace's A11y tab.
+
+    Trace mode only, and only with the scripts in hand — the JS adapters run
+    them in-process, this adapter fetches them from the backend. Two extra
+    round trips per command is the cost; live mode pays neither.
+
+    Goes through the guarded executor, or each read lands back in this same hook
+    and the timeline grows an `executeScript` row beside every action — the bug
+    the CDP window-handle read caused, in a path that runs far more often.
+    """
+    if not _state["trace"] or not _state["a11y"]:
+        return
+    scripts = _state.get("element_scripts")
+    if not scripts:
+        return
+    run = _guarded_execute_script(driver)
+    snapshot: ActionSnapshot = {"timestamp": timestamp, "command": command}
+    if shot:
+        snapshot["screenshot"] = shot
+    # Two reads, two panes: `elements` carries the interactable boxes, the
+    # accessibility tree becomes the A11y tab's text. Capturing only the first
+    # left that tab reporting "no accessibility snapshot for this command" with
+    # 39 element files sitting in the same archive.
+    for key, script in (
+        ("elements", scripts["elements"]),
+        ("accessibilityTree", scripts["accessibilityTree"]),
+    ):
+        try:
+            value = run(f"return {script}")
+        except Exception as exc:  # noqa: BLE001 — a missing pane, not a failed run
+            _log.debug("%s read failed: %s", key, exc)
+            continue
+        if isinstance(value, list) and value:
+            snapshot[key] = value
+    if "elements" not in snapshot and "accessibilityTree" not in snapshot:
+        return
+    _state["action_snapshots"].append(snapshot)
 
 
 def _begin_screencast_run(entry: Optional[dict], shot: Optional[str] = None) -> None:
@@ -516,6 +578,33 @@ def _finalize_screencast(
         _log.info("screencast saved: %s", info.get("video_path"))
 
 
+def _viewport(driver: Any) -> Optional[Viewport]:
+    """The page's own viewport, for the player's frame geometry.
+
+    Without it the reader falls back to a hard-coded 1280x720 and the replay is
+    framed at proportions the run never had. `window.innerWidth/Height` rather
+    than `get_window_size`, which reports the OS window including its chrome —
+    the service reads `window.visualViewport` for the same reason.
+
+    Guarded, or the read lands back in the command hook as an `executeScript`
+    row at the head of every run.
+    """
+    run = _guarded_execute_script(driver)
+    try:
+        size = run("return [window.innerWidth, window.innerHeight]")
+    except Exception as exc:  # noqa: BLE001 — a default frame, not a failed run
+        _log.debug("viewport read failed: %s", exc)
+        return None
+    if not isinstance(size, list) or len(size) != 2:
+        return None
+    width, height = size
+    if not isinstance(width, int) or not isinstance(height, int):
+        return None
+    if width <= 0 or height <= 0:
+        return None
+    return {"width": width, "height": height}
+
+
 def _ensure_session_setup(driver: Any, capturer: SessionCapturer) -> Optional[dict]:
     """Bring capture up for this driver, once, and return its state.
 
@@ -553,7 +642,9 @@ def _ensure_session_setup(driver: Any, capturer: SessionCapturer) -> Optional[di
     except TypeError:  # not weak-referenceable
         _log.warning("driver cannot be tracked; capture disabled for it")
         return None
-    capturer.ensure_metadata(session_id, getattr(driver, "caps", None), None)
+    capturer.ensure_metadata(
+        session_id, getattr(driver, "caps", None), None, viewport=_viewport(driver)
+    )
     _log.info("session %s started", session_id)
     _send_default_suite(capturer, "running")  # tree entry for plain-script runs
     try:
@@ -685,7 +776,7 @@ def _capture_unwinding_assertion(capturer: SessionCapturer) -> None:
     now = now_ms()
     try:
         capturer.capture_command(
-            command=assertions.ASSERT_COMMAND,
+            command=assertions.assert_command(op),
             args=[condition or raw] if (condition or raw) else [],
             result=assertions.collapsed_result(
                 passed=False,
@@ -778,6 +869,7 @@ def install(
     *,
     trace: bool = False,
     filmstrip: bool = False,
+    a11y: bool = False,
 ) -> None:
     if _state["installed"]:
         return
@@ -818,6 +910,9 @@ def install(
                 error=exc,
                 start_time=start,
                 call_source=src,
+                selector=element_locators.selector_for_command(
+                    driver_command, params
+                ),
             )
             raise
 
@@ -835,7 +930,11 @@ def install(
             start_time=start,
             call_source=src,
             screenshot=shot,
+            selector=element_locators.selector_for_command(
+                driver_command, params, value
+            ),
         )
+        _capture_action_snapshot(self, driver_command, row.get("timestamp", start), shot)
         if driver_command in NAVIGATION_COMMANDS:
             _attach_performance(capturer, self, row, params)
         # No per-command line here: the Actions timeline lists every command as
@@ -859,6 +958,7 @@ def install(
         installed=True, cls=webdriver_cls, orig=orig_execute,
         sessions=weakref.WeakKeyDictionary(), output_dir=None, default_suite=None,
         trace=trace, filmstrip=filmstrip, filmstrip_frames=[],
+        a11y=a11y, element_scripts=None, action_snapshots=[],
     )
 
 
@@ -870,6 +970,12 @@ def uninstall() -> None:
     # may point at a different one, so the cache goes with the rest of the
     # per-run state.
     reset_collector_cache()
+    # Same reasoning: a re-enable may attach to a different backend, and a
+    # script generated by another version is worse than none.
+    reset_element_scripts_cache()
+    # Element handles do not survive the session that issued them, so a stale
+    # entry could only ever attribute the wrong selector to a new run's row.
+    element_locators.reset()
     # Never leave a recorder running past teardown, for any session still live.
     # Keep the buffer first: `disable()` uninstalls BEFORE its fallback export,
     # and `sessions` is replaced below, so a session that never quit would

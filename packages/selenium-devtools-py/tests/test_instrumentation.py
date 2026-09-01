@@ -127,6 +127,53 @@ class TestInstrumentation(unittest.TestCase):
         self.assertEqual([d for s, d in self.tx.sent if s == "mutations"], [])
 
 
+class FindingDriver(FakeDriver):
+    """Returns element handles from finds, as selenium's `execute` does once
+    `_unwrap_value` has turned the wire dict into a WebElement."""
+
+    class Element:
+        def __init__(self, element_id):
+            self.id = element_id
+
+    def execute(self, command, params=None):
+        if command in ("findElement", "findChildElement"):
+            return {"value": self.Element("e.1")}
+        return super().execute(command, params)
+
+
+class TestCommandSelector(unittest.TestCase):
+    """A row's `selector` is what the player's element overlay resolves in the
+    replayed document; without it a click row carries only an opaque handle."""
+
+    def setUp(self):
+        instrumentation.uninstall()
+        self.tx = FakeTransport()
+        instrumentation.install(SessionCapturer(self.tx), FindingDriver)
+        self.driver = FindingDriver()
+        self.addCleanup(instrumentation.uninstall)
+
+    def _rows(self):
+        return [d[0] for s, d in self.tx.sent if s == "commands"]
+
+    def test_a_command_on_a_found_handle_carries_that_find_s_selector(self):
+        self.driver.execute("findElement", {"using": "css selector", "value": '[id="go"]'})
+        self.driver.execute("clickElement", {"id": "e.1"})
+        click = [r for r in self._rows() if r["command"] == "clickElement"][0]
+        self.assertEqual(click["selector"], "#go")
+
+    def test_a_failing_command_carries_it_too(self):
+        # The row a failure lands on is the one most worth boxing.
+        self.driver.execute("findElement", {"using": "css selector", "value": "#go"})
+        with self.assertRaises(ValueError):
+            self.driver.execute("boom", {"id": "e.1"})
+        boom = [r for r in self._rows() if r["command"] == "boom"][0]
+        self.assertEqual(boom["selector"], "#go")
+
+    def test_a_row_with_no_known_locator_omits_the_field(self):
+        self.driver.execute("get", {"url": "https://x/"})
+        self.assertNotIn("selector", self._rows()[0])
+
+
 class FakeDriverWithScript(FakeDriver):
     """Driver whose execute_script drives the injected DOM collector."""
 
@@ -1060,3 +1107,68 @@ class TestSessionSetupIssuesNoUserCommands(unittest.TestCase):
         # ...but only `get` reached the timeline.
         captured = [d[0]["command"] for s, d in self.tx.sent if s == "commands"]
         self.assertEqual(captured, ["get"])
+
+
+class ViewportDriver(FakeDriver):
+    """Answers the viewport probe; every other script read returns None."""
+
+    def __init__(self, size=None):
+        super().__init__()
+        self.session_id = "sess-9"  # already-initialized session
+        self.scripts = []
+        self._size = size if size is not None else [1280, 1024]
+
+    def execute_script(self, script, *args):
+        self.scripts.append(script)
+        return self._size if "innerWidth" in script else None
+
+
+class TestViewportMetadata(unittest.TestCase):
+    """The player frames the replay from this; absent, it uses 1280x720."""
+
+    def setUp(self):
+        instrumentation.uninstall()
+        self.tx = FakeTransport()
+        instrumentation.install(SessionCapturer(self.tx), ViewportDriver)
+        self.addCleanup(instrumentation.uninstall)
+
+    def _metadata(self):
+        return [d for s, d in self.tx.sent if s == "metadata"]
+
+    def test_the_session_metadata_carries_the_real_viewport(self):
+        driver = ViewportDriver()
+        driver.execute("get", {"url": "https://x/"})
+
+        [meta] = self._metadata()
+        self.assertEqual(meta["viewport"], {"width": 1280, "height": 1024})
+
+    def test_the_probe_does_not_become_a_command_row(self):
+        # Unguarded it re-enters the same hook and every run opens with an
+        # executeScript row.
+        driver = ViewportDriver()
+        driver.execute("get", {"url": "https://x/"})
+
+        rows = [d[0]["command"] for s, d in self.tx.sent if s == "commands"]
+        self.assertEqual(rows, ["get"])
+
+    def test_a_driver_that_cannot_answer_omits_it(self):
+        instrumentation.uninstall()
+        tx = FakeTransport()
+        instrumentation.install(SessionCapturer(tx), FakeDriver)  # no execute_script
+        driver = FakeDriver()
+        driver.execute("newSession")  # FakeDriver gets its session id here
+        driver.execute("get", {"url": "https://x/"})
+
+        [meta] = [d for s, d in tx.sent if s == "metadata"]
+        self.assertNotIn("viewport", meta)
+
+    def test_a_nonsense_size_is_refused(self):
+        for bad in ([0, 800], [1280, -1], ["1280", 800], [1280], "1280x800"):
+            with self.subTest(size=bad):
+                instrumentation.uninstall()
+                tx = FakeTransport()
+                instrumentation.install(SessionCapturer(tx), ViewportDriver)
+                ViewportDriver(bad).execute("get", {"url": "https://x/"})
+
+                [meta] = [d for s, d in tx.sent if s == "metadata"]
+                self.assertNotIn("viewport", meta)

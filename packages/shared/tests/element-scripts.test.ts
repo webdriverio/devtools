@@ -3,15 +3,15 @@ import { beforeEach, describe, expect, it } from 'vitest'
 
 import {
   accessibilityTreeScript,
+  buildElementScripts,
   elementsScript
 } from '../src/element-scripts.js'
 import type {
   AccessibilityNode,
-  BrowserElementInfo
-} from '../src/element-types.js'
-import { locatorsMatch } from '@wdio/devtools-shared'
-import type { TestRunnerId } from '@wdio/devtools-shared'
-import { accessibilityNodesToSnapshotNodes } from '../src/element-snapshot.js'
+  BrowserElementInfo,
+  TestRunnerId
+} from '../src/types.js'
+import { locatorsMatch } from '../src/locator-dialect.js'
 
 /** The scripts are injectable source, so they are run the way the adapters run
  *  them — `@wdio/elements` builds the same `new Function` wrapper. */
@@ -346,17 +346,72 @@ describe('generated locators the exporter has to parse back', () => {
       expect(locatorsMatch(captured, 'button*=Logout')).toBe(false)
     }
   })
+})
 
-  it('yields its tag to the snapshot serializer in either dialect', () => {
-    // The serializer reads the tag back out of the locator it was handed, so a
-    // dialect it can't parse would report the ARIA role as the tag instead.
-    for (const runner of ['mocha', 'nightwatch'] as const) {
-      const nodes = accessibilityNodesToSnapshotNodes(a11yNodes(html, runner), {
-        inViewportOnly: false
-      })
-      const link = nodes.find((n) => n.name === 'Logout')
+describe('captured input values', () => {
+  it('keeps a plain field value', () => {
+    document.body.innerHTML = '<input id="u" type="text" value="tomsmith">'
+    expect(
+      interactables('<input id="u" type="text" value="tomsmith">')[0].value
+    ).toBe('tomsmith')
+  })
 
-      expect(link?.tagName).toBe('a')
+  it('never captures a password, which would travel with the trace zip', () => {
+    const els = interactables(
+      '<input id="p" type="password" value="SuperSecretPassword!">'
+    )
+
+    expect(els).toHaveLength(1)
+    expect(els[0].value).toBe('')
+    expect(JSON.stringify(els)).not.toContain('SuperSecretPassword')
+  })
+
+  it('matches the type case-insensitively, as the HTML parser does', () => {
+    expect(
+      interactables('<input id="p" type="PASSWORD" value="hunter2">')[0].value
+    ).toBe('')
+  })
+})
+
+describe('what a capture keeps', () => {
+  const html =
+    '<a href="https://x/?token=SECRET">Go</a>' +
+    '<input id="otp" type="text" value="123456">'
+
+  function captured(): Record<string, unknown>[] {
+    document.body.innerHTML = html
+    return run<Record<string, unknown>>(buildElementScripts('mocha').elements)
+  }
+
+  it('keeps what the trace reads', () => {
+    // `trace-action-events` matches on selector and draws after.point from the
+    // bounding box; the rest is context for a reader.
+    const link = captured().find((e) => e.name === 'Go')!
+
+    expect(link.selector).toBeTruthy()
+    expect(link).toHaveProperty('boundingBox')
+    expect(link).toMatchObject({ tagName: 'a', name: 'Go', isInViewport: true })
+  })
+
+  it('drops the fields nothing reads, so a trace zip carries neither', () => {
+    const json = JSON.stringify(captured())
+
+    expect(json).not.toContain('SECRET')
+    expect(json).not.toContain('123456')
+    for (const e of captured()) {
+      expect(e).not.toHaveProperty('href')
+      expect(e).not.toHaveProperty('value')
     }
+  })
+
+  it('leaves the @wdio/elements call returning the full record', () => {
+    // Public API — BrowserElementInfo documents both fields.
+    document.body.innerHTML = html
+    const live = run<Record<string, unknown>>(
+      elementsScript(true, true, 'mocha')
+    )
+
+    expect(live.find((e) => e.tagName === 'a')!.href).toContain('token=SECRET')
+    expect(live.find((e) => e.tagName === 'input')!.value).toBe('123456')
   })
 })

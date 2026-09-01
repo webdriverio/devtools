@@ -45,6 +45,8 @@ REQUIRED_DATA_SCOPES = {
     # The dense filmstrip. The JS adapters hand their recorder's buffer to the
     # exporter in-process; an adapter exporting through the backend sends it.
     "SCOPE_SCREENCAST_FRAMES": "screencastFrames",
+    # Per-action element trees — what the trace's A11y tab reads.
+    "SCOPE_ACTION_SNAPSHOTS": "actionSnapshots",
 }
 
 
@@ -88,6 +90,25 @@ def _trace_export_scopes(trace_export_ts: str) -> dict[str, str]:
             "could not find `TRACE_EXPORT_SCOPE` in shared/trace-export.ts"
         )
     return dict(re.findall(r"(\w+):\s*'([^']+)'", m.group(1)))
+
+
+def _element_scripts_path(element_scripts_ts: str) -> str:
+    """`ELEMENT_SCRIPTS_API.get` — where the backend serves the page-side
+    element scripts. Python cannot import them; this route is the only way it
+    reaches the code that fills the A11y tab."""
+    m = re.search(
+        r"export const ELEMENT_SCRIPTS_API = \{(.*?)\n\} as const",
+        element_scripts_ts,
+        re.DOTALL,
+    )
+    if not m:
+        raise SystemExit(
+            "could not find `ELEMENT_SCRIPTS_API` in shared/element-scripts.ts"
+        )
+    got = re.search(r"get:\s*'([^']+)'", m.group(1))
+    if not got:
+        raise SystemExit("`ELEMENT_SCRIPTS_API` has no `get` path")
+    return got.group(1)
 
 
 def _collector_path(collector_ts: str) -> str:
@@ -180,6 +201,9 @@ def main() -> int:
     data_keys = _trace_log_keys(types_ts)
     runner_ids = _test_runner_ids(types_ts)
     collector_path = _collector_path((shared / "src" / "collector.ts").read_text())
+    element_scripts_path = _element_scripts_path(
+        (shared / "src" / "element-scripts.ts").read_text()
+    )
     trace_export = _trace_export_scopes(
         (shared / "src" / "trace-export.ts").read_text()
     )
@@ -262,6 +286,7 @@ def main() -> int:
         f"CONTROL_SCOPES = frozenset({sorted(control.values())!r})",
         "",
         f'COLLECTOR_PATH = "{collector_path}"',
+        f'ELEMENT_SCRIPTS_PATH = "{element_scripts_path}"',
         f'RUNNER_ID = "{REQUIRED_RUNNER_ID}"',
         f"TEST_RUNNER_IDS = frozenset({sorted(runner_ids)!r})",
         "",

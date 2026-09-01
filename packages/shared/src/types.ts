@@ -507,6 +507,47 @@ export interface ActionSnapshot {
   screenshot?: string
   elements?: unknown[]
   snapshotText?: string
+  /** Raw accessibility nodes, for an adapter that captured the tree but cannot
+   *  serialize it — the serializer is TypeScript. The exporter turns this into
+   *  `snapshotText`, which is what the A11y tab parses; a sender that already
+   *  has `snapshotText` never sets it. */
+  accessibilityTree?: AccessibilityNode[]
+}
+
+/** One node of what `accessibilityTreeScript` evaluates to in the page. */
+export interface AccessibilityNode {
+  role: string
+  name: string
+  selector: string
+  depth: number
+  level: number | string
+  disabled: string
+  checked: string
+  expanded: string
+  selected: string
+  pressed: string
+  required: string
+  readonly: string
+  /** Whether the element's bounding rect intersects the viewport. */
+  isInViewport?: boolean
+}
+
+/** One element of what `elementsScript` evaluates to in the page. */
+export interface BrowserElementInfo {
+  tagName: string
+  name: string // computed accessible name (ARIA spec)
+  type: string
+  value: string
+  href: string
+  selector: string
+  isInViewport: boolean
+  boundingBox?: { x: number; y: number; width: number; height: number }
+}
+
+export interface GetBrowserElementsOptions {
+  includeBounds?: boolean
+  /** Only return elements whose bounding rect intersects the viewport (default true). */
+  inViewportOnly?: boolean
 }
 
 export interface TraceLog {

@@ -23,6 +23,10 @@ import {
   BASELINE_WS_SCOPE,
   COLLECTOR_API,
   COLLECTOR_CONTENT_TYPE,
+  ELEMENT_SCRIPTS_API,
+  ELEMENT_SCRIPTS_CONTENT_TYPE,
+  buildElementScripts,
+  isTestRunnerId,
   TRACE_API,
   WORKER_WS_QUERY,
   WS_PATHS,
@@ -402,6 +406,33 @@ function registerCollectorRoute(s: FastifyInstance, source: string): void {
   )
 }
 
+/**
+ * Serve the page-side element scripts, generated per runner.
+ *
+ * The collector route above exists because an adapter cannot be expected to
+ * carry its own copy of page code; these are the same thing for the element
+ * tree. Generated per request rather than read once like the collector, because
+ * the scripts bake in the caller's locator dialect — the runner decides whether
+ * a text locator comes out as `a*=Logout` or as XPath.
+ */
+function registerElementScriptsRoute(s: FastifyInstance): void {
+  s.get(
+    ELEMENT_SCRIPTS_API.get,
+    async (
+      request: FastifyRequest<{ Querystring: { runner?: string } }>,
+      reply
+    ) => {
+      const raw = request.query?.runner
+      // Narrowed, never trusted: an unknown value would otherwise reach
+      // locatorDialect and silently pick a dialect for a runner that is not one.
+      const runner = isTestRunnerId(raw) ? raw : undefined
+      return reply
+        .type(ELEMENT_SCRIPTS_CONTENT_TYPE)
+        .send(JSON.stringify(buildElementScripts(runner)))
+    }
+  )
+}
+
 function registerTraceRoute(
   s: FastifyInstance,
   trace: TracePlayerData | undefined
@@ -435,6 +466,7 @@ export async function start(
 
   registerTraceRoute(server, opts.trace)
   registerCollectorRoute(server, collectorSource)
+  registerElementScriptsRoute(server)
   registerTestRoutes(server, host, port)
   registerBaselineRoutes(server)
   registerClientWebSocket(server)

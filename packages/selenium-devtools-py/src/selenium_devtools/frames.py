@@ -20,6 +20,7 @@ from .types import (
     ScreencastInfo,
     SuiteStats,
     TestStats,
+    Viewport,
 )
 from .utils import iso
 
@@ -29,9 +30,10 @@ def metadata(
     capabilities: Optional[dict] = None,
     url: Optional[str] = None,
     run_options: Optional[dict] = None,
+    viewport: Optional[Viewport] = None,
 ) -> Metadata:
     caps = capabilities or {}
-    return {
+    entry: Metadata = {
         "type": "testrunner",  # TraceType.Testrunner
         "sessionId": session_id,
         "url": url,
@@ -48,6 +50,11 @@ def metadata(
         if run_options
         else {"runCapabilities": dict(RUN_CAPABILITIES_NONE)},
     }
+    # Omitted rather than sent empty: the trace reader's own 1280x720 default is
+    # a better frame than a zero-sized one, and the app treats absent as unknown.
+    if viewport:
+        entry["viewport"] = dict(viewport)
+    return entry
 
 
 def command_log(
@@ -61,6 +68,7 @@ def command_log(
     call_source: Optional[str],
     command_id: int,
     screenshot: Optional[str] = None,
+    selector: Optional[str] = None,
 ) -> CommandLog:
     entry: CommandLog = {
         "command": command,
@@ -71,6 +79,8 @@ def command_log(
         "callSource": call_source,
         "id": command_id,
     }
+    if selector:
+        entry["selector"] = selector
     if error is not None:
         entry["error"] = {
             "name": type(error).__name__,

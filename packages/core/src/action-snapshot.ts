@@ -2,7 +2,7 @@
 // `runScript`, `takeScreenshot`, etc. shim so the actual capture pipeline
 // (timeouts, fallbacks, snapshot serialization) lives in one place.
 
-import { accessibilityTreeScript, elementsScript } from './element-scripts.js'
+import { buildElementScripts } from '@wdio/devtools-shared/element-scripts'
 import {
   serializeWebSnapshot,
   serializeMobileSnapshot
@@ -129,6 +129,10 @@ export async function captureActionSnapshot(
   try {
     const timestamp = input.timestamp ?? Date.now()
     const isNativeMobile = !input.runScript && !!input.getPageSource
+    // The same pair the backend serves the Python adapter, so the two cannot
+    // capture different things. `elements` carries bounds — the per-action
+    // element rects drive A8 input points.
+    const scripts = buildElementScripts(input.runner)
 
     // Probe order is load-bearing, not cosmetic. A driver serialises requests
     // per session, so `Promise.all` starting them together still has them served
@@ -143,15 +147,10 @@ export async function captureActionSnapshot(
       isNativeMobile ? probe(input.getPageSource) : undefined,
       runWith<AccessibilityNode[]>(
         input.runScript,
-        accessibilityTreeScript(true, input.runner),
+        scripts.accessibilityTree,
         []
       ),
-      runWith<BrowserElementInfo[]>(
-        input.runScript,
-        // includeBounds: the per-action element rects drive A8 input points.
-        elementsScript(true, true, input.runner),
-        []
-      ),
+      runWith<BrowserElementInfo[]>(input.runScript, scripts.elements, []),
       probe(input.takeScreenshot)
     ])
 

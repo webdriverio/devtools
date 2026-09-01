@@ -40,3 +40,61 @@ export const SNAPSHOT_LOCATOR_DELIM = '→'
 
 /** Marks an inferred purpose before the locator (`<role> ∈ "<purpose>"`). */
 export const SNAPSHOT_PURPOSE_TOKEN = '∈'
+
+/**
+ * Roles that can be interacted with — rendered with `→ selector`.
+ * Structural roles (heading, img, form, nav, …) are intentionally excluded.
+ */
+export const INTERACTIVE_ROLES = new Set([
+  'button',
+  'link',
+  'textbox',
+  'checkbox',
+  'radio',
+  'combobox',
+  'slider',
+  'searchbox',
+  'spinbutton',
+  'switch',
+  'tab',
+  'menuitem',
+  'option'
+])
+
+/** The fields of a node this module's helpers read. Deliberately narrower than
+ *  `AccessibilityNode` so core's mobile `SnapshotNode` satisfies it too — both
+ *  snapshot pipelines share these helpers. */
+export interface SnapshotFormatNode {
+  role: string
+  name: string
+  depth: number
+}
+
+/**
+ * Returns true when `nodes[index]` is a statictext whose accessible name
+ * is already echoed by its immediate interactive parent — such a node
+ * adds no information and should be suppressed from the output.
+ */
+export function isStatictextEchoedByParent(
+  nodes: SnapshotFormatNode[],
+  index: number
+): boolean {
+  const node = nodes[index]!
+  if (node.role !== 'statictext' || !node.name) {
+    return false
+  }
+  for (let j = index - 1; j >= 0; j--) {
+    if (nodes[j]!.depth < node.depth) {
+      const parent = nodes[j]!
+      if (
+        INTERACTIVE_ROLES.has(parent.role) &&
+        parent.name &&
+        parent.name.includes(node.name)
+      ) {
+        return true
+      }
+      break
+    }
+  }
+  return false
+}

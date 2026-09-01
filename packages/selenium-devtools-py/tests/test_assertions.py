@@ -167,8 +167,14 @@ class TestReadingOperandsFromAScriptsAssert(unittest.TestCase):
         )
 
         self.assertEqual(source, "'/secure' in driver.current_url")
-        self.assertIsNone(operands)  # no values rather than a re-run
-        self.assertEqual(reads, [])  # and provably nothing was read
+        self.assertEqual(reads, [])  # provably nothing was read
+
+        # The literal still reports — `in` puts the expectation on the left —
+        # while the side that would have re-run reaches the wire as nothing.
+        op, left, right = operands
+        result = assertions.collapsed_result(passed=True, op=op, left=left, right=right)
+        self.assertEqual(result["expected"], "/secure")
+        self.assertNotIn("actual", result)
 
     def test_a_call_operand_is_never_evaluated(self):
         calls = []
@@ -181,9 +187,16 @@ class TestReadingOperandsFromAScriptsAssert(unittest.TestCase):
             "assert value() == 'x'", sys._getframe()
         )
 
-        self.assertIsNone(operands)
+        # The call is never made; the literal side still reports.
         self.assertEqual(calls, [])
         self.assertIsNotNone(source)
+        op, left, right = operands
+        self.assertEqual((op, right), ("==", "x"))
+        result = assertions.collapsed_result(passed=False, op=op, left=left, right=right)
+        # `==` puts the expectation on the right; the call's value would have
+        # been the actual, and it is absent rather than invented.
+        self.assertEqual(result["expected"], "x")
+        self.assertNotIn("actual", result)
 
     def test_a_non_comparison_yields_its_source_only(self):
         source, operands = assertions.parse_assert_statement("assert items", None)
@@ -199,8 +212,17 @@ class TestReadingOperandsFromAScriptsAssert(unittest.TestCase):
         self.assertEqual(source, "1 < x < 9")
         self.assertIsNone(operands)
 
-    def test_an_unknown_name_resolves_to_nothing(self):
+    def test_an_unknown_name_reports_only_the_side_it_knows(self):
         _, operands = assertions.parse_assert_statement("assert missing == 1", None)
+
+        op, left, right = operands
+        result = assertions.collapsed_result(passed=False, op=op, left=left, right=right)
+        # `==` puts the expectation on the right, which is the readable side.
+        self.assertEqual(result["expected"], 1)
+        self.assertNotIn("actual", result)
+
+    def test_neither_side_readable_yields_the_source_only(self):
+        _, operands = assertions.parse_assert_statement("assert missing == absent", None)
 
         self.assertIsNone(operands)
 
@@ -279,3 +301,32 @@ class TestTheMessageIsNotARepeat(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AssertCommandNameTest(unittest.TestCase):
+    """The name has to resolve in shared's ACTION_MAP, which matches
+    `^(?:assert|verify|expect)\\.(\\w+)$`. A bare "assert" is silently dropped by
+    the trace exporter, so the row showed in live mode and in no trace."""
+
+    def test_every_name_is_dotted(self):
+        for op in ("==", "!=", "is", "is not", "<", ">=", "in", "not in", None, ""):
+            with self.subTest(op=op):
+                name = assertions.assert_command(op)
+                self.assertRegex(name, r"^assert\.\w+$")
+
+    def test_comparisons_are_named_as_node_assert_methods(self):
+        self.assertEqual(assertions.assert_command("=="), "assert.equal")
+        self.assertEqual(assertions.assert_command("!="), "assert.notEqual")
+        self.assertEqual(assertions.assert_command("is"), "assert.strictEqual")
+        self.assertEqual(assertions.assert_command("is not"), "assert.notStrictEqual")
+
+    def test_anything_without_an_equivalent_is_a_truthiness_check(self):
+        # node:assert calls a bare truthiness check `ok`; the orderings and
+        # containment have no direct method, and the source text carries the
+        # meaning on the row's args either way.
+        for op in ("<", "<=", ">", ">=", "in", "not in", None):
+            with self.subTest(op=op):
+                self.assertEqual(assertions.assert_command(op), "assert.ok")
+
+    def test_the_default_constant_is_dotted_too(self):
+        self.assertRegex(assertions.ASSERT_COMMAND, r"^assert\.\w+$")

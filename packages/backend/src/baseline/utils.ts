@@ -10,7 +10,8 @@ export function freshRun(): ActiveRun {
     nodes: new Map(),
     startedAt: Date.now(),
     traceLogs: [],
-    screencastFrames: []
+    screencastFrames: [],
+    actionSnapshots: []
   }
 }
 

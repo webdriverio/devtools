@@ -331,5 +331,81 @@ class TestExitHandlerRegistration(unittest.TestCase):
         self.assertFalse(lifecycle._handlers_registered)
 
 
+class TestProcessExitTeardown(unittest.TestCase):
+    """A script that just ends is a teardown path like any other. It used to
+    close the dashboard window and nothing else, which lost the trace archive:
+    that is written by disable(), and in trace mode there is no window whose
+    closing would have run it."""
+
+    def setUp(self):
+        lifecycle._reset_for_tests()
+
+    def tearDown(self):
+        lifecycle._reset_for_tests()
+
+    def _register(self, disable, handle):
+        with mock.patch.object(lifecycle.atexit, "register"), \
+                mock.patch.object(lifecycle.signal, "signal"), \
+                mock.patch.object(lifecycle.signal, "getsignal"), \
+                mock.patch.object(
+                    lifecycle.threading, "main_thread",
+                    return_value=threading.current_thread()):
+            lifecycle.register_exit_handlers(disable, handle)
+
+    def test_the_hook_actually_registered_is_the_one_that_tears_down(self):
+        # Without this the rest of the class passes with the bug still in
+        # place: it calls _on_process_exit directly, while atexit holds a
+        # window-close that never reaches disable().
+        with mock.patch.object(lifecycle.atexit, "register") as reg, \
+                mock.patch.object(lifecycle.signal, "signal"), \
+                mock.patch.object(lifecycle.signal, "getsignal"), \
+                mock.patch.object(
+                    lifecycle.threading, "main_thread",
+                    return_value=threading.current_thread()):
+            lifecycle.register_exit_handlers(mock.Mock(), None)
+
+        reg.assert_called_once_with(lifecycle._on_process_exit)
+
+    def test_process_exit_runs_disable(self):
+        disable = mock.Mock()
+        self._register(disable, None)  # trace mode opens no window
+
+        lifecycle._on_process_exit()
+
+        self.assertTrue(disable.called)
+
+    def test_it_closes_the_window_too(self):
+        disable = mock.Mock()
+        handle = BrowserHandle(proc=FakeProc())
+        self._register(disable, handle)
+
+        lifecycle._on_process_exit()
+
+        self.assertTrue(disable.called)
+        self.assertTrue(handle._closed)
+
+    def test_a_run_already_torn_down_is_not_torn_down_twice(self):
+        disable = mock.Mock()
+        self._register(disable, None)
+        lifecycle._trigger_shutdown(exit_after=False)
+        self.assertEqual(disable.call_count, 1)
+
+        lifecycle._on_process_exit()
+
+        self.assertEqual(disable.call_count, 1)
+
+    def test_a_returned_waiter_does_not_block_teardown(self):
+        # `_trigger_shutdown` hands teardown to whoever is parked in
+        # wait_for_shutdown(); by atexit that caller has necessarily returned,
+        # so the same early-return here would skip disable() altogether.
+        disable = mock.Mock()
+        self._register(disable, None)
+        lifecycle.wait_for_shutdown(timeout=0)  # sets _has_waiter, then returns
+
+        lifecycle._on_process_exit()
+
+        self.assertTrue(disable.called)
+
+
 if __name__ == "__main__":
     unittest.main()

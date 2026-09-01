@@ -33,6 +33,30 @@ class CommandLog(TypedDict, total=False):
     callSource: Optional[str]
     id: int
     screenshot: str
+    selector: str
+
+
+class Viewport(TypedDict):
+    width: int
+    height: int
+
+
+class ElementScripts(TypedDict):
+    """Body of the backend's element-scripts route: two injectable expressions."""
+
+    accessibilityTree: str
+    elements: str
+
+
+class ActionSnapshot(TypedDict, total=False):
+    """One action's view of the page. `accessibilityTree` ships raw because the
+    serializer is TypeScript — the backend turns it into the A11y tab's text."""
+
+    timestamp: int
+    command: str
+    screenshot: str
+    elements: List[Any]
+    accessibilityTree: List[Any]
 
 
 class ConsoleLog(TypedDict):
@@ -83,6 +107,7 @@ class Metadata(TypedDict, total=False):
     testEnv: str
     runner: str
     options: Dict[str, Any]
+    viewport: Viewport
 
 
 class TestStats(TypedDict, total=False):

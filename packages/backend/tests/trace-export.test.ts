@@ -255,6 +255,144 @@ describe('exportActiveRunTrace', () => {
     expect(JSON.stringify(options[0])).toContain('chrome')
   })
 
+  // The A11y tab reads these. Given none, the exporter synthesizes bare
+  // snapshots from commands carrying screenshots — a picture per action and no
+  // elements, which is what a Python trace had: 16 frame snapshots, 0
+  // *-elements.json, against 12 in a JS Selenium trace of the same flow.
+  it('writes the element tree beside an action when one was streamed', async () => {
+    const outputDir = await tmpDir()
+    const zipPath = await exportActiveRunTrace(
+      run({
+        actionSnapshots: [
+          {
+            timestamp: 1200,
+            command: 'clickElement',
+            screenshot: JPEG_1PX,
+            elements: [{ selector: '#go', role: 'button', name: 'Go' }]
+          }
+        ]
+      }),
+      { outputDir, sessionId: 'sess-a11y' }
+    )
+
+    const files = unzipSync(new Uint8Array(await fs.readFile(zipPath)))
+    const elements = Object.keys(files).filter((n) =>
+      n.endsWith('-elements.json')
+    )
+    expect(elements).toHaveLength(1)
+    expect(strFromU8(files[elements[0]!]!)).toContain('#go')
+  })
+
+  // An adapter exporting through here captures the tree with a page-side
+  // script but cannot serialize it — that transform is TypeScript. Capturing
+  // only `elements` left the A11y tab reporting "no accessibility snapshot"
+  // with 39 element files in the same archive.
+  it('serializes a raw accessibility tree into the text the A11y tab parses', async () => {
+    const outputDir = await tmpDir()
+    const node = (
+      role: string,
+      name: string,
+      selector: string,
+      depth: number
+    ) => ({
+      role,
+      name,
+      selector,
+      depth,
+      level: '',
+      disabled: '',
+      checked: '',
+      expanded: '',
+      selected: '',
+      pressed: '',
+      required: '',
+      readonly: '',
+      isInViewport: true
+    })
+    const zipPath = await exportActiveRunTrace(
+      run({
+        actionSnapshots: [
+          {
+            timestamp: 1200,
+            command: 'clickElement',
+            url: 'https://x/login',
+            title: 'The Internet',
+            screenshot: JPEG_1PX,
+            accessibilityTree: [node('button', 'Login', '#go', 0)]
+          }
+        ]
+      }),
+      { outputDir, sessionId: 'sess-tree' }
+    )
+
+    const files = unzipSync(new Uint8Array(await fs.readFile(zipPath)))
+    const snap = Object.keys(files).find((n) => n.endsWith('-snapshot.txt'))
+    expect(snap).toBeDefined()
+    const text = strFromU8(files[snap!]!)
+    expect(text).toContain('The Internet')
+    expect(text).toContain('button "Login"')
+  })
+
+  // The JS adapters serialize in-process; theirs is authoritative.
+  it('leaves a snapshotText the sender already produced alone', async () => {
+    const outputDir = await tmpDir()
+    const zipPath = await exportActiveRunTrace(
+      run({
+        actionSnapshots: [
+          {
+            timestamp: 1200,
+            command: 'clickElement',
+            screenshot: JPEG_1PX,
+            snapshotText: 'ALREADY SERIALIZED',
+            accessibilityTree: [
+              {
+                role: 'button',
+                name: 'Login',
+                selector: '#go',
+                depth: 0,
+                level: '',
+                disabled: '',
+                checked: '',
+                expanded: '',
+                selected: '',
+                pressed: '',
+                required: '',
+                readonly: ''
+              }
+            ]
+          }
+        ]
+      }),
+      { outputDir, sessionId: 'sess-keep' }
+    )
+
+    const files = unzipSync(new Uint8Array(await fs.readFile(zipPath)))
+    const snap = Object.keys(files).find((n) => n.endsWith('-snapshot.txt'))
+    expect(strFromU8(files[snap!]!)).toBe('ALREADY SERIALIZED')
+  })
+
+  it('still writes a picture per action when none were streamed', async () => {
+    const outputDir = await tmpDir()
+    const zipPath = await exportActiveRunTrace(
+      run({
+        commands: [
+          {
+            command: 'clickElement',
+            args: ['#go'],
+            timestamp: 1200,
+            screenshot: JPEG_1PX
+          }
+        ]
+      }),
+      { outputDir, sessionId: 'sess-bare' }
+    )
+
+    const files = unzipSync(new Uint8Array(await fs.readFile(zipPath)))
+    const names = Object.keys(files)
+    expect(names.filter((n) => n.endsWith('-elements.json'))).toEqual([])
+    expect(names.some((n) => n.endsWith('.jpeg'))).toBe(true)
+  })
+
   // The JS adapters hand their recorder's buffer straight to the exporter
   // in-process; an adapter exporting through the backend has to send it, so the
   // frames arrive as a stream and have to survive the round trip into the zip.

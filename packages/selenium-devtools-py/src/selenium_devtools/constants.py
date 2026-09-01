@@ -76,6 +76,10 @@ BACKEND_SPAWN_TIMEOUT_S = 40.0
 # floor its dependencies require; below it the process starts and then dies on
 # syntax it cannot parse, which surfaces here only as "exited before reporting
 # a port". Checked up front so the message names the real problem.
+MIN_NODE_MAJOR = 18
+NODE_VERSION_TIMEOUT_S = 5.0
+
+# ── Trace mode ───────────────────────────────────────────────────────────────
 # How long to wait for the backend to answer a trace export. The archive is
 # assembled from a whole run's frames, so it is not instant; but a run that
 # captured everything and then hung waiting for a file is worse than one that
@@ -89,14 +93,22 @@ ENV_TRACE = "DEVTOOLS_TRACE"
 #: adapters). Falsy values disable it.
 ENV_FILMSTRIP = "DEVTOOLS_FILMSTRIP"
 
+#: Opt OUT of per-action element capture in trace mode (on by default).
+ENV_A11Y = "DEVTOOLS_A11Y"
+
 #: Filmstrip frames per websocket message. The buffer can hold
 #: SCREENCAST_MAX_BUFFER_FRAMES JPEGs, which in one message would approach the
 #: socket's payload limit; the transport also masks payloads in a per-byte
 #: Python loop (~57 MB/s measured), so smaller messages keep the stall short.
 SCREENCAST_FRAME_BATCH = 50
 
-MIN_NODE_MAJOR = 18
-NODE_VERSION_TIMEOUT_S = 5.0
+#: Action snapshots per message. Smaller than the frame batch: each carries a
+#: screenshot AND an element tree, so a batch is heavier per item.
+ACTION_SNAPSHOT_BATCH = 20
+
+#: How long to wait for the backend to hand over page-side source. Short: it is
+#: a loopback request to a process we launched, and a hang here stalls the run.
+ELEMENT_SCRIPTS_FETCH_TIMEOUT_S = 5.0
 
 # ── Instrumentation ──────────────────────────────────────────────────────────
 # Selenium commands that are bookkeeping/noise rather than user-meaningful.
@@ -112,6 +124,17 @@ SKIP_COMMANDS = frozenset(
 # for its navigation timings afterwards. `get` carries the url; the history ones
 # do not, so their row reports the document's own url instead.
 NAVIGATION_COMMANDS = frozenset({"get", "refresh", "goBack", "goForward"})
+
+# Commands carrying a `{using, value}` locator — the only point at which the
+# selector behind an element handle is visible. The child forms also carry the
+# parent handle's id, which scopes the selector they produce.
+FIND_CHILD_COMMANDS = frozenset({"findChildElement", "findChildElements"})
+FIND_COMMANDS = frozenset({"findElement", "findElements"}) | FIND_CHILD_COMMANDS
+
+# Element handles whose locator is remembered, before the oldest is evicted. A
+# handle costs two short strings, and a page interacted with more than a few
+# hundred elements deep has long since stopped resembling a readable trace.
+ELEMENT_LOCATOR_CACHE_SIZE = 200
 
 # Stack-frame path fragment to skip when resolving a command's call source —
 # the adapter's own package. The selenium library dir is added at runtime by

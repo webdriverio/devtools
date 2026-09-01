@@ -216,7 +216,11 @@ class TestWhatItReports(unittest.TestCase):
         # Once, by the assert itself — the tracer added no read of its own.
         self.assertEqual(len(reads), 1)
         [call] = [c for c in self.recorder.calls if c["source"]]
-        self.assertIsNone(call["operands"])
+        # The literal side is reported; the property's value is not, because it
+        # was never read.
+        op, left, right = call["operands"]
+        self.assertEqual((op, left), ("in", "/secure"))
+        self.assertNotIsInstance(right, str)
 
     def test_lines_that_are_not_asserts_report_nothing(self):
         def run():
