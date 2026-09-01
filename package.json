@@ -15,7 +15,7 @@
     "demo:selenium": "pnpm --filter @wdio/selenium-devtools example",
     "demo:python": "python3 examples/selenium/python-test/web_form.py",
     "demo:python:login": "python3 examples/selenium/python-test/login.py",
-    "demo:python:pytest": "DEVTOOLS_ENABLE=1 python3 -m pytest examples/selenium/python-test/test_login_pytest.py",
+    "demo:python:pytest": "python3 -m pytest --devtools examples/selenium/python-test/test_login_pytest.py",
     "dev": "pnpm --parallel dev",
     "preview": "pnpm --parallel preview",
     "test": "vitest run",
