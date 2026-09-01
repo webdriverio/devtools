@@ -41,15 +41,36 @@ export interface ElementScriptsResponse {
   elements: string
 }
 
+/** Fields a captured element record is read for: `trace-action-events` matches
+ *  on `selector` and draws `after.point` from `boundingBox`, and the rest is
+ *  context for a reader. `value` and `href` are deliberately absent — nothing
+ *  in the repo reads either off a captured record, and a trace zip is a
+ *  portable artifact, so shipping an unread OTP or signed url in every
+ *  `*-elements.json` is cost with no consumer. `@wdio/elements` still returns
+ *  the full `BrowserElementInfo` from its own live call. */
+const CAPTURED_ELEMENT_FIELDS = [
+  'tagName',
+  'name',
+  'type',
+  'selector',
+  'isInViewport',
+  'boundingBox'
+] as const
+
 /** The pair every caller wants: both scripts in the form an action snapshot
  *  reads them, so the route and the in-process adapters cannot drift apart on
  *  which arguments that is. */
 export function buildElementScripts(
   runner?: TestRunnerId
 ): ElementScriptsResponse {
+  const projection = CAPTURED_ELEMENT_FIELDS.map(
+    (field) => `${field}: e.${field}`
+  ).join(', ')
   return {
     accessibilityTree: accessibilityTreeScript(true, runner),
-    elements: elementsScript(true, true, runner)
+    // `.map` rather than a flag on elementsScript: the projection is a property
+    // of what a TRACE keeps, not of how the page is walked.
+    elements: `(${elementsScript(true, true, runner)}).map(function (e) { return { ${projection} } })`
   }
 }
 
