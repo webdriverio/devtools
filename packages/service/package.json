@@ -38,9 +38,9 @@
     "prepublishOnly": "pnpm build"
   },
   "dependencies": {
-    "@babel/parser": "^7.29.7",
-    "@babel/traverse": "^7.29.7",
-    "@babel/types": "^7.29.7",
+    "@babel/parser": "^8.0.4",
+    "@babel/traverse": "^8.0.4",
+    "@babel/types": "^8.0.4",
     "@types/yazl": "^3.3.1",
     "@wdio/devtools-backend": "workspace:^",
     "@wdio/devtools-script": "workspace:^",
@@ -68,7 +68,7 @@
     "@wdio/devtools-shared": "workspace:^",
     "@wdio/globals": "9.29.1",
     "@wdio/protocols": "9.30.1",
-    "typescript": "6.0.3",
+    "typescript": "7.0.2",
     "vite": "^8.0.16",
     "vite-plugin-dts": "^5.0.2"
   },
