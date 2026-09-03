@@ -74,25 +74,52 @@ a project default off for one run, which is why there is no `--no-devtools`.
 itself — it is a mode fallback you may have exported for your own scripts, and
 reading it as an opt-in would capture pytest runs you never asked for.
 
-### Keeping only the runs worth keeping
+### How many archives, and which ones to keep
 
-Trace mode writes an archive for every run. `tracePolicy` narrows that to the
-runs you would actually open:
+Two settings shape the output. `traceGranularity` decides how many archives a
+run writes; `tracePolicy` decides which of them survive.
+
+| `traceGranularity` | |
+|---|---|
+| `session` | one archive for the whole run (the default) |
+| `test` | one per test, holding only that test's own commands, console, network, DOM mutations, a11y trees and frames |
+
+`spec` is not offered: this adapter's spec **is** its test file, so it could only
+silently mean one of the two above.
+
+| `tracePolicy` | |
+|---|---|
+| `on` | keep everything (the default) |
+| `retain-on-failure` | keep only what failed |
+
+Together:
+
+| | |
+|---|---|
+| `test` + `retain-on-failure` | only the tests that failed |
+| `session` + `retain-on-failure` | the whole run, if anything in it failed |
+| either + `on` | everything |
 
 ```bash
-pytest --devtools-trace-policy retain-on-failure tests/
+pytest --devtools-trace-granularity test --devtools-trace-policy retain-on-failure tests/
 ```
 
 ```toml
 [tool.pytest.ini_options]
+devtools_trace_granularity = "test"
 devtools_trace_policy = "retain-on-failure"
 ```
 
-A plain script passes `devtools.enable(trace_policy="retain-on-failure")`.
+A plain script passes
+`devtools.enable(trace_granularity="test", trace_policy="retain-on-failure")`.
+A committed example of all of this is in
+[`examples/selenium/python-test/trace-py-test/`](../../examples/selenium/python-test/trace-py-test/),
+whose `pytest.ini` documents every setting the adapter has.
 
-Naming a policy **explicitly** selects trace mode — the CLI flag, the ini option
+Naming a policy or a granularity **explicitly** selects trace mode — the CLI flag, the ini option
 and the `enable()` argument all imply it, since a policy means nothing in live
-mode. `DEVTOOLS_TRACE_POLICY` deliberately does **not**: an exported variable is
+mode. `DEVTOOLS_TRACE_POLICY` and `DEVTOOLS_TRACE_GRANULARITY` deliberately do
+**not**: an exported variable is
 ambient, and may have been set for a different script in the same shell, so
 flipping a live run to trace mode on that basis would take away the dashboard
 nobody asked to lose. Pair it with `DEVTOOLS_TRACE=1`. A run that ignores it
@@ -103,13 +130,21 @@ everything), `retain-on-failure`, `retain-on-first-failure`, `on-first-retry`,
 `on-all-retries`, `retain-on-failure-and-retries`. A value outside that set
 warns and keeps everything, rather than being discovered as a missing file.
 
-Two limits, both from the archive being run-scoped rather than per-test:
+Two limits:
 
-- The decision covers **the whole run** — one failing test keeps the run's
-  archive, because there are no per-test slices to keep separately.
-- The retry-aware policies **degrade to `retain-on-failure`**. Nothing on the
-  wire carries an attempt number, so a retried test overwrites its own earlier
-  outcome; the backend logs the degradation rather than pretending otherwise.
+- At `session` granularity the decision covers **the whole run** — one failing
+  test keeps everything, because there is only one archive to keep. Use
+  `test` granularity if you want only the failure.
+- The retry-aware policies — `retain-on-first-failure`, `on-first-retry`,
+  `on-all-retries`, `retain-on-failure-and-retries` — **behave exactly like
+  `retain-on-failure`**. Nothing on the wire carries an attempt number, so a
+  retried test overwrites its own earlier outcome and the retry-aware question
+  cannot be asked; the backend logs the degradation rather than pretending
+  otherwise.
+
+Per-test `screenshot`, `video` and inline Allure attachment are still
+Node.js-only — it is the trace **archive** that is now per-test, not the other
+artifacts.
 
 A declined run is reported as the policy working, not as a failed export.
 

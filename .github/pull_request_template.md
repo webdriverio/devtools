@@ -23,9 +23,11 @@
 - [ ] `service` (WebdriverIO adapter)
 - [ ] `nightwatch-devtools` (Nightwatch adapter)
 - [ ] `selenium-devtools` (Selenium adapter)
+- [ ] `selenium-devtools-py` (Selenium Python adapter)
 - [ ] `backend` (server)
 - [ ] `app` (UI)
 - [ ] `script` (page-injected runtime)
+- [ ] `trace` (Trace mode)
 
 ## Notes for reviewers
 
