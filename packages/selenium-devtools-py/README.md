@@ -88,10 +88,15 @@ pytest --devtools-trace-policy retain-on-failure tests/
 devtools_trace_policy = "retain-on-failure"
 ```
 
-A plain script passes `devtools.enable(trace=True, trace_policy="retain-on-failure")`,
-and `DEVTOOLS_TRACE_POLICY` is the fallback for both. Naming a policy implies
-trace mode — it means nothing in live mode, so it selects the mode rather than
-being ignored.
+A plain script passes `devtools.enable(trace_policy="retain-on-failure")`.
+
+Naming a policy **explicitly** selects trace mode — the CLI flag, the ini option
+and the `enable()` argument all imply it, since a policy means nothing in live
+mode. `DEVTOOLS_TRACE_POLICY` deliberately does **not**: an exported variable is
+ambient, and may have been set for a different script in the same shell, so
+flipping a live run to trace mode on that basis would take away the dashboard
+nobody asked to lose. Pair it with `DEVTOOLS_TRACE=1`. A run that ignores it
+says so rather than leaving you to notice a missing archive.
 
 The values are shared's `TraceRetentionPolicy`: `on` (the default — keep
 everything), `retain-on-failure`, `retain-on-first-failure`, `on-first-retry`,
