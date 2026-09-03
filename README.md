@@ -395,6 +395,8 @@ Capture is always opt-in, and there are three ways to say yes — `--devtools` /
 
 A Python trace carries the dense filmstrip, the A11y tree with its element overlay, DOM time-travel, console, network, per-command screenshots and command selectors. The transforms that build the zip stay in the backend rather than being ported ([#298](https://github.com/webdriverio/devtools/issues/298)), so trace mode starts the backend but opens no window.
 
+Two settings shape the output, as flags, ini options, environment variables or `enable()` arguments: `traceGranularity` (`session`, the default, or `test` for one archive per test) and `tracePolicy` (`on`, or `retain-on-failure` to keep only what failed). Together, `test` + `retain-on-failure` writes one archive per failing test and nothing for a green run. The four retry-aware policies are accepted but behave exactly like `retain-on-failure` — nothing on the wire carries an attempt number. Per-test `screenshot`, `video` and inline Allure attach remain Node.js-only; it is the trace archive that is per-test.
+
 → **[`selenium-devtools-py`](./packages/selenium-devtools-py/README.md)** — pytest and plain-script setup, trace mode, assertions, run controls, Preserve & Rerun, and parallel runs.
 
 ## Project Structure
