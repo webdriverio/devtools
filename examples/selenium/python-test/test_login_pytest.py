@@ -16,7 +16,7 @@ this is the closest equivalent to a nested ``describe`` in the JS examples.
 Run it (the plugin is inert unless a devtools env var opts the run in):
 
     pip install -e packages/selenium-devtools-py
-    DEVTOOLS_ENABLE=1 python -m pytest examples/selenium/python-test/test_login_pytest.py
+    python -m pytest --devtools examples/selenium/python-test/test_login_pytest.py
 
 The driver fixture is function-scoped, so each test gets its own browser session
 — which also exercises the adapter's per-driver capture state.
