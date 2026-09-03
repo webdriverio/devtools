@@ -670,3 +670,134 @@ class DeclinedExportTest(unittest.TestCase):
         trace_export.export(tx, output_dir="/out", session_id="s")
 
         self.assertNotIn("tracePolicy", tx.sent[0][1])
+
+
+class TraceModeGatingTest(unittest.TestCase):
+    """A policy or a granularity means nothing in live mode. Which of the four
+    ways of naming one turns trace mode ON is the question this pins."""
+
+    def setUp(self):
+        patcher = mock.patch.dict(os.environ, {}, clear=False)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        for name in ("DEVTOOLS_TRACE", "DEVTOOLS_TRACE_POLICY",
+                     "DEVTOOLS_TRACE_GRANULARITY"):
+            os.environ.pop(name, None)
+
+    def test_an_explicit_argument_selects_trace_mode(self):
+        # Same rule as --devtools-trace-policy: honouring a policy without the
+        # mode would silently drop what the caller asked for.
+        self.assertTrue(
+            devtools._trace_enabled(None, implied_by=("retain-on-failure", None))
+        )
+        self.assertTrue(devtools._trace_enabled(None, implied_by=(None, "test")))
+
+    def test_an_explicit_trace_false_still_wins(self):
+        self.assertFalse(
+            devtools._trace_enabled(False, implied_by=("retain-on-failure", "test"))
+        )
+
+    def test_the_environment_stays_ambient(self):
+        # It may have been exported for a different script in the same shell;
+        # flipping a live run to trace mode would take away the dashboard.
+        os.environ["DEVTOOLS_TRACE_POLICY"] = "retain-on-failure"
+        os.environ["DEVTOOLS_TRACE_GRANULARITY"] = "test"
+
+        self.assertFalse(devtools._trace_enabled(None))
+
+    def test_but_an_ignored_environment_setting_is_never_silent(self):
+        # The symptom is otherwise an archive that never appears.
+        for name in ("DEVTOOLS_TRACE_POLICY", "DEVTOOLS_TRACE_GRANULARITY"):
+            with self.subTest(env=name):
+                os.environ.pop("DEVTOOLS_TRACE_POLICY", None)
+                os.environ.pop("DEVTOOLS_TRACE_GRANULARITY", None)
+                os.environ[name] = "retain-on-failure"
+                with self.assertLogs("selenium_devtools", level="WARNING") as logs:
+                    devtools._warn_if_ignored()
+                self.assertIn(name, "\n".join(logs.output))
+
+    def test_nothing_is_said_when_nothing_was_set(self):
+        with self.assertNoLogs("selenium_devtools", level="WARNING"):
+            devtools._warn_if_ignored()
+
+    def test_the_environment_works_alongside_the_mode(self):
+        os.environ["DEVTOOLS_TRACE"] = "1"
+        os.environ["DEVTOOLS_TRACE_POLICY"] = "retain-on-failure"
+
+        self.assertTrue(devtools._trace_enabled(None))
+        self.assertEqual(devtools._trace_policy(None), "retain-on-failure")
+
+
+class ResolveTraceSettingsTest(unittest.TestCase):
+    """The wiring, not the helpers. Testing the helpers alone left mutations to
+    `enable()`'s own decisions completely undetected."""
+
+    def setUp(self):
+        patcher = mock.patch.dict(os.environ, {}, clear=False)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        for name in ("DEVTOOLS_TRACE", "DEVTOOLS_TRACE_POLICY",
+                     "DEVTOOLS_TRACE_GRANULARITY", "DEVTOOLS_FILMSTRIP",
+                     "DEVTOOLS_A11Y"):
+            os.environ.pop(name, None)
+
+    def resolve(self, **kw):
+        args = {"trace": None, "filmstrip": None, "a11y": None,
+                "trace_policy": None, "trace_granularity": None}
+        args.update(kw)
+        return devtools._resolve_trace_settings(**args)
+
+    def test_live_mode_carries_no_trace_settings_at_all(self):
+        # Every trace-only feature is off, not merely unused.
+        self.assertEqual(self.resolve(), (False, False, False, None, None))
+
+    def test_trace_mode_defaults_the_captures_on_and_the_policy_off(self):
+        mode, filmstrip, a11y, policy, gran = self.resolve(trace=True)
+
+        self.assertEqual((mode, filmstrip, a11y), (True, True, True))
+        self.assertEqual((policy, gran), (None, None))
+
+    def test_a_policy_argument_turns_the_mode_on_and_is_kept(self):
+        mode, _, _, policy, _ = self.resolve(trace_policy="retain-on-failure")
+
+        self.assertTrue(mode)
+        self.assertEqual(policy, "retain-on-failure")
+
+    def test_a_granularity_argument_does_the_same(self):
+        mode, _, _, _, gran = self.resolve(trace_granularity="test")
+
+        self.assertTrue(mode)
+        self.assertEqual(gran, "test")
+
+    def test_trace_false_beats_a_policy_and_drops_it(self):
+        self.assertEqual(
+            self.resolve(trace=False, trace_policy="retain-on-failure"),
+            (False, False, False, None, None),
+        )
+
+    def test_an_exported_policy_does_not_turn_the_mode_on(self):
+        os.environ["DEVTOOLS_TRACE_POLICY"] = "retain-on-failure"
+
+        mode, _, _, policy, _ = self.resolve()
+
+        self.assertFalse(mode)
+        self.assertIsNone(policy)
+
+    def test_and_says_so_rather_than_dropping_it_silently(self):
+        os.environ["DEVTOOLS_TRACE_GRANULARITY"] = "test"
+
+        with self.assertLogs("selenium_devtools", level="WARNING") as logs:
+            self.resolve()
+
+        self.assertIn("DEVTOOLS_TRACE_GRANULARITY", "\n".join(logs.output))
+
+    def test_an_exported_policy_applies_once_the_mode_is_on(self):
+        os.environ["DEVTOOLS_TRACE_POLICY"] = "retain-on-failure"
+
+        _, _, _, policy, _ = self.resolve(trace=True)
+
+        self.assertEqual(policy, "retain-on-failure")
+
+    def test_a_live_run_says_nothing_when_nothing_was_exported(self):
+        with self.assertNoLogs("selenium_devtools", level="WARNING"):
+            self.resolve()

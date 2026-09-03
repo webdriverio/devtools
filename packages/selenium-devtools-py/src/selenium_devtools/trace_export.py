@@ -25,7 +25,7 @@ from __future__ import annotations
 import logging
 import threading
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from ._contract import (
@@ -54,6 +54,9 @@ class _Pending:
     path: Optional[str] = None
     error: Optional[str] = None
     declined: bool = False
+    #: Per-test archives, at `test` granularity. The run writes several files,
+    #: so the single `path` cannot carry the answer.
+    paths: list = field(default_factory=list)
 
 
 _pending: Optional[_Pending] = None
@@ -78,6 +81,8 @@ def on_result(data: Any) -> None:
         pending.path = path if isinstance(path, str) else None
         pending.error = error if isinstance(error, str) else None
         pending.declined = bool(data.get("declinedByPolicy"))
+        many = data.get("paths")
+        pending.paths = [p for p in many if isinstance(p, str)] if isinstance(many, list) else []
         pending.done.set()
 
 
@@ -149,6 +154,7 @@ def export(
     output_dir: str,
     session_id: str,
     trace_policy: Optional[str] = None,
+    trace_granularity: Optional[str] = None,
     timeout: float = TRACE_EXPORT_TIMEOUT_S,
 ) -> Optional[str]:
     """Request the archive and block until the backend answers.
@@ -178,6 +184,11 @@ def export(
                 # Omitted when unset so the backend's own default ('on', keep
                 # everything) applies rather than a null it has to interpret.
                 **({"tracePolicy": trace_policy} if trace_policy else {}),
+                **(
+                    {"traceGranularity": trace_granularity}
+                    if trace_granularity
+                    else {}
+                ),
             },
         )
     except Exception as exc:  # noqa: BLE001 — a failed export is not a failed run
@@ -203,6 +214,13 @@ def export(
     if pending.error:
         _log.warning("trace export failed: %s", pending.error)
         return None
+    if pending.paths:
+        _log.info(
+            "%d per-test trace(s) written to %s",
+            len(pending.paths),
+            output_dir,
+        )
+        return pending.paths[0]
     if pending.path:
         _log.info("trace written to %s", pending.path)
     return pending.path

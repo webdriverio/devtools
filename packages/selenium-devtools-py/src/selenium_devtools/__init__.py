@@ -35,6 +35,7 @@ from .output_dir import resolve_adapter_output_dir
 from .run_id import reset_run_id, resolve_run_id
 from .constants import (
     TRACE_RETENTION_POLICIES,
+    TRACE_GRANULARITIES,
     DEFAULT_HOST,
     DEFAULT_PORT,
     ENV_HOST,
@@ -43,6 +44,7 @@ from .constants import (
     ENV_PORT,
     ENV_TRACE,
     ENV_TRACE_POLICY,
+    ENV_TRACE_GRANULARITY,
     LOGGER_NAME,
 )
 from .logcapture import LogCapturer
@@ -87,7 +89,7 @@ _active: dict = {
     "capturer": None, "transport": None, "process": None, "url": None,
     "handle": None, "terminal": None, "logs": None, "excepthook": None,
     "trace": False, "traced": False, "filmstrip_mark": None,
-    "trace_policy": None,
+    "trace_policy": None, "trace_granularity": None,
 }
 
 
@@ -101,6 +103,77 @@ def _filmstrip_enabled(filmstrip: Optional[bool]) -> bool:
     if value is None:
         return True
     return value.lower() not in ("0", "false", "no", "off", "")
+
+
+def _resolve_trace_settings(
+    trace: Optional[bool],
+    filmstrip: Optional[bool],
+    a11y: Optional[bool],
+    trace_policy: Optional[str],
+    trace_granularity: Optional[str],
+) -> tuple:
+    """Every trace decision in one place: ``(mode, filmstrip, a11y, policy,
+    granularity)``.
+
+    Extracted from `enable()` so the wiring is testable on its own. The rules it
+    encodes — that an explicit policy or granularity implies the mode, that an
+    exported one does not, and that nothing is dropped silently — were each
+    reachable only through a live `enable()` before, so a mutation to any of
+    them left every test green.
+    """
+    mode = _trace_enabled(trace, implied_by=(trace_policy, trace_granularity))
+    if not mode:
+        _warn_if_ignored()
+        return False, False, False, None, None
+    return (
+        True,
+        _filmstrip_enabled(filmstrip),
+        _a11y_enabled(a11y),
+        _trace_policy(trace_policy),
+        _trace_granularity(trace_granularity),
+    )
+
+
+def _warn_if_ignored() -> None:
+    """Say so when a trace setting was exported but this run is not tracing.
+
+    An ARGUMENT naming a policy turns trace mode on; an exported variable does
+    not, because it is ambient — it may have been set for a different script in
+    the same shell, and flipping a live run to trace mode on that basis would
+    take away the dashboard nobody asked to lose. But it must not be silent:
+    the symptom is otherwise an archive that never appears.
+    """
+    for name in (ENV_TRACE_POLICY, ENV_TRACE_GRANULARITY):
+        if os.environ.get(name):
+            _log.warning(
+                "%s is set but this run is not in trace mode, so it does "
+                "nothing. Add %s=1, or pass trace=True to enable().",
+                name,
+                ENV_TRACE,
+            )
+
+
+def _trace_granularity(granularity: Optional[str]) -> Optional[str]:
+    """One archive per run (`session`, the default) or one per test (`test`).
+
+    Validated here for the same reason the policy is: the backend falls back to
+    session granularity for anything it does not recognise, which is the right
+    runtime behaviour and an invisible way to lose per-test archives.
+    """
+    value = granularity if granularity is not None else os.environ.get(
+        ENV_TRACE_GRANULARITY
+    )
+    if not value:
+        return None
+    if value not in TRACE_GRANULARITIES:
+        _log.warning(
+            "unknown trace granularity %r; writing one archive for the run. "
+            "Expected one of: %s",
+            value,
+            ", ".join(sorted(TRACE_GRANULARITIES)),
+        )
+        return None
+    return value
 
 
 def _trace_policy(policy: Optional[str]) -> Optional[str]:
@@ -136,11 +209,19 @@ def _a11y_enabled(a11y: Optional[bool]) -> bool:
     return value.lower() not in ("0", "false", "no", "off", "")
 
 
-def _trace_enabled(trace: Optional[bool]) -> bool:
+def _trace_enabled(
+    trace: Optional[bool], *, implied_by: tuple = ()
+) -> bool:
     """Whether this run writes a trace archive. The argument wins over the
     environment so a script can opt out of an exported default."""
     if trace is not None:
         return trace
+    # An explicit policy or granularity ARGUMENT is a request for trace mode:
+    # neither means anything in live mode, so honouring one without it would
+    # silently drop what the caller asked for. Same rule as the CLI flags, and
+    # deliberately not extended to the environment — see `_warn_if_ignored`.
+    if any(implied_by):
+        return True
     return os.environ.get(ENV_TRACE, "").lower() in ("1", "true", "yes")
 
 
@@ -249,6 +330,7 @@ def _export_trace(
             output_dir=output_dir or resolve_adapter_output_dir(),
             session_id=session_id,
             trace_policy=_active["trace_policy"],
+            trace_granularity=_active["trace_granularity"],
         )
     except Exception as exc:  # noqa: BLE001
         _log.warning("trace export skipped (%s)", exc)
@@ -264,6 +346,7 @@ def enable(
     filmstrip: Optional[bool] = None,
     a11y: Optional[bool] = None,
     trace_policy: Optional[str] = None,
+    trace_granularity: Optional[str] = None,
 ) -> Optional[SessionCapturer]:
     """Connect to the backend and instrument Selenium. Idempotent.
 
@@ -277,10 +360,11 @@ def enable(
 
     # Decided before anything reads it: the screencast recorder, the dashboard
     # window and the teardown export all branch on this.
-    trace_mode = _trace_enabled(trace)
-    filmstrip_mode = trace_mode and _filmstrip_enabled(filmstrip)
-    a11y_mode = trace_mode and _a11y_enabled(a11y)
-    policy = _trace_policy(trace_policy) if trace_mode else None
+    trace_mode, filmstrip_mode, a11y_mode, policy, granularity = (
+        _resolve_trace_settings(
+            trace, filmstrip, a11y, trace_policy, trace_granularity
+        )
+    )
 
     # Before the backend is launched: the directory a rerun spawns in travels
     # through the environment the backend process inherits. A framework plugin
@@ -341,7 +425,7 @@ def enable(
     _active.update(
         capturer=capturer, transport=transport, process=process, url=url,
         terminal=term, logs=logs, trace=trace_mode, traced=False, filmstrip_mark=None,
-        trace_policy=policy,
+        trace_policy=policy, trace_granularity=granularity,
     )
 
     # Open the dashboard window and wire exit/signal + control-frame teardown so
@@ -405,7 +489,7 @@ def disable() -> None:
     _active.update(
         capturer=None, transport=None, process=None, url=None, handle=None,
         terminal=None, logs=None, excepthook=None, trace=False, traced=False, filmstrip_mark=None,
-        trace_policy=None,
+        trace_policy=None, trace_granularity=None,
     )
 
 

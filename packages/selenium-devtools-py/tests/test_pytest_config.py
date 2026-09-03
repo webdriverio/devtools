@@ -162,6 +162,21 @@ class ResolveTracePolicyTest(unittest.TestCase):
                 self.assertTrue(plugin._resolve_trace(source))
                 self.assertTrue(plugin._resolve_enabled(source))
 
+    def test_granularity_also_selects_trace_mode_and_opts_in(self):
+        for source in (
+            _Config({"--devtools-trace-granularity": "test"}),
+            _Config(ini={"devtools_trace_granularity": "test"}),
+        ):
+            with self.subTest(source=source):
+                self.assertEqual(
+                    plugin._resolve_trace_granularity(source), "test"
+                )
+                self.assertTrue(plugin._resolve_trace(source))
+                self.assertTrue(plugin._resolve_enabled(source))
+
+    def test_an_unset_granularity_is_none(self):
+        self.assertIsNone(plugin._resolve_trace_granularity(_Config()))
+
     def test_collect_only_still_wins(self):
         config = _Config(
             {"--devtools-trace-policy": "retain-on-failure", "--collect-only": True}
@@ -199,7 +214,11 @@ class ConfigureResolvesOnceTest(unittest.TestCase):
                 mock.patch.object(plugin.devtools, "dashboard_url", return_value=None):
             plugin.pytest_configure(_Config())
 
-        enable.assert_called_once_with(trace=True, trace_policy="retain-on-failure")
+        enable.assert_called_once_with(
+            trace=True,
+            trace_policy="retain-on-failure",
+            trace_granularity=None,
+        )
 
     def test_a_run_that_did_not_opt_in_leaves_every_hook_inert(self):
         plugin._enabled = True
@@ -219,7 +238,9 @@ class ConfigureResolvesOnceTest(unittest.TestCase):
                 mock.patch.object(plugin.devtools, "dashboard_url", return_value=None):
             plugin.pytest_configure(_Config())
 
-        enable.assert_called_once_with(trace=True, trace_policy=None)
+        enable.assert_called_once_with(
+            trace=True, trace_policy=None, trace_granularity=None
+        )
 
 
 class EmptyRunTest(unittest.TestCase):

@@ -99,6 +99,14 @@ ENV_A11Y = "DEVTOOLS_A11Y"
 #: Which runs are worth an archive. Unset keeps every one.
 ENV_TRACE_POLICY = "DEVTOOLS_TRACE_POLICY"
 
+#: One archive per run, or one per test. Unset means per run.
+ENV_TRACE_GRANULARITY = "DEVTOOLS_TRACE_GRANULARITY"
+
+# `spec` is deliberately absent: this adapter's spec IS its test file, so it
+# would have to behave as one of the other two, and a granularity that silently
+# means something else is worse than one that is not offered.
+TRACE_GRANULARITIES = frozenset({"session", "test"})
+
 # Mirrors shared's `TraceRetentionPolicy`. Validated adapter-side so a typo is
 # reported where it was made: `shouldRetainTrace` treats an unknown policy as
 # "keep everything", which is the right runtime behaviour and the wrong thing
