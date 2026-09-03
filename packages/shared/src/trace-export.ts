@@ -44,14 +44,24 @@ export interface TraceExportRequest {
    *  outcomes, exactly as `writeSessionTrace` does for an in-process adapter —
    *  an unretained run writes nothing rather than writing and deleting. */
   tracePolicy?: TraceRetentionPolicy
+  /** `session` (default) writes one archive for the run; `test` writes one per
+   *  test, and `tracePolicy` is then evaluated per test rather than run-wide.
+   *  `spec` is deliberately absent: this adapter's spec IS its test file, and a
+   *  granularity that silently behaved like one of the other two would be worse
+   *  than not offering it. */
+  traceGranularity?: 'session' | 'test'
 }
 
 /** Payload sent under {@link TRACE_EXPORT_SCOPE.result}. Exactly one of
  *  `path` / `error` is set. */
 export interface TraceExportResult {
   requestId: string
-  /** Absolute path of the artifact written. */
+  /** Absolute path of the artifact written. Set for a session-granularity
+   *  export; per-test exports report `paths` instead. */
   path?: string
+  /** Absolute paths written at `test` granularity, one per RETAINED test.
+   *  Empty when the policy declined every one. */
+  paths?: string[]
   /** Why nothing was written. The adapter logs this; a failed export must not
    *  fail the user's test run. */
   error?: string

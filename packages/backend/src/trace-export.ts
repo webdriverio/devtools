@@ -23,6 +23,7 @@ import {
   type RetentionDecision
 } from '@wdio/devtools-trace/trace-retention'
 import type { ActiveRun, TimeWindowNode } from './baseline/types.js'
+import { sliceRunByTest } from './trace-slice.js'
 
 /**
  * Test titles for `Tracing.tracingGroup` events, derived from the suite tree
@@ -156,4 +157,54 @@ export async function exportActiveRunTrace(
       : {}),
     testMetadata: testMetadataFromNodes(run.nodes)
   })
+}
+
+/** Filesystem-safe fragment of a test's identity, for its artifact name. */
+function slugForTest(uid: string, title: string): string {
+  const base = (title || uid)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60)
+  // A hash of the UID, not of the title: two tests can share a title (a
+  // parametrised case), and colliding names would have one overwrite the other.
+  let hash = 0
+  for (let i = 0; i < uid.length; i++) {
+    hash = (hash * 31 + uid.charCodeAt(i)) | 0
+  }
+  return `${base || 'test'}-${(hash >>> 0).toString(36).slice(0, 6)}`
+}
+
+/**
+ * One archive per test that the policy retains.
+ *
+ * A test whose slice captured nothing is skipped rather than written empty —
+ * the same rule `hasExportableData` applies to a whole run, for the same
+ * reason: an empty archive reads in the viewer as a run that captured nothing.
+ */
+export async function exportPerTestTraces(
+  run: Readonly<ActiveRun>,
+  request: Pick<
+    TraceExportRequest,
+    'outputDir' | 'sessionId' | 'format' | 'tracePolicy'
+  >
+): Promise<string[]> {
+  const paths: string[] = []
+  for (const slice of sliceRunByTest(run)) {
+    if (!hasExportableData(slice.run)) {
+      continue
+    }
+    if (!retentionDecision(slice.run, request.tracePolicy).retain) {
+      continue
+    }
+    paths.push(
+      await exportActiveRunTrace(slice.run, {
+        outputDir: request.outputDir,
+        sessionId: request.sessionId,
+        ...(request.format ? { format: request.format } : {}),
+        fileStem: `trace-${slugForTest(slice.uid, slice.title)}`
+      })
+    )
+  }
+  return paths
 }

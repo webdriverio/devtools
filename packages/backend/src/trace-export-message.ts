@@ -11,7 +11,11 @@ import {
   type TraceExportResult
 } from '@wdio/devtools-shared'
 import type { ActiveRun } from './baseline/types.js'
-import { exportActiveRunTrace, retentionDecision } from './trace-export.js'
+import {
+  exportActiveRunTrace,
+  exportPerTestTraces,
+  retentionDecision
+} from './trace-export.js'
 
 const log = logger('@wdio/devtools-backend')
 
@@ -57,6 +61,23 @@ export async function runTraceExport(
     )
   try {
     const run = deps.activeRun()
+    if (request.traceGranularity === 'test') {
+      // Retention is per slice here, so the run-wide decision below would be
+      // the wrong question: one failing test must not keep the passing ones.
+      const paths = await exportPerTestTraces(run, request)
+      log.info(
+        paths.length
+          ? `Trace exported for session ${request.sessionId}: ${paths.length} test slice(s)`
+          : `No test slice for session ${request.sessionId} was retained by ` +
+              `policy '${request.tracePolicy}'`
+      )
+      reply({
+        requestId: request.requestId,
+        paths,
+        ...(paths.length ? {} : { declinedByPolicy: true })
+      })
+      return
+    }
     // Asked before exporting rather than reported after: a decline is the
     // policy working, and routing it through the catch below would log a
     // passing run's own success as an export failure.
