@@ -171,8 +171,13 @@ def _send_default_suite(capturer: SessionCapturer, state: str) -> None:
     end = start if state == "running" else now_ms()
     # Named the way the pytest plugin names a real test: the file is the suite,
     # the test carries its own name, and fullTitle joins the two.
+    test_uid = f"{entry or suite_title}::{DEFAULT_TEST_TITLE}"
+    # The synthetic test is what a script's commands belong to, so the trace
+    # gets one group rather than none — the same uid the tree reports, or the
+    # exporter would open a group the viewer cannot name.
+    capturer.test_uid = test_uid
     test = frames.test_stats(
-        uid=f"{entry or suite_title}::{DEFAULT_TEST_TITLE}",
+        uid=test_uid,
         title=DEFAULT_TEST_TITLE,
         full_title=f"{suite_title} › {DEFAULT_TEST_TITLE}",
         parent=suite_title, state=state, file=entry, start_ms=start, end_ms=end,

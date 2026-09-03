@@ -1,5 +1,5 @@
 import type { TestStatus } from '@wdio/devtools-shared'
-import type { TestOutcome } from './trace-retention.js'
+import type { TestOutcome } from '@wdio/devtools-trace/trace-retention'
 
 /**
  * Framework-agnostic per-test attempt ledger. Every supported runner re-enters

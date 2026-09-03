@@ -23,7 +23,10 @@ import {
   writeScreenshotArtifact
 } from './screenshot-artifact.js'
 import { encodePerTestVideo, sliceFramesFrom } from './video-slice.js'
-import { shouldRetainTrace, type TestOutcome } from './trace-retention.js'
+import {
+  shouldRetainTrace,
+  type TestOutcome
+} from '@wdio/devtools-trace/trace-retention'
 import type { TraceArtifact } from './trace-finalizer.js'
 
 /** Adapter-supplied binding to the active Allure reporter. Attaches one file to

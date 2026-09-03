@@ -178,3 +178,81 @@ describe('runTraceExport', () => {
     expect(await fs.readdir(outputDir)).toEqual(['trace-sess-4.zip'])
   })
 })
+
+describe('a run the policy declines', () => {
+  function passingRun() {
+    return run({
+      nodes: new Map([
+        [
+          't1',
+          { uid: 't1', kind: 'test' as const, childUids: [], state: 'passed' }
+        ]
+      ])
+    })
+  }
+
+  it('reports a decline, not an error', async () => {
+    // The distinction is the whole point: a passing run under
+    // retain-on-failure did exactly what was asked, and an `error` here makes
+    // the adapter log a broken export for a run that succeeded.
+    const { replyToWorker, deps: d } = deps(passingRun())
+
+    await runTraceExport(
+      {
+        requestId: 'r1',
+        outputDir: await tmpDir(),
+        sessionId: 's1',
+        tracePolicy: 'retain-on-failure'
+      },
+      d
+    )
+
+    const answer = reply(replyToWorker)
+    expect(answer.data.declinedByPolicy).toBe(true)
+    expect(answer.data.error).toBeUndefined()
+    expect(answer.data.path).toBeUndefined()
+  })
+
+  it('writes nothing to the output directory', async () => {
+    const dir = await tmpDir()
+    const { deps: d } = deps(passingRun())
+
+    await runTraceExport(
+      {
+        requestId: 'r1',
+        outputDir: dir,
+        sessionId: 's1',
+        tracePolicy: 'retain-on-failure'
+      },
+      d
+    )
+
+    expect(await fs.readdir(dir)).toEqual([])
+  })
+
+  it('still writes when the policy retains', async () => {
+    const failing = run({
+      nodes: new Map([
+        [
+          't1',
+          { uid: 't1', kind: 'test' as const, childUids: [], state: 'failed' }
+        ]
+      ])
+    })
+    const { replyToWorker, deps: d } = deps(failing)
+
+    await runTraceExport(
+      {
+        requestId: 'r1',
+        outputDir: await tmpDir(),
+        sessionId: 's1',
+        tracePolicy: 'retain-on-failure'
+      },
+      d
+    )
+
+    const answer = reply(replyToWorker)
+    expect(answer.data.path).toMatch(/trace-s1\.zip$/)
+    expect(answer.data.declinedByPolicy).toBeUndefined()
+  })
+})

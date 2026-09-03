@@ -48,6 +48,10 @@ packages/nightwatch-devtools/nightwatch-video-*.webm
 # trace output (mode: 'trace')
 trace-*.zip
 examples/**/trace-*/
+# ...but this one is a committed example, not output. The rule above exists for
+# unpacked archives (`trace-<hash>/`), and a folder named for what it
+# demonstrates collides with it.
+!examples/selenium/python-test/trace-py-test/
 
 # test results
 examples/**/test-results*/

@@ -27,7 +27,10 @@ import {
   writeTestSliceTrace,
   type SpecRange
 } from './spec-trace-helpers.js'
-import { shouldRetainTrace, type TestOutcome } from './trace-retention.js'
+import {
+  shouldRetainTrace,
+  type TestOutcome
+} from '@wdio/devtools-trace/trace-retention'
 import type { RetryOutcomeView } from './attempt-tracker.js'
 import {
   writeTraceZip,

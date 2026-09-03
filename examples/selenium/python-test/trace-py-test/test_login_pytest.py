@@ -13,10 +13,31 @@ It deliberately mixes both shapes pytest supports, because they nest differently
 pytest has no ``describe``/``it`` blocks; a class IS the grouping construct, so
 this is the closest equivalent to a nested ``describe`` in the JS examples.
 
-Run it (the plugin is inert unless a devtools env var opts the run in):
+This folder is the "committed config" shape: `pytest.ini` beside it already
+says how to capture, so running it needs no flags and no environment. Read that
+file — it documents every DevTools setting the adapter has, including the ones
+that are environment-only.
 
     pip install -e packages/selenium-devtools-py
-    python -m pytest --devtools examples/selenium/python-test/test_login_pytest.py
+    pytest examples/selenium/python-test/trace-py-test/
+    pnpm show-trace examples/selenium/python-test/trace-py-test/test-results/*.zip
+
+As committed it writes ONE archive PER FAILING TEST — `devtools_trace = true`,
+`devtools_trace_granularity = test`, `devtools_trace_policy = retain-on-failure`.
+So a green run writes nothing at all, which is the point: the archives you have
+are the ones worth opening.
+
+To see the difference, break an assertion below — the flash-message one in
+`test_rejects_invalid_credentials` is the easiest — and compare:
+
+    pytest -o devtools_trace_policy=on   examples/.../trace-py-test/   # 3 archives
+    pytest                               examples/.../trace-py-test/   # 1, the broken test
+    pytest -o devtools_trace_granularity=session examples/.../trace-py-test/
+                                                                       # 1, the whole run
+
+`-o` overrides one setting for one run without editing the file. A sibling
+example, `../login.py`, shows the same choices passed to `devtools.enable()`
+instead, for a script with no test runner.
 
 The driver fixture is function-scoped, so each test gets its own browser session
 — which also exercises the adapter's per-driver capture state.
