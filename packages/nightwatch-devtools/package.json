@@ -65,10 +65,10 @@
     "@types/ws": "^8.18.1",
     "@wdio/devtools-core": "workspace:^",
     "@wdio/devtools-shared": "workspace:^",
-    "chromedriver": "^151.0.5",
+    "chromedriver": "^152.0.2",
     "nightwatch": "^3.16.0",
     "tsup": "^8.5.1",
-    "typescript": "^6.0.3"
+    "typescript": "^7.0.2"
   },
   "peerDependencies": {
     "devtools": "^8.42.0",
