@@ -132,6 +132,43 @@ class ResolveTraceTest(unittest.TestCase):
         self.assertIs(plugin._resolve_trace(_Config(ini={"devtools_trace": False})), False)
 
 
+class ResolveTracePolicyTest(unittest.TestCase):
+    """A retention policy is a string, so it must not go through the boolean
+    ini reader — that would hand `enable()` the word "True"."""
+
+    def test_undecided_is_none_so_enable_reads_the_environment(self):
+        self.assertIsNone(plugin._resolve_trace_policy(_Config()))
+
+    def test_the_cli_flag_carries_the_value(self):
+        config = _Config({"--devtools-trace-policy": "retain-on-failure"})
+        self.assertEqual(
+            plugin._resolve_trace_policy(config), "retain-on-failure"
+        )
+
+    def test_the_ini_option_carries_the_value_not_a_bool(self):
+        config = _Config(ini={"devtools_trace_policy": "retain-on-failure"})
+        self.assertEqual(
+            plugin._resolve_trace_policy(config), "retain-on-failure"
+        )
+
+    def test_naming_a_policy_selects_trace_mode(self):
+        # It means nothing in live mode, so it selects the mode rather than
+        # being silently ignored.
+        for source in (
+            _Config({"--devtools-trace-policy": "retain-on-failure"}),
+            _Config(ini={"devtools_trace_policy": "retain-on-failure"}),
+        ):
+            with self.subTest(source=source):
+                self.assertTrue(plugin._resolve_trace(source))
+                self.assertTrue(plugin._resolve_enabled(source))
+
+    def test_collect_only_still_wins(self):
+        config = _Config(
+            {"--devtools-trace-policy": "retain-on-failure", "--collect-only": True}
+        )
+        self.assertFalse(plugin._resolve_enabled(config))
+
+
 class ConfigureResolvesOnceTest(unittest.TestCase):
     """Most hooks are handed no `config`, so the answer has to be cached."""
 
@@ -149,6 +186,20 @@ class ConfigureResolvesOnceTest(unittest.TestCase):
             plugin.pytest_configure(_Config())
 
         self.assertTrue(plugin._opted_in())
+
+    def test_the_policy_reaches_enable(self):
+        with mock.patch.object(plugin, "_resolve_enabled", return_value=True), \
+                mock.patch.object(plugin, "_resolve_trace", return_value=True), \
+                mock.patch.object(
+                    plugin, "_resolve_trace_policy", return_value="retain-on-failure"
+                ), \
+                mock.patch.object(plugin, "_enable_assertion_pass_hook"), \
+                mock.patch.object(plugin, "_configure_rerun"), \
+                mock.patch.object(plugin.devtools, "enable", return_value=None) as enable, \
+                mock.patch.object(plugin.devtools, "dashboard_url", return_value=None):
+            plugin.pytest_configure(_Config())
+
+        enable.assert_called_once_with(trace=True, trace_policy="retain-on-failure")
 
     def test_a_run_that_did_not_opt_in_leaves_every_hook_inert(self):
         plugin._enabled = True
@@ -168,7 +219,7 @@ class ConfigureResolvesOnceTest(unittest.TestCase):
                 mock.patch.object(plugin.devtools, "dashboard_url", return_value=None):
             plugin.pytest_configure(_Config())
 
-        enable.assert_called_once_with(trace=True)
+        enable.assert_called_once_with(trace=True, trace_policy=None)
 
 
 class EmptyRunTest(unittest.TestCase):

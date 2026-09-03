@@ -6,12 +6,15 @@ can go wrong: the reply lands on another thread, the socket outlives a single
 export, the backend can refuse, and none of it may take the run down.
 """
 
+import os
 import threading
 import time
 import unittest
 from unittest import mock
 
+import selenium_devtools as devtools
 from selenium_devtools import lifecycle, trace_export
+from selenium_devtools.constants import TRACE_RETENTION_POLICIES
 from selenium_devtools._contract import SCOPE_TRACE_EXPORT, SCOPE_TRACE_EXPORTED
 
 
@@ -588,3 +591,82 @@ class TestConcurrentExportsAreSerialized(unittest.TestCase):
         self.assertTrue(
             returned, "off-thread export blocked on the in-flight one"
         )
+
+
+class TracePolicyTest(unittest.TestCase):
+    """Validated adapter-side: `shouldRetainTrace` treats an unknown policy as
+    "keep everything", which is right at runtime and the wrong way to learn you
+    made a typo."""
+
+    def setUp(self):
+        patcher = mock.patch.dict(os.environ, {}, clear=False)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        os.environ.pop("DEVTOOLS_TRACE_POLICY", None)
+
+    def test_unset_keeps_every_run(self):
+        self.assertIsNone(devtools._trace_policy(None))
+
+    def test_an_argument_is_taken_as_given(self):
+        self.assertEqual(
+            devtools._trace_policy("retain-on-failure"), "retain-on-failure"
+        )
+
+    def test_the_environment_is_the_fallback(self):
+        os.environ["DEVTOOLS_TRACE_POLICY"] = "retain-on-first-failure"
+        self.assertEqual(devtools._trace_policy(None), "retain-on-first-failure")
+
+    def test_the_argument_beats_the_environment(self):
+        os.environ["DEVTOOLS_TRACE_POLICY"] = "retain-on-failure"
+        self.assertEqual(devtools._trace_policy("on"), "on")
+
+    def test_every_shared_policy_is_accepted(self):
+        for policy in TRACE_RETENTION_POLICIES:
+            with self.subTest(policy=policy):
+                self.assertEqual(devtools._trace_policy(policy), policy)
+
+    def test_a_typo_warns_and_keeps_everything(self):
+        with self.assertLogs("selenium_devtools", level="WARNING") as logs:
+            self.assertIsNone(devtools._trace_policy("retain-on-failures"))
+
+        self.assertIn("retain-on-failures", "\n".join(logs.output))
+
+
+class DeclinedExportTest(unittest.TestCase):
+    """A policy decline is the feature working. Reported as an error it reads
+    as a broken export on a run that passed."""
+
+    def tearDown(self):
+        trace_export.reset()
+
+    def test_a_decline_is_not_an_error(self):
+        tx = FakeTransport(reply={"declinedByPolicy": True}, delay=0.05)
+
+        with self.assertLogs("selenium_devtools", level="INFO") as logs:
+            path = trace_export.export(
+                tx, output_dir="/out", session_id="s",
+                trace_policy="retain-on-failure",
+            )
+
+        self.assertIsNone(path)
+        joined = "\n".join(logs.output)
+        self.assertIn("not retained", joined)
+        self.assertNotIn("export failed", joined)
+
+    def test_the_policy_travels_with_the_request(self):
+        tx = FakeTransport(reply={"path": "/out/t.zip"})
+
+        trace_export.export(
+            tx, output_dir="/out", session_id="s",
+            trace_policy="retain-on-failure",
+        )
+
+        self.assertEqual(tx.sent[0][1]["tracePolicy"], "retain-on-failure")
+
+    def test_no_policy_sends_no_field(self):
+        # Absent rather than null: the backend's own default applies.
+        tx = FakeTransport(reply={"path": "/out/t.zip"})
+
+        trace_export.export(tx, output_dir="/out", session_id="s")
+
+        self.assertNotIn("tracePolicy", tx.sent[0][1])

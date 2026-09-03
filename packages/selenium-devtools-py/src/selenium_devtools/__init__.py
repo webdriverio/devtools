@@ -34,6 +34,7 @@ from .capturer import SessionCapturer
 from .output_dir import resolve_adapter_output_dir
 from .run_id import reset_run_id, resolve_run_id
 from .constants import (
+    TRACE_RETENTION_POLICIES,
     DEFAULT_HOST,
     DEFAULT_PORT,
     ENV_HOST,
@@ -41,6 +42,7 @@ from .constants import (
     ENV_FILMSTRIP,
     ENV_PORT,
     ENV_TRACE,
+    ENV_TRACE_POLICY,
     LOGGER_NAME,
 )
 from .logcapture import LogCapturer
@@ -85,6 +87,7 @@ _active: dict = {
     "capturer": None, "transport": None, "process": None, "url": None,
     "handle": None, "terminal": None, "logs": None, "excepthook": None,
     "trace": False, "traced": False, "filmstrip_mark": None,
+    "trace_policy": None,
 }
 
 
@@ -98,6 +101,27 @@ def _filmstrip_enabled(filmstrip: Optional[bool]) -> bool:
     if value is None:
         return True
     return value.lower() not in ("0", "false", "no", "off", "")
+
+
+def _trace_policy(policy: Optional[str]) -> Optional[str]:
+    """Which runs are worth an archive. Default: keep every one.
+
+    Validated here rather than at the backend, so a typo says so on the machine
+    that made it instead of silently keeping everything — `shouldRetainTrace`
+    treats an unknown policy as `on`, which is the right runtime behaviour and
+    the wrong thing to discover from a missing artifact.
+    """
+    value = policy if policy is not None else os.environ.get(ENV_TRACE_POLICY)
+    if not value:
+        return None
+    if value not in TRACE_RETENTION_POLICIES:
+        _log.warning(
+            "unknown trace policy %r; keeping every run's archive. Expected one of: %s",
+            value,
+            ", ".join(sorted(TRACE_RETENTION_POLICIES)),
+        )
+        return None
+    return value
 
 
 def _a11y_enabled(a11y: Optional[bool]) -> bool:
@@ -224,6 +248,7 @@ def _export_trace(
             _active["transport"],
             output_dir=output_dir or resolve_adapter_output_dir(),
             session_id=session_id,
+            trace_policy=_active["trace_policy"],
         )
     except Exception as exc:  # noqa: BLE001
         _log.warning("trace export skipped (%s)", exc)
@@ -238,6 +263,7 @@ def enable(
     trace: Optional[bool] = None,
     filmstrip: Optional[bool] = None,
     a11y: Optional[bool] = None,
+    trace_policy: Optional[str] = None,
 ) -> Optional[SessionCapturer]:
     """Connect to the backend and instrument Selenium. Idempotent.
 
@@ -254,6 +280,7 @@ def enable(
     trace_mode = _trace_enabled(trace)
     filmstrip_mode = trace_mode and _filmstrip_enabled(filmstrip)
     a11y_mode = trace_mode and _a11y_enabled(a11y)
+    policy = _trace_policy(trace_policy) if trace_mode else None
 
     # Before the backend is launched: the directory a rerun spawns in travels
     # through the environment the backend process inherits. A framework plugin
@@ -314,6 +341,7 @@ def enable(
     _active.update(
         capturer=capturer, transport=transport, process=process, url=url,
         terminal=term, logs=logs, trace=trace_mode, traced=False, filmstrip_mark=None,
+        trace_policy=policy,
     )
 
     # Open the dashboard window and wire exit/signal + control-frame teardown so
@@ -377,6 +405,7 @@ def disable() -> None:
     _active.update(
         capturer=None, transport=None, process=None, url=None, handle=None,
         terminal=None, logs=None, excepthook=None, trace=False, traced=False, filmstrip_mark=None,
+        trace_policy=None,
     )
 
 

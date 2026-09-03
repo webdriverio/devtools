@@ -56,6 +56,11 @@ def pytest_addoption(parser) -> None:  # noqa: ANN001
         default=None,
         help="Write a trace archive instead of opening a dashboard. Implies --devtools.",
     )
+    group.addoption(
+        "--devtools-trace-policy",
+        default=None,
+        help="Which runs keep their trace archive. Implies --devtools-trace.",
+    )
     parser.addini(
         "devtools",
         "Capture pytest runs for the DevTools dashboard.",
@@ -68,15 +73,43 @@ def pytest_addoption(parser) -> None:  # noqa: ANN001
         type="bool",
         default=None,
     )
+    parser.addini(
+        "devtools_trace_policy",
+        "Which runs keep their trace archive. Implies devtools_trace.",
+        default=None,
+    )
 
 
-def _ini(config, name: str) -> Optional[bool]:  # noqa: ANN001
-    """An ini option's value, or None when the project did not set it."""
+def _ini_raw(config, name: str):  # noqa: ANN001, ANN201
+    """An ini option exactly as the project wrote it, or None when unset."""
     try:
         value = config.getini(name)
     except (ValueError, KeyError):  # option not registered (another plugin's parser)
         return None
-    return None if value is None or value == "" else bool(value)
+    return None if value is None or value == "" else value
+
+
+def _ini(config, name: str) -> Optional[bool]:  # noqa: ANN001
+    """A BOOLEAN ini option's value, or None when the project did not set it.
+
+    Only for options registered `type="bool"`. A string option read through here
+    would come back as `True` rather than its value.
+    """
+    value = _ini_raw(config, name)
+    return None if value is None else bool(value)
+
+
+def _resolve_trace_policy(config) -> Optional[str]:  # noqa: ANN001
+    """Which runs keep their archive: CLI, else ini, else undecided.
+
+    None rather than a default, so `enable()` still reads DEVTOOLS_TRACE_POLICY
+    and validates the value in one place instead of two.
+    """
+    cli = config.getoption("--devtools-trace-policy", None)
+    if cli:
+        return str(cli)
+    value = _ini_raw(config, "devtools_trace_policy")
+    return str(value) if value else None
 
 
 def _resolve_trace(config) -> Optional[bool]:  # noqa: ANN001
@@ -85,7 +118,9 @@ def _resolve_trace(config) -> Optional[bool]:  # noqa: ANN001
     None rather than False when nothing said, so `enable()` still reads
     DEVTOOLS_TRACE — the env layer lives there and is not duplicated here.
     """
-    if config.getoption("--devtools-trace", None):
+    if config.getoption("--devtools-trace", None) or _resolve_trace_policy(config):
+        # A retention policy only means anything in trace mode, so naming one
+        # selects it rather than being silently ignored.
         return True
     return _ini(config, "devtools_trace")
 
@@ -103,9 +138,13 @@ def _resolve_enabled(config) -> bool:  # noqa: ANN001
     # sitting empty for a run that never happened.
     if config.getoption("--collect-only", False):
         return False
-    if config.getoption("--devtools", None) or config.getoption(
-        "--devtools-trace", None
+    if (
+        config.getoption("--devtools", None)
+        or config.getoption("--devtools-trace", None)
+        or config.getoption("--devtools-trace-policy", None)
     ):
+        return True
+    if _ini_raw(config, "devtools_trace_policy"):
         return True
     for name in ("devtools", "devtools_trace"):
         value = _ini(config, name)
@@ -366,7 +405,10 @@ def pytest_configure(config) -> None:  # noqa: ANN001
         root = getattr(config, "rootpath", None) or getattr(config, "rootdir", None)
         _rootdir = str(root) if root else None
         _configure_rerun(config, _rootdir)
-        capturer = devtools.enable(trace=_resolve_trace(config))
+        capturer = devtools.enable(
+            trace=_resolve_trace(config),
+            trace_policy=_resolve_trace_policy(config),
+        )
         # pytest owns the suite tree — suppress the adapter's default script suite.
         from . import instrumentation
 

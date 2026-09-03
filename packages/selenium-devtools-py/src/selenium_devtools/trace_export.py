@@ -53,6 +53,7 @@ class _Pending:
     done: threading.Event
     path: Optional[str] = None
     error: Optional[str] = None
+    declined: bool = False
 
 
 _pending: Optional[_Pending] = None
@@ -76,6 +77,7 @@ def on_result(data: Any) -> None:
         error = data.get("error")
         pending.path = path if isinstance(path, str) else None
         pending.error = error if isinstance(error, str) else None
+        pending.declined = bool(data.get("declinedByPolicy"))
         pending.done.set()
 
 
@@ -146,6 +148,7 @@ def export(
     *,
     output_dir: str,
     session_id: str,
+    trace_policy: Optional[str] = None,
     timeout: float = TRACE_EXPORT_TIMEOUT_S,
 ) -> Optional[str]:
     """Request the archive and block until the backend answers.
@@ -172,6 +175,9 @@ def export(
                 "requestId": pending.request_id,
                 "outputDir": output_dir,
                 "sessionId": session_id,
+                # Omitted when unset so the backend's own default ('on', keep
+                # everything) applies rather than a null it has to interpret.
+                **({"tracePolicy": trace_policy} if trace_policy else {}),
             },
         )
     except Exception as exc:  # noqa: BLE001 — a failed export is not a failed run
@@ -190,6 +196,10 @@ def export(
         return None
 
     reset()
+    if pending.declined:
+        # The run captured fine and the policy decided against keeping it.
+        _log.info("trace not retained by policy '%s'", trace_policy)
+        return None
     if pending.error:
         _log.warning("trace export failed: %s", pending.error)
         return None
