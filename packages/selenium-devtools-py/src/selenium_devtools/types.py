@@ -34,6 +34,7 @@ class CommandLog(TypedDict, total=False):
     id: int
     screenshot: str
     selector: str
+    testUid: str
 
 
 class Viewport(TypedDict):

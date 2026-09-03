@@ -69,6 +69,7 @@ def command_log(
     command_id: int,
     screenshot: Optional[str] = None,
     selector: Optional[str] = None,
+    test_uid: Optional[str] = None,
 ) -> CommandLog:
     entry: CommandLog = {
         "command": command,
@@ -81,6 +82,10 @@ def command_log(
     }
     if selector:
         entry["selector"] = selector
+    # What the exporter groups a trace by: absent, `buildGroupPath` returns an
+    # empty path and the archive carries no test boundaries at all.
+    if test_uid:
+        entry["testUid"] = test_uid
     if error is not None:
         entry["error"] = {
             "name": type(error).__name__,

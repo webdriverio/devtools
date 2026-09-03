@@ -57,6 +57,12 @@ def pytest_addoption(parser) -> None:  # noqa: ANN001
         help="Write a trace archive instead of opening a dashboard. Implies --devtools.",
     )
     group.addoption(
+        "--devtools-trace-granularity",
+        default=None,
+        choices=("session", "test"),
+        help="One trace archive per run (default) or one per test. Implies --devtools-trace.",
+    )
+    group.addoption(
         "--devtools-trace-policy",
         default=None,
         help="Which runs keep their trace archive. Implies --devtools-trace.",
@@ -76,6 +82,11 @@ def pytest_addoption(parser) -> None:  # noqa: ANN001
     parser.addini(
         "devtools_trace_policy",
         "Which runs keep their trace archive. Implies devtools_trace.",
+        default=None,
+    )
+    parser.addini(
+        "devtools_trace_granularity",
+        "One trace archive per run, or one per test. Implies devtools_trace.",
         default=None,
     )
 
@@ -99,6 +110,15 @@ def _ini(config, name: str) -> Optional[bool]:  # noqa: ANN001
     return None if value is None else bool(value)
 
 
+def _resolve_trace_granularity(config) -> Optional[str]:  # noqa: ANN001
+    """One archive per run or per test: CLI, else ini, else undecided."""
+    cli = config.getoption("--devtools-trace-granularity", None)
+    if cli:
+        return str(cli)
+    value = _ini_raw(config, "devtools_trace_granularity")
+    return str(value) if value else None
+
+
 def _resolve_trace_policy(config) -> Optional[str]:  # noqa: ANN001
     """Which runs keep their archive: CLI, else ini, else undecided.
 
@@ -118,9 +138,13 @@ def _resolve_trace(config) -> Optional[bool]:  # noqa: ANN001
     None rather than False when nothing said, so `enable()` still reads
     DEVTOOLS_TRACE — the env layer lives there and is not duplicated here.
     """
-    if config.getoption("--devtools-trace", None) or _resolve_trace_policy(config):
-        # A retention policy only means anything in trace mode, so naming one
-        # selects it rather than being silently ignored.
+    if (
+        config.getoption("--devtools-trace", None)
+        or _resolve_trace_policy(config)
+        or _resolve_trace_granularity(config)
+    ):
+        # A policy or a granularity only means anything in trace mode, so naming
+        # either selects it rather than being silently ignored.
         return True
     return _ini(config, "devtools_trace")
 
@@ -142,9 +166,12 @@ def _resolve_enabled(config) -> bool:  # noqa: ANN001
         config.getoption("--devtools", None)
         or config.getoption("--devtools-trace", None)
         or config.getoption("--devtools-trace-policy", None)
+        or config.getoption("--devtools-trace-granularity", None)
     ):
         return True
-    if _ini_raw(config, "devtools_trace_policy"):
+    if _ini_raw(config, "devtools_trace_policy") or _ini_raw(
+        config, "devtools_trace_granularity"
+    ):
         return True
     for name in ("devtools", "devtools_trace"):
         value = _ini(config, name)
@@ -408,6 +435,7 @@ def pytest_configure(config) -> None:  # noqa: ANN001
         capturer = devtools.enable(
             trace=_resolve_trace(config),
             trace_policy=_resolve_trace_policy(config),
+            trace_granularity=_resolve_trace_granularity(config),
         )
         # pytest owns the suite tree — suppress the adapter's default script suite.
         from . import instrumentation
@@ -506,6 +534,10 @@ def pytest_runtest_logstart(nodeid, location) -> None:  # noqa: ANN001
     capturer = devtools.get_capturer()
     if capturer is None:
         return
+    # Every command captured from here belongs to this test. Without it the
+    # exporter's `buildGroupPath` returns an empty path and the archive carries
+    # no test boundaries — 22 rows and no way to tell which test failed.
+    capturer.test_uid = nodeid
     # Flip this one to running so the tree shows WHICH test is executing, not
     # just that something is.
     file, line, name = location
