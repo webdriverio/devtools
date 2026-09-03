@@ -1,9 +1,10 @@
 """pytest plugin — feeds the suite/test tree to the dashboard.
 
 The analogue of the JS adapter's mocha/jest hooks. Inert unless the run opts in
-via ``DEVTOOLS_ENABLE=1`` or ``DEVTOOLS_PORT=...`` so installing the package never
-hijacks an unrelated pytest run. On opt-in it enables capture at session start,
-stamps per-test timing, and re-sends the ``suites`` frame as each test reports.
+— ``--devtools``, a ``devtools`` ini option, or ``DEVTOOLS_ENABLE``/``DEVTOOLS_PORT``,
+in that precedence — so installing the package never hijacks an unrelated pytest
+run. On opt-in it enables capture at session start, stamps per-test timing, and
+re-sends the ``suites`` frame as each test reports.
 """
 
 from __future__ import annotations
@@ -25,8 +26,117 @@ _log = logging.getLogger(f"{LOGGER_NAME}.pytest")
 _comparisons = assertions.ComparisonBuffer()
 
 
-def _opted_in() -> bool:
+#: Resolved once in `pytest_configure`. Most hooks — `pytest_runtest_logstart`,
+#: `pytest_runtest_logreport` — are handed no `config`, so the answer cannot be
+#: recomputed where it is needed.
+_enabled = False
+
+
+def pytest_addoption(parser) -> None:  # noqa: ANN001
+    """Register the CLI flags and ini options that switch capture on.
+
+    `default=None` on all four, so "not given" is distinguishable from "given
+    false" — that is what makes CLI -> ini -> env a real precedence chain rather
+    than three sources ORed together.
+
+    No `--no-devtools`: pytest's own `-o devtools=false` already overrides an ini
+    option for one run, and a second spelling of the same thing is a second
+    thing to keep consistent.
+    """
+    group = parser.getgroup("devtools", "WebdriverIO DevTools")
+    group.addoption(
+        "--devtools",
+        action="store_true",
+        default=None,
+        help="Capture this run for the DevTools dashboard.",
+    )
+    group.addoption(
+        "--devtools-trace",
+        action="store_true",
+        default=None,
+        help="Write a trace archive instead of opening a dashboard. Implies --devtools.",
+    )
+    parser.addini(
+        "devtools",
+        "Capture pytest runs for the DevTools dashboard.",
+        type="bool",
+        default=None,
+    )
+    parser.addini(
+        "devtools_trace",
+        "Write a trace archive instead of opening a dashboard. Implies devtools.",
+        type="bool",
+        default=None,
+    )
+
+
+def _ini(config, name: str) -> Optional[bool]:  # noqa: ANN001
+    """An ini option's value, or None when the project did not set it."""
+    try:
+        value = config.getini(name)
+    except (ValueError, KeyError):  # option not registered (another plugin's parser)
+        return None
+    return None if value is None or value == "" else bool(value)
+
+
+def _resolve_trace(config) -> Optional[bool]:  # noqa: ANN001
+    """Whether this run writes a trace archive: CLI, else ini, else undecided.
+
+    None rather than False when nothing said, so `enable()` still reads
+    DEVTOOLS_TRACE — the env layer lives there and is not duplicated here.
+    """
+    if config.getoption("--devtools-trace", None):
+        return True
+    return _ini(config, "devtools_trace")
+
+
+def _resolve_enabled(config) -> bool:  # noqa: ANN001
+    """Whether to capture at all: CLI, else ini, else the environment.
+
+    Asking for a trace is asking for capture, so `--devtools-trace` and
+    `devtools_trace` imply it. DEVTOOLS_TRACE deliberately does NOT: it is a
+    mode fallback that a user may have exported for their own scripts, and
+    reading it as an opt-in would capture pytest runs they never asked for.
+    """
+    # Nothing runs under --collect-only, so there is nothing to capture: opting
+    # in would still launch a backend and open a dashboard window, and leave it
+    # sitting empty for a run that never happened.
+    if config.getoption("--collect-only", False):
+        return False
+    if config.getoption("--devtools", None) or config.getoption(
+        "--devtools-trace", None
+    ):
+        return True
+    for name in ("devtools", "devtools_trace"):
+        value = _ini(config, name)
+        if value is not None:
+            if value:
+                return True
+            # An explicit `devtools = false` is the project's answer; the
+            # environment does not get to overturn it.
+            if name == "devtools":
+                return False
     return bool(os.environ.get(ENV_OPT_IN) or os.environ.get(ENV_PORT))
+
+
+def _opted_in() -> bool:
+    return _enabled
+
+
+def _teardown_unused_run() -> None:
+    """Undo an opt-in for a run that turned out to have nothing to capture.
+
+    Closes the dashboard window and drops every later hook out, so the run ends
+    the way it would have without the flag. `disable()` exports nothing here —
+    the backend refuses a trace with no commands, console or network.
+    """
+    global _enabled
+    _enabled = False
+    _log.info("no tests collected; capture is off for this run")
+    try:
+        devtools.disable()
+    except Exception as exc:  # noqa: BLE001 — teardown must never fail a run
+        _log.debug("could not tear down an unused run: %s", exc)
 
 
 def _rolled_up_state(tests: list, suites: list) -> str:
@@ -247,6 +357,8 @@ def _configure_rerun(config, rootdir: Optional[str]) -> None:  # noqa: ANN001
 
 
 def pytest_configure(config) -> None:  # noqa: ANN001
+    global _enabled
+    _enabled = _resolve_enabled(config)
     if _opted_in():
         _enable_assertion_pass_hook(config)
         global _rootdir
@@ -254,7 +366,7 @@ def pytest_configure(config) -> None:  # noqa: ANN001
         root = getattr(config, "rootpath", None) or getattr(config, "rootdir", None)
         _rootdir = str(root) if root else None
         _configure_rerun(config, _rootdir)
-        capturer = devtools.enable()
+        capturer = devtools.enable(trace=_resolve_trace(config))
         # pytest owns the suite tree — suppress the adapter's default script suite.
         from . import instrumentation
 
@@ -279,10 +391,17 @@ def pytest_collection_finish(session) -> None:  # noqa: ANN001
     """
     if not _opted_in():
         return
+    items = getattr(session, "items", []) or []
+    if not items:
+        # A run that collected nothing has nothing to show, and `sessionfinish`
+        # would still park on the dashboard window — so a mistyped path leaves
+        # the terminal blocked on an empty UI. Collection is the first point
+        # this is knowable; `configure` opened the window before it.
+        _teardown_unused_run()
+        return
     capturer = devtools.get_capturer()
     if capturer is None:
         return
-    items = getattr(session, "items", []) or []
     for item in items:
         file, line, name = item.location
         _registry.record(

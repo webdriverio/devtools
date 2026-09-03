@@ -45,8 +45,34 @@ adapter says so on the first command instead of degrading quietly.
 **With pytest (recommended) — no code changes to your tests:**
 
 ```bash
-DEVTOOLS_ENABLE=1 pytest tests/       # DEVTOOLS_PORT=<n> also opts in (and attaches)
+pytest --devtools tests/              # dashboard
+pytest --devtools-trace tests/        # trace archive instead (implies --devtools)
 ```
+
+Or commit it, so everyone on the project gets it without remembering a flag:
+
+```toml
+[tool.pytest.ini_options]
+devtools = true
+# devtools_trace = true               # trace archive instead of a dashboard
+```
+
+Capture is always opt-in — the plugin auto-loads when the package is installed,
+so installing it must never change how an existing suite behaves. What you
+choose is only *how* you say yes:
+
+| | |
+|---|---|
+| `--devtools` / `--devtools-trace` | this run |
+| `devtools` / `devtools_trace` in `[tool.pytest.ini_options]` | this project |
+| `DEVTOOLS_ENABLE=1` (or `DEVTOOLS_PORT=<n>`, which also attaches) | this shell — for CI |
+
+Highest wins: CLI, then ini, then environment. `pytest -o devtools=false` turns
+a project default off for one run, which is why there is no `--no-devtools`.
+
+`DEVTOOLS_TRACE=1` selects trace mode but does **not** switch capture on by
+itself — it is a mode fallback you may have exported for your own scripts, and
+reading it as an opt-in would capture pytest runs you never asked for.
 
 The bundled plugin auto-captures the run, opens the dashboard in a dedicated
 window, and — after the run — **keeps it open so you can inspect it**; close the
