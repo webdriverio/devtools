@@ -6,7 +6,7 @@ A descriptive map of how the pieces fit together. For conventions and coding sta
 
 ## At a glance
 
-A devtools dashboard for end-to-end browser tests. Three test frameworks (WebdriverIO, Nightwatch, Selenium) push the same normalized event stream through a single backend into a single browser UI.
+A devtools dashboard for end-to-end browser tests. Four adapters — WebdriverIO, Nightwatch and Selenium in JavaScript, plus Selenium in Python — push the same normalized event stream through a single backend into a single browser UI.
 
 ```
 [user's test framework]
@@ -78,7 +78,7 @@ Contains:
 
 - `SessionCapturerBase` — orchestrates per-session capture (console/stream patching, WS connection, command-id bookkeeping, upstream-send guard with `onUpstreamDrop` hook).
 - `TestReporterBase` — common reporter behavior, extended by Nightwatch + Selenium reporters (Service uses `@wdio/reporter` from WDIO directly).
-- `ScreencastRecorderBase` — frame buffer + polling fallback shared by all three adapters.
+- `ScreencastRecorderBase` — frame buffer + polling fallback shared by the three JavaScript adapters.
 - `resolveAdapterOutputDir` — the dir-resolution helper that picks where screencast/trace files land (test-file dir → config dir → cwd, with a `node_modules/` skip).
 - Pure helpers: `assert-patcher`, `bidi` (`attachBidiHandlers`, `loadSeleniumSubmodule`, `arrayHeadersToObject`), `console` (`stripAnsi`, `detectLogLevel`, `createConsoleLogEntry`, `mapChromeBrowserLogs`, `chromeLogLevelToLogLevel`), `error` (`serializeError`, `errorMessage`), `finalize-screencast`, `net` (`isPortInUse`, `findFreePort`, `getRequestType`), `performance-capture` (`CAPTURE_PERFORMANCE_SCRIPT`, `applyPerformanceData`), `retry-tracker`, `script-loader` (`loadInjectableScript`, `pollUntilReady`), `stack` (`isUserCodeFrame`, `normalizeFilePath`, `getCallSourceFromStack`), `suite-helpers`, `test-discovery` (`findTestDefinitions`, `extractTestMetadata`), `uid` (`generateStableUid`, `deterministicUid`, `resetSignatureCounters`), `video-encoder` (`encodeToVideo`).
 
@@ -121,6 +121,23 @@ Contains:
 - `SessionCapturer` subclass + Selenium-flavored `SuiteManager` / `TestManager`.
 
 Imports from: `core`, `shared`, `selenium-webdriver` (peer). Does not import: other adapter packages, `backend`, `app`.
+
+### `packages/selenium-devtools-py` — Python Selenium adapter
+
+The same contract from another language. Not a port of the JavaScript adapters: it shares no code with them, only the `{scope, data}` wire format, so nothing here imports `core` or `shared` — the parts of those it needs are **generated** into `src/selenium_devtools/_contract.py` by `scripts/gen_contract.py`, which doubles as a drift guard.
+
+Contains:
+
+- `instrumentation.py` — wraps `WebDriver.execute`, the one chokepoint every driver and element command flows through.
+- `bidi.py` — console, JS errors and network over selenium's regenerated BiDi layer (4.44+), observe-only.
+- `snapshot.py` / `bidi_preload.py` — the shared page collector, registered at document start.
+- `screencast.py` / `cdp_screencast.py` — pushed CDP frames on Chrome, one screenshot per command elsewhere.
+- `pytest_plugin.py` — the suite tree, keyed by pytest nodeid; auto-discovered, opt-in by env var.
+- `rerun.py`, `run_id.py`, `performance.py`, `transport.py` — run controls, run identity, navigation timings, and a stdlib-only WebSocket client.
+
+Live mode only: it does not write a trace archive. That work, and the question of whether the ~3,100 lines of trace transforms in `core` should move behind the wire rather than be reimplemented per language, is tracked in [#330](https://github.com/webdriverio/devtools/issues/330) and [#278](https://github.com/webdriverio/devtools/issues/278).
+
+Imports from: `selenium` (required, 4.44+). Does not import: `core`, `shared`, any other package.
 
 ### `packages/backend`
 
@@ -259,9 +276,9 @@ The architecture above is the actual state of the repo. Where it diverges from t
 Notable in-place pieces worth knowing about:
 
 - `replaceCommand` has two semantics across adapters — Selenium mutates the existing entry in place (preserves `_id`/`id` continuity for chained calls); Nightwatch splices and reissues with a new `_id`. Both call the same `core/suite-helpers` factories; the storage strategy stays adapter-specific because the runner integrations differ.
-- `patchNodeAssert` (via `core/assert-patcher`) is wired in all three adapters, default-on behind each adapter's `captureAssertions` option (opt out with `captureAssertions: false`), so `node:assert` — and, where the framework exposes assertion hooks, `expect` matchers — surface as trace action rows. Framework matcher libraries differ (Service taps expect-webdriverio's hooks; Nightwatch native `assert`/`verify` and Selenium's `node:assert` surface via their reconcile/patch paths), so the remaining gap is Selenium's jest-style `expect()`.
+- `patchNodeAssert` (via `core/assert-patcher`) is wired in all three JavaScript adapters, default-on behind each adapter's `captureAssertions` option (opt out with `captureAssertions: false`), so `node:assert` — and, where the framework exposes assertion hooks, `expect` matchers — surface as trace action rows. Framework matcher libraries differ (Service taps expect-webdriverio's hooks; Nightwatch native `assert`/`verify` and Selenium's `node:assert` surface via their reconcile/patch paths), so the remaining gap is Selenium's jest-style `expect()`.
 - BiDi is auto-attached in Service and Selenium. Nightwatch is opt-in via `bidi: true` and requires `webSocketUrl: true` in capabilities — historically Nightwatch users haven't all enabled BiDi by default.
-- Performance API capture (`CAPTURE_PERFORMANCE_SCRIPT`) is identical across all three adapters; each wires it into its own afterCommand-equivalent path.
+- Performance API capture (`CAPTURE_PERFORMANCE_SCRIPT`) is identical across the three JavaScript adapters; each wires it into its own afterCommand-equivalent path. The Python adapter carries its **own copy** of that browser-side script and of `applyPerformanceData`, because `core` is TypeScript — one of the concrete duplications [#278](https://github.com/webdriverio/devtools/issues/278) is weighing.
 - Output directory for screencast videos and trace files is resolved through `core/resolveAdapterOutputDir` — adapters feed `userConfiguredDir` (WDIO honors `wdio.conf.ts`'s `outputDir`/`rootDir`), `testFilePath` (Selenium/Nightwatch), and `configPath` (Nightwatch), and the helper picks the first writable, non-`node_modules/` candidate.
 
 For per-package implementation details, see each package's `README.md`

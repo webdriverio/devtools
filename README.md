@@ -2,7 +2,7 @@
 
 A powerful browser devtools extension for debugging, visualizing, and controlling test executions in real-time.
 
-Works with **WebdriverIO**, **[Nightwatch.js](./packages/nightwatch-devtools/README.md)**, and **[Selenium WebDriver](./packages/selenium-devtools/README.md)** (any test runner) — same backend, same UI, same capture infrastructure.
+Works with **WebdriverIO**, **[Nightwatch.js](./packages/nightwatch-devtools/README.md)**, **[Selenium WebDriver](./packages/selenium-devtools/README.md)** (any test runner), and **[Python Selenium](./packages/selenium-devtools-py/README.md)** — same backend, same UI, same capture infrastructure.
 
 It runs in two modes: **live** — an interactive dashboard that opens as your tests run — and **trace** — a portable `trace.zip` artifact for offline replay, CI, and AI-agent diffing.
 
@@ -98,9 +98,9 @@ The dashboard runs in one of **two modes**, set per adapter via the shared `mode
 - **`live`** (default) — the interactive DevTools UI window described above.
 - **`trace`** — a headless capture path that writes a portable trace archive, opened later in the **trace player**.
 
-All three adapters (`@wdio/devtools-service`, `@wdio/selenium-devtools`, `@wdio/nightwatch-devtools`) emit the **same normalized trace** through the shared `@wdio/devtools-core` capture library, so one archive format and one player serve every framework.
+All three JavaScript adapters (`@wdio/devtools-service`, `@wdio/selenium-devtools`, `@wdio/nightwatch-devtools`) emit the **same normalized trace** through the shared `@wdio/devtools-core` capture library, so one archive format and one player serve every framework.
 
-The trace **format and the player are identical** across the three adapters, but **capture completeness varies** — WebdriverIO is the most complete; Selenium and Nightwatch cover the core flow with some gaps (e.g. inline-Allure per-test artifacts, retry-aware retention, Cucumber step nesting, auto BiDi). Each adapter's README lists its specifics.
+The trace **format and the player are identical** across those three, but **capture completeness varies** — WebdriverIO is the most complete; Selenium and Nightwatch cover the core flow with some gaps (e.g. inline-Allure per-test artifacts, retry-aware retention, Cucumber step nesting, auto BiDi). Each adapter's README lists its specifics.
 
 **Trace-mode support by adapter:**
 
@@ -166,7 +166,7 @@ The player exposes everything captured in the archive:
 - **Dense filmstrip** — with `filmstrip` enabled, the timeline scrubs a continuous screencast for smooth playback rather than one frame per action.
 - **Timeline input markers** — keyboard actions and pointer hits (commands with a captured hit point) get distinct glyphs on the timeline.
 
-The `show-trace` bin is exposed by each adapter (`@wdio/devtools-service`, `@wdio/nightwatch-devtools`, `@wdio/selenium-devtools`), so `pnpm show-trace <zip>` / `npx show-trace <zip>` work in any project that installs one — no extra dependency.
+The `show-trace` bin is exposed by each JavaScript adapter (`@wdio/devtools-service`, `@wdio/nightwatch-devtools`, `@wdio/selenium-devtools`), so `pnpm show-trace <zip>` / `npx show-trace <zip>` work in any project that installs one — no extra dependency.
 
 **Other viewers.** The trace uses a portable NDJSON schema, so the same `.zip` also opens in other compatible standalone trace viewers that read the format, and — because it shares that on-disk format — is what an Allure report's **embedded trace viewer** (Allure ≥ 2.35) reads. See the [backend README](./packages/backend/README.md#trace-serving--show-trace) for the reader details.
 
@@ -222,7 +222,7 @@ These are emulator-specific issues; on a physical phone with USB debugging only 
 ### 🏗️ Architecture
 - **Frontend**: Lit web components with reactive state management (`@lit/context`)
 - **Backend**: Fastify server with WebSocket streaming for real-time updates
-- **Shared core**: All three adapters share the same capture/reporting library (`@wdio/devtools-core`) — `SessionCapturerBase`, `TestReporterBase`, `ScreencastRecorderBase`, plus pure helpers for console/network/error/sourcemap/BiDi
+- **Shared core**: The three JavaScript adapters share the same capture/reporting library (`@wdio/devtools-core`) — `SessionCapturerBase`, `TestReporterBase`, `ScreencastRecorderBase`, plus pure helpers for console/network/error/sourcemap/BiDi
 - **Process Management**: Tree-kill for proper cleanup of spawned processes
 
 See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full package map and data flow, and [CLAUDE.md](./CLAUDE.md) for the conventions in place across the repo.
@@ -276,7 +276,17 @@ npm install @wdio/nightwatch-devtools
 npm install @wdio/selenium-devtools
 ```
 
-> See the [Nightwatch Integration](#nightwatch-integration) and [Selenium Integration](#selenium-integration) sections for configuration details.
+**Python (Selenium):**
+```bash
+pip install -e packages/selenium-devtools-py   # or: pip install selenium-devtools-py (when published)
+```
+
+The Python adapter needs Python 3.10+, selenium 4.44+, and **Node.js 18+ on your
+PATH** — the backend that serves the page collector, carries the event stream
+and builds the trace archive is a Node app, so Node is required in every mode,
+not just for the dashboard window.
+
+> See the [Nightwatch Integration](#nightwatch-integration), [Selenium Integration](#selenium-integration) and [Python Integration](#python-integration) sections for configuration details.
 
 ## Configuration
 
@@ -367,6 +377,28 @@ Using `selenium-webdriver` directly — under Mocha, Jest, Cucumber, or a plain 
 
 → **[`@wdio/selenium-devtools`](./packages/selenium-devtools/README.md)** — per-runner setup, configuration options, and screencast details.
 
+## Python Integration
+
+Writing your Selenium tests in Python? A fourth adapter feeds the same backend and UI over the same language-neutral `{scope, data}` contract. Under pytest nothing goes in your test files — the plugin ships with the package and pytest auto-discovers it, so opting in is a flag rather than an import.
+
+**Both modes work.** Live mode streams to the dashboard; trace mode writes the same portable `trace.zip` the JavaScript adapters do, under `test-results/` beside the test file, and opens in the same player:
+
+```bash
+pytest --devtools tests/              # live dashboard
+pytest --devtools-trace tests/        # trace archive instead, no dashboard window
+pnpm show-trace test-results/trace-<sessionId>.zip
+```
+
+The player is the `show-trace` bin of the Node backend the adapter already needs, so there is nothing extra to install.
+
+Capture is always opt-in, and there are three ways to say yes — `--devtools` / `--devtools-trace` for one run, `devtools` / `devtools_trace` under `[tool.pytest.ini_options]` for a project, `DEVTOOLS_ENABLE=1` (or `DEVTOOLS_PORT=<n>`, which also attaches to a running backend) for a shell. Highest wins, in that order. A plain script calls `devtools.enable(trace=True)` instead.
+
+A Python trace carries the dense filmstrip, the A11y tree with its element overlay, DOM time-travel, console, network, per-command screenshots and command selectors. The transforms that build the zip stay in the backend rather than being ported ([#298](https://github.com/webdriverio/devtools/issues/298)), so trace mode starts the backend but opens no window.
+
+Two settings shape the output, as flags, ini options, environment variables or `enable()` arguments: `traceGranularity` (`session`, the default, or `test` for one archive per test) and `tracePolicy` (`on`, or `retain-on-failure` to keep only what failed). Together, `test` + `retain-on-failure` writes one archive per failing test and nothing for a green run. The four retry-aware policies are accepted but behave exactly like `retain-on-failure` — nothing on the wire carries an attempt number. Per-test `screenshot`, `video` and inline Allure attach remain Node.js-only; it is the trace archive that is per-test.
+
+→ **[`selenium-devtools-py`](./packages/selenium-devtools-py/README.md)** — pytest and plain-script setup, trace mode, assertions, run controls, Preserve & Rerun, and parallel runs.
+
 ## Project Structure
 
 ```
@@ -379,10 +411,11 @@ packages/
 ├── elements/              # Element-detection scripts — getSnapshot, a11y tree, element list (@wdio/elements)
 ├── service/               # WebdriverIO adapter (@wdio/devtools-service)
 ├── nightwatch-devtools/   # Nightwatch adapter (@wdio/nightwatch-devtools)
-└── selenium-devtools/     # Selenium WebDriver adapter (@wdio/selenium-devtools)
+├── selenium-devtools/     # Selenium WebDriver adapter (@wdio/selenium-devtools)
+└── selenium-devtools-py/  # Python Selenium adapter (selenium-devtools-py) — live + trace
 ```
 
-`shared` and `core` are workspace-internal (`"private": true`) — every consumer bundles them into its own `dist/` at build time. The three adapter packages each translate framework-specific hooks into calls on `core`'s shared capture library; `backend` and `app` import only from `shared` and communicate via the WS/HTTP boundary.
+`shared` and `core` are workspace-internal (`"private": true`) — every consumer bundles them into its own `dist/` at build time. The three JavaScript adapter packages each translate framework-specific hooks into calls on `core`'s shared capture library; the Python adapter speaks the same wire contract without sharing that code, which is what [#278](https://github.com/webdriverio/devtools/issues/278) exists to address; `backend` and `app` import only from `shared` and communicate via the WS/HTTP boundary.
 
 ## Contributing
 
