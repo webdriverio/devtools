@@ -74,6 +74,41 @@ a project default off for one run, which is why there is no `--no-devtools`.
 itself — it is a mode fallback you may have exported for your own scripts, and
 reading it as an opt-in would capture pytest runs you never asked for.
 
+### Keeping only the runs worth keeping
+
+Trace mode writes an archive for every run. `tracePolicy` narrows that to the
+runs you would actually open:
+
+```bash
+pytest --devtools-trace-policy retain-on-failure tests/
+```
+
+```toml
+[tool.pytest.ini_options]
+devtools_trace_policy = "retain-on-failure"
+```
+
+A plain script passes `devtools.enable(trace=True, trace_policy="retain-on-failure")`,
+and `DEVTOOLS_TRACE_POLICY` is the fallback for both. Naming a policy implies
+trace mode — it means nothing in live mode, so it selects the mode rather than
+being ignored.
+
+The values are shared's `TraceRetentionPolicy`: `on` (the default — keep
+everything), `retain-on-failure`, `retain-on-first-failure`, `on-first-retry`,
+`on-all-retries`, `retain-on-failure-and-retries`. A value outside that set
+warns and keeps everything, rather than being discovered as a missing file.
+
+Two limits, both from the archive being run-scoped rather than per-test:
+
+- The decision covers **the whole run** — one failing test keeps the run's
+  archive, because there are no per-test slices to keep separately.
+- The retry-aware policies **degrade to `retain-on-failure`**. Nothing on the
+  wire carries an attempt number, so a retried test overwrites its own earlier
+  outcome; the backend logs the degradation rather than pretending otherwise.
+
+A declined run is reported as the policy working, not as a failed export.
+
+
 The bundled plugin auto-captures the run, opens the dashboard in a dedicated
 window, and — after the run — **keeps it open so you can inspect it**; close the
 window (or Ctrl-C) to finish. Nothing devtools-specific goes in your test files.
