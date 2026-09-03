@@ -15,7 +15,7 @@
  * reachable from any page the browser has open.
  */
 
-import type { TraceFormat } from './types.js'
+import type { TraceFormat, TraceRetentionPolicy } from './types.js'
 
 export const TRACE_EXPORT_SCOPE = {
   /** Worker → backend: build an artifact from the accumulated run. */
@@ -40,6 +40,10 @@ export interface TraceExportRequest {
   format?: TraceFormat
   /** Artifact base name. Defaults to `trace-<sessionId>`. */
   fileStem?: string
+  /** Which runs are worth keeping. Evaluated against the run's own test
+   *  outcomes, exactly as `writeSessionTrace` does for an in-process adapter —
+   *  an unretained run writes nothing rather than writing and deleting. */
+  tracePolicy?: TraceRetentionPolicy
 }
 
 /** Payload sent under {@link TRACE_EXPORT_SCOPE.result}. Exactly one of
@@ -51,4 +55,8 @@ export interface TraceExportResult {
   /** Why nothing was written. The adapter logs this; a failed export must not
    *  fail the user's test run. */
   error?: string
+  /** Set when the run captured fine and `tracePolicy` decided against keeping
+   *  it. Distinct from `error`: nothing went wrong, so an adapter reports it as
+   *  the policy working rather than as a failure. */
+  declinedByPolicy?: boolean
 }
