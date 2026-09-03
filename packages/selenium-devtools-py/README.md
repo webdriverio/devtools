@@ -5,10 +5,12 @@ adapter alongside the JS WebdriverIO / Nightwatch / Selenium-JS ones. It feeds
 the **same backend and UI**, unchanged, over the language-neutral
 `{scope, data}` WebSocket contract.
 
-**Status: Phase 1 + 2.** Live command capture + test tree; browser console &
-network via BiDi; assertion rows; screencast video; and a dashboard window that
-auto-opens and tears down with the run. Verified against real headless Chrome.
-See [Roadmap](#roadmap) for what's deferred.
+**Both modes work.** **Live** streams to a dashboard window that auto-opens and
+tears down with the run; **trace** writes the same portable `trace.zip` the
+JavaScript adapters do and opens no window. Command capture and the test tree,
+browser console & network via BiDi, assertion rows, per-command screenshots and
+selectors, DOM replay, and screencast video are common to both. Verified against
+real headless Chrome. See [Trace mode](#trace-mode) and [Roadmap](#roadmap).
 
 ## Install (dev)
 
@@ -19,14 +21,15 @@ pip install -e packages/selenium-devtools-py   # or: pip install selenium-devtoo
 The transport is **dependency-free** (stdlib WebSocket client). `selenium>=4.44`
 is installed with the package; `pytest` is optional.
 
-**Requires Node.js 18+ on your PATH.** The dashboard backend is a Node app and
-pip cannot resolve it, so it is fetched at runtime with `npx`. This is not only
-for the dashboard window: the page collector is served by the backend and the
-whole event stream goes through its WebSocket, so **without Node there is no
-capture at all**. `enable()` checks for it up front and names what is missing
-rather than failing later as a spawn timeout. To use a backend you are already
-running — in CI, or one started by hand — set `DEVTOOLS_PORT` and no local Node
-is needed.
+**Requires Node.js 18+ on your PATH — in every mode.** The backend is a Node app
+and pip cannot resolve it, so it is fetched at runtime with `npx`. It is not
+only the dashboard window: the page collector is served by the backend, the
+whole event stream goes through its WebSocket, and in trace mode it is also what
+builds the archive (see [Trace mode](#trace-mode)) — so **without Node there is
+no capture at all**, and trace mode is no exception. `enable()` checks for it up
+front and names what is missing rather than failing later as a spawn timeout. To
+use a backend you are already running — in CI, or one started by hand — set
+`DEVTOOLS_PORT` and no local Node is needed.
 
 **Requires Python 3.10+ and selenium 4.44+.** Network capture subscribes through
 the public BiDi event API that selenium regenerated in 4.44 — before that the
@@ -74,9 +77,15 @@ a project default off for one run, which is why there is no `--no-devtools`.
 itself — it is a mode fallback you may have exported for your own scripts, and
 reading it as an opt-in would capture pytest runs you never asked for.
 
-The bundled plugin auto-captures the run, opens the dashboard in a dedicated
-window, and — after the run — **keeps it open so you can inspect it**; close the
-window (or Ctrl-C) to finish. Nothing devtools-specific goes in your test files.
+Two kinds of run stay uncaptured even when you opt in: `--collect-only`, where
+nothing executes, and a run that collected no tests — a mistyped path would
+otherwise leave the terminal parked on a dashboard for a run that never
+happened. Only the first is knowable up front; the second closes the window
+again at the end of collection.
+
+In live mode the plugin opens the dashboard in a dedicated window and — after
+the run — **keeps it open so you can inspect it**; close the window (or Ctrl-C)
+to finish. Nothing devtools-specific goes in your test files.
 
 **Without pytest** (any script / unittest) — add two lines to a normal Selenium
 script (`devtools.enable()` + `devtools.wait_for_dashboard_close()`):
@@ -85,8 +94,9 @@ script (`devtools.enable()` + `devtools.wait_for_dashboard_close()`):
 import selenium_devtools as devtools
 
 devtools.enable()                     # open dashboard + capture every command
+# devtools.enable(trace=True)         # write a trace.zip instead — no window
 # ... your normal selenium code, ending with driver.quit() ...
-devtools.wait_for_dashboard_close()   # keep the UI open to inspect (no-op if headless)
+devtools.wait_for_dashboard_close()   # keep the UI open to inspect (no-op when no window is open)
 devtools.disable()
 ```
 
@@ -121,17 +131,20 @@ is on `PATH`; otherwise keep it current (`brew upgrade chromedriver`).
 
 ## What it captures
 
-| Data | How | Scope | Phase |
+| Data | How | Scope | Mode |
 |---|---|---|---|
-| Commands (driver + element) | wrap `WebDriver.execute()` — the single chokepoint all commands flow through | `commands` | 1 |
-| Session metadata | read `session_id` + `caps` on the first ready command | `metadata` | 1 |
-| Test / suite tree | pytest plugin (`pytest_runtest_logreport` / `sessionfinish`) | `suites` | 1 |
-| Browser console + JS errors | Selenium **BiDi** (`driver.script` handlers) | `consoleLogs` | 2 |
-| Network requests | Selenium **BiDi** (`Network.add_event_handler`, observe-only — never an intercept, which would pause every request) | `networkRequests` | 2 |
-| Assertions | pytest hooks under pytest; line tracing for a plain script | `commands` | 2 |
-| DOM snapshot (preview iframe) | inject `packages/script`, re-inject per navigation, drain mutations with a forced document anchor | `mutations` | 2 |
-| Screencast video | Chrome: CDP `Page.startScreencast` (pushed frames); elsewhere one screenshot per command → ffmpeg-encoded `.webm` | `screencast` | 2 |
-| Navigation + resource timing | read from the page after a navigation, then the command row is re-sent with it | `commands` | 2 |
+| Commands (driver + element) | wrap `WebDriver.execute()` — the single chokepoint all commands flow through | `commands` | both |
+| Command screenshot + selector | one screenshot per command, and the locator the element handle was found by | `commands` | both |
+| Session metadata | read `session_id` + `caps` on the first ready command | `metadata` | both |
+| Test / suite tree | pytest plugin (`pytest_runtest_logreport` / `sessionfinish`) | `suites` | both |
+| Browser console + JS errors | Selenium **BiDi** (`driver.script` handlers) | `consoleLogs` | both |
+| Network requests | Selenium **BiDi** (`Network.add_event_handler`, observe-only — never an intercept, which would pause every request) | `networkRequests` | both |
+| Assertions | pytest hooks under pytest; line tracing for a plain script | `commands` | both |
+| DOM snapshot / time-travel | register `packages/script` as a BiDi document-start preload, drain mutations with a forced document anchor (per-document `<script>` injection when BiDi is absent) | `mutations` | both |
+| Navigation + resource timing | read from the page after a navigation, then the command row is re-sent with it | `commands` | both |
+| Screencast video | Chrome: CDP `Page.startScreencast` (pushed frames); elsewhere one screenshot per command → ffmpeg-encoded `.webm` | `screencast` | live |
+| Dense filmstrip | the same frame stream, carried into the archive instead of a `.webm` | `screencastFrames` | trace |
+| A11y tree + element rects | run the backend's page-side element scripts beside each action | `actionSnapshots` | trace |
 
 Element actions (`click`, `send_keys`, `text`, …) are captured for free: they
 delegate to `self._parent.execute`, so the one wrapper sees them as
@@ -140,7 +153,9 @@ delegate to `self._parent.execute`, so the one wrapper sees them as
 **BiDi is auto-enabled** — the adapter injects the `webSocketUrl` capability
 into the `newSession` request so console/network work out-of-box (opt out with
 `DEVTOOLS_BIDI=0`). **Screencast** needs `ffmpeg` on PATH to encode the
-`.webm`; without it, recording is skipped (one warning, no error).
+`.webm`; without it, recording is skipped (one warning, no error). Trace mode
+encodes no `.webm` at all — the frames are the filmstrip — so it needs no
+`ffmpeg`.
 
 ### Assertions
 
@@ -259,12 +274,59 @@ bugs:
   the Compare tab disappears after an ordinary rerun rather than diffing
   against something you did not ask to keep.
 
+## Trace mode
+
+Instead of a live dashboard, write the run to a portable archive — the same
+`trace.zip` the JavaScript adapters produce, opened in the same player:
+
+```bash
+pytest --devtools-trace tests/               # pytest
+DEVTOOLS_TRACE=1 python3 login.py            # plain script (or devtools.enable(trace=True))
+```
+
+The archive lands in `test-results/` beside the test file the first captured
+command came from — the same directory screencast videos already write to —
+named `trace-<sessionId>.zip`. When no command carried a user call source, it
+falls back to `test-results/` under the current directory. Open it with the
+`show-trace` player:
+
+```bash
+pnpm show-trace test-results/trace-<sessionId>.zip
+```
+
+**Trace mode opens no dashboard window.** The artifact is the output, and a live
+run blocks on the window until a human closes it — a window would turn writing a
+file into an interactive session. The backend still starts, because it is what
+*builds* the archive: the transforms are TypeScript in `packages/trace` and
+porting them would be a second copy of ~2,000 lines, with a third waiting for
+the next language ([#298](https://github.com/webdriverio/devtools/issues/298)).
+That is the one way this differs from the JS adapters' backend-free trace mode.
+
+What lands in the archive, beyond the command rows, console, network and
+per-command screenshots that both modes capture:
+
+| | Default | Opt out |
+|---|---|---|
+| Dense filmstrip — the screencast frames, carried into the trace instead of a `.webm` | on | `DEVTOOLS_FILMSTRIP=0` |
+| A11y tree + element overlay — read beside each action, two extra round trips per command | on | `DEVTOOLS_A11Y=0` |
+| DOM time-travel — the mutation stream the preview iframe already replays | on | — |
+
+Two things worth knowing. **A run produces one archive**: the backend's
+accumulator is run-scoped, so there is no per-session or per-test slicing and no
+`traceGranularity` / `tracePolicy` equivalent yet. And **the export is requested
+when the run finishes, not when the process exits** — pytest asks at
+`sessionfinish`, before it would park on a dashboard window, and a plain script's
+`disable()` exports before closing the transport. An artifact that depended on
+either would be missing exactly where it is wanted, in CI.
+
 ## Dashboard window lifecycle
 
-Like the JS adapters, `enable()` opens the dashboard in a dedicated, closable
-Chrome window; closing that window (backend `clientDisconnected`) shuts the run
-down, and ending the process (exit / Ctrl-C) closes the window. Auto-open is on
-when stdout is a TTY; force it with `DEVTOOLS_OPEN=1` or disable with `=0`.
+Like the JS adapters, live mode's `enable()` opens the dashboard in a dedicated,
+closable Chrome window; closing that window (backend `clientDisconnected`) shuts
+the run down, and ending the process (exit / Ctrl-C) closes the window. Auto-open
+is on by default and opt-out only: disable it with `DEVTOOLS_OPEN=0`. It is also
+off for a rerun child — the window that pressed Rerun is already watching the
+backend this run reports to — and for trace mode, which opens none at all.
 
 ## Layout
 
@@ -279,12 +341,28 @@ src/selenium_devtools/
   transport.py        stdlib WebSocket client (handshake, masked frames, ping/pong, control reader)
   capturer.py         SessionCapturer: command IDs, normalize→send, metadata-once
   instrumentation.py  execute() wrap + BiDi auto-enable + session-setup hook
+  element_locators.py the locator an element command acted through
+  performance.py      navigation + resource timing for a navigation command
   bidi.py             BiDi console/JS-error + network capture (pure mapping + wiring)
-  screencast.py       screenshot-polling recorder + ffmpeg webm encode
+  bidi_preload.py     document-start registration of the collector (BiDi preload)
+  snapshot.py         mutation drain, and the <script> injection used without BiDi
+  collector_source.py where the page-side collector's source comes from
+  element_scripts.py  the backend-served a11y/element scripts the A11y tab needs
+  screencast.py       per-command frame recorder + ffmpeg webm encode
+  cdp_screencast.py   Chrome's push-mode screencast, over its own CDP websocket
+  trace_export.py     ask the backend to build this run's trace archive
+  output_dir.py       where run output lands (mirrors core/output-dir.ts)
+  assertions.py       assertion rows from Python's `assert` statement
+  assert_tracer.py    passing-assert rows for a plain script, via line tracing
+  sources.py          test-file source for the Source tab
+  logcapture.py       forward Python `logging` to the dashboard Console
+  terminal.py         forward the test's stdout to the dashboard Console
+  run_id.py           one run id, shared by every process reporting into it
+  node_runtime.py     check for a usable Node before spawning the backend
   backend.py          launch-or-attach the Node backend + port discovery
   lifecycle.py        dashboard window open/close + shutdown-on-disconnect
   rerun.py            launch/rerun commands the dashboard's run controls spawn
-  pytest_plugin.py    suite/test tree feeder (opt-in)
+  pytest_plugin.py    CLI/ini config surface + suite/test tree feeder (opt-in)
 scripts/gen_contract.py   regenerate _contract.py from shared (dev-time; also a drift-guard)
 tests/                stdlib-unittest unit tests (no selenium/pytest needed)
 e2e_check.py          real-Chrome smoke (plain script)
@@ -362,14 +440,22 @@ rejects re-uploading an existing version).
 
 ## Roadmap
 
-- **Phase 2 (done)** — BiDi console/network, assertion rows, and
-  screenshot-polling screencast. Not yet: a CDP `Page.startScreencast` push-mode
-  fast-path, per-command screenshots, and performance capture.
-- **Phase 3** — trace export and action snapshots. Run controls (Run / Rerun /
-  Run-all), Preserve & Rerun, the pushed screencast and performance timings are
-  done — see above. Per the
-  architecture, the heavy post-processing is a candidate to live server-side in
-  the backend (written once) rather than re-implemented here.
+Live mode, trace export with action snapshots, the pushed CDP screencast,
+per-command screenshots and selectors, performance timings, run controls
+(Run / Rerun / Run-all) and Preserve & Rerun are all done — see the sections
+above. What the JavaScript adapters have and this one does not:
+
+- **Trace slicing and retention.** A run produces one archive; there is no
+  `traceGranularity` (session / spec / test) and no `tracePolicy`
+  (`retain-on-failure` and friends). Per-test slicing needs boundaries only the
+  adapter knows, and the backend's accumulator is run-scoped.
+- **Per-test artifacts.** No `screenshot` / `video` options and no Allure
+  attachment; those are per-test-slice features and follow the item above.
+- **Shared capture code.** The adapter reimplements the wire producers rather
+  than calling `core`, which is what
+  [#278](https://github.com/webdriverio/devtools/issues/278) exists to address.
+  The heavy post-processing already lives server-side in the backend, written
+  once, rather than being re-implemented here.
 
 ## Design notes
 

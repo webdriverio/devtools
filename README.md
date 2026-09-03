@@ -281,6 +281,11 @@ npm install @wdio/selenium-devtools
 pip install -e packages/selenium-devtools-py   # or: pip install selenium-devtools-py (when published)
 ```
 
+The Python adapter needs Python 3.10+, selenium 4.44+, and **Node.js 18+ on your
+PATH** — the backend that serves the page collector, carries the event stream
+and builds the trace archive is a Node app, so Node is required in every mode,
+not just for the dashboard window.
+
 > See the [Nightwatch Integration](#nightwatch-integration), [Selenium Integration](#selenium-integration) and [Python Integration](#python-integration) sections for configuration details.
 
 ## Configuration
@@ -374,11 +379,23 @@ Using `selenium-webdriver` directly — under Mocha, Jest, Cucumber, or a plain 
 
 ## Python Integration
 
-Writing your Selenium tests in Python? A fourth adapter feeds the same backend and UI over the same language-neutral `{scope, data}` contract. Under pytest nothing goes in your test files — the plugin is auto-discovered and turns itself on from `DEVTOOLS_ENABLE=1`.
+Writing your Selenium tests in Python? A fourth adapter feeds the same backend and UI over the same language-neutral `{scope, data}` contract. Under pytest nothing goes in your test files — the plugin ships with the package and pytest auto-discovers it, so opting in is a flag rather than an import.
 
-Live mode only for now: it streams to the dashboard and does not yet write a `trace.zip` (tracked in the trace-mode epic), so the sections above about trace artifacts describe the three JavaScript adapters.
+**Both modes work.** Live mode streams to the dashboard; trace mode writes the same portable `trace.zip` the JavaScript adapters do, under `test-results/` beside the test file, and opens in the same player:
 
-→ **[`selenium-devtools-py`](./packages/selenium-devtools-py/README.md)** — pytest and plain-script setup, assertions, run controls, Preserve & Rerun, and parallel runs.
+```bash
+pytest --devtools tests/              # live dashboard
+pytest --devtools-trace tests/        # trace archive instead, no dashboard window
+pnpm show-trace test-results/trace-<sessionId>.zip
+```
+
+The player is the `show-trace` bin of the Node backend the adapter already needs, so there is nothing extra to install.
+
+Capture is always opt-in, and there are three ways to say yes — `--devtools` / `--devtools-trace` for one run, `devtools` / `devtools_trace` under `[tool.pytest.ini_options]` for a project, `DEVTOOLS_ENABLE=1` (or `DEVTOOLS_PORT=<n>`, which also attaches to a running backend) for a shell. Highest wins, in that order. A plain script calls `devtools.enable(trace=True)` instead.
+
+A Python trace carries the dense filmstrip, the A11y tree with its element overlay, DOM time-travel, console, network, per-command screenshots and command selectors. The transforms that build the zip stay in the backend rather than being ported ([#298](https://github.com/webdriverio/devtools/issues/298)), so trace mode starts the backend but opens no window.
+
+→ **[`selenium-devtools-py`](./packages/selenium-devtools-py/README.md)** — pytest and plain-script setup, trace mode, assertions, run controls, Preserve & Rerun, and parallel runs.
 
 ## Project Structure
 
@@ -393,7 +410,7 @@ packages/
 ├── service/               # WebdriverIO adapter (@wdio/devtools-service)
 ├── nightwatch-devtools/   # Nightwatch adapter (@wdio/nightwatch-devtools)
 ├── selenium-devtools/     # Selenium WebDriver adapter (@wdio/selenium-devtools)
-└── selenium-devtools-py/  # Python Selenium adapter (selenium-devtools-py) — live mode
+└── selenium-devtools-py/  # Python Selenium adapter (selenium-devtools-py) — live + trace
 ```
 
 `shared` and `core` are workspace-internal (`"private": true`) — every consumer bundles them into its own `dist/` at build time. The three JavaScript adapter packages each translate framework-specific hooks into calls on `core`'s shared capture library; the Python adapter speaks the same wire contract without sharing that code, which is what [#278](https://github.com/webdriverio/devtools/issues/278) exists to address; `backend` and `app` import only from `shared` and communicate via the WS/HTTP boundary.
