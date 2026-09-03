@@ -20,6 +20,7 @@ import {
 } from '@wdio/devtools-shared'
 import {
   exportActiveRunTrace,
+  retentionDecision,
   hasExportableData,
   testMetadataFromNodes
 } from '../src/trace-export.js'
@@ -165,6 +166,60 @@ describe('hasExportableData', () => {
         })
       )
     ).toBe(false)
+  })
+})
+
+describe('retentionDecision', () => {
+  const failing = run({
+    nodes: new Map([
+      ['t1', node({ uid: 't1', state: 'passed' })],
+      ['t2', node({ uid: 't2', state: 'failed' })]
+    ])
+  })
+  const passing = run({
+    nodes: new Map([['t1', node({ uid: 't1', state: 'passed' })]])
+  })
+
+  it('keeps everything when no policy was asked for', () => {
+    expect(retentionDecision(passing, undefined).retain).toBe(true)
+    expect(retentionDecision(passing, 'on').retain).toBe(true)
+  })
+
+  it('drops a passing run under retain-on-failure', () => {
+    expect(retentionDecision(passing, 'retain-on-failure').retain).toBe(false)
+    expect(retentionDecision(failing, 'retain-on-failure').retain).toBe(true)
+  })
+
+  it('reads outcomes from test nodes, not suites', () => {
+    // A suite rolls its children up, so counting it too would let one failure
+    // vote twice — harmless for retain-on-failure, wrong for anything counting.
+    const suiteOnly = run({
+      nodes: new Map([
+        ['s1', node({ uid: 's1', kind: 'suite', state: 'failed' })]
+      ])
+    })
+
+    expect(retentionDecision(suiteOnly, 'retain-on-failure').retain).toBe(true)
+    expect(retentionDecision(suiteOnly, 'retain-on-failure').failOpen).toBe(
+      true
+    )
+  })
+
+  it('fails open when the run reported no test outcomes', () => {
+    // A plain script has no test tree; losing its only artifact to a policy it
+    // cannot express is worse than keeping one that was not wanted.
+    const decision = retentionDecision(run(), 'retain-on-failure')
+
+    expect(decision.retain).toBe(true)
+    expect(decision.failOpen).toBe(true)
+  })
+
+  it('degrades the retry-aware policies, and says so', () => {
+    // Nothing on the wire carries an attempt number.
+    const decision = retentionDecision(passing, 'retain-on-first-failure')
+
+    expect(decision.retain).toBe(false)
+    expect(decision.degradedToFailure).toBe(true)
   })
 })
 

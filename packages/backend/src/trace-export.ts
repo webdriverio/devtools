@@ -10,13 +10,18 @@
 import type {
   ActionSnapshot,
   TestMetadataMap,
-  TraceExportRequest
+  TraceExportRequest,
+  TraceRetentionPolicy
 } from '@wdio/devtools-shared'
 import { serializeWebSnapshot } from '@wdio/devtools-trace/a11y-snapshot'
 import {
   writeTraceZip,
   type TraceCapturer
 } from '@wdio/devtools-trace/trace-exporter'
+import {
+  shouldRetainTrace,
+  type RetentionDecision
+} from '@wdio/devtools-trace/trace-retention'
 import type { ActiveRun, TimeWindowNode } from './baseline/types.js'
 
 /**
@@ -94,15 +99,41 @@ export function hasExportableData(run: Readonly<ActiveRun>): boolean {
   )
 }
 
+/**
+ * Whether this run is worth an archive, by the same rule and the same function
+ * `core/trace-finalizer.ts` `writeSessionTrace` applies for an in-process
+ * adapter — one implementation, not one per language.
+ *
+ * `attemptInfoAvailable` is false because nothing on the wire carries an
+ * attempt number: the accumulator's node tree keeps one state per uid, so a
+ * retried test overwrites its own earlier outcome. The retry-aware policies
+ * therefore degrade to `retain-on-failure`, which `shouldRetainTrace` reports
+ * through `degradedToFailure` rather than silently.
+ */
+export function retentionDecision(
+  run: Readonly<ActiveRun>,
+  policy: TraceRetentionPolicy | undefined
+): RetentionDecision {
+  const outcomes = Array.from(run.nodes.values())
+    .filter((node) => node.kind === 'test')
+    .map((node) => ({ state: node.state }))
+  return shouldRetainTrace(policy, { outcomes, attemptInfoAvailable: false })
+}
+
 export async function exportActiveRunTrace(
   run: Readonly<ActiveRun>,
   request: Pick<
     TraceExportRequest,
-    'outputDir' | 'sessionId' | 'format' | 'fileStem'
+    'outputDir' | 'sessionId' | 'format' | 'fileStem' | 'tracePolicy'
   >
 ): Promise<string> {
   if (!hasExportableData(run)) {
     throw new Error('nothing captured for this run')
+  }
+  if (!retentionDecision(run, request.tracePolicy).retain) {
+    // Distinct from the error above: that one means the run captured nothing,
+    // this one means it captured a run nobody asked to keep.
+    throw new Error(`trace not retained by policy '${request.tracePolicy}'`)
   }
   // `capabilities` is not passed separately: writeTraceZip spreads the
   // capturer's own metadata, which already carries it.

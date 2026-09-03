@@ -11,7 +11,7 @@ import {
   type TraceExportResult
 } from '@wdio/devtools-shared'
 import type { ActiveRun } from './baseline/types.js'
-import { exportActiveRunTrace } from './trace-export.js'
+import { exportActiveRunTrace, retentionDecision } from './trace-export.js'
 
 const log = logger('@wdio/devtools-backend')
 
@@ -56,11 +56,28 @@ export async function runTraceExport(
       JSON.stringify({ scope: TRACE_EXPORT_SCOPE.result, data: result })
     )
   try {
-    const path = await exportActiveRunTrace(deps.activeRun(), {
+    const run = deps.activeRun()
+    // Asked before exporting rather than reported after: a decline is the
+    // policy working, and routing it through the catch below would log a
+    // passing run's own success as an export failure.
+    const decision = retentionDecision(run, request.tracePolicy)
+    if (!decision.retain) {
+      log.info(
+        `Trace for session ${request.sessionId} not retained by policy ` +
+          `'${request.tracePolicy}'` +
+          (decision.degradedToFailure
+            ? ' (no attempt info; degraded to retain-on-failure)'
+            : '')
+      )
+      reply({ requestId: request.requestId, declinedByPolicy: true })
+      return
+    }
+    const path = await exportActiveRunTrace(run, {
       outputDir: request.outputDir,
       sessionId: request.sessionId,
       format: request.format,
-      fileStem: request.fileStem
+      fileStem: request.fileStem,
+      tracePolicy: request.tracePolicy
     })
     log.info(`Trace exported for session ${request.sessionId}: ${path}`)
     reply({ requestId: request.requestId, path })
