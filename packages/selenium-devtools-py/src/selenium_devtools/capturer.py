@@ -41,6 +41,10 @@ class SessionCapturer:
         self._lock = threading.Lock()
         self._metadata_sent: set = set()  # session ids already announced
         self.session_id: Optional[str] = None
+        #: The test every command captured from now on belongs to. Set by
+        #: whichever runner integration knows about tests; None for a plain
+        #: script, whose commands belong to the run rather than to a test.
+        self.test_uid: Optional[str] = None
 
     # ── metadata ───────────────────────────────────────────────────────────────
 
@@ -99,6 +103,7 @@ class SessionCapturer:
             command_id=command_id,
             screenshot=screenshot,
             selector=selector,
+            test_uid=self.test_uid,
         )
         self._tx.send_json(SCOPE_COMMANDS, [entry])
         # Returned so a caller that learns more about the command AFTER it was

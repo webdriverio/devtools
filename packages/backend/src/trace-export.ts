@@ -10,14 +10,20 @@
 import type {
   ActionSnapshot,
   TestMetadataMap,
-  TraceExportRequest
+  TraceExportRequest,
+  TraceRetentionPolicy
 } from '@wdio/devtools-shared'
 import { serializeWebSnapshot } from '@wdio/devtools-trace/a11y-snapshot'
 import {
   writeTraceZip,
   type TraceCapturer
 } from '@wdio/devtools-trace/trace-exporter'
+import {
+  shouldRetainTrace,
+  type RetentionDecision
+} from '@wdio/devtools-trace/trace-retention'
 import type { ActiveRun, TimeWindowNode } from './baseline/types.js'
+import { sliceRunByTest } from './trace-slice.js'
 
 /**
  * Test titles for `Tracing.tracingGroup` events, derived from the suite tree
@@ -94,15 +100,41 @@ export function hasExportableData(run: Readonly<ActiveRun>): boolean {
   )
 }
 
+/**
+ * Whether this run is worth an archive, by the same rule and the same function
+ * `core/trace-finalizer.ts` `writeSessionTrace` applies for an in-process
+ * adapter — one implementation, not one per language.
+ *
+ * `attemptInfoAvailable` is false because nothing on the wire carries an
+ * attempt number: the accumulator's node tree keeps one state per uid, so a
+ * retried test overwrites its own earlier outcome. The retry-aware policies
+ * therefore degrade to `retain-on-failure`, which `shouldRetainTrace` reports
+ * through `degradedToFailure` rather than silently.
+ */
+export function retentionDecision(
+  run: Readonly<ActiveRun>,
+  policy: TraceRetentionPolicy | undefined
+): RetentionDecision {
+  const outcomes = Array.from(run.nodes.values())
+    .filter((node) => node.kind === 'test')
+    .map((node) => ({ state: node.state }))
+  return shouldRetainTrace(policy, { outcomes, attemptInfoAvailable: false })
+}
+
 export async function exportActiveRunTrace(
   run: Readonly<ActiveRun>,
   request: Pick<
     TraceExportRequest,
-    'outputDir' | 'sessionId' | 'format' | 'fileStem'
+    'outputDir' | 'sessionId' | 'format' | 'fileStem' | 'tracePolicy'
   >
 ): Promise<string> {
   if (!hasExportableData(run)) {
     throw new Error('nothing captured for this run')
+  }
+  if (!retentionDecision(run, request.tracePolicy).retain) {
+    // Distinct from the error above: that one means the run captured nothing,
+    // this one means it captured a run nobody asked to keep.
+    throw new Error(`trace not retained by policy '${request.tracePolicy}'`)
   }
   // `capabilities` is not passed separately: writeTraceZip spreads the
   // capturer's own metadata, which already carries it.
@@ -125,4 +157,54 @@ export async function exportActiveRunTrace(
       : {}),
     testMetadata: testMetadataFromNodes(run.nodes)
   })
+}
+
+/** Filesystem-safe fragment of a test's identity, for its artifact name. */
+function slugForTest(uid: string, title: string): string {
+  const base = (title || uid)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60)
+  // A hash of the UID, not of the title: two tests can share a title (a
+  // parametrised case), and colliding names would have one overwrite the other.
+  let hash = 0
+  for (let i = 0; i < uid.length; i++) {
+    hash = (hash * 31 + uid.charCodeAt(i)) | 0
+  }
+  return `${base || 'test'}-${(hash >>> 0).toString(36).slice(0, 6)}`
+}
+
+/**
+ * One archive per test that the policy retains.
+ *
+ * A test whose slice captured nothing is skipped rather than written empty —
+ * the same rule `hasExportableData` applies to a whole run, for the same
+ * reason: an empty archive reads in the viewer as a run that captured nothing.
+ */
+export async function exportPerTestTraces(
+  run: Readonly<ActiveRun>,
+  request: Pick<
+    TraceExportRequest,
+    'outputDir' | 'sessionId' | 'format' | 'tracePolicy'
+  >
+): Promise<string[]> {
+  const paths: string[] = []
+  for (const slice of sliceRunByTest(run)) {
+    if (!hasExportableData(slice.run)) {
+      continue
+    }
+    if (!retentionDecision(slice.run, request.tracePolicy).retain) {
+      continue
+    }
+    paths.push(
+      await exportActiveRunTrace(slice.run, {
+        outputDir: request.outputDir,
+        sessionId: request.sessionId,
+        ...(request.format ? { format: request.format } : {}),
+        fileStem: `trace-${slugForTest(slice.uid, slice.title)}`
+      })
+    )
+  }
+  return paths
 }
