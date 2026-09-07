@@ -3,12 +3,6 @@ import {
   TICK_TARGET_DIVISIONS
 } from './trace-timeline-constants.js'
 
-/** Detect image mime from a base64 string's magic bytes — trace screenshots
- *  may be PNG (polling capture) or JPEG (CDP), and the zip names both `.jpeg`. */
-export function imageMime(base64: string): string {
-  return base64.startsWith('/9j/') ? 'image/jpeg' : 'image/png'
-}
-
 export function tickStep(
   durationMs: number,
   targetTicks = TICK_TARGET_DIVISIONS

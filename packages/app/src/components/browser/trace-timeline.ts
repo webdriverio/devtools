@@ -3,7 +3,11 @@ import { html, type TemplateResult } from 'lit'
 import { customElement, state, query } from 'lit/decorators.js'
 import { consume } from '@lit/context'
 import type { CommandLog, TracePlayerFrame } from '@wdio/devtools-shared'
-import { isKeyboardCommand } from '@wdio/devtools-shared'
+import {
+  imageDimensions,
+  imageMime,
+  isKeyboardCommand
+} from '@wdio/devtools-shared'
 
 import { commandContext, framesContext } from '../../controller/context.js'
 import { elapsedSince } from '../../utils/elapsed.js'
@@ -19,7 +23,6 @@ import {
 import {
   formatTickLabel,
   formatTimecode,
-  imageMime,
   tickStep
 } from './trace-timeline-utils.js'
 import { timelineStyles } from './trace-timeline-styles.js'
@@ -50,6 +53,7 @@ export class TraceTimeline extends Element {
   @query('[data-scrub]') scrubEl?: HTMLElement
 
   #dragging = false
+  #thumbAspectMemo?: { screenshot: string; aspect: string | null }
 
   static styles = [...Element.styles, timelineStyles]
 
@@ -338,6 +342,30 @@ export class TraceTimeline extends Element {
     `
   }
 
+  /** Shape of a filmstrip thumbnail, as a CSS `aspect-ratio`, or null when the
+   *  capture's bytes name no size. Read from the capture's own pixels rather
+   *  than the metadata viewport, which disagrees with the screenshot on both
+   *  mobile platforms. A fixed 16:9 box cropped (object-cover) a portrait
+   *  capture to a horizontal band through its middle — usually empty page, so
+   *  the whole strip rendered as blank rectangles. One ratio for the strip:
+   *  every frame of a run shares one capture surface, and a mid-run rotation
+   *  letterboxes inside the box instead of being cropped away. Memoized on the
+   *  frame it was read from, because this runs on every playback tick. */
+  get #thumbAspect(): string | null {
+    const screenshot = this.frames[0]?.screenshot
+    if (!screenshot) {
+      return null
+    }
+    if (this.#thumbAspectMemo?.screenshot !== screenshot) {
+      const size = imageDimensions(screenshot)
+      this.#thumbAspectMemo = {
+        screenshot,
+        aspect: size ? `${size.width} / ${size.height}` : null
+      }
+    }
+    return this.#thumbAspectMemo.aspect
+  }
+
   // Thumbnails sit at their wall-clock position along the axis.
   #renderThumbTrack(): TemplateResult {
     if (!this.frames.length) {
@@ -348,13 +376,16 @@ export class TraceTimeline extends Element {
       </div>`
     }
     const activeFrame = this.#activeFrameTimestamp
+    const aspect = this.#thumbAspect
     return html`
       <div class="relative flex-1 min-h-0">
         ${this.frames.map((frame) => {
           const fraction = this.#fraction(frame.timestamp)
           const active = frame.timestamp === activeFrame
           return html`<button
-            class="absolute top-0.5 bottom-0.5 aspect-video border rounded overflow-hidden hover:border-chartsBlue hover:z-10 ${
+            class="absolute top-0.5 bottom-0.5 border rounded overflow-hidden hover:border-chartsBlue hover:z-10 ${
+              aspect ? '' : 'aspect-video'
+            } ${
               active
                 ? `border-chartsBlue ring-1 ring-chartsBlue${
                     this.playing ? '' : ' z-10'
@@ -363,12 +394,12 @@ export class TraceTimeline extends Element {
             }"
             style="left:${fraction * 100}%; transform:translateX(-${
               fraction * 100
-            }%);"
+            }%);${aspect ? ` aspect-ratio:${aspect};` : ''}"
             title="${formatTimecode(frame.timestamp - this.#start)}"
             @click="${() => this.#seekToTimestamp(frame.timestamp)}"
           >
             <img
-              class="h-full w-full object-cover"
+              class="h-full w-full object-contain"
               src="data:${imageMime(
                 frame.screenshot
               )};base64,${frame.screenshot}"
