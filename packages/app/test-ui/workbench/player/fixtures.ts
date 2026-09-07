@@ -42,6 +42,20 @@ export const SECURE_SHOT =
 export const FRAME_SHOT =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR42mP48OEDAAWkAtFkkTHCAAAAAElFTkSuQmCC'
 
+/** A capture taller than it is wide — the shape every phone screenshot has, and
+ *  the one a width-only fit blew up past the pane. Its own pixels are what the
+ *  player fits by, so the specs read this ratio back off the layout. Both of
+ *  these are larger than the panes the specs give them, or a fit that ignores
+ *  an axis still leaves them inside it and nothing is proved. */
+export const PORTRAIT_SHOT =
+  'iVBORw0KGgoAAAANSUhEUgAAAHgAAAEECAIAAABskWeLAAABX0lEQVR42u3QMQ0AAAgDsMlBE4qRhYtdTaqgmT0KokC0aESLFm1BtGhEixZtQbRoRIsWjWjRiBYtGtGiES1aNKJFI1q0aESLRrRo0YgWjWjRohEtGtGiRSNaNKJFi0a0aESLFo1o0YgWLRrRohEtWjSiRSNatGhEi0a0aNGIFo1o0aIRLRrRokUjWjSiRYtGtGhEixaNaNGIFi0a0aIRLVo0okUjWrRoRItGtGjRiBaNaNGiES0a0aJFI1o0okWLRrRoRIsWjWjRiBYtGtGiES1aNKJFI1q0aESLRrRo0YgWjWjRohEtGtGiRSNaNKJFi0a0aESLFo1o0YgWLRrRohEtWjSiRSNatGhEi0a0aNGIFo1o0aIRLRrRokUjWjSiRYtGtGhEixaNaNGIFi0a0aIRLVo0okUjWrRoRItGtGjRiBaNaNGiES0a0aJFI1o0okWLRrRoBR1PvtEIvcLLfg8AAAAASUVORK5CYII='
+export const PORTRAIT_CAPTURE = { width: 120, height: 260 }
+
+/** A capture wider than the pane — the axis a width-only fit already bounded,
+ *  so the regression guard for the other direction. 320x200. */
+export const LANDSCAPE_SHOT =
+  'iVBORw0KGgoAAAANSUhEUgAAAUAAAADICAIAAAAWZq/8AAABvUlEQVR42u3TQQkAAAgEwYtjJhMbyxC+hIFJsLCZLuCpSAAGBgwMGBgMDBgYMDBgYDAwYGDAwGBgwMCAgQEDg4EBAwMGBgwMBgYMDBgYDAwYGDAwYGAwMGBgwMCAgcHAgIEBA4OBAQMDBgYMDAYGDAwYGAysAhgYMDBgYDAwYGDAwICBwcCAgQEDg4EBAwMGBgwMBgYMDBgYMDAYGDAwYGAwMGBgwMCAgcHAgIEBAwMGBgMDBgYMDAYGDAwYGDAwGBgwMGBgMDBgYMDAgIHBwICBAQMDBgYDAwYGDAwGBgwMGBgwMBgYMDBgYMDAYGDAwICBwcCAgQEDAwYGAwMGBgwMGBgMDBgYMDAYGDAwYGDAwGBgwMCAgcHAgIEBAwMGBgMDBgYMDBgYDAwYGDAwGBgwMGBgwMBgYMDAgIEBA4OBAQMDBgYDAwYGDAwYGAwMGBgwMBhYBTAwYGDAwGBgwMCAgQEDg4EBAwMGBgMDBgYMDBgYDAwYGDAwYGAwMGBgwMBgYMDAgIEBA4OBAQMDBgYMDAYGDAwYGAwMGBgwMGBgMDBgYMDAYGDAwICBAQODgQEDAwYGDAwGBgwMXCzP6VbflJe/hgAAAABJRU5ErkJggg=='
+
 /** The two streams one player mount consumes. */
 export interface TraceScenario {
   commands: CommandLog[]
@@ -473,6 +487,25 @@ export const domlessTrace: DomlessTrace = {
   clickSubmit,
   assertFlash
 }
+
+/** The DOM-less branch carrying one capture — a native mobile trace, and any
+ *  tall capture: no mutation stream to replay, so the screenshot is all the
+ *  player has to fit. */
+const capturedTrace = (screenshot: string): TraceScenario => ({
+  commands: [
+    commandLog({
+      command: 'url',
+      args: [LOGIN_URL],
+      screenshot,
+      startTime: RUN_START,
+      timestamp: RUN_START + 400
+    })
+  ],
+  mutations: []
+})
+
+export const portraitTrace = capturedTrace(PORTRAIT_SHOT)
+export const landscapeTrace = capturedTrace(LANDSCAPE_SHOT)
 
 /**
  * A document anchor is a childList of one added node with no target; this one
