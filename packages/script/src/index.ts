@@ -2,6 +2,7 @@ import { waitForBody, getRef } from './utils.js'
 import {
   dropCoveredRecords,
   MUTATION_OBSERVER_CONFIG,
+  observedRoot,
   serializeMutation,
   shouldCapture
 } from './mutations.js'
@@ -28,7 +29,7 @@ try {
       collector.captureError(err as Error)
     }
   })
-  observer.observe(document.body, MUTATION_OBSERVER_CONFIG)
+  observer.observe(observedRoot(), MUTATION_OBSERVER_CONFIG)
 
   // Form-field state (value / checked) lives on element PROPERTIES, which the
   // MutationObserver never reports — so a replayed page shows empty inputs even

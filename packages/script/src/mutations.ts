@@ -39,6 +39,23 @@ export const MUTATION_OBSERVER_CONFIG: MutationObserverInit = {
   subtree: true
 }
 
+/**
+ * The subtree the collector observes: `documentElement`, never `body`.
+ *
+ * A bundler's lazily loaded CSS lands in `<head>` — Vite's dev client appends a
+ * `<style>` it has filled with text, a production route chunk appends a
+ * `<link rel="stylesheet">` — and the anchor is serialized as soon as `body`
+ * exists, which is before any of that runs. A body-rooted observer reported
+ * neither insertion, so the replay held no stylesheet at all and every route
+ * rendered as raw HTML while its `body` content replayed correctly.
+ *
+ * Read through a function so the tests observe the same root production does; a
+ * regression to `body` then fails there instead of silently unstyling the replay.
+ */
+export function observedRoot(): Element {
+  return document.documentElement
+}
+
 /** Where a Text node lives, in terms the replay can resolve. Undefined when the
  *  parent carries no ref (or there is no parent) — the node is unaddressable. */
 function textNodeAddress(
