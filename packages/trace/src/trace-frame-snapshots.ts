@@ -2,7 +2,7 @@
 // minimal DOM document so standard trace viewers render the action pane.
 // Compatibility shim until real DOM snapshots are captured.
 
-import type { ActionSnapshot } from '@wdio/devtools-shared'
+import { imageMime, type ActionSnapshot } from '@wdio/devtools-shared'
 
 const SNAPSHOT_DOCTYPE = 'html'
 const FALLBACK_FRAME_URL = 'about:blank'
@@ -133,12 +133,6 @@ function frameIdForPage(pageId: string): string {
   return `frame@${suffix}`
 }
 
-// Captures come from WebDriver screenshots (PNG) or CDP screencasts (JPEG),
-// so the mime is sniffed from the base64 magic rather than assumed.
-function imageMimeType(base64: string): string {
-  return base64.startsWith('iVBOR') ? 'image/png' : 'image/jpeg'
-}
-
 function imageDocument(snap: ActionSnapshot): FrameSnapshotNode {
   const screenshot = snap.screenshot ?? ''
   return [
@@ -151,7 +145,7 @@ function imageDocument(snap: ActionSnapshot): FrameSnapshotNode {
       [
         'IMG',
         {
-          src: `data:${imageMimeType(screenshot)};base64,${screenshot}`,
+          src: `data:${imageMime(screenshot)};base64,${screenshot}`,
           style: IMAGE_STYLE
         }
       ]
