@@ -1,5 +1,6 @@
 /**
  * @vitest-environment happy-dom
+ * @vitest-environment-options { "settings": { "disableJavaScriptFileLoading": true, "disableCSSFileLoading": true } }
  *
  * The wire shape the app's DOM replay consumes. Records come from a REAL
  * MutationObserver configured with the collector's own `MUTATION_OBSERVER_CONFIG`,
@@ -11,6 +12,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import {
   dropCoveredRecords,
   MUTATION_OBSERVER_CONFIG,
+  observedRoot,
   serializeMutation,
   shouldCapture
 } from '../src/mutations.js'
@@ -18,11 +20,13 @@ import { assignRef, getRef } from '../src/utils.js'
 
 const TIMESTAMP = 1_700_000_000_000
 
-/** Mutates the page and returns the records the collector would keep. */
+/** Mutates the page and returns the records the collector would keep. Observes
+ *  `observedRoot()`, so narrowing it back to `body` fails these tests instead of
+ *  silently dropping everything the page adds outside it. */
 async function capture(mutate: () => void): Promise<TraceMutation[]> {
   const records: MutationRecord[] = []
   const observer = new MutationObserver((list) => records.push(...list))
-  observer.observe(document.body, MUTATION_OBSERVER_CONFIG)
+  observer.observe(observedRoot(), MUTATION_OBSERVER_CONFIG)
   mutate()
   // MutationObserver delivers in a microtask; happy-dom needs a macrotask turn.
   await new Promise((resolve) => setTimeout(resolve, 0))
@@ -40,6 +44,7 @@ beforeEach(() => {
     document.documentElement.appendChild(document.createElement('body'))
   }
   document.body.innerHTML = ''
+  document.head.innerHTML = ''
 })
 
 describe('mutation serialization', () => {
@@ -214,6 +219,69 @@ describe('mutation serialization', () => {
     // only by the null in its place.
     expect(mutations.flatMap((m) => m.removedNodes)).toEqual([null])
     expect(mutations.flatMap((m) => m.addedNodes)).toEqual(['new'])
+  })
+})
+
+/**
+ * Everything a bundler does to style a route happens in `<head>`, and the anchor
+ * is taken as soon as `body` exists — before the module graph has run. Observed
+ * from `body` these records did not exist, so the replay held no stylesheet and
+ * rendered every route as raw HTML while the same route's `body` content
+ * replayed correctly.
+ */
+describe('mutations outside <body>', () => {
+  it('captures a <style> the dev server appends to <head>', async () => {
+    // Vite's client shape: a real element whose text it fills, appended to head
+    // once `import './index.css'` executes.
+    assignRef(document.documentElement)
+
+    const mutations = await capture(() => {
+      const style = document.createElement('style')
+      style.setAttribute('data-vite-dev-id', '/src/index.css')
+      style.textContent = '.nav-bar { background: #0b1020; }'
+      document.head.appendChild(style)
+    })
+
+    expect(mutations).toHaveLength(1)
+    expect(mutations[0].target).toBe(getRef(document.head))
+    // The rules have to survive the trip: the replay has no other source for
+    // them, and a `<style>` arriving empty is what left the page unstyled.
+    expect(JSON.stringify(mutations[0].addedNodes)).toContain(
+      'background: #0b1020'
+    )
+  })
+
+  it('captures the stylesheet link a lazily loaded route chunk appends', async () => {
+    // The production counterpart: `cssCodeSplit` gives each lazy route its own
+    // sheet, appended when the chunk loads.
+    assignRef(document.documentElement)
+
+    const mutations = await capture(() => {
+      const link = document.createElement('link')
+      link.rel = 'stylesheet'
+      link.href = '/assets/Dashboard.css'
+      document.head.appendChild(link)
+    })
+
+    expect(mutations).toHaveLength(1)
+    expect(mutations[0].target).toBe(getRef(document.head))
+    expect(JSON.stringify(mutations[0].addedNodes)).toContain(
+      '/assets/Dashboard.css'
+    )
+  })
+
+  it('captures an attribute the page sets on <html>', async () => {
+    // Where a theme class lives, so a body-rooted observer replayed a dark app
+    // in its light palette.
+    assignRef(document.documentElement)
+
+    const mutations = await capture(() => {
+      document.documentElement.setAttribute('class', 'dark')
+    })
+
+    expect(mutations).toHaveLength(1)
+    expect(mutations[0].target).toBe(getRef(document.documentElement))
+    expect(mutations[0].attributeValue).toBe('dark')
   })
 })
 
