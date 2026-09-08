@@ -57,6 +57,7 @@ import {
   PAGE_TRANSITION_COMMANDS
 } from './constants.js'
 import { isNativeMobile } from './mobile.js'
+import { resolveSessionMetadata } from './session-metadata.js'
 import { stampRunnerMetadata } from './wdio-runner-id.js'
 import { detectInvocationConfigPath } from './standalone.js'
 
@@ -248,22 +249,11 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     await this.#screencast.start(browser)
 
     /**
-     * propagate session metadata at the beginning of the session.
-     * Skip on mobile — Appium sessions don't have a browser DOM context.
+     * Propagate session metadata at the beginning of the session. Not awaited,
+     * so session start is never held up by it; the trace is exported at test or
+     * session end, long after this lands.
      */
-    if (!isNativeMobile(browser)) {
-      browser
-        .execute(() => window.visualViewport)
-        .then((viewport) =>
-          this.#sessionCapturer.sendUpstream('metadata', {
-            viewport: viewport || undefined,
-            type: this.captureType,
-            options: browser.options,
-            capabilities: browser.capabilities as Capabilities.W3CCapabilities,
-            runner: this.#sessionCapturer.metadata?.runner
-          })
-        )
-    }
+    void this.#captureSessionMetadata(browser)
 
     /**
      * Runtime DOM snapshot for agent auto-healing loops. Calls into
@@ -283,6 +273,17 @@ export default class DevToolsHookService implements Services.ServiceInstance {
           return { text: '[Snapshot unavailable]', elements: {} }
         }
       }
+    )
+  }
+
+  /** Resolve what the session can state about itself and both store and publish
+   *  it. Stored, because the exporter serializes the capturer's own metadata:
+   *  `sendUpstream` alone reached a live dashboard and was dropped before the
+   *  zip, which is why a native capture claimed a 1280x720 viewport it never
+   *  measured. */
+  async #captureSessionMetadata(browser: WebdriverIO.Browser): Promise<void> {
+    this.#sessionCapturer.mergeMetadata(
+      await resolveSessionMetadata(browser, this.captureType)
     )
   }
 

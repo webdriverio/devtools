@@ -30,6 +30,7 @@ vi.mock('stack-trace', () => ({
 const mockSessionCapturerInstance = {
   afterCommand: vi.fn(),
   sendUpstream: vi.fn(),
+  mergeMetadata: vi.fn(),
   injectScript: vi.fn().mockResolvedValue(undefined),
   captureTrace: vi.fn().mockResolvedValue(undefined),
   resetScriptInjection: vi.fn(),
