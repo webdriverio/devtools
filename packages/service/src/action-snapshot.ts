@@ -14,7 +14,7 @@ import {
   upsertRichestSnapshot
 } from '@wdio/devtools-core'
 import type { ActionSnapshot } from '@wdio/devtools-shared'
-import { isNativeMobile, mobilePlatform } from './mobile.js'
+import { isNativeAppSession, mobilePlatform } from './mobile.js'
 import { INTERNAL_COMMANDS } from './constants.js'
 import { wdioRunnerId } from './wdio-runner-id.js'
 
@@ -73,7 +73,9 @@ export async function captureActionResult(
   if (!mapCommandToAction(command) || INTERNAL_COMMANDS.includes(command)) {
     return
   }
-  if (!isNativeMobile(browser)) {
+  // Keyed on having a document, matching `#markDocument`, which writes the tag
+  // this reads — split, a session tags a document nothing settles on.
+  if (!isNativeAppSession(browser)) {
     await waitForActionResult(browser)
   }
   // Stamped before the capture, not after: a snapshot probe can never enter
@@ -108,7 +110,9 @@ export function captureActionSnapshot(
   command: string,
   timestamp?: number
 ): Promise<ActionSnapshot | null> {
-  const native = isNativeMobile(browser)
+  // A mobile BROWSER session takes the web path below: it has a document, and
+  // the native path would read its HTML through the page-source XML parser.
+  const native = isNativeAppSession(browser)
   return coreCapture({
     command,
     timestamp,

@@ -15,7 +15,7 @@ import {
   rememberElementSelector,
   selectorForCommand
 } from './command-selectors.js'
-import { isNativeMobile } from './mobile.js'
+import { isAppiumSession, isNativeAppSession } from './mobile.js'
 import {
   CAPTURE_PERFORMANCE_SCRIPT,
   LOG_SOURCES,
@@ -162,7 +162,7 @@ export class SessionCapturer extends SessionCapturerBase {
       testUid,
       stepUid
     }
-    if (!isNativeMobile(browser)) {
+    if (!isAppiumSession(browser)) {
       try {
         commandLogEntry.screenshot = await browser.takeScreenshot()
       } catch (screenshotError) {
@@ -183,9 +183,10 @@ export class SessionCapturer extends SessionCapturerBase {
 
     this.#captureOrReplace(commandLogEntry)
     // Capture trace + perf on commands that could trigger a page transition.
-    // Skip on native mobile — scripts can't execute in a native app context.
+    // Skipped when there is no document to run either script in; a mobile
+    // BROWSER session has one, so it keeps both.
     if (
-      !isNativeMobile(browser) &&
+      !isNativeAppSession(browser) &&
       PAGE_TRANSITION_COMMANDS.includes(command)
     ) {
       await Promise.all([
@@ -380,12 +381,11 @@ export class SessionCapturer extends SessionCapturerBase {
    *  command, capturing the outgoing page's field edits (value/checked
    *  mutations fire no page transition) before its collector is discarded. */
   async captureTrace(browser: WebdriverIO.Browser, forceAnchor = false) {
-    // A native app has no document to drain, so every part of this — the
-    // collector probe, the recovery injection, the url read — is a round trip
-    // that can only fail. Guarded here rather than at each call site: two of
-    // the four asked and two did not, which cost 5 failed round trips per run
-    // and put `Method is not implemented` in the user's output five times.
-    if (isNativeMobile(browser)) {
+    // A native app has no document to drain, so the collector probe, the
+    // recovery injection and the url read are all round trips that can only
+    // fail. Guarded here rather than at each call site, because two of the four
+    // asked and two did not.
+    if (isNativeAppSession(browser)) {
       return
     }
     // No `#isScriptInjected` gate: that flag tracks the preload REGISTRATION,

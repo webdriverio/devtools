@@ -5,7 +5,7 @@ import { TraceType } from '../src/types.js'
 
 /**
  * A native session answers `getWindowSize` and nothing DOM-shaped; a desktop
- * one answers `execute`. The flags are what `isNativeMobile` narrows on.
+ * one answers `execute`. The flags are what `isAppiumSession` narrows on.
  */
 function browserDouble(overrides: Record<string, unknown> = {}) {
   return {
@@ -72,6 +72,35 @@ describe('resolveSessionMetadata', () => {
     })
     // Never asked to run script in a session that has no DOM to run it in.
     expect(browser.execute).not.toHaveBeenCalled()
+  })
+
+  /**
+   * A mobile BROWSER session has a page, and the player sizes the DOM-replay
+   * iframe from this viewport — so reading the driver window here would frame
+   * the replay at the window including browser chrome, at a hardcoded scale of
+   * 1. `window.visualViewport` is the only source carrying the real scale.
+   */
+  it("reads the page's own viewport on an Appium browser session", async () => {
+    const browser = browserDouble({
+      isMobile: false,
+      isAndroid: true,
+      capabilities: {
+        platformName: 'Android',
+        browserName: 'Chrome',
+        'appium:automationName': 'Chrome'
+      }
+    })
+
+    const metadata = await resolveSessionMetadata(browser, TraceType.Testrunner)
+
+    expect(metadata.viewport).toEqual({
+      width: 1280,
+      height: 720,
+      offsetLeft: 0,
+      offsetTop: 0,
+      scale: 1
+    })
+    expect(browser.getWindowSize).not.toHaveBeenCalled()
   })
 
   it('states the device a native session reports', async () => {
