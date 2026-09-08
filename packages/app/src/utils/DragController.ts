@@ -21,6 +21,14 @@ interface DragControllerOptions {
   /** Accepts a getter, like the bounds: a window-derived default resolved once
    *  at construction never follows the window it was derived from. */
   initialPosition: Bound
+  /**
+   * Which edge the pane is measured from. `start` (the default) is a pane on
+   * the left or top, whose size grows as the handle moves away from that edge.
+   * `end` is a pane on the right or bottom: its handle sits on its inner edge,
+   * so the position is an offset from the far side and dragging TOWARDS the
+   * start makes it bigger.
+   */
+  anchor?: 'start' | 'end'
   direction: Direction
   localStorageKey?: string
   minPosition?: Bound
@@ -227,7 +235,8 @@ export class DragController implements ReactiveController {
       const xDelta = cursorPositionX - this.#cursorPositionX
       const yDelta = cursorPositionY - this.#cursorPositionY
 
-      this.#setPosition(oldX + xDelta, oldY + yDelta)
+      const sign = this.#options.anchor === 'end' ? -1 : 1
+      this.#setPosition(oldX + sign * xDelta, oldY + sign * yDelta)
       // From here on this pane's height is the user's, not the window's.
       this.#userChosen = true
 
@@ -295,17 +304,28 @@ export class DragController implements ReactiveController {
   }
 
   getSlider(className = '') {
+    const fromEnd = this.#options.anchor === 'end'
     const anchor =
       this.#options.direction === Direction.horizontal
-        ? 'left'
+        ? fromEnd
+          ? 'right'
+          : 'left'
         : this.#options.direction === Direction.vertical
-          ? 'top'
+          ? fromEnd
+            ? 'bottom'
+            : 'top'
           : ''
+    // The edge class must match the anchor. It used to be `left-0`/`top-0`
+    // unconditionally, which an inline `left`/`top` simply overrides — but an
+    // END-anchored handle sets the OPPOSITE property, so `left:0` from the
+    // class and `right:Npx` inline both applied and, on a fixed-width absolute
+    // box, `left` wins: the handle pinned itself to the container's start edge
+    // instead of sitting on its own pane.
     className +=
       this.#options.direction === Direction.horizontal
-        ? ' cursor-col-resize left-0 h-full w-[10px]'
+        ? ` cursor-col-resize ${fromEnd ? 'right-0' : 'left-0'} h-full w-[10px]`
         : this.#options.direction === Direction.vertical
-          ? ' cursor-row-resize top-0 w-full h-[10px]'
+          ? ` cursor-row-resize ${fromEnd ? 'bottom-0' : 'top-0'} w-full h-[10px]`
           : ''
 
     return html`

@@ -483,6 +483,10 @@ export class DevtoolsBrowser extends Element {
 
   // View-mode flips swap the iframe with <img>/<video> and don't fire resize.
   updated() {
+    // Drives the host-padding rule above. An attribute rather than a style:
+    // the padding is `!important` in the component's own sheet, so only
+    // another rule in that sheet can win.
+    this.toggleAttribute('device-frame', Boolean(this.metadata?.device))
     this.#setIframeSize()
   }
 

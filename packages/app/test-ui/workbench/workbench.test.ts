@@ -5,9 +5,12 @@
 // between DataManager publishing a baseline for the selected test and the
 // compare panel rendering it; neither end's spec covers it.
 
+import { TraceType, type Metadata } from '@wdio/devtools-shared'
+
 import { collectErrors } from '@components/workbench/errors/collect.js'
 import { pairSteps } from '@components/workbench/compare/compareUtils.js'
 import type { DevtoolsTabs } from '@components/tabs.js'
+import type { DevtoolsWorkbench } from '@components/workbench.js'
 
 import { shadow, shadowAll, text, texts } from '../support/queries.js'
 import {
@@ -746,6 +749,176 @@ describe('wdio-devtools-workbench', () => {
       // jump panels — the dock stays where the fallback left it.
       expect(tabLabels(harness.dock)).toEqual([...LIVE_DOCK, 'Compare'])
       expect(openTabLabels(harness.dock)).toEqual(['Source'])
+    })
+  })
+
+  /**
+   * A portrait capture in a wide row is a narrow strip with the rest backdrop.
+   * When the trace says it came off a device the capture gets a column of its
+   * own down the right-hand side and the dock sits beside it, so the frame is
+   * as tall as the window allows.
+   */
+  describe('device layout', () => {
+    const DEVICE_PANE = 'section[data-device-pane]'
+    const IPHONE: Metadata = {
+      type: TraceType.Testrunner,
+      device: { platform: 'ios', name: 'iPhone 17', version: '18.1' },
+      viewport: {
+        width: 402,
+        height: 874,
+        offsetLeft: 0,
+        offsetTop: 0,
+        scale: 1
+      }
+    }
+    const DESKTOP: Metadata = {
+      type: TraceType.Testrunner,
+      viewport: {
+        width: 1280,
+        height: 800,
+        offsetLeft: 0,
+        offsetTop: 0,
+        scale: 1
+      }
+    }
+
+    const paneOf = (workbench: DevtoolsWorkbench) =>
+      shadow(workbench, DEVICE_PANE)
+
+    it('gives a device capture its own column, with the dock beside it', async () => {
+      const { workbench, dock } = await mountWorkbench(
+        { metadata: IPHONE },
+        { playerMode: true }
+      )
+
+      const pane = paneOf(workbench)
+      expect(pane).toBeTruthy()
+      const paneBox = pane!.getBoundingClientRect()
+      const dockBox = dock.getBoundingClientRect()
+
+      // Beside, not under: the dock ends exactly where the column begins, and
+      // both span the same rows.
+      expect(dockBox.right).toBeCloseTo(paneBox.left, 0)
+      expect(dockBox.top).toBeCloseTo(paneBox.top, 0)
+      // ...and the column is the rightmost thing in the row.
+      expect(paneBox.right).toBeGreaterThanOrEqual(dockBox.right)
+    })
+
+    it('lets the capture fill the whole column', async () => {
+      // The reason for the layout. In the stacked layout the capture kept the
+      // vertical split's height and an aspect-locked box, so a portrait frame
+      // used a fraction of the room; here it takes the column entire.
+      const { workbench } = await mountWorkbench(
+        { metadata: IPHONE },
+        { playerMode: true }
+      )
+
+      const pane = paneOf(workbench)!.getBoundingClientRect()
+      const capture = shadow(
+        paneOf(workbench)!,
+        BROWSER
+      )!.getBoundingClientRect()
+      expect(capture.width).toBeCloseTo(pane.width, 1)
+      expect(capture.height).toBeCloseTo(pane.height, 1)
+    })
+
+    it('leaves a desktop capture in the stacked layout', async () => {
+      const { workbench } = await mountWorkbench(
+        { metadata: DESKTOP },
+        { playerMode: true }
+      )
+
+      // Not a better layout in general — only for a capture taller than wide.
+      expect(paneOf(workbench)).toBeNull()
+      expect(shadowAll(workbench, BROWSER).length).toBeGreaterThan(0)
+    })
+
+    it('applies in live mode too, not only in the player', async () => {
+      const { workbench } = await mountWorkbench({ metadata: IPHONE })
+
+      expect(paneOf(workbench)).toBeTruthy()
+    })
+
+    /**
+     * The dock must not be sized by its CONTENT. As a flex row item its floor
+     * is min-content unless min-width is cleared, so switching to a wide tab
+     * (the Network table) grew the dock and shoved the column sideways — only
+     * the drag handle may move that boundary.
+     *
+     * The rule is asserted directly because the symptom is not reproducible
+     * here: it needs content wider than the leftover space, and this harness's
+     * network fixture fits. The pane-geometry check below is a sanity net, not
+     * a proof — it passes with the rule removed.
+     */
+    it('clears the dock min-width so its content cannot move the column', async () => {
+      const { workbench, dock, settleTabs } = await mountWorkbench(
+        { metadata: IPHONE, networkRequests: networkRequests() },
+        { playerMode: true }
+      )
+
+      expect(getComputedStyle(dock).minWidth).toBe('0px')
+
+      const before = paneOf(workbench)!.getBoundingClientRect()
+      const network = shadowAll<HTMLElement>(dock, '[role="tab"], button').find(
+        (el) => text(el).includes('Network')
+      )
+      network?.click()
+      await settleTabs()
+
+      const after = paneOf(workbench)!.getBoundingClientRect()
+      expect(after.width).toBeCloseTo(before.width, 1)
+      expect(after.left).toBeCloseTo(before.left, 1)
+    })
+
+    /**
+     * The handle for a pane on the RIGHT sets `right`, so its edge class has to
+     * be `right-0` too. With `left-0` — which every horizontal handle used to
+     * get — both properties applied and `left` won on a fixed-width absolute
+     * box, so this handle pinned itself beside the sidebar's one instead of
+     * sitting between the dock and the column.
+     *
+     * Asserted on the class and the inline property, not on geometry: the
+     * harness does not apply Tailwind utilities inside a shadow root, so where
+     * an absolutely positioned handle actually lands cannot be measured here.
+     */
+    it('anchors the column handle to its own edge, not the row start', async () => {
+      const { workbench } = await mountWorkbench(
+        { metadata: IPHONE },
+        { playerMode: true }
+      )
+
+      const handle = shadowAll<HTMLElement>(
+        workbench,
+        'button[data-draggable-id]'
+      ).find((el) => (el.getAttribute('style') ?? '').includes('right:'))
+
+      expect(handle).toBeTruthy()
+      expect(handle!.className).toContain('right-0')
+      expect(handle!.className).not.toContain('left-0')
+      expect(handle!.className).toContain('cursor-col-resize')
+    })
+
+    it('leaves the dock room and never collapses below its floor', async () => {
+      const { workbench } = await mountWorkbench(
+        { metadata: IPHONE },
+        { playerMode: true }
+      )
+      // Sized, or the row measures 0 and there is nothing to be inside of.
+      const host = workbench.parentElement as HTMLElement
+      host.style.width = '1400px'
+      host.style.height = '900px'
+      await workbench.updateComplete
+      await new Promise((resolve) => requestAnimationFrame(resolve))
+
+      const pane = paneOf(workbench)!.getBoundingClientRect()
+      const row = paneOf(workbench)!.parentElement!.getBoundingClientRect()
+      expect(pane.width).toBeGreaterThanOrEqual(180)
+      expect(pane.width).toBeLessThan(row.width)
+      // The default itself is not asserted here: it is derived from
+      // `window.innerHeight`, and this harness mounts the workbench in a host
+      // whose height is unrelated to the window's. That divergence is exactly
+      // what DEVICE_PANE_CHROME_ALLOWANCE biases against, and it is only
+      // observable in the running app.
     })
   })
 })

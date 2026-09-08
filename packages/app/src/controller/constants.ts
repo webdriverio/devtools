@@ -15,6 +15,20 @@ export function minWorkbenchHeight(): number {
   return Math.min(300, window.innerHeight * 0.3)
 }
 export const MIN_METATAB_WIDTH = 260
+/** Narrowest useful device column — below this a phone frame is unreadable. */
+export const DEVICE_PANE_MIN_WIDTH = 180
+/**
+ * Slack added to a device column's width so its frame is bound by HEIGHT.
+ * The frame spends some of the column on its own header, padding and border,
+ * so a column sized to `height x ratio` leaves the capture less height than
+ * that and it becomes width-bound instead — measured at ~180px of dead space
+ * above AND below. The error is asymmetric: a column a few px too wide costs a
+ * sliver of side backdrop, one too narrow costs that whole gap, so this biases
+ * wide on purpose.
+ */
+export const DEVICE_PANE_CHROME_ALLOWANCE = 48
+/** Most of the window a device column may take, so the dock stays usable. */
+export const DEVICE_PANE_MAX_WIDTH_RATIO = 0.6
 export const RERENDER_TIMEOUT = 10
 export const SIDEBAR_DEFAULT_WIDTH = 350
 export const ACTIONS_DEFAULT_WIDTH = 360

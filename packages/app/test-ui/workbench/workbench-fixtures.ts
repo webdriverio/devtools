@@ -17,6 +17,7 @@ import { ContextProvider, type Context } from '@lit/context'
 import type {
   CommandLog,
   ConsoleLog,
+  Metadata,
   NetworkRequest,
   PreservedAttempt,
   PreservedStep
@@ -256,6 +257,8 @@ export function failingSuites(
 }
 
 export interface WorkbenchContexts {
+  /** Session metadata — `device` is what selects the device layout. */
+  metadata?: Metadata
   commands?: CommandLog[]
   consoleLogs?: ConsoleLog[]
   networkRequests?: NetworkRequest[]
@@ -408,7 +411,7 @@ export function mountWorkbench(
     [logContext, []],
     [consoleLogContext, contexts.consoleLogs ?? []],
     [networkRequestContext, contexts.networkRequests ?? []],
-    [metadataContext, undefined],
+    [metadataContext, contexts.metadata],
     [metadataBySessionContext, {}],
     [commandContext, contexts.commands ?? []],
     [sourceContext, undefined],
