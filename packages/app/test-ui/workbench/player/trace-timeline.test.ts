@@ -17,7 +17,13 @@ import '@components/browser/trace-timeline.js'
 
 import { mountWithContext, settle } from '../../support/mount.js'
 import { shadow, shadowAll, text, texts } from '../../support/queries.js'
-import { filmstrip, FRAME_SHOT, loginTrace } from './fixtures.js'
+import {
+  filmstrip,
+  FRAME_SHOT,
+  loginTrace,
+  PORTRAIT_CAPTURE,
+  PORTRAIT_SHOT
+} from './fixtures.js'
 
 const TAG = 'wdio-devtools-trace-timeline'
 const STRIP = '[data-scrub]'
@@ -174,6 +180,74 @@ describe('wdio-devtools-trace-timeline', () => {
       expect(thumbs).toHaveLength(1)
       expect(thumbs[0].style.left).toBe('0%')
       expect(isActive(thumbs[0])).toBe(true)
+    })
+
+    /**
+     * A thumbnail box is filled by the frame, so its shape decides what survives:
+     * in a fixed 16:9 box a portrait capture was cropped to a horizontal band
+     * through its middle — empty page on a phone screen, so the strip rendered as
+     * blank rectangles. The shape is read from the capture's own pixels, which is
+     * also all a DOM-less trace has: it carries no viewport, and on mobile the
+     * viewport disagrees with the screenshot anyway.
+     */
+    describe('thumbnail shape', () => {
+      /** Height for the strip to lay out in — the component is auto-height, and
+       *  a collapsed strip makes every ratio below 0/0. */
+      const STRIP_HEIGHT = 200
+
+      const shapeOf = (thumb: HTMLElement) => {
+        const box = thumb.getBoundingClientRect()
+        return box.width / box.height
+      }
+
+      async function laidOutStrip(
+        stripFrames: TracePlayerFrame[]
+      ): Promise<Timeline> {
+        const el = await mountTimeline(commands, stripFrames)
+        el.style.height = `${STRIP_HEIGHT}px`
+        el.style.width = '600px'
+        await settle(el)
+        return el
+      }
+
+      const reshot = (screenshot: string) =>
+        frames.map((frame) => ({ ...frame, screenshot }))
+
+      /** Base64 that decodes to bytes no size can be read from. It has to be
+       *  real base64: raw text makes the frame's `data:` url unparseable, and
+       *  Chrome logs that as a SEVERE resource error — which the runner polls
+       *  for every 500ms and fails the whole spec on, whichever test is running
+       *  by then. */
+      const SIZELESS_SHOT = btoa('not-an-image')
+
+      it("takes the capture's own shape", async () => {
+        const el = await laidOutStrip(reshot(PORTRAIT_SHOT))
+
+        const portrait = PORTRAIT_CAPTURE.width / PORTRAIT_CAPTURE.height
+        for (const thumb of shadowAll(el, THUMB)) {
+          expect(shapeOf(thumb)).toBeCloseTo(portrait, 2)
+        }
+      })
+
+      it('keeps nothing cropped away', async () => {
+        const el = await laidOutStrip(reshot(PORTRAIT_SHOT))
+        const thumb = shadowAll(el, THUMB)[0]
+        const img = shadow<HTMLImageElement>(thumb, 'img')!
+
+        // The frame fills its box rather than being covered into it, so the box
+        // holding the capture's shape means the whole capture is on screen.
+        expect(getComputedStyle(img).objectFit).toBe('contain')
+        expect(img.getBoundingClientRect().height).toBeCloseTo(
+          thumb.getBoundingClientRect().height,
+          1
+        )
+      })
+
+      it('falls back to 16:9 when the bytes name no size', async () => {
+        const el = await laidOutStrip(reshot(SIZELESS_SHOT))
+
+        expect(shapeOf(shadowAll(el, THUMB)[0])).toBeCloseTo(16 / 9, 2)
+      })
     })
   })
 

@@ -11,7 +11,6 @@ import {
 } from './element-overlay.js'
 import { commandPageUrl } from './url-at-timestamp.js'
 import { mutationForCommand } from './mutation-at-command.js'
-import { imageMime } from './trace-timeline-utils.js'
 import { booleanAttributeOn, isBooleanAttribute } from './boolean-attribute.js'
 
 import { type ComponentChildren, h, render, type VNode } from 'preact'
@@ -22,7 +21,7 @@ import type { SimplifiedVNode } from '@wdio/devtools-script/types'
 // characterData wire shape (parent ref + child index), so the replay reads it
 // from the same declaration that produces it.
 import type { TextMutation } from '@wdio/devtools-script/mutations.js'
-import type { CommandLog } from '@wdio/devtools-shared'
+import { imageMime, type CommandLog } from '@wdio/devtools-shared'
 
 import {
   mutationContext,

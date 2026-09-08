@@ -74,9 +74,15 @@ export const snapshotStyles = css`
     overflow: hidden;
   }
 
+  /* The capture fills the pane and contains inside it — the same fit as the
+     screencast branch. Bounding the width alone scaled a portrait capture up to
+     the pane width, overflowed its height, and the wrapper's overflow:hidden
+     clipped the remainder: a 1206x2622 phone screen showed 17% of itself at
+     5.9x in a 1240x457 pane. */
   .screenshot-overlay img {
-    max-width: 100%;
-    height: auto;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
     display: block;
   }
 

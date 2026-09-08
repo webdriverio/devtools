@@ -45,6 +45,7 @@ import {
 import {
   CAPTURED_VIEWPORT,
   domlessTrace,
+  landscapeTrace,
   LOGIN_SHOT,
   LOGIN_URL,
   loginTrace,
@@ -53,6 +54,7 @@ import {
   metadataForViewport,
   orphanTrace,
   overlayLabelTrace,
+  portraitTrace,
   preCaptureTrace,
   RECORDING,
   recordedSessionMetadata,
@@ -72,6 +74,8 @@ import {
 const TAG = 'wdio-devtools-browser'
 const ADDRESS_BAR = 'header .truncate'
 const SCREENSHOT = '.screenshot-overlay img'
+/** Box the capture is fitted into, and the one that clips whatever overflows. */
+const SCREENSHOT_PANE = '.screenshot-overlay'
 const PLACEHOLDER = 'wdio-devtools-placeholder'
 const SCREENCAST = 'wdio-devtools-screencast-player'
 const VIEW_BUTTON = '.view-toggle button'
@@ -1452,6 +1456,86 @@ describe('wdio-devtools-browser', () => {
       expect(iframe.style.width).toBe('1280px')
       expect(iframe.style.height).toBe('800px')
       expect(scaleOf(iframe)).toBeCloseTo(0.5, 5)
+    })
+
+    /**
+     * The screenshot branch — every DOM-less trace, so every native mobile one —
+     * is fitted by CSS rather than by the sizing pass above, and it was bounded
+     * on the width alone. A portrait capture was scaled up to the pane's width,
+     * overflowed its height, and the overflow:hidden wrapper clipped the rest: a
+     * 1206x2622 phone screen showed 17% of itself at 5.9x in a 1240x457 pane.
+     */
+    describe('fitting a capture with no DOM to replay', () => {
+      /** Sizes the pane and waits for the capture to take a box inside it. No
+       *  transform to wait on here — the fit is the stylesheet's, not the
+       *  player's — so the wait is for the image to have laid out. */
+      async function resizeScreenshotPane(
+        el: Browser,
+        width: number,
+        height: number
+      ): Promise<HTMLImageElement> {
+        const host = el.parentElement
+        if (!host) {
+          throw new Error('the mounted player has no pane to size')
+        }
+        host.style.width = `${width}px`
+        host.style.height = `${height}px`
+        const img = shadow<HTMLImageElement>(el, SCREENSHOT)
+        if (!img) {
+          throw new Error('the player rendered no screenshot')
+        }
+        await waitUntil(
+          () => img.complete && img.getBoundingClientRect().height > 0,
+          'the capture to be laid out in the pane'
+        )
+        return img
+      }
+
+      /** The pane the capture is fitted into, and the box that clips it. */
+      const clipRect = (el: Browser) =>
+        shadow(el, SCREENSHOT_PANE)!.getBoundingClientRect()
+
+      it('holds a portrait capture inside both axes of the pane', async () => {
+        const el = await mountBrowser(portraitTrace)
+        await settle(el)
+
+        const img = await resizeScreenshotPane(
+          el,
+          ...paneFor(el, { w: 400, h: 200 })
+        )
+
+        // Read against the pane rather than the numbers above, which the
+        // player's own chrome and padding eat into. On the width alone this
+        // 120x260 capture took the full pane width and more than four times its
+        // height, and everything past the fold was cut off.
+        const pane = clipRect(el)
+        const box = img.getBoundingClientRect()
+        expect(box.height).toBeLessThanOrEqual(pane.height + 1)
+        expect(box.width).toBeLessThanOrEqual(pane.width + 1)
+        expect(box.height).toBeCloseTo(pane.height, 0)
+        // The painted rect has no DOM box of its own to measure; `contain` is
+        // what letterboxes the capture inside the box asserted above, at its own
+        // shape, rather than cropping it to fill.
+        expect(getComputedStyle(img).objectFit).toBe('contain')
+      })
+
+      it('holds a capture wider than the pane inside it too', async () => {
+        const el = await mountBrowser(landscapeTrace)
+        await settle(el)
+
+        // The axis the old rule did bound: a fit that swapped to the height
+        // alone draws this 320x200 capture 640px wide in a 400px pane.
+        const img = await resizeScreenshotPane(
+          el,
+          ...paneFor(el, { w: 400, h: 400 })
+        )
+
+        const pane = clipRect(el)
+        const box = img.getBoundingClientRect()
+        expect(box.width).toBeLessThanOrEqual(pane.width + 1)
+        expect(box.height).toBeLessThanOrEqual(pane.height + 1)
+        expect(box.width).toBeCloseTo(pane.width, 0)
+      })
     })
   })
 
