@@ -1607,6 +1607,31 @@ describe('wdio-devtools-browser', () => {
           expect(section.style.height).toBe('100%')
         })
 
+        it('re-fits when its box changes with no event announcing it', async () => {
+          // The dock divider, the sidebar collapsing and browser zoom all move
+          // this box and fire neither `resize` nor `window-drag`. Nothing is
+          // dispatched here on purpose: a ResizeObserver on its own box is what
+          // makes those cases work.
+          const el = await framed()
+          await settle(el)
+          const section = shadow(el, 'section')!
+          await resizeScreenshotPane(el, ...paneFor(el, { w: 400, h: 300 }))
+          await waitUntil(
+            () => section.style.height !== '',
+            'the frame to be sized to the capture'
+          )
+          const before = section.getBoundingClientRect().height
+
+          const host = el.parentElement!
+          host.style.height = `${parseFloat(host.style.height) + 200}px`
+          await waitUntil(
+            () => section.getBoundingClientRect().height !== before,
+            'the frame to follow its own box'
+          )
+
+          expect(section.getBoundingClientRect().height).toBeGreaterThan(before)
+        })
+
         it('keeps the browser frame for a device session that has a url', async () => {
           // A mobile browser — Appium driving Chrome on Android — reports a
           // device too, and its url arrives before any DOM batch.

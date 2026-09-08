@@ -16,6 +16,15 @@ export const snapshotStyles = css`
     background: ${unsafeCSS(BROWSER_BACKDROP_GRADIENT)};
   }
 
+  /* A device frame owns its column, which already provides the backdrop and the
+     gap, so the host's own 1.25rem is 40px of height and width spent on
+     nothing. It is spent OUTSIDE the box deviceFrameSize measures, so the frame
+     came out 40px short on each axis — and because a portrait frame's width
+     follows its height, the lost height cost width a second time. */
+  :host([device-frame]) {
+    padding: 0.25rem !important;
+  }
+
   section {
     box-sizing: border-box;
     width: calc(100% - 0px); /* host padding already applied */

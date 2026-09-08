@@ -17,6 +17,7 @@ import { ContextProvider, type Context } from '@lit/context'
 import type {
   CommandLog,
   ConsoleLog,
+  Metadata,
   NetworkRequest,
   PreservedAttempt,
   PreservedStep
@@ -256,6 +257,8 @@ export function failingSuites(
 }
 
 export interface WorkbenchContexts {
+  /** Session metadata — `device` is what selects the device layout. */
+  metadata?: Metadata
   commands?: CommandLog[]
   consoleLogs?: ConsoleLog[]
   networkRequests?: NetworkRequest[]
@@ -272,6 +275,10 @@ export interface WorkbenchHarness {
   sidebar: DevtoolsTabs
   /** Republish `baselineContext` the way DataManager does on a
    *  `baseline:saved` / `baseline:cleared` broadcast: always a fresh Map. */
+  /** Republish `metadataContext` the way DataManager does when a session's
+   *  metadata arrives — which is AFTER the workbench has built its
+   *  controllers, so anything derived from it starts from a fallback. */
+  publishMetadata(next: Metadata | undefined): Promise<void>
   publishBaselines(next: Map<string, PreservedAttempt>): Promise<void>
   /** Republish `selectedTestUidContext` through the one setter DataManager
    *  exposes for it (`setSelectedTestUid`); `undefined` deselects. */
@@ -408,7 +415,7 @@ export function mountWorkbench(
     [logContext, []],
     [consoleLogContext, contexts.consoleLogs ?? []],
     [networkRequestContext, contexts.networkRequests ?? []],
-    [metadataContext, undefined],
+    [metadataContext, contexts.metadata],
     [metadataBySessionContext, {}],
     [commandContext, contexts.commands ?? []],
     [sourceContext, undefined],
@@ -472,6 +479,10 @@ async function finishMount(
     dock,
     sidebar,
     settleTabs,
+    publishMetadata: async (next) => {
+      providers.get(metadataContext)?.setValue(next)
+      await settleTabs()
+    },
     publishBaselines: async (next) => {
       providers.get(baselineContext)?.setValue(next)
       await settleTabs()

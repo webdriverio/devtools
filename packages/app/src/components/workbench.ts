@@ -1,5 +1,5 @@
 import { Element } from '@core/element'
-import { html, css, nothing } from 'lit'
+import { html, css, nothing, type PropertyValues } from 'lit'
 import { customElement, property, query, state } from 'lit/decorators.js'
 import { consume } from '@lit/context'
 
@@ -45,8 +45,11 @@ import './browser/trace-player-controls.js'
 import {
   BROWSER_BACKDROP_GRADIENT,
   HEADER_HEIGHT,
-  MIN_WORKBENCH_HEIGHT,
+  minWorkbenchHeight,
   MIN_METATAB_WIDTH,
+  DEVICE_PANE_MIN_WIDTH,
+  DEVICE_PANE_CHROME_ALLOWANCE,
+  DEVICE_PANE_MAX_WIDTH_RATIO,
   ACTIONS_DEFAULT_WIDTH,
   BROWSER_HEIGHT_RATIO,
   PLAYER_CONTROLS_HEIGHT,
@@ -119,14 +122,23 @@ export class DevtoolsWorkbench extends Element {
         background-color: var(--vscode-editor-background);
         position: relative;
       }
+
+      /* The dock must not be sized by its own content. As a flex row item its
+         floor is min-content unless this is set, so switching to a wide tab
+         (the Network table) grew it and shoved the device column sideways —
+         only the drag handle may move that boundary. Scoped here rather than as
+         a utility class so it holds wherever the shadow root is styled from. */
+      section[data-device-row] > wdio-devtools-tabs {
+        min-width: 0;
+      }
     `
   ]
 
   #dragVertical = new DragController(this, {
     localStorageKey: 'toolbarHeight',
-    minPosition: MIN_WORKBENCH_HEIGHT,
-    maxPosition: window.innerHeight * 0.7,
-    initialPosition: window.innerHeight * BROWSER_HEIGHT_RATIO,
+    minPosition: minWorkbenchHeight,
+    maxPosition: () => window.innerHeight * 0.7,
+    initialPosition: () => window.innerHeight * BROWSER_HEIGHT_RATIO,
     getContainerEl: () => this.#getVerticalWindow(),
     direction: Direction.vertical
   })
@@ -157,18 +169,115 @@ export class DevtoolsWorkbench extends Element {
   // The live max bound keeps the handle (and pane) inside the current budget.
   #dragVerticalPlayer = new DragController(this, {
     localStorageKey: 'playerPaneHeight',
-    minPosition: MIN_WORKBENCH_HEIGHT,
+    minPosition: minWorkbenchHeight,
     maxPosition: () => this.#playerPaneBudget(),
-    initialPosition: Math.max(
-      MIN_WORKBENCH_HEIGHT,
-      window.innerHeight -
-        HEADER_HEIGHT -
-        PLAYER_CONTROLS_HEIGHT -
-        TRACE_TIMELINE_DEFAULT_HEIGHT -
-        PLAYER_DOCK_DEFAULT_HEIGHT
-    ),
+    initialPosition: () =>
+      Math.max(
+        minWorkbenchHeight(),
+        window.innerHeight -
+          HEADER_HEIGHT -
+          PLAYER_CONTROLS_HEIGHT -
+          TRACE_TIMELINE_DEFAULT_HEIGHT -
+          PLAYER_DOCK_DEFAULT_HEIGHT
+      ),
     getContainerEl: () => this.#getVerticalWindow(),
     direction: Direction.vertical
+  })
+
+  /**
+   * A capture off a device gets a column of its own down the right-hand side,
+   * with the dock beside it rather than under it. A portrait frame in a wide
+   * row is a narrow strip with the rest backdrop; the full column height is
+   * the largest such frame the window can hold.
+   *
+   * Keyed on the trace stating a device, in live and player mode alike. A
+   * DESKTOP capture keeps the stacked layout — this is not a better layout in
+   * general, only for a capture that is taller than it is wide.
+   *
+   * Deliberately a wider gate than the device CHROME uses (which also requires
+   * no DOM and no url): a mobile browser session is still a portrait viewport
+   * that wants the tall column, it just keeps its address bar inside it.
+   */
+  get #deviceLayout(): boolean {
+    if (!this.metadata?.device) {
+      return false
+    }
+    // A landscape capture — a device rotated mid-run, or an app that only runs
+    // that way — is served better by the stacked layout, exactly as a desktop
+    // one is: a wide frame in a tall column wastes the column and would claim
+    // up to 60% of the window from the dock. An UNKNOWN shape is treated as
+    // portrait, which is what a device reports unless it was rotated, and is
+    // also all a zip recorded before the viewport was captured can offer.
+    const viewport = this.metadata.viewport
+    const landscape = Boolean(
+      viewport?.width && viewport?.height && viewport.width > viewport.height
+    )
+    return !landscape
+  }
+
+  /**
+   * Height the device column has to work with: what the fixed rows leave of the
+   * window. Deliberately computed, not measured — measuring the row fed this
+   * its own half-laid-out result (40px on the first pass, 68 on the next),
+   * because the row is not final at the moment its child's width is decided.
+   * The arithmetic is exact whenever the workbench fills the window, which is
+   * every case but an embedded panel.
+   */
+  #deviceColumnHeight(): number {
+    return Math.max(
+      minWorkbenchHeight(),
+      window.innerHeight -
+        HEADER_HEIGHT -
+        (this.playerMode
+          ? PLAYER_CONTROLS_HEIGHT + this.#timelinePaneHeight()
+          : 0)
+    )
+  }
+
+  /**
+   * The width at which the capture fills the column's height — the column's own
+   * height times the capture's shape. It is both the default AND the maximum,
+   * because a portrait capture is bound by height: past this the frame stops
+   * growing and the column only gains backdrop while taking room from the dock.
+   * So the drag range runs from `DEVICE_PANE_MIN_WIDTH` up to "fills the
+   * height", and dragging can only trade the capture's size for the dock's.
+   *
+   * The shape comes from the reported viewport, the only one the workbench has;
+   * the player then fits the image to its own decoded pixels inside this box,
+   * so a viewport that disagrees with the screenshot costs a little backdrop
+   * here and nothing in correctness.
+   */
+  #deviceFillWidth(): number {
+    const viewport = this.metadata?.viewport
+    const ratio =
+      viewport?.width && viewport?.height
+        ? viewport.width / viewport.height
+        : 0.5
+    return Math.min(
+      Math.max(
+        DEVICE_PANE_MIN_WIDTH,
+        this.#deviceColumnHeight() * ratio + DEVICE_PANE_CHROME_ALLOWANCE
+      ),
+      Math.max(
+        DEVICE_PANE_MIN_WIDTH,
+        window.innerWidth * DEVICE_PANE_MAX_WIDTH_RATIO
+      )
+    )
+  }
+
+  // Width of the device column; own key so it never disturbs the other splits.
+  #dragDevice = new DragController(this, {
+    localStorageKey: 'devicePaneWidth',
+    minPosition: DEVICE_PANE_MIN_WIDTH,
+    // Capped at the useful width, not at a share of the window: beyond
+    // "fills the height" the drag buys backdrop and costs the dock.
+    maxPosition: () => this.#deviceFillWidth(),
+    initialPosition: () => this.#deviceFillWidth(),
+    getContainerEl: () => this.#getVerticalWindow(),
+    direction: Direction.horizontal,
+    // The pane is on the right, so its handle sits on its inner edge and
+    // dragging left widens it.
+    anchor: 'end'
   })
 
   // Player snapshot keeps the recorded viewport's shape, slightly narrowed.
@@ -183,7 +292,7 @@ export class DevtoolsWorkbench extends Element {
   // Space left for the snapshot pane once the fixed rows and dock minimum eat theirs.
   #playerPaneBudget(): number {
     return Math.max(
-      MIN_WORKBENCH_HEIGHT,
+      minWorkbenchHeight(),
       window.innerHeight -
         HEADER_HEIGHT -
         PLAYER_CONTROLS_HEIGHT -
@@ -243,13 +352,13 @@ export class DevtoolsWorkbench extends Element {
       const maxHeight = `calc(100vh - ${
         HEADER_HEIGHT + PLAYER_CONTROLS_HEIGHT + PLAYER_DOCK_MIN_HEIGHT
       }px - ${this.#timelinePaneHeight()}px)`
-      return `flex-grow:0; flex-shrink:0; ${this.#dragVerticalPlayer.getPosition()}; max-height:${maxHeight}; min-height:${MIN_WORKBENCH_HEIGHT}px;`
+      return `flex-grow:0; flex-shrink:0; ${this.#dragVerticalPlayer.getPosition()}; max-height:${maxHeight}; min-height:${minWorkbenchHeight()}px;`
     }
     const raw =
       basisPx(this.#dragVertical.getPosition()) ??
       window.innerHeight * BROWSER_HEIGHT_RATIO
     const capped = Math.min(raw, window.innerHeight * 0.7)
-    const paneHeight = Math.max(MIN_WORKBENCH_HEIGHT, capped)
+    const paneHeight = Math.max(minWorkbenchHeight(), capped)
     return `flex:0 0 ${paneHeight}px; height:${paneHeight}px; max-height:70vh; min-height:0;`
   }
 
@@ -417,19 +526,30 @@ export class DevtoolsWorkbench extends Element {
     `
   }
 
-  #renderBrowserPane() {
+  /**
+   * `fill` is the device column: the capture takes the whole box. No height
+   * from the vertical split — that split does not exist in this layout — and no
+   * aspect-locked wrapper either, because the column's own width already is the
+   * capture's shape and the player fits the image to its decoded pixels inside
+   * whatever box it gets. Locking the aspect again here letterboxed the frame
+   * inside a column that was already its shape.
+   */
+  #renderBrowserPane(fill = false) {
     // Player: the boxed host goes transparent and the pane carries the shared
     // backdrop, so the aspect box blends instead of showing a gradient seam.
     const playerPaneExtra = this.playerMode
       ? ` background:${BROWSER_BACKDROP_GRADIENT};`
       : ''
+    const paneStyle = fill
+      ? `flex:1 1 auto; min-height:0; min-width:0;${playerPaneExtra}`
+      : `${this.#computeBrowserPaneStyle()}${playerPaneExtra}`
     return html`
       <section
         class="basis-auto text-gray-500 flex items-center justify-center flex-1 min-h-0"
-        style="${this.#computeBrowserPaneStyle()}${playerPaneExtra}"
+        style="${paneStyle}"
       >
         ${
-          this.playerMode
+          this.playerMode && !fill
             ? html`<div
                 class="h-full max-w-full mx-auto"
                 style="aspect-ratio:${this.#playerAspectRatio()};"
@@ -438,8 +558,81 @@ export class DevtoolsWorkbench extends Element {
                   style="background:transparent"
                 ></wdio-devtools-browser>
               </div>`
-            : html`<wdio-devtools-browser></wdio-devtools-browser>`
+            : html`<wdio-devtools-browser
+                style="${this.playerMode ? 'background:transparent' : ''}"
+              ></wdio-devtools-browser>`
         }
+      </section>
+    `
+  }
+
+  /** Today's layout: the capture over the dock, split by a vertical handle. */
+  /**
+   * Both the device column's default AND its maximum are derived from the
+   * capture's shape, and the controller resolves them during field
+   * initialization — before the consumed metadata context has delivered any.
+   * Re-resolve when that input changes: a default has to be recomputed, and a
+   * width the user chose has to be re-clamped, or a column sized for one
+   * capture outlives it. Guarded on the property, so not a per-render pass.
+   */
+  protected updated(changed: PropertyValues<this>): void {
+    if (
+      changed.has('metadata') &&
+      this.#deviceLayout &&
+      this.#dragDevice.refreshBounds()
+    ) {
+      this.requestUpdate()
+    }
+  }
+
+  #renderStackedSplit() {
+    return html`
+      <section
+        class="relative flex flex-col flex-1 min-w-0 min-h-0 overflow-hidden"
+      >
+        ${this.#renderBrowserPane()}
+        ${
+          !this.#toolbarCollapsed
+            ? (this.playerMode
+                ? this.#dragVerticalPlayer
+                : this.#dragVertical
+              ).getSlider('z-[999] pointer-events-auto')
+            : nothing
+        }
+        ${this.#renderWorkbenchTabs()}
+      </section>
+    `
+  }
+
+  /**
+   * Device layout: the dock takes the room the capture does not need, and the
+   * capture takes a column of its own on the right — full height, so a portrait
+   * frame is as large as the window allows instead of a strip in a wide row.
+   *
+   * The capture keeps its own fitting inside that column: it shapes itself to
+   * its decoded pixels and re-fits through its ResizeObserver, so dragging this
+   * handle needs to tell it nothing.
+   */
+  #renderDeviceSplit() {
+    const width = basisPx(this.#dragDevice.getPosition())
+    return html`
+      <section
+        data-device-row
+        class="relative flex flex-row flex-1 min-w-0 min-h-0 overflow-hidden"
+      >
+        ${this.#renderWorkbenchTabs()}
+        ${
+          !this.#toolbarCollapsed
+            ? this.#dragDevice.getSlider('z-[999] pointer-events-auto')
+            : nothing
+        }
+        <section
+          data-device-pane
+          class="relative flex flex-col min-w-0 min-h-0 overflow-hidden"
+          style="${this.#dragDevice.getPosition()}; flex:0 1 auto; width:${width}px; max-width:100%;"
+        >
+          ${this.#renderBrowserPane(true)}
+        </section>
       </section>
     `
   }
@@ -489,20 +682,11 @@ export class DevtoolsWorkbench extends Element {
                 ></wdio-devtools-trace-player-controls>`
               : nothing
           }
-          <section
-            class="relative flex flex-col flex-1 min-w-0 min-h-0 overflow-hidden"
-          >
-            ${this.#renderBrowserPane()}
-            ${
-              !this.#toolbarCollapsed
-                ? (this.playerMode
-                    ? this.#dragVerticalPlayer
-                    : this.#dragVertical
-                  ).getSlider('z-[999] pointer-events-auto')
-                : nothing
-            }
-            ${this.#renderWorkbenchTabs()}
-          </section>
+          ${
+            this.#deviceLayout
+              ? this.#renderDeviceSplit()
+              : this.#renderStackedSplit()
+          }
         </section>
       </section>
     `

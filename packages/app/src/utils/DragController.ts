@@ -18,7 +18,17 @@ type AsyncGetElFn = () => Element | Promise<Element | null>
 type Bound = number | (() => number)
 
 interface DragControllerOptions {
-  initialPosition: number
+  /** Accepts a getter, like the bounds: a window-derived default resolved once
+   *  at construction never follows the window it was derived from. */
+  initialPosition: Bound
+  /**
+   * Which edge the pane is measured from. `start` (the default) is a pane on
+   * the left or top, whose size grows as the handle moves away from that edge.
+   * `end` is a pane on the right or bottom: its handle sits on its inner edge,
+   * so the position is an offset from the far side and dragging TOWARDS the
+   * start makes it bigger.
+   */
+  anchor?: 'start' | 'end'
   direction: Direction
   localStorageKey?: string
   minPosition?: Bound
@@ -53,6 +63,9 @@ export class DragController implements ReactiveController {
 
   #state: State = 'idle'
   #pointerTracker: PointerTracker | null = null
+  /** Whether the current position is the user's own — restored from storage or
+   *  dragged — rather than derived from the window. */
+  #userChosen = false
 
   constructor(host: DragControllerHost, options: DragControllerOptions) {
     this.#host = host
@@ -80,8 +93,6 @@ export class DragController implements ReactiveController {
           return
         }
 
-        window.onresize = () => this.#adjustPosition()
-
         // TODO Add typeguard to check if HTMLElement
         this.#draggableEl = draggableEl as HTMLElement
         this.#containerEl = containerEl as HTMLElement
@@ -94,8 +105,36 @@ export class DragController implements ReactiveController {
         ? parseInt(localStorage.getItem(this.#localStorageKey)!, 10)
         : undefined
       : undefined
-    const initialPosition = storageValue || this.#options.initialPosition
+    // A stored height is the user's own choice and keeps winning; only a
+    // derived default follows the window.
+    this.#userChosen =
+      storageValue !== undefined && Number.isFinite(storageValue)
+    const initialPosition = this.#userChosen
+      ? storageValue!
+      : (resolveBound(this.#options.initialPosition) ?? 0)
     this.#setPosition(initialPosition, initialPosition)
+  }
+
+  /**
+   * Own listener, not `window.onresize`: that is a single slot, so with five
+   * controllers on the page only the last one constructed ever ran — which is
+   * why nothing re-fitted on resize.
+   *
+   * Registered per CONNECT, not once in the constructor: Lit detaches and
+   * reattaches a host without rebuilding its controllers, and a listener
+   * removed on disconnect and never restored leaves that pane deaf to resizes
+   * for the rest of the page's life. `addEventListener` with the same
+   * reference is idempotent, so reconnecting twice cannot double-subscribe.
+   */
+  hostConnected(): void {
+    window.addEventListener('resize', this.#onWindowResize)
+  }
+
+  /** Follow the window — the same re-resolution a changed input triggers. */
+  #onWindowResize = () => {
+    this.refreshBounds()
+    this.#host.requestUpdate()
+    void this.#adjustPosition()
   }
 
   async #getDraggableEl() {
@@ -166,6 +205,36 @@ export class DragController implements ReactiveController {
     this.#adjustPosition()
   }
 
+  /**
+   * Re-resolve this pane against its inputs as they are NOW, and report whether
+   * it moved.
+   *
+   * A derived default is recomputed outright: its inputs are not all present
+   * when a controller is constructed — a workbench builds its controllers
+   * during field initialization, before the consumed metadata context has
+   * delivered anything — so a default derived from a capture's shape starts
+   * from a fallback.
+   *
+   * A position the USER chose is re-clamped rather than left alone, because the
+   * bounds are derived too. A width chosen for one capture's shape can exceed
+   * what the next one allows, and without this it kept an obsolete oversized
+   * column, taking room from its neighbour until something resized the window.
+   *
+   * Call this when an INPUT changes, never on every render: the derivation must
+   * not be fed a box that is still settling, which is how an earlier attempt at
+   * this produced a 40px column.
+   */
+  refreshBounds(): boolean {
+    const before = this.#getPosition()
+    if (this.#userChosen) {
+      this.#setPosition(this.#x, this.#y)
+    } else {
+      const derived = resolveBound(this.#options.initialPosition) ?? 0
+      this.#setPosition(derived, derived)
+    }
+    return this.#getPosition() !== before
+  }
+
   hostUpdated() {
     this.#maybeReinit()
   }
@@ -174,6 +243,7 @@ export class DragController implements ReactiveController {
     if (this.#pointerTracker) {
       this.#pointerTracker.stop()
     }
+    window.removeEventListener('resize', this.#onWindowResize)
   }
 
   #handleWindowMove(pointer: Pointer) {
@@ -197,7 +267,10 @@ export class DragController implements ReactiveController {
       const xDelta = cursorPositionX - this.#cursorPositionX
       const yDelta = cursorPositionY - this.#cursorPositionY
 
-      this.#setPosition(oldX + xDelta, oldY + yDelta)
+      const sign = this.#options.anchor === 'end' ? -1 : 1
+      this.#setPosition(oldX + sign * xDelta, oldY + sign * yDelta)
+      // From here on this pane's height is the user's, not the window's.
+      this.#userChosen = true
 
       if (this.#localStorageKey) {
         localStorage.setItem(
@@ -256,7 +329,6 @@ export class DragController implements ReactiveController {
         const containerEl = await this.#options.getContainerEl()
         if (containerEl) {
           this.#containerEl = containerEl as HTMLElement
-          window.onresize = () => this.#adjustPosition()
         }
       }
       this.#init()
@@ -264,17 +336,28 @@ export class DragController implements ReactiveController {
   }
 
   getSlider(className = '') {
+    const fromEnd = this.#options.anchor === 'end'
     const anchor =
       this.#options.direction === Direction.horizontal
-        ? 'left'
+        ? fromEnd
+          ? 'right'
+          : 'left'
         : this.#options.direction === Direction.vertical
-          ? 'top'
+          ? fromEnd
+            ? 'bottom'
+            : 'top'
           : ''
+    // The edge class must match the anchor. It used to be `left-0`/`top-0`
+    // unconditionally, which an inline `left`/`top` simply overrides — but an
+    // END-anchored handle sets the OPPOSITE property, so `left:0` from the
+    // class and `right:Npx` inline both applied and, on a fixed-width absolute
+    // box, `left` wins: the handle pinned itself to the container's start edge
+    // instead of sitting on its own pane.
     className +=
       this.#options.direction === Direction.horizontal
-        ? ' cursor-col-resize left-0 h-full w-[10px]'
+        ? ` cursor-col-resize ${fromEnd ? 'right-0' : 'left-0'} h-full w-[10px]`
         : this.#options.direction === Direction.vertical
-          ? ' cursor-row-resize top-0 w-full h-[10px]'
+          ? ` cursor-row-resize ${fromEnd ? 'bottom-0' : 'top-0'} w-full h-[10px]`
           : ''
 
     return html`
