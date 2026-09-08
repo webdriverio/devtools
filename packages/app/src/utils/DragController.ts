@@ -113,9 +113,20 @@ export class DragController implements ReactiveController {
       ? storageValue!
       : (resolveBound(this.#options.initialPosition) ?? 0)
     this.#setPosition(initialPosition, initialPosition)
-    // Own listener, not `window.onresize`: that is a single slot, so with five
-    // controllers on the page only the last one constructed ever ran — which is
-    // why nothing re-fitted on resize.
+  }
+
+  /**
+   * Own listener, not `window.onresize`: that is a single slot, so with five
+   * controllers on the page only the last one constructed ever ran — which is
+   * why nothing re-fitted on resize.
+   *
+   * Registered per CONNECT, not once in the constructor: Lit detaches and
+   * reattaches a host without rebuilding its controllers, and a listener
+   * removed on disconnect and never restored leaves that pane deaf to resizes
+   * for the rest of the page's life. `addEventListener` with the same
+   * reference is idempotent, so reconnecting twice cannot double-subscribe.
+   */
+  hostConnected(): void {
     window.addEventListener('resize', this.#onWindowResize)
   }
 
@@ -201,6 +212,28 @@ export class DragController implements ReactiveController {
     })
 
     this.#adjustPosition()
+  }
+
+  /**
+   * Re-resolve a DERIVED position and report whether it moved. Its inputs are
+   * not all present when a controller is constructed — a workbench builds its
+   * controllers during field initialization, before the consumed metadata
+   * context has delivered anything, so a default derived from the capture's
+   * shape starts from a fallback ratio. A position the user chose is left
+   * alone.
+   *
+   * Call this when an INPUT changes, never on every render: the derivation must
+   * not be fed a box that is still settling, which is how an earlier attempt at
+   * this produced a 40px column.
+   */
+  refreshDerived(): boolean {
+    if (this.#userChosen) {
+      return false
+    }
+    const before = this.#getPosition()
+    const derived = resolveBound(this.#options.initialPosition) ?? 0
+    this.#setPosition(derived, derived)
+    return this.#getPosition() !== before
   }
 
   hostUpdated() {

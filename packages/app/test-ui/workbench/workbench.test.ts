@@ -812,6 +812,15 @@ describe('wdio-devtools-workbench', () => {
         { metadata: IPHONE },
         { playerMode: true }
       )
+      // Sized deliberately: the pane may not overflow its row, so in an
+      // unsized host it correctly collapses to nothing and there is no column
+      // to fill. This assertion used to pass only because the pane was rigid
+      // and overflowed a zero-width row.
+      const host = workbench.parentElement as HTMLElement
+      host.style.width = '1400px'
+      host.style.height = '900px'
+      await workbench.updateComplete
+      await new Promise((resolve) => requestAnimationFrame(resolve))
 
       const pane = paneOf(workbench)!.getBoundingClientRect()
       const capture = shadow(
@@ -896,6 +905,108 @@ describe('wdio-devtools-workbench', () => {
       expect(handle!.className).toContain('right-0')
       expect(handle!.className).not.toContain('left-0')
       expect(handle!.className).toContain('cursor-col-resize')
+    })
+
+    it('leaves a LANDSCAPE device capture in the stacked layout', async () => {
+      // A rotated device, or an app that only runs landscape. A wide frame in a
+      // tall column wastes it, and the column would claim up to 60% of the
+      // window from the dock — the same reason a desktop capture stays stacked.
+      const { workbench } = await mountWorkbench(
+        {
+          metadata: {
+            ...IPHONE,
+            viewport: {
+              width: 874,
+              height: 402,
+              offsetLeft: 0,
+              offsetTop: 0,
+              scale: 1
+            }
+          }
+        },
+        { playerMode: true }
+      )
+
+      expect(paneOf(workbench)).toBeNull()
+    })
+
+    it('treats a device that reported no viewport as portrait', async () => {
+      // Every zip recorded before the viewport was captured, and any session
+      // whose read was refused: a device is portrait unless it says otherwise.
+      const { workbench } = await mountWorkbench(
+        { metadata: { type: TraceType.Testrunner, device: IPHONE.device } },
+        { playerMode: true }
+      )
+
+      expect(paneOf(workbench)).toBeTruthy()
+    })
+
+    it('never overflows the row, however little of it is left', async () => {
+      // The pane has a 180px floor but the row is what it must fit inside. A
+      // non-shrinking pane overflowed the clipped row, collapsed the dock and
+      // put the divider out of reach.
+      const { workbench } = await mountWorkbench(
+        { metadata: IPHONE },
+        { playerMode: true }
+      )
+      const host = workbench.parentElement as HTMLElement
+      host.style.width = '260px'
+      host.style.height = '700px'
+      await workbench.updateComplete
+      await new Promise((resolve) => requestAnimationFrame(resolve))
+
+      const pane = paneOf(workbench)!.getBoundingClientRect()
+      const row = paneOf(workbench)!.parentElement!.getBoundingClientRect()
+      expect(pane.width).toBeLessThanOrEqual(row.width)
+      expect(pane.right).toBeLessThanOrEqual(row.right + 1)
+    })
+
+    it('re-derives the column when the metadata changes', async () => {
+      // The controller resolves its default during field initialization, before
+      // the consumed context has delivered anything, and a later metadata
+      // update re-renders the workbench without re-deriving the position — so
+      // the column kept a width taken from a shape it no longer has.
+      //
+      // Two portrait devices of different shapes, because the absolute widths
+      // are not predictable here: the derivation reads `window.innerHeight`,
+      // and this harness's window is unrelated to the host it mounts into.
+      const TALL = {
+        ...IPHONE,
+        viewport: {
+          width: 402,
+          height: 874,
+          offsetLeft: 0,
+          offsetTop: 0,
+          scale: 1
+        }
+      }
+      const SQUARISH = {
+        ...IPHONE,
+        viewport: {
+          width: 900,
+          height: 1000,
+          offsetLeft: 0,
+          offsetTop: 0,
+          scale: 1
+        }
+      }
+      const { workbench, publishMetadata } = await mountWorkbench(
+        { metadata: TALL },
+        { playerMode: true }
+      )
+      const host = workbench.parentElement as HTMLElement
+      host.style.width = '1400px'
+      host.style.height = '900px'
+      await workbench.updateComplete
+      const tall = paneOf(workbench)!.getBoundingClientRect().width
+
+      await publishMetadata(SQUARISH)
+      await new Promise((resolve) => requestAnimationFrame(resolve))
+
+      // A squarer device needs a wider column for the same height.
+      expect(paneOf(workbench)!.getBoundingClientRect().width).toBeGreaterThan(
+        tall
+      )
     })
 
     it('leaves the dock room and never collapses below its floor', async () => {

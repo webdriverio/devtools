@@ -22,7 +22,10 @@ const positionOf = (drag: DragController): number =>
 function fakeHost() {
   const host = {
     updates: 0,
-    addController: () => {},
+    // A real ReactiveControllerHost that is already connected calls this the
+    // moment a controller is added, which is what registers its listener.
+    addController: (controller: { hostConnected?: () => void }) =>
+      controller.hostConnected?.(),
     removeController: () => {},
     requestUpdate() {
       host.updates++
@@ -162,6 +165,89 @@ describe('minWorkbenchHeight', () => {
     // 124px, and it is also the pane's own minimum.
     setWindowHeight(413)
     expect(Math.round(minWorkbenchHeight())).toBe(124)
+  })
+})
+
+/**
+ * Lit detaches and reattaches a host without rebuilding its controllers, so a
+ * listener registered once in the constructor and removed on disconnect leaves
+ * that pane deaf to every later resize.
+ */
+describe('a host that reconnects', () => {
+  const build = (host: ReturnType<typeof fakeHost>) =>
+    new DragController(host, {
+      minPosition: 10,
+      initialPosition: () => window.innerHeight * 0.5,
+      getContainerEl: () => Promise.resolve(null),
+      direction: Direction.vertical
+    })
+
+  it('follows the window again after a detach and reattach', () => {
+    const host = fakeHost()
+    const drag = build(host)
+
+    drag.hostDisconnected()
+    drag.hostConnected()
+    setWindowHeight(1440)
+    resize()
+
+    expect(positionOf(drag)).toBe(720)
+  })
+
+  it('does not double-subscribe across repeated connects', () => {
+    const host = fakeHost()
+    const drag = build(host)
+    drag.hostConnected()
+    drag.hostConnected()
+    const before = host.updates
+
+    setWindowHeight(1000)
+    resize()
+
+    // One update per resize however many times it connected: the same listener
+    // reference cannot be added twice.
+    expect(host.updates - before).toBe(1)
+  })
+})
+
+/**
+ * A controller's derived default is resolved during construction, and a host
+ * that builds its controllers as field initializers has not yet received any
+ * consumed context — so the inputs of the derivation can arrive later.
+ */
+describe('a derived default whose inputs arrive late', () => {
+  it('re-derives when told an input changed', () => {
+    let ratio = 0.5
+    const drag = new DragController(fakeHost(), {
+      minPosition: 10,
+      initialPosition: () => 1000 * ratio,
+      getContainerEl: () => Promise.resolve(null),
+      direction: Direction.horizontal
+    })
+    expect(positionOf(drag)).toBe(500)
+
+    ratio = 0.46
+    expect(drag.refreshDerived()).toBe(true)
+    expect(positionOf(drag)).toBe(460)
+    // Idempotent: nothing moved the second time, so a caller can guard a
+    // re-render on the return value.
+    expect(drag.refreshDerived()).toBe(false)
+  })
+
+  it('leaves a chosen position alone', () => {
+    localStorage.setItem('testPaneHeight', '300')
+    let ratio = 0.5
+    const drag = new DragController(fakeHost(), {
+      localStorageKey: 'testPaneHeight',
+      minPosition: 10,
+      initialPosition: () => 1000 * ratio,
+      getContainerEl: () => Promise.resolve(null),
+      direction: Direction.horizontal
+    })
+
+    ratio = 0.46
+    expect(drag.refreshDerived()).toBe(false)
+    expect(positionOf(drag)).toBe(300)
   })
 })
 

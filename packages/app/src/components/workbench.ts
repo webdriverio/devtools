@@ -1,5 +1,5 @@
 import { Element } from '@core/element'
-import { html, css, nothing } from 'lit'
+import { html, css, nothing, type PropertyValues } from 'lit'
 import { customElement, property, query, state } from 'lit/decorators.js'
 import { consume } from '@lit/context'
 
@@ -199,7 +199,20 @@ export class DevtoolsWorkbench extends Element {
    * that wants the tall column, it just keeps its address bar inside it.
    */
   get #deviceLayout(): boolean {
-    return Boolean(this.metadata?.device)
+    if (!this.metadata?.device) {
+      return false
+    }
+    // A landscape capture — a device rotated mid-run, or an app that only runs
+    // that way — is served better by the stacked layout, exactly as a desktop
+    // one is: a wide frame in a tall column wastes the column and would claim
+    // up to 60% of the window from the dock. An UNKNOWN shape is treated as
+    // portrait, which is what a device reports unless it was rotated, and is
+    // also all a zip recorded before the viewport was captured can offer.
+    const viewport = this.metadata.viewport
+    const landscape = Boolean(
+      viewport?.width && viewport?.height && viewport.width > viewport.height
+    )
+    return !landscape
   }
 
   /**
@@ -554,6 +567,22 @@ export class DevtoolsWorkbench extends Element {
   }
 
   /** Today's layout: the capture over the dock, split by a vertical handle. */
+  /**
+   * The device column's default is derived from the capture's shape, and the
+   * controller resolves it during field initialization — before the consumed
+   * metadata context has delivered any. Re-derive when that input arrives or
+   * changes; guarded on the property, so this is not a per-render recompute.
+   */
+  protected updated(changed: PropertyValues<this>): void {
+    if (
+      changed.has('metadata') &&
+      this.#deviceLayout &&
+      this.#dragDevice.refreshDerived()
+    ) {
+      this.requestUpdate()
+    }
+  }
+
   #renderStackedSplit() {
     return html`
       <section
@@ -597,8 +626,8 @@ export class DevtoolsWorkbench extends Element {
         }
         <section
           data-device-pane
-          class="relative flex flex-col flex-none min-w-0 min-h-0 overflow-hidden"
-          style="${this.#dragDevice.getPosition()}; flex:0 0 ${width}px;"
+          class="relative flex flex-col min-w-0 min-h-0 overflow-hidden"
+          style="${this.#dragDevice.getPosition()}; flex:0 1 auto; width:${width}px; max-width:100%;"
         >
           ${this.#renderBrowserPane(true)}
         </section>
