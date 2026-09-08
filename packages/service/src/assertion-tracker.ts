@@ -12,7 +12,7 @@ import {
   type ExpectAssertion
 } from './assert-capture.js'
 import { pushActionSnapshotAt } from './action-snapshot.js'
-import { isNativeMobile } from './mobile.js'
+import { isAppiumSession } from './mobile.js'
 import type { SessionCapturer } from './session.js'
 import type { ServiceOptions } from './types.js'
 
@@ -119,7 +119,7 @@ export class AssertionTracker {
     // No matcher read to fold into (a value matcher like toBe(x), or the read
     // hard-threw): emit a fresh row with its own screenshot + trace snapshot.
     const browser = this.#ctx.getBrowser()
-    if (browser && !isNativeMobile(browser)) {
+    if (browser && !isAppiumSession(browser)) {
       try {
         entry.screenshot = await browser.takeScreenshot()
       } catch (err) {

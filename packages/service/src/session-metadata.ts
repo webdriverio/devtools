@@ -11,7 +11,7 @@ import {
 } from '@wdio/devtools-shared'
 import type { Capabilities } from '@wdio/types'
 
-import { isNativeMobile } from './mobile.js'
+import { isNativeAppSession } from './mobile.js'
 
 const log = logger('@wdio/devtools-service')
 
@@ -21,15 +21,18 @@ const log = logger('@wdio/devtools-service')
  * — measured at 1080x2219 on a Pixel 7, which is the window minus the
  * navigation bar.
  *
- * Metadata only, in both cases: neither number matches the screenshot's own
+ * Metadata only for a native app: neither number matches the screenshot's own
  * pixels (that Pixel 7 shot is 1080x2400, and iOS reports points rather than
- * pixels), so anything sizing a captured image measures the image instead.
+ * pixels), so anything sizing a captured image measures the image instead. It
+ * is load-bearing wherever there IS a DOM to replay — the player sizes the
+ * replay iframe from it — so a mobile BROWSER session must reach the page read
+ * below, which alone carries the real scale and offsets.
  */
 async function resolveViewport(
   browser: WebdriverIO.Browser
 ): Promise<Viewport | undefined> {
   try {
-    if (isNativeMobile(browser)) {
+    if (isNativeAppSession(browser)) {
       const size = await browser.getWindowSize()
       return size
         ? {

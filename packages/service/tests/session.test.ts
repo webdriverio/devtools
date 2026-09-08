@@ -975,3 +975,140 @@ describe('SessionCapturer', () => {
     })
   })
 })
+
+/**
+ * A native app has no document to drain: the collector probe, the recovery
+ * injection and the url read are all page-side, so each is a round trip to the
+ * device that can only fail. Measured on a Pixel 7 before this guard: 5 failed
+ * round trips per run, each printing `Method is not implemented` at ERROR.
+ *
+ * Guarded inside `captureTrace` because two of its four call sites asked and
+ * two did not — the assumption lives here, so the guard does too.
+ */
+describe('captureTrace on a native session', () => {
+  /** A driver that answers nothing: any page-side call is a failure here. No
+   *  `browserName`, which is what makes it an APP session. */
+  const nativeBrowser = () =>
+    ({
+      isMobile: true,
+      isAndroid: true,
+      capabilities: {
+        platformName: 'Android',
+        'appium:automationName': 'UiAutomator2',
+        'appium:app': '/app.apk'
+      },
+      execute: vi
+        .fn()
+        .mockRejectedValue(new Error('Method is not implemented')),
+      getUrl: vi.fn().mockRejectedValue(new Error('Method is not implemented')),
+      takeScreenshot: vi.fn().mockResolvedValue('screenshot')
+    }) as never
+
+  /** Appium driving Chrome on a device: mobile, but with a real page. WDIO's
+   *  own `isMobile` is FALSE for these capabilities while `isAndroid` is true,
+   *  which is how the broader predicate came to claim them. */
+  const mobileWebBrowser = () =>
+    ({
+      isMobile: false,
+      isAndroid: true,
+      capabilities: {
+        platformName: 'Android',
+        browserName: 'Chrome',
+        'appium:automationName': 'Chrome'
+      },
+      execute: vi.fn().mockResolvedValue(null),
+      getUrl: vi.fn().mockResolvedValue('https://example.com'),
+      takeScreenshot: vi.fn().mockResolvedValue('screenshot')
+    }) as never
+
+  const webBrowser = () =>
+    ({
+      execute: vi.fn().mockResolvedValue(null),
+      getUrl: vi.fn().mockResolvedValue('https://example.com'),
+      takeScreenshot: vi.fn().mockResolvedValue('screenshot')
+    }) as never
+
+  it('makes no round trip at all', async () => {
+    const browser = nativeBrowser()
+    const capturer = new SessionCapturer()
+
+    await capturer.captureTrace(browser)
+
+    expect(
+      (browser as unknown as { execute: ReturnType<typeof vi.fn> }).execute
+    ).not.toHaveBeenCalled()
+    expect(
+      (browser as unknown as { getUrl: ReturnType<typeof vi.fn> }).getUrl
+    ).not.toHaveBeenCalled()
+  })
+
+  it('makes none when a caller forces an anchor either', async () => {
+    // The teardown drain passes forceAnchor, and was one of the unguarded two.
+    const browser = nativeBrowser()
+
+    await new SessionCapturer().captureTrace(browser, true)
+
+    expect(
+      (browser as unknown as { execute: ReturnType<typeof vi.fn> }).execute
+    ).not.toHaveBeenCalled()
+  })
+
+  it('still drains a web session', async () => {
+    const browser = webBrowser()
+
+    await new SessionCapturer().captureTrace(browser)
+
+    expect(
+      (browser as unknown as { execute: ReturnType<typeof vi.fn> }).execute
+    ).toHaveBeenCalled()
+  })
+
+  it('drains after a page transition on a mobile BROWSER session', async () => {
+    // The other half of the same gate: `afterCommand` decides whether a
+    // navigating command is followed by a drain and a performance read, both
+    // page-side. A mobile browser session navigates like any other.
+    const browser = mobileWebBrowser()
+
+    await new SessionCapturer().afterCommand(
+      browser,
+      'navigateTo',
+      ['https://example.com'],
+      undefined,
+      undefined
+    )
+
+    expect(
+      (browser as unknown as { execute: ReturnType<typeof vi.fn> }).execute
+    ).toHaveBeenCalled()
+  })
+
+  it('makes no page call after a transition on a native app', async () => {
+    const browser = nativeBrowser()
+
+    await new SessionCapturer().afterCommand(
+      browser,
+      'navigateTo',
+      ['/some/deeplink'],
+      undefined,
+      undefined
+    )
+
+    expect(
+      (browser as unknown as { execute: ReturnType<typeof vi.fn> }).execute
+    ).not.toHaveBeenCalled()
+  })
+
+  it('still drains a mobile BROWSER session', async () => {
+    // The guard's whole reason is a missing document, and this session has one.
+    // It is also the session with the most to lose: the BiDi preload is skipped
+    // for every Appium session, so this drain's recovery injection is the only
+    // collector it ever gets — gated, it captured no DOM at all.
+    const browser = mobileWebBrowser()
+
+    await new SessionCapturer().captureTrace(browser)
+
+    expect(
+      (browser as unknown as { execute: ReturnType<typeof vi.fn> }).execute
+    ).toHaveBeenCalled()
+  })
+})

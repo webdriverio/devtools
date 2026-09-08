@@ -56,7 +56,7 @@ import {
   LOCATOR_COMMANDS,
   PAGE_TRANSITION_COMMANDS
 } from './constants.js'
-import { isNativeMobile } from './mobile.js'
+import { isAppiumSession, isNativeAppSession } from './mobile.js'
 import { resolveSessionMetadata } from './session-metadata.js'
 import { stampRunnerMetadata } from './wdio-runner-id.js'
 import { detectInvocationConfigPath } from './standalone.js'
@@ -240,7 +240,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
      * Skip on native mobile — Appium sessions don't support WebDriver BiDi
      * and the injection always fails with SevereServiceError.
      */
-    if (!isNativeMobile(browser)) {
+    if (!isAppiumSession(browser)) {
       try {
         await this.#injectScriptSync(browser)
       } catch (err) {
@@ -671,7 +671,9 @@ export default class DevToolsHookService implements Services.ServiceInstance {
   }
 
   #markDocument(): Promise<unknown> {
-    if (!this.#browser || isNativeMobile(this.#browser)) {
+    // Keyed on having a document: `waitForActionResult` reads this tag on the
+    // same condition, so the pair must not be split across the two predicates.
+    if (!this.#browser || isNativeAppSession(this.#browser)) {
       return Promise.resolve()
     }
     return this.#browser
@@ -753,9 +755,10 @@ export default class DevToolsHookService implements Services.ServiceInstance {
    *  to the commands that can actually move the page (which matters: capture
    *  traffic is what triggers the Chrome 150 headless input regression). */
   async #drainAfterLiveCommand(command: keyof WebDriverCommands) {
+    // No native check: `captureTrace` owns that now, so this only decides
+    // which COMMANDS warrant a drain.
     if (
       !this.#browser ||
-      isNativeMobile(this.#browser) ||
       PAGE_TRANSITION_COMMANDS.includes(command) ||
       LOCATOR_COMMANDS.includes(command)
     ) {
