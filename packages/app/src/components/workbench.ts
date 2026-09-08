@@ -568,16 +568,18 @@ export class DevtoolsWorkbench extends Element {
 
   /** Today's layout: the capture over the dock, split by a vertical handle. */
   /**
-   * The device column's default is derived from the capture's shape, and the
-   * controller resolves it during field initialization — before the consumed
-   * metadata context has delivered any. Re-derive when that input arrives or
-   * changes; guarded on the property, so this is not a per-render recompute.
+   * Both the device column's default AND its maximum are derived from the
+   * capture's shape, and the controller resolves them during field
+   * initialization — before the consumed metadata context has delivered any.
+   * Re-resolve when that input changes: a default has to be recomputed, and a
+   * width the user chose has to be re-clamped, or a column sized for one
+   * capture outlives it. Guarded on the property, so not a per-render pass.
    */
   protected updated(changed: PropertyValues<this>): void {
     if (
       changed.has('metadata') &&
       this.#deviceLayout &&
-      this.#dragDevice.refreshDerived()
+      this.#dragDevice.refreshBounds()
     ) {
       this.requestUpdate()
     }

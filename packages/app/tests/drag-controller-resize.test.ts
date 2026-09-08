@@ -227,26 +227,53 @@ describe('a derived default whose inputs arrive late', () => {
     expect(positionOf(drag)).toBe(500)
 
     ratio = 0.46
-    expect(drag.refreshDerived()).toBe(true)
+    expect(drag.refreshBounds()).toBe(true)
     expect(positionOf(drag)).toBe(460)
     // Idempotent: nothing moved the second time, so a caller can guard a
     // re-render on the return value.
-    expect(drag.refreshDerived()).toBe(false)
+    expect(drag.refreshBounds()).toBe(false)
   })
 
-  it('leaves a chosen position alone', () => {
+  it('keeps a chosen position that still fits', () => {
     localStorage.setItem('testPaneHeight', '300')
     let ratio = 0.5
     const drag = new DragController(fakeHost(), {
       localStorageKey: 'testPaneHeight',
       minPosition: 10,
+      maxPosition: () => 1000 * ratio,
       initialPosition: () => 1000 * ratio,
       getContainerEl: () => Promise.resolve(null),
       direction: Direction.horizontal
     })
 
     ratio = 0.46
-    expect(drag.refreshDerived()).toBe(false)
+    expect(drag.refreshBounds()).toBe(false)
+    expect(positionOf(drag)).toBe(300)
+  })
+
+  it('re-clamps a chosen position the new bounds no longer allow', () => {
+    // The BOUNDS are derived too: a width chosen for one capture's shape can
+    // exceed what the next one allows, and it kept the obsolete oversized
+    // column until something resized the window.
+    //
+    // Covered here rather than through the workbench: the device column's
+    // bounds are derived from `window.innerHeight`, and in the component
+    // harness that window is small enough that every shape's maximum collapses
+    // to the same floor — so the re-clamp has nothing to show there.
+    localStorage.setItem('testPaneHeight', '450')
+    let ratio = 0.5
+    const drag = new DragController(fakeHost(), {
+      localStorageKey: 'testPaneHeight',
+      minPosition: 10,
+      maxPosition: () => 1000 * ratio,
+      initialPosition: () => 1000 * ratio,
+      getContainerEl: () => Promise.resolve(null),
+      direction: Direction.horizontal
+    })
+    expect(positionOf(drag)).toBe(450)
+
+    ratio = 0.3
+    expect(drag.refreshBounds()).toBe(true)
     expect(positionOf(drag)).toBe(300)
   })
 })

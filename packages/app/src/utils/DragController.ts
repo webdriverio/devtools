@@ -130,18 +130,9 @@ export class DragController implements ReactiveController {
     window.addEventListener('resize', this.#onWindowResize)
   }
 
-  /**
-   * Follow the window. A derived default is recomputed outright; a height the
-   * user dragged is only re-clamped, so it survives a resize that still has
-   * room for it and is pulled back inside a window that no longer does.
-   */
+  /** Follow the window — the same re-resolution a changed input triggers. */
   #onWindowResize = () => {
-    if (this.#userChosen) {
-      this.#setPosition(this.#x, this.#y)
-    } else {
-      const derived = resolveBound(this.#options.initialPosition) ?? 0
-      this.#setPosition(derived, derived)
-    }
+    this.refreshBounds()
     this.#host.requestUpdate()
     void this.#adjustPosition()
   }
@@ -215,24 +206,32 @@ export class DragController implements ReactiveController {
   }
 
   /**
-   * Re-resolve a DERIVED position and report whether it moved. Its inputs are
-   * not all present when a controller is constructed — a workbench builds its
-   * controllers during field initialization, before the consumed metadata
-   * context has delivered anything, so a default derived from the capture's
-   * shape starts from a fallback ratio. A position the user chose is left
-   * alone.
+   * Re-resolve this pane against its inputs as they are NOW, and report whether
+   * it moved.
+   *
+   * A derived default is recomputed outright: its inputs are not all present
+   * when a controller is constructed — a workbench builds its controllers
+   * during field initialization, before the consumed metadata context has
+   * delivered anything — so a default derived from a capture's shape starts
+   * from a fallback.
+   *
+   * A position the USER chose is re-clamped rather than left alone, because the
+   * bounds are derived too. A width chosen for one capture's shape can exceed
+   * what the next one allows, and without this it kept an obsolete oversized
+   * column, taking room from its neighbour until something resized the window.
    *
    * Call this when an INPUT changes, never on every render: the derivation must
    * not be fed a box that is still settling, which is how an earlier attempt at
    * this produced a 40px column.
    */
-  refreshDerived(): boolean {
-    if (this.#userChosen) {
-      return false
-    }
+  refreshBounds(): boolean {
     const before = this.#getPosition()
-    const derived = resolveBound(this.#options.initialPosition) ?? 0
-    this.#setPosition(derived, derived)
+    if (this.#userChosen) {
+      this.#setPosition(this.#x, this.#y)
+    } else {
+      const derived = resolveBound(this.#options.initialPosition) ?? 0
+      this.#setPosition(derived, derived)
+    }
     return this.#getPosition() !== before
   }
 
