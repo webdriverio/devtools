@@ -753,9 +753,10 @@ export default class DevToolsHookService implements Services.ServiceInstance {
    *  to the commands that can actually move the page (which matters: capture
    *  traffic is what triggers the Chrome 150 headless input regression). */
   async #drainAfterLiveCommand(command: keyof WebDriverCommands) {
+    // No native check: `captureTrace` owns that now, so this only decides
+    // which COMMANDS warrant a drain.
     if (
       !this.#browser ||
-      isNativeMobile(this.#browser) ||
       PAGE_TRANSITION_COMMANDS.includes(command) ||
       LOCATOR_COMMANDS.includes(command)
     ) {

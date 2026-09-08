@@ -975,3 +975,69 @@ describe('SessionCapturer', () => {
     })
   })
 })
+
+/**
+ * A native app has no document to drain: the collector probe, the recovery
+ * injection and the url read are all page-side, so each is a round trip to the
+ * device that can only fail. Measured on a Pixel 7 before this guard: 5 failed
+ * round trips per run, each printing `Method is not implemented` at ERROR.
+ *
+ * Guarded inside `captureTrace` because two of its four call sites asked and
+ * two did not — the assumption lives here, so the guard does too.
+ */
+describe('captureTrace on a native session', () => {
+  /** A driver that answers nothing: any page-side call is a failure here, and
+   *  `isNativeMobile` narrows on these flags. */
+  const nativeBrowser = () =>
+    ({
+      isMobile: true,
+      isAndroid: true,
+      execute: vi
+        .fn()
+        .mockRejectedValue(new Error('Method is not implemented')),
+      getUrl: vi.fn().mockRejectedValue(new Error('Method is not implemented')),
+      takeScreenshot: vi.fn().mockResolvedValue('screenshot')
+    }) as never
+
+  const webBrowser = () =>
+    ({
+      execute: vi.fn().mockResolvedValue(null),
+      getUrl: vi.fn().mockResolvedValue('https://example.com'),
+      takeScreenshot: vi.fn().mockResolvedValue('screenshot')
+    }) as never
+
+  it('makes no round trip at all', async () => {
+    const browser = nativeBrowser()
+    const capturer = new SessionCapturer()
+
+    await capturer.captureTrace(browser)
+
+    expect(
+      (browser as unknown as { execute: ReturnType<typeof vi.fn> }).execute
+    ).not.toHaveBeenCalled()
+    expect(
+      (browser as unknown as { getUrl: ReturnType<typeof vi.fn> }).getUrl
+    ).not.toHaveBeenCalled()
+  })
+
+  it('makes none when a caller forces an anchor either', async () => {
+    // The teardown drain passes forceAnchor, and was one of the unguarded two.
+    const browser = nativeBrowser()
+
+    await new SessionCapturer().captureTrace(browser, true)
+
+    expect(
+      (browser as unknown as { execute: ReturnType<typeof vi.fn> }).execute
+    ).not.toHaveBeenCalled()
+  })
+
+  it('still drains a web session', async () => {
+    const browser = webBrowser()
+
+    await new SessionCapturer().captureTrace(browser)
+
+    expect(
+      (browser as unknown as { execute: ReturnType<typeof vi.fn> }).execute
+    ).toHaveBeenCalled()
+  })
+})

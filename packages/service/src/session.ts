@@ -380,6 +380,14 @@ export class SessionCapturer extends SessionCapturerBase {
    *  command, capturing the outgoing page's field edits (value/checked
    *  mutations fire no page transition) before its collector is discarded. */
   async captureTrace(browser: WebdriverIO.Browser, forceAnchor = false) {
+    // A native app has no document to drain, so every part of this — the
+    // collector probe, the recovery injection, the url read — is a round trip
+    // that can only fail. Guarded here rather than at each call site: two of
+    // the four asked and two did not, which cost 5 failed round trips per run
+    // and put `Method is not implemented` in the user's output five times.
+    if (isNativeMobile(browser)) {
+      return
+    }
     // No `#isScriptInjected` gate: that flag tracks the preload REGISTRATION,
     // and the two cases worth capturing are exactly the ones where it lies — a
     // registration that failed (guard never closed) and a document that loaded
