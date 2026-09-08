@@ -213,6 +213,13 @@ describe('wdio-devtools-trace-timeline', () => {
       const reshot = (screenshot: string) =>
         frames.map((frame) => ({ ...frame, screenshot }))
 
+      /** Base64 that decodes to bytes no size can be read from. It has to be
+       *  real base64: raw text makes the frame's `data:` url unparseable, and
+       *  Chrome logs that as a SEVERE resource error — which the runner polls
+       *  for every 500ms and fails the whole spec on, whichever test is running
+       *  by then. */
+      const SIZELESS_SHOT = btoa('not-an-image')
+
       it("takes the capture's own shape", async () => {
         const el = await laidOutStrip(reshot(PORTRAIT_SHOT))
 
@@ -237,7 +244,7 @@ describe('wdio-devtools-trace-timeline', () => {
       })
 
       it('falls back to 16:9 when the bytes name no size', async () => {
-        const el = await laidOutStrip(reshot('not-an-image'))
+        const el = await laidOutStrip(reshot(SIZELESS_SHOT))
 
         expect(shapeOf(shadowAll(el, THUMB)[0])).toBeCloseTo(16 / 9, 2)
       })
