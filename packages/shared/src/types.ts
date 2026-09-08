@@ -4,6 +4,8 @@
 // these shapes. The backend stores and forwards them. The app consumes them.
 // See ARCHITECTURE.md §2 and CLAUDE.md §2.1.
 
+import type { DeviceInfo } from './device.js'
+
 export const LOG_LEVELS = [
   'trace',
   'debug',
@@ -439,6 +441,11 @@ export interface Metadata {
    *  capture emits and the player's locator hint; undefined for a trace zip
    *  recorded before the field existed, or by a foreign tool. */
   runner?: TestRunnerId
+  /** The device this was recorded on, when the session was a native mobile one.
+   *  Read from the session's capabilities through `deviceFromCapabilities`;
+   *  undefined for a desktop capture, and for a zip recorded before the field
+   *  existed or by a foreign tool. */
+  device?: DeviceInfo
 }
 
 /** Captured metadata keyed by browser `sessionId` — lets the UI keep each
