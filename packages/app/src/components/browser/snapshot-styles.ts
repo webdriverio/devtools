@@ -63,6 +63,24 @@ export const snapshotStyles = css`
     border-radius: 0 0 14px 14px;
   }
 
+  /* Device frame: the header states what the capture came off, in place of an
+     address bar a native session could only have filled with "unknown".
+     NB: no backticks in this file — the rules live in a tagged template. */
+  .device-chrome {
+    padding: 0.45rem 0.25rem;
+    gap: 0.5rem;
+  }
+
+  .device-label {
+    flex: 1;
+    min-width: 0;
+    padding-left: 0.5rem;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: var(--vscode-descriptionForeground, #ccc);
+  }
+
   .screenshot-overlay {
     position: absolute;
     inset: 0;

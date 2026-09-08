@@ -5,6 +5,11 @@ import { consume } from '@lit/context'
 import { snapshotStyles } from './snapshot-styles.js'
 import { renderBrowserChrome } from './browser-chrome.js'
 import {
+  deviceFrameSize,
+  edgeInset,
+  renderDeviceChrome
+} from './device-frame.js'
+import {
   drawElementOverlay,
   clearElementOverlay,
   resolveTestSelector
@@ -21,7 +26,12 @@ import type { SimplifiedVNode } from '@wdio/devtools-script/types'
 // characterData wire shape (parent ref + child index), so the replay reads it
 // from the same declaration that produces it.
 import type { TextMutation } from '@wdio/devtools-script/mutations.js'
-import { imageMime, type CommandLog } from '@wdio/devtools-shared'
+import {
+  imageDimensions,
+  imageMime,
+  type CommandLog,
+  type ImageSize
+} from '@wdio/devtools-shared'
 
 import {
   mutationContext,
@@ -29,7 +39,11 @@ import {
   metadataBySessionContext,
   commandContext
 } from '../../controller/context.js'
-import type { Metadata, MetadataBySession } from '@wdio/devtools-shared'
+import type {
+  DeviceInfo,
+  Metadata,
+  MetadataBySession
+} from '@wdio/devtools-shared'
 
 import '../placeholder.js'
 import './screencast-player.js'
@@ -157,6 +171,48 @@ export class DevtoolsBrowser extends Element {
     }
   }
 
+  #captureShape?: { screenshot: string; size: ImageSize | null }
+
+  /** Shape of the capture on screen, from its own decoded pixels. Memoized on
+   *  the frame it was read from, because this is read per render and per rAF. */
+  get #captureSize(): ImageSize | null {
+    const screenshot = this.#screenshotData ?? this.#latestAutoScreenshot
+    if (!screenshot) {
+      return null
+    }
+    if (this.#captureShape?.screenshot !== screenshot) {
+      this.#captureShape = { screenshot, size: imageDimensions(screenshot) }
+    }
+    return this.#captureShape.size
+  }
+
+  /**
+   * The device a capture was recorded on, once there is an image to shape the
+   * frame around — a mobile BROWSER session (Appium driving Chrome on Android)
+   * reports a device too, and must keep the browser frame. Two conditions
+   * separate them, because either alone is decidable too late:
+   *
+   * - no DOM. That replay is an iframe laid out at its own captured viewport,
+   *   so shaping the frame to a screenshot would fight
+   *   `#sizeSnapshotToViewport` for the same box. It is the same signal
+   *   `#renderViewport` branches on, so the frame can never disagree with what
+   *   is inside it — but mutations arrive in batches, so early in a live run a
+   *   browser session has none yet.
+   * - no url ON THE METADATA. A native session never issues a navigation, so
+   *   it never reports one, while a browser session reports one from its first
+   *   navigation — which lands before any DOM batch and closes that window.
+   *   Deliberately not `#displayUrl`: that is a display concern, resolved from
+   *   the selected command and empty until one is selected.
+   */
+  get #deviceCapture(): { device: DeviceInfo; size: ImageSize } | null {
+    if (this.mutations?.length || this.metadata?.url) {
+      return null
+    }
+    const device = this.metadata?.device
+    const size = device ? this.#captureSize : null
+    return device && size ? { device, size } : null
+  }
+
   #setIframeSize() {
     if (!this.section || !this.header) {
       return
@@ -170,7 +226,60 @@ export class DevtoolsBrowser extends Element {
       this.section.style.height = '100%'
       return
     }
+    if (this.#deviceCapture) {
+      this.#sizeSectionToDevice()
+      return
+    }
     this.#sizeSnapshotToViewport()
+  }
+
+  /** Shape the frame to the device rather than to the pane. A native capture
+   *  reaches the screenshot branch, which fills whatever box it is given — so
+   *  in a landscape frame a portrait capture was a narrow strip with ~60% of
+   *  the frame backdrop, wrapped in window furniture describing nothing. */
+  #sizeSectionToDevice() {
+    requestAnimationFrame(() => {
+      const capture = this.#deviceCapture
+      // The mode can flip between scheduling and firing: `updated()` re-sizes
+      // on every view-mode change and the video branch is synchronous, so an
+      // unguarded callback lands AFTER it and pins the screencast inside a
+      // phone-shaped box until the next resize.
+      if (
+        !this.section ||
+        !this.header ||
+        !capture ||
+        this.#viewMode === 'video'
+      ) {
+        return
+      }
+      const hostStyle = getComputedStyle(this)
+      const rect = this.getBoundingClientRect()
+      const padX =
+        parseFloat(hostStyle.paddingLeft || '0') +
+        parseFloat(hostStyle.paddingRight || '0')
+      const padY =
+        parseFloat(hostStyle.paddingTop || '0') +
+        parseFloat(hostStyle.paddingBottom || '0')
+      const sectionStyle = getComputedStyle(this.section)
+      const frame = deviceFrameSize(
+        {
+          width: Math.max(0, rect.width - padX),
+          height: Math.max(0, rect.height - padY)
+        },
+        capture.size,
+        {
+          headerHeight: this.header.getBoundingClientRect().height,
+          // Padding AND border: the section is border-box, so both come out of
+          // the width and height set on it. Omitting the 2px border left the
+          // capture area 4px short per axis and letterboxed it inside a frame
+          // that was supposed to be its shape.
+          insetX: edgeInset(sectionStyle, 'Left', 'Right'),
+          insetY: edgeInset(sectionStyle, 'Top', 'Bottom')
+        }
+      )
+      this.section.style.width = `${frame.width}px`
+      this.section.style.height = `${frame.height}px`
+    })
   }
 
   #sizeSnapshotToViewport() {
@@ -940,12 +1049,19 @@ export class DevtoolsBrowser extends Element {
       <section
         class="w-full h-full bg-sideBarBackground rounded-[14px] border-2 border-panelBorder"
       >
-        ${renderBrowserChrome(
-          this.#displayUrl,
-          html`${this.#renderOverlayToggle(
-            hasMutations
-          )}${this.#renderViewToggle()}`
-        )}
+        ${
+          this.#deviceCapture
+            ? renderDeviceChrome(
+                this.#deviceCapture.device,
+                this.#renderViewToggle()
+              )
+            : renderBrowserChrome(
+                this.#displayUrl,
+                html`${this.#renderOverlayToggle(
+                  hasMutations
+                )}${this.#renderViewToggle()}`
+              )
+        }
         ${this.#renderViewport(hasMutations)}
       </section>
     `

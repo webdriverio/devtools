@@ -44,6 +44,7 @@ import {
 } from './captured-pages.js'
 import {
   CAPTURED_VIEWPORT,
+  deviceMetadata,
   domlessTrace,
   landscapeTrace,
   LOGIN_SHOT,
@@ -54,6 +55,7 @@ import {
   metadataForViewport,
   orphanTrace,
   overlayLabelTrace,
+  PORTRAIT_CAPTURE,
   portraitTrace,
   preCaptureTrace,
   RECORDING,
@@ -1517,6 +1519,117 @@ describe('wdio-devtools-browser', () => {
         // what letterboxes the capture inside the box asserted above, at its own
         // shape, rather than cropping it to fill.
         expect(getComputedStyle(img).objectFit).toBe('contain')
+      })
+
+      /**
+       * A native capture has no browser window and no url, so the desktop
+       * chrome describes nothing and a landscape frame left the phone as a
+       * narrow strip: measured on a 1170x2532 capture, the image used 162px of
+       * a 388px frame and ~60% was backdrop.
+       */
+      describe('a capture the trace says came off a device', () => {
+        const DEVICE_CHROME = 'header.device-chrome'
+        const DEVICE_LABEL = '.device-label'
+        const FRAME_DOT = '.frame-dot'
+        /** The address bar's own icon — `header .truncate` also matches the
+         *  device label, so it cannot tell the two chromes apart. */
+        const URL_AFFORDANCE = 'header icon-mdi-world, header icon-mdi-lock'
+
+        const framed = () =>
+          mountBrowser({ ...portraitTrace, metadata: deviceMetadata })
+
+        it('names the device instead of drawing window furniture', async () => {
+          const el = await framed()
+          await settle(el)
+
+          expect(text(shadow(el, DEVICE_LABEL))).toBe('iPhone 17 (ios 18.1)')
+          // The furniture that does not apply: no traffic lights, and no url
+          // affordance, which could only have read `unknown`.
+          expect(shadowAll(el, FRAME_DOT)).toHaveLength(0)
+          expect(shadowAll(el, URL_AFFORDANCE)).toHaveLength(0)
+        })
+
+        it('keeps the view toggle reachable', async () => {
+          // Losing the slot would strand the Snapshot/Screencast switch, which
+          // only appears once a recording has arrived.
+          const el = await framed()
+          recordingArrives()
+          await settle(el)
+
+          expect(texts(el, VIEW_BUTTON)).toEqual(['Snapshot', 'Screencast'])
+          expect(
+            shadow(el, DEVICE_CHROME)?.querySelector('.view-toggle')
+          ).toBeTruthy()
+        })
+
+        it('shapes the frame to the capture, not to the pane', async () => {
+          const el = await framed()
+          await settle(el)
+          await resizeScreenshotPane(el, ...paneFor(el, { w: 400, h: 300 }))
+          const section = shadow(el, 'section')!
+          await waitUntil(
+            () => section.style.width !== '',
+            'the frame to be sized to the capture'
+          )
+
+          // Measured, not derived: the wrapper's own rect IS the box the
+          // capture gets, so this holds whatever the frame spends on padding,
+          // border and header. Deriving it from padding alone missed the 2px
+          // border and let the image letterbox by 4px per axis.
+          const captureBox = shadow(
+            el,
+            '.iframe-wrapper'
+          )!.getBoundingClientRect()
+          expect(captureBox.width / captureBox.height).toBeCloseTo(
+            PORTRAIT_CAPTURE.width / PORTRAIT_CAPTURE.height,
+            2
+          )
+          // ...and the frame is the shape of that box plus its furniture, not
+          // the 400px-wide pane it used to span.
+          expect(section.getBoundingClientRect().width).toBeLessThan(300)
+        })
+
+        it('hands the screencast back its own sizing when the mode flips', async () => {
+          const el = await framed()
+          recordingArrives()
+          await settle(el)
+          const section = shadow(el, 'section')!
+
+          // Leave a device-sizing frame in flight, then switch modes before it
+          // runs: `updated()` re-sizes on every flip and the video branch is
+          // synchronous, so an unguarded callback lands after it.
+          window.dispatchEvent(new Event('resize'))
+          shadowAll<HTMLButtonElement>(el, VIEW_BUTTON)[1].click()
+          await settle(el)
+          await new Promise((resolve) => requestAnimationFrame(resolve))
+
+          expect(section.style.width).toBe('100%')
+          expect(section.style.height).toBe('100%')
+        })
+
+        it('keeps the browser frame for a device session that has a url', async () => {
+          // A mobile browser — Appium driving Chrome on Android — reports a
+          // device too, and its url arrives before any DOM batch.
+          const el = await mountBrowser({
+            ...portraitTrace,
+            metadata: { ...deviceMetadata, url: LOGIN_URL }
+          })
+          await settle(el)
+
+          expect(shadowAll(el, DEVICE_CHROME)).toHaveLength(0)
+          expect(shadowAll(el, FRAME_DOT)).toHaveLength(3)
+          // The address bar itself stays empty until a command is selected —
+          // it reads the navigation active at that command, not the metadata.
+          expect(shadowAll(el, URL_AFFORDANCE).length).toBeGreaterThan(0)
+        })
+
+        it('leaves a trace with no device in the browser frame', async () => {
+          const el = await mountBrowser(portraitTrace)
+          await settle(el)
+
+          expect(shadowAll(el, DEVICE_CHROME)).toHaveLength(0)
+          expect(shadowAll(el, FRAME_DOT)).toHaveLength(3)
+        })
       })
 
       it('holds a capture wider than the pane inside it too', async () => {

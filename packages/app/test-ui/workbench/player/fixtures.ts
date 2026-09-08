@@ -557,6 +557,17 @@ export const metadataForViewport = (
   viewport: { ...viewport, width, height }
 })
 
+/**
+ * A native mobile capture: it states its device, and its viewport is the one a
+ * device really reports — iOS in POINTS, deliberately disagreeing with the
+ * 120x260 frames, which is why the frame is shaped by the decoded image.
+ */
+export const deviceMetadata: Metadata = {
+  type: TraceType.Testrunner,
+  device: { platform: 'ios', name: 'iPhone 17', version: '18.1' },
+  viewport: { ...viewport, width: 402, height: 874 }
+}
+
 /** Metadata whose viewport never made it onto the wire — the race the player
  *  defaults for. */
 export const viewportlessMetadata: Metadata = { type: TraceType.Testrunner }
