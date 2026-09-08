@@ -165,6 +165,22 @@ export abstract class SessionCapturerBase {
     // no-op
   }
 
+  /**
+   * Store a metadata fragment AND publish the merged result. The only writer of
+   * `this.metadata`, which is what the exporter serializes into the zip's
+   * `context-options` — `sendUpstream` merely transmits, so a value resolved on
+   * the driver (a native session's viewport, capabilities and device: it has no
+   * page-side collector to report them) reached a live dashboard and was then
+   * dropped before the zip.
+   *
+   * Merging rather than replacing is what lets a producer contribute the one
+   * field it knows: a later push naming only a url cannot wipe the device.
+   */
+  mergeMetadata(partial: Partial<Metadata>): void {
+    this.metadata = { ...this.metadata, ...partial } as Metadata
+    this.sendUpstream('metadata', this.metadata)
+  }
+
   /** True once the WS has opened at least once and is currently OPEN. */
   isConnected(): boolean {
     return Boolean(this.ws) && this.ws?.readyState === WebSocket.OPEN
@@ -340,11 +356,7 @@ export abstract class SessionCapturerBase {
       // Page-side trace data is a JS bag; only fields that match Metadata
       // survive at runtime, but TS can't prove that. Cast to Partial<Metadata>
       // so the merge stays type-checked while accepting incomplete payloads.
-      this.metadata = {
-        ...this.metadata,
-        ...(metadata as Partial<Metadata>)
-      } as Metadata
-      this.sendUpstream('metadata', this.metadata)
+      this.mergeMetadata(metadata as Partial<Metadata>)
     }
 
     if (

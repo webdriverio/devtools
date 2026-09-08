@@ -47,6 +47,55 @@ describe('processTracePayload — metadata merge', () => {
   })
 })
 
+/**
+ * The exporter serializes the capturer's own `metadata`, and before this method
+ * the only writer of it was `processTracePayload` — i.e. the page-side
+ * collector. A native session has no collector, so a value resolved on the
+ * driver reached a live dashboard through `sendUpstream` and was then dropped
+ * before the zip: that is why a native capture claimed a viewport it had never
+ * measured.
+ */
+describe('mergeMetadata — the driver-side writer', () => {
+  it('stores as well as publishes', () => {
+    cap.mergeMetadata({ sessionId: 'a', url: 'first' })
+
+    expect(cap.metadata?.sessionId).toBe('a')
+    expect(cap.upstream).toEqual([
+      { scope: 'metadata', data: { sessionId: 'a', url: 'first' } }
+    ])
+  })
+
+  it('merges rather than replaces, so a partial cannot wipe a prior field', () => {
+    cap.mergeMetadata({ device: { platform: 'ios', name: 'iPhone 17' } })
+    cap.mergeMetadata({ url: 'https://example.com' })
+
+    expect(cap.metadata?.device).toEqual({
+      platform: 'ios',
+      name: 'iPhone 17'
+    })
+    expect(cap.metadata?.url).toBe('https://example.com')
+  })
+
+  it('publishes the merged bag, not the fragment it was handed', () => {
+    // The dashboard merges per session too, but sending the whole bag keeps a
+    // late-joining client from seeing only the last fragment.
+    cap.mergeMetadata({ sessionId: 'a' })
+    cap.mergeMetadata({ url: 'later' })
+
+    expect(cap.upstream.at(-1)?.data).toEqual({
+      sessionId: 'a',
+      url: 'later'
+    })
+  })
+
+  it('is the path processTracePayload takes, so both writers agree', () => {
+    cap.mergeMetadata({ sessionId: 'a' })
+    cap.process({ metadata: { url: 'from-the-page' } })
+
+    expect(cap.metadata).toEqual({ sessionId: 'a', url: 'from-the-page' })
+  })
+})
+
 describe('processTracePayload — BiDi gating (the duplicate-suppression contract)', () => {
   it('skips consoleLogs/networkRequests entirely when their skip flag is set', () => {
     cap.process(
