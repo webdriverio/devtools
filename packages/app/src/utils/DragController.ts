@@ -18,7 +18,9 @@ type AsyncGetElFn = () => Element | Promise<Element | null>
 type Bound = number | (() => number)
 
 interface DragControllerOptions {
-  initialPosition: number
+  /** Accepts a getter, like the bounds: a window-derived default resolved once
+   *  at construction never follows the window it was derived from. */
+  initialPosition: Bound
   direction: Direction
   localStorageKey?: string
   minPosition?: Bound
@@ -53,6 +55,9 @@ export class DragController implements ReactiveController {
 
   #state: State = 'idle'
   #pointerTracker: PointerTracker | null = null
+  /** Whether the current position is the user's own — restored from storage or
+   *  dragged — rather than derived from the window. */
+  #userChosen = false
 
   constructor(host: DragControllerHost, options: DragControllerOptions) {
     this.#host = host
@@ -80,8 +85,6 @@ export class DragController implements ReactiveController {
           return
         }
 
-        window.onresize = () => this.#adjustPosition()
-
         // TODO Add typeguard to check if HTMLElement
         this.#draggableEl = draggableEl as HTMLElement
         this.#containerEl = containerEl as HTMLElement
@@ -94,8 +97,34 @@ export class DragController implements ReactiveController {
         ? parseInt(localStorage.getItem(this.#localStorageKey)!, 10)
         : undefined
       : undefined
-    const initialPosition = storageValue || this.#options.initialPosition
+    // A stored height is the user's own choice and keeps winning; only a
+    // derived default follows the window.
+    this.#userChosen =
+      storageValue !== undefined && Number.isFinite(storageValue)
+    const initialPosition = this.#userChosen
+      ? storageValue!
+      : (resolveBound(this.#options.initialPosition) ?? 0)
     this.#setPosition(initialPosition, initialPosition)
+    // Own listener, not `window.onresize`: that is a single slot, so with five
+    // controllers on the page only the last one constructed ever ran — which is
+    // why nothing re-fitted on resize.
+    window.addEventListener('resize', this.#onWindowResize)
+  }
+
+  /**
+   * Follow the window. A derived default is recomputed outright; a height the
+   * user dragged is only re-clamped, so it survives a resize that still has
+   * room for it and is pulled back inside a window that no longer does.
+   */
+  #onWindowResize = () => {
+    if (this.#userChosen) {
+      this.#setPosition(this.#x, this.#y)
+    } else {
+      const derived = resolveBound(this.#options.initialPosition) ?? 0
+      this.#setPosition(derived, derived)
+    }
+    this.#host.requestUpdate()
+    void this.#adjustPosition()
   }
 
   async #getDraggableEl() {
@@ -174,6 +203,7 @@ export class DragController implements ReactiveController {
     if (this.#pointerTracker) {
       this.#pointerTracker.stop()
     }
+    window.removeEventListener('resize', this.#onWindowResize)
   }
 
   #handleWindowMove(pointer: Pointer) {
@@ -198,6 +228,8 @@ export class DragController implements ReactiveController {
       const yDelta = cursorPositionY - this.#cursorPositionY
 
       this.#setPosition(oldX + xDelta, oldY + yDelta)
+      // From here on this pane's height is the user's, not the window's.
+      this.#userChosen = true
 
       if (this.#localStorageKey) {
         localStorage.setItem(
@@ -256,7 +288,6 @@ export class DragController implements ReactiveController {
         const containerEl = await this.#options.getContainerEl()
         if (containerEl) {
           this.#containerEl = containerEl as HTMLElement
-          window.onresize = () => this.#adjustPosition()
         }
       }
       this.#init()

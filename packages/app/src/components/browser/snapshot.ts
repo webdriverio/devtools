@@ -135,15 +135,21 @@ export class DevtoolsBrowser extends Element {
   @query('section')
   section?: HTMLElement
 
+  /**
+   * Watches the player's OWN box rather than the window. Re-fitting used to
+   * hang off `resize` and `window-drag`, so it depended on whoever changed the
+   * layout announcing it — and the dock divider, the sidebar collapsing and
+   * browser zoom announce nothing. Every one of those moves this box.
+   */
+  #boxObserver?: ResizeObserver
+
   /** The window events the player handles while connected, as one table so its
    *  registration and its teardown cannot drift. Every handler is a per-instance
    *  arrow field, so the reference removeEventListener gets is the one that was
    *  added — a bound method would produce a new function per call and never
-   *  detach. */
+   *  detach. Sizing is not among them: that is the ResizeObserver's job. */
   #windowListeners(): ReadonlyArray<readonly [string, EventListener]> {
     return [
-      ['resize', this.#handleResize],
-      ['window-drag', this.#handleResize],
       ['app-mutation-highlight', this.#highlightMutation],
       ['app-mutation-select', this.#handleMutationSelect],
       ['a11y-highlight', this.#highlightBySelector],
@@ -157,6 +163,11 @@ export class DevtoolsBrowser extends Element {
     for (const [type, handler] of this.#windowListeners()) {
       window.addEventListener(type, handler)
     }
+    // Safe against the observer loop: this watches the host, and the sizing it
+    // triggers writes to a descendant. The host is laid out by its parent
+    // (width/height 100%), so nothing it writes can feed back into this box.
+    this.#boxObserver = new ResizeObserver(() => this.#handleResize())
+    this.#boxObserver.observe(this)
     await this.updateComplete
   }
 
@@ -169,6 +180,8 @@ export class DevtoolsBrowser extends Element {
     for (const [type, handler] of this.#windowListeners()) {
       window.removeEventListener(type, handler)
     }
+    this.#boxObserver?.disconnect()
+    this.#boxObserver = undefined
   }
 
   #captureShape?: { screenshot: string; size: ImageSize | null }

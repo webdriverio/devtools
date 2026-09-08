@@ -45,7 +45,7 @@ import './browser/trace-player-controls.js'
 import {
   BROWSER_BACKDROP_GRADIENT,
   HEADER_HEIGHT,
-  MIN_WORKBENCH_HEIGHT,
+  minWorkbenchHeight,
   MIN_METATAB_WIDTH,
   ACTIONS_DEFAULT_WIDTH,
   BROWSER_HEIGHT_RATIO,
@@ -124,9 +124,9 @@ export class DevtoolsWorkbench extends Element {
 
   #dragVertical = new DragController(this, {
     localStorageKey: 'toolbarHeight',
-    minPosition: MIN_WORKBENCH_HEIGHT,
-    maxPosition: window.innerHeight * 0.7,
-    initialPosition: window.innerHeight * BROWSER_HEIGHT_RATIO,
+    minPosition: minWorkbenchHeight,
+    maxPosition: () => window.innerHeight * 0.7,
+    initialPosition: () => window.innerHeight * BROWSER_HEIGHT_RATIO,
     getContainerEl: () => this.#getVerticalWindow(),
     direction: Direction.vertical
   })
@@ -157,16 +157,17 @@ export class DevtoolsWorkbench extends Element {
   // The live max bound keeps the handle (and pane) inside the current budget.
   #dragVerticalPlayer = new DragController(this, {
     localStorageKey: 'playerPaneHeight',
-    minPosition: MIN_WORKBENCH_HEIGHT,
+    minPosition: minWorkbenchHeight,
     maxPosition: () => this.#playerPaneBudget(),
-    initialPosition: Math.max(
-      MIN_WORKBENCH_HEIGHT,
-      window.innerHeight -
-        HEADER_HEIGHT -
-        PLAYER_CONTROLS_HEIGHT -
-        TRACE_TIMELINE_DEFAULT_HEIGHT -
-        PLAYER_DOCK_DEFAULT_HEIGHT
-    ),
+    initialPosition: () =>
+      Math.max(
+        minWorkbenchHeight(),
+        window.innerHeight -
+          HEADER_HEIGHT -
+          PLAYER_CONTROLS_HEIGHT -
+          TRACE_TIMELINE_DEFAULT_HEIGHT -
+          PLAYER_DOCK_DEFAULT_HEIGHT
+      ),
     getContainerEl: () => this.#getVerticalWindow(),
     direction: Direction.vertical
   })
@@ -183,7 +184,7 @@ export class DevtoolsWorkbench extends Element {
   // Space left for the snapshot pane once the fixed rows and dock minimum eat theirs.
   #playerPaneBudget(): number {
     return Math.max(
-      MIN_WORKBENCH_HEIGHT,
+      minWorkbenchHeight(),
       window.innerHeight -
         HEADER_HEIGHT -
         PLAYER_CONTROLS_HEIGHT -
@@ -243,13 +244,13 @@ export class DevtoolsWorkbench extends Element {
       const maxHeight = `calc(100vh - ${
         HEADER_HEIGHT + PLAYER_CONTROLS_HEIGHT + PLAYER_DOCK_MIN_HEIGHT
       }px - ${this.#timelinePaneHeight()}px)`
-      return `flex-grow:0; flex-shrink:0; ${this.#dragVerticalPlayer.getPosition()}; max-height:${maxHeight}; min-height:${MIN_WORKBENCH_HEIGHT}px;`
+      return `flex-grow:0; flex-shrink:0; ${this.#dragVerticalPlayer.getPosition()}; max-height:${maxHeight}; min-height:${minWorkbenchHeight()}px;`
     }
     const raw =
       basisPx(this.#dragVertical.getPosition()) ??
       window.innerHeight * BROWSER_HEIGHT_RATIO
     const capped = Math.min(raw, window.innerHeight * 0.7)
-    const paneHeight = Math.max(MIN_WORKBENCH_HEIGHT, capped)
+    const paneHeight = Math.max(minWorkbenchHeight(), capped)
     return `flex:0 0 ${paneHeight}px; height:${paneHeight}px; max-height:70vh; min-height:0;`
   }
 

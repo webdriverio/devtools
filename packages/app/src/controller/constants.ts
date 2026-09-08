@@ -3,7 +3,17 @@ import type { LogSource } from '@wdio/devtools-shared'
 export const CACHE_ID = 'wdio-trace-cache'
 export const SIDEBAR_MIN_WIDTH = 250
 export const DARK_MODE_KEY = 'darkMode'
-export const MIN_WORKBENCH_HEIGHT = Math.min(300, window.innerHeight * 0.3)
+/**
+ * Smallest useful workbench pane, for the window AS IT IS NOW. A function
+ * rather than a constant: evaluated at module import it froze at whatever
+ * window happened to be open then, and — because it is also the pane's
+ * `minPosition` — pinned the pane there for the life of the page. Loaded in a
+ * 413px-tall window it is 124px, which is what a trace then rendered into on a
+ * 2560px screen.
+ */
+export function minWorkbenchHeight(): number {
+  return Math.min(300, window.innerHeight * 0.3)
+}
 export const MIN_METATAB_WIDTH = 260
 export const RERENDER_TIMEOUT = 10
 export const SIDEBAR_DEFAULT_WIDTH = 350
