@@ -182,7 +182,11 @@ export default class DevToolsHookService implements Services.ServiceInstance {
       emitManifest:
         this.#options.emitArtifactsManifest ?? this.#allureReporterConfigured,
       collectedArtifacts: this.#artifacts,
-      onArtifact: (a) => this.#artifacts.push(a)
+      onArtifact: (a) => this.#artifacts.push(a),
+      // Settled under core's timeout cap before anything is written, so a
+      // `getWindowSize` left hanging by a tearing-down session degrades to the
+      // fallback instead of deadlocking the export.
+      awaitPending: this.#metadataCapture ? [this.#metadataCapture] : []
     }
   }
 
@@ -194,6 +198,12 @@ export default class DevToolsHookService implements Services.ServiceInstance {
 
   // This is used to track if the injection script is currently being injected
   #injecting = false
+
+  /** In-flight session-metadata resolution. It runs on the driver, so it lands
+   *  after `before()` returns; finalize has to wait for it or a spec that fails
+   *  immediately exports the fallback viewport and no device. Never rejects, so
+   *  holding it unhandled until finalize attaches cannot crash the run. */
+  #metadataCapture?: Promise<void>
 
   async before(
     caps: Capabilities.W3CCapabilities,
@@ -249,11 +259,11 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     await this.#screencast.start(browser)
 
     /**
-     * Propagate session metadata at the beginning of the session. Not awaited,
-     * so session start is never held up by it; the trace is exported at test or
-     * session end, long after this lands.
+     * Propagate session metadata at the beginning of the session. Not awaited
+     * here, so session start is never held up by a driver round trip — but
+     * tracked, because finalize must not export before it lands.
      */
-    void this.#captureSessionMetadata(browser)
+    this.#metadataCapture = this.#captureSessionMetadata(browser)
 
     /**
      * Runtime DOM snapshot for agent auto-healing loops. Calls into
@@ -282,9 +292,13 @@ export default class DevToolsHookService implements Services.ServiceInstance {
    *  zip, which is why a native capture claimed a 1280x720 viewport it never
    *  measured. */
   async #captureSessionMetadata(browser: WebdriverIO.Browser): Promise<void> {
-    this.#sessionCapturer.mergeMetadata(
-      await resolveSessionMetadata(browser, this.captureType)
-    )
+    try {
+      this.#sessionCapturer.mergeMetadata(
+        await resolveSessionMetadata(browser, this.captureType)
+      )
+    } catch (err) {
+      log.warn(`Could not capture session metadata: ${errorMessage(err)}`)
+    }
   }
 
   // The method signature is corrected to use W3CCapabilities

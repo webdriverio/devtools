@@ -236,3 +236,99 @@ describe('DevtoolsService - afterTest state stamping', () => {
     ).toBe('failed')
   })
 })
+
+/**
+ * Session metadata resolves on the driver, so it lands after `before()` has
+ * returned. A spec that fails immediately therefore finalized while the read
+ * was still in flight, and the zip got the exporter's fallback viewport and no
+ * device — the values #345 exists to carry. Finalize has to wait for it.
+ */
+describe('session metadata vs. an immediately finalizing spec', () => {
+  const mockBrowser = (
+    resolveWindowSize: () => Promise<{ width: number; height: number }>
+  ) =>
+    ({
+      sessionId: 'sess-race',
+      isMobile: true,
+      isAndroid: true,
+      execute: vi.fn().mockResolvedValue(undefined),
+      getWindowSize: vi.fn(resolveWindowSize),
+      takeScreenshot: vi.fn().mockResolvedValue('shot'),
+      getWindowRect: vi.fn().mockResolvedValue({
+        width: 1,
+        height: 1,
+        offsetLeft: 0,
+        offsetTop: 0
+      }),
+      on: vi.fn(),
+      emit: vi.fn(),
+      addCommand: vi.fn(),
+      options: { rootDir: '/proj' },
+      capabilities: {
+        platformName: 'android',
+        deviceName: '28111FDH200CUX',
+        udid: '28111FDH200CUX',
+        deviceModel: 'Pixel 7',
+        platformVersion: '14'
+      }
+    }) as never
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    finalizeTraceExport.mockResolvedValue([])
+  })
+
+  it('hands the in-flight read to finalize as pending work', async () => {
+    let release: (size: { width: number; height: number }) => void = () => {}
+    const service = new DevToolsHookService({ mode: 'trace' })
+    await service.before(
+      {} as never,
+      [],
+      mockBrowser(
+        () =>
+          new Promise<{ width: number; height: number }>((resolve) => {
+            release = resolve
+          })
+      )
+    )
+
+    // Finalize while the driver has not answered yet — the race the review
+    // found. The promise must reach core, which settles it under its own cap.
+    await service.after()
+    const ctx = finalizeTraceExport.mock.calls.at(-1)?.[0] as {
+      awaitPending?: Promise<unknown>[]
+    }
+    expect(ctx.awaitPending).toHaveLength(1)
+
+    release({ width: 1080, height: 2219 })
+    await ctx.awaitPending?.[0]
+    // And once it lands it is STORED, not merely published: the zip reads this.
+    expect(mockSessionCapturerInstance.mergeMetadata).toHaveBeenCalledWith(
+      expect.objectContaining({
+        viewport: expect.objectContaining({ width: 1080, height: 2219 }),
+        device: { platform: 'android', name: 'Pixel 7', version: '14' }
+      })
+    )
+  })
+
+  it('never rejects, so an unhandled rejection cannot outrun finalize', async () => {
+    const service = new DevToolsHookService({ mode: 'trace' })
+    await service.before(
+      {} as never,
+      [],
+      mockBrowser(() => Promise.reject(new Error('no such session')))
+    )
+    await service.after()
+
+    const ctx = finalizeTraceExport.mock.calls.at(-1)?.[0] as {
+      awaitPending?: Promise<unknown>[]
+    }
+    await expect(ctx.awaitPending?.[0]).resolves.toBeUndefined()
+    // The viewport is dropped; everything else the session knew survives.
+    expect(mockSessionCapturerInstance.mergeMetadata).toHaveBeenCalledWith(
+      expect.objectContaining({
+        device: { platform: 'android', name: 'Pixel 7', version: '14' }
+      })
+    )
+  })
+})
