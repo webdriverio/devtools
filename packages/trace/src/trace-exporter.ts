@@ -8,6 +8,7 @@ import type {
   ActionSnapshot,
   CommandLog,
   ConsoleLog,
+  DeviceInfo,
   Metadata,
   NetworkRequest,
   ScreencastFrame,
@@ -17,7 +18,10 @@ import type {
   TraceLog,
   TraceMutation
 } from '@wdio/devtools-shared'
-import { mapCommandToAction } from '@wdio/devtools-shared'
+import {
+  deviceFromCapabilities,
+  mapCommandToAction
+} from '@wdio/devtools-shared'
 import {
   buildConsoleEvents,
   type ConsoleEvent,
@@ -120,6 +124,11 @@ interface ContextOptionsEvent {
    *  the user how to resolve a captured locator in their own framework. Absent
    *  when the capture didn't identify itself, and in foreign zips. */
   runner?: TestRunnerId
+  /** Extension field: the device this was recorded on. `browserName` is
+   *  normalized to `chromium` for a native session and `platform` names the
+   *  HOST OS, so without this the device survived only as prose in `title`.
+   *  Absent for a desktop capture and in foreign zips. */
+  device?: DeviceInfo
 }
 
 type TraceEvent =
@@ -142,22 +151,27 @@ function allocateTraceIds(sessionId?: string): {
   return { contextId: `context@${idPrefix}`, pageId: `page@${idPrefix}` }
 }
 
+/**
+ * A native session's `browserName` stays normalized to `chromium` because a
+ * standard trace viewer keys its own behaviour off that field and knows no
+ * mobile platform. That normalization is why the device needs a field of its
+ * own: with `device` on the event, the name no longer has to carry the fact.
+ */
 function resolveContextNaming(caps: Record<string, unknown> | undefined): {
   browserName: string
   title: string
+  device?: DeviceInfo
 } {
-  const platformName =
-    typeof caps?.platformName === 'string'
-      ? caps.platformName.toLowerCase()
-      : undefined
-  const deviceName =
-    typeof caps?.['appium:deviceName'] === 'string'
-      ? (caps['appium:deviceName'] as string)
-      : undefined
-  if (platformName === 'android' || platformName === 'ios') {
+  const device = deviceFromCapabilities(caps)
+  if (device) {
+    // Title unchanged from before the `device` field existed; it is prose for a
+    // foreign viewer, and the typed field is what our own consumers read.
     return {
       browserName: 'chromium',
-      title: deviceName ? `${platformName} — ${deviceName}` : platformName
+      title: device.name
+        ? `${device.platform} — ${device.name}`
+        : device.platform,
+      device
     }
   }
   const browserName =
@@ -172,7 +186,7 @@ function buildContextOptions(
 ): ContextOptionsEvent {
   const caps = trace.metadata.capabilities as
     Record<string, unknown> | undefined
-  const { browserName, title } = resolveContextNaming(caps)
+  const { browserName, title, device } = resolveContextNaming(caps)
   const viewport = trace.metadata.viewport ?? { width: 1280, height: 720 }
   return {
     version: TRACE_VERSION,
@@ -195,7 +209,13 @@ function buildContextOptions(
     options: {
       viewport: { width: viewport.width, height: viewport.height }
     },
-    ...(trace.metadata.runner ? { runner: trace.metadata.runner } : {})
+    ...(trace.metadata.runner ? { runner: trace.metadata.runner } : {}),
+    // A capture states its own device; the metadata's is preferred over one
+    // re-derived here, because an adapter may know the device from a source
+    // its capabilities never carried.
+    ...((trace.metadata.device ?? device)
+      ? { device: trace.metadata.device ?? device }
+      : {})
   }
 }
 
