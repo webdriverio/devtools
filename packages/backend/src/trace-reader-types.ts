@@ -71,6 +71,10 @@ export interface ContextOptionsEvent {
    *  zips and in ours from before the field existed. Untrusted — narrowed
    *  through `isTestRunnerId` before it reaches `Metadata.runner`. */
   runner?: string
+  /** Extension field naming the device the zip was recorded on. Same contract
+   *  as `runner`: absent in foreign zips and in ours from before the field
+   *  existed, and narrowed through `isDeviceInfo` on the way in. */
+  device?: unknown
 }
 
 /** Sidecar `.stacks` shape: file table + per-call [fileIndex, line, column, function] frames. */

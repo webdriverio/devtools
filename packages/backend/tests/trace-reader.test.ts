@@ -250,6 +250,72 @@ describe('parseTraceZip', () => {
     })
   })
 
+  // Same contract as the runner: the zip states the device, and the reader
+  // narrows it rather than casting, so a foreign zip cannot smuggle a shape
+  // through. Without it the player frames a phone as a desktop window.
+  describe('recording device', () => {
+    const withDevice = (device: unknown) =>
+      zipSync({
+        'trace.trace': toNdjson([
+          {
+            type: 'context-options',
+            wallTime: WALL_TIME,
+            // What a native capture writes: normalized away from the device.
+            browserName: 'chromium',
+            contextId: 'context@abcd1234',
+            options: { viewport: { width: 1080, height: 2219 } },
+            ...(device === undefined ? {} : { device })
+          }
+        ])
+      })
+
+    it('restores the device the zip names', () => {
+      const { trace } = parseTraceZip(
+        withDevice({ platform: 'ios', name: 'iPhone 17', version: '18.1' })
+      )
+
+      expect(trace.metadata.device).toEqual({
+        platform: 'ios',
+        name: 'iPhone 17',
+        version: '18.1'
+      })
+    })
+
+    it('puts the platform back on the rebuilt capabilities', () => {
+      // browserName alone said `chromium`, so a reader of capabilities had no
+      // way to tell a phone from a desktop Chrome.
+      const { trace } = parseTraceZip(withDevice({ platform: 'android' }))
+
+      expect(trace.metadata.capabilities).toEqual({
+        browserName: 'chromium',
+        platformName: 'android'
+      })
+    })
+
+    it('leaves it unset for a zip recorded without one', () => {
+      const { trace } = parseTraceZip(withDevice(undefined))
+
+      expect(trace.metadata.device).toBeUndefined()
+      expect(trace.metadata.capabilities).toEqual({ browserName: 'chromium' })
+    })
+
+    it('drops a device whose shape does not hold up', () => {
+      expect(
+        parseTraceZip(withDevice({ platform: 'windows' })).trace.metadata.device
+      ).toBeUndefined()
+      expect(
+        parseTraceZip(withDevice({ name: 'iPhone 17' })).trace.metadata.device
+      ).toBeUndefined()
+      expect(
+        parseTraceZip(withDevice({ platform: 'ios', name: 17 })).trace.metadata
+          .device
+      ).toBeUndefined()
+      expect(
+        parseTraceZip(withDevice('iPhone 17')).trace.metadata.device
+      ).toBeUndefined()
+    })
+  })
+
   it('restores DOM mutations from a trace.mutations stream, dropping the marker', () => {
     const mutations = [
       {

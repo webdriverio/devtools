@@ -625,4 +625,59 @@ describe('exported trace stream — context-options runner', () => {
 
     expect('runner' in ctx).toBe(false)
   })
+
+  /**
+   * `browserName` is normalized to `chromium` for a native session and
+   * `platform` names the HOST OS, so before this field the device survived only
+   * as prose inside `title` and every consumer re-derived it from a heuristic.
+   */
+  describe('the device it was recorded on', () => {
+    const CLOUD_ANDROID = {
+      platformName: 'android',
+      deviceName: '28111FDH200CUX',
+      udid: '28111FDH200CUX',
+      deviceModel: 'Pixel 7',
+      platformVersion: '14'
+    }
+
+    it('states the device as a typed field, not only in the title', async () => {
+      const ctx = await contextOptions({
+        type: TraceType.Testrunner,
+        capabilities: CLOUD_ANDROID
+      })
+
+      expect(ctx.device).toEqual({
+        platform: 'android',
+        name: 'Pixel 7',
+        version: '14'
+      })
+      // Unchanged: a standard trace viewer keys its behaviour off browserName
+      // and knows no mobile platform.
+      expect(ctx.browserName).toBe('chromium')
+      // Unchanged prose, so an older viewer reads exactly what it always did.
+      expect(ctx.title).toBe('android — Pixel 7')
+    })
+
+    it('prefers a device the capture resolved over one re-derived here', async () => {
+      // An adapter may know the device from a source its capabilities never
+      // carried, so metadata.device wins.
+      const ctx = await contextOptions({
+        type: TraceType.Testrunner,
+        capabilities: CLOUD_ANDROID,
+        device: { platform: 'ios', name: 'iPhone 17' }
+      })
+
+      expect(ctx.device).toEqual({ platform: 'ios', name: 'iPhone 17' })
+    })
+
+    it('omits the field entirely for a desktop capture', async () => {
+      const ctx = await contextOptions({
+        type: TraceType.Testrunner,
+        capabilities: { browserName: 'firefox' }
+      })
+
+      expect('device' in ctx).toBe(false)
+      expect(ctx.browserName).toBe('firefox')
+    })
+  })
 })
