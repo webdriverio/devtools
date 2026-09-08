@@ -44,6 +44,7 @@ import {
 } from './captured-pages.js'
 import {
   CAPTURED_VIEWPORT,
+  deviceMetadata,
   domlessTrace,
   landscapeTrace,
   LOGIN_SHOT,
@@ -54,6 +55,7 @@ import {
   metadataForViewport,
   orphanTrace,
   overlayLabelTrace,
+  PORTRAIT_CAPTURE,
   portraitTrace,
   preCaptureTrace,
   RECORDING,
@@ -1517,6 +1519,87 @@ describe('wdio-devtools-browser', () => {
         // what letterboxes the capture inside the box asserted above, at its own
         // shape, rather than cropping it to fill.
         expect(getComputedStyle(img).objectFit).toBe('contain')
+      })
+
+      /**
+       * A native capture has no browser window and no url, so the desktop
+       * chrome describes nothing and a landscape frame left the phone as a
+       * narrow strip: measured on a 1170x2532 capture, the image used 162px of
+       * a 388px frame and ~60% was backdrop.
+       */
+      describe('a capture the trace says came off a device', () => {
+        const DEVICE_CHROME = 'header.device-chrome'
+        const DEVICE_LABEL = '.device-label'
+        const FRAME_DOT = '.frame-dot'
+        /** The address bar's own icon — `header .truncate` also matches the
+         *  device label, so it cannot tell the two chromes apart. */
+        const URL_AFFORDANCE = 'header icon-mdi-world, header icon-mdi-lock'
+
+        const framed = () =>
+          mountBrowser({ ...portraitTrace, metadata: deviceMetadata })
+
+        it('names the device instead of drawing window furniture', async () => {
+          const el = await framed()
+          await settle(el)
+
+          expect(text(shadow(el, DEVICE_LABEL))).toBe('iPhone 17 (ios 18.1)')
+          // The furniture that does not apply: no traffic lights, and no url
+          // affordance, which could only have read `unknown`.
+          expect(shadowAll(el, FRAME_DOT)).toHaveLength(0)
+          expect(shadowAll(el, URL_AFFORDANCE)).toHaveLength(0)
+        })
+
+        it('keeps the view toggle reachable', async () => {
+          // Losing the slot would strand the Snapshot/Screencast switch, which
+          // only appears once a recording has arrived.
+          const el = await framed()
+          recordingArrives()
+          await settle(el)
+
+          expect(texts(el, VIEW_BUTTON)).toEqual(['Snapshot', 'Screencast'])
+          expect(
+            shadow(el, DEVICE_CHROME)?.querySelector('.view-toggle')
+          ).toBeTruthy()
+        })
+
+        it('shapes the frame to the capture, not to the pane', async () => {
+          const el = await framed()
+          await settle(el)
+          await resizeScreenshotPane(el, ...paneFor(el, { w: 400, h: 300 }))
+          const section = shadow(el, 'section')!
+          await waitUntil(
+            () => section.style.width !== '',
+            'the frame to be sized to the capture'
+          )
+
+          const frame = section.getBoundingClientRect()
+          const style = getComputedStyle(section)
+          const insetX =
+            parseFloat(style.paddingLeft) + parseFloat(style.paddingRight)
+          const insetY =
+            parseFloat(style.paddingTop) + parseFloat(style.paddingBottom)
+          const header = shadow(el, DEVICE_CHROME)!.getBoundingClientRect()
+          const captureBox = {
+            width: frame.width - insetX,
+            height: frame.height - header.height - insetY
+          }
+
+          // The box the capture gets is the capture's own shape — 120x260 —
+          // and NOT the pane's, which is what left it a strip in a wide frame.
+          expect(captureBox.width / captureBox.height).toBeCloseTo(
+            PORTRAIT_CAPTURE.width / PORTRAIT_CAPTURE.height,
+            2
+          )
+          expect(frame.width).toBeLessThan(300)
+        })
+
+        it('leaves a trace with no device in the browser frame', async () => {
+          const el = await mountBrowser(portraitTrace)
+          await settle(el)
+
+          expect(shadowAll(el, DEVICE_CHROME)).toHaveLength(0)
+          expect(shadowAll(el, FRAME_DOT)).toHaveLength(3)
+        })
       })
 
       it('holds a capture wider than the pane inside it too', async () => {

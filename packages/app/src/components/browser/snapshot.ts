@@ -4,6 +4,7 @@ import { html, nothing } from 'lit'
 import { consume } from '@lit/context'
 import { snapshotStyles } from './snapshot-styles.js'
 import { renderBrowserChrome } from './browser-chrome.js'
+import { deviceFrameSize, renderDeviceChrome } from './device-frame.js'
 import {
   drawElementOverlay,
   clearElementOverlay,
@@ -21,7 +22,12 @@ import type { SimplifiedVNode } from '@wdio/devtools-script/types'
 // characterData wire shape (parent ref + child index), so the replay reads it
 // from the same declaration that produces it.
 import type { TextMutation } from '@wdio/devtools-script/mutations.js'
-import { imageMime, type CommandLog } from '@wdio/devtools-shared'
+import {
+  imageDimensions,
+  imageMime,
+  type CommandLog,
+  type ImageSize
+} from '@wdio/devtools-shared'
 
 import {
   mutationContext,
@@ -29,7 +35,11 @@ import {
   metadataBySessionContext,
   commandContext
 } from '../../controller/context.js'
-import type { Metadata, MetadataBySession } from '@wdio/devtools-shared'
+import type {
+  DeviceInfo,
+  Metadata,
+  MetadataBySession
+} from '@wdio/devtools-shared'
 
 import '../placeholder.js'
 import './screencast-player.js'
@@ -157,6 +167,38 @@ export class DevtoolsBrowser extends Element {
     }
   }
 
+  #captureShape?: { screenshot: string; size: ImageSize | null }
+
+  /** Shape of the capture on screen, from its own decoded pixels. Memoized on
+   *  the frame it was read from, because this is read per render and per rAF. */
+  get #captureSize(): ImageSize | null {
+    const screenshot = this.#screenshotData ?? this.#latestAutoScreenshot
+    if (!screenshot) {
+      return null
+    }
+    if (this.#captureShape?.screenshot !== screenshot) {
+      this.#captureShape = { screenshot, size: imageDimensions(screenshot) }
+    }
+    return this.#captureShape.size
+  }
+
+  /**
+   * The device a capture was recorded on, once there is an image to shape the
+   * frame around. Screenshot branch only: a mobile BROWSER session (Appium
+   * driving Chrome on Android) reports a device AND carries a DOM, and that
+   * replay is an iframe laid out at its own viewport — shaping the frame to a
+   * screenshot as well would fight `#sizeSnapshotToViewport` for the same box.
+   * It is also a browser with a real url, so the browser chrome is honest there.
+   */
+  get #deviceCapture(): { device: DeviceInfo; size: ImageSize } | null {
+    if (this.mutations?.length) {
+      return null
+    }
+    const device = this.metadata?.device
+    const size = device ? this.#captureSize : null
+    return device && size ? { device, size } : null
+  }
+
   #setIframeSize() {
     if (!this.section || !this.header) {
       return
@@ -170,7 +212,51 @@ export class DevtoolsBrowser extends Element {
       this.section.style.height = '100%'
       return
     }
+    if (this.#deviceCapture) {
+      this.#sizeSectionToDevice()
+      return
+    }
     this.#sizeSnapshotToViewport()
+  }
+
+  /** Shape the frame to the device rather than to the pane. A native capture
+   *  reaches the screenshot branch, which fills whatever box it is given — so
+   *  in a landscape frame a portrait capture was a narrow strip with ~60% of
+   *  the frame backdrop, wrapped in window furniture describing nothing. */
+  #sizeSectionToDevice() {
+    requestAnimationFrame(() => {
+      const capture = this.#deviceCapture
+      if (!this.section || !this.header || !capture) {
+        return
+      }
+      const hostStyle = getComputedStyle(this)
+      const rect = this.getBoundingClientRect()
+      const padX =
+        parseFloat(hostStyle.paddingLeft || '0') +
+        parseFloat(hostStyle.paddingRight || '0')
+      const padY =
+        parseFloat(hostStyle.paddingTop || '0') +
+        parseFloat(hostStyle.paddingBottom || '0')
+      const sectionStyle = getComputedStyle(this.section)
+      const frame = deviceFrameSize(
+        {
+          width: Math.max(0, rect.width - padX),
+          height: Math.max(0, rect.height - padY)
+        },
+        capture.size,
+        {
+          headerHeight: this.header.getBoundingClientRect().height,
+          insetX:
+            parseFloat(sectionStyle.paddingLeft || '0') +
+            parseFloat(sectionStyle.paddingRight || '0'),
+          insetY:
+            parseFloat(sectionStyle.paddingTop || '0') +
+            parseFloat(sectionStyle.paddingBottom || '0')
+        }
+      )
+      this.section.style.width = `${frame.width}px`
+      this.section.style.height = `${frame.height}px`
+    })
   }
 
   #sizeSnapshotToViewport() {
@@ -940,12 +1026,19 @@ export class DevtoolsBrowser extends Element {
       <section
         class="w-full h-full bg-sideBarBackground rounded-[14px] border-2 border-panelBorder"
       >
-        ${renderBrowserChrome(
-          this.#displayUrl,
-          html`${this.#renderOverlayToggle(
-            hasMutations
-          )}${this.#renderViewToggle()}`
-        )}
+        ${
+          this.#deviceCapture
+            ? renderDeviceChrome(
+                this.#deviceCapture.device,
+                this.#renderViewToggle()
+              )
+            : renderBrowserChrome(
+                this.#displayUrl,
+                html`${this.#renderOverlayToggle(
+                  hasMutations
+                )}${this.#renderViewToggle()}`
+              )
+        }
         ${this.#renderViewport(hasMutations)}
       </section>
     `
