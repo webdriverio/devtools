@@ -4,6 +4,7 @@
 import { strFromU8 } from 'fflate'
 import { sourceResourceName } from '@wdio/devtools-trace/trace-sources'
 import {
+  isDeviceInfo,
   isTestRunnerId,
   TraceType,
   type ConsoleLog,
@@ -315,13 +316,21 @@ export function buildMetadata(ctx: ContextOptionsEvent | undefined): Metadata {
     scale: 1
   }
   const sessionId = ctx?.contextId?.split('@')[1]
+  const device = isDeviceInfo(ctx?.device) ? ctx.device : undefined
   return {
     type: TraceType.Standalone,
     viewport,
+    // A native session's browserName is normalized to `chromium` on the way
+    // out, so the platform is put back from the device rather than left for a
+    // reader to conclude a phone was a desktop Chrome.
     capabilities: ctx?.browserName
-      ? { browserName: ctx.browserName }
+      ? {
+          browserName: ctx.browserName,
+          ...(device ? { platformName: device.platform } : {})
+        }
       : undefined,
     ...(sessionId ? { sessionId } : {}),
-    ...(isTestRunnerId(ctx?.runner) ? { runner: ctx.runner } : {})
+    ...(isTestRunnerId(ctx?.runner) ? { runner: ctx.runner } : {}),
+    ...(device ? { device } : {})
   }
 }
