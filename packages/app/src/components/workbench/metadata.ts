@@ -3,6 +3,7 @@ import { html, css, nothing, type TemplateResult } from 'lit'
 import { customElement, state } from 'lit/decorators.js'
 import { consume } from '@lit/context'
 
+import { deviceLabel } from '@wdio/devtools-shared'
 import type { Metadata, MetadataBySession } from '@wdio/devtools-shared'
 import {
   metadataContext,
@@ -167,6 +168,12 @@ export class DevtoolsMetadata extends Element {
     }
     if (m.url) {
       sessionInfo.URL = m.url
+    }
+    // The one place the trace's own device statement is shown. Present only
+    // for a native capture, and only for a zip recorded since the field
+    // existed — a desktop trace shows no Device row at all.
+    if (m.device) {
+      sessionInfo.Device = deviceLabel(m.device)
     }
     // A viewport can arrive before its dimensions are serialized, and a
     // `0 × 0 px` row would read as a captured value rather than a missing one.

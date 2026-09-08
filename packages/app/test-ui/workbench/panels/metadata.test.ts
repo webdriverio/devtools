@@ -182,6 +182,51 @@ describe('wdio-devtools-metadata', () => {
       ])
     })
 
+    /**
+     * The one place the trace's own device statement is shown. Before the zip
+     * carried a `device` field, a native capture was indistinguishable here
+     * from a desktop Chrome one: `browserName` is normalized to `chromium` and
+     * `platform` names the host OS.
+     */
+    describe('the device it was recorded on', () => {
+      it('names the device a native capture reported', async () => {
+        const panel = await mountMetadata(
+          metadata({
+            device: { platform: 'ios', name: 'iPhone 17', version: '18.1' }
+          })
+        )
+
+        const session = sectionNamed(panel, 'Session')
+        expect(session.keys).toContain('Device')
+        expect(session.values).toContain('iPhone 17 (ios 18.1)')
+      })
+
+      it('degrades to what the session actually reported', async () => {
+        // A device cloud can report only a serial, which is rejected as a name.
+        const panel = await mountMetadata(
+          metadata({ device: { platform: 'android' } })
+        )
+
+        expect(sectionNamed(panel, 'Session').values).toContain('android')
+      })
+
+      it('renders no Device row for a desktop capture', async () => {
+        const panel = await mountMetadata(
+          metadata({
+            viewport: {
+              width: 1280,
+              height: 800,
+              offsetLeft: 0,
+              offsetTop: 0,
+              scale: 1
+            }
+          })
+        )
+
+        expect(sectionNamed(panel, 'Session').keys).not.toContain('Device')
+      })
+    })
+
     it('renders the captured viewport as one row of dimensions', async () => {
       const viewport = {
         width: 1024,
