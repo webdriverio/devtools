@@ -1572,25 +1572,55 @@ describe('wdio-devtools-browser', () => {
             'the frame to be sized to the capture'
           )
 
-          const frame = section.getBoundingClientRect()
-          const style = getComputedStyle(section)
-          const insetX =
-            parseFloat(style.paddingLeft) + parseFloat(style.paddingRight)
-          const insetY =
-            parseFloat(style.paddingTop) + parseFloat(style.paddingBottom)
-          const header = shadow(el, DEVICE_CHROME)!.getBoundingClientRect()
-          const captureBox = {
-            width: frame.width - insetX,
-            height: frame.height - header.height - insetY
-          }
-
-          // The box the capture gets is the capture's own shape — 120x260 —
-          // and NOT the pane's, which is what left it a strip in a wide frame.
+          // Measured, not derived: the wrapper's own rect IS the box the
+          // capture gets, so this holds whatever the frame spends on padding,
+          // border and header. Deriving it from padding alone missed the 2px
+          // border and let the image letterbox by 4px per axis.
+          const captureBox = shadow(
+            el,
+            '.iframe-wrapper'
+          )!.getBoundingClientRect()
           expect(captureBox.width / captureBox.height).toBeCloseTo(
             PORTRAIT_CAPTURE.width / PORTRAIT_CAPTURE.height,
             2
           )
-          expect(frame.width).toBeLessThan(300)
+          // ...and the frame is the shape of that box plus its furniture, not
+          // the 400px-wide pane it used to span.
+          expect(section.getBoundingClientRect().width).toBeLessThan(300)
+        })
+
+        it('hands the screencast back its own sizing when the mode flips', async () => {
+          const el = await framed()
+          recordingArrives()
+          await settle(el)
+          const section = shadow(el, 'section')!
+
+          // Leave a device-sizing frame in flight, then switch modes before it
+          // runs: `updated()` re-sizes on every flip and the video branch is
+          // synchronous, so an unguarded callback lands after it.
+          window.dispatchEvent(new Event('resize'))
+          shadowAll<HTMLButtonElement>(el, VIEW_BUTTON)[1].click()
+          await settle(el)
+          await new Promise((resolve) => requestAnimationFrame(resolve))
+
+          expect(section.style.width).toBe('100%')
+          expect(section.style.height).toBe('100%')
+        })
+
+        it('keeps the browser frame for a device session that has a url', async () => {
+          // A mobile browser — Appium driving Chrome on Android — reports a
+          // device too, and its url arrives before any DOM batch.
+          const el = await mountBrowser({
+            ...portraitTrace,
+            metadata: { ...deviceMetadata, url: LOGIN_URL }
+          })
+          await settle(el)
+
+          expect(shadowAll(el, DEVICE_CHROME)).toHaveLength(0)
+          expect(shadowAll(el, FRAME_DOT)).toHaveLength(3)
+          // The address bar itself stays empty until a command is selected —
+          // it reads the navigation active at that command, not the metadata.
+          expect(shadowAll(el, URL_AFFORDANCE).length).toBeGreaterThan(0)
         })
 
         it('leaves a trace with no device in the browser frame', async () => {

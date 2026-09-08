@@ -10,13 +10,32 @@ import type { DeviceInfo, ImageSize } from '@wdio/devtools-shared'
 import { deviceLabel } from '@wdio/devtools-shared'
 import { html, type nothing, type TemplateResult } from 'lit'
 
+/**
+ * Padding plus border across one axis. Both come out of the size set on a
+ * border-box element, so a frame sized without the border hands its capture an
+ * area smaller than the one it was fitted for.
+ */
+export function edgeInset(
+  style: CSSStyleDeclaration,
+  from: 'Left' | 'Top',
+  to: 'Right' | 'Bottom'
+): number {
+  const read = (value: string) => parseFloat(value || '0') || 0
+  return (
+    read(style[`padding${from}` as 'paddingLeft']) +
+    read(style[`padding${to}` as 'paddingRight']) +
+    read(style[`border${from}Width` as 'borderLeftWidth']) +
+    read(style[`border${to}Width` as 'borderRightWidth'])
+  )
+}
+
 /** What the frame spends on itself before the capture gets any room. */
 export interface FrameChrome {
   /** Height of the frame's header — furniture above the capture. */
   headerHeight: number
-  /** The frame's own horizontal padding. */
+  /** The frame's own horizontal padding and border. */
   insetX: number
-  /** The frame's own vertical padding. */
+  /** The frame's own vertical padding and border. */
   insetY: number
 }
 

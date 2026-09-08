@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
-import { deviceFrameSize } from '../src/components/browser/device-frame.js'
+import {
+  deviceFrameSize,
+  edgeInset
+} from '../src/components/browser/device-frame.js'
 
 /** The capture from the issue's measurement, and a Pixel 7 for the other shape. */
 const IPHONE = { width: 1170, height: 2532 }
@@ -88,5 +91,54 @@ describe('deviceFrameSize', () => {
     expect(
       deviceFrameSize({ width: CHROME.insetX, height: 900 }, IPHONE, CHROME)
     ).toEqual({ width: CHROME.insetX, height: 900 })
+  })
+})
+
+/**
+ * The section is `box-sizing: border-box` with a 2px border, so the border
+ * comes out of the size set on it exactly as the padding does. Covered here
+ * rather than in the component spec: the harness does not apply the Tailwind
+ * utility that draws that border, so it measures 0px there and cannot tell a
+ * frame that accounts for it from one that does not.
+ */
+describe('edgeInset', () => {
+  /** Only the longhands `edgeInset` reads — a real declaration carries ~340. */
+  const style = (values: Record<string, string>) =>
+    values as unknown as CSSStyleDeclaration
+
+  it('sums padding and border across the axis', () => {
+    const declaration = style({
+      paddingLeft: '8px',
+      paddingRight: '8px',
+      borderLeftWidth: '2px',
+      borderRightWidth: '2px'
+    })
+
+    // 16 of padding + 4 of border. Reading padding alone left the capture area
+    // 4px short per axis and letterboxed it inside its own frame.
+    expect(edgeInset(declaration, 'Left', 'Right')).toBe(20)
+  })
+
+  it('reads the vertical axis from the vertical longhands', () => {
+    const declaration = style({
+      paddingTop: '8px',
+      paddingBottom: '4px',
+      borderTopWidth: '2px',
+      borderBottomWidth: '1px'
+    })
+
+    expect(edgeInset(declaration, 'Top', 'Bottom')).toBe(15)
+  })
+
+  it('treats an absent or non-numeric edge as zero', () => {
+    expect(edgeInset(style({}), 'Left', 'Right')).toBe(0)
+    // A computed border-width reads `medium` when the style is `none`.
+    expect(
+      edgeInset(
+        style({ paddingLeft: '8px', borderLeftWidth: 'medium' }),
+        'Left',
+        'Right'
+      )
+    ).toBe(8)
   })
 })

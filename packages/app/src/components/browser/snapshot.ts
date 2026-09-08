@@ -4,7 +4,11 @@ import { html, nothing } from 'lit'
 import { consume } from '@lit/context'
 import { snapshotStyles } from './snapshot-styles.js'
 import { renderBrowserChrome } from './browser-chrome.js'
-import { deviceFrameSize, renderDeviceChrome } from './device-frame.js'
+import {
+  deviceFrameSize,
+  edgeInset,
+  renderDeviceChrome
+} from './device-frame.js'
 import {
   drawElementOverlay,
   clearElementOverlay,
@@ -184,14 +188,24 @@ export class DevtoolsBrowser extends Element {
 
   /**
    * The device a capture was recorded on, once there is an image to shape the
-   * frame around. Screenshot branch only: a mobile BROWSER session (Appium
-   * driving Chrome on Android) reports a device AND carries a DOM, and that
-   * replay is an iframe laid out at its own viewport — shaping the frame to a
-   * screenshot as well would fight `#sizeSnapshotToViewport` for the same box.
-   * It is also a browser with a real url, so the browser chrome is honest there.
+   * frame around — a mobile BROWSER session (Appium driving Chrome on Android)
+   * reports a device too, and must keep the browser frame. Two conditions
+   * separate them, because either alone is decidable too late:
+   *
+   * - no DOM. That replay is an iframe laid out at its own captured viewport,
+   *   so shaping the frame to a screenshot would fight
+   *   `#sizeSnapshotToViewport` for the same box. It is the same signal
+   *   `#renderViewport` branches on, so the frame can never disagree with what
+   *   is inside it — but mutations arrive in batches, so early in a live run a
+   *   browser session has none yet.
+   * - no url ON THE METADATA. A native session never issues a navigation, so
+   *   it never reports one, while a browser session reports one from its first
+   *   navigation — which lands before any DOM batch and closes that window.
+   *   Deliberately not `#displayUrl`: that is a display concern, resolved from
+   *   the selected command and empty until one is selected.
    */
   get #deviceCapture(): { device: DeviceInfo; size: ImageSize } | null {
-    if (this.mutations?.length) {
+    if (this.mutations?.length || this.metadata?.url) {
       return null
     }
     const device = this.metadata?.device
@@ -226,7 +240,16 @@ export class DevtoolsBrowser extends Element {
   #sizeSectionToDevice() {
     requestAnimationFrame(() => {
       const capture = this.#deviceCapture
-      if (!this.section || !this.header || !capture) {
+      // The mode can flip between scheduling and firing: `updated()` re-sizes
+      // on every view-mode change and the video branch is synchronous, so an
+      // unguarded callback lands AFTER it and pins the screencast inside a
+      // phone-shaped box until the next resize.
+      if (
+        !this.section ||
+        !this.header ||
+        !capture ||
+        this.#viewMode === 'video'
+      ) {
         return
       }
       const hostStyle = getComputedStyle(this)
@@ -246,12 +269,12 @@ export class DevtoolsBrowser extends Element {
         capture.size,
         {
           headerHeight: this.header.getBoundingClientRect().height,
-          insetX:
-            parseFloat(sectionStyle.paddingLeft || '0') +
-            parseFloat(sectionStyle.paddingRight || '0'),
-          insetY:
-            parseFloat(sectionStyle.paddingTop || '0') +
-            parseFloat(sectionStyle.paddingBottom || '0')
+          // Padding AND border: the section is border-box, so both come out of
+          // the width and height set on it. Omitting the 2px border left the
+          // capture area 4px short per axis and letterboxed it inside a frame
+          // that was supposed to be its shape.
+          insetX: edgeInset(sectionStyle, 'Left', 'Right'),
+          insetY: edgeInset(sectionStyle, 'Top', 'Bottom')
         }
       )
       this.section.style.width = `${frame.width}px`
