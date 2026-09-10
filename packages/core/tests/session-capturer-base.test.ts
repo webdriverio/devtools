@@ -309,3 +309,44 @@ describe('failLastAction', () => {
     expect(cap.commandsLog[0]!.error).toBeUndefined()
   })
 })
+
+/** Selenium's own `getCapabilities()` is async, so the answer has to come from
+ *  the capabilities the adapter already published. */
+describe('SessionCapturerBase.isNativeAppSession', () => {
+  const withCapabilities = (capabilities: unknown) => {
+    const capturer = new TestSessionCapturer()
+    capturer.metadata = { capabilities } as never
+    return capturer
+  }
+
+  it('is true for a session that named no browser', () => {
+    expect(
+      withCapabilities({ platformName: 'Android', 'appium:app': '/a.apk' })
+        .isNativeAppSession
+    ).toBe(true)
+  })
+
+  it('is false for a phone running a browser', () => {
+    expect(
+      withCapabilities({ platformName: 'Android', browserName: 'Chrome' })
+        .isNativeAppSession
+    ).toBe(false)
+  })
+
+  it('is false before the adapter has published any metadata', () => {
+    expect(new TestSessionCapturer().isNativeAppSession).toBe(false)
+  })
+
+  it('follows a merged metadata fragment', () => {
+    // The adapters publish through `mergeMetadata`, so the answer has to track
+    // it rather than being read once at construction.
+    const capturer = new TestSessionCapturer()
+    expect(capturer.isNativeAppSession).toBe(false)
+
+    capturer.mergeMetadata({
+      capabilities: { platformName: 'iOS', 'appium:app': '/a.app' }
+    } as never)
+
+    expect(capturer.isNativeAppSession).toBe(true)
+  })
+})
