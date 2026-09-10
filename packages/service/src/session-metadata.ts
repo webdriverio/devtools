@@ -5,13 +5,12 @@
 import logger from '@wdio/logger'
 import {
   deviceFromCapabilities,
+  isNativeAppSession,
   type Metadata,
   type TraceType,
   type Viewport
 } from '@wdio/devtools-shared'
 import type { Capabilities } from '@wdio/types'
-
-import { isNativeAppSession } from './mobile.js'
 
 const log = logger('@wdio/devtools-service')
 
@@ -32,7 +31,7 @@ async function resolveViewport(
   browser: WebdriverIO.Browser
 ): Promise<Viewport | undefined> {
   try {
-    if (isNativeAppSession(browser)) {
+    if (isNativeAppSession(browser.capabilities)) {
       const size = await browser.getWindowSize()
       return size
         ? {

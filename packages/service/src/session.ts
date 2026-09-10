@@ -15,7 +15,8 @@ import {
   rememberElementSelector,
   selectorForCommand
 } from './command-selectors.js'
-import { isAppiumSession, isNativeAppSession } from './mobile.js'
+import { isNativeAppSession } from '@wdio/devtools-shared'
+import { isAppiumSession } from './mobile.js'
 import {
   CAPTURE_PERFORMANCE_SCRIPT,
   LOG_SOURCES,
@@ -186,7 +187,7 @@ export class SessionCapturer extends SessionCapturerBase {
     // Skipped when there is no document to run either script in; a mobile
     // BROWSER session has one, so it keeps both.
     if (
-      !isNativeAppSession(browser) &&
+      !isNativeAppSession(browser.capabilities) &&
       PAGE_TRANSITION_COMMANDS.includes(command)
     ) {
       await Promise.all([
@@ -385,7 +386,7 @@ export class SessionCapturer extends SessionCapturerBase {
     // recovery injection and the url read are all round trips that can only
     // fail. Guarded here rather than at each call site, because two of the four
     // asked and two did not.
-    if (isNativeAppSession(browser)) {
+    if (isNativeAppSession(browser.capabilities)) {
       return
     }
     // No `#isScriptInjected` gate: that flag tracks the preload REGISTRATION,
