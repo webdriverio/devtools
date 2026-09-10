@@ -32,13 +32,46 @@ export function collectorDrainExpression(forceAnchor = false): string {
   return `if (!(${COLLECTOR_READY_EXPRESSION})) { return null; } ${call} return window.wdioTraceCollector.getTraceData();`
 }
 
+/**
+ * Where the collector bundle sits relative to the RESOLVED package entry.
+ *
+ * Two shapes, because the entry is not always the built one. The package's own
+ * `exports` points at `dist/script.js`, so the bundle is its neighbour — but
+ * the repo tsconfig maps `@wdio/devtools-script` to `packages/script/src/
+ * index.ts`, and every resolver that honours those paths lands there instead.
+ * That includes `tsx`/`ts-node`, which is how `wdio run <conf>.ts` loads a
+ * config: reading `script.js` beside the entry then ENOENTs on
+ * `packages/script/src/script.js`, and because the callers only warn, DOM
+ * capture is silently lost for the whole run.
+ */
+export function collectorSourceCandidates(entry: string): string[] {
+  const dir = path.dirname(entry)
+  return [
+    path.join(dir, 'script.js'),
+    path.join(dir, '..', 'dist', 'script.js')
+  ]
+}
+
 /** The collector bundle's raw source. Callers wrap it for their own injection
  *  mechanism — an async IIFE for a `<script>` body, a function declaration for a
  *  BiDi preload script. */
 export async function loadCollectorSource(): Promise<string> {
-  const scriptPath = require.resolve('@wdio/devtools-script')
-  const scriptDir = path.dirname(scriptPath)
-  return fs.readFile(path.join(scriptDir, 'script.js'), 'utf-8')
+  const candidates = collectorSourceCandidates(
+    require.resolve('@wdio/devtools-script')
+  )
+  const failures: string[] = []
+  for (const candidate of candidates) {
+    try {
+      return await fs.readFile(candidate, 'utf-8')
+    } catch (err) {
+      // Not this shape — record it and try the next, so a genuine failure
+      // reports every place that was looked at rather than only the last.
+      failures.push(`${candidate} (${errorMessage(err)})`)
+    }
+  }
+  throw new Error(
+    `collector bundle not found — is @wdio/devtools-script built? Looked at: ${failures.join('; ')}`
+  )
 }
 
 /**
