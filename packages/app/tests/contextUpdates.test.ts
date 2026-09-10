@@ -204,3 +204,71 @@ describe('mergeSessionMetadata', () => {
     expect(Object.keys(state.bySession)).toEqual(['s1'])
   })
 })
+
+/**
+ * The device selects the player's whole layout, and only the WDIO service
+ * derives one before sending. A Selenium, Nightwatch or Python phone run sends
+ * capabilities that say `platformName` and nothing else, so without this
+ * fallback it reached the player as a desktop session.
+ */
+describe('mergeSessionMetadata deriving the device', () => {
+  const merge = (incoming: Record<string, unknown>) =>
+    mergeSessionMetadata(
+      { bySession: {}, currentSessionId: undefined },
+      incoming as never
+    ).active
+
+  it('derives it from capabilities when the adapter sent none', () => {
+    const active = merge({
+      sessionId: 's1',
+      capabilities: {
+        platformName: 'Android',
+        deviceModel: 'Pixel 7',
+        platformVersion: '14'
+      }
+    })
+
+    expect(active.device).toEqual({
+      platform: 'android',
+      name: 'Pixel 7',
+      version: '14'
+    })
+  })
+
+  it('keeps a device the adapter did send', () => {
+    // The service resolves its own, and it may know more than the caps do.
+    const active = merge({
+      sessionId: 's1',
+      device: { platform: 'ios', name: 'iPhone 17', version: '18.1' },
+      capabilities: { platformName: 'iOS' }
+    })
+
+    expect(active.device).toEqual({
+      platform: 'ios',
+      name: 'iPhone 17',
+      version: '18.1'
+    })
+  })
+
+  it('leaves a desktop session without one', () => {
+    expect(
+      merge({ sessionId: 's1', capabilities: { browserName: 'chrome' } }).device
+    ).toBeUndefined()
+  })
+
+  it('derives it once the capabilities arrive in a later message', () => {
+    // Metadata is merged per session across messages, so the derivation has to
+    // read the MERGED bag rather than only what this message carried.
+    const state = mergeSessionMetadata(
+      { bySession: {}, currentSessionId: undefined },
+      { sessionId: 's1' } as never
+    )
+    expect(state.active.device).toBeUndefined()
+
+    const next = mergeSessionMetadata(state, {
+      capabilities: { platformName: 'Android', deviceModel: 'Pixel 7' }
+    } as never)
+
+    expect(next.active.device).toEqual({ platform: 'android', name: 'Pixel 7' })
+  })
+})
