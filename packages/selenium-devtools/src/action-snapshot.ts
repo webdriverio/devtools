@@ -14,28 +14,37 @@ import type { SeleniumDriverLike } from './types.js'
 export function captureActionSnapshot(
   driver: SeleniumDriverLike,
   command: string,
-  timestamp?: number
+  timestamp?: number,
+  native = false
 ): Promise<ActionSnapshot | null> {
   const orig = getDriverOriginals()
+  // The screenshot is the only one of these a native app can serve. The other
+  // three are page reads — two injected scripts plus url and title — and they
+  // fire on EVERY action, so they are the densest source of round trips that
+  // can only fail on a session with no document.
   return coreCapture({
     command,
     timestamp,
     runner: SELENIUM_RUNNER_ID,
-    runScript: (src) =>
-      orig.executeScript
-        ? orig.executeScript(driver, `return (${src})`)
-        : driver.executeScript(`return (${src})`),
     takeScreenshot: () =>
       orig.takeScreenshot
         ? orig.takeScreenshot(driver).catch(() => undefined)
         : Promise.resolve(undefined),
-    getUrl: () =>
-      orig.getCurrentUrl
-        ? orig.getCurrentUrl(driver).catch(() => undefined)
-        : Promise.resolve(undefined),
-    getTitle: () =>
-      orig.getTitle
-        ? orig.getTitle(driver).catch(() => undefined)
-        : Promise.resolve(undefined)
+    ...(native
+      ? {}
+      : {
+          runScript: (src: string) =>
+            orig.executeScript
+              ? orig.executeScript(driver, `return (${src})`)
+              : driver.executeScript(`return (${src})`),
+          getUrl: () =>
+            orig.getCurrentUrl
+              ? orig.getCurrentUrl(driver).catch(() => undefined)
+              : Promise.resolve(undefined),
+          getTitle: () =>
+            orig.getTitle
+              ? orig.getTitle(driver).catch(() => undefined)
+              : Promise.resolve(undefined)
+        })
   })
 }

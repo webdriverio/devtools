@@ -211,7 +211,7 @@ export class SessionCapturer extends SessionCapturerBase {
   async injectScript(): Promise<void> {
     const driver = this.#driver
     const exec = getDriverOriginals().executeScript
-    if (!driver || !exec) {
+    if (!driver || !exec || this.isNativeAppSession) {
       return
     }
     try {
@@ -259,7 +259,11 @@ export class SessionCapturer extends SessionCapturerBase {
   async captureTrace(forceAnchor = false): Promise<void> {
     const driver = this.#driver
     const exec = getDriverOriginals().executeScript
-    if (!driver || !exec) {
+    // A native app has no document, so the drain, its recovery injection and
+    // the url read are round trips that can only fail. Inside the method
+    // rather than at its call sites, which are the live drain, the navigation
+    // hook and teardown — one of them would forget.
+    if (!driver || !exec || this.isNativeAppSession) {
       return
     }
     try {
@@ -347,7 +351,7 @@ export class SessionCapturer extends SessionCapturerBase {
   async reinjectIfNavigated(): Promise<void> {
     const driver = this.#driver
     const exec = getDriverOriginals().executeScript
-    if (!driver || !exec) {
+    if (!driver || !exec || this.isNativeAppSession) {
       return
     }
     try {
