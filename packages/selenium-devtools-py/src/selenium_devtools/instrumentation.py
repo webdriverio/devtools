@@ -24,6 +24,7 @@ from .assert_tracer import ScriptAssertionTracer
 from .capturer import SessionCapturer
 from .cdp_screencast import start_push_screencast
 from .collector_source import reset_cache as reset_collector_cache
+from .device import driver_is_native_app
 from .element_scripts import reset_cache as reset_element_scripts_cache
 from .constants import (
     BIDI_CAPABILITY,
@@ -324,7 +325,7 @@ def _attach_performance(
     adapters can afford. A read that lands too early anyway carries no
     `navigation` entry and is discarded.
     """
-    if row is None:
+    if row is None or driver_is_native_app(driver):
         return
     try:
         payload = _guarded_execute_script(driver)(
@@ -407,8 +408,13 @@ def _capture_action_snapshot(
     Goes through the guarded executor, or each read lands back in this same hook
     and the timeline grows an `executeScript` row beside every action — the bug
     the CDP window-handle read caused, in a path that runs far more often.
+
+    Skipped entirely on a native app: both reads are page script, they run on
+    every action, and neither can do anything but fail there.
     """
     if not _state["trace"] or not _state["a11y"]:
+        return
+    if driver_is_native_app(driver):
         return
     scripts = _state.get("element_scripts")
     if not scripts:
@@ -583,6 +589,31 @@ def _finalize_screencast(
         _log.info("screencast saved: %s", info.get("video_path"))
 
 
+def _driver_window(driver: Any) -> Optional[Viewport]:
+    """The device window, for a session with no page to measure.
+
+    Marked internal for the same reason the page read is guarded: selenium
+    implements this as `getWindowRect`, which routes back through `execute` and
+    would open every native run with a command row of our own making.
+    """
+    _internal.active = True
+    try:
+        size = driver.get_window_size()
+    except Exception as exc:  # noqa: BLE001 — a default frame, not a failed run
+        _log.debug("window size read failed: %s", exc)
+        return None
+    finally:
+        _internal.active = False
+    if not isinstance(size, dict):
+        return None
+    width, height = size.get("width"), size.get("height")
+    if not isinstance(width, int) or not isinstance(height, int):
+        return None
+    if width <= 0 or height <= 0:
+        return None
+    return {"width": width, "height": height}
+
+
 def _viewport(driver: Any) -> Optional[Viewport]:
     """The page's own viewport, for the player's frame geometry.
 
@@ -593,7 +624,13 @@ def _viewport(driver: Any) -> Optional[Viewport]:
 
     Guarded, or the read lands back in the command hook as an `executeScript`
     row at the head of every run.
+
+    A native app has no window to ask, so the driver's own window size is the
+    only answer there — and without it such a run reached the player framed at
+    1280x720, which is a desktop browser's shape rather than a phone's.
     """
+    if driver_is_native_app(driver):
+        return _driver_window(driver)
     run = _guarded_execute_script(driver)
     try:
         size = run("return [window.innerWidth, window.innerHeight]")

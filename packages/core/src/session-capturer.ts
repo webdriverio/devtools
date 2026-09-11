@@ -11,7 +11,7 @@ import type {
   TraceMutation
 } from '@wdio/devtools-shared'
 import { WORKER_WS_QUERY, WS_PATHS, WS_SCOPE } from '@wdio/devtools-shared'
-import { mapCommandToAction } from '@wdio/devtools-shared'
+import { isNativeAppSession, mapCommandToAction } from '@wdio/devtools-shared'
 import { resolveRunId } from './run-id.js'
 import { reattributeDomAnchors } from '@wdio/devtools-trace/trace-mutations'
 import {
@@ -96,6 +96,13 @@ export abstract class SessionCapturerBase {
   mutations: TraceMutation[] = []
   traceLogs: string[] = []
   metadata?: Metadata
+
+  /** Whether this session drove an app rather than a browser. Resolved from
+   *  the published metadata because selenium's own `getCapabilities()` is
+   *  async, and a guard cannot await it where it has to decide. */
+  get isNativeAppSession(): boolean {
+    return isNativeAppSession(this.metadata?.capabilities)
+  }
 
   // ── Construction ────────────────────────────────────────────────────────
   constructor(opts: SessionCapturerOptions = {}) {

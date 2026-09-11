@@ -2,6 +2,7 @@ import { afterEach, describe, it, expect, vi, beforeEach } from 'vitest'
 import { loadInjectableScript } from '@wdio/devtools-core'
 import { SessionCapturer } from '../src/session.js'
 import { getDriverOriginals } from '../src/driverPatcher.js'
+import { buildDriverMetadata } from '../src/helpers/driverMetadata.js'
 
 // `@wdio/devtools-script` is a workspace sibling that may not be built
 // yet in a CI test job that runs before the script-package build step.
@@ -358,5 +359,104 @@ describe('selenium SessionCapturer.setDriver', () => {
     // No direct getter exposed; verify via takeScreenshot path falling through
     // (driver-yes, original-no → null without throw)
     return cap.takeScreenshot().then((s) => expect(s).toBeNull())
+  })
+})
+
+/**
+ * A native app has no document, so every page-side call is a round trip to the
+ * device that can only fail. The predicate reads the capabilities the adapter
+ * already published as `metadata`, since selenium's own `getCapabilities()` is
+ * async and a guard cannot await it.
+ */
+describe('selenium SessionCapturer on a native session', () => {
+  const NATIVE = {
+    platformName: 'Android',
+    'appium:automationName': 'UiAutomator2',
+    'appium:app': '/app.apk'
+  }
+  const MOBILE_WEB = {
+    platformName: 'Android',
+    browserName: 'Chrome',
+    'appium:automationName': 'Chrome'
+  }
+
+  let restore: (() => void) | undefined
+  let scripts: string[]
+
+  beforeEach(() => {
+    scripts = []
+    const originals = getDriverOriginals()
+    const prev = originals.executeScript
+    originals.executeScript = (async (_driver: unknown, script: unknown) => {
+      scripts.push(String(script))
+      return null
+    }) as (typeof originals)['executeScript']
+    restore = () => {
+      if (prev) {
+        originals.executeScript = prev
+      } else {
+        delete originals.executeScript
+      }
+    }
+  })
+
+  afterEach(() => {
+    restore?.()
+    restore = undefined
+  })
+
+  const capturerWith = (capabilities: Record<string, unknown>) => {
+    const cap = makeCapturer({})
+    cap.metadata = { capabilities } as never
+    return cap
+  }
+
+  it('reports itself native from the published capabilities', () => {
+    expect(capturerWith(NATIVE).isNativeAppSession).toBe(true)
+    expect(capturerWith(MOBILE_WEB).isNativeAppSession).toBe(false)
+  })
+
+  it('reads the bag the adapter actually publishes', async () => {
+    // Not a hand-written object: `buildDriverMetadata` is what fills
+    // `metadata`, and it receives selenium's `Capabilities` — whose data is in
+    // a private Map. Assigning a plain bag here proved nothing about that, and
+    // every guard in this file was dead against a real driver.
+    const { metadata } = await buildDriverMetadata({
+      driver: {
+        getSession: () => Promise.resolve({ getId: () => 'sess-1' }),
+        getCapabilities: () =>
+          Promise.resolve({
+            keys: () => new Map(Object.entries(NATIVE)).keys(),
+            get: (key: string) => (NATIVE as Record<string, unknown>)[key]
+          })
+      } as never,
+      driverReadyTs: Date.now(),
+      detectedRunner: 'mocha'
+    })
+    const cap = makeCapturer({})
+    cap.metadata = metadata as never
+
+    expect(cap.isNativeAppSession).toBe(true)
+  })
+
+  it('makes no page call from captureTrace', async () => {
+    await capturerWith(NATIVE).captureTrace(true)
+    expect(scripts).toEqual([])
+  })
+
+  it('makes none from injectScript or reinjectIfNavigated', async () => {
+    const cap = capturerWith(NATIVE)
+
+    await cap.injectScript()
+    await cap.reinjectIfNavigated()
+
+    expect(scripts).toEqual([])
+  })
+
+  it('still drains a phone running a browser', async () => {
+    // Its recovery injection is the only collector such a session gets, so a
+    // guard keyed on the device rather than the document silences it entirely.
+    await capturerWith(MOBILE_WEB).captureTrace(true)
+    expect(scripts.length).toBeGreaterThan(0)
   })
 })

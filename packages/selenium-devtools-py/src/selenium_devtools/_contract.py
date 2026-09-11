@@ -21,6 +21,7 @@ COLLECTOR_PATH = "/api/collector"
 ELEMENT_SCRIPTS_PATH = "/api/element-scripts"
 RUNNER_ID = "selenium-webdriver"
 TEST_RUNNER_IDS = frozenset(['cucumber', 'jasmine', 'mocha', 'nightwatch', 'nightwatch-cucumber', 'selenium-webdriver'])
+NATIVE_PLATFORMS = frozenset(['android', 'ios'])
 
 WORKER_QUERY_RUN_ID = "runId"
 ENV_RUN_ID = "DEVTOOLS_RUN_ID"

@@ -16,15 +16,25 @@ export function captureActionSnapshot(
   browser: NightwatchBrowser,
   command: string,
   timestamp?: number,
-  runner?: TestRunnerId
+  runner?: TestRunnerId,
+  native = false
 ): Promise<ActionSnapshot | null> {
+  // The screenshot is the only one of these a native app can serve. The rest
+  // are page reads — an injected script plus url and title — and they fire on
+  // EVERY action, so they are the densest source of round trips that can only
+  // fail on a session with no document.
   return coreCapture({
     command,
     timestamp,
     runner,
-    runScript: (src) => webdriverExecute(browser, `return (${src})`),
     takeScreenshot: () => webdriverGet<string>(browser, 'screenshot'),
-    getUrl: () => webdriverGet<string>(browser, 'url'),
-    getTitle: () => webdriverGet<string>(browser, 'title')
+    ...(native
+      ? {}
+      : {
+          runScript: (src: string) =>
+            webdriverExecute(browser, `return (${src})`),
+          getUrl: () => webdriverGet<string>(browser, 'url'),
+          getTitle: () => webdriverGet<string>(browser, 'title')
+        })
   })
 }

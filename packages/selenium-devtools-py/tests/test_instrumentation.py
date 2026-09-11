@@ -1162,6 +1162,58 @@ class TestViewportMetadata(unittest.TestCase):
         [meta] = [d for s, d in tx.sent if s == "metadata"]
         self.assertNotIn("viewport", meta)
 
+    def test_a_native_app_is_measured_off_the_driver(self):
+        """A native app has no `window` to read, so an unguarded probe left the
+        run with no viewport and the player framed a phone at 1280x720."""
+
+        class NativeDriver(ViewportDriver):
+            def __init__(self):
+                super().__init__()
+                self.capabilities = {
+                    "platformName": "Android",
+                    "appium:app": "/app.apk",
+                }
+                self.window_reads = 0
+
+            def get_window_size(self):
+                self.window_reads += 1
+                return {"width": 1080, "height": 2219}
+
+        instrumentation.uninstall()
+        tx = FakeTransport()
+        instrumentation.install(SessionCapturer(tx), NativeDriver)
+        driver = NativeDriver()
+        driver.execute("get", {"url": "app://start"})
+
+        [meta] = [d for s, d in tx.sent if s == "metadata"]
+        self.assertEqual(meta["viewport"], {"width": 1080, "height": 2219})
+        self.assertEqual(driver.window_reads, 1)
+        # And never asked the page, which is the round trip that can only fail.
+        self.assertFalse(any("innerWidth" in s for s in driver.scripts))
+
+    def test_a_phone_running_a_browser_is_still_measured_off_the_page(self):
+        """The same phone with a browserName has a real page, and its viewport
+        is the page's own — not the device window."""
+
+        class MobileWebDriver(ViewportDriver):
+            def __init__(self):
+                super().__init__()
+                self.capabilities = {
+                    "platformName": "Android",
+                    "browserName": "Chrome",
+                }
+
+            def get_window_size(self):
+                raise AssertionError("should not read the device window")
+
+        instrumentation.uninstall()
+        tx = FakeTransport()
+        instrumentation.install(SessionCapturer(tx), MobileWebDriver)
+        MobileWebDriver().execute("get", {"url": "https://x/"})
+
+        [meta] = [d for s, d in tx.sent if s == "metadata"]
+        self.assertEqual(meta["viewport"], {"width": 1280, "height": 1024})
+
     def test_a_nonsense_size_is_refused(self):
         for bad in ([0, 800], [1280, -1], ["1280", 800], [1280], "1280x800"):
             with self.subTest(size=bad):

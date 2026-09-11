@@ -160,7 +160,8 @@ export class SessionCapturer extends SessionCapturerBase {
         this.#browser,
         command,
         timestamp,
-        this.runner
+        this.runner,
+        this.isNativeAppSession
       ).then((snap) => {
         if (snap) {
           upsertRichestSnapshot(this.actionSnapshots, snap)
@@ -173,6 +174,11 @@ export class SessionCapturer extends SessionCapturerBase {
     commandLogEntry: CommandLog & { _id?: number },
     args: unknown[]
   ) {
+    // Page script, and the 500 ms settle below would be spent to reach a
+    // document that does not exist.
+    if (this.isNativeAppSession) {
+      return
+    }
     await new Promise((resolve) => setTimeout(resolve, 500))
     const raw = await this.#browser!.execute(CAPTURE_PERFORMANCE_SCRIPT)
     const payload = unwrapDriverValue<CapturedPerformancePayload | undefined>(
@@ -300,6 +306,11 @@ export class SessionCapturer extends SessionCapturerBase {
    * is idempotent per document, so an already-anchored page costs one drain.
    */
   async anchorAfterNavigation(browser: NightwatchBrowser): Promise<void> {
+    // Polls the page for its own document identity, so there is nothing to
+    // poll and nothing to anchor without one.
+    if (this.isNativeAppSession) {
+      return
+    }
     const before = this.lastDocumentOrigin
     const replaced = await pollUntilReady(
       async () => {
@@ -368,6 +379,9 @@ export class SessionCapturer extends SessionCapturerBase {
    * Inject the WDIO devtools script into the browser page
    */
   async injectScript(browser: NightwatchBrowser) {
+    if (this.isNativeAppSession) {
+      return
+    }
     try {
       // Injecting over a live collector replaces `window.wdioTraceCollector`
       // with a fresh instance and DISCARDS whatever it had buffered — including
@@ -494,6 +508,12 @@ export class SessionCapturer extends SessionCapturerBase {
     forceAnchor = false,
     anchorTimestamp?: number
   ) {
+    // A native app has no document to drain. Inside the method, because four
+    // call sites reach it — the command hook, the navigation proxy, the
+    // cucumber pre-quit hook and finalize.
+    if (this.isNativeAppSession) {
+      return
+    }
     // Performance logs only accumulate, so they lose nothing by waiting, while
     // the drain is racing the page it reads from (`drainOutgoingPage`).
     await this.drainCollector(browser, forceAnchor, anchorTimestamp)

@@ -47,13 +47,52 @@ function capString(
   return typeof value === 'string' && value.trim() ? value : undefined
 }
 
+/** A capability read from the bag or from one level of vendor options. A device
+ *  cloud commonly states `platformName` and `browserName` only inside its own
+ *  bag (`bstack:options`), which is why WDIO's mobile detection reads there
+ *  too; scanning one level needs no list of vendors to keep current.
+ *
+ *  Every caller passes MATCHED capabilities — what the session answered with —
+ *  so a request-shaped bag's `firstMatch` array is deliberately not scanned: the
+ *  server merges `alwaysMatch` with the ONE entry it chose, and reading a
+ *  browser out of any entry would claim one the session never got. */
+function deepCapString(
+  caps: Record<string, unknown>,
+  key: string
+): string | undefined {
+  const own = capString(caps, key)
+  if (own) {
+    return own
+  }
+  for (const nested of Object.values(caps)) {
+    if (nested && typeof nested === 'object' && !Array.isArray(nested)) {
+      const value = capString(nested as Record<string, unknown>, key)
+      if (value) {
+        return value
+      }
+    }
+  }
+  return undefined
+}
+
+/** Whether the capabilities name an Appium automation. Separate from naming a
+ *  DEVICE: a Mac2, WinAppDriver or tvOS session has no document either, and
+ *  `NATIVE_PLATFORMS` deliberately excludes them because that list chooses a
+ *  device frame, which is a display concern. */
+function namesAnAutomation(caps: Record<string, unknown>): boolean {
+  return Boolean(
+    deepCapString(caps, 'appium:automationName') ??
+    deepCapString(caps, 'automationName')
+  )
+}
+
 function firstCapString(
   caps: Record<string, unknown>,
   keys: string[],
   reject: (value: string) => boolean = () => false
 ): string | undefined {
   for (const key of keys) {
-    const value = capString(caps, key)
+    const value = deepCapString(caps, key)
     if (value && !reject(value)) {
       return value
     }
@@ -74,11 +113,11 @@ export function deviceFromCapabilities(
     return undefined
   }
   const caps = capabilities as Record<string, unknown>
-  const platform = capString(caps, 'platformName')?.toLowerCase()
+  const platform = deepCapString(caps, 'platformName')?.toLowerCase()
   if (!isNativePlatform(platform)) {
     return undefined
   }
-  const serials = SERIAL_KEYS.map((key) => capString(caps, key)).filter(
+  const serials = SERIAL_KEYS.map((key) => deepCapString(caps, key)).filter(
     (value): value is string => value !== undefined
   )
   const name = firstCapString(caps, DEVICE_NAME_KEYS, (value) =>
@@ -90,6 +129,42 @@ export function deviceFromCapabilities(
     ...(name ? { name } : {}),
     ...(version ? { version } : {})
   }
+}
+
+/**
+ * Whether a session had no web document to run page script in — it drove an
+ * app rather than a browser. The question every adapter has to answer before a
+ * DOM drain, a page-script probe or a viewport read, since each of those is a
+ * round trip that can only fail on a native session.
+ *
+ * A device alone does not answer it: an Appium session driving Chrome or Safari
+ * runs on a phone and has a real page. So the browser it names is the
+ * discriminator — mobile web must state one, a native app states none.
+ *
+ * Capabilities rather than a driver flag, because capabilities are the one
+ * thing all four adapters have.
+ *
+ * A device is not required — an Appium automation is enough. Answering "web"
+ * for a document-less session is NOT the cheap direction: the service's
+ * post-action settle reads a page tag, treats the failure as a navigation, and
+ * then polls a probe that can only fail for its full 8 s timeout, per action.
+ * So a Mac2 or tvOS session, which `NATIVE_PLATFORMS` excludes because that
+ * list chooses a device frame, has to answer true here too.
+ *
+ * Residual: a hybrid app switched into a webview context does have a document,
+ * and no capability can say so — only a runtime context read knows that. And a
+ * bag this cannot read at all answers false, which is the expensive direction;
+ * in practice every adapter reads capabilities straight off its own session.
+ */
+export function isNativeAppSession(capabilities: unknown): boolean {
+  if (!capabilities || typeof capabilities !== 'object') {
+    return false
+  }
+  const caps = capabilities as Record<string, unknown>
+  if (!deviceFromCapabilities(caps) && !namesAnAutomation(caps)) {
+    return false
+  }
+  return !deepCapString(caps, 'browserName')
 }
 
 /**

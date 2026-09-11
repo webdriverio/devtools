@@ -9,6 +9,8 @@ import {
   handleOnCommand,
   type OnCommandCtx
 } from '../src/helpers/commandPostActions.js'
+import { captureActionSnapshot } from '../src/action-snapshot.js'
+import { getDriverOriginals } from '../src/driverPatcher.js'
 import { RetryTracker } from '@wdio/devtools-core'
 import type { ActionSnapshot } from '@wdio/devtools-shared'
 import type { CapturedCommand, SeleniumDriverLike } from '../src/types.js'
@@ -129,6 +131,66 @@ describe('selenium action-snapshot locator dialect', () => {
     expect(scripts).not.toHaveLength(0)
     for (const src of scripts) {
       expect(src).not.toContain("tag + '*=' + text")
+    }
+  })
+})
+
+/**
+ * The per-action snapshot is the densest page-script path there is: two
+ * injected scripts plus url and title, on every action. On a session with no
+ * document all four can only fail, and the screenshot is the one probe a
+ * native app still serves.
+ *
+ * Stubs the patcher's `originals` bag, because that is the path the adapter
+ * takes whenever anything has been patched — a plain fake driver's own methods
+ * are only reached when the bag is empty.
+ */
+describe('the per-action snapshot on a native session', () => {
+  const probes = () => {
+    const originals = getDriverOriginals()
+    const before = { ...originals }
+    const calls = {
+      executeScript: vi.fn().mockResolvedValue([]),
+      takeScreenshot: vi.fn().mockResolvedValue('AA'),
+      getCurrentUrl: vi.fn().mockResolvedValue('http://x/'),
+      getTitle: vi.fn().mockResolvedValue('X')
+    }
+    Object.assign(originals, calls)
+    return {
+      calls,
+      restore: () => {
+        for (const key of Object.keys(calls)) {
+          delete (originals as Record<string, unknown>)[key]
+        }
+        Object.assign(originals, before)
+      }
+    }
+  }
+
+  it('takes the screenshot and makes no page read', async () => {
+    const { calls, restore } = probes()
+    try {
+      const snap = await captureActionSnapshot(fakeDriver(), 'click', 1, true)
+
+      expect(calls.takeScreenshot).toHaveBeenCalled()
+      expect(calls.executeScript).not.toHaveBeenCalled()
+      expect(calls.getCurrentUrl).not.toHaveBeenCalled()
+      expect(calls.getTitle).not.toHaveBeenCalled()
+      expect(snap?.screenshot).toBe('AA')
+    } finally {
+      restore()
+    }
+  })
+
+  it('reads the page for a session that has one', async () => {
+    const { calls, restore } = probes()
+    try {
+      await captureActionSnapshot(fakeDriver(), 'click', 1, false)
+
+      expect(calls.executeScript).toHaveBeenCalled()
+      expect(calls.getCurrentUrl).toHaveBeenCalled()
+    } finally {
+      restore()
     }
   })
 })
