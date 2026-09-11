@@ -45,8 +45,8 @@
     "@wdio/devtools-core": "workspace:^",
     "@wdio/globals": "9.29.1",
     "tsup": "^8.5.1",
-    "typescript": "6.0.3",
-    "vitest": "^4.0.16"
+    "typescript": "7.0.2",
+    "vitest": "^5.0.0"
   },
   "peerDependencies": {
     "webdriverio": "^9.0.0"

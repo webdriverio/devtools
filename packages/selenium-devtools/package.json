@@ -68,13 +68,13 @@
     "@wdio/devtools-shared": "workspace:^",
     "allure-js-commons": "^3.0.0",
     "allure-mocha": "^3.0.0",
-    "chromedriver": "^151.0.5",
+    "chromedriver": "^152.0.3",
     "jest": "^30.4.2",
-    "mocha": "^11.7.6",
+    "mocha": "^12.0.0",
     "selenium-webdriver": "^4.44.0",
     "tsup": "^8.5.1",
-    "typescript": "^6.0.3",
-    "vitest": "^4.1.8"
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.0"
   },
   "peerDependencies": {
     "allure-js-commons": "^3.0.0",
