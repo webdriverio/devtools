@@ -82,7 +82,7 @@ function deepCapString(
 function namesAnAutomation(caps: Record<string, unknown>): boolean {
   return Boolean(
     deepCapString(caps, 'appium:automationName') ??
-      deepCapString(caps, 'automationName')
+    deepCapString(caps, 'automationName')
   )
 }
 
