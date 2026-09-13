@@ -6,7 +6,11 @@ import type {
   TraceActionGroupNode
 } from '@wdio/devtools-shared'
 import { parseTraceZip } from '../src/trace-reader.js'
-import { buildSources, stackToCallSource } from '../src/trace-reader-utils.js'
+import {
+  buildSources,
+  nearestFrame,
+  stackToCallSource
+} from '../src/trace-reader-utils.js'
 import type { BeforeEvent } from '../src/trace-reader-types.js'
 
 function allGroups(children: TraceActionChild[]): TraceActionGroupNode[] {
@@ -856,5 +860,28 @@ describe('glued callSource recovery from older zips', () => {
       [`resources/src@${sha1}.txt`]: strToU8('glued source')
     })
     expect(sources).toEqual({ [clean]: 'glued source' })
+  })
+})
+
+describe('nearestFrame', () => {
+  const frame = (timestamp: number) => ({ timestamp, screenshot: 'x' })
+
+  it('shows a row the state it observed, not the one its successor produced', () => {
+    // One capture per action means a row without one of its own (an assert row,
+    // an internal command) sits BETWEEN two captures. The later one is the
+    // successor's result, so the earlier is the state this row actually saw.
+    const frames = [frame(100), frame(300)]
+    expect(nearestFrame(frames, 220)).toEqual(frame(100))
+    expect(nearestFrame(frames, 260)).toEqual(frame(100))
+  })
+
+  it('takes the next frame when nothing precedes the row', () => {
+    expect(nearestFrame([frame(300)], 220)).toEqual(frame(300))
+  })
+
+  it('prefers the frame at the row own timestamp', () => {
+    const frames = [frame(100), frame(300)]
+    expect(nearestFrame(frames, 300)).toEqual(frame(300))
+    expect(nearestFrame(frames, 100)).toEqual(frame(100))
   })
 })

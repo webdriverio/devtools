@@ -38,7 +38,7 @@ const pushActionSnapshotAt = vi.hoisted(() =>
 vi.mock('../src/action-snapshot.js', () => ({
   pushActionSnapshotAt,
   captureActionSnapshot: vi.fn().mockResolvedValue(null),
-  captureActionResult: vi.fn().mockResolvedValue(undefined)
+  settleAfterLastAction: vi.fn().mockResolvedValue(undefined)
 }))
 
 import DevToolsHookService from '../src/index.js'

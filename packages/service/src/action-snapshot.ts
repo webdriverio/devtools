@@ -10,12 +10,10 @@
 
 import {
   captureActionSnapshot as coreCapture,
-  mapCommandToAction,
   upsertRichestSnapshot
 } from '@wdio/devtools-core'
 import type { ActionSnapshot } from '@wdio/devtools-shared'
 import { isNativeAppSession, mobilePlatform } from './mobile.js'
-import { INTERNAL_COMMANDS } from './constants.js'
 import { wdioRunnerId } from './wdio-runner-id.js'
 
 function reviveScript(src: string): () => unknown {
@@ -25,74 +23,65 @@ function reviveScript(src: string): () => unknown {
   return new Function(`return (${src})`) as () => unknown
 }
 
-/**
- * After a mapped action, wait for the resulting page to settle before the
- * post-action screenshot. readyState alone is unreliable — right after a click
- * the OLD document still reports 'complete'. beforeCommand tags the document;
- * if the tag is gone the action navigated, so we wait for the NEW document to
- * finish loading AND render content before the destination is screenshotted.
- */
-export async function waitForActionResult(
-  browser: WebdriverIO.Browser
-): Promise<void> {
-  const navigated = await browser
-    .execute(
-      () => !(window as Window & { __wdioSnapMark?: boolean }).__wdioSnapMark
-    )
-    .catch(() => true)
-  if (!navigated) {
-    return
-  }
-  await browser
-    .waitUntil(
-      async () =>
-        (await browser
-          .execute(
-            () =>
-              document.readyState === 'complete' &&
-              !!document.body &&
-              document.body.childElementCount > 0
-          )
-          .catch(() => false)) === true,
-      { timeout: 8000, interval: 150 }
-    )
-    .catch(() => undefined)
-  // Headless renderers can return a blank shot right after load; let it paint.
-  await browser.pause(250).catch(() => undefined)
-}
+/** Bound on the end-of-test wait for a document the last action navigated to. */
+const FINAL_SETTLE_TIMEOUT_MS = 8000
+/** Time to let a paint land, so the final capture is not a transitional frame —
+ *  measured on Appium, where a mid-paint screenshot runs 359-476 KB against a
+ *  settled 1.87 MB. */
+const FINAL_SETTLE_PAUSE_MS = 250
 
-/** Post-action capture: settle the resulting page, screenshot it, and push the
- *  snapshot stamped at the latest logged action. No-op for internal/non-mapped
- *  commands. Skipped by the caller outside trace mode. */
-export async function captureActionResult(
+/**
+ * Settle the page after the LAST action, before its capture. Every other
+ * capture is taken in `beforeCommand`, at a moment the driver is idle and the
+ * previous action's effect has had the test's own gap to land; the last action
+ * has no successor, so this is the one place a settle earns its cost.
+ *
+ * `navigated` says the drain immediately before this brought a document the
+ * session had not seen — the only condition under which `readyState` is worth
+ * asking about. Ungated it is unreliable: right after a click the OUTGOING
+ * document already reports 'complete', so a blind poll returns instantly and
+ * captures the page the test just left. Gated, the document it describes is the
+ * incoming one. Never throws.
+ */
+export async function settleAfterLastAction(
   browser: WebdriverIO.Browser,
-  command: string,
-  actionSnapshots: ActionSnapshot[],
-  stampTimestamp: () => number
+  navigated: boolean
 ): Promise<void> {
-  if (!mapCommandToAction(command) || INTERNAL_COMMANDS.includes(command)) {
-    return
-  }
-  // Keyed on having a document, matching `#markDocument`, which writes the tag
-  // this reads — split, a session tags a document nothing settles on.
-  if (!isNativeAppSession(browser)) {
-    await waitForActionResult(browser)
-  }
-  // Stamped before the capture, not after: a snapshot probe can never enter
-  // commandsLog (beforeCommand requires an empty command stack), so the latest
-  // logged action is the same either way — and reading it up front keeps the
-  // stamp a capture input rather than a post-hoc mutation.
-  const snap = await captureActionSnapshot(browser, command, stampTimestamp())
-  if (snap) {
-    upsertRichestSnapshot(actionSnapshots, snap)
+  // A test double or a driver without `pause`/`waitUntil` must not fail a
+  // capture that has nothing to do with it, so the whole settle is best-effort.
+  try {
+    if (isNativeAppSession(browser)) {
+      await browser.pause(FINAL_SETTLE_PAUSE_MS)
+      return
+    }
+    // Not navigated: the app has been at rest since the last action, so the
+    // test's own teardown is the gap that lets the paint land. Waiting costs
+    // every test for nothing.
+    if (!navigated) {
+      return
+    }
+    // Caught separately from the outer handler: a slow load that blows the
+    // timeout still leaves a page mid-paint, and that is exactly the frame the
+    // pause exists to avoid capturing.
+    await browser
+      .waitUntil(
+        async () =>
+          (await browser
+            .execute(() => document.readyState === 'complete')
+            .catch(() => false)) === true,
+        { timeout: FINAL_SETTLE_TIMEOUT_MS, interval: 150 }
+      )
+      .catch(() => undefined)
+    await browser.pause(FINAL_SETTLE_PAUSE_MS)
+  } catch {
+    // The capture is worth taking regardless of why the settle could not run.
   }
 }
 
 /** Capture a DOM snapshot for a synthesized action row (e.g. an `expect.*`
  *  assertion) and push it stamped at the row's OWN timestamp — the trace
  *  player's Snapshot tab claims it by timestamp the same way it claims a
- *  regular command's post-action snapshot (see FrameSnapshotIndex.claimAfter).
- *  Mirrors the tail of `captureActionResult` for a command with no page-settle. */
+ *  command's own snapshot (see FrameSnapshotIndex.claimAfter). */
 export async function pushActionSnapshotAt(
   browser: WebdriverIO.Browser,
   command: string,
