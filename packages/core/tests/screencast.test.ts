@@ -54,6 +54,32 @@ describe('ScreencastRecorderBase — polling path', () => {
     expect(throwR.isRecording).toBe(false)
   })
 
+  it('does not arm a loop that a stop() during the first shot has cancelled', async () => {
+    vi.useFakeTimers()
+    let release: ((value: string) => void) | undefined
+    class SlowFirst extends TestRecorder {
+      protected override takeScreenshot(): Promise<string | null> {
+        this.shotsTaken++
+        return new Promise((resolve) => {
+          release = resolve
+        })
+      }
+    }
+    const r = new SlowFirst({ pollIntervalMs: 50 })
+    const starting = r.start({ name: 'driver' })
+    // Nothing is armed yet and `isRecording` is still false, so this stop() has
+    // no timer to clear — without the generation it would return as a no-op and
+    // the interval would arm underneath it.
+    await r.stop()
+    release?.('late-shot')
+    await starting
+    await vi.advanceTimersByTimeAsync(500)
+
+    expect(r.isRecording).toBe(false)
+    expect(r.bufferLength).toBe(0)
+    vi.useRealTimers()
+  })
+
   it('captures multiple frames at the configured interval', async () => {
     vi.useFakeTimers()
     const r = new TestRecorder({ pollIntervalMs: 50 })
@@ -139,6 +165,113 @@ describe('ScreencastRecorderBase — input-dispatch gate', () => {
     } finally {
       close()
     }
+    await r.stop()
+    vi.useRealTimers()
+  })
+})
+
+describe('ScreencastRecorderBase — in-flight latch', () => {
+  it('keeps at most one screenshot outstanding when a shot outruns the interval', async () => {
+    vi.useFakeTimers()
+    let shots = 0
+    class SlowRecorder extends TestRecorder {
+      protected override takeScreenshot(): Promise<string | null> {
+        shots++
+        // The first shot (before the interval starts) resolves, so recording
+        // begins; every later one stays in flight, standing in for a native
+        // session's ~1.2 s screenshot against a 200 ms interval. setInterval
+        // does not wait, so without the latch ten ticks stack ten requests that
+        // a serialised driver then serves ahead of the test's own commands.
+        return shots === 1 ? Promise.resolve('initial') : new Promise(() => {})
+      }
+    }
+    const r = new SlowRecorder({ pollIntervalMs: 50 })
+    await r.start({ name: 'driver' })
+    expect(shots).toBe(1)
+
+    await vi.advanceTimersByTimeAsync(500) // 10 ticks
+    expect(shots).toBe(2) // one outstanding; the other nine dropped
+
+    await r.stop()
+    vi.useRealTimers()
+  })
+
+  it('restarts polling without waiting for a shot orphaned by stop()', async () => {
+    vi.useFakeTimers()
+    let hanging = true
+    let shots = 0
+    class Orphaned extends TestRecorder {
+      protected override takeScreenshot(): Promise<string | null> {
+        shots++
+        return hanging && shots > 1
+          ? new Promise(() => {})
+          : Promise.resolve(`f-${shots}`)
+      }
+    }
+    const r = new Orphaned({ pollIntervalMs: 50 })
+    await r.start({ name: 'driver' }) // shot 1 resolves
+    await vi.advanceTimersByTimeAsync(50) // shot 2 hangs
+    expect(shots).toBe(2)
+
+    await r.stop() // shot 2 is still outstanding
+    hanging = false
+    await r.start({ name: 'driver' }) // shot 3 resolves, recording resumes
+    const started = r.bufferLength
+    await vi.advanceTimersByTimeAsync(150)
+
+    // The latch has to clear with the timer, or the restarted loop drops every
+    // tick until the orphan from the previous recording settles.
+    expect(r.bufferLength).toBeGreaterThan(started)
+    await r.stop()
+    vi.useRealTimers()
+  })
+
+  it('discards a shot that outlived the loop it was issued from', async () => {
+    vi.useFakeTimers()
+    let release: ((value: string) => void) | undefined
+    class Orphan extends TestRecorder {
+      protected override takeScreenshot(): Promise<string | null> {
+        this.shotsTaken++
+        return this.shotsTaken === 1
+          ? Promise.resolve('initial')
+          : new Promise((resolve) => {
+              release = resolve
+            })
+      }
+    }
+    const r = new Orphan({ pollIntervalMs: 50 })
+    await r.start({ name: 'driver' })
+    await vi.advanceTimersByTimeAsync(50) // tick → its shot hangs
+    expect(r.bufferLength).toBe(1)
+
+    await r.stop()
+    release?.('late-frame')
+    await vi.advanceTimersByTimeAsync(60)
+
+    // The frame belongs to the recording that ended — appending it would put a
+    // post-stop screenshot into the export.
+    expect(r.bufferLength).toBe(1)
+    vi.useRealTimers()
+  })
+
+  it('releases the latch when a shot settles, so polling continues', async () => {
+    vi.useFakeTimers()
+    class Bumpy extends TestRecorder {
+      protected override async takeScreenshot(): Promise<string | null> {
+        this.shotsTaken++
+        if (this.shotsTaken === 2) {
+          await new Promise((resolve) => setTimeout(resolve, 300))
+        }
+        return `f-${this.shotsTaken}`
+      }
+    }
+    const r = new Bumpy({ pollIntervalMs: 50 })
+    await r.start({ name: 'driver' })
+    const initial = r.bufferLength
+    await vi.advanceTimersByTimeAsync(50) // tick → slow shot starts
+    await vi.advanceTimersByTimeAsync(300) // slow shot settles, ticks resume
+    await vi.advanceTimersByTimeAsync(200)
+    expect(r.bufferLength).toBeGreaterThan(initial + 1)
     await r.stop()
     vi.useRealTimers()
   })

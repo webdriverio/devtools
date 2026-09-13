@@ -59,10 +59,13 @@ vi.mock('../src/session.js', () => ({
   })
 }))
 
+// `pushActionSnapshotAt` is imported by the assertion tracker, which this file
+// reaches through the service — leave it out and a test that drives a failing
+// matcher calls undefined.
 vi.mock('../src/action-snapshot.js', () => ({
   captureActionSnapshot: vi.fn().mockResolvedValue(null),
-  captureActionResult: vi.fn().mockResolvedValue(undefined),
-  waitForActionResult: vi.fn().mockResolvedValue(undefined)
+  pushActionSnapshotAt: vi.fn().mockResolvedValue(undefined),
+  settleAfterLastAction: vi.fn().mockResolvedValue(undefined)
 }))
 
 vi.mock('@wdio/devtools-core', async (importOriginal) => {

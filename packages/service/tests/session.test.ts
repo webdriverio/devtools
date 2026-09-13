@@ -103,8 +103,9 @@ describe('SessionCapturer', () => {
       expect(capturer.commandsLog[0].screenshot).toBe('native-shot')
     })
 
-    // `captureActionResult` already screenshots the same command in trace mode;
-    // two Appium round trips at ~1.2s each is the cost #351 exists to remove.
+    // The per-action pre-capture already screenshots the same command in trace
+    // mode; two Appium round trips at ~1.2s each is the cost #351 exists to
+    // remove.
     it('skips one for a native session in trace mode', async () => {
       const capturer = new SessionCapturer()
       capturer.traceMode = 'trace'
