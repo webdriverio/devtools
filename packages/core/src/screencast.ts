@@ -22,6 +22,11 @@ export abstract class ScreencastRecorderBase<TDriver = unknown> {
   protected options: Required<ScreencastOptions>
   protected driver?: TDriver
   #pollTimer: ReturnType<typeof setInterval> | undefined
+  #pollInFlight = false
+  /** Bumped by start and stop alike. A shot that outlives its loop compares
+   *  against this: its frame belongs to the old recording, and the latch it
+   *  holds is not the successor's to clear. */
+  #pollGeneration = 0
   #isRecording = false
   #cdpActive = false
   #startIndex = 0
@@ -41,14 +46,22 @@ export abstract class ScreencastRecorderBase<TDriver = unknown> {
     if (this.#isRecording) {
       return
     }
+    // Claimed before the first await, because a stop() arriving during any of
+    // them has nothing else to invalidate: nothing is armed, and #isRecording is
+    // still false, so without this the loop would be armed after the caller
+    // stopped it. A native session's first screenshot runs ~1.2 s.
+    const generation = ++this.#pollGeneration
     this.driver = driver
     const cdpOk = await this.tryStartCdp()
+    if (generation !== this.#pollGeneration) {
+      return
+    }
     if (cdpOk) {
       this.#cdpActive = true
       this.#isRecording = true
       return
     }
-    await this.#startPolling()
+    await this.#startPolling(generation)
   }
 
   /**
@@ -56,6 +69,10 @@ export abstract class ScreencastRecorderBase<TDriver = unknown> {
    * never called or failed.
    */
   async stop(): Promise<void> {
+    // Bumped before the early return: a stop() that lands while start() is still
+    // awaiting its first screenshot finds nothing armed and #isRecording still
+    // false, so returning above would let start() arm the loop afterwards.
+    this.#pollGeneration++
     if (!this.#isRecording) {
       return
     }
@@ -209,9 +226,12 @@ export abstract class ScreencastRecorderBase<TDriver = unknown> {
 
   // ─── Polling implementation ─────────────────────────────────────────────
 
-  async #startPolling(): Promise<void> {
+  async #startPolling(generation: number): Promise<void> {
     try {
       const first = await this.takeScreenshot()
+      if (generation !== this.#pollGeneration) {
+        return
+      }
       if (first === null) {
         this.onUnavailable(new Error('first screenshot returned null'))
         return
@@ -227,14 +247,28 @@ export abstract class ScreencastRecorderBase<TDriver = unknown> {
         if (isInputDispatchInFlight()) {
           return
         }
+        // setInterval does not wait for this handler. A screenshot slower than
+        // the interval stacks requests that a serialised driver then serves
+        // ahead of the test's own commands (a native session's screenshot runs
+        // ~1.2 s against a 200 ms default) — keep at most one outstanding.
+        if (this.#pollInFlight) {
+          return
+        }
+        this.#pollInFlight = true
         try {
           const data = await this.takeScreenshot()
-          if (data !== null) {
+          if (data !== null && generation === this.#pollGeneration) {
             this.#appendFrame({ data, timestamp: Date.now() })
           }
         } catch {
           // Session ended mid-interval — stop polling gracefully.
-          this.#stopPolling()
+          if (generation === this.#pollGeneration) {
+            this.#stopPolling()
+          }
+        } finally {
+          if (generation === this.#pollGeneration) {
+            this.#pollInFlight = false
+          }
         }
       }, intervalMs)
 
@@ -249,6 +283,12 @@ export abstract class ScreencastRecorderBase<TDriver = unknown> {
     if (this.#pollTimer !== undefined) {
       clearInterval(this.#pollTimer)
       this.#pollTimer = undefined
+      // A shot issued just before the stop outlives it. Bumping the generation
+      // keeps that orphan from appending into a later recording or clearing the
+      // successor's latch, and clearing the latch here lets a restart tick
+      // without waiting on it.
+      this.#pollGeneration++
+      this.#pollInFlight = false
       this.onPollingStopped(this.buffer.length)
     }
   }

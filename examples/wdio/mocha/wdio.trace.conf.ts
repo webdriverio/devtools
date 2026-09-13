@@ -46,6 +46,10 @@ export const config: WebdriverIO.Config = {
           | 'on-first-retry'
           | 'on-all-retries'
           | 'retain-on-failure-and-retries',
+        // Dense screencast frames written into the trace; on by default, and the
+        // heaviest part of a session's teardown. DEVTOOLS_FILMSTRIP=off measures
+        // the trace without them.
+        filmstrip: process.env.DEVTOOLS_FILMSTRIP !== 'off',
         // Always emit the manifest so the artifact set is inspectable per run.
         emitArtifactsManifest: true
       }
