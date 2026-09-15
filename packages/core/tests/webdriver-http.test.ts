@@ -174,24 +174,65 @@ describe('authentication', () => {
   })
 })
 
-// A probe must never fail the user's test, and `http.request` throws
-// SYNCHRONOUSLY on an endpoint it cannot parse — unguarded that rejects the
-// promise rather than resolving null, and the rejection escapes into the
-// command hook that issued the probe.
-describe('an endpoint node cannot parse', () => {
-  it('resolves null instead of rejecting', async () => {
+// An IPv6 driver is REACHABLE, so answering null for it would silently drop
+// every direct probe — the drain, the snapshot, the screenshot, url and title.
+// Bracketing is what makes the URL parseable at all.
+describe('an IPv6 driver address', () => {
+  it('brackets the literal so the colons are not read as a port', () => {
+    expect(
+      sessionEndpoint({ hostname: '::1', port: 4723 }, 'sess', 'url')
+    ).toBe('http://[::1]:4723/session/sess/url')
+  })
+
+  it('leaves an already-bracketed literal alone', () => {
+    expect(
+      sessionEndpoint({ hostname: '[::1]', port: 4723 }, 'sess', 'url')
+    ).toBe('http://[::1]:4723/session/sess/url')
+  })
+
+  it('does not bracket a hostname or an IPv4 address', () => {
+    expect(
+      sessionEndpoint({ hostname: 'localhost', port: 1 }, 's', 'url')
+    ).toBe('http://localhost:1/session/s/url')
+    expect(
+      sessionEndpoint({ hostname: '127.0.0.1', port: 1 }, 's', 'url')
+    ).toBe('http://127.0.0.1:1/session/s/url')
+  })
+})
+
+// A probe must never fail the user's test. A stream `error` with no listener
+// is thrown rather than caught, and a response reset after headers would
+// otherwise leave the promise pending forever — which is the same hang this
+// transport exists to remove.
+describe('a response that fails mid-stream', () => {
+  // The reset has to land in a LATER tick than the write, or the client sees a
+  // clean EOF and takes the parse-failure path instead of the reset one.
+  it('settles null on a reset after headers instead of hanging', async () => {
+    respond = (res) => {
+      res.writeHead(200, { 'content-length': '999' })
+      res.write('{"value":1}')
+      setTimeout(() => res.destroy(), 20)
+    }
     await expect(
-      webdriverGet({ hostname: '::1', port: 4723 }, 'sess', 'url')
+      Promise.race([
+        webdriverGet(address(), 'sess', 'url'),
+        new Promise((r) => setTimeout(() => r('HUNG'), 3000))
+      ])
     ).resolves.toBeNull()
   })
 
-  it('reports it through the caller-supplied logger', async () => {
+  it('reports the reset through the caller-supplied logger', async () => {
     const warnings: string[] = []
+    respond = (res) => {
+      res.writeHead(200, { 'content-length': '999' })
+      res.write('{"value":1}')
+      setTimeout(() => res.destroy(), 20)
+    }
     await webdriverGet(
-      { hostname: '::1', port: 4723, onWarn: (m) => warnings.push(m) },
+      { ...address(), onWarn: (m) => warnings.push(m) },
       'sess',
       'url'
     )
-    expect(warnings.join('\n')).toMatch(/could not be issued|failed/i)
+    expect(warnings.join('\n')).toMatch(/Response failed/)
   })
 })

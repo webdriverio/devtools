@@ -43,6 +43,14 @@ function basePrefix(path: string | undefined): string {
   return path.endsWith('/') ? path.slice(0, -1) : path
 }
 
+/** An IPv6 literal has to be bracketed in a URL, or its own colons read as the
+ *  port separator and the endpoint is unparseable — which would take a driver
+ *  that is perfectly reachable and silently disable every direct probe. */
+function formatHost(hostname: string): string {
+  const isIpv6Literal = hostname.includes(':') && !hostname.startsWith('[')
+  return isIpv6Literal ? `[${hostname}]` : hostname
+}
+
 export function sessionEndpoint(
   address: WebDriverAddress,
   sessionId: string,
@@ -50,7 +58,8 @@ export function sessionEndpoint(
 ): string {
   const protocol = address.protocol ?? 'http'
   const prefix = basePrefix(address.path)
-  return `${protocol}://${address.hostname}:${address.port}${prefix}/session/${sessionId}/${path}`
+  const host = formatHost(address.hostname)
+  return `${protocol}://${host}:${address.port}${prefix}/session/${sessionId}/${path}`
 }
 
 function authHeaders(address: WebDriverAddress): Record<string, string> {
@@ -98,6 +107,15 @@ function resolveFromResponse<T>(
   resolve: (value: T | null) => void
 ): void {
   let raw = ''
+  let settled = false
+  // Every path below has to land exactly once. `end` and `close` both fire on
+  // a healthy response, and a reset fires `error` before either.
+  const settle = (value: T | null) => {
+    if (!settled) {
+      settled = true
+      resolve(value)
+    }
+  }
   res.on('data', (chunk: string | Buffer) => {
     raw += chunk
   })
@@ -109,12 +127,21 @@ function resolveFromResponse<T>(
       // its payload. Casting that through as `T` put an error object into a
       // screencast frame's `data`, and the run's whole trace was then lost to
       // `Buffer.from(object)` at export.
-      resolve(isWebdriverError(value) ? null : ((value as T) ?? null))
+      settle(isWebdriverError(value) ? null : ((value as T) ?? null))
     } catch {
       warn(`Failed to parse response from ${endpoint}`)
-      resolve(null)
+      settle(null)
     }
   })
+  // A stream `error` with no listener is thrown, which would take the process
+  // down over a probe; a reset after headers would otherwise never settle.
+  res.on('error', (err: Error) => {
+    warn(`Response failed (${endpoint}): ${errorMessage(err)}`)
+    settle(null)
+  })
+  // Fires after `end` on a healthy response, where `settle` is already spent.
+  // Reaching it first means the response was truncated.
+  res.on('close', () => settle(null))
 }
 
 /** Resolves the W3C `value` field, or null on any transport/parse/timeout
