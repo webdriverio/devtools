@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import {
+  collectorSourceCandidates,
   drainCollectorWithRecovery,
   loadInjectableScript,
   pollUntilReady
@@ -167,5 +168,37 @@ describe('pollUntilReady', () => {
     const check = vi.fn(async () => true)
     await pollUntilReady(check, { attempts: 1, intervalMs: 50 })
     expect(check).toHaveBeenCalledTimes(1)
+  })
+})
+
+/**
+ * The collector bundle has to be found whether the package resolved to its
+ * BUILT entry or to its source. The repo tsconfig maps
+ * `@wdio/devtools-script` to `packages/script/src/index.ts`, and every resolver
+ * that honours those paths lands there — `tsx`/`ts-node` among them, which is
+ * how `wdio run <conf>.ts` loads a config. Looking only beside the entry then
+ * ENOENTs on `src/script.js`, and since the callers only warn, the run loses
+ * DOM capture without failing.
+ */
+describe('collectorSourceCandidates', () => {
+  it('looks beside a built entry first', () => {
+    const [first] = collectorSourceCandidates(
+      '/repo/node_modules/@wdio/devtools-script/dist/script.js'
+    )
+    expect(first).toBe(
+      '/repo/node_modules/@wdio/devtools-script/dist/script.js'
+    )
+  })
+
+  it('also offers dist when the entry resolved to source', () => {
+    const candidates = collectorSourceCandidates(
+      '/repo/packages/script/src/index.ts'
+    )
+    // The src neighbour does not exist; the built bundle is one level up.
+    expect(candidates).toContain('/repo/packages/script/dist/script.js')
+  })
+
+  it('offers two shapes for any entry', () => {
+    expect(collectorSourceCandidates('/x/y/entry.js')).toHaveLength(2)
   })
 })

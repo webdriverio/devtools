@@ -193,6 +193,13 @@ def _test_runner_ids(types_ts: str) -> list[str]:
     return re.findall(r"'([^']+)'", m.group(1))
 
 
+def _native_platforms(device_ts: str) -> list[str]:
+    m = re.search(r"export const NATIVE_PLATFORMS = \[(.*?)\] as const", device_ts, re.DOTALL)
+    if not m:
+        raise SystemExit("could not find `NATIVE_PLATFORMS` in shared/device.ts")
+    return re.findall(r"'([^']+)'", m.group(1))
+
+
 def main() -> int:
     root = _repo_root()
     shared = root / "packages" / "shared"
@@ -210,6 +217,7 @@ def main() -> int:
     routes_ts = (shared / "src" / "routes.ts").read_text()
     control = _ws_scopes(routes_ts)
     worker_query = _worker_query(routes_ts)
+    native_platforms = _native_platforms((shared / "src" / "device.ts").read_text())
     runner_ts = (shared / "src" / "runner.ts").read_text()
     run_id_env = _run_id_env(runner_ts)
     rerun_slot = _rerun_slot(runner_ts)
@@ -289,6 +297,7 @@ def main() -> int:
         f'ELEMENT_SCRIPTS_PATH = "{element_scripts_path}"',
         f'RUNNER_ID = "{REQUIRED_RUNNER_ID}"',
         f"TEST_RUNNER_IDS = frozenset({sorted(runner_ids)!r})",
+        f"NATIVE_PLATFORMS = frozenset({sorted(native_platforms)!r})",
         "",
         f'WORKER_QUERY_RUN_ID = "{worker_query["runId"]}"',
         f'ENV_RUN_ID = "{run_id_env}"',

@@ -25,6 +25,30 @@ export interface DriverMetadataResult {
 
 type CapGet = (k: string) => unknown
 
+/**
+ * A plain bag from selenium's `Capabilities`, whose data lives in a private
+ * Map. It exposes `serialize` only under a Symbol, so a string-keyed
+ * `serialize?.()` is `undefined` and the instance itself JSON-serializes to
+ * `{"map_":{}}` — which is what the dashboard has been receiving as a
+ * Selenium run's capabilities, and why its traces carried no `device` and
+ * fell back to a guessed browser name. Everything downstream reads
+ * capabilities as a bag, so the one conversion happens here.
+ */
+function serializeCapabilities(capabilities: unknown): Record<string, unknown> {
+  const caps = capabilities as
+    | {
+        keys?: () => Iterable<string>
+        get?: (k: string) => unknown
+        serialize?: () => Record<string, unknown>
+      }
+    | undefined
+  if (typeof caps?.keys === 'function' && typeof caps.get === 'function') {
+    const get = caps.get.bind(caps)
+    return Object.fromEntries([...caps.keys()].map((key) => [key, get(key)]))
+  }
+  return caps?.serialize?.() ?? (capabilities as Record<string, unknown>) ?? {}
+}
+
 function makeCapGet(capabilities: unknown): CapGet {
   return (k: string) => {
     const caps = capabilities as
@@ -91,12 +115,7 @@ export async function buildDriverMetadata(
       sessionId,
       metadata: {
         type: TraceType.Testrunner,
-        capabilities:
-          (
-            capabilities as { serialize?: () => unknown } | undefined
-          )?.serialize?.() ??
-          capabilities ??
-          {},
+        capabilities: serializeCapabilities(capabilities),
         sessionId,
         runner: SELENIUM_RUNNER_ID,
         options: {

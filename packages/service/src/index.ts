@@ -33,7 +33,11 @@ import {
   captureActionResult,
   captureActionSnapshot
 } from './action-snapshot.js'
-import type { ActionSnapshot, TestMetadataMap } from '@wdio/devtools-shared'
+import {
+  isNativeAppSession,
+  type ActionSnapshot,
+  type TestMetadataMap
+} from '@wdio/devtools-shared'
 import { SevereServiceError } from 'webdriverio'
 import type { Services, Capabilities, Options, Reporters } from '@wdio/types'
 import type { WebDriverCommands } from '@wdio/protocols'
@@ -56,7 +60,7 @@ import {
   LOCATOR_COMMANDS,
   PAGE_TRANSITION_COMMANDS
 } from './constants.js'
-import { isAppiumSession, isNativeAppSession } from './mobile.js'
+import { isAppiumSession } from './mobile.js'
 import { resolveSessionMetadata } from './session-metadata.js'
 import { stampRunnerMetadata } from './wdio-runner-id.js'
 import { detectInvocationConfigPath } from './standalone.js'
@@ -673,7 +677,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
   #markDocument(): Promise<unknown> {
     // Keyed on having a document: `waitForActionResult` reads this tag on the
     // same condition, so the pair must not be split across the two predicates.
-    if (!this.#browser || isNativeAppSession(this.#browser)) {
+    if (!this.#browser || isNativeAppSession(this.#browser.capabilities)) {
       return Promise.resolve()
     }
     return this.#browser

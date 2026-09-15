@@ -25,6 +25,7 @@ from typing import Any, Callable, List, Optional
 
 from .collector_source import fetch_collector_source
 from .constants import LOGGER_NAME
+from .device import driver_is_native_app
 
 #: A ``driver.execute_script(script, *args)`` shaped callable — injectable so
 #: tests drive injection/readback without a real driver.
@@ -297,6 +298,12 @@ def start_snapshot_capture(
 
     ``execute_fn`` overrides ``driver.execute_script`` — the adapter passes a
     capture-bypassing variant so injection/readback don't appear as commands."""
+    # A native app has no document to collect from, and the caller already
+    # treats None as "there is nothing to drain" — so the injection, its
+    # readiness probe and every later drain are skipped at the one place that
+    # decides whether DOM capture exists for this session.
+    if driver_is_native_app(driver):
+        return None
     run = execute_fn or getattr(driver, "execute_script", None)
     if not callable(run):
         _warn("driver has no execute_script — snapshot capture skipped")

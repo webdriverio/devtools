@@ -130,6 +130,30 @@ class TestCapturingPerAction(unittest.TestCase):
             )
             return instrumentation.action_snapshots()
 
+    def test_a_native_app_is_not_read_at_all(self):
+        """Both reads are page script and they fire on every action, so on a
+        session with no document they are the densest source of round trips
+        that can only fail."""
+
+        class NativeDriver(self.Driver):
+            capabilities = {"platformName": "Android", "appium:app": "/app.apk"}
+
+        driver = NativeDriver(elements=[{"selector": "#go"}])
+        snaps = self._capture(driver)
+
+        self.assertEqual(driver.scripts_run, [])
+        self.assertEqual(snaps, [])
+
+    def test_a_phone_running_a_browser_is_still_read(self):
+        class MobileWebDriver(self.Driver):
+            capabilities = {"platformName": "Android", "browserName": "Chrome"}
+
+        driver = MobileWebDriver(elements=[{"selector": "#go"}])
+        snaps = self._capture(driver)
+
+        self.assertEqual(len(driver.scripts_run), 2)
+        self.assertIn("elements", snaps[0])
+
     # Two reads, two panes. Capturing only `elements` left the A11y tab
     # reporting "no accessibility snapshot for this command" while 39 element
     # files sat in the same archive — the tab reads the serialized TREE.

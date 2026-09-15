@@ -137,7 +137,9 @@ async function capturePerformance(
   args: unknown[] | undefined
 ): Promise<void> {
   const exec = getDriverOriginals().executeScript
-  if (!exec) {
+  // Page script, and the 500 ms settle below would be spent to reach a
+  // document that does not exist.
+  if (!exec || capturer.isNativeAppSession) {
     return
   }
   try {
@@ -328,7 +330,7 @@ export async function handleOnCommand(
   }
   maybeDrainAfterDomCommand(ctx, capturer, cmd)
   maybeDrainAfterLiveCommand(ctx, capturer, cmd)
-  queueActionSnapshot(ctx, cmd, entry.timestamp, error)
+  queueActionSnapshot(ctx, capturer, cmd, entry.timestamp, error)
 }
 
 /** Fire-and-forget post-action snapshot, drained at finalize. Stamped with the
@@ -337,6 +339,7 @@ export async function handleOnCommand(
  *  command timestamp (FrameSnapshotIndex.claimAfter / elementsAt). */
 function queueActionSnapshot(
   ctx: OnCommandCtx,
+  capturer: SessionCapturer,
   cmd: CapturedCommand,
   timestamp: number,
   error: unknown
@@ -350,7 +353,12 @@ function queueActionSnapshot(
     return
   }
   ctx.snapshotCaptures.push(
-    captureActionSnapshot(ctx.driver, cmd.command, timestamp).then((snap) => {
+    captureActionSnapshot(
+      ctx.driver,
+      cmd.command,
+      timestamp,
+      capturer.isNativeAppSession
+    ).then((snap) => {
       if (snap) {
         upsertRichestSnapshot(ctx.actionSnapshots, snap)
       }

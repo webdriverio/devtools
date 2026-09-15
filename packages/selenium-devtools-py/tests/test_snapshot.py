@@ -286,6 +286,39 @@ class TestStartSnapshotCapture(unittest.TestCase):
     def test_none_when_driver_has_no_execute_script(self):
         self.assertIsNone(start_snapshot_capture(object()))
 
+    def test_none_for_a_native_app_and_no_script_reaches_the_device(self):
+        # There is no document to collect from, and the caller already treats
+        # None as "nothing to drain" — so the injection, its readiness probe
+        # and every later drain are all skipped from this one decision.
+        class Driver:
+            capabilities = {"platformName": "iOS", "appium:app": "/app.app"}
+
+            def __init__(self):
+                self.calls = []
+
+            def execute_script(self, script, *args):
+                self.calls.append(script)
+                return True
+
+        driver = Driver()
+
+        self.assertIsNone(start_snapshot_capture(driver))
+        self.assertEqual(driver.calls, [])
+
+    def test_a_phone_running_a_browser_still_gets_a_capturer(self):
+        # Same phone, but it named a browser: it has a real page, and this is
+        # the only DOM capture such a session gets.
+        class Driver:
+            capabilities = {"platformName": "iOS", "browserName": "Safari"}
+
+            def execute_script(self, script, *args):
+                return True
+
+        self.assertIsInstance(
+            start_snapshot_capture(Driver(), script_path=self._tmp_script()),
+            SnapshotCapturer,
+        )
+
     def test_the_capturer_survives_a_failed_first_injection(self):
         # Returning None here made the failure terminal: the caller stores None,
         # its post-command refresh skips a missing capturer, and inject() is

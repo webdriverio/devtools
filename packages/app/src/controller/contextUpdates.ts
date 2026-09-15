@@ -7,11 +7,12 @@
  * new value the ContextProvider should publish.
  */
 
-import type {
-  CommandLog,
-  NetworkRequest,
-  Metadata,
-  MetadataBySession
+import {
+  deviceFromCapabilities,
+  type CommandLog,
+  type NetworkRequest,
+  type Metadata,
+  type MetadataBySession
 } from '@wdio/devtools-shared'
 
 /**
@@ -126,6 +127,20 @@ export function mergeSessionMetadata(
   ) {
     merged = { ...bySession[PENDING_SESSION_KEY], ...merged }
     delete bySession[PENDING_SESSION_KEY]
+  }
+
+  // A live session states its device only if its adapter derived one, and only
+  // the WDIO service does — so a Selenium, Nightwatch or Python phone run
+  // reached the player as a desktop session and got the desktop layout. Derived
+  // here rather than in each adapter, because this is the one ingestion point
+  // every live message passes through. A device the adapter DID send wins.
+  //
+  // Live mode only: this reducer serves the `metadata` WS scope. A trace's
+  // metadata is built by the backend's reader, and the exporter already derives
+  // the device on the way INTO the zip.
+  const device = merged.device ?? deviceFromCapabilities(merged.capabilities)
+  if (device) {
+    merged = { ...merged, device }
   }
 
   bySession[sessionId] = merged
