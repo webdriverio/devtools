@@ -7,16 +7,15 @@
 // Unguarded, one such probe stranded the whole per-action snapshot capture; the
 // in-page script probe merely timed out, leaving empty a11y trees.
 
-import http from 'node:http'
 import logger from '@wdio/logger'
-import { errorMessage } from '@wdio/devtools-core'
+import {
+  webdriverGet as coreGet,
+  webdriverPost as corePost,
+  type WebDriverAddress
+} from '@wdio/devtools-core'
 import type { NightwatchBrowser } from '../types.js'
 
 const log = logger('@wdio/nightwatch-devtools:webdriverHttp')
-
-/** Ceiling on a single driver request — a driver that stops answering must not
- *  hold a capture open longer than the adapter's settle window. */
-const REQUEST_TIMEOUT_MS = 5000
 
 type LooseRec = Record<string, unknown>
 
@@ -80,85 +79,19 @@ export function resolveWebDriverAddress(browser: NightwatchBrowser): {
   return { driverHost, driverPort }
 }
 
-function sessionEndpoint(
-  browser: NightwatchBrowser,
-  path: string
-): string | undefined {
-  const sessionId = (browser as unknown as { sessionId?: string }).sessionId
-  if (!sessionId) {
-    return undefined
-  }
+/** The core transport's address, plus this adapter's logger. Nightwatch always
+ *  speaks plain http to a local driver — it has no cloud-grid path of its own. */
+function address(browser: NightwatchBrowser): WebDriverAddress {
   const { driverHost, driverPort } = resolveWebDriverAddress(browser)
-  return `http://${driverHost}:${driverPort}/session/${sessionId}/${path}`
+  return {
+    hostname: driverHost,
+    port: driverPort,
+    onWarn: (message: string) => log.warn(message)
+  }
 }
 
-/** A W3C error payload: `value` carries `error`/`message` instead of the
- *  command's result. Shape-checked rather than status-checked because chromedriver
- *  answers some failures with a 200. */
-function isWebdriverError(value: unknown): boolean {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    !Array.isArray(value) &&
-    typeof (value as { error?: unknown }).error === 'string'
-  )
-}
-
-/** Resolves the W3C `value` field, or null on any transport/parse/timeout
- *  failure — a probe is best-effort and never fails the user's test. */
-function request<T>(
-  endpoint: string,
-  method: 'GET' | 'POST',
-  body?: unknown
-): Promise<T | null> {
-  const payload = body === undefined ? undefined : JSON.stringify(body)
-  return new Promise((resolve) => {
-    const req = http.request(
-      endpoint,
-      {
-        method,
-        headers: payload
-          ? {
-              'content-type': 'application/json',
-              'content-length': Buffer.byteLength(payload)
-            }
-          : undefined
-      },
-      (res) => {
-        let raw = ''
-        res.on('data', (chunk: string | Buffer) => {
-          raw += chunk
-        })
-        res.on('end', () => {
-          try {
-            const value = JSON.parse(raw).value
-            // A W3C error answers 200-shaped JSON whose `value` is
-            // `{error, message, stacktrace}` — an OBJECT where the caller
-            // expects its payload. Casting that through as `T` put an error
-            // object into a screencast frame's `data`, and the run's whole
-            // trace was then lost to `Buffer.from(object)` at export.
-            resolve(isWebdriverError(value) ? null : ((value as T) ?? null))
-          } catch {
-            log.warn(`Failed to parse response from ${endpoint}`)
-            resolve(null)
-          }
-        })
-      }
-    )
-    req.on('error', (err) => {
-      log.warn(`Request failed (${endpoint}): ${errorMessage(err)}`)
-      resolve(null)
-    })
-    req.setTimeout(REQUEST_TIMEOUT_MS, () => {
-      log.warn(`Request timed out (${endpoint})`)
-      req.destroy()
-      resolve(null)
-    })
-    if (payload) {
-      req.write(payload)
-    }
-    req.end()
-  })
+function sessionId(browser: NightwatchBrowser): string | undefined {
+  return (browser as unknown as { sessionId?: string }).sessionId
 }
 
 /** GET `/session/:id/<path>`. Null when the session is gone or the call fails. */
@@ -166,8 +99,8 @@ export function webdriverGet<T>(
   browser: NightwatchBrowser,
   path: string
 ): Promise<T | null> {
-  const endpoint = sessionEndpoint(browser, path)
-  return endpoint ? request<T>(endpoint, 'GET') : Promise.resolve(null)
+  const id = sessionId(browser)
+  return id ? coreGet<T>(address(browser), id, path) : Promise.resolve(null)
 }
 
 /** POST `/session/:id/<path>`. Null when the session is gone or the call fails. */
@@ -176,8 +109,10 @@ export function webdriverPost<T>(
   path: string,
   body: unknown
 ): Promise<T | null> {
-  const endpoint = sessionEndpoint(browser, path)
-  return endpoint ? request<T>(endpoint, 'POST', body) : Promise.resolve(null)
+  const id = sessionId(browser)
+  return id
+    ? corePost<T>(address(browser), id, path, body)
+    : Promise.resolve(null)
 }
 
 /** Run a script in the page, outside the command queue. `body` is a function
