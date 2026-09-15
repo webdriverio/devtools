@@ -61,6 +61,7 @@ import {
   PAGE_TRANSITION_COMMANDS
 } from './constants.js'
 import { isAppiumSession } from './mobile.js'
+import { directProbes } from './direct-probes.js'
 import { resolveSessionMetadata } from './session-metadata.js'
 import { stampRunnerMetadata } from './wdio-runner-id.js'
 import { detectInvocationConfigPath } from './standalone.js'
@@ -679,6 +680,14 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     // same condition, so the pair must not be split across the two predicates.
     if (!this.#browser || isNativeAppSession(this.#browser.capabilities)) {
       return Promise.resolve()
+    }
+    // Issued from inside beforeCommand, so it takes the direct path on a
+    // driver that serialises per session (#374).
+    const direct = directProbes(this.#browser)
+    if (direct) {
+      return direct
+        .runScript('window.__wdioSnapMark = true')
+        .catch(() => undefined)
     }
     return this.#browser
       .execute(() => {
