@@ -15,6 +15,7 @@ import {
 } from '@wdio/devtools-core'
 import { isNativeAppSession, type ActionSnapshot } from '@wdio/devtools-shared'
 import { mobilePlatform } from './mobile.js'
+import { directProbes } from './direct-probes.js'
 import { INTERNAL_COMMANDS } from './constants.js'
 import { wdioRunnerId } from './wdio-runner-id.js'
 
@@ -113,22 +114,36 @@ export function captureActionSnapshot(
   // A mobile BROWSER session takes the web path below: it has a document, and
   // the native path would read its HTML through the page-source XML parser.
   const native = isNativeAppSession(browser.capabilities)
+  // A driver that serialises per session deadlocks on a probe issued from
+  // inside the command hook, so those go straight to it (#374).
+  const direct = directProbes(browser)
   return coreCapture({
     command,
     timestamp,
     runner: wdioRunnerId(browser),
-    runScript: native ? undefined : (src) => browser.execute(reviveScript(src)),
-    takeScreenshot: () => browser.takeScreenshot().catch(() => undefined),
+    runScript: native
+      ? undefined
+      : direct
+        ? // an element-script src is a self-invoking IIFE, and `execute/sync`
+          // takes a function body — the string form of `reviveScript`.
+          (src: string) => direct.runScript(`return (${src})`)
+        : (src: string) => browser.execute(reviveScript(src)),
+    takeScreenshot:
+      direct?.takeScreenshot ??
+      (() => browser.takeScreenshot().catch(() => undefined)),
     // url/title are browser-only concepts — they fail with "Method has not
     // yet been implemented" on native mobile, costing a round-trip each.
-    getUrl: native ? undefined : () => browser.getUrl().catch(() => undefined),
+    getUrl: native
+      ? undefined
+      : (direct?.getUrl ?? (() => browser.getUrl().catch(() => undefined))),
     getTitle: native
       ? undefined
-      : () => browser.getTitle().catch(() => undefined),
+      : (direct?.getTitle ?? (() => browser.getTitle().catch(() => undefined))),
     // On native mobile, use page-source XML to produce structured element
     // data and an AI-readable snapshot (same approach as @wdio/elements).
     getPageSource: native
-      ? () => browser.getPageSource().catch(() => undefined)
+      ? (direct?.getPageSource ??
+        (() => browser.getPageSource().catch(() => undefined)))
       : undefined,
     platform: native ? mobilePlatform(browser) : undefined
   })

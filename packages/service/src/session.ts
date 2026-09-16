@@ -23,6 +23,7 @@ import {
   RetryTracker,
   SessionCapturerBase,
   applyPerformanceData,
+  collectorDrainExpression,
   drainCollectorWithRecovery,
   errorMessage,
   getRequestType,
@@ -31,6 +32,7 @@ import {
   type CapturedPerformancePayload
 } from '@wdio/devtools-core'
 import type { CommandLog } from './types.js'
+import { directProbes } from './direct-probes.js'
 
 const log = logger('@wdio/devtools-service:SessionCapturer')
 
@@ -365,6 +367,15 @@ export class SessionCapturer extends SessionCapturerBase {
    *  `execute` awaits its startup (which anchors the current DOM). */
   async injectIntoCurrentDocument(browser: WebdriverIO.Browser) {
     const source = await loadInjectableScript()
+    // Reached from the drain's recovery path, which runs inside beforeCommand.
+    // Without a BiDi preload (a classic-protocol mobile session has none) the
+    // first drain always misses the collector and lands here, so this is the
+    // in-hook call a serialising driver would deadlock on (#374).
+    const direct = directProbes(browser)
+    if (direct) {
+      await direct.runScript(`return ${source}`)
+      return
+    }
     await browser.execute(`return ${source}`)
   }
 
@@ -402,20 +413,26 @@ export class SessionCapturer extends SessionCapturerBase {
       // spurious "Cannot read properties of undefined" errors.
       // forceAnchor: capture the current document before draining — for a final
       // closing navigation whose async initial anchor hasn't run by teardown.
+      // Called from inside beforeCommand for a page transition, so on a driver
+      // that serialises per session both reads take the direct path (#374).
+      const direct = directProbes(browser)
       const payload = await drainCollectorWithRecovery({
         drain: () =>
-          browser.execute((anchor) => {
-            if (typeof window.wdioTraceCollector === 'undefined') {
-              return null
-            }
-            if (anchor) {
-              window.wdioTraceCollector.captureCurrentDom()
-            }
-            return window.wdioTraceCollector.getTraceData()
-          }, forceAnchor),
+          direct
+            ? direct.runScript(collectorDrainExpression(forceAnchor))
+            : browser.execute((anchor) => {
+                if (typeof window.wdioTraceCollector === 'undefined') {
+                  return null
+                }
+                if (anchor) {
+                  window.wdioTraceCollector.captureCurrentDom()
+                }
+                return window.wdioTraceCollector.getTraceData()
+              }, forceAnchor),
         injectIntoCurrentDocument: () =>
           this.injectIntoCurrentDocument(browser),
-        currentUrl: () => browser.getUrl(),
+        currentUrl: () =>
+          direct ? direct.getUrl().then((u) => u ?? '') : browser.getUrl(),
         log: (level, message) => log[level](message)
       })
       if (!payload) {
