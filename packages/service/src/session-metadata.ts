@@ -3,9 +3,9 @@
 // unit-testable and the plugin only forwards its lifecycle hook.
 
 import logger from '@wdio/logger'
+import { resolveViewport as coreResolveViewport } from '@wdio/devtools-core'
 import {
   deviceFromCapabilities,
-  isNativeAppSession,
   type Metadata,
   type TraceType,
   type Viewport
@@ -15,43 +15,24 @@ import type { Capabilities } from '@wdio/types'
 const log = logger('@wdio/devtools-service')
 
 /**
- * Size of the captured surface. A page reports its own visual viewport; a
- * native app has no DOM to ask, so the driver's window size is the only answer
- * — measured at 1080x2219 on a Pixel 7, which is the window minus the
- * navigation bar.
+ * Size of the captured surface, through core's shared reader so all three JS
+ * adapters answer this the same way.
  *
- * Metadata only for a native app: neither number matches the screenshot's own
- * pixels (that Pixel 7 shot is 1080x2400, and iOS reports points rather than
- * pixels), so anything sizing a captured image measures the image instead. It
- * is load-bearing wherever there IS a DOM to replay — the player sizes the
- * replay iframe from it — so a mobile BROWSER session must reach the page read
- * below, which alone carries the real scale and offsets.
+ * A native app's numbers are descriptive only: neither matches the screenshot's
+ * own pixels (a Pixel 7 reports 1080x2219 — the window minus the navigation bar
+ * — against a 1080x2400 shot, and iOS reports points), so anything sizing a
+ * captured image measures the image instead. Wherever there IS a DOM it is
+ * load-bearing geometry: the player sizes the replay iframe from it, and the
+ * exporter falls back to 1280x720 without it.
  */
 async function resolveViewport(
   browser: WebdriverIO.Browser
 ): Promise<Viewport | undefined> {
-  try {
-    if (isNativeAppSession(browser.capabilities)) {
-      const size = await browser.getWindowSize()
-      return size
-        ? {
-            width: size.width,
-            height: size.height,
-            offsetLeft: 0,
-            offsetTop: 0,
-            scale: 1
-          }
-        : undefined
-    }
-    return (await browser.execute(() => window.visualViewport)) || undefined
-  } catch (err) {
-    // A viewport is descriptive, not load-bearing — the capture is still worth
-    // keeping without it, so this degrades rather than failing the session.
-    log.warn(
-      `Could not resolve the session viewport: ${(err as Error).message}`
-    )
-    return undefined
-  }
+  return coreResolveViewport(browser.capabilities, {
+    runScript: (body) => browser.execute(body),
+    getWindowSize: () => browser.getWindowSize(),
+    onWarn: (message) => log.warn(message)
+  })
 }
 
 /**

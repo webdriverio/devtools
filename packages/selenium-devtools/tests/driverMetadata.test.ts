@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi, afterEach } from 'vitest'
 import { buildDriverMetadata } from '../src/helpers/driverMetadata.js'
+import { getDriverOriginals } from '../src/driverPatcher.js'
 import { SELENIUM_RUNNER_ID } from '../src/constants.js'
 import type { SeleniumDriverLike } from '../src/types.js'
 
@@ -23,6 +24,19 @@ function driverStub(
     getCapabilities: () => Promise.resolve(capabilitiesStub(bag))
   } as unknown as SeleniumDriverLike
 }
+
+/** `getDriverOriginals` hands back the module's own object, so a test sets the
+ *  unpatched methods by writing onto it — and must clear them again, since the
+ *  patcher's state is module-level and outlives one test. */
+function setDriverOriginalsForTest(originals: Record<string, unknown>) {
+  const bag = getDriverOriginals() as Record<string, unknown>
+  for (const key of Object.keys(bag)) {
+    delete bag[key]
+  }
+  Object.assign(bag, originals)
+}
+
+afterEach(() => setDriverOriginalsForTest({}))
 
 async function metadataFor(detectedRunner: string | null) {
   const { metadata } = await buildDriverMetadata({
@@ -129,5 +143,69 @@ describe('buildDriverMetadata capability serialization', () => {
     })
 
     expect(metadata?.capabilities).toEqual({ browserName: 'firefox' })
+  })
+})
+
+// #373: without this the exporter falls back to 1280x720 and every Selenium
+// trace — desktop included — is replayed at proportions the run never had.
+describe('buildDriverMetadata viewport', () => {
+  it('publishes the page viewport through the unpatched executeScript', async () => {
+    const executeScript = vi.fn().mockResolvedValue({
+      width: 1512,
+      height: 857,
+      offsetLeft: 0,
+      offsetTop: 0,
+      scale: 1
+    })
+    setDriverOriginalsForTest({ executeScript })
+    const { metadata } = await buildDriverMetadata({
+      driver: driverStub(),
+      driverReadyTs: Date.now(),
+      detectedRunner: 'mocha'
+    })
+    expect((metadata as { viewport?: unknown }).viewport).toEqual({
+      width: 1512,
+      height: 857,
+      offsetLeft: 0,
+      offsetTop: 0,
+      scale: 1
+    })
+  })
+
+  it('measures the device window on a native session', async () => {
+    const executeScript = vi.fn()
+    const manage = vi.fn().mockReturnValue({
+      window: () => ({ getRect: () => ({ width: 1080, height: 2219 }) })
+    })
+    setDriverOriginalsForTest({ executeScript, manage })
+    const { metadata } = await buildDriverMetadata({
+      driver: driverStub('sess-native', {
+        platformName: 'Android',
+        'appium:automationName': 'UiAutomator2'
+      }),
+      driverReadyTs: Date.now(),
+      detectedRunner: 'mocha'
+    })
+    expect((metadata as { viewport?: unknown }).viewport).toEqual({
+      width: 1080,
+      height: 2219,
+      offsetLeft: 0,
+      offsetTop: 0,
+      scale: 1
+    })
+    expect(executeScript).not.toHaveBeenCalled()
+  })
+
+  it('omits the viewport rather than failing when the read throws', async () => {
+    setDriverOriginalsForTest({
+      executeScript: vi.fn().mockRejectedValue(new Error('no such window'))
+    })
+    const { metadata } = await buildDriverMetadata({
+      driver: driverStub(),
+      driverReadyTs: Date.now(),
+      detectedRunner: 'mocha'
+    })
+    expect(metadata).toBeDefined()
+    expect('viewport' in (metadata as object)).toBe(false)
   })
 })

@@ -37,9 +37,15 @@ class CommandLog(TypedDict, total=False):
     testUid: str
 
 
-class Viewport(TypedDict):
+class Viewport(TypedDict, total=False):
+    """Mirrors shared's `Viewport`. The offsets and scale are absent on a native
+    session, which has no page to be scrolled or pinch-zoomed."""
+
     width: int
     height: int
+    offsetLeft: float
+    offsetTop: float
+    scale: float
 
 
 class ElementScripts(TypedDict):
