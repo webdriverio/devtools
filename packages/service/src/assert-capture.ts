@@ -159,11 +159,51 @@ function unwrapAsymmetricMatcher(value: unknown): unknown {
  * screenshot come from the matcher's read command it's coalesced into (see
  * `coalesceAssertionIntoLastRead`), not from a stack walk here.
  */
+/**
+ * Whether the matcher was called through `.not`.
+ *
+ * It has to be read out of the message, because nothing else carries it:
+ * `afterAssertion` is handed `{matcherName, options, result}` and the flag
+ * lives on the matcher's own `this`. `result.pass` is the RAW matcher answer —
+ * jest's convention is that `pass` describes the positive assertion and the
+ * framework inverts it for `.not` — so a passing `.not.toBeDisplayed()` arrives
+ * as `pass: false` and was recorded as a failed row in a green test.
+ *
+ * expect-webdriverio builds the message from that same flag: `Expect $(…) not
+ * to be displayed`, and `Expected [not]:` labelling the diff. Both are checked
+ * because the label is suppressed by its own `useNotInLabel` option.
+ */
+export function assertionWasNegated(message: string | undefined): boolean {
+  if (!message) {
+    return false
+  }
+  return (
+    message.includes('Expected [not]') || /\bExpect\b.*\bnot to\b/.test(message)
+  )
+}
+
+/** The message is a thunk that formats a diff; a matcher whose own formatting
+ *  throws must not take the assertion row down with it. */
+function readMessage(message?: () => string): string | undefined {
+  try {
+    return message?.()
+  } catch {
+    return undefined
+  }
+}
+
 export function expectAssertionToCommandLog(
   params: ExpectAssertion,
-  testUid: string | undefined
+  testUid: string | undefined,
+  /** The caller already knows the outcome — a matcher that hard-threw is a
+   *  failure whatever its message says. Sniffing it for `.not` could invert a
+   *  real failure into a passing row carrying no error. */
+  outcomeIsDecided = false
 ): CommandLog {
   const { matcherName, expectedValue, result } = params
+  const rawPass = result.pass ?? result.result ?? false
+  const negated =
+    !outcomeIsDecided && assertionWasNegated(readMessage(result.message))
   const rawArgs =
     expectedValue === undefined
       ? []
@@ -174,7 +214,8 @@ export function expectAssertionToCommandLog(
     {
       method: matcherName,
       args: rawArgs.map(unwrapAsymmetricMatcher),
-      passed: result.pass ?? result.result ?? false,
+      // Inverted for `.not`, so a passing negated matcher is a passing row.
+      passed: negated ? !rawPass : rawPass,
       message: result.message
     },
     testUid

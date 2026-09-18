@@ -182,7 +182,8 @@ export class AssertionTracker {
         expectedValue: pending.expectedValue,
         result: { pass: false, message: () => message }
       },
-      pending.testUid
+      pending.testUid,
+      true
     )
     entry.stepUid = pending.stepUid
     const capturer = this.#ctx.getCapturer()

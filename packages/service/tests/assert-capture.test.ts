@@ -9,7 +9,8 @@ import {
   captureExpectFailure,
   expectAssertionToCommandLog,
   toCommandError,
-  wireAssertCapture
+  wireAssertCapture,
+  assertionWasNegated
 } from '../src/assert-capture.js'
 import type { SessionCapturer } from '../src/session.js'
 
@@ -213,5 +214,65 @@ describe('expectAssertionToCommandLog', () => {
       undefined
     )
     expect(entry).toMatchObject({ command: 'expect.toBeClickable', args: [] })
+  })
+})
+
+// expect-webdriverio hands `afterAssertion` the RAW matcher result: `pass`
+// answers the POSITIVE assertion and the framework inverts it for `.not`.
+// Nothing in the hook params carries `isNot` — it lives on the matcher's own
+// `this` — so a passing `.not.*` arrived as `pass: false`, was recorded as a
+// failed row inside a green test, and landed in the Errors tab.
+describe('a negated matcher (.not)', () => {
+  // Verbatim shape of enhanceError's output: `Expect ${subject} ${not}to …`
+  // plus the `Expected [not]` diff label.
+  const negated = `Expect $(\`#gone\`) not to be displayed
+
+Expected [not]: true
+Received      : false`
+
+  const positive = `Expect $(\`#here\`) to be displayed
+
+Expected: true
+Received: false`
+
+  const entryFor = (pass: boolean, message: string | (() => string)) =>
+    expectAssertionToCommandLog(
+      {
+        matcherName: 'toBeDisplayed',
+        result: {
+          pass,
+          message: typeof message === 'string' ? () => message : message
+        }
+      },
+      'test-1'
+    )
+
+  it('records a passing .not assertion as passed', () => {
+    const entry = entryFor(false, negated)
+    expect(entry.result).toBe('passed')
+    expect(entry.error).toBeUndefined()
+  })
+
+  it('records a failing .not assertion as failed', () => {
+    const entry = entryFor(true, negated)
+    expect(entry.error).toBeDefined()
+    expect(entry.result).toBeUndefined()
+  })
+
+  it('leaves a positive matcher alone in both directions', () => {
+    expect(entryFor(true, positive).result).toBe('passed')
+    expect(entryFor(false, positive).error).toBeDefined()
+  })
+})
+
+describe('assertionWasNegated', () => {
+  it('detects the diff label and the phrase independently', () => {
+    expect(assertionWasNegated('Expected [not]: true')).toBe(true)
+    expect(assertionWasNegated('Expect $(`#a`) not to have text')).toBe(true)
+  })
+
+  it('does not fire on a positive message or an empty one', () => {
+    expect(assertionWasNegated('Expect $(`#a`) to be displayed')).toBe(false)
+    expect(assertionWasNegated(undefined)).toBe(false)
   })
 })
