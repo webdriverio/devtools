@@ -231,6 +231,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     this.#sessionCapturer = new SessionCapturer(
       wdioCaps['wdio:devtoolsOptions']
     )
+    this.#sessionCapturer.traceMode = this.#options.mode ?? 'live'
     stampRunnerMetadata(this.#sessionCapturer, browser, this.captureType)
 
     if (this.#options.captureAssertions !== false) {

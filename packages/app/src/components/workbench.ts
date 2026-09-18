@@ -585,6 +585,64 @@ export class DevtoolsWorkbench extends Element {
     }
   }
 
+  /**
+   * Live device layout: the capture is a full-height column on the right, and
+   * everything else stacks to its left — the action list above, the dock below.
+   *
+   * Live mode only. The player puts the dock BESIDE the capture, which works
+   * there because the whole window is the trace. A live dashboard has already
+   * spent its left edge on the suite tree, so a third column squeezed the dock
+   * into an unreadable strip and the tab row overflowed under the capture.
+   */
+  #renderLiveDeviceLayout() {
+    const width = basisPx(this.#dragDevice.getPosition())
+    return html`
+      <section
+        data-device-row
+        class="relative flex flex-row flex-1 min-w-0 min-h-0 overflow-hidden"
+      >
+        <section
+          data-vertical-resizer-window
+          class="relative flex flex-col flex-1 min-w-0 min-h-0 overflow-hidden"
+        >
+          <section
+            data-sidebar
+            class="relative flex min-h-0 min-w-0 overflow-hidden ${
+              this.#workbenchSidebarCollapsed ? 'hidden' : ''
+            }"
+            style="${this.#computeBrowserPaneStyle()}"
+          >
+            ${this.#renderActionsSidebar()}
+          </section>
+          ${
+            // Without this the collapse is one-way here: the toggle lives
+            // inside the sidebar that just went `hidden`, and the state is
+            // persisted, so the action list stayed gone across reloads.
+            this.#renderSidebarRestoreButton()
+          }
+          ${
+            !this.#toolbarCollapsed && !this.#workbenchSidebarCollapsed
+              ? this.#dragVertical.getSlider('z-[999] pointer-events-auto')
+              : nothing
+          }
+          ${this.#renderWorkbenchTabs()}
+        </section>
+        ${
+          !this.#toolbarCollapsed
+            ? this.#dragDevice.getSlider('z-[999] pointer-events-auto')
+            : nothing
+        }
+        <section
+          data-device-pane
+          class="relative flex flex-col min-w-0 min-h-0 overflow-hidden"
+          style="${this.#dragDevice.getPosition()}; flex:0 1 auto; width:${width}px; max-width:100%;"
+        >
+          ${this.#renderBrowserPane(true)}
+        </section>
+      </section>
+    `
+  }
+
   #renderStackedSplit() {
     return html`
       <section
@@ -658,38 +716,56 @@ export class DevtoolsWorkbench extends Element {
         data-horizontal-resizer-window
         class="flex relative w-full flex-1 min-h-0 overflow-hidden"
       >
-        <section
-          data-sidebar
-          class="flex-none"
-          style="${this.#computeSidebarStyle()}"
-        >
-          ${this.#renderActionsSidebar()}
-        </section>
-        ${this.#renderSidebarRestoreButton()}
         ${
-          !this.#workbenchSidebarCollapsed
-            ? this.#dragHorizontal.getSlider('z-30')
-            : nothing
+          // The live device layout owns the whole row: it stacks the action
+          // list and the dock in one column beside the capture, so the sidebar
+          // is rendered inside it rather than as a sibling here.
+          this.#liveDeviceLayout ? this.#renderLiveDeviceLayout() : nothing
         }
-        <section
-          data-vertical-resizer-window
-          class="relative flex flex-col flex-grow min-w-0 min-h-0 overflow-hidden"
-        >
-          ${
-            this.playerMode
-              ? html`<wdio-devtools-trace-player-controls
-                  class="flex-none h-10 border-b-[1px] border-b-panelBorder"
-                ></wdio-devtools-trace-player-controls>`
-              : nothing
-          }
-          ${
-            this.#deviceLayout
-              ? this.#renderDeviceSplit()
-              : this.#renderStackedSplit()
-          }
-        </section>
+        ${this.#liveDeviceLayout ? nothing : this.#renderRowSplit()}
       </section>
     `
+  }
+
+  #renderRowSplit() {
+    return html`
+      <section
+        data-sidebar
+        class="flex-none"
+        style="${this.#computeSidebarStyle()}"
+      >
+        ${this.#renderActionsSidebar()}
+      </section>
+      ${this.#renderSidebarRestoreButton()}
+      ${
+        !this.#workbenchSidebarCollapsed
+          ? this.#dragHorizontal.getSlider('z-30')
+          : nothing
+      }
+      <section
+        data-vertical-resizer-window
+        class="relative flex flex-col flex-grow min-w-0 min-h-0 overflow-hidden"
+      >
+        ${
+          this.playerMode
+            ? html`<wdio-devtools-trace-player-controls
+                class="flex-none h-10 border-b-[1px] border-b-panelBorder"
+              ></wdio-devtools-trace-player-controls>`
+            : nothing
+        }
+        ${
+          this.#deviceLayout
+            ? this.#renderDeviceSplit()
+            : this.#renderStackedSplit()
+        }
+      </section>
+    `
+  }
+
+  /** The capture-as-right-column arrangement, live only — the player keeps the
+   *  dock beside the capture. */
+  get #liveDeviceLayout(): boolean {
+    return this.#deviceLayout && !this.playerMode
   }
 }
 

@@ -1116,11 +1116,13 @@ class ViewportDriver(FakeDriver):
         super().__init__()
         self.session_id = "sess-9"  # already-initialized session
         self.scripts = []
-        self._size = size if size is not None else [1280, 1024]
+        # [width, height, offsetLeft, offsetTop, scale] — the visualViewport
+        # read, which alone carries the scale a pinch-zoomed page replays at.
+        self._size = size if size is not None else [1280, 1024, 0, 0, 1]
 
     def execute_script(self, script, *args):
         self.scripts.append(script)
-        return self._size if "innerWidth" in script else None
+        return self._size if "visualViewport" in script else None
 
 
 class TestViewportMetadata(unittest.TestCase):
@@ -1140,7 +1142,16 @@ class TestViewportMetadata(unittest.TestCase):
         driver.execute("get", {"url": "https://x/"})
 
         [meta] = self._metadata()
-        self.assertEqual(meta["viewport"], {"width": 1280, "height": 1024})
+        self.assertEqual(
+            meta["viewport"],
+            {
+                "width": 1280,
+                "height": 1024,
+                "offsetLeft": 0,
+                "offsetTop": 0,
+                "scale": 1,
+            },
+        )
 
     def test_the_probe_does_not_become_a_command_row(self):
         # Unguarded it re-enters the same hook and every run opens with an
@@ -1212,7 +1223,16 @@ class TestViewportMetadata(unittest.TestCase):
         MobileWebDriver().execute("get", {"url": "https://x/"})
 
         [meta] = [d for s, d in tx.sent if s == "metadata"]
-        self.assertEqual(meta["viewport"], {"width": 1280, "height": 1024})
+        self.assertEqual(
+            meta["viewport"],
+            {
+                "width": 1280,
+                "height": 1024,
+                "offsetLeft": 0,
+                "offsetTop": 0,
+                "scale": 1,
+            },
+        )
 
     def test_a_nonsense_size_is_refused(self):
         for bad in ([0, 800], [1280, -1], ["1280", 800], [1280], "1280x800"):

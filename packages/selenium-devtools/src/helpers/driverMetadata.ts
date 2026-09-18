@@ -1,7 +1,8 @@
 import logger from '@wdio/logger'
-import { errorMessage } from '@wdio/devtools-core'
+import { errorMessage, resolveViewport } from '@wdio/devtools-core'
 import { TraceType } from '@wdio/devtools-shared'
 import { SELENIUM_RUNNER_ID } from '../constants.js'
+import { getDriverOriginals } from '../driverPatcher.js'
 import type { SeleniumDriverLike } from '../types.js'
 
 const log = logger('@wdio/selenium-devtools:driverMetadata')
@@ -93,6 +94,33 @@ function logBrowserBoot(
 }
 
 /**
+ * The run's geometry, read through the UNPATCHED driver methods: selenium
+ * implements both as ordinary commands, so the patched ones would open every
+ * run with an `executeScript` or `getWindowRect` row of our own making.
+ */
+function readViewport(driver: SeleniumDriverLike, capabilities: unknown) {
+  const orig = getDriverOriginals()
+  return resolveViewport(capabilities, {
+    runScript: orig.executeScript
+      ? (body) => orig.executeScript!(driver, body)
+      : undefined,
+    getWindowSize: orig.manage
+      ? async () => {
+          // `manage()` is typed as unknown here — the window handle is a
+          // selenium internal this package deliberately does not model.
+          const window = (
+            orig.manage!(driver) as {
+              window?: () => { getRect?: () => unknown }
+            }
+          ).window?.()
+          return window?.getRect?.()
+        }
+      : undefined,
+    onWarn: (message) => log.warn(message)
+  })
+}
+
+/**
  * Extract session id + a fully-built upstream-metadata payload from a freshly
  * created Selenium driver. Logs the standard `Browser:`/`Capabilities sent:`/
  * `Driver session created in ...` lines as a side effect (these are part of
@@ -111,11 +139,14 @@ export async function buildDriverMetadata(
     const sessionId = session?.getId?.() ?? undefined
     const capGet = makeCapGet(capabilities)
     logBrowserBoot(capGet, sessionId, driverReadyTs)
+    const caps = serializeCapabilities(capabilities)
+    const viewport = await readViewport(driver, caps)
     return {
       sessionId,
       metadata: {
         type: TraceType.Testrunner,
-        capabilities: serializeCapabilities(capabilities),
+        capabilities: caps,
+        ...(viewport ? { viewport } : {}),
         sessionId,
         runner: SELENIUM_RUNNER_ID,
         options: {

@@ -633,18 +633,30 @@ def _viewport(driver: Any) -> Optional[Viewport]:
         return _driver_window(driver)
     run = _guarded_execute_script(driver)
     try:
-        size = run("return [window.innerWidth, window.innerHeight]")
+        # `visualViewport`, matching the JS adapters: it is the only read that
+        # carries the real scale and offsets, which `innerWidth` cannot express.
+        size = run(
+            "var v = window.visualViewport;"
+            " if (!v) { return null }"
+            " return [v.width, v.height, v.offsetLeft, v.offsetTop, v.scale]"
+        )
     except Exception as exc:  # noqa: BLE001 — a default frame, not a failed run
         _log.debug("viewport read failed: %s", exc)
         return None
-    if not isinstance(size, list) or len(size) != 2:
+    if not isinstance(size, list) or len(size) != 5:
         return None
-    width, height = size
-    if not isinstance(width, int) or not isinstance(height, int):
+    width, height, offset_left, offset_top, scale = size
+    if not isinstance(width, (int, float)) or not isinstance(height, (int, float)):
         return None
     if width <= 0 or height <= 0:
         return None
-    return {"width": width, "height": height}
+    return {
+        "width": int(width),
+        "height": int(height),
+        "offsetLeft": offset_left if isinstance(offset_left, (int, float)) else 0,
+        "offsetTop": offset_top if isinstance(offset_top, (int, float)) else 0,
+        "scale": scale if isinstance(scale, (int, float)) and scale > 0 else 1,
+    }
 
 
 def _ensure_session_setup(driver: Any, capturer: SessionCapturer) -> Optional[dict]:

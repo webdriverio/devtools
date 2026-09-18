@@ -15,6 +15,8 @@
  */
 
 import logger from '@wdio/logger'
+import { resolveViewport } from '@wdio/devtools-core'
+import { webdriverExecute, webdriverGet } from './helpers/webdriverHttp.js'
 import {
   errorMessage,
   finalizeScreencast,
@@ -114,10 +116,20 @@ function initReporterChain(ctx: SessionInitCtx): void {
   )
 }
 
-function broadcastSessionMetadata(
+/** The run's geometry, over the raw WebDriver transport: `browser.*` commands
+ *  are QUEUED, so a read issued here would sit behind the command in flight. */
+function readViewport(browser: NightwatchBrowser) {
+  return resolveViewport(browser.capabilities || {}, {
+    runScript: (body) => webdriverExecute(browser, body),
+    getWindowSize: () => webdriverGet(browser, 'window/rect'),
+    onWarn: (message) => log.warn(message)
+  })
+}
+
+async function broadcastSessionMetadata(
   ctx: SessionInitCtx,
   browser: NightwatchBrowser
-): void {
+): Promise<void> {
   const capabilities = browser.capabilities || {}
   const desiredCapabilities = browser.desiredCapabilities || {}
   const sessionId = browser.sessionId
@@ -128,9 +140,11 @@ function broadcastSessionMetadata(
     ctx.srcFolders = Array.isArray(sf) ? sf : sf ? [sf] : []
   }
 
+  const viewport = await readViewport(browser)
   const metadata = {
     type: TraceType.Testrunner,
     capabilities,
+    ...(viewport ? { viewport } : {}),
     desiredCapabilities,
     sessionId,
     testEnv: opts.testEnv,
@@ -314,7 +328,7 @@ async function rebindSessionToBrowser(
   // Also gates `wrapUrlMethod`, which is per browser OBJECT — cucumber hands
   // over a new one per scenario.
   ctx.isScriptInjected = false
-  broadcastSessionMetadata(ctx, browser)
+  await broadcastSessionMetadata(ctx, browser)
   await armReplacedSession(ctx, browser)
   rotateScreencastForSession(ctx, browser)
   await ctx.screencastRotation
@@ -357,7 +371,7 @@ export async function ensureSessionInitialized(
     }
   }
   initReporterChain(ctx)
-  broadcastSessionMetadata(ctx, browser)
+  await broadcastSessionMetadata(ctx, browser)
   await armCaptureForSession(ctx, browser)
   await startScreencast(ctx, browser, browser.sessionId)
 }

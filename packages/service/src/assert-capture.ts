@@ -159,11 +159,68 @@ function unwrapAsymmetricMatcher(value: unknown): unknown {
  * screenshot come from the matcher's read command it's coalesced into (see
  * `coalesceAssertionIntoLastRead`), not from a stack walk here.
  */
+/**
+ * Whether the matcher was called through `.not`.
+ *
+ * It has to be read out of the message, because nothing else carries it:
+ * `afterAssertion` is handed `{matcherName, options, result}` and the flag
+ * lives on the matcher's own `this`. `result.pass` is the RAW matcher answer —
+ * jest's convention is that `pass` describes the positive assertion and the
+ * framework inverts it for `.not` — so a passing `.not.toBeDisplayed()` arrives
+ * as `pass: false` and was recorded as a failed row in a green test.
+ *
+ * Both signals are read off the DIFF BLOCK, never the prose. The first line is
+ * `Expect ${subject} ${not}to …`, and a subject is user-controlled: a selector
+ * or text containing "not to" would otherwise reverse a positive assertion's
+ * outcome.
+ */
+export function assertionWasNegated(
+  message: string | undefined,
+  /** Whether the user passed an expected value, e.g. `toHaveText('x')`. */
+  hasUserExpectedValue: boolean
+): boolean {
+  if (!message) {
+    return false
+  }
+  const plain = stripAnsi(message)
+  // Matchers that take a value label the diff itself when negated.
+  if (/^Expected \[not\]/m.test(plain)) {
+    return true
+  }
+  // The `.be` family renders no such label — `enhanceErrorBe` passes
+  // `useNotInLabel: false` — and encodes the negation in the expected VALUE
+  // instead (`not displayed`). That value is generated from the matcher's own
+  // expectation, so it is only trustworthy when the user supplied none:
+  // a positive `toHaveText('not foo')` prints the same shape.
+  return !hasUserExpectedValue && /^Expected:\s*"?not\s/m.test(plain)
+}
+
+/** The message is a thunk that formats a diff; a matcher whose own formatting
+ *  throws must not take the assertion row down with it. */
+function readMessage(message?: () => string): string | undefined {
+  try {
+    return message?.()
+  } catch {
+    return undefined
+  }
+}
+
 export function expectAssertionToCommandLog(
   params: ExpectAssertion,
-  testUid: string | undefined
+  testUid: string | undefined,
+  /** The caller already knows the outcome — a matcher that hard-threw is a
+   *  failure whatever its message says. Sniffing it for `.not` could invert a
+   *  real failure into a passing row carrying no error. */
+  outcomeIsDecided = false
 ): CommandLog {
   const { matcherName, expectedValue, result } = params
+  const rawPass = result.pass ?? result.result ?? false
+  const negated =
+    !outcomeIsDecided &&
+    assertionWasNegated(
+      readMessage(result.message),
+      expectedValue !== undefined
+    )
   const rawArgs =
     expectedValue === undefined
       ? []
@@ -174,7 +231,8 @@ export function expectAssertionToCommandLog(
     {
       method: matcherName,
       args: rawArgs.map(unwrapAsymmetricMatcher),
-      passed: result.pass ?? result.result ?? false,
+      // Inverted for `.not`, so a passing negated matcher is a passing row.
+      passed: negated ? !rawPass : rawPass,
       message: result.message
     },
     testUid
