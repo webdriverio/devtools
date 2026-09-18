@@ -51,6 +51,11 @@ export interface SessionCapturerOptions {
 type ConsoleMethod = (typeof CONSOLE_METHODS)[number]
 
 export abstract class SessionCapturerBase {
+  /** Ceiling on messages held while the socket connects. High enough that a
+   *  normal bringup never reaches it, low enough that a dashboard which never
+   *  answers cannot retain a run's worth of traffic. */
+  static readonly MAX_PENDING_UPSTREAM = 1000
+
   // ── State (mostly private; subclasses access shared ws via `this.ws`) ────
   /**
    * Exposed as `protected` so subclasses with framework-specific close/wait
@@ -117,10 +122,17 @@ export abstract class SessionCapturerBase {
       )
       this.ws.on('open', () => {
         this.#hasConnected = true
+        this.#flushPending()
         this.onWsOpen()
       })
-      this.ws.on('error', (err: unknown) => this.onWsError(err))
-      this.ws.on('close', () => this.onWsClose())
+      this.ws.on('error', (err: unknown) => {
+        this.#discardPending()
+        this.onWsError(err)
+      })
+      this.ws.on('close', () => {
+        this.#discardPending()
+        this.onWsClose()
+      })
       this.ws.on('message', (raw: Buffer | string) => {
         try {
           const parsed = JSON.parse(raw.toString())
@@ -147,14 +159,91 @@ export abstract class SessionCapturerBase {
    * {@link onUpstreamDrop}.
    */
   sendUpstream(event: string, data: unknown): void {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      this.onUpstreamDrop(event, 'closed')
+    if (!this.ws) {
+      this.notifyDrop(event, 'closed')
+      return
+    }
+    // A socket that has not opened YET is not a lost dashboard: a session's
+    // metadata and its first suites are published while the driver is still
+    // being created, and against Appium that is ~11 s before the worker socket
+    // opens. Dropping them silently cost the live dashboard the whole run —
+    // `metadata.type` gates the test-suite pane and `metadata.device` the
+    // mobile layout, so both were simply absent with nothing logged.
+    if (this.ws.readyState === WebSocket.CONNECTING) {
+      this.#buffer(event, data)
+      return
+    }
+    if (this.ws.readyState !== WebSocket.OPEN) {
+      this.notifyDrop(event, 'closed')
       return
     }
     try {
       this.ws.send(JSON.stringify({ scope: event, data }))
     } catch (err) {
-      this.onUpstreamDrop(event, 'send-error', err)
+      this.notifyDrop(event, 'send-error', err)
+    }
+  }
+
+  /** Messages published before the socket opened, in the order they were
+   *  published. Capped: a dashboard that never connects must not grow this
+   *  without bound for the length of a run. */
+  #pending: { event: string; data: unknown }[] = []
+
+  #buffer(event: string, data: unknown): void {
+    if (this.#pending.length >= SessionCapturerBase.MAX_PENDING_UPSTREAM) {
+      this.notifyDrop(event, 'closed')
+      return
+    }
+    this.#pending.push({ event, data })
+  }
+
+  #inDropHandler = false
+
+  /**
+   * Report a drop, at most one level deep.
+   *
+   * An adapter's handler naturally wants to log, and `patchConsole` forwards
+   * console output upstream — so a handler that logs re-enters `sendUpstream`,
+   * drops again and recurses until the stack blows. Measured as "Maximum call
+   * stack size exceeded" raised inside the user's own spec, which points
+   * nowhere near this code.
+   */
+  protected notifyDrop(
+    event: string,
+    reason: 'closed' | 'send-error',
+    err?: unknown
+  ): void {
+    if (this.#inDropHandler) {
+      return
+    }
+    this.#inDropHandler = true
+    try {
+      this.onUpstreamDrop(event, reason, err)
+    } finally {
+      this.#inDropHandler = false
+    }
+  }
+
+  /** A socket that dies before it ever opens is a dashboard that is not coming,
+   *  so its buffer is reported as dropped and released. Without this the
+   *  payloads — screenshots among them — were retained for the run's length and
+   *  the adapter's drop warning never fired, which is the silence the buffer
+   *  exists to end, not to relocate. */
+  #discardPending(): void {
+    const pending = this.#pending
+    this.#pending = []
+    for (const { event } of pending) {
+      this.notifyDrop(event, 'closed')
+    }
+  }
+
+  /** Publish what was buffered while connecting, oldest first — order matters,
+   *  since the app folds each metadata message into the previous one. */
+  #flushPending(): void {
+    const pending = this.#pending
+    this.#pending = []
+    for (const { event, data } of pending) {
+      this.sendUpstream(event, data)
     }
   }
 

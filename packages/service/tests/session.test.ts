@@ -74,6 +74,56 @@ describe('SessionCapturer', () => {
       expect(capturer.commandsLog[0].screenshot).toBe(mockScreenshot)
     })
 
+    // A native session has no DOM to replay and no per-action snapshot outside
+    // trace mode, so this screenshot is the only visual any command can carry —
+    // without it the player shows nothing per command and the device pane falls
+    // back to desktop browser chrome.
+    it('captures one for a native session, which has no other visual', async () => {
+      const capturer = new SessionCapturer()
+      const nativeBrowser = {
+        ...mockBrowser,
+        isMobile: true,
+        capabilities: {
+          platformName: 'Android',
+          'appium:automationName': 'UiAutomator2'
+        }
+      }
+      mockBrowser.takeScreenshot.mockResolvedValueOnce('native-shot')
+
+      await capturer.afterCommand(
+        nativeBrowser as never,
+        'click' as never,
+        ['~btn'],
+        undefined,
+        undefined,
+        undefined
+      )
+
+      expect(capturer.commandsLog[0].screenshot).toBe('native-shot')
+    })
+
+    // It replays from its mutation stream instead, and a screenshot per command
+    // on a phone is ~1.2s of round trip.
+    it('skips one for a mobile browser session', async () => {
+      const capturer = new SessionCapturer()
+      const mobileWeb = {
+        ...mockBrowser,
+        isMobile: true,
+        capabilities: { platformName: 'Android', browserName: 'chrome' }
+      }
+
+      await capturer.afterCommand(
+        mobileWeb as never,
+        'click' as never,
+        ['#btn'],
+        undefined,
+        undefined,
+        undefined
+      )
+
+      expect(capturer.commandsLog[0].screenshot).toBeUndefined()
+    })
+
     it('should handle screenshot failures gracefully', async () => {
       const capturer = new SessionCapturer()
       mockBrowser.takeScreenshot.mockRejectedValueOnce(

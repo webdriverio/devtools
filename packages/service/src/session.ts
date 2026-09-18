@@ -37,6 +37,12 @@ import { directProbes } from './direct-probes.js'
 const log = logger('@wdio/devtools-service:SessionCapturer')
 
 export class SessionCapturer extends SessionCapturerBase {
+  // No `onUpstreamDrop` override here on purpose. `patchConsole` forwards
+  // console.warn upstream, so warning about a drop re-enters sendUpstream,
+  // drops again and recurses until the stack blows — measured as "Maximum call
+  // stack size exceeded" inside the user's own spec. The buffer added in core
+  // is what makes drops rare; a diagnostic for the ones that remain has to come
+  // from somewhere that cannot be captured.
   #isScriptInjected = false
   /** Session start wall time for trace event timestamps. */
   readonly startWallTime = Date.now()
@@ -165,7 +171,13 @@ export class SessionCapturer extends SessionCapturerBase {
       testUid,
       stepUid
     }
-    if (!isAppiumSession(browser)) {
+    // A native session takes one too: it is the ONLY visual it can have. There
+    // is no DOM to replay and no per-action snapshot outside trace mode, so
+    // skipping it left the player with nothing to show for any command and the
+    // device pane falling back to desktop browser chrome. A mobile BROWSER
+    // session keeps the old behaviour — it replays from its mutation stream,
+    // and a screenshot per command on a phone is ~1.2s of round trip.
+    if (!isAppiumSession(browser) || isNativeAppSession(browser.capabilities)) {
       try {
         commandLogEntry.screenshot = await browser.takeScreenshot()
       } catch (screenshotError) {
