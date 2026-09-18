@@ -169,17 +169,30 @@ function unwrapAsymmetricMatcher(value: unknown): unknown {
  * framework inverts it for `.not` — so a passing `.not.toBeDisplayed()` arrives
  * as `pass: false` and was recorded as a failed row in a green test.
  *
- * expect-webdriverio builds the message from that same flag: `Expect $(…) not
- * to be displayed`, and `Expected [not]:` labelling the diff. Both are checked
- * because the label is suppressed by its own `useNotInLabel` option.
+ * Both signals are read off the DIFF BLOCK, never the prose. The first line is
+ * `Expect ${subject} ${not}to …`, and a subject is user-controlled: a selector
+ * or text containing "not to" would otherwise reverse a positive assertion's
+ * outcome.
  */
-export function assertionWasNegated(message: string | undefined): boolean {
+export function assertionWasNegated(
+  message: string | undefined,
+  /** Whether the user passed an expected value, e.g. `toHaveText('x')`. */
+  hasUserExpectedValue: boolean
+): boolean {
   if (!message) {
     return false
   }
-  return (
-    message.includes('Expected [not]') || /\bExpect\b.*\bnot to\b/.test(message)
-  )
+  const plain = stripAnsi(message)
+  // Matchers that take a value label the diff itself when negated.
+  if (/^Expected \[not\]/m.test(plain)) {
+    return true
+  }
+  // The `.be` family renders no such label — `enhanceErrorBe` passes
+  // `useNotInLabel: false` — and encodes the negation in the expected VALUE
+  // instead (`not displayed`). That value is generated from the matcher's own
+  // expectation, so it is only trustworthy when the user supplied none:
+  // a positive `toHaveText('not foo')` prints the same shape.
+  return !hasUserExpectedValue && /^Expected:\s*"?not\s/m.test(plain)
 }
 
 /** The message is a thunk that formats a diff; a matcher whose own formatting
@@ -203,7 +216,11 @@ export function expectAssertionToCommandLog(
   const { matcherName, expectedValue, result } = params
   const rawPass = result.pass ?? result.result ?? false
   const negated =
-    !outcomeIsDecided && assertionWasNegated(readMessage(result.message))
+    !outcomeIsDecided &&
+    assertionWasNegated(
+      readMessage(result.message),
+      expectedValue !== undefined
+    )
   const rawArgs =
     expectedValue === undefined
       ? []

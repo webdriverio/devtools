@@ -222,57 +222,87 @@ describe('expectAssertionToCommandLog', () => {
 // Nothing in the hook params carries `isNot` — it lives on the matcher's own
 // `this` — so a passing `.not.*` arrived as `pass: false`, was recorded as a
 // failed row inside a green test, and landed in the Errors tab.
+
+// expect-webdriverio hands `afterAssertion` the RAW matcher result: `pass`
+// answers the POSITIVE assertion and the framework inverts it for `.not`.
+// Nothing in the hook params carries `isNot`, so every passing `.not.*` was
+// recorded as a failed row inside a green test and landed in the Errors tab.
 describe('a negated matcher (.not)', () => {
-  // Verbatim shape of enhanceError's output: `Expect ${subject} ${not}to …`
-  // plus the `Expected [not]` diff label.
-  const negated = `Expect $(\`#gone\`) not to be displayed
+  // The `.be` family (toBeDisplayed etc.) renders no `[not]` label — it puts
+  // the negation in the generated expected VALUE.
+  const negatedBe = `Expect $(\`#gone\`) not to be displayed
 
-Expected [not]: true
-Received      : false`
+Expected: "not displayed"
+Received: "displayed"`
 
-  const positive = `Expect $(\`#here\`) to be displayed
+  const positiveBe = `Expect $(\`#here\`) to be displayed
 
-Expected: true
-Received: false`
+Expected: "displayed"
+Received: "not displayed"`
 
-  const entryFor = (pass: boolean, message: string | (() => string)) =>
+  // A value matcher labels the diff instead.
+  const negatedValue = `Expect $(\`#a\`) not to have text
+
+Expected [not]: "hi"
+Received      : "hi"`
+
+  const entryFor = (pass: boolean, message: string, expectedValue?: unknown) =>
     expectAssertionToCommandLog(
       {
         matcherName: 'toBeDisplayed',
-        result: {
-          pass,
-          message: typeof message === 'string' ? () => message : message
-        }
+        expectedValue,
+        result: { pass, message: () => message }
       },
       'test-1'
     )
 
   it('records a passing .not assertion as passed', () => {
-    const entry = entryFor(false, negated)
+    const entry = entryFor(false, negatedBe)
     expect(entry.result).toBe('passed')
     expect(entry.error).toBeUndefined()
   })
 
   it('records a failing .not assertion as failed', () => {
-    const entry = entryFor(true, negated)
-    expect(entry.error).toBeDefined()
-    expect(entry.result).toBeUndefined()
+    expect(entryFor(true, negatedBe).error).toBeDefined()
   })
 
   it('leaves a positive matcher alone in both directions', () => {
-    expect(entryFor(true, positive).result).toBe('passed')
-    expect(entryFor(false, positive).error).toBeDefined()
+    expect(entryFor(true, positiveBe).result).toBe('passed')
+    expect(entryFor(false, positiveBe).error).toBeDefined()
+  })
+
+  it('reads the [not] label a value matcher writes', () => {
+    expect(entryFor(false, negatedValue, 'hi').result).toBe('passed')
   })
 })
 
 describe('assertionWasNegated', () => {
-  it('detects the diff label and the phrase independently', () => {
-    expect(assertionWasNegated('Expected [not]: true')).toBe(true)
-    expect(assertionWasNegated('Expect $(`#a`) not to have text')).toBe(true)
+  it('reads the diff label, not the prose', () => {
+    expect(assertionWasNegated('Expected [not]: true', true)).toBe(true)
+    expect(assertionWasNegated('Expected: "not displayed"', false)).toBe(true)
   })
 
-  it('does not fire on a positive message or an empty one', () => {
-    expect(assertionWasNegated('Expect $(`#a`) to be displayed')).toBe(false)
-    expect(assertionWasNegated(undefined)).toBe(false)
+  // The subject is user-controlled and is interpolated into the first line, so
+  // scanning the prose let a selector reverse a positive assertion's outcome.
+  it('is not fooled by a subject containing the negation phrase', () => {
+    const message = `Expect $(\`.not to be shown\`) to be displayed
+
+Expected: "displayed"
+Received: "not displayed"`
+    expect(assertionWasNegated(message, false)).toBe(false)
+  })
+
+  // `toHaveText('not foo')` prints the same shape as a negated `.be` matcher,
+  // so the generated-value signal is only trusted when the user supplied none.
+  it('is not fooled by a user expected value that begins with "not"', () => {
+    const message = `Expect $(\`#a\`) to have text
+
+Expected: "not foo"
+Received: "foo"`
+    expect(assertionWasNegated(message, true)).toBe(false)
+  })
+
+  it('answers false for an empty message', () => {
+    expect(assertionWasNegated(undefined, false)).toBe(false)
   })
 })
