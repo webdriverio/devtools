@@ -69,7 +69,6 @@ describe('mapCommandToAction for read/query commands', () => {
 describe('mapCommandToAction still excludes noisy/internal commands', () => {
   it.each([
     'clearValue',
-    'addValue',
     'executeScript',
     '$',
     '$$',
@@ -239,5 +238,30 @@ describe('assertion command names', () => {
     // what it cannot map, so those rows showed live and in no trace.
     expect(mapCommandToAction('assert')).toBeNull()
     expect(mapCommandToAction('expect')).toBeNull()
+  })
+})
+
+// A direct addValue is idiomatic on Appium, and it was excluded from the map on
+// the assumption it only ever appears nested inside setValue. The typing step
+// was then missing from the trace entirely — a click → addValue → getText spec
+// produced two action rows.
+describe('mapCommandToAction for addValue (#352)', () => {
+  it('maps it to a fill, like the other append-style typing commands', () => {
+    expect(mapCommandToAction('addValue')).toEqual({
+      class: 'Element',
+      method: 'fill'
+    })
+  })
+
+  it('renders the same way selenium sendKeys does', () => {
+    expect(mapCommandToAction('addValue')).toEqual(
+      mapCommandToAction('sendKeys')
+    )
+  })
+
+  // Still excluded: unlike addValue it has no direct-use case that goes
+  // unrecorded, and WDIO fires it inside setValue.
+  it('leaves clearValue unmapped', () => {
+    expect(mapCommandToAction('clearValue')).toBeNull()
   })
 })

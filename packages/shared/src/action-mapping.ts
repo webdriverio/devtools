@@ -15,7 +15,11 @@ export type { TraceAction }
 export { ASSERT_ACTION_CLASS, mapAssertCommand }
 
 // Excluded by design:
-//   clearValue / addValue — WDIO fires these inside setValue (duplicate events).
+//   clearValue — WDIO fires it inside setValue (duplicate events). `addValue`
+//     was excluded for the same reason and is now mapped: the nested call never
+//     reaches the command log (the service logs only a command matching the top
+//     of its stack), and a DIRECT addValue — idiomatic on Appium — was
+//     producing no action row at all.
 //   executeScript — Selenium's `until` polling fires it ~50ms; also recurses
 //     because @wdio/elements uses executeScript inside captureActionSnapshot.
 //     WDIO's user-facing `execute`/`executeAsync` are still captured.

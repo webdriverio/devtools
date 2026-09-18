@@ -57,6 +57,7 @@ export const ACTION_MAP: Record<string, TraceAction> = {
   click: { class: 'Element', method: 'click' },
   doubleClick: { class: 'Element', method: 'dblclick' },
   setValue: { class: 'Element', method: 'fill' },
+  addValue: { class: 'Element', method: 'fill' },
   selectByVisibleText: { class: 'Element', method: 'selectOption' },
   moveTo: { class: 'Element', method: 'hover' },
   scrollIntoView: { class: 'Element', method: 'scrollIntoViewIfNeeded' },
