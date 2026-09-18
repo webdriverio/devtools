@@ -442,4 +442,33 @@ describe('DevtoolsService - Screencast Integration', () => {
     expect(ScreencastRecorder).toHaveBeenCalled()
     expect(mockScreencastRecorder.start).toHaveBeenCalledWith(mockBrowser)
   })
+
+  // #352 mapped `addValue` into ACTION_MAP. It was excluded because WDIO fires it
+  // INSIDE setValue, and mapping it was assumed to double-count — this is the
+  // guarantee that makes it safe: only a command matching the top of the stack is
+  // logged, so the nested call never reaches the command log to be mapped at all.
+  describe('a command nested inside another is not logged', () => {
+    it('logs setValue once, not setValue plus its inner addValue', async () => {
+      service.beforeCommand('setValue' as any, ['hello'])
+      // WDIO issues this from within setValue, below the top-level boundary.
+      service.beforeCommand('addValue' as any, ['hello'])
+      service.afterCommand('addValue' as any, ['hello'], undefined)
+      await service.afterCommand('setValue' as any, ['hello'], undefined)
+
+      const logged = mockSessionCapturerInstance.afterCommand.mock.calls.map(
+        (call: unknown[]) => call[1]
+      )
+      expect(logged).toEqual(['setValue'])
+    })
+
+    it('logs a direct addValue, which is the row #352 was missing', async () => {
+      service.beforeCommand('addValue' as any, ['hello'])
+      await service.afterCommand('addValue' as any, ['hello'], undefined)
+
+      const logged = mockSessionCapturerInstance.afterCommand.mock.calls.map(
+        (call: unknown[]) => call[1]
+      )
+      expect(logged).toEqual(['addValue'])
+    })
+  })
 })
