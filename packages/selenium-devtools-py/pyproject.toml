@@ -43,3 +43,12 @@ selenium_devtools = "selenium_devtools.pytest_plugin"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/selenium_devtools"]
+
+# This package's own unit tests must never capture themselves. The plugin is a
+# pytest11 entry point, so it loads in every run here, and its last resort is
+# the environment — a `DEVTOOLS_PORT` or `DEVTOOLS_ENABLE` exported for a demo
+# would otherwise opt the unit suite in and open a dashboard window per run.
+# An explicit `false` is the project's answer and the environment cannot
+# overturn it, which a bare unset value could not guarantee.
+[tool.pytest.ini_options]
+devtools = false
