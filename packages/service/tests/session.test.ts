@@ -78,8 +78,9 @@ describe('SessionCapturer', () => {
     // trace mode, so this screenshot is the only visual any command can carry —
     // without it the player shows nothing per command and the device pane falls
     // back to desktop browser chrome.
-    it('captures one for a native session, which has no other visual', async () => {
+    it('captures one for a native session in live mode, its only visual', async () => {
       const capturer = new SessionCapturer()
+      capturer.traceMode = 'live'
       const nativeBrowser = {
         ...mockBrowser,
         isMobile: true,
@@ -100,6 +101,32 @@ describe('SessionCapturer', () => {
       )
 
       expect(capturer.commandsLog[0].screenshot).toBe('native-shot')
+    })
+
+    // `captureActionResult` already screenshots the same command in trace mode;
+    // two Appium round trips at ~1.2s each is the cost #351 exists to remove.
+    it('skips one for a native session in trace mode', async () => {
+      const capturer = new SessionCapturer()
+      capturer.traceMode = 'trace'
+      const nativeBrowser = {
+        ...mockBrowser,
+        isMobile: true,
+        capabilities: {
+          platformName: 'Android',
+          'appium:automationName': 'UiAutomator2'
+        }
+      }
+
+      await capturer.afterCommand(
+        nativeBrowser as never,
+        'click' as never,
+        ['~btn'],
+        undefined,
+        undefined,
+        undefined
+      )
+
+      expect(capturer.commandsLog[0].screenshot).toBeUndefined()
     })
 
     // It replays from its mutation stream instead, and a screenshot per command

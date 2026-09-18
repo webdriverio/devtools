@@ -31,6 +31,7 @@ import {
   loadInjectableScript,
   type CapturedPerformancePayload
 } from '@wdio/devtools-core'
+import type { DevToolsMode } from '@wdio/devtools-shared'
 import type { CommandLog } from './types.js'
 import { directProbes } from './direct-probes.js'
 
@@ -43,6 +44,11 @@ export class SessionCapturer extends SessionCapturerBase {
   // stack size exceeded" inside the user's own spec. The buffer added in core
   // is what makes drops rare; a diagnostic for the ones that remain has to come
   // from somewhere that cannot be captured.
+  /** Set by the plugin at session start. Mirrors the field nightwatch's
+   *  capturer already carries, so the capture path can tell the two modes
+   *  apart without reaching back into the plugin's options. */
+  traceMode: DevToolsMode = 'live'
+
   #isScriptInjected = false
   /** Session start wall time for trace event timestamps. */
   readonly startWallTime = Date.now()
@@ -171,13 +177,17 @@ export class SessionCapturer extends SessionCapturerBase {
       testUid,
       stepUid
     }
-    // A native session takes one too: it is the ONLY visual it can have. There
-    // is no DOM to replay and no per-action snapshot outside trace mode, so
-    // skipping it left the player with nothing to show for any command and the
-    // device pane falling back to desktop browser chrome. A mobile BROWSER
-    // session keeps the old behaviour — it replays from its mutation stream,
-    // and a screenshot per command on a phone is ~1.2s of round trip.
-    if (!isAppiumSession(browser) || isNativeAppSession(browser.capabilities)) {
+    // A native session takes one in LIVE mode, where it is the only visual it
+    // can have: no DOM to replay, and the per-action snapshot is trace-only, so
+    // skipping it left the player with nothing for any command and the device
+    // pane falling back to desktop browser chrome. Trace mode is excluded
+    // because `captureActionResult` already screenshots the same command — two
+    // Appium round trips at ~1.2s each is the cost #351 exists to remove. A
+    // mobile BROWSER session keeps the old behaviour throughout: it replays
+    // from its mutation stream.
+    const nativeLiveCapture =
+      this.traceMode !== 'trace' && isNativeAppSession(browser.capabilities)
+    if (!isAppiumSession(browser) || nativeLiveCapture) {
       try {
         commandLogEntry.screenshot = await browser.takeScreenshot()
       } catch (screenshotError) {
