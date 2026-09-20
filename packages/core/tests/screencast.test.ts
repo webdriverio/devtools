@@ -54,12 +54,18 @@ describe('ScreencastRecorderBase — polling path', () => {
     expect(throwR.isRecording).toBe(false)
   })
 
-  it('does not arm a loop that a stop() during the first shot has cancelled', async () => {
+  it('tears down a loop that a stop() during the first shot has cancelled', async () => {
     vi.useFakeTimers()
     let release: ((value: string) => void) | undefined
     class SlowFirst extends TestRecorder {
+      shotIssued!: () => void
+      readonly firstShot = new Promise<void>((resolve) => {
+        this.shotIssued = resolve
+      })
+
       protected override takeScreenshot(): Promise<string | null> {
         this.shotsTaken++
+        this.shotIssued()
         return new Promise((resolve) => {
           release = resolve
         })
@@ -67,16 +73,19 @@ describe('ScreencastRecorderBase — polling path', () => {
     }
     const r = new SlowFirst({ pollIntervalMs: 50 })
     const starting = r.start({ name: 'driver' })
-    // Nothing is armed yet and `isRecording` is still false, so this stop() has
-    // no timer to clear — without the generation it would return as a no-op and
-    // the interval would arm underneath it.
-    await r.stop()
+    await r.firstShot
+    // Queued behind the handshake, so the stop now runs against a start that
+    // finished arming: what it has to clear is a live timer, not a pending one.
+    const stopping = r.stop()
     release?.('late-shot')
-    await starting
+    await Promise.all([starting, stopping])
     await vi.advanceTimersByTimeAsync(500)
 
     expect(r.isRecording).toBe(false)
-    expect(r.bufferLength).toBe(0)
+    // The shot was already issued when the stop took effect, so it is the one
+    // frame the recording holds; the interval it armed must add no more.
+    expect(r.bufferLength).toBe(1)
+    expect(r.shotsTaken).toBe(1)
     vi.useRealTimers()
   })
 
@@ -339,6 +348,96 @@ describe('ScreencastRecorderBase — CDP override path', () => {
     expect(r.pollAttempted).toBe(false)
     expect(r.isRecording).toBe(true)
     await r.stop()
+  })
+})
+
+describe('ScreencastRecorderBase — start/stop serialisation', () => {
+  class CdpRaceRecorder extends ScreencastRecorderBase<{ name: string }> {
+    /** Session ids in arm order, and the one currently held — a single field,
+     *  exactly as both CDP overrides keep theirs. */
+    armed: string[] = []
+    stopped: string[] = []
+    session = 'none'
+    // Arm numbers whose handshake stays pending until release() — lets a test
+    // park start() mid-handshake while stop()/start() land on top of it.
+    holdCalls = new Set<number>()
+    private gates = new Map<number, (value: boolean) => void>()
+    private entered = new Set<number>()
+    private enteredWaiters = new Map<number, () => void>()
+
+    protected override async takeScreenshot(): Promise<string | null> {
+      return null
+    }
+
+    protected override tryStartCdp(): Promise<boolean> {
+      const call = this.armed.length + 1
+      const id = `s${call}`
+      this.armed.push(id)
+      this.session = id
+      this.entered.add(call)
+      this.enteredWaiters.get(call)?.()
+      if (this.holdCalls.has(call)) {
+        return new Promise<boolean>((resolve) => {
+          this.gates.set(call, resolve)
+        })
+      }
+      return Promise.resolve(true)
+    }
+
+    protected override async tryStopCdp(): Promise<void> {
+      if (this.session === 'none') {
+        return
+      }
+      this.stopped.push(this.session)
+      this.session = 'none'
+    }
+
+    /** Resolves once arm `call` has been entered, gated or not. */
+    armEntered(call: number): Promise<void> {
+      if (this.entered.has(call)) {
+        return Promise.resolve()
+      }
+      return new Promise<void>((resolve) => {
+        this.enteredWaiters.set(call, resolve)
+      })
+    }
+
+    release(call: number): void {
+      this.gates.get(call)?.(true)
+    }
+  }
+
+  it('stop() during the CDP handshake still tears the session down', async () => {
+    const r = new CdpRaceRecorder()
+    r.holdCalls.add(1)
+    const starting = r.start({ name: 'driver' })
+    await r.armEntered(1)
+    // Not awaited here: the queue parks it behind the handshake, and the whole
+    // point is that it must run once that handshake has finished arming.
+    const stopping = r.stop()
+    r.release(1)
+    await Promise.all([starting, stopping])
+    expect(r.stopped).toEqual(['s1'])
+    expect(r.isRecording).toBe(false)
+  })
+
+  it('a start landing mid-handshake never has its session torn down', async () => {
+    const r = new CdpRaceRecorder()
+    r.holdCalls = new Set([1, 2])
+    const first = r.start({ name: 'driver' })
+    const stopping = r.stop()
+    const second = r.start({ name: 'driver' })
+    await r.armEntered(1)
+    r.release(1)
+    await r.armEntered(2)
+    r.release(2)
+    await Promise.all([first, stopping, second])
+    // s1 is the session the stop was for; s2 belongs to the start that followed
+    // it and is still recording. Unserialised, the first handshake's stale path
+    // stopped s2 and left a dead stream flagged as recording.
+    expect(r.stopped).toEqual(['s1'])
+    expect(r.session).toBe('s2')
+    expect(r.isRecording).toBe(true)
   })
 })
 

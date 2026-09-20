@@ -31,6 +31,7 @@ export abstract class ScreencastRecorderBase<TDriver = unknown> {
   #cdpActive = false
   #startIndex = 0
   #startMarkerSet = false
+  #queue: Promise<void> = Promise.resolve()
 
   constructor(options: ScreencastOptions = {}) {
     this.options = { ...SCREENCAST_DEFAULTS, ...options }
@@ -43,25 +44,7 @@ export abstract class ScreencastRecorderBase<TDriver = unknown> {
    * recording is simply skipped.
    */
   async start(driver: TDriver): Promise<void> {
-    if (this.#isRecording) {
-      return
-    }
-    // Claimed before the first await, because a stop() arriving during any of
-    // them has nothing else to invalidate: nothing is armed, and #isRecording is
-    // still false, so without this the loop would be armed after the caller
-    // stopped it. A native session's first screenshot runs ~1.2 s.
-    const generation = ++this.#pollGeneration
-    this.driver = driver
-    const cdpOk = await this.tryStartCdp()
-    if (generation !== this.#pollGeneration) {
-      return
-    }
-    if (cdpOk) {
-      this.#cdpActive = true
-      this.#isRecording = true
-      return
-    }
-    await this.#startPolling(generation)
+    return this.#enqueue(() => this.#startInner(driver))
   }
 
   /**
@@ -69,9 +52,49 @@ export abstract class ScreencastRecorderBase<TDriver = unknown> {
    * never called or failed.
    */
   async stop(): Promise<void> {
-    // Bumped before the early return: a stop() that lands while start() is still
-    // awaiting its first screenshot finds nothing armed and #isRecording still
-    // false, so returning above would let start() arm the loop afterwards.
+    return this.#enqueue(() => this.#stopInner())
+  }
+
+  /**
+   * Serialise start and stop against each other, so a stop always runs against
+   * a start that has finished arming. Unserialised, a stop landing mid-handshake
+   * observes nothing armed and returns, leaving what the handshake armed with no
+   * owner — and a second start in that window overwrites the session the first
+   * is about to claim, because both CDP overrides hold theirs in a single field.
+   *
+   * The cost is that stop() now waits on an in-flight handshake. Only selenium
+   * caps its own (the first-frame race); the service's CDP handshake and the
+   * polling path's first screenshot have no ceiling, so a driver that wedges in
+   * one of those wedges stop() — where the old stop() returned early and leaked
+   * the session instead. Ceiling those awaits, or race this at the call site.
+   */
+  #enqueue(op: () => Promise<void>): Promise<void> {
+    const run = this.#queue.then(op, op)
+    this.#queue = run.then(
+      () => undefined,
+      () => undefined
+    )
+    return run
+  }
+
+  async #startInner(driver: TDriver): Promise<void> {
+    if (this.#isRecording) {
+      return
+    }
+    const generation = ++this.#pollGeneration
+    this.driver = driver
+    if (await this.tryStartCdp()) {
+      this.#cdpActive = true
+      this.#isRecording = true
+      return
+    }
+    await this.#startPolling(generation)
+  }
+
+  async #stopInner(): Promise<void> {
+    // Bumped before the early return: a shot issued by a loop this stop is
+    // ending must not land in the next recording, and the latch it holds is not
+    // the successor's to clear.
     this.#pollGeneration++
     if (!this.#isRecording) {
       return
