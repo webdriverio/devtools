@@ -796,12 +796,15 @@ describe('wdio-devtools-workbench', () => {
       const paneBox = pane!.getBoundingClientRect()
       const dockBox = dock.getBoundingClientRect()
 
-      // Beside, not under: the dock ends exactly where the column begins, and
-      // both span the same rows.
+      // Beside, not under: the dock ends where the column begins, and the
+      // column is the rightmost thing in the row.
       expect(dockBox.right).toBeCloseTo(paneBox.left, 0)
-      expect(dockBox.top).toBeCloseTo(paneBox.top, 0)
-      // ...and the column is the rightmost thing in the row.
       expect(paneBox.right).toBeGreaterThanOrEqual(dockBox.right)
+      // The dock no longer shares the column's top edge: it sits BELOW the
+      // action list, which owns the upper half of that left column. Beside
+      // the capture the dock was an unreadable strip once the suite tree had
+      // taken the left edge as well.
+      expect(dockBox.top).toBeGreaterThan(paneBox.top)
     })
 
     it('lets the capture fill the whole column', async () => {
@@ -827,8 +830,15 @@ describe('wdio-devtools-workbench', () => {
         paneOf(workbench)!,
         BROWSER
       )!.getBoundingClientRect()
+      // Playback rides above the capture INSIDE the column, so the capture
+      // fills what the controls leave rather than the whole pane.
+      const controls = shadow(paneOf(workbench)!, PLAYER_CONTROLS)
+      const controlsHeight = controls
+        ? controls.getBoundingClientRect().height
+        : 0
+      expect(controlsHeight).toBeGreaterThan(0)
       expect(capture.width).toBeCloseTo(pane.width, 1)
-      expect(capture.height).toBeCloseTo(pane.height, 1)
+      expect(capture.height).toBeCloseTo(pane.height - controlsHeight, 1)
     })
 
     it('leaves a desktop capture in the stacked layout', async () => {
@@ -867,6 +877,22 @@ describe('wdio-devtools-workbench', () => {
 
       expect(getComputedStyle(dock).minWidth).toBe('0px')
 
+      // Sized out of flow, because an unsized host makes the geometry below
+      // measure the harness. The column is then CONTENT-sized (measured 61px,
+      // against 576px — the row minus the capture's basis — once sized), so
+      // its width tracks the dock's content and the platform's font metrics,
+      // which is the thing being asserted absent; and the workbench overflows
+      // the page, so a scrollbar arriving shifts every viewport-relative rect
+      // by its width where it takes layout space and by nothing where it
+      // overlays. A fixed host is outside the document's scroll area, so it
+      // settles both at once.
+      const host = workbench.parentElement as HTMLElement
+      host.style.position = 'fixed'
+      host.style.inset = '0'
+      host.style.overflow = 'hidden'
+      await workbench.updateComplete
+      await new Promise((resolve) => requestAnimationFrame(resolve))
+
       const before = paneOf(workbench)!.getBoundingClientRect()
       const network = shadowAll<HTMLElement>(dock, '[role="tab"], button').find(
         (el) => text(el).includes('Network')
@@ -890,6 +916,39 @@ describe('wdio-devtools-workbench', () => {
      * harness does not apply Tailwind utilities inside a shadow root, so where
      * an absolutely positioned handle actually lands cannot be measured here.
      */
+    /**
+     * `#dragVertical` is start-anchored: its stored position is the TOP pane's
+     * height. Sizing the DOCK from that value put the handle and the boundary
+     * in different places — dragging down moved the handle down while growing
+     * the dock upward, so the control stopped tracking what it resizes.
+     */
+    it('puts the column handle on the boundary it moves', async () => {
+      const { workbench } = await mountWorkbench(
+        { metadata: IPHONE },
+        { playerMode: true }
+      )
+      const host = workbench.parentElement as HTMLElement
+      host.style.width = '1200px'
+      host.style.height = '800px'
+      await workbench.updateComplete
+      await new Promise((resolve) => requestAnimationFrame(resolve))
+
+      const column = shadow(workbench, 'section[data-vertical-resizer-window]')!
+      const actions = column.querySelector('section[data-sidebar]')!
+      // Scoped to the column: in player mode the timeline strip renders a
+      // row-resize handle too, and an unscoped search finds that one first.
+      const handle = Array.from(
+        column.querySelectorAll<HTMLElement>('button[data-draggable-id]')
+      ).find((el) => el.className.includes('cursor-row-resize'))
+      expect(handle).toBeTruthy()
+
+      // The handle sits where the action list ends, which is where the dock
+      // begins. Within a few pixels: the handle is a grab strip with height.
+      const edge = actions.getBoundingClientRect().bottom
+      const grip = handle!.getBoundingClientRect()
+      expect(Math.abs(grip.top + grip.height / 2 - edge)).toBeLessThan(8)
+    })
+
     it('anchors the column handle to its own edge, not the row start', async () => {
       const { workbench } = await mountWorkbench(
         { metadata: IPHONE },

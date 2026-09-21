@@ -13,7 +13,7 @@ import {
   mapCommandToAction,
   upsertRichestSnapshot
 } from '@wdio/devtools-core'
-import { isNativeAppSession, type ActionSnapshot } from '@wdio/devtools-shared'
+import { sessionHasDocument, type ActionSnapshot } from '@wdio/devtools-shared'
 import { mobilePlatform } from './mobile.js'
 import { directProbes } from './direct-probes.js'
 import { INTERNAL_COMMANDS } from './constants.js'
@@ -69,21 +69,29 @@ export async function captureActionResult(
   browser: WebdriverIO.Browser,
   command: string,
   actionSnapshots: ActionSnapshot[],
-  stampTimestamp: () => number
+  stampTimestamp: () => number,
+  /** Appium context the session is in, so a hybrid app's webview takes the web
+   *  path. Undefined for every non-Appium session, which has no contexts. */
+  context?: string
 ): Promise<void> {
   if (!mapCommandToAction(command) || INTERNAL_COMMANDS.includes(command)) {
     return
   }
   // Keyed on having a document, matching `#markDocument`, which writes the tag
   // this reads — split, a session tags a document nothing settles on.
-  if (!isNativeAppSession(browser.capabilities)) {
+  if (sessionHasDocument(browser.capabilities, context)) {
     await waitForActionResult(browser)
   }
   // Stamped before the capture, not after: a snapshot probe can never enter
   // commandsLog (beforeCommand requires an empty command stack), so the latest
   // logged action is the same either way — and reading it up front keeps the
   // stamp a capture input rather than a post-hoc mutation.
-  const snap = await captureActionSnapshot(browser, command, stampTimestamp())
+  const snap = await captureActionSnapshot(
+    browser,
+    command,
+    stampTimestamp(),
+    context
+  )
   if (snap) {
     upsertRichestSnapshot(actionSnapshots, snap)
   }
@@ -98,9 +106,10 @@ export async function pushActionSnapshotAt(
   browser: WebdriverIO.Browser,
   command: string,
   timestamp: number,
-  actionSnapshots: ActionSnapshot[]
+  actionSnapshots: ActionSnapshot[],
+  context?: string
 ): Promise<void> {
-  const snap = await captureActionSnapshot(browser, command, timestamp)
+  const snap = await captureActionSnapshot(browser, command, timestamp, context)
   if (snap) {
     upsertRichestSnapshot(actionSnapshots, snap)
   }
@@ -109,11 +118,14 @@ export async function pushActionSnapshotAt(
 export function captureActionSnapshot(
   browser: WebdriverIO.Browser,
   command: string,
-  timestamp?: number
+  timestamp?: number,
+  context?: string
 ): Promise<ActionSnapshot | null> {
   // A mobile BROWSER session takes the web path below: it has a document, and
-  // the native path would read its HTML through the page-source XML parser.
-  const native = isNativeAppSession(browser.capabilities)
+  // the native path would read its HTML through the page-source XML parser. So
+  // does a hybrid app while it sits in a webview context — its DOM is real, and
+  // reading it as page-source XML loses the whole replay.
+  const native = !sessionHasDocument(browser.capabilities, context)
   // A driver that serialises per session deadlocks on a probe issued from
   // inside the command hook, so those go straight to it (#374).
   const direct = directProbes(browser)

@@ -34,7 +34,7 @@ import {
   captureActionSnapshot
 } from './action-snapshot.js'
 import {
-  isNativeAppSession,
+  sessionHasDocument,
   type ActionSnapshot,
   type TestMetadataMap
 } from '@wdio/devtools-shared'
@@ -60,7 +60,7 @@ import {
   LOCATOR_COMMANDS,
   PAGE_TRANSITION_COMMANDS
 } from './constants.js'
-import { isAppiumSession } from './mobile.js'
+import { inPageProbesDeadlock, isAppiumSession } from './mobile.js'
 import { directProbes } from './direct-probes.js'
 import { resolveSessionMetadata } from './session-metadata.js'
 import { stampRunnerMetadata } from './wdio-runner-id.js'
@@ -655,17 +655,25 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     }
     // Pre-action capture: state BEFORE this action executes. Stamped at the
     // previous action's end time (or 0 for the first). Trace mode only.
+    //
+    // Not while Appium has a document to probe — see `inPageProbesDeadlock`,
+    // which carries the measurements. A native session is captured normally.
     if (
       topLevelUserCommand &&
       this.#options.mode === 'trace' &&
       this.#browser &&
+      !inPageProbesDeadlock(
+        this.#browser,
+        this.#sessionCapturer.currentContext
+      ) &&
       mapCommandToAction(command) &&
       !INTERNAL_COMMANDS.includes(command)
     ) {
       const snap = await captureActionSnapshot(
         this.#browser,
         command,
-        this.#lastActionTimestamp()
+        this.#lastActionTimestamp(),
+        this.#sessionCapturer.currentContext
       )
       if (snap) {
         upsertRichestSnapshot(this.#actionSnapshots, snap)
@@ -679,7 +687,13 @@ export default class DevToolsHookService implements Services.ServiceInstance {
   #markDocument(): Promise<unknown> {
     // Keyed on having a document: `waitForActionResult` reads this tag on the
     // same condition, so the pair must not be split across the two predicates.
-    if (!this.#browser || isNativeAppSession(this.#browser.capabilities)) {
+    if (
+      !this.#browser ||
+      !sessionHasDocument(
+        this.#browser.capabilities,
+        this.#sessionCapturer.currentContext
+      )
+    ) {
       return Promise.resolve()
     }
     // Issued from inside beforeCommand, so it takes the direct path on a
@@ -740,12 +754,21 @@ export default class DevToolsHookService implements Services.ServiceInstance {
           this.#currentTestUid,
           this.#currentStepUid
         )
-        if (this.#options.mode === 'trace') {
+        // Paired with the pre-action capture above, and gated on the same
+        // question: this settles and screenshots from inside the command hook.
+        if (
+          this.#options.mode === 'trace' &&
+          !inPageProbesDeadlock(
+            this.#browser,
+            this.#sessionCapturer.currentContext
+          )
+        ) {
           await captureActionResult(
             this.#browser,
             command,
             this.#actionSnapshots,
-            () => this.#lastActionTimestamp()
+            () => this.#lastActionTimestamp(),
+            this.#sessionCapturer.currentContext
           )
         } else {
           await this.#drainAfterLiveCommand(command)

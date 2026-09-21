@@ -127,8 +127,12 @@ export class DevtoolsWorkbench extends Element {
          floor is min-content unless this is set, so switching to a wide tab
          (the Network table) grew it and shoved the device column sideways —
          only the drag handle may move that boundary. Scoped here rather than as
-         a utility class so it holds wherever the shadow root is styled from. */
-      section[data-device-row] > wdio-devtools-tabs {
+         a utility class so it holds wherever the shadow root is styled from.
+
+         A DESCENDANT selector, not a child one: the dock sits a level deeper
+         now that the action list and the dock share a column beside the
+         capture, and as a direct-child rule this silently stopped applying. */
+      section[data-device-row] wdio-devtools-tabs {
         min-width: 0;
       }
     `
@@ -137,11 +141,17 @@ export class DevtoolsWorkbench extends Element {
   #dragVertical = new DragController(this, {
     localStorageKey: 'toolbarHeight',
     minPosition: minWorkbenchHeight,
-    maxPosition: () => window.innerHeight * 0.7,
+    maxPosition: () => this.#verticalSplitMax(),
     initialPosition: () => window.innerHeight * BROWSER_HEIGHT_RATIO,
     getContainerEl: () => this.#getVerticalWindow(),
     direction: Direction.vertical
   })
+
+  /** Both layouts render the row, so this is right in either. */
+  async #getDeviceRow() {
+    await this.updateComplete
+    return (this.deviceRow ?? this.verticalResizerWindow) as Element
+  }
 
   async #getVerticalWindow() {
     await this.updateComplete
@@ -223,6 +233,34 @@ export class DevtoolsWorkbench extends Element {
    * The arithmetic is exact whenever the workbench fills the window, which is
    * every case but an embedded panel.
    */
+  /**
+   * Ceiling for the vertical split.
+   *
+   * In the device layout the split lives in a COLUMN beside the capture, and
+   * that column is shorter than the window by the header, the playback
+   * controls and the timeline. A window-derived 70% therefore exceeded it, and
+   * because the controller's position is applied as a non-shrinking
+   * `flex-basis`, the action list could push the dock to zero and carry the
+   * handle outside the clipped row — leaving the split unreachable.
+   *
+   * Capped HERE rather than with a CSS `max-height`, which is what the earlier
+   * attempt did: the controller draws its grip from its own value and cannot
+   * see a cap the stylesheet applies, so the grip parts company with the
+   * boundary. Clamping the value keeps the two in step.
+   */
+  /** Last composite column height, so a change in any of its inputs is seen. */
+  #lastColumnHeight = 0
+
+  #verticalSplitMax(): number {
+    if (!this.#liveDeviceLayout) {
+      return window.innerHeight * 0.7
+    }
+    return Math.max(
+      minWorkbenchHeight(),
+      this.#deviceColumnHeight() - minWorkbenchHeight()
+    )
+  }
+
   #deviceColumnHeight(): number {
     return Math.max(
       minWorkbenchHeight(),
@@ -273,7 +311,13 @@ export class DevtoolsWorkbench extends Element {
     // "fills the height" the drag buys backdrop and costs the dock.
     maxPosition: () => this.#deviceFillWidth(),
     initialPosition: () => this.#deviceFillWidth(),
-    getContainerEl: () => this.#getVerticalWindow(),
+    // The ROW it divides, not the vertical split. Those were the same element
+    // while the dock sat beside the capture; now the vertical split is the
+    // column holding the action list and the dock, so measuring it clamped the
+    // capture against the dock's own box — and a 15px scrollbar appearing in a
+    // wide dock tab moved the column, which is exactly what this pane's tests
+    // forbid (seen on Linux, invisible on macOS's overlay scrollbars).
+    getContainerEl: () => this.#getDeviceRow(),
     direction: Direction.horizontal,
     // The pane is on the right, so its handle sits on its inner edge and
     // dragging left widens it.
@@ -339,6 +383,9 @@ export class DevtoolsWorkbench extends Element {
 
   @query('section[data-vertical-resizer-window]')
   verticalResizerWindow?: HTMLElement
+
+  @query('section[data-device-row]')
+  deviceRow?: HTMLElement
 
   // Height of the screencast pane; the dock fills the rest of the right column.
   // Collapsed dock → empty string so the browser flex-grows to fill.
@@ -576,11 +623,32 @@ export class DevtoolsWorkbench extends Element {
    * capture outlives it. Guarded on the property, so not a per-render pass.
    */
   protected updated(changed: PropertyValues<this>): void {
-    if (
-      changed.has('metadata') &&
-      this.#deviceLayout &&
-      this.#dragDevice.refreshBounds()
-    ) {
+    if (!this.#deviceLayout) {
+      return
+    }
+    // The column's width derives from the capture's shape; the vertical
+    // split's ceiling derives from the column's HEIGHT, which the header,
+    // player mode and the DRAGGABLE timeline all feed. Metadata is therefore
+    // not the only input — enlarging the timeline, or entering player mode
+    // after a larger split was stored, leaves a non-shrinking flex-basis above
+    // its new maximum, and the dock collapses with its handle outside the
+    // clipped row.
+    //
+    // Watched through the composite height rather than each input, so a new
+    // contributor to it cannot be forgotten here. Still not a per-render pass:
+    // a pass that moves nothing requests no update.
+    const columnHeight = this.#deviceColumnHeight()
+    const inputsMoved =
+      changed.has('metadata') ||
+      changed.has('playerMode') ||
+      columnHeight !== this.#lastColumnHeight
+    this.#lastColumnHeight = columnHeight
+    if (!inputsMoved) {
+      return
+    }
+    const device = this.#dragDevice.refreshBounds()
+    const vertical = this.#dragVertical.refreshBounds()
+    if (device || vertical) {
       this.requestUpdate()
     }
   }
@@ -594,6 +662,35 @@ export class DevtoolsWorkbench extends Element {
    * spent its left edge on the suite tree, so a third column squeezed the dock
    * into an unreadable strip and the tab row overflowed under the capture.
    */
+  /**
+   * The action list's share of the column beside the capture — the TOP pane,
+   * because `#dragVertical` is start-anchored and its stored position is the
+   * top pane's height. Sizing the DOCK from that value put the handle and the
+   * boundary in different places: dragging down moved the handle down while
+   * growing the dock upward.
+   *
+   * Sized against the COLUMN, never the window. The window-derived
+   * `#computeBrowserPaneStyle` gave this pane a fixed height that could exceed
+   * the space it had, the column then overflowed its row, and an ancestor grew
+   * a scrollbar — which on a classic-scrollbar platform shifts the capture
+   * sideways. `max-height` is a percentage for the same reason: whatever the
+   * drag has stored, the column cannot be made to overflow.
+   */
+  #deviceColumnTopStyle(): string {
+    if (this.#toolbarCollapsed) {
+      return 'flex:1 1 auto; min-height:0;'
+    }
+    // `getPosition()` applied LITERALLY, because the controller's contract is
+    // an inline `flex-basis: Npx`: `getSlider` draws the grip at that value
+    // and `#adjustPosition` finds the pane it resizes by matching that exact
+    // string. Expressed any other way — `height:Npx`, or a percentage default
+    // — the handle and the boundary part company, measured at 240px apart.
+    const pos = this.#dragVertical.getPosition()
+    return pos
+      ? `${pos}; flex-grow:0; flex-shrink:0; min-height:0;`
+      : 'flex:1 1 auto; min-height:0;'
+  }
+
   #renderLiveDeviceLayout() {
     const width = basisPx(this.#dragDevice.getPosition())
     return html`
@@ -610,7 +707,7 @@ export class DevtoolsWorkbench extends Element {
             class="relative flex min-h-0 min-w-0 overflow-hidden ${
               this.#workbenchSidebarCollapsed ? 'hidden' : ''
             }"
-            style="${this.#computeBrowserPaneStyle()}"
+            style="${this.#deviceColumnTopStyle()}"
           >
             ${this.#renderActionsSidebar()}
           </section>
@@ -625,7 +722,12 @@ export class DevtoolsWorkbench extends Element {
               ? this.#dragVertical.getSlider('z-[999] pointer-events-auto')
               : nothing
           }
-          ${this.#renderWorkbenchTabs()}
+          <section
+            class="relative flex flex-col min-h-0 overflow-hidden"
+            style="flex:1 1 auto; min-height:0;"
+          >
+            ${this.#renderWorkbenchTabs()}
+          </section>
         </section>
         ${
           !this.#toolbarCollapsed
@@ -637,6 +739,15 @@ export class DevtoolsWorkbench extends Element {
           class="relative flex flex-col min-w-0 min-h-0 overflow-hidden"
           style="${this.#dragDevice.getPosition()}; flex:0 1 auto; width:${width}px; max-width:100%;"
         >
+          ${
+            // Playback belongs with what it plays, so in this layout the
+            // controls ride above the capture rather than above the dock.
+            this.playerMode
+              ? html`<wdio-devtools-trace-player-controls
+                  class="flex-none h-10 border-b-[1px] border-b-panelBorder"
+                ></wdio-devtools-trace-player-controls>`
+              : nothing
+          }
           ${this.#renderBrowserPane(true)}
         </section>
       </section>
@@ -762,10 +873,11 @@ export class DevtoolsWorkbench extends Element {
     `
   }
 
-  /** The capture-as-right-column arrangement, live only — the player keeps the
-   *  dock beside the capture. */
+  /** The capture-as-right-column arrangement. Applies to any device capture in
+   *  either mode: a phone is the same tall frame whether it is being watched
+   *  live or replayed, and the dock beside it was unreadable in both. */
   get #liveDeviceLayout(): boolean {
-    return this.#deviceLayout && !this.playerMode
+    return this.#deviceLayout
   }
 }
 
