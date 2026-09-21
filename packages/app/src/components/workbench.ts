@@ -248,6 +248,9 @@ export class DevtoolsWorkbench extends Element {
    * see a cap the stylesheet applies, so the grip parts company with the
    * boundary. Clamping the value keeps the two in step.
    */
+  /** Last composite column height, so a change in any of its inputs is seen. */
+  #lastColumnHeight = 0
+
   #verticalSplitMax(): number {
     if (!this.#liveDeviceLayout) {
       return window.innerHeight * 0.7
@@ -620,16 +623,33 @@ export class DevtoolsWorkbench extends Element {
    * capture outlives it. Guarded on the property, so not a per-render pass.
    */
   protected updated(changed: PropertyValues<this>): void {
-    if (changed.has('metadata') && this.#deviceLayout) {
-      // Both splits: the column's width derives from the capture's shape, and
-      // the vertical split's ceiling derives from the column's height — so a
-      // value stored against the window has to be re-clamped when this layout
-      // takes over, or it arrives larger than the column it now lives in.
-      const device = this.#dragDevice.refreshBounds()
-      const vertical = this.#dragVertical.refreshBounds()
-      if (device || vertical) {
-        this.requestUpdate()
-      }
+    if (!this.#deviceLayout) {
+      return
+    }
+    // The column's width derives from the capture's shape; the vertical
+    // split's ceiling derives from the column's HEIGHT, which the header,
+    // player mode and the DRAGGABLE timeline all feed. Metadata is therefore
+    // not the only input — enlarging the timeline, or entering player mode
+    // after a larger split was stored, leaves a non-shrinking flex-basis above
+    // its new maximum, and the dock collapses with its handle outside the
+    // clipped row.
+    //
+    // Watched through the composite height rather than each input, so a new
+    // contributor to it cannot be forgotten here. Still not a per-render pass:
+    // a pass that moves nothing requests no update.
+    const columnHeight = this.#deviceColumnHeight()
+    const inputsMoved =
+      changed.has('metadata') ||
+      changed.has('playerMode') ||
+      columnHeight !== this.#lastColumnHeight
+    this.#lastColumnHeight = columnHeight
+    if (!inputsMoved) {
+      return
+    }
+    const device = this.#dragDevice.refreshBounds()
+    const vertical = this.#dragVertical.refreshBounds()
+    if (device || vertical) {
+      this.requestUpdate()
     }
   }
 
