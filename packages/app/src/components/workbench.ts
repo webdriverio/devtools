@@ -141,7 +141,7 @@ export class DevtoolsWorkbench extends Element {
   #dragVertical = new DragController(this, {
     localStorageKey: 'toolbarHeight',
     minPosition: minWorkbenchHeight,
-    maxPosition: () => window.innerHeight * 0.7,
+    maxPosition: () => this.#verticalSplitMax(),
     initialPosition: () => window.innerHeight * BROWSER_HEIGHT_RATIO,
     getContainerEl: () => this.#getVerticalWindow(),
     direction: Direction.vertical
@@ -233,6 +233,31 @@ export class DevtoolsWorkbench extends Element {
    * The arithmetic is exact whenever the workbench fills the window, which is
    * every case but an embedded panel.
    */
+  /**
+   * Ceiling for the vertical split.
+   *
+   * In the device layout the split lives in a COLUMN beside the capture, and
+   * that column is shorter than the window by the header, the playback
+   * controls and the timeline. A window-derived 70% therefore exceeded it, and
+   * because the controller's position is applied as a non-shrinking
+   * `flex-basis`, the action list could push the dock to zero and carry the
+   * handle outside the clipped row — leaving the split unreachable.
+   *
+   * Capped HERE rather than with a CSS `max-height`, which is what the earlier
+   * attempt did: the controller draws its grip from its own value and cannot
+   * see a cap the stylesheet applies, so the grip parts company with the
+   * boundary. Clamping the value keeps the two in step.
+   */
+  #verticalSplitMax(): number {
+    if (!this.#liveDeviceLayout) {
+      return window.innerHeight * 0.7
+    }
+    return Math.max(
+      minWorkbenchHeight(),
+      this.#deviceColumnHeight() - minWorkbenchHeight()
+    )
+  }
+
   #deviceColumnHeight(): number {
     return Math.max(
       minWorkbenchHeight(),
@@ -595,12 +620,16 @@ export class DevtoolsWorkbench extends Element {
    * capture outlives it. Guarded on the property, so not a per-render pass.
    */
   protected updated(changed: PropertyValues<this>): void {
-    if (
-      changed.has('metadata') &&
-      this.#deviceLayout &&
-      this.#dragDevice.refreshBounds()
-    ) {
-      this.requestUpdate()
+    if (changed.has('metadata') && this.#deviceLayout) {
+      // Both splits: the column's width derives from the capture's shape, and
+      // the vertical split's ceiling derives from the column's height — so a
+      // value stored against the window has to be re-clamped when this layout
+      // takes over, or it arrives larger than the column it now lives in.
+      const device = this.#dragDevice.refreshBounds()
+      const vertical = this.#dragVertical.refreshBounds()
+      if (device || vertical) {
+        this.requestUpdate()
+      }
     }
   }
 
