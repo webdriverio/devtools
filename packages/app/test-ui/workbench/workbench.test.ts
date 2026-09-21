@@ -877,6 +877,22 @@ describe('wdio-devtools-workbench', () => {
 
       expect(getComputedStyle(dock).minWidth).toBe('0px')
 
+      // Sized out of flow, because an unsized host makes the geometry below
+      // measure the harness. The column is then CONTENT-sized (measured 61px,
+      // against 576px — the row minus the capture's basis — once sized), so
+      // its width tracks the dock's content and the platform's font metrics,
+      // which is the thing being asserted absent; and the workbench overflows
+      // the page, so a scrollbar arriving shifts every viewport-relative rect
+      // by its width where it takes layout space and by nothing where it
+      // overlays. A fixed host is outside the document's scroll area, so it
+      // settles both at once.
+      const host = workbench.parentElement as HTMLElement
+      host.style.position = 'fixed'
+      host.style.inset = '0'
+      host.style.overflow = 'hidden'
+      await workbench.updateComplete
+      await new Promise((resolve) => requestAnimationFrame(resolve))
+
       const before = paneOf(workbench)!.getBoundingClientRect()
       const network = shadowAll<HTMLElement>(dock, '[role="tab"], button').find(
         (el) => text(el).includes('Network')
