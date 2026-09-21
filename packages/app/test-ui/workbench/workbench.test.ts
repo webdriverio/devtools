@@ -796,12 +796,15 @@ describe('wdio-devtools-workbench', () => {
       const paneBox = pane!.getBoundingClientRect()
       const dockBox = dock.getBoundingClientRect()
 
-      // Beside, not under: the dock ends exactly where the column begins, and
-      // both span the same rows.
+      // Beside, not under: the dock ends where the column begins, and the
+      // column is the rightmost thing in the row.
       expect(dockBox.right).toBeCloseTo(paneBox.left, 0)
-      expect(dockBox.top).toBeCloseTo(paneBox.top, 0)
-      // ...and the column is the rightmost thing in the row.
       expect(paneBox.right).toBeGreaterThanOrEqual(dockBox.right)
+      // The dock no longer shares the column's top edge: it sits BELOW the
+      // action list, which owns the upper half of that left column. Beside
+      // the capture the dock was an unreadable strip once the suite tree had
+      // taken the left edge as well.
+      expect(dockBox.top).toBeGreaterThan(paneBox.top)
     })
 
     it('lets the capture fill the whole column', async () => {
@@ -827,8 +830,15 @@ describe('wdio-devtools-workbench', () => {
         paneOf(workbench)!,
         BROWSER
       )!.getBoundingClientRect()
+      // Playback rides above the capture INSIDE the column, so the capture
+      // fills what the controls leave rather than the whole pane.
+      const controls = shadow(paneOf(workbench)!, PLAYER_CONTROLS)
+      const controlsHeight = controls
+        ? controls.getBoundingClientRect().height
+        : 0
+      expect(controlsHeight).toBeGreaterThan(0)
       expect(capture.width).toBeCloseTo(pane.width, 1)
-      expect(capture.height).toBeCloseTo(pane.height, 1)
+      expect(capture.height).toBeCloseTo(pane.height - controlsHeight, 1)
     })
 
     it('leaves a desktop capture in the stacked layout', async () => {

@@ -127,8 +127,12 @@ export class DevtoolsWorkbench extends Element {
          floor is min-content unless this is set, so switching to a wide tab
          (the Network table) grew it and shoved the device column sideways —
          only the drag handle may move that boundary. Scoped here rather than as
-         a utility class so it holds wherever the shadow root is styled from. */
-      section[data-device-row] > wdio-devtools-tabs {
+         a utility class so it holds wherever the shadow root is styled from.
+
+         A DESCENDANT selector, not a child one: the dock sits a level deeper
+         now that the action list and the dock share a column beside the
+         capture, and as a direct-child rule this silently stopped applying. */
+      section[data-device-row] wdio-devtools-tabs {
         min-width: 0;
       }
     `
