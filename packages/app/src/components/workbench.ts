@@ -614,24 +614,32 @@ export class DevtoolsWorkbench extends Element {
    * into an unreadable strip and the tab row overflowed under the capture.
    */
   /**
-   * The dock's share of the column beside the capture.
+   * The action list's share of the column beside the capture — the TOP pane,
+   * because `#dragVertical` is start-anchored and its stored position is the
+   * top pane's height. Sizing the DOCK from that value put the handle and the
+   * boundary in different places: dragging down moved the handle down while
+   * growing the dock upward.
    *
-   * Sized against the COLUMN, never the window. Using the window-derived
-   * `#computeBrowserPaneStyle` here gave the action list a fixed height that
-   * could exceed the space it actually had, the column then overflowed its
-   * row, and an ancestor grew a scrollbar — which on a classic-scrollbar
-   * platform shifted the whole capture 15px sideways. `max-height` is a
-   * percentage for the same reason: whatever the drag has stored, the column
-   * cannot be made to overflow.
+   * Sized against the COLUMN, never the window. The window-derived
+   * `#computeBrowserPaneStyle` gave this pane a fixed height that could exceed
+   * the space it had, the column then overflowed its row, and an ancestor grew
+   * a scrollbar — which on a classic-scrollbar platform shifts the capture
+   * sideways. `max-height` is a percentage for the same reason: whatever the
+   * drag has stored, the column cannot be made to overflow.
    */
-  #deviceDockStyle(): string {
+  #deviceColumnTopStyle(): string {
     if (this.#toolbarCollapsed) {
-      return 'flex:0 0 auto; min-height:0;'
+      return 'flex:1 1 auto; min-height:0;'
     }
-    const dock = basisPx(this.#dragVertical.getPosition())
-    return dock
-      ? `flex:0 0 auto; height:${dock}px; max-height:70%; min-height:0;`
-      : 'flex:0 0 45%; min-height:0;'
+    // `getPosition()` applied LITERALLY, because the controller's contract is
+    // an inline `flex-basis: Npx`: `getSlider` draws the grip at that value
+    // and `#adjustPosition` finds the pane it resizes by matching that exact
+    // string. Expressed any other way — `height:Npx`, or a percentage default
+    // — the handle and the boundary part company, measured at 240px apart.
+    const pos = this.#dragVertical.getPosition()
+    return pos
+      ? `${pos}; flex-grow:0; flex-shrink:0; min-height:0;`
+      : 'flex:1 1 auto; min-height:0;'
   }
 
   #renderLiveDeviceLayout() {
@@ -650,7 +658,7 @@ export class DevtoolsWorkbench extends Element {
             class="relative flex min-h-0 min-w-0 overflow-hidden ${
               this.#workbenchSidebarCollapsed ? 'hidden' : ''
             }"
-            style="flex:1 1 auto; min-height:0;"
+            style="${this.#deviceColumnTopStyle()}"
           >
             ${this.#renderActionsSidebar()}
           </section>
@@ -667,7 +675,7 @@ export class DevtoolsWorkbench extends Element {
           }
           <section
             class="relative flex flex-col min-h-0 overflow-hidden"
-            style="${this.#deviceDockStyle()}"
+            style="flex:1 1 auto; min-height:0;"
           >
             ${this.#renderWorkbenchTabs()}
           </section>

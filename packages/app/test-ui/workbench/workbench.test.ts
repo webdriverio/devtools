@@ -900,6 +900,39 @@ describe('wdio-devtools-workbench', () => {
      * harness does not apply Tailwind utilities inside a shadow root, so where
      * an absolutely positioned handle actually lands cannot be measured here.
      */
+    /**
+     * `#dragVertical` is start-anchored: its stored position is the TOP pane's
+     * height. Sizing the DOCK from that value put the handle and the boundary
+     * in different places — dragging down moved the handle down while growing
+     * the dock upward, so the control stopped tracking what it resizes.
+     */
+    it('puts the column handle on the boundary it moves', async () => {
+      const { workbench } = await mountWorkbench(
+        { metadata: IPHONE },
+        { playerMode: true }
+      )
+      const host = workbench.parentElement as HTMLElement
+      host.style.width = '1200px'
+      host.style.height = '800px'
+      await workbench.updateComplete
+      await new Promise((resolve) => requestAnimationFrame(resolve))
+
+      const column = shadow(workbench, 'section[data-vertical-resizer-window]')!
+      const actions = column.querySelector('section[data-sidebar]')!
+      // Scoped to the column: in player mode the timeline strip renders a
+      // row-resize handle too, and an unscoped search finds that one first.
+      const handle = Array.from(
+        column.querySelectorAll<HTMLElement>('button[data-draggable-id]')
+      ).find((el) => el.className.includes('cursor-row-resize'))
+      expect(handle).toBeTruthy()
+
+      // The handle sits where the action list ends, which is where the dock
+      // begins. Within a few pixels: the handle is a grab strip with height.
+      const edge = actions.getBoundingClientRect().bottom
+      const grip = handle!.getBoundingClientRect()
+      expect(Math.abs(grip.top + grip.height / 2 - edge)).toBeLessThan(8)
+    })
+
     it('anchors the column handle to its own edge, not the row start', async () => {
       const { workbench } = await mountWorkbench(
         { metadata: IPHONE },
