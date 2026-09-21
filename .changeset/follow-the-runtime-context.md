@@ -1,0 +1,14 @@
+---
+"@wdio/devtools-service": patch
+"@wdio/devtools-app": patch
+---
+
+Capture a hybrid app's webview half as a page, and frame a mobile capture as a device in the trace player as well as live.
+
+**Following the context.** Document availability was answered from the startup capabilities and never revisited, so a session that switched into a webview was still treated as native: the collector injection, the DOM drain and the `__wdioSnapMark` tag stayed skipped, and its per-action snapshot read a real HTML document through the page-source XML reader. `sessionHasDocument(capabilities, context)` in shared is now the question a capture guard asks; `isNativeAppSession` remains the capability-level answer for what genuinely cannot change. Anything that is not Appium's `NATIVE_APP` counts as a webview, because the `WEBVIEW_` prefix is a convention and a driver naming its webview otherwise would have its capture skipped. Following it costs no round trip: `switchContext` carries the context it moves to in its own arguments, and a switch that failed is ignored.
+
+Verified on a real hybrid app (Appium's ApiDemos on an Android emulator): the webview action is exported with a page snapshot — `[Page: I am a page title — file:///android_asset/html/index.html]`, a heading, a link and a working locator — where the native actions on either side stay `[android] hierarchy FrameLayout…`.
+
+**Per-action snapshots are no longer taken on an Appium session, in any mode.** They are issued from inside the command hook, and a hybrid trace run measured the DIRECT transport timing out exactly as `browser.execute` had — so the serialisation is Appium's own, not the client's, and going round the client cannot escape it. That run spent 2m6s hitting timeouts where the same spec takes 34s in live mode, which takes no per-action snapshot at all; after the change it completes in 4.3s. The cost is real and worth stating: **a mobile trace no longer carries per-action element data, accessibility trees or settle screenshots.** Command rows and their screenshots, console, network and the archive itself are unaffected, as is every desktop session.
+
+**The device column now applies in both modes.** It was live-only, on the reasoning that the player's own layout worked — but the player had never actually rendered one: `#deviceCapture` requires a measurable image, and both of its sources read `command.screenshot`, which a trace's commands never carry. So a native trace was framed as a desktop browser. The player now falls back to the recorded viewport when there is no screenshot to measure — second, not first, because a native screenshot's pixels and its window size genuinely differ. In that layout the capture takes a full-height column with the action list and the dock stacked beside it, and the playback controls ride above the capture.

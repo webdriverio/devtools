@@ -191,7 +191,19 @@ export class DevtoolsBrowser extends Element {
   get #captureSize(): ImageSize | null {
     const screenshot = this.#screenshotData ?? this.#latestAutoScreenshot
     if (!screenshot) {
-      return null
+      // A REPLAYED capture has no screenshot to measure: both sources above
+      // read `command.screenshot`, and a trace's commands carry none — its
+      // images are separate resources. Without this fallback no native trace
+      // could ever draw device chrome, because the shape was undecidable, and
+      // the player framed a phone as a desktop browser. The recorded viewport
+      // is the device's own window, so it is the shape; it is a fallback
+      // rather than the primary because a native screenshot's pixels and its
+      // window size genuinely differ (a Pixel reports 1080x2219 for a
+      // 1080x2400 shot), and the image is the truer answer when there is one.
+      const viewport = this.metadata?.viewport
+      return viewport?.width && viewport?.height
+        ? { width: viewport.width, height: viewport.height }
+        : null
     }
     if (this.#captureShape?.screenshot !== screenshot) {
       this.#captureShape = { screenshot, size: imageDimensions(screenshot) }

@@ -637,6 +637,15 @@ export class DevtoolsWorkbench extends Element {
           class="relative flex flex-col min-w-0 min-h-0 overflow-hidden"
           style="${this.#dragDevice.getPosition()}; flex:0 1 auto; width:${width}px; max-width:100%;"
         >
+          ${
+            // Playback belongs with what it plays, so in this layout the
+            // controls ride above the capture rather than above the dock.
+            this.playerMode
+              ? html`<wdio-devtools-trace-player-controls
+                  class="flex-none h-10 border-b-[1px] border-b-panelBorder"
+                ></wdio-devtools-trace-player-controls>`
+              : nothing
+          }
           ${this.#renderBrowserPane(true)}
         </section>
       </section>
@@ -762,10 +771,11 @@ export class DevtoolsWorkbench extends Element {
     `
   }
 
-  /** The capture-as-right-column arrangement, live only — the player keeps the
-   *  dock beside the capture. */
+  /** The capture-as-right-column arrangement. Applies to any device capture in
+   *  either mode: a phone is the same tall frame whether it is being watched
+   *  live or replayed, and the dock beside it was unreadable in both. */
   get #liveDeviceLayout(): boolean {
-    return this.#deviceLayout && !this.playerMode
+    return this.#deviceLayout
   }
 }
 
