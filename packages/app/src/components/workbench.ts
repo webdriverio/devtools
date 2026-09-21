@@ -147,6 +147,12 @@ export class DevtoolsWorkbench extends Element {
     direction: Direction.vertical
   })
 
+  /** Both layouts render the row, so this is right in either. */
+  async #getDeviceRow() {
+    await this.updateComplete
+    return (this.deviceRow ?? this.verticalResizerWindow) as Element
+  }
+
   async #getVerticalWindow() {
     await this.updateComplete
     return this.verticalResizerWindow as Element
@@ -277,7 +283,13 @@ export class DevtoolsWorkbench extends Element {
     // "fills the height" the drag buys backdrop and costs the dock.
     maxPosition: () => this.#deviceFillWidth(),
     initialPosition: () => this.#deviceFillWidth(),
-    getContainerEl: () => this.#getVerticalWindow(),
+    // The ROW it divides, not the vertical split. Those were the same element
+    // while the dock sat beside the capture; now the vertical split is the
+    // column holding the action list and the dock, so measuring it clamped the
+    // capture against the dock's own box — and a 15px scrollbar appearing in a
+    // wide dock tab moved the column, which is exactly what this pane's tests
+    // forbid (seen on Linux, invisible on macOS's overlay scrollbars).
+    getContainerEl: () => this.#getDeviceRow(),
     direction: Direction.horizontal,
     // The pane is on the right, so its handle sits on its inner edge and
     // dragging left widens it.
@@ -343,6 +355,9 @@ export class DevtoolsWorkbench extends Element {
 
   @query('section[data-vertical-resizer-window]')
   verticalResizerWindow?: HTMLElement
+
+  @query('section[data-device-row]')
+  deviceRow?: HTMLElement
 
   // Height of the screencast pane; the dock fills the rest of the right column.
   // Collapsed dock → empty string so the browser flex-grows to fill.
@@ -598,6 +613,27 @@ export class DevtoolsWorkbench extends Element {
    * spent its left edge on the suite tree, so a third column squeezed the dock
    * into an unreadable strip and the tab row overflowed under the capture.
    */
+  /**
+   * The dock's share of the column beside the capture.
+   *
+   * Sized against the COLUMN, never the window. Using the window-derived
+   * `#computeBrowserPaneStyle` here gave the action list a fixed height that
+   * could exceed the space it actually had, the column then overflowed its
+   * row, and an ancestor grew a scrollbar — which on a classic-scrollbar
+   * platform shifted the whole capture 15px sideways. `max-height` is a
+   * percentage for the same reason: whatever the drag has stored, the column
+   * cannot be made to overflow.
+   */
+  #deviceDockStyle(): string {
+    if (this.#toolbarCollapsed) {
+      return 'flex:0 0 auto; min-height:0;'
+    }
+    const dock = basisPx(this.#dragVertical.getPosition())
+    return dock
+      ? `flex:0 0 auto; height:${dock}px; max-height:70%; min-height:0;`
+      : 'flex:0 0 45%; min-height:0;'
+  }
+
   #renderLiveDeviceLayout() {
     const width = basisPx(this.#dragDevice.getPosition())
     return html`
@@ -614,7 +650,7 @@ export class DevtoolsWorkbench extends Element {
             class="relative flex min-h-0 min-w-0 overflow-hidden ${
               this.#workbenchSidebarCollapsed ? 'hidden' : ''
             }"
-            style="${this.#computeBrowserPaneStyle()}"
+            style="flex:1 1 auto; min-height:0;"
           >
             ${this.#renderActionsSidebar()}
           </section>
@@ -629,7 +665,12 @@ export class DevtoolsWorkbench extends Element {
               ? this.#dragVertical.getSlider('z-[999] pointer-events-auto')
               : nothing
           }
-          ${this.#renderWorkbenchTabs()}
+          <section
+            class="relative flex flex-col min-h-0 overflow-hidden"
+            style="${this.#deviceDockStyle()}"
+          >
+            ${this.#renderWorkbenchTabs()}
+          </section>
         </section>
         ${
           !this.#toolbarCollapsed
