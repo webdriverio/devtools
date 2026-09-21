@@ -11,7 +11,11 @@ import type {
   TraceMutation
 } from '@wdio/devtools-shared'
 import { WORKER_WS_QUERY, WS_PATHS, WS_SCOPE } from '@wdio/devtools-shared'
-import { isNativeAppSession, mapCommandToAction } from '@wdio/devtools-shared'
+import {
+  isNativeAppSession,
+  mapCommandToAction,
+  sessionHasDocument
+} from '@wdio/devtools-shared'
 import { resolveRunId } from './run-id.js'
 import { reattributeDomAnchors } from '@wdio/devtools-trace/trace-mutations'
 import {
@@ -104,9 +108,28 @@ export abstract class SessionCapturerBase {
 
   /** Whether this session drove an app rather than a browser. Resolved from
    *  the published metadata because selenium's own `getCapabilities()` is
-   *  async, and a guard cannot await it where it has to decide. */
+   *  async, and a guard cannot await it where it has to decide.
+   *
+   *  Answers from the startup bag, so it stays true for a hybrid app that has
+   *  switched into a webview. Guards protecting a PAGE-side call want
+   *  {@link hasDocument} instead. */
   get isNativeAppSession(): boolean {
     return isNativeAppSession(this.metadata?.capabilities)
+  }
+
+  /** The Appium context last observed, fed by the adapter's command hook. The
+   *  switch command carries the new context in its own arguments, so following
+   *  it costs no round trip — undefined means none was ever seen, which for a
+   *  native session is the native context it started in. */
+  currentContext: string | undefined
+
+  /** Whether there is a web document to run page script in RIGHT NOW: true for
+   *  any browser session, and for a native one only while it sits in a webview
+   *  context. The question a capture guard should ask — `isNativeAppSession`
+   *  cannot change after session start, so a hybrid app's webview portion was
+   *  captured as if it had no DOM. */
+  get hasDocument(): boolean {
+    return sessionHasDocument(this.metadata?.capabilities, this.currentContext)
   }
 
   // ── Construction ────────────────────────────────────────────────────────

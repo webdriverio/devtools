@@ -151,10 +151,12 @@ export function deviceFromCapabilities(
  * So a Mac2 or tvOS session, which `NATIVE_PLATFORMS` excludes because that
  * list chooses a device frame, has to answer true here too.
  *
- * Residual: a hybrid app switched into a webview context does have a document,
- * and no capability can say so — only a runtime context read knows that. And a
- * bag this cannot read at all answers false, which is the expensive direction;
- * in practice every adapter reads capabilities straight off its own session.
+ * Answers from CAPABILITIES alone, so a hybrid app switched into a webview is
+ * still "native" here — that session does have a document, and only a runtime
+ * context read knows it. `sessionHasDocument` is the context-aware answer and
+ * is what a capture guard should ask. A bag this cannot read at all answers
+ * false, which is the expensive direction; in practice every adapter reads
+ * capabilities straight off its own session.
  */
 export function isNativeAppSession(capabilities: unknown): boolean {
   if (!capabilities || typeof capabilities !== 'object') {
@@ -165,6 +167,43 @@ export function isNativeAppSession(capabilities: unknown): boolean {
     return false
   }
   return !deepCapString(caps, 'browserName')
+}
+
+/** Appium's name for the context a native app runs in. Every other context it
+ *  reports is a webview, conventionally `WEBVIEW_<something>`. */
+export const NATIVE_APP_CONTEXT = 'NATIVE_APP'
+
+/**
+ * Whether an Appium context is a webview, i.e. one that has a document.
+ *
+ * Anything that is not the native context counts, rather than matching
+ * `WEBVIEW_` — the prefix is a convention, and a driver naming its webview
+ * differently would otherwise be read as native and have its DOM capture
+ * skipped. An unknown context (nothing has been switched to yet) is not a
+ * webview: a hybrid session starts in the native one.
+ */
+export function isWebviewContext(context: unknown): boolean {
+  return typeof context === 'string' && context.length > 0
+    ? context !== NATIVE_APP_CONTEXT
+    : false
+}
+
+/**
+ * Whether the session has a web document to run page script in RIGHT NOW.
+ *
+ * The question every capture guard actually wants. `isNativeAppSession` answers
+ * from the startup bag and cannot change, so a hybrid app that switches into a
+ * webview kept being treated as native and its webview portion carried no DOM.
+ *
+ * `context` is what the adapter last observed; undefined means it has not seen
+ * a context switch, which for a native session is the native context it
+ * started in.
+ */
+export function sessionHasDocument(
+  capabilities: unknown,
+  context?: string
+): boolean {
+  return !isNativeAppSession(capabilities) || isWebviewContext(context)
 }
 
 /**

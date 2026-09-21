@@ -34,7 +34,7 @@ import {
   captureActionSnapshot
 } from './action-snapshot.js'
 import {
-  isNativeAppSession,
+  sessionHasDocument,
   type ActionSnapshot,
   type TestMetadataMap
 } from '@wdio/devtools-shared'
@@ -655,17 +655,27 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     }
     // Pre-action capture: state BEFORE this action executes. Stamped at the
     // previous action's end time (or 0 for the first). Trace mode only.
+    //
+    // Never on Appium. A probe issued from inside this hook is serialised
+    // behind the command it is observing, and measured against a hybrid
+    // webview the DIRECT transport times out exactly as `browser.execute`
+    // did — so the serialisation is Appium's own, not WDIO's, and going
+    // round the client cannot escape it. A hybrid trace run spent 2m6s
+    // timing out where the same spec takes 34s in live mode, which takes no
+    // per-action snapshot at all.
     if (
       topLevelUserCommand &&
       this.#options.mode === 'trace' &&
       this.#browser &&
+      !isAppiumSession(this.#browser) &&
       mapCommandToAction(command) &&
       !INTERNAL_COMMANDS.includes(command)
     ) {
       const snap = await captureActionSnapshot(
         this.#browser,
         command,
-        this.#lastActionTimestamp()
+        this.#lastActionTimestamp(),
+        this.#sessionCapturer.currentContext
       )
       if (snap) {
         upsertRichestSnapshot(this.#actionSnapshots, snap)
@@ -679,7 +689,13 @@ export default class DevToolsHookService implements Services.ServiceInstance {
   #markDocument(): Promise<unknown> {
     // Keyed on having a document: `waitForActionResult` reads this tag on the
     // same condition, so the pair must not be split across the two predicates.
-    if (!this.#browser || isNativeAppSession(this.#browser.capabilities)) {
+    if (
+      !this.#browser ||
+      !sessionHasDocument(
+        this.#browser.capabilities,
+        this.#sessionCapturer.currentContext
+      )
+    ) {
       return Promise.resolve()
     }
     // Issued from inside beforeCommand, so it takes the direct path on a
@@ -740,12 +756,15 @@ export default class DevToolsHookService implements Services.ServiceInstance {
           this.#currentTestUid,
           this.#currentStepUid
         )
-        if (this.#options.mode === 'trace') {
+        // Paired with the pre-action capture above, and skipped for the same
+        // reason: this settles and screenshots from inside the command hook.
+        if (this.#options.mode === 'trace' && !isAppiumSession(this.#browser)) {
           await captureActionResult(
             this.#browser,
             command,
             this.#actionSnapshots,
-            () => this.#lastActionTimestamp()
+            () => this.#lastActionTimestamp(),
+            this.#sessionCapturer.currentContext
           )
         } else {
           await this.#drainAfterLiveCommand(command)

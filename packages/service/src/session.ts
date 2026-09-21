@@ -15,7 +15,7 @@ import {
   rememberElementSelector,
   selectorForCommand
 } from './command-selectors.js'
-import { isNativeAppSession } from '@wdio/devtools-shared'
+import { isNativeAppSession, sessionHasDocument } from '@wdio/devtools-shared'
 import { isAppiumSession } from './mobile.js'
 import {
   CAPTURE_PERFORMANCE_SCRIPT,
@@ -206,12 +206,24 @@ export class SessionCapturer extends SessionCapturerBase {
       selectorForCommand(args, this.#lastSelector)
     )
 
+    // A hybrid app's webview HAS a document, and the switch command carries
+    // the context it moved to, so following it costs nothing. Recorded after
+    // the command so a failed switch does not move the capture's idea of where
+    // the session is.
+    // Appium's command, so not in WebDriverCommands — compared as a string.
+    if (String(command) === 'switchContext' && !error) {
+      this.currentContext =
+        typeof args[0] === 'string'
+          ? args[0]
+          : (args[0] as { name?: string })?.name
+    }
+
     this.#captureOrReplace(commandLogEntry)
     // Capture trace + perf on commands that could trigger a page transition.
     // Skipped when there is no document to run either script in; a mobile
     // BROWSER session has one, so it keeps both.
     if (
-      !isNativeAppSession(browser.capabilities) &&
+      sessionHasDocument(browser.capabilities, this.currentContext) &&
       PAGE_TRANSITION_COMMANDS.includes(command)
     ) {
       await Promise.all([
@@ -419,7 +431,7 @@ export class SessionCapturer extends SessionCapturerBase {
     // recovery injection and the url read are all round trips that can only
     // fail. Guarded here rather than at each call site, because two of the four
     // asked and two did not.
-    if (isNativeAppSession(browser.capabilities)) {
+    if (!sessionHasDocument(browser.capabilities, this.currentContext)) {
       return
     }
     // No `#isScriptInjected` gate: that flag tracks the preload REGISTRATION,

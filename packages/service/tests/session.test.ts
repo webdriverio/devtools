@@ -1051,6 +1051,70 @@ describe('SessionCapturer', () => {
       expect(row.id).toBeUndefined() // still no cross-spec-colliding public id
     })
   })
+  // #376: the switch command carries the context it moved to, so the capture
+  // follows a hybrid app between its native and webview halves without a round
+  // trip of its own.
+  describe('following the Appium context', () => {
+    const nativeBrowser = () =>
+      ({
+        ...mockBrowser,
+        isMobile: true,
+        capabilities: {
+          platformName: 'Android',
+          'appium:automationName': 'UiAutomator2'
+        }
+      }) as never
+
+    const switchTo = async (
+      capturer: SessionCapturer,
+      context: unknown,
+      error?: Error
+    ) =>
+      capturer.afterCommand(
+        nativeBrowser(),
+        'switchContext' as never,
+        [context],
+        undefined,
+        error,
+        undefined
+      )
+
+    it('starts with no document, which is the native context it booted in', () => {
+      const capturer = new SessionCapturer()
+      expect(capturer.currentContext).toBeUndefined()
+    })
+
+    it('records the context a successful switch moved to', async () => {
+      const capturer = new SessionCapturer()
+      await switchTo(capturer, 'WEBVIEW_com.example')
+      expect(capturer.currentContext).toBe('WEBVIEW_com.example')
+    })
+
+    it('accepts the object form the protocol also takes', async () => {
+      const capturer = new SessionCapturer()
+      await switchTo(capturer, { name: 'WEBVIEW_com.example' })
+      expect(capturer.currentContext).toBe('WEBVIEW_com.example')
+    })
+
+    // Moving the capture's idea of where the session is on a failed switch
+    // would point every page-side probe at a context that was never entered.
+    it('ignores a switch that failed', async () => {
+      const capturer = new SessionCapturer()
+      await switchTo(
+        capturer,
+        'WEBVIEW_com.example',
+        new Error('no such context')
+      )
+      expect(capturer.currentContext).toBeUndefined()
+    })
+
+    it('follows the session back into the native context', async () => {
+      const capturer = new SessionCapturer()
+      await switchTo(capturer, 'WEBVIEW_com.example')
+      await switchTo(capturer, 'NATIVE_APP')
+      expect(capturer.currentContext).toBe('NATIVE_APP')
+    })
+  })
 })
 
 /**
