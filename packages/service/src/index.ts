@@ -60,7 +60,7 @@ import {
   LOCATOR_COMMANDS,
   PAGE_TRANSITION_COMMANDS
 } from './constants.js'
-import { isAppiumSession } from './mobile.js'
+import { inPageProbesDeadlock, isAppiumSession } from './mobile.js'
 import { directProbes } from './direct-probes.js'
 import { resolveSessionMetadata } from './session-metadata.js'
 import { stampRunnerMetadata } from './wdio-runner-id.js'
@@ -656,18 +656,16 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     // Pre-action capture: state BEFORE this action executes. Stamped at the
     // previous action's end time (or 0 for the first). Trace mode only.
     //
-    // Never on Appium. A probe issued from inside this hook is serialised
-    // behind the command it is observing, and measured against a hybrid
-    // webview the DIRECT transport times out exactly as `browser.execute`
-    // did — so the serialisation is Appium's own, not WDIO's, and going
-    // round the client cannot escape it. A hybrid trace run spent 2m6s
-    // timing out where the same spec takes 34s in live mode, which takes no
-    // per-action snapshot at all.
+    // Not while Appium has a document to probe — see `inPageProbesDeadlock`,
+    // which carries the measurements. A native session is captured normally.
     if (
       topLevelUserCommand &&
       this.#options.mode === 'trace' &&
       this.#browser &&
-      !isAppiumSession(this.#browser) &&
+      !inPageProbesDeadlock(
+        this.#browser,
+        this.#sessionCapturer.currentContext
+      ) &&
       mapCommandToAction(command) &&
       !INTERNAL_COMMANDS.includes(command)
     ) {
@@ -756,9 +754,15 @@ export default class DevToolsHookService implements Services.ServiceInstance {
           this.#currentTestUid,
           this.#currentStepUid
         )
-        // Paired with the pre-action capture above, and skipped for the same
-        // reason: this settles and screenshots from inside the command hook.
-        if (this.#options.mode === 'trace' && !isAppiumSession(this.#browser)) {
+        // Paired with the pre-action capture above, and gated on the same
+        // question: this settles and screenshots from inside the command hook.
+        if (
+          this.#options.mode === 'trace' &&
+          !inPageProbesDeadlock(
+            this.#browser,
+            this.#sessionCapturer.currentContext
+          )
+        ) {
           await captureActionResult(
             this.#browser,
             command,

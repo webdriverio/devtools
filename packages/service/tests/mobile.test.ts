@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
-import { isAppiumSession } from '../src/mobile.js'
+import { NATIVE_APP_CONTEXT } from '@wdio/devtools-shared'
+
+import { inPageProbesDeadlock, isAppiumSession } from '../src/mobile.js'
 
 /**
  * `isAppiumSession` answers "can this session serve WebDriver BiDi", and
@@ -37,5 +39,46 @@ describe('isAppiumSession', () => {
 
   it('is false for a desktop session', () => {
     expect(isAppiumSession(session({}))).toBe(false)
+  })
+})
+
+/**
+ * The per-action snapshot is issued from inside the command hook, and Appium
+ * serialises it behind the command it observes. Only the IN-PAGE probes hang
+ * there, so the gate has to ask whether a document is in play rather than
+ * whether the driver is Appium — the blanket answer left a native trace with
+ * one snapshot for the whole run, taken at its end.
+ */
+const appium = (caps: Record<string, unknown>) =>
+  ({ isMobile: true, isAndroid: true, capabilities: caps }) as never
+
+const NATIVE_CAPS = {
+  platformName: 'Android',
+  'appium:automationName': 'UiAutomator2'
+}
+const MOBILE_WEB_CAPS = { platformName: 'Android', browserName: 'chrome' }
+
+describe('inPageProbesDeadlock', () => {
+  it('clears a native session, which runs no in-page script', () => {
+    expect(inPageProbesDeadlock(appium(NATIVE_CAPS))).toBe(false)
+    expect(inPageProbesDeadlock(appium(NATIVE_CAPS), NATIVE_APP_CONTEXT)).toBe(
+      false
+    )
+  })
+
+  it('holds for the webview half of that same session', () => {
+    expect(inPageProbesDeadlock(appium(NATIVE_CAPS), 'WEBVIEW_com.x')).toBe(
+      true
+    )
+  })
+
+  it('holds for a mobile browser, which is all document', () => {
+    expect(inPageProbesDeadlock(appium(MOBILE_WEB_CAPS))).toBe(true)
+  })
+
+  it('clears a desktop session, which is not serialised at all', () => {
+    expect(
+      inPageProbesDeadlock({ capabilities: { browserName: 'chrome' } } as never)
+    ).toBe(false)
   })
 })
