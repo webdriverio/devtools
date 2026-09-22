@@ -14,6 +14,23 @@ const byId = (id: string) =>
     `android=new UiSelector().resourceId("com.google.android.deskclock:id/${id}")`
   )
 
+/** Delete every timer already on the Timers tab, so the preset buttons are the
+ *  ones on screen. A timer SURVIVES the session, and while one exists the tab
+ *  shows its card instead of the presets — so an interrupted run (which never
+ *  reaches the delete below) would break every later one. Idempotent. */
+async function clearExistingTimers(): Promise<void> {
+  for (let i = 0; i < 5; i++) {
+    const remaining = await $$(
+      `android=new UiSelector().resourceId("${APP_ID}:id/delete_button")`
+    )
+    if (!remaining.length) {
+      return
+    }
+    await remaining[0]!.click()
+    await browser.pause(300)
+  }
+}
+
 describe('Clock (native)', () => {
   it('starts a preset timer, pauses it, and clears it', async () => {
     console.log('[TEST] launching the Clock app')
@@ -24,6 +41,9 @@ describe('Clock (native)', () => {
 
     console.log('[TEST] opening the Timers tab')
     await byId('tab_menu_timer').click()
+
+    // Clear whatever a previous run left behind, before reading the presets.
+    await clearExistingTimers()
 
     console.log('[TEST] starting the 5 minute preset')
     // This build starts the timer straight from the preset — verified on the
