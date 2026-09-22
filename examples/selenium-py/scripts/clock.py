@@ -116,6 +116,19 @@ def capabilities() -> dict:
     return base
 
 
+# Android-only, for the same reason the JS examples are: the flow below drives
+# Clock through UiAutomator resource-ids, which XCUITest cannot resolve. The
+# capability builder above can still shape an XCUITest session, so an iOS
+# example needs a flow and selectors rather than new plumbing. Refused here
+# rather than in the shared JS preflight, which this script never reaches.
+if IS_IOS:
+    raise SystemExit(
+        "\nDEVTOOLS_MOBILE_PLATFORM=ios is not supported by these examples.\n\n"
+        "They are Android-only: every flow drives the Clock app through\n"
+        "UiAutomator resource-ids, which XCUITest cannot resolve.\n\n"
+        "See examples/MOBILE.md.\n"
+    )
+
 require_appium(
     os.environ.get("APPIUM_HOST", "127.0.0.1"),
     os.environ.get("APPIUM_PORT", "4723"),

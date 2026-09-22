@@ -95,9 +95,9 @@ exported`, delivered through the client as a WebDriver failure that looks
    The preflight reads the running Appium's environment and says so when this
    is what is wrong, because nothing else in the stack does.
 
-**You do not need an app.** The default target is the device's own Settings
-app, so there is no `.apk` to build, upload, or keep credentials for — which is
-what kept a native example from landing before (#354).
+**You do not need an app.** The default target is the device's own Clock app,
+so there is no `.apk` to build, upload, or keep credentials for — which is what
+kept a native example from landing before.
 
 Every one of the four checks this before it opens a session and tells you what
 is missing, because the frameworks themselves do not: WDIO reports "make sure
@@ -167,8 +167,8 @@ points at itself:
 | `DEVTOOLS_MOBILE`                          | `native`             | `web` drives Chrome on the device instead of an app                           |
 | `APPIUM_APP`                               | —                    | path to an `.apk`/`.app` to drive instead of Clock                            |
 | `APPIUM_HOST` / `APPIUM_PORT`              | `127.0.0.1` / `4723` | where Appium is listening                                                     |
-| `DEVTOOLS_MOBILE_PLATFORM`                 | `android`            | `ios` switches all four examples to XCUITest and the Clock app's bundle id   |
-| `IOS_DEVICE_NAME` / `IOS_PLATFORM_VERSION` | `iPhone 15` / —      | which simulator; per-machine, see `xcrun simctl list devices`                 |
+| `DEVTOOLS_MOBILE_PLATFORM`                 | `android`            | `ios` is **not supported** — the examples are Android-only, see below         |
+| `IOS_DEVICE_NAME` / `IOS_PLATFORM_VERSION` | `iPhone 15` / —      | read by the capability builders only; no example has an iOS flow to use them  |
 
 ```sh
 DEVTOOLS_MOBILE=web pnpm demo:nightwatch:mobile     # mobile web, not an app
