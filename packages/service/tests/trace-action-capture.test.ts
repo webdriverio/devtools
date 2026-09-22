@@ -222,6 +222,43 @@ describe('trace mode: one capture per action, taken before it', () => {
     expect(vi.mocked(captureActionSnapshot)).toHaveBeenCalledTimes(2)
   })
 
+  it('captures the last action when the previous one ended in the same millisecond', async () => {
+    const browser = nativeBrowser()
+    const service = new DevToolsHookService({ mode: 'trace' })
+    await service.before({} as never, [], browser)
+
+    // Two action commands completing at one logged timestamp: the last one's
+    // pre-capture is stamped at the previous action's end and carries the
+    // upcoming command's own name, so it fills the exact command+timestamp
+    // slot the finalize is about to capture — reading the answer off the
+    // recorded snapshots (by timestamp or command) mistakes it for the
+    // finalize's own and the last action's result is never taken.
+    const sameMs = 42
+    const logAtSameMs = () =>
+      vi
+        .mocked(capturer.afterCommand)
+        .mockImplementationOnce(async (_browser: unknown, command: string) => {
+          commandsLog.push({ command, timestamp: sameMs })
+        })
+    logAtSameMs()
+    logAtSameMs()
+    for (const command of ['click', 'setValue']) {
+      await service.beforeCommand(command as never, [])
+      await service.afterCommand(command as never, [], undefined)
+    }
+
+    vi.mocked(captureActionSnapshot).mockClear()
+    await service.after()
+    expect(vi.mocked(captureActionSnapshot)).toHaveBeenCalledTimes(1)
+    expect(namedAt(0)).toBe('setValue')
+    expect(stampedAt(0)).toBe(sameMs)
+
+    // `after()` re-runs the finalize for the standalone path; the slot the
+    // first pass recorded keeps the second from paying for it again.
+    await service.after()
+    expect(vi.mocked(captureActionSnapshot)).toHaveBeenCalledTimes(1)
+  })
+
   it('captures the no-action frame once per session', async () => {
     const browser = nativeBrowser()
     const service = new DevToolsHookService({ mode: 'trace' })

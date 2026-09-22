@@ -194,7 +194,8 @@ describe('ScreencastRecorder', () => {
     try {
       const cdpSession = {
         send: vi.fn(() => new Promise(() => {})),
-        on: vi.fn()
+        on: vi.fn(),
+        detach: vi.fn().mockResolvedValue(undefined)
       }
       const browser = {
         getPuppeteer: vi.fn().mockResolvedValue({
@@ -217,6 +218,39 @@ describe('ScreencastRecorder', () => {
         expect.anything()
       )
       expect(cdpSession.on).not.toHaveBeenCalled()
+      expect(cdpSession.detach).toHaveBeenCalledTimes(1)
+      expect(recorder.frames).toEqual([])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('a detach that never settles does not park a queued stop', async () => {
+    vi.useFakeTimers()
+    try {
+      const cdpSession = {
+        send: vi.fn(() => new Promise(() => {})),
+        on: vi.fn(),
+        detach: vi.fn(() => new Promise<void>(() => {}))
+      }
+      const browser = {
+        getPuppeteer: vi.fn().mockResolvedValue({
+          pages: vi
+            .fn()
+            .mockResolvedValue([
+              { createCDPSession: vi.fn().mockResolvedValue(cdpSession) }
+            ])
+        }),
+        takeScreenshot: vi.fn().mockRejectedValue(new Error('no screenshots'))
+      } as any
+      const recorder = new ScreencastRecorder()
+      const starting = recorder.start(browser)
+      const stopping = recorder.stop()
+      await vi.advanceTimersByTimeAsync(5000)
+      await vi.advanceTimersByTimeAsync(5000)
+      await Promise.all([starting, stopping])
+      expect(recorder.isRecording).toBe(false)
+      expect(cdpSession.detach).toHaveBeenCalledTimes(1)
       expect(recorder.frames).toEqual([])
     } finally {
       vi.useRealTimers()

@@ -13,6 +13,7 @@ const CDP_TIMEOUT = Symbol('cdp-timeout')
 interface CdpSessionLike {
   send(method: string, params?: Record<string, unknown>): Promise<unknown>
   on(event: string, handler: (event: unknown) => void | Promise<void>): void
+  detach?(): Promise<void>
 }
 
 interface PuppeteerPageLike {
@@ -101,6 +102,17 @@ export class ScreencastRecorder extends ScreencastRecorderBase<WebdriverIO.Brows
     )
     if (started === CDP_TIMEOUT) {
       log.warn('Screencast: CDP handshake timed out — falling back to polling')
+      // The send may still have reached Chrome; drop the session so an armed
+      // screencast cannot push frames nobody will ack.
+      try {
+        await withTimeout(
+          Promise.resolve(session.detach?.()),
+          SCREENCAST_HANDSHAKE_TIMEOUT_MS,
+          undefined
+        )
+      } catch {
+        // best-effort — the session may already be gone
+      }
       return undefined
     }
     return session
@@ -118,6 +130,11 @@ export class ScreencastRecorder extends ScreencastRecorderBase<WebdriverIO.Brows
       this.#cdpSession = session
 
       session.on('Page.screencastFrame', async (rawEvent) => {
+        // A timed-out Page.stopScreencast leaves this session live; frames
+        // arriving after teardown belong to no recording.
+        if (this.#cdpSession !== session) {
+          return
+        }
         const event = rawEvent as {
           data: string
           metadata: { timestamp: number }

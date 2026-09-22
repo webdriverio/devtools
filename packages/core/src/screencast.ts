@@ -337,7 +337,7 @@ export abstract class ScreencastRecorderBase<TDriver = unknown> {
       clearInterval(this.#pollTimer)
       this.#pollTimer = undefined
       // A shot issued just before the stop outlives it. Bumping the generation
-      // keeps that orphan from appending into a later recording or clearing the
+      // keeps that orphan from appending after the stop or clearing the
       // successor's latch, and clearing the latch here lets a restart tick
       // without waiting on it.
       this.#pollGeneration++

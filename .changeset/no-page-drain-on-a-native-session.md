@@ -11,7 +11,7 @@ It also had to be a **narrower** check than the one the service had. The existin
 Four page-side call sites move to the narrower predicate, and three of them were wrong for a mobile browser session before this change rather than because of it:
 
 - the drain itself, plus the drain-and-performance-read after a page-transition command. Its recovery injection is the only collector such a session ever gets, since the BiDi preload is skipped for every Appium session — so gating it on being mobile would have left it with no DOM capture at all.
-- the `__wdioSnapMark` document tag and the post-action settle that reads it. These have to move together: split across the two predicates, a session tags a document nothing settles on, and its post-action screenshot comes from the page it navigated away from.
+- the `__wdioSnapMark` document tag and the post-action settle that read it (both since removed — trace mode now takes one capture per action and settles only after the last one, via `settleAfterLastAction`). They had to move together at the time: split across the two predicates, a session tagged a document nothing settled on, and its post-action screenshot came from the page it navigated away from.
 - the per-action snapshot strategy, which fed a chromedriver session's HTML through the page-source XML parser and produced a snapshot with no elements, no a11y tree, no url and no title.
 - the viewport read. Documented as metadata-only, but the player sizes the DOM-replay iframe from it, so it is load-bearing wherever there is DOM to replay — and the driver window it was reading includes browser chrome and carries a hardcoded scale of 1.
 

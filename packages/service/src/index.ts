@@ -81,6 +81,13 @@ export default class DevToolsHookService implements Services.ServiceInstance {
   #browser?: WebdriverIO.Browser
   #options: ServiceOptions
   #actionSnapshots: ActionSnapshot[] = []
+  /** The slot `#finalizePerScenario` last captured, so `after()`'s second pass
+   *  does not pay for it again. Tracked rather than scanned from
+   *  #actionSnapshots: the last action's pre-capture holds the same command
+   *  and timestamp whenever the previous action ended in the same
+   *  millisecond, so a scan mistook it for this slot and skipped the only
+   *  capture of the last action's result. */
+  #finalizedSlot?: { command: string; timestamp: number }
   #assertionTracker: AssertionTracker
   #screencast: ScreencastLifecycle
   #slices: TraceSliceTracker
@@ -564,17 +571,21 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     // A session with no action has no timestamp of its own to key on, so its
     // frame is recognised by the marker instead — otherwise `Date.now()` differs
     // between the per-test finalize and `after()` and both capture.
-    const alreadyCaptured = lastAction
-      ? this.#actionSnapshots.some(
-          (snap) => snap.timestamp === lastAction.timestamp
-        )
-      : this.#actionSnapshots.some(
-          (snap) => snap.command === FINAL_SNAPSHOT_COMMAND
-        )
+    const command = lastAction?.command ?? FINAL_SNAPSHOT_COMMAND
+    const timestamp = lastAction?.timestamp ?? Date.now()
     // `after()` finalizes once more at session end, for the standalone path that
     // has no per-test hook. On a framework run the test that just ended has
     // already recorded this slot, and the driver would return the same page a
-    // second time — capture only when it is still empty.
+    // second time — capture only when it is still empty. Compared against the
+    // tracked slot rather than a scan of #actionSnapshots (see #finalizedSlot):
+    // a scan also matched an assertion row sharing the last action's timestamp,
+    // whose capture shows the post-action state and is kept by the
+    // richest-screenshot merge below anyway.
+    const slot = this.#finalizedSlot
+    const alreadyCaptured = lastAction
+      ? slot?.command === lastAction.command &&
+        slot?.timestamp === lastAction.timestamp
+      : slot?.command === FINAL_SNAPSHOT_COMMAND
     if (!alreadyCaptured) {
       await settleAfterLastAction(
         this.#browser,
@@ -583,8 +594,8 @@ export default class DevToolsHookService implements Services.ServiceInstance {
       )
       const snap = await captureActionSnapshot(
         this.#browser,
-        lastAction?.command ?? FINAL_SNAPSHOT_COMMAND,
-        lastAction?.timestamp ?? Date.now(),
+        command,
+        timestamp,
         this.#sessionCapturer.currentContext
       )
       if (snap) {
@@ -592,6 +603,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
         // have captured too, and resources are named by timestamp — keep only the
         // richer screenshot so a blank end-of-scenario frame cannot clobber it.
         upsertRichestSnapshot(this.#actionSnapshots, snap)
+        this.#finalizedSlot = { command, timestamp }
       }
     }
   }
