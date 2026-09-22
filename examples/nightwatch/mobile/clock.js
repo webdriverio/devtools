@@ -33,8 +33,28 @@ const byId = (id) => ({
   locateStrategy: 'id'
 })
 
+/** The duration the setup screen shows, from whichever layout is live: a reset
+ *  Clock renders it as one `timer_setup_time` field, a used one as separate
+ *  hour/minute/second fields. */
+async function durationText(browser) {
+  // `isPresent`, not `elements()`: awaiting `browser.elements()` yields
+  // undefined in this Nightwatch version, which reads as "nothing matched" for
+  // every id. `findElements` would work but waits and then throws when nothing
+  // matches, which Nightwatch reports as a run error even when caught.
+  if (await browser.isPresent(byId('timer_setup_time'))) {
+    return (await browser.getText(byId('timer_setup_time'))).trim()
+  }
+  const parts = []
+  for (const id of ['hour_text', 'minute_text', 'second_text']) {
+    parts.push(
+      (await browser.isPresent(byId(id))) ? await browser.getText(byId(id)) : ''
+    )
+  }
+  return parts.join(':')
+}
+
 describe('Clock (native)', function () {
-  it('starts a preset timer, pauses it, and clears it', async function (browser) {
+  it('keys a duration into the timer and corrects it', async function (browser) {
     if (isWeb) {
       // A mobile BROWSER session: it has a document, so every page-side call a
       // native session skips must still happen. That contrast is the point.
@@ -42,13 +62,9 @@ describe('Clock (native)', function () {
       await browser.assert.urlContains('the-internet')
       return
     }
-
-    // Re-activated rather than relying on the launch capability alone, so the
-    // spec re-runs against a session left on another screen.
     if (CUSTOM_APP) {
-      // A supplied app has none of Clock's screens, so driving the Clock flow
-      // against it would look for ids that cannot exist. Capture its hierarchy
-      // instead — which is what a custom app is set here to exercise.
+      // A supplied app has none of Clock's screens, so capture its hierarchy
+      // rather than looking for ids that cannot exist.
       const source = await browser.source()
       await browser.assert.ok(
         Boolean(source),
@@ -57,59 +73,47 @@ describe('Clock (native)', function () {
       return
     }
 
+    // Re-activated rather than relying on the launch capability alone, so the
+    // spec re-runs against a session left on another screen.
     await browser.execute('mobile: activateApp', [{ appId: APP_ID }])
-
     await browser.click(byId('tab_menu_timer'))
 
-    // Clear anything a previous run left behind. A timer SURVIVES the session,
-    // and while one exists the Timers tab shows its card instead of the preset
-    // buttons — so without this, one interrupted run breaks every later one.
-    let previous = Number.POSITIVE_INFINITY
-    for (;;) {
-      // `elements()` is the protocol-level lookup: it hands back a result with
-      // an empty list. The higher-level `findElements()` instead WAITS for a
-      // match and then throws NoSuchElementError, which Nightwatch reports as a
-      // run error even when caught — so "nothing to clear" would fail the test.
-      const found = await browser.elements('id', `${APP_ID}:id/delete_button`)
-      const count = Array.isArray(found)
-        ? found.length
-        : (found?.value?.length ?? 0)
-      if (!count) {
+    // Backspace until it disables itself, so the run starts from a known zero
+    // whatever the last one keyed in. WebdriverIO long-presses to clear in one
+    // go; Nightwatch has no portable long press, and a keyed duration is at
+    // most six digits.
+    for (let i = 0; i < 8; i++) {
+      const enabled = await browser
+        .isEnabled(byId('timer_setup_delete'))
+        .catch(() => false)
+      if (!enabled) {
         break
       }
-      // Bounded by PROGRESS rather than by a count: any number of timers may
-      // have piled up, and a fixed cap leaves the presets unreachable past it.
-      if (count >= previous) {
-        // Deleting works card by card, and a long pile-up scrolls the
-        // earliest ones out of the viewport where a tap cannot reach them.
-        throw new Error(
-          `could not clear ${count} leftover timer(s) from the Timers tab. Clear them by hand, or reset the app: adb shell pm clear com.google.android.deskclock`
-        )
-      }
-      previous = count
-      await browser.click(byId('delete_button'))
-      await browser.pause(300)
+      await browser.click(byId('timer_setup_delete'))
+      await browser.pause(200)
     }
+    const cleared = await durationText(browser)
 
-    // This build starts the timer straight from the preset, so the running
-    // countdown is the evidence the tap landed.
-    await browser.click(byId('timer_preset_2'))
-    await browser.assert.visible(byId('timer_text'))
-
-    await browser.click(byId('play_pause_button'))
-    // The control's accessibility label flips with the timer's state, so
-    // asserting on it keeps this step off the countdown's own clock.
-    await browser.assert.attributeMatches(
-      byId('play_pause_button'),
-      'content-desc',
-      /^Start/
+    // The keypad fills from the right, so "1", "0", "0" reads as one minute.
+    for (const digit of ['1', '0', '0']) {
+      await browser.click(byId(`timer_setup_digit_${digit}`))
+    }
+    const keyed = await durationText(browser)
+    await browser.assert.ok(
+      keyed !== cleared,
+      `the duration changed from "${cleared}" to "${keyed}"`
     )
+    // Backspace is disabled at zero and enabled by an entry, so this reads the
+    // app's own state rather than the text the keypad just echoed.
+    await browser.assert.enabled(byId('timer_setup_delete'))
 
-    // Clearing the timer is what makes the spec re-runnable: it ends on the
-    // same screen it started from.
-    await browser.click(byId('delete_button'))
-    await browser.pause(500)
-    await browser.assert.not.elementPresent(byId('timer_text'))
+    await browser.click(byId('timer_setup_delete'))
+    await browser.pause(200)
+    const corrected = await durationText(browser)
+    await browser.assert.ok(
+      corrected !== keyed,
+      `backspace changed the duration from "${keyed}" to "${corrected}"`
+    )
   })
 
   it('captures a second action on the same session', async function (browser) {

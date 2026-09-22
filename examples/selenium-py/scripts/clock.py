@@ -27,7 +27,6 @@ Needs the Appium Python client, which the desktop examples do not:
 """
 
 import os
-import re
 import time
 
 import selenium_devtools as devtools
@@ -150,10 +149,8 @@ try:
         driver.find_element(By.CSS_SELECTOR, 'button[type="submit"]').click()
         print(driver.find_element(By.ID, "flash").text.strip())
     elif CUSTOM_APP:
-        # A supplied app has none of Clock's screens, so driving the Clock flow
-        # against it would look for ids that cannot exist. Capture its
-        # hierarchy instead -- which is what a custom app is set here to
-        # exercise.
+        # A supplied app has none of Clock's screens, so capture its hierarchy
+        # rather than looking for ids that cannot exist.
         assert driver.page_source, "the view hierarchy was empty"
         print("captured the supplied app's hierarchy")
     else:
@@ -161,62 +158,55 @@ try:
         # the script re-runs against a session left on another screen.
         driver.execute_script("mobile: activateApp", {"appId": APP_ID})
 
-        def by_id(name):
-            return driver.find_element(
+        def find_all(name):
+            return driver.find_elements(
                 "-android uiautomator",
                 'new UiSelector().resourceId("%s:id/%s")' % (APP_ID, name),
             )
 
+        def by_id(name):
+            return find_all(name)[0]
+
+        def duration_text():
+            """The duration the setup screen shows, from whichever layout is
+            live: a reset Clock renders it as one timer_setup_time field, a
+            used one as separate hour/minute/second fields."""
+            single = find_all("timer_setup_time")
+            if single:
+                return single[0].text.strip()
+            parts = []
+            for name in ("hour_text", "minute_text", "second_text"):
+                found = find_all(name)
+                parts.append(found[0].text if found else "")
+            return ":".join(parts)
+
         by_id("tab_menu_timer").click()
 
-        # Clear anything a previous run left behind. A timer SURVIVES the
-        # session, and while one exists the Timers tab shows its card instead
-        # of the preset buttons -- so without this, one interrupted run breaks
-        # every later one.
-        # Bounded by PROGRESS rather than by a count: any number of timers may
-        # have piled up, and a fixed cap leaves the presets unreachable past
-        # it. A click that fails to reduce the count is the stuck case.
-        previous = None
-        while True:
-            left = driver.find_elements(
-                "-android uiautomator",
-                'new UiSelector().resourceId("%s:id/delete_button")' % APP_ID,
-            )
-            if not left:
+        # Backspace until it disables itself, so the run starts from a known
+        # zero whatever the last one keyed in. WebdriverIO long-presses to
+        # clear in one go; the Python client has no portable long press, and a
+        # keyed duration is at most six digits.
+        for _ in range(8):
+            backspace = by_id("timer_setup_delete")
+            if not backspace.is_enabled():
                 break
-            if previous is not None and len(left) >= previous:
-                # Deleting works card by card, and a long pile-up scrolls the
-                # earliest ones out of the viewport where a tap cannot reach.
-                raise AssertionError(
-                    "could not clear %d leftover timer(s) from the Timers tab. "
-                    "Clear them by hand, or reset the app: "
-                    "adb shell pm clear com.google.android.deskclock" % len(left)
-                )
-            previous = len(left)
-            left[0].click()
-            time.sleep(0.3)
+            backspace.click()
+            time.sleep(0.2)
+        cleared = duration_text()
 
-        # This build starts the timer straight from the preset, so the running
-        # countdown is the evidence the tap landed.
-        by_id("timer_preset_2").click()
-        running = by_id("timer_text").text
-        assert re.match(r"^\d{2}:\d{2}$", running), 'timer_text was "%s"' % running
+        # The keypad fills from the right, so "1", "0", "0" is one minute.
+        for digit in ("1", "0", "0"):
+            by_id("timer_setup_digit_%s" % digit).click()
+        keyed = duration_text()
+        assert keyed != cleared, 'the duration did not change: "%s"' % keyed
+        # Backspace is disabled at zero and enabled by an entry, so this reads
+        # the app's own state rather than the text the keypad just echoed.
+        assert by_id("timer_setup_delete").is_enabled()
 
-        by_id("play_pause_button").click()
-        # The control's accessibility label flips with the timer's state, so
-        # asserting on it keeps this step off the countdown's own clock.
-        label = by_id("play_pause_button").get_dom_attribute("content-desc")
-        assert label.startswith("Start"), 'paused control read "%s"' % label
-
-        # Clearing the timer is what makes the script re-runnable: it ends on
-        # the same screen it started from.
-        by_id("delete_button").click()
-        time.sleep(0.5)
-        assert not driver.find_elements(
-            "-android uiautomator",
-            'new UiSelector().resourceId("%s:id/timer_text")' % APP_ID,
-        ), "the cleared timer is still on screen"
-        print("timer started, paused and cleared")
+        by_id("timer_setup_delete").click()
+        time.sleep(0.2)
+        assert duration_text() != keyed, "backspace did not change the duration"
+        print('keyed a duration and corrected it: "%s" -> "%s"' % (cleared, keyed))
 finally:
     driver.quit()
     devtools.wait_for_dashboard_close()  # hold the UI open to inspect

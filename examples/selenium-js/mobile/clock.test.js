@@ -107,6 +107,22 @@ describe('Clock (native)', function () {
   const byId = async (id) =>
     driver.wait(until.elementLocated(uiSelector(id)), 15000)
 
+  /** The duration the setup screen shows, from whichever layout is live: a
+   *  reset Clock renders it as one `timer_setup_time` field, a used one as
+   *  separate hour/minute/second fields. */
+  const durationText = async () => {
+    const single = await driver.findElements(uiSelector('timer_setup_time'))
+    if (single.length) {
+      return (await single[0].getText()).trim()
+    }
+    const parts = []
+    for (const id of ['hour_text', 'minute_text', 'second_text']) {
+      const field = await driver.findElements(uiSelector(id))
+      parts.push(field.length ? await field[0].getText() : '')
+    }
+    return parts.join(':')
+  }
+
   before(async function () {
     // A missing emulator or Appium reads as a prerequisite here rather than as
     // an ECONNREFUSED stack trace out of the driver.
@@ -123,7 +139,7 @@ describe('Clock (native)', function () {
     }
   })
 
-  it('starts a preset timer, pauses it, and clears it', async function () {
+  it('keys a duration into the timer and corrects it', async function () {
     if (isWeb) {
       // A mobile BROWSER session: it has a document, so every page-side call a
       // native session skips must still happen. That contrast is the point.
@@ -134,11 +150,9 @@ describe('Clock (native)', function () {
       assert.ok((await driver.getCurrentUrl()).length > 0)
       return
     }
-
     if (CUSTOM_APP) {
-      // A supplied app has none of Clock's screens, so driving the Clock flow
-      // against it would look for ids that cannot exist. Capture its hierarchy
-      // instead — which is what a custom app is set here to exercise.
+      // A supplied app has none of Clock's screens, so capture its hierarchy
+      // rather than looking for ids that cannot exist.
       assert.ok((await driver.getPageSource()).length > 0)
       return
     }
@@ -146,61 +160,35 @@ describe('Clock (native)', function () {
     // Re-activated rather than relying on the launch capability alone, so the
     // spec re-runs against a session left on another screen.
     await driver.executeScript('mobile: activateApp', { appId: APP_ID })
-
     await (await byId('tab_menu_timer')).click()
 
-    // Clear anything a previous run left behind. A timer SURVIVES the session,
-    // and while one exists the Timers tab shows its card instead of the preset
-    // buttons — so without this, one interrupted run breaks every later one.
-    let previous = Number.POSITIVE_INFINITY
-    for (;;) {
-      const remaining = await driver.findElements(uiSelector('delete_button'))
-      if (!remaining.length) {
+    // Backspace until it disables itself, so the run starts from a known zero
+    // whatever the last one keyed in. WebdriverIO long-presses to clear in one
+    // go; selenium-webdriver has no portable long press, and a keyed duration
+    // is at most six digits.
+    for (let i = 0; i < 8; i++) {
+      const backspace = await byId('timer_setup_delete')
+      if (!(await backspace.isEnabled())) {
         break
       }
-      if (remaining.length >= previous) {
-        // Deleting works card by card, and a long pile-up scrolls the
-        // earliest ones out of the viewport where a tap cannot reach them.
-        throw new Error(
-          `could not clear ${remaining.length} leftover timer(s) from the Timers tab. Clear them by hand, or reset the app: adb shell pm clear com.google.android.deskclock`
-        )
-      }
-      previous = remaining.length
-      await remaining[0].click()
-      await driver.sleep(300)
+      await backspace.click()
+      await driver.sleep(200)
     }
+    const cleared = await durationText()
 
-    // This build starts the timer straight from the preset, so the running
-    // countdown is the evidence the tap landed.
-    await (await byId('timer_preset_2')).click()
-    const running = await (await byId('timer_text')).getText()
-    assert.match(running, /^\d{2}:\d{2}$/, `timer_text was "${running}"`)
+    // The keypad fills from the right, so "1", "0", "0" reads as one minute.
+    for (const digit of ['1', '0', '0']) {
+      await (await byId(`timer_setup_digit_${digit}`)).click()
+    }
+    const keyed = await durationText()
+    assert.notEqual(keyed, cleared, `the duration did not change: "${keyed}"`)
+    // Backspace is disabled at zero and enabled by an entry, so this reads the
+    // app's own state rather than the text the keypad just echoed.
+    assert.ok(await (await byId('timer_setup_delete')).isEnabled())
 
-    await (await byId('play_pause_button')).click()
-    // The control's accessibility label flips with the timer's state, so
-    // asserting on it keeps this step off the countdown's own clock.
-    // `getDomAttribute`, NOT `getAttribute`: selenium-webdriver implements the
-    // latter by executing a JavaScript atom, and a native session has no JS to
-    // run it in — it fails with "Method is not implemented". `getDomAttribute`
-    // is the plain W3C endpoint, which Appium serves.
-    const label = await (
-      await byId('play_pause_button')
-    ).getDomAttribute('content-desc')
-    assert.match(
-      label,
-      /^Start/,
-      `expected the paused control to offer Start, got "${label}"`
-    )
-
-    // Clearing the timer is what makes the spec re-runnable: it ends on the
-    // same screen it started from.
-    await (await byId('delete_button')).click()
-    await driver.sleep(500)
-    assert.equal(
-      (await driver.findElements(uiSelector('timer_text'))).length,
-      0,
-      'the cleared timer is still on screen'
-    )
+    await (await byId('timer_setup_delete')).click()
+    await driver.sleep(200)
+    assert.notEqual(await durationText(), keyed)
   })
 
   it('captures a second action on the same session', async function () {

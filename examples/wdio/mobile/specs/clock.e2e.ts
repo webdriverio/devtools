@@ -3,18 +3,26 @@
 // difference in the adapter rather than in the test.
 //
 // Drives the Clock app, which ships with every Android system image — no .apk,
-// no upload, no credentials. Clock also gives a native session something
-// deterministic to do: a timer can be started, paused and cleared, and each
-// step changes the screen in a way the trace can be checked against.
+// no upload, no credentials — and uses only the timer SETUP screen: tap the
+// keypad, read the duration back, correct it with backspace.
+//
+// It deliberately never STARTS a timer. A running timer survives the session
+// and replaces the setup screen with its card, so a spec that starts one is
+// re-runnable only if it also finishes; an interrupted run would break every
+// later one. Not starting one removes that whole class of failure, and the
+// keypad still exercises what an example is for — real input, real state
+// change, captured.
 //
 // VERIFIED ON: Android emulator `sdk_gphone64_arm64`, Android 16 (API 36),
-// Clock (com.google.android.deskclock) 9.1.
+// Clock (com.google.android.deskclock) 9.1, from a freshly reset app.
 //
-// These are resource-ids read off that build, and the Clock app updates
-// INDEPENDENTLY of the Android version — so pinning a system image does not pin
-// them. If a locator misses, re-read the tree rather than assuming capture
-// broke: `adb shell uiautomator dump /sdcard/ui.xml && adb shell cat /sdcard/ui.xml`
-// (a running countdown never reaches idle, so pause or clear the timer first).
+// Two Clock layouts exist on that one app version: a reset device renders the
+// duration as a single `timer_setup_time` field, a used one as separate
+// hour/minute/second fields, and only the latter offers the `timer_preset_*`
+// suggestion chips — which is why those chips are not used here. The keypad is
+// common to both. If a locator misses, re-read the tree rather than assuming
+// capture broke:
+// `adb shell uiautomator dump /sdcard/ui.xml && adb shell cat /sdcard/ui.xml`.
 
 import { expect } from '@wdio/globals'
 
@@ -33,44 +41,25 @@ const WEB_URL =
 const byId = (id: string) =>
   $(`android=new UiSelector().resourceId("${APP_ID}:id/${id}")`)
 
-/** Delete every timer already on the Timers tab, so the preset buttons are the
- *  ones on screen. Idempotent: no timers means nothing to click. */
-async function clearExistingTimers(): Promise<void> {
-  // Bounded by PROGRESS rather than by a count: any number of timers may have
-  // piled up, and a fixed cap leaves the presets unreachable past it. A click
-  // that fails to reduce the count is the stuck case, and says so instead of
-  // falling through to a preset that is not on screen.
-  let previous = Number.POSITIVE_INFINITY
-  for (;;) {
-    // `.getElements()`, not a bare await: `$$` returns a chainable whose
-    // `.length` is a Promise, so `remaining.length` would be a Promise —
-    // always truthy, and the "nothing left to clear" exit would never fire.
-    const remaining = await $$(
-      `android=new UiSelector().resourceId("${APP_ID}:id/delete_button")`
-    ).getElements()
-    if (!remaining.length) {
-      return
-    }
-    if (remaining.length >= previous) {
-      // Deleting works card by card, and a long pile-up scrolls the earliest
-      // ones out of the viewport where a tap cannot reach them. One timer is
-      // what an interrupted run leaves, so this is the unusual case — say how
-      // Deleting works card by card, and a long pile-up scrolls the earliest
-      // ones out of the viewport where a tap cannot reach them. One timer is
-      // all an interrupted run leaves, so this is the unusual case — say how
-      // to clear it rather than failing later on an absent preset.
-      throw new Error(
-        `could not clear ${remaining.length} leftover timer(s) from the Timers tab. Clear them by hand, or reset the app: adb shell pm clear com.google.android.deskclock`
-      )
-    }
-    previous = remaining.length
-    await remaining[0]!.click()
-    await browser.pause(300)
+const allById = (id: string) =>
+  $$(`android=new UiSelector().resourceId("${APP_ID}:id/${id}")`).getElements()
+
+/** The duration the setup screen shows, from whichever layout is live. */
+async function durationText(): Promise<string> {
+  const single = await allById('timer_setup_time')
+  if (single.length) {
+    return (await single[0]!.getText()).trim()
   }
+  const parts: string[] = []
+  for (const id of ['hour_text', 'minute_text', 'second_text']) {
+    const field = await allById(id)
+    parts.push(field.length ? await field[0]!.getText() : '')
+  }
+  return parts.join(':')
 }
 
 describe('Clock (native)', () => {
-  it('starts a preset timer, pauses it, and clears it', async () => {
+  it('keys a duration into the timer and corrects it', async () => {
     if (isWeb) {
       // A mobile BROWSER session: it has a document, so every page-side call a
       // native session skips must still happen. That contrast is the point.
@@ -78,41 +67,35 @@ describe('Clock (native)', () => {
       await expect(browser).toHaveUrl(expect.stringContaining('http'))
       return
     }
-
     if (CUSTOM_APP) {
-      // A supplied app has none of Clock's screens, so driving the Clock flow against it would look for ids that cannot exist.
-      // Capture its hierarchy instead — which is what a custom app is set here to exercise.
-      const source = await browser.getPageSource()
-      expect(source.length).toBeGreaterThan(0)
+      // A supplied app has none of Clock's screens, so capture its hierarchy
+      // rather than looking for ids that cannot exist.
+      expect((await browser.getPageSource()).length).toBeGreaterThan(0)
       return
     }
 
-    // `mobile: activateApp` rather than relying on the launch capability alone:
-    // it re-runs against a session left on another screen, and needs no
-    // adb_shell, which Appium does not enable by default.
+    // Re-activated rather than relying on the launch capability alone, so the
+    // spec re-runs against a session left on another screen.
     await browser.execute('mobile: activateApp', { appId: APP_ID })
-
     await byId('tab_menu_timer').click()
 
-    // Clear anything a previous run left behind. A timer SURVIVES the session,
-    // and while one exists the Timers tab shows its card instead of the preset
-    // buttons — so without this, one interrupted run breaks every later one.
-    await clearExistingTimers()
+    // Long press clears the whole entry where a tap removes one digit, so the
+    // run starts from a known zero whatever the last one keyed in.
+    await byId('timer_setup_delete').longPress()
+    const cleared = await durationText()
 
-    // This build starts the timer straight from the preset, so the running
-    // countdown is the evidence the tap landed.
-    await byId('timer_preset_2').click()
-    await expect(byId('timer_text')).toHaveText(/^\d{2}:\d{2}$/)
+    // The keypad fills from the right, so "1", "0", "0" reads as one minute.
+    for (const digit of ['1', '0', '0']) {
+      await byId(`timer_setup_digit_${digit}`).click()
+    }
+    const keyed = await durationText()
+    expect(keyed).not.toBe(cleared)
+    // Backspace is disabled at zero and enabled by an entry, so this reads the
+    // app's own state rather than the text the keypad just echoed.
+    await expect(byId('timer_setup_delete')).toBeEnabled()
 
-    await byId('play_pause_button').click()
-    // The control's accessibility label flips with the timer's state, so
-    // asserting on it keeps this step off the countdown's own clock.
-    await expect($('~Start 5 minutes timer')).toBeDisplayed()
-
-    // Clearing the timer is what makes the spec re-runnable: it ends on the
-    // same screen it started from.
-    await byId('delete_button').click()
-    await expect(byId('timer_text')).not.toBeDisplayed()
+    await byId('timer_setup_delete').click()
+    expect(await durationText()).not.toBe(keyed)
   })
 
   it('captures a second action on the same session', async () => {
@@ -121,13 +104,13 @@ describe('Clock (native)', () => {
       await browser.url(WEB_URL)
       return
     }
-
     if (CUSTOM_APP) {
       expect((await browser.getPageSource()).length).toBeGreaterThan(0)
       return
     }
+
     await browser.execute('mobile: activateApp', { appId: APP_ID })
-    await expect(byId('tab_menu_stopwatch')).toBeDisplayed()
     await byId('tab_menu_stopwatch').click()
+    await expect(byId('tab_menu_stopwatch')).toBeDisplayed()
   })
 })

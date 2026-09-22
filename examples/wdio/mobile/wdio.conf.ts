@@ -56,7 +56,7 @@ export const config: WebdriverIO.Config = {
         // DEVTOOLS_MODE=live silently changes what a run produces — a UI window
         // and no zip instead of a zip and no window — so the mode is logged.
         mode: MODE,
-        traceGranularity: 'test',
+        traceGranularity: 'session',
         // Filmstrip is OPT-IN on mobile, unlike the desktop demos, purely on
         // cost: the poller takes a screenshot every interval and a real device
         // screenshot is slow — a 3-command run against an emulator took 45 s.

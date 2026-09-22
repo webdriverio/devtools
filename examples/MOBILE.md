@@ -118,14 +118,24 @@ credentials. Clock is used rather than Settings because it gives a native
 session something deterministic to do:
 
 1. open the Timers tab
-2. clear any timer a previous run left behind
-3. start the 5-minute preset, and check the countdown is running
-4. pause it, and check the control now offers **Start**
-5. delete it, and check the timer is gone
+2. backspace until the entry is empty, so the run starts from a known zero
+3. key `1`, `0`, `0` on the keypad — it fills from the right, so that is one minute
+4. read the duration back and check it changed, and that backspace is now enabled
+5. press backspace once and check the duration changed again
 
-Step 2 is what makes them re-runnable. A timer **survives the session**, and
-while one exists the Timers tab shows its card instead of the preset buttons —
-so without it, one interrupted run breaks every later one.
+They deliberately never **start** a timer. A running timer survives the session
+and replaces the setup screen with its card, so a spec that starts one is
+re-runnable only if it also finishes — an interrupted run would break every
+later one. Not starting one removes that whole class of failure, and the keypad
+still exercises what an example is for: real input, real state change, captured.
+
+They also avoid the `timer_preset_*` chips. Those are recently-used-duration
+suggestions rather than fixed controls: a freshly reset Clock offers only the
+keypad, so a preset-based flow fails on any device without timer history —
+including CI. Two Clock layouts exist on one app version, and the keypad is
+common to both; the duration display is not, so the examples read
+`timer_setup_time` when it is there and the separate hour/minute/second fields
+otherwise.
 
 **VERIFIED ON:** Android emulator `sdk_gphone64_arm64`, Android 16 (API 36),
 Clock (`com.google.android.deskclock`) 9.1. The Clock app updates
