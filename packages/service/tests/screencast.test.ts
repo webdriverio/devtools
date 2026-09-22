@@ -256,4 +256,42 @@ describe('ScreencastRecorder', () => {
       vi.useRealTimers()
     }
   })
+
+  it('a createCDPSession that lands after the ceiling is detached', async () => {
+    vi.useFakeTimers()
+    try {
+      const cdpSession = {
+        send: vi.fn().mockResolvedValue(undefined),
+        on: vi.fn(),
+        detach: vi.fn().mockResolvedValue(undefined)
+      }
+      const browser = {
+        getPuppeteer: vi.fn().mockResolvedValue({
+          pages: vi.fn().mockResolvedValue([
+            {
+              createCDPSession: vi.fn(
+                () =>
+                  new Promise((resolve) =>
+                    setTimeout(() => resolve(cdpSession), 6000)
+                  )
+              )
+            }
+          ])
+        }),
+        takeScreenshot: vi.fn().mockRejectedValue(new Error('no screenshots'))
+      } as any
+      const recorder = new ScreencastRecorder()
+      const starting = recorder.start(browser)
+      const stopping = recorder.stop()
+      await vi.advanceTimersByTimeAsync(5000)
+      await Promise.all([starting, stopping])
+      expect(recorder.isRecording).toBe(false)
+      expect(cdpSession.detach).not.toHaveBeenCalled()
+      await vi.advanceTimersByTimeAsync(2000)
+      expect(cdpSession.detach).toHaveBeenCalledTimes(1)
+      expect(cdpSession.on).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })

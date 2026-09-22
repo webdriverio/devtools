@@ -81,12 +81,14 @@ export class ScreencastRecorder extends ScreencastRecorderBase<WebdriverIO.Brows
       return undefined
     }
 
+    const sessionPromise = pages[0].createCDPSession()
     const session = await withTimeout<CdpSessionLike | undefined>(
-      pages[0].createCDPSession(),
+      sessionPromise,
       SCREENCAST_HANDSHAKE_TIMEOUT_MS,
       undefined
     )
     if (!session) {
+      this.#detachWhenItLands(sessionPromise)
       return undefined
     }
 
@@ -102,20 +104,30 @@ export class ScreencastRecorder extends ScreencastRecorderBase<WebdriverIO.Brows
     )
     if (started === CDP_TIMEOUT) {
       log.warn('Screencast: CDP handshake timed out — falling back to polling')
-      // The send may still have reached Chrome; drop the session so an armed
-      // screencast cannot push frames nobody will ack.
-      try {
-        await withTimeout(
-          Promise.resolve(session.detach?.()),
-          SCREENCAST_HANDSHAKE_TIMEOUT_MS,
-          undefined
-        )
-      } catch {
-        // best-effort — the session may already be gone
-      }
+      await this.#discardSession(session)
       return undefined
     }
     return session
+  }
+
+  /** The send may still have reached Chrome; drop the session so an armed
+   *  screencast cannot push frames nobody will ack. */
+  async #discardSession(session: CdpSessionLike): Promise<void> {
+    try {
+      await withTimeout(
+        Promise.resolve(session.detach?.()),
+        SCREENCAST_HANDSHAKE_TIMEOUT_MS,
+        undefined
+      )
+    } catch {
+      // best-effort — the session may already be gone
+    }
+  }
+
+  /** A session that completes after the ceiling belongs to nobody — detach it
+   *  when it lands so it cannot linger for the page's life. */
+  #detachWhenItLands(session: Promise<CdpSessionLike>): void {
+    session.then((late) => late?.detach?.()).catch(() => undefined)
   }
 
   protected override async tryStartCdp(): Promise<boolean> {

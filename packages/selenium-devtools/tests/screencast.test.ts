@@ -62,4 +62,78 @@ describe('ScreencastRecorder — CDP handshake ceiling', () => {
       vi.useRealTimers()
     }
   })
+
+  it('stopping a CDP recording closes the connection it opened', async () => {
+    const close = vi.fn()
+    const frame = JSON.stringify({
+      method: 'Page.screencastFrame',
+      params: { data: 'aGk=', sessionId: 1, metadata: { timestamp: 1 } }
+    })
+    const cdp = {
+      execute: vi.fn(),
+      _wsConnection: {
+        on: (_event: string, listener: (data: unknown) => void) => {
+          // Microtask: tryStartCdp arms the first-frame resolver after
+          // ws.on returns, so a synchronous fire lands before it exists.
+          queueMicrotask(() => listener(frame))
+        },
+        off: vi.fn(),
+        close
+      }
+    }
+    const driver: SeleniumDriverLike = {
+      executeScript: () => Promise.resolve(null),
+      createCDPConnection: vi.fn().mockResolvedValue(cdp)
+    }
+    const r = new TestScreencastRecorder({ pollIntervalMs: 50 })
+    await r.start(driver)
+    expect(r.isRecording).toBe(true)
+    expect(cdp.execute).toHaveBeenCalledWith(
+      'Page.startScreencast',
+      expect.anything()
+    )
+    await r.stop()
+    expect(cdp.execute).toHaveBeenCalledWith('Page.stopScreencast')
+    expect(cdp._wsConnection.off).toHaveBeenCalledWith(
+      'message',
+      expect.any(Function)
+    )
+    expect(close).toHaveBeenCalledTimes(1)
+    expect(r.isRecording).toBe(false)
+  })
+
+  it('a createCDPConnection that lands after the ceiling has its socket closed', async () => {
+    vi.useFakeTimers()
+    try {
+      const close = vi.fn()
+      const lateConnection = {
+        execute: vi.fn(),
+        _wsConnection: { on: vi.fn(), close }
+      }
+      const createCDPConnection = vi.fn(
+        () =>
+          new Promise((resolve) =>
+            setTimeout(() => resolve(lateConnection), 6000)
+          )
+      )
+      const driver: SeleniumDriverLike = {
+        executeScript: () => Promise.resolve(null),
+        createCDPConnection
+      }
+      getDriverOriginals().takeScreenshot = () => new Promise<string>(() => {})
+      const r = new TestScreencastRecorder({ pollIntervalMs: 50 })
+      const starting = r.start(driver)
+      const stopping = r.stop()
+      await vi.advanceTimersByTimeAsync(11000)
+      await Promise.all([starting, stopping])
+      expect(r.isRecording).toBe(false)
+      expect(close).toHaveBeenCalledTimes(1)
+      expect((r.unavailable[0] as Error).message).toBe(
+        'first screenshot timed out'
+      )
+    } finally {
+      getDriverOriginals().takeScreenshot = undefined
+      vi.useRealTimers()
+    }
+  })
 })

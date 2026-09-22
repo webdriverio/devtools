@@ -20,6 +20,7 @@ const log = logger('@wdio/selenium-devtools:ScreencastRecorder')
 interface SeleniumCdpWebSocket {
   on(event: 'message', listener: (data: unknown) => void): void
   off?: (event: 'message', listener: (data: unknown) => void) => void
+  close?: () => void
 }
 interface SeleniumCdpConnection {
   _wsConnection?: SeleniumCdpWebSocket
@@ -133,11 +134,22 @@ export class ScreencastRecorder extends ScreencastRecorderBase<SeleniumDriverLik
     // selenium-webdriver types createCDPConnection() as Promise<unknown>; the
     // runtime shape is stable across patch releases and captured by
     // SeleniumCdpConnection above.
-    return withTimeout(
-      driver.createCDPConnection('page') as Promise<SeleniumCdpConnection>,
+    const connection = driver.createCDPConnection(
+      'page'
+    ) as Promise<SeleniumCdpConnection>
+    const cdp = await withTimeout(
+      connection,
       SCREENCAST_HANDSHAKE_TIMEOUT_MS,
       undefined
     )
+    if (!cdp) {
+      // A connection that lands after the ceiling belongs to nobody — close
+      // its socket when it does, so it cannot outlive the recording.
+      connection
+        .then((late) => late?._wsConnection?.close?.())
+        .catch(() => undefined)
+    }
+    return cdp
   }
 
   protected override async tryStartCdp(): Promise<boolean> {
@@ -218,6 +230,15 @@ export class ScreencastRecorder extends ScreencastRecorderBase<SeleniumDriverLik
       }
     } catch {
       // detach best-effort
+    }
+    // Each createCDPConnection overwrites the driver's single slot, and quit
+    // closes only the current one — without this, every recording rotation
+    // on the same driver orphans this recording's socket for the session's
+    // life. The buffer is final and the listener is gone, so nothing reads it.
+    try {
+      this.#cdp?._wsConnection?.close?.()
+    } catch {
+      // best-effort — the socket may already be gone
     }
     // If start was called but the first frame never arrived (timeout path),
     // the resolver is still set. Releasing it lets any pending Promise.race
