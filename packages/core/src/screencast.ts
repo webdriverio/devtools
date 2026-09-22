@@ -1,6 +1,14 @@
 import type { ScreencastFrame, ScreencastOptions } from '@wdio/devtools-shared'
 import { SCREENCAST_DEFAULTS } from '@wdio/devtools-shared'
 import { isInputDispatchInFlight } from './input-dispatch.js'
+import { withTimeout } from './with-timeout.js'
+
+/** Ceiling for one awaited driver primitive in the screencast start/stop
+ *  handshake. The queue serialises start against stop, so a primitive that
+ *  never settles parks teardown behind it for good. */
+export const SCREENCAST_HANDSHAKE_TIMEOUT_MS = 5000
+
+const FIRST_SHOT_TIMEOUT = Symbol('first-shot-timeout')
 
 /**
  * Shared screencast scaffolding consumed by every adapter (service, selenium,
@@ -22,10 +30,16 @@ export abstract class ScreencastRecorderBase<TDriver = unknown> {
   protected options: Required<ScreencastOptions>
   protected driver?: TDriver
   #pollTimer: ReturnType<typeof setInterval> | undefined
+  #pollInFlight = false
+  /** Bumped by start and stop alike. A shot that outlives its loop compares
+   *  against this: its frame belongs to the old recording, and the latch it
+   *  holds is not the successor's to clear. */
+  #pollGeneration = 0
   #isRecording = false
   #cdpActive = false
   #startIndex = 0
   #startMarkerSet = false
+  #queue: Promise<void> = Promise.resolve()
 
   constructor(options: ScreencastOptions = {}) {
     this.options = { ...SCREENCAST_DEFAULTS, ...options }
@@ -38,17 +52,7 @@ export abstract class ScreencastRecorderBase<TDriver = unknown> {
    * recording is simply skipped.
    */
   async start(driver: TDriver): Promise<void> {
-    if (this.#isRecording) {
-      return
-    }
-    this.driver = driver
-    const cdpOk = await this.tryStartCdp()
-    if (cdpOk) {
-      this.#cdpActive = true
-      this.#isRecording = true
-      return
-    }
-    await this.#startPolling()
+    return this.#enqueue(() => this.#startInner(driver))
   }
 
   /**
@@ -56,6 +60,48 @@ export abstract class ScreencastRecorderBase<TDriver = unknown> {
    * never called or failed.
    */
   async stop(): Promise<void> {
+    return this.#enqueue(() => this.#stopInner())
+  }
+
+  /**
+   * Serialise start and stop against each other, so a stop always runs against
+   * a start that has finished arming. Unserialised, a stop landing mid-handshake
+   * observes nothing armed and returns, leaving what the handshake armed with no
+   * owner — and a second start in that window overwrites the session the first
+   * is about to claim, because both CDP overrides hold theirs in a single field.
+   *
+   * Every awaited driver primitive in start/stop is ceilinged at
+   * SCREENCAST_HANDSHAKE_TIMEOUT_MS, so a queued op always settles and a driver
+   * that wedges cannot park teardown behind it.
+   */
+  #enqueue(op: () => Promise<void>): Promise<void> {
+    const run = this.#queue.then(op, op)
+    this.#queue = run.then(
+      () => undefined,
+      () => undefined
+    )
+    return run
+  }
+
+  async #startInner(driver: TDriver): Promise<void> {
+    if (this.#isRecording) {
+      return
+    }
+    const generation = ++this.#pollGeneration
+    this.driver = driver
+    if (await this.tryStartCdp()) {
+      this.#cdpActive = true
+      this.#isRecording = true
+      return
+    }
+    await this.#startPolling(generation)
+  }
+
+  async #stopInner(): Promise<void> {
+    // Bumped before the early return: a shot issued by a loop this stop is
+    // ending must not land in the next recording, and the latch it holds is not
+    // the successor's to clear.
+    this.#pollGeneration++
     if (!this.#isRecording) {
       return
     }
@@ -209,11 +255,38 @@ export abstract class ScreencastRecorderBase<TDriver = unknown> {
 
   // ─── Polling implementation ─────────────────────────────────────────────
 
-  async #startPolling(): Promise<void> {
+  /**
+   * The first shot of a polling session, under the handshake ceiling — it runs
+   * on the start/stop queue, so a driver that never answers it would park
+   * teardown behind the handshake for good. Returns null when there is nothing
+   * to record: a stale generation, a null shot, or a timeout.
+   */
+  async #takeFirstShot(generation: number): Promise<string | null> {
+    const first = await withTimeout<string | null | typeof FIRST_SHOT_TIMEOUT>(
+      this.takeScreenshot(),
+      SCREENCAST_HANDSHAKE_TIMEOUT_MS,
+      FIRST_SHOT_TIMEOUT
+    )
+    if (generation !== this.#pollGeneration) {
+      return null
+    }
+    if (typeof first !== 'string') {
+      this.onUnavailable(
+        new Error(
+          first === null
+            ? 'first screenshot returned null'
+            : 'first screenshot timed out'
+        )
+      )
+      return null
+    }
+    return first
+  }
+
+  async #startPolling(generation: number): Promise<void> {
     try {
-      const first = await this.takeScreenshot()
+      const first = await this.#takeFirstShot(generation)
       if (first === null) {
-        this.onUnavailable(new Error('first screenshot returned null'))
         return
       }
       this.#appendFrame({ data: first, timestamp: Date.now() })
@@ -227,14 +300,28 @@ export abstract class ScreencastRecorderBase<TDriver = unknown> {
         if (isInputDispatchInFlight()) {
           return
         }
+        // setInterval does not wait for this handler. A screenshot slower than
+        // the interval stacks requests that a serialised driver then serves
+        // ahead of the test's own commands (a native session's screenshot runs
+        // ~1.2 s against a 200 ms default) — keep at most one outstanding.
+        if (this.#pollInFlight) {
+          return
+        }
+        this.#pollInFlight = true
         try {
           const data = await this.takeScreenshot()
-          if (data !== null) {
+          if (data !== null && generation === this.#pollGeneration) {
             this.#appendFrame({ data, timestamp: Date.now() })
           }
         } catch {
           // Session ended mid-interval — stop polling gracefully.
-          this.#stopPolling()
+          if (generation === this.#pollGeneration) {
+            this.#stopPolling()
+          }
+        } finally {
+          if (generation === this.#pollGeneration) {
+            this.#pollInFlight = false
+          }
         }
       }, intervalMs)
 
@@ -249,6 +336,12 @@ export abstract class ScreencastRecorderBase<TDriver = unknown> {
     if (this.#pollTimer !== undefined) {
       clearInterval(this.#pollTimer)
       this.#pollTimer = undefined
+      // A shot issued just before the stop outlives it. Bumping the generation
+      // keeps that orphan from appending after the stop or clearing the
+      // successor's latch, and clearing the latch here lets a restart tick
+      // without waiting on it.
+      this.#pollGeneration++
+      this.#pollInFlight = false
       this.onPollingStopped(this.buffer.length)
     }
   }

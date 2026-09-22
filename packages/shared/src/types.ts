@@ -507,7 +507,15 @@ export function isMutationsTruncationMarker(
  * downstream trace.zip exporter (Phase 4). `screenshot` is base64-encoded JPEG.
  */
 export interface ActionSnapshot {
+  /** The key every reader joins on. A capture is stamped, once the exporter
+   *  has run, with the action whose RESULT it is — which is why `command`
+   *  below is not that action's name. */
   timestamp: number
+  /** A label, not a key: the action the capture was taken for, which mid-run is
+   *  the one it PRECEDES (the capture is its state before it ran), while the
+   *  timestamp names the action it follows. No reader may select on it — the
+   *  one value with meaning is core's `FINAL_SNAPSHOT_COMMAND`, which marks a
+   *  frame carrying no result to show. */
   command: string
   url?: string
   title?: string

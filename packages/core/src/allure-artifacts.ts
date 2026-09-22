@@ -81,13 +81,21 @@ export async function attachTraceArtifact(
   }
 }
 
+/** A snapshot's command for a session that ran no action at all, so the frame
+ *  carries no result to show and may be a blank post-teardown page. Written by
+ *  the service's per-scenario finalize, skipped by `lastRenderedScreenshot`.
+ *  Shared rather than repeated: a rename on one side would silently stop the
+ *  skip from matching and start attaching those frames as test screenshots. */
+export const FINAL_SNAPSHOT_COMMAND = '__final__'
+
 /**
  * The base64 of the last rendered action snapshot for the current test, skipping
- * the end-of-scenario `__final__` frame (captured post-teardown, often blank when
- * a reloadSession runs before the after-hook). Scoped to `>= startWallTime` so a
- * test that captured nothing doesn't borrow the previous test's frame. Reused as
- * the per-test screenshot — reload-immune and one fewer WebDriver command than a
- * fresh end-of-test capture.
+ * a `FINAL_SNAPSHOT_COMMAND` frame — which a session that ran no action at all
+ * produces, so it carries no result to show and may be a blank post-teardown
+ * page. Scoped to `>= startWallTime` so a test that captured nothing doesn't
+ * borrow the previous test's frame. Reused as the per-test screenshot —
+ * reload-immune and one fewer WebDriver command than a fresh end-of-test
+ * capture.
  */
 export function lastRenderedScreenshot(
   snapshots: readonly ActionSnapshot[],
@@ -98,7 +106,7 @@ export function lastRenderedScreenshot(
     if (snap.timestamp < startWallTime) {
       return undefined
     }
-    if (snap.command !== '__final__' && snap.screenshot) {
+    if (snap.command !== FINAL_SNAPSHOT_COMMAND && snap.screenshot) {
       return snap.screenshot
     }
   }

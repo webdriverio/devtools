@@ -168,4 +168,130 @@ describe('ScreencastRecorder', () => {
     expect(recorder.duration).toBe(0)
     await expect(recorder.stop()).resolves.toBeUndefined()
   })
+
+  it('hung getPuppeteer resolves and a queued stop resolves', async () => {
+    vi.useFakeTimers()
+    try {
+      const browser = {
+        getPuppeteer: vi.fn(() => new Promise(() => {})),
+        takeScreenshot: vi.fn().mockRejectedValue(new Error('no screenshots'))
+      } as any
+      const recorder = new ScreencastRecorder()
+      const starting = recorder.start(browser)
+      const stopping = recorder.stop()
+      await vi.advanceTimersByTimeAsync(5000)
+      await Promise.all([starting, stopping])
+      expect(browser.getPuppeteer).toHaveBeenCalled()
+      expect(recorder.isRecording).toBe(false)
+      expect(recorder.frames).toEqual([])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('hung startScreencast send arms nothing and queued stop resolves', async () => {
+    vi.useFakeTimers()
+    try {
+      const cdpSession = {
+        send: vi.fn(() => new Promise(() => {})),
+        on: vi.fn(),
+        detach: vi.fn().mockResolvedValue(undefined)
+      }
+      const browser = {
+        getPuppeteer: vi.fn().mockResolvedValue({
+          pages: vi
+            .fn()
+            .mockResolvedValue([
+              { createCDPSession: vi.fn().mockResolvedValue(cdpSession) }
+            ])
+        }),
+        takeScreenshot: vi.fn().mockRejectedValue(new Error('no screenshots'))
+      } as any
+      const recorder = new ScreencastRecorder()
+      const starting = recorder.start(browser)
+      const stopping = recorder.stop()
+      await vi.advanceTimersByTimeAsync(5000)
+      await Promise.all([starting, stopping])
+      expect(recorder.isRecording).toBe(false)
+      expect(cdpSession.send).toHaveBeenCalledWith(
+        'Page.startScreencast',
+        expect.anything()
+      )
+      expect(cdpSession.on).not.toHaveBeenCalled()
+      expect(cdpSession.detach).toHaveBeenCalledTimes(1)
+      expect(recorder.frames).toEqual([])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('a detach that never settles does not park a queued stop', async () => {
+    vi.useFakeTimers()
+    try {
+      const cdpSession = {
+        send: vi.fn(() => new Promise(() => {})),
+        on: vi.fn(),
+        detach: vi.fn(() => new Promise<void>(() => {}))
+      }
+      const browser = {
+        getPuppeteer: vi.fn().mockResolvedValue({
+          pages: vi
+            .fn()
+            .mockResolvedValue([
+              { createCDPSession: vi.fn().mockResolvedValue(cdpSession) }
+            ])
+        }),
+        takeScreenshot: vi.fn().mockRejectedValue(new Error('no screenshots'))
+      } as any
+      const recorder = new ScreencastRecorder()
+      const starting = recorder.start(browser)
+      const stopping = recorder.stop()
+      await vi.advanceTimersByTimeAsync(5000)
+      await vi.advanceTimersByTimeAsync(5000)
+      await Promise.all([starting, stopping])
+      expect(recorder.isRecording).toBe(false)
+      expect(cdpSession.detach).toHaveBeenCalledTimes(1)
+      expect(recorder.frames).toEqual([])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('a createCDPSession that lands after the ceiling is detached', async () => {
+    vi.useFakeTimers()
+    try {
+      const cdpSession = {
+        send: vi.fn().mockResolvedValue(undefined),
+        on: vi.fn(),
+        detach: vi.fn().mockResolvedValue(undefined)
+      }
+      const browser = {
+        getPuppeteer: vi.fn().mockResolvedValue({
+          pages: vi.fn().mockResolvedValue([
+            {
+              createCDPSession: vi.fn(
+                () =>
+                  new Promise((resolve) =>
+                    setTimeout(() => resolve(cdpSession), 6000)
+                  )
+              )
+            }
+          ])
+        }),
+        takeScreenshot: vi.fn().mockRejectedValue(new Error('no screenshots'))
+      } as any
+      const recorder = new ScreencastRecorder()
+      const starting = recorder.start(browser)
+      const stopping = recorder.stop()
+      await vi.advanceTimersByTimeAsync(5000)
+      await Promise.all([starting, stopping])
+      expect(recorder.isRecording).toBe(false)
+      expect(cdpSession.detach).not.toHaveBeenCalled()
+      await vi.advanceTimersByTimeAsync(2000)
+      expect(cdpSession.detach).toHaveBeenCalledTimes(1)
+      expect(cdpSession.on).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })
