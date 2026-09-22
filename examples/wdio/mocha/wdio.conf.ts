@@ -1,5 +1,17 @@
-// Mocha counterpart to wdio.conf.ts (which runs the Cucumber example). Same
-// capabilities and devtools service; only the framework + spec layout differ.
+// WebdriverIO + Mocha. The Cucumber example beside this one uses the same
+// capabilities and the same service block; only the framework and the spec
+// layout differ.
+//
+// Every devtools option below reads from the environment, so ONE config walks
+// the whole live→trace→per-test→retention ladder without being edited:
+//
+//   pnpm demo:wdio:mocha                                    live
+//   DEVTOOLS_MODE=trace pnpm demo:wdio:mocha                one zip per run
+//   DEVTOOLS_MODE=trace DEVTOOLS_TRACE_GRANULARITY=test …   one zip per test
+//   … DEVTOOLS_TRACE_POLICY=retain-on-failure               keep only failures
+//
+// Retries are the one rung that needs its own config, because they change the
+// runner and not just the service: `pnpm demo:wdio:retry`.
 export const config: WebdriverIO.Config = {
   runner: 'local',
   specs: ['./specs/**/*.e2e.ts'],
@@ -30,15 +42,19 @@ export const config: WebdriverIO.Config = {
     [
       'devtools',
       {
-        // ── Config ladder — change ONLY this block per rung ──────────────
-        // 1 live:     mode: 'live'
-        // 2 trace:    mode: 'trace'
-        // 3 per-test: mode: 'trace', traceGranularity: 'test'
-        // 4 fail:     mode: 'trace', traceGranularity: 'test', tracePolicy: 'retain-on-failure'
-        // 5 retry:    use `pnpm demo:wdio:retry` (adds retries:1 + on-first-retry)
-        mode: 'live' as const,
-        traceGranularity: 'test' as const,
-        tracePolicy: 'retain-on-failure' as const
+        mode: (process.env.DEVTOOLS_MODE === 'trace' ? 'trace' : 'live') as
+          'live' | 'trace',
+        traceGranularity: (process.env.DEVTOOLS_TRACE_GRANULARITY ??
+          'session') as 'session' | 'spec' | 'test',
+        tracePolicy: (process.env.DEVTOOLS_TRACE_POLICY ?? 'on') as
+          | 'on'
+          | 'retain-on-failure'
+          | 'retain-on-first-failure'
+          | 'on-first-retry'
+          | 'on-all-retries'
+          | 'retain-on-failure-and-retries',
+        // Always emitted, so the artifact set is inspectable for any rung.
+        emitArtifactsManifest: true
       }
     ]
   ],
