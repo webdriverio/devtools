@@ -31,8 +31,13 @@ none of it is needed for any other demo or test in this repo.
    is far lighter and is the route these instructions assume:
 
    ```sh
-   # macOS arm64; see developer.android.com for the other builds
-   curl -fsSL https://dl.google.com/android/cli/latest/darwin_arm64/install.sh | bash
+   # macOS arm64; see developer.android.com for the other builds. Downloaded
+   # and read before it runs, rather than piped into a shell: `latest` is a
+   # mutable URL, so piping executes whatever it returns at that moment.
+   curl -fsSL -o /tmp/android-cli-install.sh \
+     https://dl.google.com/android/cli/latest/darwin_arm64/install.sh
+   less /tmp/android-cli-install.sh        # read it
+   bash /tmp/android-cli-install.sh
    ```
 
    That leaves `android-cli` in `~/.android/bin` (**not** on your PATH) and an
@@ -263,7 +268,10 @@ The default URL is public, and an emulator often cannot resolve public DNS
 machine's** localhost, so serving a page here is the reliable route:
 
 ```sh
-python3 -m http.server 8099            # in some directory with an index.html
+# --bind and --directory are both deliberate: the default serves the CURRENT
+# directory on EVERY interface, so a checkout's contents would be readable by
+# anything on the LAN or VPN. The emulator only needs this machine's loopback.
+python3 -m http.server 8099 --bind 127.0.0.1 --directory /tmp/mobile-page
 DEVTOOLS_MOBILE_URL=http://10.0.2.2:8099/ DEVTOOLS_MOBILE=web pnpm demo:wdio:mobile
 ```
 
@@ -311,33 +319,18 @@ failed`, `BiDi preload unavailable`, `BiDi NetworkInspector attach failed`).
   session-scoped slice, so the config asks for `session` granularity rather
   than pretending otherwise. See CLAUDE.md § Known debt.
 
-## iOS
+## iOS is not supported
 
-One switch, no hand-editing:
+`DEVTOOLS_MOBILE_PLATFORM=ios` exits immediately, with the reason. The
+capability builders can shape an XCUITest session against the simulator's Clock
+app (`com.apple.mobiletimer`), and that part is real — but **no example has an
+iOS body**. Every flow drives Android's Clock through UiAutomator resource-ids,
+which XCUITest cannot resolve, so an iOS run would build a session and then fail
+on its first lookup.
 
-```sh
-DEVTOOLS_MOBILE_PLATFORM=ios IOS_DEVICE_NAME="iPhone 15" pnpm demo:wdio:mobile
-```
-
-It needs a Mac with **full Xcode** (Command Line Tools alone carry no
-simulators), a booted simulator, and the XCUITest driver — whose first run also
-builds WebDriverAgent:
-
-```sh
-sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
-xcrun simctl list devices available | grep iPhone   # the name is per-machine
-xcrun simctl boot "iPhone 15"
-appium driver install xcuitest
-```
-
-The target is the simulator's own Clock app (`com.apple.mobiletimer`), so
-there is no `.app` to supply — the same trick as Android.
-
-**One iOS-specific thing to watch.** `getWindowSize()` returns **points** while
-the screenshot is **pixels** — roughly a 3x factor, so a trace legitimately
-declares `402 × 874` for a `1206 × 2622` image. That disagreement is why the
-player fits a domless capture by the image's own decoded size and never by the
-viewport. Android nearly hides it; iOS is where a regression there would show.
+Adding iOS means a flow and selectors per example, not new plumbing. It is left
+out rather than half-advertised: a switch that builds a session and then cannot
+find anything is worse than one that says no.
 
 ## What to look for
 

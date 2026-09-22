@@ -35,6 +35,8 @@ DevTools.configure({
 
 const APP_ID = 'com.google.android.deskclock'
 const isWeb = process.env.DEVTOOLS_MOBILE === 'web'
+/** APPIUM_APP replaces Clock, so the Clock flow does not apply to it. */
+const CUSTOM_APP = Boolean(process.env.APPIUM_APP)
 const IOS = process.env.DEVTOOLS_MOBILE_PLATFORM === 'ios'
 const APPIUM = `http://${process.env.APPIUM_HOST ?? '127.0.0.1'}:${
   process.env.APPIUM_PORT ?? 4723
@@ -133,6 +135,14 @@ describe('Clock (native)', function () {
       return
     }
 
+    if (CUSTOM_APP) {
+      // A supplied app has none of Clock's screens, so driving the Clock flow
+      // against it would look for ids that cannot exist. Capture its hierarchy
+      // instead — which is what a custom app is set here to exercise.
+      assert.ok((await driver.getPageSource()).length > 0)
+      return
+    }
+
     // Re-activated rather than relying on the launch capability alone, so the
     // spec re-runs against a session left on another screen.
     await driver.executeScript('mobile: activateApp', { appId: APP_ID })
@@ -192,6 +202,10 @@ describe('Clock (native)', function () {
       return
     }
 
+    if (CUSTOM_APP) {
+      assert.ok((await driver.getPageSource()).length > 0)
+      return
+    }
     await driver.executeScript('mobile: activateApp', { appId: APP_ID })
     await (await byId('tab_menu_stopwatch')).click()
   })

@@ -4,7 +4,7 @@ const nightwatchDevtools = require('@wdio/nightwatch-devtools').default
 
 module.exports = {
   // Resolve relative to this config file so the path holds regardless of CWD.
-  src_folders: [path.resolve(__dirname, 'tests')],
+  src_folders: [path.resolve(__dirname, 'bdd')],
   output_folder: false, // Skip generating nightwatch reports for this example
   // Add custom reporter to capture commands
   custom_commands_path: [],

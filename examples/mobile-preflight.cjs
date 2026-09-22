@@ -133,6 +133,23 @@ async function requireMobileToolchain({
   host = process.env.APPIUM_HOST ?? '127.0.0.1',
   port = Number(process.env.APPIUM_PORT ?? 4723)
 } = {}) {
+  // Every check below is Android's, and so is every example flow: they drive
+  // the Clock app through UiAutomator resource-ids. The capability builders
+  // can still shape an XCUITest session, but no example has an iOS BODY — it
+  // would activate the Android package and then look for Android ids. Say so
+  // here rather than letting the run reach a lookup that cannot match.
+  if (process.env.DEVTOOLS_MOBILE_PLATFORM === 'ios') {
+    console.error(
+      '\nDEVTOOLS_MOBILE_PLATFORM=ios is not supported by these examples.\n\n' +
+        'They are Android-only: every flow drives the Clock app through\n' +
+        'UiAutomator resource-ids, which XCUITest cannot resolve, and every\n' +
+        'check below looks for the Android SDK.\n\n' +
+        'The capability builders can still shape an XCUITest session, so an\n' +
+        'iOS example needs a flow and selectors rather than new plumbing.\n' +
+        'See examples/MOBILE.md.\n'
+    )
+    process.exit(1)
+  }
   if (await appiumReady(host, port)) {
     // A remote or cloud Appium drives a device this machine knows nothing
     // about, so none of the local checks below apply to it.

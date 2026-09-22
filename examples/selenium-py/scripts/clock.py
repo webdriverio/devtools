@@ -71,6 +71,8 @@ def require_appium(host: str, port: str) -> None:
 
 
 APP_ID = "com.google.android.deskclock"
+# APPIUM_APP replaces Clock, so the Clock flow does not apply to it.
+CUSTOM_APP = bool(os.environ.get("APPIUM_APP"))
 IS_WEB = os.environ.get("DEVTOOLS_MOBILE") == "web"
 IS_IOS = os.environ.get("DEVTOOLS_MOBILE_PLATFORM") == "ios"
 APPIUM = "http://%s:%s" % (
@@ -134,6 +136,13 @@ try:
         driver.find_element(By.ID, "password").send_keys("SuperSecretPassword!")
         driver.find_element(By.CSS_SELECTOR, 'button[type="submit"]').click()
         print(driver.find_element(By.ID, "flash").text.strip())
+    elif CUSTOM_APP:
+        # A supplied app has none of Clock's screens, so driving the Clock flow
+        # against it would look for ids that cannot exist. Capture its
+        # hierarchy instead -- which is what a custom app is set here to
+        # exercise.
+        assert driver.page_source, "the view hierarchy was empty"
+        print("captured the supplied app's hierarchy")
     else:
         # Re-activated rather than relying on the launch capability alone, so
         # the script re-runs against a session left on another screen.

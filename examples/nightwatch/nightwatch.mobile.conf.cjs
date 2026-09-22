@@ -1,5 +1,6 @@
 // Mobile example for @wdio/nightwatch-devtools. Drives the device's own
-// Settings app by default, so it needs no .apk. See examples/MOBILE.md for
+// Clock app that ships with every Android system image, so it needs no .apk.
+// See examples/MOBILE.md for
 // prerequisites and the DEVTOOLS_MOBILE / APPIUM_APP switches.
 //
 //   pnpm demo:nightwatch:mobile

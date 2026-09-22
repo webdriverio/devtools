@@ -1,5 +1,6 @@
-// Mobile example for the WDIO service. Drives the device's own Settings app by
-// default, so it needs no .apk — see ../../MOBILE.md for prerequisites and the
+// Mobile example for the WDIO service. Drives the Clock app that ships with
+// every Android system image, so it needs no .apk — see ../../MOBILE.md for
+// prerequisites and the
 // DEVTOOLS_MOBILE / APPIUM_APP switches.
 //
 //   pnpm demo:wdio:mobile

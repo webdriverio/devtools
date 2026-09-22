@@ -18,6 +18,8 @@
 
 const APP_ID = 'com.google.android.deskclock'
 const isWeb = process.env.DEVTOOLS_MOBILE === 'web'
+/** APPIUM_APP replaces Clock, so the Clock flow does not apply to it. */
+const CUSTOM_APP = Boolean(process.env.APPIUM_APP)
 
 /** A resource-id, in Nightwatch's element DEFINITION shape. The raw W3C
  *  `{using, value}` form is accepted syntactically and then issues no lookup
@@ -43,6 +45,18 @@ describe('Clock (native)', function () {
 
     // Re-activated rather than relying on the launch capability alone, so the
     // spec re-runs against a session left on another screen.
+    if (CUSTOM_APP) {
+      // A supplied app has none of Clock's screens, so driving the Clock flow
+      // against it would look for ids that cannot exist. Capture its hierarchy
+      // instead — which is what a custom app is set here to exercise.
+      const source = await browser.source()
+      await browser.assert.ok(
+        Boolean(source),
+        'the view hierarchy was readable'
+      )
+      return
+    }
+
     await browser.execute('mobile: activateApp', [{ appId: APP_ID }])
 
     await browser.click(byId('tab_menu_timer'))
@@ -95,6 +109,13 @@ describe('Clock (native)', function () {
       return
     }
 
+    if (CUSTOM_APP) {
+      await browser.assert.ok(
+        Boolean(await browser.source()),
+        'the view hierarchy was readable'
+      )
+      return
+    }
     await browser.execute('mobile: activateApp', [{ appId: APP_ID }])
     await browser.click(byId('tab_menu_stopwatch'))
     await browser.assert.visible(byId('tab_menu_stopwatch'))

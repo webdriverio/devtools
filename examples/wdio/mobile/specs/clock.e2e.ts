@@ -21,6 +21,8 @@ import { expect } from '@wdio/globals'
 const APP_ID = 'com.google.android.deskclock'
 
 const isWeb = process.env.DEVTOOLS_MOBILE === 'web'
+/** APPIUM_APP replaces Clock, so the Clock flow does not apply to it. */
+const CUSTOM_APP = Boolean(process.env.APPIUM_APP)
 
 // An emulator often cannot resolve public DNS (corporate network, VPN), and
 // `10.0.2.2` is its alias for the HOST's localhost — so a page served on this
@@ -53,6 +55,14 @@ describe('Clock (native)', () => {
       // native session skips must still happen. That contrast is the point.
       await browser.url(WEB_URL)
       await expect(browser).toHaveUrl(expect.stringContaining('http'))
+      return
+    }
+
+    if (CUSTOM_APP) {
+      // A supplied app has none of Clock's screens, so driving the Clock flow against it would look for ids that cannot exist.
+      // Capture its hierarchy instead — which is what a custom app is set here to exercise.
+      const source = await browser.getPageSource()
+      expect(source.length).toBeGreaterThan(0)
       return
     }
 
@@ -91,6 +101,10 @@ describe('Clock (native)', () => {
       return
     }
 
+    if (CUSTOM_APP) {
+      expect((await browser.getPageSource()).length).toBeGreaterThan(0)
+      return
+    }
     await browser.execute('mobile: activateApp', { appId: APP_ID })
     await expect(byId('tab_menu_stopwatch')).toBeDisplayed()
     await byId('tab_menu_stopwatch').click()
