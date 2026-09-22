@@ -200,15 +200,35 @@ services: [[DevToolsHookService, {
 
 #### 📱 Mobile testing
 
-Adapters detect mobile sessions via `platformName: 'android' | 'ios'` (case-insensitive) and adjust the per-action snapshot to extract elements from the mobile XML tree instead of the DOM. The trace's `context-options` records `title: 'android' — <deviceName>` / `'ios' — <deviceName>` so the viewer labels frames correctly.
+Appium sessions are captured in both live and trace mode. What gets captured depends on one question — **does this session have a web document right now?** — because every DOM drain, page script and viewport read is a round trip that can only fail without one.
 
-A reference WDIO config is at [examples/wdio/cucumber/wdio.mobile.conf.ts](examples/wdio/cucumber/wdio.mobile.conf.ts). Prereqs to run it end-to-end with a local emulator:
+**Three kinds of session, and they behave differently:**
+
+| Session | Has a document | What is captured |
+|---|---|---|
+| **Mobile browser** (Chrome on Android, Safari on iOS) | always | the same as a desktop run — DOM, console, network, replay |
+| **Native app** | never | commands, screenshots and element data from the platform's XML tree; no DOM |
+| **Hybrid app** | only while in a webview context | native halves as an app, webview halves as a page |
+
+The discriminator is the **browser the capabilities name**, not the device: mobile web states one, a native app states none. A device is not required either — a Mac2 or tvOS session has no document and is treated the same way.
+
+A hybrid app is the case capabilities alone cannot answer, because the answer changes mid-run. Appium reports `NATIVE_APP` or a webview context, and anything that is not `NATIVE_APP` counts as a webview — the `WEBVIEW_` prefix is a convention, and a driver naming its webview otherwise would have its DOM capture skipped. Following the context costs no round trip: the switch command carries its destination in its own arguments.
+
+**Per-adapter:** all four adapters detect a native session and skip page-side capture on one. Only the **WebdriverIO** service additionally follows a hybrid app into its webview; Nightwatch, Selenium and the Python adapter answer from the startup capabilities, so a hybrid session's webview half is captured as if it were still native.
+
+**In the dashboard**, a phone capture is framed as the device — a full-height device column with the action list and dock beside it — in both live mode and the trace player. The trace's `context-options` records the platform, model and OS version, read back so the player labels frames without guessing.
+
+**What a mobile trace does not contain.** Per-action snapshots are issued from inside the command hook, and Appium serialises a probe behind the command it is observing — so where a session has a document to probe, the per-action snapshot is skipped. In practice that means **a hybrid app's webview actions carry no per-action element data, accessibility tree or settle screenshot**. Native sessions, mobile browsers and every desktop session are unaffected. Command rows and their screenshots, console, network and the archive itself are always captured. These absences are by design; they are not a capture failure.
+
+On a native session, element data and the A11y panel come from the platform's XML tree rather than the DOM, so locators read as `android=new UiSelector()…` / `-ios predicate string:…` rather than CSS or XPath over HTML.
+
+A runnable example per adapter lives under [examples/](examples/) — `pnpm demo:wdio:mobile`, `:selenium:mobile`, `:nightwatch:mobile`, `:python:mobile`. Each drives the Clock app that ships with every Android system image — starting a timer, pausing it and clearing it — so none needs an `.apk`; `DEVTOOLS_MOBILE=web` drives Chrome on the same device instead. [examples/MOBILE.md](examples/MOBILE.md) states the prerequisites and switches in one place. In short, for a local emulator:
 
 1. **Java JDK** — `brew install --cask temurin`
 2. **Android SDK** — `brew install --cask android-commandlinetools` then `yes | sdkmanager --licenses && sdkmanager "platform-tools" "emulator" "system-images;android-34;google_apis_playstore;arm64-v8a"`. The brew cask installs sdkmanager under `/opt/homebrew/share/android-commandlinetools/`, and sdkmanager downloads other SDK pieces alongside it — set `ANDROID_HOME` to that path (not `~/Library/Android/sdk/`).
 3. **AVD + emulator** — `avdmanager create avd -n devtools-test -k "system-images;android-34;google_apis_playstore;arm64-v8a" -d "pixel_7"`, then `emulator -avd devtools-test &` + `adb wait-for-device`.
 4. **Appium + UiAutomator2 driver** — `sudo npm i -g appium && appium driver install uiautomator2`.
-5. **Chromedriver pinning** — Appium's autodownload doesn't reach back far enough for the Chrome version that ships with most Android system images (e.g. Chrome 113 on Android 14). Manually download the matching Chromedriver and start Appium with `--default-capabilities '{"appium:chromedriverExecutableDir": "<path>"}'` plus `--allow-insecure=uiautomator2:chromedriver_autodownload`.
+5. **Chromedriver pinning** — a webview is driven by Chromedriver, and Appium's autodownload frequently has no build matching the Chrome that ships with the system image, in either direction: too old on an older image, too new on a current one. It surfaces as `No Chromedriver found that can automate Chrome '<version>'` when entering a webview context, which reads as a capture failure and is not one — it is why a mobile browser or hybrid run cannot start. Download the matching Chromedriver and start Appium with `--default-capabilities '{"appium:chromedriverExecutableDir": "<path>"}'` plus `--allow-insecure=uiautomator2:chromedriver_autodownload`. A native-app run needs none of this.
 6. **Classic WebDriver protocol** — Appium 3's BiDi shim for UiAutomator2 doesn't implement every BiDi command (e.g. `script.addPreloadScript`). Set `'wdio:enforceWebDriverClassic': true` in the capability block so WDIO doesn't attempt the BiDi handshake.
 
 These are emulator-specific issues; on a physical phone with USB debugging only steps 1, 4, 6 (and the Chromedriver pin if Chrome on the device is old) apply.
@@ -361,6 +381,12 @@ pnpm lint             # lint all packages
 
 # Run an example project for manual UI / runtime verification:
 pnpm demo:wdio        # or: pnpm demo:nightwatch / pnpm demo:selenium
+
+# Mobile (Appium). Drives the Clock app that ships with every Android system
+# image, so there is no .apk to supply. Needs Appium and an Android device or emulator — see
+# examples/MOBILE.md.
+pnpm demo:wdio:mobile             # or :selenium:mobile / :nightwatch:mobile / :python:mobile
+DEVTOOLS_MODE=trace pnpm demo:wdio:mobile   # trace instead of live
 ```
 
 See **[CONTRIBUTING.md](./CONTRIBUTING.md)** for the full contributor workflow and **[ARCHITECTURE.md](./ARCHITECTURE.md)** for where each piece lives.
