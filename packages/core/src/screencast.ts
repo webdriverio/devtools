@@ -1,6 +1,14 @@
 import type { ScreencastFrame, ScreencastOptions } from '@wdio/devtools-shared'
 import { SCREENCAST_DEFAULTS } from '@wdio/devtools-shared'
 import { isInputDispatchInFlight } from './input-dispatch.js'
+import { withTimeout } from './with-timeout.js'
+
+/** Ceiling for one awaited driver primitive in the screencast start/stop
+ *  handshake. The queue serialises start against stop, so a primitive that
+ *  never settles parks teardown behind it for good. */
+export const SCREENCAST_HANDSHAKE_TIMEOUT_MS = 5000
+
+const FIRST_SHOT_TIMEOUT = Symbol('first-shot-timeout')
 
 /**
  * Shared screencast scaffolding consumed by every adapter (service, selenium,
@@ -62,11 +70,9 @@ export abstract class ScreencastRecorderBase<TDriver = unknown> {
    * owner — and a second start in that window overwrites the session the first
    * is about to claim, because both CDP overrides hold theirs in a single field.
    *
-   * The cost is that stop() now waits on an in-flight handshake. Only selenium
-   * caps its own (the first-frame race); the service's CDP handshake and the
-   * polling path's first screenshot have no ceiling, so a driver that wedges in
-   * one of those wedges stop() — where the old stop() returned early and leaked
-   * the session instead. Ceiling those awaits, or race this at the call site.
+   * Every awaited driver primitive in start/stop is ceilinged at
+   * SCREENCAST_HANDSHAKE_TIMEOUT_MS, so a queued op always settles and a driver
+   * that wedges cannot park teardown behind it.
    */
   #enqueue(op: () => Promise<void>): Promise<void> {
     const run = this.#queue.then(op, op)
@@ -249,14 +255,38 @@ export abstract class ScreencastRecorderBase<TDriver = unknown> {
 
   // ─── Polling implementation ─────────────────────────────────────────────
 
+  /**
+   * The first shot of a polling session, under the handshake ceiling — it runs
+   * on the start/stop queue, so a driver that never answers it would park
+   * teardown behind the handshake for good. Returns null when there is nothing
+   * to record: a stale generation, a null shot, or a timeout.
+   */
+  async #takeFirstShot(generation: number): Promise<string | null> {
+    const first = await withTimeout<string | null | typeof FIRST_SHOT_TIMEOUT>(
+      this.takeScreenshot(),
+      SCREENCAST_HANDSHAKE_TIMEOUT_MS,
+      FIRST_SHOT_TIMEOUT
+    )
+    if (generation !== this.#pollGeneration) {
+      return null
+    }
+    if (typeof first !== 'string') {
+      this.onUnavailable(
+        new Error(
+          first === null
+            ? 'first screenshot returned null'
+            : 'first screenshot timed out'
+        )
+      )
+      return null
+    }
+    return first
+  }
+
   async #startPolling(generation: number): Promise<void> {
     try {
-      const first = await this.takeScreenshot()
-      if (generation !== this.#pollGeneration) {
-        return
-      }
+      const first = await this.#takeFirstShot(generation)
       if (first === null) {
-        this.onUnavailable(new Error('first screenshot returned null'))
         return
       }
       this.#appendFrame({ data: first, timestamp: Date.now() })

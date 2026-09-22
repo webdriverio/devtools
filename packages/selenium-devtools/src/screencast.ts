@@ -1,5 +1,10 @@
 import logger from '@wdio/logger'
-import { ScreencastRecorderBase, errorMessage } from '@wdio/devtools-core'
+import {
+  ScreencastRecorderBase,
+  SCREENCAST_HANDSHAKE_TIMEOUT_MS,
+  errorMessage,
+  withTimeout
+} from '@wdio/devtools-core'
 import { BLANK_FRAME_THRESHOLD_BYTES } from './constants.js'
 import { getDriverOriginals } from './driverPatcher.js'
 import type { SeleniumDriverLike } from './types.js'
@@ -115,18 +120,33 @@ export class ScreencastRecorder extends ScreencastRecorderBase<SeleniumDriverLik
     }
   }
 
-  protected override async tryStartCdp(): Promise<boolean> {
+  /**
+   * Open the CDP connection under the handshake ceiling. The base class
+   * serialises start against stop, so a connection that never answers would
+   * park teardown behind this handshake for good.
+   */
+  async #openCdpConnection(): Promise<SeleniumCdpConnection | undefined> {
     const driver = this.driver
     if (!driver || typeof driver.createCDPConnection !== 'function') {
-      return false
+      return undefined
     }
+    // selenium-webdriver types createCDPConnection() as Promise<unknown>; the
+    // runtime shape is stable across patch releases and captured by
+    // SeleniumCdpConnection above.
+    return withTimeout(
+      driver.createCDPConnection('page') as Promise<SeleniumCdpConnection>,
+      SCREENCAST_HANDSHAKE_TIMEOUT_MS,
+      undefined
+    )
+  }
+
+  protected override async tryStartCdp(): Promise<boolean> {
     try {
-      // selenium-webdriver types createCDPConnection() as Promise<unknown>;
-      // the runtime shape is stable across patch releases and captured by
-      // SeleniumCdpConnection above.
-      const cdp = (await driver.createCDPConnection(
-        'page'
-      )) as SeleniumCdpConnection
+      const cdp = await this.#openCdpConnection()
+      if (!cdp) {
+        log.warn('CDP connection unavailable — falling back to polling')
+        return false
+      }
       this.#cdp = cdp
       const ws = cdp._wsConnection
       if (!ws || typeof ws.on !== 'function') {

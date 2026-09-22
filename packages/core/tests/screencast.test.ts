@@ -441,6 +441,35 @@ describe('ScreencastRecorderBase — start/stop serialisation', () => {
   })
 })
 
+describe('ScreencastRecorderBase — handshake ceiling', () => {
+  it('a first shot that never settles still lets start() and a queued stop() resolve', async () => {
+    vi.useFakeTimers()
+    try {
+      class HungFirst extends TestRecorder {
+        unavailable: unknown[] = []
+        protected override takeScreenshot(): Promise<string | null> {
+          return new Promise<string | null>(() => {})
+        }
+        protected override onUnavailable(err: unknown): void {
+          this.unavailable.push(err)
+        }
+      }
+      const r = new HungFirst({ pollIntervalMs: 50 })
+      const starting = r.start({ name: 'driver' })
+      const stopping = r.stop()
+      await vi.advanceTimersByTimeAsync(5000)
+      await Promise.all([starting, stopping])
+      expect(r.isRecording).toBe(false)
+      expect(r.unavailable).toHaveLength(1)
+      expect((r.unavailable[0] as Error).message).toBe(
+        'first screenshot timed out'
+      )
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
 describe('ScreencastRecorderBase — buffer cap / decimation', () => {
   class PushRecorder extends ScreencastRecorderBase<{ name: string }> {
     protected override async takeScreenshot() {

@@ -1,7 +1,14 @@
 import logger from '@wdio/logger'
-import { ScreencastRecorderBase, errorMessage } from '@wdio/devtools-core'
+import {
+  ScreencastRecorderBase,
+  errorMessage,
+  withTimeout,
+  SCREENCAST_HANDSHAKE_TIMEOUT_MS
+} from '@wdio/devtools-core'
 
 const log = logger('@wdio/devtools-service:ScreencastRecorder')
+
+const CDP_TIMEOUT = Symbol('cdp-timeout')
 
 interface CdpSessionLike {
   send(method: string, params?: Record<string, unknown>): Promise<unknown>
@@ -47,33 +54,68 @@ export class ScreencastRecorder extends ScreencastRecorderBase<WebdriverIO.Brows
     return this.driver.takeScreenshot()
   }
 
+  /**
+   * Run the CDP handshake under the handshake ceiling. Returns the session only
+   * once it has been asked to start screencasting: a handshake that times out
+   * must leave nothing armed for a later stop to find, or for a frame listener
+   * to latch onto.
+   */
+  async #openCdpSession(): Promise<CdpSessionLike | undefined> {
+    // getPuppeteer is augmented onto WebdriverIO.Browser in types.ts; the
+    // returned Puppeteer object isn't typed by WDIO, so narrow it locally.
+    const raw = await withTimeout(
+      Promise.resolve(this.driver?.getPuppeteer?.()),
+      SCREENCAST_HANDSHAKE_TIMEOUT_MS,
+      undefined
+    )
+    if (!raw) {
+      return undefined
+    }
+    const pages = await withTimeout(
+      (raw as PuppeteerLike).pages(),
+      SCREENCAST_HANDSHAKE_TIMEOUT_MS,
+      []
+    )
+    if (!pages.length) {
+      return undefined
+    }
+
+    const session = await withTimeout<CdpSessionLike | undefined>(
+      pages[0].createCDPSession(),
+      SCREENCAST_HANDSHAKE_TIMEOUT_MS,
+      undefined
+    )
+    if (!session) {
+      return undefined
+    }
+
+    const started = await withTimeout<unknown>(
+      session.send('Page.startScreencast', {
+        format: this.options.captureFormat,
+        quality: this.options.quality,
+        maxWidth: this.options.maxWidth,
+        maxHeight: this.options.maxHeight
+      }),
+      SCREENCAST_HANDSHAKE_TIMEOUT_MS,
+      CDP_TIMEOUT
+    )
+    if (started === CDP_TIMEOUT) {
+      log.warn('Screencast: CDP handshake timed out — falling back to polling')
+      return undefined
+    }
+    return session
+  }
+
   protected override async tryStartCdp(): Promise<boolean> {
     if (!this.driver) {
       return false
     }
     try {
-      // getPuppeteer is augmented onto WebdriverIO.Browser in types.ts; the
-      // returned Puppeteer object isn't typed by WDIO, so narrow it locally.
-      const raw = await this.driver.getPuppeteer?.()
-      if (!raw) {
+      const session = await this.#openCdpSession()
+      if (!session) {
         return false
       }
-      const puppeteer = raw as PuppeteerLike
-      const pages = await puppeteer.pages()
-      if (!pages.length) {
-        return false
-      }
-
-      const page = pages[0]
-      const session = await page.createCDPSession()
       this.#cdpSession = session
-
-      await session.send('Page.startScreencast', {
-        format: this.options.captureFormat,
-        quality: this.options.quality,
-        maxWidth: this.options.maxWidth,
-        maxHeight: this.options.maxHeight
-      })
 
       session.on('Page.screencastFrame', async (rawEvent) => {
         const event = rawEvent as {
@@ -106,7 +148,11 @@ export class ScreencastRecorder extends ScreencastRecorderBase<WebdriverIO.Brows
       return
     }
     try {
-      await session.send('Page.stopScreencast')
+      await withTimeout(
+        session.send('Page.stopScreencast'),
+        SCREENCAST_HANDSHAKE_TIMEOUT_MS,
+        undefined
+      )
       log.info(
         `✓ Screencast stopped — ${this.buffer.length} frame(s) collected`
       )
