@@ -64,7 +64,8 @@ describe('Clock (native)', function () {
     // Clear anything a previous run left behind. A timer SURVIVES the session,
     // and while one exists the Timers tab shows its card instead of the preset
     // buttons — so without this, one interrupted run breaks every later one.
-    for (let i = 0; i < 5; i++) {
+    let previous = Number.POSITIVE_INFINITY
+    for (;;) {
       // `elements()` is the protocol-level lookup: it hands back a result with
       // an empty list. The higher-level `findElements()` instead WAITS for a
       // match and then throws NoSuchElementError, which Nightwatch reports as a
@@ -76,6 +77,16 @@ describe('Clock (native)', function () {
       if (!count) {
         break
       }
+      // Bounded by PROGRESS rather than by a count: any number of timers may
+      // have piled up, and a fixed cap leaves the presets unreachable past it.
+      if (count >= previous) {
+        // Deleting works card by card, and a long pile-up scrolls the
+        // earliest ones out of the viewport where a tap cannot reach them.
+        throw new Error(
+          `could not clear ${count} leftover timer(s) from the Timers tab. Clear them by hand, or reset the app: adb shell pm clear com.google.android.deskclock`
+        )
+      }
+      previous = count
       await browser.click(byId('delete_button'))
       await browser.pause(300)
     }

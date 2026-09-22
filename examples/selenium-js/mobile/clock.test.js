@@ -152,11 +152,20 @@ describe('Clock (native)', function () {
     // Clear anything a previous run left behind. A timer SURVIVES the session,
     // and while one exists the Timers tab shows its card instead of the preset
     // buttons — so without this, one interrupted run breaks every later one.
-    for (let i = 0; i < 5; i++) {
+    let previous = Number.POSITIVE_INFINITY
+    for (;;) {
       const remaining = await driver.findElements(uiSelector('delete_button'))
       if (!remaining.length) {
         break
       }
+      if (remaining.length >= previous) {
+        // Deleting works card by card, and a long pile-up scrolls the
+        // earliest ones out of the viewport where a tap cannot reach them.
+        throw new Error(
+          `could not clear ${remaining.length} leftover timer(s) from the Timers tab. Clear them by hand, or reset the app: adb shell pm clear com.google.android.deskclock`
+        )
+      }
+      previous = remaining.length
       await remaining[0].click()
       await driver.sleep(300)
     }

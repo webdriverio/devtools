@@ -16,16 +16,32 @@ const byId = (id: string) =>
 
 /** Delete every timer already on the Timers tab, so the preset buttons are the
  *  ones on screen. A timer SURVIVES the session, and while one exists the tab
- *  shows its card instead of the presets — so an interrupted run (which never
- *  reaches the delete below) would break every later one. Idempotent. */
+ *  shows its card instead of the presets — so an interrupted run, which never
+ *  reaches the delete at the end, would break every later one.
+ *
+ *  Bounded by PROGRESS rather than by a count: a fixed cap would leave the
+ *  presets unreachable past it. Deleting works card by card, and a long
+ *  pile-up scrolls the earliest cards out of the viewport where a tap cannot
+ *  reach them — one timer is all an interrupted run leaves, so that case says
+ *  how to clear it rather than failing later on an absent preset. */
 async function clearExistingTimers(): Promise<void> {
-  for (let i = 0; i < 5; i++) {
+  let previous = Number.POSITIVE_INFINITY
+  for (;;) {
+    // `.getElements()`, not a bare await: `$$` returns a chainable whose
+    // `.length` is a Promise, so `remaining.length` would be a Promise —
+    // always truthy, and the "nothing left to clear" exit would never fire.
     const remaining = await $$(
       `android=new UiSelector().resourceId("${APP_ID}:id/delete_button")`
-    )
+    ).getElements()
     if (!remaining.length) {
       return
     }
+    if (remaining.length >= previous) {
+      throw new Error(
+        `could not clear ${remaining.length} leftover timer(s) from the Timers tab. Clear them by hand, or reset the app: adb shell pm clear com.google.android.deskclock`
+      )
+    }
+    previous = remaining.length
     await remaining[0]!.click()
     await browser.pause(300)
   }

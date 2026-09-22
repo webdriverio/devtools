@@ -173,13 +173,26 @@ try:
         # session, and while one exists the Timers tab shows its card instead
         # of the preset buttons -- so without this, one interrupted run breaks
         # every later one.
-        for _ in range(5):
+        # Bounded by PROGRESS rather than by a count: any number of timers may
+        # have piled up, and a fixed cap leaves the presets unreachable past
+        # it. A click that fails to reduce the count is the stuck case.
+        previous = None
+        while True:
             left = driver.find_elements(
                 "-android uiautomator",
                 'new UiSelector().resourceId("%s:id/delete_button")' % APP_ID,
             )
             if not left:
                 break
+            if previous is not None and len(left) >= previous:
+                # Deleting works card by card, and a long pile-up scrolls the
+                # earliest ones out of the viewport where a tap cannot reach.
+                raise AssertionError(
+                    "could not clear %d leftover timer(s) from the Timers tab. "
+                    "Clear them by hand, or reset the app: "
+                    "adb shell pm clear com.google.android.deskclock" % len(left)
+                )
+            previous = len(left)
             left[0].click()
             time.sleep(0.3)
 
