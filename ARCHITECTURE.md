@@ -192,7 +192,7 @@ The DOM-walking scripts run in the page via `browser.execute`, so — like `scri
 
 Per-adapter demo projects used for manual verification. One directory per adapter, and inside it one directory per test runner, named for the runner itself:
 
-- `examples/wdio/` — `mocha/`, `cucumber/`, `mobile/`, shared page objects in `pageobjects/`. Run via `pnpm demo:wdio` (Cucumber) or `pnpm demo:wdio:mocha`.
+- `examples/wdio/` — `mocha/` (including `native/`, an Appium app spec run by `pnpm demo:wdio:native`), `cucumber/`, `mobile/`, shared page objects in `pageobjects/`. Run via `pnpm demo:wdio` (Cucumber) or `pnpm demo:wdio:mocha`.
 - `examples/nightwatch/` — `bdd/` (Nightwatch's `describe/it` interface), `cucumber/` and `mobile/`. Run via `pnpm demo:nightwatch`.
 - `examples/selenium-js/` — `mocha/`, `jest/`, `cucumber/`, `mobile/`. `pnpm demo:selenium` runs Cucumber; `pnpm --filter @wdio/selenium-devtools example:<runner>` runs a specific one.
 - `examples/selenium-py/` — the Python adapter: `scripts/` for the plain-script cases (no test runner) and `pytest/` for the pytest one. Run via `pnpm demo:python`, `:login` or `:pytest`.

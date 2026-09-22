@@ -22,6 +22,7 @@
     "cucumber": "wdio run ./cucumber/wdio.conf.ts",
     "mocha": "wdio run ./mocha/wdio.conf.ts",
     "mobile": "wdio run ./cucumber/wdio.mobile.conf.ts",
+    "native": "wdio run ./mocha/wdio.native.conf.ts",
     "trace": "wdio run ./cucumber/wdio.trace.conf.ts",
     "retention": "wdio run ./cucumber/wdio.retention.conf.ts"
   }

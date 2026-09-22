@@ -1,5 +1,10 @@
 import logger from '@wdio/logger'
-import { ScreencastRecorderBase, errorMessage } from '@wdio/devtools-core'
+import {
+  ScreencastRecorderBase,
+  SCREENCAST_HANDSHAKE_TIMEOUT_MS,
+  errorMessage,
+  withTimeout
+} from '@wdio/devtools-core'
 import { BLANK_FRAME_THRESHOLD_BYTES } from './constants.js'
 import { getDriverOriginals } from './driverPatcher.js'
 import type { SeleniumDriverLike } from './types.js'
@@ -15,6 +20,7 @@ const log = logger('@wdio/selenium-devtools:ScreencastRecorder')
 interface SeleniumCdpWebSocket {
   on(event: 'message', listener: (data: unknown) => void): void
   off?: (event: 'message', listener: (data: unknown) => void) => void
+  close?: () => void
 }
 interface SeleniumCdpConnection {
   _wsConnection?: SeleniumCdpWebSocket
@@ -115,18 +121,44 @@ export class ScreencastRecorder extends ScreencastRecorderBase<SeleniumDriverLik
     }
   }
 
-  protected override async tryStartCdp(): Promise<boolean> {
+  /**
+   * Open the CDP connection under the handshake ceiling. The base class
+   * serialises start against stop, so a connection that never answers would
+   * park teardown behind this handshake for good.
+   */
+  async #openCdpConnection(): Promise<SeleniumCdpConnection | undefined> {
     const driver = this.driver
     if (!driver || typeof driver.createCDPConnection !== 'function') {
-      return false
+      return undefined
     }
+    // selenium-webdriver types createCDPConnection() as Promise<unknown>; the
+    // runtime shape is stable across patch releases and captured by
+    // SeleniumCdpConnection above.
+    const connection = driver.createCDPConnection(
+      'page'
+    ) as Promise<SeleniumCdpConnection>
+    const cdp = await withTimeout(
+      connection,
+      SCREENCAST_HANDSHAKE_TIMEOUT_MS,
+      undefined
+    )
+    if (!cdp) {
+      // A connection that lands after the ceiling belongs to nobody — close
+      // its socket when it does, so it cannot outlive the recording.
+      connection
+        .then((late) => late?._wsConnection?.close?.())
+        .catch(() => undefined)
+    }
+    return cdp
+  }
+
+  protected override async tryStartCdp(): Promise<boolean> {
     try {
-      // selenium-webdriver types createCDPConnection() as Promise<unknown>;
-      // the runtime shape is stable across patch releases and captured by
-      // SeleniumCdpConnection above.
-      const cdp = (await driver.createCDPConnection(
-        'page'
-      )) as SeleniumCdpConnection
+      const cdp = await this.#openCdpConnection()
+      if (!cdp) {
+        log.warn('CDP connection unavailable — falling back to polling')
+        return false
+      }
       this.#cdp = cdp
       const ws = cdp._wsConnection
       if (!ws || typeof ws.on !== 'function') {
@@ -198,6 +230,15 @@ export class ScreencastRecorder extends ScreencastRecorderBase<SeleniumDriverLik
       }
     } catch {
       // detach best-effort
+    }
+    // Each createCDPConnection overwrites the driver's single slot, and quit
+    // closes only the current one — without this, every recording rotation
+    // on the same driver orphans this recording's socket for the session's
+    // life. The buffer is final and the listener is gone, so nothing reads it.
+    try {
+      this.#cdp?._wsConnection?.close?.()
+    } catch {
+      // best-effort — the socket may already be gone
     }
     // If start was called but the first frame never arrived (timeout path),
     // the resolver is still set. Releasing it lets any pending Promise.race

@@ -1,9 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import type { ActionSnapshot } from '@wdio/devtools-shared'
-import {
-  captureActionResult,
-  pushActionSnapshotAt
-} from '../src/action-snapshot.js'
+import { pushActionSnapshotAt } from '../src/action-snapshot.js'
 
 const mockBrowser = () =>
   ({
@@ -107,54 +104,5 @@ describe('an Appium session driving a browser', () => {
     expect(browser.getPageSource).toHaveBeenCalled()
     expect(browser.execute).not.toHaveBeenCalled()
     expect(browser.getUrl).not.toHaveBeenCalled()
-  })
-})
-
-/**
- * The settle waits on the `__wdioSnapMark` tag that `#markDocument` writes, and
- * both key on having a document — split across the two predicates, a session
- * tags a document nothing ever settles on, and its post-action screenshot comes
- * from the page it navigated away from.
- */
-describe('the post-action settle', () => {
-  const settleable = (flags: Record<string, unknown>) =>
-    Object.assign(mockBrowser(), flags, {
-      execute: vi.fn().mockResolvedValue(true),
-      waitUntil: vi.fn().mockResolvedValue(undefined),
-      pause: vi.fn().mockResolvedValue(undefined)
-    }) as unknown as WebdriverIO.Browser
-
-  it('runs for an Appium session driving a browser', async () => {
-    const browser = settleable({
-      isMobile: false,
-      isAndroid: true,
-      capabilities: { platformName: 'Android', browserName: 'Chrome' }
-    })
-
-    await captureActionResult(browser, 'click', [], () => 1)
-
-    // The mark probe is the settle's first act, so its body identifies it.
-    const bodies = vi
-      .mocked(browser.execute)
-      .mock.calls.map(([fn]) => String(fn))
-    expect(bodies.some((body) => body.includes('__wdioSnapMark'))).toBe(true)
-  })
-
-  it('does not for a native app, which has no document to settle', async () => {
-    const browser = settleable({
-      isMobile: true,
-      isAndroid: true,
-      capabilities: {
-        platformName: 'Android',
-        'appium:app': '/app.apk'
-      }
-    })
-
-    await captureActionResult(browser, 'click', [], () => 1)
-
-    const bodies = vi
-      .mocked(browser.execute)
-      .mock.calls.map(([fn]) => String(fn))
-    expect(bodies.some((body) => body.includes('__wdioSnapMark'))).toBe(false)
   })
 })

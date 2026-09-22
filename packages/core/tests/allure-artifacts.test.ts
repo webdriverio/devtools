@@ -106,6 +106,14 @@ describe('lastRenderedScreenshot', () => {
     expect(lastRenderedScreenshot(snaps, 100)).toBe('BB')
   })
 
+  it('returns a last-action frame that carries the action name', () => {
+    // The service captures the FINAL action's result in its own finalize, named
+    // after that action — the marker is only for a session with no action at
+    // all, so the screenshot a failing test is judged on is the failure's.
+    const snaps = [snap('setValue', 200, 'BB'), snap('click', 300, 'CC')]
+    expect(lastRenderedScreenshot(snaps, 100)).toBe('CC')
+  })
+
   it('returns undefined when the only snapshots predate the test start', () => {
     expect(
       lastRenderedScreenshot([snap('click', 50, 'AA')], 100)

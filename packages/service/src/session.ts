@@ -31,7 +31,7 @@ import {
   loadInjectableScript,
   type CapturedPerformancePayload
 } from '@wdio/devtools-core'
-import type { DevToolsMode } from '@wdio/devtools-shared'
+import type { DevToolsMode, TraceMutation } from '@wdio/devtools-shared'
 import type { CommandLog } from './types.js'
 import { directProbes } from './direct-probes.js'
 
@@ -50,6 +50,7 @@ export class SessionCapturer extends SessionCapturerBase {
   traceMode: DevToolsMode = 'live'
 
   #isScriptInjected = false
+  #replacedDocumentInLastDrain = false
   /** Session start wall time for trace event timestamps. */
   readonly startWallTime = Date.now()
   /** Last find-element selector — carried forward to the next element command. */
@@ -181,7 +182,7 @@ export class SessionCapturer extends SessionCapturerBase {
     // can have: no DOM to replay, and the per-action snapshot is trace-only, so
     // skipping it left the player with nothing for any command and the device
     // pane falling back to desktop browser chrome. Trace mode is excluded
-    // because `captureActionResult` already screenshots the same command — two
+    // because the per-action pre-capture already screenshots this command — two
     // Appium round trips at ~1.2s each is the cost #351 exists to remove. A
     // mobile BROWSER session keeps the old behaviour throughout: it replays
     // from its mutation stream.
@@ -422,11 +423,20 @@ export class SessionCapturer extends SessionCapturerBase {
     this.#isScriptInjected = false
   }
 
+  /** Whether the most recent `captureTrace` brought a document this session had
+   *  not anchored before. The collector anchors once per document, so a new
+   *  anchor means the page was replaced — the end-of-test settle reads this to
+   *  know a navigation is still loading, rather than guessing from a clock. */
+  get replacedDocumentInLastDrain(): boolean {
+    return this.#replacedDocumentInLastDrain
+  }
+
   /** Drain the current page's buffered trace data (mutations/console/network)
    *  into the capturer. Public so the plugin can flush BEFORE a navigating
    *  command, capturing the outgoing page's field edits (value/checked
    *  mutations fire no page transition) before its collector is discarded. */
   async captureTrace(browser: WebdriverIO.Browser, forceAnchor = false) {
+    this.#replacedDocumentInLastDrain = false
     // A native app has no document to drain, so the collector probe, the
     // recovery injection and the url read are all round trips that can only
     // fail. Guarded here rather than at each call site, because two of the four
@@ -471,6 +481,24 @@ export class SessionCapturer extends SessionCapturerBase {
       })
       if (!payload) {
         return
+      }
+      // `captureCurrentDom` is the only producer of a mutation carrying a url,
+      // and it anchors each document once — so one in this batch is a document
+      // the session had not seen. Shape-checked like `processTracePayload`
+      // does: this is page-side data, and a throw here would discard the whole
+      // payload's console and network streams with it.
+      const mutations = (payload as { mutations?: unknown }).mutations
+      if (
+        Array.isArray(mutations) &&
+        mutations.some(
+          (mutation) =>
+            typeof mutation === 'object' &&
+            mutation !== null &&
+            'url' in mutation &&
+            (mutation as TraceMutation).url !== undefined
+        )
+      ) {
+        this.#replacedDocumentInLastDrain = true
       }
       this.processTracePayload(payload as Record<string, unknown>)
     } catch (err) {

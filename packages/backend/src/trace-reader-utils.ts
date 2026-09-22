@@ -290,20 +290,27 @@ export function buildSources(
   return sources
 }
 
+/** The frame that shows a command's state: the latest capture at or before it,
+ *  since a capture is stamped when the document was read. Falling back to the
+ *  next later frame only when nothing precedes keeps a row without a capture of
+ *  its own from replaying the state its SUCCESSOR produced, which is what an
+ *  absolute-nearest rule does when the successor's frame is the closer one. */
 export function nearestFrame(
   frames: TracePlayerFrame[],
   timestamp: number
 ): TracePlayerFrame | undefined {
-  let best: TracePlayerFrame | undefined
-  let bestDelta = Infinity
+  let preceding: TracePlayerFrame | undefined
+  let following: TracePlayerFrame | undefined
   for (const frame of frames) {
-    const delta = Math.abs(frame.timestamp - timestamp)
-    if (delta < bestDelta) {
-      bestDelta = delta
-      best = frame
+    if (frame.timestamp <= timestamp) {
+      if (!preceding || frame.timestamp > preceding.timestamp) {
+        preceding = frame
+      }
+    } else if (!following || frame.timestamp < following.timestamp) {
+      following = frame
     }
   }
-  return best
+  return preceding ?? following
 }
 
 export function buildMetadata(ctx: ContextOptionsEvent | undefined): Metadata {

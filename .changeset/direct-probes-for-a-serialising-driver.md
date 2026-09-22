@@ -3,7 +3,7 @@
 "@wdio/nightwatch-devtools": patch
 ---
 
-Stop the WDIO service deadlocking a mobile-web Appium session. `beforeCommand` issues its probes — the collector drain, the per-action snapshot's two scripts plus `url`/`title`, and the `__wdioSnapMark` tag — from inside the hook wrapping the command it is observing. Desktop chromedriver tolerates that re-entrancy; Appium serialises per session, so each probe enqueued behind the command it was meant to observe and neither resolved. Measured on an emulator: a two-command mobile-web spec passes in 1.6 s without the service and took 6 m 13 s of timeouts with it, every command at the WDIO timeout, with Chrome still on its new-tab page.
+Stop the WDIO service deadlocking a mobile-web Appium session. `beforeCommand` issues its probes — the collector drain and the per-action snapshot's two scripts plus `url`/`title` — from inside the hook wrapping the command it is observing. Desktop chromedriver tolerates that re-entrancy; Appium serialises per session, so each probe enqueued behind the command it was meant to observe and neither resolved. Measured on an emulator: a two-command mobile-web spec passes in 1.6 s without the service and took 6 m 13 s of timeouts with it, every command at the WDIO timeout, with Chrome still on its new-tab page.
 
 The probes now go straight to the driver's HTTP endpoint for a session whose driver serialises, which is the only escape that does not change the ordering guarantee the pre-action snapshot depends on — the alternative, not awaiting in the hook, trades "state BEFORE this action executes" for every adapter and platform.
 

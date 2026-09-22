@@ -5,6 +5,7 @@ import {
   beginInputDispatch,
   captureAndAttachScreenshot,
   errorMessage,
+  FINAL_SNAPSHOT_COMMAND,
   finalizeTraceExport,
   lastRenderedScreenshot,
   mapCommandToAction,
@@ -30,14 +31,10 @@ import {
 import { resolveCallSourceFromFrame } from './call-source.js'
 import { TraceSliceTracker } from './trace-slices.js'
 import {
-  captureActionResult,
-  captureActionSnapshot
+  captureActionSnapshot,
+  settleAfterLastAction
 } from './action-snapshot.js'
-import {
-  sessionHasDocument,
-  type ActionSnapshot,
-  type TestMetadataMap
-} from '@wdio/devtools-shared'
+import type { ActionSnapshot, TestMetadataMap } from '@wdio/devtools-shared'
 import { SevereServiceError } from 'webdriverio'
 import type { Services, Capabilities, Options, Reporters } from '@wdio/types'
 import type { WebDriverCommands } from '@wdio/protocols'
@@ -61,7 +58,6 @@ import {
   PAGE_TRANSITION_COMMANDS
 } from './constants.js'
 import { inPageProbesDeadlock, isAppiumSession } from './mobile.js'
-import { directProbes } from './direct-probes.js'
 import { resolveSessionMetadata } from './session-metadata.js'
 import { stampRunnerMetadata } from './wdio-runner-id.js'
 import { detectInvocationConfigPath } from './standalone.js'
@@ -85,6 +81,13 @@ export default class DevToolsHookService implements Services.ServiceInstance {
   #browser?: WebdriverIO.Browser
   #options: ServiceOptions
   #actionSnapshots: ActionSnapshot[] = []
+  /** The slot `#finalizePerScenario` last captured, so `after()`'s second pass
+   *  does not pay for it again. Tracked rather than scanned from
+   *  #actionSnapshots: the last action's pre-capture holds the same command
+   *  and timestamp whenever the previous action ended in the same
+   *  millisecond, so a scan mistook it for this slot and skipped the only
+   *  capture of the last action's result. */
+  #finalizedSlot?: { command: string; timestamp: number }
   #assertionTracker: AssertionTracker
   #screencast: ScreencastLifecycle
   #slices: TraceSliceTracker
@@ -559,28 +562,80 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     // otherwise never be captured before teardown. forceAnchor: the destination's
     // async initial anchor may not have run yet, so anchor it synchronously here.
     await this.#sessionCapturer.captureTrace(this.#browser, true)
-    const snap = await captureActionSnapshot(
-      this.#browser,
-      '__final__',
-      this.#lastActionTimestamp()
-    )
-    if (snap) {
-      // The last action's post-capture shares this timestamp and resources are
-      // named by timestamp, so keep only the richer screenshot — a blank
-      // end-of-scenario frame must not clobber the action's real result.
-      upsertRichestSnapshot(this.#actionSnapshots, snap)
+    // Named after the action it captures, because that is what it is: every
+    // other row's result comes from the NEXT action's pre-capture, so the last
+    // action's has no successor and this is the only capture of it. A session
+    // that ran no action names it FINAL_SNAPSHOT_COMMAND, which the per-test
+    // screenshot reads as "post-teardown frame, do not use".
+    const lastAction = this.#lastAction()
+    // A session with no action has no timestamp of its own to key on, so its
+    // frame is recognised by the marker instead — otherwise `Date.now()` differs
+    // between the per-test finalize and `after()` and both capture.
+    const command = lastAction?.command ?? FINAL_SNAPSHOT_COMMAND
+    const timestamp = lastAction?.timestamp ?? Date.now()
+    // `after()` finalizes once more at session end, for the standalone path that
+    // has no per-test hook. On a framework run the test that just ended has
+    // already recorded this slot, and the driver would return the same page a
+    // second time — capture only when it is still empty. Compared against the
+    // tracked slot rather than a scan of #actionSnapshots (see #finalizedSlot):
+    // a scan also matched an assertion row sharing the last action's timestamp,
+    // whose capture shows the post-action state and is kept by the
+    // richest-screenshot merge below anyway.
+    const slot = this.#finalizedSlot
+    const alreadyCaptured = lastAction
+      ? slot?.command === lastAction.command &&
+        slot?.timestamp === lastAction.timestamp
+      : slot?.command === FINAL_SNAPSHOT_COMMAND
+    if (!alreadyCaptured) {
+      await settleAfterLastAction(
+        this.#browser,
+        this.#sessionCapturer.replacedDocumentInLastDrain,
+        this.#sessionCapturer.currentContext
+      )
+      const snap = await captureActionSnapshot(
+        this.#browser,
+        command,
+        timestamp,
+        this.#sessionCapturer.currentContext
+      )
+      if (snap) {
+        // Stamped at the last action's own timestamp, where an assertion row can
+        // have captured too, and resources are named by timestamp — keep only the
+        // richer screenshot so a blank end-of-scenario frame cannot clobber it.
+        upsertRichestSnapshot(this.#actionSnapshots, snap)
+        this.#finalizedSlot = { command, timestamp }
+      }
     }
   }
 
-  #lastActionTimestamp(): number {
+  /** A command a snapshot can be attributed to: mapped (so it has a row to
+   *  render on) and not internal (several of those ARE mapped — getTitle,
+   *  getUrl, execute — and a snapshot stamped at one would sit at a timestamp
+   *  no row owns). Both the capture gate and `#lastAction` ask this. */
+  #isActionCommand(command: string): boolean {
+    return (
+      Boolean(mapCommandToAction(command)) &&
+      !INTERNAL_COMMANDS.includes(command)
+    )
+  }
+
+  /** The last action a capture can be attributed to. Scans rather than tracks a
+   *  pointer: the log is run-long and never reset per test, so the scan
+   *  self-scopes, and a slot already filled at its own boundary converges on
+   *  `alreadyCaptured`. */
+  #lastAction(): { command: string; timestamp: number } | undefined {
     const commands = this.#sessionCapturer.commandsLog
     for (let i = commands.length - 1; i >= 0; i--) {
       const cmd = commands[i]!
-      if (mapCommandToAction(cmd.command)) {
-        return cmd.timestamp
+      if (this.#isActionCommand(cmd.command)) {
+        return cmd
       }
     }
-    return Date.now()
+    return undefined
+  }
+
+  #lastActionTimestamp(): number {
+    return this.#lastAction()?.timestamp ?? Date.now()
   }
 
   private resetStack() {
@@ -653,11 +708,16 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     if (PAGE_TRANSITION_COMMANDS.includes(command)) {
       await this.#sessionCapturer.captureTrace(this.#browser)
     }
-    // Pre-action capture: state BEFORE this action executes. Stamped at the
-    // previous action's end time (or 0 for the first). Trace mode only.
+    // Pre-action capture: the state this action runs against, which is the state
+    // the previous action left behind. Taken HERE, before the command is issued,
+    // because that is the one moment the driver is guaranteed idle and the app
+    // at rest — a capture taken the instant a command returns catches whatever
+    // transition it started. Stamped at the previous action's end (or now, for
+    // the first, which makes it the initial frame). Trace mode only.
     //
-    // Not while Appium has a document to probe — see `inPageProbesDeadlock`,
-    // which carries the measurements. A native session is captured normally.
+    // Not while a mobile-web Appium session has a document to probe — the
+    // re-entrant probes can deadlock a serialising driver (#374). A native
+    // session is captured normally.
     if (
       topLevelUserCommand &&
       this.#options.mode === 'trace' &&
@@ -666,49 +726,28 @@ export default class DevToolsHookService implements Services.ServiceInstance {
         this.#browser,
         this.#sessionCapturer.currentContext
       ) &&
-      mapCommandToAction(command) &&
-      !INTERNAL_COMMANDS.includes(command)
+      this.#isActionCommand(command)
     ) {
+      // Stamped at the previous action's end so this capture IS that action's
+      // result — except across a test boundary, where that slot already holds
+      // its own finalize capture and a second frame at the same timestamp lets
+      // the richer-screenshot merge replace it (with a reloadSession between
+      // the tests, the row then replays the post-reload page). The first
+      // capture of a test stamps now instead, the same rule the session's first
+      // capture uses to become the initial frame.
+      const previousEnd = this.#lastActionTimestamp()
       const snap = await captureActionSnapshot(
         this.#browser,
         command,
-        this.#lastActionTimestamp(),
+        previousEnd >= this.#currentTestStartWallTime
+          ? previousEnd
+          : Date.now(),
         this.#sessionCapturer.currentContext
       )
       if (snap) {
         upsertRichestSnapshot(this.#actionSnapshots, snap)
       }
-      // Tag the current document so the post-action capture can tell whether
-      // this action navigated (a new document drops the tag).
-      await this.#markDocument()
     }
-  }
-
-  #markDocument(): Promise<unknown> {
-    // Keyed on having a document: `waitForActionResult` reads this tag on the
-    // same condition, so the pair must not be split across the two predicates.
-    if (
-      !this.#browser ||
-      !sessionHasDocument(
-        this.#browser.capabilities,
-        this.#sessionCapturer.currentContext
-      )
-    ) {
-      return Promise.resolve()
-    }
-    // Issued from inside beforeCommand, so it takes the direct path on a
-    // driver that serialises per session (#374).
-    const direct = directProbes(this.#browser)
-    if (direct) {
-      return direct
-        .runScript('window.__wdioSnapMark = true')
-        .catch(() => undefined)
-    }
-    return this.#browser
-      .execute(() => {
-        ;(window as Window & { __wdioSnapMark?: boolean }).__wdioSnapMark = true
-      })
-      .catch(() => undefined)
   }
 
   async afterCommand(
@@ -754,23 +793,9 @@ export default class DevToolsHookService implements Services.ServiceInstance {
           this.#currentTestUid,
           this.#currentStepUid
         )
-        // Paired with the pre-action capture above, and gated on the same
-        // question: this settles and screenshots from inside the command hook.
-        if (
-          this.#options.mode === 'trace' &&
-          !inPageProbesDeadlock(
-            this.#browser,
-            this.#sessionCapturer.currentContext
-          )
-        ) {
-          await captureActionResult(
-            this.#browser,
-            command,
-            this.#actionSnapshots,
-            () => this.#lastActionTimestamp(),
-            this.#sessionCapturer.currentContext
-          )
-        } else {
+        // Trace mode captures nothing here: the state this action produced is
+        // taken by the NEXT action's pre-capture, when the app has settled.
+        if (this.#options.mode !== 'trace') {
           await this.#drainAfterLiveCommand(command)
         }
         return captured
@@ -814,6 +839,12 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     if (!this.#browser) {
       return
     }
+
+    // The last action's result is captured by the NEXT action's pre-capture, so
+    // a session that ends without one — a standalone run has no per-test hook to
+    // finalize on — would lose it. A framework run has already finalized per
+    // test; there this only re-captures the same timestamp and merges.
+    await this.#finalizePerScenario()
 
     // Stop and encode the screencast for the current session.
     await this.#screencast.finalize(this.#browser.sessionId)

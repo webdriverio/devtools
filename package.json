@@ -12,6 +12,7 @@
     "demo:wdio:retention": "DEVTOOLS_MODE=trace DEVTOOLS_SPECS=all DEVTOOLS_TRACE_GRANULARITY=spec DEVTOOLS_TRACE_POLICY=retain-on-failure wdio run ./examples/wdio/cucumber/wdio.conf.ts",
     "demo:wdio:mocha": "wdio run ./examples/wdio/mocha/wdio.conf.ts",
     "demo:wdio:retry": "wdio run ./examples/wdio/mocha/wdio.retry.conf.ts",
+    "demo:wdio:native": "wdio run ./examples/wdio/mocha/wdio.native.conf.ts",
     "demo:nightwatch": "pnpm --filter @wdio/nightwatch-devtools example",
     "demo:nightwatch:retry": "pnpm --filter @wdio/nightwatch-devtools example:retry",
     "demo:nightwatch:mobile": "pnpm --filter @wdio/nightwatch-devtools example:mobile",
