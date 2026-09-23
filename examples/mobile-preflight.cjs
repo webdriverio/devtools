@@ -124,6 +124,38 @@ function appiumHasSdk() {
   }
 }
 
+/** Booted iOS simulators as `{ name, udid }`, or null when `xcrun simctl` is
+ *  absent — the two are different failures and get different advice.
+ *
+ *  The udid matters: naming a simulator that does not exist does NOT fail, it
+ *  makes the XCUITest driver CREATE one (`appiumTest-<uuid>-<name>`) and boot
+ *  it, every run, beside the one already running. Identifying the device by
+ *  udid is what makes a run attach to it instead. */
+function bootedSimulators() {
+  try {
+    const out = execFileSync('xcrun', ['simctl', 'list', 'devices', 'booted'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore']
+    })
+    return out
+      .split('\n')
+      .filter((line) => line.includes('(Booted)'))
+      .map((line) => {
+        const match = line.match(/^\s*(.+?)\s+\(([0-9A-F-]{36})\)\s+\(Booted\)/i)
+        return match ? { name: match[1], udid: match[2] } : null
+      })
+      .filter(Boolean)
+  } catch {
+    return null
+  }
+}
+
+/** Appium is not listening. Shared, because the iOS and Android paths report
+ *  it identically and only diverge on what they check next. */
+const APPIUM_DOWN = (host, port) =>
+  `\nNothing is listening on ${host}:${port}, so Appium is not up.\n\n` +
+  `  appium --address ${host} --port ${port}\n`
+
 /**
  * Print what is missing and exit, or return quietly. Exits rather than throws:
  * a thrown error inside a framework hook is reported as a test failure, which
@@ -139,16 +171,35 @@ async function requireMobileToolchain({
   // would activate the Android package and then look for Android ids. Say so
   // here rather than letting the run reach a lookup that cannot match.
   if (process.env.DEVTOOLS_MOBILE_PLATFORM === 'ios') {
-    console.error(
-      '\nDEVTOOLS_MOBILE_PLATFORM=ios is not supported by these examples.\n\n' +
-        'They are Android-only: every flow drives the Clock app through\n' +
-        'UiAutomator resource-ids, which XCUITest cannot resolve, and every\n' +
-        'check below looks for the Android SDK.\n\n' +
-        'The capability builders can still shape an XCUITest session, so an\n' +
-        'iOS example needs a flow and selectors rather than new plumbing.\n' +
-        'See examples/MOBILE.md.\n'
-    )
-    process.exit(1)
+    // iOS has its own toolchain, so none of the Android checks below apply:
+    // they look for ANDROID_HOME and an adb device, and a correctly set up
+    // XCUITest machine has neither.
+    if (!(await appiumReady(host, port))) {
+      console.error(APPIUM_DOWN(host, port))
+      process.exit(1)
+    }
+    if (!LOCAL_HOSTS.has(host)) {
+      return
+    }
+    const booted = bootedSimulators()
+    if (booted === null) {
+      console.error(
+        '\n`xcrun simctl` is not available, so there is no iOS toolchain here.\n\n' +
+          'Xcode is needed — the Command Line Tools alone ship no simulators:\n\n' +
+          '  sudo xcode-select -s /Applications/Xcode.app/Contents/Developer\n' +
+          '  xcodebuild -downloadPlatform iOS\n'
+      )
+      process.exit(1)
+    }
+    if (!booted.length) {
+      console.error(
+        '\nNo iOS simulator is booted, so there is nothing to drive.\n\n' +
+          '  xcrun simctl list devices available\n' +
+          '  xcrun simctl boot "<device name>"\n'
+      )
+      process.exit(1)
+    }
+    return
   }
   if (await appiumReady(host, port)) {
     // A remote or cloud Appium drives a device this machine knows nothing
@@ -219,4 +270,9 @@ async function requireMobileToolchain({
   process.exit(1)
 }
 
-module.exports = { requireMobileToolchain, appiumReady, adbDevices }
+module.exports = {
+  requireMobileToolchain,
+  appiumReady,
+  adbDevices,
+  bootedSimulators
+}
