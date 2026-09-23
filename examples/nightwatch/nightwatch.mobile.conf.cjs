@@ -8,10 +8,37 @@
 
 const path = require('node:path')
 const nightwatchDevtools = require('@wdio/nightwatch-devtools').default
-const { requireMobileToolchain } = require('../mobile-preflight.cjs')
+const {
+  requireMobileToolchain,
+  bootedSimulators
+} = require('../mobile-preflight.cjs')
 
 const isWeb = process.env.DEVTOOLS_MOBILE === 'web'
 const IOS = process.env.DEVTOOLS_MOBILE_PLATFORM === 'ios'
+
+/** The simulator to drive, as a udid.
+ *
+ *  By udid rather than by name, because naming one that does not exist does
+ *  NOT fail: the XCUITest driver CREATES it (`appiumTest-<uuid>-<name>`) and
+ *  boots it, every run, beside the simulator already running.
+ *
+ *  Defaults to whatever is already booted — the iOS counterpart of attaching
+ *  to the running emulator on Android. `IOS_DEVICE_NAME` picks among several,
+ *  and `IOS_UDID` names one outright. */
+function iosDevice() {
+  if (process.env.IOS_UDID) {
+    return { 'appium:udid': process.env.IOS_UDID }
+  }
+  const booted = bootedSimulators() ?? []
+  const wanted = process.env.IOS_DEVICE_NAME
+  const match = wanted
+    ? booted.find((device) => device.name === wanted)
+    : booted[0]
+  if (match) {
+    return { 'appium:udid': match.udid, 'appium:deviceName': match.name }
+  }
+  return { 'appium:deviceName': wanted ?? 'iPhone 17 Pro' }
+}
 
 /** The same bag the other three mobile examples build; see
  *  examples/wdio/mobile/capabilities.ts for the annotated original. */
@@ -19,11 +46,10 @@ function mobileCapabilities() {
   const base = {
     platformName: IOS ? 'iOS' : 'Android',
     'appium:automationName': IOS ? 'XCUITest' : 'UiAutomator2',
-    // iOS needs the simulator named, and it is per-machine:
-    // `xcrun simctl list devices` shows yours.
+    // Which simulator, resolved to a udid — see `iosDevice`.
     ...(IOS
       ? {
-          'appium:deviceName': process.env.IOS_DEVICE_NAME ?? 'iPhone 15',
+          ...iosDevice(),
           ...(process.env.IOS_PLATFORM_VERSION
             ? { 'appium:platformVersion': process.env.IOS_PLATFORM_VERSION }
             : {})
@@ -50,7 +76,7 @@ function mobileCapabilities() {
     return {
       ...base,
       browserName: null,
-      'appium:bundleId': 'com.apple.mobiletimer'
+      'appium:bundleId': 'com.apple.Preferences'
     }
   }
   return {
@@ -67,7 +93,9 @@ function mobileCapabilities() {
 }
 
 module.exports = {
-  src_folders: [path.resolve(__dirname, 'mobile')],
+  // One spec directory per platform, because Android and iOS ship different
+  // apps and share no selectors.
+  src_folders: [path.resolve(__dirname, 'mobile', IOS ? 'ios' : 'android')],
   output_folder: false,
   custom_commands_path: [],
   custom_assertions_path: [],

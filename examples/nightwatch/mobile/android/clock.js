@@ -1,3 +1,7 @@
+// Nightwatch against Appium, ANDROID. The iOS example is a sibling spec in
+// ../ios — a separate file rather than a branch, because the two platforms
+// ship different apps and share no selectors.
+//
 // Nightwatch against Appium. The WebdriverIO, Selenium and Python mobile
 // examples drive the SAME flow, so a difference between two dashboards is a
 // difference in the adapter rather than in the test.

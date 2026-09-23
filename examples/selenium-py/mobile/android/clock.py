@@ -1,4 +1,7 @@
-"""Mobile example for the Python adapter.
+"""Mobile example for the Python adapter, ANDROID.
+
+The iOS example is a sibling script in ../ios -- a separate file rather than a
+branch, because the two platforms ship different apps and share no selectors.
 
 The WebdriverIO, Selenium and Nightwatch mobile examples drive the SAME flow,
 so a difference between two dashboards is a difference in the adapter rather
@@ -34,7 +37,6 @@ import selenium_devtools as devtools
 try:
     from appium import webdriver
     from appium.options.android import UiAutomator2Options
-    from appium.options.ios import XCUITestOptions
 except ImportError:  # noqa: BLE001 — a missing optional dep, not a failure
     raise SystemExit(
         "this example needs the Appium client:\n"
@@ -73,7 +75,6 @@ APP_ID = "com.google.android.deskclock"
 # APPIUM_APP replaces Clock, so the Clock flow does not apply to it.
 CUSTOM_APP = bool(os.environ.get("APPIUM_APP"))
 IS_WEB = os.environ.get("DEVTOOLS_MOBILE") == "web"
-IS_IOS = os.environ.get("DEVTOOLS_MOBILE_PLATFORM") == "ios"
 APPIUM = "http://%s:%s" % (
     os.environ.get("APPIUM_HOST", "127.0.0.1"),
     os.environ.get("APPIUM_PORT", "4723"),
@@ -84,49 +85,27 @@ def capabilities() -> dict:
     """The same bag the other three mobile examples build; see
     examples/wdio/mobile/capabilities.ts for the annotated original."""
     base = {
-        "platformName": "iOS" if IS_IOS else "Android",
-        "appium:automationName": "XCUITest" if IS_IOS else "UiAutomator2",
+        "platformName": "Android",
+        "appium:automationName": "UiAutomator2",
         "appium:noReset": True,
         "appium:newCommandTimeout": 300,
     }
-    if IS_IOS:
-        # The simulator name is per-machine: `xcrun simctl list devices`.
-        base["appium:deviceName"] = os.environ.get("IOS_DEVICE_NAME", "iPhone 15")
-        version = os.environ.get("IOS_PLATFORM_VERSION")
-        if version:
-            base["appium:platformVersion"] = version
     if IS_WEB:
         # Names a browser, so this session HAS a document and keeps its
         # page-side capture — the distinction the native guards turn on.
         # Chrome on the device needs a matching chromedriver. Appium can
         # fetch one, but that is a SERVER feature, not a capability:
         # --allow-insecure=uiautomator2:chromedriver_autodownload
-        base["browserName"] = "Safari" if IS_IOS else "Chrome"
+        base["browserName"] = "Chrome"
         return base
     app = os.environ.get("APPIUM_APP")
     if app:
         base["appium:app"] = app
         return base
-    if IS_IOS:
-        base["appium:bundleId"] = "com.apple.mobiletimer"
-        return base
     base["appium:appPackage"] = APP_ID
     base["appium:appActivity"] = "com.android.deskclock.DeskClock"
     return base
 
-
-# Android-only, for the same reason the JS examples are: the flow below drives
-# Clock through UiAutomator resource-ids, which XCUITest cannot resolve. The
-# capability builder above can still shape an XCUITest session, so an iOS
-# example needs a flow and selectors rather than new plumbing. Refused here
-# rather than in the shared JS preflight, which this script never reaches.
-if IS_IOS:
-    raise SystemExit(
-        "\nDEVTOOLS_MOBILE_PLATFORM=ios is not supported by these examples.\n\n"
-        "They are Android-only: every flow drives the Clock app through\n"
-        "UiAutomator resource-ids, which XCUITest cannot resolve.\n\n"
-        "See examples/MOBILE.md.\n"
-    )
 
 require_appium(
     os.environ.get("APPIUM_HOST", "127.0.0.1"),
@@ -139,7 +118,7 @@ devtools.enable(trace=os.environ.get("DEVTOOLS_MODE") != "live")
 
 # The options class is per-platform: handing iOS capabilities to
 # UiAutomator2Options builds an Android session request out of them.
-_options = XCUITestOptions() if IS_IOS else UiAutomator2Options()
+_options = UiAutomator2Options()
 driver = webdriver.Remote(APPIUM, options=_options.load_capabilities(capabilities()))
 try:
     if IS_WEB:

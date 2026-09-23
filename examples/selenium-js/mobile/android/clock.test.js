@@ -1,5 +1,7 @@
 /**
- * Mobile example for @wdio/selenium-devtools (Mocha runner).
+ * Mobile example for @wdio/selenium-devtools (Mocha runner), ANDROID. The iOS
+ * example is a sibling spec in ../ios — a separate file rather than a branch,
+ * because the two platforms ship different apps and share no selectors.
  *
  * Drives the Clock app, which ships with every Android system image, so it
  * needs no .apk. The WebdriverIO, Nightwatch and Python mobile examples drive
@@ -24,7 +26,7 @@ import { createRequire } from 'node:module'
 import { DevTools } from '@wdio/selenium-devtools'
 
 const { requireMobileToolchain } = createRequire(import.meta.url)(
-  '../../mobile-preflight.cjs'
+  '../../../mobile-preflight.cjs'
 )
 
 DevTools.configure({
@@ -37,7 +39,7 @@ const APP_ID = 'com.google.android.deskclock'
 const isWeb = process.env.DEVTOOLS_MOBILE === 'web'
 /** APPIUM_APP replaces Clock, so the Clock flow does not apply to it. */
 const CUSTOM_APP = Boolean(process.env.APPIUM_APP)
-const IOS = process.env.DEVTOOLS_MOBILE_PLATFORM === 'ios'
+const IS_IOS = process.env.DEVTOOLS_MOBILE_PLATFORM === 'ios'
 const APPIUM = `http://${process.env.APPIUM_HOST ?? '127.0.0.1'}:${
   process.env.APPIUM_PORT ?? 4723
 }`
@@ -46,11 +48,11 @@ const APPIUM = `http://${process.env.APPIUM_HOST ?? '127.0.0.1'}:${
  *  examples/wdio/mobile/capabilities.ts for the annotated original. */
 function mobileCapabilities() {
   const base = {
-    platformName: IOS ? 'iOS' : 'Android',
-    'appium:automationName': IOS ? 'XCUITest' : 'UiAutomator2',
+    platformName: IS_IOS ? 'iOS' : 'Android',
+    'appium:automationName': IS_IOS ? 'XCUITest' : 'UiAutomator2',
     // iOS needs the simulator named, and it is per-machine:
     // `xcrun simctl list devices` shows yours.
-    ...(IOS
+    ...(IS_IOS
       ? {
           'appium:deviceName': process.env.IOS_DEVICE_NAME ?? 'iPhone 15',
           ...(process.env.IOS_PLATFORM_VERSION
@@ -75,14 +77,14 @@ function mobileCapabilities() {
       // Chrome on the device needs a matching chromedriver. Appium can
       // fetch one, but that is a SERVER feature, not a capability:
       // `--allow-insecure=uiautomator2:chromedriver_autodownload`.
-      browserName: IOS ? 'safari' : 'chrome'
+      browserName: IS_IOS ? 'safari' : 'chrome'
     }
   }
   if (process.env.APPIUM_APP) {
     return { ...base, 'appium:app': process.env.APPIUM_APP }
   }
-  if (IOS) {
-    return { ...base, 'appium:bundleId': 'com.apple.mobiletimer' }
+  if (IS_IOS) {
+    return { ...base, 'appium:bundleId': 'com.apple.Preferences' }
   }
   return {
     ...base,

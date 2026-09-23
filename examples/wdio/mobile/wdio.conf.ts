@@ -22,7 +22,17 @@ const __dirname = path.resolve(path.dirname(new URL(import.meta.url).pathname))
 
 export const config: WebdriverIO.Config = {
   runner: 'local',
-  specs: [path.resolve(__dirname, 'specs', '*.e2e.ts')],
+  // One spec directory per platform, because Android and iOS ship different
+  // apps and share no selectors — a branch inside one spec would be two tests
+  // wearing one name.
+  specs: [
+    path.resolve(
+      __dirname,
+      'specs',
+      process.env.DEVTOOLS_MOBILE_PLATFORM === 'ios' ? 'ios' : 'android',
+      '*.e2e.ts'
+    )
+  ],
 
   // Appium, not a local browser driver.
   hostname: process.env.APPIUM_HOST ?? '127.0.0.1',

@@ -33,7 +33,7 @@
     "prepublishOnly": "pnpm build",
     "example": "pnpm example:cucumber",
     "example:mocha": "mocha --require @wdio/selenium-devtools --timeout 60000 ../../examples/selenium-js/mocha/example.js",
-    "example:mobile": "mocha --require @wdio/selenium-devtools --timeout 180000 ../../examples/selenium-js/mobile/clock.test.js",
+    "example:mobile": "mocha --exit --require @wdio/selenium-devtools --timeout 180000 \"../../examples/selenium-js/mobile/${DEVTOOLS_MOBILE_PLATFORM:-android}/\"*.test.js",
     "example:mocha:allure": "mocha --require @wdio/selenium-devtools --reporter allure-mocha --reporter-options resultsDir=../../examples/selenium-js/mocha/allure-results --timeout 60000 ../../examples/selenium-js/mocha/example.js",
     "example:jest": "NODE_OPTIONS=--experimental-vm-modules jest --config ../../examples/selenium-js/jest/jest.config.json",
     "example:cucumber": "cucumber-js --config ../../examples/selenium-js/cucumber/cucumber.json"
