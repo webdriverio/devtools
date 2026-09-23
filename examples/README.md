@@ -52,9 +52,10 @@ Every adapter has a `mobile/` example, and all four build the same capability
 bag, so a difference in the dashboard between two of them is a difference in the
 adapter rather than in the test. They drive the **Clock app**, which ships with every Android system image, so
 they run without an `.apk` or credentials;
-`APPIUM_APP` points one at a real app, and `DEVTOOLS_MOBILE=web` drives Chrome on
-the same device instead — worth running too, because a mobile browser session
-has a document and must keep every page-side call a native one skips.
+`APPIUM_APP` points one at a real app, and `DEVTOOLS_MOBILE=web` drives the
+device's own browser instead — Chrome on Android, Safari on iOS. Worth running
+too, because a mobile browser session has a document and must keep every
+page-side call a native one skips.
 
 Each checks the toolchain before opening a session, through the shared
 [`mobile-preflight.cjs`](./mobile-preflight.cjs), because none of the four
@@ -73,8 +74,9 @@ examples/selenium-py/mobile/android|ios/
 
 The simulator is chosen by **udid**, defaulting to whichever is already booted.
 Naming one that does not exist does not fail — the XCUITest driver creates and
-boots it, every run — so `IOS_DEVICE_NAME` only picks among booted devices and
-`IOS_UDID` names one outright.
+boots it, every run — so `IOS_DEVICE_NAME` only picks among booted devices, an
+unmatched name is refused rather than passed through, and `IOS_UDID` names one
+outright.
 
 [MOBILE.md](./MOBILE.md) has the prerequisites and the switches.
 

@@ -210,7 +210,7 @@ Appium sessions are captured in both live and trace mode. What gets captured dep
 | **Native app** | never | commands, screenshots and element data from the platform's XML tree; no DOM |
 | **Hybrid app** | only while in a webview context | native halves as an app, webview halves as a page |
 
-The discriminator is the **browser the capabilities name**, not the device: mobile web states one, a native app states none. A device is not required either — a Mac2 or tvOS session has no document and is treated the same way.
+The discriminator is the **browser name in the capabilities**, not the device: mobile web states one, a native app states none. A device is not required either — a Mac2 or tvOS session has no document and is treated the same way.
 
 A hybrid app is the case capabilities alone cannot answer, because the answer changes mid-run. Appium reports `NATIVE_APP` or a webview context, and anything that is not `NATIVE_APP` counts as a webview — the `WEBVIEW_` prefix is a convention, and a driver naming its webview otherwise would have its DOM capture skipped. Following the context costs no round trip: the switch command carries its destination in its own arguments.
 
@@ -222,7 +222,7 @@ A hybrid app is the case capabilities alone cannot answer, because the answer ch
 
 On a native session, element data and the A11y panel come from the platform's XML tree rather than the DOM, so locators read as `android=new UiSelector()…` / `-ios predicate string:…` rather than CSS or XPath over HTML.
 
-A runnable example per adapter lives under [examples/](examples/) — `pnpm demo:wdio:mobile`, `:selenium:mobile`, `:nightwatch:mobile`, `:python:mobile`. Each drives the Clock app that ships with every Android system image — starting a timer, pausing it and clearing it — so none needs an `.apk`; `DEVTOOLS_MOBILE=web` drives Chrome on the same device instead. [examples/MOBILE.md](examples/MOBILE.md) states the prerequisites and switches in one place. A single-adapter WDIO variant also lives at [examples/wdio/mocha/wdio.native.conf.ts](examples/wdio/mocha/wdio.native.conf.ts) (`pnpm demo:wdio:native`), which reads its Appium endpoint from `APPIUM_HOST` / `APPIUM_PORT` / `APPIUM_DEVICE`. In short, for a local emulator:
+A runnable example per adapter lives under [examples/](examples/) — `pnpm demo:wdio:mobile`, `:selenium:mobile`, `:nightwatch:mobile`, `:python:mobile`. Each drives the Clock app that ships with every Android system image — starting a timer, pausing it and clearing it — so none needs an `.apk`; `DEVTOOLS_MOBILE=web` drives the device's own browser instead — Chrome on Android, Safari on iOS. [examples/MOBILE.md](examples/MOBILE.md) states the prerequisites and switches in one place. A single-adapter WDIO variant also lives at [examples/wdio/mocha/wdio.native.conf.ts](examples/wdio/mocha/wdio.native.conf.ts) (`pnpm demo:wdio:native`), which reads its Appium endpoint from `APPIUM_HOST` / `APPIUM_PORT` / `APPIUM_DEVICE`. In short, for a local emulator:
 
 1. **Java JDK** — `brew install --cask temurin`
 2. **Android SDK** — `brew install --cask android-commandlinetools` then `yes | sdkmanager --licenses && sdkmanager "platform-tools" "emulator" "system-images;android-34;google_apis_playstore;arm64-v8a"`. The brew cask installs sdkmanager under `/opt/homebrew/share/android-commandlinetools/`, and sdkmanager downloads other SDK pieces alongside it — set `ANDROID_HOME` to that path (not `~/Library/Android/sdk/`).

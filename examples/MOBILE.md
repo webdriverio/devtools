@@ -174,18 +174,20 @@ points at itself:
 | variable                                   | default              | meaning                                                                       |
 | ------------------------------------------ | -------------------- | ----------------------------------------------------------------------------- |
 | `DEVTOOLS_MODE`                            | `trace`              | `live` opens the dashboard and streams; `trace` writes a zip                  |
-| `DEVTOOLS_MOBILE`                          | `native`             | `web` drives Chrome on the device instead of an app                           |
+| `DEVTOOLS_MOBILE`                          | `native`             | `web` drives the device's browser instead of an app — Chrome on Android, Safari on iOS |
 | `APPIUM_APP`                               | —                    | path to an `.apk`/`.app` to drive instead of Clock                            |
 | `APPIUM_HOST` / `APPIUM_PORT`              | `127.0.0.1` / `4723` | where Appium is listening                                                     |
 | `DEVTOOLS_MOBILE_PLATFORM`                 | `android`            | `ios` runs the iOS spec, in every adapter — see below                         |
-| `IOS_DEVICE_NAME` / `IOS_PLATFORM_VERSION` | `iPhone 15` / —      | which simulator to drive; per-machine, see `xcrun simctl list devices`        |
+| `IOS_DEVICE_NAME` / `IOS_PLATFORM_VERSION` | whichever simulator is booted / — | picks among the BOOTED simulators; an unmatched name is refused, see below |
+| `IOS_UDID`                                 | —                    | names a device outright, checked against nothing — for a remote or freshly created one |
 
 ```sh
 DEVTOOLS_MOBILE=web pnpm demo:nightwatch:mobile     # mobile web, not an app
 APPIUM_APP=/tmp/my.apk pnpm demo:wdio:mobile        # a real app
 ```
 
-**`DEVTOOLS_MOBILE=web` needs one extra thing from the server.** Chrome on the
+**`DEVTOOLS_MOBILE=web` needs one extra thing from the server — on Android.**
+iOS needs nothing: Safari is driven by the XCUITest driver itself. Chrome on the
 device needs a matching chromedriver, and the emulator's Chrome is usually
 newer than anything installed — the session then fails with `No Chromedriver
 found that can automate Chrome '133.0.6943'`. Appium can fetch one, but that is
@@ -356,6 +358,20 @@ examples/wdio/mobile/specs/
 ├── android/clock.e2e.ts
 └── ios/settings.e2e.ts
 ```
+
+**`DEVTOOLS_MOBILE=web` works here too**, and is cheaper to run than on
+Android: it opens **Safari** on the simulator, which the XCUITest driver drives
+itself — no chromedriver to match, nothing to add to the `appium` command. The
+session then has a document, so the page-side capture a native run skips is
+back on, which is the contrast the mode exists to show.
+
+**Which simulator gets driven is resolved to a udid, never a bare name.** Naming
+one that does not exist does not fail — the XCUITest driver *creates*
+`appiumTest-<uuid>-<name>` and boots it, every run, beside the simulator already
+running. So the examples default to whichever simulator is already booted, and
+an `IOS_DEVICE_NAME` that matches none of them is refused with the booted list
+rather than passed through. `IOS_UDID` overrides both and is checked against
+nothing.
 
 **What you need**, beyond the Android prerequisites (none of which iOS uses):
 
