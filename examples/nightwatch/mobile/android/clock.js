@@ -22,6 +22,12 @@
 
 const APP_ID = 'com.google.android.deskclock'
 const isWeb = process.env.DEVTOOLS_MOBILE === 'web'
+
+// An emulator often cannot resolve public DNS (corporate network, VPN), and
+// `10.0.2.2` is its alias for the HOST's localhost — so a page served on this
+// machine is reachable when the internet is not. See examples/MOBILE.md.
+const WEB_URL =
+  process.env.DEVTOOLS_MOBILE_URL ?? 'https://the-internet.herokuapp.com/login'
 /** APPIUM_APP replaces Clock, so the Clock flow does not apply to it. */
 const CUSTOM_APP = Boolean(process.env.APPIUM_APP)
 
@@ -62,8 +68,8 @@ describe('Clock (native)', function () {
     if (isWeb) {
       // A mobile BROWSER session: it has a document, so every page-side call a
       // native session skips must still happen. That contrast is the point.
-      await browser.url('https://the-internet.herokuapp.com/login')
-      await browser.assert.urlContains('the-internet')
+      await browser.url(WEB_URL)
+      await browser.assert.urlContains('http')
       return
     }
     if (CUSTOM_APP) {
@@ -123,8 +129,8 @@ describe('Clock (native)', function () {
   it('captures a second action on the same session', async function (browser) {
     // A second test, so `traceGranularity: 'test'` has two slices to key.
     if (isWeb) {
-      await browser.url('https://the-internet.herokuapp.com/')
-      await browser.assert.urlContains('herokuapp.com')
+      await browser.url(WEB_URL)
+      await browser.assert.urlContains('http')
       return
     }
 

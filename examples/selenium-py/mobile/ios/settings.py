@@ -37,6 +37,14 @@ except ImportError:  # noqa: BLE001 -- a missing optional dep, not a failure
     )
 
 APP_ID = "com.apple.Preferences"
+# APPIUM_APP replaces Settings, so the Settings flow does not apply to it.
+CUSTOM_APP = bool(os.environ.get("APPIUM_APP"))
+IS_WEB = os.environ.get("DEVTOOLS_MOBILE") == "web"
+# A simulator shares the host's network stack, so `localhost` here is this
+# machine -- no `10.0.2.2` alias like the Android emulator needs.
+WEB_URL = os.environ.get(
+    "DEVTOOLS_MOBILE_URL", "https://the-internet.herokuapp.com/login"
+)
 APPIUM = "http://%s:%s" % (
     os.environ.get("APPIUM_HOST", "127.0.0.1"),
     os.environ.get("APPIUM_PORT", "4723"),
@@ -65,22 +73,40 @@ def booted_simulators():
 def ios_device():
     """The simulator to drive, as a udid.
 
-    By udid rather than by name, because naming one that does not exist does
-    NOT fail: the XCUITest driver CREATES it and boots it, every run, beside
-    the simulator already running. Defaults to whatever is already booted.
+    Always a udid, never a bare name. Naming a simulator that does not exist
+    does NOT fail: the XCUITest driver CREATES it and boots it, every run,
+    beside the one already running. So an unmatched IOS_DEVICE_NAME is refused
+    here rather than passed through -- a typo would otherwise pass the
+    preflight (which only asks whether SOME simulator is booted) and quietly
+    leave a new simulator behind on every run.
+
+    Defaults to whatever is already booted. IOS_UDID names one outright and is
+    not checked against the booted list, so a remote or freshly created device
+    can still be targeted deliberately. This mirrors `resolveIosDevice` in
+    examples/mobile-preflight.cjs, which the three JS examples share.
     """
     if os.environ.get("IOS_UDID"):
         return {"appium:udid": os.environ["IOS_UDID"]}
     booted = booted_simulators()
     wanted = os.environ.get("IOS_DEVICE_NAME")
-    match = None
+    if not booted:
+        raise SystemExit(
+            "\nNo iOS simulator is booted.\n"
+            "  xcrun simctl list devices available\n"
+            '  xcrun simctl boot "<device name>"\n'
+        )
     if wanted:
         match = next((d for d in booted if d[0] == wanted), None)
-    elif booted:
-        match = booted[0]
-    if match:
+        if not match:
+            raise SystemExit(
+                '\nIOS_DEVICE_NAME="%s" is not booted, and naming a simulator '
+                "that does not exist makes Appium create one rather than "
+                "fail.\n  booted now: %s\n"
+                "  boot it first, or set IOS_UDID to target it deliberately.\n"
+                % (wanted, ", ".join(d[0] for d in booted))
+            )
         return {"appium:udid": match[1], "appium:deviceName": match[0]}
-    return {"appium:deviceName": wanted or "iPhone 17 Pro"}
+    return {"appium:udid": booted[0][1], "appium:deviceName": booted[0][0]}
 
 
 def require_simulator():
@@ -97,7 +123,6 @@ def capabilities():
     base = {
         "platformName": "iOS",
         "appium:automationName": "XCUITest",
-        "appium:bundleId": APP_ID,
         "appium:noReset": True,
         "appium:newCommandTimeout": 300,
     }
@@ -105,6 +130,16 @@ def capabilities():
     version = os.environ.get("IOS_PLATFORM_VERSION")
     if version:
         base["appium:platformVersion"] = version
+    if IS_WEB:
+        # Names a browser, so this session HAS a document and keeps its
+        # page-side capture -- the distinction the native guards turn on.
+        # Safari is driven by the XCUITest driver itself, where Chrome on
+        # Android needs a matching chromedriver.
+        base["browserName"] = "Safari"
+    elif CUSTOM_APP:
+        base["appium:app"] = os.environ["APPIUM_APP"]
+    else:
+        base["appium:bundleId"] = APP_ID
     return base
 
 
@@ -126,31 +161,45 @@ def nav_bar_title():
 
 
 try:
-    # Terminated before activating, not merely activated: Settings remembers
-    # the page the last run drilled into, so activating alone would start
-    # somewhere unpredictable. This is what makes the script re-runnable.
-    driver.execute_script("mobile: terminateApp", {"bundleId": APP_ID})
-    driver.execute_script("mobile: activateApp", {"bundleId": APP_ID})
-    opened = nav_bar_title()
-    assert "Settings" in opened, 'Settings opened at "%s"' % opened
+    if IS_WEB:
+        # A mobile BROWSER session: it has a document, so every page-side call
+        # a native session skips must still happen. That contrast is the point.
+        driver.get(WEB_URL)
+        assert driver.current_url.startswith("http"), driver.current_url
+        print("loaded %s" % driver.current_url)
+    elif CUSTOM_APP:
+        # A supplied app has none of Settings' screens, so capture its
+        # hierarchy rather than looking for ids that cannot exist.
+        assert driver.page_source, "the view hierarchy was empty"
+        print("captured the supplied app's hierarchy")
+    else:
+        # Terminated before activating, not merely activated: Settings
+        # remembers the page the last run drilled into, so activating alone
+        # would start somewhere unpredictable. This makes the script
+        # re-runnable.
+        driver.execute_script("mobile: terminateApp", {"bundleId": APP_ID})
+        driver.execute_script("mobile: activateApp", {"bundleId": APP_ID})
+        opened = nav_bar_title()
+        assert "Settings" in opened, 'Settings opened at "%s"' % opened
 
-    driver.find_element("accessibility id", "General").click()
-    for _ in range(30):
-        if "General" in nav_bar_title():
-            break
-        time.sleep(0.5)
-    assert "General" in nav_bar_title(), "Settings did not navigate to General"
+        driver.find_element("accessibility id", "General").click()
+        for _ in range(30):
+            if "General" in nav_bar_title():
+                break
+            time.sleep(0.5)
+        assert "General" in nav_bar_title(), "Settings did not reach General"
 
-    # Back through the navigation stack rather than a tap on the back button:
-    # that button's accessibility id is the PARENT page's title, so tapping by
-    # name hits whichever row happens to share it -- measured, it opened About.
-    driver.back()
-    for _ in range(30):
-        if "Settings" in nav_bar_title():
-            break
-        time.sleep(0.5)
-    assert "Settings" in nav_bar_title(), "Settings did not navigate back"
-    print("navigated into General and back")
+        # Back through the navigation stack rather than a tap on the back
+        # button: that button's accessibility id is the PARENT page's title, so
+        # tapping by name hits whichever row shares it -- measured, it opened
+        # About.
+        driver.back()
+        for _ in range(30):
+            if "Settings" in nav_bar_title():
+                break
+            time.sleep(0.5)
+        assert "Settings" in nav_bar_title(), "Settings did not navigate back"
+        print("navigated into General and back")
 finally:
     driver.quit()
     devtools.wait_for_dashboard_close()  # hold the UI open to inspect

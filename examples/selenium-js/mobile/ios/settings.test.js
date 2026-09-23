@@ -19,7 +19,7 @@ import { Builder, until } from 'selenium-webdriver'
 import { createRequire } from 'node:module'
 import { DevTools } from '@wdio/selenium-devtools'
 
-const { requireMobileToolchain, bootedSimulators } = createRequire(
+const { requireMobileToolchain, resolveIosDevice } = createRequire(
   import.meta.url
 )('../../../mobile-preflight.cjs')
 
@@ -33,33 +33,24 @@ const APPIUM = `http://${process.env.APPIUM_HOST ?? '127.0.0.1'}:${
   process.env.APPIUM_PORT ?? 4723
 }`
 
-/** The simulator to drive, as a udid. Naming one that does not exist does NOT
- *  fail: the XCUITest driver CREATES it and boots it, every run, beside the
- *  simulator already running. Defaults to whatever is already booted. */
-function iosDevice() {
-  if (process.env.IOS_UDID) {
-    return { 'appium:udid': process.env.IOS_UDID }
-  }
-  const booted = bootedSimulators() ?? []
-  const wanted = process.env.IOS_DEVICE_NAME
-  const match = wanted
-    ? booted.find((device) => device.name === wanted)
-    : booted[0]
-  if (match) {
-    return { 'appium:udid': match.udid, 'appium:deviceName': match.name }
-  }
-  return { 'appium:deviceName': wanted ?? 'iPhone 17 Pro' }
-}
+const isWeb = process.env.DEVTOOLS_MOBILE === 'web'
+/** APPIUM_APP replaces Settings, so the Settings flow does not apply to it. */
+const CUSTOM_APP = Boolean(process.env.APPIUM_APP)
+
+// A simulator shares the host's network stack, so `localhost` here is this
+// machine — no `10.0.2.2` alias like the Android emulator needs.
+const WEB_URL =
+  process.env.DEVTOOLS_MOBILE_URL ?? 'https://the-internet.herokuapp.com/login'
 
 function mobileCapabilities() {
-  return {
+  const base = {
     platformName: 'iOS',
     'appium:automationName': 'XCUITest',
-    ...iosDevice(),
+    // Which simulator, resolved to a udid — see `resolveIosDevice`.
+    ...resolveIosDevice(),
     ...(process.env.IOS_PLATFORM_VERSION
       ? { 'appium:platformVersion': process.env.IOS_PLATFORM_VERSION }
       : {}),
-    'appium:bundleId': APP_ID,
     'appium:noReset': true,
     'appium:newCommandTimeout': 300,
     // selenium-webdriver's `Builder.build()` throws unless `browserName` is a
@@ -69,6 +60,16 @@ function mobileCapabilities() {
     // capture.
     browserName: ''
   }
+  if (isWeb) {
+    // Names a browser, so this session HAS a document and keeps its page-side
+    // capture — the distinction the native guards turn on. Safari is driven by
+    // the XCUITest driver itself, where Chrome on Android needs a chromedriver.
+    return { ...base, browserName: 'safari' }
+  }
+  if (CUSTOM_APP) {
+    return { ...base, 'appium:app': process.env.APPIUM_APP }
+  }
+  return { ...base, 'appium:bundleId': APP_ID }
 }
 
 describe('Settings (native)', function () {
@@ -100,6 +101,19 @@ describe('Settings (native)', function () {
   })
 
   it('navigates into a settings page and back', async function () {
+    if (isWeb) {
+      // A mobile BROWSER session: it has a document, so every page-side call a
+      // native session skips must still happen. That contrast is the point.
+      await driver.get(WEB_URL)
+      assert.match(await driver.getCurrentUrl(), /^http/)
+      return
+    }
+    if (CUSTOM_APP) {
+      // A supplied app has none of Settings' screens, so capture its hierarchy
+      // rather than looking for ids that cannot exist.
+      assert.ok((await driver.getPageSource()).length > 0)
+      return
+    }
     // Terminated before activating, not merely activated: Settings remembers
     // the page the last run drilled into, so activating alone would start
     // somewhere unpredictable. This is what makes the spec re-runnable.
@@ -124,6 +138,14 @@ describe('Settings (native)', function () {
 
   it('captures a second action on the same session', async function () {
     // A second test, so `traceGranularity: 'test'` has two slices to key.
+    if (isWeb) {
+      await driver.get(WEB_URL)
+      return
+    }
+    if (CUSTOM_APP) {
+      assert.ok((await driver.getPageSource()).length > 0)
+      return
+    }
     await driver.executeScript('mobile: activateApp', { bundleId: APP_ID })
     assert.match(await navBarTitle(), /Settings/)
   })

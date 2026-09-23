@@ -75,6 +75,12 @@ APP_ID = "com.google.android.deskclock"
 # APPIUM_APP replaces Clock, so the Clock flow does not apply to it.
 CUSTOM_APP = bool(os.environ.get("APPIUM_APP"))
 IS_WEB = os.environ.get("DEVTOOLS_MOBILE") == "web"
+# An emulator often cannot resolve public DNS (corporate network, VPN), and
+# `10.0.2.2` is its alias for the HOST's localhost -- so a page served on this
+# machine is reachable when the internet is not. See examples/MOBILE.md.
+WEB_URL = os.environ.get(
+    "DEVTOOLS_MOBILE_URL", "https://the-internet.herokuapp.com/login"
+)
 APPIUM = "http://%s:%s" % (
     os.environ.get("APPIUM_HOST", "127.0.0.1"),
     os.environ.get("APPIUM_PORT", "4723"),
@@ -122,11 +128,16 @@ _options = UiAutomator2Options()
 driver = webdriver.Remote(APPIUM, options=_options.load_capabilities(capabilities()))
 try:
     if IS_WEB:
-        driver.get("https://the-internet.herokuapp.com/login")
-        driver.find_element(By.ID, "username").send_keys("tomsmith")
-        driver.find_element(By.ID, "password").send_keys("SuperSecretPassword!")
-        driver.find_element(By.CSS_SELECTOR, 'button[type="submit"]').click()
-        print(driver.find_element(By.ID, "flash").text.strip())
+        driver.get(WEB_URL)
+        if os.environ.get("DEVTOOLS_MOBILE_URL"):
+            # A supplied page has none of the login form, so navigating and
+            # capturing is all there is to do with it.
+            print("loaded %s" % driver.current_url)
+        else:
+            driver.find_element(By.ID, "username").send_keys("tomsmith")
+            driver.find_element(By.ID, "password").send_keys("SuperSecretPassword!")
+            driver.find_element(By.CSS_SELECTOR, 'button[type="submit"]').click()
+            print(driver.find_element(By.ID, "flash").text.strip())
     elif CUSTOM_APP:
         # A supplied app has none of Clock's screens, so capture its hierarchy
         # rather than looking for ids that cannot exist.

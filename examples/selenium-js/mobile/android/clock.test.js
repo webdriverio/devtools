@@ -39,7 +39,6 @@ const APP_ID = 'com.google.android.deskclock'
 const isWeb = process.env.DEVTOOLS_MOBILE === 'web'
 /** APPIUM_APP replaces Clock, so the Clock flow does not apply to it. */
 const CUSTOM_APP = Boolean(process.env.APPIUM_APP)
-const IS_IOS = process.env.DEVTOOLS_MOBILE_PLATFORM === 'ios'
 const APPIUM = `http://${process.env.APPIUM_HOST ?? '127.0.0.1'}:${
   process.env.APPIUM_PORT ?? 4723
 }`
@@ -48,18 +47,8 @@ const APPIUM = `http://${process.env.APPIUM_HOST ?? '127.0.0.1'}:${
  *  examples/wdio/mobile/capabilities.ts for the annotated original. */
 function mobileCapabilities() {
   const base = {
-    platformName: IS_IOS ? 'iOS' : 'Android',
-    'appium:automationName': IS_IOS ? 'XCUITest' : 'UiAutomator2',
-    // iOS needs the simulator named, and it is per-machine:
-    // `xcrun simctl list devices` shows yours.
-    ...(IS_IOS
-      ? {
-          'appium:deviceName': process.env.IOS_DEVICE_NAME ?? 'iPhone 15',
-          ...(process.env.IOS_PLATFORM_VERSION
-            ? { 'appium:platformVersion': process.env.IOS_PLATFORM_VERSION }
-            : {})
-        }
-      : {}),
+    platformName: 'Android',
+    'appium:automationName': 'UiAutomator2',
     'appium:noReset': true,
     'appium:newCommandTimeout': 300,
     // selenium-webdriver's `Builder.build()` throws unless `browserName` is a
@@ -77,14 +66,11 @@ function mobileCapabilities() {
       // Chrome on the device needs a matching chromedriver. Appium can
       // fetch one, but that is a SERVER feature, not a capability:
       // `--allow-insecure=uiautomator2:chromedriver_autodownload`.
-      browserName: IS_IOS ? 'safari' : 'chrome'
+      browserName: 'chrome'
     }
   }
   if (process.env.APPIUM_APP) {
     return { ...base, 'appium:app': process.env.APPIUM_APP }
-  }
-  if (IS_IOS) {
-    return { ...base, 'appium:bundleId': 'com.apple.Preferences' }
   }
   return {
     ...base,

@@ -10,35 +10,11 @@ const path = require('node:path')
 const nightwatchDevtools = require('@wdio/nightwatch-devtools').default
 const {
   requireMobileToolchain,
-  bootedSimulators
+  resolveIosDevice
 } = require('../mobile-preflight.cjs')
 
 const isWeb = process.env.DEVTOOLS_MOBILE === 'web'
 const IOS = process.env.DEVTOOLS_MOBILE_PLATFORM === 'ios'
-
-/** The simulator to drive, as a udid.
- *
- *  By udid rather than by name, because naming one that does not exist does
- *  NOT fail: the XCUITest driver CREATES it (`appiumTest-<uuid>-<name>`) and
- *  boots it, every run, beside the simulator already running.
- *
- *  Defaults to whatever is already booted — the iOS counterpart of attaching
- *  to the running emulator on Android. `IOS_DEVICE_NAME` picks among several,
- *  and `IOS_UDID` names one outright. */
-function iosDevice() {
-  if (process.env.IOS_UDID) {
-    return { 'appium:udid': process.env.IOS_UDID }
-  }
-  const booted = bootedSimulators() ?? []
-  const wanted = process.env.IOS_DEVICE_NAME
-  const match = wanted
-    ? booted.find((device) => device.name === wanted)
-    : booted[0]
-  if (match) {
-    return { 'appium:udid': match.udid, 'appium:deviceName': match.name }
-  }
-  return { 'appium:deviceName': wanted ?? 'iPhone 17 Pro' }
-}
 
 /** The same bag the other three mobile examples build; see
  *  examples/wdio/mobile/capabilities.ts for the annotated original. */
@@ -46,10 +22,10 @@ function mobileCapabilities() {
   const base = {
     platformName: IOS ? 'iOS' : 'Android',
     'appium:automationName': IOS ? 'XCUITest' : 'UiAutomator2',
-    // Which simulator, resolved to a udid — see `iosDevice`.
+    // Which simulator, resolved to a udid — see `resolveIosDevice`.
     ...(IOS
       ? {
-          ...iosDevice(),
+          ...resolveIosDevice(),
           ...(process.env.IOS_PLATFORM_VERSION
             ? { 'appium:platformVersion': process.env.IOS_PLATFORM_VERSION }
             : {})

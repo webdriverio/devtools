@@ -141,7 +141,9 @@ function bootedSimulators() {
       .split('\n')
       .filter((line) => line.includes('(Booted)'))
       .map((line) => {
-        const match = line.match(/^\s*(.+?)\s+\(([0-9A-F-]{36})\)\s+\(Booted\)/i)
+        const match = line.match(
+          /^\s*(.+?)\s+\(([0-9A-F-]{36})\)\s+\(Booted\)/i
+        )
         return match ? { name: match[1], udid: match[2] } : null
       })
       .filter(Boolean)
@@ -156,6 +158,48 @@ const APPIUM_DOWN = (host, port) =>
   `\nNothing is listening on ${host}:${port}, so Appium is not up.\n\n` +
   `  appium --address ${host} --port ${port}\n`
 
+/** The simulator to drive, as capabilities.
+ *
+ *  Always a udid, never a bare name. Naming a simulator that does not exist
+ *  does NOT fail: the XCUITest driver CREATES it (`appiumTest-<uuid>-<name>`)
+ *  and boots it, every run, beside the one already running. So an unmatched
+ *  `IOS_DEVICE_NAME` is refused here rather than passed through — a typo would
+ *  otherwise pass the preflight (which only asks whether SOME simulator is
+ *  booted) and quietly leave a new simulator behind on every run.
+ *
+ *  Defaults to whatever is already booted, the iOS counterpart of attaching to
+ *  the running Android emulator. `IOS_UDID` names one outright and is not
+ *  checked against the booted list, so a remote or freshly created device can
+ *  still be targeted deliberately. */
+function resolveIosDevice() {
+  if (process.env.IOS_UDID) {
+    return { 'appium:udid': process.env.IOS_UDID }
+  }
+  const booted = bootedSimulators() ?? []
+  const wanted = process.env.IOS_DEVICE_NAME
+  if (!booted.length) {
+    throw new Error(
+      'No iOS simulator is booted.\n' +
+        '  xcrun simctl list devices available\n' +
+        '  xcrun simctl boot "<device name>"'
+    )
+  }
+  const names = booted.map((device) => device.name).join(', ')
+  if (wanted) {
+    const match = booted.find((device) => device.name === wanted)
+    if (!match) {
+      throw new Error(
+        `IOS_DEVICE_NAME="${wanted}" is not booted, and naming a simulator ` +
+          'that does not exist makes Appium create one rather than fail.\n' +
+          `  booted now: ${names}\n` +
+          '  boot it first, or set IOS_UDID to target it deliberately.'
+      )
+    }
+    return { 'appium:udid': match.udid, 'appium:deviceName': match.name }
+  }
+  return { 'appium:udid': booted[0].udid, 'appium:deviceName': booted[0].name }
+}
+
 /**
  * Print what is missing and exit, or return quietly. Exits rather than throws:
  * a thrown error inside a framework hook is reported as a test failure, which
@@ -165,11 +209,6 @@ async function requireMobileToolchain({
   host = process.env.APPIUM_HOST ?? '127.0.0.1',
   port = Number(process.env.APPIUM_PORT ?? 4723)
 } = {}) {
-  // Every check below is Android's, and so is every example flow: they drive
-  // the Clock app through UiAutomator resource-ids. The capability builders
-  // can still shape an XCUITest session, but no example has an iOS BODY — it
-  // would activate the Android package and then look for Android ids. Say so
-  // here rather than letting the run reach a lookup that cannot match.
   if (process.env.DEVTOOLS_MOBILE_PLATFORM === 'ios') {
     // iOS has its own toolchain, so none of the Android checks below apply:
     // they look for ANDROID_HOME and an adb device, and a correctly set up
@@ -274,5 +313,6 @@ module.exports = {
   requireMobileToolchain,
   appiumReady,
   adbDevices,
-  bootedSimulators
+  bootedSimulators,
+  resolveIosDevice
 }
