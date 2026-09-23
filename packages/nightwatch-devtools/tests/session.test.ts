@@ -227,6 +227,7 @@ describe('SessionCapturer.captureNetworkFromPerformanceLogs', () => {
       getLog: vi.fn(async () => [perfMessage, finishMessage, loadingFinished])
     })
     const cap = makeCapturer(browser)
+    cap.perfLogsRequested = true
     await cap.captureNetworkFromPerformanceLogs(browser)
     expect(cap.networkRequests).toHaveLength(1)
     expect(cap.networkRequests[0]).toMatchObject({
@@ -243,9 +244,22 @@ describe('SessionCapturer.captureNetworkFromPerformanceLogs', () => {
       })
     })
     const cap = makeCapturer(browser)
+    cap.perfLogsRequested = true
     await expect(
       cap.captureNetworkFromPerformanceLogs(browser)
     ).resolves.toBeUndefined()
+  })
+
+  // A perf log exists only because the session asked for one, so without the
+  // capability the fetch can only fail — once per command, each failure printed
+  // by the driver's own transport. Measured on iOS Safari: 21 error blocks in a
+  // two-test run that passed.
+  it('does not fetch when the session asked for no perf log', async () => {
+    const getLog = vi.fn()
+    const browser = makeMockBrowser({ getLog })
+    const cap = makeCapturer(browser)
+    await cap.captureNetworkFromPerformanceLogs(browser)
+    expect(getLog).not.toHaveBeenCalled()
   })
 })
 
@@ -395,6 +409,7 @@ describe('SessionCapturer.captureTrace', () => {
       transport: { settings: { webdriver: { host: '127.0.0.1', port } } }
     })
     const cap = makeCapturer(browser)
+    cap.perfLogsRequested = true
     try {
       await cap.captureTrace(browser)
       // A `null` payload also sends the drain through its recovery probes, so
