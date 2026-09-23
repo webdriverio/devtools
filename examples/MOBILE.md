@@ -177,8 +177,8 @@ points at itself:
 | `DEVTOOLS_MOBILE`                          | `native`             | `web` drives Chrome on the device instead of an app                           |
 | `APPIUM_APP`                               | —                    | path to an `.apk`/`.app` to drive instead of Clock                            |
 | `APPIUM_HOST` / `APPIUM_PORT`              | `127.0.0.1` / `4723` | where Appium is listening                                                     |
-| `DEVTOOLS_MOBILE_PLATFORM`                 | `android`            | `ios` is **not supported** — the examples are Android-only, see below         |
-| `IOS_DEVICE_NAME` / `IOS_PLATFORM_VERSION` | `iPhone 15` / —      | read by the capability builders only; no example has an iOS flow to use them  |
+| `DEVTOOLS_MOBILE_PLATFORM`                 | `android`            | `ios` runs the iOS spec, in every adapter — see below                         |
+| `IOS_DEVICE_NAME` / `IOS_PLATFORM_VERSION` | `iPhone 15` / —      | which simulator to drive; per-machine, see `xcrun simctl list devices`        |
 
 ```sh
 DEVTOOLS_MOBILE=web pnpm demo:nightwatch:mobile     # mobile web, not an app
@@ -329,18 +329,64 @@ failed`, `BiDi preload unavailable`, `BiDi NetworkInspector attach failed`).
   session-scoped slice, so the config asks for `session` granularity rather
   than pretending otherwise. See CLAUDE.md § Known debt.
 
-## iOS is not supported
+## iOS
 
-`DEVTOOLS_MOBILE_PLATFORM=ios` exits immediately, with the reason. The
-capability builders can shape an XCUITest session against the simulator's Clock
-app (`com.apple.mobiletimer`), and that part is real — but **no example has an
-iOS body**. Every flow drives Android's Clock through UiAutomator resource-ids,
-which XCUITest cannot resolve, so an iOS run would build a session and then fail
-on its first lookup.
+```sh
+DEVTOOLS_MOBILE_PLATFORM=ios pnpm demo:wdio:mobile
+```
 
-Adding iOS means a flow and selectors per example, not new plumbing. It is left
-out rather than half-advertised: a switch that builds a session and then cannot
-find anything is worse than one that says no.
+**All four adapters.** Each has an `android/` and an `ios/` spec directory, and
+the runner picks between them — no branch inside a spec, because the two
+platforms share no selectors.
+
+iOS drives **Settings**, not Clock, because Clock is not installed on the
+simulator at all — `xcrun simctl listapps` lists Settings, Calendar, Reminders,
+Maps and Safari, and no `com.apple.mobiletimer`. Settings is on every simulator
+and every device, which is the same property that makes Clock the Android
+choice. The flow navigates into General and back, checking the navigation bar
+title each way: the same shape as Android's keypad flow — change state, read it
+back — with the app the platform actually ships.
+
+The two are **separate specs**, not one spec with a branch, because they share
+no selectors: iOS locators are accessibility ids and labels rather than
+resource-ids.
+
+```
+examples/wdio/mobile/specs/
+├── android/clock.e2e.ts
+└── ios/settings.e2e.ts
+```
+
+**What you need**, beyond the Android prerequisites (none of which iOS uses):
+
+1. **Xcode** — the Command Line Tools alone ship no simulators:
+   ```sh
+   sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+   sudo xcodebuild -runFirstLaunch
+   ```
+2. **A simulator runtime**, a separate ~8 GB download even once Xcode is in:
+   ```sh
+   xcodebuild -downloadPlatform iOS
+   ```
+3. **A booted simulator** — the preflight checks for one and says so if none:
+   ```sh
+   xcrun simctl list devices available
+   xcrun simctl boot "iPhone 17 Pro"
+   ```
+4. **The XCUITest driver**; its first run also builds WebDriverAgent, once:
+   ```sh
+   appium driver install xcuitest
+   ```
+
+Two things that cost a debugging round each. Appium loads drivers at **startup**,
+so a server that was already running when you installed `xcuitest` reports
+"Could not find a driver for automationName 'XCUITest'" — restart it. And the
+navigation bar's back button carries the **parent page's** title as its
+accessibility id, so tapping `~Settings` from General opens whichever row shares
+that name (measured: it opened About). The spec navigates back through the stack
+instead.
+
+**VERIFIED ON:** iOS Simulator `iPhone 17 Pro`, iOS 26.5 (23F77), Xcode 26.
 
 ## What to look for
 

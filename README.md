@@ -387,6 +387,7 @@ pnpm demo:wdio        # or: pnpm demo:nightwatch / pnpm demo:selenium
 # examples/MOBILE.md.
 pnpm demo:wdio:mobile             # or :selenium:mobile / :nightwatch:mobile / :python:mobile
 DEVTOOLS_MODE=trace pnpm demo:wdio:mobile   # trace instead of live
+DEVTOOLS_MOBILE_PLATFORM=ios pnpm demo:wdio:mobile   # iOS simulator (any adapter)
 ```
 
 See **[CONTRIBUTING.md](./CONTRIBUTING.md)** for the full contributor workflow and **[ARCHITECTURE.md](./ARCHITECTURE.md)** for where each piece lives.

@@ -60,6 +60,22 @@ Each checks the toolchain before opening a session, through the shared
 [`mobile-preflight.cjs`](./mobile-preflight.cjs), because none of the four
 frameworks reports a missing Appium in a way that names the cause.
 
+`DEVTOOLS_MOBILE_PLATFORM=ios` runs the iOS spec instead, in every adapter. iOS
+drives **Settings**, because the simulator ships no Clock app at all, and lives
+in its own spec rather than a branch: the two platforms share no selectors.
+
+```
+examples/wdio/mobile/specs/android|ios/
+examples/nightwatch/mobile/android|ios/
+examples/selenium-js/mobile/android|ios/
+examples/selenium-py/mobile/android|ios/
+```
+
+The simulator is chosen by **udid**, defaulting to whichever is already booted.
+Naming one that does not exist does not fail — the XCUITest driver creates and
+boots it, every run — so `IOS_DEVICE_NAME` only picks among booted devices and
+`IOS_UDID` names one outright.
+
 [MOBILE.md](./MOBILE.md) has the prerequisites and the switches.
 
 ## Per-adapter notes
