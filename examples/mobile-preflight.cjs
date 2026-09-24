@@ -169,14 +169,24 @@ const APPIUM_DOWN = (host, port) =>
  *
  *  Defaults to whatever is already booted, the iOS counterpart of attaching to
  *  the running Android emulator. `IOS_UDID` names one outright and is not
- *  checked against the booted list, so a remote or freshly created device can
- *  still be targeted deliberately. */
-function resolveIosDevice() {
+ *  checked against the booted list, so a remote device, a real one, or a
+ *  freshly created simulator can still be targeted deliberately.
+ *
+ *  All of that is LOCAL policy. A remote or cloud Appium drives devices this
+ *  machine cannot enumerate — `xcrun simctl` lists local simulators and nothing
+ *  else — and naming one is how such a service selects it, so a name is passed
+ *  straight through there rather than checked against a list it is not in. */
+function resolveIosDevice({
+  host = process.env.APPIUM_HOST ?? '127.0.0.1'
+} = {}) {
   if (process.env.IOS_UDID) {
     return { 'appium:udid': process.env.IOS_UDID }
   }
-  const booted = bootedSimulators() ?? []
   const wanted = process.env.IOS_DEVICE_NAME
+  if (!LOCAL_HOSTS.has(host)) {
+    return wanted ? { 'appium:deviceName': wanted } : {}
+  }
+  const booted = bootedSimulators() ?? []
   if (!booted.length) {
     throw new Error(
       'No iOS simulator is booted.\n' +
@@ -218,6 +228,14 @@ async function requireMobileToolchain({
       process.exit(1)
     }
     if (!LOCAL_HOSTS.has(host)) {
+      return
+    }
+    // A named device is the caller's own instruction, and `xcrun simctl` lists
+    // local SIMULATORS and nothing else — so a real device plugged into this
+    // machine has no entry here, and requiring one would refuse a run that is
+    // correctly configured. `resolveIosDevice` passes the udid straight through
+    // for the same reason.
+    if (process.env.IOS_UDID) {
       return
     }
     const booted = bootedSimulators()

@@ -43,6 +43,12 @@ const APPIUM = `http://${process.env.APPIUM_HOST ?? '127.0.0.1'}:${
   process.env.APPIUM_PORT ?? 4723
 }`
 
+// An emulator often cannot resolve public DNS (corporate network, VPN), and
+// `10.0.2.2` is its alias for the HOST's localhost — so a page served on this
+// machine is reachable when the internet is not. See examples/MOBILE.md.
+const WEB_URL =
+  process.env.DEVTOOLS_MOBILE_URL ?? 'https://the-internet.herokuapp.com/login'
+
 /** The same bag the other three mobile examples build; see
  *  examples/wdio/mobile/capabilities.ts for the annotated original. */
 function mobileCapabilities() {
@@ -131,10 +137,7 @@ describe('Clock (native)', function () {
     if (isWeb) {
       // A mobile BROWSER session: it has a document, so every page-side call a
       // native session skips must still happen. That contrast is the point.
-      await driver.get(
-        process.env.DEVTOOLS_MOBILE_URL ??
-          'https://the-internet.herokuapp.com/login'
-      )
+      await driver.get(WEB_URL)
       assert.ok((await driver.getCurrentUrl()).length > 0)
       return
     }
@@ -182,7 +185,7 @@ describe('Clock (native)', function () {
   it('captures a second action on the same session', async function () {
     // A second test, so `traceGranularity: 'test'` has two slices to key.
     if (isWeb) {
-      await driver.get('https://the-internet.herokuapp.com/')
+      await driver.get(WEB_URL)
       assert.match(await driver.getCurrentUrl(), /herokuapp\.com/)
       return
     }

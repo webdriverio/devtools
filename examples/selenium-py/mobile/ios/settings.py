@@ -45,10 +45,12 @@ IS_WEB = os.environ.get("DEVTOOLS_MOBILE") == "web"
 WEB_URL = os.environ.get(
     "DEVTOOLS_MOBILE_URL", "https://the-internet.herokuapp.com/login"
 )
-APPIUM = "http://%s:%s" % (
-    os.environ.get("APPIUM_HOST", "127.0.0.1"),
-    os.environ.get("APPIUM_PORT", "4723"),
-)
+APPIUM_HOST = os.environ.get("APPIUM_HOST", "127.0.0.1")
+APPIUM = "http://%s:%s" % (APPIUM_HOST, os.environ.get("APPIUM_PORT", "4723"))
+# Hosts whose devices this machine is expected to be able to see. A remote or
+# cloud Appium drives devices `xcrun simctl` cannot enumerate, so the local
+# checks below do not apply to it. Mirrors LOCAL_HOSTS in mobile-preflight.cjs.
+LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1", "0.0.0.0"}
 
 
 def booted_simulators():
@@ -81,14 +83,21 @@ def ios_device():
     leave a new simulator behind on every run.
 
     Defaults to whatever is already booted. IOS_UDID names one outright and is
-    not checked against the booted list, so a remote or freshly created device
-    can still be targeted deliberately. This mirrors `resolveIosDevice` in
+    not checked against the booted list, so a remote device, a real one, or a
+    freshly created simulator can still be targeted deliberately.
+
+    All of that is LOCAL policy. A remote or cloud Appium drives devices this
+    machine cannot enumerate -- `xcrun simctl` lists local simulators and
+    nothing else -- and naming one is how such a service selects it, so a name
+    is passed straight through there. This mirrors `resolveIosDevice` in
     examples/mobile-preflight.cjs, which the three JS examples share.
     """
     if os.environ.get("IOS_UDID"):
         return {"appium:udid": os.environ["IOS_UDID"]}
-    booted = booted_simulators()
     wanted = os.environ.get("IOS_DEVICE_NAME")
+    if APPIUM_HOST not in LOCAL_HOSTS:
+        return {"appium:deviceName": wanted} if wanted else {}
+    booted = booted_simulators()
     if not booted:
         raise SystemExit(
             "\nNo iOS simulator is booted.\n"
@@ -109,8 +118,44 @@ def ios_device():
     return {"appium:udid": booted[0][1], "appium:deviceName": booted[0][0]}
 
 
+def require_appium():
+    """Appium answering, or say so and stop. `/status` is unauthenticated and
+    cheap. Without this a server that is down arrives as a urllib stack trace
+    from inside the client, which names neither the cause nor the fix -- the
+    same reason the JS examples share examples/mobile-preflight.cjs."""
+    import urllib.error
+    import urllib.request
+
+    try:
+        with urllib.request.urlopen("%s/status" % APPIUM, timeout=2.5) as res:
+            if res.status == 200:
+                return
+    except (urllib.error.URLError, OSError):
+        pass
+    raise SystemExit(
+        "\nNothing is listening on %s, so Appium is not up.\n\n"
+        "  appium --address %s --port %s\n\n"
+        "iOS also needs the XCUITest driver, and Appium loads drivers at\n"
+        "STARTUP -- so install it before starting the server:\n\n"
+        "  appium driver install xcuitest\n"
+        % (
+            APPIUM,
+            APPIUM_HOST,
+            os.environ.get("APPIUM_PORT", "4723"),
+        )
+    )
+
+
 def require_simulator():
-    """A booted simulator, or say what is missing and stop."""
+    """A booted simulator, or say what is missing and stop.
+
+    Skipped when the run names a device outright or drives a remote Appium:
+    IOS_UDID may name a real device or one this machine cannot see at all, and
+    `xcrun simctl` lists local simulators and nothing else -- so requiring one
+    would refuse a run that is correctly configured.
+    """
+    if os.environ.get("IOS_UDID") or APPIUM_HOST not in LOCAL_HOSTS:
+        return
     if not booted_simulators():
         raise SystemExit(
             "\nNo iOS simulator is booted, so there is nothing to drive.\n\n"
@@ -143,6 +188,7 @@ def capabilities():
     return base
 
 
+require_appium()
 require_simulator()
 
 # Trace by default, matching the desktop demos. The Python adapter takes a
