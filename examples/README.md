@@ -74,9 +74,10 @@ examples/selenium-py/mobile/android|ios/
 
 The simulator is chosen by **udid**, defaulting to whichever is already booted.
 Naming one that does not exist does not fail — the XCUITest driver creates and
-boots it, every run — so `IOS_DEVICE_NAME` only picks among booted devices, an
-unmatched name is refused rather than passed through, and `IOS_UDID` names one
-outright.
+boots it, every run — so `IOS_DEVICE_NAME` only picks among booted devices and
+an unmatched name is refused rather than passed through. That is local policy:
+`IOS_UDID` names a device outright (a real one has no `simctl` entry to match),
+and against a remote Appium a name is passed straight through.
 
 [MOBILE.md](./MOBILE.md) has the prerequisites and the switches.
 

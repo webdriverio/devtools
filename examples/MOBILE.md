@@ -370,8 +370,15 @@ one that does not exist does not fail — the XCUITest driver *creates*
 `appiumTest-<uuid>-<name>` and boots it, every run, beside the simulator already
 running. So the examples default to whichever simulator is already booted, and
 an `IOS_DEVICE_NAME` that matches none of them is refused with the booted list
-rather than passed through. `IOS_UDID` overrides both and is checked against
-nothing.
+rather than passed through.
+
+All of that is **local** policy, and two things opt out of it. `IOS_UDID` names
+a device outright and is checked against nothing: `xcrun simctl` lists local
+simulators and nothing else, so a real device plugged into this machine has no
+entry to match. And against a **remote or cloud Appium** (`APPIUM_HOST` set to
+anything but localhost) an `IOS_DEVICE_NAME` is passed straight through — naming
+a device is how such a service selects one, and the create-it-silently behaviour
+that the refusal exists to prevent is the local driver's, not theirs.
 
 **What you need**, beyond the Android prerequisites (none of which iOS uses):
 
