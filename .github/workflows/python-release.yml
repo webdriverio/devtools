@@ -2,7 +2,7 @@ name: Manual PyPI Publish
 
 # Mirrors release.yml's manual, button-triggered shape for the Python adapter.
 # Unlike npm (NPM_TOKEN), PyPI uses trusted publishing (OIDC) — no secret.
-# Bump the version in packages/selenium-devtools-py/pyproject.toml before running.
+# Bump `__version__` in src/selenium_devtools/__init__.py before running.
 
 on:
   workflow_dispatch:
@@ -20,25 +20,63 @@ defaults:
   run:
     working-directory: packages/selenium-devtools-py
 
+# A version uploads once, so an overlapping run fails on the winner's upload.
+concurrency:
+  group: python-release-${{ inputs.target }}
+  cancel-in-progress: false
+
 jobs:
   release:
     runs-on: ubuntu-latest
     environment: ${{ inputs.target }}
     permissions:
       id-token: write # PyPI trusted publishing (OIDC) — no token/secret needed
+      contents: write # commits the version bump and tags the published tree
     steps:
+      # main, and with history: the release DECIDES the version by consuming
+      # `changes/`, then commits and tags the result. A tag cannot be the input
+      # to that, because it would have to name a version nothing has computed
+      # yet — so `py-v<version>` is an output, pointing at exactly the tree that
+      # was published.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: 'main'
+          fetch-depth: 0
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.12'
-      - name: 🧪 Unit tests (release guard)
-        run: PYTHONPATH=src python -m unittest discover -s tests
-      - name: 📦 Build sdist + wheel
+      # Consumes changes/ — bumps `__version__` by the strongest level pending
+      # and writes the changelog section. On testpypi it stays in the working
+      # tree so a dry run builds the real next artifact without spending the
+      # fragments; only a pypi release commits it below.
+      - name: Apply pending change fragments
+        run: python scripts/changes.py apply
+      # Before the build, because the alternative is finding out from twine's
+      # 400 once the checks have already run. Also what refuses a release with
+      # no fragments and nothing new to say: the version would be unchanged and
+      # therefore already published.
+      - name: Version is not already on the index
+        env:
+          INDEX_HOST: ${{ inputs.target == 'testpypi' && 'test.pypi.org' || 'pypi.org' }}
         run: |
-          python -m pip install --upgrade build
-          python -m build
+          VERSION=$(sed -n 's/^__version__ = "\(.*\)"$/\1/p' src/selenium_devtools/__init__.py)
+          if [ -z "$VERSION" ]; then
+            echo "::error::could not read __version__ from src/selenium_devtools/__init__.py"
+            exit 1
+          fi
+          CODE=$(curl -sS -o /dev/null -w '%{http_code}' \
+            "https://$INDEX_HOST/pypi/selenium-devtools-py/$VERSION/json")
+          if [ "$CODE" = "200" ]; then
+            echo "::error::selenium-devtools-py $VERSION is already on $INDEX_HOST — a version uploads once, so bump __version__"
+            exit 1
+          fi
+          echo "$VERSION is free on $INDEX_HOST (HTTP $CODE)"
+      - uses: ./.github/actions/python-package
+      # The pinned backend is the one a `pip install` user runs, and an older
+      # one serves none of the adapter's routes and scopes while leaving the run
+      # green, so this refuses the publish rather than the merge.
+      - name: Pinned backend serves this adapter's contract
+        run: python scripts/check_backend_pin.py
       - name: 🚀 Publish to PyPI
         if: ${{ inputs.target == 'pypi' }}
         uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
@@ -50,3 +88,22 @@ jobs:
         with:
           packages-dir: packages/selenium-devtools-py/dist
           repository-url: https://test.pypi.org/legacy/
+
+      # After the publish, so main never claims a release that did not happen.
+      # A dry run reaches none of this: its bump stays in the runner's tree and
+      # the fragments live on for the real release to spend.
+      - name: Record the release
+        if: ${{ inputs.target == 'pypi' }}
+        run: |
+          VERSION=$(sed -n 's/^__version__ = "\(.*\)"$/\1/p' src/selenium_devtools/__init__.py)
+          git config user.email "bot@webdriver.io"
+          git config user.name "WebdriverIO Release Bot"
+          git add src/selenium_devtools/__init__.py CHANGELOG.md changes/
+          if git diff --cached --quiet; then
+            echo "no version change to record"
+            exit 0
+          fi
+          git commit -m "chore(selenium-devtools-py): release $VERSION"
+          git tag "py-v$VERSION"
+          git push origin HEAD:main
+          git push origin "py-v$VERSION"

@@ -490,15 +490,29 @@ DEVTOOLS_PORT=3000 PYTHONPATH=src pytest e2e/test_smoke.py -p selenium_devtools.
 Two workflows, mirroring the JS split (`ci.yml` tests / `release.yml` publish):
 
 - **`python.yml`** — runs on PRs + pushes touching this package or `shared`:
-  unit tests on Python 3.10 + 3.13, and a contract-drift check (regenerate
-  `_contract.py`, fail on any diff). Zero repo config needed.
+  unit tests on Python 3.10 + 3.13, a contract-drift check (regenerate
+  `_contract.py`, fail on any diff), and a build + `twine check --strict` so a
+  packaging mistake surfaces on the PR rather than under the publish button.
+  Zero repo config needed.
 - **`python-release.yml`** — **manual** (`workflow_dispatch`, like the JS
-  "Manual NPM Publish"), target `pypi` or `testpypi`. Builds the sdist + wheel
-  and publishes via **trusted publishing (OIDC)** — no token/secret.
+  "Manual NPM Publish"), target `pypi` or `testpypi`. Runs the same four checks,
+  then publishes via **trusted publishing (OIDC)** — no token/secret.
 
 The wheel does **not** bundle the backend — approach A fetches a pinned
 `@wdio/devtools-backend` via `npx` at runtime (Node 18+ required). Bundling it
 (approach B/C) is a GA-time change.
+
+That pin is the one thing a release here cannot get wrong, because it is the
+backend every published install runs — nobody who typed `pip install` has the
+monorepo's `dist/server.js`. A pin older than the routes and scopes the adapter
+sends is not a stale number but a feature shipped dead, and dead quietly: a
+missing collector settles as "DOM replay disabled" and an unanswered
+`traceExport` times out, both leaving the run green. `scripts/check_backend_pin.py`
+downloads the pinned version from npm and fails the release if its `dist/` does
+not carry every contract literal. **So the npm release comes first**: publish the
+backend, take the pin bump it opens as a PR (`release.yml` raises
+`BACKEND_NPM_VERSION` whenever a `latest` release leaves it behind), then publish
+here.
 
 **One-time setup before the first publish** (this is what claims the PyPI name):
 
@@ -509,8 +523,21 @@ The wheel does **not** bundle the backend — approach A fetches a pinned
 2. Create matching GitHub **Environments** `pypi` (and `testpypi`).
 3. Run the workflow — the first successful publish creates and claims the name.
 
-Each release: bump `version` in `pyproject.toml`, then run the workflow (PyPI
-rejects re-uploading an existing version).
+Each release: run the workflow. It consumes the fragments in `changes/`, takes
+the strongest bump level pending, rewrites `__version__` in
+`src/selenium_devtools/__init__.py` (the only place a version is written —
+`pyproject.toml` reads it through `dynamic`), writes the `CHANGELOG.md` section,
+publishes, then commits the result and tags `py-v<version>`. Nothing is
+hand-versioned.
+
+Every change to `src/` needs a fragment; CI refuses a branch without one. See
+[`changes/README.md`](./changes/README.md) for the format, and
+`scripts/changes.py next-version` for what a release would publish. Changesets
+cannot do this job — it reads the pnpm workspace, which this package is not in,
+and a changeset naming it fails the npm release for every other package.
+
+A `testpypi` run bumps in the runner's tree only: the fragments survive, so a
+dry run never spends them.
 
 ## Roadmap
 
@@ -519,12 +546,9 @@ per-command screenshots and selectors, performance timings, run controls
 (Run / Rerun / Run-all) and Preserve & Rerun are all done — see the sections
 above. What the JavaScript adapters have and this one does not:
 
-- **Trace slicing and retention.** A run produces one archive; there is no
-  `traceGranularity` (session / spec / test) and no `tracePolicy`
-  (`retain-on-failure` and friends). Per-test slicing needs boundaries only the
-  adapter knows, and the backend's accumulator is run-scoped.
 - **Per-test artifacts.** No `screenshot` / `video` options and no Allure
-  attachment; those are per-test-slice features and follow the item above.
+  attachment. The policy types and the slicing they key off exist; what is
+  missing is producing the artifacts and handing them to a reporter.
 - **Shared capture code.** The adapter reimplements the wire producers rather
   than calling `core`, which is what
   [#278](https://github.com/webdriverio/devtools/issues/278) exists to address.

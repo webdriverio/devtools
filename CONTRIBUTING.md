@@ -82,11 +82,29 @@ Then pick:
 
 Commit the generated `.changeset/*.md` with your change. You don't edit `CHANGELOG.md` or version numbers — the release generates those from your changeset. Publishing itself is a **manual step a maintainer runs** (the "Manual NPM Publish" GitHub Action), so your job ends at landing the changeset.
 
+### The Python adapter has its own
+
+**If your change touches `packages/selenium-devtools-py/src/`, add a change fragment** — a file under `packages/selenium-devtools-py/changes/`:
+
+```md
+---
+minor
+---
+
+Serve the page collector from the backend, so DOM replay works from a published install.
+```
+
+The frontmatter is the bump level alone (`patch`, `minor`, `major`); the body is what a user reading the changelog needs to know. CI refuses a branch that changes `src/` and documents nothing. As with changesets you don't edit the version or `CHANGELOG.md` — the release consumes the fragments, takes the strongest level pending, bumps `__version__`, writes the changelog section and tags `py-v<version>`.
+
+```bash
+python3 packages/selenium-devtools-py/scripts/changes.py next-version   # what a release would publish
+```
+
 ## Before you push
 
 - `pnpm build`, `pnpm test`, and `pnpm lint` all green — don't push red.
 - UI / runtime changes verified in `examples/<framework>/`.
-- A changeset added if a published package changed (`pnpm changeset`).
+- A changeset added if a published package changed (`pnpm changeset`), or a change fragment under `packages/selenium-devtools-py/changes/` if the Python adapter's `src/` changed.
 - User-facing changes (a new option, CLI, flag, output, or workflow) update the relevant README **and** are mirrored to the [WebdriverIO devtools webpage](https://webdriver.io/docs/devtools) in the same change.
 
 ## Pull requests

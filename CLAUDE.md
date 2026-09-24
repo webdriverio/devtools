@@ -28,6 +28,7 @@ Run from repo root unless noted.
 | `pnpm lint` | Lint all packages in parallel. Includes `eslint-plugin-security` for a subset of CodeQL findings; deeper taint-flow checks surface on the PR's CodeQL scan. |
 | `pnpm demo:wdio` / `pnpm demo:nightwatch` / `pnpm demo:selenium` | Run the per-framework example projects. Useful for manual verification of UI or runtime changes. |
 | `pnpm dev` | Run all packages in parallel dev mode. |
+| `python3 packages/selenium-devtools-py/scripts/changes.py next-version` | The version a Python-adapter release would publish, from the fragments pending in `changes/`. `check --base <ref>` is the CI gate; `apply` is what the release runs. |
 
 `selenium-devtools` exposes per-runner variants of its example via `pnpm --filter @wdio/selenium-devtools example:mocha` / `:mocha:allure` / `:jest` / `:cucumber`.
 
@@ -223,8 +224,20 @@ When the right place is ambiguous (something between `shared` and `core`, or bet
 ### Before pushing
 
 - `pnpm build`, `pnpm test`, `pnpm lint`. Don't push red.
+- A changeset for a published npm package, or a `changes/` fragment for the Python adapter — see § Releasing a change.
 - For UI or runtime changes: verify in `examples/<framework>/`.
 - Deeper security findings (taint flow, polynomial-redos with adjacent quantifiers) surface on the PR's CodeQL scan; review and fix those before merge.
+
+### Releasing a change
+
+Two mechanisms, and the Python one exists because the npm one cannot reach it. Changesets discovers packages through the pnpm workspace and identifies them by `package.json`; `packages/selenium-devtools-py` is in neither, so a changeset naming `selenium-devtools-py` does not degrade — it raises "not in the workspace", fails `changeset version`, and takes the npm release for every other package down with it.
+
+- **Published npm package changed** → `pnpm changeset`, committed as `.changeset/*.md`.
+- **`packages/selenium-devtools-py/src/` changed** → a fragment under `packages/selenium-devtools-py/changes/`, frontmatter carrying the bump level alone (`patch`/`minor`/`major`). `python.yml` refuses a branch that changes `src/` and documents nothing; a fragment or a direct `CHANGELOG.md` edit satisfies it, the latter because before the first release there is nothing to bump from and the pending entry IS the changelog section.
+
+Neither is hand-versioned: both assemble the version and the changelog at release. The Python release additionally consumes its fragments, bumps `__version__` (the single source — `pyproject.toml` reads it via `dynamic = ["version"]`), and tags `py-v<version>` **after** a successful publish, so the tag is an output pointing at the published tree rather than an input naming a version nothing has computed yet.
+
+`BACKEND_NPM_VERSION` is the backend a `pip install` user actually runs, so the npm release goes first; `release.yml` opens the pin bump as a PR, and `scripts/check_backend_pin.py` refuses a PyPI publish whose pinned backend cannot serve the contract.
 
 ### Commits
 

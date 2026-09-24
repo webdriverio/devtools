@@ -1,0 +1,46 @@
+name: Python package checks
+description: Install, test and build the Python adapter — the checks CI and the release share.
+
+# One definition because both callers must agree. Running the release guard
+# weaker than CI is the failure this replaces: it used to test without
+# installing, and the tests that pin selenium's BiDi surface skip when selenium
+# is absent, so a bump that moved those internals passed the guard and degraded
+# at runtime.
+
+inputs:
+  working-directory:
+    description: The package root.
+    required: false
+    default: packages/selenium-devtools-py
+
+runs:
+  using: composite
+  steps:
+    # Every step names the directory: a composite action does not inherit the
+    # caller's `defaults.run.working-directory`.
+    - name: Install the adapter and its runtime dependency
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: pip install -e '.[test]'
+
+    - name: Contract is in sync with shared
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        python scripts/gen_contract.py
+        git diff --exit-code src/selenium_devtools/_contract.py
+
+    - name: 🧪 Unit tests
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: PYTHONPATH=src python -m unittest discover -s tests
+
+    # Packaging used to be exercised for the first time at release, where a
+    # broken `pyproject.toml` surfaces with the publish button already pressed.
+    - name: 📦 Build sdist + wheel
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        python -m pip install --upgrade build twine
+        python -m build
+        twine check --strict dist/*

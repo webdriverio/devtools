@@ -20,18 +20,16 @@ on:
       - packages/selenium-devtools-py/**
       - packages/shared/src/**
       - .github/workflows/python.yml
+      - .github/actions/python-package/**
   pull_request:
     paths:
       - packages/selenium-devtools-py/**
       - packages/shared/src/**
       - .github/workflows/python.yml
+      - .github/actions/python-package/**
 
 permissions:
   contents: read
-
-defaults:
-  run:
-    working-directory: packages/selenium-devtools-py
 
 jobs:
   test:
@@ -42,20 +40,27 @@ jobs:
         # 4.44 requires it, and network capture requires 4.44+.
         python-version: ['3.10', '3.13']
     steps:
+      # Full history: the change-fragment gate diffs this branch against the
+      # base, which a depth-1 checkout cannot see.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: ${{ matrix.python-version }}
-      # selenium is the adapter's only runtime dependency, and the tests that
-      # pin its BiDi surface (tests/test_selenium_surface.py) skip without it —
-      # so a bump that moved those internals used to pass CI green and degrade
-      # at runtime. Installing the package is what makes those guards real.
-      - name: Install the adapter and its runtime dependency
-        run: pip install -e '.[test]'
-
-      - name: Contract is in sync with shared
-        run: |
-          python scripts/gen_contract.py
-          git diff --exit-code src/selenium_devtools/_contract.py
-      - name: 🧪 Unit tests
-        run: PYTHONPATH=src python -m unittest discover -s tests
+      # A source change with no fragment is a release that cannot describe
+      # itself, and the version it would ship is decided by these files.
+      - name: Source changes carry a change fragment
+        if: github.event_name == 'pull_request'
+        working-directory: packages/selenium-devtools-py
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: python scripts/changes.py check --base "origin/$BASE_REF"
+      - uses: ./.github/actions/python-package
+      # The pin is the backend a `pip install` user actually runs, and the drift
+      # check above cannot see it: that compares `_contract.py` against shared,
+      # this compares it against the tarball npm serves. Red here means the next
+      # PyPI release would ship features the pinned backend cannot answer.
+      - name: Pinned backend serves this adapter's contract
+        working-directory: packages/selenium-devtools-py
+        run: python scripts/check_backend_pin.py
