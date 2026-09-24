@@ -2,7 +2,8 @@ import { describe, it, expect, vi, afterEach } from 'vitest'
 import type * as DevToolsCore from '@wdio/devtools-core'
 import {
   needsCaptureRearm,
-  rearmCaptureForSession
+  rearmCaptureForSession,
+  wantsPerformanceLog
 } from '../src/session-init.js'
 import type { SessionInitCtx } from '../src/session-init.js'
 import type { NightwatchBrowser } from '../src/types.js'
@@ -250,5 +251,30 @@ describe('rearmCaptureForSession', () => {
     const { ctx } = makeCtx()
     rearm(ctx, fakeBrowser('session-1'))
     expect(registerCollectorPreload).not.toHaveBeenCalled()
+  })
+})
+
+// The desktop examples pass `goog:loggingPrefs`, the mobile ones do not, and
+// the answer decides whether every command pays for a fetch that cannot
+// succeed. Read from either side of the pair because Nightwatch echoes the
+// negotiated capabilities on one and the config's own on the other.
+describe('wantsPerformanceLog', () => {
+  it('reads the capability from the negotiated side', () => {
+    expect(
+      wantsPerformanceLog({ 'goog:loggingPrefs': { performance: 'ALL' } }, {})
+    ).toBe(true)
+  })
+
+  it('reads it from the desired side', () => {
+    expect(
+      wantsPerformanceLog({}, { 'goog:loggingPrefs': { performance: 'ALL' } })
+    ).toBe(true)
+  })
+
+  it('is false when neither side asked — a mobile or Safari session', () => {
+    expect(wantsPerformanceLog({}, {})).toBe(false)
+    expect(
+      wantsPerformanceLog({ 'goog:loggingPrefs': { browser: 'ALL' } }, {})
+    ).toBe(false)
   })
 })

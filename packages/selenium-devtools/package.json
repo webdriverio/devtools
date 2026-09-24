@@ -1,7 +1,7 @@
 {
   "name": "@wdio/selenium-devtools",
   "version": "1.5.1",
-  "description": "Selenium WebDriver adapter for WebdriverIO DevTools — runner-agnostic, reuses existing backend, UI, and capture infrastructure",
+  "description": "Selenium WebDriver adapter for WebdriverIO DevTools \u2014 runner-agnostic, reuses existing backend, UI, and capture infrastructure",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -32,10 +32,11 @@
     "lint": "eslint .",
     "prepublishOnly": "pnpm build",
     "example": "pnpm example:cucumber",
-    "example:mocha": "mocha --require @wdio/selenium-devtools --timeout 60000 ../../examples/selenium/mocha-test/test/example.js",
-    "example:mocha:allure": "mocha --require @wdio/selenium-devtools --reporter allure-mocha --reporter-options resultsDir=../../examples/selenium/mocha-test/allure-results --timeout 60000 ../../examples/selenium/mocha-test/test/example.js",
-    "example:jest": "NODE_OPTIONS=--experimental-vm-modules jest --config ../../examples/selenium/jest-test/jest.config.json",
-    "example:cucumber": "cucumber-js --config ../../examples/selenium/cucumber-test/cucumber.json"
+    "example:mocha": "mocha --require @wdio/selenium-devtools --timeout 60000 ../../examples/selenium-js/mocha/example.js",
+    "example:mobile": "mocha --exit --require @wdio/selenium-devtools --timeout 180000 \"../../examples/selenium-js/mobile/${DEVTOOLS_MOBILE_PLATFORM:-android}/\"*.test.js",
+    "example:mocha:allure": "mocha --require @wdio/selenium-devtools --reporter allure-mocha --reporter-options resultsDir=../../examples/selenium-js/mocha/allure-results --timeout 60000 ../../examples/selenium-js/mocha/example.js",
+    "example:jest": "NODE_OPTIONS=--experimental-vm-modules jest --config ../../examples/selenium-js/jest/jest.config.json",
+    "example:cucumber": "cucumber-js --config ../../examples/selenium-js/cucumber/cucumber.json"
   },
   "keywords": [
     "selenium",

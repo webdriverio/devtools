@@ -1,6 +1,8 @@
-// A native Android spec run on its own via `pnpm demo:wdio:native`: no
-// document, no URL, no DOM — the capture path a browser session never
-// exercises. Same flow as the four per-adapter mobile examples.
+// WebdriverIO against Appium, ANDROID. The iOS example is a sibling spec in
+// ../ios — a separate file rather than a branch, because the two platforms
+// ship different apps and share no selectors. The Selenium, Nightwatch and
+// Python examples drive this same flow, so a difference between two
+// dashboards is a difference in the adapter rather than in the test.
 //
 // Drives the Clock app, which ships with every Android system image — no .apk,
 // no upload, no credentials — and uses only the timer SETUP screen: tap the
@@ -73,7 +75,6 @@ describe('Clock (native)', () => {
       expect((await browser.getPageSource()).length).toBeGreaterThan(0)
       return
     }
-
     // Re-activated rather than relying on the launch capability alone, so the
     // spec re-runs against a session left on another screen.
     await browser.execute('mobile: activateApp', { appId: APP_ID })
