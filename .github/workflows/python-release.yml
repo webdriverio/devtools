@@ -113,15 +113,34 @@ jobs:
           # first release has no fragments to consume, so nothing is staged and
           # the older form returned here — publishing a version that then
           # carried no tag, which is the one case the tag exists to cover.
+          committed=false
           if git diff --cached --quiet; then
             echo "nothing to commit; tagging the published tree"
           else
             git commit -m "chore(selenium-devtools-py): release $VERSION"
+            committed=true
+          fi
+
+          # THE tree that was built and uploaded, captured before the rebase
+          # below can exist. Rebasing replays the release commit onto whatever
+          # landed meanwhile, so its tree then carries source the artifact does
+          # not — and a tag on that commit would name a release nobody can
+          # reproduce. Tagged by sha, and tagged first: if main never accepts
+          # the commit, this is still the only honest record of what shipped.
+          release_sha=$(git rev-parse HEAD)
+          if git rev-parse -q --verify "refs/tags/py-v$VERSION" >/dev/null; then
+            echo "py-v$VERSION already exists"
+          else
+            git tag "py-v$VERSION" "$release_sha"
+            git push origin "py-v$VERSION"
+          fi
+
+          if [ "$committed" = true ]; then
             # PyPI has already accepted the upload, so failing to land this
-            # leaves a published version unrecorded and a rerun refused by the
-            # index preflight. Concurrency only serialises this workflow, and
-            # anyone may push to main meanwhile — so rebase onto whatever
-            # arrived and try again rather than giving up on the first reject.
+            # leaves the bump off main and a rerun refused by the index
+            # preflight. Concurrency only serialises this workflow, and anyone
+            # may push to main meanwhile — so rebase onto whatever arrived and
+            # try again rather than giving up on the first reject.
             pushed=false
             for attempt in 1 2 3 4 5; do
               if git push origin HEAD:main; then
@@ -137,14 +156,7 @@ jobs:
               }
             done
             if [ "$pushed" != true ]; then
-              echo "::error::selenium-devtools-py $VERSION is PUBLISHED but its release commit is not on main. Land __version__, CHANGELOG.md and the changes/ deletions by hand before the next release."
+              echo "::error::selenium-devtools-py $VERSION is PUBLISHED and tagged py-v$VERSION ($release_sha), but that commit is not on main. Land its __version__, CHANGELOG.md and changes/ deletions by hand before the next release."
               exit 1
             fi
-          fi
-
-          if git rev-parse -q --verify "refs/tags/py-v$VERSION" >/dev/null; then
-            echo "py-v$VERSION already exists"
-          else
-            git tag "py-v$VERSION"
-            git push origin "py-v$VERSION"
           fi
