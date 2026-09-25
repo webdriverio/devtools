@@ -117,11 +117,14 @@ class CheckTest(unittest.TestCase):
     def setUp(self) -> None:
         self._saved = changes.changed_files
         self._fragments = changes.load_fragments
+        self._released = changes.ever_released
         changes.load_fragments = lambda *a, **k: []
+        changes.ever_released = lambda: False
 
     def tearDown(self) -> None:
         changes.changed_files = self._saved
         changes.load_fragments = self._fragments
+        changes.ever_released = self._released
 
     def _files(self, *paths: str) -> None:
         changes.changed_files = lambda base: list(paths)
@@ -139,13 +142,29 @@ class CheckTest(unittest.TestCase):
         changes.load_fragments = lambda *a, **k: [(Path("a.md"), "patch", "Fixed.")]
         self.assertEqual(changes.check("main"), 0)
 
-    def test_a_changelog_edit_satisfies_it(self) -> None:
-        # The bootstrap case: before the first release the pending entry is the
-        # changelog section itself.
+    def test_a_changelog_edit_satisfies_it_before_the_first_release(self) -> None:
+        # The bootstrap case: the pending entry is the changelog section itself.
         self._files(
             "packages/selenium-devtools-py/src/selenium_devtools/bidi.py",
             "packages/selenium-devtools-py/CHANGELOG.md",
         )
+        self.assertEqual(changes.check("main"), 0)
+
+    def test_a_changelog_edit_stops_satisfying_it_once_released(self) -> None:
+        # After a release the changelog documents but bumps nothing, so the
+        # release would find no fragment and republish a version the index
+        # already holds.
+        changes.ever_released = lambda: True
+        self._files(
+            "packages/selenium-devtools-py/src/selenium_devtools/bidi.py",
+            "packages/selenium-devtools-py/CHANGELOG.md",
+        )
+        self.assertEqual(changes.check("main"), 1)
+
+    def test_a_fragment_still_satisfies_it_once_released(self) -> None:
+        changes.ever_released = lambda: True
+        self._files("packages/selenium-devtools-py/src/selenium_devtools/bidi.py")
+        changes.load_fragments = lambda *a, **k: [(Path("a.md"), "patch", "Fixed.")]
         self.assertEqual(changes.check("main"), 0)
 
     def test_another_package_src_is_not_this_gate_s_business(self) -> None:

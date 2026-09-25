@@ -20,12 +20,14 @@ on:
       - packages/selenium-devtools-py/**
       - packages/shared/src/**
       - .github/workflows/python.yml
+      - .github/workflows/python-release.yml
       - .github/actions/python-package/**
   pull_request:
     paths:
       - packages/selenium-devtools-py/**
       - packages/shared/src/**
       - .github/workflows/python.yml
+      - .github/workflows/python-release.yml
       - .github/actions/python-package/**
 
 permissions:

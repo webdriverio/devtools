@@ -64,13 +64,22 @@ jobs:
             echo "::error::could not read __version__ from src/selenium_devtools/__init__.py"
             exit 1
           fi
-          CODE=$(curl -sS -o /dev/null -w '%{http_code}' \
-            "https://$INDEX_HOST/pypi/selenium-devtools-py/$VERSION/json")
-          if [ "$CODE" = "200" ]; then
-            echo "::error::selenium-devtools-py $VERSION is already on $INDEX_HOST — a version uploads once, so bump __version__"
-            exit 1
-          fi
-          echo "$VERSION is free on $INDEX_HOST (HTTP $CODE)"
+          # Only a 404 is evidence the version is free. Treating "not 200" as
+          # free makes a 5xx or a DNS failure read as availability, which is the
+          # opposite of what this step is for: the preflight would pass on no
+          # information and the duplicate would surface as an upload error.
+          CODE=$(curl -sS --retry 3 --retry-delay 2 --retry-all-errors \
+            -o /dev/null -w '%{http_code}' \
+            "https://$INDEX_HOST/pypi/selenium-devtools-py/$VERSION/json" || echo 000)
+          case "$CODE" in
+            404) echo "$VERSION is free on $INDEX_HOST" ;;
+            200)
+              echo "::error::selenium-devtools-py $VERSION is already on $INDEX_HOST — a version uploads once, so add a change fragment or bump __version__"
+              exit 1 ;;
+            *)
+              echo "::error::$INDEX_HOST answered HTTP $CODE; cannot establish whether $VERSION is free"
+              exit 1 ;;
+          esac
       - uses: ./.github/actions/python-package
       # The pinned backend is the one a `pip install` user runs, and an older
       # one serves none of the adapter's routes and scopes while leaving the run
@@ -99,11 +108,43 @@ jobs:
           git config user.email "bot@webdriver.io"
           git config user.name "WebdriverIO Release Bot"
           git add src/selenium_devtools/__init__.py CHANGELOG.md changes/
+
+          # The tag hangs off the PUBLISH, not off whether files changed. A
+          # first release has no fragments to consume, so nothing is staged and
+          # the older form returned here — publishing a version that then
+          # carried no tag, which is the one case the tag exists to cover.
           if git diff --cached --quiet; then
-            echo "no version change to record"
-            exit 0
+            echo "nothing to commit; tagging the published tree"
+          else
+            git commit -m "chore(selenium-devtools-py): release $VERSION"
+            # PyPI has already accepted the upload, so failing to land this
+            # leaves a published version unrecorded and a rerun refused by the
+            # index preflight. Concurrency only serialises this workflow, and
+            # anyone may push to main meanwhile — so rebase onto whatever
+            # arrived and try again rather than giving up on the first reject.
+            pushed=false
+            for attempt in 1 2 3 4 5; do
+              if git push origin HEAD:main; then
+                pushed=true
+                break
+              fi
+              echo "main moved; rebasing onto it (attempt $attempt)"
+              git fetch origin main
+              git rebase origin/main || {
+                git rebase --abort || true
+                echo "::error::could not rebase the release commit onto main"
+                break
+              }
+            done
+            if [ "$pushed" != true ]; then
+              echo "::error::selenium-devtools-py $VERSION is PUBLISHED but its release commit is not on main. Land __version__, CHANGELOG.md and the changes/ deletions by hand before the next release."
+              exit 1
+            fi
           fi
-          git commit -m "chore(selenium-devtools-py): release $VERSION"
-          git tag "py-v$VERSION"
-          git push origin HEAD:main
-          git push origin "py-v$VERSION"
+
+          if git rev-parse -q --verify "refs/tags/py-v$VERSION" >/dev/null; then
+            echo "py-v$VERSION already exists"
+          else
+            git tag "py-v$VERSION"
+            git push origin "py-v$VERSION"
+          fi

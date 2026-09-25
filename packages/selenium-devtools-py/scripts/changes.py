@@ -168,6 +168,23 @@ def changed_files(base: str) -> list[str]:
     return [line for line in result.stdout.splitlines() if line]
 
 
+def ever_released() -> bool:
+    """Whether a release has ever been published from this tree.
+
+    The release tags `py-v<version>` only after the index has accepted the
+    upload, so the presence of one is the local evidence — no network, and
+    true exactly when a version exists that a later change must bump past.
+    """
+    result = subprocess.run(
+        ["git", "tag", "--list", "py-v*"],
+        capture_output=True,
+        text=True,
+        check=True,
+        cwd=PACKAGE_ROOT,
+    )
+    return bool(result.stdout.strip())
+
+
 def check(base: str) -> int:
     """Refuse a source change that documents nothing."""
     files = changed_files(base)
@@ -179,17 +196,20 @@ def check(base: str) -> int:
     if load_fragments():
         print("src/ changed and a change fragment is present")
         return 0
-    # An edit to the changelog itself also counts. Before the first release
-    # there is nothing to bump from, so the pending entry IS the changelog
-    # section, and a fragment would invent a version nobody publishes.
-    if f"{package}CHANGELOG.md" in files:
-        print("src/ changed and the changelog was edited directly")
+    # Only until the first release. Before it the pending entry IS the
+    # changelog section and a fragment would invent a version nobody
+    # publishes; after it, an edit here documents the change but bumps
+    # nothing, so `apply` finds no fragment and the release republishes a
+    # version the index already has.
+    if not ever_released() and f"{package}CHANGELOG.md" in files:
+        print("src/ changed and the changelog was edited, before any release")
         return 0
     print(
         "::error::this branch changes packages/selenium-devtools-py/src/ but "
-        "documents nothing.\nAdd a fragment under "
-        "packages/selenium-devtools-py/changes/ — see that directory's\nREADME "
-        "— or edit CHANGELOG.md directly. Changed:\n  "
+        "adds no change\nfragment. Add one under "
+        "packages/selenium-devtools-py/changes/ — see that\ndirectory's README. "
+        "It is what decides the next version; editing CHANGELOG.md\nby hand "
+        "documents the change but releases nothing. Changed:\n  "
         + "\n  ".join(touched_src[:10]),
         file=sys.stderr,
     )
