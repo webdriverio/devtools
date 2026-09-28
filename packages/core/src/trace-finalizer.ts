@@ -240,6 +240,17 @@ export async function flushRangeTrace(
   }
   ctx.flushed.add(range.key)
 
+  // A slice is written from whatever the capturer holds RIGHT NOW, and the
+  // adapters' DOM captures are fire-and-forget, so an eager flush has to settle
+  // them or it writes a slice describing a page nobody has read yet. Cheap
+  // where those captures already resolved (a desktop drain is milliseconds),
+  // and load-bearing where they cannot: on Appium every page-side call is a
+  // round trip of hundreds of ms to seconds, so the per-test slice reliably
+  // beat the collector and carried no `trace.mutations` at all. Bounded by the
+  // same timeout the finalizer uses, so a stuck capture delays a test hook
+  // rather than hanging it. Re-awaiting settled promises at finalize is free.
+  await awaitPendingCaptures(ctx)
+
   const isTestSlice = range.testUid !== undefined
   const sliceMetadata = isTestSlice
     ? filterTestMetadataByUid(ctx.testMetadata, range.testUid!)
