@@ -140,24 +140,48 @@ async function settlePending(
   return result
 }
 
+/** Captures that already spent the full timeout without settling. The adapters
+ *  keep ONE run-long list and hand all of it to every flush, so a single wedged
+ *  driver read would otherwise cost each later slice — and each range flushed at
+ *  finalize — the whole ceiling again. One capture gets at most one wait; the
+ *  promises are kept weakly so this never pins a run's worth of them. Promises
+ *  that settled inside that wait are marked too, which costs nothing: awaiting
+ *  a settled promise is free, and skipping it is equally free. */
+const abandonedCaptures = new WeakSet<Promise<unknown>>()
+
 /** Settle in-flight snapshot captures under the timeout cap, warning if the
  *  bound elapses. Never throws; never hangs. */
 async function awaitPendingCaptures(ctx: TraceExportContext): Promise<void> {
-  if (!ctx.awaitPending?.length) {
+  const pending = (ctx.awaitPending ?? []).filter(
+    (capture) => !abandonedCaptures.has(capture)
+  )
+  if (!pending.length) {
     return
   }
-  const timedOut = await settlePending(
-    ctx.awaitPending,
-    PENDING_SETTLE_TIMEOUT_MS
-  )
+  const timedOut = await settlePending(pending, PENDING_SETTLE_TIMEOUT_MS)
   if (timedOut) {
+    for (const capture of pending) {
+      abandonedCaptures.add(capture)
+    }
     ctx.log?.(
       'warn',
-      `One or more of ${ctx.awaitPending.length} snapshot capture(s) did not ` +
+      `One or more of ${pending.length} snapshot capture(s) did not ` +
         `settle within ${PENDING_SETTLE_TIMEOUT_MS}ms; writing trace with the ` +
         'snapshots captured so far.'
     )
   }
+}
+
+/** The range that bounds `range`, read from the adapter's LIVE list — the next
+ *  test's boundary is appended to it as that test starts, so a flush that waited
+ *  sees a bound that did not exist when it began. Identity lookup: every caller
+ *  passes a range it took from this same array. */
+function successorOf(
+  ctx: TraceExportContext,
+  range: SpecRange
+): SpecRange | undefined {
+  const index = ctx.ranges.indexOf(range)
+  return index === -1 ? undefined : ctx.ranges[index + 1]
 }
 
 function sliceCountWarning(count: number): string {
@@ -272,7 +296,14 @@ export async function flushRangeTrace(
   const writeSlice = isTestSlice ? writeTestSliceTrace : writeSpecTrace
   artifact.path = await writeSlice({
     range,
-    nextRange,
+    // Re-resolved AFTER the wait, which can span the start of the next test:
+    // Nightwatch — and Selenium's cucumber hook — start the flush without
+    // awaiting it, and an eager flush is open-ended, so that test's commands
+    // and mutations would land in this test's trace. Its boundary appears in
+    // `ctx.ranges` as it starts, which closes this slice on exactly the bound
+    // that now exists. Freezing indexes before the wait cannot serve: the
+    // captures being waited for append to those same arrays.
+    nextRange: nextRange ?? successorOf(ctx, range),
     capturer: ctx.capturer,
     actionSnapshots: ctx.actionSnapshots ?? [],
     screencastFrames: ctx.screencastFrames,

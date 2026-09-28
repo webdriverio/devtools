@@ -20,6 +20,9 @@ import {
   type TestMetadataMap
 } from '@wdio/devtools-shared'
 
+/** Mirrors the ceiling in trace-finalizer.ts (module-private there). */
+const PENDING_SETTLE_TIMEOUT_MS = 5000
+
 function makeCapturer(commandCount = 4): TraceCapturer {
   return {
     mutations: [],
@@ -616,6 +619,75 @@ describe('flushRangeTrace', () => {
     expect(flushed.size).toBe(0)
     await expect(fs.readdir(outputDir)).resolves.toEqual([])
   })
+
+  // Nightwatch — and Selenium's cucumber hook — start the eager flush without
+  // awaiting it, so the next test can begin while the capture wait runs. An
+  // open-ended slice would then swallow that test's rows.
+  it('closes an open-ended slice on a boundary that appears during the wait', async () => {
+    const capturer = makeCapturer(2)
+    const ranges = [range('/spec.js', 0)]
+    // Resolves only after the "next test" has recorded its boundary and
+    // appended a command — exactly the interleaving being guarded.
+    const capture = Promise.resolve().then(() => {
+      capturer.commandsLog.push({
+        command: 'url',
+        args: ['https://example.test/next-test'],
+        timestamp: 9999,
+        startTime: 9998
+      })
+      ranges.push(range('/spec.js', capturer.commandsLog.length - 1))
+    })
+
+    // ndjson-directory so the slice can be read back as plain files — the
+    // bound being asserted is the same either way.
+    const artifact = await flushRangeTrace(
+      ctx({
+        capturer,
+        ranges,
+        awaitPending: [capture],
+        format: 'ndjson-directory'
+      }),
+      ranges[0]!
+    )
+
+    const written = await fs.readFile(
+      path.join(artifact!.path, 'trace.trace'),
+      'utf8'
+    )
+    expect(written).toContain('https://example.test/0')
+    expect(written).not.toContain('next-test')
+  })
+
+  // The adapters keep one run-long capture list and hand all of it to every
+  // flush, so a wedged driver read must not cost each later slice the ceiling.
+  // Real time, and therefore one real ceiling's worth of it: fake timers also
+  // fake the zip writer's own stream callbacks, so the write never completes.
+  it(
+    'waits on a never-settling capture once, not on every flush',
+    async () => {
+      const stuck = new Promise<void>(() => {})
+      const shared = ctx({ awaitPending: [stuck] })
+
+      const firstStart = Date.now()
+      await flushRangeTrace(
+        { ...shared, flushed: new Set() },
+        range('/a.js', 0)
+      )
+      const firstElapsed = Date.now() - firstStart
+
+      const secondStart = Date.now()
+      await flushRangeTrace(
+        { ...shared, flushed: new Set() },
+        range('/b.js', 0)
+      )
+      const secondElapsed = Date.now() - secondStart
+
+      // The first pays the ceiling; the second must not wait on it again.
+      expect(firstElapsed).toBeGreaterThanOrEqual(PENDING_SETTLE_TIMEOUT_MS)
+      expect(secondElapsed).toBeLessThan(PENDING_SETTLE_TIMEOUT_MS / 2)
+    },
+    PENDING_SETTLE_TIMEOUT_MS * 4
+  )
 
   it('returns undefined for an already-flushed spec', async () => {
     const flushed = new Set<string>(['/spec.js'])
