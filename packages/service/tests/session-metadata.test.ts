@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
+import { SNAPSHOT_DRIVER_PROBE_TIMEOUT_MS } from '@wdio/devtools-core'
+
 import { resolveSessionMetadata } from '../src/session-metadata.js'
 import { TraceType } from '../src/types.js'
 
@@ -131,6 +133,30 @@ describe('resolveSessionMetadata', () => {
     expect('viewport' in metadata).toBe(false)
     expect(metadata.device?.name).toBe('Pixel 7')
     expect(metadata.type).toBe(TraceType.Testrunner)
+  })
+
+  it('gives up on a viewport read that never answers', async () => {
+    // A session tearing down can leave this read hanging forever, and every
+    // trace written from then on waits for it — per slice under
+    // `traceGranularity: 'test'`. It has to settle on its own so that
+    // degradation happens once, not at every test-end hook.
+    const browser = browserDouble({
+      isMobile: true,
+      capabilities: NATIVE_CAPS,
+      getWindowSize: vi.fn().mockReturnValue(new Promise(() => {}))
+    })
+
+    vi.useFakeTimers()
+    try {
+      const settled = resolveSessionMetadata(browser, TraceType.Testrunner)
+      await vi.advanceTimersByTimeAsync(SNAPSHOT_DRIVER_PROBE_TIMEOUT_MS)
+      const metadata = await settled
+
+      expect('viewport' in metadata).toBe(false)
+      expect(metadata.device?.name).toBe('Pixel 7')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('omits a viewport a desktop page answered as null', async () => {
