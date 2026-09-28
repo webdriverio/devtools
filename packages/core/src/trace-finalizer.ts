@@ -140,29 +140,46 @@ async function settlePending(
   return result
 }
 
-/** Captures that already spent the full timeout without settling. The adapters
- *  keep ONE run-long list and hand all of it to every flush, so a single wedged
- *  driver read would otherwise cost each later slice — and each range flushed at
- *  finalize — the whole ceiling again. One capture gets at most one wait; the
- *  promises are kept weakly so this never pins a run's worth of them. Promises
- *  that settled inside that wait are marked too, which costs nothing: awaiting
- *  a settled promise is free, and skipping it is equally free. */
-const abandonedCaptures = new WeakSet<Promise<unknown>>()
+/** Work an eager flush has already waited on once. The adapters keep ONE
+ *  run-long list and hand all of it to every flush, so without this a single
+ *  wedged driver read costs every later slice the whole ceiling again. Held
+ *  weakly, so it never pins a run's worth of promises. */
+const awaitedByEagerFlush = new WeakSet<Promise<unknown>>()
 
-/** Settle in-flight snapshot captures under the timeout cap, warning if the
- *  bound elapses. Never throws; never hangs. */
-async function awaitPendingCaptures(ctx: TraceExportContext): Promise<void> {
-  const pending = (ctx.awaitPending ?? []).filter(
-    (capture) => !abandonedCaptures.has(capture)
-  )
+/**
+ * Settle in-flight work under the timeout cap, warning if the bound elapses.
+ * Never throws; never hangs.
+ *
+ * `eager` is the mid-run per-slice flush, and it waits on each promise AT MOST
+ * ONCE — a slice's own captures are new to the list, so it still waits for
+ * them, while a promise an earlier slice already waited out belongs to that
+ * earlier window and must not tax this one.
+ *
+ * Finalize deliberately does NOT skip: the same list carries the adapters'
+ * eager slice-write promises, and the artifacts manifest is written from what
+ * they produce. Skipping one there because an earlier flush had already waited
+ * on it would let the manifest be written while a slice is still being written
+ * — a missing artifact rather than a slow one. Finalize runs once, so the
+ * worst case is the one ceiling it already paid before any of this.
+ */
+async function awaitPendingCaptures(
+  ctx: TraceExportContext,
+  { eager = false }: { eager?: boolean } = {}
+): Promise<void> {
+  const all = ctx.awaitPending ?? []
+  const pending = eager
+    ? all.filter((work) => !awaitedByEagerFlush.has(work))
+    : all
   if (!pending.length) {
     return
   }
+  if (eager) {
+    for (const work of pending) {
+      awaitedByEagerFlush.add(work)
+    }
+  }
   const timedOut = await settlePending(pending, PENDING_SETTLE_TIMEOUT_MS)
   if (timedOut) {
-    for (const capture of pending) {
-      abandonedCaptures.add(capture)
-    }
     ctx.log?.(
       'warn',
       `One or more of ${pending.length} snapshot capture(s) did not ` +
@@ -272,8 +289,9 @@ export async function flushRangeTrace(
   // round trip of hundreds of ms to seconds, so the per-test slice reliably
   // beat the collector and carried no `trace.mutations` at all. Bounded by the
   // same timeout the finalizer uses, so a stuck capture delays a test hook
-  // rather than hanging it. Re-awaiting settled promises at finalize is free.
-  await awaitPendingCaptures(ctx)
+  // rather than hanging it. Each promise is waited on once across all eager
+  // flushes; finalize still waits on everything.
+  await awaitPendingCaptures(ctx, { eager: true })
 
   const isTestSlice = range.testUid !== undefined
   const sliceMetadata = isTestSlice

@@ -663,7 +663,7 @@ describe('flushRangeTrace', () => {
   // Real time, and therefore one real ceiling's worth of it: fake timers also
   // fake the zip writer's own stream callbacks, so the write never completes.
   it(
-    'waits on a never-settling capture once, not on every flush',
+    'waits on a never-settling capture once across eager flushes',
     async () => {
       const stuck = new Promise<void>(() => {})
       const shared = ctx({ awaitPending: [stuck] })
@@ -682,9 +682,42 @@ describe('flushRangeTrace', () => {
       )
       const secondElapsed = Date.now() - secondStart
 
-      // The first pays the ceiling; the second must not wait on it again.
       expect(firstElapsed).toBeGreaterThanOrEqual(PENDING_SETTLE_TIMEOUT_MS)
       expect(secondElapsed).toBeLessThan(PENDING_SETTLE_TIMEOUT_MS / 2)
+    },
+    PENDING_SETTLE_TIMEOUT_MS * 4
+  )
+
+  // The same list carries the adapters' eager slice WRITES, and the manifest is
+  // written from what they produce — so finalize must not inherit the eager
+  // path's skip and run while a slice is still being written.
+  it(
+    'still waits at finalize for work an eager flush already waited on',
+    async () => {
+      let released = false
+      let release = () => {}
+      const slow = new Promise<void>((resolve) => {
+        release = () => {
+          released = true
+          resolve()
+        }
+      })
+      const shared = ctx({ awaitPending: [slow] })
+
+      await flushRangeTrace(
+        { ...shared, flushed: new Set() },
+        range('/a.js', 0)
+      )
+      expect(released).toBe(false)
+
+      setTimeout(release, 50)
+      await finalizeTraceExport({
+        ...shared,
+        granularity: 'session',
+        ranges: [],
+        flushed: new Set()
+      })
+      expect(released).toBe(true)
     },
     PENDING_SETTLE_TIMEOUT_MS * 4
   )
