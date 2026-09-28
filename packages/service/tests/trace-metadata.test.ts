@@ -294,14 +294,18 @@ describe('session metadata vs. an immediately finalizing spec', () => {
 
     // Finalize while the driver has not answered yet — the race the review
     // found. The promise must reach core, which settles it under its own cap.
+    // `metadataCapture` rather than the generic pending list: this read belongs
+    // to no slice, so core awaits it for EVERY trace it writes — a per-test
+    // slice flushed before it lands would carry the fallback viewport, and an
+    // artifact already written cannot be corrected.
     await service.after()
     const ctx = finalizeTraceExport.mock.calls.at(-1)?.[0] as {
-      awaitPending?: Promise<unknown>[]
+      metadataCapture?: Promise<unknown>
     }
-    expect(ctx.awaitPending).toHaveLength(1)
+    expect(ctx.metadataCapture).toBeDefined()
 
     release({ width: 1080, height: 2219 })
-    await ctx.awaitPending?.[0]
+    await ctx.metadataCapture
     // And once it lands it is STORED, not merely published: the zip reads this.
     expect(mockSessionCapturerInstance.mergeMetadata).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -321,9 +325,9 @@ describe('session metadata vs. an immediately finalizing spec', () => {
     await service.after()
 
     const ctx = finalizeTraceExport.mock.calls.at(-1)?.[0] as {
-      awaitPending?: Promise<unknown>[]
+      metadataCapture?: Promise<unknown>
     }
-    await expect(ctx.awaitPending?.[0]).resolves.toBeUndefined()
+    await expect(ctx.metadataCapture).resolves.toBeUndefined()
     // The viewport is dropped; everything else the session knew survives.
     expect(mockSessionCapturerInstance.mergeMetadata).toHaveBeenCalledWith(
       expect.objectContaining({

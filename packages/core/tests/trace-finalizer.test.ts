@@ -690,6 +690,30 @@ describe('flushRangeTrace', () => {
     PENDING_SETTLE_TIMEOUT_MS * 4
   )
 
+  // The WDIO service awaits its captures inline and defers only the session
+  // metadata read, so its slice has no captures to scope — and the viewport it
+  // stamps cannot be corrected once the artifact is written.
+  it(
+    'waits for the session metadata read even with no captures of its own',
+    async () => {
+      let read = false
+      const metadataCapture = new Promise<void>((resolve) =>
+        setTimeout(() => {
+          read = true
+          resolve()
+        }, 50)
+      )
+
+      await flushRangeTrace(ctx({ metadataCapture, pendingCaptures: [] }), {
+        ...range('/spec.js', 0),
+        captureStartIdx: 0
+      })
+
+      expect(read).toBe(true)
+    },
+    PENDING_SETTLE_TIMEOUT_MS * 4
+  )
+
   // The same list carries the adapters' eager slice WRITES, and the manifest is
   // written from what they produce — so finalize waits on everything, including
   // work an eager flush left behind.

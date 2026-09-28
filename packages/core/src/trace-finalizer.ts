@@ -88,6 +88,13 @@ export interface TraceExportContext {
    *  flush can settle the ones from `SpecRange.captureStartIdx` on — its own —
    *  without waiting on another slice's. */
   pendingCaptures?: readonly Promise<unknown>[]
+  /** Session-wide work every slice depends on whatever its window: the metadata
+   *  read (viewport, device, capabilities), captured once at session start and
+   *  stamped on every trace written after it. Scoping cannot cover this — it
+   *  belongs to no slice — and a slice written before it resolves carries the
+   *  fallback viewport, which finalize cannot correct once the artifact exists.
+   *  Only the WDIO service defers it; the others await theirs inline. */
+  metadataCapture?: Promise<unknown>
   log?: (level: 'info' | 'warn', msg: string) => void
   onArtifact?: (a: TraceArtifact) => void
   /** When true, finalize writes a `devtools-artifacts-<sessionId>.json` manifest
@@ -165,10 +172,16 @@ async function awaitPendingCaptures(
   ctx: TraceExportContext,
   sliceFrom?: number
 ): Promise<void> {
+  // Session-wide prerequisites ride along with both: they belong to no slice,
+  // and re-awaiting a settled one is free.
+  const sessionWide = ctx.metadataCapture ? [ctx.metadataCapture] : []
   const pending =
     sliceFrom === undefined
-      ? (ctx.awaitPending ?? [])
-      : Array.from(ctx.pendingCaptures ?? []).slice(sliceFrom)
+      ? [...sessionWide, ...(ctx.awaitPending ?? [])]
+      : [
+          ...sessionWide,
+          ...Array.from(ctx.pendingCaptures ?? []).slice(sliceFrom)
+        ]
   if (!pending.length) {
     return
   }

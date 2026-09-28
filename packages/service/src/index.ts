@@ -191,10 +191,12 @@ export default class DevToolsHookService implements Services.ServiceInstance {
         this.#options.emitArtifactsManifest ?? this.#allureReporterConfigured,
       collectedArtifacts: this.#artifacts,
       onArtifact: (a) => this.#artifacts.push(a),
-      // Settled under core's timeout cap before anything is written, so a
-      // `getWindowSize` left hanging by a tearing-down session degrades to the
-      // fallback instead of deadlocking the export.
-      awaitPending: this.#metadataCapture ? [this.#metadataCapture] : []
+      // Settled under core's timeout cap before anything is written — every
+      // slice as well as the final export, since a slice written before the
+      // viewport read lands carries the fallback and cannot be corrected after
+      // the fact. A `getWindowSize` left hanging by a tearing-down session
+      // degrades to that fallback instead of deadlocking the export.
+      metadataCapture: this.#metadataCapture
     }
   }
 
