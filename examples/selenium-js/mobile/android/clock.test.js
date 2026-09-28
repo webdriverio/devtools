@@ -186,7 +186,10 @@ describe('Clock (native)', function () {
     // A second test, so `traceGranularity: 'test'` has two slices to key.
     if (isWeb) {
       await driver.get(WEB_URL)
-      assert.match(await driver.getCurrentUrl(), /herokuapp\.com/)
+      // Asserts that a document loaded, not WHICH one: DEVTOOLS_MOBILE_URL
+      // exists so this can run against a page served on the host, and pinning
+      // the default site's name here refused the very page it was pointed at.
+      assert.match(await driver.getCurrentUrl(), /^https?:/)
       return
     }
 
