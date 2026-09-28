@@ -36,6 +36,14 @@ export interface SpecRange {
   networkStartIdx: number
   mutationStartIdx: number
   traceLogStartIdx: number
+  /** How many in-flight captures the adapter had recorded when this slice
+   *  opened — the same shape as the index fields above, over the capture list
+   *  rather than a data array. A flush waits for the captures AFTER this point
+   *  and no others: those are its own, while an earlier one belongs to a slice
+   *  that has already had its wait. Absent for an adapter that records no
+   *  boundaries or awaits its captures inline (the WDIO service), where the
+   *  wait is a no-op either way. */
+  captureStartIdx?: number
 }
 
 /**
@@ -262,6 +270,9 @@ export interface SpecBoundaryContext {
     mutations: ArrayLike<unknown>
     traceLogs: ArrayLike<unknown>
   }
+  /** The adapter's live in-flight capture list, stamped onto each range as
+   *  `captureStartIdx`. Live by reference: it grows as the run does. */
+  pendingCaptures?: ArrayLike<unknown>
 }
 
 /** Push a new slice range and return the previous (unflushed) range to flush.
@@ -290,7 +301,8 @@ function pushSliceRange(
     consoleStartIdx: ctx.capturer.consoleLogs.length,
     networkStartIdx: ctx.capturer.networkRequests.length,
     mutationStartIdx: ctx.capturer.mutations.length,
-    traceLogStartIdx: ctx.capturer.traceLogs.length
+    traceLogStartIdx: ctx.capturer.traceLogs.length,
+    captureStartIdx: ctx.pendingCaptures?.length ?? 0
   })
 
   return prevRange

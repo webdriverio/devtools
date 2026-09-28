@@ -658,41 +658,43 @@ describe('flushRangeTrace', () => {
     expect(written).not.toContain('next-test')
   })
 
-  // The adapters keep one run-long capture list and hand all of it to every
-  // flush, so a wedged driver read must not cost each later slice the ceiling.
-  // Real time, and therefore one real ceiling's worth of it: fake timers also
-  // fake the zip writer's own stream callbacks, so the write never completes.
+  // The adapters keep ONE run-long capture list and hand it to every flush, so
+  // a slice must wait for its own captures and nobody else's: otherwise one
+  // wedged driver read costs every later slice the ceiling.
   it(
-    'waits on a never-settling capture once across eager flushes',
+    'waits only on the captures recorded after the slice opened',
     async () => {
       const stuck = new Promise<void>(() => {})
-      const shared = ctx({ awaitPending: [stuck] })
-
-      const firstStart = Date.now()
-      await flushRangeTrace(
-        { ...shared, flushed: new Set() },
-        range('/a.js', 0)
+      let ownSettled = false
+      const own = new Promise<void>((resolve) =>
+        setTimeout(() => {
+          ownSettled = true
+          resolve()
+        }, 50)
       )
-      const firstElapsed = Date.now() - firstStart
+      // `stuck` belongs to an earlier slice; `own` to this one.
+      const pendingCaptures = [stuck, own]
+      const scoped = { ...range('/b.js', 0), captureStartIdx: 1 }
 
-      const secondStart = Date.now()
+      const started = Date.now()
       await flushRangeTrace(
-        { ...shared, flushed: new Set() },
-        range('/b.js', 0)
+        ctx({ pendingCaptures, awaitPending: [stuck, own] }),
+        scoped
       )
-      const secondElapsed = Date.now() - secondStart
+      const elapsed = Date.now() - started
 
-      expect(firstElapsed).toBeGreaterThanOrEqual(PENDING_SETTLE_TIMEOUT_MS)
-      expect(secondElapsed).toBeLessThan(PENDING_SETTLE_TIMEOUT_MS / 2)
+      // Waited for its own capture, and not for the earlier stuck one.
+      expect(ownSettled).toBe(true)
+      expect(elapsed).toBeLessThan(PENDING_SETTLE_TIMEOUT_MS / 2)
     },
     PENDING_SETTLE_TIMEOUT_MS * 4
   )
 
   // The same list carries the adapters' eager slice WRITES, and the manifest is
-  // written from what they produce — so finalize must not inherit the eager
-  // path's skip and run while a slice is still being written.
+  // written from what they produce — so finalize waits on everything, including
+  // work an eager flush left behind.
   it(
-    'still waits at finalize for work an eager flush already waited on',
+    'still waits at finalize for work no slice waited on',
     async () => {
       let released = false
       let release = () => {}
@@ -702,21 +704,17 @@ describe('flushRangeTrace', () => {
           resolve()
         }
       })
-      const shared = ctx({ awaitPending: [slow] })
-
-      await flushRangeTrace(
-        { ...shared, flushed: new Set() },
-        range('/a.js', 0)
-      )
-      expect(released).toBe(false)
 
       setTimeout(release, 50)
-      await finalizeTraceExport({
-        ...shared,
-        granularity: 'session',
-        ranges: [],
-        flushed: new Set()
-      })
+      await finalizeTraceExport(
+        ctx({
+          granularity: 'session',
+          ranges: [],
+          flushed: new Set(),
+          awaitPending: [slow],
+          pendingCaptures: []
+        })
+      )
       expect(released).toBe(true)
     },
     PENDING_SETTLE_TIMEOUT_MS * 4

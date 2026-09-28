@@ -81,8 +81,13 @@ export interface TraceExportContext {
   flushed: Set<string>
   /** Adapters keep their differing dir logic; range is set for spec writes. */
   resolveOutputDir: (range?: SpecRange) => string
-  /** Pending snapshot captures to settle before writing (selenium/nightwatch). */
+  /** Everything finalize must settle before writing: the adapters' in-flight
+   *  captures AND their eager slice-write promises (selenium/nightwatch). */
   awaitPending?: Promise<unknown>[]
+  /** The captures alone, live by reference and in record order, so an eager
+   *  flush can settle the ones from `SpecRange.captureStartIdx` on — its own —
+   *  without waiting on another slice's. */
+  pendingCaptures?: readonly Promise<unknown>[]
   log?: (level: 'info' | 'warn', msg: string) => void
   onArtifact?: (a: TraceArtifact) => void
   /** When true, finalize writes a `devtools-artifacts-<sessionId>.json` manifest
@@ -140,43 +145,32 @@ async function settlePending(
   return result
 }
 
-/** Work an eager flush has already waited on once. The adapters keep ONE
- *  run-long list and hand all of it to every flush, so without this a single
- *  wedged driver read costs every later slice the whole ceiling again. Held
- *  weakly, so it never pins a run's worth of promises. */
-const awaitedByEagerFlush = new WeakSet<Promise<unknown>>()
-
 /**
  * Settle in-flight work under the timeout cap, warning if the bound elapses.
  * Never throws; never hangs.
  *
- * `eager` is the mid-run per-slice flush, and it waits on each promise AT MOST
- * ONCE — a slice's own captures are new to the list, so it still waits for
- * them, while a promise an earlier slice already waited out belongs to that
- * earlier window and must not tax this one.
+ * `sliceFrom` is an eager per-slice flush, and it waits on exactly its OWN
+ * captures: the ones the adapter recorded after this slice opened. A capture
+ * from an earlier slice is that slice's business and has already had its wait,
+ * so a single wedged driver read cannot tax every later slice — and nothing of
+ * this slice's own is skipped, which guessing by "have we awaited this promise
+ * before" could not promise.
  *
- * Finalize deliberately does NOT skip: the same list carries the adapters'
- * eager slice-write promises, and the artifacts manifest is written from what
- * they produce. Skipping one there because an earlier flush had already waited
- * on it would let the manifest be written while a slice is still being written
- * — a missing artifact rather than a slow one. Finalize runs once, so the
- * worst case is the one ceiling it already paid before any of this.
+ * Finalize passes no index and waits on everything, deliberately: the full list
+ * also carries the adapters' eager slice-WRITE promises, and the artifacts
+ * manifest is written from what they produce, so skipping one there would let
+ * the manifest be written while a slice still is.
  */
 async function awaitPendingCaptures(
   ctx: TraceExportContext,
-  { eager = false }: { eager?: boolean } = {}
+  sliceFrom?: number
 ): Promise<void> {
-  const all = ctx.awaitPending ?? []
-  const pending = eager
-    ? all.filter((work) => !awaitedByEagerFlush.has(work))
-    : all
+  const pending =
+    sliceFrom === undefined
+      ? (ctx.awaitPending ?? [])
+      : Array.from(ctx.pendingCaptures ?? []).slice(sliceFrom)
   if (!pending.length) {
     return
-  }
-  if (eager) {
-    for (const work of pending) {
-      awaitedByEagerFlush.add(work)
-    }
   }
   const timedOut = await settlePending(pending, PENDING_SETTLE_TIMEOUT_MS)
   if (timedOut) {
@@ -289,9 +283,9 @@ export async function flushRangeTrace(
   // round trip of hundreds of ms to seconds, so the per-test slice reliably
   // beat the collector and carried no `trace.mutations` at all. Bounded by the
   // same timeout the finalizer uses, so a stuck capture delays a test hook
-  // rather than hanging it. Each promise is waited on once across all eager
-  // flushes; finalize still waits on everything.
-  await awaitPendingCaptures(ctx, { eager: true })
+  // rather than hanging it. Scoped to this slice's own captures; finalize
+  // waits on everything.
+  await awaitPendingCaptures(ctx, range.captureStartIdx ?? 0)
 
   const isTestSlice = range.testUid !== undefined
   const sliceMetadata = isTestSlice
