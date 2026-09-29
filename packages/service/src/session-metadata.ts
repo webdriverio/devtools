@@ -3,7 +3,11 @@
 // unit-testable and the plugin only forwards its lifecycle hook.
 
 import logger from '@wdio/logger'
-import { resolveViewport as coreResolveViewport } from '@wdio/devtools-core'
+import {
+  SNAPSHOT_DRIVER_PROBE_TIMEOUT_MS,
+  resolveViewport as coreResolveViewport,
+  withTimeout
+} from '@wdio/devtools-core'
 import {
   deviceFromCapabilities,
   type Metadata,
@@ -24,15 +28,27 @@ const log = logger('@wdio/devtools-service')
  * captured image measures the image instead. Wherever there IS a DOM it is
  * load-bearing geometry: the player sizes the replay iframe from it, and the
  * exporter falls back to 1280x720 without it.
+ *
+ * Bounded here rather than left to whoever awaits it. This is the one driver
+ * read in the metadata path, and a session tearing down can leave it hanging
+ * forever — while every trace written from then on waits for it, per slice.
+ * Under `traceGranularity: 'test'` that is another ceiling's delay at EVERY
+ * test-end hook instead of one degradation to the fallback viewport. The rest
+ * of the metadata needs no driver, so a timed-out read still yields the
+ * capabilities and device.
  */
 async function resolveViewport(
   browser: WebdriverIO.Browser
 ): Promise<Viewport | undefined> {
-  return coreResolveViewport(browser.capabilities, {
-    runScript: (body) => browser.execute(body),
-    getWindowSize: () => browser.getWindowSize(),
-    onWarn: (message) => log.warn(message)
-  })
+  return withTimeout(
+    coreResolveViewport(browser.capabilities, {
+      runScript: (body) => browser.execute(body),
+      getWindowSize: () => browser.getWindowSize(),
+      onWarn: (message) => log.warn(message)
+    }),
+    SNAPSHOT_DRIVER_PROBE_TIMEOUT_MS,
+    undefined
+  )
 }
 
 /**

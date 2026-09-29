@@ -66,6 +66,7 @@ export function buildTraceContext(
         configPath: input.configPath
       }),
     awaitPending: [...input.capturer.snapshotCaptures, ...input.traceFlushes],
+    pendingCaptures: input.capturer.snapshotCaptures,
     // Nightwatch feeds real per-test attempt numbers via TestAttemptTracker
     // (B4), so retry-aware policies use per-test attempts, not the fallback.
     attemptInfoAvailable: true,

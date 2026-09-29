@@ -39,7 +39,9 @@ function boundaryContext(ctx: TestSliceCtx): SpecBoundaryContext {
   return {
     specRanges: ctx.specRanges,
     flushedSpecs: ctx.flushedSpecs,
-    capturer: ctx.sessionCapturer
+    capturer: ctx.sessionCapturer,
+    // Stamped onto the range so its own flush waits for exactly these.
+    pendingCaptures: ctx.sessionCapturer.snapshotCaptures
   }
 }
 

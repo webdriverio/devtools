@@ -418,6 +418,7 @@ export function buildTraceExportContext(
         testFilePath: range ? range.specFile : testFilePath
       }),
     awaitPending: [...ctx.snapshotCaptures, ...ctx.traceFlushes],
+    pendingCaptures: ctx.snapshotCaptures,
     log: (level, msg) => log[level](msg),
     // Off by default; explicit option wins, else auto-enable when an
     // allure-js-commons runtime is active (the same signal the Allure sink uses).
@@ -437,7 +438,9 @@ function boundaryContext(
   return {
     specRanges: ctx.specRanges,
     flushedSpecs: ctx.flushedSpecs,
-    capturer
+    capturer,
+    // Stamped onto the range so its own flush waits for exactly these.
+    pendingCaptures: ctx.snapshotCaptures
   }
 }
 
