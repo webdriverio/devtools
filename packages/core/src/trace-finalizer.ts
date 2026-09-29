@@ -81,8 +81,20 @@ export interface TraceExportContext {
   flushed: Set<string>
   /** Adapters keep their differing dir logic; range is set for spec writes. */
   resolveOutputDir: (range?: SpecRange) => string
-  /** Pending snapshot captures to settle before writing (selenium/nightwatch). */
+  /** Everything finalize must settle before writing: the adapters' in-flight
+   *  captures AND their eager slice-write promises (selenium/nightwatch). */
   awaitPending?: Promise<unknown>[]
+  /** The captures alone, live by reference and in record order, so an eager
+   *  flush can settle the ones from `SpecRange.captureStartIdx` on — its own —
+   *  without waiting on another slice's. */
+  pendingCaptures?: readonly Promise<unknown>[]
+  /** Session-wide work every slice depends on whatever its window: the metadata
+   *  read (viewport, device, capabilities), captured once at session start and
+   *  stamped on every trace written after it. Scoping cannot cover this — it
+   *  belongs to no slice — and a slice written before it resolves carries the
+   *  fallback viewport, which finalize cannot correct once the artifact exists.
+   *  Only the WDIO service defers it; the others await theirs inline. */
+  metadataCapture?: Promise<unknown>
   log?: (level: 'info' | 'warn', msg: string) => void
   onArtifact?: (a: TraceArtifact) => void
   /** When true, finalize writes a `devtools-artifacts-<sessionId>.json` manifest
@@ -140,24 +152,60 @@ async function settlePending(
   return result
 }
 
-/** Settle in-flight snapshot captures under the timeout cap, warning if the
- *  bound elapses. Never throws; never hangs. */
-async function awaitPendingCaptures(ctx: TraceExportContext): Promise<void> {
-  if (!ctx.awaitPending?.length) {
+/**
+ * Settle in-flight work under the timeout cap, warning if the bound elapses.
+ * Never throws; never hangs.
+ *
+ * `sliceFrom` is an eager per-slice flush, and it waits on exactly its OWN
+ * captures: the ones the adapter recorded after this slice opened. A capture
+ * from an earlier slice is that slice's business and has already had its wait,
+ * so a single wedged driver read cannot tax every later slice — and nothing of
+ * this slice's own is skipped, which guessing by "have we awaited this promise
+ * before" could not promise.
+ *
+ * Finalize passes no index and waits on everything, deliberately: the full list
+ * also carries the adapters' eager slice-WRITE promises, and the artifacts
+ * manifest is written from what they produce, so skipping one there would let
+ * the manifest be written while a slice still is.
+ */
+async function awaitPendingCaptures(
+  ctx: TraceExportContext,
+  sliceFrom?: number
+): Promise<void> {
+  // Session-wide prerequisites ride along with both: they belong to no slice,
+  // and re-awaiting a settled one is free.
+  const sessionWide = ctx.metadataCapture ? [ctx.metadataCapture] : []
+  const pending =
+    sliceFrom === undefined
+      ? [...sessionWide, ...(ctx.awaitPending ?? [])]
+      : [
+          ...sessionWide,
+          ...Array.from(ctx.pendingCaptures ?? []).slice(sliceFrom)
+        ]
+  if (!pending.length) {
     return
   }
-  const timedOut = await settlePending(
-    ctx.awaitPending,
-    PENDING_SETTLE_TIMEOUT_MS
-  )
+  const timedOut = await settlePending(pending, PENDING_SETTLE_TIMEOUT_MS)
   if (timedOut) {
     ctx.log?.(
       'warn',
-      `One or more of ${ctx.awaitPending.length} snapshot capture(s) did not ` +
+      `One or more of ${pending.length} snapshot capture(s) did not ` +
         `settle within ${PENDING_SETTLE_TIMEOUT_MS}ms; writing trace with the ` +
         'snapshots captured so far.'
     )
   }
+}
+
+/** The range that bounds `range`, read from the adapter's LIVE list — the next
+ *  test's boundary is appended to it as that test starts, so a flush that waited
+ *  sees a bound that did not exist when it began. Identity lookup: every caller
+ *  passes a range it took from this same array. */
+function successorOf(
+  ctx: TraceExportContext,
+  range: SpecRange
+): SpecRange | undefined {
+  const index = ctx.ranges.indexOf(range)
+  return index === -1 ? undefined : ctx.ranges[index + 1]
 }
 
 function sliceCountWarning(count: number): string {
@@ -240,6 +288,18 @@ export async function flushRangeTrace(
   }
   ctx.flushed.add(range.key)
 
+  // A slice is written from whatever the capturer holds RIGHT NOW, and the
+  // adapters' DOM captures are fire-and-forget, so an eager flush has to settle
+  // them or it writes a slice describing a page nobody has read yet. Cheap
+  // where those captures already resolved (a desktop drain is milliseconds),
+  // and load-bearing where they cannot: on Appium every page-side call is a
+  // round trip of hundreds of ms to seconds, so the per-test slice reliably
+  // beat the collector and carried no `trace.mutations` at all. Bounded by the
+  // same timeout the finalizer uses, so a stuck capture delays a test hook
+  // rather than hanging it. Scoped to this slice's own captures; finalize
+  // waits on everything.
+  await awaitPendingCaptures(ctx, range.captureStartIdx ?? 0)
+
   const isTestSlice = range.testUid !== undefined
   const sliceMetadata = isTestSlice
     ? filterTestMetadataByUid(ctx.testMetadata, range.testUid!)
@@ -261,7 +321,14 @@ export async function flushRangeTrace(
   const writeSlice = isTestSlice ? writeTestSliceTrace : writeSpecTrace
   artifact.path = await writeSlice({
     range,
-    nextRange,
+    // Re-resolved AFTER the wait, which can span the start of the next test:
+    // Nightwatch — and Selenium's cucumber hook — start the flush without
+    // awaiting it, and an eager flush is open-ended, so that test's commands
+    // and mutations would land in this test's trace. Its boundary appears in
+    // `ctx.ranges` as it starts, which closes this slice on exactly the bound
+    // that now exists. Freezing indexes before the wait cannot serve: the
+    // captures being waited for append to those same arrays.
+    nextRange: nextRange ?? successorOf(ctx, range),
     capturer: ctx.capturer,
     actionSnapshots: ctx.actionSnapshots ?? [],
     screencastFrames: ctx.screencastFrames,

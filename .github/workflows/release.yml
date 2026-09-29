@@ -27,6 +27,8 @@ jobs:
     permissions:
       contents: write
       id-token: write
+      # The pin bump below opens a PR rather than pushing to main.
+      pull-requests: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -69,3 +71,101 @@ jobs:
             --title "$TAG" \
             --generate-notes \
             --verify-tag
+
+      # `BACKEND_NPM_VERSION` is the backend a `pip install` user actually runs,
+      # and nothing derives it: the Python adapter is not in the pnpm workspace,
+      # so changesets never sees it. Left to a human it is remembered late —
+      # `check_backend_pin.py` then fails every Python CI run and blocks the
+      # PyPI publish until someone edits one line.
+      #
+      # Opened as a PR, never pushed to main: the new backend has to be ON npm
+      # for the check to pass, which is why this runs after Publish, and a pin
+      # is a claim about a published artifact that deserves a review.
+      #
+      # A PR raised with GITHUB_TOKEN gets no CI — GitHub suppresses workflow
+      # runs for events its own token raises, to stop recursion. Set
+      # PIN_BUMP_TOKEN (a PAT or App token) and the checks run on their own;
+      # without it the PR needs a nudge, which its body says.
+      #
+      # Only for a `latest` release: the pin is what a `pip install` user gets,
+      # and a `next` publish is a test version nobody should be moved onto.
+      - name: Open the Python backend pin bump
+        if: inputs.distTag == 'latest' || inputs.distTag == ''
+        env:
+          GITHUB_TOKEN: ${{ secrets.PIN_BUMP_TOKEN || secrets.GITHUB_TOKEN }}
+          PIN_FILE: packages/selenium-devtools-py/src/selenium_devtools/constants.py
+        run: |
+          set -euo pipefail
+          BACKEND=$(node -p "require('./packages/backend/package.json').version")
+          PIN=$(sed -n 's/^BACKEND_NPM_VERSION = "\(.*\)"$/\1/p' "$PIN_FILE")
+          if [ -z "$PIN" ]; then
+            echo "::error::No BACKEND_NPM_VERSION found in $PIN_FILE"
+            exit 1
+          fi
+          if [ "$BACKEND" = "$PIN" ]; then
+            echo "Backend unchanged at $PIN — nothing to bump."
+            exit 0
+          fi
+          # This value reaches a `sed` expression and a branch name. It comes
+          # from our own package.json, so this is a belt rather than a fix for
+          # a known hole — but a stray `/` would silently corrupt the pin.
+          case "$BACKEND" in
+            ''|*[!0-9A-Za-z.+-]*)
+              echo "::error::Backend version is not plain semver: $BACKEND"
+              exit 1
+              ;;
+          esac
+
+          # Only ever forward. A release that rolls the backend BACK — a revert
+          # on main, or a republish of an older `latest` — would otherwise open
+          # a PR lowering the pin onto a backend that may not serve the
+          # contract; `check_backend_pin.py` would reject it, after the noise.
+          NEWER=$(printf '%s\n%s\n' "$PIN" "$BACKEND" | sort -V | tail -1)
+          if [ "$NEWER" = "$PIN" ]; then
+            echo "Published backend $BACKEND is older than the pin $PIN — leaving it alone."
+            exit 0
+          fi
+
+          BRANCH="chore/pin-backend-$BACKEND"
+          FRAGMENT="packages/selenium-devtools-py/changes/pin-backend-$BACKEND.md"
+          # Continue the branch if it is already out there rather than recreating
+          # it: this step runs after `changeset publish`, so a re-run is normal,
+          # and by then a reviewer may have pushed to the open PR — regenerating
+          # `_contract.py` is the expected reason. A force push would erase that
+          # work, so there is none: we branch FROM the remote when it exists and
+          # fast-forward it.
+          git fetch --quiet origin "$BRANCH" 2>/dev/null || true
+          if git rev-parse --verify --quiet "origin/$BRANCH" >/dev/null; then
+            git switch -c "$BRANCH" "origin/$BRANCH"
+          else
+            git switch -c "$BRANCH"
+          fi
+
+          sed -i "s/^BACKEND_NPM_VERSION = .*/BACKEND_NPM_VERSION = \"$BACKEND\"/" "$PIN_FILE"
+          # Required, not decorative: python.yml refuses a branch that changes
+          # `src/` and documents nothing, so a pin-only PR would fail its own CI.
+          printf -- '---\npatch\n---\n\nPin the backend a `pip install` user runs to %s.\n' \
+            "$BACKEND" > "$FRAGMENT"
+          # Named explicitly because the fragment is UNTRACKED: `commit -a`
+          # stages modified tracked files only, so it would ship the pin without
+          # the fragment that makes the pin mergeable.
+          git add "$PIN_FILE" "$FRAGMENT"
+          if git diff --cached --quiet; then
+            echo "Branch $BRANCH already carries this bump — nothing to push."
+          else
+            git commit -m "chore(python): pin the backend to $BACKEND"
+            git push origin "$BRANCH"
+          fi
+
+          if [ "$(gh pr list --head "$BRANCH" --state open --json number --jq 'length')" != "0" ]; then
+            echo "A pin PR for $BACKEND is already open — left as it is."
+            exit 0
+          fi
+          gh pr create --base main --head "$BRANCH" \
+            --title "chore(python): pin the backend to $BACKEND" \
+            --body "$(printf '%s\n' \
+              "\`@wdio/devtools-backend@$BACKEND\` is published, so the version a \`pip install\` user runs can move up from $PIN." \
+              "" \
+              "Opened by the npm release. \`scripts/check_backend_pin.py\` is what decides whether this pin is serviceable — it asks the published tarball whether it carries every contract name the adapter needs, so let that check run before merging." \
+              "" \
+              "If this PR shows no checks, it was raised with \`GITHUB_TOKEN\`, which GitHub will not let start a workflow. Close and reopen it, or push an empty commit, to get CI." )"

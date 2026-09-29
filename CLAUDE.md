@@ -29,6 +29,7 @@ Run from repo root unless noted.
 | `pnpm demo:wdio` / `pnpm demo:nightwatch` / `pnpm demo:selenium` | Run the per-framework example projects. Useful for manual verification of UI or runtime changes. |
 | `pnpm demo:wdio:mobile` / `:selenium:mobile` / `:nightwatch:mobile` / `:python:mobile` | The same, against Appium. All four build the same capability bag and drive the Clock app that ships with every Android system image — starting a timer, pausing it, clearing it — so a native example needs no `.apk`. `DEVTOOLS_MOBILE_PLATFORM=ios` runs the iOS spec instead — all four adapters — which drives Settings because the simulator ships no Clock, from a separate spec per platform rather than a branch. The simulator is chosen by udid and defaults to whichever is already booted, and an unmatched `IOS_DEVICE_NAME` is refused: naming one that does not exist makes the XCUITest driver create and boot it, every run, rather than fail. That refusal and the booted-simulator preflight are **local** policy — `xcrun simctl` enumerates local simulators and nothing else — so `IOS_UDID` and a non-local `APPIUM_HOST` both bypass them, or a real device and a cloud grid would be refused a run they were correctly configured for. `DEVTOOLS_MOBILE=web` drives the device's own browser on both platforms — Chrome on Android, Safari on iOS, which the XCUITest driver serves without a chromedriver. `examples/MOBILE.md` holds the prerequisites and the `DEVTOOLS_MOBILE` / `APPIUM_APP` switches; `DEVTOOLS_MODE=trace` flips any demo to trace mode. |
 | `pnpm dev` | Run all packages in parallel dev mode. |
+| `python3 packages/selenium-devtools-py/scripts/changes.py next-version` | The version a Python-adapter release would publish, from the fragments pending in `changes/`. `check --base <ref>` is the CI gate; `apply` is what the release runs. |
 
 `selenium-devtools` exposes per-runner variants of its example via `pnpm --filter @wdio/selenium-devtools example:mocha` / `:mocha:allure` / `:jest` / `:cucumber`.
 
@@ -224,8 +225,20 @@ When the right place is ambiguous (something between `shared` and `core`, or bet
 ### Before pushing
 
 - `pnpm build`, `pnpm test`, `pnpm lint`. Don't push red.
+- A changeset for a published npm package, or a `changes/` fragment for the Python adapter — see § Releasing a change.
 - For UI or runtime changes: verify in `examples/<framework>/`.
 - Deeper security findings (taint flow, polynomial-redos with adjacent quantifiers) surface on the PR's CodeQL scan; review and fix those before merge.
+
+### Releasing a change
+
+Two mechanisms, and the Python one exists because the npm one cannot reach it. Changesets discovers packages through the pnpm workspace and identifies them by `package.json`; `packages/selenium-devtools-py` is in neither, so a changeset naming `selenium-devtools-py` does not degrade — it raises "not in the workspace", fails `changeset version`, and takes the npm release for every other package down with it.
+
+- **Published npm package changed** → `pnpm changeset`, committed as `.changeset/*.md`.
+- **`packages/selenium-devtools-py/src/` changed** → a fragment under `packages/selenium-devtools-py/changes/`, frontmatter carrying the bump level alone (`patch`/`minor`/`major`). `python.yml` refuses a branch that changes `src/` and documents nothing. A direct `CHANGELOG.md` edit satisfies it **only until the first release** — before one there is nothing to bump from and the pending entry IS the changelog section; after one (detected by a `py-v*` tag existing) it documents the change but bumps nothing, so the release would find no fragment and republish a version the index already holds.
+
+Neither is hand-versioned: both assemble the version and the changelog at release. The Python release additionally consumes its fragments, bumps `__version__` (the single source — `pyproject.toml` reads it via `dynamic = ["version"]`), and tags `py-v<version>` **after** a successful publish, so the tag is an output pointing at the published tree rather than an input naming a version nothing has computed yet.
+
+`BACKEND_NPM_VERSION` is the backend a `pip install` user actually runs, so the npm release goes first; `release.yml` opens the pin bump as a PR, and `scripts/check_backend_pin.py` refuses a PyPI publish whose pinned backend cannot serve the contract. That PR carries its own `changes/` fragment, because `python.yml` refuses a branch that changes `src/` and documents nothing — a pin-only PR would fail its own CI. It is a PR rather than a push because the pin is a claim about a *published* artifact and `check_backend_pin.py` is what adjudicates it; merging one queues a `patch` for the next PyPI release rather than bumping `__version__` there and then. Raised with `GITHUB_TOKEN` it arrives with **no checks at all** — GitHub suppresses workflow runs for events its own token raises — so either set `PIN_BUMP_TOKEN` or close/reopen the PR to get CI onto it.
 
 ### Commits
 

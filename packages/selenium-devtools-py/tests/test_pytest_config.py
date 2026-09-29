@@ -293,10 +293,16 @@ class RealPytestTest(unittest.TestCase):
         cls._dir = tempfile.TemporaryDirectory()
         d = pathlib.Path(cls._dir.name)
         (d / "test_probe.py").write_text("def test_one():\n    assert True\n")
+        # These cases opt capture in, and a real opt-in spawns a backend and a
+        # dashboard window that outlive the child. Only resolution is asserted.
         (d / "conftest.py").write_text(
             textwrap.dedent(
                 """
+                import selenium_devtools as devtools
                 from selenium_devtools import pytest_plugin as plugin
+
+                devtools.enable = lambda *args, **kwargs: None
+
                 def pytest_configure(config):
                     print(f"RESOLVED={plugin._resolve_enabled(config)}"
                           f",{plugin._resolve_trace(config)}")

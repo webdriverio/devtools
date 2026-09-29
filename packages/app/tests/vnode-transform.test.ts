@@ -2,7 +2,7 @@
  * @vitest-environment happy-dom
  */
 import { describe, expect, it } from 'vitest'
-import type { VNode } from 'preact'
+import { render, type VNode } from 'preact'
 
 import { transform } from '../src/components/browser/vnode-transform.js'
 // The producers on the other side of the wire. `transform` only ever sees what
@@ -318,6 +318,45 @@ describe('transform', () => {
 
       expect(ref).toBeTruthy()
       expect(propsOf(username)['data-wdio-ref']).toBe(ref)
+    })
+
+    it('renders without throwing when the page carries an inline handler', () => {
+      // The crux: Preact reads any `on*` prop as a listener and stamps its own
+      // bookkeeping onto the value. A captured handler is a STRING, so that
+      // throws `Cannot create property … on string` and aborts the render
+      // mid-tree — #renderVdom then finds no <html> and returns early, leaving
+      // the replay iframe blank with nothing logged. One attribute anywhere in
+      // the document was enough (measured on a real mobile-web trace).
+      const root = transform(
+        captureDocument(
+          '<head></head><body><button onclick="submitIt()">Go</button></body>'
+        )
+      )
+
+      const container = document.createDocumentFragment()
+      expect(() => render(root, container)).not.toThrow()
+      expect(container.firstElementChild?.tagName).toBe('HTML')
+      expect(container.firstElementChild?.querySelector('button')).toBeTruthy()
+    })
+
+    it('drops the inline handler rather than rendering it', () => {
+      // Nothing is lost: the replay is a static reconstruction and
+      // #renderVdom strips <script> tags for the same reason, so a handler has
+      // nothing left to fire.
+      const captured = captureFragment(
+        '<button onclick="submitIt()">Go</button>'
+      )
+
+      expect(propsOf(transform(captured)).onclick).toBeUndefined()
+    })
+
+    it('keeps a function-valued handler, which capture never produces', () => {
+      // Narrow the guard to the string case so a real listener still binds if
+      // one is ever passed in by hand.
+      const handler = () => {}
+      const node = transform({ type: 'button', props: { onClick: handler } })
+
+      expect(propsOf(node).onClick).toBe(handler)
     })
 
     it('gives a one-child head a bare child rather than a list', () => {

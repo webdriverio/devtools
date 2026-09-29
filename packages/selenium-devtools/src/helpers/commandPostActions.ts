@@ -83,9 +83,17 @@ export async function enrichFindResult(
 
 /**
  * On navigation commands, drain the page-side collector and capture Performance
- * API data onto the command entry, plus browser logs. Fire-and-forget; errors
- * are logged unless the session has already finalized (post-quit errors are
- * expected and uninteresting).
+ * API data onto the command entry, plus browser logs. Errors are logged unless
+ * the session has already finalized (post-quit errors are expected and
+ * uninteresting).
+ *
+ * Returns its promise so the caller can TRACK it: under the fallback injection
+ * this work is four sequential driver round trips (probe, append, readiness
+ * poll, drain), which against Appium is seconds rather than the milliseconds a
+ * desktop driver costs. Untracked, a per-test slice flushed at `afterEach` had
+ * nothing to wait for and was written before the collector existed — measured
+ * on a mobile-web run, the probe for a test's own navigation returned after
+ * that test had already ended, and every slice carried no DOM at all.
  *
  * When `entry` is provided, the shared `CAPTURE_PERFORMANCE_SCRIPT` runs
  * against the driver and attaches navigation / resources / cookies /
@@ -98,8 +106,8 @@ export function captureNavigationTrace(
   entry?: CommandLog,
   args?: unknown[],
   driver?: unknown
-): void {
-  void (async () => {
+): Promise<void> {
+  return (async () => {
     try {
       // Fallback path: an appended `<script>` dies with its document, so every
       // navigation needs it back. Under the document-start preload the
@@ -320,12 +328,17 @@ export async function handleOnCommand(
     void enrichFindResult(capturer, cmd.rawResult, entry, entry.timestamp)
   }
   if (capturer.isNavigationCommand(cmd.command) && !cmd.fromElement) {
-    captureNavigationTrace(
-      capturer,
-      () => ctx.finalized,
-      entry,
-      cmd.args,
-      ctx.driver
+    // Tracked, not fired and forgotten: this is the path that instruments a
+    // freshly loaded document, and a per-test flush must not write a slice
+    // describing a page it has not read yet.
+    ctx.snapshotCaptures.push(
+      captureNavigationTrace(
+        capturer,
+        () => ctx.finalized,
+        entry,
+        cmd.args,
+        ctx.driver
+      )
     )
   }
   maybeDrainAfterDomCommand(ctx, capturer, cmd)

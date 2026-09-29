@@ -1,18 +1,47 @@
 [build-system]
-requires = ["hatchling"]
+# >=1.27 is where PEP 639 landed; below it the `license` expression and
+# `license-files` below fail with an opaque metadata error.
+requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [project]
 name = "selenium-devtools-py"
-version = "0.1.0"
+# Read from `selenium_devtools.__version__`, which has to carry it either way, so
+# the wheel and the running package cannot disagree.
+dynamic = ["version"]
 description = "Python Selenium adapter for the WebdriverIO DevTools dashboard"
 readme = "README.md"
 # >=3.10 because selenium 4.44 requires it, and network capture needs 4.44+.
 # Not an independent choice: 3.9 left security support in October 2025.
 requires-python = ">=3.10"
-license = { text = "MIT" }
+# SPDX expression plus the file, per PEP 639. The file is a copy because
+# `license-files` cannot glob outside the project root, where pnpm pack copies
+# the repo's for the npm packages.
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [{ name = "WebdriverIO" }]
 keywords = ["selenium", "webdriver", "devtools", "pytest", "debugging"]
+
+# No `License ::` classifier: PyPI rejects a distribution that carries both that
+# and the `license` expression above.
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Environment :: Console",
+  "Framework :: Pytest",
+  "Intended Audience :: Developers",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Software Development :: Debuggers",
+  "Topic :: Software Development :: Quality Assurance",
+  "Topic :: Software Development :: Testing",
+  # Backed by `py.typed`; without that marker PEP 561 has a consumer's type
+  # checker treat every annotation here as `Any`.
+  "Typing :: Typed",
+]
 
 # The transport itself is stdlib-only; selenium is the one real dependency, and
 # it is REQUIRED rather than an extra. This is a Selenium adapter — it can do
@@ -27,6 +56,15 @@ keywords = ["selenium", "webdriver", "devtools", "pytest", "debugging"]
 # also what sets `requires-python` — 4.44 needs 3.10.
 dependencies = ["selenium>=4.44"]
 
+# The sidebar on the project page. Without these it carries no route back to the
+# source, and an adapter whose backend is a separate npm package is one a reader
+# has to be able to navigate out of.
+[project.urls]
+Homepage = "https://github.com/webdriverio/devtools"
+Source = "https://github.com/webdriverio/devtools/tree/main/packages/selenium-devtools-py"
+Issues = "https://github.com/webdriverio/devtools/issues"
+Changelog = "https://github.com/webdriverio/devtools/blob/main/packages/selenium-devtools-py/CHANGELOG.md"
+
 [project.optional-dependencies]
 # Test-only additions. selenium is not repeated: it is a hard dependency above,
 # so a second declaration here could drift from it.
@@ -40,6 +78,9 @@ test = ["pytest>=7", "pytest-xdist>=3"]
 # Auto-discovered by pytest; inert unless DEVTOOLS_ENABLE / DEVTOOLS_PORT is set.
 [project.entry-points.pytest11]
 selenium_devtools = "selenium_devtools.pytest_plugin"
+
+[tool.hatch.version]
+path = "src/selenium_devtools/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/selenium_devtools"]

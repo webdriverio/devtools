@@ -1,7 +1,7 @@
 {
   "name": "@wdio/selenium-devtools",
-  "version": "1.5.1",
-  "description": "Selenium WebDriver adapter for WebdriverIO DevTools \u2014 runner-agnostic, reuses existing backend, UI, and capture infrastructure",
+  "version": "1.6.0",
+  "description": "Selenium WebDriver adapter for WebdriverIO DevTools — runner-agnostic, reuses existing backend, UI, and capture infrastructure",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

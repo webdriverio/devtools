@@ -1,5 +1,99 @@
 # @wdio/devtools-app
 
+## 1.11.0
+
+### Minor Changes
+
+- ae1fd6a: Frame a capture that came off a device as the device, not as a desktop browser window. A mobile trace rendered inside the desktop chrome — traffic lights, and an address bar reading `unknown`, since a native app has no url — with the phone left as a narrow strip in the middle of a landscape frame. Measured on a 1170x2532 capture: the image used 162 px of a 388 px frame and the remaining ~60% was backdrop.
+
+  The frame is now shaped from the capture's own decoded pixels, and its header states the device instead of drawing window furniture that describes nothing. The capture's pixels are the only workable source: the metadata viewport disagrees with the screenshot on both platforms, since Android reports the window without the navigation bar and iOS reports points, so an older binary on an iPhone 17 reports a 390x844 window for a 402x874 screen. The frame's own header and padding are taken off before fitting and added back after, or the capture area comes out short by them and the image letterboxes inside a frame that was supposed to be its shape.
+
+  Only the screenshot branch is reframed. A mobile _browser_ session — Appium driving Chrome on Android — reports a device and also carries a DOM, and that replay is an iframe laid out at its own captured viewport; shaping the frame to a screenshot as well would fight that sizing for the same box, and such a session is a real browser with a real url, so the browser chrome stays honest there. A desktop capture is untouched.
+
+  Reads the `device` field added in #345, and the decoded-size helper added in #344.
+
+- f8f6ffd: Carry a native mobile session's viewport, capabilities and device into the trace. A native Appium session produced a zip claiming `viewport: 1280x720` and `browserName: chromium` — both the exporter's own fallbacks rather than anything measured. Three separate causes had to be fixed together, because none of them is useful alone.
+
+  The values were never read: the WDIO service skipped its metadata send entirely for a native session, because it resolves the viewport from `window.visualViewport` and a native app has no DOM. It now reads the window off the driver instead (`getWindowSize`, measured at 1080x2219 on a Pixel 7 — the window minus the navigation bar), and degrades to no viewport rather than failing the session if that read is refused.
+
+  Reading them would not have been enough: the capturer's `metadata` — the copy the exporter serializes — was only ever written by the page-side collector's payload, while `sendUpstream` merely transmits. A value resolved on the driver therefore reached a live dashboard and was dropped before the zip. `SessionCapturer.mergeMetadata` now stores as well as publishes, and merges rather than replaces so a later push naming only a url cannot wipe the device.
+
+  And there was nowhere in the zip to put the device: `browserName` is normalized to `chromium` for android/iOS, `platform` names the HOST OS, and the reader rebuilt capabilities as `{ browserName }` alone, so the device survived only as prose inside `title` and every consumer re-derived "was this a phone?" from a heuristic. A `DeviceInfo` type and a single `deviceFromCapabilities` reader now live in shared, the zip states it as a `device` extension field on `context-options` (the same pattern the existing `runner` field uses), and the trace reader narrows it back in and puts the platform back onto the rebuilt capabilities. The naming order is what real hardware requires: `appium:deviceName` then `deviceModel` then `deviceName`, rejecting any candidate that merely repeats the udid — a device cloud reports an Android serial as both `deviceName` and `udid` and the friendly name only in `deviceModel`, while iOS reports a friendly `deviceName` with `udid` separate.
+
+  Because the field is derived in the exporter from capabilities every adapter already sends, Selenium, Nightwatch and the Python adapter gain it with no adapter-side change. The viewport read is per-adapter and remains done only in the WDIO service; Selenium and Nightwatch set no viewport at all today, desktop or native, so their zips still take the exporter's fallback.
+
+  The Metadata tab shows it as a `Device` row (`iPhone 17 (ios 18.1)`), which is all that reads it for now; #347 is the consumer this unblocks, and is what will shape and label the player's frame.
+
+  Note on units, for anything tempted to size a captured image by this viewport: don't. It disagrees with the screenshot on both platforms — Android reports the window without the navigation bar (1080x2219 against a 1080x2400 shot) and iOS reports points rather than pixels (390x844 against 1170x2532). Fit by the image's own decoded dimensions.
+
+### Patch Changes
+
+- 79f9263: Adapt the player pane to the window it is actually in. The pane's height came from a pixel number resolved once, at construction, from whatever window happened to be open then, and nothing recomputed it: measured at 124px in a 1280x720 window and still 124px at 2560x1440, so a trace rendered into a 13px-wide box on a 2560px screen. Not mobile-specific — wrong for every trace, just least visible on a desktop one.
+
+  Three separate things froze it, and all three had to go. `MIN_WORKBENCH_HEIGHT` was `Math.min(300, window.innerHeight * 0.3)` evaluated at module import, so it took the window open at page load and — being the pane's own `minPosition` — pinned the pane there for the life of the page; loaded in a 413px-tall window it is exactly the 124px measured. `DragController.initialPosition` took a number rather than the getter its bounds already accepted, so a window-derived default could never follow the window. And each controller registered its resize handling by assigning `window.onresize`, which is a single slot: with five controllers on the page only the last one constructed ever adjusted, and it clobbered anything else on that slot.
+
+  A height the user dragged still wins. It is stored, and a resize only re-clamps it — so it survives a window that still has room for it and is pulled back inside one that no longer does, rather than leaving the drag handle off-screen.
+
+  The player component also re-fitted only on `resize` and `window-drag`, which meant it depended on whoever changed the layout remembering to announce it — and the dock divider, the sidebar collapsing and browser zoom announce nothing. It now watches its own box with a `ResizeObserver`, which covers all of them.
+
+- a56c36e: Capture a hybrid app's webview half as a page, and frame a mobile capture as a device in the trace player as well as live.
+
+  **Following the context.** Document availability was answered from the startup capabilities and never revisited, so a session that switched into a webview was still treated as native: the collector injection, the DOM drain and the `__wdioSnapMark` tag (since removed — trace mode now takes one capture per action) stayed skipped, and its per-action snapshot read a real HTML document through the page-source XML reader. `sessionHasDocument(capabilities, context)` in shared is now the question a capture guard asks; `isNativeAppSession` remains the capability-level answer for what genuinely cannot change. Anything that is not Appium's `NATIVE_APP` counts as a webview, because the `WEBVIEW_` prefix is a convention and a driver naming its webview otherwise would have its capture skipped. Following it costs no round trip: `switchContext` carries the context it moves to in its own arguments, and a switch that failed is ignored.
+
+  Verified on a real hybrid app (Appium's ApiDemos on an Android emulator): the webview action is exported with a page snapshot — `[Page: I am a page title — file:///android_asset/html/index.html]`, a heading, a link and a working locator — where the native actions on either side stay `[android] hierarchy FrameLayout…`.
+
+  **Per-action snapshots are skipped where Appium has a document to probe, and nowhere else.** They are issued from inside the command hook, and Appium serialises a probe behind the command it is observing: a hybrid trace run measured the DIRECT transport timing out exactly as `browser.execute` had, so the serialisation is Appium's own and going round the client cannot escape it. That run spent 2m6s hitting timeouts where the same spec takes 34s untouched.
+
+  The IN-PAGE probes are what hang, though, so the gate asks whether a document is in play rather than whether the driver is Appium. A native session passes no `runScript` at all — page source and a screenshot only — and completes fine: measured on an Android emulator, 13.6s against 5.5s with the capture skipped, no timeout. Gating on the driver instead left every native trace with **one** snapshot for the whole run, the one taken at its end, so all eleven actions of a sample spec replayed the final frame; it now carries ten, one per action. Because the context answers the question, a hybrid app is judged by the half it is currently in: its webview actions are still skipped, and those are the ones that carry no per-action element data, accessibility tree or settle screenshot. Command rows and their screenshots, console, network and the archive itself are unaffected, as is every desktop session.
+
+  **The device column now applies in both modes.** It was live-only, on the reasoning that the player's own layout worked — but the player had never actually rendered one: `#deviceCapture` requires a measurable image, and both of its sources read `command.screenshot`, which a trace's commands never carry. So a native trace was framed as a desktop browser. The player now falls back to the recorded viewport when there is no screenshot to measure — second, not first, because a native screenshot's pixels and its window size genuinely differ. In that layout the capture takes a full-height column with the action list and the dock stacked beside it, and the playback controls ride above the capture.
+
+- 70f73a8: Make a live native mobile run visible on the dashboard. Three separate gaps left one looking empty, and each hid the next.
+
+  **Early messages were discarded in silence.** A session's metadata and its first suites are published while the driver is still being created — against Appium that is ~11 s before the worker socket opens — and `sendUpstream` dropped anything sent before the socket was open. `metadata.type` gates the test-suite pane and `metadata.device` gates the mobile layout, so a live run showed neither the test tree nor the device frame and simply looked like nothing had been captured. Messages published while the socket is CONNECTING are now buffered and flushed in publication order on open; a socket that dies before ever opening reports and releases what it held rather than retaining a run's worth of payloads. The buffer is bounded.
+
+  Drop reporting is re-entrancy guarded, because the fix uncovered a second trap: `patchConsole` forwards console output upstream, so an adapter's drop handler that logs re-enters `sendUpstream`, drops again and recurses until the stack blows — surfacing as `Maximum call stack size exceeded` raised inside the user's own spec, pointing nowhere near the capturer.
+
+  **A native command carried no image.** The per-command screenshot was skipped for every Appium session. A native session has no DOM to replay and no per-action snapshot outside trace mode, so the player had nothing to show for any command and the device pane fell back to desktop browser chrome. Native sessions now take one in **live mode only** — trace mode already screenshots the same command through its pre-action capture, and two Appium round trips at ~1.2 s each is the cost #351 exists to remove. A mobile _browser_ session is unchanged: it replays from its mutation stream.
+
+  **The capture had nowhere sensible to sit.** The trace player puts the dock beside the capture, which works when the whole window is the trace. A live dashboard has already spent its left edge on the suite tree, so a third column squeezed the dock into an unreadable strip and the tab row overflowed under the capture. Live mode now stacks the action list and the dock in one column beside a full-height capture, with both drag handles working and the collapse reversible.
+
+- 01a068c: Let every adapter tell a native session from a browser one. Until now only the WDIO service could: the predicate read `browser.isMobile`/`isAndroid`/`isIOS`, which are WDIO runtime flags that Selenium's `WebDriver`, Nightwatch's `browser` and the Python driver do not have. So Selenium and Nightwatch ran their DOM drain, their collector injection and their page-script probes against a native app anyway — the same wasted round trips and `Method is not implemented` errors the service stopped emitting — and the Python adapter read `window.innerWidth` on a session with no window.
+
+  The fact now has one reader, `isNativeAppSession` in shared, which asks the capabilities every adapter already publishes rather than a driver flag. It keys on whether the session named a browser, because a device alone does not answer the question — an Appium session driving Chrome or Safari runs on a phone and has a real page — and it reads both `platformName` and `browserName` one level into vendor options, since a device cloud commonly states them only inside its own bag.
+
+  `SessionCapturerBase` exposes it as `isNativeAppSession`, resolved from the metadata the adapter has already set. That indirection is not decoration: Selenium's own `getCapabilities()` is async, and a guard cannot await it at the point it has to decide. Guards live inside the guarded method rather than at its call sites, which is what the service's own fix established — Selenium's drain has three call sites and Nightwatch's has four.
+
+  Gated per adapter: Selenium's `captureTrace`, `injectScript`, `reinjectIfNavigated` and its performance read (whose 500 ms settle was being spent to reach a document that does not exist); Nightwatch's `captureTrace`, `injectScript`, `anchorAfterNavigation` — which polls the page for its own document identity — and its own performance read; Python's collector, its performance read and its viewport, which now measures the device window rather than asking a page that isn't there for `window.innerWidth`.
+
+  The densest of these is the per-action snapshot, and all three adapters were paying it: two injected scripts plus `url` and `title`, on **every** action. Those four now drop out on a native session while the screenshot — the one probe a native app does serve — is still taken, so the trace keeps its per-action frames. Screenshots and `manage().logs()` are deliberately left alone too: Appium serves both, and logcat arrives through the second, so gating them would lose data rather than save a failed call.
+
+  Two pre-existing bugs fell out of the work, both from the same root: Selenium published its capabilities as selenium-webdriver's `Capabilities` **instance**. That class keeps its data in a private Map and exposes `serialize` only under a Symbol, so the string-keyed `serialize?.()` the adapter called returned `undefined` and the instance reached the dashboard as `{"map_":{}}`. Every Selenium trace therefore carried no `device` and a guessed browser name, and the dashboard's capabilities pane was empty. It is now flattened through the class's own `keys()`/`get()` — which is also what makes the new guards work at all, since they read that bag. The test stub that hid this had a string-keyed `serialize()` no real driver has ever had.
+
+  Reading the device out of vendor options fixes the same field for a cloud session, which previously read as desktop and reached the player framed as a browser window rather than a phone.
+
+  The player's whole mobile layout was also still WDIO-only, in live mode. It gates on `metadata.device`, and only the WDIO service derives one before sending — Selenium, Nightwatch and Python send capabilities alone. So a phone run on those adapters arrived as a desktop session and got the desktop layout, even though the same run's _trace_ was framed correctly, because the exporter derives the device on the way into the zip. The app now derives it from the capabilities when the adapter sent none: one place rather than four — the single ingestion point every live message passes through. A device the adapter did send wins. Live mode only: a trace's device is already derived by the exporter on the way into the zip.
+
+  Not included: a native session still gets no accessibility tree, because deriving one from page source is a capture _feature_ the WDIO service has and the other three do not. Selenium and Nightwatch also still publish no viewport at all, so their traces — desktop ones included — are framed at the reader's 1280x720 fallback. Both are tracked separately.
+
+- 70d5260: Fit a capture with no DOM by both axes. The player's screenshot branch — reached by every trace that carries no mutation stream, so by every native mobile one — was bounded on the width alone inside a wrapper that hides its overflow, and the filmstrip drew each frame in a fixed 16:9 box with `object-cover`. A portrait capture was therefore scaled up to the pane width, overflowed its height, and had the remainder cut off, while its thumbnails were cropped to a horizontal band through the middle of the screen. Measured on a 1206x2622 iPhone 17 capture in a 1240x457 pane: the main pane showed 17% of the device screen at 5.9x magnification, and because that band is empty page on a phone app screen, the whole filmstrip rendered as blank white rectangles. The captured bytes were always correct — dragging the image out of the player showed the whole screen.
+
+  This is not mobile-specific, it was only unmissable there: the same width-only fit cut the bottom 15% off a 1280x800 desktop capture in a 400px-tall pane. Both places now fit by the capture's own pixels, read from its PNG or JPEG header — the metadata viewport cannot serve, because it disagrees with the screenshot on both mobile platforms (Android reports the window without the navigation bar, iOS reports points rather than pixels) and a DOM-less trace carries no viewport at all. The main pane fills the pane and contains inside it, matching the screencast branch; a filmstrip thumbnail takes the capture's own aspect ratio and contains rather than covers, keeping the 16:9 box only for bytes that name no size.
+
+- Updated dependencies [04c7441]
+- Updated dependencies [9ad41c3]
+- Updated dependencies [34199c8]
+- Updated dependencies [a56c36e]
+- Updated dependencies [70f73a8]
+- Updated dependencies [f8f6ffd]
+- Updated dependencies [01a068c]
+- Updated dependencies [b7b75e4]
+- Updated dependencies [afc07ca]
+- Updated dependencies [70f73a8]
+- Updated dependencies [92af76f]
+- Updated dependencies [afc07ca]
+  - @wdio/devtools-service@10.10.0
+
 ## 1.10.1
 
 ### Patch Changes

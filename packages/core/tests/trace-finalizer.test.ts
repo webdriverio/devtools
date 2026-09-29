@@ -20,6 +20,9 @@ import {
   type TestMetadataMap
 } from '@wdio/devtools-shared'
 
+/** Mirrors the ceiling in trace-finalizer.ts (module-private there). */
+const PENDING_SETTLE_TIMEOUT_MS = 5000
+
 function makeCapturer(commandCount = 4): TraceCapturer {
   return {
     mutations: [],
@@ -616,6 +619,130 @@ describe('flushRangeTrace', () => {
     expect(flushed.size).toBe(0)
     await expect(fs.readdir(outputDir)).resolves.toEqual([])
   })
+
+  // Nightwatch — and Selenium's cucumber hook — start the eager flush without
+  // awaiting it, so the next test can begin while the capture wait runs. An
+  // open-ended slice would then swallow that test's rows.
+  it('closes an open-ended slice on a boundary that appears during the wait', async () => {
+    const capturer = makeCapturer(2)
+    const ranges = [range('/spec.js', 0)]
+    // Resolves only after the "next test" has recorded its boundary and
+    // appended a command — exactly the interleaving being guarded.
+    const capture = Promise.resolve().then(() => {
+      capturer.commandsLog.push({
+        command: 'url',
+        args: ['https://example.test/next-test'],
+        timestamp: 9999,
+        startTime: 9998
+      })
+      ranges.push(range('/spec.js', capturer.commandsLog.length - 1))
+    })
+
+    // ndjson-directory so the slice can be read back as plain files — the
+    // bound being asserted is the same either way.
+    const artifact = await flushRangeTrace(
+      ctx({
+        capturer,
+        ranges,
+        awaitPending: [capture],
+        format: 'ndjson-directory'
+      }),
+      ranges[0]!
+    )
+
+    const written = await fs.readFile(
+      path.join(artifact!.path, 'trace.trace'),
+      'utf8'
+    )
+    expect(written).toContain('https://example.test/0')
+    expect(written).not.toContain('next-test')
+  })
+
+  // The adapters keep ONE run-long capture list and hand it to every flush, so
+  // a slice must wait for its own captures and nobody else's: otherwise one
+  // wedged driver read costs every later slice the ceiling.
+  it(
+    'waits only on the captures recorded after the slice opened',
+    async () => {
+      const stuck = new Promise<void>(() => {})
+      let ownSettled = false
+      const own = new Promise<void>((resolve) =>
+        setTimeout(() => {
+          ownSettled = true
+          resolve()
+        }, 50)
+      )
+      // `stuck` belongs to an earlier slice; `own` to this one.
+      const pendingCaptures = [stuck, own]
+      const scoped = { ...range('/b.js', 0), captureStartIdx: 1 }
+
+      const started = Date.now()
+      await flushRangeTrace(
+        ctx({ pendingCaptures, awaitPending: [stuck, own] }),
+        scoped
+      )
+      const elapsed = Date.now() - started
+
+      // Waited for its own capture, and not for the earlier stuck one.
+      expect(ownSettled).toBe(true)
+      expect(elapsed).toBeLessThan(PENDING_SETTLE_TIMEOUT_MS / 2)
+    },
+    PENDING_SETTLE_TIMEOUT_MS * 4
+  )
+
+  // The WDIO service awaits its captures inline and defers only the session
+  // metadata read, so its slice has no captures to scope — and the viewport it
+  // stamps cannot be corrected once the artifact is written.
+  it(
+    'waits for the session metadata read even with no captures of its own',
+    async () => {
+      let read = false
+      const metadataCapture = new Promise<void>((resolve) =>
+        setTimeout(() => {
+          read = true
+          resolve()
+        }, 50)
+      )
+
+      await flushRangeTrace(ctx({ metadataCapture, pendingCaptures: [] }), {
+        ...range('/spec.js', 0),
+        captureStartIdx: 0
+      })
+
+      expect(read).toBe(true)
+    },
+    PENDING_SETTLE_TIMEOUT_MS * 4
+  )
+
+  // The same list carries the adapters' eager slice WRITES, and the manifest is
+  // written from what they produce — so finalize waits on everything, including
+  // work an eager flush left behind.
+  it(
+    'still waits at finalize for work no slice waited on',
+    async () => {
+      let released = false
+      let release = () => {}
+      const slow = new Promise<void>((resolve) => {
+        release = () => {
+          released = true
+          resolve()
+        }
+      })
+
+      setTimeout(release, 50)
+      await finalizeTraceExport(
+        ctx({
+          granularity: 'session',
+          ranges: [],
+          flushed: new Set(),
+          awaitPending: [slow],
+          pendingCaptures: []
+        })
+      )
+      expect(released).toBe(true)
+    },
+    PENDING_SETTLE_TIMEOUT_MS * 4
+  )
 
   it('returns undefined for an already-flushed spec', async () => {
     const flushed = new Set<string>(['/spec.js'])
