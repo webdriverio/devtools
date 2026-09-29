@@ -97,9 +97,11 @@ def install(version: str = BACKEND_NPM_VERSION, *, force: bool = False) -> Path:
     if result.returncode != 0:
         raise RuntimeError(
             f"npm install failed (exit {result.returncode}) for "
-            f"{BACKEND_NPM_PACKAGE}@{version}. The output above is npm's. If it "
-            "reports the version does not exist, the npm you are running "
-            f'("{npm}") resolves against a registry that does not carry it.'
+            f"{BACKEND_NPM_PACKAGE}@{version}. The output above is npm's. A "
+            "report that the version does not exist is about the npm you are "
+            f'running ("{npm}") rather than about the version: either its '
+            "registry does not carry it, or a proxy in front of it withholds "
+            "releases below some age, which npm reports the same way."
         )
 
     server = installed_server(version)
