@@ -3,6 +3,8 @@
 
 import { type VNode, h } from 'preact'
 
+import { booleanAttributeOn, isBooleanAttribute } from './boolean-attribute.js'
+
 interface SerializedVNode {
   type?: string
   props?: {
@@ -37,6 +39,30 @@ function withoutInlineHandlers(
   return kept
 }
 
+/**
+ * A boolean attribute's state is its PRESENCE, and the anchor captures markup —
+ * so a page's own `<input type="checkbox" checked>` arrives as `checked=""`.
+ * Preact assigns these as properties (`name in dom`), where `''` is falsy, so
+ * the box replayed unchecked while the screencast showed it ticked; `disabled`,
+ * `readonly`, `selected` and the rest replayed off the same way, rendering a
+ * disabled control as usable. Measured: `checked=""` → property `false`.
+ *
+ * Resolved through the helpers the mutation path already uses, so one policy
+ * decides both routes into the replayed DOM.
+ */
+function withBooleanAttributeState(
+  props: Record<string, unknown>
+): Record<string, unknown> {
+  const resolved: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(props)) {
+    resolved[key] =
+      typeof value === 'string' && isBooleanAttribute(key)
+        ? booleanAttributeOn(key, value)
+        : value
+  }
+  return resolved
+}
+
 export function transform(node: TransformInput): VNode<{}> {
   if (typeof node !== 'object' || node === null) {
     // Plain string/number text node — return as-is for Preact to render as text.
@@ -44,7 +70,7 @@ export function transform(node: TransformInput): VNode<{}> {
   }
 
   const { children, ...rawProps } = node.props ?? {}
-  const props = withoutInlineHandlers(rawProps)
+  const props = withBooleanAttributeState(withoutInlineHandlers(rawProps))
   /**
    * ToDo(Christian): fix way we collect data on added nodes in script
    */

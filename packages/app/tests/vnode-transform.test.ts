@@ -240,6 +240,75 @@ describe('transform', () => {
     })
   })
 
+  describe('boolean attributes', () => {
+    /** Renders through Preact, which is where the state is actually decided:
+     *  these attributes are assigned as PROPERTIES, so a prop's truthiness —
+     *  not its presence — is what the replayed page shows. */
+    const renderInto = (node: VNode<{}>): HTMLInputElement => {
+      const host = document.createElement('div')
+      document.body.appendChild(host)
+      render(node, host)
+      return host.querySelector('input') as HTMLInputElement
+    }
+
+    it('replays a box the PAGE checked, captured as a bare attribute', () => {
+      // the-internet's /checkboxes ships `<input type="checkbox" checked>`, and
+      // the anchor serializes markup — so this arrives as `checked=""`, which
+      // Preact assigns as the property `''`. It rendered unchecked while the
+      // screencast showed it ticked.
+      const box = renderInto(
+        transform(captureFragment('<input type="checkbox" checked>'))
+      )
+
+      expect(box.checked).toBe(true)
+    })
+
+    it('replays a box the TEST checked, captured as a property state', () => {
+      // packages/script emits String(el.checked) on input/change, so a click
+      // reaches the wire as "true" rather than as a bare attribute. A browser
+      // coerces that string itself, so this pins the resolved boolean rather
+      // than a defect — the two capture routes must not drift apart.
+      const box = renderInto(
+        transform({
+          type: 'input',
+          props: { type: 'checkbox', checked: 'true' }
+        })
+      )
+
+      expect(box.checked).toBe(true)
+    })
+
+    it('replays a box the test CLEARED as unchecked', () => {
+      // The worst of the three: "false" is a non-empty string, so a browser
+      // reads the raw prop as truthy and renders a box the test just cleared
+      // as ticked.
+      const box = renderInto(
+        transform({
+          type: 'input',
+          props: { type: 'checkbox', checked: 'false' }
+        })
+      )
+
+      expect(box.checked).toBe(false)
+    })
+
+    it('keeps a disabled control disabled', () => {
+      // Same class, and worse when wrong: a control the page disabled replayed
+      // as usable, which reads as the capture having missed the state.
+      const field = renderInto(transform(captureFragment('<input disabled>')))
+
+      expect(field.disabled).toBe(true)
+    })
+
+    it('leaves a non-boolean attribute alone', () => {
+      const field = renderInto(
+        transform({ type: 'input', props: { type: 'text', value: 'tomsmith' } })
+      )
+
+      expect(field.value).toBe('tomsmith')
+    })
+  })
+
   describe('props', () => {
     it('spreads the captured attributes onto the rendered node', () => {
       const node = transform({
