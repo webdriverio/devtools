@@ -44,14 +44,19 @@ const WEB_URL =
 // What the page has to BE, not merely that one loaded. A supplied URL is the
 // user's, so only its scheme is ours to check; the default is ours, and a
 // redirect away from it would otherwise pass with a different site captured.
-const WEB_DESTINATION = process.env.DEVTOOLS_MOBILE_URL ? 'http' : WEB_URL
+const WEB_DESTINATION = process.env.DEVTOOLS_MOBILE_URL
+  ? undefined
+  : new URL(WEB_URL)
 
 async function assertOnWebDestination(driver) {
-  const url = await driver.getCurrentUrl()
-  assert.ok(
-    url.includes(WEB_DESTINATION),
-    `expected ${WEB_DESTINATION}, got ${url}`
-  )
+  const url = new URL(await driver.getCurrentUrl())
+  assert.match(url.protocol, /^https?:$/)
+  if (WEB_DESTINATION) {
+    // Compared part by part rather than as a substring: a URL that merely
+    // CARRIES the expected one — in a query parameter, say — contains it.
+    assert.equal(url.origin, WEB_DESTINATION.origin)
+    assert.equal(url.pathname, WEB_DESTINATION.pathname)
+  }
 }
 
 function mobileCapabilities() {
