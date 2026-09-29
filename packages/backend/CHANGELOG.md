@@ -1,5 +1,44 @@
 # @wdio/devtools-backend
 
+## 1.11.0
+
+### Minor Changes
+
+- 1e4a434: Serve the page-side collector at `/api/collector`. Adapters used to locate the collector bundle on disk by walking up for `packages/script/dist/script.js`, which exists only in a monorepo checkout — an adapter installed from a package registry found nothing, and DOM replay silently disappeared while commands, console, network and screencast all kept working.
+
+  The backend now depends on `@wdio/devtools-script` and serves its source, resolved once at startup the same way the app bundle already is. That makes the collector version-matched to the backend by construction rather than pinned separately in every language, and a new adapter needs an HTTP GET instead of its own copy of a 200KB file. Resolution failure throws at startup rather than degrading, matching `getDevtoolsApp`: a backend that cannot hand out the collector is broken, and a silent failure here resurfaces as a mysteriously empty preview panel in whichever adapter connected.
+
+- f8f6ffd: Carry a native mobile session's viewport, capabilities and device into the trace. A native Appium session produced a zip claiming `viewport: 1280x720` and `browserName: chromium` — both the exporter's own fallbacks rather than anything measured. Three separate causes had to be fixed together, because none of them is useful alone.
+
+  The values were never read: the WDIO service skipped its metadata send entirely for a native session, because it resolves the viewport from `window.visualViewport` and a native app has no DOM. It now reads the window off the driver instead (`getWindowSize`, measured at 1080x2219 on a Pixel 7 — the window minus the navigation bar), and degrades to no viewport rather than failing the session if that read is refused.
+
+  Reading them would not have been enough: the capturer's `metadata` — the copy the exporter serializes — was only ever written by the page-side collector's payload, while `sendUpstream` merely transmits. A value resolved on the driver therefore reached a live dashboard and was dropped before the zip. `SessionCapturer.mergeMetadata` now stores as well as publishes, and merges rather than replaces so a later push naming only a url cannot wipe the device.
+
+  And there was nowhere in the zip to put the device: `browserName` is normalized to `chromium` for android/iOS, `platform` names the HOST OS, and the reader rebuilt capabilities as `{ browserName }` alone, so the device survived only as prose inside `title` and every consumer re-derived "was this a phone?" from a heuristic. A `DeviceInfo` type and a single `deviceFromCapabilities` reader now live in shared, the zip states it as a `device` extension field on `context-options` (the same pattern the existing `runner` field uses), and the trace reader narrows it back in and puts the platform back onto the rebuilt capabilities. The naming order is what real hardware requires: `appium:deviceName` then `deviceModel` then `deviceName`, rejecting any candidate that merely repeats the udid — a device cloud reports an Android serial as both `deviceName` and `udid` and the friendly name only in `deviceModel`, while iOS reports a friendly `deviceName` with `udid` separate.
+
+  Because the field is derived in the exporter from capabilities every adapter already sends, Selenium, Nightwatch and the Python adapter gain it with no adapter-side change. The viewport read is per-adapter and remains done only in the WDIO service; Selenium and Nightwatch set no viewport at all today, desktop or native, so their zips still take the exporter's fallback.
+
+  The Metadata tab shows it as a `Device` row (`iPhone 17 (ios 18.1)`), which is all that reads it for now; #347 is the consumer this unblocks, and is what will shape and label the player's frame.
+
+  Note on units, for anything tempted to size a captured image by this viewport: don't. It disagrees with the screenshot on both platforms — Android reports the window without the navigation bar (1080x2219 against a 1080x2400 shot) and iOS reports points rather than pixels (390x844 against 1170x2532). Fit by the image's own decoded dimensions.
+
+### Patch Changes
+
+- afc07ca: Take one DOM capture per action again. Trace mode had grown a second, eager post-action capture beside the pre-action one, with a `readyState` poll and a 250 ms pause on top to hide the fact that the eager one lands while the screen is still moving — so every action paid two captures, and on a native Appium session each capture is two serial round trips. Measured on the native example spec: 15 screenshots and 15 page-source reads against 8 and 8, and a 14.0–14.7 s test against 11.4 s, with the captured frames equivalent.
+
+  The pre-action capture is the one that was right: taken before the command is issued, it is the moment the driver is guaranteed idle, so an action's result is the next action's "before". Only the last action has no successor to hand its result to, so a settle survives in exactly that one place, and it is gated rather than timed — no navigation, no wait. The eager capture, the poll that patched it and the document tag it was built on are deleted. Two related fixes ride along: a row with no capture of its own now replays the latest state at or before it rather than the nearest in absolute distance, which could hand it its successor's; and the screencast poll keeps at most one screenshot outstanding, so it cannot queue ahead of the test's own commands on a serialised driver.
+
+- Updated dependencies [79f9263]
+- Updated dependencies [a56c36e]
+- Updated dependencies [ae1fd6a]
+- Updated dependencies [70f73a8]
+- Updated dependencies [f8f6ffd]
+- Updated dependencies [01a068c]
+- Updated dependencies [993cb61]
+- Updated dependencies [70d5260]
+  - @wdio/devtools-app@1.11.0
+  - @wdio/devtools-script@1.7.3
+
 ## 1.10.0
 
 ### Minor Changes

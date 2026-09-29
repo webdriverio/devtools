@@ -1,5 +1,82 @@
 # @wdio/nightwatch-devtools
 
+## 1.8.0
+
+### Minor Changes
+
+- f8f6ffd: Carry a native mobile session's viewport, capabilities and device into the trace. A native Appium session produced a zip claiming `viewport: 1280x720` and `browserName: chromium` — both the exporter's own fallbacks rather than anything measured. Three separate causes had to be fixed together, because none of them is useful alone.
+
+  The values were never read: the WDIO service skipped its metadata send entirely for a native session, because it resolves the viewport from `window.visualViewport` and a native app has no DOM. It now reads the window off the driver instead (`getWindowSize`, measured at 1080x2219 on a Pixel 7 — the window minus the navigation bar), and degrades to no viewport rather than failing the session if that read is refused.
+
+  Reading them would not have been enough: the capturer's `metadata` — the copy the exporter serializes — was only ever written by the page-side collector's payload, while `sendUpstream` merely transmits. A value resolved on the driver therefore reached a live dashboard and was dropped before the zip. `SessionCapturer.mergeMetadata` now stores as well as publishes, and merges rather than replaces so a later push naming only a url cannot wipe the device.
+
+  And there was nowhere in the zip to put the device: `browserName` is normalized to `chromium` for android/iOS, `platform` names the HOST OS, and the reader rebuilt capabilities as `{ browserName }` alone, so the device survived only as prose inside `title` and every consumer re-derived "was this a phone?" from a heuristic. A `DeviceInfo` type and a single `deviceFromCapabilities` reader now live in shared, the zip states it as a `device` extension field on `context-options` (the same pattern the existing `runner` field uses), and the trace reader narrows it back in and puts the platform back onto the rebuilt capabilities. The naming order is what real hardware requires: `appium:deviceName` then `deviceModel` then `deviceName`, rejecting any candidate that merely repeats the udid — a device cloud reports an Android serial as both `deviceName` and `udid` and the friendly name only in `deviceModel`, while iOS reports a friendly `deviceName` with `udid` separate.
+
+  Because the field is derived in the exporter from capabilities every adapter already sends, Selenium, Nightwatch and the Python adapter gain it with no adapter-side change. The viewport read is per-adapter and remains done only in the WDIO service; Selenium and Nightwatch set no viewport at all today, desktop or native, so their zips still take the exporter's fallback.
+
+  The Metadata tab shows it as a `Device` row (`iPhone 17 (ios 18.1)`), which is all that reads it for now; #347 is the consumer this unblocks, and is what will shape and label the player's frame.
+
+  Note on units, for anything tempted to size a captured image by this viewport: don't. It disagrees with the screenshot on both platforms — Android reports the window without the navigation bar (1080x2219 against a 1080x2400 shot) and iOS reports points rather than pixels (390x844 against 1170x2532). Fit by the image's own decoded dimensions.
+
+### Patch Changes
+
+- 9ad41c3: Stop the WDIO service deadlocking a mobile-web Appium session. `beforeCommand` issues its probes — the collector drain and the per-action snapshot's two scripts plus `url`/`title` — from inside the hook wrapping the command it is observing. Desktop chromedriver tolerates that re-entrancy; Appium serialises per session, so each probe enqueued behind the command it was meant to observe and neither resolved. Measured on an emulator: a two-command mobile-web spec passes in 1.6 s without the service and took 6 m 13 s of timeouts with it, every command at the WDIO timeout, with Chrome still on its new-tab page.
+
+  The probes now go straight to the driver's HTTP endpoint for a session whose driver serialises, which is the only escape that does not change the ordering guarantee the pre-action snapshot depends on — the alternative, not awaiting in the hook, trades "state BEFORE this action executes" for every adapter and platform.
+
+  The transport moved to `core` rather than being copied: Nightwatch has needed exactly this since its own command queue posed the same problem, and its `helpers/webdriverHttp.ts` now delegates to it, keeping only the part that is genuinely framework-specific — walking Nightwatch's internal config for the driver's host and port. Two things the Nightwatch version could not do are in the core one because the service needs them: https, and basic auth from the connection's `user`/`key`, since a cloud grid answers 401 without it and a probe that silently 401s reads as a capture gap rather than an error.
+
+  Gated on `isAppiumSession`, not on being native. A native session skips these probes entirely, so the one that needed this is the mobile **web** session — it has a document and is driven through Appium. Desktop keeps `browser.*`, which carries WDIO's own retries and interceptors, because the re-entrancy is only fatal where the driver serialises. A session whose address is not knowable from the connection options also keeps the normal path: guessing localhost would aim a probe at whatever else is listening there.
+
+- 34199c8: Find the collector bundle whether the package resolved to its build or its source. `loadCollectorSource` resolved `@wdio/devtools-script` and then read `script.js` from **that entry's directory**, which only holds when the entry is the built one. The repo tsconfig maps the package to `packages/script/src/index.ts`, and every resolver honouring those paths lands there instead — `tsx` and `ts-node` among them, which is how `wdio run <conf>.ts` loads a config. The read then ENOENTs on `packages/script/src/script.js`.
+
+  Nothing failed loudly, which is why this survived: every caller treats an injection failure as a warning, so the run continued and lost its DOM capture. Surfaced as `Collector re-injection failed: ENOENT … packages/script/src/script.js` on a mobile-web Appium run, and reproduced in three lines against a plain `tsx` entry point, so it was never mobile-specific — any TS-config-driven run was affected.
+
+  The bundle is now looked for beside the entry _and_ at `../dist/script.js`, and a genuine miss reports every path it tried instead of only the last.
+
+- 01a068c: Let every adapter tell a native session from a browser one. Until now only the WDIO service could: the predicate read `browser.isMobile`/`isAndroid`/`isIOS`, which are WDIO runtime flags that Selenium's `WebDriver`, Nightwatch's `browser` and the Python driver do not have. So Selenium and Nightwatch ran their DOM drain, their collector injection and their page-script probes against a native app anyway — the same wasted round trips and `Method is not implemented` errors the service stopped emitting — and the Python adapter read `window.innerWidth` on a session with no window.
+
+  The fact now has one reader, `isNativeAppSession` in shared, which asks the capabilities every adapter already publishes rather than a driver flag. It keys on whether the session named a browser, because a device alone does not answer the question — an Appium session driving Chrome or Safari runs on a phone and has a real page — and it reads both `platformName` and `browserName` one level into vendor options, since a device cloud commonly states them only inside its own bag.
+
+  `SessionCapturerBase` exposes it as `isNativeAppSession`, resolved from the metadata the adapter has already set. That indirection is not decoration: Selenium's own `getCapabilities()` is async, and a guard cannot await it at the point it has to decide. Guards live inside the guarded method rather than at its call sites, which is what the service's own fix established — Selenium's drain has three call sites and Nightwatch's has four.
+
+  Gated per adapter: Selenium's `captureTrace`, `injectScript`, `reinjectIfNavigated` and its performance read (whose 500 ms settle was being spent to reach a document that does not exist); Nightwatch's `captureTrace`, `injectScript`, `anchorAfterNavigation` — which polls the page for its own document identity — and its own performance read; Python's collector, its performance read and its viewport, which now measures the device window rather than asking a page that isn't there for `window.innerWidth`.
+
+  The densest of these is the per-action snapshot, and all three adapters were paying it: two injected scripts plus `url` and `title`, on **every** action. Those four now drop out on a native session while the screenshot — the one probe a native app does serve — is still taken, so the trace keeps its per-action frames. Screenshots and `manage().logs()` are deliberately left alone too: Appium serves both, and logcat arrives through the second, so gating them would lose data rather than save a failed call.
+
+  Two pre-existing bugs fell out of the work, both from the same root: Selenium published its capabilities as selenium-webdriver's `Capabilities` **instance**. That class keeps its data in a private Map and exposes `serialize` only under a Symbol, so the string-keyed `serialize?.()` the adapter called returned `undefined` and the instance reached the dashboard as `{"map_":{}}`. Every Selenium trace therefore carried no `device` and a guessed browser name, and the dashboard's capabilities pane was empty. It is now flattened through the class's own `keys()`/`get()` — which is also what makes the new guards work at all, since they read that bag. The test stub that hid this had a string-keyed `serialize()` no real driver has ever had.
+
+  Reading the device out of vendor options fixes the same field for a cloud session, which previously read as desktop and reached the player framed as a browser window rather than a phone.
+
+  The player's whole mobile layout was also still WDIO-only, in live mode. It gates on `metadata.device`, and only the WDIO service derives one before sending — Selenium, Nightwatch and Python send capabilities alone. So a phone run on those adapters arrived as a desktop session and got the desktop layout, even though the same run's _trace_ was framed correctly, because the exporter derives the device on the way into the zip. The app now derives it from the capabilities when the adapter sent none: one place rather than four — the single ingestion point every live message passes through. A device the adapter did send wins. Live mode only: a trace's device is already derived by the exporter on the way into the zip.
+
+  Not included: a native session still gets no accessibility tree, because deriving one from page source is a capture _feature_ the WDIO service has and the other three do not. Selenium and Nightwatch also still publish no viewport at all, so their traces — desktop ones included — are framed at the reader's 1280x720 fallback. Both are tracked separately.
+
+- 92af76f: Publish the viewport from every adapter. Selenium and Nightwatch published none at all, so `trace.metadata.viewport` was absent for every trace either produced and the exporter fell back to a hard-coded 1280x720 in three places. That fallback is what the player lays the DOM-replay iframe out at, so **every** Selenium and Nightwatch trace was replayed at 1280x720 regardless of the window the run actually used. Not a mobile problem: a desktop run at 2560x1440 was framed just as wrongly, which is presumably why it went unnoticed — the proportions are plausible.
+
+  The read has one home now, `resolveViewport` in `core`, because all three JS adapters need it. Two probes, only one of which exists at a time: a page measures itself through `visualViewport` — the only read carrying the real scale and offsets — and a native app has no page to ask, so the device's own window is the only answer. `isNativeAppSession` settles which, so the branch was already decided.
+
+  Each adapter supplies its own probes, and the care is in how: Selenium reads through the **unpatched** `getDriverOriginals()` and Nightwatch over its raw WebDriver transport, because both implement these as ordinary commands — through the patched path every run would open with an `executeScript` or `getWindowRect` row of our own making, and Nightwatch's would additionally sit behind the command in flight on its own queue.
+
+  The script reads the `visualViewport` fields one by one rather than returning the object: it is a host object, and a driver that serializes it structurally hands back `{}`, which would read as a successful empty measurement rather than a failed one. A read that answers nothing usable omits the viewport rather than publishing a zero-sized one, and a failure degrades to no viewport rather than failing the session.
+
+  The Python adapter already published one, but only `width`/`height` from `innerWidth`/`innerHeight`, so it lost the scale and offsets the shared `Viewport` declares; it now takes the same `visualViewport` read as the others.
+
+  Also corrects the claim, in the comment that survived, that this field is metadata only. It is load-bearing geometry wherever there is a DOM to replay.
+
+- afc07ca: Stop a screencast session outliving the recording it was armed for. A `stop()` arriving while the CDP handshake was still in flight returned early — the recording flag it checks is only set once the handshake finishes — so the session, its frame listener and the browser-side screencast stream stayed live after teardown (the late frames themselves were moot: every adapter builds a fresh recorder per session). `start()` and `stop()` are now serialised, so a stop always runs against a start that has finished arming and tears down what that start armed.
+
+  The visible consequence of the fix: `stop()` now waits for an in-flight handshake rather than returning immediately — so every driver primitive that handshake awaits is ceilinged. An unbounded one (the service's `getPuppeteer()`/`pages()`/`createCDPSession()`/`Page.startScreencast` and the `session.detach()` its timeout path takes, the polling path's first screenshot, Selenium's `createCDPConnection`) would have parked teardown behind a driver that never answers, turning a leaked session into a hung test run. On the ceiling the handshake gives up and the recorder falls back to polling, or reports the screencast unavailable when polling was what wedged.
+
+  Nothing is claimed until the handshake has answered, which is what keeps the ceiling safe: a `Page.startScreencast` that times out leaves no session, no frame listener and no stream behind for teardown to find — and a CDP session or connection that completes after the ceiling is detached (or, for Selenium, has its socket closed) when it lands, so no orphan outlives the recording. Selenium's stop closes the socket its recording opened on the success path too: each `createCDPConnection` overwrites the driver's single connection slot and `quit()` closes only the current one, so every recording rotation on one driver would otherwise leak one live websocket for the session's life. The same ceiling covers the stop-side `Page.stopScreencast` send, so a wedged stop cannot block the next recording either.
+
+- Updated dependencies [1e4a434]
+- Updated dependencies [f8f6ffd]
+- Updated dependencies [993cb61]
+- Updated dependencies [afc07ca]
+  - @wdio/devtools-backend@1.11.0
+  - @wdio/devtools-script@1.7.3
+
 ## 1.7.1
 
 ### Patch Changes
