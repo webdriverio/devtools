@@ -69,6 +69,14 @@ class TestRunner {
       childEnv[REUSE_ENV.PORT] = String(payload.devtoolsPort)
       childEnv[REUSE_ENV.REUSE] = '1'
     }
+    // Deleted when this payload carries none: `childEnv` starts from our own
+    // environment, so a backend that inherited the variable would otherwise
+    // hand a stale command to every child it spawns.
+    if (payload.launchCommand) {
+      childEnv[REUSE_ENV.LAUNCH_COMMAND] = payload.launchCommand
+    } else {
+      delete childEnv[REUSE_ENV.LAUNCH_COMMAND]
+    }
     return childEnv
   }
 

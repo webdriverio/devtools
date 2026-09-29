@@ -10,7 +10,12 @@ import sys
 import unittest
 
 from selenium_devtools import rerun
-from selenium_devtools._contract import ENV_RUNNER_CWD, RERUN_SLOT_TEST_ID
+from selenium_devtools._contract import (
+    ENV_LAUNCH_COMMAND,
+    ENV_REUSE,
+    ENV_RUNNER_CWD,
+    RERUN_SLOT_TEST_ID,
+)
 
 PY = rerun._quote([sys.executable])
 ROOT = "/repo"
@@ -24,20 +29,88 @@ class RerunTestCase(unittest.TestCase):
         # `_reset_for_tests`, not `reset`: ownership of ENV_RUNNER_CWD outlives
         # a reset by design, so each case has to start as a fresh process would.
         rerun._reset_for_tests()
-        self._saved_cwd = os.environ.pop(ENV_RUNNER_CWD, None)
+        # Both are inherited, and both decide what this module publishes — so a
+        # suite run FROM the dashboard's own rerun (which exports them) would
+        # otherwise assert against that rerun's environment rather than a fresh
+        # process's.
+        self._saved = {
+            key: os.environ.pop(key, None)
+            for key in (ENV_RUNNER_CWD, ENV_REUSE, ENV_LAUNCH_COMMAND)
+        }
         self.addCleanup(self._restore)
 
     def _restore(self) -> None:
         rerun._reset_for_tests()
-        os.environ.pop(ENV_RUNNER_CWD, None)
-        if self._saved_cwd is not None:
-            os.environ[ENV_RUNNER_CWD] = self._saved_cwd
+        for key, value in self._saved.items():
+            os.environ.pop(key, None)
+            if value is not None:
+                os.environ[key] = value
 
     def configure_pytest(self, args, positionals=(), rootdir=ROOT):
         rerun.configure_pytest(
             args=list(args), positionals=list(positionals), rootdir=rootdir
         )
         return rerun.run_options()
+
+
+class TestARerunChildsRunAll(RerunTestCase):
+    """Run-all is inherited from the spawner, never derived from a rerun
+    child's own invocation — see REUSE_ENV.LAUNCH_COMMAND in shared."""
+
+    def test_the_handed_down_command_wins_over_this_invocation(self):
+        os.environ[ENV_REUSE] = "1"
+        os.environ[ENV_LAUNCH_COMMAND] = f"{PY} -m pytest"
+        # What the backend spawns for a targeted rerun: the template with one
+        # nodeid substituted in, which pytest reports back as a positional.
+        options = self.configure_pytest(
+            ["tests/test_a.py::test_two"], ["tests/test_a.py::test_two"]
+        )
+
+        self.assertEqual(options["launchCommand"], f"{PY} -m pytest")
+        self.assertNotIn("test_two", str(options["launchCommand"]))
+
+    def test_the_rerun_template_is_still_this_processs_own(self):
+        # Only Run-all is inherited. The template has to describe how THIS
+        # interpreter selects a test, which the parent's command cannot say.
+        os.environ[ENV_REUSE] = "1"
+        os.environ[ENV_LAUNCH_COMMAND] = "python -m pytest"
+        options = self.configure_pytest(["-p", "no:cacheprovider"])
+
+        self.assertEqual(
+            options["rerunCommand"],
+            f"{PY} -m pytest -p no:cacheprovider {RERUN_SLOT_TEST_ID}",
+        )
+
+    def test_a_first_run_still_derives_its_own(self):
+        # No handshake: this is the original run, and its invocation IS the
+        # right answer — including a narrowing the user asked for.
+        options = self.configure_pytest(["tests/unit"], ["tests/unit"])
+
+        self.assertEqual(
+            options["launchCommand"],
+            f"{PY} -m pytest {os.path.abspath('tests/unit')}",
+        )
+
+    def test_a_leftover_variable_without_a_handshake_is_ignored(self):
+        # Inherited like any other variable, so a stale export from an earlier
+        # rerun would otherwise scope Run-all on a run that is nobody's child.
+        os.environ[ENV_LAUNCH_COMMAND] = f"{PY} -m pytest one_test.py::only"
+        options = self.configure_pytest(["tests/unit"], ["tests/unit"])
+
+        self.assertEqual(
+            options["launchCommand"],
+            f"{PY} -m pytest {os.path.abspath('tests/unit')}",
+        )
+
+    def test_an_empty_handshake_is_not_a_command(self):
+        os.environ[ENV_REUSE] = "1"
+        os.environ[ENV_LAUNCH_COMMAND] = ""
+        options = self.configure_pytest(["tests/unit"], ["tests/unit"])
+
+        self.assertEqual(
+            options["launchCommand"],
+            f"{PY} -m pytest {os.path.abspath('tests/unit')}",
+        )
 
 
 class TestPytestCommands(RerunTestCase):

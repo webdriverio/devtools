@@ -38,7 +38,12 @@ import shlex
 import sys
 from typing import Dict, List, Optional, Sequence
 
-from ._contract import ENV_RUNNER_CWD, RERUN_SLOT_TEST_ID
+from ._contract import (
+    ENV_LAUNCH_COMMAND,
+    ENV_REUSE,
+    ENV_RUNNER_CWD,
+    RERUN_SLOT_TEST_ID,
+)
 from .constants import LOGGER_NAME, RUN_CAPABILITIES_NONE
 
 _log = logging.getLogger(f"{LOGGER_NAME}.rerun")
@@ -134,7 +139,7 @@ def configure_pytest(
     file/dir/nodeid arguments pytest resolved out of it, and `rootdir` the
     directory its nodeids are relative to.
     """
-    launch = _quote(
+    launch = _inherited_launch() or _quote(
         [sys.executable, "-m", "pytest", *_absolute_positionals(args, positionals)]
     )
     targeted = _drop_positionals(_strip_filters(args), positionals)
@@ -142,6 +147,18 @@ def configure_pytest(
         f"{_quote([sys.executable, '-m', 'pytest', *targeted])} {RERUN_SLOT_TEST_ID}"
     )
     _publish(launch=launch, rerun=rerun, base_dir=rootdir or os.getcwd())
+
+
+def _inherited_launch() -> Optional[str]:
+    """The Run-all command handed down by the backend that spawned this run.
+
+    Read only while the reuse handshake is live: the variable is inherited like
+    any other, so a leftover export would otherwise pin Run-all on a first run
+    that is nobody's child. See REUSE_ENV in shared for why it is passed at all.
+    """
+    if os.environ.get(ENV_REUSE) != "1":
+        return None
+    return os.environ.get(ENV_LAUNCH_COMMAND) or None
 
 
 def _publish(*, launch: Optional[str], rerun: Optional[str], base_dir: str) -> None:

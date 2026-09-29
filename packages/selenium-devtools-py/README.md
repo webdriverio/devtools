@@ -302,9 +302,14 @@ run, so all three controls relaunch the script, which is what that tree means.
 
 The rerun reports into **the dashboard you pressed the button in**: the backend
 points the process it spawns back at itself (`DEVTOOLS_APP_REUSE` /`_HOST`
-/`_PORT`), so the child attaches to that backend and opens no second window.
+/`_PORT`), so the child attaches to that backend and opens no second window. It
+also hands down the Run-all command (`DEVTOOLS_RERUN_LAUNCH_COMMAND`), because
+a child is spawned with one test on its command line and would otherwise
+republish *that* as the command for running everything — after which Run-all
+would rerun only whatever you last reran.
 
-The command is your own invocation, re-derived:
+The command is your own invocation, re-derived — except Run-all in a rerun
+child, which is the one handed down:
 
 ```
 you ran:   pytest examples/ -k login -n 4
