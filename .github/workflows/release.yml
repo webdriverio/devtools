@@ -86,7 +86,11 @@ jobs:
       # runs for events its own token raises, to stop recursion. Set
       # PIN_BUMP_TOKEN (a PAT or App token) and the checks run on their own;
       # without it the PR needs a nudge, which its body says.
+      #
+      # Only for a `latest` release: the pin is what a `pip install` user gets,
+      # and a `next` publish is a test version nobody should be moved onto.
       - name: Open the Python backend pin bump
+        if: inputs.distTag == 'latest' || inputs.distTag == ''
         env:
           GITHUB_TOKEN: ${{ secrets.PIN_BUMP_TOKEN || secrets.GITHUB_TOKEN }}
           PIN_FILE: packages/selenium-devtools-py/src/selenium_devtools/constants.py
@@ -113,14 +117,29 @@ jobs:
           esac
 
           BRANCH="chore/pin-backend-$BACKEND"
-          git switch -c "$BRANCH"
+          FRAGMENT="packages/selenium-devtools-py/changes/pin-backend-$BACKEND.md"
+          # -C, not -c: a re-run of a release that already reached this step
+          # (publish succeeded, something after it did not) finds its own branch
+          # already there, and `-c` would fail the step AFTER publication.
+          git switch -C "$BRANCH"
           sed -i "s/^BACKEND_NPM_VERSION = .*/BACKEND_NPM_VERSION = \"$BACKEND\"/" "$PIN_FILE"
           # Required, not decorative: python.yml refuses a branch that changes
           # `src/` and documents nothing, so a pin-only PR would fail its own CI.
           printf -- '---\npatch\n---\n\nPin the backend a `pip install` user runs to %s.\n' \
-            "$BACKEND" > "packages/selenium-devtools-py/changes/pin-backend-$BACKEND.md"
-          git commit -am "chore(python): pin the backend to $BACKEND"
-          git push origin "$BRANCH"
+            "$BACKEND" > "$FRAGMENT"
+          # Named explicitly because the fragment is UNTRACKED: `commit -a`
+          # stages modified tracked files only, so it would ship the pin without
+          # the fragment that makes the pin mergeable.
+          git add "$PIN_FILE" "$FRAGMENT"
+          git commit -m "chore(python): pin the backend to $BACKEND"
+          # The branch is bot-owned and named for the version, so the only thing
+          # a force can overwrite is this same bump from an earlier failed run.
+          git push --force origin "$BRANCH"
+
+          if [ "$(gh pr list --head "$BRANCH" --state open --json number --jq 'length')" != "0" ]; then
+            echo "A pin PR for $BACKEND is already open — pushed to it instead."
+            exit 0
+          fi
           gh pr create --base main --head "$BRANCH" \
             --title "chore(python): pin the backend to $BACKEND" \
             --body "$(printf '%s\n' \

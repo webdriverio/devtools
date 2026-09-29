@@ -25,3 +25,8 @@ At release, `scripts/changes.py apply` takes the highest level of all pending
 files, bumps `__version__`, writes the section into `CHANGELOG.md`, and deletes
 the files it consumed. CI refuses a pull request that changes `src/` without
 adding one.
+
+One of these is written for you: the npm release opens a PR bumping
+`BACKEND_NPM_VERSION` to the backend it just published, and that PR brings a
+`patch` fragment with it — `constants.py` is under `src/`, so without one the
+bump would fail the very check that exists to keep this package documented.
