@@ -8,10 +8,16 @@ at runtime, and the resolution order encodes the local-vs-published split:
     1. DEVTOOLS_PORT set        → attach to an already-running backend (CI, manual)
     2. DEVTOOLS_BACKEND_CMD set → spawn that explicit command
     3. monorepo dist present    → node packages/backend/dist/server.js     (LOCAL dev)
-    4. else                     → npx @wdio/devtools-backend@<pinned>       (PUBLISHED)
+    4. installed copy present   → node <cache>/…/dist/server.js            (INSTALLED)
+    5. else                     → npx @wdio/devtools-backend@<pinned>       (PUBLISHED)
 
-Steps 3 and 4 spawn Node, so they are gated on :func:`node_runtime.require_node`
-— steps 0 and 1 attach to a backend someone else is running and need none.
+Steps 3, 4 and 5 spawn Node, so they are gated on
+:func:`node_runtime.require_node` — steps 0 and 1 attach to a backend someone
+else is running and need none.
+
+Step 4 is what ``selenium-devtools install-backend`` puts there, and it is ahead
+of npx because npx re-resolves against a registry on every single run: seconds
+of every test run, and a mid-test failure when a proxy declines the package.
 
 The pinned version below is bumped deliberately alongside a contract change —
 there is no auto-resolution, so this constant *is* the version link.
@@ -21,18 +27,22 @@ from __future__ import annotations
 
 import logging
 import os
+import queue
 import re
 import shlex
 import shutil
 import subprocess
 import threading
 import time
+from collections import deque
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Deque, List, Optional, Tuple
 
+from . import backend_install
 from ._contract import ENV_REUSE, ENV_REUSE_HOST, ENV_REUSE_PORT
 from .node_runtime import require_node
 from .constants import (
+    BACKEND_FETCH_TIMEOUT_S,
     BACKEND_NPM_PACKAGE,
     BACKEND_NPM_VERSION,
     BACKEND_SPAWN_TIMEOUT_S,
@@ -52,6 +62,10 @@ _log = logging.getLogger(f"{LOGGER_NAME}.backend")
 # Greedy `.*` so the IPv6 form (http://[::1]:PORT) resolves to the final :PORT.
 _PORT_RE = re.compile(r"listening at .*:(\d+)")
 
+# Enough of the child's output to carry an npm error, which is the failure a
+# published install actually hits; more would bury the message in npm notices.
+SPAWN_TAIL_LINES = 8
+
 
 def _find_monorepo_backend(start: Optional[Path] = None) -> Optional[Path]:
     """Walk up from ``start`` (default: this module) for a built backend. Present
@@ -67,15 +81,26 @@ def _find_monorepo_backend(start: Optional[Path] = None) -> Optional[Path]:
     return None
 
 
-def _drain(proc: subprocess.Popen) -> None:
-    """Keep reading the backend's stdout so its pipe never fills and blocks it."""
+def _reader_thread(proc: subprocess.Popen) -> Tuple["queue.Queue", threading.Event]:
+    """Stream the child's stdout into a queue, ending with ``None`` at EOF.
+
+    One thread serves both jobs the spawn needs: handing lines to the caller
+    while it waits for a port, and — once the returned event is set — reading on
+    in silence so the backend's pipe never fills and blocks it. Queueing a live
+    server's whole log instead would grow without bound.
+    """
+    lines: "queue.Queue" = queue.Queue()
+    hush = threading.Event()
 
     def pump() -> None:
         assert proc.stdout is not None
-        for _ in proc.stdout:
-            pass
+        for line in proc.stdout:
+            if not hush.is_set():
+                lines.put(line)
+        lines.put(None)
 
     threading.Thread(target=pump, daemon=True).start()
+    return lines, hush
 
 
 def _spawn_and_wait_for_port(
@@ -85,21 +110,47 @@ def _spawn_and_wait_for_port(
         cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1
     )
     assert proc.stdout is not None
+    # The child's own words are the diagnosis — an npm registry refusing the
+    # package, a port already bound — and without them the caller only learns
+    # that something exited, which names neither the cause nor the fix.
+    tail: Deque[str] = deque(maxlen=SPAWN_TAIL_LINES)
+    # Read on a thread rather than calling readline() here: readline BLOCKS
+    # until a line or EOF, so a backend that wedges silently — the one case this
+    # budget exists for — never lets the loop reach its own deadline check.
+    lines, hush = _reader_thread(proc)
     deadline = time.time() + timeout
-    while time.time() < deadline:
-        line = proc.stdout.readline()
-        if not line:
-            if proc.poll() is not None:
-                raise RuntimeError(
-                    f"backend exited (code {proc.returncode}) before reporting a port"
-                )
-            continue
+    while True:
+        remaining = deadline - time.time()
+        if remaining <= 0:
+            break
+        try:
+            line = lines.get(timeout=remaining)
+        except queue.Empty:
+            break
+        if line is None:  # EOF: the pipe closed, so the child is done talking
+            if proc.poll() is None:
+                proc.terminate()
+            raise RuntimeError(
+                f"backend exited (code {proc.returncode}) before reporting a "
+                f"port{_describe_tail(cmd, tail)}"
+            )
+        tail.append(line.rstrip())
         match = _PORT_RE.search(line)
         if match:
-            _drain(proc)
+            hush.set()
             return proc, int(match.group(1))
     proc.terminate()
-    raise TimeoutError("backend did not report a port within the timeout")
+    raise TimeoutError(
+        f"backend did not report a port within {timeout:.0f}s"
+        f"{_describe_tail(cmd, tail)}"
+    )
+
+
+def _describe_tail(cmd: List[str], tail: "Deque[str]") -> str:
+    """The command that was run plus its last output, for an error message."""
+    said = "\n  ".join(line for line in tail if line.strip())
+    spoken = f"\n  {said}" if said else " (it printed nothing)"
+    return f"\n  command: {' '.join(cmd)}\n  last output:{spoken}"
 
 
 def reuse_target() -> Optional[Tuple[str, int]]:
@@ -154,15 +205,29 @@ def launch_or_attach() -> Tuple[str, int, Optional[subprocess.Popen]]:
         proc, port = _spawn_and_wait_for_port([node, str(local)])
         return host, port, proc
 
+    installed = backend_install.installed_server()
+    if installed is not None:
+        proc, port = _spawn_and_wait_for_port([node, str(installed)])
+        return host, port, proc
+
     npx = shutil.which("npx")
     if npx is None:
         raise RuntimeError(
             f'Found Node at "{node}" but no npx alongside it, which is how the '
             f"dashboard backend ({BACKEND_NPM_PACKAGE}) is fetched. npx ships "
-            "with npm — reinstall Node from https://nodejs.org, or set "
-            "DEVTOOLS_PORT to an already-running dashboard."
+            "with npm — reinstall Node from https://nodejs.org, run "
+            "`selenium-devtools install-backend` once, or set DEVTOOLS_PORT to "
+            "an already-running dashboard."
         )
+    # Said out loud because the first one downloads a dependency tree and there
+    # is nothing else on the terminal to explain the pause.
+    _log.info(
+        "starting %s@%s with %s — the first run downloads it, which can take a "
+        "minute; `selenium-devtools install-backend` does that once, ahead of time",
+        BACKEND_NPM_PACKAGE, BACKEND_NPM_VERSION, npx,
+    )
     proc, port = _spawn_and_wait_for_port(
-        [npx, "-y", f"{BACKEND_NPM_PACKAGE}@{BACKEND_NPM_VERSION}"]
+        [npx, "-y", f"{BACKEND_NPM_PACKAGE}@{BACKEND_NPM_VERSION}"],
+        timeout=BACKEND_FETCH_TIMEOUT_S,
     )
     return host, port, proc

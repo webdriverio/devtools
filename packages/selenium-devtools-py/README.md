@@ -21,8 +21,21 @@ pip install -e packages/selenium-devtools-py   # or: pip install selenium-devtoo
 The transport is **dependency-free** (stdlib WebSocket client). `selenium>=4.44`
 is installed with the package; `pytest` is optional.
 
+Then install the backend, once:
+
+```bash
+selenium-devtools install-backend
+```
+
+pip cannot do this for you — a wheel has no install hook, and the backend is a
+Node package. Skip it and runs still work: they fall back to fetching it with
+`npx` on first use. That fallback costs a registry round trip on *every* run,
+pays the whole download inside the first run, and fails in the middle of a test
+session when a proxy declines the package, so the one-time install is worth the
+one line. `selenium-devtools backend-path` says whether it is there.
+
 **Requires Node.js 18+ on your PATH — in every mode.** The backend is a Node app
-and pip cannot resolve it, so it is fetched at runtime with `npx`. It is not
+and pip cannot resolve it, so it is obtained separately. It is not
 only the dashboard window: the page collector is served by the backend, the
 whole event stream goes through its WebSocket, and in trace mode it is also what
 builds the archive (see [Trace mode](#trace-mode)) — so **without Node there is

@@ -299,12 +299,15 @@ npm install @wdio/selenium-devtools
 **Python (Selenium):**
 ```bash
 pip install -e packages/selenium-devtools-py   # or: pip install selenium-devtools-py (when published)
+selenium-devtools install-backend              # once — pip cannot install a Node package
 ```
 
 The Python adapter needs Python 3.10+, selenium 4.44+, and **Node.js 18+ on your
 PATH** — the backend that serves the page collector, carries the event stream
 and builds the trace archive is a Node app, so Node is required in every mode,
-not just for the dashboard window.
+not just for the dashboard window. Without the install step a run fetches that
+backend with `npx` on first use, which works but costs a registry round trip
+every run.
 
 > See the [Nightwatch Integration](#nightwatch-integration), [Selenium Integration](#selenium-integration) and [Python Integration](#python-integration) sections for configuration details.
 
