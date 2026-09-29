@@ -263,33 +263,17 @@ describe('transform', () => {
       expect(box.checked).toBe(true)
     })
 
-    it('replays a box the TEST checked, captured as a property state', () => {
-      // packages/script emits String(el.checked) on input/change, so a click
-      // reaches the wire as "true" rather than as a bare attribute. A browser
-      // coerces that string itself, so this pins the resolved boolean rather
-      // than a defect — the two capture routes must not drift apart.
+    it('replays a box whose markup says checked="false"', () => {
+      // HTML reads the ATTRIBUTE, not what it says: a page that writes
+      // checked="false" renders a ticked box, and the replay must agree. This
+      // is why the mutation path's policy cannot be shared — there "false" is
+      // the collector reporting a cleared field, a signal that never reaches
+      // markup, and reusing it here replayed this page's box unticked.
       const box = renderInto(
-        transform({
-          type: 'input',
-          props: { type: 'checkbox', checked: 'true' }
-        })
+        transform(captureFragment('<input type="checkbox" checked="false">'))
       )
 
       expect(box.checked).toBe(true)
-    })
-
-    it('replays a box the test CLEARED as unchecked', () => {
-      // The worst of the three: "false" is a non-empty string, so a browser
-      // reads the raw prop as truthy and renders a box the test just cleared
-      // as ticked.
-      const box = renderInto(
-        transform({
-          type: 'input',
-          props: { type: 'checkbox', checked: 'false' }
-        })
-      )
-
-      expect(box.checked).toBe(false)
     })
 
     it('keeps a disabled control disabled', () => {

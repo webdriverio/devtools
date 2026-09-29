@@ -3,7 +3,7 @@
 
 import { type VNode, h } from 'preact'
 
-import { booleanAttributeOn, isBooleanAttribute } from './boolean-attribute.js'
+import { isBooleanAttribute } from './boolean-attribute.js'
 
 interface SerializedVNode {
   type?: string
@@ -40,25 +40,27 @@ function withoutInlineHandlers(
 }
 
 /**
- * A boolean attribute's state is its PRESENCE, and the anchor captures markup —
+ * A boolean attribute's state is its PRESENCE, and everything reaching here is
+ * MARKUP — the anchor and every added node are serialized with `outerHTML` —
  * so a page's own `<input type="checkbox" checked>` arrives as `checked=""`.
  * Preact assigns these as properties (`name in dom`), where `''` is falsy, so
  * the box replayed unchecked while the screencast showed it ticked; `disabled`,
  * `readonly`, `selected` and the rest replayed off the same way, rendering a
  * disabled control as usable. Measured: `checked=""` → property `false`.
  *
- * Resolved through the helpers the mutation path already uses, so one policy
- * decides both routes into the replayed DOM.
+ * Presence alone, never the value: `checked="false"` in markup is a CHECKED box
+ * (the browser reads the attribute, not what it says), so this deliberately
+ * does NOT share `booleanAttributeOn` with the mutation path. There "false" is
+ * the collector reporting a cleared field — a signal that only exists on that
+ * path, since `#handleAttributeMutation` is where those records land and they
+ * never come through here.
  */
 function withBooleanAttributeState(
   props: Record<string, unknown>
 ): Record<string, unknown> {
   const resolved: Record<string, unknown> = {}
   for (const [key, value] of Object.entries(props)) {
-    resolved[key] =
-      typeof value === 'string' && isBooleanAttribute(key)
-        ? booleanAttributeOn(key, value)
-        : value
+    resolved[key] = isBooleanAttribute(key) ? true : value
   }
   return resolved
 }
