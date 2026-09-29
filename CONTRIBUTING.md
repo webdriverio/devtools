@@ -100,6 +100,13 @@ The frontmatter is the bump level alone (`patch`, `minor`, `major`); the body is
 python3 packages/selenium-devtools-py/scripts/changes.py next-version   # what a release would publish
 ```
 
+**You don't bump `BACKEND_NPM_VERSION`.** That constant names the backend a
+`pip install` user actually runs, so it can only move once that backend is on
+npm — the npm release opens the bump as its own PR, fragment included. If a
+Python CI run fails on *"Pinned backend serves this adapter's contract"*, the
+answer is that the backend has not been released yet, not that your branch is
+wrong. Raise it by hand only when you are also releasing the backend.
+
 ## Before you push
 
 - `pnpm build`, `pnpm test`, and `pnpm lint` all green — don't push red.

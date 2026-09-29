@@ -237,7 +237,7 @@ Two mechanisms, and the Python one exists because the npm one cannot reach it. C
 
 Neither is hand-versioned: both assemble the version and the changelog at release. The Python release additionally consumes its fragments, bumps `__version__` (the single source — `pyproject.toml` reads it via `dynamic = ["version"]`), and tags `py-v<version>` **after** a successful publish, so the tag is an output pointing at the published tree rather than an input naming a version nothing has computed yet.
 
-`BACKEND_NPM_VERSION` is the backend a `pip install` user actually runs, so the npm release goes first; `release.yml` opens the pin bump as a PR, and `scripts/check_backend_pin.py` refuses a PyPI publish whose pinned backend cannot serve the contract.
+`BACKEND_NPM_VERSION` is the backend a `pip install` user actually runs, so the npm release goes first; `release.yml` opens the pin bump as a PR, and `scripts/check_backend_pin.py` refuses a PyPI publish whose pinned backend cannot serve the contract. That PR carries its own `changes/` fragment, because `python.yml` refuses a branch that changes `src/` and documents nothing — a pin-only PR would fail its own CI. It is a PR rather than a push because the pin is a claim about a *published* artifact and `check_backend_pin.py` is what adjudicates it; merging one queues a `patch` for the next PyPI release rather than bumping `__version__` there and then. Raised with `GITHUB_TOKEN` it arrives with **no checks at all** — GitHub suppresses workflow runs for events its own token raises — so either set `PIN_BUMP_TOKEN` or close/reopen the PR to get CI onto it.
 
 ### Commits
 
