@@ -116,12 +116,31 @@ jobs:
               ;;
           esac
 
+          # Only ever forward. A release that rolls the backend BACK — a revert
+          # on main, or a republish of an older `latest` — would otherwise open
+          # a PR lowering the pin onto a backend that may not serve the
+          # contract; `check_backend_pin.py` would reject it, after the noise.
+          NEWER=$(printf '%s\n%s\n' "$PIN" "$BACKEND" | sort -V | tail -1)
+          if [ "$NEWER" = "$PIN" ]; then
+            echo "Published backend $BACKEND is older than the pin $PIN — leaving it alone."
+            exit 0
+          fi
+
           BRANCH="chore/pin-backend-$BACKEND"
           FRAGMENT="packages/selenium-devtools-py/changes/pin-backend-$BACKEND.md"
-          # -C, not -c: a re-run of a release that already reached this step
-          # (publish succeeded, something after it did not) finds its own branch
-          # already there, and `-c` would fail the step AFTER publication.
-          git switch -C "$BRANCH"
+          # Continue the branch if it is already out there rather than recreating
+          # it: this step runs after `changeset publish`, so a re-run is normal,
+          # and by then a reviewer may have pushed to the open PR — regenerating
+          # `_contract.py` is the expected reason. A force push would erase that
+          # work, so there is none: we branch FROM the remote when it exists and
+          # fast-forward it.
+          git fetch --quiet origin "$BRANCH" 2>/dev/null || true
+          if git rev-parse --verify --quiet "origin/$BRANCH" >/dev/null; then
+            git switch -c "$BRANCH" "origin/$BRANCH"
+          else
+            git switch -c "$BRANCH"
+          fi
+
           sed -i "s/^BACKEND_NPM_VERSION = .*/BACKEND_NPM_VERSION = \"$BACKEND\"/" "$PIN_FILE"
           # Required, not decorative: python.yml refuses a branch that changes
           # `src/` and documents nothing, so a pin-only PR would fail its own CI.
@@ -131,13 +150,15 @@ jobs:
           # stages modified tracked files only, so it would ship the pin without
           # the fragment that makes the pin mergeable.
           git add "$PIN_FILE" "$FRAGMENT"
-          git commit -m "chore(python): pin the backend to $BACKEND"
-          # The branch is bot-owned and named for the version, so the only thing
-          # a force can overwrite is this same bump from an earlier failed run.
-          git push --force origin "$BRANCH"
+          if git diff --cached --quiet; then
+            echo "Branch $BRANCH already carries this bump — nothing to push."
+          else
+            git commit -m "chore(python): pin the backend to $BACKEND"
+            git push origin "$BRANCH"
+          fi
 
           if [ "$(gh pr list --head "$BRANCH" --state open --json number --jq 'length')" != "0" ]; then
-            echo "A pin PR for $BACKEND is already open — pushed to it instead."
+            echo "A pin PR for $BACKEND is already open — left as it is."
             exit 0
           fi
           gh pr create --base main --head "$BRANCH" \
