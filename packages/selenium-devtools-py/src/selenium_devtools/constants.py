@@ -83,6 +83,9 @@ BACKEND_FETCH_TIMEOUT_S = 300.0
 # depend on npx reaching a registry at all. Versioned, so a pin bump installs
 # beside the old one rather than half-overwriting it.
 BACKEND_INSTALL_DIRNAME = "selenium-devtools-py"
+# The bin the backend package publishes its SERVER under; it also ships
+# `show-trace`, so the name is what picks the right one out of `bin`.
+BACKEND_BIN_NAME = "devtools-backend"
 
 # The backend is a Node app, so Python users need a Node runtime. 18 is the
 # floor its dependencies require; below it the process starts and then dies on

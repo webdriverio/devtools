@@ -1,3 +1,4 @@
+import json
 import os
 import sys
 import tempfile
@@ -7,11 +8,36 @@ from unittest import mock
 
 from selenium_devtools import backend, backend_install, cli
 from selenium_devtools.constants import (
+    BACKEND_BIN_NAME,
     BACKEND_FETCH_TIMEOUT_S,
     BACKEND_NPM_PACKAGE,
     BACKEND_NPM_VERSION,
     BACKEND_SPAWN_TIMEOUT_S,
 )
+
+
+def _fake_install(
+    *,
+    entry: str = "dist/server.js",
+    bin_field: "dict | None" = None,
+    write_entry: bool = True,
+) -> Path:
+    """Write the tree `npm install` would leave, as `installed_server` reads it:
+    a package.json naming the server bin, and the file it names."""
+    pkg = (
+        backend_install.install_root()
+        / "node_modules"
+        / BACKEND_NPM_PACKAGE.replace("/", os.sep)
+    )
+    pkg.mkdir(parents=True, exist_ok=True)
+    (pkg / "package.json").write_text(
+        json.dumps({"bin": bin_field or {BACKEND_BIN_NAME: entry}})
+    )
+    server = pkg / entry
+    if write_entry:
+        server.parent.mkdir(parents=True, exist_ok=True)
+        server.write_text("// server")
+    return server
 
 
 class TestInstallRoot(unittest.TestCase):
@@ -30,29 +56,34 @@ class TestInstallRoot(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             with mock.patch.dict(os.environ, {"XDG_CACHE_HOME": tmp}):
                 self.assertIsNone(backend_install.installed_server())
-                server = (
-                    backend_install.install_root()
-                    / "node_modules"
-                    / BACKEND_NPM_PACKAGE.replace("/", os.sep)
-                    / "dist"
-                    / "server.js"
-                )
-                server.parent.mkdir(parents=True)
-                server.write_text("// server")
+                server = _fake_install()
                 self.assertEqual(backend_install.installed_server(), server)
+
+    def test_the_entry_is_read_from_the_package_not_assumed(self):
+        # The entry has moved once already, and a hard-coded path would make a
+        # good install look absent — silently sending every run back to npx.
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.dict(os.environ, {"XDG_CACHE_HOME": tmp}):
+                server = _fake_install(entry="dist/next-server.js")
+                self.assertEqual(backend_install.installed_server(), server)
+
+    def test_a_package_naming_no_server_bin_is_not_installed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.dict(os.environ, {"XDG_CACHE_HOME": tmp}):
+                _fake_install(bin_field={"show-trace": "dist/show-trace.js"})
+                self.assertIsNone(backend_install.installed_server())
+
+    def test_an_entry_the_manifest_names_but_never_wrote_is_not_installed(self):
+        # The half-written tree an interrupted `npm install` leaves behind.
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.dict(os.environ, {"XDG_CACHE_HOME": tmp}):
+                _fake_install(write_entry=False)
+                self.assertIsNone(backend_install.installed_server())
 
     def test_install_is_idempotent_and_does_not_shell_out_when_present(self):
         with tempfile.TemporaryDirectory() as tmp:
             with mock.patch.dict(os.environ, {"XDG_CACHE_HOME": tmp}):
-                server = (
-                    backend_install.install_root()
-                    / "node_modules"
-                    / BACKEND_NPM_PACKAGE.replace("/", os.sep)
-                    / "dist"
-                    / "server.js"
-                )
-                server.parent.mkdir(parents=True)
-                server.write_text("// server")
+                server = _fake_install()
                 with mock.patch("subprocess.run") as run:
                     self.assertEqual(backend_install.install(), server)
                 run.assert_not_called()
@@ -122,6 +153,40 @@ class TestResolutionPrefersTheInstalledBackend(unittest.TestCase):
         self.assertIn(f"{BACKEND_NPM_PACKAGE}@{BACKEND_NPM_VERSION}", cmd)
         self.assertEqual(timeout, BACKEND_FETCH_TIMEOUT_S)
         self.assertGreater(BACKEND_FETCH_TIMEOUT_S, BACKEND_SPAWN_TIMEOUT_S)
+
+
+class TestABrokenInstallDoesNotDisableCapture(unittest.TestCase):
+    def setUp(self):
+        for key in ("DEVTOOLS_PORT", "DEVTOOLS_BACKEND_CMD", "DEVTOOLS_APP_REUSE"):
+            os.environ.pop(key, None)
+
+    def test_an_installed_backend_that_will_not_start_falls_back_to_npx(self):
+        # An `npm install` interrupted after writing the entry script leaves a
+        # tree that looks installed and cannot run. Preferring it is right;
+        # being stuck on it would cost every later run its capture too, until
+        # someone deleted a cache directory they were never told about.
+        spawned = []
+
+        def fake_spawn(cmd, timeout=BACKEND_SPAWN_TIMEOUT_S):
+            spawned.append(cmd)
+            if "broken" in cmd[-1]:
+                raise RuntimeError("backend exited (code 1) before reporting a port")
+            return mock.Mock(), 4321
+
+        with mock.patch.object(backend, "require_node", return_value="/usr/bin/node"), \
+             mock.patch.object(backend, "_find_monorepo_backend", return_value=None), \
+             mock.patch.object(
+                 backend.backend_install,
+                 "installed_server",
+                 return_value=Path("/cache/broken/server.js"),
+             ), \
+             mock.patch.object(backend, "_spawn_and_wait_for_port", fake_spawn), \
+             mock.patch("shutil.which", return_value="/usr/bin/npx"):
+            _, port, _ = backend.launch_or_attach()
+
+        self.assertEqual(port, 4321)
+        self.assertEqual(len(spawned), 2)
+        self.assertEqual(spawned[1][0], "/usr/bin/npx")
 
 
 class TestSpawnFailuresCarryTheChildsOutput(unittest.TestCase):

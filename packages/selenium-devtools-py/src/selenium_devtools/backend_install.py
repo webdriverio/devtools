@@ -14,6 +14,7 @@ commands and the second one says what it is doing.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import shutil
@@ -22,6 +23,7 @@ from pathlib import Path
 from typing import Optional
 
 from .constants import (
+    BACKEND_BIN_NAME,
     BACKEND_INSTALL_DIRNAME,
     BACKEND_NPM_PACKAGE,
     BACKEND_NPM_VERSION,
@@ -44,14 +46,27 @@ def install_root(version: str = BACKEND_NPM_VERSION) -> Path:
 def installed_server(version: str = BACKEND_NPM_VERSION) -> Optional[Path]:
     """The installed backend's entry script, or None if it is not there.
 
-    Resolved through the package's own ``bin`` rather than a guessed path: the
-    entry moved once already (``index.js`` was never a server), and a stale
-    guess would spawn something that exits 0 without listening.
+    Read from the package's own ``bin`` rather than assumed: the entry has moved
+    once already (``index.js`` was never a server, which is why 1.10.0 is the
+    floor), so a hard-coded path would make a perfectly good install look absent
+    the next time it moves — and the run would silently go back to `npx`.
     """
     pkg = install_root(version) / "node_modules" / BACKEND_NPM_PACKAGE.replace(
         "/", os.sep
     )
-    server = pkg / "dist" / "server.js"
+    try:
+        manifest = json.loads((pkg / "package.json").read_text())
+    except (OSError, ValueError):
+        return None
+    bin_field = manifest.get("bin")
+    entry = (
+        bin_field.get(BACKEND_BIN_NAME)
+        if isinstance(bin_field, dict)
+        else bin_field if isinstance(bin_field, str) else None
+    )
+    if not entry:
+        return None
+    server = pkg / entry
     return server if server.is_file() else None
 
 
@@ -108,7 +123,8 @@ def install(version: str = BACKEND_NPM_VERSION, *, force: bool = False) -> Path:
     if server is None:
         raise RuntimeError(
             f"npm install reported success but {BACKEND_NPM_PACKAGE}@{version} "
-            f"has no dist/server.js under {root}."
+            f"under {root} has no runnable server — its package.json names no "
+            f'"{BACKEND_BIN_NAME}" bin, or the file it names is missing.'
         )
     return server
 

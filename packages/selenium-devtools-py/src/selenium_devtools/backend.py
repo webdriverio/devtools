@@ -207,8 +207,21 @@ def launch_or_attach() -> Tuple[str, int, Optional[subprocess.Popen]]:
 
     installed = backend_install.installed_server()
     if installed is not None:
-        proc, port = _spawn_and_wait_for_port([node, str(installed)])
-        return host, port, proc
+        try:
+            proc, port = _spawn_and_wait_for_port([node, str(installed)])
+            return host, port, proc
+        except (RuntimeError, TimeoutError, OSError) as exc:
+            # An `npm install` interrupted after writing the entry script leaves
+            # a tree that looks installed and cannot run. Preferring it is right;
+            # being STUCK on it is not — every later run would lose capture too,
+            # until someone thought to delete a cache directory they were never
+            # told about. So a broken install costs one failed spawn, not the
+            # feature.
+            _log.warning(
+                "the installed backend at %s did not start (%s); falling back "
+                "to npx. `selenium-devtools install-backend --force` reinstalls it.",
+                installed, exc,
+            )
 
     npx = shutil.which("npx")
     if npx is None:
