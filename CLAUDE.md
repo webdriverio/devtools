@@ -124,6 +124,8 @@ No `any` crosses a package boundary. When a framework API forces a loosely-typed
 
 Bundlers in use: **vite** for `app`, `service`, `script`; **tsup** for `backend`, `nightwatch-devtools`, `selenium-devtools`.
 
+- **A published package that ships a BUNDLE declares its build libraries as `devDependencies`.** `app` and `script` each publish a vite build with everything inlined — the app's dist carries no bare import of lit, preact or codemirror, the script's none of htm, parse5 or preact — so listing those under `dependencies` installed a whole toolchain on every consumer that needed none of it. `script` also listed `vite-plugin-singlefile`, which pulls vite, rolldown and lightningcss; `app` listed `@wdio/devtools-service`, which it never imports and which pulls webdriverio. Measured against the registry: installing `@wdio/devtools-backend` cost **338 packages / 264 MB**, against **~85 / ~27 MB** once both were moved. Every adapter paid that; the Python one pays it hardest, since it fetches the backend at runtime. The test is the same grep as above — a bare import surviving in `dist/` means the dependency is real and belongs in `dependencies`; nothing surviving means it was build-time. Note this is the opposite default from the workspace-internal rule: there `devDependencies` is chosen so code is *inlined*, here it is chosen because the code *already* is.
+
 ### Separation of concerns within a file
 
 Files own one concern:
