@@ -126,7 +126,7 @@ devtools_trace_policy = "retain-on-failure"
 A plain script passes
 `devtools.enable(trace_granularity="test", trace_policy="retain-on-failure")`.
 A committed example of all of this is in
-[`examples/selenium/python-test/trace-py-test/`](../../examples/selenium/python-test/trace-py-test/),
+[`examples/selenium-py/pytest/`](../../examples/selenium-py/pytest/),
 whose `pytest.ini` documents every setting the adapter has.
 
 Naming a policy or a granularity **explicitly** selects trace mode — the CLI flag, the ini option
@@ -174,7 +174,7 @@ devtools.wait_for_dashboard_close()   # keep the UI open to inspect (no-op when 
 devtools.disable()
 ```
 
-Runnable example: [`web_form.py`](../../examples/selenium/python-test/web_form.py),
+Runnable example: [`web_form.py`](../../examples/selenium-py/scripts/web_form.py),
 the three-line version above. From the repo root, after `pip install -e` above and
 a `pnpm build` so the backend exists:
 
@@ -441,7 +441,7 @@ scripts/gen_contract.py   regenerate _contract.py from shared (dev-time; also a 
 tests/                stdlib-unittest unit tests (no selenium/pytest needed)
 e2e_check.py          real-Chrome smoke (plain script)
 e2e/test_smoke.py     real-Chrome smoke (pytest + plugin)
-(example lives at repo root: examples/selenium/python-test/web_form.py)
+(example lives at repo root: examples/selenium-py/scripts/web_form.py)
 ```
 
 ## Backend & publishing

@@ -190,11 +190,16 @@ The DOM-walking scripts run in the page via `browser.execute`, so — like `scri
 
 ### `examples/`
 
-Per-framework demo projects used for manual verification.
+Per-adapter demo projects used for manual verification. One directory per adapter, and inside it one directory per test runner, named for the runner itself:
 
-- `examples/wdio/` — WebdriverIO, split into `cucumber/` and `mocha/` (shared page objects in `pageobjects/`). Run via `pnpm demo:wdio` (Cucumber), `pnpm demo:wdio:mocha`, or `pnpm demo:wdio:native` (Appium native app — needs a running Appium server and a device, see the README's Mobile testing section).
-- `examples/nightwatch/` — Nightwatch (both vanilla and Cucumber). Run via `pnpm demo:nightwatch`.
-- `examples/selenium/` — Selenium with subdirs for `mocha-test/`, `jest-test/`, `cucumber-test/`, `jasmine-test/`, `vitest-test/`. `pnpm demo:selenium` runs mocha; `pnpm --filter @wdio/selenium-devtools example:<runner>` runs the others.
+- `examples/wdio/` — `mocha/` (including `native/`, an Appium app spec run by `pnpm demo:wdio:native`), `cucumber/`, `mobile/`, shared page objects in `pageobjects/`. Run via `pnpm demo:wdio` (Cucumber) or `pnpm demo:wdio:mocha`.
+- `examples/nightwatch/` — `bdd/` (Nightwatch's `describe/it` interface), `cucumber/` and `mobile/`. Run via `pnpm demo:nightwatch`.
+- `examples/selenium-js/` — `mocha/`, `jest/`, `cucumber/`, `mobile/`. `pnpm demo:selenium` runs Cucumber; `pnpm --filter @wdio/selenium-devtools example:<runner>` runs a specific one.
+- `examples/selenium-py/` — the Python adapter: `scripts/` for the plain-script cases (no test runner) and `pytest/` for the pytest one. Run via `pnpm demo:python`, `:login` or `:pytest`.
+
+Every adapter also has a `mobile/` example driving the same Appium capability bag. A runner directory holds its own config and specs. `features/` inside a Cucumber directory is Cucumber's own convention, not ours.
+
+[`examples/README.md`](./examples/README.md) is the index: what each example demonstrates and how to run it.
 
 ---
 

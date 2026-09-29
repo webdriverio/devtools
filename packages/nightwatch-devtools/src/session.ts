@@ -56,6 +56,15 @@ export class SessionCapturer extends SessionCapturerBase {
   // capture path skips when set, so we don't double-emit network requests.
   bidiActive = false
 
+  /** Whether the session was created with `goog:loggingPrefs.performance`, set
+   *  from the capabilities at session init. A perf log exists only because a
+   *  session asked for one, so without it every fetch is a round trip that can
+   *  only fail — and the driver's own transport prints each failure, so the
+   *  cost is a wall of errors on a run that passed: measured on iOS Safari,
+   *  21 of them in a two-test run, where XCUITest lists `performance` among its
+   *  supported types and then serves none of it. */
+  perfLogsRequested = false
+
   /** True once the collector is registered to run at document-start. Every
    *  document then instruments and anchors itself, so the paths that exist to
    *  notice a navigation after the fact — re-injection and the settle poll — have
@@ -457,7 +466,7 @@ export class SessionCapturer extends SessionCapturerBase {
    */
   async captureNetworkFromPerformanceLogs(browser: NightwatchBrowser) {
     // BiDi network inspector is the source of truth when attached.
-    if (this.bidiActive) {
+    if (this.bidiActive || !this.perfLogsRequested) {
       return
     }
     try {

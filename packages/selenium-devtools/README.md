@@ -33,7 +33,7 @@ That's it. No other code changes required for Mocha / Jest / Cucumber.
 
 ## Setup per runner
 
-Each block below is a **complete, copy-paste-ready example** including the `DevTools.configure(...)` call. Pick the runner you use, drop the snippet into your project, and run it. These mirror the working examples in [`example/`](./example).
+Each block below is a **complete, copy-paste-ready example** including the `DevTools.configure(...)` call. Pick the runner you use, drop the snippet into your project, and run it. These mirror the working examples in [`examples/selenium-js/`](../../examples/selenium-js).
 
 ### Mocha
 
@@ -132,7 +132,7 @@ NODE_OPTIONS=--experimental-vm-modules jest --config jest.config.json
 
 ### Cucumber
 
-Cucumber's split layout means three small files — one to configure the plugin, one for World/hooks, and one for step definitions. They mirror [`example/cucumber-test/`](./example/cucumber-test).
+Cucumber's split layout means three small files — one to configure the plugin, one for World/hooks, and one for step definitions. They mirror [`examples/selenium-js/cucumber/`](../../examples/selenium-js/cucumber).
 
 `features/support/setup.js` — load the plugin and configure once:
 
@@ -440,9 +440,9 @@ Working smoke tests are included for each supported runner:
 
 | Directory | Runner | Command |
 |-----------|--------|---------|
-| [`example/mocha-test/`](./example/mocha-test) | Mocha | `pnpm example:mocha` |
-| [`example/jest-test/`](./example/jest-test) | Jest | `pnpm example:jest` |
-| [`example/cucumber-test/`](./example/cucumber-test) | Cucumber | `pnpm example:cucumber` |
+| [`examples/selenium-js/mocha/`](../../examples/selenium-js/mocha) | Mocha | `pnpm example:mocha` |
+| [`examples/selenium-js/jest/`](../../examples/selenium-js/jest) | Jest | `pnpm example:jest` |
+| [`examples/selenium-js/cucumber/`](../../examples/selenium-js/cucumber) | Cucumber | `pnpm example:cucumber` |
 
 Build the package first:
 

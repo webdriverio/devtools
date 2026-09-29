@@ -35,6 +35,7 @@
     "lint": "eslint .",
     "example": "nightwatch -c ../../examples/nightwatch/nightwatch.conf.cjs",
     "example:retry": "nightwatch -c ../../examples/nightwatch/nightwatch.conf.cjs --retries 1",
+    "example:mobile": "nightwatch -c ../../examples/nightwatch/nightwatch.mobile.conf.cjs",
     "example:cucumber": "nightwatch -c ../../examples/nightwatch/cucumber/nightwatch.cucumber.conf.cjs",
     "prepublishOnly": "pnpm build"
   },

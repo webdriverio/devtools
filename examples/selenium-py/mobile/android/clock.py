@@ -1,0 +1,202 @@
+"""Mobile example for the Python adapter, ANDROID.
+
+The iOS example is a sibling script in ../ios -- a separate file rather than a
+branch, because the two platforms ship different apps and share no selectors.
+
+The WebdriverIO, Selenium and Nightwatch mobile examples drive the SAME flow,
+so a difference between two dashboards is a difference in the adapter rather
+than in the test.
+
+Drives the Clock app, which ships with every Android system image, so it needs
+no .apk. Clock also gives a native session something deterministic to do: a
+timer can be started, paused and cleared, and each step changes the screen in a
+way the trace can be checked against. See examples/MOBILE.md for prerequisites
+and the DEVTOOLS_MOBILE / APPIUM_APP switches.
+
+VERIFIED ON: Android emulator `sdk_gphone64_arm64`, Android 16 (API 36), Clock
+(com.google.android.deskclock) 9.1. The Clock app updates independently of the
+Android version, so pinning a system image does not pin these resource-ids --
+re-read the tree with `adb shell uiautomator dump` if one misses.
+
+    pnpm demo:python:mobile
+    DEVTOOLS_MODE=live pnpm demo:python:mobile
+
+``enable()`` starts the dashboard itself, so nothing needs a backend run by
+hand. Trace output lands in ``test-results/`` beside this file.
+
+Needs the Appium Python client, which the desktop examples do not:
+
+    pip install -r examples/selenium-py/requirements-mobile.txt
+"""
+
+import os
+import time
+
+import selenium_devtools as devtools
+
+try:
+    from appium import webdriver
+    from appium.options.android import UiAutomator2Options
+except ImportError:  # noqa: BLE001 — a missing optional dep, not a failure
+    raise SystemExit(
+        "this example needs the Appium client:\n"
+        "    pip install -r examples/selenium-py/requirements-mobile.txt"
+    )
+from selenium.webdriver.common.by import By
+
+def require_appium(host: str, port: str) -> None:
+    """Appium up, or say what is missing and stop. The JS examples share
+    examples/mobile-preflight.cjs for this; ten lines is cheaper than reaching
+    across languages for it."""
+    import urllib.error
+    import urllib.request
+
+    try:
+        with urllib.request.urlopen(
+            "http://%s:%s/status" % (host, port), timeout=2.5
+        ) as res:
+            if res.status == 200:
+                return
+    except (urllib.error.URLError, OSError):
+        pass
+    raise SystemExit(
+        "\nNothing is listening on %s:%s, so Appium is not up.\n\n"
+        "Mobile examples need a device and Appium; between the Android SDK and\n"
+        "a system image that is a multi-gigabyte setup, so it is opt-in:\n\n"
+        "  1. Android SDK + an emulator (Android Studio installs both), then\n"
+        "     check it is visible:  adb devices\n"
+        "  2. npm i -g appium && appium driver install uiautomator2\n"
+        "     appium --address %s --port %s\n\n"
+        "See examples/MOBILE.md.\n" % (host, port, host, port)
+    )
+
+
+APP_ID = "com.google.android.deskclock"
+# APPIUM_APP replaces Clock, so the Clock flow does not apply to it.
+CUSTOM_APP = bool(os.environ.get("APPIUM_APP"))
+IS_WEB = os.environ.get("DEVTOOLS_MOBILE") == "web"
+# An emulator often cannot resolve public DNS (corporate network, VPN), and
+# `10.0.2.2` is its alias for the HOST's localhost -- so a page served on this
+# machine is reachable when the internet is not. See examples/MOBILE.md.
+WEB_URL = os.environ.get(
+    "DEVTOOLS_MOBILE_URL", "https://the-internet.herokuapp.com/login"
+)
+APPIUM = "http://%s:%s" % (
+    os.environ.get("APPIUM_HOST", "127.0.0.1"),
+    os.environ.get("APPIUM_PORT", "4723"),
+)
+
+
+def capabilities() -> dict:
+    """The same bag the other three mobile examples build; see
+    examples/wdio/mobile/capabilities.ts for the annotated original."""
+    base = {
+        "platformName": "Android",
+        "appium:automationName": "UiAutomator2",
+        "appium:noReset": True,
+        "appium:newCommandTimeout": 300,
+    }
+    if IS_WEB:
+        # Names a browser, so this session HAS a document and keeps its
+        # page-side capture — the distinction the native guards turn on.
+        # Chrome on the device needs a matching chromedriver. Appium can
+        # fetch one, but that is a SERVER feature, not a capability:
+        # --allow-insecure=uiautomator2:chromedriver_autodownload
+        base["browserName"] = "Chrome"
+        return base
+    app = os.environ.get("APPIUM_APP")
+    if app:
+        base["appium:app"] = app
+        return base
+    base["appium:appPackage"] = APP_ID
+    base["appium:appActivity"] = "com.android.deskclock.DeskClock"
+    return base
+
+
+require_appium(
+    os.environ.get("APPIUM_HOST", "127.0.0.1"),
+    os.environ.get("APPIUM_PORT", "4723"),
+)
+
+# Trace by default, matching the desktop demos. The Python adapter takes a
+# boolean rather than a mode name; DEVTOOLS_MODE=live is the shared switch.
+devtools.enable(trace=os.environ.get("DEVTOOLS_MODE") != "live")
+
+# The options class is per-platform: handing iOS capabilities to
+# UiAutomator2Options builds an Android session request out of them.
+_options = UiAutomator2Options()
+driver = webdriver.Remote(APPIUM, options=_options.load_capabilities(capabilities()))
+try:
+    if IS_WEB:
+        driver.get(WEB_URL)
+        if os.environ.get("DEVTOOLS_MOBILE_URL"):
+            # A supplied page has none of the login form, so navigating and
+            # capturing is all there is to do with it.
+            print("loaded %s" % driver.current_url)
+        else:
+            driver.find_element(By.ID, "username").send_keys("tomsmith")
+            driver.find_element(By.ID, "password").send_keys("SuperSecretPassword!")
+            driver.find_element(By.CSS_SELECTOR, 'button[type="submit"]').click()
+            print(driver.find_element(By.ID, "flash").text.strip())
+    elif CUSTOM_APP:
+        # A supplied app has none of Clock's screens, so capture its hierarchy
+        # rather than looking for ids that cannot exist.
+        assert driver.page_source, "the view hierarchy was empty"
+        print("captured the supplied app's hierarchy")
+    else:
+        # Re-activated rather than relying on the launch capability alone, so
+        # the script re-runs against a session left on another screen.
+        driver.execute_script("mobile: activateApp", {"appId": APP_ID})
+
+        def find_all(name):
+            return driver.find_elements(
+                "-android uiautomator",
+                'new UiSelector().resourceId("%s:id/%s")' % (APP_ID, name),
+            )
+
+        def by_id(name):
+            return find_all(name)[0]
+
+        def duration_text():
+            """The duration the setup screen shows, from whichever layout is
+            live: a reset Clock renders it as one timer_setup_time field, a
+            used one as separate hour/minute/second fields."""
+            single = find_all("timer_setup_time")
+            if single:
+                return single[0].text.strip()
+            parts = []
+            for name in ("hour_text", "minute_text", "second_text"):
+                found = find_all(name)
+                parts.append(found[0].text if found else "")
+            return ":".join(parts)
+
+        by_id("tab_menu_timer").click()
+
+        # Backspace until it disables itself, so the run starts from a known
+        # zero whatever the last one keyed in. WebdriverIO long-presses to
+        # clear in one go; the Python client has no portable long press, and a
+        # keyed duration is at most six digits.
+        for _ in range(8):
+            backspace = by_id("timer_setup_delete")
+            if not backspace.is_enabled():
+                break
+            backspace.click()
+            time.sleep(0.2)
+        cleared = duration_text()
+
+        # The keypad fills from the right, so "1", "0", "0" is one minute.
+        for digit in ("1", "0", "0"):
+            by_id("timer_setup_digit_%s" % digit).click()
+        keyed = duration_text()
+        assert keyed != cleared, 'the duration did not change: "%s"' % keyed
+        # Backspace is disabled at zero and enabled by an entry, so this reads
+        # the app's own state rather than the text the keypad just echoed.
+        assert by_id("timer_setup_delete").is_enabled()
+
+        by_id("timer_setup_delete").click()
+        time.sleep(0.2)
+        assert duration_text() != keyed, "backspace did not change the duration"
+        print('keyed a duration and corrected it: "%s" -> "%s"' % (cleared, keyed))
+finally:
+    driver.quit()
+    devtools.wait_for_dashboard_close()  # hold the UI open to inspect

@@ -126,6 +126,20 @@ function readViewport(browser: NightwatchBrowser) {
   })
 }
 
+/** Whether the session was created asking for Chrome's `performance` log, from
+ *  either side of the capability pair. A perf log exists only because a session
+ *  asked for one, so this decides both the warning and whether the per-command
+ *  fetch runs at all — one reading, two consumers. */
+export function wantsPerformanceLog(
+  capabilities: Record<string, unknown>,
+  desiredCapabilities: Record<string, unknown>
+): boolean {
+  const loggingPrefs = (capabilities['goog:loggingPrefs'] ||
+    desiredCapabilities['goog:loggingPrefs'] ||
+    {}) as { performance?: string }
+  return Boolean(loggingPrefs.performance)
+}
+
 async function broadcastSessionMetadata(
   ctx: SessionInitCtx,
   browser: NightwatchBrowser
@@ -167,12 +181,15 @@ async function broadcastSessionMetadata(
     `✓ Browser: ${browserName}${browserVersion ? ' ' + browserVersion : ''} (session: ${sessionId})`
   )
 
-  const loggingPrefs = ((capabilities as Record<string, unknown>)[
-    'goog:loggingPrefs'
-  ] ||
-    (desiredCapabilities as Record<string, unknown>)['goog:loggingPrefs'] ||
-    {}) as { performance?: string }
-  if (!loggingPrefs.performance && !ctx.bidiEnabled) {
+  const wantsPerfLog = wantsPerformanceLog(
+    capabilities as Record<string, unknown>,
+    desiredCapabilities as Record<string, unknown>
+  )
+  // The same reading decides whether the capture path runs at all: without the
+  // capability there is nothing to fetch, and asking anyway costs a failed
+  // round trip per command — see `SessionCapturer.perfLogsRequested`.
+  ctx.sessionCapturer.perfLogsRequested = wantsPerfLog
+  if (!wantsPerfLog && !ctx.bidiEnabled) {
     log.warn(
       "⚠  Network tab will be empty — add 'goog:loggingPrefs': { performance: 'ALL' } to your capabilities (or enable bidi:true)"
     )

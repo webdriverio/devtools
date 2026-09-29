@@ -27,6 +27,7 @@
     "include": [
         "cucumber",
         "mocha",
+        "mobile",
         "pageobjects"
     ]
 }
