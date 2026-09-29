@@ -28,6 +28,10 @@ const isWeb = process.env.DEVTOOLS_MOBILE === 'web'
 // machine is reachable when the internet is not. See examples/MOBILE.md.
 const WEB_URL =
   process.env.DEVTOOLS_MOBILE_URL ?? 'https://the-internet.herokuapp.com/login'
+// What the page has to BE, not merely that one loaded. A supplied URL is the
+// user's, so only its scheme is ours to check; the default is ours, and a
+// redirect away from it would otherwise pass with a different site captured.
+const WEB_DESTINATION = process.env.DEVTOOLS_MOBILE_URL ? 'http' : WEB_URL
 /** APPIUM_APP replaces Clock, so the Clock flow does not apply to it. */
 const CUSTOM_APP = Boolean(process.env.APPIUM_APP)
 
@@ -69,7 +73,7 @@ describe('Clock (native)', function () {
       // A mobile BROWSER session: it has a document, so every page-side call a
       // native session skips must still happen. That contrast is the point.
       await browser.url(WEB_URL)
-      await browser.assert.urlContains('http')
+      await browser.assert.urlContains(WEB_DESTINATION)
       return
     }
     if (CUSTOM_APP) {
@@ -130,7 +134,7 @@ describe('Clock (native)', function () {
     // A second test, so `traceGranularity: 'test'` has two slices to key.
     if (isWeb) {
       await browser.url(WEB_URL)
-      await browser.assert.urlContains('http')
+      await browser.assert.urlContains(WEB_DESTINATION)
       return
     }
 

@@ -19,6 +19,10 @@ const CUSTOM_APP = Boolean(process.env.APPIUM_APP)
 // machine — no `10.0.2.2` alias like the Android emulator needs.
 const WEB_URL =
   process.env.DEVTOOLS_MOBILE_URL ?? 'https://the-internet.herokuapp.com/login'
+// What the page has to BE, not merely that one loaded. A supplied URL is the
+// user's, so only its scheme is ours to check; the default is ours, and a
+// redirect away from it would otherwise pass with a different site captured.
+const WEB_DESTINATION = process.env.DEVTOOLS_MOBILE_URL ? 'http' : WEB_URL
 
 /** The navigation bar's title, which is how Settings says where it is. */
 async function navBarTitle(browser) {
@@ -40,7 +44,7 @@ describe('Settings (native)', function () {
       // and it costs nothing extra to set up here — Safari is driven by the
       // XCUITest driver itself, where Chrome on Android needs a chromedriver.
       await browser.url(WEB_URL)
-      await browser.assert.urlContains('http')
+      await browser.assert.urlContains(WEB_DESTINATION)
       return
     }
     if (CUSTOM_APP) {
@@ -85,7 +89,7 @@ describe('Settings (native)', function () {
     // A second test, so `traceGranularity: 'test'` has two slices to key.
     if (isWeb) {
       await browser.url(WEB_URL)
-      await browser.assert.urlContains('http')
+      await browser.assert.urlContains(WEB_DESTINATION)
       return
     }
     if (CUSTOM_APP) {

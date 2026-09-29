@@ -41,6 +41,18 @@ const CUSTOM_APP = Boolean(process.env.APPIUM_APP)
 // machine — no `10.0.2.2` alias like the Android emulator needs.
 const WEB_URL =
   process.env.DEVTOOLS_MOBILE_URL ?? 'https://the-internet.herokuapp.com/login'
+// What the page has to BE, not merely that one loaded. A supplied URL is the
+// user's, so only its scheme is ours to check; the default is ours, and a
+// redirect away from it would otherwise pass with a different site captured.
+const WEB_DESTINATION = process.env.DEVTOOLS_MOBILE_URL ? 'http' : WEB_URL
+
+async function assertOnWebDestination(driver) {
+  const url = await driver.getCurrentUrl()
+  assert.ok(
+    url.includes(WEB_DESTINATION),
+    `expected ${WEB_DESTINATION}, got ${url}`
+  )
+}
 
 function mobileCapabilities() {
   const base = {
@@ -105,7 +117,7 @@ describe('Settings (native)', function () {
       // A mobile BROWSER session: it has a document, so every page-side call a
       // native session skips must still happen. That contrast is the point.
       await driver.get(WEB_URL)
-      assert.match(await driver.getCurrentUrl(), /^http/)
+      await assertOnWebDestination(driver)
       return
     }
     if (CUSTOM_APP) {
@@ -140,6 +152,7 @@ describe('Settings (native)', function () {
     // A second test, so `traceGranularity: 'test'` has two slices to key.
     if (isWeb) {
       await driver.get(WEB_URL)
+      await assertOnWebDestination(driver)
       return
     }
     if (CUSTOM_APP) {

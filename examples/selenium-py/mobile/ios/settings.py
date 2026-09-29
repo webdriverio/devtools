@@ -45,6 +45,10 @@ IS_WEB = os.environ.get("DEVTOOLS_MOBILE") == "web"
 WEB_URL = os.environ.get(
     "DEVTOOLS_MOBILE_URL", "https://the-internet.herokuapp.com/login"
 )
+# What the page has to BE, not merely that one loaded. A supplied URL is the
+# user's, so only its scheme is ours to check; the default is ours, and a
+# redirect away from it would otherwise pass with a different site captured.
+WEB_DESTINATION = "http" if os.environ.get("DEVTOOLS_MOBILE_URL") else WEB_URL
 APPIUM_HOST = os.environ.get("APPIUM_HOST", "127.0.0.1")
 APPIUM = "http://%s:%s" % (APPIUM_HOST, os.environ.get("APPIUM_PORT", "4723"))
 # Hosts whose devices this machine is expected to be able to see. A remote or
@@ -211,7 +215,7 @@ try:
         # A mobile BROWSER session: it has a document, so every page-side call
         # a native session skips must still happen. That contrast is the point.
         driver.get(WEB_URL)
-        assert driver.current_url.startswith("http"), driver.current_url
+        assert WEB_DESTINATION in driver.current_url, driver.current_url
         print("loaded %s" % driver.current_url)
     elif CUSTOM_APP:
         # A supplied app has none of Settings' screens, so capture its

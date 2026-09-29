@@ -48,6 +48,18 @@ const APPIUM = `http://${process.env.APPIUM_HOST ?? '127.0.0.1'}:${
 // machine is reachable when the internet is not. See examples/MOBILE.md.
 const WEB_URL =
   process.env.DEVTOOLS_MOBILE_URL ?? 'https://the-internet.herokuapp.com/login'
+// What the page has to BE, not merely that one loaded. A supplied URL is the
+// user's, so only its scheme is ours to check; the default is ours, and a
+// redirect away from it would otherwise pass with a different site captured.
+const WEB_DESTINATION = process.env.DEVTOOLS_MOBILE_URL ? 'http' : WEB_URL
+
+async function assertOnWebDestination(driver) {
+  const url = await driver.getCurrentUrl()
+  assert.ok(
+    url.includes(WEB_DESTINATION),
+    `expected ${WEB_DESTINATION}, got ${url}`
+  )
+}
 
 /** The same bag the other three mobile examples build; see
  *  examples/wdio/mobile/capabilities.ts for the annotated original. */
@@ -138,7 +150,7 @@ describe('Clock (native)', function () {
       // A mobile BROWSER session: it has a document, so every page-side call a
       // native session skips must still happen. That contrast is the point.
       await driver.get(WEB_URL)
-      assert.ok((await driver.getCurrentUrl()).length > 0)
+      await assertOnWebDestination(driver)
       return
     }
     if (CUSTOM_APP) {
@@ -186,10 +198,7 @@ describe('Clock (native)', function () {
     // A second test, so `traceGranularity: 'test'` has two slices to key.
     if (isWeb) {
       await driver.get(WEB_URL)
-      // Asserts that a document loaded, not WHICH one: DEVTOOLS_MOBILE_URL
-      // exists so this can run against a page served on the host, and pinning
-      // the default site's name here refused the very page it was pointed at.
-      assert.match(await driver.getCurrentUrl(), /^https?:/)
+      await assertOnWebDestination(driver)
       return
     }
 
