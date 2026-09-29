@@ -25,10 +25,12 @@ backend and UI as the JavaScript adapters over the language-neutral
   `--devtools-trace`), per project (`[tool.pytest.ini_options]`) or per shell
   (`DEVTOOLS_ENABLE`). Installing it never changes how an existing suite behaves.
 - **`selenium-devtools install-backend`** — puts the Node backend on disk once,
-  so a run starts a server it already has. Without it a run still works, fetching
-  the backend with `npx` on first use; that costs a registry round trip every
-  run, and fails mid-test rather than at install time where a proxy declines the
-  package.
+  so a run starts a server it already has. Without it a run still works: the
+  backend is fetched with `npx` on first use, at a registry round trip per run.
+  Where that fetch fails — a proxy withholding a newly published version, say —
+  the adapter warns as the run starts and your tests then run *without capture*,
+  passing but empty, which is a worse thing to discover than an install command
+  that failed and said why.
 - Ships `py.typed`, so the annotations already on the public API reach a
   consumer's type checker instead of resolving to `Any`.
 - Requires Python 3.10+, `selenium>=4.44`, and Node.js 18+ on PATH for the
