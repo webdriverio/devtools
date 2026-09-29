@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
+import { RERUN_SLOT, REUSE_ENV } from '@wdio/devtools-shared'
+
 import type { RunnerRequestBody } from '../src/types.js'
 
 vi.mock('node:child_process')
@@ -121,6 +123,32 @@ describe('TestRunner', () => {
 
       testRunner.stop()
       await firstRun.catch(() => {})
+    })
+
+    it('hands the run-everything command down to the child', async () => {
+      // See REUSE_ENV.LAUNCH_COMMAND in shared for why the child cannot work
+      // this out for itself.
+      vi.mocked(spawn).mockReturnValue(mockChild)
+      const payload: RunnerRequestBody = {
+        uid: 'tests/test_a.py::test_two',
+        entryType: 'test',
+        devtoolsHost: 'localhost',
+        devtoolsPort: 3000,
+        launchCommand: 'python -m pytest',
+        rerunCommand: `python -m pytest ${RERUN_SLOT.testId}`
+      }
+
+      const run = testRunner.run(payload)
+      await new Promise((resolve) => setTimeout(resolve, 10))
+
+      const env = vi.mocked(spawn).mock.calls[0][2]?.env as Record<
+        string,
+        string
+      >
+      expect(env[REUSE_ENV.LAUNCH_COMMAND]).toBe('python -m pytest')
+
+      testRunner.stop()
+      await run.catch(() => {})
     })
 
     it('should handle spawn errors', async () => {

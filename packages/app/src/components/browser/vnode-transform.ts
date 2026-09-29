@@ -3,6 +3,8 @@
 
 import { type VNode, h } from 'preact'
 
+import { isBooleanAttribute } from './boolean-attribute.js'
+
 interface SerializedVNode {
   type?: string
   props?: {
@@ -37,6 +39,32 @@ function withoutInlineHandlers(
   return kept
 }
 
+/**
+ * A boolean attribute's state is its PRESENCE, and everything reaching here is
+ * MARKUP — the anchor and every added node are serialized with `outerHTML` —
+ * so a page's own `<input type="checkbox" checked>` arrives as `checked=""`.
+ * Preact assigns these as properties (`name in dom`), where `''` is falsy, so
+ * the box replayed unchecked while the screencast showed it ticked; `disabled`,
+ * `readonly`, `selected` and the rest replayed off the same way, rendering a
+ * disabled control as usable. Measured: `checked=""` → property `false`.
+ *
+ * Presence alone, never the value: `checked="false"` in markup is a CHECKED box
+ * (the browser reads the attribute, not what it says), so this deliberately
+ * does NOT share `booleanAttributeOn` with the mutation path. There "false" is
+ * the collector reporting a cleared field — a signal that only exists on that
+ * path, since `#handleAttributeMutation` is where those records land and they
+ * never come through here.
+ */
+function withBooleanAttributeState(
+  props: Record<string, unknown>
+): Record<string, unknown> {
+  const resolved: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(props)) {
+    resolved[key] = isBooleanAttribute(key) ? true : value
+  }
+  return resolved
+}
+
 export function transform(node: TransformInput): VNode<{}> {
   if (typeof node !== 'object' || node === null) {
     // Plain string/number text node — return as-is for Preact to render as text.
@@ -44,7 +72,7 @@ export function transform(node: TransformInput): VNode<{}> {
   }
 
   const { children, ...rawProps } = node.props ?? {}
-  const props = withoutInlineHandlers(rawProps)
+  const props = withBooleanAttributeState(withoutInlineHandlers(rawProps))
   /**
    * ToDo(Christian): fix way we collect data on added nodes in script
    */

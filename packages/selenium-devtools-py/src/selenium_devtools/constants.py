@@ -71,6 +71,21 @@ ENV_OPEN = "DEVTOOLS_OPEN"  # "0"/"false"/"no"/"off" disables dashboard auto-ope
 BACKEND_NPM_VERSION = "1.11.0"
 BACKEND_NPM_PACKAGE = "@wdio/devtools-backend"
 BACKEND_SPAWN_TIMEOUT_S = 40.0
+# A cold `npx` has to DOWNLOAD the backend and its dependencies before the
+# server it is timing even starts, and that is not the runaway this budget
+# exists to catch: measured at 36.1 s on a fast link against the 40 s above, so
+# a first run was a coin flip that failed as "did not report a port" — with the
+# retry succeeding from cache in 5.9 s, which is the worst shape of bug. The
+# fetch gets its own budget; a backend already on disk keeps the tight one.
+BACKEND_FETCH_TIMEOUT_S = 300.0
+
+# Where `selenium-devtools install-backend` puts the backend, so a run does not
+# depend on npx reaching a registry at all. Versioned, so a pin bump installs
+# beside the old one rather than half-overwriting it.
+BACKEND_INSTALL_DIRNAME = "selenium-devtools-py"
+# The bin the backend package publishes its SERVER under; it also ships
+# `show-trace`, so the name is what picks the right one out of `bin`.
+BACKEND_BIN_NAME = "devtools-backend"
 
 # The backend is a Node app, so Python users need a Node runtime. 18 is the
 # floor its dependencies require; below it the process starts and then dies on

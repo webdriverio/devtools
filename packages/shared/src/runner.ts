@@ -11,18 +11,23 @@ export const TESTS_API = {
 
 /**
  * Environment variables the backend's rerun spawner sets on the child
- * process so the adapter (service/nightwatch/selenium) can detect the
- * reuse-mode handshake and connect to the existing dashboard backend
- * instead of starting a new one. Single source of truth — typos in any
- * leg of the handshake silently break reruns, so all four packages
- * (backend writer + three adapter readers) reference this object.
+ * process: how the adapter (service/nightwatch/selenium/python) detects the
+ * reuse-mode handshake and connects to the existing dashboard backend instead
+ * of starting a new one, plus what the child cannot work out for itself.
+ * `LAUNCH_COMMAND` is that second kind — a child is spawned with one test
+ * named on its command line, so an adapter deriving its Run-all command from
+ * its own invocation would republish "run that one test" as the command for
+ * running everything, and its arguments no longer say what it was narrowed
+ * from. Single source of truth — typos in any leg of the handshake silently
+ * break reruns, so every package on both sides references this object.
  */
 export const REUSE_ENV = {
   REUSE: 'DEVTOOLS_APP_REUSE',
   HOST: 'DEVTOOLS_APP_HOST',
   PORT: 'DEVTOOLS_APP_PORT',
   RERUN_LABEL: 'DEVTOOLS_RERUN_LABEL',
-  RERUN_ENTRY_TYPE: 'DEVTOOLS_RERUN_ENTRY_TYPE'
+  RERUN_ENTRY_TYPE: 'DEVTOOLS_RERUN_ENTRY_TYPE',
+  LAUNCH_COMMAND: 'DEVTOOLS_RERUN_LAUNCH_COMMAND'
 } as const
 
 /**

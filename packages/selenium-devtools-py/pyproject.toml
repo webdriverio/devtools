@@ -79,6 +79,11 @@ test = ["pytest>=7", "pytest-xdist>=3"]
 [project.entry-points.pytest11]
 selenium_devtools = "selenium_devtools.pytest_plugin"
 
+# `selenium-devtools install-backend` — a wheel has no install hook, so putting
+# the Node backend on disk has to be something the user runs once.
+[project.scripts]
+selenium-devtools = "selenium_devtools.cli:main"
+
 [tool.hatch.version]
 path = "src/selenium_devtools/__init__.py"
 

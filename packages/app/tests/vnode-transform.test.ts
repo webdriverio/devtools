@@ -240,6 +240,59 @@ describe('transform', () => {
     })
   })
 
+  describe('boolean attributes', () => {
+    /** Renders through Preact, which is where the state is actually decided:
+     *  these attributes are assigned as PROPERTIES, so a prop's truthiness —
+     *  not its presence — is what the replayed page shows. */
+    const renderInto = (node: VNode<{}>): HTMLInputElement => {
+      const host = document.createElement('div')
+      document.body.appendChild(host)
+      render(node, host)
+      return host.querySelector('input') as HTMLInputElement
+    }
+
+    it('replays a box the PAGE checked, captured as a bare attribute', () => {
+      // the-internet's /checkboxes ships `<input type="checkbox" checked>`, and
+      // the anchor serializes markup — so this arrives as `checked=""`, which
+      // Preact assigns as the property `''`. It rendered unchecked while the
+      // screencast showed it ticked.
+      const box = renderInto(
+        transform(captureFragment('<input type="checkbox" checked>'))
+      )
+
+      expect(box.checked).toBe(true)
+    })
+
+    it('replays a box whose markup says checked="false"', () => {
+      // HTML reads the ATTRIBUTE, not what it says: a page that writes
+      // checked="false" renders a ticked box, and the replay must agree. This
+      // is why the mutation path's policy cannot be shared — there "false" is
+      // the collector reporting a cleared field, a signal that never reaches
+      // markup, and reusing it here replayed this page's box unticked.
+      const box = renderInto(
+        transform(captureFragment('<input type="checkbox" checked="false">'))
+      )
+
+      expect(box.checked).toBe(true)
+    })
+
+    it('keeps a disabled control disabled', () => {
+      // Same class, and worse when wrong: a control the page disabled replayed
+      // as usable, which reads as the capture having missed the state.
+      const field = renderInto(transform(captureFragment('<input disabled>')))
+
+      expect(field.disabled).toBe(true)
+    })
+
+    it('leaves a non-boolean attribute alone', () => {
+      const field = renderInto(
+        transform({ type: 'input', props: { type: 'text', value: 'tomsmith' } })
+      )
+
+      expect(field.value).toBe('tomsmith')
+    })
+  })
+
   describe('props', () => {
     it('spreads the captured attributes onto the rendered node', () => {
       const node = transform({

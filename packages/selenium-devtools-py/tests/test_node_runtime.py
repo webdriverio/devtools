@@ -151,17 +151,23 @@ class TestWhichPathsNeedNode(unittest.TestCase):
     def _spawning_run(self, monorepo_dist, npx="/usr/bin/npx"):
         """Drive launch_or_attach down a spawning branch, recording the order.
 
-        Both branches are pinned explicitly. Letting `_find_monorepo_backend`
+        EVERY branch is pinned explicitly. Letting `_find_monorepo_backend`
         answer for real made this test depend on whether `pnpm build` had run —
         green locally with a built dist, and in CI (which runs the Python job
         without building) it fell through to the npx branch and died on the
-        empty `os.environ`, because `shutil.which` reads PATH from it.
+        empty `os.environ`, because `shutil.which` reads PATH from it. The
+        installed-backend branch is the same hazard one step further out: it
+        reads a cache directory under the developer's home, so running
+        `selenium-devtools install-backend` once would otherwise decide the
+        outcome of a test about which branch is taken.
         """
         calls = []
         with mock.patch.object(backend, "reuse_target", return_value=None), mock.patch(
             "os.environ", {}
         ), mock.patch.object(
             backend, "_find_monorepo_backend", return_value=monorepo_dist
+        ), mock.patch.object(
+            backend.backend_install, "installed_server", return_value=None
         ), mock.patch(
             "shutil.which", return_value=npx
         ), mock.patch.object(
@@ -193,6 +199,8 @@ class TestWhichPathsNeedNode(unittest.TestCase):
             "os.environ", {}
         ), mock.patch.object(
             backend, "_find_monorepo_backend", return_value=None
+        ), mock.patch.object(
+            backend.backend_install, "installed_server", return_value=None
         ), mock.patch(
             "shutil.which", return_value=None
         ), mock.patch.object(backend, "require_node", return_value="/n"):

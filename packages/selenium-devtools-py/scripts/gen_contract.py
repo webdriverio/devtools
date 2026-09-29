@@ -255,12 +255,18 @@ def main() -> int:
             "pytest nodeid, and no other slot is substituted verbatim."
         )
 
-    missing_reuse = [k for k in ("REUSE", "HOST", "PORT") if k not in reuse_env]
+    missing_reuse = [
+        k
+        for k in ("REUSE", "HOST", "PORT", "LAUNCH_COMMAND")
+        if k not in reuse_env
+    ]
     if missing_reuse:
         raise SystemExit(
             f"contract drift: REUSE_ENV key(s) {missing_reuse} no longer in "
-            f"shared (present: {sorted(reuse_env)}). A rerun child needs all "
-            "three to report into the dashboard that launched it."
+            f"shared (present: {sorted(reuse_env)}). REUSE/HOST/PORT are how "
+            "a rerun child reports into the dashboard that launched it, and "
+            "LAUNCH_COMMAND is how it publishes a Run-all that is not "
+            "narrowed to the one test it was spawned for."
         )
 
     missing_export = [k for k in ("request", "result") if k not in trace_export]
@@ -311,6 +317,7 @@ def main() -> int:
         f'ENV_REUSE = "{reuse_env["REUSE"]}"',
         f'ENV_REUSE_HOST = "{reuse_env["HOST"]}"',
         f'ENV_REUSE_PORT = "{reuse_env["PORT"]}"',
+        f'ENV_LAUNCH_COMMAND = "{reuse_env["LAUNCH_COMMAND"]}"',
         "",
     ]
     out = shared.parent / "selenium-devtools-py" / "src" / "selenium_devtools" / "_contract.py"
