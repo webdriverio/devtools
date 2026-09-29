@@ -1,5 +1,17 @@
 # @wdio/devtools-app
 
+## 1.11.1
+
+### Patch Changes
+
+- 3a36ff0: Replay a boolean attribute the page itself set. The DOM anchor captures markup, so a page's own `<input type="checkbox" checked>` arrives as `checked=""` — and Preact assigns these as properties, where `''` is falsy, so the box replayed unchecked while the screencast showed it ticked. Every boolean attribute was affected the same way: a control the page disabled replayed as usable, a selected option as unselected.
+
+  Captured markup now replays on presence alone, which is what HTML means: `checked="false"` in a page's own markup is a ticked box. That is deliberately NOT the mutation path's rule, where "false" is the collector reporting a cleared field — a signal that only ever arrives as a mutation record, never as markup.
+
+- f2305b4: Declare the build-time libraries as devDependencies, so installing the dashboard no longer installs the toolchain that built it. Both packages ship a bundle with everything already inlined — lit, preact, codemirror and the iconify set for the app; htm, parse5 and preact for the page script — yet listed them as runtime dependencies, and the script additionally listed a vite plugin, which pulled vite, rolldown and lightningcss onto every machine that installed the backend. The app also declared the WebdriverIO adapter it never imports.
+
+  Measured against the registry: installing `@wdio/devtools-backend` went from 338 packages and 264 MB to roughly 85 and 27 MB. That cost fell on every adapter, and hardest on the Python one, which fetches the backend at runtime.
+
 ## 1.11.0
 
 ### Minor Changes
