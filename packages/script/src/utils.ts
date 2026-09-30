@@ -1,70 +1,82 @@
-import {
-  parse,
-  parseFragment as parseFragmentImport,
-  type DefaultTreeAdapterMap
-} from 'parse5'
-import { h } from 'htm/preact'
 import type { SimplifiedVNode } from '../types.ts'
 
 import { log } from './logger.js'
 
-export type vFragment = DefaultTreeAdapterMap['documentFragment']
-export type vComment = DefaultTreeAdapterMap['commentNode']
-export type vElement = DefaultTreeAdapterMap['element']
-export type vText = DefaultTreeAdapterMap['textNode']
-export type vChildNode = DefaultTreeAdapterMap['childNode']
-
-function createVNode(elem: { type: unknown; props: unknown }) {
-  const { type, props } = elem
-  return { type, props } as SimplifiedVNode
+/** Build the wire node the replay reads.
+ *
+ *  `children` follows the shape `h()` produced when this went through preact:
+ *  absent for none, the child itself for one, an array from two. The app's
+ *  `transform` and every archive already written depend on that distinction.
+ *  `key` and `ref` are dropped for the same reason — preact lifted them off
+ *  props, so they have never reached the wire. */
+function vnode(
+  type: string | undefined,
+  props: Record<string, unknown>,
+  children: (SimplifiedVNode | string)[]
+): SimplifiedVNode {
+  const normalized: Record<string, unknown> = {}
+  for (const name in props) {
+    if (name !== 'key' && name !== 'ref') {
+      normalized[name] = props[name]
+    }
+  }
+  if (children.length === 1) {
+    normalized.children = children[0]
+  } else if (children.length > 1) {
+    normalized.children = children
+  }
+  return { type, props: normalized } as SimplifiedVNode
 }
 
-export function parseNode(
-  fragment: vFragment | vComment | vText | vChildNode
-): SimplifiedVNode | string {
-  const props: Record<string, unknown> = {}
+const errorNode = (className: string, err: unknown) =>
+  vnode('div', { class: className }, [(err as Error)?.stack ?? String(err)])
 
-  if (fragment.nodeName === '#comment') {
+/** Serialize a LIVE DOM node. The collector stands in the document, so the tree
+ *  is read directly rather than serialized to HTML and parsed back — that round
+ *  trip is what put a 148 KB HTML parser in a script injected into every
+ *  document, and a preload that size stalls navigation in headed Chrome (#403).
+ *
+ *  Reading the DOM also describes the page the browser actually built, rather
+ *  than what a second parser makes of its markup: `localName` keeps the case
+ *  foreign elements need (`linearGradient`), and attribute names arrive already
+ *  adjusted (`viewBox`), both of which parse5 had to special-case. */
+export function parseNode(node: Node): SimplifiedVNode | string {
+  if (node.nodeType === Node.COMMENT_NODE) {
     // Drop comment content — returning its data rendered the comment as visible
     // text on replay (e.g. an IE conditional comment's `<![endif]` showed as
     // text and added a line box that shifted the whole page layout down).
     return ''
   }
-  if (fragment.nodeName === '#text') {
-    return (fragment as vText).value
-  }
-
-  const { childNodes, attrs, tagName } = fragment as vElement
-  for (const p of attrs || []) {
-    props[p.name] = p.value
+  if (node.nodeType === Node.TEXT_NODE) {
+    return node.nodeValue ?? ''
   }
 
   try {
-    return createVNode(
-      h(tagName, props, ...(childNodes || []).map((cn) => parseNode(cn)))
+    const element = node as Element
+    const props: Record<string, unknown> = {}
+    for (const attr of Array.from(element.attributes ?? [])) {
+      props[attr.name] = attr.value
+    }
+    const children = Array.from(node.childNodes).map((child) =>
+      parseNode(child)
     )
+    return vnode(element.localName, props, children)
   } catch (err) {
-    return createVNode(h('div', { class: 'parseNode' }, (err as Error).stack))
+    return errorNode('parseNode', err)
   }
 }
 
 export function parseDocument(node: HTMLElement) {
   try {
-    const fragment = parse(node.outerHTML)
-    return parseNode(fragment.childNodes[0])
+    return parseNode(node)
   } catch (err) {
-    return createVNode(
-      h('div', { class: 'parseDocument' }, (err as Error).stack)
-    )
+    return errorNode('parseDocument', err)
   }
 }
 
 export function parseFragment(node: Element) {
-  // Only an Element has `outerHTML`: handed a Text or Comment child, parse5
-  // reads `length` off undefined and throws, and the catch below then serializes
-  // its own STACK TRACE into the page as a `<div class="parseFragmentWrapper">`.
-  // Text arrives as its data — the replay inserts a bare string as a text node —
-  // and a comment is dropped, matching `parseNode`'s policy for one it parses.
+  // A Text or Comment child has no attributes to read, and the replay inserts a
+  // bare string as a text node; a comment is dropped, matching `parseNode`.
   if (node?.nodeType === Node.TEXT_NODE) {
     return node.textContent || ''
   }
@@ -72,12 +84,11 @@ export function parseFragment(node: Element) {
     return ''
   }
   try {
-    const fragment = parseFragmentImport(node.outerHTML)
-    return parseNode(fragment)
+    // The typeless wrapper is kept deliberately: it is what the fragment parser
+    // produced, `transform` unwraps it, and archives already written carry it.
+    return vnode(undefined, {}, [parseNode(node)])
   } catch (err) {
-    return createVNode(
-      h('div', { class: 'parseFragmentWrapper' }, (err as Error).stack)
-    )
+    return errorNode('parseFragmentWrapper', err)
   }
 }
 
