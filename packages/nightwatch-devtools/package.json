@@ -66,7 +66,6 @@
     "@types/ws": "^8.18.1",
     "@wdio/devtools-core": "workspace:^",
     "@wdio/devtools-shared": "workspace:^",
-    "chromedriver": "^151.0.5",
     "nightwatch": "^3.16.0",
     "tsup": "^8.5.1",
     "typescript": "^6.0.3"

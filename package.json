@@ -39,10 +39,7 @@
       "vite": "^8.0.7",
       "@types/node": "26.2.0",
       "@codemirror/state": "6.5.4"
-    },
-    "onlyBuiltDependencies": [
-      "chromedriver"
-    ]
+    }
   },
   "devDependencies": {
     "@changesets/cli": "^2.31.0",
