@@ -36,17 +36,17 @@
     "prepublishOnly": "pnpm build"
   },
   "dependencies": {
-    "@xmldom/xmldom": "^0.9.8",
+    "@xmldom/xmldom": "^0.9.12",
     "xpath": "^0.0.34"
   },
   "devDependencies": {
-    "@microsoft/api-extractor": "^7.58.7",
-    "@types/node": "26.2.0",
+    "@microsoft/api-extractor": "^7.59.2",
+    "@types/node": "26.6.3",
     "@wdio/devtools-core": "workspace:^",
-    "@wdio/globals": "9.29.1",
+    "@wdio/globals": "9.31.3",
     "tsup": "^8.5.1",
     "typescript": "6.0.3",
-    "vitest": "^4.0.16"
+    "vitest": "^5.0.2"
   },
   "peerDependencies": {
     "webdriverio": "^9.0.0 || ^10.0.0"
