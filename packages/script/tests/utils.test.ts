@@ -7,11 +7,17 @@ import {
   assignRef,
   getRef,
   parseFragment,
-  parseDocument
+  parseDocument,
+  SLOW_BODY_NOTICE_MS
 } from '../src/utils.js'
+import { clearLogs, getLogs } from '../src/logger.js'
+
+const slowBodyNotices = () =>
+  getLogs().filter((line) => line.includes('no <body> after'))
 
 describe('DOM mutation capture utilities', () => {
   beforeEach(() => {
+    clearLogs()
     if (!document.body) {
       const body = document.createElement('body')
       document.documentElement.appendChild(body)
@@ -42,7 +48,12 @@ describe('DOM mutation capture utilities', () => {
 
   it('resolves for a body parsed long after the page started loading', async () => {
     vi.useFakeTimers({
-      toFake: ['setTimeout', 'requestAnimationFrame', 'cancelAnimationFrame']
+      toFake: [
+        'setTimeout',
+        'clearTimeout',
+        'requestAnimationFrame',
+        'cancelAnimationFrame'
+      ]
     })
     try {
       document.body.remove()
@@ -52,10 +63,34 @@ describe('DOM mutation capture utilities', () => {
       })
       // A <head> blocked on assets the server answers 30 s later.
       await vi.advanceTimersByTimeAsync(30_000)
+      expect(resolved).toBe(false)
+      // Still waiting, but the late body is on record for whoever reads the logs.
+      expect(slowBodyNotices()).toHaveLength(1)
+
       document.documentElement.appendChild(document.createElement('body'))
       await vi.advanceTimersByTimeAsync(50)
       await waiting
       expect(resolved).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('logs nothing for a body that arrives promptly', async () => {
+    vi.useFakeTimers({
+      toFake: [
+        'setTimeout',
+        'clearTimeout',
+        'requestAnimationFrame',
+        'cancelAnimationFrame'
+      ]
+    })
+    try {
+      const waiting = waitForBody()
+      await vi.advanceTimersByTimeAsync(50)
+      await waiting
+      await vi.advanceTimersByTimeAsync(SLOW_BODY_NOTICE_MS * 2)
+      expect(slowBodyNotices()).toHaveLength(0)
     } finally {
       vi.useRealTimers()
     }

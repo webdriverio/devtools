@@ -92,14 +92,26 @@ export function parseFragment(node: Element) {
   }
 }
 
+/** How long a missing <body> waits before the collector logs that it is late. */
+export const SLOW_BODY_NOTICE_MS = 10_000
+
 /** No timeout: a <head> blocked on a slow asset (measured: 30 s behind a 503)
- *  still reaches its body, and giving up loses that document's whole capture. */
+ *  still reaches its body, and giving up loses that document's whole capture.
+ *  A body that is late is reported instead, so a page that never gets one is
+ *  visible in the collector's logs rather than silently uncaptured. */
 export async function waitForBody() {
   let raf = 0
   let resolve: () => void
   const waitForPromise = new Promise<void>((res) => {
     resolve = res
   })
+  const slowNotice = setTimeout(
+    () =>
+      log(
+        `no <body> after ${SLOW_BODY_NOTICE_MS / 1000}s; still waiting, capture starts when it arrives`
+      ),
+    SLOW_BODY_NOTICE_MS
+  )
 
   // A document-start preload runs before <body> is parsed, and a slow <head>
   // paints frames before it is, so one frame's check is not enough.
@@ -119,6 +131,7 @@ export async function waitForBody() {
     await waitForPromise
   } finally {
     cancelAnimationFrame(raf)
+    clearTimeout(slowNotice)
     document.removeEventListener('DOMContentLoaded', run)
   }
 }
