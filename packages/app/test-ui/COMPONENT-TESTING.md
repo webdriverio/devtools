@@ -82,15 +82,18 @@ provider; removed in Phase 0 to keep one browser stack.
 - Specs carry their own `test-ui/tsconfig.json` (mocha + `expect` globals via
   `@wdio/globals/types`), and `packages/app/tsconfig.json` **excludes**
   `test-ui/` so the app build never depends on test-runner types.
-- `packages/app` devDepends on **`expect` pinned to an exact version**. The
-  runner lists `expect` in `optimizeDeps.include` because it is CJS and must be
-  pre-bundled to ESM; under pnpm it isn't resolvable from the Vite root, so Vite
-  skips it and the browser's `import expect from 'expect'` dies with *"does not
-  provide an export named 'default'"* — every spec fails at load. The pin must
-  match the version `expect-webdriverio` resolves, or Vite pre-bundles a second
-  copy and the error returns. Check with
-  `node -e "console.log(require('expect/package.json').version)"` from
-  `packages/app` against the `expect@x.y.z` path in the error.
+- `packages/app` does **not** declare `expect`. The runner lists `expect` (and
+  the other CJS packages in `RUNNER_CJS_DEPS`) in `optimizeDeps.include` because
+  they must be pre-bundled to ESM; under pnpm they aren't resolvable from the
+  Vite root, so Vite skips them and the browser's `import expect from 'expect'`
+  dies with *"does not provide an export named 'default'"*, failing every spec at
+  load. `wdio.conf.ts` aliases each one to the install that declares it:
+  `expect` from `@wdio/browser-runner`'s own install, the `jest-*` set from that
+  `expect`, the rest from `webdriverio`. The browser therefore gets exactly the
+  `expect` the runner was built with, and the alias applies to every importer
+  (including `expect-webdriverio`), so no second copy is pre-bundled. A
+  separately declared `expect` once let a newer `jest-message-util`, which reads
+  `__dirname` at load, into the browser and failed every spec.
 
 ---
 

@@ -117,6 +117,19 @@ importers:
         specifier: ^3.16.0
         version: 3.16.0(@cucumber/cucumber@13.2.1)
 
+  examples/selenium-js:
+    dependencies:
+      '@wdio/selenium-devtools':
+        specifier: workspace:^
+        version: link:../../packages/selenium-devtools
+      selenium-webdriver:
+        specifier: ^4.44.0
+        version: 4.49.0
+    devDependencies:
+      '@cucumber/cucumber':
+        specifier: ^13.0.0
+        version: 13.2.1
+
   examples/wdio:
     devDependencies:
       '@wdio/cli':
@@ -206,9 +219,6 @@ importers:
       codemirror:
         specifier: ^6.0.2
         version: 6.0.2
-      expect:
-        specifier: 30.5.2
-        version: 30.5.2
       lit:
         specifier: ^3.3.3
         version: 3.3.3
@@ -3348,10 +3358,6 @@ packages:
     resolution: {integrity: sha512-quJQXlTSUGL2LH9SUXo8VwsY4soanhgo6LNSm84E1LBcE8s3O0wpdiRzyR9z/ZZJMlMWv37qOOb9pdJlMUEKFQ==}
     engines: {node: '>=8'}
 
-  ansi-regex@6.2.2:
-    resolution: {integrity: sha512-Bq3SmSpyFHaWjPk8If9yc6svM8c56dB5BAtW4Qbw5jHTwwXXcTLoRMkpDJp6VL0XzlWaCHTXrkFURMYmD0sLqg==}
-    engines: {node: '>=12'}
-
   ansi-regex@6.4.0:
     resolution: {integrity: sha512-KzTVk2tCWAHtYrvvvaP8bJKJq2pVinhLcGEQdtLIYPbmNGNyYe8QwNaTUYQp2J7/vIsUKt5QCqAfUkYyG9DkOw==}
     engines: {node: '>=12'}
@@ -6140,10 +6146,6 @@ packages:
   lru-cache@10.4.3:
     resolution: {integrity: sha512-JNAzZcXrCt42VGLuYz0zfAzDfAvJWW6AfYlDBQyDV5DClI2m5sAmK+OIO7s59XfsRsWHp02jAJrRadPRGTt6SQ==}
 
-  lru-cache@11.5.2:
-    resolution: {integrity: sha512-4pfM1Ff0x50o0tQwb5ucw/RzNyD0/YJME6IVcStalZuMWxdt3sR3huStTtxz4PUmvZfRguvDejasvQ2kifR11g==}
-    engines: {node: 20 || >=22}
-
   lru-cache@11.5.3:
     resolution: {integrity: sha512-U4N8FgzmWxc8k1VH8Kr6lQg18U7Fjvby6wXHVRX/ZZ7IwWbRMgrRbP0Wrb5q5NVinryp4SQampHKdvtecItxUg==}
     engines: {node: 20 || >=22}
@@ -6663,10 +6665,6 @@ packages:
   picomatch@2.3.2:
     resolution: {integrity: sha512-V7+vQEJ06Z+c5tSye8S+nHUfI51xoXIXjHQ99cQtKUkQqqO1kO/KCJUfZXuB47h/YBlDhah2H3hdUGXn8ie0oA==}
     engines: {node: '>=8.6'}
-
-  picomatch@4.0.5:
-    resolution: {integrity: sha512-RvwwcruNjI1ncT5xRakeyS9Lf8lcItv34KD+aif+VH9kduAyfYBipGh12274xtenIPZ119/R9BdTBa8gAwSh0A==}
-    engines: {node: '>=12'}
 
   picomatch@4.0.7:
     resolution: {integrity: sha512-qcJu88Q2IWqJsDD529JKMdwGm/dvInW4HvQnRwiH9JtihJvzGOscDtHE3x1pBKeUOTysQ8kVmLnJ2kJu7yhcGA==}
@@ -7855,10 +7853,6 @@ packages:
     resolution: {integrity: sha512-+QBBXBCvifc56fsbuxZQ6Sic3wqqc3WWaqxs58gvJrcOuN83HGTCwz3oS5phzU9LthRNE9VrJCFCLUgHeeFnfA==}
     engines: {node: '>=18'}
 
-  unicorn-magic@0.4.0:
-    resolution: {integrity: sha512-wH590V9VNgYH9g3lH9wWjTrUoKsjLF6sGLjhR4sH1LWpLmCOH0Zf7PukhDA8BiS7KHe4oPNkcTHqYkj7SOGUOw==}
-    engines: {node: '>=20'}
-
   unicorn-magic@0.4.1:
     resolution: {integrity: sha512-lzlXPoVB0Uy/FvTaUgX39RbixYiSKoc3JSoSf01+0c2B6FR3qdYIPN7Qjo/AV7n6sqLCk0509cT3LRj1oSZ1+A==}
     engines: {node: '>=20'}
@@ -8387,11 +8381,6 @@ packages:
 
   yallist@4.0.0:
     resolution: {integrity: sha512-3wdGidZyq5PB084XLES5TpOSRA3wjXAlIWMhum2kRcv/41Sn2emQ0dycQW4uZXLejwKvg6EsvbdlVL+FYEct7A==}
-
-  yaml@2.9.0:
-    resolution: {integrity: sha512-2AvhNX3mb8zd6Zy7INTtSpl1F15HW6Wnqj0srWlkKLcpYl/gMIMJiyuGq2KeI2YFxUPjdlB+3Lc10seMLtL4cA==}
-    engines: {node: '>= 14.6'}
-    hasBin: true
 
   yaml@2.9.1:
     resolution: {integrity: sha512-3NxN8+78OdzbT7C/WjGsyfPAtJaN3FNDsWxv7Y7mcDsT/oOmgW8BpyQQFFBnvZE3j9Y2Sdz1ULFLezL7Eb2yFw==}
@@ -9040,7 +9029,7 @@ snapshots:
       supports-color: 11.0.0
       type-fest: 5.8.0
       util-arity: 1.1.0
-      yaml: 2.9.0
+      yaml: 2.9.1
       yup: 1.7.1
 
   '@cucumber/gherkin-streams@5.0.1(@cucumber/gherkin@28.0.0)(@cucumber/message-streams@4.0.1(@cucumber/messages@24.1.0))(@cucumber/messages@24.1.0)':
@@ -11445,8 +11434,6 @@ snapshots:
 
   ansi-regex@5.0.1: {}
 
-  ansi-regex@6.2.2: {}
-
   ansi-regex@6.4.0: {}
 
   ansi-styles@3.2.1:
@@ -13116,7 +13103,7 @@ snapshots:
       '@wdio/globals': 9.31.3(expect-webdriverio@7.0.0)(webdriverio@9.32.0)
       '@wdio/logger': 9.29.1
       deep-eql: 5.0.2
-      expect: 30.5.2
+      expect: 30.4.1
       jest-matcher-utils: 30.5.2
       webdriverio: 9.32.0
 
@@ -13275,10 +13262,6 @@ snapshots:
   fd-slicer@1.1.0:
     dependencies:
       pend: 1.2.0
-
-  fdir@6.5.0(picomatch@4.0.5):
-    optionalDependencies:
-      picomatch: 4.0.5
 
   fdir@6.5.0(picomatch@4.0.7):
     optionalDependencies:
@@ -13602,7 +13585,7 @@ snapshots:
 
   has-ansi@6.0.2:
     dependencies:
-      ansi-regex: 6.2.2
+      ansi-regex: 6.4.0
 
   has-bigints@1.1.0: {}
 
@@ -13652,7 +13635,7 @@ snapshots:
 
   hosted-git-info@9.0.3:
     dependencies:
-      lru-cache: 11.5.2
+      lru-cache: 11.5.3
 
   html-encoding-sniffer@4.0.0:
     dependencies:
@@ -14404,7 +14387,7 @@ snapshots:
       whatwg-encoding: 3.1.1
       whatwg-mimetype: 4.0.0
       whatwg-url: 14.2.0
-      ws: 8.21.3
+      ws: 8.22.0
       xml-name-validator: 5.0.0
     transitivePeerDependencies:
       - bufferutil
@@ -14711,8 +14694,6 @@ snapshots:
       tslib: 2.8.1
 
   lru-cache@10.4.3: {}
-
-  lru-cache@11.5.2: {}
 
   lru-cache@11.5.3: {}
 
@@ -15299,8 +15280,6 @@ snapshots:
 
   picomatch@2.3.2: {}
 
-  picomatch@4.0.5: {}
-
   picomatch@4.0.7: {}
 
   pidtree@0.3.1: {}
@@ -15454,7 +15433,7 @@ snapshots:
   proxy-agent@6.3.1:
     dependencies:
       agent-base: 7.1.4
-      debug: 4.3.4
+      debug: 4.4.3(supports-color@5.5.0)
       http-proxy-agent: 7.0.2
       https-proxy-agent: 7.0.6
       lru-cache: 7.18.3
@@ -15567,7 +15546,7 @@ snapshots:
       normalize-package-data: 8.0.0
       parse-json: 8.3.0
       type-fest: 5.8.0
-      unicorn-magic: 0.4.0
+      unicorn-magic: 0.4.1
 
   read-pkg@3.0.0:
     dependencies:
@@ -15860,9 +15839,9 @@ snapshots:
   selenium-webdriver@4.27.0:
     dependencies:
       '@bazel/runfiles': 6.5.0
-      jszip: 3.10.1
+      jszip: 3.10.2
       tmp: 0.2.7
-      ws: 8.21.3
+      ws: 8.22.0
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
@@ -15983,7 +15962,7 @@ snapshots:
 
   simple-update-notifier@2.0.0:
     dependencies:
-      semver: 7.8.1
+      semver: 7.8.5
 
   sisteransi@1.0.5: {}
 
@@ -16415,8 +16394,8 @@ snapshots:
 
   tinyglobby@0.2.17:
     dependencies:
-      fdir: 6.5.0(picomatch@4.0.5)
-      picomatch: 4.0.5
+      fdir: 6.5.0(picomatch@4.0.7)
+      picomatch: 4.0.7
 
   tinyrainbow@1.2.0: {}
 
@@ -16643,8 +16622,6 @@ snapshots:
   undici@7.29.0: {}
 
   unicorn-magic@0.3.0: {}
-
-  unicorn-magic@0.4.0: {}
 
   unicorn-magic@0.4.1: {}
 
@@ -16975,7 +16952,7 @@ snapshots:
       deepmerge-ts: 8.0.2
       https-proxy-agent: 7.0.6
       undici: 6.29.0
-      ws: 8.21.0
+      ws: 8.22.0
     transitivePeerDependencies:
       - bare-abort-controller
       - bare-buffer
@@ -17201,8 +17178,6 @@ snapshots:
   yallist@3.1.1: {}
 
   yallist@4.0.0: {}
-
-  yaml@2.9.0: {}
 
   yaml@2.9.1: {}
 

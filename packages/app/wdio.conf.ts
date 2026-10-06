@@ -16,6 +16,7 @@
 
 /// <reference types="@wdio/browser-runner" />
 
+import fs from 'node:fs'
 import { createRequire } from 'node:module'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -33,9 +34,8 @@ const requireFromApp = createRequire(import.meta.url)
 // The runner asks Vite to pre-bundle these CJS packages so the browser can
 // import them as ESM. Under pnpm none of them are reachable from this package,
 // so Vite silently skips them and the first one the import graph touches throws
-// `does not provide an export named 'default'` — every spec fails at load. They
-// are reachable from `webdriverio`, which depends on them, so each is mapped to
-// its real path. Keep in step with the runner's own `optimizeDeps.include`.
+// `does not provide an export named 'default'`, failing every spec at load. Each
+// is mapped to its real path. Keep in step with the runner's own `optimizeDeps.include`.
 const RUNNER_CJS_DEPS = [
   'expect',
   'minimatch',
@@ -57,31 +57,67 @@ const RUNNER_CJS_DEPS = [
   'split2'
 ]
 
+interface ResolutionBase {
+  require: NodeJS.Require
+  declared: Set<string>
+}
+
 function tryResolve(require_: NodeJS.Require, id: string): string | undefined {
   try {
     return require_.resolve(id)
   } catch {
-    // Not reachable from this base — the caller falls through to the next one.
+    // Not reachable from this base; the caller falls through to the next one.
     return undefined
   }
 }
 
-/** Real path per CJS dep, resolved from this package first and then from the
- *  packages that depend on them. A dep that resolves nowhere is left out: it is
- *  unreachable, so nothing can import it either. */
+function packageDir(entry: string, name: string): string {
+  const marker = `${path.sep}node_modules${path.sep}${name}${path.sep}`
+  return entry.slice(0, entry.lastIndexOf(marker) + marker.length - 1)
+}
+
+function baseAt(dir: string): ResolutionBase {
+  const manifestPath = path.join(dir, 'package.json')
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as {
+    name: string
+    dependencies?: Record<string, string>
+  }
+  return {
+    require: createRequire(manifestPath),
+    declared: new Set([
+      manifest.name,
+      ...Object.keys(manifest.dependencies ?? {})
+    ])
+  }
+}
+
+/** Real path per CJS dep, taken from the install that declares it: the runner
+ *  (`expect`), the runner's own `expect` (the jest-* set), then `webdriverio`.
+ *  Resolving through a base that does not declare a dep reaches pnpm's hoisted
+ *  copy, which can be any version, so that is only the fallback. A dep that
+ *  resolves nowhere is left out: nothing can import it either. */
 function cjsDepAliases(): Record<string, string> {
-  const bases = ['webdriverio', 'expect']
-    .map((id) => tryResolve(requireFromApp, id))
-    .filter((entry): entry is string => Boolean(entry))
-    .map((entry) => createRequire(entry))
+  // The runner exports no main entry, so its install is found through the symlink.
+  const runner = baseAt(
+    fs.realpathSync(path.join(appDir, 'node_modules/@wdio/browser-runner'))
+  )
+  const bases = [
+    runner,
+    baseAt(packageDir(runner.require.resolve('expect'), 'expect'))
+  ]
+  const webdriverio = tryResolve(requireFromApp, 'webdriverio')
+  if (webdriverio) {
+    bases.push(baseAt(packageDir(webdriverio, 'webdriverio')))
+  }
+  const fallbacks = [...bases.map((base) => base.require), requireFromApp]
   const aliases: Record<string, string> = {}
   for (const dep of RUNNER_CJS_DEPS) {
-    for (const require_ of [requireFromApp, ...bases]) {
-      const resolved = tryResolve(require_, dep)
-      if (resolved) {
-        aliases[dep] = resolved
-        break
-      }
+    const owner = bases.find((base) => base.declared.has(dep))
+    const resolved = owner
+      ? tryResolve(owner.require, dep)
+      : fallbacks.map((require_) => tryResolve(require_, dep)).find(Boolean)
+    if (resolved) {
+      aliases[dep] = resolved
     }
   }
   return aliases

@@ -11,7 +11,7 @@ packages:
   - 'packages/nightwatch-devtools'
   - 'packages/selenium-devtools'
   - 'examples/wdio'
-  - 'examples/selenium'
+  - 'examples/selenium-js'
   - 'examples/nightwatch'
 
 # Here rather than under "pnpm" in package.json: pnpm 11 ignores that field, so a
