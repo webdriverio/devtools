@@ -569,15 +569,6 @@ importers:
       '@wdio/elements':
         specifier: workspace:^
         version: link:../elements
-      '@wdio/logger':
-        specifier: 9.29.1
-        version: 9.29.1
-      '@wdio/reporter':
-        specifier: 9.32.0
-        version: 9.32.0
-      '@wdio/types':
-        specifier: 9.32.0
-        version: 9.32.0
       '@xmldom/xmldom':
         specifier: ^0.9.12
         version: 0.9.12
@@ -633,9 +624,18 @@ importers:
       '@wdio/globals':
         specifier: 9.31.3
         version: 9.31.3(expect-webdriverio@7.0.0)(webdriverio@9.32.0)
+      '@wdio/logger':
+        specifier: 9.29.1
+        version: 9.29.1
       '@wdio/protocols':
         specifier: 9.31.5
         version: 9.31.5
+      '@wdio/reporter':
+        specifier: 9.32.0
+        version: 9.32.0
+      '@wdio/types':
+        specifier: 9.32.0
+        version: 9.32.0
       typescript:
         specifier: 6.0.3
         version: 6.0.3
