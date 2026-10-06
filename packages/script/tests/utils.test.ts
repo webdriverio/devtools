@@ -1,7 +1,7 @@
 /**
  * @vitest-environment happy-dom
  */
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import {
   waitForBody,
   assignRef,
@@ -21,6 +21,44 @@ describe('DOM mutation capture utilities', () => {
 
   it('should wait for body to exist before capturing mutations', async () => {
     await expect(waitForBody()).resolves.toBeUndefined()
+  })
+
+  it('resolves for a body parsed after the first animation frame', async () => {
+    // A document-start preload runs before <body> exists, and a slow <head>
+    // lets the browser paint frames before the parser reaches it.
+    document.body.remove()
+    const waiting = waitForBody()
+    await new Promise((resolve) =>
+      requestAnimationFrame(() => requestAnimationFrame(resolve))
+    )
+    document.documentElement.appendChild(document.createElement('body'))
+
+    const outcome = await Promise.race([
+      waiting.then(() => 'resolved'),
+      new Promise((resolve) => setTimeout(() => resolve('still waiting'), 1000))
+    ])
+    expect(outcome).toBe('resolved')
+  })
+
+  it('resolves for a body parsed long after the page started loading', async () => {
+    vi.useFakeTimers({
+      toFake: ['setTimeout', 'requestAnimationFrame', 'cancelAnimationFrame']
+    })
+    try {
+      document.body.remove()
+      let resolved = false
+      const waiting = waitForBody().then(() => {
+        resolved = true
+      })
+      // A <head> blocked on assets the server answers 30 s later.
+      await vi.advanceTimersByTimeAsync(30_000)
+      document.documentElement.appendChild(document.createElement('body'))
+      await vi.advanceTimersByTimeAsync(50)
+      await waiting
+      expect(resolved).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('should assign trackable refs to DOM elements for mutation identification', () => {
