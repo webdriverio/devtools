@@ -17,27 +17,25 @@ from selenium_devtools import lifecycle, trace_export
 from selenium_devtools.constants import TRACE_RETENTION_POLICIES
 from selenium_devtools._contract import SCOPE_TRACE_EXPORT, SCOPE_TRACE_EXPORTED
 
+from wire_contract import RecordingTransport
 
-class FakeTransport:
+
+class FakeTransport(RecordingTransport):
     """Answers the export on a separate thread, as the real reader does."""
 
     def __init__(
         self, *, connected=True, reply=None, sends=True, raises=False, delay=0.0
     ):
+        super().__init__(sends=sends, raises_after=0 if raises else None)
         self.connected = connected
-        self.sent = []
         self._reply = reply
-        self._sends = sends
-        self._raises = raises
         # A reply that lands before export() gets to wait would let a version
         # that never waits pass — measured: removing the wait kept every test
         # green, because the answering thread usually won the race.
         self._delay = delay
 
     def send_json(self, scope, data):
-        if self._raises:
-            raise OSError("socket gone")
-        self.sent.append((scope, data))
+        sent = super().send_json(scope, data)
         if self._reply is not None and self._sends:
             answer = dict(self._reply)
             answer.setdefault("requestId", data["requestId"])
@@ -47,10 +45,7 @@ class FakeTransport:
                 trace_export.on_result(answer)
 
             threading.Thread(target=answer_later, daemon=True).start()
-        return self._sends
-
-    def close(self):
-        self.connected = False
+        return sent
 
 
 class TestRequestingAnExport(unittest.TestCase):

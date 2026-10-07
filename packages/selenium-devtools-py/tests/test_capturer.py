@@ -1,25 +1,14 @@
 import unittest
 
+from selenium_devtools import frames
 from selenium_devtools.capturer import SessionCapturer
 
-
-class FakeTransport:
-    connected = True
-
-    def __init__(self):
-        self.sent = []
-
-    def send_json(self, scope, data):
-        self.sent.append((scope, data))
-        return True
-
-    def close(self):
-        pass
+from wire_contract import RecordingTransport
 
 
 class TestSessionCapturer(unittest.TestCase):
     def setUp(self):
-        self.tx = FakeTransport()
+        self.tx = RecordingTransport()
         self.cap = SessionCapturer(self.tx)
 
     def test_metadata_sent_once(self):
@@ -51,7 +40,7 @@ class TestSessionCapturer(unittest.TestCase):
 
     def test_suites_sent_as_uid_keyed_records(self):
         # UI expects Record<uid, SuiteStats>[], not a plain array of suites.
-        suite = {"uid": "suite-1", "title": "S", "tests": []}
+        suite = frames.suite_stats(uid="suite-1", title="S", file="s.py", start_ms=0, tests=[])
         self.cap.send_suites([suite])
         self.assertIn(("suites", [{"suite-1": suite}]), self.tx.sent)
 
