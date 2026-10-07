@@ -40,8 +40,8 @@
     "xpath": "^0.0.34"
   },
   "devDependencies": {
-    "@microsoft/api-extractor": "^7.59.2",
-    "@types/node": "26.6.3",
+    "@microsoft/api-extractor": "^7.59.3",
+    "@types/node": "26.6.4",
     "@wdio/devtools-core": "workspace:^",
     "@wdio/globals": "9.31.3",
     "tsup": "^8.5.1",

@@ -39,13 +39,13 @@
     "pointer-tracker": "^2.5.3",
     "postcss": "^8.5.28",
     "postcss-import": "^17.0.0",
-    "preact": "^10.29.8",
+    "preact": "^11.0.0",
     "rollup": "^4.63.5",
-    "stylelint": "^17.15.0",
+    "stylelint": "^17.16.0",
     "stylelint-config-recommended": "^18.0.0",
     "stylelint-config-tailwindcss": "^1.0.1",
     "tailwindcss": "~4.3.3",
     "typescript": "6.0.3",
-    "vite": "^8.3.1"
+    "vite": "^8.3.2"
   }
 }
