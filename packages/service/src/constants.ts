@@ -50,12 +50,9 @@ export {
   LOG_SOURCES
 } from '@wdio/devtools-core'
 
-// The dashboard launches via the Puppeteer-based 'devtools' protocol, so the
-// "controlled by automated test software" infobar (added by Puppeteer's
-// --enable-automation default) is removed via ignoreDefaultArgs, not
-// chromedriver's excludeSwitches. `wdio:devtoolsOptions` is honored at runtime
-// but isn't in this WebdriverIO.Capabilities type, hence the assertion.
-export const DEFAULT_LAUNCH_CAPS = {
+// The dashboard opens over WebDriver; excludeSwitches drops chromedriver's
+// "controlled by automated test software" infobar.
+export const DEFAULT_LAUNCH_CAPS: WebdriverIO.Capabilities = {
   browserName: 'chrome',
   'goog:chromeOptions': {
     excludeSwitches: ['enable-automation'],
@@ -64,7 +61,7 @@ export const DEFAULT_LAUNCH_CAPS = {
     // development:
     // args: ['--window-size=1600,1200', '--auto-open-devtools-for-tabs']
   }
-} as WebdriverIO.Capabilities
+}
 
 export const INTERNAL_COMMANDS = [
   'emit',
