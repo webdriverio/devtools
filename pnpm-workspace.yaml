@@ -18,5 +18,5 @@ packages:
 # lockfile it writes (Dependabot's) drops these and fails CI's frozen install.
 overrides:
   vite: ^8.0.7
-  '@types/node': 26.6.3
+  '@types/node': 26.6.4
   '@codemirror/state': 6.5.4

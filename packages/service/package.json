@@ -39,8 +39,8 @@
   },
   "dependencies": {
     "@babel/parser": "^7.29.9",
-    "@babel/traverse": "^7.29.7",
-    "@babel/types": "^7.29.7",
+    "@babel/traverse": "^7.29.8",
+    "@babel/types": "^7.29.8",
     "@types/yazl": "^3.3.1",
     "@wdio/devtools-backend": "workspace:^",
     "@wdio/devtools-script": "workspace:^",
@@ -50,7 +50,7 @@
     "import-meta-resolve": "^4.2.0",
     "stack-trace": "^1.0.0",
     "stacktrace-parser": "^0.1.11",
-    "ws": "^8.21.0",
+    "ws": "^8.22.0",
     "xpath": "^0.0.34",
     "yazl": "^3.3.1"
   },
@@ -60,7 +60,7 @@
     "@types/babel__traverse": "^7.28.0",
     "@types/fluent-ffmpeg": "^2.1.28",
     "@types/stack-trace": "^0.0.33",
-    "@types/ws": "^8.18.1",
+    "@types/ws": "^8.18.2",
     "@wdio/devtools-core": "workspace:^",
     "@wdio/devtools-shared": "workspace:^",
     "@wdio/globals": "9.31.3",
@@ -69,7 +69,7 @@
     "@wdio/reporter": "9.32.0",
     "@wdio/types": "9.32.0",
     "typescript": "6.0.3",
-    "vite": "^8.3.1",
+    "vite": "^8.3.2",
     "vite-plugin-dts": "^5.1.1"
   },
   "peerDependencies": {
