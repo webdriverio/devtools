@@ -71,7 +71,6 @@
     "typescript": "^6.0.3"
   },
   "peerDependencies": {
-    "devtools": "^8.42.0",
     "nightwatch": ">=3.0.0"
   }
 }
