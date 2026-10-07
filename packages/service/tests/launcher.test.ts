@@ -212,8 +212,31 @@ describe('DevToolsAppLauncher', () => {
 
       expect(remote).toHaveBeenCalledWith(
         expect.objectContaining({
-          automationProtocol: 'devtools',
           capabilities: expect.objectContaining(customCaps)
+        })
+      )
+    })
+
+    it('opens the dashboard over WebDriver, which needs no `devtools` package', async () => {
+      vi.mocked(backend.start).mockResolvedValue({
+        server: mockServer,
+        port: 3000
+      } as any)
+      vi.mocked(remote).mockResolvedValue(mockBrowser as any)
+
+      const launcher = new DevToolsAppLauncher({ port: 3000 })
+      await launcher.onPrepare(
+        undefined as never,
+        [{ browserName: 'chrome' }] as any
+      )
+
+      const [params] = vi.mocked(remote).mock.calls[0]
+      expect(params).not.toHaveProperty('automationProtocol')
+      expect(params.capabilities).toEqual(
+        expect.objectContaining({
+          'goog:chromeOptions': expect.objectContaining({
+            excludeSwitches: ['enable-automation']
+          })
         })
       )
     })

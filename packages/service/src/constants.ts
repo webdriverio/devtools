@@ -58,13 +58,11 @@ export {
 export const DEFAULT_LAUNCH_CAPS = {
   browserName: 'chrome',
   'goog:chromeOptions': {
+    excludeSwitches: ['enable-automation'],
     // production:
     args: ['--window-size=1600,1200']
     // development:
     // args: ['--window-size=1600,1200', '--auto-open-devtools-for-tabs']
-  },
-  'wdio:devtoolsOptions': {
-    ignoreDefaultArgs: ['--enable-automation']
   }
 } as WebdriverIO.Capabilities
 
