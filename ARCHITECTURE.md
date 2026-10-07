@@ -124,7 +124,7 @@ Imports from: `core`, `shared`, `selenium-webdriver` (peer). Does not import: ot
 
 ### `packages/selenium-devtools-py` — Python Selenium adapter
 
-The same contract from another language. Not a port of the JavaScript adapters: it shares no code with them, only the `{scope, data}` wire format, so nothing here imports `core` or `shared` — the parts of those it needs are **generated** into `src/selenium_devtools/_contract.py` by `scripts/gen_contract.py`, which doubles as a drift guard.
+The same contract from another language. Not a port of the JavaScript adapters: it shares no code with them, only the `{scope, data}` wire format, so nothing here imports `core` or `shared` — the parts of those it needs are **generated** by `scripts/gen_contract.py`, which doubles as a drift guard: constants and scope names into `src/selenium_devtools/_contract.py`, and payload TypedDicts into `_wire_types.py` from `packages/shared/wire-schema.json`. That schema is itself generated from shared's TypeScript types by `packages/shared/scripts/wire-schema.ts`, one JSON Schema per wire scope, so a language that cannot import shared still reads one source.
 
 Contains:
 
