@@ -2,16 +2,18 @@ name: Python Adapter
 
 # Triggered by packages/shared/src/** as well, because the adapter's wire
 # contract is GENERATED from it: scope names, the runner id, the collector route,
-# the worker query keys and the run-id env var. A rename there leaves the
-# committed `_contract.py` stale, and stale means the adapter keeps sending a name
-# nothing reads — a silent loss, not an error.
+# the worker query keys, the run-id env var, and every payload type, through
+# `wire-schema.json` (which vitest keeps in step with shared's src). A change
+# there leaves `_contract.py` or `_wire_types.py` stale, and stale means the
+# adapter keeps sending a name or a shape nothing reads — a silent loss, not an
+# error.
 #
 # This was previously excluded to keep a Python job off every PR that touches
 # shared. The objection was that a red Python job would block work unrelated to
-# this adapter; it does not hold, because the only thing a shared change can turn
-# red here is the drift check, and drift IS related — it means that PR broke this
-# contract. The tests do not read shared at all. Scoped to `src/` so a version
-# bump or a README edit under shared does not trigger it.
+# this adapter; it does not hold, because the only things a shared change can
+# turn red here are the drift check and the tests' wire-schema validation, and
+# both mean that PR broke this contract. Scoped to `src/` and the schema so a
+# version bump or a README edit under shared does not trigger it.
 on:
   push:
     branches:
@@ -19,6 +21,7 @@ on:
     paths:
       - packages/selenium-devtools-py/**
       - packages/shared/src/**
+      - packages/shared/wire-schema.json
       - .github/workflows/python.yml
       - .github/workflows/python-release.yml
       - .github/actions/python-package/**
@@ -26,6 +29,7 @@ on:
     paths:
       - packages/selenium-devtools-py/**
       - packages/shared/src/**
+      - packages/shared/wire-schema.json
       - .github/workflows/python.yml
       - .github/workflows/python-release.yml
       - .github/actions/python-package/**
