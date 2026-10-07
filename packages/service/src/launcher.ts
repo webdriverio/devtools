@@ -146,7 +146,6 @@ export class DevToolsAppLauncher {
         hostname: this.#options.hostname || 'localhost'
       })
       this.#browser = await remote({
-        automationProtocol: 'devtools',
         capabilities: {
           ...DEFAULT_LAUNCH_CAPS,
           ...this.#options.devtoolsCapabilities
@@ -160,7 +159,7 @@ export class DevToolsAppLauncher {
 
   async onComplete() {
     if (this.#browser) {
-      logger.setLevel('devtools', 'warn')
+      logger.setLevel('webdriver', 'warn')
       log.info('Please close the browser window to finish...')
       while (true) {
         try {
