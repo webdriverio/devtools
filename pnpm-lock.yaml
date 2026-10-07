@@ -404,9 +404,6 @@ importers:
       '@xmldom/xmldom':
         specifier: ^0.9.12
         version: 0.9.12
-      devtools:
-        specifier: ^8.42.0
-        version: 8.42.0
       fluent-ffmpeg:
         specifier: ^2.1.3
         version: 2.1.3

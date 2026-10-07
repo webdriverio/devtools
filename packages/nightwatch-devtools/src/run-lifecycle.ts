@@ -135,25 +135,18 @@ export async function openDevtoolsBrowser(
     }
     ctx.devtoolsBrowser = await remote({
       logLevel: 'info',
-      automationProtocol: 'devtools',
       capabilities: {
         browserName: 'chrome',
         'goog:chromeOptions': {
+          excludeSwitches: ['enable-automation'],
           args: [
             '--window-size=1600,1200',
             `--user-data-dir=${ctx.userDataDir}`,
             '--no-first-run',
             '--no-default-browser-check'
           ]
-        },
-        // Dashboard uses the Puppeteer-based 'devtools' protocol; drop the
-        // "controlled by automated test software" infobar by ignoring
-        // Puppeteer's --enable-automation default. (Runtime-valid capability
-        // not present in the type.)
-        'wdio:devtoolsOptions': {
-          ignoreDefaultArgs: ['--enable-automation']
         }
-      } as WebdriverIO.Capabilities
+      }
     })
     await ctx.devtoolsBrowser.url(url)
   } catch (err) {
@@ -201,7 +194,7 @@ export async function waitForDevtoolsBrowserClose(
     return
   }
   ;(logger as { setLevel: (ns: string, lvl: string) => void }).setLevel(
-    'devtools',
+    'webdriver',
     'warn'
   )
   let exitBySignal = false
@@ -229,7 +222,7 @@ export async function waitForDevtoolsBrowserClose(
   process.removeListener('SIGINT', signalHandler)
   process.removeListener('SIGTERM', signalHandler)
   ;(logger as { setLevel: (ns: string, lvl: string) => void }).setLevel(
-    'devtools',
+    'webdriver',
     'info'
   )
   try {
