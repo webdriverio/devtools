@@ -45,7 +45,7 @@
     "@wdio/devtools-core": "workspace:^",
     "@wdio/globals": "9.31.3",
     "tsup": "^8.5.1",
-    "typescript": "6.0.3",
+    "typescript": "7.0.2",
     "vitest": "^5.0.2"
   },
   "peerDependencies": {
