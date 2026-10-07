@@ -11,5 +11,12 @@ packages:
   - 'packages/nightwatch-devtools'
   - 'packages/selenium-devtools'
   - 'examples/wdio'
-  - 'examples/selenium'
+  - 'examples/selenium-js'
   - 'examples/nightwatch'
+
+# Here rather than under "pnpm" in package.json: pnpm 11 ignores that field, so a
+# lockfile it writes (Dependabot's) drops these and fails CI's frozen install.
+overrides:
+  vite: ^8.0.7
+  '@types/node': 26.6.3
+  '@codemirror/state': 6.5.4

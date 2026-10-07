@@ -35,7 +35,10 @@ import unittest
 from selenium_devtools.constants import SELENIUM_MINIMUM_VERSION
 from selenium_devtools.utils import selenium_version
 
-_HAS_SELENIUM = importlib.util.find_spec("selenium") is not None
+# The first release whose generated network event classes declare `request`.
+_FIRST_COMPLETE_EVENT_CLASSES = (4, 50)
+
+_HAS_SELENIUM =importlib.util.find_spec("selenium") is not None
 _BELOW_MINIMUM = selenium_version() < SELENIUM_MINIMUM_VERSION
 _TOO_OLD = (
     f"selenium is below the {'.'.join(str(p) for p in SELENIUM_MINIMUM_VERSION)} "
@@ -100,12 +103,12 @@ class TestTheRegeneratedNetworkSurface(unittest.TestCase):
         self.assertIn("event.from_json", source)
         self.assertIn("event.event_class", source)
 
-    def test_the_generated_event_classes_are_still_lossy(self):
+    def test_the_generated_event_classes_are_lossy_below_the_fix(self):
         """The reason raw `dict` configs are registered at all.
 
-        If selenium ever models the full event, this fails and the registration
-        can go — the typed object would then carry the request and timestamp. It
-        failing is good news, not a break."""
+        Selenium below 4.50 declares only `initiator`, so its deserializer drops
+        the request and timestamp. 4.50 models the full event, but the floor still
+        admits the lossy releases, so the registration stays until it moves."""
         import dataclasses
 
         from selenium.webdriver.common.bidi.network import (
@@ -113,10 +116,23 @@ class TestTheRegeneratedNetworkSurface(unittest.TestCase):
         )
 
         if not dataclasses.is_dataclass(BeforeRequestSentParameters):
-            self.skipTest("no longer a dataclass — registration needs rechecking")
+            self.skipTest("no longer a dataclass, registration needs rechecking")
         declared = {f.name for f in dataclasses.fields(BeforeRequestSentParameters)}
-        self.assertNotIn("request", declared)
-        self.assertNotIn("timestamp", declared)
+        assertion = (
+            self.assertNotIn
+            if selenium_version() < _FIRST_COMPLETE_EVENT_CLASSES
+            else self.assertIn
+        )
+        assertion("request", declared)
+        assertion("timestamp", declared)
+
+    def test_the_floor_still_admits_a_lossy_selenium(self):
+        """The tripwire for removing the raw registration. Once the floor reaches
+        the first release whose generated classes carry the request, this fails
+        and `_add_raw_event_handler` can go. It failing is good news, not a break.
+        The typed objects rename top-level keys to snake_case, so dropping it also
+        means reading `redirect_count` rather than `redirectCount`."""
+        self.assertLess(SELENIUM_MINIMUM_VERSION, _FIRST_COMPLETE_EVENT_CLASSES)
 
 
 @unittest.skipUnless(_HAS_SELENIUM, "selenium is not installed")

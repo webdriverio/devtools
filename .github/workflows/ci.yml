@@ -78,3 +78,43 @@ jobs:
       # Chrome, and past 2 the heaviest specs time out under that contention.
       - name: 🧩 Component Tests
         run: pnpm test:ui --maxInstances 2
+
+  # The workspace develops against one WebdriverIO major, but the service and
+  # @wdio/elements declare peers on two. Each published major is installed from
+  # npm into a scratch project beside the packed tarballs, so a peer conflict, a
+  # broken entry point or a type mismatch with that major fails here first. 9
+  # runs too so a red 10 can be told apart from a broken harness.
+  wdio-peer:
+    name: wdio-peer (webdriverio ${{ matrix.wdio }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        wdio: [9, 10]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Use Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+      - name: Cache pnpm modules
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        env:
+          cache-name: cache-pnpm-modules
+        with:
+          path: ~/.pnpm-store
+          key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-build-${{ env.cache-name }}-
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 10.26.1
+          run_install: false
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      # The trailing `...` also builds what the two packages depend on, which
+      # includes the app the backend tarball serves.
+      - name: 📦 Bundle
+        run: pnpm --workspace-concurrency=1 --filter "@wdio/devtools-service..." --filter "@wdio/elements..." build
+      - name: 🔌 Install, import and type-check against WebdriverIO ${{ matrix.wdio }}
+        run: bash .github/scripts/wdio-peer-smoke/run.sh ${{ matrix.wdio }} "$RUNNER_TEMP/wdio-peer"
