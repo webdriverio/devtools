@@ -235,9 +235,10 @@ class TestStreamingTheSnapshots(unittest.TestCase):
         self.assertEqual(len(tx.sent), 3)
 
     def test_a_refused_socket_stops_without_raising(self):
+        snapshot = {"timestamp": 1, "command": "click"}
         tx = RecordingTransport(sends=False)
-        self.assertEqual(trace_export.send_action_snapshots(tx, [{"a": 1}]), 0)
-        self.assertEqual(trace_export.send_action_snapshots(None, [{"a": 1}]), 0)
+        self.assertEqual(trace_export.send_action_snapshots(tx, [snapshot]), 0)
+        self.assertEqual(trace_export.send_action_snapshots(None, [snapshot]), 0)
 
 
 if __name__ == "__main__":

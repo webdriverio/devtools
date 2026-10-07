@@ -41,9 +41,24 @@ class TestTheCheck(unittest.TestCase):
     def test_a_scope_shared_has_no_payload_for_fails(self):
         self.assertIn("no payload type", violations("madeUp", {})[0])
 
-    def test_the_transport_refuses_a_bad_frame(self):
-        with self.assertRaises(AssertionError):
-            RecordingTransport().send_json("commands", [_command(callSource=None)])
+    def test_a_bad_frame_fails_the_test_even_when_the_sender_swallows_errors(self):
+        class Swallowing(unittest.TestCase):
+            def test_it(self):
+                tx = RecordingTransport()
+                try:
+                    tx.send_json("commands", [_command(callSource=None)])
+                except Exception:  # noqa: BLE001 — what every best-effort sender does
+                    pass
+
+        result = unittest.TestResult()
+        Swallowing("test_it").run(result)
+        self.assertEqual(len(result.failures), 1)
+        self.assertIn("callSource", result.failures[0][1])
+
+    def test_a_clean_frame_leaves_the_test_passing(self):
+        tx = RecordingTransport()
+        tx.send_json("commands", [_command()])
+        self.assertEqual(tx.violations, [])
 
 
 class TestGeneratedTypesMatchTheSchema(unittest.TestCase):

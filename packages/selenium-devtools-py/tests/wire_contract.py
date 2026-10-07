@@ -8,9 +8,11 @@ a missing required one, or a null where shared expects the key to be absent.
 
 from __future__ import annotations
 
+import inspect
 import json
+import unittest
 from pathlib import Path
-from typing import Any, List
+from typing import Any, List, Optional
 
 
 def _schema_path() -> Path:
@@ -90,21 +92,46 @@ def _errors(schema: dict, value: Any, path: str) -> List[str]:
     return out
 
 
+def _owning_test() -> Optional[unittest.TestCase]:
+    frame = inspect.currentframe()
+    while frame is not None:
+        candidate = frame.f_locals.get("self")
+        if isinstance(candidate, unittest.TestCase):
+            return candidate
+        frame = frame.f_back
+    return None
+
+
 class RecordingTransport:
-    """Records every frame, after checking it against the wire schema."""
+    """Records every frame, after checking it against the wire schema.
+
+    A violation is not raised from ``send_json``: the adapter's best-effort
+    senders catch every exception, so it would be swallowed exactly where it
+    matters. It is collected instead and fails the test that created the
+    transport at cleanup, outside any of the adapter's ``except`` blocks.
+    """
 
     def __init__(self, *, sends: bool = True, raises_after: Any = None) -> None:
         self.connected = True
         self.sent: list = []
+        self.violations: List[str] = []
         self._sends = sends
         self._raises_after = raises_after
+        test = _owning_test()
+        if test is None:
+            raise RuntimeError("RecordingTransport must be created inside a TestCase")
+        test.addCleanup(self.assert_clean)
+
+    def assert_clean(self) -> None:
+        if self.violations:
+            raise AssertionError(
+                "frame breaks the wire contract:\n  " + "\n  ".join(self.violations)
+            )
 
     def send_json(self, scope: str, data: Any) -> bool:
         if self._raises_after is not None and len(self.sent) >= self._raises_after:
             raise OSError("socket gone")
-        problems = violations(scope, data)
-        if problems:
-            raise AssertionError("frame breaks the wire contract:\n  " + "\n  ".join(problems))
+        self.violations += violations(scope, data)
         self.sent.append((scope, data))
         return self._sends
 

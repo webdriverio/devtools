@@ -173,7 +173,9 @@ class TestTheRowIsReplaced(unittest.TestCase):
         cap, tx = self._capturer()
         driver = self.Driver()
 
-        instrumentation._attach_performance(cap, driver, {"timestamp": 1}, None)
+        instrumentation._attach_performance(
+            cap, driver, {"command": "get", "args": [], "timestamp": 1}, None
+        )
 
         self.assertEqual(len(driver.scripts), 1)
         self.assertEqual(tx.of_scope("commands"), [])
