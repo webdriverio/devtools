@@ -1,5 +1,25 @@
 # @wdio/devtools-service
 
+## 10.11.0
+
+### Minor Changes
+
+- 9ef8a33: Accept WebdriverIO 10 as a peer. The service required `webdriverio` `^9.19.1` and `@wdio/protocols` at exactly `9.30.1`, and `@wdio/elements` required `webdriverio` `^9.0.0`, so adding either to a v10 project conflicted with the project's own `webdriverio` and `@wdio/protocols`. Both majors are now accepted. The service uses none of the APIs v10 removed: its `addCommand` call already passes no third argument, and assertion folding keys on the matcher's value-read command, not on the matcher name that v10 now reports as the alias.
+
+### Patch Changes
+
+- bd0d9e9: Open the dashboard window over WebDriver and stop requiring the `devtools` package. The launcher opened it with `automationProtocol: 'devtools'`, which loads the `devtools` package. The service listed `devtools` `^8.42.0` as a peer, so npm installed it and an old Puppeteer into every project, and on WebdriverIO 10 the dashboard window failed to open when it was absent (`Couldn't find automation protocol "devtools"`). The window now opens through chromedriver, the same way the test sessions do, still without the "controlled by automated test software" bar, and `devtools` is no longer a peer.
+- a4847ee: Build the dashboard with preact 11, which renders the DOM replay. Raise the `ws` floor to 8.22.0 for every adapter and the backend, and the service's `@babel/traverse` and `@babel/types` floors to 7.29.8. Babel stays on 7: Babel 8 requires Node 22.18 or newer, and the service runs inside WebdriverIO 9 projects that support Node 18.20 and up.
+- a8ca108: Use the project's own `@wdio/types`, `@wdio/logger` and `@wdio/reporter` instead of pinned copies. The service pinned them at exact 9.x versions in `dependencies`, so a WebdriverIO 10 project installed a second set beside its own. On v10 that made the service class fail to type-check when passed directly in `services` (`[DevToolsHookService, options]`), because its types came from the 9.x copy. They are now peers accepting 9 and 10: `webdriverio` already brings the first two, and npm and pnpm install a missing `@wdio/reporter` automatically.
+- Updated dependencies [9ef8a33]
+- Updated dependencies [a4847ee]
+- Updated dependencies [f49e9f4]
+- Updated dependencies [dc2ae05]
+- Updated dependencies [954faec]
+  - @wdio/elements@1.2.0
+  - @wdio/devtools-backend@1.11.2
+  - @wdio/devtools-script@1.7.5
+
 ## 10.10.0
 
 ### Minor Changes

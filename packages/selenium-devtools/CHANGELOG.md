@@ -1,5 +1,21 @@
 # @wdio/selenium-devtools
 
+## 1.6.2
+
+### Patch Changes
+
+- a4847ee: Build the dashboard with preact 11, which renders the DOM replay. Raise the `ws` floor to 8.22.0 for every adapter and the backend, and the service's `@babel/traverse` and `@babel/types` floors to 7.29.8. Babel stays on 7: Babel 8 requires Node 22.18 or newer, and the service runs inside WebdriverIO 9 projects that support Node 18.20 and up.
+- 3fa708b: Stop pinning `chromedriver` as a dev dependency. A pinned driver rots against whatever Chrome a developer has installed, and pnpm puts the package's `node_modules/.bin` on `PATH`, where Selenium Manager finds it, prefers it over resolving one itself, and on a version mismatch only warns before returning it anyway. The adapters' examples then failed to start a session at all, against any Chrome whose major had moved on from the pin.
+
+  With no driver on `PATH`, Selenium Manager resolves one matching the installed browser. Nightwatch needs no package either: its Chrome service builder reports `requiresDriverBinary: false` and passes an unset `server_path` through to that same resolver, and it declares `chromedriver` an optional peer. This is a development-only dependency, so nothing changes for consumers of either package.
+
+- Updated dependencies [a4847ee]
+- Updated dependencies [f49e9f4]
+- Updated dependencies [dc2ae05]
+- Updated dependencies [954faec]
+  - @wdio/devtools-backend@1.11.2
+  - @wdio/devtools-script@1.7.5
+
 ## 1.6.1
 
 ### Patch Changes

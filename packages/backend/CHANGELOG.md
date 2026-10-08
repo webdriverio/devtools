@@ -1,5 +1,17 @@
 # @wdio/devtools-backend
 
+## 1.11.2
+
+### Patch Changes
+
+- a4847ee: Build the dashboard with preact 11, which renders the DOM replay. Raise the `ws` floor to 8.22.0 for every adapter and the backend, and the service's `@babel/traverse` and `@babel/types` floors to 7.29.8. Babel stays on 7: Babel 8 requires Node 22.18 or newer, and the service runs inside WebdriverIO 9 projects that support Node 18.20 and up.
+- f49e9f4: Raise the minimum versions of the dashboard server's dependencies: `fastify` to 5.12.5, `@fastify/static` to 10.1.5 and `@fastify/websocket` to 11.3.1. A fresh install already resolves these, but an existing lockfile could keep the older releases the previous ranges allowed.
+- Updated dependencies [a4847ee]
+- Updated dependencies [dc2ae05]
+- Updated dependencies [954faec]
+  - @wdio/devtools-app@1.11.2
+  - @wdio/devtools-script@1.7.5
+
 ## 1.11.1
 
 ### Patch Changes
