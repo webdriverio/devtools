@@ -43,7 +43,7 @@ from .snapshot import (
     start_snapshot_capture,
 )
 from .sources import read_source
-from .types import ActionSnapshot, ElementScripts, Viewport
+from .types import ActionSnapshot, ElementScriptsResponse, Viewport
 from .utils import call_source, now_ms
 
 # Operational logging — surfaced in the dashboard Console (the 'runner' stream).
@@ -349,7 +349,7 @@ def action_snapshots() -> List[ActionSnapshot]:
     return list(_state["action_snapshots"])
 
 
-def set_element_scripts(scripts: Optional[ElementScripts]) -> None:
+def set_element_scripts(scripts: Optional[ElementScriptsResponse]) -> None:
     """Hand over the page-side scripts fetched from the backend. Without them
     `_capture_action_snapshot` is a no-op, which is the state on a backend too
     old to serve them."""
@@ -611,7 +611,9 @@ def _driver_window(driver: Any) -> Optional[Viewport]:
         return None
     if width <= 0 or height <= 0:
         return None
-    return {"width": width, "height": height}
+    # A native app is never scrolled or pinch-zoomed, so these are its true
+    # values, as core's `fromWindow` sends them.
+    return {"width": width, "height": height, "offsetLeft": 0, "offsetTop": 0, "scale": 1}
 
 
 def _viewport(driver: Any) -> Optional[Viewport]:

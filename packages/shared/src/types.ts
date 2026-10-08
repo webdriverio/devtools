@@ -573,7 +573,7 @@ export interface TraceLog {
   metadata: Metadata
   commands: CommandLog[]
   sources: Record<string, string>
-  suites?: Record<string, unknown>[]
+  suites?: Record<string, SuiteStats>[]
   screencast?: ScreencastInfo
   config?: { configFile?: string }
   /** Per-action snapshots captured in `mode: 'trace'` for the trace.zip exporter. */

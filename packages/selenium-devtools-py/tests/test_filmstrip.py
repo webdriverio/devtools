@@ -13,22 +13,7 @@ from selenium_devtools import instrumentation, trace_export
 from selenium_devtools._contract import SCOPE_SCREENCAST_FRAMES
 from selenium_devtools.constants import SCREENCAST_FRAME_BATCH
 
-
-class FakeTransport:
-    def __init__(self, *, sends=True, raises_after=None):
-        self.connected = True
-        self.sent = []
-        self._sends = sends
-        self._raises_after = raises_after
-
-    def send_json(self, scope, data):
-        if self._raises_after is not None and len(self.sent) >= self._raises_after:
-            raise OSError("socket gone")
-        self.sent.append((scope, data))
-        return self._sends
-
-    def close(self):
-        self.connected = False
+from wire_contract import RecordingTransport
 
 
 def frames(n, *, start=0):
@@ -37,7 +22,7 @@ def frames(n, *, start=0):
 
 class TestStreamingTheFilmstrip(unittest.TestCase):
     def test_frames_go_out_under_the_screencast_frames_scope(self):
-        tx = FakeTransport()
+        tx = RecordingTransport()
 
         self.assertEqual(trace_export.send_frames(tx, frames(3)), 3)
 
@@ -48,7 +33,7 @@ class TestStreamingTheFilmstrip(unittest.TestCase):
     # One message carrying a full buffer would sit near the socket's payload
     # limit, and the transport masks payloads in a per-byte Python loop.
     def test_a_large_buffer_is_batched(self):
-        tx = FakeTransport()
+        tx = RecordingTransport()
         total = SCREENCAST_FRAME_BATCH * 2 + 7
 
         self.assertEqual(trace_export.send_frames(tx, frames(total)), total)
@@ -62,15 +47,15 @@ class TestStreamingTheFilmstrip(unittest.TestCase):
 
     # Fewer frames is a poorer video, not a broken trace — the run must not fail.
     def test_a_refused_or_throwing_socket_stops_without_raising(self):
-        refused = FakeTransport(sends=False)
+        refused = RecordingTransport(sends=False)
         self.assertEqual(trace_export.send_frames(refused, frames(120)), 0)
 
-        throwing = FakeTransport(raises_after=1)
+        throwing = RecordingTransport(raises_after=1)
         sent = trace_export.send_frames(throwing, frames(120))
         self.assertEqual(sent, SCREENCAST_FRAME_BATCH)
 
     def test_nothing_to_send_is_not_a_message(self):
-        tx = FakeTransport()
+        tx = RecordingTransport()
         self.assertEqual(trace_export.send_frames(tx, []), 0)
         self.assertEqual(trace_export.send_frames(None, frames(3)), 0)
         self.assertEqual(tx.sent, [])
@@ -113,7 +98,7 @@ class TestWhereTheFramesComeFrom(unittest.TestCase):
             {"trace": trace, "filmstrip": filmstrip, "filmstrip_frames": []},
         ):
             instrumentation._finalize_screencast(
-                SessionCapturer(FakeTransport()), "sess", entry
+                SessionCapturer(RecordingTransport()), "sess", entry
             )
             return instrumentation.screencast_frames()
 
@@ -205,7 +190,7 @@ class TestTheRecorderRunsForTheFilmstrip(unittest.TestCase):
         from selenium_devtools.capturer import SessionCapturer
 
         instrumentation.uninstall()
-        self.cap = SessionCapturer(FakeTransport())
+        self.cap = SessionCapturer(RecordingTransport())
 
     def tearDown(self):
         instrumentation.uninstall()
@@ -305,7 +290,7 @@ class TestRetriesDoNotDuplicateFrames(unittest.TestCase):
 
     def _arm(self):
         self.pkg._active.update(
-            capturer=None, transport=FakeTransport(), process=None, url=None,
+            capturer=None, transport=RecordingTransport(), process=None, url=None,
             handle=None, terminal=None, logs=None, excepthook=None,
             trace=True, traced=False, filmstrip_mark=None,
         )

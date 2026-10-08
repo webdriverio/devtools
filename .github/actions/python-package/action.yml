@@ -28,7 +28,7 @@ runs:
       working-directory: ${{ inputs.working-directory }}
       run: |
         python scripts/gen_contract.py
-        git diff --exit-code src/selenium_devtools/_contract.py
+        git diff --exit-code src/selenium_devtools/_contract.py src/selenium_devtools/_wire_types.py
 
     - name: 🧪 Unit tests
       shell: bash

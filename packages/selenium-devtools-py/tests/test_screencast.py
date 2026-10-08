@@ -6,26 +6,14 @@ import unittest
 from selenium_devtools.capturer import SessionCapturer
 from selenium_devtools.screencast import ScreencastRecorder
 
+from wire_contract import RecordingTransport
+
 # 16x16 PNG — a real decodable frame with even dimensions so libvpx/yuv420p can
 # actually encode a video (odd/1px dimensions make ffmpeg reject the stream).
 _PNG_FRAME = (
     "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAEElEQVR4"
     "nGNgGAWjYBTAAAADEAABPywr7AAAAABJRU5ErkJggg=="
 )
-
-
-class FakeTransport:
-    connected = True
-
-    def __init__(self):
-        self.sent = []
-
-    def send_json(self, scope, data):
-        self.sent.append((scope, data))
-        return True
-
-    def close(self):
-        pass
 
 
 def _stub_shots(*values):
@@ -177,7 +165,7 @@ class TestFinalize(unittest.TestCase):
 
 class TestCapturerSend(unittest.TestCase):
     def test_send_screencast_builds_scoped_frame(self):
-        cap = SessionCapturer(FakeTransport())
+        cap = SessionCapturer(RecordingTransport())
         cap.session_id = "sess-9"
         cap.send_screencast(
             video_path="/tmp/v.webm", video_file="v.webm",
@@ -192,7 +180,7 @@ class TestCapturerSend(unittest.TestCase):
         self.assertEqual(info["startTime"], 42)
 
     def test_send_screencast_noop_without_session(self):
-        cap = SessionCapturer(FakeTransport())
+        cap = SessionCapturer(RecordingTransport())
         cap.send_screencast(
             video_path="/tmp/v.webm", video_file="v.webm",
             frame_count=5, duration=1000, start_time=42,
@@ -203,7 +191,7 @@ class TestCapturerSend(unittest.TestCase):
         # The backend intercepts scope=='screencast', registers `videoPath`, and
         # serves that file at /api/video/:sessionId — so the frame MUST carry
         # videoPath alongside sessionId.
-        cap = SessionCapturer(FakeTransport())
+        cap = SessionCapturer(RecordingTransport())
         cap.session_id = "sess-9"
         cap.send_screencast(
             video_path="/abs/v.webm", video_file="v.webm",
@@ -231,7 +219,7 @@ class TestScreencastDeliveryEndToEnd(unittest.TestCase):
         self.assertTrue(os.path.isfile(info["video_path"]))
         self.assertEqual(info["frame_count"], 2)
 
-        cap = SessionCapturer(FakeTransport())
+        cap = SessionCapturer(RecordingTransport())
         cap.session_id = "sess-7"
         cap.send_screencast(**info)
         frame = [d for s, d in cap._tx.sent if s == "screencast"][0]

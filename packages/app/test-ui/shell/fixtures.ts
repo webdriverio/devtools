@@ -146,7 +146,8 @@ export function traceLog(overrides: Partial<TraceLog> = {}): TraceLog {
     metadata: testrunnerMetadata,
     commands: loginCommands,
     sources: {},
-    suites: loginRun.frame,
+    // A fragment stands in for the full SuiteStats: the app reads only these fields.
+    suites: loginRun.frame as TraceLog['suites'],
     ...overrides
   }
 }

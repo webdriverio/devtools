@@ -13,35 +13,27 @@ from selenium_devtools._contract import SCOPE_REPLACE_COMMAND
 from selenium_devtools.capturer import SessionCapturer
 from selenium_devtools.constants import NAVIGATION_COMMANDS
 
+from wire_contract import RecordingTransport
+
 FULL_PAYLOAD = {
     "navigation": {
         "url": "https://x/secure",
         "timing": {"loadTime": 812, "domReady": 410, "responseTime": 96},
     },
     "resources": [
-        {"url": "https://x/app.css", "duration": 21, "size": 4096, "type": "link"},
-        {"url": "https://x/app.js", "duration": 44, "size": 90112, "type": "script"},
+        {"url": "https://x/app.css", "duration": 21, "size": 4096, "type": "link",
+         "startTime": 120, "responseEnd": 141},
+        {"url": "https://x/app.js", "duration": 44, "size": 90112, "type": "script",
+         "startTime": 122, "responseEnd": 166},
     ],
     "cookies": "session=abc",
-    "documentInfo": {"url": "https://x/secure", "title": "Secure Area"},
+    "documentInfo": {
+        "url": "https://x/secure",
+        "title": "Secure Area",
+        "headers": {"userAgent": "Chrome", "language": "en-US", "platform": "MacIntel"},
+        "documentInfo": {"readyState": "complete", "referrer": "", "characterSet": "UTF-8"},
+    },
 }
-
-
-class FakeTransport:
-    connected = True
-
-    def __init__(self):
-        self.sent = []
-
-    def send_json(self, scope, data):
-        self.sent.append((scope, data))
-        return True
-
-    def close(self):
-        pass
-
-    def of_scope(self, scope):
-        return [data for s, data in self.sent if s == scope]
 
 
 class TestShapingThePayload(unittest.TestCase):
@@ -133,12 +125,12 @@ class TestTheRowIsReplaced(unittest.TestCase):
             return self.payload
 
     def _capturer(self):
-        tx = FakeTransport()
+        tx = RecordingTransport()
         return SessionCapturer(tx), tx
 
     def test_the_enriched_row_goes_out_under_replace_command(self):
         cap, tx = self._capturer()
-        row = {"command": "get", "timestamp": 4242}
+        row = {"command": "get", "args": [], "timestamp": 4242}
 
         instrumentation._attach_performance(
             cap, self.Driver(), row, {"url": "https://x/secure"}
@@ -181,7 +173,9 @@ class TestTheRowIsReplaced(unittest.TestCase):
         cap, tx = self._capturer()
         driver = self.Driver()
 
-        instrumentation._attach_performance(cap, driver, {"timestamp": 1}, None)
+        instrumentation._attach_performance(
+            cap, driver, {"command": "get", "args": [], "timestamp": 1}, None
+        )
 
         self.assertEqual(len(driver.scripts), 1)
         self.assertEqual(tx.of_scope("commands"), [])

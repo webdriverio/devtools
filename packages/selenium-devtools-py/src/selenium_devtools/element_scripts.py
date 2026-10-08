@@ -30,7 +30,7 @@ from typing import Optional
 
 from ._contract import ELEMENT_SCRIPTS_PATH, RUNNER_ID
 from .constants import ELEMENT_SCRIPTS_FETCH_TIMEOUT_S, LOGGER_NAME
-from .types import ElementScripts
+from .types import ElementScriptsResponse
 
 _log = logging.getLogger(f"{LOGGER_NAME}.elements")
 
@@ -55,7 +55,7 @@ def scripts_url(host: str, port: int) -> str:
     return f"http://{url_host}:{port}{ELEMENT_SCRIPTS_PATH}?{query}"
 
 
-def fetch(host: str, port: int) -> Optional[ElementScripts]:
+def fetch(host: str, port: int) -> Optional[ElementScriptsResponse]:
     """``{"accessibilityTree": str, "elements": str}`` from the backend, or None.
 
     None on anything at all — no route (a backend older than this feature), a
@@ -66,7 +66,7 @@ def fetch(host: str, port: int) -> Optional[ElementScripts]:
     if _cache["settled"] and _cache["origin"] == origin:
         return _cache["scripts"]
 
-    scripts: Optional[ElementScripts] = None
+    scripts: Optional[ElementScriptsResponse] = None
     try:
         with urllib.request.urlopen(  # noqa: S310 — a loopback backend we launched
             scripts_url(host, port), timeout=ELEMENT_SCRIPTS_FETCH_TIMEOUT_S

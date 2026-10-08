@@ -1,9 +1,8 @@
 """Builders for the wire frames the dashboard renders.
 
-Each function returns the ``data`` payload for a ``{scope, data}`` frame.
-Shapes mirror ``packages/shared/src/types.ts``. Keeping them here — pure and
-side-effect free — makes them unit-testable and the single place the contract
-lives on the Python side.
+Each function returns the ``data`` payload for a ``{scope, data}`` frame,
+typed by the TypedDicts generated from shared's wire schema. Optional fields
+are omitted rather than sent as null, because shared types them that way.
 """
 
 from __future__ import annotations
@@ -36,7 +35,6 @@ def metadata(
     entry: Metadata = {
         "type": "testrunner",  # TraceType.Testrunner
         "sessionId": session_id,
-        "url": url,
         "capabilities": caps,
         "desiredCapabilities": caps,
         "testEnv": "python-selenium",
@@ -54,6 +52,8 @@ def metadata(
     # a better frame than a zero-sized one, and the app treats absent as unknown.
     if viewport:
         entry["viewport"] = dict(viewport)
+    if url is not None:
+        entry["url"] = url
     return entry
 
 
@@ -77,9 +77,12 @@ def command_log(
         "result": result,
         "timestamp": timestamp,
         "startTime": start_time,
-        "callSource": call_source,
         "id": command_id,
     }
+    # Shared types every optional field as absent-or-set, never null; the
+    # generated wire schema rejects a null here.
+    if call_source is not None:
+        entry["callSource"] = call_source
     if selector:
         entry["selector"] = selector
     # What the exporter groups a trace by: absent, `buildGroupPath` returns an
@@ -122,14 +125,16 @@ def network_request(
         "id": request_id,
         "url": url,
         "method": method,
-        "status": status,
         "timestamp": timestamp,
         "startTime": start_time,
-        "endTime": end_time,
         "type": request_type,
     }
     # Response-phase fields are absent on the initial request frame; omit rather
     # than send nulls so the dashboard's "pending" state renders correctly.
+    if status is not None:
+        entry["status"] = status
+    if end_time is not None:
+        entry["endTime"] = end_time
     if status_text is not None:
         entry["statusText"] = status_text
     if time is not None:
@@ -190,8 +195,9 @@ def test_stats(
         "file": file,
         "retries": 0,
         "_duration": max(0, end_ms - start_ms),
-        "callSource": call_source,
     }
+    if call_source is not None:
+        entry["callSource"] = call_source
     # Only stamped when the runner's execution order differs from the tree's
     # default (a suite's own tests, then its nested suites) — see shared's
     # `order`. Absent keeps the frame identical to before.
@@ -220,12 +226,13 @@ def suite_stats(
         "file": file,
         "start": iso(start_ms),
         "end": iso(end_ms) if end_ms is not None else None,
-        "state": state,
         "tests": tests,
         "suites": [],
         "hooks": [],
         "_duration": max(0, (end_ms - start_ms)) if end_ms is not None else 0,
     }
+    if state is not None:
+        entry["state"] = state
     if order is not None:
         entry["order"] = order
     return entry

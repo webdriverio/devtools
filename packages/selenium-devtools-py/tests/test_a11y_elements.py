@@ -18,21 +18,9 @@ from selenium_devtools._contract import (
 )
 from selenium_devtools.constants import ACTION_SNAPSHOT_BATCH
 
+from wire_contract import RecordingTransport
+
 SCRIPTS = {"accessibilityTree": "(function(){})", "elements": "(function(){})"}
-
-
-class FakeTransport:
-    def __init__(self, *, sends=True):
-        self.connected = True
-        self.sent = []
-        self._sends = sends
-
-    def send_json(self, scope, data):
-        self.sent.append((scope, data))
-        return self._sends
-
-    def close(self):
-        self.connected = False
 
 
 class TestFetchingTheScripts(unittest.TestCase):
@@ -232,14 +220,14 @@ class TestCapturingPerAction(unittest.TestCase):
 
 class TestStreamingTheSnapshots(unittest.TestCase):
     def test_they_go_out_under_the_action_snapshots_scope(self):
-        tx = FakeTransport()
+        tx = RecordingTransport()
         snaps = [{"timestamp": i, "command": "click"} for i in range(3)]
 
         self.assertEqual(trace_export.send_action_snapshots(tx, snaps), 3)
         self.assertEqual(tx.sent[0][0], SCOPE_ACTION_SNAPSHOTS)
 
     def test_a_long_run_is_batched(self):
-        tx = FakeTransport()
+        tx = RecordingTransport()
         total = ACTION_SNAPSHOT_BATCH * 2 + 3
         snaps = [{"timestamp": i, "command": "click"} for i in range(total)]
 
@@ -247,9 +235,10 @@ class TestStreamingTheSnapshots(unittest.TestCase):
         self.assertEqual(len(tx.sent), 3)
 
     def test_a_refused_socket_stops_without_raising(self):
-        tx = FakeTransport(sends=False)
-        self.assertEqual(trace_export.send_action_snapshots(tx, [{"a": 1}]), 0)
-        self.assertEqual(trace_export.send_action_snapshots(None, [{"a": 1}]), 0)
+        snapshot = {"timestamp": 1, "command": "click"}
+        tx = RecordingTransport(sends=False)
+        self.assertEqual(trace_export.send_action_snapshots(tx, [snapshot]), 0)
+        self.assertEqual(trace_export.send_action_snapshots(None, [snapshot]), 0)
 
 
 if __name__ == "__main__":

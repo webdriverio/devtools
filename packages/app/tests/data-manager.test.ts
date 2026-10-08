@@ -237,7 +237,8 @@ function traceLog(overrides: Partial<TraceLog> = {}): TraceLog {
     metadata: { sessionId: SESSION, type: TraceType.Testrunner },
     commands: [command()],
     sources: { '/specs/login.e2e.ts': 'await browser.url(url)' },
-    suites: suitesFrame(suite('login-suite')),
+    // A fragment stands in for the full SuiteStats: the app reads only these fields.
+    suites: suitesFrame(suite('login-suite')) as TraceLog['suites'],
     ...overrides
   }
 }

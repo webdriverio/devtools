@@ -6,19 +6,7 @@ from unittest import mock
 from selenium_devtools import bidi
 from selenium_devtools.capturer import SessionCapturer
 
-
-class FakeTransport:
-    connected = True
-
-    def __init__(self):
-        self.sent = []
-
-    def send_json(self, scope, data):
-        self.sent.append((scope, data))
-        return True
-
-    def close(self):
-        pass
+from wire_contract import RecordingTransport
 
 
 class FakeLogEntry:
@@ -263,7 +251,7 @@ class TestAttachDefensive(unittest.TestCase):
     """attach must degrade — never raise — when BiDi isn't available."""
 
     def _capturer(self):
-        return SessionCapturer(FakeTransport())
+        return SessionCapturer(RecordingTransport())
 
     def test_attach_skips_without_websocket_capability(self):
         class Driver:
@@ -528,7 +516,7 @@ class TestTheEventManagerPath(unittest.TestCase):
     def test_raw_params_reach_the_handlers_and_are_captured(self):
         module = fake_network_module()
         network = module.Network()
-        capturer = SessionCapturer(FakeTransport())
+        capturer = SessionCapturer(RecordingTransport())
 
         with mock.patch.dict(
             sys.modules, {"selenium.webdriver.common.bidi.network": module}
@@ -568,7 +556,7 @@ class TestTheEventManagerPath(unittest.TestCase):
             sys.modules, {"selenium.webdriver.common.bidi.network": module}
         ):
             bidi._attach_network(
-                NewSeleniumDriver(network, []), SessionCapturer(FakeTransport())
+                NewSeleniumDriver(network, []), SessionCapturer(RecordingTransport())
             )
 
         manager = network._event_manager
@@ -602,7 +590,7 @@ class TestTheEventManagerPath(unittest.TestCase):
         ):
             self.assertTrue(
                 bidi._attach_network(
-                    NewSeleniumDriver(network, []), SessionCapturer(FakeTransport())
+                    NewSeleniumDriver(network, []), SessionCapturer(RecordingTransport())
                 )
             )
 
@@ -624,7 +612,7 @@ class TestTheEventManagerPath(unittest.TestCase):
             sys.modules, {"selenium.webdriver.common.bidi.network": module}
         ):
             bidi._attach_network(
-                NewSeleniumDriver(network, []), SessionCapturer(FakeTransport())
+                NewSeleniumDriver(network, []), SessionCapturer(RecordingTransport())
             )
             # Selenium's own registration, for an event the adapter also holds.
             network.add_event_handler("before_request_sent", seen.append)
@@ -651,7 +639,7 @@ class TestTheEventManagerPath(unittest.TestCase):
         """
         module = fake_network_module()
         network = module.Network()
-        capturer = SessionCapturer(FakeTransport())
+        capturer = SessionCapturer(RecordingTransport())
 
         real_subscribe = network._event_manager.subscribe_to_event
 
@@ -713,7 +701,7 @@ class TestTheEventManagerPath(unittest.TestCase):
         ):
             with self.assertLogs("selenium_devtools.bidi", level="WARNING"):
                 attached = bidi._attach_network(
-                    NewSeleniumDriver(network, []), SessionCapturer(FakeTransport())
+                    NewSeleniumDriver(network, []), SessionCapturer(RecordingTransport())
                 )
 
         self.assertFalse(attached)
@@ -747,7 +735,7 @@ class TestTheEventManagerPath(unittest.TestCase):
         ):
             with self.assertLogs("selenium_devtools.bidi", level="WARNING"):
                 bidi._attach_network(
-                    NewSeleniumDriver(network, []), SessionCapturer(FakeTransport())
+                    NewSeleniumDriver(network, []), SessionCapturer(RecordingTransport())
                 )
 
         self.assertIn("network.beforeRequestSent", manager.subscribed)
@@ -766,7 +754,7 @@ class TestTheEventManagerPath(unittest.TestCase):
             with self.assertLogs("selenium_devtools.bidi", level="WARNING") as logs:
                 # `.network` is never reached: the check happens before it.
                 attached = bidi._attach_network(
-                    NewSeleniumDriver(None, []), SessionCapturer(FakeTransport())
+                    NewSeleniumDriver(None, []), SessionCapturer(RecordingTransport())
                 )
 
         self.assertFalse(attached)
@@ -819,7 +807,7 @@ class TestTheTeardownSummary(unittest.TestCase):
             sys.modules, {"selenium.webdriver.common.bidi.network": module}
         ):
             bidi._attach_network(
-                NewSeleniumDriver(network, []), SessionCapturer(FakeTransport()), stats
+                NewSeleniumDriver(network, []), SessionCapturer(RecordingTransport()), stats
             )
 
         for request_id in ("R1", "R2"):

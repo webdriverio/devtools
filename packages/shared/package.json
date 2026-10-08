@@ -23,7 +23,8 @@
   },
   "types": "./src/index.ts",
   "scripts": {
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "gen:wire-schema": "tsx scripts/wire-schema.ts"
   },
   "license": "MIT"
 }

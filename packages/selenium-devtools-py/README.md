@@ -426,8 +426,9 @@ backend this run reports to — and for trace mode, which opens none at all.
 src/selenium_devtools/
   __init__.py         public API — enable() / disable() / get_capturer()
   constants.py        defaults, env-var names, skip sets, pinned backend version
-  types.py            TypedDicts for the wire payloads (mirror packages/shared)
+  types.py            re-exports the wire payload TypedDicts, plus JSONValue/Scope
   _contract.py        GENERATED from packages/shared — scope names + CONTRACT_VERSION
+  _wire_types.py      GENERATED from packages/shared/wire-schema.json — payload TypedDicts
   utils.py            framework-agnostic helpers (now_ms, iso, to_jsonable, call_source)
   frames.py           pure builders for each {scope,data} payload
   transport.py        stdlib WebSocket client (handshake, masked frames, ping/pong, control reader)
@@ -455,8 +456,9 @@ src/selenium_devtools/
   lifecycle.py        dashboard window open/close + shutdown-on-disconnect
   rerun.py            launch/rerun commands the dashboard's run controls spawn
   pytest_plugin.py    CLI/ini config surface + suite/test tree feeder (opt-in)
-scripts/gen_contract.py   regenerate _contract.py from shared (dev-time; also a drift-guard)
-tests/                stdlib-unittest unit tests (no selenium/pytest needed)
+scripts/gen_contract.py   regenerate _contract.py + _wire_types.py from shared (dev-time; also a drift-guard)
+tests/                stdlib-unittest unit tests (no selenium/pytest needed); every
+                      sent frame is validated against shared's wire schema
 e2e_check.py          real-Chrome smoke (plain script)
 e2e/test_smoke.py     real-Chrome smoke (pytest + plugin)
 (example lives at repo root: examples/selenium-py/scripts/web_form.py)
@@ -471,7 +473,7 @@ coupling is handled explicitly rather than via a `workspace:^`-style resolver:
 |---|---|---|
 | **Adapter** (this package) | `pip install -e` | PyPI: `pip install selenium-devtools-py` |
 | **Backend + UI** (Node) | `node packages/backend/dist/server.js` | npm: `npx @wdio/devtools-backend@<pinned>` |
-| **Wire contract** (`shared`) | regenerated into `_contract.py` | the generated `_contract.py` ships in the wheel |
+| **Wire contract** (`shared`) | regenerated into `_contract.py` + `_wire_types.py` | both generated files ship in the wheel |
 
 `enable()` obtains the backend in this order (local vs published falls out of it):
 
@@ -486,11 +488,17 @@ no auto-resolution, so it's bumped deliberately alongside a contract change.
 Regenerate the contract after any change to `packages/shared`:
 
 ```bash
+pnpm --filter @wdio/devtools-shared gen:wire-schema   # TS types → wire-schema.json
 python3 packages/selenium-devtools-py/scripts/gen_contract.py
 ```
 
-It fails loudly if a scope the adapter needs disappeared from `shared` — a
-build-time drift alarm.
+The first step reads shared's payload types with the TypeScript compiler and
+writes one JSON Schema per wire scope; vitest fails when the committed copy is
+stale. The second turns it into TypedDicts and fails loudly if a scope the
+adapter needs disappeared from `shared`. The unit tests then validate every
+frame the adapter sends against that schema, so a field shared does not
+declare, a missing required one, or a null where shared expects absence all
+fail the build.
 
 ## Test
 
@@ -509,7 +517,7 @@ Two workflows, mirroring the JS split (`ci.yml` tests / `release.yml` publish):
 
 - **`python.yml`** — runs on PRs + pushes touching this package or `shared`:
   unit tests on Python 3.10 + 3.13, a contract-drift check (regenerate
-  `_contract.py`, fail on any diff), and a build + `twine check --strict` so a
+  `_contract.py` and `_wire_types.py`, fail on any diff), and a build + `twine check --strict` so a
   packaging mistake surfaces on the PR rather than under the publish button.
   Zero repo config needed.
 - **`python-release.yml`** — **manual** (`workflow_dispatch`, like the JS
@@ -580,6 +588,7 @@ above. What the JavaScript adapters have and this one does not:
 - **Capture never breaks tests.** Commands are recorded around the real call;
   errors are captured *and re-raised* unchanged; a missing dashboard is a no-op.
 - **Contract drift** is the main long-term risk (see the integration artifact).
-  Mitigated two ways: `_contract.py` is generated from `packages/shared` (scope
-  names + `CONTRACT_VERSION`), and the generator fails if a required scope
-  vanishes. Full field-level type generation is a future step.
+  Mitigated three ways: `_contract.py` is generated from `packages/shared` (scope
+  names + `CONTRACT_VERSION`), the generator fails if a required scope
+  vanishes, and the payload types are generated field by field from
+  `wire-schema.json`, which the unit tests validate every sent frame against.

@@ -70,3 +70,9 @@ export interface TraceExportResult {
    *  the policy working rather than as a failure. */
   declinedByPolicy?: boolean
 }
+
+/** Payload per trace-export scope, keyed off {@link TRACE_EXPORT_SCOPE}. */
+export type TraceExportPayloadFor = {
+  [TRACE_EXPORT_SCOPE.request]: TraceExportRequest
+  [TRACE_EXPORT_SCOPE.result]: TraceExportResult
+}

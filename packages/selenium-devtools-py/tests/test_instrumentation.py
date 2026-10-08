@@ -7,19 +7,7 @@ from unittest import mock
 from selenium_devtools import instrumentation, snapshot
 from selenium_devtools.capturer import SessionCapturer
 
-
-class FakeTransport:
-    connected = True
-
-    def __init__(self):
-        self.sent = []
-
-    def send_json(self, scope, data):
-        self.sent.append((scope, data))
-        return True
-
-    def close(self):
-        pass
+from wire_contract import RecordingTransport
 
 
 class FakeDriver:
@@ -47,7 +35,7 @@ class ScreenshotDriver(FakeDriver):
 class TestInstrumentation(unittest.TestCase):
     def setUp(self):
         instrumentation.uninstall()
-        self.tx = FakeTransport()
+        self.tx = RecordingTransport()
         self.cap = SessionCapturer(self.tx)
         instrumentation.install(self.cap, FakeDriver)
         self.driver = FakeDriver()
@@ -147,7 +135,7 @@ class TestCommandSelector(unittest.TestCase):
 
     def setUp(self):
         instrumentation.uninstall()
-        self.tx = FakeTransport()
+        self.tx = RecordingTransport()
         instrumentation.install(SessionCapturer(self.tx), FindingDriver)
         self.driver = FindingDriver()
         self.addCleanup(instrumentation.uninstall)
@@ -189,7 +177,8 @@ class FakeDriverWithScript(FakeDriver):
             self._collector_installed = True
             return True
         if "getTraceData" in script:  # read (drains buffer)
-            return ({"mutations": [{"type": "childList", "target": "1"}]}
+            return ({"mutations": [{"type": "childList", "target": "1", "addedNodes": [],
+                                   "removedNodes": [], "timestamp": 1}]}
                     if self._collector_installed else None)
         if "wdioTraceCollector" in script:  # readiness probe
             return self._collector_installed
@@ -211,7 +200,7 @@ class TestSnapshotWiring(unittest.TestCase):
         )
         self._script_patch.start()
         instrumentation.uninstall()
-        self.tx = FakeTransport()
+        self.tx = RecordingTransport()
         self.cap = SessionCapturer(self.tx)
         instrumentation.install(self.cap, FakeDriverWithScript)
         self.driver = FakeDriverWithScript()
@@ -228,7 +217,7 @@ class TestSnapshotWiring(unittest.TestCase):
         self.driver.execute("get", {"url": "https://x/"})
         muts = self._mutations()
         self.assertEqual(len(muts), 1)
-        self.assertEqual(muts[0], [{"type": "childList", "target": "1"}])
+        self.assertEqual(muts[0][0]["target"], "1")
         # The collector was injected exactly once during setup.
         installs = [s for s in self.driver._script_calls if "createElement" in s]
         self.assertEqual(len(installs), 1)
@@ -254,7 +243,7 @@ class TestDefaultSuite(unittest.TestCase):
     def setUp(self):
         instrumentation.uninstall()
         instrumentation.set_external_suites(False)
-        self.tx = FakeTransport()
+        self.tx = RecordingTransport()
         self.cap = SessionCapturer(self.tx)
         instrumentation.install(self.cap, FakeDriver)
         self.driver = FakeDriver()
@@ -518,7 +507,7 @@ class TestMultipleSessions(unittest.TestCase):
 
     def setUp(self):
         instrumentation.uninstall()
-        self.tx = FakeTransport()
+        self.tx = RecordingTransport()
         self.cap = SessionCapturer(self.tx)
         self.attached = []
         self._bidi = mock.patch.object(
@@ -631,7 +620,7 @@ class TestScreencastAttributionAcrossSessions(unittest.TestCase):
 
     def setUp(self):
         instrumentation.uninstall()
-        self.tx = FakeTransport()
+        self.tx = RecordingTransport()
         self.cap = SessionCapturer(self.tx)
         self._rec = mock.patch.object(
             instrumentation, "ScreencastRecorder", StubRecorder
@@ -687,7 +676,7 @@ class TestQuitTargetsItsOwnSession(unittest.TestCase):
 
     def setUp(self):
         instrumentation.uninstall()
-        self.tx = FakeTransport()
+        self.tx = RecordingTransport()
         self.cap = SessionCapturer(self.tx)
         self._rec = mock.patch.object(
             instrumentation, "ScreencastRecorder", StubRecorder
@@ -727,7 +716,7 @@ class TestOwnershipFollowsTheDriver(unittest.TestCase):
 
     def setUp(self):
         instrumentation.uninstall()
-        self.tx = FakeTransport()
+        self.tx = RecordingTransport()
         self.cap = SessionCapturer(self.tx)
         self._rec = mock.patch.object(
             instrumentation, "ScreencastRecorder", StubRecorder
@@ -785,7 +774,7 @@ class TestCaptureDoesNotOutliveItsDriver(unittest.TestCase):
 
     def setUp(self):
         instrumentation.uninstall()
-        self.tx = FakeTransport()
+        self.tx = RecordingTransport()
         self.cap = SessionCapturer(self.tx)
         self._bidi = mock.patch.object(
             instrumentation.bidi, "attach", new=lambda driver, capturer: False
@@ -907,7 +896,12 @@ class TestNavigationRowsGetTheirTimings(unittest.TestCase):
         "navigation": {"url": "https://x/secure", "timing": {"loadTime": 700}},
         "resources": [],
         "cookies": "",
-        "documentInfo": {"title": "Secure Area"},
+        "documentInfo": {
+            "url": "https://x/secure",
+            "title": "Secure Area",
+            "headers": {"userAgent": "Chrome", "language": "en-US", "platform": "MacIntel"},
+            "documentInfo": {"readyState": "complete", "referrer": "", "characterSet": "UTF-8"},
+        },
     }
 
     class Driver:
@@ -933,7 +927,7 @@ class TestNavigationRowsGetTheirTimings(unittest.TestCase):
             return "shot"
 
     def setUp(self):
-        self.cap = SessionCapturer(FakeTransport())
+        self.cap = SessionCapturer(RecordingTransport())
         instrumentation.uninstall()
         instrumentation.install(self.cap, self.Driver)
         self.addCleanup(instrumentation.uninstall)
@@ -1014,7 +1008,7 @@ class TestTheStreamIsOpenedByTheCommandHook(unittest.TestCase):
                 outer.append("command")
                 return FakeDriver.execute(self, command, params)
 
-        self.cap = SessionCapturer(FakeTransport())
+        self.cap = SessionCapturer(RecordingTransport())
         instrumentation.install(self.cap, OrderDriver)
         self.driver = OrderDriver()
         self.push = self.Push(self.order)
@@ -1067,7 +1061,7 @@ class TestSessionSetupIssuesNoUserCommands(unittest.TestCase):
 
     def setUp(self):
         instrumentation.uninstall()
-        self.tx = FakeTransport()
+        self.tx = RecordingTransport()
         self.cap = SessionCapturer(self.tx)
 
     def tearDown(self):
@@ -1130,7 +1124,7 @@ class TestViewportMetadata(unittest.TestCase):
 
     def setUp(self):
         instrumentation.uninstall()
-        self.tx = FakeTransport()
+        self.tx = RecordingTransport()
         instrumentation.install(SessionCapturer(self.tx), ViewportDriver)
         self.addCleanup(instrumentation.uninstall)
 
@@ -1164,7 +1158,7 @@ class TestViewportMetadata(unittest.TestCase):
 
     def test_a_driver_that_cannot_answer_omits_it(self):
         instrumentation.uninstall()
-        tx = FakeTransport()
+        tx = RecordingTransport()
         instrumentation.install(SessionCapturer(tx), FakeDriver)  # no execute_script
         driver = FakeDriver()
         driver.execute("newSession")  # FakeDriver gets its session id here
@@ -1191,13 +1185,16 @@ class TestViewportMetadata(unittest.TestCase):
                 return {"width": 1080, "height": 2219}
 
         instrumentation.uninstall()
-        tx = FakeTransport()
+        tx = RecordingTransport()
         instrumentation.install(SessionCapturer(tx), NativeDriver)
         driver = NativeDriver()
         driver.execute("get", {"url": "app://start"})
 
         [meta] = [d for s, d in tx.sent if s == "metadata"]
-        self.assertEqual(meta["viewport"], {"width": 1080, "height": 2219})
+        self.assertEqual(
+            meta["viewport"],
+            {"width": 1080, "height": 2219, "offsetLeft": 0, "offsetTop": 0, "scale": 1},
+        )
         self.assertEqual(driver.window_reads, 1)
         # And never asked the page, which is the round trip that can only fail.
         self.assertFalse(any("innerWidth" in s for s in driver.scripts))
@@ -1218,7 +1215,7 @@ class TestViewportMetadata(unittest.TestCase):
                 raise AssertionError("should not read the device window")
 
         instrumentation.uninstall()
-        tx = FakeTransport()
+        tx = RecordingTransport()
         instrumentation.install(SessionCapturer(tx), MobileWebDriver)
         MobileWebDriver().execute("get", {"url": "https://x/"})
 
@@ -1238,7 +1235,7 @@ class TestViewportMetadata(unittest.TestCase):
         for bad in ([0, 800], [1280, -1], ["1280", 800], [1280], "1280x800"):
             with self.subTest(size=bad):
                 instrumentation.uninstall()
-                tx = FakeTransport()
+                tx = RecordingTransport()
                 instrumentation.install(SessionCapturer(tx), ViewportDriver)
                 ViewportDriver(bad).execute("get", {"url": "https://x/"})
 
