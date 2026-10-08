@@ -26,12 +26,12 @@
     "@iconify-json/mdi": "^1.2.3",
     "@lit/context": "^1.1.6",
     "@tailwindcss/postcss": "^4.3.3",
-    "@wdio/browser-runner": "^9.32.0",
+    "@wdio/browser-runner": "^10.0.0",
     "@wdio/devtools-shared": "workspace:^",
-    "@wdio/globals": "^9.29.1",
-    "@wdio/mocha-framework": "^9.30.0",
-    "@wdio/protocols": "9.31.5",
-    "@wdio/reporter": "9.32.0",
+    "@wdio/globals": "^10.0.0",
+    "@wdio/mocha-framework": "^10.0.0",
+    "@wdio/protocols": "10.0.0",
+    "@wdio/reporter": "10.0.0",
     "autoprefixer": "^10.6.1",
     "codemirror": "^6.0.2",
     "lit": "^3.3.3",
@@ -45,7 +45,7 @@
     "stylelint-config-recommended": "^18.0.0",
     "stylelint-config-tailwindcss": "^1.0.1",
     "tailwindcss": "~4.3.3",
-    "typescript": "6.0.3",
+    "typescript": "7.0.2",
     "vite": "^8.3.2"
   }
 }
