@@ -41,7 +41,7 @@
     "@fastify/websocket": "^11.3.1",
     "@wdio/devtools-app": "workspace:^",
     "@wdio/devtools-script": "workspace:^",
-    "@wdio/logger": "9.29.1",
+    "@wdio/logger": "10.0.0",
     "fastify": "^5.12.5",
     "fflate": "^0.8.2",
     "get-port": "^7.2.0",
@@ -58,7 +58,7 @@
     "@wdio/devtools-trace": "workspace:^",
     "nodemon": "^3.1.14",
     "tsup": "^8.5.1",
-    "typescript": "6.0.3"
+    "typescript": "7.0.2"
   },
   "peerDependencies": {
     "@wdio/cli": ">=9"
