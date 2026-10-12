@@ -1,3 +1,5 @@
+import type { IncomingMessage } from 'node:http'
+
 import logger from '@wdio/logger'
 import {
   COLLECTOR_READY_EXPRESSION,
@@ -36,6 +38,7 @@ export class SessionCapturer extends SessionCapturerBase {
   #clientConnected = false
   #clientConnectedWaiters: Array<() => void> = []
   #onClientDisconnected?: () => void
+  #socket: IncomingMessage['socket'] | undefined
 
   constructor(
     devtoolsOptions: { hostname?: string; port?: number } = {},
@@ -43,6 +46,11 @@ export class SessionCapturer extends SessionCapturerBase {
   ) {
     super(devtoolsOptions)
     this.#driver = driver
+    // Teardown runs on `beforeExit`, which a ref'd socket stops from ever firing.
+    this.ws?.once('upgrade', (res: IncomingMessage) => {
+      this.#socket = res.socket
+      this.#socket.unref()
+    })
 
     // Skip console patching when running under Jest's CustomConsole / Vitest —
     // those reroute writes through their own console, which causes our patched
@@ -91,6 +99,12 @@ export class SessionCapturer extends SessionCapturerBase {
 
   setDriver(driver: SeleniumDriverLike) {
     this.#driver = driver
+  }
+
+  /** Re-ref'd first so the close handshake keeps the process alive until it lands. */
+  override async closeWebSocket(): Promise<void> {
+    this.#socket?.ref()
+    await super.closeWebSocket()
   }
 
   awaitClientConnected(): Promise<void> {

@@ -55,6 +55,10 @@ import type {
 } from '@wdio/devtools-shared'
 export type { ScreencastFrame, ScreencastOptions } from '@wdio/devtools-shared'
 
+/** What `detectRunner` reads off the process; `node` and `unknown` mean no runner. */
+export type DetectedRunner =
+  'mocha' | 'jest' | 'jasmine' | 'vitest' | 'cucumber' | 'node' | 'unknown'
+
 /**
  * Minimal shape of a selenium-webdriver `WebDriver` instance that the plugin
  * relies on. We don't import the type from selenium-webdriver to avoid a hard

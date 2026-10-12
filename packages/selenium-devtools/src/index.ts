@@ -31,6 +31,7 @@ import {
   startScenario as tmStartScenario,
   endScenario as tmEndScenario,
   flushPendingTestActions as tmFlushPendingTestActions,
+  ensureRunnerlessTracking,
   buildStartTestMeta,
   type StartTestMeta,
   type StartScenarioMeta,
@@ -558,6 +559,7 @@ class SeleniumDevToolsPlugin {
 
   #flushPendingTestActions() {
     tmFlushPendingTestActions(this.#getInternals())
+    ensureRunnerlessTracking(this.#getInternals(), DETECTED_RUNNER)
     // The first test's startTest fires before the driver/capturer exists, so
     // its per-test boundary is recorded here once capture is live.
     if (this.#options.traceGranularity === 'test') {
