@@ -426,6 +426,23 @@ export interface CucumberPickle {
   steps?: CucumberPickleStep[]
 }
 
+/** Which run controls the dashboard offers for a session. */
+export interface RunCapabilities {
+  canRunSuites: boolean
+  canRunTests: boolean
+  canRunAll: boolean
+}
+
+/** What an adapter puts in `Metadata.options` for the run controls; the backend spawns these commands. */
+export interface RunnerOptions {
+  framework?: string
+  configFile?: string
+  configFilePath?: string
+  runCapabilities?: Partial<RunCapabilities>
+  rerunCommand?: string
+  launchCommand?: string
+}
+
 export interface Metadata {
   type: TraceType
   url?: string
