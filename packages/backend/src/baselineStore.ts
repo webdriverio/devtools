@@ -3,7 +3,7 @@
  * into an accumulator, then time-window-filters per test/suite on demand.
  */
 import logger from '@wdio/logger'
-import type { Metadata } from '@wdio/devtools-shared'
+import { replaceCommandIndex, type Metadata } from '@wdio/devtools-shared'
 
 import type {
   ActiveRun,
@@ -102,18 +102,9 @@ class BaselineStore {
     return this.#activeRun
   }
 
-  // Mirrors the app's command replacement: match by stable `id`, then by the
-  // old timestamp, appending only when neither locates the original.
   #replaceCommand(oldTimestamp: number | undefined, command: CommandLogLike) {
     const cmds = this.#activeRun.commands
-    const newId = (command as { id?: number }).id
-    let idx = -1
-    if (typeof newId === 'number') {
-      idx = cmds.findIndex((c) => (c as { id?: number }).id === newId)
-    }
-    if (idx === -1 && oldTimestamp !== undefined) {
-      idx = cmds.map((c) => c.timestamp).lastIndexOf(oldTimestamp)
-    }
+    const idx = replaceCommandIndex(cmds, oldTimestamp, command)
     if (idx === -1) {
       cmds.push(command)
     } else {
