@@ -191,13 +191,12 @@ describe('expectAssertionToCommandLog', () => {
     expect(entry.error).toMatchObject({ message: 'expected foo' })
   })
 
-  it('spreads an array expectedValue and reads the typed `result` flag', () => {
-    // @wdio/types declares the pass flag on `result`, not `pass` — read both.
+  it('spreads an array expectedValue', () => {
     const entry = expectAssertionToCommandLog(
       {
         matcherName: 'toHaveAttribute',
         expectedValue: ['href', '/x'],
-        result: { result: true }
+        result: { pass: true }
       },
       undefined
     )

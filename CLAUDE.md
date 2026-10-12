@@ -51,10 +51,9 @@ Defined in root `tsconfig.json`:
 | `@wdio/devtools-shared` / `*` | `packages/shared/src/...` |
 | `@wdio/devtools-core` / `*` | `packages/core/src/...` |
 | `@wdio/devtools-trace` / `*` | `packages/trace/src/...` |
+| `@wdio/elements` / `*` | `packages/elements/src/...` |
 
 These exist so imports stay short and grep-able. Long relative paths (`../../../components/…`) aren't used.
-
-`@wdio/elements` has no alias on purpose: it is WebdriverIO-v10-only from 2.0, while `service` (webdriverio ^9) consumes the published 1.x, so an alias would typecheck the service against the wrong major.
 
 The `@core/*` name is a historical alias for app-internal helpers and predates `packages/core`. They don't collide because they resolve to different roots, but the names are confusable.
 

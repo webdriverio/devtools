@@ -126,12 +126,11 @@ export function captureExpectFailure(
 }
 
 /** The subset of expect-webdriverio's afterAssertion hook params we read to
- *  turn a matcher call into a trace command. The matcher passes `{ pass }` at
- *  runtime, but @wdio/types declares `{ result }`, so we accept and read both. */
+ *  turn a matcher call into a trace command. */
 export interface ExpectAssertion {
   matcherName: string
   expectedValue?: unknown
-  result: { pass?: boolean; result?: boolean; message?: () => string }
+  result: { pass: boolean; message?: () => string }
 }
 
 /** `expect.stringContaining(x)` / `objectContaining` etc. are jest asymmetric
@@ -154,7 +153,7 @@ function unwrapAsymmetricMatcher(value: unknown): unknown {
 /**
  * Adapt expect-webdriverio's afterAssertion params to the shared matcher
  * converter. Framework-specific extraction only (matcher name, expectedValue →
- * args, the runtime `pass` vs typed `result` flag); the CommandLog shaping
+ * args, the `pass` flag); the CommandLog shaping
  * lives once in core's `matcherAssertionToCommandLog`. The row's callSource +
  * screenshot come from the matcher's read command it's coalesced into (see
  * `coalesceAssertionIntoLastRead`), not from a stack walk here.
@@ -214,7 +213,7 @@ export function expectAssertionToCommandLog(
   outcomeIsDecided = false
 ): CommandLog {
   const { matcherName, expectedValue, result } = params
-  const rawPass = result.pass ?? result.result ?? false
+  const rawPass = result.pass
   const negated =
     !outcomeIsDecided &&
     assertionWasNegated(

@@ -212,9 +212,11 @@ describe('DevToolsAppLauncher', () => {
 
       expect(remote).toHaveBeenCalledWith(
         expect.objectContaining({
-          automationProtocol: 'devtools',
           capabilities: expect.objectContaining(customCaps)
         })
+      )
+      expect(vi.mocked(remote).mock.calls[0]![0]).not.toHaveProperty(
+        'automationProtocol'
       )
     })
   })

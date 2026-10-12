@@ -737,7 +737,7 @@ class TestOwnershipFollowsTheDriver(unittest.TestCase):
         # records call_args, which would hold the driver and defeat the very
         # collection this class asserts.
         self._bidi = mock.patch.object(
-            instrumentation.bidi, "attach", new=lambda driver, capturer: False
+            instrumentation.bidi, "attach", new=lambda driver, capturer, stats=None: False
         )
         self._bidi.start()
         instrumentation.install(self.cap, MultiSessionDriver)
@@ -788,7 +788,7 @@ class TestCaptureDoesNotOutliveItsDriver(unittest.TestCase):
         self.tx = FakeTransport()
         self.cap = SessionCapturer(self.tx)
         self._bidi = mock.patch.object(
-            instrumentation.bidi, "attach", new=lambda driver, capturer: False
+            instrumentation.bidi, "attach", new=lambda driver, capturer, stats=None: False
         )
         self._bidi.start()
         instrumentation.install(self.cap, ScreenshotSessionDriver)

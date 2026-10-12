@@ -6,6 +6,9 @@ import {
 } from '@wdio/devtools-core'
 import DevToolsHookService from '../src/index.js'
 
+const elementsMock = vi.hoisted(() => ({ getSnapshot: vi.fn() }))
+vi.mock('@wdio/elements', () => elementsMock)
+
 // Controllable stack: `frames` defaults to a single user-spec frame (commands
 // read as top-level). A test can splice in `matcherFrame` to simulate a command
 // issued from inside an expect-webdriverio matcher.
@@ -469,6 +472,72 @@ describe('DevtoolsService - Screencast Integration', () => {
         (call: unknown[]) => call[1]
       )
       expect(logged).toEqual(['addValue'])
+    })
+  })
+})
+
+describe('DevtoolsService - getSnapshot command', () => {
+  const addCommand = vi.fn()
+  const browser = {
+    isBidi: true,
+    sessionId: 'snap-session',
+    addCommand,
+    scriptAddPreloadScript: vi.fn().mockResolvedValue(undefined),
+    takeScreenshot: vi.fn().mockResolvedValue('screenshot'),
+    execute: vi.fn().mockResolvedValue({}),
+    on: vi.fn(),
+    emit: vi.fn(),
+    options: { rootDir: '/project/example' },
+    capabilities: { browserName: 'chrome' }
+  } as any
+
+  async function registeredGetSnapshot() {
+    await new DevToolsHookService().before({} as any, [], browser)
+    const call = addCommand.mock.calls.find(([name]) => name === 'getSnapshot')
+    return call![1] as (options?: { viewport?: boolean }) => Promise<unknown>
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('defaults to viewport-only when no options are given', async () => {
+    const result = { text: 'tree', refs: [] }
+    elementsMock.getSnapshot.mockResolvedValue(result)
+    const getSnapshot = await registeredGetSnapshot()
+    await expect(getSnapshot()).resolves.toBe(result)
+    expect(elementsMock.getSnapshot).toHaveBeenCalledWith(browser, {
+      viewport: true
+    })
+  })
+
+  it.each([{}, { viewport: undefined }])(
+    'keeps the viewport default when options leave it unset (%o)',
+    async (options) => {
+      elementsMock.getSnapshot.mockResolvedValue({ text: '', refs: [] })
+      const getSnapshot = await registeredGetSnapshot()
+      await getSnapshot(options)
+      expect(elementsMock.getSnapshot).toHaveBeenCalledWith(browser, {
+        viewport: true
+      })
+    }
+  )
+
+  it('passes explicit options through untouched', async () => {
+    elementsMock.getSnapshot.mockResolvedValue({ text: '', refs: [] })
+    const getSnapshot = await registeredGetSnapshot()
+    await getSnapshot({ viewport: false })
+    expect(elementsMock.getSnapshot).toHaveBeenCalledWith(browser, {
+      viewport: false
+    })
+  })
+
+  it('falls back to an empty snapshot when capture throws', async () => {
+    elementsMock.getSnapshot.mockRejectedValue(new Error('boom'))
+    const getSnapshot = await registeredGetSnapshot()
+    await expect(getSnapshot()).resolves.toEqual({
+      text: '[Snapshot unavailable]',
+      refs: []
     })
   })
 })

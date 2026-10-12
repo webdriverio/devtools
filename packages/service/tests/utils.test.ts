@@ -37,6 +37,19 @@ describe('service utils', () => {
       } as unknown as WebdriverIO.Element
       expect(getBrowserObject(element2)).toBe(mockBrowser)
     })
+
+    it('should resolve a BrowsingContext parent to its owning browser', () => {
+      const mockBrowser = { sessionId: 's' } as WebdriverIO.Browser
+      const context = {
+        sessionId: 's',
+        browser: mockBrowser
+      } as unknown as WebdriverIO.BrowsingContext
+      const element = {
+        parent: context
+      } as unknown as WebdriverIO.Element
+      expect(getBrowserObject(context)).toBe(mockBrowser)
+      expect(getBrowserObject(element)).toBe(mockBrowser)
+    })
   })
 
   describe('setCurrentSpecFile', () => {

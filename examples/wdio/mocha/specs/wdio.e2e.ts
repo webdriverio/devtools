@@ -10,7 +10,7 @@ describe('webdriver.io', () => {
     })
 
     performance.mark('snapshot-start')
-    const { text } =  await getSnapshot(browser, { inViewportOnly: true })
+    const { text } =  await getSnapshot(browser, { viewport: true })
     performance.mark('snapshot-end')
     performance.measure('snapshot', 'snapshot-start', 'snapshot-end')
     performance.getEntriesByName('snapshot').forEach(console.log);

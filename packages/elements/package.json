@@ -35,6 +35,9 @@
     "test": "vitest run",
     "prepublishOnly": "pnpm build"
   },
+  "engines": {
+    "node": ">=22.19.0"
+  },
   "dependencies": {
     "@wdio/snapshot": "^10.0.2",
     "@xmldom/xmldom": "^0.9.8",

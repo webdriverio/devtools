@@ -42,7 +42,7 @@ Differences from the CLI, which keeps session state this function does not have:
 - Iframes are not inlined over BiDi. A cut or cross-origin frame renders as the frame-hint note (`wdio session frame <ref>`).
 - Refs are numbered from `e1` on every call.
 
-`@wdio/devtools-service`'s `browser.getSnapshot()` does not call this function: the service is on `webdriverio` 9 and pins `@wdio/elements` 1.x, so it still returns the 1.x `{ text, elements }` shape.
+`@wdio/devtools-service`'s `browser.getSnapshot()` calls this function and returns its `{ text, refs }`. Unlike the default here, it passes `{ viewport: true }` when called without options, so it reads the visible viewport; pass `{ viewport: false }` for the full page.
 
 ### Browser
 

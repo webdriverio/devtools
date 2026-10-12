@@ -54,14 +54,19 @@ export function isUserSpecFile(file?: string | null): boolean {
   return !normalized.includes('/node_modules/')
 }
 
+type BrowserParent =
+  WebdriverIO.Element | WebdriverIO.Browser | WebdriverIO.BrowsingContext
+
 /** Walk up an element chain to its root browser. */
-export function getBrowserObject(
-  elem: WebdriverIO.Element | WebdriverIO.Browser
-): WebdriverIO.Browser {
-  const elemObject = elem as WebdriverIO.Element
-  return (elemObject as WebdriverIO.Element).parent
-    ? getBrowserObject(elemObject.parent)
-    : (elem as WebdriverIO.Browser)
+export function getBrowserObject(elem: BrowserParent): WebdriverIO.Browser {
+  // A BrowsingContext ends the chain and holds its owning session at runtime,
+  // but webdriverio's types do not declare `browser` on it.
+  const context = elem as { browser?: WebdriverIO.Browser }
+  if (context.browser) {
+    return context.browser
+  }
+  const { parent } = elem as { parent?: BrowserParent }
+  return parent ? getBrowserObject(parent) : (elem as WebdriverIO.Browser)
 }
 
 /** Chrome 150's headless mode silently drops trusted input (clicks, keys)

@@ -37,6 +37,7 @@ from selenium_devtools.utils import selenium_version
 
 _HAS_SELENIUM = importlib.util.find_spec("selenium") is not None
 _BELOW_MINIMUM = selenium_version() < SELENIUM_MINIMUM_VERSION
+_FIRST_LOSSLESS_SELENIUM = (4, 50)
 _TOO_OLD = (
     f"selenium is below the {'.'.join(str(p) for p in SELENIUM_MINIMUM_VERSION)} "
     "this package requires"
@@ -100,12 +101,13 @@ class TestTheRegeneratedNetworkSurface(unittest.TestCase):
         self.assertIn("event.from_json", source)
         self.assertIn("event.event_class", source)
 
-    def test_the_generated_event_classes_are_still_lossy(self):
+    def test_the_floor_still_ships_lossy_event_classes(self):
         """The reason raw `dict` configs are registered at all.
 
-        If selenium ever models the full event, this fails and the registration
-        can go — the typed object would then carry the request and timestamp. It
-        failing is good news, not a break."""
+        Selenium 4.50 models the full event, so on 4.50+ the typed object
+        carries the request and timestamp. The floor decides whether the
+        registration can go, not the installed version: 4.44-4.49 still drop
+        them. This fails once the floor reaches 4.50 — good news, not a break."""
         import dataclasses
 
         from selenium.webdriver.common.bidi.network import (
@@ -115,8 +117,15 @@ class TestTheRegeneratedNetworkSurface(unittest.TestCase):
         if not dataclasses.is_dataclass(BeforeRequestSentParameters):
             self.skipTest("no longer a dataclass — registration needs rechecking")
         declared = {f.name for f in dataclasses.fields(BeforeRequestSentParameters)}
-        self.assertNotIn("request", declared)
-        self.assertNotIn("timestamp", declared)
+        models_full_event = {"request", "timestamp"} <= declared
+        self.assertEqual(
+            models_full_event, selenium_version() >= _FIRST_LOSSLESS_SELENIUM
+        )
+        self.assertLess(
+            SELENIUM_MINIMUM_VERSION,
+            _FIRST_LOSSLESS_SELENIUM,
+            "the floor models the full event: the raw registration can go",
+        )
 
 
 @unittest.skipUnless(_HAS_SELENIUM, "selenium is not installed")

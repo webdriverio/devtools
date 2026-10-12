@@ -238,4 +238,28 @@ describe('DevtoolsService — expect.* assertion rows', () => {
       capturer.coalesceAssertionIntoLastRead.mock.calls[0]![0].command
     ).toBe('expect.toBeChecked')
   })
+
+  it.each([
+    ['toBeExisting', 'isExisting'],
+    ['toBePresent', 'isExisting'],
+    ['toBeChecked', 'isSelected']
+  ])(
+    'a single alias hook pair (%s) folds into its read (%s) under the alias label',
+    async (alias, read) => {
+      capturer.coalesceAssertionIntoLastRead.mockReturnValue(true)
+      const service = new DevToolsHookService({ mode: 'live' })
+      await service.before({} as never, [], mockBrowser)
+
+      service.beforeAssertion({ matcherName: alias })
+      await service.afterAssertion({
+        matcherName: alias,
+        result: { pass: true }
+      })
+
+      const [entry, isRead] =
+        capturer.coalesceAssertionIntoLastRead.mock.calls[0]!
+      expect(entry.command).toBe(`expect.${alias}`)
+      expect(isRead(read)).toBe(true)
+    }
+  )
 })
