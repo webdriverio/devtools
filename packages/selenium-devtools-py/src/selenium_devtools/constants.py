@@ -87,11 +87,12 @@ BACKEND_INSTALL_DIRNAME = "selenium-devtools-py"
 # `show-trace`, so the name is what picks the right one out of `bin`.
 BACKEND_BIN_NAME = "devtools-backend"
 
-# The backend is a Node app, so Python users need a Node runtime. 18 is the
-# floor its dependencies require; below it the process starts and then dies on
-# syntax it cannot parse, which surfaces here only as "exited before reporting
-# a port". Checked up front so the message names the real problem.
-MIN_NODE_MAJOR = 18
+# The backend is a Node app, so Python users need a Node runtime. (major, minor)
+# floor; below it the process starts and then dies on syntax it cannot parse,
+# which surfaces here only as "exited before reporting a port". Checked up
+# front so the message names the real problem. It must track the pinned
+# backend's `engines.node`, which scripts/check_backend_pin.py enforces.
+MIN_NODE = (18, 0)
 NODE_VERSION_TIMEOUT_S = 5.0
 
 # ── Trace mode ───────────────────────────────────────────────────────────────

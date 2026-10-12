@@ -302,7 +302,7 @@ pip install -e packages/selenium-devtools-py   # or: pip install selenium-devtoo
 selenium-devtools install-backend              # once — pip cannot install a Node package
 ```
 
-The Python adapter needs Python 3.10+, selenium 4.44+, and **Node.js 22.19+ on your
+The Python adapter needs Python 3.10+, selenium 4.44+, and **Node.js 18+ on your
 PATH** — the backend that serves the page collector, carries the event stream
 and builds the trace archive is a Node app, so Node is required in every mode,
 not just for the dashboard window. Without the install step a run fetches that

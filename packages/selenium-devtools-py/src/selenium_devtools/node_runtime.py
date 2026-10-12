@@ -27,7 +27,7 @@ import shutil
 import subprocess
 from typing import Optional, Tuple
 
-from .constants import LOGGER_NAME, MIN_NODE_MAJOR, NODE_VERSION_TIMEOUT_S
+from .constants import LOGGER_NAME, MIN_NODE, NODE_VERSION_TIMEOUT_S
 
 _log = logging.getLogger(f"{LOGGER_NAME}.backend")
 
@@ -50,6 +50,11 @@ _ESCAPE_HATCH = (
     "Set DEVTOOLS_PORT to attach to an already-running dashboard instead, or "
     "DEVTOOLS_BACKEND_CMD to launch it your own way."
 )
+
+
+def _floor() -> str:
+    major, minor = MIN_NODE
+    return str(major) if minor == 0 else f"{major}.{minor}"
 
 
 def node_version(executable: str) -> Optional[Tuple[int, int, int]]:
@@ -88,7 +93,7 @@ def require_node() -> str:
     if executable is None:
         raise RuntimeError(
             f"Node.js not found on PATH. The devtools dashboard backend is a "
-            f"Node app, so Node {MIN_NODE_MAJOR}+ is required — install it "
+            f"Node app, so Node {_floor()}+ is required — install it "
             f"from https://nodejs.org. {_ESCAPE_HATCH}"
         )
     version = node_version(executable)
@@ -96,13 +101,13 @@ def require_node() -> str:
         raise RuntimeError(
             f'"{executable}" did not report a usable version, so it cannot be '
             f"used to run the devtools dashboard backend (Node "
-            f"{MIN_NODE_MAJOR}+ required). {_ESCAPE_HATCH}"
+            f"{_floor()}+ required). {_ESCAPE_HATCH}"
         )
-    if version[0] < MIN_NODE_MAJOR:
+    if version[:2] < MIN_NODE:
         found = ".".join(str(part) for part in version)
         raise RuntimeError(
             f"Node {found} at \"{executable}\" is too old to run the devtools "
-            f"dashboard backend, which needs Node {MIN_NODE_MAJOR}+. Upgrade "
+            f"dashboard backend, which needs Node {_floor()}+. Upgrade "
             f"from https://nodejs.org. {_ESCAPE_HATCH}"
         )
     return executable

@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import io
 import json
+import re
 import sys
 import tarfile
 import urllib.error
@@ -33,6 +34,7 @@ from selenium_devtools import _contract as contract  # noqa: E402
 from selenium_devtools.constants import (  # noqa: E402
     BACKEND_NPM_PACKAGE,
     BACKEND_NPM_VERSION,
+    MIN_NODE,
 )
 
 REGISTRY = "https://registry.npmjs.org"
@@ -64,8 +66,8 @@ def carries(dist: str, literal: str) -> bool:
     return any(f"{q}{literal}{q}" in dist for q in QUOTES)
 
 
-def published_dist(package: str, version: str) -> str:
-    """Return every published ``dist/*.js`` of one npm version, concatenated."""
+def published_package(package: str, version: str) -> tuple[str, dict]:
+    """Return one npm version's ``dist/*.js`` concatenated, and its ``package.json``."""
     meta_url = f"{REGISTRY}/{package}/{version}"
     with urllib.request.urlopen(meta_url, timeout=NETWORK_TIMEOUT_S) as response:
         tarball = json.load(response)["dist"]["tarball"]
@@ -73,9 +75,15 @@ def published_dist(package: str, version: str) -> str:
         payload = response.read()
 
     sources = []
+    manifest: dict = {}
     with tarfile.open(fileobj=io.BytesIO(payload), mode="r:gz") as archive:
         for member in archive.getmembers():
             name = member.name.removeprefix("package/")
+            if member.isfile() and name == "package.json":
+                handle = archive.extractfile(member)
+                if handle is not None:
+                    manifest = json.load(handle)
+                continue
             if not member.isfile() or not name.startswith("dist/"):
                 continue
             if not name.endswith(".js"):
@@ -85,7 +93,7 @@ def published_dist(package: str, version: str) -> str:
                 sources.append(handle.read().decode("utf-8", "replace"))
     if not sources:
         raise RuntimeError(f"{package}@{version} published no dist/*.js")
-    return "\n".join(sources)
+    return "\n".join(sources), manifest
 
 
 def missing_names(dist: str) -> list[tuple[str, str, str]]:
@@ -97,18 +105,62 @@ def missing_names(dist: str) -> list[tuple[str, str, str]]:
     ]
 
 
+_NODE_RANGE_RE = re.compile(r"\s*>=\s*v?(\d+)(?:\.(\d+))?")
+
+
+def parse_node_floor(engines_node: str | None) -> tuple[int, int] | None:
+    """The leading ``>=X[.Y[.Z]]`` of an ``engines.node`` range, else None."""
+    if not engines_node:
+        return None
+    match = _NODE_RANGE_RE.match(engines_node)
+    if match is None:
+        return None
+    return (int(match.group(1)), int(match.group(2) or 0))
+
+
+def node_floor_violation(
+    engines_node: str | None, min_node: tuple[int, int]
+) -> str | None:
+    """Error text when the backend needs a newer Node than the adapter enforces.
+
+    An absent range is not a violation; an unparseable one is, since the gate
+    cannot prove the adapter's floor satisfies it.
+    """
+    if not engines_node:
+        return None
+    required = parse_node_floor(engines_node)
+    if required is None:
+        return (
+            f"cannot read a minimum Node from the pinned backend's engines.node "
+            f"{engines_node!r}; teach parse_node_floor its form"
+        )
+    if required <= min_node:
+        return None
+    return (
+        f"the pinned backend requires Node {engines_node} but the adapter only "
+        f"enforces Node {min_node[0]}.{min_node[1]}+ (MIN_NODE in constants.py)"
+    )
+
+
 def main() -> int:
     pin = f"{BACKEND_NPM_PACKAGE}@{BACKEND_NPM_VERSION}"
     try:
-        dist = published_dist(BACKEND_NPM_PACKAGE, BACKEND_NPM_VERSION)
+        dist, manifest = published_package(BACKEND_NPM_PACKAGE, BACKEND_NPM_VERSION)
     except urllib.error.HTTPError as exc:
         if exc.code == 404:
             print(f"FAIL: {pin} is not published on npm", file=sys.stderr)
             return 1
         raise
 
+    engines_node = (manifest.get("engines") or {}).get("node")
+    node_error = node_floor_violation(engines_node, MIN_NODE)
+    if node_error:
+        print(f"FAIL: {pin}: {node_error}", file=sys.stderr)
+
     missing = missing_names(dist)
     if not missing:
+        if node_error:
+            return 1
         print(f"{pin} serves all {len(REQUIRED_BACKEND_NAMES)} pinned contract names")
         return 0
 

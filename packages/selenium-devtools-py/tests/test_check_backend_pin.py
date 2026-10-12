@@ -82,5 +82,20 @@ class MissingNamesTest(unittest.TestCase):
             )
 
 
+class NodeFloorViolationTest(unittest.TestCase):
+    def test_a_newer_requirement_than_the_floor_is_a_violation(self) -> None:
+        self.assertIsNotNone(gate.node_floor_violation(">=22.19.0", (18, 0)))
+
+    def test_a_requirement_at_the_floor_is_fine(self) -> None:
+        self.assertIsNone(gate.node_floor_violation(">=22.19.0", (22, 19)))
+        self.assertIsNone(gate.node_floor_violation(">=18", (18, 0)))
+
+    def test_an_absent_range_does_not_fail(self) -> None:
+        self.assertIsNone(gate.node_floor_violation(None, (18, 0)))
+
+    def test_an_unparseable_range_fails_closed(self) -> None:
+        self.assertIn("^22", gate.node_floor_violation("^22", (18, 0)) or "")
+
+
 if __name__ == "__main__":
     unittest.main()
