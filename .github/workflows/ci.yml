@@ -43,8 +43,22 @@ jobs:
       # because it is fast and its failures are cheaper to read.
       - name: 🔎 Typecheck
         run: pnpm typecheck
+      # The conformance suite runs the Python adapter beside the JS ones, so a
+      # capture fix missing from one language fails this job.
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.13'
+      - name: Install the Python adapter
+        run: pip install -e packages/selenium-devtools-py
       - name: 🧪 Run Tests
         run: pnpm test
+      - name: Upload conformance report
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: conformance-report
+          path: packages/conformance/out/
+          if-no-files-found: ignore
 
   # Separate job because these are the only tests that need a real browser, and
   # they parallelise with `build` instead of extending it. No bundle step: the
