@@ -11,5 +11,5 @@ packages:
   - 'packages/nightwatch-devtools'
   - 'packages/selenium-devtools'
   - 'examples/wdio'
-  - 'examples/selenium'
+  - 'examples/selenium-js'
   - 'examples/nightwatch'
