@@ -1,5 +1,7 @@
 import { createRequire } from 'node:module'
 
+import type { DetectedRunner } from '../types.js'
+
 export function detectOwnVersion(): string {
   try {
     return createRequire(import.meta.url)('../../package.json').version
@@ -8,7 +10,7 @@ export function detectOwnVersion(): string {
   }
 }
 
-export function detectRunner(): string {
+export function detectRunner(): DetectedRunner {
   const argv = (process.argv[1] || '').toLowerCase()
   if (argv.includes('mocha')) {
     return 'mocha'
@@ -29,6 +31,11 @@ export function detectRunner(): string {
     return 'node'
   }
   return 'unknown'
+}
+
+/** A plain script: no runner hook declares its test boundaries. */
+export function isRunnerless(runner: DetectedRunner): boolean {
+  return runner === 'node' || runner === 'unknown'
 }
 
 export function detectSeleniumVersion(): string | undefined {
