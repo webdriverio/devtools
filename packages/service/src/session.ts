@@ -294,6 +294,9 @@ export class SessionCapturer extends SessionCapturerBase {
    * Returns false when the last command isn't a matcher read (a value matcher),
    * so the caller emits a fresh assertion row instead.
    *
+   * `minIndex` is the log length when the matcher started: a last row before it
+   * predates the matcher (its own read was never logged), so it is not folded.
+   *
    * `foldErrored` folds even when the read carries an error — used by the
    * hard-throw path (element never resolved, so afterAssertion never fired and
    * the read threw): relabel the throwing read as the failing expect row rather
@@ -303,11 +306,17 @@ export class SessionCapturer extends SessionCapturerBase {
   coalesceAssertionIntoLastRead(
     entry: CommandLog,
     isRead: (command: string) => boolean,
+    minIndex: number,
     foldErrored = false
   ): boolean {
     const log = this.commandsLog as (CommandLog & { _id?: number })[]
     const last = log[log.length - 1]
-    if (!last || !isRead(last.command) || (last.error && !foldErrored)) {
+    if (
+      !last ||
+      log.length - 1 < minIndex ||
+      !isRead(last.command) ||
+      (last.error && !foldErrored)
+    ) {
       return false
     }
     // Inherit the read's `_id` (local dedup bookkeeping) and timestamp, but do

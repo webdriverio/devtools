@@ -27,7 +27,6 @@ const MATCHER_READ_COMMANDS = new Set([
   'getHTML',
   'isExisting',
   'isDisplayed',
-  'isDisplayedInViewport',
   'getValue',
   'getAttribute',
   'getProperty',
@@ -41,8 +40,8 @@ const MATCHER_READ_COMMANDS = new Set([
   'getLocation',
   'getCSSProperty',
   'getTagName',
-  'getUrl',
-  'getTitle'
+  'getCookies',
+  'isStable'
 ])
 
 /** True when a command is a matcher's value-read (see MATCHER_READ_COMMANDS). */

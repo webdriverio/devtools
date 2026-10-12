@@ -8,6 +8,7 @@ import type { CommandLog } from '@wdio/devtools-shared'
 import {
   captureExpectFailure,
   expectAssertionToCommandLog,
+  isMatcherReadCommand,
   toCommandError,
   wireAssertCapture,
   assertionWasNegated
@@ -304,4 +305,17 @@ Received: "foo"`
   it('answers false for an empty message', () => {
     expect(assertionWasNegated(undefined, false)).toBe(false)
   })
+})
+
+describe('isMatcherReadCommand', () => {
+  it.each(['getCookies', 'isStable', 'getText'])('accepts %s', (cmd) => {
+    expect(isMatcherReadCommand(cmd)).toBe(true)
+  })
+
+  it.each(['getTitle', 'isDisplayedInViewport', 'click'])(
+    'rejects %s',
+    (cmd) => {
+      expect(isMatcherReadCommand(cmd)).toBe(false)
+    }
+  )
 })

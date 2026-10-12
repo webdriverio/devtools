@@ -34,6 +34,7 @@ interface PendingAssertion {
   expectedValue?: unknown
   testUid?: string
   stepUid?: string
+  logLengthAtStart: number
 }
 
 export class AssertionTracker {
@@ -79,7 +80,8 @@ export class AssertionTracker {
         matcherName: params.matcherName,
         expectedValue: params.expectedValue,
         testUid: this.#ctx.getTestUid(),
-        stepUid: this.#ctx.getStepUid()
+        stepUid: this.#ctx.getStepUid(),
+        logLengthAtStart: this.#ctx.getCapturer().commandsLog.length
       }
       // Reset before the matcher resolves its element (WDIO's $ is lazy, so it
       // resolves inside the matcher) — only an element resolved during this
@@ -109,11 +111,20 @@ export class AssertionTracker {
     }
     // Reached afterAssertion → the matcher resolved (pass or value-fail), so no
     // hard-throw synthesis is needed at test end.
-    this.#pendingAssertion = undefined
     const capturer = this.#ctx.getCapturer()
+    // No armed matcher means no read is known to be its own, so nothing may fold.
+    const minIndex =
+      this.#pendingAssertion?.logLengthAtStart ?? capturer.commandsLog.length
+    this.#pendingAssertion = undefined
     const entry = expectAssertionToCommandLog(params, this.#ctx.getTestUid())
     entry.stepUid = this.#ctx.getStepUid()
-    if (capturer.coalesceAssertionIntoLastRead(entry, isMatcherReadCommand)) {
+    if (
+      capturer.coalesceAssertionIntoLastRead(
+        entry,
+        isMatcherReadCommand,
+        minIndex
+      )
+    ) {
       return
     }
     // No matcher read to fold into (a value matcher like toBe(x), or the read
@@ -188,7 +199,12 @@ export class AssertionTracker {
     entry.stepUid = pending.stepUid
     const capturer = this.#ctx.getCapturer()
     if (
-      capturer.coalesceAssertionIntoLastRead(entry, isMatcherReadCommand, true)
+      capturer.coalesceAssertionIntoLastRead(
+        entry,
+        isMatcherReadCommand,
+        pending.logLengthAtStart,
+        true
+      )
     ) {
       return
     }

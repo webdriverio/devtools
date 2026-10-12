@@ -154,6 +154,40 @@ describe('DevtoolsService — expect.* assertion rows', () => {
     expect(pushActionSnapshotAt).not.toHaveBeenCalled()
   })
 
+  it('passes the log length at beforeAssertion as the fold lower bound', async () => {
+    capturer.coalesceAssertionIntoLastRead.mockReturnValue(true)
+    capturer.commandsLog = [{}, {}, {}]
+    const service = new DevToolsHookService({ mode: 'live' })
+    await service.before({} as never, [], mockBrowser)
+
+    service.beforeAssertion({ matcherName: 'toHaveTitle', expectedValue: 'x' })
+    capturer.commandsLog.push({})
+    await service.afterAssertion({
+      matcherName: 'toHaveTitle',
+      expectedValue: 'x',
+      result: { pass: true, message: () => '' }
+    })
+
+    expect(capturer.coalesceAssertionIntoLastRead.mock.calls[0]![2]).toBe(3)
+    capturer.commandsLog = []
+  })
+
+  it('bars every earlier read when no matcher was armed', async () => {
+    capturer.coalesceAssertionIntoLastRead.mockReturnValue(false)
+    capturer.commandsLog = [{}, {}]
+    const service = new DevToolsHookService({ mode: 'live' })
+    await service.before({} as never, [], mockBrowser)
+
+    await service.afterAssertion({
+      matcherName: 'toHaveTitle',
+      expectedValue: 'x',
+      result: { pass: true, message: () => '' }
+    })
+
+    expect(capturer.coalesceAssertionIntoLastRead.mock.calls[0]![2]).toBe(2)
+    capturer.commandsLog = []
+  })
+
   it('afterAssertion clears the armed matcher so test end does not re-synthesize', async () => {
     capturer.coalesceAssertionIntoLastRead.mockReturnValue(true)
     const service = new DevToolsHookService({ mode: 'live' })
@@ -191,7 +225,7 @@ describe('DevtoolsService — expect.* assertion rows', () => {
       error: new Error('element ("#flash") still not existing')
     } as never)
 
-    const [entry, , foldErrored] =
+    const [entry, , , foldErrored] =
       capturer.coalesceAssertionIntoLastRead.mock.calls[0]!
     expect(entry.command).toBe('expect.toHaveText')
     expect(entry.args).toEqual(['Your username is invalid!'])

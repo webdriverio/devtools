@@ -273,7 +273,8 @@ describe('SessionCapturer', () => {
           args: ['hi'],
           timestamp: Date.now()
         } as any,
-        (c) => c === 'getText'
+        (c) => c === 'getText',
+        0
       )
       expect(folded).toBe(true)
       expect(capturer.commandsLog.at(-1)!.selector).toBe('#flash')
@@ -973,7 +974,8 @@ describe('SessionCapturer', () => {
           timestamp: 999,
           result: 'passed'
         } as never,
-        isRead
+        isRead,
+        0
       )
 
       expect(folded).toBe(true)
@@ -990,6 +992,42 @@ describe('SessionCapturer', () => {
       expect(row.id).toBeUndefined()
     })
 
+    it('does not fold a trailing read that predates the matcher (index < minIndex)', () => {
+      const capturer = new SessionCapturer()
+      capturer.commandsLog.push({
+        command: 'getText',
+        args: [],
+        timestamp: 100
+      } as never)
+
+      const folded = capturer.coalesceAssertionIntoLastRead(
+        { command: 'expect.toHaveTitle', args: ['x'], timestamp: 999 } as never,
+        isRead,
+        1
+      )
+
+      expect(folded).toBe(false)
+      expect(capturer.commandsLog).toHaveLength(1)
+      expect(capturer.commandsLog[0].command).toBe('getText')
+    })
+
+    it('folds a trailing read at or after minIndex', () => {
+      const capturer = new SessionCapturer()
+      capturer.commandsLog.push(
+        { command: 'click', args: [], timestamp: 50 } as never,
+        { command: 'getText', args: [], timestamp: 100 } as never
+      )
+
+      const folded = capturer.coalesceAssertionIntoLastRead(
+        { command: 'expect.toHaveText', args: ['x'], timestamp: 999 } as never,
+        isRead,
+        1
+      )
+
+      expect(folded).toBe(true)
+      expect(capturer.commandsLog[1].command).toBe('expect.toHaveText')
+    })
+
     it('returns false and leaves the log untouched when the last command is not a matcher read', () => {
       const capturer = new SessionCapturer()
       capturer.commandsLog.push({
@@ -1000,7 +1038,8 @@ describe('SessionCapturer', () => {
 
       const folded = capturer.coalesceAssertionIntoLastRead(
         { command: 'expect.toExist', args: [], timestamp: 999 } as never,
-        isRead
+        isRead,
+        0
       )
 
       expect(folded).toBe(false)
@@ -1020,7 +1059,8 @@ describe('SessionCapturer', () => {
       expect(
         capturer.coalesceAssertionIntoLastRead(
           { command: 'expect.toHaveText', args: [], timestamp: 999 } as never,
-          isRead
+          isRead,
+          0
         )
       ).toBe(false)
     })
@@ -1039,6 +1079,7 @@ describe('SessionCapturer', () => {
       const folded = capturer.coalesceAssertionIntoLastRead(
         { command: 'expect.toHaveText', args: ['x'], timestamp: 999 } as never,
         isRead,
+        0,
         true
       )
 
