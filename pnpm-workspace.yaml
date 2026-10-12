@@ -10,6 +10,7 @@ packages:
   - 'packages/app'
   - 'packages/nightwatch-devtools'
   - 'packages/selenium-devtools'
+  - 'packages/conformance'
   - 'examples/wdio'
   - 'examples/selenium-js'
   - 'examples/nightwatch'
