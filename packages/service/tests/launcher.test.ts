@@ -212,12 +212,38 @@ describe('DevToolsAppLauncher', () => {
 
       expect(remote).toHaveBeenCalledWith(
         expect.objectContaining({
-          capabilities: expect.objectContaining(customCaps)
+          capabilities: expect.objectContaining({ browserName: 'chrome' })
         })
       )
       expect(vi.mocked(remote).mock.calls[0]![0]).not.toHaveProperty(
         'automationProtocol'
       )
+    })
+
+    it('keeps default chromeOptions when the user supplies partial ones', async () => {
+      vi.mocked(backend.start).mockResolvedValue({
+        server: mockServer,
+        port: 3000
+      } as any)
+      vi.mocked(remote).mockResolvedValue(mockBrowser as any)
+
+      const launcher = new DevToolsAppLauncher({
+        port: 3000,
+        devtoolsCapabilities: {
+          'goog:chromeOptions': { args: ['--foo'] }
+        }
+      })
+      await launcher.onPrepare(
+        undefined as never,
+        [{ browserName: 'chrome' }] as any
+      )
+
+      const caps = vi.mocked(remote).mock.calls[0]![0]
+        .capabilities as WebdriverIO.Capabilities
+      expect(caps['goog:chromeOptions']).toEqual({
+        excludeSwitches: ['enable-automation'],
+        args: ['--window-size=1600,1200', '--foo']
+      })
     })
   })
 

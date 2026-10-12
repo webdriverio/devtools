@@ -10,6 +10,33 @@ import type { ServiceOptions, ExtendedCapabilities } from './types.js'
 
 const log = logger('@wdio/devtools-service:Launcher')
 
+const unionInOrder = (base: unknown, extra: unknown): string[] => [
+  ...new Set([
+    ...(Array.isArray(base) ? base : []),
+    ...(Array.isArray(extra) ? extra : [])
+  ])
+]
+
+function mergeLaunchCaps(
+  user: WebdriverIO.Capabilities = {}
+): WebdriverIO.Capabilities {
+  const defaults = DEFAULT_LAUNCH_CAPS['goog:chromeOptions'] ?? {}
+  const userChrome = user['goog:chromeOptions'] ?? {}
+  return {
+    ...DEFAULT_LAUNCH_CAPS,
+    ...user,
+    'goog:chromeOptions': {
+      ...defaults,
+      ...userChrome,
+      args: unionInOrder(defaults.args, userChrome.args),
+      excludeSwitches: unionInOrder(
+        defaults.excludeSwitches,
+        userChrome.excludeSwitches
+      )
+    }
+  }
+}
+
 // On rerun the original CLI process still owns its port-binding services;
 // swallow EADDRINUSE so other services' onPrepare don't fail loudly.
 if (process.env[REUSE_ENV.REUSE] === '1') {
@@ -110,7 +137,7 @@ export class DevToolsAppLauncher {
     }
   }
 
-  async onPrepare(_: never, caps: ExtendedCapabilities[]) {
+  async onPrepare(_config: unknown, caps: ExtendedCapabilities[]) {
     // Stamped here, in the launcher, because workers inherit its environment:
     // every worker this run forks then reports the same run id, which is what
     // stops the backend reading the next spec's worker as a new run.
@@ -146,10 +173,7 @@ export class DevToolsAppLauncher {
         hostname: this.#options.hostname || 'localhost'
       })
       this.#browser = await remote({
-        capabilities: {
-          ...DEFAULT_LAUNCH_CAPS,
-          ...this.#options.devtoolsCapabilities
-        }
+        capabilities: mergeLaunchCaps(this.#options.devtoolsCapabilities)
       })
       await this.#browser.url(`http://localhost:${port}`)
     } catch (err) {
