@@ -187,16 +187,21 @@ export function logRunSummary(ctx: RunLifecycleCtx): void {
   log.info(`   DevTools UI: http://${ctx.options.hostname}:${ctx.options.port}`)
 }
 
+// @wdio/logger types setLevel as string-only; loglevel underneath accepts the numeric level getLevel() returns
+interface WebdriverLoggerApi {
+  (name: string): { getLevel: () => number }
+  setLevel: (name: string, level: string | number) => void
+}
+
 export async function waitForDevtoolsBrowserClose(
   ctx: RunLifecycleCtx
 ): Promise<void> {
   if (!ctx.devtoolsBrowser) {
     return
   }
-  ;(logger as { setLevel: (ns: string, lvl: string) => void }).setLevel(
-    'webdriver',
-    'warn'
-  )
+  const wdLogger = logger as unknown as WebdriverLoggerApi
+  const previousWebdriverLevel = wdLogger('webdriver').getLevel()
+  wdLogger.setLevel('webdriver', 'warn')
   let exitBySignal = false
   const signalHandler = () => {
     exitBySignal = true
@@ -221,10 +226,7 @@ export async function waitForDevtoolsBrowserClose(
   }
   process.removeListener('SIGINT', signalHandler)
   process.removeListener('SIGTERM', signalHandler)
-  ;(logger as { setLevel: (ns: string, lvl: string) => void }).setLevel(
-    'webdriver',
-    'info'
-  )
+  wdLogger.setLevel('webdriver', previousWebdriverLevel)
   try {
     await ctx.devtoolsBrowser.deleteSession()
   } catch {
