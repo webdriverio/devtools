@@ -430,15 +430,13 @@ export default class DevToolsHookService implements Services.ServiceInstance {
   // Tag the scenario's commands with a stable per-step uid so the trace nests
   // them under the step (Feature→Scenario→Step). The uid combines the scenario
   // uid with a per-scenario counter, so repeated step text can't collide.
-  beforeStep(step?: { text?: string; keyword?: string }) {
+  beforeStep(step?: { text?: string }) {
     if (!this.#currentTestUid) {
       return
     }
     this.#currentStepIndex += 1
     const uid = stepMetadataUid(this.#currentTestUid, this.#currentStepIndex)
-    const title =
-      [step?.keyword, step?.text].filter(Boolean).join('').trim() ||
-      `Step ${this.#currentStepIndex}`
+    const title = step?.text?.trim() || `Step ${this.#currentStepIndex}`
     this.#currentStepUid = uid
     this.#testMetadata.set(uid, {
       title,
