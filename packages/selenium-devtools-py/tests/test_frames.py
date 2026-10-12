@@ -49,6 +49,17 @@ class TestFrames(unittest.TestCase):
         )
         self.assertEqual(bad["error"], {"name": "ValueError", "message": "nope"})
 
+    def test_a_webdriver_error_carries_the_browsers_message_not_its_str(self):
+        # Regression: str() gave the Errors tab "Message: ...\nStacktrace: ...".
+        from selenium.common.exceptions import WebDriverException
+
+        error = WebDriverException("net::ERR_FAILED at /broken", stacktrace=["#0 0x55d0"])
+        row = frames.command_log(
+            command="get", args=[], error=error,
+            timestamp=2, start_time=1, call_source=None, command_id=5,
+        )
+        self.assertEqual(row["error"]["message"], "net::ERR_FAILED at /broken")
+
     def test_suite_and_test_stats_are_json_serializable(self):
         t = frames.test_stats(
             uid="n::t", title="t", full_title="m › t", parent="m",
