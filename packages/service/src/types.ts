@@ -4,7 +4,21 @@
 // @wdio/devtools-service/types. New code should import directly from
 // @wdio/devtools-shared.
 
-import type { SnapshotResult } from '@wdio/devtools-core/element-types'
+// Declared here, not imported: @wdio/elements 1.x re-exports this type from a
+// private package it does not install, so the import resolves to `any`.
+interface SnapshotResult {
+  text: string
+  elements: Record<
+    string,
+    {
+      selector: string
+      qualifiedSelector?: string
+      tagName: string
+      role: string
+      text: string
+    }
+  >
+}
 
 export {
   TraceType,

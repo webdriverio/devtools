@@ -62,8 +62,7 @@ export const INTERACTIVE_ROLES = new Set([
 ])
 
 /** The fields of a node this module's helpers read. Deliberately narrower than
- *  `AccessibilityNode` so core's mobile `SnapshotNode` satisfies it too — both
- *  snapshot pipelines share these helpers. */
+ *  `AccessibilityNode` so the web and mobile serializers' nodes both satisfy it. */
 export interface SnapshotFormatNode {
   role: string
   name: string

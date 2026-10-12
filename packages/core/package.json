@@ -24,10 +24,6 @@
       "types": "./src/locators/index.ts",
       "default": "./src/locators/index.ts"
     },
-    "./element-snapshot": {
-      "types": "./src/element-snapshot.ts",
-      "default": "./src/element-snapshot.ts"
-    },
     "./element-scripts": {
       "types": "./src/element-scripts.ts",
       "default": "./src/element-scripts.ts"

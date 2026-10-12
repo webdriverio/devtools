@@ -8,7 +8,7 @@ Element detection and locator generation for WebdriverIO — browser DOM queryin
 npm install @wdio/elements
 ```
 
-Requires `webdriverio` as a peer dependency (^9.0.0).
+Requires `webdriverio` as a peer dependency (^10.0.0).
 
 ## Usage
 
@@ -23,29 +23,26 @@ const result = await getElements(browser, { limit: 50, inViewportOnly: true })
 
 ### Accessibility snapshot (`getSnapshot`)
 
-A single call for web and mobile that returns an AI-readable accessibility/DOM snapshot as a `SnapshotResult` — a text tree with `e1`, `e2`, … virtual element IDs baked in, plus an `elements` map that resolves each ID to a real selector. No post-processing required.
+A single call for web and native sessions that returns the same text as the WebdriverIO CLI's `wdio session snapshot --selectors` (add `--viewport` for `{ viewport: true }`). It is built on `@wdio/snapshot`: each actionable element gets an `eN` ref, and its line ends in `→ <selector>`. The default walks the whole document, so on long pages `{ viewport: true }` is much smaller and faster.
 
 ```ts
 import { getSnapshot } from '@wdio/elements'
 
-const { text, elements } = await getSnapshot(browser, { inViewportOnly: true })
-// text: '[Page: Login — https://…]\n  button "Log in" → //button[contains(., "Log in")]\n  …'
-// elements: { e1: { selector, qualifiedSelector?, tagName, role, text }, … }
+const { text, refs } = await getSnapshot(browser) // full page
+const visible = await getSnapshot(browser, { viewport: true })
+// text: '- button "start" [ref=e1]  → ~start' (one line per node)
+// refs: SnapshotRef[] — { id, candidates, … } for every ref in the text
 ```
 
-Every locator this API returns is portable across WebdriverIO, Selenium and
-Nightwatch: CSS where an id/attribute/class identifies the element uniquely,
-XPath where its text does (WebdriverIO resolves a leading `//` as XPath;
-Selenium takes it via `By.xpath`, Nightwatch via its `'xpath'` locate strategy).
+Web sessions walk the DOM in the page; Android and iOS sessions parse the page source. Errors (`SnapshotError`) propagate instead of returning a placeholder.
 
-The DevTools **per-action trace capture** runs the same scripts but asks for the
-locator in the recording runner's own dialect, so a WebdriverIO trace shows
-`button*=Log in` while a Selenium or Nightwatch one shows the XPath above. Only
-the text branch differs; every other branch is the same portable CSS.
+Differences from the CLI, which keeps session state this function does not have:
 
-It auto-detects platform: web sessions walk the browser accessibility tree, mobile sessions parse the page-source XML. `@wdio/devtools-service` also registers a `browser.getSnapshot()` runtime accessor that calls this directly.
+- No wait for a freshly loaded page to settle before collecting.
+- Iframes are not inlined over BiDi. A cut or cross-origin frame renders as the frame-hint note (`wdio session frame <ref>`).
+- Refs are numbered from `e1` on every call.
 
-This is the snapshot the DevTools **trace player** consumes: the per-action accessibility tree feeds the player's **A11y tab** (roles + accessible names, hover to highlight, click to copy a locator), and the resolved `elements` back the player's **element overlay / pick-locator** (click-to-copy boxes drawn over each interacted element, cross-linked to the A11y rows).
+`@wdio/devtools-service`'s `browser.getSnapshot()` does not call this function: the service is on `webdriverio` 9 and pins `@wdio/elements` 1.x, so it still returns the 1.x `{ text, elements }` shape.
 
 ### Browser
 
@@ -75,24 +72,6 @@ const elements = await getMobileVisibleElements(browser, 'ios', {
 })
 ```
 
-For the raw JSON element tree alongside the flat list:
-
-```ts
-import { getMobileVisibleElementsWithTree } from '@wdio/elements'
-
-const { elements, tree } = await getMobileVisibleElementsWithTree(browser, 'android')
-```
-
-### AI-readable snapshots
-
-```ts
-import { serializeWebSnapshot, serializeMobileSnapshot } from '@wdio/elements'
-
-const snapshot = await serializeWebSnapshot(browser, { includeBounds: true })
-// or
-const snapshot = await serializeMobileSnapshot(browser, 'android', { includeLocators: true })
-```
-
 ### Locator generation
 
 ```ts
@@ -120,11 +99,11 @@ Auto-detects platform and returns a unified result.
 
 ### `getSnapshot(browser, options)`
 
-Auto-detects platform and returns a `SnapshotResult` — `{ text, elements }` — where `text` is the rendered accessibility tree with embedded `e1`, `e2`, … IDs and `elements` maps each ID to a `SnapshotElement` (`selector`, optional `qualifiedSelector` for `.instance(N)` disambiguation, `tagName`, `role`, `text`).
+Returns `GetSnapshotResult` — `{ text, refs }` — where `text` is the rendered tree with `eN` refs and selectors, and `refs` is the `SnapshotRef[]` behind them.
 
 | Param | Type | Default | Description |
 |---|---|---|---|
-| `inViewportOnly` | `boolean` | `true` | Only include elements whose bounds intersect the viewport |
+| `viewport` | `boolean` | `false` | Only include what intersects the viewport; `false` snapshots the full page |
 
 ### `getInteractableBrowserElements(browser, options)`
 
@@ -137,14 +116,6 @@ Single DOM walk returning the accessibility tree as a flat `AccessibilityNode[]`
 ### `getMobileVisibleElements(browser, platform, options)`
 
 Parses page source XML (2 HTTP calls total) and returns elements with generated locators.
-
-### `getMobileVisibleElementsWithTree(browser, platform, options)`
-
-Same as above but also returns the raw `JSONElement` tree.
-
-### `serializeWebSnapshot(browser, options)` / `serializeMobileSnapshot(browser, platform, options)`
-
-Generate AI-readable (TOON-format) snapshots for LLM consumption.
 
 ### `@wdio/elements/locators`
 
@@ -166,9 +137,8 @@ export type {
   MobileElementInfo, GetMobileElementsOptions,
   AccessibilityNode,
   VisibleElementsResult,
-  WebSnapshotOptions, MobileSnapshotOptions,
-  GetSnapshotOptions,
-  SnapshotResult, SnapshotElement
+  GetSnapshotOptions, GetSnapshotResult,
+  CandidateKind, SnapshotCandidate, SnapshotNode, SnapshotRef
 } from '@wdio/elements'
 
 // From @wdio/elements/locators:

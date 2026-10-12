@@ -36,6 +36,7 @@
     "prepublishOnly": "pnpm build"
   },
   "dependencies": {
+    "@wdio/snapshot": "^10.0.2",
     "@xmldom/xmldom": "^0.9.8",
     "xpath": "^0.0.34"
   },
@@ -43,12 +44,12 @@
     "@microsoft/api-extractor": "^7.58.7",
     "@types/node": "26.2.0",
     "@wdio/devtools-core": "workspace:^",
-    "@wdio/globals": "9.29.1",
     "tsup": "^8.5.1",
     "typescript": "6.0.3",
-    "vitest": "^4.0.16"
+    "vitest": "^4.0.16",
+    "webdriverio": "10.0.2"
   },
   "peerDependencies": {
-    "webdriverio": "^9.0.0"
+    "webdriverio": "^10.0.0"
   }
 }

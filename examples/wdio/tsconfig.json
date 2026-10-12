@@ -12,7 +12,8 @@
             "@wdio/globals/types",
             "expect-webdriverio",
             "@wdio/cucumber-framework",
-            "@wdio/mocha-framework"
+            "@wdio/mocha-framework",
+            "@wdio/elements"
         ],
         "skipLibCheck": true,
         "noEmit": true,

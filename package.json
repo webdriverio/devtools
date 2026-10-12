@@ -38,8 +38,19 @@
     "overrides": {
       "vite": "^8.0.7",
       "@types/node": "26.2.0",
-      "@codemirror/state": "6.5.4"
-    }
+      "@codemirror/state": "6.5.4",
+      "expect-webdriverio@6>@wdio/logger": "9.29.1"
+    },
+    "ignoredBuiltDependencies": [
+      "@nightwatch/nightwatch-inspector"
+    ],
+    "onlyBuiltDependencies": [
+      "@swc/core",
+      "edgedriver",
+      "esbuild",
+      "geckodriver",
+      "unrs-resolver"
+    ]
   },
   "devDependencies": {
     "@changesets/cli": "^2.31.0",
