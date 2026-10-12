@@ -48,7 +48,7 @@
     "@wdio/devtools-backend": "workspace:^",
     "@wdio/devtools-script": "workspace:^",
     "@wdio/elements": "workspace:^",
-    "@wdio/logger": "10.0.0",
+    "@wdio/logger": "^10.0.0",
     "@wdio/reporter": "10.0.1",
     "@wdio/types": "10.0.1",
     "@xmldom/xmldom": "^0.9.8",
@@ -79,7 +79,7 @@
   },
   "peerDependencies": {
     "@wdio/allure-reporter": "^10.0.0",
-    "@wdio/protocols": "10.0.2",
+    "@wdio/protocols": "^10.0.0",
     "puppeteer-core": ">=24 <26",
     "webdriverio": "^10.0.0"
   },

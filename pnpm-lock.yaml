@@ -295,7 +295,7 @@ importers:
         specifier: workspace:^
         version: link:../script
       '@wdio/logger':
-        specifier: 10.0.0
+        specifier: ^10.0.0
         version: 10.0.0
       fastify:
         specifier: ^5.8.5
@@ -573,7 +573,7 @@ importers:
         specifier: workspace:^
         version: link:../elements
       '@wdio/logger':
-        specifier: 10.0.0
+        specifier: ^10.0.0
         version: 10.0.0
       '@wdio/reporter':
         specifier: 10.0.1
