@@ -12,20 +12,7 @@ export interface TestEntry {
   suiteType?: string
 }
 
-export interface RunCapabilities {
-  canRunSuites: boolean
-  canRunTests: boolean
-  canRunAll: boolean
-}
-
-export interface RunnerOptions {
-  framework?: string
-  configFile?: string
-  configFilePath?: string
-  runCapabilities?: Partial<RunCapabilities>
-  rerunCommand?: string
-  launchCommand?: string
-}
+export type { RunCapabilities, RunnerOptions } from '@wdio/devtools-shared'
 
 export interface TestRunDetail {
   uid: string
