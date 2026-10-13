@@ -41,10 +41,11 @@ describe('decorateSelector', () => {
     expect(log.selector).toBe('#link')
   })
 
-  it('prepends the selector for setValue so params read {selector, value}', () => {
+  it('prepends the selector for setValue so params read {selector, value}, and stamps it as every adapter does', () => {
     const log = entry('setValue', ['foobar'])
     decorateSelector(log, 'setValue', log.args, '#username')
     expect(log.args).toEqual(['#username', 'foobar'])
+    expect(log.selector).toBe('#username')
   })
 
   it('leaves an unrelated command untouched', () => {
