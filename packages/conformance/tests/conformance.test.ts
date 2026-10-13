@@ -31,6 +31,10 @@ describe.each(ADAPTERS.map((a) => a.id))('%s', (id) => {
     (bidi) => {
       const run = reportFor(id, bidi)
       expect(run?.exitCode, run?.output).toBe(0)
+      expect(
+        run?.checkerError,
+        'the checker could not read this stream'
+      ).toBeUndefined()
       expect(run?.truth.documents.length).toBe(3)
       expect(run?.unexplained).toEqual([])
       expect(run?.stale, 'a known gap no longer occurs: remove it').toEqual([])
@@ -42,7 +46,7 @@ describe('adapters agree', () => {
   it.skipIf(active.size < 2).each(MODES)(
     'tell the same story for the same scenario (bidi: %s)',
     (bidi) => {
-      const runs = reports.filter((r) => r.bidi === bidi)
+      const runs = reports.filter((r) => r.bidi === bidi && !r.checkerError)
       const { unexplained } = judgeDivergences(compareRuns(runs), runs)
       expect(unexplained).toEqual([])
     }
