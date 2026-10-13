@@ -1,9 +1,6 @@
-/** Plain-object shape of an Error after `serializeError`. */
-export interface SerializedError {
-  name: string
-  message: string
-  stack?: string
-}
+import type { SerializedError } from '@wdio/devtools-shared'
+
+export type { SerializedError }
 
 /**
  * Coerce an unknown value (caught exception, framework-supplied error
