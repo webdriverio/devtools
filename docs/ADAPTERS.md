@@ -39,7 +39,7 @@ What an adapter must not do: re-implement the trace transforms, invent scope nam
 - Optional fields are omitted, never sent as `null` (the schema rejects `null` for an optional field).
 - Your own scripts (collector injection, drains, screenshots) must not appear as rows.
 
-To enrich a row after the fact (navigation timings, for example), send `replaceCommand` with `{oldTimestamp, command}`. The backend and app match on `timestamp`, not on `id`, so keep row timestamps distinct.
+To enrich a row after the fact (navigation timings, for example), send `replaceCommand` with `{oldTimestamp, command}`. Preserve the original row's `id`: the backend and app match a numeric `id` first, then fall back to the last row with `oldTimestamp`. If neither matches, they append the replacement as a new row.
 
 **Pitfall already hit.** Two JS adapters stamped `timestamp` with the invocation clock while the page's mutation stream runs on real time, so a fill row replayed an empty field and a navigation row replayed the page it had just left (CLAUDE.md Known debt: "A command row is stamped at COMPLETION").
 
