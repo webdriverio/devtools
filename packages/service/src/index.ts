@@ -60,7 +60,7 @@ import {
 import { inPageProbesDeadlock, isAppiumSession } from './mobile.js'
 import { resolveSessionMetadata } from './session-metadata.js'
 import { stampRunnerMetadata } from './wdio-runner-id.js'
-import { detectInvocationConfigPath } from './standalone.js'
+import { publishConfigFile } from './standalone.js'
 
 export * from './types.js'
 export const launcher = DevToolsAppLauncher
@@ -238,6 +238,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     )
     this.#sessionCapturer.traceMode = this.#options.mode ?? 'live'
     stampRunnerMetadata(this.#sessionCapturer, browser, this.captureType)
+    publishConfigFile(this.#sessionCapturer)
 
     if (this.#options.captureAssertions !== false) {
       wireAssertCapture(
@@ -323,13 +324,6 @@ export default class DevToolsHookService implements Services.ServiceInstance {
       throw new SevereServiceError(
         'The DevTools hook does not support multiremote yet'
       )
-    }
-
-    const detectedConfig = detectInvocationConfigPath()
-    if (detectedConfig) {
-      this.#sessionCapturer.sendUpstream('config', {
-        configFile: detectedConfig
-      })
     }
 
     if ('reporters' in config) {

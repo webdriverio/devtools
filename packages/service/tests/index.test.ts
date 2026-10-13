@@ -144,6 +144,22 @@ describe('DevtoolsService - Internal Command Filtering', () => {
     })
   })
 
+  describe('config frame', () => {
+    // Regression: sent from beforeSession on a capturer with no socket, so it was dropped every run.
+    it('sends the config file on the capturer before() creates', async () => {
+      process.env.DEVTOOLS_WDIO_CONFIG = '/project/wdio.conf.ts'
+      try {
+        await service.before({} as any, [], mockBrowser)
+      } finally {
+        delete process.env.DEVTOOLS_WDIO_CONFIG
+      }
+      expect(mockSessionCapturerInstance.sendUpstream).toHaveBeenCalledWith(
+        'config',
+        { configFile: '/project/wdio.conf.ts' }
+      )
+    })
+  })
+
   describe('afterCommand - internal command filtering', () => {
     beforeEach(async () => {
       await service.before({} as any, [], mockBrowser)
