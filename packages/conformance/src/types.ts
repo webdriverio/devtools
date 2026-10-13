@@ -54,7 +54,8 @@ export interface RecordedStream {
   anchors: TraceMutation[]
 }
 
-export type AdapterId = 'selenium-devtools' | 'selenium-devtools-py'
+export type AdapterId =
+  'selenium-devtools' | 'selenium-devtools-py' | 'nightwatch-devtools'
 
 /** One user-visible action, as the dashboard would present it. */
 export interface NormalizedStep {

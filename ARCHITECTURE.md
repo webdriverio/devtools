@@ -198,7 +198,7 @@ Every run, passing or failing, dumps its frames, ground truth, violations and sc
 
 Beside the rules, the adapters are compared with each other: each run is reduced to what a dashboard user sees (steps, outcomes, the page each step replays, snapshots, run controls) and any difference between adapters in the same mode fails unless a declared gap explains it. The rules catch every adapter being wrong in the same way; the comparison catches a difference no rule anticipated. Adapters are registered once in `src/adapters.ts`.
 
-Covers `selenium-devtools` and `selenium-devtools-py`. The WDIO service and Nightwatch have no scenario yet. The fake emits no BiDi events, so console and network capture are not checked.
+Covers `selenium-devtools`, `selenium-devtools-py` and `nightwatch-devtools`; the WDIO service has no scenario yet. Nightwatch runs through its own CLI against a config under `scenarios/nightwatch/`, which is the shape a runner-based adapter takes. The fake emits no BiDi events, so console and network capture are not checked.
 
 ### `examples/`
 

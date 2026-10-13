@@ -47,8 +47,11 @@ describe('adapters agree', () => {
     'tell the same story for the same scenario (bidi: %s)',
     (bidi) => {
       const runs = reports.filter((r) => r.bidi === bidi && !r.checkerError)
-      const { unexplained } = judgeDivergences(compareRuns(runs), runs)
+      const { unexplained, stale } = judgeDivergences(compareRuns(runs), runs)
       expect(unexplained).toEqual([])
+      expect(stale, 'a known difference no longer occurs: remove it').toEqual(
+        []
+      )
     }
   )
 })
