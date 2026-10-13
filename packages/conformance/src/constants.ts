@@ -25,7 +25,7 @@ export const RULES = {
   errorCarriesBrowserMessage: 'error-row-carries-browser-message',
   replaceTargetsRow: 'replace-targets-a-sent-row',
   rowPerAction: 'one-row-per-browser-action',
-  runControlsHaveCommand: 'run-controls-have-a-command',
+  runControlsServed: 'run-controls-are-served',
   agreeOnActions: 'adapters-agree-on-actions',
   agreeOnErrors: 'adapters-agree-on-errors',
   agreeOnPages: 'adapters-agree-on-pages',
