@@ -2,18 +2,19 @@ import type { Server } from 'node:http'
 
 import { WebSocketServer, type WebSocket } from 'ws'
 
-import { BIDI_PATH, BIDI_RESULTS, COLLECTOR_SIGNATURE } from './constants.js'
+import { BIDI_PATH } from './constants.js'
+import type { BidiCommandHandler } from './types.js'
 
 interface Command {
   id: number
   method: string
-  params?: { functionDeclaration?: string }
+  params?: Record<string, unknown>
 }
 
-/** A BiDi endpoint that acknowledges every command and emits no events; reports when the collector is registered as a preload. */
+/** A BiDi endpoint over the fake browser: `onCommand` answers every command, and no events are emitted. */
 export function attachFakeBidi(
   server: Server,
-  onPreload: () => void
+  onCommand: BidiCommandHandler
 ): () => void {
   const wss = new WebSocketServer({ noServer: true })
   server.on('upgrade', (req, socket, head) => {
@@ -21,7 +22,7 @@ export function attachFakeBidi(
       socket.destroy()
       return
     }
-    wss.handleUpgrade(req, socket, head, (ws) => answer(ws, onPreload))
+    wss.handleUpgrade(req, socket, head, (ws) => answer(ws, onCommand))
   })
   return () => {
     for (const client of wss.clients) {
@@ -31,22 +32,36 @@ export function attachFakeBidi(
   }
 }
 
-function answer(ws: WebSocket, onPreload: () => void): void {
-  ws.on('message', (raw) => {
+function answer(ws: WebSocket, onCommand: BidiCommandHandler): void {
+  ws.on('message', async (raw) => {
     const { id, method, params } = JSON.parse(String(raw)) as Command
-    // Only the collector's own source counts; an unrelated preload instruments nothing.
-    if (
-      method === 'script.addPreloadScript' &&
-      COLLECTOR_SIGNATURE.test(params?.functionDeclaration ?? '')
-    ) {
-      onPreload()
-    }
+    const reply = await onCommand(method, params ?? {})
     ws.send(
-      JSON.stringify({
-        type: 'success',
-        id,
-        result: BIDI_RESULTS[method] ?? {}
-      })
+      JSON.stringify(
+        'error' in reply
+          ? { type: 'error', id, error: reply.error, message: reply.message }
+          : { type: 'success', id, result: reply.result }
+      )
     )
   })
+}
+
+/** A script result in BiDi's remote-value form, as a browser serialises what a function returned. */
+export function remoteValue(value: unknown): Record<string, unknown> {
+  if (value === null) {
+    return { type: 'null' }
+  }
+  if (value === undefined) {
+    return { type: 'undefined' }
+  }
+  if (Array.isArray(value)) {
+    return { type: 'array', value: value.map(remoteValue) }
+  }
+  if (typeof value === 'object') {
+    return {
+      type: 'object',
+      value: Object.entries(value).map(([key, v]) => [key, remoteValue(v)])
+    }
+  }
+  return { type: typeof value, value }
 }

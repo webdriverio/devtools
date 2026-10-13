@@ -59,7 +59,10 @@ export interface RecordedStream {
 }
 
 export type AdapterId =
-  'selenium-devtools' | 'selenium-devtools-py' | 'nightwatch-devtools'
+  | 'devtools-service'
+  | 'selenium-devtools'
+  | 'selenium-devtools-py'
+  | 'nightwatch-devtools'
 
 /** One user-visible action, as the dashboard would present it. */
 export interface NormalizedStep {
@@ -109,8 +112,19 @@ export interface ScenarioLaunch {
   command: string
   args: string[]
   env?: NodeJS.ProcessEnv
+  /** Where to run from, for a runner that resolves its own plugins from the working directory; the repo root otherwise. */
+  cwd?: string
   cleanup?: () => void
 }
+
+/** What the fake browser answers a BiDi command with: a result, or the error a driver would raise. */
+export type BidiAnswer =
+  { result: unknown } | { error: string; message: string }
+
+export type BidiCommandHandler = (
+  method: string,
+  params: Record<string, unknown>
+) => Promise<BidiAnswer>
 
 /** What a broken rule means and where to look, shown beside a failing run. */
 export interface RuleGuide {
