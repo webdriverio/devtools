@@ -306,8 +306,7 @@ class SeleniumDevToolsPlugin {
       isReuse: this.#isReuse,
       backendStarting: this.#backendStartPromise !== undefined
     })
-    const warning = applyConfigureOptions(this.#options, opts, lock)
-    if (warning) {
+    for (const warning of applyConfigureOptions(this.#options, opts, lock)) {
       log.warn(warning)
     }
     if (opts.screencast) {
