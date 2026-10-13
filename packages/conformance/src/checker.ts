@@ -10,6 +10,7 @@ import {
 
 import { ACTION_METHODS, RULES, SCOPES } from './constants.js'
 import type {
+  ActionMethod,
   GroundTruth,
   RecordedStream as Stream,
   Violation,
@@ -25,7 +26,7 @@ export function checkConformance(
     ...metadataFirst(stream),
     ...completionStamp(stream, truth),
     ...anchors(stream, truth),
-    ...navigationShowsDestination(stream),
+    ...rowReplaysPage(stream, truth),
     ...failureRecorded(stream, truth),
     ...replaceTargetsRow(stream),
     ...rowPerAction(stream, truth),
@@ -111,7 +112,11 @@ function anchors(stream: Stream, truth: GroundTruth): Violation[] {
       out.push({
         rule: RULES.anchorBirthTime,
         message: `anchor for ${anchor.url} at ${anchor.timestamp} matches no document born then`,
-        subject: { kind: 'anchor', timestamp: anchor.timestamp }
+        subject: {
+          kind: 'anchor',
+          timestamp: anchor.timestamp,
+          url: anchor.url
+        }
       })
       continue
     }
@@ -122,38 +127,57 @@ function anchors(stream: Stream, truth: GroundTruth): Violation[] {
       out.push({
         rule: RULES.documentAnchored,
         message: `document ${doc.url} born at ${doc.bornAt} has no anchor`,
-        subject: { kind: 'document', timestamp: doc.bornAt }
+        subject: { kind: 'document', timestamp: doc.bornAt, url: doc.url }
       })
     } else if (counts[i] > 1) {
       out.push({
         rule: RULES.anchorOnce,
         message: `document ${doc.url} born at ${doc.bornAt} has ${counts[i]} anchors`,
-        subject: { kind: 'document', timestamp: doc.bornAt }
+        subject: { kind: 'document', timestamp: doc.bornAt, url: doc.url }
       })
     }
   })
   return out
 }
 
-function navigationShowsDestination(stream: Stream): Violation[] {
-  const out: Violation[] = []
-  for (const row of stream.rows) {
-    const target = navigationTarget(row)
-    if (!target || row.error) {
-      continue
+// Every action row replays the document the browser was on when that action completed, not only navigations.
+function rowReplaysPage(stream: Stream, truth: GroundTruth): Violation[] {
+  const seen: Record<ActionMethod, number> = { navigate: 0, click: 0, fill: 0 }
+  return stream.rows.flatMap((row): Violation[] => {
+    const method = actionMethodOf(row)
+    if (!method) {
+      return []
+    }
+    const completed = truth.actions[method][seen[method]++]
+    const current = truth.documents
+      .filter((d) => completed !== undefined && d.bornAt <= completed)
+      .at(-1)
+    // An extra row is rowPerAction's finding, and a row before any document has nothing to replay.
+    if (completed === undefined || !current) {
+      return []
     }
     const shown = stream.anchors
       .filter((a) => a.timestamp <= row.timestamp)
       .at(-1)
-    if (shown?.url !== target) {
-      out.push({
-        rule: RULES.navigationShowsDestination,
-        message: `${row.command}(${target}) at ${row.timestamp} replays ${shown?.url ?? 'no document'}`,
-        ...rowSubject(row)
-      })
+    if (shown?.url === current.url) {
+      return []
     }
-  }
-  return out
+    const target = navigationTarget(row) ?? row.selector ?? ''
+    return [
+      {
+        rule: RULES.rowReplaysPage,
+        message: `${row.command}(${target}) at ${row.timestamp} replays ${shown?.url ?? 'no document'}; the browser was on ${current.url}`,
+        ...rowSubject(row)
+      }
+    ]
+  })
+}
+
+function actionMethodOf(row: CommandLog): ActionMethod | undefined {
+  const method = mapCommandToAction(row.command)?.method
+  return (ACTION_METHODS as readonly string[]).includes(method ?? '')
+    ? (method as ActionMethod)
+    : undefined
 }
 
 function failureRecorded(stream: Stream, truth: GroundTruth): Violation[] {

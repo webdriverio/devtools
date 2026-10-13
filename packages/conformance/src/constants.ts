@@ -19,7 +19,7 @@ export const RULES = {
   anchorBirthTime: 'anchor-carries-birth-time',
   documentAnchored: 'every-document-anchored',
   anchorOnce: 'one-anchor-per-document',
-  navigationShowsDestination: 'navigation-row-shows-destination',
+  rowReplaysPage: 'row-replays-its-page',
   failureRecorded: 'failed-command-has-error-row',
   errorCarriesBrowserMessage: 'error-row-carries-browser-message',
   replaceTargetsRow: 'replace-targets-a-sent-row',

@@ -84,10 +84,7 @@ describe('checkConformance', () => {
     const frames = conformingStream()
     frames[5] = { scope: 'commands', data: [row('get', [SECURE], 290, 290)] }
     expect(rules(frames)).toEqual(
-      expect.arrayContaining([
-        RULES.navigationShowsDestination,
-        RULES.completionStamp
-      ])
+      expect.arrayContaining([RULES.rowReplaysPage, RULES.completionStamp])
     )
   })
 
@@ -249,5 +246,17 @@ describe('checkConformance', () => {
     const frames = conformingStream()
     frames[2] = { scope: 'mutations', data: [anchor(LOGIN, 99)] }
     expect(rules(frames)).toContain(RULES.anchorBirthTime)
+  })
+
+  // The reviewer's case: a fill stamped after a later navigation replays that page, with its timestamps consistent.
+  it('flags a row stamped after a later navigation, which replays a page the browser was not on', () => {
+    const frames = [
+      ...conformingStream(),
+      { scope: 'commands', data: [row('sendKeys', ['x'], 240, 310)] }
+    ]
+    const typed = { ...truth, actions: { ...truth.actions, fill: [250] } }
+    expect(checkConformance(frames, typed).map((v) => v.rule)).toEqual([
+      RULES.rowReplaysPage
+    ])
   })
 })
