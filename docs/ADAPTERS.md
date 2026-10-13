@@ -247,6 +247,7 @@ Defined in `src/checker.ts`, names in `RULES` (`src/constants.ts`):
 | `every-document-anchored` | Every document the fake created has an anchor. |
 | `one-anchor-per-document` | No document has more than one anchor. |
 | `row-replays-its-page` | For each navigate, click or fill row, the latest anchor at or before its `timestamp` is the document the browser was on when that action completed: a navigation row shows its destination, and a fill stamped after a later navigation is caught. |
+| `navigation-row-names-its-destination` | A successful navigation row's url (bare, or W3C `{url}`) is the document the browser loaded when it completed. |
 | `failed-command-has-error-row` | Every navigation that failed in the browser has a row carrying `error`. |
 | `replace-targets-a-sent-row` | Every `replaceCommand.oldTimestamp` names a row already sent. |
 | `one-row-per-browser-action` | The number of `navigate`, `click` and `fill` rows equals what the fake browser received, after applying `replaceCommand` the way the dashboard does (shared `replaceCommand`: by `id`, then the last row with the old timestamp). |

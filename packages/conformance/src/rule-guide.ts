@@ -41,6 +41,13 @@ export const RULE_GUIDE: Record<RuleId, RuleGuide> = {
       'The row is stamped at a moment other than its completion, or the page was never anchored (check every-document-anchored first).',
     responsibility: 'command-interception'
   },
+  'navigation-row-names-its-destination': {
+    meaning:
+      'A navigation row names a page other than the one the browser loaded for it.',
+    cause:
+      'The url the row carries is read from the wrong argument, or rewritten by the binding before capture.',
+    responsibility: 'command-interception'
+  },
   'failed-command-has-error-row': {
     meaning:
       'A command failed in the browser, but no row carries the error, so the dashboard shows it as a success or not at all.',

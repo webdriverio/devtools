@@ -20,6 +20,7 @@ export const RULES = {
   documentAnchored: 'every-document-anchored',
   anchorOnce: 'one-anchor-per-document',
   rowReplaysPage: 'row-replays-its-page',
+  navigationNamesDestination: 'navigation-row-names-its-destination',
   failureRecorded: 'failed-command-has-error-row',
   errorCarriesBrowserMessage: 'error-row-carries-browser-message',
   replaceTargetsRow: 'replace-targets-a-sent-row',
