@@ -18,21 +18,30 @@ import type { AdapterScenario, RunReport, ScenarioRun } from './types.js'
 export async function runScenario(
   command: string,
   args: string[],
-  { env = {}, bidi }: { env?: NodeJS.ProcessEnv; bidi: boolean }
+  {
+    env = {},
+    bidi,
+    timeoutMs = SCENARIO_TIMEOUT_MS
+  }: { env?: NodeJS.ProcessEnv; bidi: boolean; timeoutMs?: number }
 ): Promise<ScenarioRun> {
   const driver = await FakeWebDriver.start({ bidi })
   const backend = await RecordingBackend.start()
   try {
-    const { exitCode, output } = await run(command, args, {
-      ...process.env,
-      ...env,
-      [REUSE_ENV.REUSE]: '1',
-      [REUSE_ENV.HOST]: backend.host,
-      [REUSE_ENV.PORT]: String(backend.port),
-      [SCENARIO_ENV.webdriver]: driver.origin,
-      [SCENARIO_ENV.login]: driver.url('/login'),
-      [SCENARIO_ENV.broken]: driver.url(BROKEN_PATH)
-    })
+    const { exitCode, output } = await run(
+      command,
+      args,
+      {
+        ...process.env,
+        ...env,
+        [REUSE_ENV.REUSE]: '1',
+        [REUSE_ENV.HOST]: backend.host,
+        [REUSE_ENV.PORT]: String(backend.port),
+        [SCENARIO_ENV.webdriver]: driver.origin,
+        [SCENARIO_ENV.login]: driver.url('/login'),
+        [SCENARIO_ENV.broken]: driver.url(BROKEN_PATH)
+      },
+      timeoutMs
+    )
     return {
       frames: [...backend.frames],
       truth: driver.truth(),
@@ -74,7 +83,7 @@ export async function runAdapter(
       truth: {
         documents: [],
         failedNavigations: [],
-        actions: { navigate: 0, click: 0, fill: 0 }
+        actions: { navigate: [], click: [], fill: [] }
       },
       violations: [],
       unexplained: [],
@@ -88,21 +97,19 @@ export async function runAdapter(
 function run(
   command: string,
   args: string[],
-  env: NodeJS.ProcessEnv
+  env: NodeJS.ProcessEnv,
+  timeoutMs: number
 ): Promise<{ exitCode: number | null; output: string }> {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { cwd: REPO_ROOT, env })
     let output = ''
     child.stdout.on('data', (d) => (output += d))
     child.stderr.on('data', (d) => (output += d))
+    // Killed, not rejected: the frames recorded before a hang are the evidence of it.
     const timer = setTimeout(() => {
+      output += `\nscenario timed out after ${timeoutMs} ms`
       child.kill('SIGKILL')
-      reject(
-        new Error(
-          `scenario timed out after ${SCENARIO_TIMEOUT_MS} ms:\n${output}`
-        )
-      )
-    }, SCENARIO_TIMEOUT_MS)
+    }, timeoutMs)
     child.on('error', reject)
     child.on('close', (exitCode) => {
       clearTimeout(timer)
