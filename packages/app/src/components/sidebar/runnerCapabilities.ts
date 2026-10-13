@@ -10,7 +10,11 @@
  * forever. A run that can be started must always be stoppable.
  */
 
-import type { Metadata } from '@wdio/devtools-shared'
+import {
+  resolveRunCapabilities,
+  runnerOf,
+  type Metadata
+} from '@wdio/devtools-shared'
 import type {
   RunCapabilities,
   RunnerOptions,
@@ -18,8 +22,6 @@ import type {
   TestRunDetail
 } from './types.js'
 import {
-  DEFAULT_CAPABILITIES,
-  FRAMEWORK_CAPABILITIES,
   RUN_ALL_REFUSAL,
   RUN_ALL_UID,
   SINGLE_TEST_REFUSAL,
@@ -43,18 +45,13 @@ export function getRunnerOptions(
 export function getFramework(
   metadata: Metadata | undefined
 ): string | undefined {
-  return metadata?.runner ?? getRunnerOptions(metadata)?.framework
+  return runnerOf(metadata)
 }
 
 export function getRunCapabilities(
   metadata: Metadata | undefined
 ): RunCapabilities {
-  const options = getRunnerOptions(metadata)
-  if (options?.runCapabilities) {
-    return { ...DEFAULT_CAPABILITIES, ...options.runCapabilities }
-  }
-  const framework = getFramework(metadata)?.toLowerCase() ?? ''
-  return FRAMEWORK_CAPABILITIES[framework] || DEFAULT_CAPABILITIES
+  return resolveRunCapabilities(metadata)
 }
 
 export function isRunDisabled(
