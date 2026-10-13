@@ -68,6 +68,40 @@ export const RULE_GUIDE: Record<RuleId, RuleGuide> = {
       'Run capabilities are declared without building launchCommand or rerunCommand. Derive capabilities from the commands that exist.',
     responsibility: 'transport'
   },
+  'adapters-agree-on-actions': {
+    meaning:
+      'For the same scenario, the adapters report a different sequence of user actions.',
+    cause:
+      'One adapter skips, adds or misnames a command; compare the two columns in the agreement table.',
+    responsibility: 'command-interception'
+  },
+  'adapters-agree-on-errors': {
+    meaning:
+      'The same step succeeded in one adapter and failed in another, or failed with different text.',
+    cause:
+      'One adapter reports the error differently: a decorated message, or a failure it never reports.',
+    responsibility: 'command-interception'
+  },
+  'adapters-agree-on-pages': {
+    meaning:
+      'Replaying the same step shows a different page in different adapters.',
+    cause:
+      'One adapter stamps the row at a different moment, or anchors the page at a different time or not at all.',
+    responsibility: 'collector'
+  },
+  'adapters-agree-on-snapshots': {
+    meaning: 'The adapters captured full-page snapshots of different pages.',
+    cause:
+      'One adapter drains or injects the collector at different moments, or does not force the anchor.',
+    responsibility: 'collector'
+  },
+  'adapters-agree-on-run-controls': {
+    meaning:
+      'The adapters offer different Run buttons, or one has no command behind them.',
+    cause:
+      'Run capabilities are declared differently; derive them from the commands each adapter builds.',
+    responsibility: 'transport'
+  },
   'one-row-per-browser-action': {
     meaning:
       'The rows do not match what the browser did: a navigation, click or keystroke is missing or appears twice.',

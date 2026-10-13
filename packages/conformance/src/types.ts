@@ -54,6 +54,43 @@ export interface RecordedStream {
 
 export type AdapterId = 'selenium-devtools' | 'selenium-devtools-py'
 
+/** One user-visible action, as the dashboard would present it. */
+export interface NormalizedStep {
+  /** Shared's action name (`Page.navigate`, `Element.fill`), so adapters' command names compare equal. */
+  action: string
+  target: string
+  outcome: string
+  /** The page a replay of this step shows. */
+  page: string
+}
+
+export interface NormalizedRun {
+  steps: NormalizedStep[]
+  /** The page each DOM anchor belongs to, in order. */
+  snapshots: string[]
+  runControls: string
+}
+
+/** Two adapters told different stories about the same scenario. */
+export interface Divergence extends Violation {
+  adapters: [AdapterId, AdapterId]
+}
+
+/** How the conformance suite launches one adapter's scenario. */
+export interface AdapterScenario {
+  id: AdapterId
+  /** False only locally, when a prerequisite (a build, an interpreter) is missing; CI must not skip. */
+  ready(): boolean
+  prepare(): ScenarioLaunch
+}
+
+export interface ScenarioLaunch {
+  command: string
+  args: string[]
+  env?: NodeJS.ProcessEnv
+  cleanup?: () => void
+}
+
 /** What a broken rule means and where to look, shown beside a failing run. */
 export interface RuleGuide {
   meaning: string

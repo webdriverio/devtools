@@ -4,7 +4,12 @@ export const KNOWN_GAPS: KnownGap[] = [
   {
     adapter: 'selenium-devtools',
     bidi: false,
-    rules: ['every-document-anchored', 'navigation-row-shows-destination'],
+    rules: [
+      'every-document-anchored',
+      'navigation-row-shows-destination',
+      'adapters-agree-on-pages',
+      'adapters-agree-on-snapshots'
+    ],
     reason:
       'Without BiDi the collector is appended as a <script> after a readiness poll, so a document the test leaves within tens of ms is never anchored. CLAUDE.md Known debt: "Document-start injection is what removes the whole race class".',
     timingDependent: true
