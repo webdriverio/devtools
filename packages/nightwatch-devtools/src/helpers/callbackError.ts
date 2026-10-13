@@ -19,20 +19,28 @@ export function callbackError(result: unknown, depth = 0): Error | undefined {
     return undefined
   }
   const r = result as Record<string, unknown>
+  if ('passed' in r) {
+    return undefined
+  }
+  // A failed protocol action (a navigation the browser refused) arrives as
+  // `{status: -1, value: null, error}` with the Error itself under `error`, so
+  // the wrapper is read before descending: read `value` first, the null hid it.
+  if (r.error instanceof Error) {
+    return r.error
+  }
+  if (r.error) {
+    const err = new Error(String(r.message ?? r.error))
+    if (typeof r.stack === 'string') {
+      err.stack = r.stack
+    }
+    return err
+  }
   // W3C driver responses nest their payload under `value` and Nightwatch passes
-  // that wrapper through untouched, so the failure sits one level down — reading
-  // only the top level found no `error` and the row stayed green. Depth-bounded:
-  // this runs inside the command hook, so a self-referencing result must not be
-  // able to overflow the stack and take the user's test down with it.
+  // that wrapper through untouched, so a driver failure sits one level down.
+  // Depth-bounded: this runs inside the command hook, so a self-referencing
+  // result must not be able to overflow the stack and take the test down.
   if ('value' in r) {
     return depth < 2 ? callbackError(r.value, depth + 1) : undefined
   }
-  if ('passed' in r || !r.error) {
-    return undefined
-  }
-  const err = new Error(String(r.message ?? r.error))
-  if (typeof r.stack === 'string') {
-    err.stack = r.stack
-  }
-  return err
+  return undefined
 }
