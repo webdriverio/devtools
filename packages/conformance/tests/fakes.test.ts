@@ -142,4 +142,24 @@ ws.on('open', () => ws.send(JSON.stringify({ scope: 'commands', data: {} }), () 
     expect(report.checkerError).toContain('not an array')
     expect(report.frames).toEqual([{ scope: 'commands', data: {} }])
   })
+
+  // Nightwatch's transport re-issues a refused navigation on its own, with the adapter's own reads in between.
+  it("counts a client's retries of a refused navigation as the one action the user issued", async () => {
+    const driver = await start(false)
+    await session(driver)
+    const navigate = (path: string) =>
+      call(driver, 'POST', '/session/conformance/url', {
+        url: driver.url(path)
+      })
+    await navigate('/login')
+    await navigate('/broken')
+    await navigate('/broken')
+    await call(driver, 'GET', '/session/conformance/url')
+    await navigate('/broken')
+    await navigate('/login')
+    await navigate('/broken')
+    const truth = driver.truth()
+    expect(truth.actions.navigate).toHaveLength(4)
+    expect(truth.failedNavigations).toHaveLength(2)
+  })
 })

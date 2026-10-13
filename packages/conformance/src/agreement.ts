@@ -1,9 +1,10 @@
-import { gapsFor } from './allowlist.js'
+import { explainingGap, gapsFor, isAgreementRule } from './allowlist.js'
 import { RULES } from './constants.js'
 import { normalizeRun, pathOf } from './normalize.js'
 import type {
   AdapterId,
   Divergence,
+  KnownGap,
   NormalizedRun,
   NormalizedStep,
   RuleId,
@@ -106,11 +107,11 @@ function describeAt(i: number, a: string[], b: string[]): string {
   return `step ${i + 1} is ${a[i] ?? '(nothing)'} vs ${b[i] ?? '(nothing)'} (${a.length} vs ${b.length} steps)`
 }
 
-/** A divergence is explained only by a gap occurring on that very subject, with the other adapter clean there. */
+/** A divergence is explained only by a gap occurring on that very subject, unless the other side declares its own. */
 export function judgeDivergences(
   divergences: Divergence[],
   runs: RunReport[]
-): { unexplained: Divergence[]; explained: Divergence[] } {
+): { unexplained: Divergence[]; explained: Divergence[]; stale: KnownGap[] } {
   const readable = runs.filter((r) => !r.checkerError)
   const normalized = new Map(
     readable.map((r) => [r.adapter, normalizeRun(r.frames)] as const)
@@ -123,9 +124,23 @@ export function judgeDivergences(
       )
       return run && other ? gapExplains(d, run, other, normalized) : false
     })
+  // A gap whose comparison rules matched no difference no longer holds, which judge() cannot see.
+  const stale = readable.flatMap((run) =>
+    gapsFor(run.adapter, run.bidi).filter((g) => {
+      const own = g.rules.filter(isAgreementRule)
+      return (
+        !g.timingDependent &&
+        own.length > 0 &&
+        !divergences.some(
+          (d) => d.adapters.includes(run.adapter) && own.includes(d.rule)
+        )
+      )
+    })
+  )
   return {
     unexplained: divergences.filter((d) => !explainedBy(d)),
-    explained: divergences.filter(explainedBy)
+    explained: divergences.filter(explainedBy),
+    stale
   }
 }
 
@@ -141,36 +156,41 @@ function gapExplains(
       .filter((g) => g.rules.includes(d.rule))
       .flatMap((g) => g.rules)
   )
-  const shown = holder.violations.filter((v) => gapRules.has(v.rule))
-  if (!shown.length) {
+  if (!gapRules.has(d.rule)) {
     return false
   }
+  const shown = holder.violations.filter((v) => gapRules.has(v.rule))
   const step = d.step
   if (d.rule === RULES.agreeOnPages && step !== undefined) {
     const at = (run: RunReport) => normalized.get(run.adapter)?.steps[step]?.at
     return (
       shown.some((v) => onRow(v, at(holder))) &&
-      !other.violations.some((v) => onRow(v, at(other)))
+      !other.violations.some((v) => onRow(v, at(other)) && !declared(other, v))
     )
   }
   if (d.rule === RULES.agreeOnSnapshots) {
-    const unanchored = shown
-      .filter((v) => v.rule === RULES.documentAnchored)
-      .flatMap((v) => (v.subject?.url ? [pathOf(v.subject.url)] : []))
-    const holderPages = [
-      ...(normalized.get(holder.adapter)?.snapshots ?? []),
-      ...unanchored
-    ].sort()
-    const otherPages = [
-      ...(normalized.get(other.adapter)?.snapshots ?? [])
-    ].sort()
+    // Each side's snapshots plus the documents its own declared gap left unanchored must agree.
+    const pages = (run: RunReport, violations: Violation[]) =>
+      [
+        ...(normalized.get(run.adapter)?.snapshots ?? []),
+        ...violations
+          .filter((v) => v.rule === RULES.documentAnchored && v.subject?.url)
+          .map((v) => pathOf(v.subject!.url!))
+      ].sort()
+    const otherDeclared = other.violations.filter((v) => declared(other, v))
     return (
-      sameList(holderPages, otherPages) &&
-      !other.violations.some((v) => v.subject?.kind === 'document')
+      sameList(pages(holder, shown), pages(other, otherDeclared)) &&
+      !other.violations.some(
+        (v) => v.subject?.kind === 'document' && !declared(other, v)
+      )
     )
   }
+  // A rule with no per-run counterpart (run controls, actions, errors): the difference is the gap.
   return true
 }
+
+const declared = (run: RunReport, v: Violation) =>
+  Boolean(explainingGap(gapsFor(run.adapter, run.bidi), v))
 
 const onRow = (v: Violation, at: number | undefined) =>
   at !== undefined && v.subject?.kind === 'row' && v.subject.timestamp === at

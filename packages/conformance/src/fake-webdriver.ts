@@ -38,7 +38,14 @@ interface Element {
 }
 
 /** `action` marks a user action, stamped as completed when its response is sent. */
-type Reply = { status?: number; value: unknown; action?: ActionMethod }
+type Reply = {
+  status?: number
+  value: unknown
+  action?: ActionMethod
+  /** Set on a refused navigation, so an immediate repeat can be read as the client's own retry. */
+  failedNavigation?: string
+  retried?: boolean
+}
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
@@ -65,6 +72,7 @@ export class FakeWebDriver {
     fill: []
   }
   #elements = new Map<string, Element>()
+  #lastFailedNavigation: string | undefined
 
   private constructor(server: Server, bidi: boolean) {
     this.#server = server
@@ -126,7 +134,17 @@ export class FakeWebDriver {
     const path = (req.url ?? '').replace(/^\/session\/[^/]+/, '')
     const reply = await this.#route(req.method ?? 'GET', path, params)
     if (reply.action) {
-      this.#actions[reply.action].push(Date.now())
+      const completions = this.#actions[reply.action]
+      // The user's one action completes with the client's last attempt.
+      if (reply.retried) {
+        completions[completions.length - 1] = Date.now()
+      } else {
+        completions.push(Date.now())
+      }
+    }
+    // A retry run ends with the next user action; the reads and scripts an adapter issues in between are not one.
+    if (reply.failedNavigation !== undefined || reply.action) {
+      this.#lastFailedNavigation = reply.failedNavigation
     }
     res.writeHead(reply.status ?? 200, { 'content-type': 'application/json' })
     res.end(JSON.stringify({ value: reply.value }))
@@ -202,8 +220,14 @@ export class FakeWebDriver {
   async #navigate(path: string): Promise<Reply> {
     await sleep(NAVIGATION_HALF_MS)
     if (path === BROKEN_PATH) {
+      const url = this.url(path)
       const message = `net::ERR_FAILED at ${path}`
-      this.#failedNavigations.push({ url: this.url(path), message })
+      // A client re-issues a refused navigation on its own (Nightwatch's transport retries a failed
+      // protocol action, measured 3 attempts 1 s apart); the user issued one, so a repeat counts once.
+      const retried = this.#lastFailedNavigation === url
+      if (!retried) {
+        this.#failedNavigations.push({ url, message })
+      }
       return {
         status: 500,
         // A driver's native frames ride along beside the message, as chromedriver sends them.
@@ -211,7 +235,9 @@ export class FakeWebDriver {
           error: 'unknown error',
           message,
           stacktrace: '#0 0x55d0 <unknown>'
-        }
+        },
+        failedNavigation: url,
+        retried
       }
     }
     const url = this.url(path)
