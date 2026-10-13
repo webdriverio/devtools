@@ -17,10 +17,6 @@ packages:
 
 # Here rather than under "pnpm" in package.json: pnpm 11 ignores that field, so a
 # lockfile it writes (Dependabot's) drops these and fails CI's frozen install.
-# Each project resolves its own WebdriverIO major; CLAUDE.md says why.
-hoistPattern:
-  - '!@wdio/*'
-
 overrides:
   vite: ^8.0.7
   '@types/node': 26.6.4
