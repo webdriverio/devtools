@@ -25,7 +25,6 @@ function loadCommandDefinitions(): Promise<Record<string, CommandEndpoint>> {
   commandDefinitionsLoad ??= import('@wdio/protocols').then((protocols) => {
     const {
       WebDriverProtocol,
-      MJsonWProtocol,
       AppiumProtocol,
       ChromiumProtocol,
       SauceLabsProtocol,
@@ -35,7 +34,6 @@ function loadCommandDefinitions(): Promise<Record<string, CommandEndpoint>> {
     } = protocols
     commandDefinitions = Object.values({
       ...WebDriverProtocol,
-      ...MJsonWProtocol,
       ...AppiumProtocol,
       ...ChromiumProtocol,
       ...SauceLabsProtocol,
