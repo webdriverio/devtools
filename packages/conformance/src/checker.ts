@@ -23,7 +23,7 @@ export function checkConformance(
   const stream = readStream(frames)
   return [
     ...metadataFirst(stream),
-    ...completionStamp(stream),
+    ...completionStamp(stream, truth),
     ...anchors(stream, truth),
     ...navigationShowsDestination(stream),
     ...failureRecorded(stream, truth),
@@ -71,27 +71,43 @@ function metadataFirst({ frames }: Stream): Violation[] {
   ]
 }
 
-function completionStamp({ rows }: Stream): Violation[] {
-  return rows
+function completionStamp({ rows }: Stream, truth: GroundTruth): Violation[] {
+  const inverted = rows
     .filter((r) => r.startTime !== undefined && r.startTime > r.timestamp)
     .map((r) => ({
       rule: RULES.completionStamp,
       message: `${r.command} ends (${r.timestamp}) before it starts (${r.startTime})`,
       ...rowSubject(r)
     }))
+  // The nth row of an action kind is the nth such action the browser completed; equal ms is fine.
+  const early = ACTION_METHODS.flatMap((method) => {
+    const completions = truth.actions[method]
+    return rows
+      .filter((r) => mapCommandToAction(r.command)?.method === method)
+      .flatMap((r, i) =>
+        i < completions.length && r.timestamp < completions[i]
+          ? [
+              {
+                rule: RULES.completionStamp,
+                message: `${r.command} is stamped ${r.timestamp}, before the browser completed it at ${completions[i]}`,
+                ...rowSubject(r)
+              }
+            ]
+          : []
+      )
+  })
+  return [...inverted, ...early]
 }
 
-// An anchor belongs to the document born after the previous one and no earlier than the anchor.
+// The collector stamps an anchor with its document's own birth time, so a match is exact.
 function anchors(stream: Stream, truth: GroundTruth): Violation[] {
   const counts = truth.documents.map(() => 0)
   const out: Violation[] = []
   for (const anchor of stream.anchors) {
     const at = truth.documents.findIndex(
-      (d, i) =>
-        anchor.timestamp <= d.bornAt &&
-        (i === 0 || anchor.timestamp > truth.documents[i - 1].bornAt)
+      (d) => d.url === anchor.url && d.bornAt === anchor.timestamp
     )
-    if (at === -1 || truth.documents[at].url !== anchor.url) {
+    if (at === -1) {
       out.push({
         rule: RULES.anchorBirthTime,
         message: `anchor for ${anchor.url} at ${anchor.timestamp} matches no document born then`,
@@ -221,7 +237,7 @@ function rowPerAction(stream: Stream, truth: GroundTruth): Violation[] {
     const rows = stream.rows.filter(
       (r) => mapCommandToAction(r.command)?.method === method
     ).length
-    const received = truth.actions[method]
+    const received = truth.actions[method].length
     return rows === received
       ? []
       : [

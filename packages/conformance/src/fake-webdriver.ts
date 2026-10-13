@@ -37,7 +37,8 @@ interface Element {
   document: Document
 }
 
-type Reply = { status?: number; value: unknown }
+/** `action` marks a user action, stamped as completed when its response is sent. */
+type Reply = { status?: number; value: unknown; action?: ActionMethod }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
@@ -58,7 +59,11 @@ export class FakeWebDriver {
   #preloaded = false
   #documents: Document[] = []
   #failedNavigations: FailedNavigation[] = []
-  #actions: Record<ActionMethod, number> = { navigate: 0, click: 0, fill: 0 }
+  #actions: Record<ActionMethod, number[]> = {
+    navigate: [],
+    click: [],
+    fill: []
+  }
   #elements = new Map<string, Element>()
 
   private constructor(server: Server, bidi: boolean) {
@@ -90,7 +95,11 @@ export class FakeWebDriver {
     return {
       documents: this.#documents.map(({ url, bornAt }) => ({ url, bornAt })),
       failedNavigations: [...this.#failedNavigations],
-      actions: { ...this.#actions }
+      actions: {
+        navigate: [...this.#actions.navigate],
+        click: [...this.#actions.click],
+        fill: [...this.#actions.fill]
+      }
     }
   }
 
@@ -116,16 +125,18 @@ export class FakeWebDriver {
     const params = body ? (JSON.parse(body) as Record<string, unknown>) : {}
     const path = (req.url ?? '').replace(/^\/session\/[^/]+/, '')
     const reply = await this.#route(req.method ?? 'GET', path, params)
+    if (reply.action) {
+      this.#actions[reply.action].push(Date.now())
+    }
     res.writeHead(reply.status ?? 200, { 'content-type': 'application/json' })
     res.end(JSON.stringify({ value: reply.value }))
   }
 
-  // An endpoint not listed answers null, which every caller reads as "nothing to report".
-  async #route(
+  #session(
     method: string,
     path: string,
     params: Record<string, unknown>
-  ): Promise<Reply> {
+  ): Reply | undefined {
     if (method === 'POST' && path === '/session') {
       const wantsBidi = JSON.stringify(params).includes('"webSocketUrl":true')
       const capabilities: Record<string, unknown> = { browserName: 'chrome' }
@@ -139,9 +150,24 @@ export class FakeWebDriver {
       this.#endBidi()
       return { value: null }
     }
+    return undefined
+  }
+
+  // An endpoint not listed answers null, which every caller reads as "nothing to report".
+  async #route(
+    method: string,
+    path: string,
+    params: Record<string, unknown>
+  ): Promise<Reply> {
+    const session = this.#session(method, path, params)
+    if (session) {
+      return session
+    }
     if (method === 'POST' && path === '/url') {
-      this.#actions.navigate++
-      return this.#navigate(new URL(String(params.url)).pathname)
+      return {
+        ...(await this.#navigate(new URL(String(params.url)).pathname)),
+        action: 'navigate'
+      }
     }
     if (method === 'GET' && path === '/url') {
       return { value: this.#current?.url ?? 'about:blank' }
@@ -236,11 +262,6 @@ export class FakeWebDriver {
         value: { error: 'stale element reference', message: id, stacktrace: '' }
       }
     }
-    if (action === 'value') {
-      this.#actions.fill++
-    } else if (action === 'click') {
-      this.#actions.click++
-    }
     if (action === 'value' && el.document.collector) {
       el.document.buffer.push({
         type: 'attributes',
@@ -252,12 +273,14 @@ export class FakeWebDriver {
         timestamp: Date.now()
       })
     }
+    const kind: ActionMethod | undefined =
+      action === 'value' ? 'fill' : action === 'click' ? 'click' : undefined
     const destination =
       action === 'click' ? PAGES[el.document.path][el.selector] : null
     if (destination) {
-      return this.#navigate(destination)
+      return { ...(await this.#navigate(destination)), action: kind }
     }
-    return { value: action === 'text' ? el.selector : null }
+    return { value: action === 'text' ? el.selector : null, action: kind }
   }
 
   // Recognised by the collector's own API, not by how any one adapter phrases its scripts.
@@ -267,7 +290,9 @@ export class FakeWebDriver {
       return null
     }
     if (COLLECTOR_SIGNATURE.test(script) || COLLECTOR_SIGNATURE.test(args)) {
+      // A fresh collector starts unanchored, as the real one does, so injecting twice can anchor twice.
       doc.collector = true
+      doc.anchored = false
       return true
     }
     if (script.includes('getTraceData')) {

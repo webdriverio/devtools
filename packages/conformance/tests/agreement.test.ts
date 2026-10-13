@@ -62,7 +62,7 @@ const report = (
   truth: {
     documents: [],
     failedNavigations: [],
-    actions: { navigate: 0, click: 0, fill: 0 }
+    actions: { navigate: [], click: [], fill: [] }
   },
   violations: [],
   unexplained: [],
