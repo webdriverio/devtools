@@ -22,6 +22,9 @@ export {
   type TraceVideoPolicy
 } from '@wdio/devtools-shared'
 
+/** Why `configure()` can no longer change port/hostname: a rerun reusing its parent's backend, or a backend start already under way. */
+export type ServerLock = 'reuse' | 'started'
+
 export interface DevToolsOptions extends BaseDevToolsOptions {
   /** Open a Chrome window pointing at the UI. Default true. */
   openUi?: boolean

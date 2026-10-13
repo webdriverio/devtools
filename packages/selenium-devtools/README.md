@@ -259,6 +259,8 @@ DevTools.configure({
 
 Here's what every option does, in plain language. **All are optional** — the plugin runs fine with `DevTools.configure({})` or no configure call at all.
 
+> `port` and `hostname` only take effect before the backend starts, which happens when the first driver is built, so call `DevTools.configure(...)` before that; a later call ignores them with a warning. A rerun keeps its parent's backend whatever they say.
+
 > **For CI**, set both `headless: true` (hide the test browser) and `openUi: false` (don't try to open the dashboard window). The backend stays running on the configured port so you can still open the UI later.
 
 #### `screencast` — record a video of the browser

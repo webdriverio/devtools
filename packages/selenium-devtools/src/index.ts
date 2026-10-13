@@ -44,6 +44,10 @@ import {
 } from './helpers/runtime.js'
 import { findFreePort } from './helpers/utils.js'
 import {
+  applyConfigureOptions,
+  serverLock
+} from './helpers/configure-options.js'
+import {
   RetryTracker,
   errorMessage,
   tracePolicyModeWarning
@@ -60,15 +64,9 @@ import {
 import {
   type ActionSnapshot,
   type CapturedCommand,
-  type DevToolsMode,
   type DevToolsOptions,
   type ScreencastFrame,
   type ScreencastOptions,
-  type TraceFormat,
-  type TraceGranularity,
-  type TraceRetentionPolicy,
-  type TraceScreenshotPolicy,
-  type TraceVideoPolicy,
   type SeleniumDriverLike,
   type TestStats
 } from './types.js'
@@ -299,54 +297,17 @@ class SeleniumDevToolsPlugin {
     return this.#uiReadyPromise
   }
 
-  // Declarative option-application mapper — one guarded assignment per option;
-  // splitting it purely to satisfy the line rule hurts readability.
-  // eslint-disable-next-line max-lines-per-function
-  configure(
-    opts: {
-      rerunCommand?: string
-      screencast?: ScreencastOptions
-      headless?: boolean
-      openUi?: boolean
-      captureAssertions?: boolean
-      mode?: DevToolsMode
-      traceFormat?: TraceFormat
-      traceGranularity?: TraceGranularity
-      tracePolicy?: TraceRetentionPolicy
-      screenshot?: TraceScreenshotPolicy
-      video?: TraceVideoPolicy
-    } = {}
-  ) {
+  configure(opts: DevToolsOptions = {}) {
     if ('rerunCommand' in opts) {
       this.#rerunManager.configure(opts.rerunCommand)
       this.#options.rerunCommand = opts.rerunCommand
     }
-    if (typeof opts.headless === 'boolean') {
-      this.#options.headless = opts.headless
-    }
-    if (typeof opts.captureAssertions === 'boolean') {
-      this.#options.captureAssertions = opts.captureAssertions
-    }
-    if (typeof opts.openUi === 'boolean') {
-      this.#options.openUi = opts.openUi
-    }
-    if (opts.mode) {
-      this.#options.mode = opts.mode
-    }
-    if (opts.traceFormat) {
-      this.#options.traceFormat = opts.traceFormat
-    }
-    if (opts.traceGranularity) {
-      this.#options.traceGranularity = opts.traceGranularity
-    }
-    if (opts.tracePolicy) {
-      this.#options.tracePolicy = opts.tracePolicy
-    }
-    if (opts.screenshot) {
-      this.#options.screenshot = opts.screenshot
-    }
-    if (opts.video) {
-      this.#options.video = opts.video
+    const lock = serverLock({
+      isReuse: this.#isReuse,
+      backendStarting: this.#backendStartPromise !== undefined
+    })
+    for (const warning of applyConfigureOptions(this.#options, opts, lock)) {
+      log.warn(warning)
     }
     if (opts.screencast) {
       if (this.#options.mode === 'trace' && opts.screencast.enabled) {
@@ -734,19 +695,7 @@ if (!registerHooks()) {
 registerProcessHooks(plugin)
 
 export const DevTools = {
-  configure: (opts: {
-    rerunCommand?: string
-    screencast?: ScreencastOptions
-    headless?: boolean
-    openUi?: boolean
-    captureAssertions?: boolean
-    mode?: DevToolsMode
-    traceFormat?: TraceFormat
-    traceGranularity?: TraceGranularity
-    tracePolicy?: TraceRetentionPolicy
-    screenshot?: TraceScreenshotPolicy
-    video?: TraceVideoPolicy
-  }) => plugin.configure(opts),
+  configure: (opts: DevToolsOptions) => plugin.configure(opts),
   startTest: (name: string, meta?: { file?: string }) =>
     plugin.startTest(name, meta),
   endTest: (state: TestStats['state'] = 'passed') => plugin.endTest(state)
