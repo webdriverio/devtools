@@ -3,6 +3,7 @@ import type { Capabilities, Options } from '@wdio/types'
 import type { WebDriverCommands } from '@wdio/protocols'
 import { RUNNER_ENV } from '@wdio/devtools-shared'
 import DevToolsHookService from './index.js'
+import type { SessionCapturer } from './session.js'
 import { TraceType } from './types.js'
 
 /**
@@ -33,6 +34,17 @@ export function detectInvocationConfigPath(): string | undefined {
   return path.isAbsolute(positional)
     ? positional
     : path.resolve(process.cwd(), positional)
+}
+
+/** Sent on the capturer that has a socket: `beforeSession` sees a placeholder
+ *  without one, where the frame was dropped and no dashboard learned the file. */
+export function publishConfigFile(
+  capturer: Pick<SessionCapturer, 'sendUpstream'>
+): void {
+  const detectedConfig = detectInvocationConfigPath()
+  if (detectedConfig) {
+    capturer.sendUpstream('config', { configFile: detectedConfig })
+  }
 }
 
 /**

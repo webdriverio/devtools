@@ -1,7 +1,12 @@
-import type { CommandLog, RunnerOptions, Metadata } from '@wdio/devtools-shared'
+import type { CommandLog, Metadata } from '@wdio/devtools-shared'
 import { mapCommandToAction } from '@wdio/devtools-shared'
 
-import { navigationTarget, readStream, servesRunControls } from './checker.js'
+import {
+  advertisedRunControls,
+  navigationTarget,
+  readStream,
+  servesRunControls
+} from './checker.js'
 import { SCOPES } from './constants.js'
 import type { NormalizedRun, NormalizedStep, WireFrame } from './types.js'
 
@@ -47,9 +52,9 @@ function targetOf(row: CommandLog): string {
 }
 
 // A fill's text as the binding packaged it: bare, or the W3C `{text}` / `{value: [...]}` payload.
+// Every binding passes it last, after whatever selector it leads with.
 function inputOf(row: CommandLog): string | undefined {
-  // Nightwatch's setValue(selector, text) leads with the selector; the text is the next argument.
-  const [arg] = row.args.filter((a) => a !== row.selector)
+  const arg = row.args.at(-1)
   if (typeof arg === 'string') {
     return arg
   }
@@ -62,11 +67,8 @@ function inputOf(row: CommandLog): string | undefined {
 
 function runControlsOf(frames: WireFrame[]): string {
   const metadata = frames.find((f) => f.scope === SCOPES.metadata)
-  const options = (metadata?.data as Metadata | undefined)?.options as
-    RunnerOptions | undefined
-  const advertised = Object.entries(options?.runCapabilities ?? {})
-    .filter(([, on]) => on)
-    .map(([name]) => name)
-    .sort()
-  return `${advertised.join(', ') || 'none'}; ${servesRunControls(options) ? 'served' : 'unserved'}`
+  const advertised = metadata
+    ? advertisedRunControls(metadata.data as Metadata)
+    : []
+  return `${advertised.join(', ') || 'none'}; ${servesRunControls(frames) ? 'served' : 'unserved'}`
 }

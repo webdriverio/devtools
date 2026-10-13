@@ -41,7 +41,13 @@ const row = (
 
 function conformingStream(): WireFrame[] {
   return [
-    { scope: 'metadata', data: { type: 'testrunner' } },
+    {
+      scope: 'metadata',
+      data: {
+        type: 'testrunner',
+        options: { launchCommand: 'node scenario.js' }
+      }
+    },
     { scope: 'commands', data: [row('get', [LOGIN], 90, 110)] },
     { scope: 'mutations', data: [anchor(LOGIN, 100)] },
     { scope: 'commands', data: [row('click', [], 200, 320)] },
@@ -181,6 +187,23 @@ describe('checkConformance', () => {
     expect(rules(frames)).toEqual([RULES.runControlsServed])
   })
 
+  // The dashboard offers every control unless told otherwise, so silence advertises all of them.
+  it('flags a stream that declares no capabilities and serves nothing', () => {
+    const frames = conformingStream()
+    frames[0] = { scope: 'metadata', data: { type: 'testrunner' } }
+    expect(rules(frames)).toEqual([RULES.runControlsServed])
+  })
+
+  it('accepts a config frame as what serves the controls, as the WDIO service sends it', () => {
+    const frames = conformingStream()
+    frames[0] = { scope: 'metadata', data: { type: 'testrunner' } }
+    frames.push({
+      scope: 'config',
+      data: { configFile: '/project/wdio.conf.ts' }
+    })
+    expect(checkConformance(frames, truth)).toEqual([])
+  })
+
   it('accepts run controls served by either command, as the backend falls back between them', () => {
     const frames = conformingStream()
     frames[0] = {
@@ -279,5 +302,17 @@ describe('checkConformance', () => {
       }
     ]
     expect(() => checkConformance(frames, truth)).toThrow(/args/)
+  })
+
+  // Regression: an Error sent raw reaches the socket as `{}`, and the normaliser crashed on it.
+  it('refuses a failed row whose error carries no message', () => {
+    const frames = [
+      ...conformingStream(),
+      {
+        scope: 'commands',
+        data: [{ command: 'url', args: ['/broken'], timestamp: 400, error: {} }]
+      }
+    ]
+    expect(() => checkConformance(frames, truth)).toThrow(/message/)
   })
 })

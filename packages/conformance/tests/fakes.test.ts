@@ -53,6 +53,20 @@ const execute = (driver: FakeWebDriver, script: string) =>
     args: []
   })
 
+async function bidiClient(url: string) {
+  const ws = new WebSocket(url)
+  await new Promise((resolve) => ws.once('open', resolve))
+  let id = 0
+  return {
+    send: (method: string, params: Record<string, unknown>) =>
+      new Promise<Record<string, unknown>>((resolve) => {
+        ws.once('message', (raw) => resolve(JSON.parse(String(raw))))
+        ws.send(JSON.stringify({ id: ++id, method, params }))
+      }),
+    close: () => ws.close()
+  }
+}
+
 async function registerPreload(
   url: string,
   functionDeclaration: string
@@ -86,6 +100,58 @@ describe('the fake BiDi endpoint', () => {
       })
       expect(await execute(driver, PROBE), body).toBe(expected)
     }
+  })
+
+  // WebdriverIO routes navigation, element lookup and scripts over BiDi once a session offers it.
+  it('drives the same pages over BiDi and stamps the same user actions', async () => {
+    const driver = await start(true)
+    const { capabilities } = await session(driver)
+    const client = await bidiClient(capabilities.webSocketUrl!)
+    const context = 'window-1'
+    const call = (functionDeclaration: string) =>
+      client.send('script.callFunction', {
+        functionDeclaration,
+        arguments: [],
+        target: { context }
+      })
+    try {
+      const navigated = await client.send('browsingContext.navigate', {
+        context,
+        url: driver.url('/login'),
+        wait: 'complete'
+      })
+      expect(navigated.type).toBe('success')
+      const located = await client.send('browsingContext.locateNodes', {
+        context,
+        locator: { type: 'css', value: '#username' }
+      })
+      const { nodes } = located.result as { nodes: { sharedId: string }[] }
+      expect(nodes).toHaveLength(1)
+      await call(`function () { ${COLLECTOR_SOURCE} }`)
+      const drained = await call(`function () { ${FORCED_DRAIN} }`)
+      const { result } = drained.result as {
+        result: { type: string; value: [string, unknown][] }
+      }
+      expect(result.type).toBe('object')
+      expect(result.value.map(([key]) => key)).toContain('mutations')
+      const refused = await client.send('browsingContext.navigate', {
+        context,
+        url: driver.url('/broken'),
+        wait: 'complete'
+      })
+      expect(refused).toMatchObject({
+        type: 'error',
+        message: 'net::ERR_FAILED at /broken'
+      })
+    } finally {
+      client.close()
+    }
+    const truth = driver.truth()
+    expect(truth.documents.map((d) => new URL(d.url).pathname)).toEqual([
+      '/login'
+    ])
+    expect(truth.actions.navigate).toHaveLength(2)
+    expect(truth.failedNavigations).toHaveLength(1)
   })
 })
 
