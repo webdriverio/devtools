@@ -1,7 +1,7 @@
 {
   "name": "@wdio/selenium-devtools",
   "version": "1.6.2",
-  "description": "Selenium WebDriver adapter for WebdriverIO DevTools — runner-agnostic, reuses existing backend, UI, and capture infrastructure",
+  "description": "Selenium WebDriver adapter for WebdriverIO DevTools \u2014 runner-agnostic, reuses existing backend, UI, and capture infrastructure",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -50,10 +50,10 @@
   "dependencies": {
     "@wdio/devtools-backend": "workspace:*",
     "@wdio/devtools-script": "workspace:*",
-    "@wdio/logger": "^9.18.0",
+    "@wdio/logger": "^10.0.0",
     "@xmldom/xmldom": "^0.9.12",
     "stacktrace-parser": "^0.1.11",
-    "webdriverio": "^9.27.2",
+    "webdriverio": "^10.0.2",
     "ws": "^8.22.0",
     "xpath": "^0.0.34",
     "yazl": "^3.3.1"
