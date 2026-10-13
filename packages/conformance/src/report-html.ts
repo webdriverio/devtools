@@ -1,5 +1,6 @@
 import { explainingGap, gapsFor } from './allowlist.js'
 import { RESPONSIBILITIES } from './constants.js'
+import { renderAgreement } from './report-agreement.js'
 import { RULE_GUIDE } from './rule-guide.js'
 import { buildTimeline } from './timeline.js'
 import type { KnownGap, RunReport, TimelineEvent, Violation } from './types.js'
@@ -10,10 +11,12 @@ const STYLE = `
 *{box-sizing:border-box}
 body{margin:0;padding:16px;background:var(--bg);color:var(--fg);font:14px/1.45 system-ui,sans-serif}
 h1{font-size:20px;margin:0 0 16px}
+h2{font-size:16px;margin:20px 0 10px}
+tr.differs td{background:color-mix(in srgb,var(--fail) 14%,transparent)}
 details.run{border:1px solid var(--line);border-radius:6px;margin:0 0 16px;background:var(--bg)}
 details.run>summary{cursor:pointer;padding:10px 12px;background:var(--panel);border-radius:6px;display:flex;flex-wrap:wrap;gap:12px;align-items:baseline}
 .badge{font-weight:700;padding:1px 8px;border-radius:4px;border:1px solid currentColor}
-.pass{color:var(--pass)}.fail{color:var(--fail)}
+.pass{color:var(--pass)}.fail{color:var(--fail)}.known{color:var(--warn)}
 .counts{color:var(--muted)}
 .body{padding:12px;overflow-x:auto}
 table{border-collapse:collapse;width:100%}
@@ -48,7 +51,8 @@ export function renderReport(runs: RunReport[]): string {
 </head>
 <body>
 <h1>Conformance report</h1>
-${sorted.length ? sorted.map(renderRun).join('\n') : '<p>No runs recorded.</p>'}
+${renderAgreement(sorted, escapeHtml)}
+${sorted.length ? `<h2>Each adapter against the rules</h2>\n${sorted.map(renderRun).join('\n')}` : '<p>No runs recorded.</p>'}
 </body>
 </html>
 `
