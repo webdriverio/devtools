@@ -12,7 +12,12 @@ import { judge } from './allowlist.js'
 import { checkConformance } from './checker.js'
 import { FakeWebDriver } from './fake-webdriver.js'
 import { RecordingBackend } from './recording-backend.js'
-import type { AdapterScenario, RunReport, ScenarioRun } from './types.js'
+import type {
+  AdapterId,
+  AdapterScenario,
+  RunReport,
+  ScenarioRun
+} from './types.js'
 
 /** Runs a scenario process against the fakes, reached through the rerun reuse handshake so no adapter gains a test path. */
 export async function runScenario(
@@ -60,11 +65,19 @@ export async function runAdapter(
   bidi: boolean
 ): Promise<RunReport> {
   const launch = adapter.prepare()
+  let run: ScenarioRun
   try {
-    const run = await runScenario(launch.command, launch.args, {
+    run = await runScenario(launch.command, launch.args, {
       env: launch.env,
       bidi
     })
+  } catch (err) {
+    return unrunReport(adapter.id, bidi, String(err))
+  } finally {
+    launch.cleanup?.()
+  }
+  // A checker that throws on a malformed frame must not take the recorded evidence with it.
+  try {
     const violations = checkConformance(run.frames, run.truth)
     return {
       adapter: adapter.id,
@@ -77,20 +90,34 @@ export async function runAdapter(
     return {
       adapter: adapter.id,
       bidi,
-      exitCode: null,
-      output: String(err),
-      frames: [],
-      truth: {
-        documents: [],
-        failedNavigations: [],
-        actions: { navigate: [], click: [], fill: [] }
-      },
+      ...run,
       violations: [],
       unexplained: [],
-      stale: []
+      stale: [],
+      checkerError: String(err)
     }
-  } finally {
-    launch.cleanup?.()
+  }
+}
+
+function unrunReport(
+  adapter: AdapterId,
+  bidi: boolean,
+  output: string
+): RunReport {
+  return {
+    adapter,
+    bidi,
+    exitCode: null,
+    output,
+    frames: [],
+    truth: {
+      documents: [],
+      failedNavigations: [],
+      actions: { navigate: [], click: [], fill: [] }
+    },
+    violations: [],
+    unexplained: [],
+    stale: []
   }
 }
 

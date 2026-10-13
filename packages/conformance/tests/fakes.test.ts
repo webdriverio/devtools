@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import WebSocket from 'ws'
 
+import { REUSE_ENV, WS_PATHS } from '@wdio/devtools-shared'
+
 import { checkConformance } from '../src/checker.js'
 import { RULES } from '../src/constants.js'
 import { FakeWebDriver } from '../src/fake-webdriver.js'
-import { runScenario } from '../src/harness.js'
+import { runAdapter, runScenario } from '../src/harness.js'
 import type { WireFrame } from '../src/types.js'
 
 /** The one line every real collector bundle carries: it assigns its global. */
@@ -120,5 +122,24 @@ describe('the harness', () => {
     expect(run.exitCode).not.toBe(0)
     expect(run.output).toContain('timed out')
     expect(Array.isArray(run.frames)).toBe(true)
+  })
+})
+
+describe('runAdapter', () => {
+  // Regression: a checker that threw on a malformed frame replaced the recorded run with empty values.
+  it('keeps the recorded frames when the checker cannot read them', async () => {
+    const script = `const WebSocket = require('ws');
+const ws = new WebSocket('ws://' + process.env.${REUSE_ENV.HOST} + ':' + process.env.${REUSE_ENV.PORT} + '${WS_PATHS.worker}?runId=x');
+ws.on('open', () => ws.send(JSON.stringify({ scope: 'commands', data: {} }), () => ws.close()));`
+    const report = await runAdapter(
+      {
+        id: 'selenium-devtools',
+        ready: () => true,
+        prepare: () => ({ command: process.execPath, args: ['-e', script] })
+      },
+      false
+    )
+    expect(report.checkerError).toBeDefined()
+    expect(report.frames).toEqual([{ scope: 'commands', data: {} }])
   })
 })

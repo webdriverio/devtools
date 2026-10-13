@@ -3,7 +3,13 @@ import { RESPONSIBILITIES } from './constants.js'
 import { renderAgreement } from './report-agreement.js'
 import { RULE_GUIDE } from './rule-guide.js'
 import { buildTimeline } from './timeline.js'
-import type { KnownGap, RunReport, TimelineEvent, Violation } from './types.js'
+import type {
+  KnownGap,
+  RunReport,
+  Timeline,
+  TimelineEvent,
+  Violation
+} from './types.js'
 
 const STYLE = `
 :root{color-scheme:light dark;--bg:#fff;--fg:#1d1f23;--muted:#5f6670;--line:#d9dde3;--panel:#f5f7f9;--pass:#17723a;--fail:#b3261e;--warn:#8a5a00;--doc:#3355aa;--anchor:#6a3fa0}
@@ -60,7 +66,10 @@ ${sorted.length ? `<h2>Each adapter against the rules</h2>\n${sorted.map(renderR
 
 export function runPassed(run: RunReport): boolean {
   return (
-    run.exitCode === 0 && run.unexplained.length === 0 && run.stale.length === 0
+    run.exitCode === 0 &&
+    !run.checkerError &&
+    run.unexplained.length === 0 &&
+    run.stale.length === 0
   )
 }
 
@@ -75,7 +84,7 @@ export function escapeHtml(text: string): string {
 
 function renderRun(run: RunReport): string {
   const passed = runPassed(run)
-  const timeline = buildTimeline(run)
+  const timeline = safeTimeline(run)
   const unexplained = new Set(run.unexplained.map(violationKey))
   const gaps = gapsFor(run.adapter, run.bidi)
   const renderViolations = (violations: Violation[]) =>
@@ -89,6 +98,7 @@ function renderRun(run: RunReport): string {
 <span class="badge ${passed ? 'pass">PASS' : 'fail">FAIL'}</span>
 <span class="counts">exit ${escapeHtml(String(run.exitCode))}, ${timeline.events.length} events, ${run.violations.length} violations, ${run.unexplained.length} unexplained, ${run.stale.length} stale gaps</span></summary>
 <div class="body">
+${run.checkerError ? `<p class="fail"><strong>Checker failed</strong>: ${escapeHtml(run.checkerError)}</p>` : ''}
 ${renderWhereToLook(run)}
 ${timeline.unplaced.length ? `<p>Run-level violations:</p>${renderViolations(timeline.unplaced)}` : ''}
 ${run.stale.map(renderStale).join('\n')}
@@ -101,6 +111,15 @@ ${rows}
 <details><summary>scenario output</summary><pre>${escapeHtml(run.output)}</pre></details>
 </div>
 </details>`
+}
+
+// A stream the checker could not read has no timeline; the header, the error and the output still show.
+function safeTimeline(run: RunReport): Timeline {
+  try {
+    return buildTimeline(run)
+  } catch {
+    return { origin: 0, events: [], unplaced: run.violations }
+  }
 }
 
 function renderEvent(
