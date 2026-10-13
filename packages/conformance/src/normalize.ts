@@ -18,8 +18,10 @@ export function normalizeRun(frames: WireFrame[]): NormalizedRun {
       return {
         action: `${action.class}.${action.method}`,
         target: targetOf(row),
+        ...(action.method === 'fill' ? { input: inputOf(row) } : {}),
         outcome: row.error ? `error: ${row.error.message.trim()}` : 'ok',
-        page: shown?.url ? pathOf(shown.url) : '(none)'
+        page: shown?.url ? pathOf(shown.url) : '(none)',
+        at: row.timestamp
       }
     })
     .filter((s): s is NormalizedStep => s !== undefined)
@@ -31,7 +33,7 @@ export function normalizeRun(frames: WireFrame[]): NormalizedRun {
 }
 
 // Ports differ per run, so a url compares by its path.
-function pathOf(url: string): string {
+export function pathOf(url: string): string {
   try {
     return new URL(url).pathname
   } catch {
@@ -42,6 +44,19 @@ function pathOf(url: string): string {
 function targetOf(row: CommandLog): string {
   const url = navigationTarget(row)
   return url ? pathOf(url) : (row.selector ?? '')
+}
+
+// A fill's text as the binding packaged it: bare, or the W3C `{text}` / `{value: [...]}` payload.
+function inputOf(row: CommandLog): string | undefined {
+  const [arg] = row.args
+  if (typeof arg === 'string') {
+    return arg
+  }
+  const payload = arg as { text?: unknown; value?: unknown } | undefined
+  if (typeof payload?.text === 'string') {
+    return payload.text
+  }
+  return Array.isArray(payload?.value) ? payload.value.join('') : undefined
 }
 
 function runControlsOf(frames: WireFrame[]): string {

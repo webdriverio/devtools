@@ -8,7 +8,7 @@ type Escape = (text: string) => string
 /** One table per mode: a column per adapter, a row per step, differing rows highlighted. */
 export function renderAgreement(runs: RunReport[], escape: Escape): string {
   const sections = [true, false]
-    .map((bidi) => runs.filter((r) => r.bidi === bidi))
+    .map((bidi) => runs.filter((r) => r.bidi === bidi && !r.checkerError))
     .filter((group) => group.length > 1)
     .map((group) => renderMode(group, escape))
   return sections.length
@@ -63,7 +63,7 @@ ${[...stepRows, ...footRows].join('\n')}
 
 function describeStep(step: NormalizedStep | undefined): string {
   return step
-    ? `${step.action} ${step.target} → ${step.outcome}, shows ${step.page}`
+    ? `${step.action} ${step.target}${step.input === undefined ? '' : ` ${JSON.stringify(step.input)}`} → ${step.outcome}, shows ${step.page}`
     : '(no step)'
 }
 
