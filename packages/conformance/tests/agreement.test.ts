@@ -270,3 +270,28 @@ describe('the agreement section of the report', () => {
     expect(html).toContain('class="differs"')
   })
 })
+
+describe('normalizeRun on the WDIO service shape', () => {
+  // The service also leads a fill's args with the selector; the text is still the last argument.
+  it('reads the text a fill ends with, whatever leads', () => {
+    const run = normalizeRun([
+      {
+        scope: 'commands',
+        data: [
+          {
+            command: 'setValue',
+            args: ['#username', 'tom'],
+            selector: '#username',
+            startTime: 30,
+            timestamp: 40
+          }
+        ]
+      }
+    ])
+    expect(run.steps[0]).toMatchObject({
+      action: 'Element.fill',
+      target: '#username',
+      input: 'tom'
+    })
+  })
+})
