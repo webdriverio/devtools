@@ -184,6 +184,25 @@ describe('SessionCapturer', () => {
     })
   })
 
+  describe('afterCommand - errors', () => {
+    // Regression: the raw Error was stored, and its message is non-enumerable, so the socket carried `{}`.
+    it("keeps a failed command's message across the wire", async () => {
+      const capturer = new SessionCapturer()
+      await capturer.afterCommand(
+        mockBrowser,
+        'click' as any,
+        ['#logout'],
+        undefined,
+        new Error('no such element: #logout')
+      )
+      const onTheWire = JSON.parse(JSON.stringify(capturer.commandsLog[0]))
+      expect(onTheWire.error).toMatchObject({
+        name: 'Error',
+        message: 'no such element: #logout'
+      })
+    })
+  })
+
   describe('afterCommand - source capture', () => {
     it('should capture source code and filter internal frames', async () => {
       const capturer = new SessionCapturer()
