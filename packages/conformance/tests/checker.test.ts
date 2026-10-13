@@ -169,7 +169,7 @@ describe('checkConformance', () => {
     expect(checkConformance(frames, withTwoMore)).toEqual([])
   })
 
-  it('flags run controls advertised with no command behind them', () => {
+  it('flags run controls advertised with nothing to serve them', () => {
     const frames = conformingStream()
     frames[0] = {
       scope: 'metadata',
@@ -178,7 +178,7 @@ describe('checkConformance', () => {
         options: { runCapabilities: { canRunAll: true, canRunTests: false } }
       }
     }
-    expect(rules(frames)).toEqual([RULES.runControlsHaveCommand])
+    expect(rules(frames)).toEqual([RULES.runControlsServed])
   })
 
   it('accepts run controls served by either command, as the backend falls back between them', () => {

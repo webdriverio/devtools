@@ -68,11 +68,11 @@ export const RULE_GUIDE: Record<RuleId, RuleGuide> = {
       'The update is sent before its row, or keyed by a timestamp the row does not carry.',
     responsibility: 'wire-contract'
   },
-  'run-controls-have-a-command': {
+  'run-controls-are-served': {
     meaning:
       'The dashboard shows Run buttons, but pressing one makes the backend fall back to the WebdriverIO binary.',
     cause:
-      'Run capabilities are declared without building launchCommand or rerunCommand. Derive capabilities from the commands that exist.',
+      'Run capabilities are declared without a launchCommand, a rerunCommand or a configFile the backend can rerun. Derive capabilities from what exists.',
     responsibility: 'transport'
   },
   'adapters-agree-on-actions': {

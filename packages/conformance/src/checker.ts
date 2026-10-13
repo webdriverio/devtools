@@ -31,7 +31,7 @@ export function checkConformance(
     ...failureRecorded(stream, truth),
     ...replaceTargetsRow(stream),
     ...rowPerAction(stream, truth),
-    ...runControlsHaveCommand(stream)
+    ...runControlsServed(stream)
   ]
 }
 
@@ -288,8 +288,15 @@ function rowSubject(row: CommandLog | undefined): Pick<Violation, 'subject'> {
 }
 
 // A lost row and a duplicated one both break every invariant silently, so rows are counted against the browser.
-// The backend falls back from either command to the other, and to the wdio binary only when both are missing.
-function runControlsHaveCommand({ frames }: Stream): Violation[] {
+// Served by a shell command, or by a config file the backend reruns through its framework path (WDIO, Nightwatch).
+export function servesRunControls(options: RunnerOptions | undefined): boolean {
+  return Boolean(
+    options?.launchCommand || options?.rerunCommand || options?.configFile
+  )
+}
+
+// Without any of those the backend falls back to the wdio binary, which is wrong for every other project.
+function runControlsServed({ frames }: Stream): Violation[] {
   return frames
     .filter((f) => f.scope === SCOPES.metadata)
     .flatMap((f) => {
@@ -297,17 +304,13 @@ function runControlsHaveCommand({ frames }: Stream): Violation[] {
       const advertised = Object.entries(options?.runCapabilities ?? {})
         .filter(([, on]) => on)
         .map(([name]) => name)
-      if (
-        !advertised.length ||
-        options?.launchCommand ||
-        options?.rerunCommand
-      ) {
+      if (!advertised.length || servesRunControls(options)) {
         return []
       }
       return [
         {
-          rule: RULES.runControlsHaveCommand,
-          message: `metadata advertises ${advertised.join(', ')} but carries neither launchCommand nor rerunCommand`
+          rule: RULES.runControlsServed,
+          message: `metadata advertises ${advertised.join(', ')} but carries no launchCommand, rerunCommand or configFile to serve them`
         }
       ]
     })
