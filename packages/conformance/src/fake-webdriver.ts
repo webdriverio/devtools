@@ -10,16 +10,19 @@ import type { TraceMutation } from '@wdio/devtools-shared'
 
 import {
   BIDI_PATH,
+  BIDI_RESULTS,
   BLANK_PNG,
   BROKEN_PATH,
   COLLECTOR_SIGNATURE,
   ELEMENT_KEY,
   NAVIGATION_HALF_MS,
-  PAGES
+  PAGES,
+  WINDOW_HANDLE
 } from './constants.js'
-import { attachFakeBidi } from './fake-bidi.js'
+import { attachFakeBidi, remoteValue } from './fake-bidi.js'
 import type {
   ActionMethod,
+  BidiAnswer,
   BrowserDocument,
   FailedNavigation,
   GroundTruth
@@ -64,6 +67,7 @@ export class FakeWebDriver {
   #bidi: boolean
   #closeBidi: () => void = () => {}
   #preloaded = false
+  #preloads = 0
   #documents: Document[] = []
   #failedNavigations: FailedNavigation[] = []
   #actions: Record<ActionMethod, number[]> = {
@@ -87,9 +91,8 @@ export class FakeWebDriver {
     const driver = new FakeWebDriver(server, bidi)
     server.on('request', (req, res) => void driver.#handle(req, res))
     if (bidi) {
-      driver.#closeBidi = attachFakeBidi(
-        server,
-        () => (driver.#preloaded = true)
+      driver.#closeBidi = attachFakeBidi(server, (method, params) =>
+        driver.#bidiCommand(method, params)
       )
     }
     return driver
@@ -132,7 +135,15 @@ export class FakeWebDriver {
     }
     const params = body ? (JSON.parse(body) as Record<string, unknown>) : {}
     const path = (req.url ?? '').replace(/^\/session\/[^/]+/, '')
-    const reply = await this.#route(req.method ?? 'GET', path, params)
+    const reply = this.#complete(
+      await this.#route(req.method ?? 'GET', path, params)
+    )
+    res.writeHead(reply.status ?? 200, { 'content-type': 'application/json' })
+    res.end(JSON.stringify({ value: reply.value }))
+  }
+
+  /** Stamps a user action as completed when its reply goes out, over either protocol. */
+  #complete(reply: Reply): Reply {
     if (reply.action) {
       const completions = this.#actions[reply.action]
       // The user's one action completes with the client's last attempt.
@@ -146,8 +157,7 @@ export class FakeWebDriver {
     if (reply.failedNavigation !== undefined || reply.action) {
       this.#lastFailedNavigation = reply.failedNavigation
     }
-    res.writeHead(reply.status ?? 200, { 'content-type': 'application/json' })
-    res.end(JSON.stringify({ value: reply.value }))
+    return reply
   }
 
   #session(
@@ -213,6 +223,12 @@ export class FakeWebDriver {
     }
     if (path === '/window/rect') {
       return { value: { x: 0, y: 0, width: 1280, height: 720 } }
+    }
+    if (path === '/window') {
+      return { value: WINDOW_HANDLE }
+    }
+    if (path === '/window/handles') {
+      return { value: [WINDOW_HANDLE] }
     }
     return { value: null }
   }
@@ -327,6 +343,9 @@ export class FakeWebDriver {
     if (script.includes('wdioTraceCollector')) {
       return doc.collector
     }
+    if (script.includes('document.URL')) {
+      return doc.url
+    }
     return null
   }
 
@@ -347,5 +366,85 @@ export class FakeWebDriver {
       traceLogs: [],
       metadata: {}
     }
+  }
+
+  // What WebdriverIO routes over BiDi once a session offers it; anything else is acknowledged.
+  async #bidiCommand(
+    method: string,
+    params: Record<string, unknown>
+  ): Promise<BidiAnswer> {
+    if (method === 'script.addPreloadScript') {
+      // Only the collector's own source counts; an unrelated preload instruments nothing.
+      if (COLLECTOR_SIGNATURE.test(String(params.functionDeclaration ?? ''))) {
+        this.#preloaded = true
+      }
+      return { result: { script: `preload-${++this.#preloads}` } }
+    }
+    if (method === 'browsingContext.getTree') {
+      const context = {
+        context: WINDOW_HANDLE,
+        url: this.#current?.url ?? 'about:blank',
+        children: [],
+        parent: null,
+        userContext: 'default'
+      }
+      return { result: { contexts: [context] } }
+    }
+    if (method === 'browsingContext.navigate') {
+      return this.#bidiNavigate(String(params.url))
+    }
+    if (method === 'browsingContext.locateNodes') {
+      return this.#bidiLocateNodes(
+        params.locator as { type: string; value: string }
+      )
+    }
+    if (method === 'script.callFunction' || method === 'script.evaluate') {
+      const value = this.#execute(
+        String(params.functionDeclaration ?? params.expression ?? ''),
+        JSON.stringify(params.arguments ?? [])
+      )
+      return {
+        result: {
+          type: 'success',
+          result: remoteValue(value),
+          realm: 'realm-1'
+        }
+      }
+    }
+    if (method === 'browsingContext.captureScreenshot') {
+      return { result: { data: BLANK_PNG } }
+    }
+    return { result: BIDI_RESULTS[method] ?? {} }
+  }
+
+  async #bidiNavigate(url: string): Promise<BidiAnswer> {
+    const reply = this.#complete({
+      ...(await this.#navigate(new URL(url).pathname)),
+      action: 'navigate'
+    })
+    if (reply.status) {
+      return reply.value as { error: string; message: string }
+    }
+    // Without a navigation id the client does not wait for a network event this browser never emits.
+    return { result: { navigation: null, url } }
+  }
+
+  #bidiLocateNodes(locator: { type: string; value: string }): BidiAnswer {
+    if (locator.type !== 'css') {
+      return {
+        error: 'unsupported operation',
+        message: `no ${locator.type} locator`
+      }
+    }
+    const refs = this.#find(locator.value, true).value as Record<
+      string,
+      string
+    >[]
+    const nodes = refs.map((ref) => ({
+      type: 'node',
+      sharedId: ref[ELEMENT_KEY],
+      value: { nodeType: 1, childNodeCount: 0 }
+    }))
+    return { result: { nodes } }
   }
 }
