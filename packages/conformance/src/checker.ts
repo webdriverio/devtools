@@ -27,6 +27,7 @@ export function checkConformance(
     ...completionStamp(stream, truth),
     ...anchors(stream, truth),
     ...rowReplaysPage(stream, truth),
+    ...navigationNamesDestination(stream, truth),
     ...failureRecorded(stream, truth),
     ...replaceTargetsRow(stream),
     ...rowPerAction(stream, truth),
@@ -142,24 +143,13 @@ function anchors(stream: Stream, truth: GroundTruth): Violation[] {
 
 // Every action row replays the document the browser was on when that action completed, not only navigations.
 function rowReplaysPage(stream: Stream, truth: GroundTruth): Violation[] {
-  const seen: Record<ActionMethod, number> = { navigate: 0, click: 0, fill: 0 }
-  return stream.rows.flatMap((row): Violation[] => {
-    const method = actionMethodOf(row)
-    if (!method) {
-      return []
-    }
-    const completed = truth.actions[method][seen[method]++]
-    const current = truth.documents
-      .filter((d) => completed !== undefined && d.bornAt <= completed)
-      .at(-1)
-    // An extra row is rowPerAction's finding, and a row before any document has nothing to replay.
-    if (completed === undefined || !current) {
-      return []
-    }
+  return completedActions(stream, truth).flatMap(({ row, completed }) => {
+    const current = currentDocumentAt(truth, completed)
     const shown = stream.anchors
       .filter((a) => a.timestamp <= row.timestamp)
       .at(-1)
-    if (shown?.url === current.url) {
+    // A row before any document has nothing to replay.
+    if (!current || shown?.url === current.url) {
       return []
     }
     const target = navigationTarget(row) ?? row.selector ?? ''
@@ -171,6 +161,48 @@ function rowReplaysPage(stream: Stream, truth: GroundTruth): Violation[] {
       }
     ]
   })
+}
+
+// The page a successful navigation row names is the one the browser had loaded when it completed.
+function navigationNamesDestination(
+  stream: Stream,
+  truth: GroundTruth
+): Violation[] {
+  return completedActions(stream, truth).flatMap(
+    ({ row, method, completed }) => {
+      const target = navigationTarget(row)
+      const loaded = currentDocumentAt(truth, completed)
+      if (method !== 'navigate' || row.error || !target || !loaded) {
+        return []
+      }
+      return loaded.url === target
+        ? []
+        : [
+            {
+              rule: RULES.navigationNamesDestination,
+              message: `${row.command} names ${target}; the browser loaded ${loaded.url}`,
+              ...rowSubject(row)
+            }
+          ]
+    }
+  )
+}
+
+// The nth row of an action kind is the nth such action the browser completed; an extra row is rowPerAction's finding.
+function completedActions(
+  stream: Stream,
+  truth: GroundTruth
+): Array<{ row: CommandLog; method: ActionMethod; completed: number }> {
+  const seen: Record<ActionMethod, number> = { navigate: 0, click: 0, fill: 0 }
+  return stream.rows.flatMap((row) => {
+    const method = actionMethodOf(row)
+    const completed = method && truth.actions[method][seen[method]++]
+    return method && completed !== undefined ? [{ row, method, completed }] : []
+  })
+}
+
+function currentDocumentAt(truth: GroundTruth, at: number) {
+  return truth.documents.filter((d) => d.bornAt <= at).at(-1)
 }
 
 function actionMethodOf(row: CommandLog): ActionMethod | undefined {

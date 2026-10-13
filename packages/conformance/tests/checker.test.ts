@@ -259,4 +259,13 @@ describe('checkConformance', () => {
       RULES.rowReplaysPage
     ])
   })
+
+  it('flags a navigation row naming a page the browser did not load', () => {
+    const frames = conformingStream()
+    frames[5] = {
+      scope: 'commands',
+      data: [row('get', [{ url: 'http://fake/other' }], 330, 340)]
+    }
+    expect(rules(frames)).toEqual([RULES.navigationNamesDestination])
+  })
 })
