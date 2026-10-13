@@ -425,8 +425,8 @@ export class FakeWebDriver {
     if (reply.status) {
       return reply.value as { error: string; message: string }
     }
-    // Without a navigation id the client does not wait for a network event this browser never emits.
-    return { result: { navigation: null, url } }
+    // No result at all: given one, WebdriverIO waits for the network events of its navigation id, which this browser never emits.
+    return { result: null }
   }
 
   #bidiLocateNodes(locator: { type: string; value: string }): BidiAnswer {
