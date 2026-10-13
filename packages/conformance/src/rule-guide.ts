@@ -34,11 +34,11 @@ export const RULE_GUIDE: Record<RuleId, RuleGuide> = {
       'The collector was injected twice into one document, resetting its once-per-document guard.',
     responsibility: 'collector'
   },
-  'navigation-row-shows-destination': {
+  'row-replays-its-page': {
     meaning:
-      'Replaying a navigation row shows the page it left, or no page, instead of the page it loaded.',
+      'Replaying a row shows a page other than the one the browser was on when its action completed: the page it left, a later page, or no page at all.',
     cause:
-      'The row is stamped at invocation rather than completion, or the destination was never anchored (check every-document-anchored first).',
+      'The row is stamped at a moment other than its completion, or the page was never anchored (check every-document-anchored first).',
     responsibility: 'command-interception'
   },
   'failed-command-has-error-row': {

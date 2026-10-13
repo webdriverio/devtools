@@ -6,7 +6,7 @@ export const KNOWN_GAPS: KnownGap[] = [
     bidi: false,
     rules: [
       'every-document-anchored',
-      'navigation-row-shows-destination',
+      'row-replays-its-page',
       'adapters-agree-on-pages',
       'adapters-agree-on-snapshots'
     ],

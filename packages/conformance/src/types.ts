@@ -36,6 +36,8 @@ export type RuleId = (typeof RULES)[keyof typeof RULES]
 export interface ViolationSubject {
   kind: 'row' | 'anchor' | 'document'
   timestamp: number
+  /** The document or anchor concerned, so a gap can be scoped to it. */
+  url?: string
 }
 
 export interface Violation {
@@ -59,9 +61,13 @@ export interface NormalizedStep {
   /** Shared's action name (`Page.navigate`, `Element.fill`), so adapters' command names compare equal. */
   action: string
   target: string
+  /** The text a fill typed, as the user sees it, whatever shape the binding packaged it in. */
+  input?: string
   outcome: string
   /** The page a replay of this step shows. */
   page: string
+  /** The row's timestamp: never compared, but how a violation on this step is found. */
+  at: number
 }
 
 export interface NormalizedRun {
@@ -74,6 +80,8 @@ export interface NormalizedRun {
 /** Two adapters told different stories about the same scenario. */
 export interface Divergence extends Violation {
   adapters: [AdapterId, AdapterId]
+  /** Index of the step concerned, when the difference is on one step. */
+  step?: number
 }
 
 /** How the conformance suite launches one adapter's scenario. */
@@ -136,6 +144,8 @@ export interface RunReport {
   stale: KnownGap[]
   frames: WireFrame[]
   output: string
+  /** Set when the checker could not read the stream; the frames are kept so the cause can be seen. */
+  checkerError?: string
 }
 
 interface TimelineEventBase {
