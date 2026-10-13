@@ -234,7 +234,7 @@ A runnable example per adapter lives under [examples/](examples/) — `pnpm demo
 These are emulator-specific issues; on a physical phone with USB debugging only steps 1, 4, 6 (and the Chromedriver pin if Chrome on the device is old) apply.
 
 ### 🔍︎ TestLens
-- **Source tab**: Click any test or command to show its source at the exact line in the dashboard
+- **Source tab**: Click a test to open its source. Command clicks follow the source line in the background; open the Source tab to see it. Available when the source and its location were captured.
 - **Open in editor**: The Source tab links the file and line into VS Code (`vscode://file/...`)
 - **Quick Navigation**: Jump between test code and execution results seamlessly
 
