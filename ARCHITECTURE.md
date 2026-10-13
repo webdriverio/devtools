@@ -135,7 +135,7 @@ Contains:
 - `pytest_plugin.py` — the suite tree, keyed by pytest nodeid; auto-discovered, opt-in by env var.
 - `rerun.py`, `run_id.py`, `performance.py`, `transport.py` — run controls, run identity, navigation timings, and a stdlib-only WebSocket client.
 
-Live mode only: it does not write a trace archive. That work, and the question of whether the ~3,100 lines of trace transforms in `core` should move behind the wire rather than be reimplemented per language, is tracked in [#330](https://github.com/webdriverio/devtools/issues/330) and [#278](https://github.com/webdriverio/devtools/issues/278).
+It writes trace archives without running the transforms itself: `trace_export.py` streams the action snapshots and filmstrip frames, then sends a `traceExport` request and the backend builds the archive from the run it accumulated, answering with `traceExported`. `export_trace()` and teardown (`disable()`, the pytest plugin's session finish) trigger it. Writing an adapter in another language is covered in [docs/ADAPTERS.md](./docs/ADAPTERS.md).
 
 Imports from: `selenium` (required, 4.44+). Does not import: `core`, `shared`, any other package.
 
@@ -187,6 +187,18 @@ The WDIO-typed element-detection API (`@wdio/elements`): `getSnapshot`, `getElem
 Imports from: `core`. The script bodies, serializers, types, and locator generation all live in `core` (`element-scripts.ts`, `element-snapshot.ts`, `element-types.ts`, `locators/`) because they're framework-agnostic; this package holds only the wrappers that take a `WebdriverIO.Browser` — which `core` can't type against. The arrow never reverses: `core` does not import `elements`, and the adapters' per-action capture (`captureActionSnapshot`) calls core's script bodies directly rather than going through this package. `elements/snapshot.ts` and `elements/locators/index.ts` are re-export shims kept for API stability.
 
 The DOM-walking scripts run in the page via `browser.execute`, so — like `script` — they avoid Node-only APIs.
+
+### `packages/conformance`: cross-adapter conformance suite
+
+Test-only and never published or bundled. Each adapter runs one scenario (open `/login`, type, submit to `/secure`, log out, then a navigation that fails) as its own process, against a fake W3C WebDriver server that models two pages and records what really happened in the browser: which documents were born and when, and which navigations failed. The adapter reports into a recording backend that stands in for the dashboard, reached through the same reuse handshake a rerun uses, so no adapter gains a code path for being tested. `src/checker.ts` then judges the recorded frame stream against behavioural rules, for example "a row replays the page the browser was on when its action completed" and "every document gets exactly one anchor at its birth time". Every adapter is checked by the same rules, so a capture fix that lands in one language and not another fails CI.
+
+Each scenario runs twice, with and without BiDi. The fake answers the BiDi commands the adapters send, and a registered preload puts the collector into every later document from birth, as in Chrome. A difference an adapter is allowed to show lives in `src/allowlist.ts` with a mandatory reason, and an entry that stops matching fails the run, so a closed gap forces its own removal.
+
+Every run, passing or failing, dumps its frames, ground truth, violations and scenario output to `packages/conformance/out/<adapter>-<bidi|no-bidi>.json` and rebuilds `out/index.html`, a self-contained page laying each run out as a timeline of documents, command rows and DOM anchors with every violation beside the event it concerns. CI uploads `out/` as the `conformance-report` artifact when the `build` job fails.
+
+Beside the rules, the adapters are compared with each other: each run is reduced to what a dashboard user sees (steps, outcomes, the page each step replays, snapshots, run controls) and any difference between adapters in the same mode fails unless a declared gap explains it. The rules catch every adapter being wrong in the same way; the comparison catches a difference no rule anticipated. Adapters are registered once in `src/adapters.ts`.
+
+Covers `selenium-devtools` and `selenium-devtools-py`. The WDIO service and Nightwatch have no scenario yet. The fake emits no BiDi events, so console and network capture are not checked.
 
 ### `examples/`
 

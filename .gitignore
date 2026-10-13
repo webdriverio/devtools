@@ -54,6 +54,8 @@ examples/**/trace-*/
 
 # test results
 examples/**/test-results*/
+packages/conformance/**/test-results*/
+packages/conformance/out/
 
 # vitest --coverage output
 coverage/
