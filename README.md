@@ -116,7 +116,7 @@ The trace **format and the player are identical** across those three, but **capt
 | Assertion capture (`captureAssertions`) | ✅ | ✅ | ✅ |
 | Auto BiDi capture | ✅ auto | ✅ auto | ⚠️ opt-in ⁷ |
 
-¹ Selenium reconstructs the DOM per navigation; anchor timing is approximate (a navigation's snapshot can lag the command that triggered it).
+¹ With BiDi, Selenium registers the page collector at document start, so every document anchors its own DOM as WebdriverIO's does. Without BiDi it falls back to injecting the collector after each navigation, and there a navigation's snapshot can lag the command that triggered it.
 ² Nightwatch's Cucumber and exports-object interfaces get real per-test slicing; the BDD `describe/it` interface collapses to a single session-scoped slice keyed to the first test.
 ³ Only `retain-on-failure` works; the other retry-aware policies degrade to it because Nightwatch's `--retries` re-runs a testcase internally without re-firing the per-test hooks.
 ⁴ WebdriverIO does not yet carry feature-level ancestry, so its Cucumber nesting is Scenario→Step.
@@ -140,7 +140,7 @@ The trace artifact contains:
 - `resources/page@<id>-<ts>-snapshot.txt` — depth-indented accessibility-tree snapshot (AI-friendly)
 - `transcript.md` — human/LLM-readable Markdown transcript of the captured actions, with timing, selectors, and value annotations
 
-What counts as a user-facing action is filtered through an allow-list in `@wdio/devtools-core/action-mapping.ts` (`url`, `click`, `setValue`, `sendKeys`, `get`, etc.). Internal commands like `findElement`/`waitUntil`/`executeScript` don't produce trace entries.
+What counts as a user-facing action is filtered through the `ACTION_MAP` allow-list in [`packages/shared/src/trace-actions.ts`](packages/shared/src/trace-actions.ts) (`url`, `click`, `setValue`, `sendKeys`, `get`, explicit waits such as `waitUntil`, element reads, `execute`, etc.). Locator resolution (`$`, `$$`, `findElement(s)`), Selenium's `executeScript` polling and the `clearValue` that `setValue` fires internally don't produce trace entries.
 
 Trace mode and live mode are **mutually exclusive** — `screencast` options are ignored in trace mode (live-mode feature). Live and trace serve different audiences (humans debugging vs. agents diffing), and stacking them only costs perf.
 
@@ -182,7 +182,7 @@ The `show-trace` bin is exposed by each JavaScript adapter (`@wdio/devtools-serv
 | `filmstrip` | `boolean` | `true` | Record a dense, continuous screencast *into* the trace for smooth scrubbing in the player (not just one frame per action). Dense frames sit alongside the per-action frames; thinned + content-addressed at export. Runs the screencast recorder (CDP push on Chrome, polling elsewhere). |
 | `emitArtifactsManifest` | `boolean` | auto | Write `devtools-artifacts-<sessionId>.json` next to the trace — the index reporters/CI read to discover produced artifacts. Off by default; auto-enabled when an Allure reporter is detected (Nightwatch stays opt-in). |
 
-The per-test **`screenshot`** and **`video`** artifact options live on the WebdriverIO and Selenium adapters (not the shared base), are gated to `traceGranularity: 'test'`, and attach inline to Allure — see the [WebdriverIO](./packages/service/README.md#allure-integration) and [Selenium](./packages/selenium-devtools/README.md) READMEs for the full per-adapter option tables.
+The per-test **`screenshot`** and **`video`** artifact options live on each adapter rather than the shared base, are gated to `traceGranularity: 'test'`, and attach inline to Allure on WebdriverIO and Selenium (Nightwatch writes them produce-only) — see the [WebdriverIO](./packages/service/README.md#allure-integration) and [Selenium](./packages/selenium-devtools/README.md) READMEs for the full per-adapter option tables.
 
 **Allure integration.** When an Allure reporter is present, per-test traces, screenshots, and videos attach to each test's card (`traceGranularity: 'test'`); coarser granularities write the artifacts to disk and list them in the manifest. Details and the report-noise settings are in the [WebdriverIO adapter README](./packages/service/README.md#allure-integration).
 
@@ -222,7 +222,7 @@ A hybrid app is the case capabilities alone cannot answer, because the answer ch
 
 On a native session, element data and the A11y panel come from the platform's XML tree rather than the DOM, so locators read as `android=new UiSelector()…` / `-ios predicate string:…` rather than CSS or XPath over HTML.
 
-A runnable example per adapter lives under [examples/](examples/) — `pnpm demo:wdio:mobile`, `:selenium:mobile`, `:nightwatch:mobile`, `:python:mobile`. Each drives the Clock app that ships with every Android system image — starting a timer, pausing it and clearing it — so none needs an `.apk`; `DEVTOOLS_MOBILE=web` drives the device's own browser instead — Chrome on Android, Safari on iOS. [examples/MOBILE.md](examples/MOBILE.md) states the prerequisites and switches in one place. A single-adapter WDIO variant also lives at [examples/wdio/mocha/wdio.native.conf.ts](examples/wdio/mocha/wdio.native.conf.ts) (`pnpm demo:wdio:native`), which reads its Appium endpoint from `APPIUM_HOST` / `APPIUM_PORT` / `APPIUM_DEVICE`. In short, for a local emulator:
+A runnable example per adapter lives under [examples/](examples/) — `pnpm demo:wdio:mobile`, `:selenium:mobile`, `:nightwatch:mobile`, `:python:mobile`. Each drives the Clock app that ships with every Android system image, keying a duration on the timer keypad without ever starting a timer, so none needs an `.apk` (iOS drives Settings via `DEVTOOLS_MOBILE_PLATFORM=ios`); `DEVTOOLS_MOBILE=web` drives the device's own browser instead — Chrome on Android, Safari on iOS. [examples/MOBILE.md](examples/MOBILE.md) states the prerequisites and switches in one place. A single-adapter WDIO variant also lives at [examples/wdio/mocha/wdio.native.conf.ts](examples/wdio/mocha/wdio.native.conf.ts) (`pnpm demo:wdio:native`), which reads its Appium endpoint from `APPIUM_HOST` / `APPIUM_PORT` / `APPIUM_DEVICE`. In short, for a local emulator:
 
 1. **Java JDK** — `brew install --cask temurin`
 2. **Android SDK** — `brew install --cask android-commandlinetools` then `yes | sdkmanager --licenses && sdkmanager "platform-tools" "emulator" "system-images;android-34;google_apis_playstore;arm64-v8a"`. The brew cask installs sdkmanager under `/opt/homebrew/share/android-commandlinetools/`, and sdkmanager downloads other SDK pieces alongside it — set `ANDROID_HOME` to that path (not `~/Library/Android/sdk/`).
@@ -234,10 +234,9 @@ A runnable example per adapter lives under [examples/](examples/) — `pnpm demo
 These are emulator-specific issues; on a physical phone with USB debugging only steps 1, 4, 6 (and the Chromedriver pin if Chrome on the device is old) apply.
 
 ### 🔍︎ TestLens
-- **Code Intelligence**: View test definitions directly in your editor
-- **Run/Debug Actions**: Execute individual tests or suites with inline CodeLens actions
+- **Source tab**: Click any test or command to show its source at the exact line in the dashboard
+- **Open in editor**: The Source tab links the file and line into VS Code (`vscode://file/...`)
 - **Quick Navigation**: Jump between test code and execution results seamlessly
-- **Status Indicators**: Visual feedback for test pass/fail states in the editor
 
 ### 🏗️ Architecture
 - **Frontend**: Lit web components with reactive state management (`@lit/context`)
@@ -298,7 +297,7 @@ npm install @wdio/selenium-devtools
 
 **Python (Selenium):**
 ```bash
-pip install -e packages/selenium-devtools-py   # or: pip install selenium-devtools-py (when published)
+pip install selenium-devtools-py              # or, from this repo: pip install -e packages/selenium-devtools-py
 selenium-devtools install-backend              # once — pip cannot install a Node package
 ```
 

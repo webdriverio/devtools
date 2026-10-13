@@ -18,10 +18,10 @@ Works with **Mocha**, **Jest**, **Cucumber**, or plain `node script.js` — the 
 npm install @wdio/selenium-devtools
 ```
 
-**2. Import it at the top of your test file**, BEFORE `selenium-webdriver`. The import has a side effect that hooks into Selenium, so the order matters:
+**2. Import it in your test file.** The import has a side effect: it patches Selenium's `Builder`, `WebDriver` and `WebElement` prototypes as it loads. Every import finishes before your test code runs, so its position relative to `selenium-webdriver` doesn't matter:
 
 ```javascript
-import '@wdio/selenium-devtools'              // <-- must be first
+import '@wdio/selenium-devtools'
 import { Builder, By } from 'selenium-webdriver'
 ```
 
@@ -454,6 +454,12 @@ pnpm example:mocha
 ```
 
 ---
+
+## Mobile (Appium)
+
+Appium sessions are captured in live and trace mode. A mobile-browser session is captured like a desktop one; a native app gets commands, screenshots and element data from the platform's XML tree, with no DOM. This adapter decides from the startup capabilities, so a hybrid app's webview half is captured as if it were still native (only the WebdriverIO service follows context switches).
+
+From the root of a built checkout of this repo (`pnpm install && pnpm build`), try it with `pnpm demo:selenium:mobile`, which drives the Android Clock app; `DEVTOOLS_MOBILE_PLATFORM=ios` runs the iOS spec against Settings, and `DEVTOOLS_MOBILE=web` drives the device's own browser. Prerequisites and the `DEVTOOLS_MOBILE` / `APPIUM_APP` switches are in [`examples/MOBILE.md`](../../examples/MOBILE.md); the full reference is the [Mobile Testing page](https://webdriver.io/docs/devtools/mobile).
 
 ## How It Works
 
