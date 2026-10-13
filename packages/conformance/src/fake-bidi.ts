@@ -2,14 +2,15 @@ import type { Server } from 'node:http'
 
 import { WebSocketServer, type WebSocket } from 'ws'
 
-import { BIDI_PATH, BIDI_RESULTS } from './constants.js'
+import { BIDI_PATH, BIDI_RESULTS, COLLECTOR_SIGNATURE } from './constants.js'
 
 interface Command {
   id: number
   method: string
+  params?: { functionDeclaration?: string }
 }
 
-/** A BiDi endpoint that acknowledges every command and emits no events; reports a preload registration. */
+/** A BiDi endpoint that acknowledges every command and emits no events; reports when the collector is registered as a preload. */
 export function attachFakeBidi(
   server: Server,
   onPreload: () => void
@@ -32,8 +33,12 @@ export function attachFakeBidi(
 
 function answer(ws: WebSocket, onPreload: () => void): void {
   ws.on('message', (raw) => {
-    const { id, method } = JSON.parse(String(raw)) as Command
-    if (method === 'script.addPreloadScript') {
+    const { id, method, params } = JSON.parse(String(raw)) as Command
+    // Only the collector's own source counts; an unrelated preload instruments nothing.
+    if (
+      method === 'script.addPreloadScript' &&
+      COLLECTOR_SIGNATURE.test(params?.functionDeclaration ?? '')
+    ) {
       onPreload()
     }
     ws.send(
