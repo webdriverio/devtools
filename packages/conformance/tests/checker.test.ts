@@ -268,4 +268,16 @@ describe('checkConformance', () => {
     }
     expect(rules(frames)).toEqual([RULES.navigationNamesDestination])
   })
+
+  // The checker throws rather than guessing, and the harness keeps the frames beside the error.
+  it('refuses a row without the fields every rule reads', () => {
+    const frames = [
+      ...conformingStream(),
+      {
+        scope: 'commands',
+        data: [{ command: 'sendKeys', args: {}, timestamp: 400 }]
+      }
+    ]
+    expect(() => checkConformance(frames, truth)).toThrow(/args/)
+  })
 })
