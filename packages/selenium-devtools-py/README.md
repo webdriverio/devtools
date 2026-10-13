@@ -15,7 +15,7 @@ real headless Chrome. See [Trace mode](#trace-mode) and [Roadmap](#roadmap).
 ## Install (dev)
 
 ```bash
-pip install -e packages/selenium-devtools-py   # or: pip install selenium-devtools-py (when published)
+pip install selenium-devtools-py              # or, from this repo: pip install -e packages/selenium-devtools-py
 ```
 
 The transport is **dependency-free** (stdlib WebSocket client). `selenium>=4.44`
@@ -366,6 +366,22 @@ bugs:
   the Compare tab disappears after an ordinary rerun rather than diffing
   against something you did not ask to keep.
 
+## Mobile (Appium)
+
+Appium sessions are captured in live and trace mode. A mobile-browser session is captured like a desktop one; a native app gets commands, screenshots and element data from the platform's XML tree, with no DOM. This adapter decides from the startup capabilities, so a hybrid app's webview half is captured as if it were still native (only the WebdriverIO service follows context switches).
+
+The demo runs bare `python3`, so from the root of a built checkout of this repo (`pnpm install && pnpm build`) install the adapter into that interpreter, plus the Appium client the desktop examples don't need:
+
+```bash
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e packages/selenium-devtools-py
+pip install -r examples/selenium-py/requirements-mobile.txt
+pnpm demo:python:mobile                              # Android Clock app
+DEVTOOLS_MOBILE_PLATFORM=ios pnpm demo:python:mobile # iOS Settings
+```
+
+`DEVTOOLS_MOBILE=web` drives the device's own browser instead. Prerequisites and the `DEVTOOLS_MOBILE` / `APPIUM_APP` switches are in [`examples/MOBILE.md`](../../examples/MOBILE.md); the full reference is the [Mobile Testing page](https://webdriver.io/docs/devtools/mobile).
+
 ## Trace mode
 
 Instead of a live dashboard, write the run to a portable archive — the same
@@ -403,9 +419,10 @@ per-command screenshots that both modes capture:
 | A11y tree + element overlay — read beside each action, two extra round trips per command | on | `DEVTOOLS_A11Y=0` |
 | DOM time-travel — the mutation stream the preview iframe already replays | on | — |
 
-Two things worth knowing. **A run produces one archive**: the backend's
-accumulator is run-scoped, so there is no per-session or per-test slicing and no
-`traceGranularity` / `tracePolicy` equivalent yet. And **the export is requested
+Two things worth knowing. **How many archives a run writes, and which are kept,**
+is set by `--devtools-trace-granularity` and `--devtools-trace-policy` (see
+[How many archives, and which ones to keep](#how-many-archives-and-which-ones-to-keep)).
+And **the export is requested
 when the run finishes, not when the process exits** — pytest asks at
 `sessionfinish`, before it would park on a dashboard window, and a plain script's
 `disable()` exports before closing the transport. An artifact that depended on
