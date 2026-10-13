@@ -196,6 +196,8 @@ Each scenario runs twice, with and without BiDi. The fake answers the BiDi comma
 
 Every run, passing or failing, dumps its frames, ground truth, violations and scenario output to `packages/conformance/out/<adapter>-<bidi|no-bidi>.json` and rebuilds `out/index.html`, a self-contained page laying each run out as a timeline of documents, command rows and DOM anchors with every violation beside the event it concerns. CI uploads `out/` as the `conformance-report` artifact when the `build` job fails.
 
+Beside the rules, the adapters are compared with each other: each run is reduced to what a dashboard user sees (steps, outcomes, the page each step replays, snapshots, run controls) and any difference between adapters in the same mode fails unless a declared gap explains it. The rules catch every adapter being wrong in the same way; the comparison catches a difference no rule anticipated. Adapters are registered once in `src/adapters.ts`.
+
 Covers `selenium-devtools` and `selenium-devtools-py`. The WDIO service and Nightwatch have no scenario yet. The fake emits no BiDi events, so console and network capture are not checked.
 
 ### `examples/`

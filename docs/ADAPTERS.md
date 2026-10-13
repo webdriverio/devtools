@@ -230,10 +230,10 @@ The browser therefore creates exactly three documents.
 
 1. Add your id to `AdapterId` in `src/types.ts`.
 2. Add `scenarios/<lang>_scenario.<ext>` performing the steps above. Read the three variables by name (the Python scenario repeats them, since it cannot import `SCENARIO_ENV`).
-3. Add `tests/<lang>.test.ts` mirroring `tests/python.test.ts`: `describe.each([true, false])` over `bidi`, call `runScenario`, then `checkConformance(run.frames, run.truth)`, `judge('<your id>', bidi, violations)`, `writeRunReport({...})`, and assert exit code 0, three documents, no `unexplained` violations and no `stale` gaps. Gate it with `it.skipIf(!ready)` where `ready` is true in CI (`|| Boolean(process.env.CI)`), so only a local machine without your toolchain may skip.
+3. Add one entry to `ADAPTERS` in `src/adapters.ts`: `ready()` (your toolchain and build are present) and `prepare()` (the command, args and env that launch your scenario, plus an optional `cleanup`). `tests/conformance.test.ts` then runs your adapter in both modes, holds it to every rule, and compares it with every other adapter. `ready()` may only skip a local run; in CI a missing prerequisite fails.
 4. Make sure CI installs your toolchain before `pnpm test` in `.github/workflows/ci.yml` (Python's install step is there).
 
-Run it locally with `pnpm test packages/conformance/tests/<lang>.test.ts`. Vitest only collects `packages/**/tests/**/*.test.ts`.
+Run it locally with `pnpm test packages/conformance`. Vitest only collects `packages/**/tests/**/*.test.ts`.
 
 ### The rules
 
@@ -252,11 +252,15 @@ Defined in `src/checker.ts`, names in `RULES` (`src/constants.ts`):
 | `one-row-per-browser-action` | The number of `navigate`, `click` and `fill` rows equals what the fake browser received, after applying `replaceCommand` the way the dashboard does (shared `replaceCommand`: by `id`, then the last row with the old timestamp). |
 | `run-controls-have-a-command` | If `metadata.options.runCapabilities` advertises any control, the metadata carries `launchCommand` or `rerunCommand`. The backend falls back from either to the other and only to the WebdriverIO binary when both are missing, so a control with neither runs the wrong tool. |
 
+### Cross-adapter agreement
+
+The rules check each adapter against what the fake browser did. A second check needs no rules: within each mode, every adapter's stream is reduced to what a dashboard user sees (`src/normalize.ts`: each step's shared action name, target, outcome and the page it replays, the pages snapshotted, the run controls offered; timestamps, ids, ports and raw command names dropped) and compared with the others (`src/agreement.ts`). Any difference fails as one of `adapters-agree-on-actions`, `-on-errors`, `-on-pages`, `-on-snapshots` or `-on-run-controls`, unless a gap of either adapter declares it. This is what catches a difference no rule anticipated; the rules catch every adapter being wrong in the same way.
+
 Navigation rows are recognised through `mapCommandToAction` (`method: 'navigate'`), with the url taken from a bare string arg or a W3C `{url}` arg, so name your navigation command accordingly.
 
 ### Reading a failure
 
-A failing test prints the `unexplained` violations, each `{rule, message, subject?}`, for example `get(http://127.0.0.1:53211/login) at 1760000000412 replays no document` under `navigation-row-shows-destination`. Each run also writes `packages/conformance/out/<adapter>-<bidi|no-bidi>.json` (frames, ground truth, violations, output) and rebuilds `packages/conformance/out/index.html`, a report with each run's documents, anchors and rows on one timeline and the violations placed on the event they concern (`src/report.ts`, `src/report-html.ts`, `src/timeline.ts`). A failing run opens with a "Where to look" block: for each unexplained rule, what it means, its usual cause, and which of the responsibilities in section 2 it tests, linked to that section (`src/rule-guide.ts`). It names no adapter's files: the section says what the responsibility requires, and your adapter's own structure says where it lives. The directory is gitignored; CI uploads it as the `conformance-report` artifact when the job fails. A failing `exitCode` assertion includes the scenario's full output.
+A failing test prints the `unexplained` violations, each `{rule, message, subject?}`, for example `get(http://127.0.0.1:53211/login) at 1760000000412 replays no document` under `navigation-row-shows-destination`. Each run also writes `packages/conformance/out/<adapter>-<bidi|no-bidi>.json` (frames, ground truth, violations, output) and rebuilds `packages/conformance/out/index.html`, a report with each run's documents, anchors and rows on one timeline and the violations placed on the event they concern (`src/report.ts`, `src/report-html.ts`, `src/timeline.ts`). The report opens with "Do the adapters agree?": per mode, a column per adapter and a row per step, differing rows highlighted. A failing run opens with a "Where to look" block: for each unexplained rule, what it means, its usual cause, and which of the responsibilities in section 2 it tests, linked to that section (`src/rule-guide.ts`). It names no adapter's files: the section says what the responsibility requires, and your adapter's own structure says where it lives. The directory is gitignored; CI uploads it as the `conformance-report` artifact when the job fails. A failing `exitCode` assertion includes the scenario's full output.
 
 ### Allowlist entries
 
