@@ -24,7 +24,12 @@ export const RULES = {
   errorCarriesBrowserMessage: 'error-row-carries-browser-message',
   replaceTargetsRow: 'replace-targets-a-sent-row',
   rowPerAction: 'one-row-per-browser-action',
-  runControlsHaveCommand: 'run-controls-have-a-command'
+  runControlsHaveCommand: 'run-controls-have-a-command',
+  agreeOnActions: 'adapters-agree-on-actions',
+  agreeOnErrors: 'adapters-agree-on-errors',
+  agreeOnPages: 'adapters-agree-on-pages',
+  agreeOnSnapshots: 'adapters-agree-on-snapshots',
+  agreeOnRunControls: 'adapters-agree-on-run-controls'
 } as const
 
 const GUIDE = 'docs/ADAPTERS.md'

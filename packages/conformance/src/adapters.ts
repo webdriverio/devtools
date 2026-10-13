@@ -1,0 +1,48 @@
+import { spawnSync } from 'node:child_process'
+import { copyFileSync, existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
+
+import { COLLECTOR_BUNDLE, REPO_ROOT } from './constants.js'
+import type { AdapterScenario } from './types.js'
+
+const PYTHON = process.env.CONFORMANCE_PYTHON ?? 'python3'
+const PYTHON_SRC = path.join(REPO_ROOT, 'packages/selenium-devtools-py/src')
+const scenario = (file: string) =>
+  path.join(REPO_ROOT, 'packages/conformance/scenarios', file)
+
+/** Every adapter the suite runs. Adding one is an entry here plus its scenario script. */
+export const ADAPTERS: AdapterScenario[] = [
+  {
+    id: 'selenium-devtools',
+    ready: () =>
+      [
+        path.join(REPO_ROOT, 'packages/selenium-devtools/dist/index.js'),
+        COLLECTOR_BUNDLE
+      ].every((f) => existsSync(f)),
+    prepare: () => ({
+      command: path.join(REPO_ROOT, 'node_modules/.bin/tsx'),
+      args: [scenario('selenium.ts')]
+    })
+  },
+  {
+    id: 'selenium-devtools-py',
+    ready: () =>
+      existsSync(COLLECTOR_BUNDLE) &&
+      spawnSync(PYTHON, ['-c', 'import selenium'], {
+        env: { ...process.env, PYTHONPATH: PYTHON_SRC }
+      }).status === 0,
+    prepare: () => {
+      // Run from a copy: the adapter writes its video beside the script it runs.
+      const dir = mkdtempSync(path.join(tmpdir(), 'conformance-'))
+      const script = path.join(dir, 'python_scenario.py')
+      copyFileSync(scenario('python_scenario.py'), script)
+      return {
+        command: PYTHON,
+        args: [script],
+        env: { PYTHONPATH: PYTHON_SRC },
+        cleanup: () => rmSync(dir, { recursive: true, force: true })
+      }
+    }
+  }
+]

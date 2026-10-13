@@ -8,9 +8,11 @@ import {
   SCENARIO_ENV,
   SCENARIO_TIMEOUT_MS
 } from './constants.js'
+import { judge } from './allowlist.js'
+import { checkConformance } from './checker.js'
 import { FakeWebDriver } from './fake-webdriver.js'
 import { RecordingBackend } from './recording-backend.js'
-import type { ScenarioRun } from './types.js'
+import type { AdapterScenario, RunReport, ScenarioRun } from './types.js'
 
 /** Runs a scenario process against the fakes, reached through the rerun reuse handshake so no adapter gains a test path. */
 export async function runScenario(
@@ -40,6 +42,46 @@ export async function runScenario(
   } finally {
     await backend.close()
     await driver.close()
+  }
+}
+
+/** Runs one adapter in one mode and judges its stream; a scenario that cannot run becomes a failed report, not a thrown error. */
+export async function runAdapter(
+  adapter: AdapterScenario,
+  bidi: boolean
+): Promise<RunReport> {
+  const launch = adapter.prepare()
+  try {
+    const run = await runScenario(launch.command, launch.args, {
+      env: launch.env,
+      bidi
+    })
+    const violations = checkConformance(run.frames, run.truth)
+    return {
+      adapter: adapter.id,
+      bidi,
+      ...run,
+      violations,
+      ...judge(adapter.id, bidi, violations)
+    }
+  } catch (err) {
+    return {
+      adapter: adapter.id,
+      bidi,
+      exitCode: null,
+      output: String(err),
+      frames: [],
+      truth: {
+        documents: [],
+        failedNavigations: [],
+        actions: { navigate: 0, click: 0, fill: 0 }
+      },
+      violations: [],
+      unexplained: [],
+      stale: []
+    }
+  } finally {
+    launch.cleanup?.()
   }
 }
 
