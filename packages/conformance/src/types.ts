@@ -24,8 +24,8 @@ export interface FailedNavigation {
 export interface GroundTruth {
   documents: BrowserDocument[]
   failedNavigations: FailedNavigation[]
-  /** How many of each user action the browser received, keyed by shared's action method. */
-  actions: Record<ActionMethod, number>
+  /** When the browser completed each user action, in order, keyed by shared's action method. */
+  actions: Record<ActionMethod, number[]>
 }
 
 export type ActionMethod = (typeof ACTION_METHODS)[number]

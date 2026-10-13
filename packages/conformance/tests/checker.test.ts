@@ -14,7 +14,7 @@ const truth: GroundTruth = {
     { url: SECURE, bornAt: 300 }
   ],
   failedNavigations: [{ url: BROKEN, message: 'net::ERR_FAILED at /broken' }],
-  actions: { navigate: 3, click: 1, fill: 0 }
+  actions: { navigate: [110, 340, 360], click: [320], fill: [] }
 }
 
 const anchor = (url: string, timestamp: number) => ({
@@ -83,7 +83,12 @@ describe('checkConformance', () => {
   it('flags a navigation stamped at invocation, which replays the previous page', () => {
     const frames = conformingStream()
     frames[5] = { scope: 'commands', data: [row('get', [SECURE], 290, 290)] }
-    expect(rules(frames)).toEqual([RULES.navigationShowsDestination])
+    expect(rules(frames)).toEqual(
+      expect.arrayContaining([
+        RULES.navigationShowsDestination,
+        RULES.completionStamp
+      ])
+    )
   })
 
   it('flags a document that never got an anchor', () => {
@@ -162,7 +167,7 @@ describe('checkConformance', () => {
     ]
     const withTwoMore = {
       ...truth,
-      actions: { navigate: 3, click: 2, fill: 1 }
+      actions: { navigate: [110, 340, 360], click: [320, 420], fill: [420] }
     }
     expect(checkConformance(frames, withTwoMore)).toEqual([])
   })
@@ -212,5 +217,37 @@ describe('checkConformance', () => {
         : f
     )
     expect(rules(frames)).toEqual([RULES.errorCarriesBrowserMessage])
+  })
+
+  it('flags a click stamped before the browser completed it', () => {
+    const frames = conformingStream()
+    frames[3] = { scope: 'commands', data: [row('click', [], 200, 200)] }
+    expect(rules(frames)).toContain(RULES.completionStamp)
+  })
+
+  it('flags typing stamped before the browser completed it', () => {
+    const frames = [
+      ...conformingStream(),
+      { scope: 'commands', data: [row('sendKeys', ['x'], 400, 400)] }
+    ]
+    const typed = { ...truth, actions: { ...truth.actions, fill: [410] } }
+    expect(checkConformance(frames, typed).map((v) => v.rule)).toEqual([
+      RULES.completionStamp
+    ])
+  })
+
+  it('accepts a row stamped in the same millisecond its action completed', () => {
+    const frames = [
+      ...conformingStream(),
+      { scope: 'commands', data: [row('sendKeys', ['x'], 410, 410)] }
+    ]
+    const typed = { ...truth, actions: { ...truth.actions, fill: [410] } }
+    expect(checkConformance(frames, typed)).toEqual([])
+  })
+
+  it('flags an anchor stamped before its document was born', () => {
+    const frames = conformingStream()
+    frames[2] = { scope: 'mutations', data: [anchor(LOGIN, 99)] }
+    expect(rules(frames)).toContain(RULES.anchorBirthTime)
   })
 })

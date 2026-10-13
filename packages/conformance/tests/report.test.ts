@@ -18,7 +18,7 @@ function run(overrides: Partial<RunReport> = {}): RunReport {
         { url: SECURE, bornAt: 1300 }
       ],
       failedNavigations: [],
-      actions: { navigate: 0, click: 0, fill: 0 }
+      actions: { navigate: [], click: [], fill: [] }
     },
     violations: [],
     unexplained: [],
