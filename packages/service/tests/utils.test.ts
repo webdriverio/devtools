@@ -14,6 +14,21 @@ describe('service utils', () => {
   })
 
   describe('getBrowserObject', () => {
+    // WebdriverIO 10 can parent an element with a held browsing context, which carries its browser.
+    it('resolves a held browsing context, and an element inside one, to the browser', () => {
+      const browser = { sessionId: 'session-123' } as WebdriverIO.Browser
+      const context = {
+        browser,
+        url: 'http://x/'
+      } as unknown as WebdriverIO.BrowsingContext
+      expect(getBrowserObject(context)).toBe(browser)
+      const element = {
+        elementId: 'el-1',
+        parent: context
+      } as unknown as WebdriverIO.Element
+      expect(getBrowserObject(element)).toBe(browser)
+    })
+
     it('should return browser directly or traverse hierarchy', () => {
       const mockBrowser = {
         sessionId: 'session-123',
