@@ -35,27 +35,52 @@ export function checkConformance(
   ]
 }
 
-// Frames are cast per scope: each scope's payload shape is shared's contract.
+// The rules read three fields off every row, so a frame that lacks them is reported rather than guessed at.
 export function readStream(frames: WireFrame[]): Stream {
   let rows: CommandLog[] = []
   const anchors: TraceMutation[] = []
-  for (const { scope, data } of frames) {
+  frames.forEach(({ scope, data }, i) => {
     if (scope === SCOPES.commands) {
-      rows.push(...(data as CommandLog[]))
+      rows.push(...rowsOf(data, i))
     } else if (scope === SCOPES.replaceCommand) {
       // The dashboard's own rule, so the rows judged are the rows a user sees.
       const { oldTimestamp, command } = data as ReplaceCommandWsPayload
-      rows = replaceCommand(rows, oldTimestamp, command)
+      rows = replaceCommand(rows, oldTimestamp, rowsOf([command], i)[0])
     } else if (scope === SCOPES.mutations) {
       anchors.push(
-        ...(data as TraceMutation[]).filter(
-          (m) => m.type === 'childList' && m.url !== undefined
+        ...arrayOf(data, i).filter(
+          (m): m is TraceMutation =>
+            (m as TraceMutation).type === 'childList' &&
+            (m as TraceMutation).url !== undefined
         )
       )
     }
-  }
+  })
   anchors.sort((a, b) => a.timestamp - b.timestamp)
   return { frames, rows, anchors }
+}
+
+function arrayOf(data: unknown, frame: number): unknown[] {
+  if (!Array.isArray(data)) {
+    throw new Error(`frame #${frame} carries ${typeof data}, not an array`)
+  }
+  return data
+}
+
+function rowsOf(data: unknown, frame: number): CommandLog[] {
+  const rows = arrayOf(data, frame) as Partial<CommandLog>[]
+  for (const row of rows) {
+    if (
+      typeof row?.command !== 'string' ||
+      !Array.isArray(row.args) ||
+      typeof row.timestamp !== 'number'
+    ) {
+      throw new Error(
+        `commands frame #${frame} carries a row without command, args[] and timestamp: ${JSON.stringify(row).slice(0, 120)}`
+      )
+    }
+  }
+  return rows as CommandLog[]
 }
 
 function metadataFirst({ frames }: Stream): Violation[] {

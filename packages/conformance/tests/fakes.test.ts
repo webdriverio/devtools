@@ -139,7 +139,7 @@ ws.on('open', () => ws.send(JSON.stringify({ scope: 'commands', data: {} }), () 
       },
       false
     )
-    expect(report.checkerError).toBeDefined()
+    expect(report.checkerError).toContain('not an array')
     expect(report.frames).toEqual([{ scope: 'commands', data: {} }])
   })
 })

@@ -146,4 +146,18 @@ describe('renderReport', () => {
   it('shows no guidance for a passing run', () => {
     expect(renderReport([run()])).not.toContain('Where to look')
   })
+
+  // Regression: one run the checker could not read took the whole report down with it.
+  it('still renders every other run when one stream could not be read', () => {
+    const html = renderReport([
+      run({
+        checkerError:
+          'commands frame #1 carries a row without command, args[] and timestamp',
+        frames: [{ scope: 'commands', data: {} }]
+      }),
+      run({ adapter: 'selenium-devtools-py' })
+    ])
+    expect(html).toContain('Checker failed')
+    expect(html).toContain('selenium-devtools-py')
+  })
 })
