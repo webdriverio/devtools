@@ -26,8 +26,14 @@ export async function runScenario(
   {
     env = {},
     bidi,
+    cwd = REPO_ROOT,
     timeoutMs = SCENARIO_TIMEOUT_MS
-  }: { env?: NodeJS.ProcessEnv; bidi: boolean; timeoutMs?: number }
+  }: {
+    env?: NodeJS.ProcessEnv
+    bidi: boolean
+    cwd?: string
+    timeoutMs?: number
+  }
 ): Promise<ScenarioRun> {
   const driver = await FakeWebDriver.start({ bidi })
   const backend = await RecordingBackend.start()
@@ -45,6 +51,7 @@ export async function runScenario(
         [SCENARIO_ENV.login]: driver.url('/login'),
         [SCENARIO_ENV.broken]: driver.url(BROKEN_PATH)
       },
+      cwd,
       timeoutMs
     )
     return {
@@ -69,6 +76,7 @@ export async function runAdapter(
   try {
     run = await runScenario(launch.command, launch.args, {
       env: launch.env,
+      cwd: launch.cwd,
       bidi
     })
   } catch (err) {
@@ -125,10 +133,11 @@ function run(
   command: string,
   args: string[],
   env: NodeJS.ProcessEnv,
+  cwd: string,
   timeoutMs: number
 ): Promise<{ exitCode: number | null; output: string }> {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { cwd: REPO_ROOT, env })
+    const child = spawn(command, args, { cwd, env })
     let output = ''
     child.stdout.on('data', (d) => (output += d))
     child.stderr.on('data', (d) => (output += d))
