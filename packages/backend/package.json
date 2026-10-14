@@ -1,6 +1,9 @@
 {
   "name": "@wdio/devtools-backend",
   "version": "1.11.2",
+  "engines": {
+    "node": ">=22.19.0"
+  },
   "description": "Backend service to spin up WebdriverIO Devtools",
   "author": "Christian Bromann <mail@bromann.dev>",
   "license": "MIT",
@@ -41,7 +44,7 @@
     "@fastify/websocket": "^11.3.1",
     "@wdio/devtools-app": "workspace:^",
     "@wdio/devtools-script": "workspace:^",
-    "@wdio/logger": "9.29.1",
+    "@wdio/logger": "10.0.0",
     "fastify": "^5.12.5",
     "fflate": "^0.8.2",
     "get-port": "^7.2.0",
@@ -54,6 +57,7 @@
   "devDependencies": {
     "@types/shell-quote": "^1.7.5",
     "@types/ws": "^8.18.2",
+    "@wdio/cli": "^10.0.2",
     "@wdio/devtools-shared": "workspace:^",
     "@wdio/devtools-trace": "workspace:^",
     "nodemon": "^3.1.14",
