@@ -91,7 +91,9 @@ BACKEND_BIN_NAME = "devtools-backend"
 # floor its dependencies require; below it the process starts and then dies on
 # syntax it cannot parse, which surfaces here only as "exited before reporting
 # a port". Checked up front so the message names the real problem.
-MIN_NODE_MAJOR = 18
+# What the pinned backend's own dependencies declare in `engines`; a minor matters, not just a major.
+MIN_NODE_VERSION = (22, 19, 0)
+MIN_NODE_LABEL = "22.19"
 NODE_VERSION_TIMEOUT_S = 5.0
 
 # ── Trace mode ───────────────────────────────────────────────────────────────

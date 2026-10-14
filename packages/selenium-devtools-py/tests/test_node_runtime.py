@@ -13,7 +13,7 @@ from pathlib import Path
 from unittest import mock
 
 from selenium_devtools import backend, node_runtime
-from selenium_devtools.constants import MIN_NODE_MAJOR
+from selenium_devtools.constants import MIN_NODE_LABEL, MIN_NODE_VERSION
 
 
 def _completed(stdout: str, returncode: int = 0):
@@ -81,7 +81,7 @@ class TestReadingTheVersion(unittest.TestCase):
 class TestRequiringNode(unittest.TestCase):
     def test_returns_the_resolved_executable_when_new_enough(self):
         with mock.patch("shutil.which", return_value="/usr/bin/node"), mock.patch.object(
-            node_runtime, "node_version", return_value=(MIN_NODE_MAJOR, 0, 0)
+            node_runtime, "node_version", return_value=MIN_NODE_VERSION
         ):
             self.assertEqual(node_runtime.require_node(), "/usr/bin/node")
 
@@ -99,13 +99,23 @@ class TestRequiringNode(unittest.TestCase):
         # Previously this reached the user as "backend exited (code 1) before
         # reporting a port", which says nothing about Node.
         with mock.patch("shutil.which", return_value="/usr/bin/node"), mock.patch.object(
-            node_runtime, "node_version", return_value=(MIN_NODE_MAJOR - 2, 4, 1)
+            node_runtime, "node_version", return_value=(MIN_NODE_VERSION[0] - 2, 4, 1)
         ):
             with self.assertRaises(RuntimeError) as ctx:
                 node_runtime.require_node()
         message = str(ctx.exception)
-        self.assertIn(f"{MIN_NODE_MAJOR - 2}.4.1", message)
-        self.assertIn(str(MIN_NODE_MAJOR), message)
+        self.assertIn(f"{MIN_NODE_VERSION[0] - 2}.4.1", message)
+        self.assertIn(MIN_NODE_LABEL, message)
+
+    # The floor has a minor: the backend's dependencies declare 22.19, and a 22.0 fails later and worse.
+    def test_a_node_on_the_right_major_but_below_the_minor_is_refused(self):
+        major, minor, _ = MIN_NODE_VERSION
+        with mock.patch("shutil.which", return_value="/usr/bin/node"), mock.patch.object(
+            node_runtime, "node_version", return_value=(major, minor - 1, 9)
+        ):
+            with self.assertRaises(RuntimeError) as ctx:
+                node_runtime.require_node()
+        self.assertIn(f"{major}.{minor - 1}.9", str(ctx.exception))
 
     def test_a_node_that_will_not_report_a_version_is_refused(self):
         with mock.patch("shutil.which", return_value="/usr/bin/node"), mock.patch.object(
