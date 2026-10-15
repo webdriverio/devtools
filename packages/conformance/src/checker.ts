@@ -1,9 +1,11 @@
 import {
   mapCommandToAction,
+  NETWORK_CAPTURE_SOURCE,
   replaceCommand,
   resolveRunCapabilities,
   type CommandLog,
   type Metadata,
+  type NetworkRequest,
   type RunnerOptions,
   type WsPayloadFor,
   type ReplaceCommandWsPayload,
@@ -33,7 +35,9 @@ export function checkConformance(
     ...failureRecorded(stream, truth),
     ...replaceTargetsRow(stream),
     ...rowPerAction(stream, truth),
-    ...runControlsServed(stream)
+    ...runControlsServed(stream),
+    ...requestsListed(stream, truth),
+    ...requestSourceServed(stream, truth)
   ]
 }
 
@@ -41,6 +45,8 @@ export function checkConformance(
 export function readStream(frames: WireFrame[]): Stream {
   let rows: CommandLog[] = []
   const anchors: TraceMutation[] = []
+  const requests = new Map<string, NetworkRequest>()
+  let unkeyed = 0
   frames.forEach(({ scope, data }, i) => {
     if (scope === SCOPES.commands) {
       rows.push(...rowsOf(data, i))
@@ -56,10 +62,82 @@ export function readStream(frames: WireFrame[]): Stream {
             (m as TraceMutation).url !== undefined
         )
       )
+    } else if (scope === SCOPES.networkRequests) {
+      // The dashboard's own rule: a row re-sent under an id it already holds replaces it, a row without one is appended.
+      for (const request of requestsOf(data, i)) {
+        requests.set(request.id || `unkeyed-${unkeyed++}`, request)
+      }
     }
   })
   anchors.sort((a, b) => a.timestamp - b.timestamp)
-  return { frames, rows, anchors }
+  return { frames, rows, anchors, requests: [...requests.values()] }
+}
+
+/** Request rows the Network tab would list for one url, keyed as the browser's truth keys them. */
+function countByUrl(urls: string[]): Map<string, number> {
+  const counts = new Map<string, number>()
+  for (const url of urls) {
+    counts.set(url, (counts.get(url) ?? 0) + 1)
+  }
+  return counts
+}
+
+// Every load the browser made is one row, whichever source captured it. Two rules, because the two failures have
+// opposite causes and a declared gap covers one: a load listed never was withheld, one listed twice came from two sources.
+function requestsListed(stream: Stream, truth: GroundTruth): Violation[] {
+  const made = countByUrl(truth.requests.map((r) => r.url))
+  const listed = countByUrl(stream.requests.map((r) => r.url))
+  const urls = new Set([...made.keys(), ...listed.keys()])
+  return [...urls].flatMap((url) => {
+    const expected = made.get(url) ?? 0
+    const shown = listed.get(url) ?? 0
+    if (expected === shown) {
+      return []
+    }
+    return [
+      {
+        rule: shown < expected ? RULES.requestListed : RULES.requestListedOnce,
+        message: `${url}: the browser made ${expected} request(s), the stream lists ${shown} row(s)`,
+        subject: {
+          kind: 'request' as const,
+          timestamp: 0,
+          url,
+          rows: shown,
+          made: expected
+        }
+      }
+    ]
+  })
+}
+
+// With BiDi serving the session a row carries what the driver saw: a status and the response headers. Without it, a
+// row carries what the page could see, which is a status and headers from its fetch/XHR patch or, from its Resource
+// Timing, neither; the latter must say so rather than pass as a driver's.
+function requestSourceServed(stream: Stream, truth: GroundTruth): Violation[] {
+  const live = truth.bidi === 'live'
+  return stream.requests.flatMap((request) => {
+    const fromPage = request.source === NETWORK_CAPTURE_SOURCE.RESOURCE_TIMING
+    const detailed =
+      typeof request.status === 'number' &&
+      Object.keys(request.responseHeaders ?? {}).length > 0
+    if (live && !detailed) {
+      return [
+        {
+          rule: RULES.requestSourceServed,
+          message: `${request.url}: BiDi served this request with a status and headers, the row carries ${fromPage ? "the page's Resource Timing" : 'neither'}`
+        }
+      ]
+    }
+    if (!live && !fromPage && !detailed) {
+      return [
+        {
+          rule: RULES.requestSourceServed,
+          message: `${request.url}: nothing but the page served this row, yet it is neither marked as its Resource Timing nor carrying the status and headers its fetch patch would`
+        }
+      ]
+    }
+    return []
+  })
 }
 
 function arrayOf(data: unknown, frame: number): unknown[] {
@@ -67,6 +145,18 @@ function arrayOf(data: unknown, frame: number): unknown[] {
     throw new Error(`frame #${frame} carries ${typeof data}, not an array`)
   }
   return data
+}
+
+function requestsOf(data: unknown, frame: number): NetworkRequest[] {
+  const requests = arrayOf(data, frame) as Partial<NetworkRequest>[]
+  for (const request of requests) {
+    if (typeof request?.url !== 'string' || typeof request.id !== 'string') {
+      throw new Error(
+        `networkRequests frame #${frame} carries a row without url and id: ${JSON.stringify(request).slice(0, 120)}`
+      )
+    }
+  }
+  return requests as NetworkRequest[]
 }
 
 function rowsOf(data: unknown, frame: number): CommandLog[] {

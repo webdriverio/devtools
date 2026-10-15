@@ -15,6 +15,7 @@ import { RecordingBackend } from './recording-backend.js'
 import type {
   AdapterId,
   AdapterScenario,
+  BidiMode,
   RunReport,
   ScenarioRun
 } from './types.js'
@@ -30,7 +31,7 @@ export async function runScenario(
     timeoutMs = SCENARIO_TIMEOUT_MS
   }: {
     env?: NodeJS.ProcessEnv
-    bidi: boolean
+    bidi: BidiMode
     cwd?: string
     timeoutMs?: number
   }
@@ -69,7 +70,7 @@ export async function runScenario(
 /** Runs one adapter in one mode and judges its stream; a scenario that cannot run becomes a failed report, not a thrown error. */
 export async function runAdapter(
   adapter: AdapterScenario,
-  bidi: boolean
+  bidi: BidiMode
 ): Promise<RunReport> {
   const launch = adapter.prepare()
   let run: ScenarioRun
@@ -109,7 +110,7 @@ export async function runAdapter(
 
 function unrunReport(
   adapter: AdapterId,
-  bidi: boolean,
+  bidi: BidiMode,
   output: string
 ): RunReport {
   return {
@@ -121,7 +122,9 @@ function unrunReport(
     truth: {
       documents: [],
       failedNavigations: [],
-      actions: { navigate: [], click: [], fill: [] }
+      actions: { navigate: [], click: [], fill: [] },
+      requests: [],
+      bidi
     },
     violations: [],
     unexplained: [],

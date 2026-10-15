@@ -1,6 +1,7 @@
-import { RULES } from './constants.js'
+import { BIDI_MODES, RULES } from './constants.js'
 import type {
   AdapterId,
+  BidiMode,
   Judgement,
   KnownGap,
   RuleId,
@@ -10,31 +11,35 @@ import type {
 export const KNOWN_GAPS: KnownGap[] = [
   {
     adapter: 'selenium-devtools',
-    bidi: false,
+    bidi: 'off',
     rules: [
       'every-document-anchored',
       'row-replays-its-page',
+      'every-browser-request-listed',
       'adapters-agree-on-pages',
-      'adapters-agree-on-snapshots'
+      'adapters-agree-on-snapshots',
+      'adapters-agree-on-requests'
     ],
     reason:
-      'Without BiDi the collector is appended as a <script> after a readiness poll, so a document the test leaves within tens of ms is never anchored. CLAUDE.md Known debt: "Document-start injection is what removes the whole race class".',
+      'Without BiDi the collector is appended as a <script> after a readiness poll, so a document the test leaves within tens of ms is never anchored and its Resource Timing buffer dies undrained with it. CLAUDE.md Known debt: "Document-start injection is what removes the whole race class".',
     timingDependent: true
   },
   {
     adapter: 'nightwatch-devtools',
-    bidi: false,
+    bidi: 'off',
     rules: [
       'every-document-anchored',
       'row-replays-its-page',
+      'every-browser-request-listed',
       'adapters-agree-on-pages',
-      'adapters-agree-on-snapshots'
+      'adapters-agree-on-snapshots',
+      'adapters-agree-on-requests'
     ],
     reason:
-      'Without BiDi the collector is appended as a <script> and the destination is anchored by polling for the old collector to disappear, so a document the test leaves within tens of ms is never anchored. CLAUDE.md Known debt: "Document-start injection is what removes the whole race class".',
+      'Without BiDi the collector is appended as a <script> and the destination is anchored by polling for the old collector to disappear, so a document the test leaves within tens of ms is never anchored and its Resource Timing buffer dies undrained with it. CLAUDE.md Known debt: "Document-start injection is what removes the whole race class".',
     timingDependent: true
   },
-  ...[true, false].map((bidi): KnownGap => ({
+  ...BIDI_MODES.map((bidi): KnownGap => ({
     adapter: 'nightwatch-devtools',
     bidi,
     rules: [RULES.agreeOnRunControls],
@@ -52,7 +57,7 @@ export function isAgreementRule(rule: RuleId): boolean {
 /** Judges one run's own violations: a gap counts as stale only through the rules this run can show. */
 export function judge(
   adapter: AdapterId,
-  bidi: boolean,
+  bidi: BidiMode,
   violations: Violation[]
 ): Judgement {
   const gaps = gapsFor(adapter, bidi)
@@ -69,7 +74,7 @@ export function judge(
   }
 }
 
-export function gapsFor(adapter: AdapterId, bidi: boolean): KnownGap[] {
+export function gapsFor(adapter: AdapterId, bidi: BidiMode): KnownGap[] {
   return KNOWN_GAPS.filter((g) => g.adapter === adapter && g.bidi === bidi)
 }
 

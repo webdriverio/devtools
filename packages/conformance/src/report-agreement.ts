@@ -1,7 +1,9 @@
 import { gapsFor } from './allowlist.js'
 import { compareRuns, judgeDivergences } from './agreement.js'
+import { BIDI_MODES } from './constants.js'
 import { describeRunControls, normalizeRun } from './normalize.js'
 import type {
+  BidiMode,
   Divergence,
   KnownGap,
   NormalizedStep,
@@ -12,8 +14,9 @@ type Escape = (text: string) => string
 
 /** One table per mode: a column per adapter, a row per step, differing rows highlighted. */
 export function renderAgreement(runs: RunReport[], escape: Escape): string {
-  const sections = [true, false]
-    .map((bidi) => runs.filter((r) => r.bidi === bidi && !r.checkerError))
+  const sections = BIDI_MODES.map((bidi) =>
+    runs.filter((r) => r.bidi === bidi && !r.checkerError)
+  )
     .filter((group) => group.length > 1)
     .map((group) => renderMode(group, escape))
   return sections.length
@@ -48,10 +51,15 @@ function renderMode(runs: RunReport[], escape: Escape): string {
       'run controls',
       normalized.map((n) => describeRunControls(n.runControls)),
       escape
+    ),
+    renderRow(
+      'requests',
+      normalized.map((n) => n.requests.join(', ') || '(none)'),
+      escape
     )
   ]
   return `<details class="run"${agree ? '' : ' open'}>
-<summary><strong>bidi ${bidi ? 'on' : 'off'}</strong>
+<summary><strong>bidi ${bidi}</strong>
 ${verdictBadge(unexplained.length, explained.length, stale.length)}
 <span class="counts">${unexplained.length} unexplained, ${explained.length} allowlisted differences, ${stale.length} stale gaps</span></summary>
 <div class="body">
@@ -83,7 +91,7 @@ function renderRow(label: string, cells: string[], escape: Escape): string {
 function renderDivergences(
   unexplained: Divergence[],
   explained: Divergence[],
-  bidi: boolean,
+  bidi: BidiMode,
   escape: Escape
 ): string {
   const reasonFor = (d: Divergence) =>

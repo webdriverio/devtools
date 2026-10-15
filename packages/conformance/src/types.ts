@@ -1,10 +1,18 @@
 import type {
   CommandLog,
+  NetworkRequest,
   RunCapabilities,
   TraceMutation
 } from '@wdio/devtools-shared'
 
-import type { ACTION_METHODS, RESPONSIBILITIES, RULES } from './constants.js'
+import type {
+  ACTION_METHODS,
+  BIDI_MODES,
+  RESPONSIBILITIES,
+  RULES
+} from './constants.js'
+
+export type BidiMode = (typeof BIDI_MODES)[number]
 
 /** A frame as received, before any rule narrows it: an adapter may send any scope. */
 export interface WireFrame {
@@ -24,12 +32,24 @@ export interface FailedNavigation {
   message: string
 }
 
+/** A request the browser made while loading a document. */
+export interface BrowserRequest {
+  url: string
+  /** The document that loaded it. */
+  document: string
+  at: number
+}
+
 /** What happened in the browser, independent of any adapter. */
 export interface GroundTruth {
   documents: BrowserDocument[]
   failedNavigations: FailedNavigation[]
   /** When the browser completed each user action, in order, keyed by shared's action method. */
   actions: Record<ActionMethod, number[]>
+  requests: BrowserRequest[]
+  /** What the session was served over BiDi, which decides what a network row must carry: `off` when no
+   *  socket was handed out, whether the mode offers none or the new-session request asked for none. */
+  bidi: BidiMode
 }
 
 export type ActionMethod = (typeof ACTION_METHODS)[number]
@@ -38,10 +58,13 @@ export type RuleId = (typeof RULES)[keyof typeof RULES]
 
 /** The timeline event a violation concerns, so a report can show it in place. */
 export interface ViolationSubject {
-  kind: 'row' | 'anchor' | 'document'
+  kind: 'row' | 'anchor' | 'document' | 'request'
   timestamp: number
-  /** The document or anchor concerned, so a gap can be scoped to it. */
+  /** The document, anchor or request concerned, so a gap can be scoped to it. */
   url?: string
+  /** For a request: how many rows the stream lists and how many loads the browser made. */
+  rows?: number
+  made?: number
 }
 
 export interface Violation {
@@ -51,11 +74,12 @@ export interface Violation {
   subject?: ViolationSubject
 }
 
-/** The frame stream as the rules read it: rows after every replaceCommand, anchors in time order. */
+/** The frame stream as the rules read it: rows after every replaceCommand, anchors in time order, network rows after every re-send under an id. */
 export interface RecordedStream {
   frames: WireFrame[]
   rows: CommandLog[]
   anchors: TraceMutation[]
+  requests: NetworkRequest[]
 }
 
 export type AdapterId =
@@ -83,6 +107,8 @@ export interface NormalizedRun {
   /** The page each DOM anchor belongs to, in order. */
   snapshots: string[]
   runControls: RunControls
+  /** The path of every request the Network tab lists, sorted, repeats kept. */
+  requests: string[]
 }
 
 export type RunControl = keyof RunCapabilities
@@ -139,7 +165,7 @@ export type Responsibility = keyof typeof RESPONSIBILITIES
 /** A difference an adapter is allowed to show, and why. */
 export interface KnownGap {
   adapter: AdapterId
-  bidi: boolean
+  bidi: BidiMode
   rules: RuleId[]
   reason: string
   /** Set when the gap is a race, so a run that happens to win it is not stale. */
@@ -165,7 +191,7 @@ export interface ScenarioRun {
 /** Everything one scenario run produced, as written to the conformance out dir. */
 export interface RunReport {
   adapter: AdapterId
-  bidi: boolean
+  bidi: BidiMode
   exitCode: number | null
   truth: GroundTruth
   violations: Violation[]

@@ -10,7 +10,7 @@ const SECURE = 'http://fake/secure'
 function run(overrides: Partial<RunReport> = {}): RunReport {
   return {
     adapter: 'selenium-devtools',
-    bidi: true,
+    bidi: 'live',
     exitCode: 0,
     truth: {
       documents: [
@@ -18,7 +18,9 @@ function run(overrides: Partial<RunReport> = {}): RunReport {
         { url: SECURE, bornAt: 1300 }
       ],
       failedNavigations: [],
-      actions: { navigate: [], click: [], fill: [] }
+      actions: { navigate: [], click: [], fill: [] },
+      requests: [],
+      bidi: 'live'
     },
     violations: [],
     unexplained: [],
@@ -82,7 +84,7 @@ describe('renderReport', () => {
 
   it('marks an allowlisted violation with its gap reason', () => {
     const html = renderReport([
-      run({ bidi: false, violations: [unanchored], unexplained: [] })
+      run({ bidi: 'off', violations: [unanchored], unexplained: [] })
     ])
     expect(html).toContain('<li class="allowed"><strong>allowlisted</strong>')
     expect(html).toContain('allowlisted: Without BiDi the collector')
