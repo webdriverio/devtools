@@ -50,9 +50,10 @@ only way to observe requests without pausing them was a private connection,
 which the same release removed. 4.44 requires Python 3.10, which sets the
 Python floor too. Where the driver exposes no BiDi at all (Safari, and every
 session Appium serves) the injected page collector fills the Network tab
-instead, from its `fetch` / `XMLHttpRequest` patch and the document's Resource
-Timing buffer: every request with its timing and size, but no headers or
-bodies, and on Safari no status.
+instead, from two sources of the page's own. A `fetch` / `XMLHttpRequest` call
+goes through its patch and carries method, headers, status and body. Every
+other load comes from the document's Resource Timing buffer with its timing
+and size, but no headers or body, and on Safari no status.
 
 Both floors are declared in `pyproject.toml` (`requires-python` and
 `dependencies`), so pip enforces them at install time rather than leaving you to

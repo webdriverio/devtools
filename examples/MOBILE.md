@@ -327,9 +327,10 @@ Not failures, and not worth chasing:
   only once an event has arrived. Either way capture runs on per-document
   injection, which is the correct path for a native session anyway. On the
   `web` target that injected collector is also what fills the Network tab,
-  from the page's Resource Timing buffer and its `fetch` / `XMLHttpRequest`
-  patch: timing and size for every request, no headers or bodies, and on
-  Safari no status.
+  from two sources of the page's own: a `fetch` / `XMLHttpRequest` call goes
+  through its patch and carries headers, status and body, and every other
+  load comes from the page's Resource Timing buffer with its timing and size,
+  no headers or bodies, and on Safari no status.
 - **An inherited `DEVTOOLS_MODE=live` changes what a run produces** — a
   dashboard window and no zip, instead of a zip and no window. That is correct
   behaviour for live mode and surprising when the variable is left over from an
