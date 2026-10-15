@@ -4,10 +4,10 @@ import {
 } from '@wdio/devtools-shared'
 import { describe, expect, it } from 'vitest'
 import {
-  listedByDriver,
   parseNetworkFromPerfLogs,
   upgradeResourceTimingRows,
-  withoutLoadsTheDriverListed,
+  withoutLoadsTheLogListed,
+  type LoadListedByLog,
   type NetworkEntry,
   type PerfLogEntry
 } from '../src/helpers/perfLogs.js'
@@ -137,48 +137,87 @@ describe('upgradeResourceTimingRows', () => {
   })
 })
 
-describe('listedByDriver', () => {
-  const driverRow = (overrides: Partial<NetworkRequest> = {}) =>
-    resourceTimingRow({ id: '1000-R1', source: undefined, ...overrides })
-
-  it('is the same load when a driver-side row shares the url within tolerance', () => {
-    expect(
-      listedByDriver(resourceTimingRow(), [
-        driverRow({ timestamp: 1_760_000_001_900 })
-      ])
-    ).toBe(true)
+describe('withoutLoadsTheLogListed', () => {
+  /** A load the log listed before the drain, dated from the driver's clock. */
+  const listed = (
+    overrides: Partial<LoadListedByLog> = {}
+  ): LoadListedByLog => ({
+    url: 'https://x/a.js',
+    timestamp: 1_760_000_000_520,
+    ...overrides
   })
 
-  it('is not when the url or the clock differs', () => {
-    expect(
-      listedByDriver(resourceTimingRow(), [
-        driverRow({ url: 'https://x/b.js' })
-      ])
-    ).toBe(false)
-    expect(
-      listedByDriver(resourceTimingRow(), [
-        driverRow({ timestamp: 1_760_000_003_000 })
-      ])
-    ).toBe(false)
-  })
-
-  it('never counts another Resource Timing row as the driver’s listing', () => {
-    expect(listedByDriver(resourceTimingRow(), [resourceTimingRow()])).toBe(
-      false
-    )
-  })
-
-  it('withoutLoadsTheDriverListed drops only those rows from a drained payload', () => {
+  it('drops the page’s row for the load the log listed, and nothing else', () => {
     const fresh = resourceTimingRow({ id: 'rt-2', url: 'https://x/b.js' })
-    const payload = withoutLoadsTheDriverListed(
+    const payload = withoutLoadsTheLogListed(
       { mutations: [], networkRequests: [resourceTimingRow(), fresh] },
-      [driverRow()]
+      [listed()]
     )
     expect(payload.networkRequests).toEqual([fresh])
     expect(payload.mutations).toEqual([])
+  })
+
+  it('keeps the row when the url or the clock differs', () => {
+    const rows = [resourceTimingRow()]
     expect(
-      withoutLoadsTheDriverListed({ mutations: [] }, [driverRow()])
-    ).toEqual({ mutations: [] })
+      withoutLoadsTheLogListed({ networkRequests: rows }, [
+        listed({ url: 'https://x/b.js' })
+      ]).networkRequests
+    ).toEqual(rows)
+    expect(
+      withoutLoadsTheLogListed({ networkRequests: rows }, [
+        listed({ timestamp: 1_760_000_003_000 })
+      ]).networkRequests
+    ).toEqual(rows)
+  })
+
+  it('spends a listed load on one row, so a repeated request keeps its own', () => {
+    // Two requests to one url inside the window, the first listed by the log
+    // before the drain: the second is a request of its own, not the first's
+    // second listing.
+    const first = resourceTimingRow({ id: 'rt-first' })
+    const second = resourceTimingRow({
+      id: 'rt-second',
+      timestamp: 1_760_000_001_000
+    })
+    const payload = withoutLoadsTheLogListed(
+      { networkRequests: [first, second] },
+      [listed()]
+    )
+    expect(payload.networkRequests).toEqual([second])
+  })
+
+  it('takes the row nearest the listed load in time', () => {
+    const early = resourceTimingRow({
+      id: 'rt-early',
+      timestamp: 1_760_000_000_000
+    })
+    const late = resourceTimingRow({
+      id: 'rt-late',
+      timestamp: 1_760_000_001_000
+    })
+    const payload = withoutLoadsTheLogListed(
+      { networkRequests: [early, late] },
+      [listed({ timestamp: 1_760_000_000_900 })]
+    )
+    expect(payload.networkRequests).toEqual([early])
+  })
+
+  it('never takes a row another source reported', () => {
+    // The patch's own fetch row shares the url; it is a request of its own
+    // and carries the body nothing else captured.
+    const patched = resourceTimingRow({ id: 'fetch-1', source: undefined })
+    const payload = withoutLoadsTheLogListed({ networkRequests: [patched] }, [
+      listed()
+    ])
+    expect(payload.networkRequests).toEqual([patched])
+  })
+
+  it('returns a payload without requests, or with nothing listed, as it is', () => {
+    const noRequests = { mutations: [] }
+    expect(withoutLoadsTheLogListed(noRequests, [listed()])).toBe(noRequests)
+    const nothingListed = { networkRequests: [resourceTimingRow()] }
+    expect(withoutLoadsTheLogListed(nothingListed, [])).toBe(nothingListed)
   })
 })
 

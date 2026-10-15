@@ -320,6 +320,7 @@ async function armReplacedSession(
   ctx.sessionCapturer.preloadRegistered = false
   ctx.sessionCapturer.bidiActive = false
   ctx.sessionCapturer.bidiNetworkObserved = false
+  ctx.sessionCapturer.loadsListedByLog = []
   log.info(`Session replaced — re-arming capture for ${sessionId}`)
   await armCaptureForSession(ctx, browser)
 }

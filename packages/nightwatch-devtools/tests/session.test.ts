@@ -425,6 +425,38 @@ describe('SessionCapturer.captureTrace', () => {
   })
 })
 
+/** One request as Chrome's performance log reports it, with its wall clock. */
+const perfLog = (url: string, wallTime: number) =>
+  [
+    [
+      'Network.requestWillBeSent',
+      {
+        requestId: 'R1',
+        request: { url, method: 'GET', headers: { accept: '*/*' } },
+        timestamp: 2.0,
+        wallTime
+      }
+    ],
+    [
+      'Network.responseReceived',
+      {
+        requestId: 'R1',
+        response: {
+          status: 200,
+          statusText: 'OK',
+          headers: { 'content-type': 'text/javascript' },
+          mimeType: 'text/javascript'
+        },
+        timestamp: 2.1
+      }
+    ],
+    ['Network.loadingFinished', { requestId: 'R1', timestamp: 2.15 }]
+  ].map(([method, params]) => ({
+    level: 'INFO',
+    timestamp: 1000,
+    message: JSON.stringify({ message: { method, params } })
+  }))
+
 /**
  * BiDi counts as the network source only once it has delivered an event:
  * against Appium 3.7's XCUITest driver the inspectors attach and then send
@@ -441,20 +473,36 @@ describe('SessionCapturer.captureTrace and BiDi evidence', () => {
     source: 'resource-timing'
   }
 
-  async function drainingServer() {
+  /** A driver whose drains answer `batches` in turn, the last one repeated;
+   *  `null` is a document with no collector, and the url read that recovery
+   *  then makes finds no document either. */
+  async function drainingServer(
+    batches: (unknown[] | null)[] = [[resourceTimingRow]],
+    getLog = vi.fn(async () => [])
+  ) {
     const http = await import('node:http')
-    const server = http.createServer((_req, res) => {
-      res.setHeader('content-type', 'application/json')
-      res.end(
-        JSON.stringify({
-          value: { mutations: [], networkRequests: [resourceTimingRow] }
-        })
-      )
+    let drains = 0
+    const server = http.createServer((req, res) => {
+      let raw = ''
+      req.on('data', (c) => {
+        raw += c
+      })
+      req.on('end', () => {
+        const batch = raw.includes('location.href')
+          ? null
+          : batches[Math.min(drains++, batches.length - 1)]
+        res.setHeader('content-type', 'application/json')
+        res.end(
+          JSON.stringify({
+            value: batch && { mutations: [], networkRequests: batch }
+          })
+        )
+      })
     })
     await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()))
     const port = (server.address() as { port: number }).port
     const browser = makeMockBrowser({
-      getLog: vi.fn(async () => []),
+      getLog,
       sessionId: 'sess-bidi',
       transport: { settings: { webdriver: { host: '127.0.0.1', port } } }
     })
@@ -476,24 +524,60 @@ describe('SessionCapturer.captureTrace and BiDi evidence', () => {
     }
   })
 
-  it('drops a page row for a load the performance log already listed', async () => {
+  /** The page's row for the load the log lists, and a second request to the
+   *  same url inside the window. */
+  const pageRow = { ...resourceTimingRow, timestamp: 1_760_000_000_500 }
+  const laterSameUrl = {
+    ...resourceTimingRow,
+    id: 'rt-2',
+    timestamp: 1_760_000_001_000
+  }
+  /** A log that lists the load once, at its first read. */
+  const logListingOnce = () =>
+    vi
+      .fn()
+      .mockResolvedValueOnce(perfLog('https://x/app.js', 1760000000.52))
+      .mockResolvedValue([])
+
+  it('drops the page’s row for a load the log listed first, and only that row', async () => {
     // The log is read after the drain, so a load completing between the two
-    // reaches the session as the log's row first; the page's arrives a
-    // command later and would list the load twice.
-    const { browser, close } = await drainingServer()
+    // reaches the session as the log's row first and the page's a drain
+    // later. A second request to the same url inside the window is a request
+    // of its own: it keeps its row rather than being read as the first's
+    // second listing, which a scan of every row the session held did.
+    const { browser, close } = await drainingServer(
+      [[], [pageRow], [laterSameUrl]],
+      logListingOnce()
+    )
     const cap = makeCapturer(browser)
-    cap.networkRequests.push({
-      id: '1000-R1',
-      url: 'https://x/app.js',
-      method: 'GET',
-      type: 'script',
-      timestamp: 1500,
-      startTime: 2000,
-      status: 200
-    })
+    cap.perfLogsRequested = true
     try {
       await cap.captureTrace(browser)
       expect(cap.networkRequests.map((r) => r.id)).toEqual(['1000-R1'])
+      await cap.captureTrace(browser)
+      expect(cap.networkRequests.map((r) => r.id)).toEqual(['1000-R1'])
+      await cap.captureTrace(browser)
+      expect(cap.networkRequests.map((r) => r.id)).toEqual(['1000-R1', 'rt-2'])
+    } finally {
+      await close()
+    }
+  })
+
+  it('spends what the log listed on a drain that found no collector', async () => {
+    // The drain reached the driver and the document the load belonged to is
+    // gone, so its row is never coming; kept, the load would take the next
+    // document's row for the same url.
+    const { browser, close } = await drainingServer(
+      [[], null, [laterSameUrl]],
+      logListingOnce()
+    )
+    const cap = makeCapturer(browser)
+    cap.perfLogsRequested = true
+    try {
+      await cap.captureTrace(browser)
+      await cap.captureTrace(browser)
+      await cap.captureTrace(browser)
+      expect(cap.networkRequests.map((r) => r.id)).toEqual(['1000-R1', 'rt-2'])
     } finally {
       await close()
     }
@@ -522,38 +606,6 @@ describe('SessionCapturer.captureTrace and BiDi evidence', () => {
 })
 
 describe('SessionCapturer.captureNetworkFromPerformanceLogs upgrades', () => {
-  /** One request as Chrome's performance log reports it, with its wall clock. */
-  const perfLog = (url: string, wallTime: number) =>
-    [
-      [
-        'Network.requestWillBeSent',
-        {
-          requestId: 'R1',
-          request: { url, method: 'GET', headers: { accept: '*/*' } },
-          timestamp: 2.0,
-          wallTime
-        }
-      ],
-      [
-        'Network.responseReceived',
-        {
-          requestId: 'R1',
-          response: {
-            status: 200,
-            statusText: 'OK',
-            headers: { 'content-type': 'text/javascript' },
-            mimeType: 'text/javascript'
-          },
-          timestamp: 2.1
-        }
-      ],
-      ['Network.loadingFinished', { requestId: 'R1', timestamp: 2.15 }]
-    ].map(([method, params]) => ({
-      level: 'INFO',
-      timestamp: 1000,
-      message: JSON.stringify({ message: { method, params } })
-    }))
-
   it('upgrades the page’s Resource Timing row in place with what the log saw', async () => {
     // The drain runs before the log is read, so the page's row for a load is
     // already in the session; the log's headers and status replace it under

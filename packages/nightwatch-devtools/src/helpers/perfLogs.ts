@@ -188,20 +188,44 @@ export interface ResourceTimingUpgrade {
   request: NetworkRequest
 }
 
-/** The unmatched Resource Timing row for this URL nearest the entry in time. */
-function nearestResourceTimingRow(
+/** The Resource Timing rows under each url, by index: the rows a load another
+ *  source reported can be paired with. */
+function resourceTimingRowsByUrl(
+  rows: NetworkRequest[]
+): Map<string, number[]> {
+  const byUrl = new Map<string, number[]>()
+  rows.forEach((row, index) => {
+    if (row.source !== NETWORK_CAPTURE_SOURCE.RESOURCE_TIMING) {
+      return
+    }
+    const indexes = byUrl.get(row.url)
+    if (indexes) {
+      indexes.push(index)
+    } else {
+      byUrl.set(row.url, [index])
+    }
+  })
+  return byUrl
+}
+
+/** The unmatched Resource Timing row for this url nearest `at`, spent once
+ *  taken so each load pairs with one row. */
+function takeNearestResourceTimingRow(
   indexes: number[],
-  existing: NetworkRequest[],
+  rows: NetworkRequest[],
   at: number
 ): number | undefined {
   let best: number | undefined
   let bestDelta = RESOURCE_TIMING_MATCH_MS
   for (const index of indexes) {
-    const delta = Math.abs(existing[index].timestamp - at)
+    const delta = Math.abs(rows[index].timestamp - at)
     if (delta <= bestDelta) {
       best = index
       bestDelta = delta
     }
+  }
+  if (best !== undefined) {
+    indexes.splice(indexes.indexOf(best), 1)
   }
   return best
 }
@@ -226,38 +250,43 @@ function overlay(row: NetworkRequest, entry: NetworkEntry): NetworkRequest {
   return merged
 }
 
-/** Whether a driver-side source already lists this load: same url, started
- *  within tolerance. The page's row for it would be a second listing. */
-export function listedByDriver(
-  row: NetworkRequest,
-  existing: NetworkRequest[]
-): boolean {
-  return existing.some(
-    (candidate) =>
-      candidate.source !== NETWORK_CAPTURE_SOURCE.RESOURCE_TIMING &&
-      candidate.url === row.url &&
-      Math.abs(candidate.timestamp - row.timestamp) <= RESOURCE_TIMING_MATCH_MS
-  )
+/** A load the log listed before the page could: the log is read after the
+ *  drain, so the page's row for it arrives a drain later. */
+export interface LoadListedByLog {
+  url: string
+  timestamp: number
 }
 
-/** A drained payload without the Resource Timing rows the log listed first:
- *  the log is read after the drain, so a load completing between the two is
- *  the log's row, and the page's arrives a command later. */
-export function withoutLoadsTheDriverListed(
+/** A drained payload without the page's row for each load the log listed
+ *  first. A load takes one row, the nearest under its url, so a second request
+ *  to that url inside the window keeps its own. */
+export function withoutLoadsTheLogListed(
   payload: Record<string, unknown>,
-  existing: NetworkRequest[]
+  listed: LoadListedByLog[]
 ): Record<string, unknown> {
   const requests = payload.networkRequests
-  if (!Array.isArray(requests)) {
+  if (!Array.isArray(requests) || listed.length === 0) {
+    return payload
+  }
+  const rows = requests as NetworkRequest[]
+  const rowsByUrl = resourceTimingRowsByUrl(rows)
+  const taken = new Set<number>()
+  for (const load of listed) {
+    const index = takeNearestResourceTimingRow(
+      rowsByUrl.get(load.url) ?? [],
+      rows,
+      load.timestamp
+    )
+    if (index !== undefined) {
+      taken.add(index)
+    }
+  }
+  if (taken.size === 0) {
     return payload
   }
   return {
     ...payload,
-    networkRequests: (requests as NetworkRequest[]).filter(
-      (row) =>
-        row.source !== NETWORK_CAPTURE_SOURCE.RESOURCE_TIMING ||
-        !listedByDriver(row, existing)
-    )
+    networkRequests: rows.filter((_, index) => !taken.has(index))
   }
 }
 
@@ -272,27 +301,19 @@ export function upgradeResourceTimingRows(
   incoming: NetworkEntry[],
   existing: NetworkRequest[]
 ): { upgrades: ResourceTimingUpgrade[]; fresh: NetworkEntry[] } {
-  const rowsByUrl = new Map<string, number[]>()
-  existing.forEach((row, index) => {
-    if (row.source === NETWORK_CAPTURE_SOURCE.RESOURCE_TIMING) {
-      const indexes = rowsByUrl.get(row.url)
-      if (indexes) {
-        indexes.push(index)
-      } else {
-        rowsByUrl.set(row.url, [index])
-      }
-    }
-  })
+  const rowsByUrl = resourceTimingRowsByUrl(existing)
   const upgrades: ResourceTimingUpgrade[] = []
   const fresh: NetworkEntry[] = []
   for (const entry of incoming) {
-    const indexes = rowsByUrl.get(entry.url) ?? []
-    const index = nearestResourceTimingRow(indexes, existing, entry.timestamp)
+    const index = takeNearestResourceTimingRow(
+      rowsByUrl.get(entry.url) ?? [],
+      existing,
+      entry.timestamp
+    )
     if (index === undefined) {
       fresh.push(entry)
       continue
     }
-    indexes.splice(indexes.indexOf(index), 1)
     upgrades.push({ index, request: overlay(existing[index], entry) })
   }
   return { upgrades, fresh }

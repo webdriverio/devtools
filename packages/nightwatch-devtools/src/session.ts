@@ -23,7 +23,8 @@ import {
   parseNetworkFromPerfLogs,
   dedupeNetworkRequests,
   upgradeResourceTimingRows,
-  withoutLoadsTheDriverListed,
+  withoutLoadsTheLogListed,
+  type LoadListedByLog,
   type NetworkEntry,
   type PerfLogEntry
 } from './helpers/perfLogs.js'
@@ -69,6 +70,11 @@ export class SessionCapturer extends SessionCapturerBase {
    *  21 of them in a two-test run, where XCUITest lists `performance` among its
    *  supported types and then serves none of it. */
   perfLogsRequested = false
+
+  /** Loads the performance log listed before the page's drain could, spent
+   *  at the next drain that reaches the driver, whatever it finds, and
+   *  emptied with the session that listed them. */
+  loadsListedByLog: LoadListedByLog[] = []
 
   /** True once the collector is registered to run at document-start. Every
    *  document then instruments and anchors itself, so the paths that exist to
@@ -515,6 +521,9 @@ export class SessionCapturer extends SessionCapturerBase {
     // default it to the vocabulary's residual at this framework boundary.
     const appended = deduped.map((d) => ({ ...d, type: d.type ?? 'other' }))
     this.networkRequests.push(...appended)
+    this.loadsListedByLog.push(
+      ...appended.map(({ url, timestamp }) => ({ url, timestamp }))
+    )
     const sent = [...upgrades.map((upgrade) => upgrade.request), ...appended]
     if (sent.length > 0) {
       this.sendUpstream('networkRequests', sent)
@@ -567,6 +576,11 @@ export class SessionCapturer extends SessionCapturerBase {
         log: (level, message) => log[level](message)
       })
 
+      // Spent whatever the drain found: the page observed a load before the
+      // log listed it, so a row not in this drain is never coming, and a
+      // document with no collector is one it died with.
+      const listedByLog = this.loadsListedByLog
+      this.loadsListedByLog = []
       if (!traceData) {
         return
       }
@@ -575,7 +589,7 @@ export class SessionCapturer extends SessionCapturerBase {
       // accepts one and sends nothing) nor on the performance log, which is
       // read after this drain and upgrades the page's rows in place instead.
       this.processTracePayload(
-        withoutLoadsTheDriverListed(traceData, this.networkRequests),
+        withoutLoadsTheLogListed(traceData, listedByLog),
         {
           anchorTimestamp,
           skipResourceTimingRequests: this.bidiNetworkObserved
