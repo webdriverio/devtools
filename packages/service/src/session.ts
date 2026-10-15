@@ -51,6 +51,10 @@ export class SessionCapturer extends SessionCapturerBase {
 
   #isScriptInjected = false
   #replacedDocumentInLastDrain = false
+  /** Whether BiDi has delivered at least one network event. `browser.isBidi`
+   *  says a session advertised BiDi; Appium's shim advertises it and sends
+   *  nothing, so only a delivered event makes BiDi the network source. */
+  #bidiNetworkObserved = false
   /** Session start wall time for trace event timestamps. */
   readonly startWallTime = Date.now()
   /** Last find-element selector — carried forward to the next element command. */
@@ -500,7 +504,9 @@ export class SessionCapturer extends SessionCapturerBase {
       ) {
         this.#replacedDocumentInLastDrain = true
       }
-      this.processTracePayload(payload as Record<string, unknown>)
+      this.processTracePayload(payload as Record<string, unknown>, {
+        skipResourceTimingRequests: this.#bidiNetworkObserved
+      })
     } catch (err) {
       log.error(`Failed to capture trace: ${errorMessage(err)}`)
     }
@@ -576,6 +582,7 @@ export class SessionCapturer extends SessionCapturerBase {
     timestamp: number
   }) {
     try {
+      this.#bidiNetworkObserved = true
       const { request, timestamp } = event
       const requestId = request.request
       const requestHeaders = this.#flattenBidiHeaders(request.headers)

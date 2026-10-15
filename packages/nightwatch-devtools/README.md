@@ -193,7 +193,7 @@ desiredCapabilities: {
 }
 ```
 
-When attached, the per-command Chrome performance-log network capture path is gated off so requests don't appear twice in the dashboard. If `webSocketUrl` is missing or the chromedriver version doesn't expose BiDi, the attach logs a warning and the perf-log fallback continues to work.
+When attached, the per-command Chrome performance-log network capture path is gated off so requests don't appear twice in the dashboard. If `webSocketUrl` is missing or the chromedriver version doesn't expose BiDi, the attach logs a warning and the perf-log fallback continues to work. The injected collector's `fetch` / `XMLHttpRequest` patch and the page's Resource Timing buffer list every request as well, with its timing and size; on Chrome the performance log then upgrades those rows in place with headers and status, and on Safari, or any session Appium serves, they are the Network tab, without headers or bodies, and on Safari without a status.
 
 **Set `webSocketUrl: true` even without `bidi: true`.** With it, the plugin registers its page collector at document start on every page, so DOM time-travel stays accurate across navigations. Without it, the collector is injected after each navigation instead, which can miss the first moments of a new page.
 

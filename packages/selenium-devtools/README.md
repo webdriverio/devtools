@@ -471,7 +471,7 @@ The plugin patches `selenium-webdriver`'s `Builder`, `WebDriver`, and `WebElemen
 - **Every public `WebDriver` / `WebElement` method** → wrapped with command capture (args + result + screenshot + call source).
 - **`WebDriver.quit()`** → awaited cleanup hook flushes screencast encoding, WebSocket buffer, and final metadata before the original quit runs.
 
-When BiDi is available (Chrome ≥114), console logs, JavaScript exceptions, and network events stream directly via the Selenium BiDi handlers. Otherwise the plugin falls back to an injected browser-side collector script.
+When BiDi is available (Chrome ≥114), console logs, JavaScript exceptions, and network events stream directly via the Selenium BiDi handlers. Otherwise the plugin falls back to an injected browser-side collector script, which patches `fetch` / `XMLHttpRequest` and reads the page's Resource Timing buffer, so a Safari or Appium session still lists every request with its timing and size. That path sees no headers or bodies, and on Safari no status; the Network tab says so on each such row.
 
 The same injected collector also records the page's **DOM mutation stream** and a per-command element / accessibility snapshot, so a trace carries enough to rebuild the live DOM at each step (per-navigation mapping) — that's what powers the player's DOM time-travel and A11y tab rather than a screenshot-only replay.
 

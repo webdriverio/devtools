@@ -116,14 +116,17 @@ export async function attachBidiHandlers(
 export function buildBidiSinks(capturer: SessionCapturer): BidiHandlerSinks {
   return {
     pushConsoleLog: (entry) => {
+      capturer.bidiConsoleObserved = true
       capturer.consoleLogs.push(entry)
       capturer.sendUpstream('consoleLogs', [entry])
     },
     pushNetworkRequest: (entry) => {
+      capturer.bidiNetworkObserved = true
       capturer.networkRequests.push(entry)
       capturer.sendUpstream('networkRequests', [entry])
     },
     replaceNetworkRequest: (id, entry) => {
+      capturer.bidiNetworkObserved = true
       const idx = capturer.networkRequests.findIndex(
         (r: NetworkRequestWithId) => r.id === id
       )

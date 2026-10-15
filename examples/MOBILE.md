@@ -318,11 +318,18 @@ instrumentation process is not running`, so the trace ends up with fewer
 
 Not failures, and not worth chasing:
 
-- **Selenium logs three BiDi warnings per run** (`BiDi LogInspector attach
-failed`, `BiDi preload unavailable`, `BiDi NetworkInspector attach failed`).
-  The adapter requests `webSocketUrl` unconditionally and Appium serves no
-  BiDi, so the attach fails and capture falls back to per-document injection —
-  which is the correct path for a native session anyway.
+- **Selenium logs BiDi lines that describe nothing real.** The adapter
+  requests `webSocketUrl` unconditionally. Against UiAutomator2 the attach
+  fails and logs three warnings (`BiDi LogInspector attach failed`, `BiDi
+  preload unavailable`, `BiDi NetworkInspector attach failed`); against
+  Appium 3.7's XCUITest driver the inspectors report `attached` and then
+  deliver no event at all, which is why the adapter counts BiDi as a source
+  only once an event has arrived. Either way capture runs on per-document
+  injection, which is the correct path for a native session anyway. On the
+  `web` target that injected collector is also what fills the Network tab,
+  from the page's Resource Timing buffer and its `fetch` / `XMLHttpRequest`
+  patch: timing and size for every request, no headers or bodies, and on
+  Safari no status.
 - **An inherited `DEVTOOLS_MODE=live` changes what a run produces** — a
   dashboard window and no zip, instead of a zip and no window. That is correct
   behaviour for live mode and surprising when the variable is left over from an

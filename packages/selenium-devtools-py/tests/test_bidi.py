@@ -258,6 +258,18 @@ class TestAttachDefensive(unittest.TestCase):
             caps = {"browserName": "chrome"}  # no webSocketUrl
         self.assertFalse(bidi.attach(Driver(), self._capturer()))
 
+    def test_attach_skips_a_capability_that_is_not_a_socket_address(self):
+        # safaridriver echoes the requested `True` back instead of a ws:// URL;
+        # selenium's connection thread crashes on it, so it is not BiDi.
+        class Driver:
+            caps = {"browserName": "Safari", "webSocketUrl": True}
+
+            @property
+            def script(self):
+                raise AssertionError("must not be touched")
+
+        self.assertFalse(bidi.attach(Driver(), self._capturer()))
+
     def test_attach_survives_channel_errors(self):
         class Driver:
             caps = {"webSocketUrl": "ws://x"}
@@ -272,6 +284,34 @@ class TestAttachDefensive(unittest.TestCase):
 
         # Both channels raise; attach returns False without propagating.
         self.assertFalse(bidi.attach(Driver(), self._capturer()))
+
+    def test_a_failed_network_attach_is_recorded_as_not_attached(self):
+        # The drain reads this to decide whether the page's own network
+        # entries are the session's capture or a duplicate of BiDi's.
+        class Driver:
+            caps = {"webSocketUrl": "ws://x"}
+
+            @property
+            def script(self):
+                raise RuntimeError("no bidi here")
+
+            @property
+            def network(self):
+                raise RuntimeError("no bidi here")
+
+        stats = {}
+        bidi.attach(Driver(), self._capturer(), stats)
+        self.assertFalse(bidi.network_serving(stats))
+
+    def test_network_serving_needs_a_subscription_that_delivered(self):
+        # Appium's BiDi shim accepts the subscription and then sends nothing,
+        # so "attached" alone would withhold the only network capture there is.
+        self.assertFalse(bidi.network_serving(None))
+        self.assertFalse(bidi.network_serving({}))
+        self.assertFalse(bidi.network_serving({"attached": False}))
+        self.assertFalse(bidi.network_serving({"attached": True}))
+        self.assertFalse(bidi.network_serving({"attached": False, "observed": True}))
+        self.assertTrue(bidi.network_serving({"attached": True, "observed": True}))
 
     def test_console_handler_pushes_to_capturer(self):
         """End-to-end: a fake script channel drives capture_console."""
@@ -543,6 +583,26 @@ class TestTheEventManagerPath(unittest.TestCase):
         self.assertEqual(len(frames), 2)
         self.assertEqual(frames[0]["url"], "https://x/a.js")
         self.assertEqual(frames[1]["status"], 200)  # correlated with the request
+
+    def test_a_subscription_serves_the_session_once_a_request_arrives(self):
+        module = fake_network_module()
+        network = module.Network()
+        stats = {}
+
+        with mock.patch.dict(
+            sys.modules, {"selenium.webdriver.common.bidi.network": module}
+        ):
+            bidi._attach_network(
+                NewSeleniumDriver(network, []), SessionCapturer(RecordingTransport()), stats
+            )
+
+        # Subscribed, nothing delivered yet: the page's rows are still the capture.
+        self.assertFalse(bidi.network_serving(stats))
+        self._dispatch(network, "network.beforeRequestSent", {
+            "request": {"request": "R1", "url": "https://x/a.js", "method": "GET"},
+            "timestamp": 1000,
+        })
+        self.assertTrue(bidi.network_serving(stats))
 
     def test_both_events_are_subscribed_and_counted(self):
         # Registering on the connection directly bypasses selenium's own

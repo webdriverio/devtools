@@ -51,7 +51,7 @@ Want a portable artifact instead of a live UI (CI / agent diffing)? Switch to **
 - **Screenshot Capture**: Automatic screenshots after each command for visual debugging
 - **Source Code Mapping**: View the exact line of code that triggered each command
 - **Console Logs**: Capture and display application console output with timestamps and log levels
-- **Network Logs**: Monitor and inspect HTTP requests/responses including headers, payloads, timing, and status codes
+- **Network Logs**: Monitor and inspect HTTP requests/responses including headers, payloads, timing, and status codes. Where the driver exposes no BiDi (Safari, Appium), the page's own Resource Timing still lists every request with its timing and size
 - **Error Tracking**: Full error messages and stack traces for failed tests
 
 ### 🎮 Execution Controls
@@ -90,6 +90,8 @@ Real-time capture of browser-side events through the WebDriver BiDi protocol —
 | **Nightwatch.js** | Same `selenium-webdriver/bidi` inspectors (Nightwatch ships selenium-webdriver internally) | Opt-in | `globals: nightwatchDevtools({ bidi: true })` + `desiredCapabilities: { webSocketUrl: true }` |
 
 When BiDi is active in Selenium or Nightwatch, the per-command Chrome performance-log network-capture path is gated off so requests don't appear twice in the dashboard. The attach + sink logic lives in `@wdio/devtools-core`'s `bidi.ts` — same module both adapters consume.
+
+**Without BiDi: Safari, and every session Appium serves.** Neither driver exposes BiDi, so there the Network tab is filled by the page itself, through the same injected collector that records the DOM. It patches `fetch` / `XMLHttpRequest` (method, headers, status and body of each call the page makes) and reads the document's **Resource Timing** buffer: every load the browser made (the document, scripts, styles, images, fonts) with its timing phases and size, plus a status on Chromium. What Resource Timing cannot see are headers and bodies, and on Safari the status; each such row says so in its detail card, and its `trace.network` entry carries `_source: "resource-timing"`. When BiDi is serving the session, meaning it has delivered a network event and not merely accepted a subscription (Appium's BiDi shim accepts one and sends nothing), the Resource Timing rows are dropped at ingest so a request is listed once; Nightwatch's performance log, read after the page is drained, upgrades those rows in place with the headers and status it has. A native app session has no document, so it has no network capture at all. Only a device- or proxy-level capture outside the adapters can see that traffic.
 
 ### 📦 Trace mode (trace.zip)
 
@@ -206,7 +208,7 @@ Appium sessions are captured in both live and trace mode. What gets captured dep
 
 | Session | Has a document | What is captured |
 |---|---|---|
-| **Mobile browser** (Chrome on Android, Safari on iOS) | always | the same as a desktop run — DOM, console, network, replay |
+| **Mobile browser** (Chrome on Android, Safari on iOS) | always | DOM, console and replay as on desktop; network from the page's own record, since Appium serves no BiDi (see [BiDi capture](#-bidi-capture-browser-console--js-exceptions--network)) |
 | **Native app** | never | commands, screenshots and element data from the platform's XML tree; no DOM |
 | **Hybrid app** | only while in a webview context | native halves as an app, webview halves as a page |
 
@@ -218,7 +220,7 @@ A hybrid app is the case capabilities alone cannot answer, because the answer ch
 
 **In the dashboard**, a phone capture is framed as the device — a full-height device column with the action list and dock beside it — in both live mode and the trace player. The trace's `context-options` records the platform, model and OS version, read back so the player labels frames without guessing.
 
-**What a mobile trace does not contain.** Per-action snapshots are issued from inside the command hook, and Appium serialises a probe behind the command it is observing — so where a session has a document to probe, the per-action snapshot is skipped. In practice that means **a hybrid app's webview actions carry no per-action element data, accessibility tree or settle screenshot**. Native sessions, mobile browsers and every desktop session are unaffected. Command rows and their screenshots, console, network and the archive itself are always captured. These absences are by design; they are not a capture failure.
+**What a mobile trace does not contain.** Per-action snapshots are issued from inside the command hook, and Appium serialises a probe behind the command it is observing — so where a session has a document to probe, the per-action snapshot is skipped. In practice that means **a hybrid app's webview actions carry no per-action element data, accessibility tree or settle screenshot**. Native sessions, mobile browsers and every desktop session are unaffected. Command rows and their screenshots, console and the archive itself are always captured; a mobile browser's network comes from the page's Resource Timing and fetch/XHR patch rather than from BiDi, and a native session has no network capture, because the driver exposes none. These absences are by design; they are not a capture failure.
 
 On a native session, element data and the A11y panel come from the platform's XML tree rather than the DOM, so locators read as `android=new UiSelector()…` / `-ios predicate string:…` rather than CSS or XPath over HTML.
 

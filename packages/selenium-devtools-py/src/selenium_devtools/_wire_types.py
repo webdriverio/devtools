@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Literal, Optional, TypedDict, Union
 
-__all__ = ['AccessibilityNode', 'ActionSnapshot', 'BaselineClearedWsPayload', 'BaselineSavedWsPayload', 'ClearExecutionDataWsPayload', 'CommandLog', 'CommandLogPoint', 'ConsoleLog', 'DeviceInfo', 'DocumentInfo', 'DocumentInfoDocumentInfo', 'DocumentInfoHeaders', 'ElementScriptsResponse', 'Metadata', 'NetworkRequest', 'NetworkRequestResponse', 'PerformanceData', 'PerformanceDataNavigation', 'PerformanceDataNavigationTiming', 'PerformanceDataResources', 'PreservedAttempt', 'PreservedAttemptTest', 'PreservedAttemptWindow', 'PreservedStep', 'ReplaceCommandWsPayload', 'ScreencastFrame', 'ScreencastInfo', 'SerializedError', 'SuiteStats', 'TestError', 'TestErrorMatcherResult', 'TestStats', 'TraceExportRequest', 'TraceExportResult', 'TraceMutation', 'Viewport']
+__all__ = ['AccessibilityNode', 'ActionSnapshot', 'BaselineClearedWsPayload', 'BaselineSavedWsPayload', 'ClearExecutionDataWsPayload', 'CommandLog', 'CommandLogPoint', 'ConsoleLog', 'DeviceInfo', 'DocumentInfo', 'DocumentInfoDocumentInfo', 'DocumentInfoHeaders', 'ElementScriptsResponse', 'Metadata', 'NetworkRequest', 'NetworkRequestResponse', 'NetworkTimings', 'PerformanceData', 'PerformanceDataNavigation', 'PerformanceDataNavigationTiming', 'PerformanceDataResources', 'PreservedAttempt', 'PreservedAttemptTest', 'PreservedAttemptWindow', 'PreservedStep', 'ReplaceCommandWsPayload', 'ScreencastFrame', 'ScreencastInfo', 'SerializedError', 'SuiteStats', 'TestError', 'TestErrorMatcherResult', 'TestStats', 'TraceExportRequest', 'TraceExportResult', 'TraceMutation', 'Viewport']
 
 
 class _AccessibilityNodeRequired(TypedDict):
@@ -174,6 +174,8 @@ class NetworkRequest(_NetworkRequestRequired, total=False):
     requestBody: str
     responseBody: str
     size: float
+    timings: NetworkTimings
+    source: Literal['resource-timing']
 
 
 class NetworkRequestResponse(TypedDict):
@@ -181,6 +183,16 @@ class NetworkRequestResponse(TypedDict):
     headers: Dict[str, str]
     mimeType: str
     status: float
+
+
+class NetworkTimings(TypedDict, total=False):
+    blocked: float
+    dns: float
+    connect: float
+    ssl: float
+    send: float
+    wait: float
+    receive: float
 
 
 class PerformanceData(TypedDict, total=False):

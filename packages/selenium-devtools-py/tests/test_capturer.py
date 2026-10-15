@@ -38,6 +38,21 @@ class TestSessionCapturer(unittest.TestCase):
         cmd = [d for s, d in self.tx.sent if s == "commands"][0][0]
         self.assertEqual(cmd["error"]["name"], "RuntimeError")
 
+    def test_page_network_entries_are_forwarded_as_built(self):
+        # The collector's rows already have the wire shape; the transport's
+        # contract check is what proves that, so this goes through it.
+        row = {
+            "id": "rt-1-0", "url": "https://x/", "method": "", "type": "document",
+            "timestamp": 1, "startTime": 0, "source": "resource-timing",
+            "timings": {"dns": 1, "connect": 2, "send": 0, "wait": 3, "receive": 4},
+        }
+        self.cap.send_network_requests([row])
+        self.assertIn(("networkRequests", [row]), self.tx.sent)
+
+    def test_an_empty_page_network_batch_sends_nothing(self):
+        self.cap.send_network_requests([])
+        self.assertEqual([s for s, _ in self.tx.sent if s == "networkRequests"], [])
+
     def test_suites_sent_as_uid_keyed_records(self):
         # UI expects Record<uid, SuiteStats>[], not a plain array of suites.
         suite = frames.suite_stats(uid="suite-1", title="S", file="s.py", start_ms=0, tests=[])

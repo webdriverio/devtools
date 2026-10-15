@@ -1,6 +1,7 @@
 import { getLogs, clearLogs } from './logger.js'
 import { ConsoleLogCollector } from './collectors/consoleLogs.js'
 import { NetworkRequestCollector } from './collectors/networkRequests.js'
+import { ResourceTimingCollector } from './collectors/resourceTiming.js'
 import { assignRef, hasRef, parseDocument } from './utils.js'
 
 /**
@@ -44,6 +45,12 @@ export class DataCollector {
   #anchored = false
   #consoleLogs = new ConsoleLogCollector()
   #networkRequests = new NetworkRequestCollector()
+  /** The document's own record of every load, which is the only network
+   *  source a browser without BiDi has. Given the patch's claims so a fetch
+   *  both of them saw is reported once, with the patch's headers and body. */
+  #resourceTiming = new ResourceTimingCollector((url, startTime, entry) =>
+    this.#networkRequests.consumeClaim(url, startTime, entry)
+  )
 
   captureError(err: Error) {
     const error = err.stack || err.message
@@ -92,6 +99,7 @@ export class DataCollector {
     // re-emit the whole document.
     this.#consoleLogs.clear()
     this.#networkRequests.clear()
+    this.#resourceTiming.clear()
     clearLogs()
   }
 
@@ -104,7 +112,10 @@ export class DataCollector {
       errors: this.#errors,
       mutations: this.#mutations,
       consoleLogs: this.#consoleLogs.getArtifacts(),
-      networkRequests: this.#networkRequests.getArtifacts(),
+      networkRequests: [
+        ...this.#networkRequests.getArtifacts(),
+        ...this.#resourceTiming.getArtifacts()
+      ].sort((a, b) => a.startTime - b.startTime),
       traceLogs: getLogs(),
       metadata: this.getMetadata()
     } as const

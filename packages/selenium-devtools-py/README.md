@@ -48,7 +48,11 @@ use a backend you are already running — in CI, or one started by hand — set
 the public BiDi event API that selenium regenerated in 4.44 — before that the
 only way to observe requests without pausing them was a private connection,
 which the same release removed. 4.44 requires Python 3.10, which sets the
-Python floor too.
+Python floor too. Where the driver exposes no BiDi at all (Safari, and every
+session Appium serves) the injected page collector fills the Network tab
+instead, from its `fetch` / `XMLHttpRequest` patch and the document's Resource
+Timing buffer: every request with its timing and size, but no headers or
+bodies, and on Safari no status.
 
 Both floors are declared in `pyproject.toml` (`requires-python` and
 `dependencies`), so pip enforces them at install time rather than leaving you to
@@ -225,7 +229,7 @@ is on `PATH`; otherwise keep it current (`brew upgrade chromedriver`).
 | Session metadata | read `session_id` + `caps` on the first ready command | `metadata` | both |
 | Test / suite tree | pytest plugin (`pytest_runtest_logreport` / `sessionfinish`) | `suites` | both |
 | Browser console + JS errors | Selenium **BiDi** (`driver.script` handlers) | `consoleLogs` | both |
-| Network requests | Selenium **BiDi** (`Network.add_event_handler`, observe-only — never an intercept, which would pause every request) | `networkRequests` | both |
+| Network requests | Selenium **BiDi** (`Network.add_event_handler`, observe-only, never an intercept, which would pause every request); without BiDi, the page collector's `fetch` / `XMLHttpRequest` patch and Resource Timing buffer, drained beside the mutations | `networkRequests` | both |
 | Assertions | pytest hooks under pytest; line tracing for a plain script | `commands` | both |
 | DOM snapshot / time-travel | register `packages/script` as a BiDi document-start preload, drain mutations with a forced document anchor (per-document `<script>` injection when BiDi is absent) | `mutations` | both |
 | Navigation + resource timing | read from the page after a navigation, then the command row is re-sent with it | `commands` | both |

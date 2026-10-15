@@ -3,7 +3,10 @@
 // network drawer (TraceTimeline). The returned markup relies on `networkStyles`
 // being present in the host component's shadow root.
 
-import type { NetworkRequest } from '@wdio/devtools-shared'
+import {
+  NETWORK_CAPTURE_SOURCE,
+  type NetworkRequest
+} from '@wdio/devtools-shared'
 import { html, nothing, type TemplateResult } from 'lit'
 import {
   formatBytes,
@@ -11,14 +14,15 @@ import {
   statusKind,
   contentType
 } from '../../../utils/network-helpers.js'
-import { FAILED_STATUS_LABEL } from '../../../utils/network-constants.js'
+import {
+  FAILED_STATUS_LABEL,
+  NO_VALUE
+} from '../../../utils/network-constants.js'
 
 // The capture side reports a transport failure as status 0 carrying the failure
 // text in `statusText` (service's `handleNetworkFetchError`), so 0 is a failure
 // that happened — never a status still on its way.
 const TRANSPORT_FAILURE_STATUS = 0
-
-const NO_VALUE = '—'
 
 const ZERO_BYTES = '0B'
 
@@ -26,6 +30,11 @@ const ZERO_BYTES = '0B'
  *  or the status 0 that stands in for one. */
 export function requestFailed(req: NetworkRequest): boolean {
   return Boolean(req.error) || req.status === TRANSPORT_FAILURE_STATUS
+}
+
+/** The status bucket the list and the card colour a request by. */
+export function requestStatusKind(req: NetworkRequest) {
+  return statusKind(req.status, requestFailed(req), req.source)
 }
 
 /** Bytes a request transferred. A captured 0 (a 204, a HEAD, a body the
@@ -42,6 +51,17 @@ function statusCode(req: NetworkRequest): string {
     return String(req.status)
   }
   return requestFailed(req) ? FAILED_STATUS_LABEL : NO_VALUE
+}
+
+/** What a Resource Timing capture could not see, so an empty headers section
+ *  and a dash for the status read as the browser's limit rather than ours. */
+function captureLimit(req: NetworkRequest): string | undefined {
+  if (req.source !== NETWORK_CAPTURE_SOURCE.RESOURCE_TIMING) {
+    return undefined
+  }
+  return req.status
+    ? 'Resource Timing: this browser exposes no headers or body for the request'
+    : 'Resource Timing: this browser exposes no status, headers or body for the request'
 }
 
 function formatBody(body: string): string {
@@ -95,18 +115,20 @@ function bodySection(title: string, body: string | undefined) {
 }
 
 function generalSection(req: NetworkRequest) {
-  const kind = statusKind(req.status, requestFailed(req))
+  const kind = requestStatusKind(req)
+  const limit = captureLimit(req)
   return html`
     <div class="detail-section">
       <div class="detail-title">General</div>
       <div class="kv-card">
-        ${kv('Request URL', req.url)} ${kv('Method', req.method)}
+        ${kv('Request URL', req.url)} ${kv('Method', req.method || NO_VALUE)}
         ${kv(
           'Status',
           html`${statusCode(req)} ${req.statusText || ''}`,
           `kind-${kind}`
         )}
         ${kv('Type', contentType(req))}
+        ${limit ? kv('Captured from', limit) : nothing}
         ${
           typeof req.time === 'number'
             ? kv('Time', formatTime(req.time))

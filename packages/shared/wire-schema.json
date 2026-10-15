@@ -637,6 +637,15 @@
         },
         "size": {
           "type": "number"
+        },
+        "timings": {
+          "$ref": "#/$defs/NetworkTimings"
+        },
+        "source": {
+          "type": "string",
+          "enum": [
+            "resource-timing"
+          ]
         }
       },
       "required": [
@@ -647,6 +656,34 @@
         "startTime",
         "type"
       ],
+      "additionalProperties": false
+    },
+    "NetworkTimings": {
+      "type": "object",
+      "properties": {
+        "blocked": {
+          "type": "number"
+        },
+        "dns": {
+          "type": "number"
+        },
+        "connect": {
+          "type": "number"
+        },
+        "ssl": {
+          "type": "number"
+        },
+        "send": {
+          "type": "number"
+        },
+        "wait": {
+          "type": "number"
+        },
+        "receive": {
+          "type": "number"
+        }
+      },
+      "required": [],
       "additionalProperties": false
     },
     "PerformanceData": {

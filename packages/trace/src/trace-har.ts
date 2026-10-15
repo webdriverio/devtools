@@ -1,10 +1,28 @@
 // Convert the existing NetworkRequest shape into trace format
 // `resource-snapshot` NDJSON entries (HAR-flavoured) for trace.zip.
 
-import type { NetworkRequest } from '@wdio/devtools-shared'
+import type {
+  NetworkCaptureSource,
+  NetworkRequest,
+  NetworkTimings,
+  RequestType
+} from '@wdio/devtools-shared'
 
 /** Bodies below this inline as plain `text`; larger ones rely on `_sha1` only. */
 const INLINE_BODY_TEXT_MAX_BYTES = 8 * 1024
+
+/** HAR's own marker for a phase that does not apply. */
+const HAR_PHASE_NOT_APPLICABLE = -1
+
+export interface HarTimings {
+  blocked?: number
+  dns?: number
+  connect?: number
+  ssl?: number
+  send: number
+  wait: number
+  receive: number
+}
 
 export interface HarResponseContent {
   size: number
@@ -42,7 +60,31 @@ export interface ResourceSnapshotEntry {
       bodySize: number
     }
     cache: Record<string, never>
-    timings: { send: number; wait: number; receive: number }
+    timings: HarTimings
+    /** The capture's own classification, which `content.mimeType` cannot
+     *  carry for a source that saw no response headers. */
+    _resourceType: RequestType
+    _source?: NetworkCaptureSource
+  }
+}
+
+/** The phases a capture measured, in HAR's shape; a capture that measured
+ *  none reports the whole duration as `wait`, which is all it knows. */
+function toHarTimings(
+  timings: NetworkTimings | undefined,
+  duration: number
+): HarTimings {
+  if (!timings) {
+    return { send: 0, wait: Math.max(0, duration), receive: 0 }
+  }
+  return {
+    blocked: timings.blocked ?? HAR_PHASE_NOT_APPLICABLE,
+    dns: timings.dns ?? HAR_PHASE_NOT_APPLICABLE,
+    connect: timings.connect ?? HAR_PHASE_NOT_APPLICABLE,
+    ssl: timings.ssl ?? HAR_PHASE_NOT_APPLICABLE,
+    send: timings.send ?? 0,
+    wait: timings.wait ?? 0,
+    receive: timings.receive ?? 0
   }
 }
 
@@ -122,11 +164,9 @@ export function networkRequestToHar(
         bodySize: entry.size ?? -1
       },
       cache: {},
-      timings: {
-        send: 0,
-        wait: Math.max(0, duration),
-        receive: 0
-      }
+      timings: toHarTimings(entry.timings, duration),
+      _resourceType: entry.type,
+      ...(entry.source ? { _source: entry.source } : {})
     }
   }
 }

@@ -7,13 +7,13 @@ import { consume } from '@lit/context'
 import { networkRequestContext } from '../../controller/context.js'
 import {
   FAILED_STATUS_LABEL,
+  NO_VALUE,
   RESOURCE_TYPES,
   TYPE_DOT_CLASS,
   type ResourceFilter
 } from '../../utils/network-constants.js'
 import {
   formatTime,
-  statusKind,
   getResourceType,
   getFileName,
   contentType
@@ -27,7 +27,8 @@ import {
 import {
   formatTransferSize,
   renderNetworkRequestDetail,
-  requestFailed
+  requestFailed,
+  requestStatusKind
 } from './network/request-detail.js'
 
 import '../placeholder.js'
@@ -143,7 +144,7 @@ export class DevtoolsNetwork extends Element {
   }
 
   #renderRequestRow(request: NetworkRequest, range: WaterfallScale) {
-    const kind = statusKind(request.status, requestFailed(request))
+    const kind = requestStatusKind(request)
     const dotClass = TYPE_DOT_CLASS[getResourceType(request)]
     // A zero duration is a measurement (a cached or same-tick response), so the
     // cell reports it; only the bar is held back, because a zero-width bar draws
@@ -155,7 +156,8 @@ export class DevtoolsNetwork extends Element {
     // as ERR so a dead request is never mistaken for one still in flight, which
     // is what the dash means.
     const statusLabel =
-      request.status || (requestFailed(request) ? FAILED_STATUS_LABEL : '—')
+      request.status ||
+      (requestFailed(request) ? FAILED_STATUS_LABEL : NO_VALUE)
     return html`
       <div
         class="grid request-row ${
@@ -169,7 +171,7 @@ export class DevtoolsNetwork extends Element {
             >${getFileName(request.url)}</span
           >
         </span>
-        <span class="req-method">${request.method}</span>
+        <span class="req-method">${request.method || NO_VALUE}</span>
         <span class="req-status kind-${kind}">
           <i class="status-dot"></i>
           ${statusLabel}
@@ -190,7 +192,7 @@ export class DevtoolsNetwork extends Element {
           </span>
         </span>
         <span class="req-dur ${duration === undefined ? 'req-dur-empty' : ''}"
-          >${duration === undefined ? '—' : formatTime(duration)}</span
+          >${duration === undefined ? NO_VALUE : formatTime(duration)}</span
         >
         <span class="req-size">${formatTransferSize(request.size)}</span>
       </div>

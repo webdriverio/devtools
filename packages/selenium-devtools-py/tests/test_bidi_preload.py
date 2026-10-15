@@ -55,6 +55,16 @@ class TestRegistering(unittest.TestCase):
             bidi_preload.register_collector_preload(driver, "COLLECTOR")
         )
 
+    def test_a_capability_that_is_not_a_socket_address_falls_back(self):
+        # safaridriver echoes the requested `True` back; opening driver.script
+        # on it crashes selenium's socket thread, so it is not a BiDi session.
+        driver = FakeDriver(caps={"webSocketUrl": True})
+
+        self.assertFalse(
+            bidi_preload.register_collector_preload(driver, "COLLECTOR")
+        )
+        self.assertEqual(driver.script.pinned, [])
+
     def test_a_selenium_failure_falls_back_with_a_reason(self):
         driver = FakeDriver(script=FakeScript(raises=RuntimeError("no bidi")))
 
@@ -122,7 +132,7 @@ class TestADocumentThePreloadMissed(unittest.TestCase):
         with mock.patch(
             "selenium_devtools.snapshot.load_injectable_script", return_value="SRC"
         ):
-            mutations = capturer.pull_mutations()
+            mutations = capturer.pull_trace().mutations
 
         self.assertEqual(len(mutations), 1)  # recovered rather than silently empty
         self.assertTrue(any("createElement" in s for s in seen))
@@ -137,7 +147,7 @@ class TestADocumentThePreloadMissed(unittest.TestCase):
             return {"mutations": []}
 
         capturer = SnapshotCapturer(execute, preloaded=True)
-        capturer.pull_mutations()
+        capturer.pull_trace().mutations
 
         self.assertEqual([s for s in seen if "createElement" in s], [])
 

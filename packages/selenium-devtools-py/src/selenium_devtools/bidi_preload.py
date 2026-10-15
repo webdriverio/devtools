@@ -20,6 +20,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from .bidi import bidi_enabled
 from .constants import BIDI_CAPABILITY, LOGGER_NAME
 
 _log = logging.getLogger(f"{LOGGER_NAME}.preload")
@@ -44,8 +45,7 @@ def register_collector_preload(driver: Any, source: str) -> bool:
     "current browsing context", but it forwards no `contexts` argument, and BiDi
     treats that as every context. That reliance is pinned by a test.
     """
-    caps = getattr(driver, "caps", None)
-    if not (isinstance(caps, dict) and caps.get(BIDI_CAPABILITY)):
+    if not bidi_enabled(driver):
         # Not a warning: the caller already reports the missing capability once,
         # and the `<script>` path still captures DOM — just with the races this
         # module exists to remove.

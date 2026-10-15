@@ -38,10 +38,12 @@ export function buildBidiSinks(capturer: SessionCapturer): BidiHandlerSinks {
       capturer.sendUpstream('consoleLogs', [entry])
     },
     pushNetworkRequest: (entry) => {
+      capturer.bidiNetworkObserved = true
       capturer.networkRequests.push(entry)
       capturer.sendUpstream('networkRequests', [entry])
     },
     replaceNetworkRequest: (id, entry) => {
+      capturer.bidiNetworkObserved = true
       const idx = capturer.networkRequests.findIndex(
         (r: { id?: string }) => r.id === id
       )

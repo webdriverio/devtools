@@ -1,10 +1,34 @@
 import type { Collector } from './collector.js'
 import type { NetworkRequest } from '../../types.js'
+import { resourceTimingUrl, shouldIgnoreRequest } from './network-helpers.js'
+
+/** A Resource Timing entry under a claimed URL that started within this many
+ *  ms of the claim is the same request, seen from the other side. */
+const CLAIM_TOLERANCE_MS = 1000
+
+/** Claims a long-polling page could accumulate between two drains; the oldest
+ *  are the ones whose entries have long since arrived. */
+const MAX_CLAIMS = 500
+
+interface Claim {
+  url: string
+  startTime: number
+  /** The patch recorded the call; the entry still to arrive is a second listing. */
+  recorded?: boolean
+  /** The entry arrived first and waits for the patch to record or drop the call. */
+  held?: NetworkRequest
+}
 
 export class NetworkRequestCollector implements Collector<NetworkRequest> {
   #requests: NetworkRequest[] = []
   #pendingRequests = new Map<string, Partial<NetworkRequest>>()
   #pendingXHRRequests = new WeakMap<XMLHttpRequest, Partial<NetworkRequest>>()
+  /** Every fetch/XHR this patch has seen start, so the Resource Timing
+   *  collector can tell its own entry for the same request apart from a load
+   *  nobody else recorded. Survives `clear()`: the entry can arrive after the
+   *  drain that took the patched record. A call this patch drops gives the
+   *  entry it held back, so the request keeps its one record. */
+  #claims: Claim[] = []
   #originalFetch?: typeof fetch
   #originalXhrOpen?: typeof XMLHttpRequest.prototype.open
   #originalXhrSend?: typeof XMLHttpRequest.prototype.send
@@ -23,49 +47,72 @@ export class NetworkRequestCollector implements Collector<NetworkRequest> {
     this.#pendingRequests.clear()
   }
 
-  #generateId(): string {
-    return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+  /** Whether this patch saw a request for `url` start within tolerance of
+   *  `startTime`. The entry is taken: either the call is already recorded and
+   *  the entry would be its second listing, or the entry is held until the
+   *  patch records or drops the call. A page polling one URL matches each
+   *  entry to one call. */
+  consumeClaim(url: string, startTime: number, entry: NetworkRequest): boolean {
+    const claim = this.#nearestClaim(url, startTime)
+    if (!claim) {
+      return false
+    }
+    if (claim.recorded) {
+      this.#dropClaim(claim)
+    } else {
+      claim.held = entry
+    }
+    return true
   }
 
-  #shouldIgnoreRequest(url: string): boolean {
-    // Filter out internal URLs, data URLs, blob URLs, chrome extensions, etc.
-    if (!url) {
-      return true
+  #nearestClaim(url: string, startTime: number): Claim | undefined {
+    let best: Claim | undefined
+    let bestDelta = CLAIM_TOLERANCE_MS
+    for (const claim of this.#claims) {
+      const delta = Math.abs(claim.startTime - startTime)
+      if (claim.url === url && !claim.held && delta <= bestDelta) {
+        best = claim
+        bestDelta = delta
+      }
     }
+    return best
+  }
 
-    const urlLower = url.toLowerCase()
+  #claim(url: string, startTime: number): Claim {
+    const claim = { url: resourceTimingUrl(url), startTime }
+    this.#claims.push(claim)
+    if (this.#claims.length > MAX_CLAIMS) {
+      this.#claims.shift()
+    }
+    return claim
+  }
 
-    // Ignore non-HTTP protocols
-    if (urlLower.startsWith('data:')) {
-      return true
+  /** The call was recorded: an entry already held is its second listing. */
+  #settleClaim(claim: Claim): void {
+    if (claim.held) {
+      this.#dropClaim(claim)
+    } else {
+      claim.recorded = true
     }
-    if (urlLower.startsWith('blob:')) {
-      return true
-    }
-    if (urlLower.startsWith('chrome:')) {
-      return true
-    }
-    if (urlLower.startsWith('chrome-extension:')) {
-      return true
-    }
-    if (urlLower.startsWith('about:')) {
-      return true
-    }
+  }
 
-    // Ignore WebSocket connections
-    if (urlLower.startsWith('ws:') || urlLower.startsWith('wss:')) {
-      return true
+  /** The call was dropped: an entry already held becomes the request's record. */
+  #releaseClaim(claim: Claim): void {
+    if (claim.held) {
+      this.#requests.push(claim.held)
     }
+    this.#dropClaim(claim)
+  }
 
-    // Ignore browser internal requests
-    if (urlLower.includes('/.well-known/')) {
-      return true
+  #dropClaim(claim: Claim): void {
+    const index = this.#claims.indexOf(claim)
+    if (index !== -1) {
+      this.#claims.splice(index, 1)
     }
-    if (urlLower.includes('/favicon.ico')) {
-      return true
-    }
+  }
 
-    return false
+  #generateId(): string {
+    return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
   }
 
   #extractFetchUrl(input: RequestInfo | URL): string {
@@ -92,18 +139,20 @@ export class NetworkRequestCollector implements Collector<NetworkRequest> {
     return undefined
   }
 
+  /** Whether the response is one this patch records: a content-type-less
+   *  response (a 204, a redirect target) is left to Resource Timing. */
   async #recordFetchResponse(
     id: string,
     request: Partial<NetworkRequest>,
     response: Response,
     startTime: number
-  ): Promise<void> {
+  ): Promise<boolean> {
     const endTime = performance.now()
     const responseHeaders = this.#extractHeaders(response.headers)
     const contentType = responseHeaders['content-type']?.trim()
     if (!contentType || contentType === '-') {
       this.#pendingRequests.delete(id)
-      return
+      return false
     }
     const responseBody = await this.#readResponseBody(response, contentType)
     this.#requests.push({
@@ -124,6 +173,7 @@ export class NetworkRequestCollector implements Collector<NetworkRequest> {
       size: this.#estimateSize(responseBody)
     })
     this.#pendingRequests.delete(id)
+    return true
   }
 
   #patchFetch() {
@@ -137,11 +187,12 @@ export class NetworkRequestCollector implements Collector<NetworkRequest> {
       init?: RequestInit
     ): Promise<Response> {
       const url = self.#extractFetchUrl(input)
-      if (self.#shouldIgnoreRequest(url)) {
+      if (shouldIgnoreRequest(url)) {
         return self.#originalFetch!.apply(this, [input, init])
       }
       const id = self.#generateId()
       const startTime = performance.now()
+      const claim = self.#claim(url, startTime)
       const request: Partial<NetworkRequest> = {
         id,
         url,
@@ -155,10 +206,21 @@ export class NetworkRequestCollector implements Collector<NetworkRequest> {
       self.#pendingRequests.set(id, request)
       try {
         const response = await self.#originalFetch!.apply(this, [input, init])
-        await self.#recordFetchResponse(id, request, response, startTime)
+        const recorded = await self.#recordFetchResponse(
+          id,
+          request,
+          response,
+          startTime
+        )
+        if (recorded) {
+          self.#settleClaim(claim)
+        } else {
+          self.#releaseClaim(claim)
+        }
         return response
       } catch (error) {
         self.#pendingRequests.delete(id)
+        self.#releaseClaim(claim)
         throw error
       }
     }
@@ -168,12 +230,12 @@ export class NetworkRequestCollector implements Collector<NetworkRequest> {
     xhr: XMLHttpRequest,
     requestData: Partial<NetworkRequest>,
     startTime: number
-  ): void {
+  ): boolean {
     const endTime = performance.now()
     const responseHeaders = this.#extractXHRHeaders(xhr)
     const contentType = responseHeaders['content-type']?.trim()
     if (!contentType || contentType === '-') {
-      return
+      return false
     }
     let responseBody: string | undefined
     try {
@@ -203,6 +265,7 @@ export class NetworkRequestCollector implements Collector<NetworkRequest> {
       responseBody,
       size: this.#estimateSize(responseBody)
     })
+    return true
   }
 
   #patchXHROpen(self: this): void {
@@ -214,7 +277,7 @@ export class NetworkRequestCollector implements Collector<NetworkRequest> {
       password?: string | null
     ) {
       const urlString = typeof url === 'string' ? url : url.href
-      if (!self.#shouldIgnoreRequest(urlString)) {
+      if (!shouldIgnoreRequest(urlString)) {
         self.#pendingXHRRequests.set(this, {
           id: self.#generateId(),
           url: urlString,
@@ -248,9 +311,20 @@ export class NetworkRequestCollector implements Collector<NetworkRequest> {
         requestData.requestBody = String(body)
       }
       const startTime = requestData.startTime || performance.now()
+      // Claimed at send, not open: Resource Timing clocks the request from
+      // the send, and a page may open an XHR long before it sends it.
+      const claim = self.#claim(requestData.url!, performance.now())
+      const release = () => self.#releaseClaim(claim)
       this.addEventListener('load', function (this: XMLHttpRequest) {
-        self.#recordXHRResponse(this, requestData, startTime)
+        if (self.#recordXHRResponse(this, requestData, startTime)) {
+          self.#settleClaim(claim)
+        } else {
+          release()
+        }
       })
+      this.addEventListener('error', release)
+      this.addEventListener('abort', release)
+      this.addEventListener('timeout', release)
       return self.#originalXhrSend!.call(this, body)
     }
   }

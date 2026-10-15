@@ -1,4 +1,9 @@
-import { isRequestType, type NetworkRequest } from '@wdio/devtools-shared'
+import {
+  isRequestType,
+  NETWORK_CAPTURE_SOURCE,
+  type NetworkCaptureSource,
+  type NetworkRequest
+} from '@wdio/devtools-shared'
 import {
   RESOURCE_TYPE_BY_REQUEST_TYPE,
   RESOURCE_TYPE_PATTERNS,
@@ -44,14 +49,21 @@ export function formatTime(ms?: number): string {
 /**
  * Bucket an HTTP status into a coarse {@link StatusKind}. The single source of
  * truth for status ranges — both the dot colour and the text colour derive
- * from it.
+ * from it. A request with no status is in flight, unless its source is one
+ * that never exposes a status: that request completed, and reads as unknown.
  */
-export function statusKind(status?: number, hasError?: boolean): StatusKind {
+export function statusKind(
+  status?: number,
+  hasError?: boolean,
+  source?: NetworkCaptureSource
+): StatusKind {
   if (hasError) {
     return STATUS_KIND.ERROR
   }
   if (typeof status !== 'number') {
-    return STATUS_KIND.PENDING
+    return source === NETWORK_CAPTURE_SOURCE.RESOURCE_TIMING
+      ? STATUS_KIND.UNKNOWN
+      : STATUS_KIND.PENDING
   }
   if (status >= HTTP_STATUS.SUCCESS_MIN && status < HTTP_STATUS.REDIRECT_MIN) {
     return STATUS_KIND.OK
@@ -72,7 +84,8 @@ const STATUS_TEXT_CLASS: Record<StatusKind, string> = {
   [STATUS_KIND.OK]: 'text-green-500',
   [STATUS_KIND.REDIRECT]: 'text-yellow-500',
   [STATUS_KIND.ERROR]: 'text-red-500',
-  [STATUS_KIND.PENDING]: 'text-gray-500'
+  [STATUS_KIND.PENDING]: 'text-gray-500',
+  [STATUS_KIND.UNKNOWN]: 'text-gray-500'
 }
 
 /**
@@ -110,8 +123,9 @@ export function getResourceType(request: NetworkRequest): ResourceType {
   if (sniffed) {
     return sniffed
   }
-  // Still unknown, but a body-carrying method is a data request either way.
-  if (request.method !== 'GET') {
+  // Still unknown, but a body-carrying method is a data request either way. An
+  // empty method is a source that names none, which is no evidence at all.
+  if (request.method && request.method !== 'GET') {
     return 'Fetch'
   }
   return OTHER_RESOURCE_TYPE
