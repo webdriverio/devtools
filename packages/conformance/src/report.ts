@@ -13,7 +13,7 @@ export async function writeRunReports(
   try {
     await mkdir(outDir, { recursive: true })
     for (const report of reports) {
-      const name = `${report.adapter}-${report.bidi ? 'bidi' : 'no-bidi'}.json`
+      const name = `${report.adapter}-bidi-${report.bidi}.json`
       await writeAtomically(
         path.join(outDir, name),
         JSON.stringify(report, null, 2)

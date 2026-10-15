@@ -68,6 +68,12 @@ function compareTwo(
   if (a.runControls !== b.runControls) {
     add(RULES.agreeOnRunControls, `${a.runControls} vs ${b.runControls}`)
   }
+  if (firstDifference(a.requests, b.requests) !== undefined) {
+    add(
+      RULES.agreeOnRequests,
+      `requests [${a.requests.join(', ')}] vs [${b.requests.join(', ')}]`
+    )
+  }
   return out
 }
 
@@ -182,6 +188,27 @@ function gapExplains(
       sameList(pages(holder, shown), pages(other, otherDeclared)) &&
       !other.violations.some(
         (v) => v.subject?.kind === 'document' && !declared(other, v)
+      )
+    )
+  }
+  if (d.rule === RULES.agreeOnRequests) {
+    // Each side's requests plus the loads its own declared gap left unlisted must agree.
+    const requests = (run: RunReport, violations: Violation[]) =>
+      [
+        ...(normalized.get(run.adapter)?.requests ?? []),
+        ...violations
+          .filter((v) => v.rule === RULES.requestListed && v.subject?.url)
+          .flatMap((v) =>
+            Array<string>((v.subject!.made ?? 0) - (v.subject!.rows ?? 0)).fill(
+              pathOf(v.subject!.url!)
+            )
+          )
+      ].sort()
+    const otherDeclared = other.violations.filter((v) => declared(other, v))
+    return (
+      sameList(requests(holder, shown), requests(other, otherDeclared)) &&
+      !other.violations.some(
+        (v) => v.subject?.kind === 'request' && !declared(other, v)
       )
     )
   }

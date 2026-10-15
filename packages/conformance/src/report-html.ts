@@ -1,5 +1,5 @@
 import { explainingGap, gapsFor } from './allowlist.js'
-import { RESPONSIBILITIES } from './constants.js'
+import { BIDI_MODES, RESPONSIBILITIES } from './constants.js'
 import { renderAgreement } from './report-agreement.js'
 import { RULE_GUIDE } from './rule-guide.js'
 import { buildTimeline } from './timeline.js'
@@ -45,7 +45,8 @@ pre{background:var(--panel);padding:8px;border-radius:4px;overflow-x:auto;font:1
 export function renderReport(runs: RunReport[]): string {
   const sorted = [...runs].sort(
     (a, b) =>
-      a.adapter.localeCompare(b.adapter) || Number(b.bidi) - Number(a.bidi)
+      a.adapter.localeCompare(b.adapter) ||
+      BIDI_MODES.indexOf(a.bidi) - BIDI_MODES.indexOf(b.bidi)
   )
   return `<!doctype html>
 <html lang="en">
@@ -94,7 +95,7 @@ function renderRun(run: RunReport): string {
     .join('\n')
   return `<details class="run"${passed ? '' : ' open'}>
 <summary><strong>${escapeHtml(run.adapter)}</strong>
-<span>bidi ${run.bidi ? 'on' : 'off'}</span>
+<span>bidi ${escapeHtml(run.bidi)}</span>
 <span class="badge ${passed ? 'pass">PASS' : 'fail">FAIL'}</span>
 <span class="counts">exit ${escapeHtml(String(run.exitCode))}, ${timeline.events.length} events, ${run.violations.length} violations, ${run.unexplained.length} unexplained, ${run.stale.length} stale gaps</span></summary>
 <div class="body">

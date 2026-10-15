@@ -115,5 +115,33 @@ export const RULE_GUIDE: Record<RuleId, RuleGuide> = {
     cause:
       'A command is skipped or captured twice by the interception, or an update overwrote another row (updates match by id, then timestamp).',
     responsibility: 'command-interception'
+  },
+  'every-browser-request-listed': {
+    meaning:
+      'The Network tab lists fewer rows for a url than the loads the browser made of it.',
+    cause:
+      "The page's Resource Timing rows are withheld although nothing else served the request: a BiDi subscription that delivered nothing counted as a source, or the page was left before its buffer was drained.",
+    responsibility: 'collector'
+  },
+  'one-row-per-browser-request': {
+    meaning:
+      'The Network tab lists more rows for a url than the loads the browser made of it.',
+    cause:
+      'Two sources listed the same load, or a re-sent row carried a new id instead of the one it replaces.',
+    responsibility: 'collector'
+  },
+  'request-row-carries-what-the-browser-served': {
+    meaning:
+      'A request row carries less than its source could give, or claims a source the browser never served: with BiDi live it lacks a status or headers; without BiDi it carries neither a status and headers nor the Resource Timing mark.',
+    cause:
+      "With BiDi live, the driver's events were not subscribed or not folded into the row. Without BiDi, the page's Resource Timing rows were rewritten as if a driver had seen them.",
+    responsibility: 'collector'
+  },
+  'adapters-agree-on-requests': {
+    meaning:
+      'For the same scenario, the adapters list different requests in the Network tab.',
+    cause:
+      'One adapter gates or deduplicates its network sources differently; compare the requests row in the agreement table.',
+    responsibility: 'collector'
   }
 }

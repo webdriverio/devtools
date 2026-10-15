@@ -12,7 +12,7 @@ import type { NormalizedRun, NormalizedStep, WireFrame } from './types.js'
 
 /** A run reduced to what a dashboard user sees: everything an adapter may legitimately vary is dropped. */
 export function normalizeRun(frames: WireFrame[]): NormalizedRun {
-  const { rows, anchors } = readStream(frames)
+  const { rows, anchors, requests } = readStream(frames)
   const steps = rows
     .map((row): NormalizedStep | undefined => {
       const action = mapCommandToAction(row.command)
@@ -33,7 +33,9 @@ export function normalizeRun(frames: WireFrame[]): NormalizedRun {
   return {
     steps,
     snapshots: anchors.map((a) => pathOf(a.url ?? '')),
-    runControls: runControlsOf(frames)
+    runControls: runControlsOf(frames),
+    // Sorted: adapters list the same loads in whatever order their sources delivered them.
+    requests: requests.map((r) => pathOf(r.url)).sort()
   }
 }
 

@@ -11,30 +11,59 @@ interface Command {
   params?: Record<string, unknown>
 }
 
-/** A BiDi endpoint over the fake browser: `onCommand` answers every command, and no events are emitted. */
+/** The fake BiDi endpoint: answers every command, and emits an event to the clients subscribed to it. */
+export interface FakeBidi {
+  close(): void
+  /** Delivers one event to every client that subscribed to its method; a client that never subscribed hears nothing, as in a browser. */
+  emit(method: string, params: Record<string, unknown>): void
+}
+
 export function attachFakeBidi(
   server: Server,
   onCommand: BidiCommandHandler
-): () => void {
+): FakeBidi {
   const wss = new WebSocketServer({ noServer: true })
+  const subscriptions = new Map<WebSocket, Set<string>>()
   server.on('upgrade', (req, socket, head) => {
     if (req.url !== BIDI_PATH) {
       socket.destroy()
       return
     }
-    wss.handleUpgrade(req, socket, head, (ws) => answer(ws, onCommand))
+    wss.handleUpgrade(req, socket, head, (ws) => {
+      subscriptions.set(ws, new Set())
+      ws.on('close', () => subscriptions.delete(ws))
+      answer(ws, onCommand, subscriptions.get(ws)!)
+    })
   })
-  return () => {
-    for (const client of wss.clients) {
-      client.terminate()
+  return {
+    close: () => {
+      for (const client of wss.clients) {
+        client.terminate()
+      }
+      wss.close()
+    },
+    emit: (method, params) => {
+      for (const [ws, events] of subscriptions) {
+        if (events.has(method) && ws.readyState === ws.OPEN) {
+          ws.send(JSON.stringify({ type: 'event', method, params }))
+        }
+      }
     }
-    wss.close()
   }
 }
 
-function answer(ws: WebSocket, onCommand: BidiCommandHandler): void {
+function answer(
+  ws: WebSocket,
+  onCommand: BidiCommandHandler,
+  subscribed: Set<string>
+): void {
   ws.on('message', async (raw) => {
     const { id, method, params } = JSON.parse(String(raw)) as Command
+    if (method === 'session.subscribe') {
+      for (const event of (params?.events as string[] | undefined) ?? []) {
+        subscribed.add(event)
+      }
+    }
     const reply = await onCommand(method, params ?? {})
     ws.send(
       JSON.stringify(

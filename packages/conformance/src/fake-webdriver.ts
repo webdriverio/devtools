@@ -6,7 +6,11 @@ import {
 } from 'node:http'
 import type { AddressInfo } from 'node:net'
 
-import type { TraceMutation } from '@wdio/devtools-shared'
+import {
+  NETWORK_CAPTURE_SOURCE,
+  type NetworkRequest,
+  type TraceMutation
+} from '@wdio/devtools-shared'
 
 import {
   BIDI_PATH,
@@ -14,16 +18,20 @@ import {
   BLANK_PNG,
   BROKEN_PATH,
   COLLECTOR_SIGNATURE,
+  DOCUMENT_MIME,
   ELEMENT_KEY,
   NAVIGATION_HALF_MS,
   PAGES,
+  SUBRESOURCES,
   WINDOW_HANDLE
 } from './constants.js'
-import { attachFakeBidi, remoteValue } from './fake-bidi.js'
+import { attachFakeBidi, remoteValue, type FakeBidi } from './fake-bidi.js'
 import type {
   ActionMethod,
   BidiAnswer,
+  BidiMode,
   BrowserDocument,
+  BrowserRequest,
   FailedNavigation,
   GroundTruth
 } from './types.js'
@@ -33,6 +41,8 @@ interface Document extends BrowserDocument {
   collector: boolean
   anchored: boolean
   buffer: TraceMutation[]
+  /** The document's Resource Timing entries, as the collector reads them: every load, drained once. */
+  network: NetworkRequest[]
 }
 
 interface Element {
@@ -50,6 +60,11 @@ type Reply = {
   retried?: boolean
 }
 
+/** How long a load took, as the page's Resource Timing reports it. */
+const LOAD_MS = 5
+
+const RESPONSE_BYTES = 100
+
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 const anchorOf = (url: string, bornAt: number): TraceMutation => ({
@@ -60,16 +75,25 @@ const anchorOf = (url: string, bornAt: number): TraceMutation => ({
   removedNodes: []
 })
 
+const bidiHeader = (name: string, value: string) => ({
+  name,
+  value: { type: 'string', value }
+})
+
 /** A W3C WebDriver over a two-page model; without a preload its collector anchors only when a drain forces it. */
 export class FakeWebDriver {
   readonly origin: string
   #server: Server
-  #bidi: boolean
-  #closeBidi: () => void = () => {}
+  #bidi: BidiMode
+  /** Whether a session was handed the socket: the mode offers one and the session asked for it. */
+  #bidiServed = false
+  #socket: FakeBidi | undefined
   #preloaded = false
   #preloads = 0
   #documents: Document[] = []
   #failedNavigations: FailedNavigation[] = []
+  #requests: BrowserRequest[] = []
+  #requestSeq = 0
   #actions: Record<ActionMethod, number[]> = {
     navigate: [],
     click: [],
@@ -78,20 +102,22 @@ export class FakeWebDriver {
   #elements = new Map<string, Element>()
   #lastFailedNavigation: string | undefined
 
-  private constructor(server: Server, bidi: boolean) {
+  private constructor(server: Server, bidi: BidiMode) {
     this.#server = server
     this.#bidi = bidi
     this.origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
   }
 
-  /** With `bidi`, a registered preload puts the collector in every later document from birth. */
-  static async start({ bidi = false } = {}): Promise<FakeWebDriver> {
+  /** With a BiDi socket, a registered preload puts the collector in every later document from birth. */
+  static async start({
+    bidi = 'off'
+  }: { bidi?: BidiMode } = {}): Promise<FakeWebDriver> {
     const server = createServer()
     await new Promise<void>((r) => server.listen(0, '127.0.0.1', r))
     const driver = new FakeWebDriver(server, bidi)
     server.on('request', (req, res) => void driver.#handle(req, res))
-    if (bidi) {
-      driver.#closeBidi = attachFakeBidi(server, (method, params) =>
+    if (bidi !== 'off') {
+      driver.#socket = attachFakeBidi(server, (method, params) =>
         driver.#bidiCommand(method, params)
       )
     }
@@ -110,7 +136,9 @@ export class FakeWebDriver {
         navigate: [...this.#actions.navigate],
         click: [...this.#actions.click],
         fill: [...this.#actions.fill]
-      }
+      },
+      requests: [...this.#requests],
+      bidi: this.#bidiServed ? this.#bidi : 'off'
     }
   }
 
@@ -120,8 +148,8 @@ export class FakeWebDriver {
   }
 
   #endBidi(): void {
-    this.#closeBidi()
-    this.#closeBidi = () => {}
+    this.#socket?.close()
+    this.#socket = undefined
   }
 
   get #current(): Document | undefined {
@@ -168,8 +196,9 @@ export class FakeWebDriver {
     if (method === 'POST' && path === '/session') {
       const wantsBidi = JSON.stringify(params).includes('"webSocketUrl":true')
       const capabilities: Record<string, unknown> = { browserName: 'chrome' }
-      if (this.#bidi && wantsBidi) {
+      if (this.#bidi !== 'off' && wantsBidi) {
         capabilities.webSocketUrl = `${this.origin.replace('http', 'ws')}${BIDI_PATH}`
+        this.#bidiServed = true
       }
       return { value: { sessionId: 'conformance', capabilities } }
     }
@@ -260,16 +289,95 @@ export class FakeWebDriver {
     const bornAt = Date.now()
     // A preloaded collector anchors its document at birth, as `packages/script` does in Chrome.
     const preloaded = this.#preloaded
-    this.#documents.push({
+    const doc: Document = {
       path,
       url,
       bornAt,
       collector: preloaded,
       anchored: preloaded,
-      buffer: preloaded ? [anchorOf(url, bornAt)] : []
-    })
+      buffer: preloaded ? [anchorOf(url, bornAt)] : [],
+      network: []
+    }
+    this.#documents.push(doc)
+    this.#load(doc)
     await sleep(NAVIGATION_HALF_MS)
     return { value: null }
+  }
+
+  /** Loads a document's requests: into the truth, into the page's Resource Timing, and over BiDi where it is live. */
+  #load(doc: Document): void {
+    const loads = [
+      [doc.url, DOCUMENT_MIME],
+      ...Object.entries(SUBRESOURCES).map(([path, mime]) => [
+        this.url(path),
+        mime
+      ])
+    ]
+    for (const [url, mime] of loads) {
+      const id = ++this.#requestSeq
+      this.#requests.push({ url, document: doc.url, at: doc.bornAt })
+      doc.network.push(resourceTimingRow(id, url, mime, doc))
+      if (this.#bidi === 'live') {
+        this.#emitRequest(id, url, mime, doc.bornAt)
+      }
+    }
+  }
+
+  /** One request as Chrome reports it over BiDi: the request, then its response with headers. */
+  #emitRequest(id: number, url: string, mime: string, at: number): void {
+    const request = {
+      request: `request-${id}`,
+      url,
+      method: 'GET',
+      headers: [bidiHeader('accept', '*/*')],
+      cookies: [],
+      headersSize: 0,
+      bodySize: 0,
+      timings: {
+        timeOrigin: at,
+        requestTime: 0,
+        redirectStart: 0,
+        redirectEnd: 0,
+        fetchStart: 0,
+        dnsStart: 0,
+        dnsEnd: 0,
+        connectStart: 0,
+        connectEnd: 0,
+        tlsStart: 0,
+        requestStart: 1,
+        responseStart: LOAD_MS - 1,
+        responseEnd: LOAD_MS
+      }
+    }
+    const shared = {
+      context: WINDOW_HANDLE,
+      navigation: null,
+      redirectCount: 0,
+      isBlocked: false,
+      timestamp: at
+    }
+    this.#socket?.emit('network.beforeRequestSent', {
+      ...shared,
+      request,
+      initiator: { type: 'other' }
+    })
+    this.#socket?.emit('network.responseCompleted', {
+      ...shared,
+      request,
+      response: {
+        url,
+        protocol: 'http/1.1',
+        status: 200,
+        statusText: 'OK',
+        fromCache: false,
+        headers: [bidiHeader('content-type', mime)],
+        mimeType: mime,
+        bytesReceived: RESPONSE_BYTES,
+        headersSize: 0,
+        bodySize: RESPONSE_BYTES,
+        content: { size: RESPONSE_BYTES }
+      }
+    })
   }
 
   #find(selector: string, many: boolean): Reply {
@@ -358,11 +466,13 @@ export class FakeWebDriver {
       doc.buffer.unshift(anchorOf(doc.url, doc.bornAt))
     }
     const mutations = doc.buffer.splice(0)
+    // The buffer holds every load since the document was born, whenever the collector arrived.
+    const networkRequests = doc.network.splice(0)
     return {
       errors: [],
       mutations,
       consoleLogs: [],
-      networkRequests: [],
+      networkRequests,
       traceLogs: [],
       metadata: {}
     }
@@ -446,5 +556,31 @@ export class FakeWebDriver {
       value: { nodeType: 1, childNodeCount: 0 }
     }))
     return { result: { nodes } }
+  }
+}
+
+/** A load as `packages/script`'s Resource Timing collector reports it: no headers, no status, the method only where the parser issued it. */
+function resourceTimingRow(
+  id: number,
+  url: string,
+  mime: string,
+  doc: Document
+): NetworkRequest {
+  const isDocument = mime === DOCUMENT_MIME
+  return {
+    id: `rt-${doc.bornAt}-${id}`,
+    url,
+    method: isDocument ? '' : 'GET',
+    type: isDocument
+      ? 'document'
+      : mime === 'text/css'
+        ? 'stylesheet'
+        : 'script',
+    timestamp: doc.bornAt,
+    startTime: 0,
+    endTime: LOAD_MS,
+    time: LOAD_MS,
+    size: RESPONSE_BYTES,
+    source: NETWORK_CAPTURE_SOURCE.RESOURCE_TIMING
   }
 }
