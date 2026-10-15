@@ -28,6 +28,10 @@ export class SessionCapturer extends SessionCapturerBase {
 
   // True once BiDi inspectors are attached — script-trace path skips streams.
   bidiActive = false
+  /** Whether BiDi has delivered at least one event of each stream. A
+   *  subscription that delivers nothing is not a source. */
+  bidiConsoleObserved = false
+  bidiNetworkObserved = false
 
   /** True once the collector is registered as a document-start BiDi preload.
    *  Every document then instruments itself before any of its own script runs,
@@ -306,9 +310,12 @@ export class SessionCapturer extends SessionCapturerBase {
       log.debug(
         `drain: ${drained.length} mutations (anchor=${forceAnchor} recovered=${recovered})`
       )
+      // Gated on what BiDi has delivered, not on its subscription: Appium's
+      // BiDi shim accepts the subscription and then sends nothing, and there
+      // the page's own streams are the only capture.
       this.processTracePayload(traceData as Record<string, unknown>, {
-        skipConsoleLogs: this.bidiActive,
-        skipNetworkRequests: this.bidiActive
+        skipConsoleLogs: this.bidiConsoleObserved,
+        skipNetworkRequests: this.bidiNetworkObserved
       })
     } catch (err) {
       const msg = errorMessage(err)

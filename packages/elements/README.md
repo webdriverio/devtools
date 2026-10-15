@@ -8,7 +8,7 @@ Element detection and locator generation for WebdriverIO — browser DOM queryin
 npm install @wdio/elements
 ```
 
-Requires `webdriverio` as a peer dependency (^9.0.0).
+Requires `webdriverio` as a peer dependency (`^9.0.0 || ^10.0.0`).
 
 ## Usage
 
@@ -40,7 +40,8 @@ Selenium takes it via `By.xpath`, Nightwatch via its `'xpath'` locate strategy).
 
 The DevTools **per-action trace capture** runs the same scripts but asks for the
 locator in the recording runner's own dialect, so a WebdriverIO trace shows
-`button*=Log in` while a Selenium or Nightwatch one shows the XPath above. Only
+`button*=Log in` while a Selenium one shows the XPath above. Nightwatch prefers a
+unique CSS selector and falls back to that XPath only when none exists. Only
 the text branch differs; every other branch is the same portable CSS.
 
 It auto-detects platform: web sessions walk the browser accessibility tree, mobile sessions parse the page-source XML. `@wdio/devtools-service` also registers a `browser.getSnapshot()` runtime accessor that calls this directly.

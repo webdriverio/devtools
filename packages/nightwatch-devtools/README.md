@@ -16,6 +16,8 @@ npm install @wdio/nightwatch-devtools
 npm install @wdio/nightwatch-devtools
 ```
 
+Requires Nightwatch 3 or later. For Cucumber, `@cucumber/cucumber` must be installed in your project; the plugin uses your copy rather than bundling one.
+
 **2. Wire the plugin into your Nightwatch config** via the `globals` field:
 
 ```javascript
@@ -132,7 +134,7 @@ globals: nightwatchDevtools({
 
 ## Live Mode
 
-In the default `mode: 'live'`, the plugin launches the DevTools dashboard in a new browser window when your tests run, streaming each test's commands, screenshots, console logs, and network activity in real time. See the [dashboard docs](https://webdriver.io/docs/devtools/dashboard) for a walkthrough of the UI.
+In the default `mode: 'live'`, the plugin launches the DevTools dashboard in a new browser window when your tests run, streaming each test's commands, screenshots, console logs, and network activity in real time. The run stays open after your tests finish so you can review the results: close the DevTools window to end it, or press Ctrl+C to exit and leave the window open. See the [dashboard docs](https://webdriver.io/docs/devtools/dashboard) for a walkthrough of the UI.
 
 ### Preserve & Rerun (Compare)
 
@@ -151,7 +153,7 @@ globals: nightwatchDevtools({
 })
 ```
 
-Nightwatch emits the **same normalized trace** as the WebdriverIO and Selenium adapters (all three share `@wdio/devtools-core`), so the archive format and the `show-trace` player are identical no matter which adapter produced it. A Nightwatch trace carries the full per-action capture — a screenshot, the depth-indented accessibility-tree snapshot, the interactable-element list, and the Markdown transcript — so it opens in the player with DOM/snapshot time-travel, the **A11y** and **Transcript** tabs, an **Errors** tab surfacing expect/step failures with jump-to-source, the pick-locator element overlay, and (for Cucumber) **Feature → Scenario → Step** nesting.
+Nightwatch emits the **same normalized trace** as the WebdriverIO and Selenium adapters (all three share `@wdio/devtools-trace`), so the archive format and the `show-trace` player are identical no matter which adapter produced it. A Nightwatch trace carries the full per-action capture — a screenshot, the depth-indented accessibility-tree snapshot, the interactable-element list, and the Markdown transcript — so it opens in the player with DOM/snapshot time-travel, the **A11y** and **Transcript** tabs, an **Errors** tab surfacing expect/step failures with jump-to-source, the pick-locator element overlay, and (for Cucumber) **Feature → Scenario** nesting. Steps are tracked in the live dashboard but not yet nested as their own groups in the trace. Copied locators prefer plain CSS, which Nightwatch reads by default, and fall back to XPath (captioned `useXpath()` / `locateStrategy: 'xpath'`) only when no unique CSS selector exists.
 
 Open a trace with the `show-trace` bin, shipped with this package (no extra dependency):
 
@@ -191,15 +193,17 @@ desiredCapabilities: {
 }
 ```
 
-When attached, the per-command Chrome performance-log network capture path is gated off so requests don't appear twice in the dashboard. If `webSocketUrl` is missing or the chromedriver version doesn't expose BiDi, the attach silently fails and the perf-log fallback continues to work.
+When attached, the per-command Chrome performance-log network capture path is gated off so requests don't appear twice in the dashboard. If `webSocketUrl` is missing or the chromedriver version doesn't expose BiDi, the attach logs a warning and the perf-log fallback continues to work. The injected collector's `fetch` / `XMLHttpRequest` patch and the page's Resource Timing buffer list every request as well, with its timing and size; on Chrome the performance log then upgrades those rows in place with headers and status, and on Safari, or any session Appium serves, they are the Network tab, without headers or bodies, and on Safari without a status.
+
+**Set `webSocketUrl: true` even without `bidi: true`.** With it, the plugin registers its page collector at document start on every page, so DOM time-travel stays accurate across navigations. Without it, the collector is injected after each navigation instead, which can miss the first moments of a new page.
 
 ---
 
 ## Screencast
 
-Record a continuous `.webm` video of the browser session. The recording starts on the first session the plugin sees and is finalized in Nightwatch's `after()` hook, writing `nightwatch-video-<sessionId>.webm` to the directory of the test file that just ran. Falls back to the directory containing `nightwatch.conf.*` if the test file path isn't known, and to `process.cwd()` as a last resort. Directories under `node_modules/` are skipped.
+Record a continuous `.webm` video of the browser session, live mode only (in trace mode use `filmstrip` / `video`). Each WebDriver session gets its own recording: a mid-run `browser.end()`, or the per-scenario browser quit in Cucumber, finalizes the current video and starts a new one. The last recording is finalized in Nightwatch's `after()` hook. Each is written as `nightwatch-video-<sessionId>.webm` to a `test-results/` folder next to the test file that just ran, falling back to the directory containing `nightwatch.conf.*`, then `process.cwd()`. Directories under `node_modules/` are skipped, and an unwritable directory falls back to the OS temp directory.
 
-**Polling mode only.** Nightwatch doesn't expose a stable CDP escape hatch the way WebdriverIO (`browser.getPuppeteer()`) and Selenium (`driver.createCDPConnection`) do, so the screencast captures frames by calling `browser.takeScreenshot()` at a fixed interval. This works on every browser Nightwatch supports.
+**Polling mode only.** Nightwatch doesn't expose a stable CDP escape hatch the way WebdriverIO (`browser.getPuppeteer()`) and Selenium (`driver.createCDPConnection`) do, so the screencast captures frames by requesting a WebDriver screenshot at a fixed interval, straight over the WebDriver HTTP transport so it never waits behind your test's queued commands. This works on every browser Nightwatch supports.
 
 ### Quick start
 
@@ -217,6 +221,7 @@ globals: nightwatchDevtools({
 | `enabled` | `boolean` | `false` | Master switch. |
 | `pollIntervalMs` | `number` | `200` | Screenshot interval (ms). Lower = smoother video, more WebDriver round-trips. 200 ms ≈ 5 fps. |
 | `captureFormat` | `'jpeg' \| 'png'` | `'jpeg'` | Frame format. WebDriver screenshots are always PNG, so this only affects the encoded output. |
+| `maxBufferFrames` | `number` | `2000` | Cap on frames held in memory; past it the buffer is thinned in place, keeping the first and last frames. |
 | `maxWidth` / `maxHeight` / `quality` | — | — | CDP-only options, ignored in polling mode. Listed for shape compatibility with the WDIO/Selenium adapters. |
 
 ### Prerequisites
@@ -251,22 +256,46 @@ The encoded video is sent to the DevTools dashboard via the `screencast` WS scop
 
 ---
 
+## Mobile (Appium)
+
+Appium sessions are captured in live and trace mode. Declare Appium under `selenium` with `use_appium: true`, `start_process: false` and `default_path_prefix: ''`. For a native app set `browserName: null`; otherwise Nightwatch fills in Firefox and the plugin treats the session as having a web page. Leave `bidi` off, since Appium serves no BiDi.
+
+```javascript
+// nightwatch.mobile.conf.cjs
+const nightwatchDevtools = require('@wdio/nightwatch-devtools').default
+
+module.exports = {
+  selenium: {
+    start_process: false,
+    use_appium: true,
+    host: '127.0.0.1',
+    port: 4723,
+    default_path_prefix: ''
+  },
+  test_settings: {
+    default: {
+      desiredCapabilities: {
+        browserName: null,
+        platformName: 'Android',
+        'appium:automationName': 'UiAutomator2'
+      },
+      globals: nightwatchDevtools({ mode: 'trace', bidi: false })
+    }
+  }
+}
+```
+
+Native sessions record commands, screenshots and element data from the platform's XML tree, with no DOM. A hybrid app's webview is captured as if it were still native. From the root of a built checkout of this repo (`pnpm install && pnpm build`), try it with `pnpm demo:nightwatch:mobile`; prerequisites are in [`examples/MOBILE.md`](../../examples/MOBILE.md), and the full reference is the [Mobile Testing page](https://webdriver.io/docs/devtools/mobile).
+
 ## Examples
 
-Working examples are included in this package:
+Working examples live in the repo's top-level [`examples/nightwatch/`](../../examples/nightwatch). Build the workspace once (`pnpm install && pnpm build`), then run from the repo root:
 
-| Directory | Runner | Command |
+| Example | Runner | Command |
 |-----------|--------|---------|
-| [`example/`](./example) | Nightwatch mocha-style | `pnpm example` |
-
-Build the package first:
-
-```bash
-# From repo root
-pnpm build --filter @wdio/nightwatch-devtools
-cd packages/nightwatch-devtools
-pnpm example
-```
+| `examples/nightwatch/` | Nightwatch BDD `describe/it` (trace mode by default; `DEVTOOLS_MODE=live` for the UI) | `pnpm demo:nightwatch` (`pnpm demo:nightwatch:retry` adds `--retries 1`) |
+| `examples/nightwatch/cucumber/` | Nightwatch + Cucumber | `pnpm --filter @wdio/nightwatch-devtools example:cucumber` |
+| `examples/nightwatch/nightwatch.mobile.conf.cjs` | Appium (Android Clock app; iOS Settings with `DEVTOOLS_MOBILE_PLATFORM=ios`) | `pnpm demo:nightwatch:mobile` |
 
 ---
 

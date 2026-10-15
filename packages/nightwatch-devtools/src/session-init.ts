@@ -191,7 +191,7 @@ async function broadcastSessionMetadata(
   ctx.sessionCapturer.perfLogsRequested = wantsPerfLog
   if (!wantsPerfLog && !ctx.bidiEnabled) {
     log.warn(
-      "⚠  Network tab will be empty — add 'goog:loggingPrefs': { performance: 'ALL' } to your capabilities (or enable bidi:true)"
+      "⚠  Network tab will carry the page's own Resource Timing only (no headers, no bodies). Add 'goog:loggingPrefs': { performance: 'ALL' } to your capabilities (or enable bidi:true) for full requests"
     )
   }
 }
@@ -319,6 +319,7 @@ async function armReplacedSession(
   // inspectors that no longer receive anything.
   ctx.sessionCapturer.preloadRegistered = false
   ctx.sessionCapturer.bidiActive = false
+  ctx.sessionCapturer.bidiNetworkObserved = false
   log.info(`Session replaced — re-arming capture for ${sessionId}`)
   await armCaptureForSession(ctx, browser)
 }

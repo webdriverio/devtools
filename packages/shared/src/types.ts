@@ -235,8 +235,9 @@ export interface ConsoleLog {
 
 /**
  * Every word a captured `NetworkRequest.type` can carry. The capture side
- * classifies once — `core`'s `getRequestType` for driver-observed traffic, the
- * page collector for its patched `fetch`/`XMLHttpRequest` — and the app only
+ * classifies once (shared's `getRequestType` for driver-observed traffic and
+ * Resource Timing entries, the page collector for its patched
+ * `fetch`/`XMLHttpRequest`) and the app only
  * translates these words into display buckets. Adding a category here is the
  * compile-time trigger that forces every consumer's mapping to handle it.
  * `other` is the residual for traffic no producer could classify (a failed
@@ -266,9 +267,50 @@ export function isRequestType(value: unknown): value is RequestType {
   )
 }
 
+/**
+ * Stated only by the one network source that carries no headers, no body and
+ * (outside Chromium) no status: the document's Resource Timing buffer, which
+ * is all a browser without BiDi exposes. Every other source carries them and
+ * states nothing; a consumer reads the mark to name the gap rather than render
+ * the request as still in flight or failed.
+ */
+export const NETWORK_CAPTURE_SOURCE = {
+  RESOURCE_TIMING: 'resource-timing'
+} as const
+export type NetworkCaptureSource =
+  (typeof NETWORK_CAPTURE_SOURCE)[keyof typeof NETWORK_CAPTURE_SOURCE]
+
+/** Phase durations in ms, HAR's phases. A phase the browser withheld is
+ *  absent. An interface rather than a mapped type because the wire-schema
+ *  generator reads property declarations. */
+export interface NetworkTimings {
+  blocked?: number
+  dns?: number
+  connect?: number
+  ssl?: number
+  send?: number
+  wait?: number
+  receive?: number
+}
+
+/** The phases, in HAR's order, for a consumer that iterates them. */
+export const NETWORK_TIMING_PHASES = [
+  'blocked',
+  'dns',
+  'connect',
+  'ssl',
+  'send',
+  'wait',
+  'receive'
+] as const satisfies readonly (keyof NetworkTimings)[]
+export type NetworkTimingPhase = (typeof NETWORK_TIMING_PHASES)[number]
+
 export interface NetworkRequest {
   id: string
   url: string
+  /** Empty when the source does not expose it: Resource Timing names no
+   *  method, so only a parser-initiated load (an image, a script) is known to
+   *  be a GET. */
   method: string
   headers?: Record<string, string>
   cookies?: unknown[]
@@ -295,6 +337,8 @@ export interface NetworkRequest {
   requestBody?: string
   responseBody?: string
   size?: number
+  timings?: NetworkTimings
+  source?: NetworkCaptureSource
 }
 
 // ─── Trace and metadata ─────────────────────────────────────────────────────

@@ -79,7 +79,8 @@ const expectedSizes = (requests: NetworkRequest[]) =>
 
 const expectedKindClasses = (requests: NetworkRequest[]) =>
   requests.map(
-    (request) => `kind-${statusKind(request.status, Boolean(request.error))}`
+    (request) =>
+      `kind-${statusKind(request.status, Boolean(request.error), request.source)}`
   )
 
 /** A captured body as the detail panel re-indents it, then whitespace-collapsed
@@ -636,6 +637,73 @@ describe('wdio-devtools-network', () => {
         FAILED_STATUS_LABEL,
         'net::ERR_CONNECTION_REFUSED'
       ])
+    })
+
+    // A Safari or Appium session has no BiDi, so its network rows come from
+    // the page's Resource Timing: no headers, no body, and outside Chromium no
+    // status. The card has to say that is the browser's limit, or a dashed
+    // status beside an empty headers list reads as a capture that failed.
+    it('names the limit of a Resource Timing capture in the detail panel', async () => {
+      const fromResourceTiming = networkRequest({
+        id: 'req-rt',
+        url: 'https://the-internet.herokuapp.com/login',
+        method: '',
+        status: undefined,
+        type: 'document',
+        time: 40,
+        size: 1200,
+        source: 'resource-timing'
+      })
+      const panel = await mountNetwork([fromResourceTiming])
+
+      expect(text(shadow(panel, METHOD))).toBe(NO_VALUE)
+      expect(text(shadow(panel, STATUS))).toBe(NO_VALUE)
+      // Completed, on a browser that reports no status: not the pending colour
+      // an in-flight request wears for as long as it is in flight.
+      expect(kindClassOf(shadowAll(panel, STATUS)[0])).toBe('kind-unknown')
+
+      await clickRow(panel, 0)
+      const sections = detailSections(panel)
+      expect(sections.map((section) => section.title)).toEqual(['General'])
+      const [general] = sections
+      expect(general.keys).toEqual([
+        'Request URL',
+        'Method',
+        'Status',
+        'Type',
+        'Captured from',
+        'Time',
+        'Size'
+      ])
+      expect(general.values).toEqual([
+        fromResourceTiming.url,
+        NO_VALUE,
+        NO_VALUE,
+        'document',
+        'Resource Timing: this browser exposes no status, headers or body for the request',
+        '40ms',
+        '1.2KB'
+      ])
+    })
+
+    it('narrows the Resource Timing note to headers and body when a status was reported', async () => {
+      // Chromium reports `responseStatus`, so there the status column is real.
+      const panel = await mountNetwork([
+        networkRequest({
+          id: 'req-rt-chromium',
+          method: 'GET',
+          status: 200,
+          type: 'script',
+          source: 'resource-timing'
+        })
+      ])
+      await clickRow(panel, 0)
+
+      const [general] = detailSections(panel)
+      expect(general.values[general.keys.indexOf('Status')]).toBe('200')
+      expect(general.values[general.keys.indexOf('Captured from')]).toBe(
+        'Resource Timing: this browser exposes no headers or body for the request'
+      )
     })
 
     it('closes the detail panel when the selected row is clicked again', async () => {

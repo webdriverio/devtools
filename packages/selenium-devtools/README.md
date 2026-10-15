@@ -18,10 +18,10 @@ Works with **Mocha**, **Jest**, **Cucumber**, or plain `node script.js` — the 
 npm install @wdio/selenium-devtools
 ```
 
-**2. Import it at the top of your test file**, BEFORE `selenium-webdriver`. The import has a side effect that hooks into Selenium, so the order matters:
+**2. Import it in your test file.** The import has a side effect: it patches Selenium's `Builder`, `WebDriver` and `WebElement` prototypes as it loads. Every import finishes before your test code runs, so its position relative to `selenium-webdriver` doesn't matter:
 
 ```javascript
-import '@wdio/selenium-devtools'              // <-- must be first
+import '@wdio/selenium-devtools'
 import { Builder, By } from 'selenium-webdriver'
 ```
 
@@ -259,6 +259,8 @@ DevTools.configure({
 
 Here's what every option does, in plain language. **All are optional** — the plugin runs fine with `DevTools.configure({})` or no configure call at all.
 
+> `port` and `hostname` only take effect before the backend starts, which happens when the first driver is built, so call `DevTools.configure(...)` before that; a later call ignores them with a warning. A rerun keeps its parent's backend whatever they say.
+
 > **For CI**, set both `headless: true` (hide the test browser) and `openUi: false` (don't try to open the dashboard window). The backend stays running on the configured port so you can still open the UI later.
 
 #### `screencast` — record a video of the browser
@@ -455,6 +457,12 @@ pnpm example:mocha
 
 ---
 
+## Mobile (Appium)
+
+Appium sessions are captured in live and trace mode. A mobile-browser session is captured like a desktop one; a native app gets commands, screenshots and element data from the platform's XML tree, with no DOM. This adapter decides from the startup capabilities, so a hybrid app's webview half is captured as if it were still native (only the WebdriverIO service follows context switches).
+
+From the root of a built checkout of this repo (`pnpm install && pnpm build`), try it with `pnpm demo:selenium:mobile`, which drives the Android Clock app; `DEVTOOLS_MOBILE_PLATFORM=ios` runs the iOS spec against Settings, and `DEVTOOLS_MOBILE=web` drives the device's own browser. Prerequisites and the `DEVTOOLS_MOBILE` / `APPIUM_APP` switches are in [`examples/MOBILE.md`](../../examples/MOBILE.md); the full reference is the [Mobile Testing page](https://webdriver.io/docs/devtools/mobile).
+
 ## How It Works
 
 The plugin patches `selenium-webdriver`'s `Builder`, `WebDriver`, and `WebElement` prototypes at import time:
@@ -463,7 +471,7 @@ The plugin patches `selenium-webdriver`'s `Builder`, `WebDriver`, and `WebElemen
 - **Every public `WebDriver` / `WebElement` method** → wrapped with command capture (args + result + screenshot + call source).
 - **`WebDriver.quit()`** → awaited cleanup hook flushes screencast encoding, WebSocket buffer, and final metadata before the original quit runs.
 
-When BiDi is available (Chrome ≥114), console logs, JavaScript exceptions, and network events stream directly via the Selenium BiDi handlers. Otherwise the plugin falls back to an injected browser-side collector script.
+When BiDi is available (Chrome ≥114), console logs, JavaScript exceptions, and network events stream directly via the Selenium BiDi handlers. Otherwise the plugin falls back to an injected browser-side collector script, which patches `fetch` / `XMLHttpRequest` and reads the page's Resource Timing buffer, so a Safari or Appium session still lists every request with its timing and size. That path sees no headers or bodies, and on Safari no status; the Network tab says so on each such row.
 
 The same injected collector also records the page's **DOM mutation stream** and a per-command element / accessibility snapshot, so a trace carries enough to rebuild the live DOM at each step (per-navigation mapping) — that's what powers the player's DOM time-travel and A11y tab rather than a screenshot-only replay.
 

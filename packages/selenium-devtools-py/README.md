@@ -15,7 +15,7 @@ real headless Chrome. See [Trace mode](#trace-mode) and [Roadmap](#roadmap).
 ## Install (dev)
 
 ```bash
-pip install -e packages/selenium-devtools-py   # or: pip install selenium-devtools-py (when published)
+pip install selenium-devtools-py              # or, from this repo: pip install -e packages/selenium-devtools-py
 ```
 
 The transport is **dependency-free** (stdlib WebSocket client). `selenium>=4.44`
@@ -48,7 +48,11 @@ use a backend you are already running — in CI, or one started by hand — set
 the public BiDi event API that selenium regenerated in 4.44 — before that the
 only way to observe requests without pausing them was a private connection,
 which the same release removed. 4.44 requires Python 3.10, which sets the
-Python floor too.
+Python floor too. Where the driver exposes no BiDi at all (Safari, and every
+session Appium serves) the injected page collector fills the Network tab
+instead, from its `fetch` / `XMLHttpRequest` patch and the document's Resource
+Timing buffer: every request with its timing and size, but no headers or
+bodies, and on Safari no status.
 
 Both floors are declared in `pyproject.toml` (`requires-python` and
 `dependencies`), so pip enforces them at install time rather than leaving you to
@@ -225,7 +229,7 @@ is on `PATH`; otherwise keep it current (`brew upgrade chromedriver`).
 | Session metadata | read `session_id` + `caps` on the first ready command | `metadata` | both |
 | Test / suite tree | pytest plugin (`pytest_runtest_logreport` / `sessionfinish`) | `suites` | both |
 | Browser console + JS errors | Selenium **BiDi** (`driver.script` handlers) | `consoleLogs` | both |
-| Network requests | Selenium **BiDi** (`Network.add_event_handler`, observe-only — never an intercept, which would pause every request) | `networkRequests` | both |
+| Network requests | Selenium **BiDi** (`Network.add_event_handler`, observe-only, never an intercept, which would pause every request); without BiDi, the page collector's `fetch` / `XMLHttpRequest` patch and Resource Timing buffer, drained beside the mutations | `networkRequests` | both |
 | Assertions | pytest hooks under pytest; line tracing for a plain script | `commands` | both |
 | DOM snapshot / time-travel | register `packages/script` as a BiDi document-start preload, drain mutations with a forced document anchor (per-document `<script>` injection when BiDi is absent) | `mutations` | both |
 | Navigation + resource timing | read from the page after a navigation, then the command row is re-sent with it | `commands` | both |
@@ -366,6 +370,22 @@ bugs:
   the Compare tab disappears after an ordinary rerun rather than diffing
   against something you did not ask to keep.
 
+## Mobile (Appium)
+
+Appium sessions are captured in live and trace mode. A mobile-browser session is captured like a desktop one; a native app gets commands, screenshots and element data from the platform's XML tree, with no DOM. This adapter decides from the startup capabilities, so a hybrid app's webview half is captured as if it were still native (only the WebdriverIO service follows context switches).
+
+The demo runs bare `python3`, so from the root of a built checkout of this repo (`pnpm install && pnpm build`) install the adapter into that interpreter, plus the Appium client the desktop examples don't need:
+
+```bash
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e packages/selenium-devtools-py
+pip install -r examples/selenium-py/requirements-mobile.txt
+pnpm demo:python:mobile                              # Android Clock app
+DEVTOOLS_MOBILE_PLATFORM=ios pnpm demo:python:mobile # iOS Settings
+```
+
+`DEVTOOLS_MOBILE=web` drives the device's own browser instead. Prerequisites and the `DEVTOOLS_MOBILE` / `APPIUM_APP` switches are in [`examples/MOBILE.md`](../../examples/MOBILE.md); the full reference is the [Mobile Testing page](https://webdriver.io/docs/devtools/mobile).
+
 ## Trace mode
 
 Instead of a live dashboard, write the run to a portable archive — the same
@@ -403,9 +423,10 @@ per-command screenshots that both modes capture:
 | A11y tree + element overlay — read beside each action, two extra round trips per command | on | `DEVTOOLS_A11Y=0` |
 | DOM time-travel — the mutation stream the preview iframe already replays | on | — |
 
-Two things worth knowing. **A run produces one archive**: the backend's
-accumulator is run-scoped, so there is no per-session or per-test slicing and no
-`traceGranularity` / `tracePolicy` equivalent yet. And **the export is requested
+Two things worth knowing. **How many archives a run writes, and which are kept,**
+is set by `--devtools-trace-granularity` and `--devtools-trace-policy` (see
+[How many archives, and which ones to keep](#how-many-archives-and-which-ones-to-keep)).
+And **the export is requested
 when the run finishes, not when the process exits** — pytest asks at
 `sessionfinish`, before it would park on a dashboard window, and a plain script's
 `disable()` exports before closing the transport. An artifact that depended on

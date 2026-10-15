@@ -156,15 +156,12 @@ Available across all three adapters — WebdriverIO uses CDP push for Chrome (an
 
 ### Setup
 
-Screencast encoding requires **ffmpeg** on `PATH` and the `fluent-ffmpeg` package:
+Screencast encoding requires the **ffmpeg** binary on `PATH`; the `fluent-ffmpeg` wrapper installs with the service:
 
 ```sh
-# Install ffmpeg — https://ffmpeg.org/download.html
+# Install ffmpeg: https://ffmpeg.org/download.html
 brew install ffmpeg        # macOS
 sudo apt install ffmpeg    # Ubuntu/Debian
-
-# Install fluent-ffmpeg
-npm install fluent-ffmpeg
 ```
 
 ### Configuration
@@ -214,13 +211,12 @@ No configuration change is needed to switch modes — the service detects browse
 - Leading blank frames (captured before the first URL navigation) are automatically trimmed so videos begin at the first meaningful page action.
 - If `browser.reloadSession()` is called mid-run, the service finalises the current recording and starts a fresh one for the new session. Each session produces its own `.webm` file.
 - When multiple recordings exist, the DevTools UI shows a **Recording N** dropdown to switch between them.
-- Output files are written to the directory containing `wdio.conf.ts` (WDIO's `rootDir`) or `outputDir` if explicitly configured.
+- Output files are written to a `test-results/` folder under `outputDir` if explicitly configured, otherwise under the directory containing `wdio.conf.ts` (WDIO's `rootDir`).
 
 ### Output files
 
 | File | Description |
 |---|---|
-| `wdio-trace-{sessionId}.json` | Full trace: DOM mutations, commands, screenshots, console logs, network requests |
 | `wdio-video-{sessionId}.webm` | Screencast video (only produced when `screencast.enabled: true`) |
 
 ## Performance API capture
@@ -235,12 +231,12 @@ services: [['devtools', options]]
 
 | Option | Type | Default | Description |
 |---|---|---|---|
-| `port` | `number` | random | Port the DevTools UI server listens on |
+| `port` | `number` | `3000` (a free port is used if it is taken) | Port the DevTools UI server listens on |
 | `hostname` | `string` | `'localhost'` | Hostname the DevTools UI server binds to |
 | `devtoolsCapabilities` | `Capabilities` | Chrome 1600×1200 | Capabilities used to open the DevTools UI window |
 | `screencast` | `ScreencastOptions` | — | Session video recording (live mode only — see below; for trace mode use `video`) |
 | `mode` | `'live' \| 'trace'` | `'live'` | `'live'` opens the DevTools UI window; `'trace'` skips the UI and writes a `trace-<sessionId>.zip` under a `test-results/` directory (base dir resolved from the test file's dir → config dir → cwd) at session end. See [Trace mode](../../README.md#-trace-mode-tracezip) |
-| `traceFormat` | `'zip' \| 'ndjson-directory'` | `'zip'` | Trace mode only. Output layout — `'zip'` writes a single archive; `'ndjson-directory'` unpacks the same files into `trace-<id>/` (one less unzip step for scripted/agentic consumers). Both open in `show-trace` and other compatible viewers. |
+| `traceFormat` | `'zip' \| 'ndjson-directory'` | `'zip'` | Trace mode only. Output layout — `'zip'` writes a single archive; `'ndjson-directory'` unpacks the same files into `trace-<id>/` (one less unzip step for scripted/agentic consumers). The `zip` opens in `show-trace`; a directory opens in other compatible viewers, or zip it first. |
 | `traceGranularity` | `'session' \| 'spec' \| 'test'` | `'session'` | Trace mode only. How traces are partitioned — one per worker session / spec file / test. `'test'` is required for per-test Allure attachments (trace, screenshot, video). |
 | `tracePolicy` | `TraceRetentionPolicy` | `'on'` | Trace mode only. Which traces to keep: `'on'` \| `'retain-on-failure'` \| `'retain-on-first-failure'` \| `'on-first-retry'` \| `'on-all-retries'` \| `'retain-on-failure-and-retries'`. The retry-aware policies pair best with `traceGranularity: 'test'`. |
 | `screenshot` | `'off' \| 'on' \| 'only-on-failure'` | `'off'` | Trace mode + `traceGranularity: 'test'`. Per-test screenshot, attached inline to Allure (`image/png`). WDIO-service-specific. |

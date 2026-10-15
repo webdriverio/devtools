@@ -1,6 +1,8 @@
 /** @vitest-environment happy-dom */
+import { NETWORK_CAPTURE_SOURCE } from '@wdio/devtools-shared'
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { NetworkRequestCollector } from '../src/collectors/networkRequests.js'
+import type { NetworkRequest } from '../types.js'
 
 // happy-dom doesn't ship a Blob with reliable .size in some versions —
 // fall back to a stub that returns the byte length so #estimateSize works
@@ -255,5 +257,158 @@ describe('NetworkRequestCollector — XHR capture', () => {
     // Header key was uppercase "Content-Type" on the wire; the parser
     // lowercases for consistency with the fetch path.
     expect(req.responseHeaders).toHaveProperty('content-type', 'text/plain')
+  })
+})
+
+/** The Resource Timing collector asks about each fetch/XHR entry it sees; a
+ *  claim is what lets it tell the patch's own request from one nobody else
+ *  recorded. Resource Timing clocks from `performance.now()` too. */
+describe('NetworkRequestCollector: claims for the Resource Timing collector', () => {
+  const jsonResponse = () =>
+    new Response('{}', {
+      status: 200,
+      headers: { 'content-type': 'application/json' }
+    })
+
+  /** The buffer's own row for a load, as the Resource Timing collector offers it. */
+  const entryFor = (url: string, startTime: number): NetworkRequest => ({
+    id: `rt-${url}`,
+    url,
+    method: '',
+    type: 'fetch',
+    timestamp: Date.now(),
+    startTime,
+    source: NETWORK_CAPTURE_SOURCE.RESOURCE_TIMING
+  })
+  const consume = (url: string, startTime: number) =>
+    collector.consumeClaim(url, startTime, entryFor(url, startTime))
+
+  it('claims a fetch at its start, under the absolute URL the buffer names', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse())
+    const before = performance.now()
+    await window.fetch('/api/me#section')
+
+    const expected = new URL('/api/me', document.baseURI).href
+    expect(consume(expected, before)).toBe(true)
+  })
+
+  it('spends a claim once, so a polled URL matches one entry per call', async () => {
+    fetchMock.mockResolvedValue(jsonResponse())
+    await window.fetch('https://api.example.com/poll')
+    await window.fetch('https://api.example.com/poll')
+
+    const now = performance.now()
+    expect(consume('https://api.example.com/poll', now)).toBe(true)
+    expect(consume('https://api.example.com/poll', now)).toBe(true)
+    expect(consume('https://api.example.com/poll', now)).toBe(false)
+  })
+
+  it('does not match an entry outside the tolerance or under another URL', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse())
+    await window.fetch('https://api.example.com/a')
+
+    const now = performance.now()
+    expect(consume('https://api.example.com/b', now)).toBe(false)
+    expect(consume('https://api.example.com/a', now + 5000)).toBe(false)
+    expect(consume('https://api.example.com/a', now)).toBe(true)
+  })
+
+  it('releases the claim of a fetch it does not record, so the entry stays', async () => {
+    // A 204 carries no content-type, and the patch records nothing for it;
+    // the buffer's entry is then the request's only record.
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }))
+    await window.fetch('https://api.example.com/save')
+
+    expect(collector.getArtifacts()).toEqual([])
+    expect(consume('https://api.example.com/save', performance.now())).toBe(
+      false
+    )
+  })
+
+  it('releases the claim of a fetch that rejected', async () => {
+    fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    await expect(window.fetch('https://api.example.com/down')).rejects.toThrow()
+
+    expect(consume('https://api.example.com/down', performance.now())).toBe(
+      false
+    )
+  })
+
+  it('claims an XHR when it is sent, and releases it on error', () => {
+    const xhr = new XMLHttpRequest()
+    xhr.open('GET', 'https://api.example.com/xhr')
+    expect(consume('https://api.example.com/xhr', performance.now())).toBe(
+      false
+    )
+
+    xhr.send()
+    const failing = new XMLHttpRequest()
+    failing.open('GET', 'https://api.example.com/xhr-down')
+    failing.send()
+    failing.dispatchEvent(new Event('error'))
+
+    const now = performance.now()
+    expect(consume('https://api.example.com/xhr', now)).toBe(true)
+    expect(consume('https://api.example.com/xhr-down', now)).toBe(false)
+  })
+
+  it('keeps its claims across a drain', async () => {
+    // The entry can arrive after the drain that took the patched record.
+    fetchMock.mockResolvedValueOnce(jsonResponse())
+    await window.fetch('https://api.example.com/late')
+    collector.clear()
+
+    expect(consume('https://api.example.com/late', performance.now())).toBe(
+      true
+    )
+  })
+
+  it('hands a held entry back when the call it waited for is dropped', async () => {
+    // The buffer can report a load before the patch has the response; the
+    // entry is held, and a call the patch then drops leaves it as the record.
+    let answer!: (response: Response) => void
+    fetchMock.mockReturnValueOnce(new Promise<Response>((r) => (answer = r)))
+    const call = window.fetch('https://api.example.com/save')
+    expect(consume('https://api.example.com/save', performance.now())).toBe(
+      true
+    )
+    expect(collector.getArtifacts()).toEqual([])
+
+    answer(new Response(null, { status: 204 }))
+    await call
+    expect(collector.getArtifacts()).toEqual([
+      expect.objectContaining({
+        url: 'https://api.example.com/save',
+        source: NETWORK_CAPTURE_SOURCE.RESOURCE_TIMING
+      })
+    ])
+  })
+
+  it('drops a held entry once the call it waited for is recorded', async () => {
+    let answer!: (response: Response) => void
+    fetchMock.mockReturnValueOnce(new Promise<Response>((r) => (answer = r)))
+    const call = window.fetch('https://api.example.com/me')
+    expect(consume('https://api.example.com/me', performance.now())).toBe(true)
+
+    answer(jsonResponse())
+    await call
+    expect(collector.getArtifacts().map((r) => r.source)).toEqual([undefined])
+    expect(consume('https://api.example.com/me', performance.now())).toBe(false)
+  })
+
+  it('holds one entry per call, so a second entry finds the next call', async () => {
+    let answer!: (response: Response) => void
+    fetchMock.mockReturnValueOnce(new Promise<Response>((r) => (answer = r)))
+    fetchMock.mockResolvedValueOnce(jsonResponse())
+    const first = window.fetch('https://api.example.com/poll')
+    await window.fetch('https://api.example.com/poll')
+
+    const now = performance.now()
+    expect(consume('https://api.example.com/poll', now)).toBe(true)
+    expect(consume('https://api.example.com/poll', now)).toBe(true)
+    expect(consume('https://api.example.com/poll', now)).toBe(false)
+    answer(jsonResponse())
+    await first
+    expect(collector.getArtifacts()).toHaveLength(2)
   })
 })

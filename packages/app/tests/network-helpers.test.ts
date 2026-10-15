@@ -1,4 +1,5 @@
 import {
+  NETWORK_CAPTURE_SOURCE,
   REQUEST_TYPES,
   type NetworkRequest,
   type RequestType
@@ -29,6 +30,21 @@ function request(overrides: Partial<NetworkRequest> = {}): NetworkRequest {
   }
 }
 
+describe('getResourceType: a source that names no method', () => {
+  it('does not read an empty method as a data request', () => {
+    // Resource Timing knows no method for a navigation or a beacon; only a
+    // real non-GET method is evidence of a body-carrying request.
+    expect(
+      getResourceType(request({ type: 'other', method: '', url: 'https://x/' }))
+    ).toBe('Other')
+    expect(
+      getResourceType(
+        request({ type: 'other', method: 'POST', url: 'https://x/' })
+      )
+    ).toBe('Fetch')
+  })
+})
+
 /** A `type` outside the union — an older trace, or a producer the vocabulary
  *  hasn't caught up with. The cast is the subject under test: the static type
  *  can't express this, and the helper still has to cope at runtime. */
@@ -57,6 +73,17 @@ describe('statusKind', () => {
 
   it('treats a missing status as pending', () => {
     expect(statusKind(undefined)).toBe(STATUS_KIND.PENDING)
+  })
+
+  it('treats a missing status from a source that never exposes one as unknown', () => {
+    // A Resource Timing row completed; outside Chromium the browser simply
+    // reports no status, which is not the same as one still on its way.
+    expect(
+      statusKind(undefined, false, NETWORK_CAPTURE_SOURCE.RESOURCE_TIMING)
+    ).toBe(STATUS_KIND.UNKNOWN)
+    expect(statusKind(200, false, NETWORK_CAPTURE_SOURCE.RESOURCE_TIMING)).toBe(
+      STATUS_KIND.OK
+    )
   })
 
   it('treats an error flag as error regardless of status', () => {

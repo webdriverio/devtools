@@ -327,9 +327,15 @@ def _response_timing(
 # ── selenium wiring (defensive) ───────────────────────────────────────────────
 
 
-def _bidi_enabled(driver: Any) -> bool:
+def bidi_enabled(driver: Any) -> bool:
+    """Whether the session has a BiDi socket to attach to. The one reading of
+    the capability, shared with the preload: a socket address, not merely a
+    truthy value, because safaridriver echoes the requested ``True`` back as
+    the capability and selenium's own connection thread then dies calling
+    ``startswith`` on a bool."""
     caps = getattr(driver, "caps", None)
-    return bool(isinstance(caps, dict) and caps.get(BIDI_CAPABILITY))
+    url = caps.get(BIDI_CAPABILITY) if isinstance(caps, dict) else None
+    return isinstance(url, str) and url.startswith("ws")
 
 
 def _attach_console(driver: Any, capturer: SessionCapturer) -> bool:
@@ -568,6 +574,7 @@ def _attach_network(
                 return
             kwargs = request_sent_kwargs(params)
             if kwargs is not None:
+                stats["observed"] = True
                 pending[kwargs["request_id"]] = kwargs
                 capturer.capture_network(**kwargs)
         except Exception as exc:  # noqa: BLE001
@@ -588,7 +595,7 @@ def _attach_network(
         except Exception as exc:  # noqa: BLE001
             _warn(f"responseCompleted handler threw: {exc}")
 
-    return _subscribe_via_event_manager(
+    attached = _subscribe_via_event_manager(
         driver,
         {
             BIDI_NET_BEFORE_REQUEST: on_request_sent,
@@ -596,6 +603,17 @@ def _attach_network(
         },
         active,
     )
+    stats["attached"] = attached
+    return attached
+
+
+def network_serving(stats: Optional[Dict[str, Any]]) -> bool:
+    """Whether BiDi is serving the session's requests: subscribed AND at least
+    one request event has arrived. A subscription alone is not evidence, since
+    Appium's BiDi shim accepts the subscription and then delivers nothing; read
+    by the drain to decide whether the page's own network entries are the
+    session's capture or a second listing of what BiDi already reported."""
+    return bool(stats and stats.get("attached") and stats.get("observed"))
 
 
 def _subscribe_via_event_manager(
@@ -673,7 +691,7 @@ def attach(
     ``stats`` is an optional bag the caller keeps, to be passed to
     ``network_summary`` when the session ends.
     """
-    if not _bidi_enabled(driver):
+    if not bidi_enabled(driver):
         _warn(
             f"{BIDI_CAPABILITY} not set on the session — enable BiDi with "
             "options.web_socket_url = True to capture console/network"

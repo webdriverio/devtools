@@ -2,6 +2,8 @@
 // snapshot shape from `trace.network`. Mirrors what core/trace-exporter.ts
 // writes; consumed by the reader to reconstruct a player payload.
 
+import type { HarTimings } from '@wdio/devtools-trace/trace-har'
+
 export interface BeforeEvent {
   type: 'before'
   callId: string
@@ -108,6 +110,12 @@ export interface HarSnapshot {
     headers?: { name: string; value: string }[]
     content?: HarContent
   }
+  /** Phase durations; `-1` is HAR's "not applicable". Only a writer that
+   *  measured phases carries the `dns`/`connect` keys. */
+  timings?: Partial<HarTimings>
+  /** Our writer's extension fields; a foreign zip carries neither. */
+  _resourceType?: string
+  _source?: string
 }
 
 /** One stream's trace events grouped by kind for the reconstruction pipeline. */
