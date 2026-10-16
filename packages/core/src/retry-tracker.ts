@@ -12,6 +12,7 @@
  */
 export class RetryTracker {
   #lastSig: string | null = null
+  #lastBareSig: string | null = null
   #lastId: number | null = null
 
   /** Build the canonical signature used for retry-equality checks. */
@@ -23,10 +24,21 @@ export class RetryTracker {
     return JSON.stringify({ command, args, src: callSource ?? null })
   }
 
+  /** The signature without the call site: a framework's own repeat of a call
+   *  (a `wait()` poll from a timer) has no user frame on its stack. */
+  static bareSignature(command: string, args: unknown): string {
+    return JSON.stringify({ command, args })
+  }
+
   /** True when the incoming signature matches the last captured one AND we
    *  have an id to replace (otherwise there's nothing to replace yet). */
   isRetry(sig: string): boolean {
     return sig === this.#lastSig && this.#lastId !== null
+  }
+
+  /** As `isRetry`, for a repeat that carries no call site of its own. */
+  isRetryIgnoringSource(bareSig: string): boolean {
+    return bareSig === this.#lastBareSig && this.#lastId !== null
   }
 
   /** The id of the last captured command, if any (for the replace-in-place
@@ -38,7 +50,20 @@ export class RetryTracker {
   /** Record a fresh capture — sets both sig and id together. */
   recordCapture(sig: string, id: number | null): void {
     this.#lastSig = sig
+    this.#lastBareSig = RetryTracker.bareOf(sig)
     this.#lastId = id
+  }
+
+  static bareOf(sig: string): string | null {
+    try {
+      const { command, args } = JSON.parse(sig) as {
+        command: string
+        args: unknown
+      }
+      return RetryTracker.bareSignature(command, args)
+    } catch {
+      return null
+    }
   }
 
   /** Record only the id (used by adapters that compute the sig but defer the
@@ -52,11 +77,13 @@ export class RetryTracker {
    *  commands). Pair with {@link setLastId} once the capture resolves. */
   setLastSig(sig: string): void {
     this.#lastSig = sig
+    this.#lastBareSig = RetryTracker.bareOf(sig)
   }
 
   /** Reset at test/scenario boundaries so the next capture is "fresh". */
   reset(): void {
     this.#lastSig = null
+    this.#lastBareSig = null
     this.#lastId = null
   }
 }

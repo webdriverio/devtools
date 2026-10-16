@@ -79,4 +79,100 @@ describe('captureOrReplaceCommand', () => {
       capturer.cleanup()
     }
   })
+
+  it('folds polls that overlap in flight into one row', async () => {
+    // selenium's `wait()` polls `getCurrentUrl` every 200 ms and the patcher
+    // does not await `onCommand`, so the second poll used to be captured
+    // before the first had its id and the Actions list showed it twice.
+    const capturer = new SessionCapturer({})
+    const retryTracker = new RetryTracker()
+    const poll = (timestamp: number) =>
+      command({
+        command: 'getCurrentUrl',
+        args: [],
+        fromElement: false,
+        callSource: undefined,
+        timestamp,
+        startTime: timestamp - 3
+      })
+    try {
+      await Promise.all([
+        captureOrReplaceCommand({
+          capturer,
+          retryTracker,
+          test,
+          cmd: poll(1_000)
+        }),
+        captureOrReplaceCommand({
+          capturer,
+          retryTracker,
+          test,
+          cmd: poll(1_200)
+        }),
+        captureOrReplaceCommand({
+          capturer,
+          retryTracker,
+          test,
+          cmd: poll(1_400)
+        })
+      ])
+      expect(capturer.commandsLog).toHaveLength(1)
+      expect(capturer.commandsLog[0].timestamp).toBe(1_400)
+    } finally {
+      capturer.cleanup()
+    }
+  })
+
+  it('folds the timer polls of a wait() into the row its first, sourced poll made', async () => {
+    // The first poll runs inside the user's `wait()` call and carries its line;
+    // the rest run from a timer with no user frame on the stack.
+    const capturer = new SessionCapturer({})
+    const retryTracker = new RetryTracker()
+    const poll = (timestamp: number, callSource?: string) =>
+      command({
+        command: 'getCurrentUrl',
+        args: [],
+        fromElement: false,
+        callSource,
+        timestamp,
+        startTime: timestamp - 3,
+        result: timestamp < 1_400 ? 'https://x/login' : 'https://x/secure'
+      })
+    try {
+      await captureOrReplaceCommand({
+        capturer,
+        retryTracker,
+        test,
+        cmd: poll(1_000, '/spec.js:22')
+      })
+      await captureOrReplaceCommand({
+        capturer,
+        retryTracker,
+        test,
+        cmd: poll(1_200)
+      })
+      await captureOrReplaceCommand({
+        capturer,
+        retryTracker,
+        test,
+        cmd: poll(1_400)
+      })
+      expect(capturer.commandsLog).toHaveLength(1)
+      expect(capturer.commandsLog[0]).toMatchObject({
+        callSource: '/spec.js:22',
+        timestamp: 1_400,
+        result: 'https://x/secure'
+      })
+      // The user's own later call of the same command is a row of its own.
+      await captureOrReplaceCommand({
+        capturer,
+        retryTracker,
+        test,
+        cmd: poll(1_600, '/spec.js:23')
+      })
+      expect(capturer.commandsLog).toHaveLength(2)
+    } finally {
+      capturer.cleanup()
+    }
+  })
 })

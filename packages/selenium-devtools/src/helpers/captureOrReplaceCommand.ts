@@ -22,7 +22,27 @@ function applyCapturedFields(entry: CommandLog, cmd: CapturedCommand): void {
  * branching was the densest section of that 73-line method and is pure logic
  * given a capturer + retry tracker + test handle.
  */
-export async function captureOrReplaceCommand(opts: {
+export function captureOrReplaceCommand(opts: {
+  capturer: SessionCapturer
+  retryTracker: RetryTracker
+  test: TestStats
+  cmd: CapturedCommand
+}): Promise<CommandLog & { _id?: number }> {
+  // One capture at a time per capturer. The driver patcher does not await
+  // `onCommand`, so a `wait()` poll arrives while the previous poll's capture
+  // is still awaiting its id, reads the tracker with no id to replace, and
+  // lands as a second row instead of folding into the first.
+  const previous = queues.get(opts.capturer) ?? Promise.resolve()
+  const next = previous
+    .catch(() => undefined)
+    .then(() => captureOrReplaceSerially(opts))
+  queues.set(opts.capturer, next)
+  return next
+}
+
+const queues = new WeakMap<SessionCapturer, Promise<unknown>>()
+
+async function captureOrReplaceSerially(opts: {
   capturer: SessionCapturer
   retryTracker: RetryTracker
   test: TestStats
@@ -31,8 +51,19 @@ export async function captureOrReplaceCommand(opts: {
   const { capturer, retryTracker, test, cmd } = opts
   const error = cmd.error ? toError(cmd.error) : undefined
   const cmdSig = RetryTracker.signature(cmd.command, cmd.args, cmd.callSource)
+  // A framework's own repeat of the user's call (selenium's `wait()` polls from
+  // a timer) has no call site; it folds into the row the user's line produced.
+  const sourceless =
+    cmd.callSource === undefined &&
+    retryTracker.isRetryIgnoringSource(
+      RetryTracker.bareSignature(cmd.command, cmd.args)
+    )
 
-  if (retryTracker.isRetry(cmdSig)) {
+  if (retryTracker.isRetry(cmdSig) || sourceless) {
+    const previous = capturer.commandsLog.find(
+      (row) =>
+        (row as CommandLog & { _id?: number })._id === retryTracker.lastId
+    )
     const replaced = capturer.replaceCommand(
       retryTracker.lastId!,
       cmd.command,
@@ -40,7 +71,7 @@ export async function captureOrReplaceCommand(opts: {
       error ? undefined : cmd.result,
       error,
       test.uid,
-      cmd.callSource,
+      cmd.callSource ?? previous?.callSource,
       cmd.timestamp
     )
     const entry = replaced.entry as CommandLog & { _id?: number }
