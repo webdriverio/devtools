@@ -134,6 +134,7 @@ describe('captureOrReplaceCommand', () => {
         args: [],
         fromElement: false,
         callSource,
+        duringWait: true,
         timestamp,
         startTime: timestamp - 3,
         result: timestamp < 1_400 ? 'https://x/login' : 'https://x/secure'
@@ -169,6 +170,38 @@ describe('captureOrReplaceCommand', () => {
         retryTracker,
         test,
         cmd: poll(1_600, '/spec.js:23')
+      })
+      expect(capturer.commandsLog).toHaveLength(2)
+    } finally {
+      capturer.cleanup()
+    }
+  })
+
+  it('keeps a call with no call site as its own row outside a wait()', async () => {
+    // A node_modules helper has no call site either; only a wait's own poll folds.
+    const capturer = new SessionCapturer({})
+    const retryTracker = new RetryTracker()
+    const read = (timestamp: number, callSource?: string) =>
+      command({
+        command: 'getCurrentUrl',
+        args: [],
+        fromElement: false,
+        callSource,
+        timestamp,
+        startTime: timestamp - 3
+      })
+    try {
+      await captureOrReplaceCommand({
+        capturer,
+        retryTracker,
+        test,
+        cmd: read(1_000, '/spec.js:22')
+      })
+      await captureOrReplaceCommand({
+        capturer,
+        retryTracker,
+        test,
+        cmd: read(1_010)
       })
       expect(capturer.commandsLog).toHaveLength(2)
     } finally {

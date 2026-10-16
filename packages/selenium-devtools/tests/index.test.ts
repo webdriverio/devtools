@@ -599,6 +599,52 @@ describe('driverPatcher', () => {
     }
   })
 
+  it('marks only the commands a driver.wait() condition issues', async () => {
+    const realWait = (driverProto as any).wait
+    ;(driverProto as any).wait = async function (condition: any) {
+      const fn = typeof condition === 'function' ? condition : condition.fn
+      await fn(this)
+      await fn(this)
+    }
+    ;(driverProto as any).testRead = function () {
+      return Promise.resolve('url')
+    }
+    stash.driverFns.testRead = (driverProto as any).testRead
+    const onCommand = vi.fn<(cmd: CapturedCommand) => void>()
+    try {
+      delete (driverProto as any)[
+        Symbol.for('@wdio/selenium-devtools/wait-tracked')
+      ]
+      patchSelenium({ onDriverCreated: vi.fn(), onCommand })
+      const fakeDriver = Object.create(driverProto)
+      await (fakeDriver as any).testRead()
+      // A command the test issues while the wait is pending is not one of its polls.
+      const pending = (fakeDriver as any).wait((d: any) => d.testRead())
+      await (fakeDriver as any).testRead()
+      await pending
+      await (fakeDriver as any).wait({
+        fn: (d: any) => d.testRead(),
+        description: () => 'c'
+      })
+      await new Promise((r) => setImmediate(r))
+      expect(onCommand.mock.calls.map(([cmd]) => cmd.duringWait)).toEqual([
+        false,
+        true,
+        false,
+        true,
+        true,
+        true
+      ])
+    } finally {
+      ;(driverProto as any).wait = realWait
+      delete (driverProto as any)[
+        Symbol.for('@wdio/selenium-devtools/wait-tracked')
+      ]
+      delete (driverProto as any).testRead
+      delete stash.driverFns.testRead
+    }
+  })
+
   it('captures sync, async, and throwing wrapper invocations through onCommand', async () => {
     const onCommand = vi.fn<(cmd: CapturedCommand) => void>()
     ;(driverProto as any).testSync = function (n: number) {

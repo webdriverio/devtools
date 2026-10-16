@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { createRequire } from 'node:module'
 import logger from '@wdio/logger'
 import {
@@ -129,11 +130,53 @@ function emitCommand(hooks: DriverPatcherHooks, cmd: CapturedCommand): void {
   }
 }
 
-/** Reports the command once it settles — see `CapturedCommand.timestamp` for why
- *  the row is stamped at completion rather than at invocation. */
+/** Set while a `driver.wait()` evaluates its condition: the polls it issues. */
+const waitPoll = new AsyncLocalStorage<true>()
+
+/** Runs a wait's condition inside `waitPoll`, so only its own polls are marked. */
+function trackWaits(proto: Patchable): void {
+  const original = proto.wait
+  if (typeof original !== 'function' || proto[WAIT_TRACKED_SYMBOL]) {
+    return
+  }
+  proto[WAIT_TRACKED_SYMBOL] = true
+  proto.wait = function (
+    this: unknown,
+    condition: unknown,
+    ...rest: unknown[]
+  ) {
+    return (original as (...a: unknown[]) => unknown).apply(this, [
+      asWaitPoll(condition),
+      ...rest
+    ])
+  }
+}
+
+/** A function condition, or a selenium `Condition` (its `fn`); a promise as is. */
+function asWaitPoll(condition: unknown): unknown {
+  const inPoll =
+    (fn: (...a: unknown[]) => unknown) =>
+    (...a: unknown[]) =>
+      waitPoll.run(true, () => fn(...a))
+  if (typeof condition === 'function') {
+    return inPoll(condition as (...a: unknown[]) => unknown)
+  }
+  const fn = (condition as { fn?: unknown } | null)?.fn
+  if (typeof fn === 'function') {
+    return Object.assign(Object.create(condition as object), {
+      fn: inPoll(fn as (...a: unknown[]) => unknown)
+    })
+  }
+  return condition
+}
+
+const WAIT_TRACKED_SYMBOL = Symbol.for('@wdio/selenium-devtools/wait-tracked')
+
 /** Element commands that dispatch input to the page. */
 const INPUT_ELEMENT_METHODS = new Set(['click', 'sendKeys', 'clear', 'submit'])
 
+/** Reports the command once it settles — see `CapturedCommand.timestamp` for why
+ *  the row is stamped at completion rather than at invocation. */
 function makeSettle(
   hooks: DriverPatcherHooks,
   meta: Omit<CapturedCommand, 'result' | 'rawResult' | 'error' | 'timestamp'>,
@@ -181,6 +224,7 @@ function makeWrappedMethod(
         command: methodName,
         args: args.map(safeSerialize),
         callSource: getCallSourceFromStack().callSource,
+        duringWait: waitPoll.getStore() === true,
         startTime,
         fromElement,
         // `this` is the only trace of which element the command targets — the
@@ -487,6 +531,7 @@ export function patchSelenium(hooks: DriverPatcherHooks): boolean {
 
   // Stash unwrapped originals before any patching.
   stashDriverOriginals(WebDriver.prototype as Patchable)
+  trackWaits(WebDriver.prototype as Patchable)
 
   const tracked = collectMethodNames(WebDriver.prototype).filter(
     (m) => !(INTERNAL_DRIVER_METHODS as readonly string[]).includes(m)

@@ -54,6 +54,7 @@ async function captureOrReplaceSerially(opts: {
   // A framework's own repeat of the user's call (selenium's `wait()` polls from
   // a timer) has no call site; it folds into the row the user's line produced.
   const sourceless =
+    cmd.duringWait === true &&
     cmd.callSource === undefined &&
     retryTracker.isRetryIgnoringSource(
       RetryTracker.bareSignature(cmd.command, cmd.args)
