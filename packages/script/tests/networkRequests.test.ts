@@ -372,6 +372,41 @@ describe('NetworkRequestCollector: claims for the Resource Timing collector', ()
     )
   })
 
+  it('lists a request once when its call finishes after its claim left the window', async () => {
+    let answer!: (response: Response) => void
+    fetchMock.mockReturnValueOnce(new Promise<Response>((r) => (answer = r)))
+    const call = window.fetch('https://api.example.com/oldest')
+    expect(consume('https://api.example.com/oldest', performance.now())).toBe(
+      true
+    )
+    fetchMock.mockReturnValue(new Promise<Response>(() => {}))
+    for (let i = 0; i < 500; i++) {
+      void window.fetch(`https://api.example.com/poll-${i}`)
+    }
+    expect(collector.getArtifacts()).toHaveLength(1)
+    answer(jsonResponse())
+    await call
+    expect(collector.getArtifacts().map((r) => [r.url, r.source])).toEqual([
+      ['https://api.example.com/oldest', undefined]
+    ])
+  })
+
+  it('reuses the surfaced row id when that row was already drained', async () => {
+    let answer!: (response: Response) => void
+    fetchMock.mockReturnValueOnce(new Promise<Response>((r) => (answer = r)))
+    const call = window.fetch('https://api.example.com/oldest')
+    consume('https://api.example.com/oldest', performance.now())
+    fetchMock.mockReturnValue(new Promise<Response>(() => {}))
+    for (let i = 0; i < 500; i++) {
+      void window.fetch(`https://api.example.com/poll-${i}`)
+    }
+    const surfacedId = collector.getArtifacts()[0].id
+    collector.clear()
+    answer(jsonResponse())
+    await call
+    expect(collector.getArtifacts().map((r) => r.id)).toEqual([surfacedId])
+  })
+
   it('surfaces the entry a claim holds when the claim is pushed out of the window', async () => {
     fetchMock.mockReturnValue(new Promise<Response>(() => {}))
     void window.fetch('https://api.example.com/oldest')

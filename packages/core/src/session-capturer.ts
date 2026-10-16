@@ -497,7 +497,17 @@ export abstract class SessionCapturerBase {
 
     const reqs = this.#acceptedNetworkRequests(networkRequests, opts)
     if (reqs.length > 0) {
-      this.networkRequests.push(...reqs)
+      // A re-sent id replaces its row, as the dashboard does.
+      for (const req of reqs) {
+        const at = req.id
+          ? this.networkRequests.findIndex((r) => r.id === req.id)
+          : -1
+        if (at === -1) {
+          this.networkRequests.push(req)
+        } else {
+          this.networkRequests[at] = req
+        }
+      }
       this.sendUpstream('networkRequests', reqs)
     }
 

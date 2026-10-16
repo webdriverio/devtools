@@ -17,6 +17,8 @@ interface Claim {
   recorded?: boolean
   /** The entry arrived first and waits for the patch to record or drop the call. */
   held?: NetworkRequest
+  /** The held entry, listed early; the call's own row replaces it if recorded. */
+  surfaced?: NetworkRequest
 }
 
 export class NetworkRequestCollector implements Collector<NetworkRequest> {
@@ -85,6 +87,7 @@ export class NetworkRequestCollector implements Collector<NetworkRequest> {
       const dropped = this.#claims.shift()
       if (dropped?.held) {
         this.#requests.push(dropped.held)
+        dropped.surfaced = dropped.held
         dropped.held = undefined
       }
     }
@@ -92,7 +95,18 @@ export class NetworkRequestCollector implements Collector<NetworkRequest> {
   }
 
   /** The call was recorded: an entry already held is its second listing. */
-  #settleClaim(claim: Claim): void {
+  #settleClaim(claim: Claim, recorded?: NetworkRequest): void {
+    if (claim.surfaced) {
+      const index = this.#requests.indexOf(claim.surfaced)
+      if (index !== -1) {
+        this.#requests.splice(index, 1)
+      } else if (recorded) {
+        // Already drained: the same id makes the dashboard replace that row.
+        recorded.id = claim.surfaced.id
+      }
+      this.#dropClaim(claim)
+      return
+    }
     if (claim.held) {
       this.#dropClaim(claim)
     } else {
@@ -150,16 +164,16 @@ export class NetworkRequestCollector implements Collector<NetworkRequest> {
     request: Partial<NetworkRequest>,
     response: Response,
     startTime: number
-  ): Promise<boolean> {
+  ): Promise<NetworkRequest | undefined> {
     const endTime = performance.now()
     const responseHeaders = this.#extractHeaders(response.headers)
     const contentType = responseHeaders['content-type']?.trim()
     if (!contentType || contentType === '-') {
       this.#pendingRequests.delete(id)
-      return false
+      return undefined
     }
     const responseBody = await this.#readResponseBody(response, contentType)
-    this.#requests.push({
+    const row: NetworkRequest = {
       id,
       url: request.url!,
       method: request.method!,
@@ -175,9 +189,10 @@ export class NetworkRequestCollector implements Collector<NetworkRequest> {
       requestBody: request.requestBody,
       responseBody,
       size: this.#estimateSize(responseBody)
-    })
+    }
+    this.#requests.push(row)
     this.#pendingRequests.delete(id)
-    return true
+    return row
   }
 
   #patchFetch() {
@@ -217,7 +232,7 @@ export class NetworkRequestCollector implements Collector<NetworkRequest> {
           startTime
         )
         if (recorded) {
-          self.#settleClaim(claim)
+          self.#settleClaim(claim, recorded)
         } else {
           self.#releaseClaim(claim)
         }
@@ -234,12 +249,12 @@ export class NetworkRequestCollector implements Collector<NetworkRequest> {
     xhr: XMLHttpRequest,
     requestData: Partial<NetworkRequest>,
     startTime: number
-  ): boolean {
+  ): NetworkRequest | undefined {
     const endTime = performance.now()
     const responseHeaders = this.#extractXHRHeaders(xhr)
     const contentType = responseHeaders['content-type']?.trim()
     if (!contentType || contentType === '-') {
-      return false
+      return undefined
     }
     let responseBody: string | undefined
     try {
@@ -252,7 +267,7 @@ export class NetworkRequestCollector implements Collector<NetworkRequest> {
     } catch {
       /* ignore body read errors */
     }
-    this.#requests.push({
+    const row: NetworkRequest = {
       id: requestData.id!,
       url: requestData.url!,
       method: requestData.method!,
@@ -268,8 +283,9 @@ export class NetworkRequestCollector implements Collector<NetworkRequest> {
       requestBody: requestData.requestBody,
       responseBody,
       size: this.#estimateSize(responseBody)
-    })
-    return true
+    }
+    this.#requests.push(row)
+    return row
   }
 
   #patchXHROpen(self: this): void {
@@ -329,8 +345,9 @@ export class NetworkRequestCollector implements Collector<NetworkRequest> {
       }
       listeners.load = () => {
         detach()
-        if (self.#recordXHRResponse(xhr, requestData, startTime)) {
-          self.#settleClaim(claim)
+        const row = self.#recordXHRResponse(xhr, requestData, startTime)
+        if (row) {
+          self.#settleClaim(claim, row)
         } else {
           self.#releaseClaim(claim)
         }

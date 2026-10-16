@@ -406,3 +406,33 @@ describe('SessionCapturerBase.isNativeAppSession', () => {
     expect(capturer.isNativeAppSession).toBe(true)
   })
 })
+
+describe('processTracePayload network ids', () => {
+  it('replaces a row re-sent under the same id instead of listing it twice', () => {
+    class Capturer extends SessionCapturerBase {
+      ingest(payload: unknown) {
+        this.processTracePayload(payload as never)
+      }
+    }
+    const capturer = new Capturer({})
+    const row = (id: string, status?: number) => ({
+      id,
+      url: 'https://x/a',
+      method: 'GET',
+      type: 'fetch' as const,
+      timestamp: 1,
+      startTime: 1,
+      ...(status ? { status } : {})
+    })
+    try {
+      capturer.ingest({ networkRequests: [row('r1')] })
+      capturer.ingest({ networkRequests: [row('r1', 200), row('r2')] })
+      expect(capturer.networkRequests.map((r) => [r.id, r.status])).toEqual([
+        ['r1', 200],
+        ['r2', undefined]
+      ])
+    } finally {
+      capturer.cleanup()
+    }
+  })
+})
