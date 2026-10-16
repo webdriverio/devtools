@@ -1127,6 +1127,58 @@ describe('SessionCapturer', () => {
  * Guarded inside `captureTrace` because two of its four call sites asked and
  * two did not — the assumption lives here, so the guard does too.
  */
+/**
+ * BiDi counts as the network source only once it has delivered an event.
+ * `browser.isBidi` says the session advertised BiDi; Appium 3.7's XCUITest
+ * driver advertises it, accepts the subscription and sends nothing, and gating
+ * on the advertisement left such a trace with zero network rows.
+ */
+describe('captureTrace and BiDi evidence', () => {
+  const resourceTimingRow = {
+    id: 'rt-1',
+    url: 'https://example.com/app.js',
+    method: 'GET',
+    type: 'script',
+    timestamp: 2,
+    startTime: 1,
+    source: 'resource-timing'
+  }
+  const patchedRow = {
+    id: 'p-1',
+    url: 'https://example.com/api',
+    method: 'POST',
+    type: 'fetch',
+    timestamp: 3,
+    startTime: 2
+  }
+  /** A session that advertises BiDi and whose drain answers both rows. */
+  const advertisingBrowser = () =>
+    ({
+      isBidi: true,
+      execute: vi.fn().mockResolvedValue({
+        networkRequests: [resourceTimingRow, patchedRow]
+      }),
+      getUrl: vi.fn().mockResolvedValue('https://example.com'),
+      takeScreenshot: vi.fn().mockResolvedValue('screenshot')
+    }) as never
+
+  it('keeps the page’s Resource Timing rows while BiDi has delivered nothing', async () => {
+    const capturer = new SessionCapturer()
+    await capturer.captureTrace(advertisingBrowser())
+    expect(capturer.networkRequests.map((r) => r.id)).toEqual(['rt-1', 'p-1'])
+  })
+
+  it('drops them once a BiDi network event has arrived, keeping the patched row', async () => {
+    const capturer = new SessionCapturer()
+    capturer.handleNetworkRequestStarted({
+      request: { request: 'req-1', url: 'https://example.com/', method: 'GET' },
+      timestamp: 1
+    })
+    await capturer.captureTrace(advertisingBrowser())
+    expect(capturer.networkRequests.map((r) => r.id)).toEqual(['p-1'])
+  })
+})
+
 describe('captureTrace on a native session', () => {
   /** A driver that answers nothing: any page-side call is a failure here. No
    *  `browserName`, which is what makes it an APP session. */

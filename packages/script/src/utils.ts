@@ -40,6 +40,38 @@ const errorNode = (className: string, err: unknown) =>
  *  than what a second parser makes of its markup: `localName` keeps the case
  *  foreign elements need (`linearGradient`), and attribute names arrive already
  *  adjusted (`viewBox`), both of which parse5 had to special-case. */
+/** Field state lives on properties the attributes never see. A collector that
+ *  arrives after the typing (no document-start injection: Safari, Appium) would
+ *  otherwise anchor a form that replays empty. Mirrors `captureFieldState`. */
+function recordFieldState(
+  element: Element,
+  props: Record<string, unknown>
+): void {
+  const tag = element.tagName
+  if (tag !== 'INPUT' && tag !== 'TEXTAREA' && tag !== 'SELECT') {
+    return
+  }
+  const field = element as HTMLInputElement
+  if (
+    tag === 'INPUT' &&
+    (field.type === 'checkbox' || field.type === 'radio')
+  ) {
+    if (field.checked) {
+      props.checked = ''
+    } else {
+      delete props.checked
+    }
+    return
+  }
+  // A password's value stays out of the archive, as element-scripts keeps it.
+  if (tag === 'INPUT' && field.type === 'password') {
+    return
+  }
+  if (field.value !== (props.value ?? '')) {
+    props.value = field.value
+  }
+}
+
 export function parseNode(node: Node): SimplifiedVNode | string {
   if (node.nodeType === Node.COMMENT_NODE) {
     // Drop comment content — returning its data rendered the comment as visible
@@ -57,6 +89,7 @@ export function parseNode(node: Node): SimplifiedVNode | string {
     for (const attr of Array.from(element.attributes ?? [])) {
       props[attr.name] = attr.value
     }
+    recordFieldState(element, props)
     const children = Array.from(node.childNodes).map((child) =>
       parseNode(child)
     )
@@ -100,6 +133,13 @@ export const SLOW_BODY_NOTICE_MS = 10_000
  *  A body that is late is reported instead, so a page that never gets one is
  *  visible in the collector's logs rather than silently uncaptured. */
 export async function waitForBody() {
+  // Injected into a loaded document, the body is already there, and a frame is
+  // not: Safari's automation window paints only when something, such as a
+  // screenshot, makes it, so a wait on one left the collector without its
+  // listeners for the whole test. Only a document-start preload has to wait.
+  if (document.body) {
+    return
+  }
   let raf = 0
   let resolve: () => void
   const waitForPromise = new Promise<void>((res) => {

@@ -8,7 +8,10 @@ being retyped here, so shared stays the one place it is stated.
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+import subprocess
+import sys
+
+from typing import Any, Dict, Optional, Callable, List
 
 from ._contract import NATIVE_PLATFORMS
 
@@ -82,3 +85,33 @@ def driver_is_native_app(driver: Any) -> bool:
     """`is_native_app_session` for a live driver, whose capabilities selenium
     exposes as a plain dict."""
     return is_native_app_session(getattr(driver, "capabilities", None))
+
+
+def restore_browser_focus(
+    capabilities: Any,
+    *,
+    host: Optional[str] = None,
+    platform: str = sys.platform,
+    launch: Callable[[List[str]], Any] = lambda argv: subprocess.Popen(
+        argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+    ),
+) -> bool:
+    """Bring Safari back to the front on macOS. Safari delivers a synthesized
+    click only to its frontmost window and reports success either way, and a
+    live run has just opened the dashboard in another browser."""
+    caps = capabilities if isinstance(capabilities, dict) else {}
+    name = _deep_cap_string(caps, "browserName") or ""
+    target_platform = _deep_cap_string(caps, "platformName") or ""
+    local = host in (None, "", "localhost", "127.0.0.1", "::1")
+    if (
+        platform != "darwin"
+        or not local
+        or "safari" not in name.lower()
+        or "ios" in target_platform.lower()
+    ):
+        return False
+    try:
+        launch(["open", "-a", "Safari"])
+        return True
+    except Exception:  # noqa: BLE001 - a missing `open` must not break the test
+        return False

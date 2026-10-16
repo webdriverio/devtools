@@ -10,7 +10,12 @@ import type {
   SerializedError,
   TraceMutation
 } from '@wdio/devtools-shared'
-import { WORKER_WS_QUERY, WS_PATHS, WS_SCOPE } from '@wdio/devtools-shared'
+import {
+  NETWORK_CAPTURE_SOURCE,
+  WORKER_WS_QUERY,
+  WS_PATHS,
+  WS_SCOPE
+} from '@wdio/devtools-shared'
 import {
   isNativeAppSession,
   mapCommandToAction,
@@ -449,7 +454,10 @@ export abstract class SessionCapturerBase {
    *
    * `skipConsoleLogs` / `skipNetworkRequests` opt out when an out-of-band
    * channel (BiDi) is already delivering those streams — without the gate
-   * the dashboard would see each entry twice.
+   * the dashboard would see each entry twice. `skipResourceTimingRequests`
+   * drops only the page's Resource Timing entries: a driver-side source
+   * reports the same loads with their headers, while the collector's patched
+   * fetch/XHR rows still carry the bodies nothing else captures.
    */
   protected processTracePayload(
     payload: {
@@ -462,6 +470,7 @@ export abstract class SessionCapturerBase {
     opts: {
       skipConsoleLogs?: boolean
       skipNetworkRequests?: boolean
+      skipResourceTimingRequests?: boolean
       /** The command this batch's anchors were CAUSED by, when the caller
        *  observed the document being replaced right after it. Causal knowledge,
        *  so it overrides the timestamp inference below. */
@@ -478,26 +487,27 @@ export abstract class SessionCapturerBase {
       this.mergeMetadata(metadata as Partial<Metadata>)
     }
 
-    if (
-      !opts.skipConsoleLogs &&
-      Array.isArray(consoleLogs) &&
-      consoleLogs.length > 0
-    ) {
-      const tagged = (consoleLogs as ConsoleLog[]).map((entry) => ({
-        ...entry,
-        source: LOG_SOURCES.BROWSER as LogSource
-      }))
+    const tagged = opts.skipConsoleLogs
+      ? []
+      : this.#tagBrowserConsoleLogs(consoleLogs)
+    if (tagged.length > 0) {
       this.consoleLogs.push(...tagged)
       this.sendUpstream('consoleLogs', tagged)
     }
 
-    if (
-      !opts.skipNetworkRequests &&
-      Array.isArray(networkRequests) &&
-      networkRequests.length > 0
-    ) {
-      const reqs = networkRequests as NetworkRequest[]
-      this.networkRequests.push(...reqs)
+    const reqs = this.#acceptedNetworkRequests(networkRequests, opts)
+    if (reqs.length > 0) {
+      // A re-sent id replaces its row, as the dashboard does.
+      for (const req of reqs) {
+        const at = req.id
+          ? this.networkRequests.findIndex((r) => r.id === req.id)
+          : -1
+        if (at === -1) {
+          this.networkRequests.push(req)
+        } else {
+          this.networkRequests[at] = req
+        }
+      }
       this.sendUpstream('networkRequests', reqs)
     }
 
@@ -518,6 +528,33 @@ export abstract class SessionCapturerBase {
       this.traceLogs.push(...logs)
       this.sendUpstream('logs', logs)
     }
+  }
+
+  #tagBrowserConsoleLogs(consoleLogs: unknown): ConsoleLog[] {
+    if (!Array.isArray(consoleLogs)) {
+      return []
+    }
+    return (consoleLogs as ConsoleLog[]).map((entry) => ({
+      ...entry,
+      source: LOG_SOURCES.BROWSER as LogSource
+    }))
+  }
+
+  #acceptedNetworkRequests(
+    networkRequests: unknown,
+    opts: {
+      skipNetworkRequests?: boolean
+      skipResourceTimingRequests?: boolean
+    }
+  ): NetworkRequest[] {
+    if (opts.skipNetworkRequests || !Array.isArray(networkRequests)) {
+      return []
+    }
+    return (networkRequests as NetworkRequest[]).filter(
+      (req) =>
+        !opts.skipResourceTimingRequests ||
+        req.source !== NETWORK_CAPTURE_SOURCE.RESOURCE_TIMING
+    )
   }
 
   /**

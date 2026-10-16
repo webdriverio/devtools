@@ -229,6 +229,71 @@ class TestSnapshotWiring(unittest.TestCase):
         self.assertEqual(len(self._mutations()), 1)
 
 
+class FakeSnapshot:
+    """A capturer whose one drain answers a fixed payload."""
+
+    def __init__(self, payload):
+        self._payload = payload
+
+    def pull_trace(self):
+        return self._payload
+
+
+class TestFlushForwardsTheNetworkHalf(unittest.TestCase):
+    """The drain carries the page's own network entries beside the mutations.
+    Without BiDi they are the session's only network capture; with it they
+    would list every request a second time."""
+
+    ROW = {
+        "id": "rt-1-0", "url": "https://x/a.js", "method": "GET", "type": "script",
+        "timestamp": 1, "startTime": 0, "source": "resource-timing",
+    }
+    MUTATION = {"type": "childList", "target": "1", "addedNodes": [],
+                "removedNodes": [], "timestamp": 1}
+
+    def setUp(self):
+        self.tx = RecordingTransport()
+        self.cap = SessionCapturer(self.tx)
+
+    def _sent(self, scope):
+        return [d for s, d in self.tx.sent if s == scope]
+
+    def _flush(self, network_stats):
+        entry = {"snapshot": FakeSnapshot(snapshot.TracePayload([self.MUTATION], [self.ROW]))}
+        if network_stats is not None:
+            entry["network"] = network_stats
+        instrumentation._flush_page_collector(self.cap, entry)
+
+    def test_without_bidi_the_page_entries_are_the_network_capture(self):
+        self._flush(network_stats=None)
+        self.assertEqual(self._sent("mutations"), [[self.MUTATION]])
+        self.assertEqual(self._sent("networkRequests"), [[self.ROW]])
+
+    def test_a_bidi_attach_that_did_not_take_still_forwards_them(self):
+        # Safari: `attach` ran, subscribed nothing.
+        self._flush(network_stats={"captured": 0, "pending": {}, "attached": False})
+        self.assertEqual(self._sent("networkRequests"), [[self.ROW]])
+
+    def test_a_subscription_that_delivered_nothing_still_forwards_them(self):
+        # Appium's BiDi shim: subscribed, and not one request event arrives.
+        self._flush(network_stats={"captured": 0, "pending": {}, "attached": True})
+        self.assertEqual(self._sent("networkRequests"), [[self.ROW]])
+
+    def test_with_bidi_serving_the_session_they_are_withheld(self):
+        self._flush(network_stats={"captured": 1, "pending": {}, "attached": True,
+                                   "observed": True})
+        self.assertEqual(self._sent("mutations"), [[self.MUTATION]])
+        self.assertEqual(self._sent("networkRequests"), [])
+
+    def test_a_drain_that_throws_forwards_nothing_and_does_not_raise(self):
+        class Boom:
+            def pull_trace(self):
+                raise RuntimeError("gone")
+
+        instrumentation._flush_page_collector(self.cap, {"snapshot": Boom()})
+        self.assertEqual(self.tx.sent, [])
+
+
 class TestSkipFrames(unittest.TestCase):
     def test_user_file_under_selenium_path_is_not_skipped(self):
         # A user's test file living under .../examples/selenium/... must NOT be

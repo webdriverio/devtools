@@ -1,5 +1,5 @@
 /** @vitest-environment happy-dom */
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { DataCollector } from '../src/collector.js'
 
 const REF_ATTR = 'data-wdio-ref'
@@ -68,5 +68,85 @@ describe('captureCurrentDom', () => {
       el.getAttribute(REF_ATTR)
     )
     expect(after).toEqual(before)
+  })
+})
+
+describe('getTraceData network', () => {
+  /** Plays Resource Timing entries into whichever collector is observing. */
+  class FakeObserver {
+    static callbacks: ((list: { getEntries: () => unknown[] }) => void)[] = []
+    constructor(callback: (list: { getEntries: () => unknown[] }) => void) {
+      FakeObserver.callbacks.push(callback)
+    }
+    observe() {}
+    static deliver(...entries: unknown[]) {
+      for (const callback of FakeObserver.callbacks) {
+        callback({ getEntries: () => entries })
+      }
+    }
+  }
+  const realObserver = globalThis.PerformanceObserver
+
+  beforeEach(() => {
+    FakeObserver.callbacks = []
+    ;(globalThis as { PerformanceObserver: unknown }).PerformanceObserver =
+      FakeObserver
+  })
+
+  afterEach(() => {
+    ;(globalThis as { PerformanceObserver: unknown }).PerformanceObserver =
+      realObserver
+  })
+
+  it('lists the patched calls and the Resource Timing rows together, by start', async () => {
+    const realFetch = window.fetch
+    window.fetch = (() =>
+      Promise.resolve(
+        new Response('{}', {
+          status: 200,
+          headers: { 'content-type': 'application/json' }
+        })
+      )) as typeof fetch
+    try {
+      const c = new DataCollector()
+      await window.fetch('https://app.test/api/me')
+      FakeObserver.deliver({
+        name: 'https://app.test/app.js',
+        entryType: 'resource',
+        initiatorType: 'script',
+        startTime: 1,
+        responseEnd: 20,
+        requestStart: 0,
+        transferSize: 100
+      })
+
+      const { networkRequests } = c.getTraceData()
+      expect(networkRequests.map((r) => [r.url, r.source])).toEqual([
+        ['https://app.test/app.js', 'resource-timing'],
+        ['https://app.test/api/me', undefined]
+      ])
+      // A drain takes both halves; the next one starts empty.
+      expect(c.getTraceData().networkRequests).toEqual([])
+    } finally {
+      window.fetch = realFetch
+    }
+  })
+})
+
+describe('bundle installation', () => {
+  it('keeps the collector a previous evaluation installed', async () => {
+    // Two injections racing past one presence probe evaluate the bundle twice
+    // in one document; the second replacing the first dropped its buffers.
+    delete window.wdioTraceCollector
+    vi.resetModules()
+    const first = await import('../src/collector.js')
+    expect(first.alreadyInstalled).toBe(false)
+    expect(window.wdioTraceCollector).toBe(first.collector)
+
+    vi.resetModules()
+    const second = await import('../src/collector.js')
+    expect(second.alreadyInstalled).toBe(true)
+    expect(second.collector).toBe(first.collector)
+    delete window.wdioTraceCollector
   })
 })

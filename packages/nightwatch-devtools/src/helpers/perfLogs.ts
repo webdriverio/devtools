@@ -1,6 +1,14 @@
-import type { RequestType } from '@wdio/devtools-shared'
+import {
+  NETWORK_CAPTURE_SOURCE,
+  type NetworkRequest,
+  type RequestType
+} from '@wdio/devtools-shared'
 
 import { getRequestType } from './utils.js'
+
+/** How far apart the log's and the page's clocks for one load may be and
+ *  still describe the same request. */
+const RESOURCE_TIMING_MATCH_MS = 2000
 
 /**
  * Pure parsers for Chrome's `performance` log (the format `browser.getLog('performance')`
@@ -58,6 +66,7 @@ interface CdpEventParams {
   request?: CdpRequest
   response?: CdpResponse
   timestamp?: number
+  wallTime?: number
   encodedDataLength?: number
   errorText?: string
 }
@@ -99,7 +108,12 @@ function startPendingRequest(
     url: req.url,
     method: req.method,
     requestHeaders: req.headers ?? {},
-    timestamp: startTime,
+    // Epoch, from the event's own wall clock: every consumer dates a row by
+    // `timestamp`, and the monotonic `startTime` only diffs within a session.
+    timestamp:
+      typeof params.wallTime === 'number'
+        ? Math.round(params.wallTime * 1000)
+        : entry.timestamp,
     startTime
   })
 }
@@ -167,6 +181,142 @@ export function parseNetworkFromPerfLogs(logs: PerfLogEntry[]): NetworkEntry[] {
     handlePerfLogEvent(method, params, entry, pending, completed)
   }
   return completed
+}
+
+export interface ResourceTimingUpgrade {
+  index: number
+  request: NetworkRequest
+}
+
+/** The Resource Timing rows under each url, by index: the rows a load another
+ *  source reported can be paired with. */
+function resourceTimingRowsByUrl(
+  rows: NetworkRequest[]
+): Map<string, number[]> {
+  const byUrl = new Map<string, number[]>()
+  rows.forEach((row, index) => {
+    if (row.source !== NETWORK_CAPTURE_SOURCE.RESOURCE_TIMING) {
+      return
+    }
+    const indexes = byUrl.get(row.url)
+    if (indexes) {
+      indexes.push(index)
+    } else {
+      byUrl.set(row.url, [index])
+    }
+  })
+  return byUrl
+}
+
+/** The unmatched Resource Timing row for this url nearest `at`, spent once
+ *  taken so each load pairs with one row. */
+function takeNearestResourceTimingRow(
+  indexes: number[],
+  rows: NetworkRequest[],
+  at: number
+): number | undefined {
+  let best: number | undefined
+  let bestDelta = RESOURCE_TIMING_MATCH_MS
+  for (const index of indexes) {
+    const delta = Math.abs(rows[index].timestamp - at)
+    if (delta <= bestDelta) {
+      best = index
+      bestDelta = delta
+    }
+  }
+  if (best !== undefined) {
+    indexes.splice(indexes.indexOf(best), 1)
+  }
+  return best
+}
+
+/** What the log saw that the page could not, laid over the page's row: its
+ *  clock, its measured phases and its id stay the row's. */
+function overlay(row: NetworkRequest, entry: NetworkEntry): NetworkRequest {
+  const merged: NetworkRequest = {
+    ...row,
+    method: entry.method,
+    requestHeaders: entry.requestHeaders,
+    type: entry.type ?? row.type,
+    ...(entry.status !== undefined ? { status: entry.status } : {}),
+    ...(entry.statusText !== undefined ? { statusText: entry.statusText } : {}),
+    ...(entry.responseHeaders
+      ? { responseHeaders: entry.responseHeaders }
+      : {}),
+    ...(entry.size !== undefined ? { size: entry.size } : {}),
+    ...(entry.error !== undefined ? { error: entry.error } : {})
+  }
+  delete merged.source
+  return merged
+}
+
+/** A load the log listed before the page could: the log is read after the
+ *  drain, so the page's row for it arrives a drain later. */
+export interface LoadListedByLog {
+  url: string
+  timestamp: number
+}
+
+/** A drained payload without the page's row for each load the log listed
+ *  first. A load takes one row, the nearest under its url, so a second request
+ *  to that url inside the window keeps its own. */
+export function withoutLoadsTheLogListed(
+  payload: Record<string, unknown>,
+  listed: LoadListedByLog[]
+): Record<string, unknown> {
+  const requests = payload.networkRequests
+  if (!Array.isArray(requests) || listed.length === 0) {
+    return payload
+  }
+  const rows = requests as NetworkRequest[]
+  const rowsByUrl = resourceTimingRowsByUrl(rows)
+  const taken = new Set<number>()
+  for (const load of listed) {
+    const index = takeNearestResourceTimingRow(
+      rowsByUrl.get(load.url) ?? [],
+      rows,
+      load.timestamp
+    )
+    if (index !== undefined) {
+      taken.add(index)
+    }
+  }
+  if (taken.size === 0) {
+    return payload
+  }
+  return {
+    ...payload,
+    networkRequests: rows.filter((_, index) => !taken.has(index))
+  }
+}
+
+/**
+ * Pair performance-log entries with the Resource Timing rows the session
+ * already holds for the same loads. The page's drain runs before the log is
+ * read, so its rows arrive first; a pair takes the row's id and replaces it in
+ * place with the headers and status the page could not see, which is what the
+ * dashboard does with a re-sent id. The rest are new to the session.
+ */
+export function upgradeResourceTimingRows(
+  incoming: NetworkEntry[],
+  existing: NetworkRequest[]
+): { upgrades: ResourceTimingUpgrade[]; fresh: NetworkEntry[] } {
+  const rowsByUrl = resourceTimingRowsByUrl(existing)
+  const upgrades: ResourceTimingUpgrade[] = []
+  const fresh: NetworkEntry[] = []
+  for (const entry of incoming) {
+    const index = takeNearestResourceTimingRow(
+      rowsByUrl.get(entry.url) ?? [],
+      existing,
+      entry.timestamp
+    )
+    if (index === undefined) {
+      fresh.push(entry)
+      continue
+    }
+    upgrades.push({ index, request: overlay(existing[index], entry) })
+  }
+  return { upgrades, fresh }
 }
 
 /**

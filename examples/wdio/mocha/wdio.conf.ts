@@ -27,7 +27,9 @@ export const config: WebdriverIO.Config = {
           '--headless',
           '--disable-gpu',
           '--remote-allow-origins=*',
-          '--window-size=1600,900'
+          '--window-size=1600,900',
+          // Chrome's password-leak check drops all WebDriver input after the demo credential is submitted; see CLAUDE.md.
+          '--host-resolver-rules=MAP passwordsleakcheck-pa.googleapis.com 127.0.0.1'
         ]
       }
     }

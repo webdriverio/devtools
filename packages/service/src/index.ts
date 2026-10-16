@@ -15,7 +15,8 @@ import {
   tracePolicyModeWarning,
   upsertRichestSnapshot,
   type TraceArtifact,
-  type TraceExportContext
+  type TraceExportContext,
+  restoreBrowserFocus
 } from '@wdio/devtools-core'
 import { getAllureSink } from './allure.js'
 import { wireAssertCapture, type ExpectAssertion } from './assert-capture.js'
@@ -237,6 +238,17 @@ export default class DevToolsHookService implements Services.ServiceInstance {
       wdioCaps['wdio:devtoolsOptions']
     )
     this.#sessionCapturer.traceMode = this.#options.mode ?? 'live'
+    // The dashboard window took the front; Safari clicks reach nothing there.
+    if ((this.#options.mode ?? 'live') === 'live') {
+      const caps = browser.capabilities as
+        { browserName?: string; platformName?: string } | undefined
+      restoreBrowserFocus({
+        browserName: caps?.browserName,
+        platformName: caps?.platformName,
+        host: (browser.options as { hostname?: string } | undefined)?.hostname,
+        onError: (message) => log.warn(message)
+      })
+    }
     stampRunnerMetadata(this.#sessionCapturer, browser, this.captureType)
 
     if (this.#options.captureAssertions !== false) {

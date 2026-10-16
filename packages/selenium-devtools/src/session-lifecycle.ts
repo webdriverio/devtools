@@ -239,7 +239,7 @@ async function attachBidi(
     if (attached) {
       ctx.sessionCapturer!.bidiActive = true
       log.info(
-        '✓ BiDi data flow active — script-injected console/network suppressed'
+        '✓ BiDi subscribed; script-injected console/network suppressed once its events arrive'
       )
     }
   } catch (err) {

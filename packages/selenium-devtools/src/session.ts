@@ -26,6 +26,10 @@ export class SessionCapturer extends SessionCapturerBase {
 
   // True once BiDi inspectors are attached — script-trace path skips streams.
   bidiActive = false
+  /** Whether BiDi has delivered at least one event of each stream. A
+   *  subscription that delivers nothing is not a source. */
+  bidiConsoleObserved = false
+  bidiNetworkObserved = false
 
   /** True once the collector is registered as a document-start BiDi preload.
    *  Every document then instruments itself before any of its own script runs,
@@ -215,11 +219,9 @@ export class SessionCapturer extends SessionCapturerBase {
       return
     }
     try {
-      // Injecting over a live collector replaces `window.wdioTraceCollector`
-      // with a fresh instance and DISCARDS whatever it had buffered — including
-      // the destination's full-DOM anchor. Three call paths can reach the same
-      // document (navigation trace, post-command drain recovery, explicit
-      // re-inject), so the guard lives here rather than in each caller.
+      // Three call paths reach the same document (navigation trace,
+      // post-command drain recovery, explicit re-inject); a bundle that finds
+      // a collector keeps it, so this probe only saves the round trips.
       const present = await exec(
         driver,
         `return ${COLLECTOR_READY_EXPRESSION};`
@@ -228,15 +230,24 @@ export class SessionCapturer extends SessionCapturerBase {
         return
       }
       const scriptContent = await loadInjectableScript()
-      await exec(
+      // The appended script runs synchronously, so this usually answers ready.
+      const injected = await exec(
         driver,
-        "var s=document.createElement('script');s.textContent=arguments[0];document.head.appendChild(s);return true;",
+        `var s=document.createElement('script');s.textContent=arguments[0];document.head.appendChild(s);return ${COLLECTOR_READY_EXPRESSION};`,
         scriptContent
       )
-      const ready = await pollUntilReady(async () => {
-        const r = await exec(driver, `return ${COLLECTOR_READY_EXPRESSION};`)
-        return r === true
-      })
+      const ready =
+        injected === true ||
+        (await pollUntilReady(
+          async () => {
+            const r = await exec(
+              driver,
+              `return ${COLLECTOR_READY_EXPRESSION};`
+            )
+            return r === true
+          },
+          { checkFirst: true }
+        ))
       if (ready) {
         log.info('✓ Script injected and collector ready')
       } else {
@@ -292,9 +303,12 @@ export class SessionCapturer extends SessionCapturerBase {
       log.debug(
         `drain: ${drained.length} mutations (anchor=${forceAnchor} recovered=${recovered})`
       )
+      // Gated on what BiDi has delivered, not on its subscription: Appium's
+      // BiDi shim accepts the subscription and then sends nothing, and there
+      // the page's own streams are the only capture.
       this.processTracePayload(traceData as Record<string, unknown>, {
-        skipConsoleLogs: this.bidiActive,
-        skipNetworkRequests: this.bidiActive
+        skipConsoleLogs: this.bidiConsoleObserved,
+        skipNetworkRequests: this.bidiNetworkObserved
       })
     } catch (err) {
       const msg = errorMessage(err)

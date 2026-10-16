@@ -120,6 +120,7 @@ def network_request(
     size: Optional[int] = None,
     request_headers: Optional[dict] = None,
     response_headers: Optional[dict] = None,
+    error: Optional[str] = None,
 ) -> NetworkRequest:
     entry: NetworkRequest = {
         "id": request_id,
@@ -145,6 +146,8 @@ def network_request(
         entry["requestHeaders"] = request_headers
     if response_headers is not None:
         entry["responseHeaders"] = response_headers
+    if error is not None:
+        entry["error"] = error
     return entry
 
 

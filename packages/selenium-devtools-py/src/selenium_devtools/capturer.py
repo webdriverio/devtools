@@ -178,6 +178,13 @@ class SessionCapturer:
         if mutations:
             self._tx.send_json(SCOPE_MUTATIONS, mutations)
 
+    def send_network_requests(self, requests: List[Any]) -> None:
+        """Forward network entries the injected browser script captured (its
+        patched fetch/XHR calls and the document's Resource Timing), already in
+        the wire shape, so they go as built rather than through `frames`."""
+        if requests:
+            self._tx.send_json(SCOPE_NETWORK_REQUESTS, requests)
+
     # ── suites ───────────────────────────────────────────────────────────────────
 
     def send_suites(self, suites: List[SuiteStats]) -> None:

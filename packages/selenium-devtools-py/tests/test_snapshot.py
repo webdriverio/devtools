@@ -6,8 +6,10 @@ from unittest import mock
 from selenium_devtools import snapshot
 from selenium_devtools.snapshot import (
     SnapshotCapturer,
+    TracePayload,
     load_injectable_script,
     normalize_mutations,
+    normalize_network_requests,
     resolve_script_path,
     start_snapshot_capture,
     wrap_injectable,
@@ -138,25 +140,59 @@ class TestSnapshotCapturerInject(unittest.TestCase):
         self.assertFalse(cap.injected)
 
 
+class TestNormalizeNetworkRequests(unittest.TestCase):
+    def test_extracts_the_dict_rows(self):
+        row = {"id": "rt-1-0", "url": "https://x/", "method": "", "type": "document"}
+        self.assertEqual(normalize_network_requests({"networkRequests": [row]}), [row])
+
+    def test_drops_a_row_that_is_not_a_dict(self):
+        payload = {"networkRequests": [{"id": "a"}, "junk", None]}
+        self.assertEqual(normalize_network_requests(payload), [{"id": "a"}])
+
+    def test_anything_else_is_empty(self):
+        self.assertEqual(normalize_network_requests(None), [])
+        self.assertEqual(normalize_network_requests({"mutations": []}), [])
+        self.assertEqual(normalize_network_requests({"networkRequests": "no"}), [])
+
+
 class TestSnapshotCapturerPull(unittest.TestCase):
     def test_pull_returns_normalized_mutations(self):
         trace = {"mutations": [{"type": "attributes", "target": "9"}]}
         exec_fn = FakeExec(trace)
         cap = SnapshotCapturer(exec_fn)
-        self.assertEqual(cap.pull_mutations(), [{"type": "attributes", "target": "9"}])
+        self.assertEqual(cap.pull_trace().mutations, [{"type": "attributes", "target": "9"}])
         # The read uses the atomic getTraceData expression.
         self.assertIn("getTraceData", exec_fn.calls[0][0])
 
+    def test_pull_trace_carries_both_halves_of_one_drain(self):
+        # One read serves both consumers: `getTraceData()` resets the page-side
+        # buffer, so a second read for the network entries would find nothing.
+        row = {"id": "rt-1-0", "url": "https://x/a.js", "method": "GET", "type": "script"}
+        trace = {"mutations": [{"type": "attributes", "target": "9"}], "networkRequests": [row]}
+        exec_fn = FakeExec(trace)
+        cap = SnapshotCapturer(exec_fn)
+        self.assertEqual(
+            cap.pull_trace(),
+            TracePayload([{"type": "attributes", "target": "9"}], [row]),
+        )
+        self.assertEqual(len(exec_fn.calls), 1)
+
+    def test_pull_trace_is_empty_on_an_unreadable_collector(self):
+        def boom(script, *args):
+            raise RuntimeError("boom")
+
+        self.assertEqual(SnapshotCapturer(boom).pull_trace(), TracePayload([], []))
+
     def test_pull_null_trace_returns_empty(self):
         cap = SnapshotCapturer(FakeExec(None))
-        self.assertEqual(cap.pull_mutations(), [])
+        self.assertEqual(cap.pull_trace().mutations, [])
 
     def test_pull_swallows_execute_errors(self):
         def boom(script, *args):
             raise RuntimeError("boom")
 
         cap = SnapshotCapturer(boom)
-        self.assertEqual(cap.pull_mutations(), [])  # no raise
+        self.assertEqual(cap.pull_trace().mutations, [])  # no raise
 
 
 class FakeCollector:
@@ -208,7 +244,7 @@ class TestTheDrainAnchorsTheDocument(unittest.TestCase):
         collector = FakeCollector()
         cap = SnapshotCapturer(collector)
 
-        mutations = cap.pull_mutations()
+        mutations = cap.pull_trace().mutations
 
         self.assertEqual(len(mutations), 1)
         self.assertEqual(mutations[0]["url"], "https://x/secure")
@@ -220,8 +256,8 @@ class TestTheDrainAnchorsTheDocument(unittest.TestCase):
         collector = FakeCollector()
         cap = SnapshotCapturer(collector)
 
-        first = cap.pull_mutations()
-        second = cap.pull_mutations()
+        first = cap.pull_trace().mutations
+        second = cap.pull_trace().mutations
 
         self.assertEqual(len(first), 1)
         self.assertEqual(second, [])
@@ -242,7 +278,7 @@ class TestTheDrainAnchorsTheDocument(unittest.TestCase):
     def test_an_absent_collector_still_answers_empty(self):
         cap = SnapshotCapturer(FakeCollector(present=False))
 
-        self.assertEqual(cap.pull_mutations(), [])
+        self.assertEqual(cap.pull_trace().mutations, [])
 
     def test_a_recovered_collector_is_anchored_by_the_retry(self):
         # The collector was missing, an injection installed it, and the retry is
@@ -255,7 +291,7 @@ class TestTheDrainAnchorsTheDocument(unittest.TestCase):
             return True
 
         with mock.patch.object(cap, "_install_now", side_effect=install):
-            mutations = cap.pull_mutations()
+            mutations = cap.pull_trace().mutations
 
         self.assertEqual(len(mutations), 1)
         self.assertEqual(collector.anchor_calls, 1)

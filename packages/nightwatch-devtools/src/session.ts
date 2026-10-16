@@ -22,6 +22,9 @@ import { NAVIGATION_COMMANDS } from './constants.js'
 import {
   parseNetworkFromPerfLogs,
   dedupeNetworkRequests,
+  upgradeResourceTimingRows,
+  withoutLoadsTheLogListed,
+  type LoadListedByLog,
   type NetworkEntry,
   type PerfLogEntry
 } from './helpers/perfLogs.js'
@@ -55,6 +58,9 @@ export class SessionCapturer extends SessionCapturerBase {
   // True once BiDi inspectors are attached — the per-command perf-log network
   // capture path skips when set, so we don't double-emit network requests.
   bidiActive = false
+  /** Whether BiDi has delivered at least one network event; a subscription
+   *  that delivers nothing is not a source. */
+  bidiNetworkObserved = false
 
   /** Whether the session was created with `goog:loggingPrefs.performance`, set
    *  from the capabilities at session init. A perf log exists only because a
@@ -64,6 +70,11 @@ export class SessionCapturer extends SessionCapturerBase {
    *  21 of them in a two-test run, where XCUITest lists `performance` among its
    *  supported types and then serves none of it. */
   perfLogsRequested = false
+
+  /** Loads the performance log listed before the page's drain could, spent
+   *  at the next drain that reaches the driver, whatever it finds, and
+   *  emptied with the session that listed them. */
+  loadsListedByLog: LoadListedByLog[] = []
 
   /** True once the collector is registered to run at document-start. Every
    *  document then instruments and anchors itself, so the paths that exist to
@@ -392,10 +403,9 @@ export class SessionCapturer extends SessionCapturerBase {
       return
     }
     try {
-      // Injecting over a live collector replaces `window.wdioTraceCollector`
-      // with a fresh instance and DISCARDS whatever it had buffered — including
-      // the destination's full-DOM anchor. Several paths can reach the same
-      // document (navigation proxy, drain recovery), so guard here once.
+      // Several paths reach the same document (navigation proxy, drain
+      // recovery); a bundle that finds a collector keeps it, so this probe
+      // only saves the injection's round trips.
       const alreadyPresent = await webdriverExecute<boolean>(
         browser,
         `return ${COLLECTOR_READY_EXPRESSION};`
@@ -411,17 +421,21 @@ export class SessionCapturer extends SessionCapturerBase {
         const script = document.createElement('script');
         script.textContent = ${JSON.stringify(scriptContent)};
         document.head.appendChild(script);
-        return true;
+        return ${COLLECTOR_READY_EXPRESSION};
       `
-      await webdriverExecute(browser, injectionScript)
+      // The appended script runs synchronously, so this usually answers ready.
+      const injected = await webdriverExecute<boolean>(browser, injectionScript)
 
-      const hasCollector = await pollUntilReady(
-        async () =>
-          (await webdriverExecute<boolean>(
-            browser,
-            `return ${COLLECTOR_READY_EXPRESSION};`
-          )) === true
-      )
+      const hasCollector =
+        injected === true ||
+        (await pollUntilReady(
+          async () =>
+            (await webdriverExecute<boolean>(
+              browser,
+              `return ${COLLECTOR_READY_EXPRESSION};`
+            )) === true,
+          { checkFirst: true }
+        ))
 
       if (hasCollector) {
         log.info('✓ Script injected and collector ready')
@@ -480,23 +494,8 @@ export class SessionCapturer extends SessionCapturerBase {
       }
 
       const networkEntries = parseNetworkFromPerfLogs(logs)
-      if (networkEntries.length === 0) {
-        return
-      }
-
-      const deduped = dedupeNetworkRequests(
-        networkEntries,
-        this.networkRequests as NetworkEntry[]
-      )
-      if (deduped.length > 0) {
-        // A perf-log entry that never saw its response event carries no type;
-        // default it to the vocabulary's residual at this framework boundary.
-        const normalized = deduped.map((d) => ({
-          ...d,
-          type: d.type ?? 'other'
-        }))
-        this.networkRequests.push(...normalized)
-        this.sendUpstream('networkRequests', normalized)
+      if (networkEntries.length > 0) {
+        this.#ingestPerfLogEntries(networkEntries)
       }
     } catch (err) {
       const msg = errorMessage(err) ?? ''
@@ -504,6 +503,33 @@ export class SessionCapturer extends SessionCapturerBase {
       if (!msg.includes('log type') && !msg.includes('performance')) {
         log.warn(`Performance log capture failed: ${msg}`)
       }
+    }
+  }
+
+  /** A log entry for a load the page already reported replaces that row in
+   *  place, under the row's own id; the rest are appended once. */
+  #ingestPerfLogEntries(entries: NetworkEntry[]): void {
+    const { upgrades, fresh } = upgradeResourceTimingRows(
+      entries,
+      this.networkRequests
+    )
+    for (const { index, request } of upgrades) {
+      this.networkRequests[index] = request
+    }
+    const deduped = dedupeNetworkRequests(
+      fresh,
+      this.networkRequests as NetworkEntry[]
+    )
+    // A perf-log entry that never saw its response event carries no type;
+    // default it to the vocabulary's residual at this framework boundary.
+    const appended = deduped.map((d) => ({ ...d, type: d.type ?? 'other' }))
+    this.networkRequests.push(...appended)
+    this.loadsListedByLog.push(
+      ...appended.map(({ url, timestamp }) => ({ url, timestamp }))
+    )
+    const sent = [...upgrades.map((upgrade) => upgrade.request), ...appended]
+    if (sent.length > 0) {
+      this.sendUpstream('networkRequests', sent)
     }
   }
 
@@ -553,11 +579,25 @@ export class SessionCapturer extends SessionCapturerBase {
         log: (level, message) => log[level](message)
       })
 
+      // Spent whatever the drain found: the page observed a load before the
+      // log listed it, so a row not in this drain is never coming, and a
+      // document with no collector is one it died with.
+      const listedByLog = this.loadsListedByLog
+      this.loadsListedByLog = []
       if (!traceData) {
         return
       }
 
-      this.processTracePayload(traceData, { anchorTimestamp })
+      // Gated on delivered BiDi events, never on a subscription (Appium's shim
+      // accepts one and sends nothing) nor on the performance log, which is
+      // read after this drain and upgrades the page's rows in place instead.
+      this.processTracePayload(
+        withoutLoadsTheLogListed(traceData, listedByLog),
+        {
+          anchorTimestamp,
+          skipResourceTimingRequests: this.bidiNetworkObserved
+        }
+      )
       const mutationCount = Array.isArray(
         (traceData as { mutations?: unknown }).mutations
       )

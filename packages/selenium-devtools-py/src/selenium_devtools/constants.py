@@ -195,6 +195,7 @@ BIDI_CAPABILITY = "webSocketUrl"
 # would stall the user's page loads if a callback failed to continue them).
 BIDI_NET_BEFORE_REQUEST = "network.beforeRequestSent"
 BIDI_NET_RESPONSE_COMPLETED = "network.responseCompleted"
+BIDI_NET_FETCH_ERROR = "network.fetchError"
 # The adapter targets the regenerated BiDi layer, which selenium 4.44 shipped —
 # it is what ``Network.add_event_handler`` and ``EVENT_CONFIGS`` arrived in, and
 # the pre-4.44 internals network capture used instead were removed in the same

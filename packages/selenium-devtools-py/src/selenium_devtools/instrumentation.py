@@ -24,7 +24,7 @@ from .assert_tracer import ScriptAssertionTracer
 from .capturer import SessionCapturer
 from .cdp_screencast import start_push_screencast
 from .collector_source import reset_cache as reset_collector_cache
-from .device import driver_is_native_app
+from .device import driver_is_native_app, restore_browser_focus
 from .element_scripts import reset_cache as reset_element_scripts_cache
 from .constants import (
     BIDI_CAPABILITY,
@@ -499,27 +499,35 @@ def _refresh_snapshot(capturer: SessionCapturer, entry: dict) -> None:
         snapshot.inject()  # no-op if already present; re-installs after navigation
     except Exception as exc:  # noqa: BLE001 — never break the test
         _log.warning("snapshot re-inject threw: %s", exc)
-    _flush_mutations(capturer, entry)
+    _flush_page_collector(capturer, entry)
 
 
-def _flush_mutations(capturer: SessionCapturer, entry: dict) -> None:
-    """Drain the page-side mutation buffer and forward it — no-op if the
-    collector was never injected. Defensive: never breaks the user's test."""
+def _flush_page_collector(capturer: SessionCapturer, entry: dict) -> None:
+    """Drain the page-side buffer and forward it; a no-op if the collector was
+    never injected, and never breaks the user's test. The network half goes
+    only while BiDi is not serving the session: BiDi lists every request with
+    its headers, and the page's view of the same requests would list each
+    twice (as the selenium-devtools adapter also withholds it). Serving means
+    delivering, not subscribed: Appium's shim accepts the subscription and
+    sends nothing, and there, as on Safari, the page's view is the only
+    network capture there is."""
     snapshot: SnapshotCapturer | None = entry.get("snapshot")
     if snapshot is None:
         return
     try:
-        mutations = snapshot.pull_mutations()
+        payload = snapshot.pull_trace()
     except Exception as exc:  # noqa: BLE001 — capture must never break the test
         _log.warning("mutation flush threw: %s", exc)
         return
-    if mutations:
-        capturer.send_mutations(mutations)
+    if payload.mutations:
+        capturer.send_mutations(payload.mutations)
         # Debug, not info: this fires after every command. It is the only signal
         # that DOM replay is actually receiving anything — the panel being empty
         # otherwise looks the same whether the collector never loaded or the
         # page simply did not change.
-        _log.debug("captured %d DOM mutation(s)", len(mutations))
+        _log.debug("captured %d DOM mutation(s)", len(payload.mutations))
+    if payload.network_requests and not bidi.network_serving(entry.get("network")):
+        capturer.send_network_requests(payload.network_requests)
 
 
 def _enable_bidi_capability(params: Any) -> None:
@@ -548,7 +556,7 @@ def _close_entry(capturer: SessionCapturer, entry: dict) -> None:
     # Before the encode: a frame still arriving would land after the buffer was
     # read, and the browser keeps sending until it is told to stop.
     _stop_push_screencast(entry)
-    _flush_mutations(capturer, entry)
+    _flush_page_collector(capturer, entry)
     entry["snapshot"] = None
     _finalize_screencast(capturer, entry["session_id"], entry)
     summary = bidi.network_summary(entry.get("network"))
@@ -702,6 +710,10 @@ def _ensure_session_setup(driver: Any, capturer: SessionCapturer) -> Optional[di
         session_id, getattr(driver, "caps", None), None, viewport=_viewport(driver)
     )
     _log.info("session %s started", session_id)
+    if not _state["trace"] and restore_browser_focus(
+        getattr(driver, "caps", None), host=_executor_host(driver)
+    ):
+        _log.info("Safari brought back to the front (it delivers clicks only there)")
     _send_default_suite(capturer, "running")  # tree entry for plain-script runs
     try:
         # Filled in as events arrive; reported once by _on_quit, because the
@@ -1016,6 +1028,20 @@ def install(
         trace=trace, filmstrip=filmstrip, filmstrip_frames=[],
         a11y=a11y, element_scripts=None, action_snapshots=[],
     )
+
+
+def _executor_host(driver: Any) -> Optional[str]:
+    """The WebDriver endpoint's host, or None when it cannot be read."""
+    try:
+        from urllib.parse import urlparse
+
+        executor = getattr(driver, "command_executor", None)
+        url = getattr(executor, "_url", None) or getattr(
+            getattr(executor, "_client_config", None), "remote_server_addr", None
+        )
+        return urlparse(str(url)).hostname if url else None
+    except Exception:  # noqa: BLE001 - unknown means "assume this machine"
+        return None
 
 
 def uninstall() -> None:

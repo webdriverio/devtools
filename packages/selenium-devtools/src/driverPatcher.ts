@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { createRequire } from 'node:module'
 import logger from '@wdio/logger'
 import {
@@ -9,7 +10,8 @@ import {
   ELEMENT_LOCATOR_METHODS,
   INTERNAL_DRIVER_METHODS,
   PATCHED_SYMBOL,
-  TRACKED_ELEMENT_METHODS
+  TRACKED_ELEMENT_METHODS,
+  NAVIGATION_COMMANDS
 } from './constants.js'
 import {
   rememberElementLocator,
@@ -128,6 +130,51 @@ function emitCommand(hooks: DriverPatcherHooks, cmd: CapturedCommand): void {
   }
 }
 
+/** Set while a `driver.wait()` evaluates its condition: the polls it issues. */
+const waitPoll = new AsyncLocalStorage<true>()
+
+/** Runs a wait's condition inside `waitPoll`, so only its own polls are marked. */
+function trackWaits(proto: Patchable): void {
+  const original = proto.wait
+  if (typeof original !== 'function' || proto[WAIT_TRACKED_SYMBOL]) {
+    return
+  }
+  proto[WAIT_TRACKED_SYMBOL] = true
+  proto.wait = function (
+    this: unknown,
+    condition: unknown,
+    ...rest: unknown[]
+  ) {
+    return (original as (...a: unknown[]) => unknown).apply(this, [
+      asWaitPoll(condition),
+      ...rest
+    ])
+  }
+}
+
+/** A function condition, or a selenium `Condition` (its `fn`); a promise as is. */
+function asWaitPoll(condition: unknown): unknown {
+  const inPoll =
+    (fn: (...a: unknown[]) => unknown) =>
+    (...a: unknown[]) =>
+      waitPoll.run(true, () => fn(...a))
+  if (typeof condition === 'function') {
+    return inPoll(condition as (...a: unknown[]) => unknown)
+  }
+  const fn = (condition as { fn?: unknown } | null)?.fn
+  if (typeof fn === 'function') {
+    return Object.assign(Object.create(condition as object), {
+      fn: inPoll(fn as (...a: unknown[]) => unknown)
+    })
+  }
+  return condition
+}
+
+const WAIT_TRACKED_SYMBOL = Symbol.for('@wdio/selenium-devtools/wait-tracked')
+
+/** Element commands that dispatch input to the page. */
+const INPUT_ELEMENT_METHODS = new Set(['click', 'sendKeys', 'clear', 'submit'])
+
 /** Reports the command once it settles — see `CapturedCommand.timestamp` for why
  *  the row is stamped at completion rather than at invocation. */
 function makeSettle(
@@ -177,6 +224,7 @@ function makeWrappedMethod(
         command: methodName,
         args: args.map(safeSerialize),
         callSource: getCallSourceFromStack().callSource,
+        duringWait: waitPoll.getStore() === true,
         startTime,
         fromElement,
         // `this` is the only trace of which element the command targets — the
@@ -188,7 +236,15 @@ function makeWrappedMethod(
 
     let result: unknown
     try {
-      result = original.apply(this, args)
+      const { beforeInput } = hooks
+      result =
+        fromElement && beforeInput && INPUT_ELEMENT_METHODS.has(methodName)
+          ? beforeInput()
+              .catch((err: unknown) =>
+                log.warn(`beforeInput hook threw: ${errorMessage(err)}`)
+              )
+              .then(() => original.apply(this, args))
+          : original.apply(this, args)
     } catch (err) {
       settle(undefined, err as Error)
       throw err
@@ -213,11 +269,43 @@ function makeWrappedMethod(
         },
         (err: unknown) => settle(undefined, err as Error)
       )
-      return result
+      return gateNavigation(result, methodName, fromElement, hooks)
     }
     settle(result, undefined)
     return result
   }
+}
+
+/** A navigation resolves to the test only once the destination is
+ *  instrumented. Without the document-start preload the collector is appended
+ *  after the navigation, and left to race the test's next command it lost the
+ *  keystrokes typed before it landed. A navigation resolves to a plain
+ *  Promise, so the derived one breaks no chaining; the row keeps its own
+ *  completion time. */
+function gateNavigation(
+  result: unknown,
+  methodName: string,
+  fromElement: boolean,
+  hooks: DriverPatcherHooks
+): unknown {
+  const { afterNavigation } = hooks
+  if (
+    fromElement ||
+    !afterNavigation ||
+    !(NAVIGATION_COMMANDS as readonly string[]).includes(methodName)
+  ) {
+    return result
+  }
+  return (result as Promise<unknown>).then(async (value) => {
+    try {
+      await afterNavigation(methodName)
+    } catch (err) {
+      log.warn(
+        `afterNavigation hook threw for ${methodName}: ${errorMessage(err)}`
+      )
+    }
+    return value
+  })
 }
 
 function wrapPrototype(
@@ -283,6 +371,11 @@ function stashDriverOriginals(driverProto: Patchable): void {
   if (typeof title === 'function') {
     const orig = title as (this: unknown) => unknown
     originals.getTitle = (driver) => orig.call(driver) as Promise<string>
+  }
+  const handle = driverProto.getWindowHandle
+  if (typeof handle === 'function') {
+    const orig = handle as (this: unknown) => unknown
+    originals.getWindowHandle = (driver) => orig.call(driver) as Promise<string>
   }
 }
 
@@ -438,6 +531,7 @@ export function patchSelenium(hooks: DriverPatcherHooks): boolean {
 
   // Stash unwrapped originals before any patching.
   stashDriverOriginals(WebDriver.prototype as Patchable)
+  trackWaits(WebDriver.prototype as Patchable)
 
   const tracked = collectMethodNames(WebDriver.prototype).filter(
     (m) => !(INTERNAL_DRIVER_METHODS as readonly string[]).includes(m)

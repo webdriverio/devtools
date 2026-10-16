@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any, Callable, List, Optional
+from typing import Any, Callable, Dict, List, NamedTuple, Optional
 
 from .collector_source import fetch_collector_source
 from .constants import LOGGER_NAME
@@ -176,6 +176,31 @@ def normalize_mutations(trace_data: Any) -> List[Any]:
     return mutations if isinstance(mutations, list) else []
 
 
+def normalize_network_requests(trace_data: Any) -> List[Dict[str, Any]]:
+    """Extract the ``networkRequests`` list from a ``getTraceData()`` payload.
+
+    The collector's patched ``fetch``/``XMLHttpRequest`` calls plus the
+    document's own Resource Timing entries: every network source a session
+    without BiDi has, which is every Safari and every Appium session. Entries
+    are forwarded as the collector built them (the same shape the JS adapters
+    send), so only the list and its dict rows are checked here.
+    """
+    if not isinstance(trace_data, dict):
+        return []
+    requests = trace_data.get("networkRequests")
+    if not isinstance(requests, list):
+        return []
+    return [entry for entry in requests if isinstance(entry, dict)]
+
+
+class TracePayload(NamedTuple):
+    """One drain of the page-side collector, split into what each consumer
+    forwards."""
+
+    mutations: List[Any]
+    network_requests: List[Dict[str, Any]]
+
+
 class SnapshotCapturer:
     """Injects the page-side collector and pulls buffered DOM mutations.
 
@@ -214,7 +239,7 @@ class SnapshotCapturer:
         no-ops. A no-op when a document-start preload is registered: the
         collector is present in every document before any of its script runs,
         which is the whole point of the preload. A document where the preload
-        nonetheless did not take is recovered by `pull_mutations`, whose own null
+        nonetheless did not take is recovered by `pull_trace`, whose own null
         is the only signal that says so."""
         if self._preloaded:
             return True
@@ -258,10 +283,10 @@ class SnapshotCapturer:
                 _warn(f"trace read failed: {exc}")
             return _UNREADABLE
 
-    def pull_mutations(self) -> List[Any]:
-        """Anchor the current document and drain the buffered mutations
-        (``getTraceData()`` resets the page-side buffer). Returns [] on any
-        failure or when nothing's buffered.
+    def pull_trace(self) -> TracePayload:
+        """Anchor the current document and drain the buffered trace payload
+        (``getTraceData()`` resets the page-side buffer). Returns empty lists
+        on any failure or when nothing's buffered.
 
         A null payload means the collector is not in THIS document, and that is
         the only signal which says so — a preload can still miss one (its script
@@ -276,12 +301,14 @@ class SnapshotCapturer:
         would never be anchored at all."""
         data = self._drain()
         if data is _UNREADABLE:
-            return []
+            return TracePayload([], [])
         if data is None and self._install_now():
             data = self._drain()
             if data is _UNREADABLE:
-                return []
-        return normalize_mutations(data)
+                return TracePayload([], [])
+        return TracePayload(
+            normalize_mutations(data), normalize_network_requests(data)
+        )
 
 
 def start_snapshot_capture(

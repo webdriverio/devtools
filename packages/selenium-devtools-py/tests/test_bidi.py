@@ -213,6 +213,29 @@ class TestNetworkMapping(unittest.TestCase):
         self.assertEqual(resp["time"], 250)  # from timings, not timestamp delta
         self.assertEqual(resp["end_time"], 1000 + 250)
 
+    def test_fetch_error_closes_the_pending_request_as_failed(self):
+        pending = {}
+        req = bidi.request_sent_kwargs(
+            {"request": {"request": "req-4", "url": "https://x/beacon",
+                         "method": "POST"}, "timestamp": 1000}
+        )
+        pending[req["request_id"]] = req
+        failed = bidi.fetch_error_kwargs(
+            {"request": {"request": "req-4"}, "timestamp": 1250,
+             "errorText": "net::ERR_BLOCKED_BY_CLIENT"},
+            pending,
+        )
+        self.assertEqual(failed["status"], 0)
+        self.assertEqual(failed["error"], "net::ERR_BLOCKED_BY_CLIENT")
+        self.assertEqual(failed["status_text"], "net::ERR_BLOCKED_BY_CLIENT")
+        self.assertEqual(failed["time"], 250)
+        self.assertEqual(failed["url"], "https://x/beacon")
+
+    def test_fetch_error_none_when_unmatched(self):
+        self.assertIsNone(
+            bidi.fetch_error_kwargs({"request": {"request": "ghost"}}, {})
+        )
+
     def test_response_completed_none_when_unmatched(self):
         self.assertIsNone(
             bidi.response_completed_kwargs({"request": {"request": "ghost"}}, {})
@@ -258,6 +281,18 @@ class TestAttachDefensive(unittest.TestCase):
             caps = {"browserName": "chrome"}  # no webSocketUrl
         self.assertFalse(bidi.attach(Driver(), self._capturer()))
 
+    def test_attach_skips_a_capability_that_is_not_a_socket_address(self):
+        # safaridriver echoes the requested `True` back instead of a ws:// URL;
+        # selenium's connection thread crashes on it, so it is not BiDi.
+        class Driver:
+            caps = {"browserName": "Safari", "webSocketUrl": True}
+
+            @property
+            def script(self):
+                raise AssertionError("must not be touched")
+
+        self.assertFalse(bidi.attach(Driver(), self._capturer()))
+
     def test_attach_survives_channel_errors(self):
         class Driver:
             caps = {"webSocketUrl": "ws://x"}
@@ -272,6 +307,34 @@ class TestAttachDefensive(unittest.TestCase):
 
         # Both channels raise; attach returns False without propagating.
         self.assertFalse(bidi.attach(Driver(), self._capturer()))
+
+    def test_a_failed_network_attach_is_recorded_as_not_attached(self):
+        # The drain reads this to decide whether the page's own network
+        # entries are the session's capture or a duplicate of BiDi's.
+        class Driver:
+            caps = {"webSocketUrl": "ws://x"}
+
+            @property
+            def script(self):
+                raise RuntimeError("no bidi here")
+
+            @property
+            def network(self):
+                raise RuntimeError("no bidi here")
+
+        stats = {}
+        bidi.attach(Driver(), self._capturer(), stats)
+        self.assertFalse(bidi.network_serving(stats))
+
+    def test_network_serving_needs_a_subscription_that_delivered(self):
+        # Appium's BiDi shim accepts the subscription and then sends nothing,
+        # so "attached" alone would withhold the only network capture there is.
+        self.assertFalse(bidi.network_serving(None))
+        self.assertFalse(bidi.network_serving({}))
+        self.assertFalse(bidi.network_serving({"attached": False}))
+        self.assertFalse(bidi.network_serving({"attached": True}))
+        self.assertFalse(bidi.network_serving({"attached": False, "observed": True}))
+        self.assertTrue(bidi.network_serving({"attached": True, "observed": True}))
 
     def test_console_handler_pushes_to_capturer(self):
         """End-to-end: a fake script channel drives capture_console."""
@@ -544,6 +607,95 @@ class TestTheEventManagerPath(unittest.TestCase):
         self.assertEqual(frames[0]["url"], "https://x/a.js")
         self.assertEqual(frames[1]["status"], 200)  # correlated with the request
 
+    def test_a_request_the_browser_gave_up_on_is_closed_as_failed(self):
+        """A blocked beacon never completes; without fetchError it sat in the
+        Network tab as pending for the rest of the session."""
+        module = fake_network_module()
+        network = module.Network()
+        capturer = SessionCapturer(RecordingTransport())
+        stats = {}
+
+        with mock.patch.dict(
+            sys.modules, {"selenium.webdriver.common.bidi.network": module}
+        ):
+            bidi._attach_network(NewSeleniumDriver(network, []), capturer, stats)
+
+        self._dispatch(network, "network.beforeRequestSent", {
+            "request": {"request": "R9", "url": "https://x/beacon", "method": "POST"},
+            "timestamp": 1000,
+        })
+        self._dispatch(network, "network.fetchError", {
+            "request": {"request": "R9"}, "timestamp": 1100,
+            "errorText": "net::ERR_BLOCKED_BY_CLIENT",
+        })
+
+        frames = [
+            batch[0] for scope, batch in capturer._tx.sent
+            if scope == "networkRequests"
+        ]
+        self.assertEqual(len(frames), 2)
+        self.assertEqual(frames[1]["status"], 0)
+        self.assertEqual(frames[1]["error"], "net::ERR_BLOCKED_BY_CLIENT")
+        self.assertEqual(stats["pending"], {})
+
+    def test_a_refused_fetch_error_subscription_keeps_the_pair(self):
+        """Older endpoints know the pair and not the failure event; losing
+        every network row over the one it lacks would be the worse trade."""
+        module = fake_network_module()
+        network = module.Network()
+        capturer = SessionCapturer(RecordingTransport())
+        manager = network._event_manager
+        real_subscribe = manager.subscribe_to_event
+
+        def failing_subscribe(bidi_event, contexts=None):
+            if bidi_event == "network.fetchError":
+                raise RuntimeError("unknown event")
+            return real_subscribe(bidi_event, contexts)
+
+        manager.subscribe_to_event = failing_subscribe
+
+        with mock.patch.dict(
+            sys.modules, {"selenium.webdriver.common.bidi.network": module}
+        ):
+            with self.assertLogs("selenium_devtools.bidi", level="WARNING") as logs:
+                attached = bidi._attach_network(
+                    NewSeleniumDriver(network, []), capturer
+                )
+
+        self.assertTrue(attached)
+        self.assertEqual(
+            sorted(manager.subscribed),
+            ["network.beforeRequestSent", "network.responseCompleted"],
+        )
+        self.assertTrue(any("fetchError" in line for line in logs.output))
+        self._dispatch(network, "network.beforeRequestSent", {
+            "request": {"request": "R1", "url": "https://x/a", "method": "GET"},
+            "timestamp": 1000,
+        })
+        self.assertEqual(
+            len([b for s, b in capturer._tx.sent if s == "networkRequests"]), 1
+        )
+
+    def test_a_subscription_serves_the_session_once_a_request_arrives(self):
+        module = fake_network_module()
+        network = module.Network()
+        stats = {}
+
+        with mock.patch.dict(
+            sys.modules, {"selenium.webdriver.common.bidi.network": module}
+        ):
+            bidi._attach_network(
+                NewSeleniumDriver(network, []), SessionCapturer(RecordingTransport()), stats
+            )
+
+        # Subscribed, nothing delivered yet: the page's rows are still the capture.
+        self.assertFalse(bidi.network_serving(stats))
+        self._dispatch(network, "network.beforeRequestSent", {
+            "request": {"request": "R1", "url": "https://x/a.js", "method": "GET"},
+            "timestamp": 1000,
+        })
+        self.assertTrue(bidi.network_serving(stats))
+
     def test_both_events_are_subscribed_and_counted(self):
         # Registering on the connection directly bypasses selenium's own
         # bookkeeping, so the subscribe and the callback count are done
@@ -560,14 +712,13 @@ class TestTheEventManagerPath(unittest.TestCase):
             )
 
         manager = network._event_manager
-        self.assertEqual(
-            sorted(manager.subscribed),
-            ["network.beforeRequestSent", "network.responseCompleted"],
-        )
-        self.assertEqual(
-            sorted(event for event, _ in manager.tracked),
-            ["network.beforeRequestSent", "network.responseCompleted"],
-        )
+        expected = [
+            "network.beforeRequestSent",
+            "network.fetchError",
+            "network.responseCompleted",
+        ]
+        self.assertEqual(sorted(manager.subscribed), expected)
+        self.assertEqual(sorted(event for event, _ in manager.tracked), expected)
 
     def test_nothing_another_subscriber_reads_is_written(self):
         """The adapter's deserializer must never be visible to anyone else.
