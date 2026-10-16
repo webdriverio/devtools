@@ -487,6 +487,8 @@ Same script and post-processing (`applyPerformanceData`) used by `@wdio/devtools
 
 ## Limitations
 
+- **Safari in live mode must stay the frontmost window.** Safari delivers synthesized mouse input only to its frontmost window and still reports the click as successful, so a click issued while the dashboard or any other window is in front reaches nothing. The plugin brings Safari back to the front after the session starts (`open -a Safari`, macOS only); clicking the dashboard while the test is running hands focus away again and the clicks that follow are lost until Safari is in front once more. Trace mode opens no window and is not affected.
+
 | Limitation | Detail |
 |-----------|--------|
 | Cucumber leaf-step rerun | Cucumber's `--name` filter targets scenarios, not individual Gherkin steps. The dashboard's per-step rerun is disabled under Cucumber. |
