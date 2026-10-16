@@ -590,3 +590,83 @@ describe('attachBidiHandlers — graceful degradation', () => {
     expect(noticed).toBe(true)
   })
 })
+
+describe('attachNetworkInspector with an inspector that has a fetchError hook', () => {
+  const requestEventFor = (id: string) => ({
+    request: { request: id, url: `https://x/${id}`, method: 'GET' },
+    timestamp: 1,
+    initiator: { type: 'other' }
+  })
+
+  it('subscribes through the hook and reads nothing off the socket', async () => {
+    const { sinks, replacements } = makeSinks()
+    const callbacks: Record<string, (e: unknown) => void> = {}
+    const subscribed: string[] = []
+    const inspector = {
+      beforeRequestSent: async (cb: (e: unknown) => void) => {
+        callbacks.request = cb
+      },
+      responseCompleted: async (cb: (e: unknown) => void) => {
+        callbacks.response = cb
+      },
+      fetchError: async (cb: (e: unknown) => void) => {
+        callbacks.failure = cb
+      },
+      bidi: {
+        subscribe: async (events: string | string[]) => {
+          subscribed.push(...(Array.isArray(events) ? events : [events]))
+        },
+        socket: { on: () => {} }
+      }
+    }
+    await attachNetworkInspector({}, async () => inspector, sinks, silentLog)
+    expect(subscribed).toEqual([])
+    callbacks.request(requestEventFor('R1'))
+    // selenium-webdriver hands every network event to every hook's callback.
+    callbacks.failure(requestEventFor('R1'))
+    expect(replacements).toEqual([])
+    callbacks.failure({
+      request: { request: 'R1' },
+      timestamp: 2,
+      errorText: 'net::ERR_FAILED'
+    })
+    expect(replacements).toHaveLength(1)
+    expect(replacements[0].entry).toMatchObject({
+      status: 0,
+      error: 'net::ERR_FAILED'
+    })
+  })
+
+  it('keeps a row still open when the session outgrows the tracked set', () => {
+    const { sinks, replacements } = makeSinks()
+    const rows = new Map<string, NetworkRequest>()
+    handleBidiRequestSent(requestEventFor('open'), rows, sinks, silentLog)
+    for (let i = 0; i < 5000; i++) {
+      const id = `done-${i}`
+      handleBidiRequestSent(requestEventFor(id), rows, sinks, silentLog)
+      handleBidiResponseCompleted(
+        {
+          request: { request: id },
+          timestamp: 2,
+          response: { status: 200, headers: [] }
+        },
+        rows,
+        sinks,
+        silentLog
+      )
+    }
+    expect(rows.size).toBe(5000)
+    expect(rows.has('open')).toBe(true)
+    handleBidiFetchError(
+      {
+        request: { request: 'open' },
+        timestamp: 3,
+        errorText: 'net::ERR_ABORTED'
+      },
+      rows,
+      sinks,
+      silentLog
+    )
+    expect(replacements.at(-1)?.entry).toMatchObject({ id: 'open', status: 0 })
+  })
+})

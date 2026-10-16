@@ -57,8 +57,8 @@ interface LogInspector {
 interface NetworkInspector {
   beforeRequestSent: (cb: (e: unknown) => void) => Promise<void>
   responseCompleted: (cb: (e: unknown) => void) => Promise<void>
-  /** The BiDi connection the inspector subscribed on; it offers no hook for
-   *  the events it does not model, so those are read off the socket. */
+  fetchError?: (cb: (e: unknown) => void) => Promise<void>
+  /** The connection the inspector subscribed on, for one without the hook. */
   bidi?: {
     subscribe: (events: string | string[]) => Promise<unknown>
     socket?: {
@@ -206,12 +206,17 @@ function remember(
   entry: NetworkRequest
 ): void {
   rows.set(id, entry)
-  if (rows.size > MAX_TRACKED_REQUESTS) {
-    const oldest = rows.keys().next().value
-    if (oldest !== undefined) {
-      rows.delete(oldest)
+  if (rows.size <= MAX_TRACKED_REQUESTS) {
+    return
+  }
+  // A row still open keeps its place: its answer has somewhere to land.
+  for (const [key, row] of rows) {
+    if (row.status !== undefined) {
+      rows.delete(key)
+      return
     }
   }
+  rows.delete(rows.keys().next().value as string)
 }
 
 export function handleBidiRequestSent(
@@ -309,7 +314,9 @@ export function handleBidiFetchError(
   try {
     const requestId = String(event?.request?.request ?? event?.id ?? '')
     const previous = rows.get(requestId)
-    if (!previous) {
+    // The inspector delivers every network event here too; only a failure
+    // carries `errorText`.
+    if (!previous || typeof event?.errorText !== 'string') {
       return
     }
     const { endTime, time } = bidiResponseTiming(
@@ -333,14 +340,18 @@ export function handleBidiFetchError(
   }
 }
 
-/** The inspector models requests and responses only; a failed fetch is read
- *  off the socket it subscribed on, or the row would stay pending forever. */
+/** A failed fetch closes its row, or it would stay pending forever: through
+ *  the inspector's own hook, or off the socket for an inspector without one. */
 async function subscribeFetchErrors(
   inspector: NetworkInspector,
   rows: Map<string, NetworkRequest>,
   sinks: BidiHandlerSinks,
   log: BidiLogger
 ): Promise<void> {
+  if (typeof inspector.fetchError === 'function') {
+    await inspector.fetchError((e) => handleBidiFetchError(e, rows, sinks, log))
+    return
+  }
   const bidi = inspector.bidi
   if (typeof bidi?.subscribe !== 'function' || !bidi.socket?.on) {
     return
