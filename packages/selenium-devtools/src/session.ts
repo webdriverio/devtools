@@ -230,15 +230,24 @@ export class SessionCapturer extends SessionCapturerBase {
         return
       }
       const scriptContent = await loadInjectableScript()
-      await exec(
+      // The appended script runs synchronously, so this usually answers ready.
+      const injected = await exec(
         driver,
-        "var s=document.createElement('script');s.textContent=arguments[0];document.head.appendChild(s);return true;",
+        `var s=document.createElement('script');s.textContent=arguments[0];document.head.appendChild(s);return ${COLLECTOR_READY_EXPRESSION};`,
         scriptContent
       )
-      const ready = await pollUntilReady(async () => {
-        const r = await exec(driver, `return ${COLLECTOR_READY_EXPRESSION};`)
-        return r === true
-      })
+      const ready =
+        injected === true ||
+        (await pollUntilReady(
+          async () => {
+            const r = await exec(
+              driver,
+              `return ${COLLECTOR_READY_EXPRESSION};`
+            )
+            return r === true
+          },
+          { checkFirst: true }
+        ))
       if (ready) {
         log.info('✓ Script injected and collector ready')
       } else {

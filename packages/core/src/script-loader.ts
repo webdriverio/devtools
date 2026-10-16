@@ -155,10 +155,14 @@ export async function drainCollectorWithRecovery<T>(opts: {
  */
 export async function pollUntilReady(
   check: () => Promise<boolean>,
-  opts: { attempts?: number; intervalMs?: number } = {}
+  opts: { attempts?: number; intervalMs?: number; checkFirst?: boolean } = {}
 ): Promise<boolean> {
   const attempts = opts.attempts ?? 5
   const intervalMs = opts.intervalMs ?? 200
+  // An appended script runs synchronously; sleeping first cost each navigation 200 ms.
+  if (opts.checkFirst && (await check())) {
+    return true
+  }
   for (let i = 0; i < attempts; i++) {
     await new Promise((resolve) => setTimeout(resolve, intervalMs))
     if (await check()) {

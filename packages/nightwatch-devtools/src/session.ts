@@ -421,17 +421,21 @@ export class SessionCapturer extends SessionCapturerBase {
         const script = document.createElement('script');
         script.textContent = ${JSON.stringify(scriptContent)};
         document.head.appendChild(script);
-        return true;
+        return ${COLLECTOR_READY_EXPRESSION};
       `
-      await webdriverExecute(browser, injectionScript)
+      // The appended script runs synchronously, so this usually answers ready.
+      const injected = await webdriverExecute<boolean>(browser, injectionScript)
 
-      const hasCollector = await pollUntilReady(
-        async () =>
-          (await webdriverExecute<boolean>(
-            browser,
-            `return ${COLLECTOR_READY_EXPRESSION};`
-          )) === true
-      )
+      const hasCollector =
+        injected === true ||
+        (await pollUntilReady(
+          async () =>
+            (await webdriverExecute<boolean>(
+              browser,
+              `return ${COLLECTOR_READY_EXPRESSION};`
+            )) === true,
+          { checkFirst: true }
+        ))
 
       if (hasCollector) {
         log.info('✓ Script injected and collector ready')
