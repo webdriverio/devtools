@@ -2,6 +2,8 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { createRequire } from 'node:module'
 
+import { isBrowserInternalUrl, schemeOf } from '@wdio/devtools-shared'
+
 import { errorMessage } from './error.js'
 
 const require = createRequire(import.meta.url)
@@ -84,23 +86,11 @@ export async function loadInjectableScript(): Promise<string> {
   return `(async function() { ${await loadCollectorSource()} })()`
 }
 
-/** Schemes that carry no test-relevant DOM — the browser's own start page,
- *  inline documents, and driver error pages. */
-const NON_INSTRUMENTABLE_SCHEMES = [
-  'about:',
-  'data:',
-  'chrome:',
-  'chrome-error:',
-  'edge:',
-  'moz-extension:',
-  'chrome-extension:'
-]
-
+/** The browser's own pages and inline documents carry no test-relevant DOM. */
 function isInstrumentableDocument(url: string | undefined): boolean {
-  if (!url) {
-    return false
-  }
-  return !NON_INSTRUMENTABLE_SCHEMES.some((scheme) => url.startsWith(scheme))
+  return (
+    Boolean(url) && !isBrowserInternalUrl(url!) && schemeOf(url!) !== 'data'
+  )
 }
 
 /**
