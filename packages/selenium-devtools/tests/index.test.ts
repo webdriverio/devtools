@@ -514,6 +514,91 @@ describe('driverPatcher', () => {
     }
   })
 
+  // Without the document-start preload the collector is appended after a
+  // navigation; left to race the test's next command it lost the keystrokes
+  // typed before it landed, so the navigation waits for it.
+  it('resolves a navigation to the test only once afterNavigation has run', async () => {
+    const realGet = stash.driverFns.get
+    ;(driverProto as any).get = function () {
+      return Promise.resolve('navigated')
+    }
+    stash.driverFns.get = (driverProto as any).get
+    const chained = Promise.resolve('handle')
+    ;(driverProto as any).testChained = function () {
+      return chained
+    }
+    stash.driverFns.testChained = (driverProto as any).testChained
+    try {
+      let release!: () => void
+      const gate = new Promise<void>((r) => {
+        release = r
+      })
+      const afterNavigation = vi.fn(() => gate)
+      patchSelenium({
+        onDriverCreated: vi.fn(),
+        onCommand: vi.fn(),
+        afterNavigation
+      })
+      const fakeDriver = Object.create(driverProto)
+
+      let resolved = false
+      const navigation = (fakeDriver as any)
+        .get('https://x/')
+        .then((v: unknown) => {
+          resolved = true
+          return v
+        })
+      await new Promise((r) => setImmediate(r))
+      expect(afterNavigation).toHaveBeenCalledWith('get')
+      expect(resolved).toBe(false)
+      release()
+      expect(await navigation).toBe('navigated')
+
+      // Anything else hands back the original thenable, which chaining relies on.
+      expect((fakeDriver as any).testChained()).toBe(chained)
+    } finally {
+      ;(driverProto as any).get = realGet
+      stash.driverFns.get = realGet
+      delete (driverProto as any).testChained
+      delete stash.driverFns.testChained
+    }
+  })
+
+  it('awaits beforeInput before an element input command reaches the driver', async () => {
+    const order: string[] = []
+    const realClick = stash.elementFns.click
+    const realGetText = stash.elementFns.getText
+    ;(elementProto as any).click = function () {
+      order.push('click')
+      return Promise.resolve()
+    }
+    ;(elementProto as any).getText = function () {
+      order.push('getText')
+      return Promise.resolve('t')
+    }
+    stash.elementFns.click = (elementProto as any).click
+    stash.elementFns.getText = (elementProto as any).getText
+    try {
+      const beforeInput = vi.fn(async () => {
+        order.push('focus')
+      })
+      patchSelenium({
+        onDriverCreated: vi.fn(),
+        onCommand: vi.fn(),
+        beforeInput
+      })
+      const el = Object.create(elementProto as object) as any
+      await el.click()
+      await el.getText()
+      expect(order).toEqual(['focus', 'click', 'getText'])
+    } finally {
+      ;(elementProto as any).click = realClick
+      ;(elementProto as any).getText = realGetText
+      stash.elementFns.click = realClick
+      stash.elementFns.getText = realGetText
+    }
+  })
+
   it('captures sync, async, and throwing wrapper invocations through onCommand', async () => {
     const onCommand = vi.fn<(cmd: CapturedCommand) => void>()
     ;(driverProto as any).testSync = function (n: number) {

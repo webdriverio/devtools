@@ -115,6 +115,11 @@ export interface DriverPatcherHooks {
   onBeforeQuit?: (driver: SeleniumDriverLike) => Promise<void>
   // Gates `await new Builder().build()` on the dashboard being connected.
   waitForReady?: () => Promise<void>
+  // Awaited before a navigation command resolves to the test, so the fallback
+  // collector is in the destination before the test's next command reaches it.
+  afterNavigation?: (command: string) => Promise<void>
+  // Awaited before an element click, sendKeys, clear or submit is sent.
+  beforeInput?: () => Promise<void>
 }
 
 // Unwrapped WebDriver methods used by the plugin's own internal calls
@@ -130,6 +135,7 @@ export interface DriverOriginals {
   manage?: (driver: SeleniumDriverLike) => unknown
   getCurrentUrl?: (driver: SeleniumDriverLike) => Promise<string>
   getTitle?: (driver: SeleniumDriverLike) => Promise<string>
+  getWindowHandle?: (driver: SeleniumDriverLike) => Promise<string>
 }
 
 // Unwrapped WebElement methods for internal enrichment paths.

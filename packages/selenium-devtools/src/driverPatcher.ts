@@ -9,7 +9,8 @@ import {
   ELEMENT_LOCATOR_METHODS,
   INTERNAL_DRIVER_METHODS,
   PATCHED_SYMBOL,
-  TRACKED_ELEMENT_METHODS
+  TRACKED_ELEMENT_METHODS,
+  NAVIGATION_COMMANDS
 } from './constants.js'
 import {
   rememberElementLocator,
@@ -130,6 +131,9 @@ function emitCommand(hooks: DriverPatcherHooks, cmd: CapturedCommand): void {
 
 /** Reports the command once it settles — see `CapturedCommand.timestamp` for why
  *  the row is stamped at completion rather than at invocation. */
+/** Element commands that dispatch input to the page. */
+const INPUT_ELEMENT_METHODS = new Set(['click', 'sendKeys', 'clear', 'submit'])
+
 function makeSettle(
   hooks: DriverPatcherHooks,
   meta: Omit<CapturedCommand, 'result' | 'rawResult' | 'error' | 'timestamp'>,
@@ -188,7 +192,15 @@ function makeWrappedMethod(
 
     let result: unknown
     try {
-      result = original.apply(this, args)
+      const { beforeInput } = hooks
+      result =
+        fromElement && beforeInput && INPUT_ELEMENT_METHODS.has(methodName)
+          ? beforeInput()
+              .catch((err: unknown) =>
+                log.warn(`beforeInput hook threw: ${errorMessage(err)}`)
+              )
+              .then(() => original.apply(this, args))
+          : original.apply(this, args)
     } catch (err) {
       settle(undefined, err as Error)
       throw err
@@ -213,11 +225,43 @@ function makeWrappedMethod(
         },
         (err: unknown) => settle(undefined, err as Error)
       )
-      return result
+      return gateNavigation(result, methodName, fromElement, hooks)
     }
     settle(result, undefined)
     return result
   }
+}
+
+/** A navigation resolves to the test only once the destination is
+ *  instrumented. Without the document-start preload the collector is appended
+ *  after the navigation, and left to race the test's next command it lost the
+ *  keystrokes typed before it landed. A navigation resolves to a plain
+ *  Promise, so the derived one breaks no chaining; the row keeps its own
+ *  completion time. */
+function gateNavigation(
+  result: unknown,
+  methodName: string,
+  fromElement: boolean,
+  hooks: DriverPatcherHooks
+): unknown {
+  const { afterNavigation } = hooks
+  if (
+    fromElement ||
+    !afterNavigation ||
+    !(NAVIGATION_COMMANDS as readonly string[]).includes(methodName)
+  ) {
+    return result
+  }
+  return (result as Promise<unknown>).then(async (value) => {
+    try {
+      await afterNavigation(methodName)
+    } catch (err) {
+      log.warn(
+        `afterNavigation hook threw for ${methodName}: ${errorMessage(err)}`
+      )
+    }
+    return value
+  })
 }
 
 function wrapPrototype(
@@ -283,6 +327,11 @@ function stashDriverOriginals(driverProto: Patchable): void {
   if (typeof title === 'function') {
     const orig = title as (this: unknown) => unknown
     originals.getTitle = (driver) => orig.call(driver) as Promise<string>
+  }
+  const handle = driverProto.getWindowHandle
+  if (typeof handle === 'function') {
+    const orig = handle as (this: unknown) => unknown
+    originals.getWindowHandle = (driver) => orig.call(driver) as Promise<string>
   }
 }
 
