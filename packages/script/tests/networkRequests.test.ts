@@ -84,21 +84,37 @@ describe('NetworkRequestCollector — fetch capture', () => {
   })
 
   it('skips internal protocols (data:, blob:, chrome:, about:, ws:)', async () => {
-    for (const url of [
+    const internal = [
       'data:text/plain,hello',
       'blob:https://example.com/abc',
       'chrome://settings',
       'chrome-extension://abc/page',
+      'chrome-native://newtab/',
+      'chrome-untrusted://new-tab-page/',
+      'devtools://devtools/bundled/inspector.html',
       'about:blank',
       'ws://example.com',
       'wss://example.com'
-    ]) {
+    ]
+    for (const url of internal) {
       fetchMock.mockResolvedValueOnce(new Response(''))
       await window.fetch(url)
     }
     // Every call passed through to the original mock but NONE got captured
     expect(collector.getArtifacts()).toEqual([])
-    expect(fetchMock).toHaveBeenCalledTimes(7)
+    expect(fetchMock).toHaveBeenCalledTimes(internal.length)
+  })
+
+  it('keeps a relative path that merely begins like a scheme name', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response('{}', { headers: { 'content-type': 'application/json' } })
+    )
+    await window.fetch('chrome-stuff/data.json')
+    fetchMock.mockResolvedValueOnce(
+      new Response('{}', { headers: { 'content-type': 'application/json' } })
+    )
+    await window.fetch('chrome-dashboard/export?from=10:00')
+    expect(collector.getArtifacts()).toHaveLength(2)
   })
 
   it('skips noise URLs (/favicon.ico, /.well-known/...)', async () => {
@@ -142,6 +158,28 @@ describe('NetworkRequestCollector — fetch capture', () => {
       'network down'
     )
     expect(collector.getArtifacts()).toEqual([])
+  })
+
+  it('records each send of a reused XMLHttpRequest once', () => {
+    const xhr = new XMLHttpRequest()
+    Object.defineProperty(xhr, 'status', { value: 200, configurable: true })
+    Object.defineProperty(xhr, 'getAllResponseHeaders', {
+      value: () => 'content-type: text/plain\r\n',
+      configurable: true
+    })
+    Object.defineProperty(xhr, 'responseText', {
+      value: 'ok',
+      configurable: true
+    })
+    for (const path of ['/first', '/second']) {
+      xhr.open('GET', `https://api.example.com${path}`)
+      xhr.send()
+      xhr.dispatchEvent(new Event('load'))
+    }
+    expect(collector.getArtifacts().map((r) => r.url)).toEqual([
+      'https://api.example.com/first',
+      'https://api.example.com/second'
+    ])
   })
 
   it('extracts headers from all three accepted shapes (Headers, Array, plain object) and lowercases keys', async () => {
@@ -332,6 +370,23 @@ describe('NetworkRequestCollector: claims for the Resource Timing collector', ()
     expect(consume('https://api.example.com/down', performance.now())).toBe(
       false
     )
+  })
+
+  it('surfaces the entry a claim holds when the claim is pushed out of the window', async () => {
+    fetchMock.mockReturnValue(new Promise<Response>(() => {}))
+    void window.fetch('https://api.example.com/oldest')
+    expect(consume('https://api.example.com/oldest', performance.now())).toBe(
+      true
+    )
+    for (let i = 0; i < 500; i++) {
+      void window.fetch(`https://api.example.com/poll-${i}`)
+    }
+    expect(collector.getArtifacts()).toEqual([
+      expect.objectContaining({
+        url: 'https://api.example.com/oldest',
+        source: NETWORK_CAPTURE_SOURCE.RESOURCE_TIMING
+      })
+    ])
   })
 
   it('claims an XHR when it is sent, and releases it on error', () => {

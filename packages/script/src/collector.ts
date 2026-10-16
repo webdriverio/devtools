@@ -125,4 +125,9 @@ export class DataCollector {
 }
 
 export type DataCollectorType = DataCollector
-export const collector = (window.wdioTraceCollector = new DataCollector())
+
+const installed = window.wdioTraceCollector
+// Two injections racing past one presence probe must not replace the collector.
+export const alreadyInstalled = installed !== undefined
+export const collector =
+  installed ?? (window.wdioTraceCollector = new DataCollector())

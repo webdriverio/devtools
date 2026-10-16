@@ -82,7 +82,11 @@ export class NetworkRequestCollector implements Collector<NetworkRequest> {
     const claim = { url: resourceTimingUrl(url), startTime }
     this.#claims.push(claim)
     if (this.#claims.length > MAX_CLAIMS) {
-      this.#claims.shift()
+      const dropped = this.#claims.shift()
+      if (dropped?.held) {
+        this.#requests.push(dropped.held)
+        dropped.held = undefined
+      }
     }
     return claim
   }
@@ -314,17 +318,32 @@ export class NetworkRequestCollector implements Collector<NetworkRequest> {
       // Claimed at send, not open: Resource Timing clocks the request from
       // the send, and a page may open an XHR long before it sends it.
       const claim = self.#claim(requestData.url!, performance.now())
-      const release = () => self.#releaseClaim(claim)
-      this.addEventListener('load', function (this: XMLHttpRequest) {
-        if (self.#recordXHRResponse(this, requestData, startTime)) {
+      const xhr = this
+      const listeners: Record<string, () => void> = {}
+      // One send's listeners must not outlive it: a page that reuses the
+      // object would otherwise record every earlier send on the next load.
+      const detach = () => {
+        for (const [type, fn] of Object.entries(listeners)) {
+          xhr.removeEventListener(type, fn)
+        }
+      }
+      listeners.load = () => {
+        detach()
+        if (self.#recordXHRResponse(xhr, requestData, startTime)) {
           self.#settleClaim(claim)
         } else {
-          release()
+          self.#releaseClaim(claim)
         }
-      })
-      this.addEventListener('error', release)
-      this.addEventListener('abort', release)
-      this.addEventListener('timeout', release)
+      }
+      for (const reason of ['error', 'abort', 'timeout']) {
+        listeners[reason] = () => {
+          detach()
+          self.#releaseClaim(claim)
+        }
+      }
+      for (const [type, fn] of Object.entries(listeners)) {
+        xhr.addEventListener(type, fn)
+      }
       return self.#originalXhrSend!.call(this, body)
     }
   }

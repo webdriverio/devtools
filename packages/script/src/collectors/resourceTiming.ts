@@ -127,14 +127,9 @@ export class ResourceTimingCollector implements Collector<NetworkRequest> {
   }
 
   /** What the buffer already holds: the loads before this collector existed.
-   *  Read before observing, synchronously, so no entry falls between the two.
-   *  Skipped on a document a previous collector already reported, or every
-   *  load in the buffer would be listed again. */
+   *  Read before observing, synchronously, so no entry falls between the two. */
   #seed(): void {
-    if (
-      typeof performance?.getEntriesByType !== 'function' ||
-      typeof window.wdioTraceCollector !== 'undefined'
-    ) {
+    if (typeof performance?.getEntriesByType !== 'function') {
       return
     }
     for (const entry of performance.getEntriesByType('navigation')) {

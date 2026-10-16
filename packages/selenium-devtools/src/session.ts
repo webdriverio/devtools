@@ -219,11 +219,9 @@ export class SessionCapturer extends SessionCapturerBase {
       return
     }
     try {
-      // Injecting over a live collector replaces `window.wdioTraceCollector`
-      // with a fresh instance and DISCARDS whatever it had buffered — including
-      // the destination's full-DOM anchor. Three call paths can reach the same
-      // document (navigation trace, post-command drain recovery, explicit
-      // re-inject), so the guard lives here rather than in each caller.
+      // Three call paths reach the same document (navigation trace,
+      // post-command drain recovery, explicit re-inject); a bundle that finds
+      // a collector keeps it, so this probe only saves the round trips.
       const present = await exec(
         driver,
         `return ${COLLECTOR_READY_EXPRESSION};`

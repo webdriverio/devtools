@@ -403,10 +403,9 @@ export class SessionCapturer extends SessionCapturerBase {
       return
     }
     try {
-      // Injecting over a live collector replaces `window.wdioTraceCollector`
-      // with a fresh instance and DISCARDS whatever it had buffered — including
-      // the destination's full-DOM anchor. Several paths can reach the same
-      // document (navigation proxy, drain recovery), so guard here once.
+      // Several paths reach the same document (navigation proxy, drain
+      // recovery); a bundle that finds a collector keeps it, so this probe
+      // only saves the injection's round trips.
       const alreadyPresent = await webdriverExecute<boolean>(
         browser,
         `return ${COLLECTOR_READY_EXPRESSION};`

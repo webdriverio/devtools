@@ -1,3 +1,16 @@
+import { isBrowserInternalUrl, schemeOf } from '@wdio/devtools-shared'
+
+/** Inline documents and sockets: no request a server answers either. */
+const INLINE_OR_SOCKET_SCHEMES = new Set(['data', 'blob', 'ws', 'wss'])
+
+function hasInternalScheme(url: string): boolean {
+  const scheme = schemeOf(url)
+  return (
+    scheme !== undefined &&
+    (INLINE_OR_SOCKET_SCHEMES.has(scheme) || isBrowserInternalUrl(url))
+  )
+}
+
 /** Internal URLs, non-HTTP schemes and browser housekeeping requests, which
  *  neither the patched calls nor the Resource Timing entries report. */
 export function shouldIgnoreRequest(url: string): boolean {
@@ -7,23 +20,7 @@ export function shouldIgnoreRequest(url: string): boolean {
 
   const urlLower = url.toLowerCase()
 
-  if (urlLower.startsWith('data:')) {
-    return true
-  }
-  if (urlLower.startsWith('blob:')) {
-    return true
-  }
-  if (urlLower.startsWith('chrome:')) {
-    return true
-  }
-  if (urlLower.startsWith('chrome-extension:')) {
-    return true
-  }
-  if (urlLower.startsWith('about:')) {
-    return true
-  }
-
-  if (urlLower.startsWith('ws:') || urlLower.startsWith('wss:')) {
+  if (hasInternalScheme(url)) {
     return true
   }
 

@@ -135,22 +135,6 @@ describe('ResourceTimingCollector: the buffer at construction', () => {
     ])
   })
 
-  it('does not read the buffer again on a document a collector already reported', () => {
-    // A re-injected collector lands on a page the previous one instrumented;
-    // every load in the buffer would otherwise be listed a second time.
-    buffer.resource = [resource()]
-    const win = window as unknown as { wdioTraceCollector?: unknown }
-    win.wdioTraceCollector = {}
-    try {
-      const collector = new ResourceTimingCollector(neverClaimed)
-      expect(collector.getArtifacts()).toEqual([])
-      FakeObserver.deliver(resource())
-      expect(collector.getArtifacts()).toHaveLength(1)
-    } finally {
-      delete win.wdioTraceCollector
-    }
-  })
-
   it('captures from the buffer alone where no observer exists', () => {
     ;(globalThis as { PerformanceObserver: unknown }).PerformanceObserver =
       undefined
@@ -376,7 +360,12 @@ describe('ResourceTimingCollector: the row it builds', () => {
     FakeObserver.deliver(
       resource({ name: 'data:image/png;base64,AAAA', initiatorType: 'img' }),
       resource({ name: 'blob:https://app.test/1234', initiatorType: 'img' }),
-      resource({ name: 'https://app.test/favicon.ico', initiatorType: 'other' })
+      resource({
+        name: 'https://app.test/favicon.ico',
+        initiatorType: 'other'
+      }),
+      // The new tab Chrome on Android opens a session on, before any navigation.
+      navigation({ name: 'chrome-native://newtab/' })
     )
     expect(collector.getArtifacts()).toEqual([])
   })

@@ -15,6 +15,13 @@ import { clearLogs, getLogs } from '../src/logger.js'
 const slowBodyNotices = () =>
   getLogs().filter((line) => line.includes('no <body> after'))
 
+/** The serialized children of a vnode, as `{ props }` records. */
+const childProps = (tree: unknown): Record<string, unknown>[] =>
+  (
+    (tree as { props: { children: { props: Record<string, unknown> }[] } })
+      .props.children ?? []
+  ).map((child) => child.props)
+
 describe('DOM mutation capture utilities', () => {
   beforeEach(() => {
     clearLogs()
@@ -27,6 +34,24 @@ describe('DOM mutation capture utilities', () => {
 
   it('should wait for body to exist before capturing mutations', async () => {
     await expect(waitForBody()).resolves.toBeUndefined()
+  })
+
+  it('resolves at once for a body that already exists, without a frame', async () => {
+    // A `<script>`-injected collector lands in a loaded document whose window
+    // may never paint (Safari under automation); its listeners cannot wait.
+    const raf = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation(() => 0)
+    try {
+      const settled = await Promise.race([
+        waitForBody().then(() => 'resolved'),
+        new Promise<string>((r) => setTimeout(() => r('timed out'), 200))
+      ])
+      expect(settled).toBe('resolved')
+      expect(raf).not.toHaveBeenCalled()
+    } finally {
+      raf.mockRestore()
+    }
   })
 
   it('resolves for a body parsed after the first animation frame', async () => {
@@ -140,6 +165,33 @@ describe('DOM mutation capture utilities', () => {
     expect(vnode).toHaveProperty('type')
     expect(vnode).toHaveProperty('props')
     expect(JSON.stringify(vnode)).toBeTruthy()
+  })
+
+  it('carries a field’s typed value and checked state, which no attribute holds', () => {
+    // A collector that arrives after the typing anchors the form as it is now;
+    // without this the replay of a page typed into before injection is empty.
+    const form = document.createElement('form')
+    form.innerHTML =
+      '<input id="u" value="initial"><textarea id="t"></textarea>' +
+      '<input id="c" type="checkbox"><input id="d" type="checkbox" checked>'
+    ;(form.querySelector('#u') as HTMLInputElement).value = 'tomsmith'
+    ;(form.querySelector('#t') as HTMLTextAreaElement).value = 'notes'
+    ;(form.querySelector('#c') as HTMLInputElement).checked = true
+    ;(form.querySelector('#d') as HTMLInputElement).checked = false
+
+    const props = childProps(parseDocument(form as unknown as HTMLElement))
+    expect(props[0]).toMatchObject({ id: 'u', value: 'tomsmith' })
+    expect(props[1]).toMatchObject({ id: 't', value: 'notes' })
+    expect(props[2]).toMatchObject({ id: 'c', checked: '' })
+    expect(props[3]).not.toHaveProperty('checked')
+  })
+
+  it('leaves an untouched field’s attributes as they are', () => {
+    const div = document.createElement('div')
+    div.innerHTML = '<input id="u" value="initial"><input id="e">'
+    const props = childProps(parseDocument(div as unknown as HTMLElement))
+    expect(props[0]).toMatchObject({ value: 'initial' })
+    expect(props[1]).not.toHaveProperty('value')
   })
 
   it('should serialize complete document hierarchy for initial capture', () => {

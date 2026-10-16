@@ -1,5 +1,5 @@
 /** @vitest-environment happy-dom */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { DataCollector } from '../src/collector.js'
 
 const REF_ATTR = 'data-wdio-ref'
@@ -130,5 +130,23 @@ describe('getTraceData network', () => {
     } finally {
       window.fetch = realFetch
     }
+  })
+})
+
+describe('bundle installation', () => {
+  it('keeps the collector a previous evaluation installed', async () => {
+    // Two injections racing past one presence probe evaluate the bundle twice
+    // in one document; the second replacing the first dropped its buffers.
+    delete window.wdioTraceCollector
+    vi.resetModules()
+    const first = await import('../src/collector.js')
+    expect(first.alreadyInstalled).toBe(false)
+    expect(window.wdioTraceCollector).toBe(first.collector)
+
+    vi.resetModules()
+    const second = await import('../src/collector.js')
+    expect(second.alreadyInstalled).toBe(true)
+    expect(second.collector).toBe(first.collector)
+    delete window.wdioTraceCollector
   })
 })
