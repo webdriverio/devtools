@@ -15,8 +15,12 @@
  */
 
 import logger from '@wdio/logger'
-import { resolveViewport } from '@wdio/devtools-core'
-import { webdriverExecute, webdriverGet } from './helpers/webdriverHttp.js'
+import { resolveViewport, restoreBrowserFocus } from '@wdio/devtools-core'
+import {
+  resolveWebDriverAddress,
+  webdriverExecute,
+  webdriverGet
+} from './helpers/webdriverHttp.js'
 import {
   errorMessage,
   finalizeScreencast,
@@ -180,6 +184,22 @@ async function broadcastSessionMetadata(
   log.info(
     `✓ Browser: ${browserName}${browserVersion ? ' ' + browserVersion : ''} (session: ${sessionId})`
   )
+  // The dashboard window took the front; Safari clicks reach nothing there.
+  if (
+    ctx.mode === 'live' &&
+    restoreBrowserFocus({
+      browserName: String(browserName),
+      platformName: String(
+        capabilities.platformName || desiredCapabilities.platformName || ''
+      ),
+      host: resolveWebDriverAddress(browser).driverHost,
+      onError: (message) => log.warn(message)
+    })
+  ) {
+    log.info(
+      '✓ Safari brought back to the front (it delivers clicks only there)'
+    )
+  }
 
   const wantsPerfLog = wantsPerformanceLog(
     capabilities as Record<string, unknown>,

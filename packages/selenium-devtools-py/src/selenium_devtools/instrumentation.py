@@ -24,7 +24,7 @@ from .assert_tracer import ScriptAssertionTracer
 from .capturer import SessionCapturer
 from .cdp_screencast import start_push_screencast
 from .collector_source import reset_cache as reset_collector_cache
-from .device import driver_is_native_app
+from .device import driver_is_native_app, restore_browser_focus
 from .element_scripts import reset_cache as reset_element_scripts_cache
 from .constants import (
     BIDI_CAPABILITY,
@@ -710,6 +710,10 @@ def _ensure_session_setup(driver: Any, capturer: SessionCapturer) -> Optional[di
         session_id, getattr(driver, "caps", None), None, viewport=_viewport(driver)
     )
     _log.info("session %s started", session_id)
+    if not _state["trace"] and restore_browser_focus(
+        getattr(driver, "caps", None), host=_executor_host(driver)
+    ):
+        _log.info("Safari brought back to the front (it delivers clicks only there)")
     _send_default_suite(capturer, "running")  # tree entry for plain-script runs
     try:
         # Filled in as events arrive; reported once by _on_quit, because the
@@ -1024,6 +1028,20 @@ def install(
         trace=trace, filmstrip=filmstrip, filmstrip_frames=[],
         a11y=a11y, element_scripts=None, action_snapshots=[],
     )
+
+
+def _executor_host(driver: Any) -> Optional[str]:
+    """The WebDriver endpoint's host, or None when it cannot be read."""
+    try:
+        from urllib.parse import urlparse
+
+        executor = getattr(driver, "command_executor", None)
+        url = getattr(executor, "_url", None) or getattr(
+            getattr(executor, "_client_config", None), "remote_server_addr", None
+        )
+        return urlparse(str(url)).hostname if url else None
+    except Exception:  # noqa: BLE001 - unknown means "assume this machine"
+        return None
 
 
 def uninstall() -> None:
