@@ -1,6 +1,6 @@
 ---
-'@wdio/elements': major
-'@wdio/devtools-service': major
+"@wdio/elements": major
+"@wdio/devtools-service": major
 ---
 
 `getSnapshot` now produces the same text as `wdio session snapshot --selectors`, by delegating to `@wdio/snapshot` instead of keeping a second renderer that drifted from the CLI's. Agents that read the CLI's output and agents that call this function now see one format.

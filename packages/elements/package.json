@@ -39,7 +39,7 @@
     "node": ">=22.19.0"
   },
   "dependencies": {
-    "@wdio/snapshot": "10.0.2",
+    "@wdio/snapshot": "^10.0.2",
     "@xmldom/xmldom": "^0.9.12",
     "xpath": "^0.0.34"
   },
