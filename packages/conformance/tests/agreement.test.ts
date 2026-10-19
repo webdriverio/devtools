@@ -297,6 +297,7 @@ describe('judgeDivergences', () => {
 
   it('excuses only the run control the gap declares absent', () => {
     const { unexplained, explained, stale } = nightwatchAgainstSelenium({
+      canRunAll: false,
       canRunSuites: true,
       canRunTests: true
     })
@@ -307,7 +308,11 @@ describe('judgeDivergences', () => {
 
   // Regression: any run-controls difference was explained once Nightwatch held its gap, so a lost control passed.
   it('does not excuse a run control the holder lost since declaring its gap', () => {
-    const { unexplained } = nightwatchAgainstSelenium({ canRunSuites: true })
+    const { unexplained } = nightwatchAgainstSelenium({
+      canRunAll: false,
+      canRunSuites: true,
+      canRunTests: false
+    })
     expect(unexplained.map((d) => d.rule)).toEqual([RULES.agreeOnRunControls])
     expect(unexplained[0].message).toContain(
       'canRunSuites; served vs canRunAll, canRunSuites, canRunTests; served'
@@ -349,5 +354,30 @@ describe('the agreement section of the report', () => {
       'Stale gap</strong> for <code>nightwatch-devtools</code>'
     )
     expect(html).not.toContain('>AGREE<')
+  })
+})
+
+describe('normalizeRun on the WDIO service shape', () => {
+  // The service also leads a fill's args with the selector; the text is still the last argument.
+  it('reads the text a fill ends with, whatever leads', () => {
+    const run = normalizeRun([
+      {
+        scope: 'commands',
+        data: [
+          {
+            command: 'setValue',
+            args: ['#username', 'tom'],
+            selector: '#username',
+            startTime: 30,
+            timestamp: 40
+          }
+        ]
+      }
+    ])
+    expect(run.steps[0]).toMatchObject({
+      action: 'Element.fill',
+      target: '#username',
+      input: 'tom'
+    })
   })
 })

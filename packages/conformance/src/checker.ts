@@ -1,9 +1,11 @@
 import {
   mapCommandToAction,
   replaceCommand,
+  resolveRunCapabilities,
   type CommandLog,
   type Metadata,
   type RunnerOptions,
+  type WsPayloadFor,
   type ReplaceCommandWsPayload,
   type TraceMutation
 } from '@wdio/devtools-shared'
@@ -77,6 +79,15 @@ function rowsOf(data: unknown, frame: number): CommandLog[] {
     ) {
       throw new Error(
         `commands frame #${frame} carries a row without command, args[] and timestamp: ${JSON.stringify(row).slice(0, 120)}`
+      )
+    }
+    // The Errors tab and the error rules read the message; an Error sent raw loses it to JSON.
+    if (
+      row.error !== undefined &&
+      typeof (row.error as { message?: unknown })?.message !== 'string'
+    ) {
+      throw new Error(
+        `commands frame #${frame} carries a failed row whose error has no message: ${JSON.stringify(row.error).slice(0, 120)}`
       )
     }
   }
@@ -288,29 +299,45 @@ function rowSubject(row: CommandLog | undefined): Pick<Violation, 'subject'> {
 }
 
 // A lost row and a duplicated one both break every invariant silently, so rows are counted against the browser.
-// Served by a shell command, or by a config file the backend reruns through its framework path (WDIO, Nightwatch).
-export function servesRunControls(options: RunnerOptions | undefined): boolean {
-  return Boolean(
-    options?.launchCommand || options?.rerunCommand || options?.configFile
-  )
+// Served by a shell command, by a config file in the metadata, or by a config frame the backend reruns
+// through its framework path (the WDIO service sends the file that way).
+export function servesRunControls(frames: WireFrame[]): boolean {
+  return frames.some(({ scope, data }) => {
+    if (scope === SCOPES.metadata) {
+      const options = (data as Metadata).options as RunnerOptions | undefined
+      return Boolean(
+        options?.launchCommand || options?.rerunCommand || options?.configFile
+      )
+    }
+    return (
+      scope === SCOPES.config &&
+      Boolean((data as WsPayloadFor<'config'>)?.configFile)
+    )
+  })
+}
+
+/** The controls the dashboard will show for a metadata frame: declared, else the runner's defaults. */
+export function advertisedRunControls(metadata: Metadata): string[] {
+  return Object.entries(resolveRunCapabilities(metadata))
+    .filter(([, on]) => on)
+    .map(([name]) => name)
+    .sort()
 }
 
 // Without any of those the backend falls back to the wdio binary, which is wrong for every other project.
 function runControlsServed({ frames }: Stream): Violation[] {
+  const served = servesRunControls(frames)
   return frames
     .filter((f) => f.scope === SCOPES.metadata)
     .flatMap((f) => {
-      const options = (f.data as Metadata).options as RunnerOptions | undefined
-      const advertised = Object.entries(options?.runCapabilities ?? {})
-        .filter(([, on]) => on)
-        .map(([name]) => name)
-      if (!advertised.length || servesRunControls(options)) {
+      const advertised = advertisedRunControls(f.data as Metadata)
+      if (!advertised.length || served) {
         return []
       }
       return [
         {
           rule: RULES.runControlsServed,
-          message: `metadata advertises ${advertised.join(', ')} but carries no launchCommand, rerunCommand or configFile to serve them`
+          message: `the dashboard will offer ${advertised.join(', ')} but the stream carries no launchCommand, rerunCommand or config file to serve them`
         }
       ]
     })

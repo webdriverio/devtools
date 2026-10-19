@@ -18,21 +18,22 @@ import {
 import { isNativeAppSession, sessionHasDocument } from '@wdio/devtools-shared'
 import { isAppiumSession } from './mobile.js'
 import {
-  CAPTURE_PERFORMANCE_SCRIPT,
-  LOG_SOURCES,
-  RetryTracker,
-  SessionCapturerBase,
   applyPerformanceData,
+  CAPTURE_PERFORMANCE_SCRIPT,
   collectorDrainExpression,
   drainCollectorWithRecovery,
   errorMessage,
   getRequestType,
   isSessionGoneError,
   loadInjectableScript,
+  LOG_SOURCES,
+  RetryTracker,
+  SessionCapturerBase,
   type CapturedPerformancePayload
 } from '@wdio/devtools-core'
 import type { DevToolsMode, TraceMutation } from '@wdio/devtools-shared'
 import type { CommandLog } from './types.js'
+import { serializeCommandError } from './command-error.js'
 import { directProbes } from './direct-probes.js'
 
 const log = logger('@wdio/devtools-service:SessionCapturer')
@@ -175,7 +176,8 @@ export class SessionCapturer extends SessionCapturerBase {
       command,
       args,
       result,
-      error,
+      // Serialized here: an Error's message is non-enumerable, so the raw object reaches the socket as `{}`.
+      error: serializeCommandError(error),
       timestamp: Date.now(),
       startTime: commandStartTime,
       callSource: callSource ?? absolutePath,

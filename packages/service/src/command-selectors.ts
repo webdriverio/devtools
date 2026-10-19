@@ -125,5 +125,6 @@ export function decorateSelector(
     if (args.length >= 1 && typeof args[0] !== 'object') {
       entry.args = [lastSelector, ...args]
     }
+    entry.selector = lastSelector
   }
 }

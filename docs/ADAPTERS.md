@@ -147,6 +147,7 @@ Attach to that backend, do not open a second dashboard window, and when `DEVTOOL
 | `suites` | `[{uid: SuiteStats}]` | Whenever the tree changes. |
 | `consoleLogs` / `networkRequests` | `ConsoleLog[]` / `NetworkRequest[]` | From BiDi `log.entryAdded` / `network.*` events, if you capture them. |
 | `sources` | `{absolutePath: fileText}` | Once per file a `callSource` (`path:line`) points at. |
+| `config` | `{configFile}` | Optional, once: a config file the backend can rerun through its framework path (WDIO, Nightwatch), as an alternative to `metadata.options.configFile`. |
 | `screencast` | `ScreencastInfo` (`sessionId`, `videoPath`, ...) | After you encode a session video. |
 | `screencastFrames`, `actionSnapshots`, `traceExport` | see `trace-export.ts` | Trace mode only. |
 
@@ -188,7 +189,7 @@ Generated types document the contract but rarely enforce it at runtime. Python's
 
 ### What the harness does
 
-`src/harness.ts` `runScenario(command, args, {env, bidi})`:
+`src/harness.ts` `runScenario(command, args, {env, bidi, cwd?})`:
 
 1. Starts `FakeWebDriver` (`src/fake-webdriver.ts`) and `RecordingBackend` (`src/recording-backend.ts`).
 2. Spawns your scenario with the **reuse handshake** pointing at the recording backend (`DEVTOOLS_APP_REUSE=1`, `DEVTOOLS_APP_HOST`, `DEVTOOLS_APP_PORT`), so your adapter needs no test-only code path, plus the scenario variables (`SCENARIO_ENV` in `src/constants.ts`):
@@ -201,7 +202,7 @@ CONFORMANCE_BROKEN_URL=<origin>/broken
 
 3. Returns the recorded frames, the fake's ground truth (which documents were born and when, which navigations failed), the exit code and the output. The scenario times out after 60 s.
 
-The recording backend accepts only `/worker` upgrades, serves the real collector bundle at `/api/collector` as the real backend does, and stubs `/api/element-scripts`. The fake WebDriver models two pages (`PAGES`), answers `/url`, `/title`, `/element(s)`, element `value`/`click`/`clear`/`text`, `/execute/*`, `/screenshot`, `/window/rect`, and returns `null` for anything else. It returns a BiDi `webSocketUrl` only when the scenario runs with `bidi: true` **and** the new-session request asked for `webSocketUrl: true`; registering a preload (`script.addPreloadScript`) then gives every later document a collector anchored at birth (`src/fake-bidi.ts`).
+The recording backend accepts only `/worker` upgrades, serves the real collector bundle at `/api/collector` as the real backend does, and stubs `/api/element-scripts`. The fake WebDriver models two pages (`PAGES`), answers `/url`, `/title`, `/element(s)`, element `value`/`click`/`clear`/`text`, `/execute/*`, `/screenshot`, `/window`, `/window/handles`, `/window/rect`, and returns `null` for anything else. It returns a BiDi `webSocketUrl` only when the scenario runs with `bidi: true` **and** the new-session request asked for `webSocketUrl: true`; registering a preload (`script.addPreloadScript`) then gives every later document a collector anchored at birth (`src/fake-bidi.ts`). Over that socket the fake answers what a client routes through BiDi once it has it (`browsingContext.navigate`, `browsingContext.getTree`, `browsingContext.locateNodes`, `script.callFunction`), from the same two-page model, so WebdriverIO drives the same pages and the same user actions are stamped whichever protocol carried them; everything else is acknowledged.
 
 The fake recognises the collector, not your adapter's way of using it, so inject and drain however your language makes natural:
 
@@ -229,8 +230,8 @@ The browser therefore creates exactly three documents.
 ### Adding your language
 
 1. Add your id to `AdapterId` in `src/types.ts`.
-2. Add `scenarios/<lang>_scenario.<ext>` performing the steps above, or, for an adapter that only runs under its framework's CLI, a folder with a config and a spec (`scenarios/nightwatch/` is the model: the config reads the fake's origin from `CONFORMANCE_WEBDRIVER` and points the runner at it with `start_process: false`). Read the three variables by name (the Python scenario repeats them, since it cannot import `SCENARIO_ENV`).
-3. Add one entry to `ADAPTERS` in `src/adapters.ts`: `ready()` (your toolchain and build are present) and `prepare()` (the command, args and env that launch your scenario, plus an optional `cleanup`). `tests/conformance.test.ts` then runs your adapter in both modes, holds it to every rule, and compares it with every other adapter. Expect the first run to be red: classify each line as a suite assumption to fix, a difference to declare with a reason, or an adapter bug to fix, and merge only when it is green. `ready()` may only skip a local run; in CI a missing prerequisite fails.
+2. Add `scenarios/<lang>_scenario.<ext>` performing the steps above, or, for an adapter that only runs under its framework's CLI, a folder with a config and a spec (`scenarios/nightwatch/` and `scenarios/wdio/` are the models: the config reads the fake's origin from `CONFORMANCE_WEBDRIVER` and points the runner at it, with `start_process: false` for Nightwatch and `hostname`/`port` for WebdriverIO). Read the three variables by name (the Python scenario repeats them, since it cannot import `SCENARIO_ENV`).
+3. Add one entry to `ADAPTERS` in `src/adapters.ts`: `ready()` (your toolchain and build are present) and `prepare()` (the command, args and env that launch your scenario, plus an optional `cleanup`, and a `cwd` for a CLI that resolves its runner and plugins from the working directory, as WebdriverIO does). `tests/conformance.test.ts` then runs your adapter in both modes, holds it to every rule, and compares it with every other adapter. Expect the first run to be red: classify each line as a suite assumption to fix, a difference to declare with a reason, or an adapter bug to fix, and merge only when it is green. `ready()` may only skip a local run; in CI a missing prerequisite fails.
 4. Make sure CI installs your toolchain before `pnpm test` in `.github/workflows/ci.yml` (Python's install step is there).
 
 Run it locally with `pnpm test packages/conformance`. Vitest only collects `packages/**/tests/**/*.test.ts`.
@@ -251,7 +252,7 @@ Defined in `src/checker.ts`, names in `RULES` (`src/constants.ts`):
 | `failed-command-has-error-row` | Every navigation that failed in the browser has a row carrying `error`. |
 | `replace-targets-a-sent-row` | Every `replaceCommand.oldTimestamp` names a row already sent. |
 | `one-row-per-browser-action` | The number of `navigate`, `click` and `fill` rows equals what the fake browser received, after applying `replaceCommand` the way the dashboard does (shared `replaceCommand`: by `id`, then the last row with the old timestamp). |
-| `run-controls-are-served` | If `metadata.options.runCapabilities` advertises any control, the metadata carries `launchCommand` or `rerunCommand` (the backend's shell path, falling back from either to the other) or `configFile` (its framework path, which reruns a WDIO or Nightwatch config). With none, the backend falls back to the WebdriverIO binary, so the control runs the wrong tool. |
+| `run-controls-are-served` | The dashboard offers every control the runner's defaults allow unless `metadata.options.runCapabilities` turns it off (shared `resolveRunCapabilities`, the dashboard's own rule), so a stream that advertises any control, by declaration or by silence, serves it: `launchCommand` or `rerunCommand` in the metadata (the backend's shell path, falling back from either to the other), `configFile` there, or a `config` frame (its framework path, which reruns a WDIO or Nightwatch config). With none, the backend falls back to the WebdriverIO binary, so the control runs the wrong tool. |
 
 ### Cross-adapter agreement
 

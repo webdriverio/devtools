@@ -70,7 +70,8 @@ export const SCOPES = {
   metadata: 'metadata',
   commands: 'commands',
   mutations: 'mutations',
-  replaceCommand: WS_SCOPE.replaceCommand
+  replaceCommand: WS_SCOPE.replaceCommand,
+  config: WS_SCOPE.config
 } as const satisfies Record<string, WsMessageScope>
 
 /** Every scenario reads these and nothing else, so each language drives the
@@ -105,17 +106,14 @@ export const BROKEN_PATH = '/broken'
 
 export const BIDI_PATH = '/session/conformance/bidi'
 
-/** BiDi results whose callers read a field back; every other command gets `{}`. */
+/** BiDi acknowledgements whose callers read a field back; commands the fake browser models are answered from its state. */
 export const BIDI_RESULTS: Record<string, unknown> = {
-  'script.addPreloadScript': { script: 'preload-1' },
   'session.subscribe': { subscription: 'subscription-1' },
-  'network.addIntercept': { intercept: 'intercept-1' },
-  'browsingContext.getTree': {
-    contexts: [
-      { context: 'context-1', url: 'about:blank', children: [], parent: null }
-    ]
-  }
+  'network.addIntercept': { intercept: 'intercept-1' }
 }
+
+/** The one top-level browsing context, as a window handle and as a BiDi context id. */
+export const WINDOW_HANDLE = 'window-1'
 
 /** Every scenario run dumps its stream here, and the HTML report is rebuilt from what is present. */
 export const OUT_DIR = path.join(REPO_ROOT, 'packages/conformance/out')
