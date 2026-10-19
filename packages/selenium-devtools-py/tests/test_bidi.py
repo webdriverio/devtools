@@ -1,4 +1,5 @@
 import sys
+import threading
 import types
 import unittest
 from unittest import mock
@@ -606,6 +607,128 @@ class TestTheEventManagerPath(unittest.TestCase):
         self.assertEqual(len(frames), 2)
         self.assertEqual(frames[0]["url"], "https://x/a.js")
         self.assertEqual(frames[1]["status"], 200)  # correlated with the request
+
+    def _attached_capturer(self, transport=None):
+        module = fake_network_module()
+        network = module.Network()
+        capturer = SessionCapturer(transport or RecordingTransport())
+        with mock.patch.dict(
+            sys.modules, {"selenium.webdriver.common.bidi.network": module}
+        ):
+            self.assertTrue(
+                bidi._attach_network(NewSeleniumDriver(network, []), capturer)
+            )
+        return network, capturer
+
+    def test_a_completion_racing_its_request_is_sent_after_it(self):
+        """selenium runs each event callback on its own thread; a completed
+        frame that overtook its pending frame was replaced by it on the
+        dashboard, leaving a served request pending for the session."""
+        transport = RecordingTransport()
+        in_send = threading.Event()
+        release = threading.Event()
+        real_send = transport.send_json
+
+        def send_json(scope, data):
+            if scope == "networkRequests" and data[0].get("status") is None:
+                in_send.set()
+                release.wait(5)
+            return real_send(scope, data)
+
+        transport.send_json = send_json
+        network, _ = self._attached_capturer(transport)
+        request = threading.Thread(target=self._dispatch, args=(
+            network, "network.beforeRequestSent", {
+                "request": {"request": "R1", "url": "https://x/a.js", "method": "GET"},
+                "timestamp": 1000,
+            }))
+        response = threading.Thread(target=self._dispatch, args=(
+            network, "network.responseCompleted", {
+                "request": {"request": "R1"}, "timestamp": 1200,
+                "response": {"status": 200, "headers": []},
+            }))
+        request.start()
+        self.assertTrue(in_send.wait(5))
+        response.start()
+        # Unserialized, the completion is sent in this window, ahead of its request.
+        response.join(0.2)
+        release.set()
+        request.join(5)
+        response.join(5)
+
+        statuses = [b[0].get("status") for s, b in transport.sent if s == "networkRequests"]
+        self.assertEqual(statuses, [None, 200])
+
+    def test_a_completion_delivered_before_its_request_is_held_for_it(self):
+        network, capturer = self._attached_capturer()
+        self._dispatch(network, "network.responseCompleted", {
+            "request": {"request": "R1"}, "timestamp": 1200,
+            "response": {"status": 200},
+        })
+        self.assertEqual(capturer._tx.sent, [])
+        self._dispatch(network, "network.beforeRequestSent", {
+            "request": {"request": "R1", "url": "https://x/a.js", "method": "GET"},
+            "timestamp": 1000,
+        })
+
+        frames = [b[0] for s, b in capturer._tx.sent if s == "networkRequests"]
+        self.assertEqual([f.get("status") for f in frames], [None, 200])
+        self.assertEqual(frames[1]["url"], "https://x/a.js")
+
+    def test_a_fetch_error_delivered_before_its_request_is_held_for_it(self):
+        network, capturer = self._attached_capturer()
+        self._dispatch(network, "network.fetchError", {
+            "request": {"request": "R1"}, "timestamp": 1100,
+            "errorText": "net::ERR_BLOCKED_BY_CLIENT",
+        })
+        self.assertEqual(capturer._tx.sent, [])
+        self._dispatch(network, "network.beforeRequestSent", {
+            "request": {"request": "R1", "url": "https://x/beacon", "method": "POST"},
+            "timestamp": 1000,
+        })
+
+        frames = [b[0] for s, b in capturer._tx.sent if s == "networkRequests"]
+        self.assertEqual([f.get("status") for f in frames], [None, 0])
+        self.assertEqual(frames[1]["error"], "net::ERR_BLOCKED_BY_CLIENT")
+
+    def test_a_held_completion_closes_only_its_own_redirect_hop(self):
+        network, capturer = self._attached_capturer()
+        self._dispatch(network, "network.responseCompleted", {
+            "request": {"request": "R1"}, "redirectCount": 0, "timestamp": 1100,
+            "response": {"status": 302},
+        })
+        self._dispatch(network, "network.beforeRequestSent", {
+            "request": {"request": "R1", "url": "https://x/next", "method": "GET"},
+            "redirectCount": 1, "timestamp": 1200,
+        })
+
+        frames = [b[0] for s, b in capturer._tx.sent if s == "networkRequests"]
+        self.assertEqual([f.get("status") for f in frames], [None])
+
+    def test_a_response_whose_request_never_arrives_is_reported_and_capped(self):
+        module = fake_network_module()
+        network = module.Network()
+        capturer = SessionCapturer(RecordingTransport())
+        stats = {}
+        with mock.patch.dict(
+            sys.modules, {"selenium.webdriver.common.bidi.network": module}
+        ):
+            bidi._attach_network(NewSeleniumDriver(network, []), capturer, stats)
+
+        with mock.patch.object(bidi, "BIDI_EARLY_EVENT_LIMIT", 2):
+            for request_id in ("R1", "R2", "R3"):
+                self._dispatch(network, "network.responseCompleted", {
+                    "request": {"request": request_id}, "timestamp": 1100,
+                    "response": {"status": 200},
+                })
+
+        self.assertEqual(capturer._tx.sent, [])
+        self.assertEqual(sorted(key[0] for key in stats["early"]), ["R2", "R3"])
+        self.assertEqual(stats["early_dropped"], 1)
+        self.assertEqual(
+            bidi.network_summary(stats),
+            "network: 0 request(s) captured, 3 response(s) whose request was never seen",
+        )
 
     def test_a_request_the_browser_gave_up_on_is_closed_as_failed(self):
         """A blocked beacon never completes; without fetchError it sat in the
