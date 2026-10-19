@@ -10,12 +10,13 @@
 
 import logger from '@wdio/logger'
 import { TestManager } from './helpers/testManager.js'
+import { isRunnerless } from './helpers/runtime.js'
 import { getCallSourceFromStack } from './helpers/utils.js'
 import { DEFAULTS } from './constants.js'
 import type { SessionCapturer } from './session.js'
 import type { TestReporter } from './reporter.js'
 import type { SuiteManager } from './helpers/suiteManager.js'
-import type { TestStats } from './types.js'
+import type { DetectedRunner, TestStats } from './types.js'
 import type { RetryTracker } from '@wdio/devtools-core'
 
 const log = logger('@wdio/selenium-devtools:test-management')
@@ -253,6 +254,16 @@ export function ensureSuiteAndTestManager(
     if (p.file) {
       ctx.sessionCapturer?.captureSource(p.file).catch(() => {})
     }
+  }
+}
+
+/** Without a TestManager every command is dropped, so a plain script gets the session one. */
+export function ensureRunnerlessTracking(
+  ctx: TestManagementCtx,
+  runner: DetectedRunner
+): void {
+  if (!ctx.testManager && isRunnerless(runner)) {
+    ensureSuiteAndTestManager(ctx, DEFAULTS.SESSION_TITLE)
   }
 }
 

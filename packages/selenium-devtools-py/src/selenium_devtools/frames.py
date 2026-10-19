@@ -92,7 +92,9 @@ def command_log(
     if error is not None:
         entry["error"] = {
             "name": type(error).__name__,
-            "message": str(error),
+            # A WebDriverException's str() adds "Message: " and the driver's
+            # stacktrace; `msg` is the browser's own text, which the JS adapters send.
+            "message": getattr(error, "msg", None) or str(error),
         }
     if screenshot:
         entry["screenshot"] = screenshot

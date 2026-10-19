@@ -9,39 +9,12 @@
 
 import {
   deviceFromCapabilities,
-  type CommandLog,
   type NetworkRequest,
   type Metadata,
   type MetadataBySession
 } from '@wdio/devtools-shared'
 
-/**
- * Replace an existing command entry (matched first by stable `id`, then by
- * `timestamp` as a fallback for runners that don't surface ids). When no
- * match is found, the new entry is appended.
- */
-export function replaceCommand(
-  current: CommandLog[],
-  oldTimestamp: number,
-  newCommand: CommandLog
-): CommandLog[] {
-  let idx = -1
-  const newId = (newCommand as CommandLog & { id?: number }).id
-  if (typeof newId === 'number') {
-    idx = current.findIndex(
-      (c) => (c as CommandLog & { id?: number }).id === newId
-    )
-  }
-  if (idx === -1) {
-    idx = current.map((c) => c.timestamp).lastIndexOf(oldTimestamp)
-  }
-  if (idx !== -1) {
-    const next = [...current]
-    next[idx] = newCommand
-    return next
-  }
-  return [...current, newCommand]
-}
+export { replaceCommand } from '@wdio/devtools-shared'
 
 /**
  * Merge incoming network requests into the current list, deduping by `id`.

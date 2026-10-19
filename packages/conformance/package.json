@@ -1,0 +1,26 @@
+{
+  "name": "@wdio/devtools-conformance",
+  "version": "1.0.0",
+  "private": true,
+  "author": "Vishnu Vardhan",
+  "description": "Cross-adapter conformance suite: drives each adapter through one scenario against a fake WebDriver server, records the frames it sends, and checks them against behavioural rules. Test-only, never published or bundled.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/webdriverio/devtools.git",
+    "directory": "packages/conformance"
+  },
+  "type": "module",
+  "scripts": {
+    "lint": "eslint ."
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "26.6.4",
+    "@types/selenium-webdriver": "^4.35.6",
+    "@types/ws": "^8.18.2",
+    "@wdio/devtools-shared": "workspace:^",
+    "@wdio/selenium-devtools": "workspace:^",
+    "selenium-webdriver": "^4.50.0",
+    "ws": "^8.22.0"
+  }
+}
