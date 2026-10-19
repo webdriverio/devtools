@@ -6,7 +6,7 @@ import DevToolsHookService, {
   setupForDevtools,
   type ServiceOptions
 } from '@wdio/devtools-service'
-import { getElements, getSnapshot, type SnapshotResult } from '@wdio/elements'
+import { getElements, getSnapshot, type GetSnapshotResult } from '@wdio/elements'
 import { xmlToJSON } from '@wdio/elements/locators'
 
 const serviceOptions: ServiceOptions = {
@@ -35,8 +35,8 @@ export async function standalone(opts: Options.WebdriverIO): Promise<void> {
 
 export async function elements(
   browser: WebdriverIO.Browser
-): Promise<SnapshotResult> {
+): Promise<GetSnapshotResult> {
   await getElements(browser, { inViewportOnly: false })
   xmlToJSON('<hierarchy />')
-  return getSnapshot(browser, { inViewportOnly: false })
+  return getSnapshot(browser, { viewport: false })
 }

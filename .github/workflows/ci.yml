@@ -97,18 +97,17 @@ jobs:
       - name: 🧩 Component Tests
         run: pnpm test:ui --maxInstances 2
 
-  # The workspace develops against one WebdriverIO major, but the service and
-  # @wdio/elements declare peers on two. Each published major is installed from
-  # npm into a scratch project beside the packed tarballs, so a peer conflict, a
-  # broken entry point or a type mismatch with that major fails here first. 9
-  # runs too so a red 10 can be told apart from a broken harness.
+  # The service and @wdio/elements are WebdriverIO-10-only (@wdio/snapshot pins
+  # webdriverio exactly). The published major is installed from npm into a
+  # scratch project beside the packed tarballs, so a peer conflict, a broken
+  # entry point or a type mismatch with that major fails here first.
   wdio-peer:
     name: wdio-peer (webdriverio ${{ matrix.wdio }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        wdio: [9, 10]
+        wdio: [10]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Use Node.js

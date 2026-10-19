@@ -36,11 +36,7 @@ const visible = await getSnapshot(browser, { viewport: true })
 
 Web sessions walk the DOM in the page; Android and iOS sessions parse the page source. Errors (`SnapshotError`) propagate instead of returning a placeholder.
 
-The DevTools **per-action trace capture** runs the same scripts but asks for the
-locator in the recording runner's own dialect, so a WebdriverIO trace shows
-`button*=Log in` while a Selenium one shows the XPath above. Nightwatch prefers a
-unique CSS selector and falls back to that XPath only when none exists. Only
-the text branch differs; every other branch is the same portable CSS.
+The DevTools **per-action trace capture** is a separate path with its own page scripts, so a locator in a trace can differ from the one `getSnapshot` renders. `getSnapshot` renders `@wdio/snapshot`'s output, the same as the CLI.
 
 Differences from the CLI, which keeps session state this function does not have:
 
