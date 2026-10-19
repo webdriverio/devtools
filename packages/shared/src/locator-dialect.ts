@@ -65,12 +65,6 @@ export function isXPathLocator(locator: string): boolean {
   return /^\(*\.{0,2}\//.test(locator)
 }
 
-/** Tag name an XPath locator is scoped to, for a consumer that reports the tag
- *  it matched. Undefined for CSS and for a tag-less expression (`//*[…]`). */
-export function xpathLocatorTag(locator: string): string | undefined {
-  return /^\/\/([a-z][a-z0-9-]*)\[/.exec(locator)?.[1]
-}
-
 /** WebdriverIO's text-locator forms — `tag*=Contains`, `tag=Exact`, tag optional. */
 const TEXT_LOCATOR_RE = /^([a-z][a-z0-9-]*)?(\*?)=(.+)$/i
 
