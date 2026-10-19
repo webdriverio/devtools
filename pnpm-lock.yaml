@@ -416,7 +416,7 @@ importers:
   packages/elements:
     dependencies:
       '@wdio/snapshot':
-        specifier: 10.0.2
+        specifier: ^10.0.2
         version: 10.0.2(yauzl@2.10.0)
       '@xmldom/xmldom':
         specifier: ^0.9.12
