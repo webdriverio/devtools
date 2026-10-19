@@ -1,7 +1,12 @@
-import type { CommandLog, RunnerOptions, Metadata } from '@wdio/devtools-shared'
+import type { CommandLog, Metadata } from '@wdio/devtools-shared'
 import { mapCommandToAction } from '@wdio/devtools-shared'
 
-import { navigationTarget, readStream, servesRunControls } from './checker.js'
+import {
+  advertisedRunControls,
+  navigationTarget,
+  readStream,
+  servesRunControls
+} from './checker.js'
 import { SCOPES } from './constants.js'
 import type {
   NormalizedRun,
@@ -52,8 +57,8 @@ function targetOf(row: CommandLog): string {
 }
 
 // A fill's text as the binding packaged it: bare, or the W3C `{text}` / `{value: [...]}` payload.
+// Every binding passes it last, after whatever selector it leads with.
 function inputOf(row: CommandLog): string | undefined {
-  // Every binding passes the text last: Nightwatch's setValue(selector, text) leads with the selector.
   const arg = row.args.at(-1)
   if (typeof arg === 'string') {
     return arg
@@ -67,13 +72,10 @@ function inputOf(row: CommandLog): string | undefined {
 
 function runControlsOf(frames: WireFrame[]): RunControls {
   const metadata = frames.find((f) => f.scope === SCOPES.metadata)
-  const options = (metadata?.data as Metadata | undefined)?.options as
-    RunnerOptions | undefined
-  const advertised = Object.entries(options?.runCapabilities ?? {})
-    .filter(([, on]) => on)
-    .map(([name]) => name)
-    .sort()
-  return { advertised, served: servesRunControls(options) }
+  const advertised = metadata
+    ? advertisedRunControls(metadata.data as Metadata)
+    : []
+  return { advertised, served: servesRunControls(frames) }
 }
 
 /** How the agreement table and a divergence show the run controls. */
