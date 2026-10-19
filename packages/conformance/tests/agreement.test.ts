@@ -313,6 +313,14 @@ describe('judgeDivergences', () => {
       'canRunSuites; served vs canRunAll, canRunSuites, canRunTests; served'
     )
   })
+
+  it('reports a comparison gap that no longer occurs as stale', () => {
+    const { unexplained, stale } = nightwatchAgainstSelenium(
+      EVERY_CONTROL.runCapabilities
+    )
+    expect(unexplained).toEqual([])
+    expect(stale.map((g) => g.adapter)).toEqual(['nightwatch-devtools'])
+  })
 })
 
 describe('the agreement section of the report', () => {
@@ -328,5 +336,18 @@ describe('the agreement section of the report', () => {
     expect(html).toContain('DIVERGE')
     expect(html).not.toContain('KNOWN DIFFERENCES')
     expect(html).toContain('class="differs"')
+  })
+
+  // Regression: the comparison's stale gaps never reached the report, which read AGREE while the test failed.
+  it('shows a stale comparison gap instead of calling the mode agreed', () => {
+    const html = renderReport([
+      report('nightwatch-devtools', stream(1, NW, { options: EVERY_CONTROL })),
+      report('selenium-devtools', stream(2, JS, { options: EVERY_CONTROL }))
+    ])
+    expect(html).toContain('STALE GAPS (1)')
+    expect(html).toContain(
+      'Stale gap</strong> for <code>nightwatch-devtools</code>'
+    )
+    expect(html).not.toContain('>AGREE<')
   })
 })

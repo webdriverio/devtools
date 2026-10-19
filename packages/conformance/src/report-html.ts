@@ -1,6 +1,6 @@
 import { explainingGap, gapsFor } from './allowlist.js'
 import { RESPONSIBILITIES } from './constants.js'
-import { renderAgreement } from './report-agreement.js'
+import { renderAgreement, renderStale } from './report-agreement.js'
 import { RULE_GUIDE } from './rule-guide.js'
 import { buildTimeline } from './timeline.js'
 import type {
@@ -101,7 +101,7 @@ function renderRun(run: RunReport): string {
 ${run.checkerError ? `<p class="fail"><strong>Checker failed</strong>: ${escapeHtml(run.checkerError)}</p>` : ''}
 ${renderWhereToLook(run)}
 ${timeline.unplaced.length ? `<p>Run-level violations:</p>${renderViolations(timeline.unplaced)}` : ''}
-${run.stale.map(renderStale).join('\n')}
+${run.stale.map((gap) => renderStale(gap, escapeHtml)).join('\n')}
 <table>
 <thead><tr><th>time</th><th>event</th><th>detail</th></tr></thead>
 <tbody>
@@ -182,12 +182,6 @@ function renderWhereToLook(run: RunReport): string {
 <span class="reason">Responsibility: <a href="${escapeHtml(REPO_ROOT_FROM_REPORT + section)}">${escapeHtml(title)}</a> (${escapeHtml(section)})</span></li>`
   })
   return `<div class="look"><strong>Where to look</strong><ul>${items.join('')}</ul></div>`
-}
-
-function renderStale(gap: KnownGap): string {
-  return `<p class="fail"><strong>Stale gap</strong> (${escapeHtml(
-    gap.rules.join(', ')
-  )}): ${escapeHtml(gap.reason)}</p>`
 }
 
 function violationKey(v: Violation): string {
