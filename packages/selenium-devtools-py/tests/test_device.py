@@ -7,6 +7,8 @@ what the two ends of a trace believe about the same session.
 
 import unittest
 
+from selenium_devtools import device
+
 from selenium_devtools.device import (
     driver_is_native_app,
     is_native_app_session,
@@ -108,3 +110,48 @@ class TestDriverIsNativeApp(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestRestoreBrowserFocus(unittest.TestCase):
+    """Safari delivers a synthesized click only to its frontmost window, and a
+    live run has just opened the dashboard in another browser."""
+
+    def test_activates_safari_on_macos(self):
+        launched = []
+        self.assertTrue(
+            device.restore_browser_focus(
+                {"browserName": "Safari"}, platform="darwin", launch=launched.append
+            )
+        )
+        self.assertEqual(launched, [["open", "-a", "Safari"]])
+
+    def test_leaves_other_browsers_and_platforms_alone(self):
+        launched = []
+        for caps, platform in (
+            ({"browserName": "chrome"}, "darwin"),
+            ({"browserName": "safari"}, "linux"),
+            (None, "darwin"),
+            ({"browserName": "Safari", "platformName": "iOS"}, "darwin"),
+        ):
+            self.assertFalse(
+                device.restore_browser_focus(caps, platform=platform, launch=launched.append)
+            )
+        self.assertEqual(launched, [])
+
+    def test_a_launcher_that_fails_is_reported_not_raised(self):
+        def boom(argv):
+            raise OSError("no open")
+
+        self.assertFalse(
+            device.restore_browser_focus({"browserName": "safari"}, platform="darwin", launch=boom)
+        )
+
+    def test_leaves_a_remote_safari_alone(self):
+        launched = []
+        self.assertFalse(
+            device.restore_browser_focus(
+                {"browserName": "safari"}, host="hub.example.com",
+                platform="darwin", launch=launched.append,
+            )
+        )
+        self.assertEqual(launched, [])

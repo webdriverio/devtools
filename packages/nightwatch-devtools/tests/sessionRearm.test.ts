@@ -40,6 +40,7 @@ type RearmCtx = Pick<
 interface FakeCapturer {
   preloadRegistered: boolean
   bidiActive: boolean
+  loadsListedByLog: unknown[]
   commandsLog: unknown[]
   consoleLogs: unknown[]
   networkRequests: unknown[]
@@ -51,6 +52,7 @@ function makeCtx(
   const capturer: FakeCapturer = {
     preloadRegistered: true,
     bidiActive: true,
+    loadsListedByLog: ['load-1'],
     commandsLog: ['cmd-1', 'cmd-2'],
     consoleLogs: ['log-1'],
     networkRequests: ['req-1']
@@ -187,13 +189,16 @@ describe('rearmCaptureForSession', () => {
   it('drops the dead session claims at detection, before the new ones land', () => {
     // The `<script>` fallback re-injects only where no preload is claimed, and
     // captureNetworkFromPerformanceLogs stands down when BiDi is active —
-    // between sessions neither claim is true any more.
+    // between sessions neither claim is true any more. A load the dead
+    // session's log listed went with its document, and kept it would take the
+    // new session's row for the same url.
     const { ctx, capturer } = makeCtx()
 
     rearm(ctx, fakeBrowser('session-2'))
 
     expect(capturer.preloadRegistered).toBe(false)
     expect(capturer.bidiActive).toBe(false)
+    expect(capturer.loadsListedByLog).toEqual([])
   })
 
   it('leaves the perf-log network path open when BiDi cannot be re-attached', async () => {

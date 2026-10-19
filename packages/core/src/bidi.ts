@@ -57,6 +57,14 @@ interface LogInspector {
 interface NetworkInspector {
   beforeRequestSent: (cb: (e: unknown) => void) => Promise<void>
   responseCompleted: (cb: (e: unknown) => void) => Promise<void>
+  fetchError?: (cb: (e: unknown) => void) => Promise<void>
+  /** The connection the inspector subscribed on, for one without the hook. */
+  bidi?: {
+    subscribe: (events: string | string[]) => Promise<unknown>
+    socket?: {
+      on: (event: 'message', listener: (raw: unknown) => void) => void
+    }
+  }
 }
 
 export function handleBidiConsoleEntry(
@@ -188,29 +196,63 @@ function bidiResponseTiming(
   return { endTime, time: Math.max(0, endTime - startTime) }
 }
 
+/** Rows a session has seen, by request id: a later event for the same request
+ *  (a redirect hop, a late failure) continues the row rather than adding one. */
+const MAX_TRACKED_REQUESTS = 5000
+
+function remember(
+  rows: Map<string, NetworkRequest>,
+  id: string,
+  entry: NetworkRequest
+): void {
+  rows.set(id, entry)
+  if (rows.size <= MAX_TRACKED_REQUESTS) {
+    return
+  }
+  // A row still open keeps its place: its answer has somewhere to land.
+  for (const [key, row] of rows) {
+    if (row.status !== undefined) {
+      rows.delete(key)
+      return
+    }
+  }
+  rows.delete(rows.keys().next().value as string)
+}
+
 export function handleBidiRequestSent(
   rawEvent: unknown,
-  pending: Map<string, NetworkRequest>,
+  rows: Map<string, NetworkRequest>,
   sinks: BidiHandlerSinks,
   log: BidiLogger
 ): void {
   const event = rawEvent as BeforeRequestSentEvent
   try {
     const requestId = String(event?.request?.request ?? event?.id ?? '')
-    if (!requestId) {
+    // selenium-webdriver's NetworkInspector hands every network event to every
+    // subscriber's callback, so response and failure events reach this
+    // handler too; taken as requests they pushed or reopened rows.
+    const shape = rawEvent as { response?: unknown; errorText?: unknown }
+    if (!requestId || shape?.response || shape?.errorText) {
       return
     }
+    const previous = rows.get(requestId)
     const entry: NetworkRequest = {
       id: requestId,
       url: event?.request?.url ?? '',
       method: event?.request?.method ?? 'GET',
       requestHeaders: arrayHeadersToObject(event?.request?.headers),
-      timestamp: Date.now(),
-      startTime: Number(event?.timestamp ?? Date.now()),
+      // A redirect hop re-sends the request under the same id: one row, which
+      // keeps the clock of the hop it follows and reopens for the next answer.
+      timestamp: previous?.timestamp ?? Date.now(),
+      startTime: previous?.startTime ?? Number(event?.timestamp ?? Date.now()),
       type: getRequestType(event?.request?.url ?? '')
     }
-    pending.set(requestId, entry)
-    sinks.pushNetworkRequest(entry)
+    remember(rows, requestId, entry)
+    if (previous) {
+      sinks.replaceNetworkRequest(requestId, entry)
+    } else {
+      sinks.pushNetworkRequest(entry)
+    }
   } catch (err) {
     log('warn', `beforeRequestSent threw: ${errorMessage(err)}`)
   }
@@ -218,15 +260,17 @@ export function handleBidiRequestSent(
 
 export function handleBidiResponseCompleted(
   rawEvent: unknown,
-  pending: Map<string, NetworkRequest>,
+  rows: Map<string, NetworkRequest>,
   sinks: BidiHandlerSinks,
   log: BidiLogger
 ): void {
   const event = rawEvent as ResponseCompletedEvent
   try {
     const requestId = String(event?.request?.request ?? event?.id ?? '')
-    const previous = pending.get(requestId)
-    if (!previous) {
+    const previous = rows.get(requestId)
+    // A request event delivered here (see handleBidiRequestSent) carries no
+    // response; finalizing on it emptied the row.
+    if (!previous || !event?.response) {
       return
     }
     const { endTime, time } = bidiResponseTiming(
@@ -244,14 +288,91 @@ export function handleBidiResponseCompleted(
       time,
       size: Number(event?.response?.bytesReceived) || undefined
     }
-    pending.delete(requestId)
+    remember(rows, requestId, finalized)
     sinks.replaceNetworkRequest(requestId, finalized)
   } catch (err) {
     log('warn', `responseCompleted threw: ${errorMessage(err)}`)
   }
 }
 
-async function attachNetworkInspector(
+interface FetchErrorEvent {
+  request?: { request?: string; timings?: FetchTimings }
+  id?: string
+  timestamp?: number
+  errorText?: string
+}
+
+/** A request the browser gave up on: closed as a failure, as the WDIO service
+ *  closes its own, so it never sits in the Network tab as pending. */
+export function handleBidiFetchError(
+  rawEvent: unknown,
+  rows: Map<string, NetworkRequest>,
+  sinks: BidiHandlerSinks,
+  log: BidiLogger
+): void {
+  const event = rawEvent as FetchErrorEvent
+  try {
+    const requestId = String(event?.request?.request ?? event?.id ?? '')
+    const previous = rows.get(requestId)
+    // The inspector delivers every network event here too; only a failure
+    // carries `errorText`.
+    if (!previous || typeof event?.errorText !== 'string') {
+      return
+    }
+    const { endTime, time } = bidiResponseTiming(
+      event?.request?.timings,
+      previous.startTime,
+      event?.timestamp
+    )
+    const errorText = event?.errorText ?? 'Failed'
+    const finalized: NetworkRequest = {
+      ...previous,
+      status: 0,
+      statusText: errorText,
+      error: errorText,
+      endTime,
+      time
+    }
+    remember(rows, requestId, finalized)
+    sinks.replaceNetworkRequest(requestId, finalized)
+  } catch (err) {
+    log('warn', `fetchError threw: ${errorMessage(err)}`)
+  }
+}
+
+/** A failed fetch closes its row, or it would stay pending forever: through
+ *  the inspector's own hook, or off the socket for an inspector without one. */
+async function subscribeFetchErrors(
+  inspector: NetworkInspector,
+  rows: Map<string, NetworkRequest>,
+  sinks: BidiHandlerSinks,
+  log: BidiLogger
+): Promise<void> {
+  if (typeof inspector.fetchError === 'function') {
+    await inspector.fetchError((e) => handleBidiFetchError(e, rows, sinks, log))
+    return
+  }
+  const bidi = inspector.bidi
+  if (typeof bidi?.subscribe !== 'function' || !bidi.socket?.on) {
+    return
+  }
+  await bidi.subscribe('network.fetchError')
+  bidi.socket.on('message', (raw) => {
+    try {
+      const { method, params } = JSON.parse(String(raw)) as {
+        method?: string
+        params?: unknown
+      }
+      if (method === 'network.fetchError') {
+        handleBidiFetchError(params, rows, sinks, log)
+      }
+    } catch {
+      /* a frame that is not JSON is not an event */
+    }
+  })
+}
+
+export async function attachNetworkInspector(
   driver: unknown,
   factory: InspectorFactory,
   sinks: BidiHandlerSinks,
@@ -259,13 +380,19 @@ async function attachNetworkInspector(
 ): Promise<boolean> {
   try {
     const inspector = (await factory(driver)) as NetworkInspector
-    const pending = new Map<string, NetworkRequest>()
+    const rows = new Map<string, NetworkRequest>()
     await inspector.beforeRequestSent((e) =>
-      handleBidiRequestSent(e, pending, sinks, log)
+      handleBidiRequestSent(e, rows, sinks, log)
     )
     await inspector.responseCompleted((e) =>
-      handleBidiResponseCompleted(e, pending, sinks, log)
+      handleBidiResponseCompleted(e, rows, sinks, log)
     )
+    try {
+      await subscribeFetchErrors(inspector, rows, sinks, log)
+    } catch (err) {
+      // The inspector is attached either way; only failed requests stay pending.
+      log('warn', `BiDi network.fetchError unavailable: ${errorMessage(err)}`)
+    }
     log('info', '✓ BiDi NetworkInspector attached (request + response)')
     return true
   } catch (err) {

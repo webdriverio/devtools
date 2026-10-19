@@ -94,12 +94,18 @@ export const HTTP_STATUS = {
  *  flight shows. */
 export const FAILED_STATUS_LABEL = 'ERR'
 
-/** Coarse status buckets used to colour the status dot/number in the list. */
+/** The list's and the detail card's glyph for a value the capture never had. */
+export const NO_VALUE = '—'
+
+/** Coarse status buckets used to colour the status dot/number in the list.
+ *  `unknown` is a request that completed on a source that exposes no status
+ *  (Resource Timing outside Chromium); `pending` is one still in flight. */
 export const STATUS_KIND = {
   OK: 'ok',
   REDIRECT: 'redirect',
   ERROR: 'error',
-  PENDING: 'pending'
+  PENDING: 'pending',
+  UNKNOWN: 'unknown'
 } as const
 
 export type StatusKind = (typeof STATUS_KIND)[keyof typeof STATUS_KIND]

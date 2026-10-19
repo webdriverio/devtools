@@ -425,6 +425,236 @@ describe('SessionCapturer.captureTrace', () => {
   })
 })
 
+/** One request as Chrome's performance log reports it, with its wall clock. */
+const perfLog = (url: string, wallTime: number) =>
+  [
+    [
+      'Network.requestWillBeSent',
+      {
+        requestId: 'R1',
+        request: { url, method: 'GET', headers: { accept: '*/*' } },
+        timestamp: 2.0,
+        wallTime
+      }
+    ],
+    [
+      'Network.responseReceived',
+      {
+        requestId: 'R1',
+        response: {
+          status: 200,
+          statusText: 'OK',
+          headers: { 'content-type': 'text/javascript' },
+          mimeType: 'text/javascript'
+        },
+        timestamp: 2.1
+      }
+    ],
+    ['Network.loadingFinished', { requestId: 'R1', timestamp: 2.15 }]
+  ].map(([method, params]) => ({
+    level: 'INFO',
+    timestamp: 1000,
+    message: JSON.stringify({ message: { method, params } })
+  }))
+
+/**
+ * BiDi counts as the network source only once it has delivered an event:
+ * against Appium 3.7's XCUITest driver the inspectors attach and then send
+ * nothing, and gating on the attach alone withheld the page's only rows.
+ */
+describe('SessionCapturer.captureTrace and BiDi evidence', () => {
+  const resourceTimingRow = {
+    id: 'rt-1',
+    url: 'https://x/app.js',
+    method: 'GET',
+    type: 'script',
+    timestamp: 2,
+    startTime: 1,
+    source: 'resource-timing'
+  }
+
+  /** A driver whose drains answer `batches` in turn, the last one repeated;
+   *  `null` is a document with no collector, and the url read that recovery
+   *  then makes finds no document either. */
+  async function drainingServer(
+    batches: (unknown[] | null)[] = [[resourceTimingRow]],
+    getLog = vi.fn(async () => [])
+  ) {
+    const http = await import('node:http')
+    let drains = 0
+    const server = http.createServer((req, res) => {
+      let raw = ''
+      req.on('data', (c) => {
+        raw += c
+      })
+      req.on('end', () => {
+        const batch = raw.includes('location.href')
+          ? null
+          : batches[Math.min(drains++, batches.length - 1)]
+        res.setHeader('content-type', 'application/json')
+        res.end(
+          JSON.stringify({
+            value: batch && { mutations: [], networkRequests: batch }
+          })
+        )
+      })
+    })
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()))
+    const port = (server.address() as { port: number }).port
+    const browser = makeMockBrowser({
+      getLog,
+      sessionId: 'sess-bidi',
+      transport: { settings: { webdriver: { host: '127.0.0.1', port } } }
+    })
+    return {
+      browser,
+      close: () => new Promise<void>((r) => server.close(() => r()))
+    }
+  }
+
+  it('keeps the page’s rows while an attached BiDi has delivered nothing', async () => {
+    const { browser, close } = await drainingServer()
+    const cap = makeCapturer(browser)
+    cap.bidiActive = true
+    try {
+      await cap.captureTrace(browser)
+      expect(cap.networkRequests.map((r) => r.id)).toEqual(['rt-1'])
+    } finally {
+      await close()
+    }
+  })
+
+  /** The page's row for the load the log lists, and a second request to the
+   *  same url inside the window. */
+  const pageRow = { ...resourceTimingRow, timestamp: 1_760_000_000_500 }
+  const laterSameUrl = {
+    ...resourceTimingRow,
+    id: 'rt-2',
+    timestamp: 1_760_000_001_000
+  }
+  /** A log that lists the load once, at its first read. */
+  const logListingOnce = () =>
+    vi
+      .fn()
+      .mockResolvedValueOnce(perfLog('https://x/app.js', 1760000000.52))
+      .mockResolvedValue([])
+
+  it('drops the page’s row for a load the log listed first, and only that row', async () => {
+    // The log is read after the drain, so a load completing between the two
+    // reaches the session as the log's row first and the page's a drain
+    // later. A second request to the same url inside the window is a request
+    // of its own: it keeps its row rather than being read as the first's
+    // second listing, which a scan of every row the session held did.
+    const { browser, close } = await drainingServer(
+      [[], [pageRow], [laterSameUrl]],
+      logListingOnce()
+    )
+    const cap = makeCapturer(browser)
+    cap.perfLogsRequested = true
+    try {
+      await cap.captureTrace(browser)
+      expect(cap.networkRequests.map((r) => r.id)).toEqual(['1000-R1'])
+      await cap.captureTrace(browser)
+      expect(cap.networkRequests.map((r) => r.id)).toEqual(['1000-R1'])
+      await cap.captureTrace(browser)
+      expect(cap.networkRequests.map((r) => r.id)).toEqual(['1000-R1', 'rt-2'])
+    } finally {
+      await close()
+    }
+  })
+
+  it('spends what the log listed on a drain that found no collector', async () => {
+    // The drain reached the driver and the document the load belonged to is
+    // gone, so its row is never coming; kept, the load would take the next
+    // document's row for the same url.
+    const { browser, close } = await drainingServer(
+      [[], null, [laterSameUrl]],
+      logListingOnce()
+    )
+    const cap = makeCapturer(browser)
+    cap.perfLogsRequested = true
+    try {
+      await cap.captureTrace(browser)
+      await cap.captureTrace(browser)
+      await cap.captureTrace(browser)
+      expect(cap.networkRequests.map((r) => r.id)).toEqual(['1000-R1', 'rt-2'])
+    } finally {
+      await close()
+    }
+  })
+
+  it('drops them once the BiDi sink has received a request', async () => {
+    const { buildBidiSinks } = await import('../src/bidi.js')
+    const { browser, close } = await drainingServer()
+    const cap = makeCapturer(browser)
+    cap.bidiActive = true
+    buildBidiSinks(cap).pushNetworkRequest({
+      id: 'bidi-1',
+      url: 'https://x/',
+      method: 'GET',
+      type: 'document',
+      timestamp: 1,
+      startTime: 0
+    })
+    try {
+      await cap.captureTrace(browser)
+      expect(cap.networkRequests.map((r) => r.id)).toEqual(['bidi-1'])
+    } finally {
+      await close()
+    }
+  })
+})
+
+describe('SessionCapturer.captureNetworkFromPerformanceLogs upgrades', () => {
+  it('upgrades the page’s Resource Timing row in place with what the log saw', async () => {
+    // The drain runs before the log is read, so the page's row for a load is
+    // already in the session; the log's headers and status replace it under
+    // the same id rather than listing the load twice.
+    const browser = makeMockBrowser({
+      getLog: vi.fn(async () => perfLog('https://x/app.js', 1760000000.52))
+    })
+    const cap = makeCapturer(browser)
+    cap.perfLogsRequested = true
+    cap.networkRequests.push({
+      id: 'rt-1',
+      url: 'https://x/app.js',
+      method: 'GET',
+      type: 'script',
+      timestamp: 1_760_000_000_500,
+      startTime: 500,
+      source: 'resource-timing'
+    })
+    const upstream = vi.spyOn(cap, 'sendUpstream')
+
+    await cap.captureNetworkFromPerformanceLogs(browser)
+
+    expect(cap.networkRequests).toHaveLength(1)
+    expect(cap.networkRequests[0]).toMatchObject({
+      id: 'rt-1',
+      status: 200,
+      responseHeaders: { 'content-type': 'text/javascript' }
+    })
+    expect(cap.networkRequests[0].source).toBeUndefined()
+    expect(upstream).toHaveBeenCalledWith('networkRequests', [
+      expect.objectContaining({ id: 'rt-1', status: 200 })
+    ])
+  })
+
+  it('still appends a load the page never reported', async () => {
+    const browser = makeMockBrowser({
+      getLog: vi.fn(async () => perfLog('https://x/other.js', 1760000000.52))
+    })
+    const cap = makeCapturer(browser)
+    cap.perfLogsRequested = true
+
+    await cap.captureNetworkFromPerformanceLogs(browser)
+
+    expect(cap.networkRequests.map((r) => r.url)).toEqual([
+      'https://x/other.js'
+    ])
+  })
+})
+
 describe('SessionCapturer.anchorAfterNavigation', () => {
   /** A driver whose `performance.timeOrigin` reads follow `origins`, and whose
    *  drain answers an anchored payload. Every request is one JSON response, so

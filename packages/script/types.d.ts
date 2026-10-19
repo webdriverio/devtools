@@ -27,7 +27,8 @@ declare global {
   }
 
   interface Window {
-    wdioTraceCollector: DataCollectorType
+    /** Absent until the collector bundle has run in this document. */
+    wdioTraceCollector?: DataCollectorType
   }
 
   interface TraceMutation {

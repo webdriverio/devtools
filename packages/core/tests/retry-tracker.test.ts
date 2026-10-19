@@ -89,3 +89,35 @@ describe('staged-then-resolved flow (nightwatch pattern)', () => {
     expect(t.lastId).toBe(7)
   })
 })
+
+describe('RetryTracker.isRetryIgnoringSource', () => {
+  it('folds a repeat without a call site into the last call with one', () => {
+    // selenium's `wait()` runs its first poll inside the call, with the spec
+    // line on the stack, and the rest from a timer with no user frame.
+    const tracker = new RetryTracker()
+    tracker.recordCapture(
+      RetryTracker.signature('getCurrentUrl', [], '/spec.js:22'),
+      7
+    )
+    expect(
+      tracker.isRetryIgnoringSource(
+        RetryTracker.bareSignature('getCurrentUrl', [])
+      )
+    ).toBe(true)
+    expect(
+      tracker.isRetryIgnoringSource(RetryTracker.bareSignature('getTitle', []))
+    ).toBe(false)
+  })
+
+  it('needs an id to replace, like isRetry', () => {
+    const tracker = new RetryTracker()
+    tracker.setLastSig(
+      RetryTracker.signature('getCurrentUrl', [], '/spec.js:22')
+    )
+    expect(
+      tracker.isRetryIgnoringSource(
+        RetryTracker.bareSignature('getCurrentUrl', [])
+      )
+    ).toBe(false)
+  })
+})

@@ -201,6 +201,9 @@ export const networkStyles = css`
   .kind-pending {
     color: var(--vscode-descriptionForeground);
   }
+  .kind-unknown {
+    color: var(--vscode-disabledForeground);
+  }
 
   .req-type,
   .req-dur,

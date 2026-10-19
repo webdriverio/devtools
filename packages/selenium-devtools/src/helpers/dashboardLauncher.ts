@@ -16,7 +16,37 @@ const log = logger('@wdio/selenium-devtools:dashboardLauncher')
  * --forceExit, mocha SIGINT). The unique user-data-dir is also used by
  * gracefulShutdown's pkill to target only THIS run's window.
  */
-export function openDashboard(host: string, port: number): boolean {
+export interface OpenDashboardOptions {
+  /** Open the window behind the current one. Safari delivers synthesized
+   *  clicks only to its frontmost window, so a Safari session must keep it. */
+  keepFocus?: boolean
+}
+
+/** The process to spawn for the dashboard window. On macOS a window that must
+ *  not take the front goes through `open -g`, with `-n` so the isolated
+ *  `--user-data-dir` still gets its own Chrome rather than merging into one
+ *  already running; everywhere else the binary is invoked directly. */
+export function dashboardLaunchCommand(
+  chromeBin: string,
+  chromeArgs: string[],
+  keepFocus: boolean,
+  platform: NodeJS.Platform = process.platform
+): { command: string; args: string[] } {
+  const app = chromeBin.match(/^(.*\.app)\/Contents\/MacOS\//)?.[1]
+  if (keepFocus && platform === 'darwin' && app) {
+    return {
+      command: 'open',
+      args: ['-n', '-g', '-a', app, '--args', ...chromeArgs]
+    }
+  }
+  return { command: chromeBin, args: chromeArgs }
+}
+
+export function openDashboard(
+  host: string,
+  port: number,
+  options: OpenDashboardOptions = {}
+): boolean {
   const url = `http://${host}:${port}`
   const chromeBin = findChromeBinary()
   if (!chromeBin) {
@@ -39,10 +69,15 @@ export function openDashboard(host: string, port: number): boolean {
     '--new-window',
     url
   ]
+  const launch = dashboardLaunchCommand(
+    chromeBin,
+    chromeArgs,
+    options.keepFocus === true
+  )
   try {
     const code =
       'require("child_process")' +
-      `.spawn(${JSON.stringify(chromeBin)}, ${JSON.stringify(chromeArgs)}, { detached: true, stdio: "ignore" }).unref()`
+      `.spawn(${JSON.stringify(launch.command)}, ${JSON.stringify(launch.args)}, { detached: true, stdio: "ignore" }).unref()`
     const intermediate = spawn(process.execPath, ['-e', code], {
       detached: true,
       stdio: 'ignore'

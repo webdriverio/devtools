@@ -45,6 +45,7 @@ from .constants import (
     BIDI_CAPABILITY,
     BIDI_LEVEL_MAP,
     BIDI_NET_BEFORE_REQUEST,
+    BIDI_NET_FETCH_ERROR,
     BIDI_NET_RESPONSE_COMPLETED,
     LOGGER_NAME,
     PYTHON_MINIMUM_VERSION,
@@ -234,6 +235,38 @@ def response_completed_kwargs(
     return merged
 
 
+def fetch_error_kwargs(
+    params: Dict[str, Any], pending: Dict[str, Dict[str, Any]]
+) -> Optional[Dict[str, Any]]:
+    """kwargs closing a pending request the browser gave up on, as the JS
+    adapters close theirs: status 0 and the browser's own reason as the error,
+    so a blocked beacon reads as failed rather than sitting pending for the
+    rest of the session.
+
+    Returns None when the matching request wasn't seen.
+    """
+    request = params.get("request") or {}
+    request_id = str(request.get("request") or params.get("id") or "")
+    prev = pending.get(request_id)
+    if prev is None:
+        return None
+    start_time = int(prev.get("start_time") or now_ms())
+    end_time, time = _response_timing(
+        request.get("timings"), start_time, params.get("timestamp")
+    )
+    reason = str(params.get("errorText") or "Failed")
+    merged = dict(prev)
+    merged.update(
+        status=0,
+        status_text=reason,
+        error=reason,
+        timestamp=now_ms(),
+        end_time=end_time,
+        time=time,
+    )
+    return merged
+
+
 def request_type_for(url: str, mime_type: Optional[str] = None) -> str:
     """Classify a request into the dashboard's Network-tab categories.
 
@@ -327,9 +360,15 @@ def _response_timing(
 # ── selenium wiring (defensive) ───────────────────────────────────────────────
 
 
-def _bidi_enabled(driver: Any) -> bool:
+def bidi_enabled(driver: Any) -> bool:
+    """Whether the session has a BiDi socket to attach to. The one reading of
+    the capability, shared with the preload: a socket address, not merely a
+    truthy value, because safaridriver echoes the requested ``True`` back as
+    the capability and selenium's own connection thread then dies calling
+    ``startswith`` on a bool."""
     caps = getattr(driver, "caps", None)
-    return bool(isinstance(caps, dict) and caps.get(BIDI_CAPABILITY))
+    url = caps.get(BIDI_CAPABILITY) if isinstance(caps, dict) else None
+    return isinstance(url, str) and url.startswith("ws")
 
 
 def _attach_console(driver: Any, capturer: SessionCapturer) -> bool:
@@ -568,6 +607,7 @@ def _attach_network(
                 return
             kwargs = request_sent_kwargs(params)
             if kwargs is not None:
+                stats["observed"] = True
                 pending[kwargs["request_id"]] = kwargs
                 capturer.capture_network(**kwargs)
         except Exception as exc:  # noqa: BLE001
@@ -588,7 +628,26 @@ def _attach_network(
         except Exception as exc:  # noqa: BLE001
             _warn(f"responseCompleted handler threw: {exc}")
 
-    return _subscribe_via_event_manager(
+    # Subscribed on its own, after the pair: a driver that refuses this one
+    # event should lose only the failure rows, not every network event.
+    failures = {"ok": False}
+
+    def on_fetch_error(event: Any) -> None:
+        if not (active["ok"] and failures["ok"]):
+            return
+        try:
+            params = event_params(event)
+            if _incomplete_event(params, BIDI_NET_FETCH_ERROR):
+                return
+            kwargs = fetch_error_kwargs(params, pending)
+            if kwargs is not None:
+                pending.pop(kwargs["request_id"], None)
+                capturer.capture_network(**kwargs)
+                stats["captured"] += 1
+        except Exception as exc:  # noqa: BLE001
+            _warn(f"fetchError handler threw: {exc}")
+
+    attached = _subscribe_via_event_manager(
         driver,
         {
             BIDI_NET_BEFORE_REQUEST: on_request_sent,
@@ -596,10 +655,28 @@ def _attach_network(
         },
         active,
     )
+    stats["attached"] = attached
+    if attached and not _subscribe_via_event_manager(
+        driver, {BIDI_NET_FETCH_ERROR: on_fetch_error}, failures, optional=True
+    ):
+        _warn(f"{BIDI_NET_FETCH_ERROR} unavailable; a request the browser gives up on stays pending")
+    return attached
+
+
+def network_serving(stats: Optional[Dict[str, Any]]) -> bool:
+    """Whether BiDi is serving the session's requests: subscribed AND at least
+    one request event has arrived. A subscription alone is not evidence, since
+    Appium's BiDi shim accepts the subscription and then delivers nothing; read
+    by the drain to decide whether the page's own network entries are the
+    session's capture or a second listing of what BiDi already reported."""
+    return bool(stats and stats.get("attached") and stats.get("observed"))
 
 
 def _subscribe_via_event_manager(
-    driver: Any, handlers: Dict[str, Any], active: Dict[str, bool]
+    driver: Any,
+    handlers: Dict[str, Any],
+    active: Dict[str, bool],
+    optional: bool = False,
 ) -> bool:
     """selenium 4.44+: subscribe each handler to its BiDi event.
 
@@ -631,7 +708,8 @@ def _subscribe_via_event_manager(
         for bidi_event, callback in handlers.items():
             _add_raw_event_handler(network, bidi_event, callback, registered)
     except Exception as exc:  # noqa: BLE001
-        _warn(f"network subscribe failed, no network events captured: {exc}")
+        if not optional:
+            _warn(f"network subscribe failed, no network events captured: {exc}")
         for bidi_event, wrapper, callback_id in registered:
             _undo_registration(manager, bidi_event, wrapper, callback_id)
         return False
@@ -673,7 +751,7 @@ def attach(
     ``stats`` is an optional bag the caller keeps, to be passed to
     ``network_summary`` when the session ends.
     """
-    if not _bidi_enabled(driver):
+    if not bidi_enabled(driver):
         _warn(
             f"{BIDI_CAPABILITY} not set on the session — enable BiDi with "
             "options.web_socket_url = True to capture console/network"

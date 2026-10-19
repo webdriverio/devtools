@@ -15,8 +15,12 @@
  */
 
 import logger from '@wdio/logger'
-import { resolveViewport } from '@wdio/devtools-core'
-import { webdriverExecute, webdriverGet } from './helpers/webdriverHttp.js'
+import { resolveViewport, restoreBrowserFocus } from '@wdio/devtools-core'
+import {
+  resolveWebDriverAddress,
+  webdriverExecute,
+  webdriverGet
+} from './helpers/webdriverHttp.js'
 import {
   errorMessage,
   finalizeScreencast,
@@ -180,6 +184,22 @@ async function broadcastSessionMetadata(
   log.info(
     `✓ Browser: ${browserName}${browserVersion ? ' ' + browserVersion : ''} (session: ${sessionId})`
   )
+  // The dashboard window took the front; Safari clicks reach nothing there.
+  if (
+    ctx.mode === 'live' &&
+    restoreBrowserFocus({
+      browserName: String(browserName),
+      platformName: String(
+        capabilities.platformName || desiredCapabilities.platformName || ''
+      ),
+      host: resolveWebDriverAddress(browser).driverHost,
+      onError: (message) => log.warn(message)
+    })
+  ) {
+    log.info(
+      '✓ Safari brought back to the front (it delivers clicks only there)'
+    )
+  }
 
   const wantsPerfLog = wantsPerformanceLog(
     capabilities as Record<string, unknown>,
@@ -191,7 +211,7 @@ async function broadcastSessionMetadata(
   ctx.sessionCapturer.perfLogsRequested = wantsPerfLog
   if (!wantsPerfLog && !ctx.bidiEnabled) {
     log.warn(
-      "⚠  Network tab will be empty — add 'goog:loggingPrefs': { performance: 'ALL' } to your capabilities (or enable bidi:true)"
+      "⚠  Network tab will carry the page's own Resource Timing only (no headers, no bodies). Add 'goog:loggingPrefs': { performance: 'ALL' } to your capabilities (or enable bidi:true) for full requests"
     )
   }
 }
@@ -319,6 +339,8 @@ async function armReplacedSession(
   // inspectors that no longer receive anything.
   ctx.sessionCapturer.preloadRegistered = false
   ctx.sessionCapturer.bidiActive = false
+  ctx.sessionCapturer.bidiNetworkObserved = false
+  ctx.sessionCapturer.loadsListedByLog = []
   log.info(`Session replaced — re-arming capture for ${sessionId}`)
   await armCaptureForSession(ctx, browser)
 }

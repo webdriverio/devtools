@@ -471,7 +471,7 @@ The plugin patches `selenium-webdriver`'s `Builder`, `WebDriver`, and `WebElemen
 - **Every public `WebDriver` / `WebElement` method** → wrapped with command capture (args + result + screenshot + call source).
 - **`WebDriver.quit()`** → awaited cleanup hook flushes screencast encoding, WebSocket buffer, and final metadata before the original quit runs.
 
-When BiDi is available (Chrome ≥114), console logs, JavaScript exceptions, and network events stream directly via the Selenium BiDi handlers. Otherwise the plugin falls back to an injected browser-side collector script.
+When BiDi is available (Chrome ≥114), console logs, JavaScript exceptions, and network events stream directly via the Selenium BiDi handlers. Otherwise the plugin falls back to an injected browser-side collector script, so a Safari or Appium session still lists every request, from two sources of the page's own. A `fetch` / `XMLHttpRequest` call goes through the collector's patch and carries its method, headers, status and body. Every other load (the document, scripts, styles, images, fonts) comes from the page's Resource Timing buffer with its timing and size, but no headers or body, and on Safari no status; the Network tab says so on each such row.
 
 The same injected collector also records the page's **DOM mutation stream** and a per-command element / accessibility snapshot, so a trace carries enough to rebuild the live DOM at each step (per-navigation mapping) — that's what powers the player's DOM time-travel and A11y tab rather than a screenshot-only replay.
 
@@ -486,6 +486,8 @@ Same script and post-processing (`applyPerformanceData`) used by `@wdio/devtools
 ---
 
 ## Limitations
+
+- **Safari in live mode must stay the frontmost window.** Safari delivers synthesized mouse input only to its frontmost window and still reports the click as successful, so a click issued while the dashboard or any other window is in front reaches nothing. The plugin brings Safari back to the front after the session starts (`open -a Safari`, macOS only); clicking the dashboard while the test is running hands focus away again and the clicks that follow are lost until Safari is in front once more. Trace mode opens no window and is not affected.
 
 | Limitation | Detail |
 |-----------|--------|

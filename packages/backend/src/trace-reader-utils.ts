@@ -5,12 +5,16 @@ import { strFromU8 } from 'fflate'
 import { sourceResourceName } from '@wdio/devtools-trace/trace-sources'
 import {
   isDeviceInfo,
+  isRequestType,
   isTestRunnerId,
+  NETWORK_CAPTURE_SOURCE,
+  NETWORK_TIMING_PHASES,
   TraceType,
   type ConsoleLog,
   type LogLevel,
   type Metadata,
   type NetworkRequest,
+  type NetworkTimings,
   type RequestType,
   type TracePlayerFrame,
   type Viewport
@@ -142,6 +146,30 @@ function restoreResponseBody(
   return data ? strFromU8(data) : undefined
 }
 
+/** HAR marks a phase that does not apply as `-1`; the wire type omits it. */
+function harPhase(value: number | undefined): number | undefined {
+  return typeof value === 'number' && value >= 0 ? value : undefined
+}
+
+/** The measured phases, when the writer measured any. The writer's fallback
+ *  for an unmeasured entry carries only `send`/`wait`/`receive`, with the
+ *  whole duration as `wait`: not a measurement, so not restored. */
+function restoreTimings(
+  timings: HarSnapshot['timings']
+): NetworkTimings | undefined {
+  if (!timings || !('dns' in timings)) {
+    return undefined
+  }
+  const restored: NetworkTimings = {}
+  for (const phase of NETWORK_TIMING_PHASES) {
+    const value = harPhase(timings[phase])
+    if (value !== undefined) {
+      restored[phase] = value
+    }
+  }
+  return restored
+}
+
 export function harToNetworkRequest(
   snapshot: HarSnapshot,
   index: number,
@@ -153,19 +181,37 @@ export function harToNetworkRequest(
   // a pending or failed request with no response or content; default those.
   const response = snapshot.response
   const content = response?.content
-  const responseHeaders = headerArrayToRecord(response?.headers)
-  const responseBody = restoreResponseBody(content, files)
-  return {
+  const status = response?.status ?? 0
+  const timings = restoreTimings(snapshot.timings)
+  const base = {
     id: String(index),
     url: snapshot.request.url,
     method: snapshot.request.method,
-    status: response?.status ?? 0,
-    statusText: response?.statusText ?? '',
     timestamp: startTime,
     startTime,
     endTime: startTime + snapshot.time,
     time: snapshot.time,
-    type: mimeToType(content?.mimeType ?? ''),
+    type: isRequestType(snapshot._resourceType)
+      ? snapshot._resourceType
+      : mimeToType(content?.mimeType ?? ''),
+    ...(timings ? { timings } : {})
+  }
+  // A Resource Timing entry saw no response: HAR's required `status` was
+  // written as 0, which read back as-is would render as a transport failure.
+  if (snapshot._source === NETWORK_CAPTURE_SOURCE.RESOURCE_TIMING) {
+    return {
+      ...base,
+      ...(status > 0 ? { status } : {}),
+      ...(content?.size ? { size: content.size } : {}),
+      source: NETWORK_CAPTURE_SOURCE.RESOURCE_TIMING
+    }
+  }
+  const responseHeaders = headerArrayToRecord(response?.headers)
+  const responseBody = restoreResponseBody(content, files)
+  return {
+    ...base,
+    status,
+    statusText: response?.statusText ?? '',
     requestHeaders: headerArrayToRecord(snapshot.request.headers),
     responseHeaders,
     size: content?.size ?? 0,
@@ -174,7 +220,7 @@ export function harToNetworkRequest(
       fromCache: false,
       headers: responseHeaders,
       mimeType: content?.mimeType ?? '',
-      status: response?.status ?? 0
+      status
     }
   }
 }

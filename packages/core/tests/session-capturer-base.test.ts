@@ -1,4 +1,5 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { NETWORK_CAPTURE_SOURCE } from '@wdio/devtools-shared'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { SessionCapturerBase } from '../src/session-capturer.js'
 
 /**
@@ -25,10 +26,35 @@ class TestSessionCapturer extends SessionCapturerBase {
       networkRequests?: unknown
       metadata?: unknown
     },
-    opts?: { skipConsoleLogs?: boolean; skipNetworkRequests?: boolean }
+    opts?: {
+      skipConsoleLogs?: boolean
+      skipNetworkRequests?: boolean
+      skipResourceTimingRequests?: boolean
+    }
   ) {
     return this.processTracePayload(payload, opts)
   }
+}
+
+/** The two network rows a drain carries: the patched fetch, which holds the
+ *  body nothing else captures, and a Resource Timing row for a script load. */
+const patchedFetch = {
+  id: 'r1',
+  url: 'https://x/api',
+  method: 'POST',
+  timestamp: 1,
+  startTime: 0,
+  type: 'fetch',
+  responseBody: '{"ok":true}'
+}
+const resourceTimingRow = {
+  id: 'rt-1-0',
+  url: 'https://x/app.js',
+  method: 'GET',
+  timestamp: 2,
+  startTime: 1,
+  type: 'script',
+  source: NETWORK_CAPTURE_SOURCE.RESOURCE_TIMING
 }
 
 let cap: TestSessionCapturer
@@ -129,6 +155,36 @@ describe('processTracePayload — BiDi gating (the duplicate-suppression contrac
     })
     expect(cap.consoleLogs[0].source).toBe('browser') // overridden
     expect(cap.upstream.find((u) => u.scope === 'consoleLogs')).toBeDefined()
+  })
+
+  it('drops only the Resource Timing rows under skipResourceTimingRequests', () => {
+    // A driver-side source reports the script load with its headers; the
+    // patched fetch is the one row still carrying a body.
+    cap.process(
+      { networkRequests: [patchedFetch, resourceTimingRow] },
+      { skipResourceTimingRequests: true }
+    )
+    expect(cap.networkRequests).toEqual([patchedFetch])
+    expect(
+      cap.upstream.find((u) => u.scope === 'networkRequests')?.data
+    ).toEqual([patchedFetch])
+  })
+
+  it('sends nothing when the gate leaves no row', () => {
+    cap.process(
+      { networkRequests: [resourceTimingRow] },
+      { skipResourceTimingRequests: true }
+    )
+    expect(cap.networkRequests).toEqual([])
+    expect(
+      cap.upstream.find((u) => u.scope === 'networkRequests')
+    ).toBeUndefined()
+  })
+
+  it('keeps the Resource Timing rows when nothing else serves the session', () => {
+    // Safari and Appium: the page is the only network source there is.
+    cap.process({ networkRequests: [patchedFetch, resourceTimingRow] })
+    expect(cap.networkRequests).toEqual([patchedFetch, resourceTimingRow])
   })
 })
 
@@ -348,5 +404,80 @@ describe('SessionCapturerBase.isNativeAppSession', () => {
     } as never)
 
     expect(capturer.isNativeAppSession).toBe(true)
+  })
+})
+
+describe('processTracePayload network ids', () => {
+  it('replaces a row re-sent under the same id instead of listing it twice', () => {
+    class Capturer extends SessionCapturerBase {
+      ingest(payload: unknown) {
+        this.processTracePayload(payload as never)
+      }
+    }
+    const capturer = new Capturer({})
+    const row = (id: string, status?: number) => ({
+      id,
+      url: 'https://x/a',
+      method: 'GET',
+      type: 'fetch' as const,
+      timestamp: 1,
+      startTime: 1,
+      ...(status ? { status } : {})
+    })
+    try {
+      capturer.ingest({ networkRequests: [row('r1')] })
+      capturer.ingest({ networkRequests: [row('r1', 200), row('r2')] })
+      expect(capturer.networkRequests.map((r) => [r.id, r.status])).toEqual([
+        ['r1', 200],
+        ['r2', undefined]
+      ])
+    } finally {
+      capturer.cleanup()
+    }
+  })
+})
+
+describe('processTracePayload network ids at scale', () => {
+  it('keeps each request one row without rescanning the recording', () => {
+    class Capturer extends SessionCapturerBase {
+      ingest(payload: unknown) {
+        this.processTracePayload(payload as never)
+      }
+    }
+    const capturer = new Capturer({})
+    const row = (id: string, status?: number) => ({
+      id,
+      url: `https://x/${id}`,
+      method: 'GET',
+      type: 'fetch' as const,
+      timestamp: 1,
+      startTime: 1,
+      ...(status ? { status } : {})
+    })
+    try {
+      const batch = Array.from({ length: 20000 }, (_, i) => row(`r${i}`))
+      const scans = vi.spyOn(Array.prototype, 'findIndex')
+      capturer.ingest({ networkRequests: batch })
+      capturer.ingest({ networkRequests: [row('r7', 204)] })
+      expect(scans).not.toHaveBeenCalled()
+      scans.mockRestore()
+      expect(capturer.networkRequests).toHaveLength(20000)
+      expect(capturer.networkRequests[7].status).toBe(204)
+      // A row an adapter replaced by index keeps resolving to the same slot.
+      capturer.networkRequests[9] = {
+        ...capturer.networkRequests[9],
+        status: 500
+      }
+      capturer.ingest({ networkRequests: [row('r9', 200)] })
+      expect(capturer.networkRequests).toHaveLength(20000)
+      expect(capturer.networkRequests[9].status).toBe(200)
+      // A row that moved since it was indexed is still found, not appended again.
+      capturer.networkRequests.splice(0, 1)
+      capturer.ingest({ networkRequests: [row('r9', 201)] })
+      expect(capturer.networkRequests).toHaveLength(19999)
+      expect(capturer.networkRequests[8].status).toBe(201)
+    } finally {
+      capturer.cleanup()
+    }
   })
 })

@@ -460,3 +460,85 @@ describe('selenium SessionCapturer on a native session', () => {
     expect(scripts.length).toBeGreaterThan(0)
   })
 })
+
+/**
+ * BiDi counts as a source only once it has delivered an event of that stream.
+ * Against Appium 3.7's XCUITest driver the inspectors attach cleanly and then
+ * send nothing; gating on the attach alone left the trace with zero network
+ * rows and no console.
+ */
+describe('selenium SessionCapturer.captureTrace and BiDi evidence', () => {
+  let restoreExec: (() => void) | undefined
+
+  afterEach(() => {
+    restoreExec?.()
+    restoreExec = undefined
+  })
+
+  const payload = {
+    mutations: [],
+    consoleLogs: [{ type: 'log', args: ['from the page'], timestamp: 1 }],
+    networkRequests: [
+      {
+        id: 'rt-1',
+        url: 'https://x/app.js',
+        method: 'GET',
+        type: 'script',
+        timestamp: 2,
+        startTime: 1,
+        source: 'resource-timing'
+      }
+    ]
+  }
+
+  function drainAnswers() {
+    const originals = getDriverOriginals()
+    const prev = originals.executeScript
+    originals.executeScript = (async (_driver: unknown, script: unknown) => {
+      const s = String(script)
+      if (s.includes('getTraceData')) {
+        return payload
+      }
+      if (s.includes('location.href')) {
+        return 'https://x/'
+      }
+      return true
+    }) as (typeof originals)['executeScript']
+    restoreExec = () => {
+      if (prev) {
+        originals.executeScript = prev
+      } else {
+        delete originals.executeScript
+      }
+    }
+  }
+
+  it('keeps the page’s console and network while an attached BiDi has delivered nothing', async () => {
+    drainAnswers()
+    const cap = makeCapturer({ id: 'd' })
+    cap.bidiActive = true
+    await cap.captureTrace()
+    expect(cap.networkRequests.map((r) => r.id)).toEqual(['rt-1'])
+    expect(cap.consoleLogs.map((c) => c.args)).toEqual([['from the page']])
+  })
+
+  it('withholds each stream once its BiDi sink has received an event', async () => {
+    const { buildBidiSinks } = await import('../src/bidi.js')
+    drainAnswers()
+    const cap = makeCapturer({ id: 'd' })
+    cap.bidiActive = true
+    const sinks = buildBidiSinks(cap)
+    sinks.pushNetworkRequest({
+      id: 'bidi-1',
+      url: 'https://x/',
+      method: 'GET',
+      type: 'document',
+      timestamp: 1,
+      startTime: 0
+    })
+    sinks.pushConsoleLog({ type: 'log', args: ['from bidi'], timestamp: 1 })
+    await cap.captureTrace()
+    expect(cap.networkRequests.map((r) => r.id)).toEqual(['bidi-1'])
+    expect(cap.consoleLogs.map((c) => c.args)).toEqual([['from bidi']])
+  })
+})

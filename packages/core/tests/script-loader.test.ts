@@ -146,6 +146,16 @@ describe('pollUntilReady', () => {
     expect(calls).toBe(2)
   })
 
+  it('with checkFirst, returns without sleeping when already ready', async () => {
+    const check = vi.fn(async () => true)
+    const start = Date.now()
+    expect(
+      await pollUntilReady(check, { intervalMs: 500, checkFirst: true })
+    ).toBe(true)
+    expect(Date.now() - start).toBeLessThan(100)
+    expect(check).toHaveBeenCalledTimes(1)
+  })
+
   it('returns false when no attempt succeeds', async () => {
     const check = vi.fn(async () => false)
     const ok = await pollUntilReady(check, { attempts: 3, intervalMs: 1 })

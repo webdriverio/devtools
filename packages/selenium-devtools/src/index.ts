@@ -5,6 +5,7 @@ import './setupConsole.js'
 import logger from '@wdio/logger'
 import { startDetachedBackend } from './helpers/detachedBackend.js'
 import { openDashboard } from './helpers/dashboardLauncher.js'
+import { getDriverOriginals } from './driverPatcher.js'
 import { handleOnCommand } from './helpers/commandPostActions.js'
 import { logConfigSummary } from './helpers/configSummary.js'
 import { registerProcessHooks } from './helpers/processHooks.js'
@@ -534,12 +535,66 @@ class SeleniumDevToolsPlugin {
     await handleOnCommand(this.#getInternals(), cmd)
   }
 
+  /** Fallback path only: under the preload the destination instrumented itself. */
+  async instrumentNavigationTarget() {
+    const capturer = this.#sessionCapturer
+    if (!capturer || capturer.preloadRegistered) {
+      return
+    }
+    await capturer.injectScript()
+  }
+
   #openUiWindow() {
     if (this.#uiUrlOpened) {
       return
     }
     this.#uiUrlOpened = true
-    openDashboard(this.#options.hostname, this.#options.port)
+    openDashboard(this.#options.hostname, this.#options.port, {
+      keepFocus: /safari/i.test(this.#pendingBrowserName ?? '')
+    })
+  }
+
+  /** Safari delivers synthesized input only to its frontmost window and
+   *  reports success either way; the dashboard, or anything else, can take the
+   *  front mid-test. Switching to the session's own window handle brings that
+   *  window forward, and only that one. */
+  async focusForInput() {
+    const internals = this.#getInternals()
+    const driver = internals.driver as
+      | (SeleniumDriverLike & {
+          switchTo?: () => { window: (handle: string) => Promise<void> }
+        })
+      | undefined
+    const caps = internals.sessionCapturer?.metadata?.capabilities as
+      { browserName?: string } | undefined
+    const { getWindowHandle, executeScript } = getDriverOriginals()
+    if (
+      !driver?.switchTo ||
+      !getWindowHandle ||
+      !executeScript ||
+      !/safari/i.test(caps?.browserName ?? '')
+    ) {
+      return
+    }
+    // A window switch resets the context to the top level, so a test inside a
+    // frame is left alone; and a focused window needs no switch at all.
+    const unfocused = await executeScript(
+      driver,
+      'return window === window.top && !document.hasFocus()'
+    )
+    if (unfocused === true) {
+      await driver.switchTo().window(await getWindowHandle(driver))
+    }
+  }
+
+  /** The browser the next `build()` asks for, read before the dashboard opens. */
+  #pendingBrowserName: string | undefined
+  noteBuilder(builder: unknown) {
+    const caps = (
+      builder as { getCapabilities?: () => { get?: (k: string) => unknown } }
+    ).getCapabilities?.()
+    const name = caps?.get?.('browserName')
+    this.#pendingBrowserName = typeof name === 'string' ? name : undefined
   }
 
   #finalized = false
@@ -606,6 +661,7 @@ const plugin = new SeleniumDevToolsPlugin()
 
 const patched = patchSelenium({
   onBeforeBuild: (builder) => {
+    plugin.noteBuilder(builder)
     ensureBidiCapability(builder)
     if (plugin.options.headless) {
       ensureHeadlessChrome(builder)
@@ -613,6 +669,8 @@ const patched = patchSelenium({
   },
   onDriverCreated: (driver) => plugin.onDriverCreated(driver),
   onCommand: (cmd) => plugin.onCommand(cmd),
+  afterNavigation: () => plugin.instrumentNavigationTarget(),
+  beforeInput: () => plugin.focusForInput(),
   // Per-scenario cleanup ONLY here (finalizes that driver's screencast,
   // clears per-driver state). The session-wide teardown — set-finalized,
   // session summary, capturer cleanup, interactive shutdown — lives in
