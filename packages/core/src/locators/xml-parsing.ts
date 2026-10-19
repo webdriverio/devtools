@@ -9,6 +9,8 @@ import type {
   Node as XMLNode
 } from '@xmldom/xmldom'
 import xpath from 'xpath'
+
+import { selectIndexed } from './xpath-index.js'
 import type {
   ElementAttributes,
   JSONElement,
@@ -219,6 +221,10 @@ export function xmlToDOM(sourceXML: string): XMLDocument | null {
  */
 export function evaluateXPath(doc: XMLDocument, xpathExpr: string): XMLNode[] {
   try {
+    const indexed = selectIndexed(doc, xpathExpr)
+    if (indexed) {
+      return indexed
+    }
     // @xmldom/xmldom 0.9+ types don't satisfy global Node; xpath still works at runtime
     const nodes = xpath.select(xpathExpr, doc as unknown as Node)
     if (Array.isArray(nodes)) {

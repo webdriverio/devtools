@@ -39,6 +39,7 @@ export {
   countAttributeOccurrences,
   isAttributeUnique
 } from './xml-parsing.js'
+import { withXPathIndex } from './xpath-index.js'
 
 // Element Filtering
 export {
@@ -276,7 +277,7 @@ export function generateAllElementLocators(
     parsedDOM
   }
 
-  traverseTree(sourceJSON, ctx)
+  withXPathIndex(parsedDOM, () => traverseTree(sourceJSON, ctx))
 
   return ctx.results
 }
