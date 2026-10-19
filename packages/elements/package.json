@@ -35,7 +35,11 @@
     "test": "vitest run",
     "prepublishOnly": "pnpm build"
   },
+  "engines": {
+    "node": ">=22.19.0"
+  },
   "dependencies": {
+    "@wdio/snapshot": "10.0.2",
     "@xmldom/xmldom": "^0.9.12",
     "xpath": "^0.0.34"
   },
@@ -50,6 +54,6 @@
     "webdriverio": "^10.0.2"
   },
   "peerDependencies": {
-    "webdriverio": "^9.0.0 || ^10.0.0"
+    "webdriverio": "^10.0.0"
   }
 }
