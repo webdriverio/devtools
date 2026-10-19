@@ -487,7 +487,7 @@ Same script and post-processing (`applyPerformanceData`) used by `@wdio/devtools
 
 ## Limitations
 
-- **Safari in live mode must stay the frontmost window.** Safari delivers synthesized mouse input only to its frontmost window and still reports the click as successful, so a click issued while the dashboard or any other window is in front reaches nothing. The plugin brings Safari back to the front after the session starts (`open -a Safari`, macOS only); clicking the dashboard while the test is running hands focus away again and the clicks that follow are lost until Safari is in front once more. Trace mode opens no window and is not affected.
+- **Safari in live mode must stay the frontmost window.** Safari delivers synthesized mouse input only to its frontmost window and still reports the click as successful, so a click issued while the dashboard or any other window is in front reaches nothing. Before each element click, `sendKeys`, `clear` or `submit` on a Safari session, the plugin switches to the session's own window when it has lost focus (top-level document only, not inside a frame), and on macOS it opens the dashboard behind Safari. Still avoid clicking into other windows, the dashboard included, during a live Safari run. Trace mode opens no window and is not affected.
 
 | Limitation | Detail |
 |-----------|--------|
