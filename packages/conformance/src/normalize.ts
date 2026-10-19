@@ -48,8 +48,8 @@ function targetOf(row: CommandLog): string {
 
 // A fill's text as the binding packaged it: bare, or the W3C `{text}` / `{value: [...]}` payload.
 function inputOf(row: CommandLog): string | undefined {
-  // Nightwatch's setValue(selector, text) leads with the selector; the text is the next argument.
-  const [arg] = row.args.filter((a) => a !== row.selector)
+  // Every binding passes the text last: Nightwatch's setValue(selector, text) leads with the selector.
+  const arg = row.args.at(-1)
   if (typeof arg === 'string') {
     return arg
   }

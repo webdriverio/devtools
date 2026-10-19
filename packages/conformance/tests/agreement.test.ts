@@ -25,12 +25,17 @@ interface Dialect {
   fillArgs: (text: string) => unknown[]
 }
 
-/** JS passes the text bare; Python passes the W3C payload its binding built. */
+/** JS passes the text bare; Python the W3C payload its binding built; Nightwatch leads with the selector. */
 const JS: Dialect = { navigate: 'get', fill: 'sendKeys', fillArgs: (t) => [t] }
 const PY: Dialect = {
   navigate: 'get',
   fill: 'sendKeysToElement',
   fillArgs: (t) => [{ text: t, value: [...t], id: 'el-1' }]
+}
+const NW: Dialect = {
+  navigate: 'url',
+  fill: 'setValue',
+  fillArgs: (t) => ['#username', t]
 }
 
 interface Variant {
@@ -128,6 +133,18 @@ describe('normalizeRun', () => {
       page: '/login',
       at: 40
     })
+  })
+
+  // Regression: the text was whatever argument differed from the selector, so typing the selector lost it.
+  it('reads the text a Nightwatch fill typed, even when it equals the selector', () => {
+    expect(normalizeRun(stream(1, NW))).toEqual(normalizeRun(stream(2, JS)))
+    const typedSelector = { text: '#username' }
+    expect(normalizeRun(stream(1, NW, typedSelector)).steps[1].input).toBe(
+      '#username'
+    )
+    expect(normalizeRun(stream(1, NW, typedSelector))).toEqual(
+      normalizeRun(stream(2, PY, typedSelector))
+    )
   })
 })
 
