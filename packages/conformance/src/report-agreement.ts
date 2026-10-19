@@ -1,7 +1,12 @@
 import { gapsFor } from './allowlist.js'
 import { compareRuns, judgeDivergences } from './agreement.js'
-import { normalizeRun } from './normalize.js'
-import type { Divergence, NormalizedStep, RunReport } from './types.js'
+import { describeRunControls, normalizeRun } from './normalize.js'
+import type {
+  Divergence,
+  KnownGap,
+  NormalizedStep,
+  RunReport
+} from './types.js'
 
 type Escape = (text: string) => string
 
@@ -20,11 +25,11 @@ function renderMode(runs: RunReport[], escape: Escape): string {
   const sorted = [...runs].sort((a, b) => a.adapter.localeCompare(b.adapter))
   const bidi = sorted[0].bidi
   const normalized = sorted.map((r) => normalizeRun(r.frames))
-  const { unexplained, explained } = judgeDivergences(
+  const { unexplained, explained, stale } = judgeDivergences(
     compareRuns(sorted),
     sorted
   )
-  const agree = unexplained.length === 0 && explained.length === 0
+  const agree = !unexplained.length && !explained.length && !stale.length
   const length = Math.max(...normalized.map((n) => n.steps.length))
   const stepRows = Array.from({ length }, (_, i) =>
     renderRow(
@@ -41,16 +46,17 @@ function renderMode(runs: RunReport[], escape: Escape): string {
     ),
     renderRow(
       'run controls',
-      normalized.map((n) => n.runControls),
+      normalized.map((n) => describeRunControls(n.runControls)),
       escape
     )
   ]
   return `<details class="run"${agree ? '' : ' open'}>
 <summary><strong>bidi ${bidi ? 'on' : 'off'}</strong>
-${verdictBadge(unexplained.length, explained.length)}
-<span class="counts">${unexplained.length} unexplained, ${explained.length} allowlisted differences</span></summary>
+${verdictBadge(unexplained.length, explained.length, stale.length)}
+<span class="counts">${unexplained.length} unexplained, ${explained.length} allowlisted differences, ${stale.length} stale gaps</span></summary>
 <div class="body">
 ${renderDivergences(unexplained, explained, bidi, escape)}
+${stale.map((gap) => renderStale(gap, escape)).join('\n')}
 <table>
 <thead><tr><th>step</th>${sorted.map((r) => `<th>${escape(r.adapter)}</th>`).join('')}</tr></thead>
 <tbody>
@@ -97,9 +103,24 @@ function renderDivergences(
   return items.length ? `<ul class="v">${items.join('')}</ul>` : ''
 }
 
-function verdictBadge(unexplained: number, explained: number): string {
+/** A declared gap that matched nothing; the per-run and the comparison sections both show it. */
+export function renderStale(gap: KnownGap, escape: Escape): string {
+  return `<p class="fail"><strong>Stale gap</strong> for <code>${escape(gap.adapter)}</code> (${escape(
+    gap.rules.join(', ')
+  )}): ${escape(gap.reason)}</p>`
+}
+
+function verdictBadge(
+  unexplained: number,
+  explained: number,
+  stale: number
+): string {
   if (unexplained) {
     return '<span class="badge fail">DIVERGE</span>'
+  }
+  // A stale gap fails the comparison, so the mode must not read as agreeing.
+  if (stale) {
+    return `<span class="badge fail">STALE GAPS (${stale})</span>`
   }
   return explained
     ? `<span class="badge known">KNOWN DIFFERENCES (${explained})</span>`

@@ -229,8 +229,8 @@ The browser therefore creates exactly three documents.
 ### Adding your language
 
 1. Add your id to `AdapterId` in `src/types.ts`.
-2. Add `scenarios/<lang>_scenario.<ext>` performing the steps above. Read the three variables by name (the Python scenario repeats them, since it cannot import `SCENARIO_ENV`).
-3. Add one entry to `ADAPTERS` in `src/adapters.ts`: `ready()` (your toolchain and build are present) and `prepare()` (the command, args and env that launch your scenario, plus an optional `cleanup`). `tests/conformance.test.ts` then runs your adapter in both modes, holds it to every rule, and compares it with every other adapter. `ready()` may only skip a local run; in CI a missing prerequisite fails.
+2. Add `scenarios/<lang>_scenario.<ext>` performing the steps above, or, for an adapter that only runs under its framework's CLI, a folder with a config and a spec (`scenarios/nightwatch/` is the model: the config reads the fake's origin from `CONFORMANCE_WEBDRIVER` and points the runner at it with `start_process: false`). Read the three variables by name (the Python scenario repeats them, since it cannot import `SCENARIO_ENV`).
+3. Add one entry to `ADAPTERS` in `src/adapters.ts`: `ready()` (your toolchain and build are present) and `prepare()` (the command, args and env that launch your scenario, plus an optional `cleanup`). `tests/conformance.test.ts` then runs your adapter in both modes, holds it to every rule, and compares it with every other adapter. Expect the first run to be red: classify each line as a suite assumption to fix, a difference to declare with a reason, or an adapter bug to fix, and merge only when it is green. `ready()` may only skip a local run; in CI a missing prerequisite fails.
 4. Make sure CI installs your toolchain before `pnpm test` in `.github/workflows/ci.yml` (Python's install step is there).
 
 Run it locally with `pnpm test packages/conformance`. Vitest only collects `packages/**/tests/**/*.test.ts`.
@@ -251,7 +251,7 @@ Defined in `src/checker.ts`, names in `RULES` (`src/constants.ts`):
 | `failed-command-has-error-row` | Every navigation that failed in the browser has a row carrying `error`. |
 | `replace-targets-a-sent-row` | Every `replaceCommand.oldTimestamp` names a row already sent. |
 | `one-row-per-browser-action` | The number of `navigate`, `click` and `fill` rows equals what the fake browser received, after applying `replaceCommand` the way the dashboard does (shared `replaceCommand`: by `id`, then the last row with the old timestamp). |
-| `run-controls-have-a-command` | If `metadata.options.runCapabilities` advertises any control, the metadata carries `launchCommand` or `rerunCommand`. The backend falls back from either to the other and only to the WebdriverIO binary when both are missing, so a control with neither runs the wrong tool. |
+| `run-controls-are-served` | If `metadata.options.runCapabilities` advertises any control, the metadata carries `launchCommand` or `rerunCommand` (the backend's shell path, falling back from either to the other) or `configFile` (its framework path, which reruns a WDIO or Nightwatch config). With none, the backend falls back to the WebdriverIO binary, so the control runs the wrong tool. |
 
 ### Cross-adapter agreement
 
@@ -265,7 +265,7 @@ A failing test prints the `unexplained` violations, each `{rule, message, subjec
 
 ### Allowlist entries
 
-`src/allowlist.ts` `KNOWN_GAPS` lists differences an adapter is allowed to show: `{adapter, bidi, rules, reason, timingDependent?}`. An entry is legitimate only for a documented limitation that cannot be fixed in the adapter (for example, the `<script>` fallback without BiDi racing a short-lived document), and `reason` is required: say what happens and point at the Known debt entry. An entry that stops matching is reported as `stale` and fails the run, so a fixed gap forces its own removal; `timingDependent: true` exempts a race that a run can happen to win. Do not allowlist a rule your adapter breaks because it is unfinished.
+`src/allowlist.ts` `KNOWN_GAPS` lists differences an adapter is allowed to show: `{adapter, bidi, rules, reason, timingDependent?, lacksRunControls?}`. An entry is legitimate only for a documented limitation that cannot be fixed in the adapter (for example, the `<script>` fallback without BiDi racing a short-lived document), and `reason` is required: say what happens and point at the Known debt entry. A gap on `adapters-agree-on-run-controls` names the controls the adapter does not offer in `lacksRunControls` and explains their absence only: a control lost for any other reason is still a difference. An entry that stops matching is reported as `stale` and fails the run (the report shows a run's stale gaps in its own section and a comparison's in the agreement section), so a fixed gap forces its own removal; `timingDependent: true` exempts a race that a run can happen to win. Do not allowlist a rule your adapter breaks because it is unfinished.
 
 ## 5. Checklist
 

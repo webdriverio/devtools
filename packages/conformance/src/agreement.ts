@@ -1,12 +1,14 @@
-import { gapsFor } from './allowlist.js'
+import { explainingGap, gapsFor, isAgreementRule } from './allowlist.js'
 import { RULES } from './constants.js'
-import { normalizeRun, pathOf } from './normalize.js'
+import { describeRunControls, normalizeRun, pathOf } from './normalize.js'
 import type {
   AdapterId,
   Divergence,
+  KnownGap,
   NormalizedRun,
   NormalizedStep,
   RuleId,
+  RunControls,
   RunReport,
   Violation
 } from './types.js'
@@ -64,8 +66,11 @@ function compareTwo(
       `snapshots [${a.snapshots.join(', ')}] vs [${b.snapshots.join(', ')}]`
     )
   }
-  if (a.runControls !== b.runControls) {
-    add(RULES.agreeOnRunControls, `${a.runControls} vs ${b.runControls}`)
+  if (!sameRunControls(a.runControls, b.runControls)) {
+    add(
+      RULES.agreeOnRunControls,
+      `${describeRunControls(a.runControls)} vs ${describeRunControls(b.runControls)}`
+    )
   }
   return out
 }
@@ -106,11 +111,11 @@ function describeAt(i: number, a: string[], b: string[]): string {
   return `step ${i + 1} is ${a[i] ?? '(nothing)'} vs ${b[i] ?? '(nothing)'} (${a.length} vs ${b.length} steps)`
 }
 
-/** A divergence is explained only by a gap occurring on that very subject, with the other adapter clean there. */
+/** A divergence is explained only by a gap occurring on that very subject, unless the other side declares its own. */
 export function judgeDivergences(
   divergences: Divergence[],
   runs: RunReport[]
-): { unexplained: Divergence[]; explained: Divergence[] } {
+): { unexplained: Divergence[]; explained: Divergence[]; stale: KnownGap[] } {
   const readable = runs.filter((r) => !r.checkerError)
   const normalized = new Map(
     readable.map((r) => [r.adapter, normalizeRun(r.frames)] as const)
@@ -123,9 +128,23 @@ export function judgeDivergences(
       )
       return run && other ? gapExplains(d, run, other, normalized) : false
     })
+  // A gap whose comparison rules matched no difference no longer holds, which judge() cannot see.
+  const stale = readable.flatMap((run) =>
+    gapsFor(run.adapter, run.bidi).filter((g) => {
+      const own = g.rules.filter(isAgreementRule)
+      return (
+        !g.timingDependent &&
+        own.length > 0 &&
+        !divergences.some(
+          (d) => d.adapters.includes(run.adapter) && own.includes(d.rule)
+        )
+      )
+    })
+  )
   return {
     unexplained: divergences.filter((d) => !explainedBy(d)),
-    explained: divergences.filter(explainedBy)
+    explained: divergences.filter(explainedBy),
+    stale
   }
 }
 
@@ -136,41 +155,71 @@ function gapExplains(
   other: RunReport,
   normalized: Map<AdapterId, NormalizedRun>
 ): boolean {
-  const gapRules = new Set(
-    gapsFor(holder.adapter, holder.bidi)
-      .filter((g) => g.rules.includes(d.rule))
-      .flatMap((g) => g.rules)
+  const gaps = gapsFor(holder.adapter, holder.bidi).filter((g) =>
+    g.rules.includes(d.rule)
   )
-  const shown = holder.violations.filter((v) => gapRules.has(v.rule))
-  if (!shown.length) {
+  if (!gaps.length) {
     return false
   }
+  const gapRules = new Set(gaps.flatMap((g) => g.rules))
+  const shown = holder.violations.filter((v) => gapRules.has(v.rule))
   const step = d.step
   if (d.rule === RULES.agreeOnPages && step !== undefined) {
     const at = (run: RunReport) => normalized.get(run.adapter)?.steps[step]?.at
     return (
       shown.some((v) => onRow(v, at(holder))) &&
-      !other.violations.some((v) => onRow(v, at(other)))
+      !other.violations.some((v) => onRow(v, at(other)) && !declared(other, v))
     )
   }
   if (d.rule === RULES.agreeOnSnapshots) {
-    const unanchored = shown
-      .filter((v) => v.rule === RULES.documentAnchored)
-      .flatMap((v) => (v.subject?.url ? [pathOf(v.subject.url)] : []))
-    const holderPages = [
-      ...(normalized.get(holder.adapter)?.snapshots ?? []),
-      ...unanchored
-    ].sort()
-    const otherPages = [
-      ...(normalized.get(other.adapter)?.snapshots ?? [])
-    ].sort()
+    // Each side's snapshots plus the documents its own declared gap left unanchored must agree.
+    const pages = (run: RunReport, violations: Violation[]) =>
+      [
+        ...(normalized.get(run.adapter)?.snapshots ?? []),
+        ...violations
+          .filter((v) => v.rule === RULES.documentAnchored && v.subject?.url)
+          .map((v) => pathOf(v.subject!.url!))
+      ].sort()
+    const otherDeclared = other.violations.filter((v) => declared(other, v))
     return (
-      sameList(holderPages, otherPages) &&
-      !other.violations.some((v) => v.subject?.kind === 'document')
+      sameList(pages(holder, shown), pages(other, otherDeclared)) &&
+      !other.violations.some(
+        (v) => v.subject?.kind === 'document' && !declared(other, v)
+      )
     )
   }
+  if (d.rule === RULES.agreeOnRunControls) {
+    return runControlsExplained(
+      gaps,
+      normalized.get(holder.adapter),
+      normalized.get(other.adapter)
+    )
+  }
+  // A rule with no per-run counterpart (actions, errors): the difference is the gap.
   return true
 }
+
+// The gap explains the absence of the controls it declares and nothing else, so a control lost since is a finding.
+function runControlsExplained(
+  gaps: KnownGap[],
+  holder: NormalizedRun | undefined,
+  other: NormalizedRun | undefined
+): boolean {
+  if (!holder || !other) {
+    return false
+  }
+  const lacks = new Set<string>(gaps.flatMap((g) => g.lacksRunControls ?? []))
+  return sameRunControls(holder.runControls, {
+    ...other.runControls,
+    advertised: other.runControls.advertised.filter((c) => !lacks.has(c))
+  })
+}
+
+const sameRunControls = (a: RunControls, b: RunControls) =>
+  a.served === b.served && sameList(a.advertised, b.advertised)
+
+const declared = (run: RunReport, v: Violation) =>
+  Boolean(explainingGap(gapsFor(run.adapter, run.bidi), v))
 
 const onRow = (v: Violation, at: number | undefined) =>
   at !== undefined && v.subject?.kind === 'row' && v.subject.timestamp === at

@@ -19,7 +19,9 @@
     "@types/selenium-webdriver": "^4.35.6",
     "@types/ws": "^8.18.2",
     "@wdio/devtools-shared": "workspace:^",
+    "@wdio/nightwatch-devtools": "workspace:^",
     "@wdio/selenium-devtools": "workspace:^",
+    "nightwatch": "^3.16.0",
     "selenium-webdriver": "^4.50.0",
     "ws": "^8.22.0"
   }

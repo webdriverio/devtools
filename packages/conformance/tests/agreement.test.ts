@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
+import type { RunnerOptions } from '@wdio/devtools-shared'
+
 import { compareRuns, judgeDivergences } from '../src/agreement.js'
 import { RULES } from '../src/constants.js'
 import { normalizeRun } from '../src/normalize.js'
@@ -25,12 +27,26 @@ interface Dialect {
   fillArgs: (text: string) => unknown[]
 }
 
-/** JS passes the text bare; Python passes the W3C payload its binding built. */
+/** JS passes the text bare; Python the W3C payload its binding built; Nightwatch leads with the selector. */
 const JS: Dialect = { navigate: 'get', fill: 'sendKeys', fillArgs: (t) => [t] }
 const PY: Dialect = {
   navigate: 'get',
   fill: 'sendKeysToElement',
   fillArgs: (t) => [{ text: t, value: [...t], id: 'el-1' }]
+}
+const NW: Dialect = {
+  navigate: 'url',
+  fill: 'setValue',
+  fillArgs: (t) => ['#username', t]
+}
+
+const RUN_ALL: RunnerOptions = {
+  runCapabilities: { canRunAll: true },
+  launchCommand: 'run'
+}
+const EVERY_CONTROL: RunnerOptions = {
+  runCapabilities: { canRunAll: true, canRunSuites: true, canRunTests: true },
+  launchCommand: 'run'
 }
 
 interface Variant {
@@ -38,23 +54,23 @@ interface Variant {
   text?: string
   /** Pages anchored, as [path, timestamp]. */
   anchors?: [string, number][]
+  options?: RunnerOptions
 }
 
 /** One adapter's stream for: navigate to /login, type into #username. */
 function stream(
   port: number,
   dialect: Dialect,
-  { error, text = 'tom', anchors = [['/login', 10]] }: Variant = {}
+  {
+    error,
+    text = 'tom',
+    anchors = [['/login', 10]],
+    options = RUN_ALL
+  }: Variant = {}
 ): WireFrame[] {
   const url = (path: string) => `http://127.0.0.1:${port}${path}`
   return [
-    {
-      scope: 'metadata',
-      data: {
-        type: 'testrunner',
-        options: { runCapabilities: { canRunAll: true }, launchCommand: 'run' }
-      }
-    },
+    { scope: 'metadata', data: { type: 'testrunner', options } },
     {
       scope: 'commands',
       data: [
@@ -128,6 +144,18 @@ describe('normalizeRun', () => {
       page: '/login',
       at: 40
     })
+  })
+
+  // Regression: the text was whatever argument differed from the selector, so typing the selector lost it.
+  it('reads the text a Nightwatch fill typed, even when it equals the selector', () => {
+    expect(normalizeRun(stream(1, NW))).toEqual(normalizeRun(stream(2, JS)))
+    const typedSelector = { text: '#username' }
+    expect(normalizeRun(stream(1, NW, typedSelector)).steps[1].input).toBe(
+      '#username'
+    )
+    expect(normalizeRun(stream(1, NW, typedSelector))).toEqual(
+      normalizeRun(stream(2, PY, typedSelector))
+    )
   })
 })
 
@@ -253,6 +281,46 @@ describe('judgeDivergences', () => {
     const { unexplained } = judgeDivergences(compareRuns([js, py]), [js, py])
     expect(unexplained).toHaveLength(3)
   })
+
+  /** Nightwatch, served by its config file, against Selenium offering every control. */
+  const nightwatchAgainstSelenium = (
+    runCapabilities: RunnerOptions['runCapabilities']
+  ) => {
+    const options = { runCapabilities, configFile: 'nightwatch.conf.cjs' }
+    const nw = report('nightwatch-devtools', stream(1, NW, { options }))
+    const js = report(
+      'selenium-devtools',
+      stream(2, JS, { options: EVERY_CONTROL })
+    )
+    return judgeDivergences(compareRuns([nw, js]), [nw, js])
+  }
+
+  it('excuses only the run control the gap declares absent', () => {
+    const { unexplained, explained, stale } = nightwatchAgainstSelenium({
+      canRunSuites: true,
+      canRunTests: true
+    })
+    expect(unexplained).toEqual([])
+    expect(explained.map((d) => d.rule)).toEqual([RULES.agreeOnRunControls])
+    expect(stale).toEqual([])
+  })
+
+  // Regression: any run-controls difference was explained once Nightwatch held its gap, so a lost control passed.
+  it('does not excuse a run control the holder lost since declaring its gap', () => {
+    const { unexplained } = nightwatchAgainstSelenium({ canRunSuites: true })
+    expect(unexplained.map((d) => d.rule)).toEqual([RULES.agreeOnRunControls])
+    expect(unexplained[0].message).toContain(
+      'canRunSuites; served vs canRunAll, canRunSuites, canRunTests; served'
+    )
+  })
+
+  it('reports a comparison gap that no longer occurs as stale', () => {
+    const { unexplained, stale } = nightwatchAgainstSelenium(
+      EVERY_CONTROL.runCapabilities
+    )
+    expect(unexplained).toEqual([])
+    expect(stale.map((g) => g.adapter)).toEqual(['nightwatch-devtools'])
+  })
 })
 
 describe('the agreement section of the report', () => {
@@ -268,5 +336,18 @@ describe('the agreement section of the report', () => {
     expect(html).toContain('DIVERGE')
     expect(html).not.toContain('KNOWN DIFFERENCES')
     expect(html).toContain('class="differs"')
+  })
+
+  // Regression: the comparison's stale gaps never reached the report, which read AGREE while the test failed.
+  it('shows a stale comparison gap instead of calling the mode agreed', () => {
+    const html = renderReport([
+      report('nightwatch-devtools', stream(1, NW, { options: EVERY_CONTROL })),
+      report('selenium-devtools', stream(2, JS, { options: EVERY_CONTROL }))
+    ])
+    expect(html).toContain('STALE GAPS (1)')
+    expect(html).toContain(
+      'Stale gap</strong> for <code>nightwatch-devtools</code>'
+    )
+    expect(html).not.toContain('>AGREE<')
   })
 })

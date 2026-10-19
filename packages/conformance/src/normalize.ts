@@ -1,9 +1,14 @@
 import type { CommandLog, RunnerOptions, Metadata } from '@wdio/devtools-shared'
 import { mapCommandToAction } from '@wdio/devtools-shared'
 
-import { navigationTarget, readStream } from './checker.js'
+import { navigationTarget, readStream, servesRunControls } from './checker.js'
 import { SCOPES } from './constants.js'
-import type { NormalizedRun, NormalizedStep, WireFrame } from './types.js'
+import type {
+  NormalizedRun,
+  NormalizedStep,
+  RunControls,
+  WireFrame
+} from './types.js'
 
 /** A run reduced to what a dashboard user sees: everything an adapter may legitimately vary is dropped. */
 export function normalizeRun(frames: WireFrame[]): NormalizedRun {
@@ -48,7 +53,8 @@ function targetOf(row: CommandLog): string {
 
 // A fill's text as the binding packaged it: bare, or the W3C `{text}` / `{value: [...]}` payload.
 function inputOf(row: CommandLog): string | undefined {
-  const [arg] = row.args
+  // Every binding passes the text last: Nightwatch's setValue(selector, text) leads with the selector.
+  const arg = row.args.at(-1)
   if (typeof arg === 'string') {
     return arg
   }
@@ -59,7 +65,7 @@ function inputOf(row: CommandLog): string | undefined {
   return Array.isArray(payload?.value) ? payload.value.join('') : undefined
 }
 
-function runControlsOf(frames: WireFrame[]): string {
+function runControlsOf(frames: WireFrame[]): RunControls {
   const metadata = frames.find((f) => f.scope === SCOPES.metadata)
   const options = (metadata?.data as Metadata | undefined)?.options as
     RunnerOptions | undefined
@@ -67,6 +73,13 @@ function runControlsOf(frames: WireFrame[]): string {
     .filter(([, on]) => on)
     .map(([name]) => name)
     .sort()
-  const command = Boolean(options?.launchCommand || options?.rerunCommand)
-  return `${advertised.join(', ') || 'none'}; ${command ? 'with' : 'without'} a command`
+  return { advertised, served: servesRunControls(options) }
+}
+
+/** How the agreement table and a divergence show the run controls. */
+export function describeRunControls({
+  advertised,
+  served
+}: RunControls): string {
+  return `${advertised.join(', ') || 'none'}; ${served ? 'served' : 'unserved'}`
 }
