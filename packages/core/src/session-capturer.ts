@@ -499,14 +499,7 @@ export abstract class SessionCapturerBase {
     if (reqs.length > 0) {
       // A re-sent id replaces its row, as the dashboard does.
       for (const req of reqs) {
-        const at = req.id
-          ? this.networkRequests.findIndex((r) => r.id === req.id)
-          : -1
-        if (at === -1) {
-          this.networkRequests.push(req)
-        } else {
-          this.networkRequests[at] = req
-        }
+        this.#upsertNetworkRequest(req)
       }
       this.sendUpstream('networkRequests', reqs)
     }
@@ -538,6 +531,26 @@ export abstract class SessionCapturerBase {
       ...entry,
       source: LOG_SOURCES.BROWSER as LogSource
     }))
+  }
+
+  /** Row index by request id; checked against the row before use, since adapters also write rows by index. */
+  #networkRequestIndex = new Map<string, number>()
+
+  #upsertNetworkRequest(req: NetworkRequest): void {
+    let at = req.id ? this.#networkRequestIndex.get(req.id) : undefined
+    // A row moved since it was indexed: find it once, rather than list it twice.
+    if (at !== undefined && this.networkRequests[at]?.id !== req.id) {
+      at = this.networkRequests.findIndex((r) => r.id === req.id)
+    }
+    if (at !== undefined && at !== -1) {
+      this.networkRequests[at] = req
+      this.#networkRequestIndex.set(req.id, at)
+      return
+    }
+    if (req.id) {
+      this.#networkRequestIndex.set(req.id, this.networkRequests.length)
+    }
+    this.networkRequests.push(req)
   }
 
   #acceptedNetworkRequests(

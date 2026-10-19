@@ -1,5 +1,5 @@
 import { NETWORK_CAPTURE_SOURCE } from '@wdio/devtools-shared'
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { SessionCapturerBase } from '../src/session-capturer.js'
 
 /**
@@ -431,6 +431,51 @@ describe('processTracePayload network ids', () => {
         ['r1', 200],
         ['r2', undefined]
       ])
+    } finally {
+      capturer.cleanup()
+    }
+  })
+})
+
+describe('processTracePayload network ids at scale', () => {
+  it('keeps each request one row without rescanning the recording', () => {
+    class Capturer extends SessionCapturerBase {
+      ingest(payload: unknown) {
+        this.processTracePayload(payload as never)
+      }
+    }
+    const capturer = new Capturer({})
+    const row = (id: string, status?: number) => ({
+      id,
+      url: `https://x/${id}`,
+      method: 'GET',
+      type: 'fetch' as const,
+      timestamp: 1,
+      startTime: 1,
+      ...(status ? { status } : {})
+    })
+    try {
+      const batch = Array.from({ length: 20000 }, (_, i) => row(`r${i}`))
+      const scans = vi.spyOn(Array.prototype, 'findIndex')
+      capturer.ingest({ networkRequests: batch })
+      capturer.ingest({ networkRequests: [row('r7', 204)] })
+      expect(scans).not.toHaveBeenCalled()
+      scans.mockRestore()
+      expect(capturer.networkRequests).toHaveLength(20000)
+      expect(capturer.networkRequests[7].status).toBe(204)
+      // A row an adapter replaced by index keeps resolving to the same slot.
+      capturer.networkRequests[9] = {
+        ...capturer.networkRequests[9],
+        status: 500
+      }
+      capturer.ingest({ networkRequests: [row('r9', 200)] })
+      expect(capturer.networkRequests).toHaveLength(20000)
+      expect(capturer.networkRequests[9].status).toBe(200)
+      // A row that moved since it was indexed is still found, not appended again.
+      capturer.networkRequests.splice(0, 1)
+      capturer.ingest({ networkRequests: [row('r9', 201)] })
+      expect(capturer.networkRequests).toHaveLength(19999)
+      expect(capturer.networkRequests[8].status).toBe(201)
     } finally {
       capturer.cleanup()
     }
