@@ -27,7 +27,7 @@ import shutil
 import subprocess
 from typing import Optional, Tuple
 
-from .constants import LOGGER_NAME, MIN_NODE_MAJOR, NODE_VERSION_TIMEOUT_S
+from .constants import LOGGER_NAME, MIN_NODE_LABEL, MIN_NODE_VERSION, NODE_VERSION_TIMEOUT_S
 
 _log = logging.getLogger(f"{LOGGER_NAME}.backend")
 
@@ -88,7 +88,7 @@ def require_node() -> str:
     if executable is None:
         raise RuntimeError(
             f"Node.js not found on PATH. The devtools dashboard backend is a "
-            f"Node app, so Node {MIN_NODE_MAJOR}+ is required — install it "
+            f"Node app, so Node {MIN_NODE_LABEL}+ is required — install it "
             f"from https://nodejs.org. {_ESCAPE_HATCH}"
         )
     version = node_version(executable)
@@ -96,13 +96,13 @@ def require_node() -> str:
         raise RuntimeError(
             f'"{executable}" did not report a usable version, so it cannot be '
             f"used to run the devtools dashboard backend (Node "
-            f"{MIN_NODE_MAJOR}+ required). {_ESCAPE_HATCH}"
+            f"{MIN_NODE_LABEL}+ required). {_ESCAPE_HATCH}"
         )
-    if version[0] < MIN_NODE_MAJOR:
+    if version < MIN_NODE_VERSION:
         found = ".".join(str(part) for part in version)
         raise RuntimeError(
             f"Node {found} at \"{executable}\" is too old to run the devtools "
-            f"dashboard backend, which needs Node {MIN_NODE_MAJOR}+. Upgrade "
+            f"dashboard backend, which needs Node {MIN_NODE_LABEL}+. Upgrade "
             f"from https://nodejs.org. {_ESCAPE_HATCH}"
         )
     return executable
