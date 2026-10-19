@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { locatorsToObject } from '@wdio/elements/locators'
+import { locatorsToObject } from '../../src/locators/index.js'
 
 describe('locatorsToObject', () => {
   it('converts locator array to object', () => {
