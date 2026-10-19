@@ -636,7 +636,7 @@ export function serializeMobileSnapshot(
   const { platform, deviceName, viewport, sourceXML } = context
   const { inViewportOnly = true } = options
 
-  // Auto-detect source XML stashed by getMobileVisibleElementsWithTree
+  // Falls back to the page source action-snapshot.ts stamps on the root
   const effectiveXML = sourceXML || root.attributes._sourceXML
 
   const effectiveViewport = viewport ?? { width: 9999, height: 9999 }
