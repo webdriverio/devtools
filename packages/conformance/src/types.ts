@@ -1,4 +1,8 @@
-import type { CommandLog, TraceMutation } from '@wdio/devtools-shared'
+import type {
+  CommandLog,
+  RunCapabilities,
+  TraceMutation
+} from '@wdio/devtools-shared'
 
 import type { ACTION_METHODS, RESPONSIBILITIES, RULES } from './constants.js'
 
@@ -75,7 +79,15 @@ export interface NormalizedRun {
   steps: NormalizedStep[]
   /** The page each DOM anchor belongs to, in order. */
   snapshots: string[]
-  runControls: string
+  runControls: RunControls
+}
+
+export type RunControl = keyof RunCapabilities
+
+/** The run controls a metadata frame offers: the capabilities advertised, and whether a command or config serves them. */
+export interface RunControls {
+  advertised: string[]
+  served: boolean
 }
 
 /** Two adapters told different stories about the same scenario. */
@@ -118,6 +130,8 @@ export interface KnownGap {
   reason: string
   /** Set when the gap is a race, so a run that happens to win it is not stale. */
   timingDependent?: boolean
+  /** For a run-controls gap, the controls the holder does not offer: it explains their absence and nothing else. */
+  lacksRunControls?: RunControl[]
 }
 
 export interface Judgement {

@@ -1,6 +1,6 @@
 import { gapsFor } from './allowlist.js'
 import { compareRuns, judgeDivergences } from './agreement.js'
-import { normalizeRun } from './normalize.js'
+import { describeRunControls, normalizeRun } from './normalize.js'
 import type { Divergence, NormalizedStep, RunReport } from './types.js'
 
 type Escape = (text: string) => string
@@ -41,7 +41,7 @@ function renderMode(runs: RunReport[], escape: Escape): string {
     ),
     renderRow(
       'run controls',
-      normalized.map((n) => n.runControls),
+      normalized.map((n) => describeRunControls(n.runControls)),
       escape
     )
   ]

@@ -1,6 +1,6 @@
 import { explainingGap, gapsFor, isAgreementRule } from './allowlist.js'
 import { RULES } from './constants.js'
-import { normalizeRun, pathOf } from './normalize.js'
+import { describeRunControls, normalizeRun, pathOf } from './normalize.js'
 import type {
   AdapterId,
   Divergence,
@@ -8,6 +8,7 @@ import type {
   NormalizedRun,
   NormalizedStep,
   RuleId,
+  RunControls,
   RunReport,
   Violation
 } from './types.js'
@@ -65,8 +66,11 @@ function compareTwo(
       `snapshots [${a.snapshots.join(', ')}] vs [${b.snapshots.join(', ')}]`
     )
   }
-  if (a.runControls !== b.runControls) {
-    add(RULES.agreeOnRunControls, `${a.runControls} vs ${b.runControls}`)
+  if (!sameRunControls(a.runControls, b.runControls)) {
+    add(
+      RULES.agreeOnRunControls,
+      `${describeRunControls(a.runControls)} vs ${describeRunControls(b.runControls)}`
+    )
   }
   return out
 }
@@ -151,14 +155,13 @@ function gapExplains(
   other: RunReport,
   normalized: Map<AdapterId, NormalizedRun>
 ): boolean {
-  const gapRules = new Set(
-    gapsFor(holder.adapter, holder.bidi)
-      .filter((g) => g.rules.includes(d.rule))
-      .flatMap((g) => g.rules)
+  const gaps = gapsFor(holder.adapter, holder.bidi).filter((g) =>
+    g.rules.includes(d.rule)
   )
-  if (!gapRules.has(d.rule)) {
+  if (!gaps.length) {
     return false
   }
+  const gapRules = new Set(gaps.flatMap((g) => g.rules))
   const shown = holder.violations.filter((v) => gapRules.has(v.rule))
   const step = d.step
   if (d.rule === RULES.agreeOnPages && step !== undefined) {
@@ -185,9 +188,35 @@ function gapExplains(
       )
     )
   }
-  // A rule with no per-run counterpart (run controls, actions, errors): the difference is the gap.
+  if (d.rule === RULES.agreeOnRunControls) {
+    return runControlsExplained(
+      gaps,
+      normalized.get(holder.adapter),
+      normalized.get(other.adapter)
+    )
+  }
+  // A rule with no per-run counterpart (actions, errors): the difference is the gap.
   return true
 }
+
+// The gap explains the absence of the controls it declares and nothing else, so a control lost since is a finding.
+function runControlsExplained(
+  gaps: KnownGap[],
+  holder: NormalizedRun | undefined,
+  other: NormalizedRun | undefined
+): boolean {
+  if (!holder || !other) {
+    return false
+  }
+  const lacks = new Set<string>(gaps.flatMap((g) => g.lacksRunControls ?? []))
+  return sameRunControls(holder.runControls, {
+    ...other.runControls,
+    advertised: other.runControls.advertised.filter((c) => !lacks.has(c))
+  })
+}
+
+const sameRunControls = (a: RunControls, b: RunControls) =>
+  a.served === b.served && sameList(a.advertised, b.advertised)
 
 const declared = (run: RunReport, v: Violation) =>
   Boolean(explainingGap(gapsFor(run.adapter, run.bidi), v))

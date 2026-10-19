@@ -3,7 +3,12 @@ import { mapCommandToAction } from '@wdio/devtools-shared'
 
 import { navigationTarget, readStream, servesRunControls } from './checker.js'
 import { SCOPES } from './constants.js'
-import type { NormalizedRun, NormalizedStep, WireFrame } from './types.js'
+import type {
+  NormalizedRun,
+  NormalizedStep,
+  RunControls,
+  WireFrame
+} from './types.js'
 
 /** A run reduced to what a dashboard user sees: everything an adapter may legitimately vary is dropped. */
 export function normalizeRun(frames: WireFrame[]): NormalizedRun {
@@ -60,7 +65,7 @@ function inputOf(row: CommandLog): string | undefined {
   return Array.isArray(payload?.value) ? payload.value.join('') : undefined
 }
 
-function runControlsOf(frames: WireFrame[]): string {
+function runControlsOf(frames: WireFrame[]): RunControls {
   const metadata = frames.find((f) => f.scope === SCOPES.metadata)
   const options = (metadata?.data as Metadata | undefined)?.options as
     RunnerOptions | undefined
@@ -68,5 +73,13 @@ function runControlsOf(frames: WireFrame[]): string {
     .filter(([, on]) => on)
     .map(([name]) => name)
     .sort()
-  return `${advertised.join(', ') || 'none'}; ${servesRunControls(options) ? 'served' : 'unserved'}`
+  return { advertised, served: servesRunControls(options) }
+}
+
+/** How the agreement table and a divergence show the run controls. */
+export function describeRunControls({
+  advertised,
+  served
+}: RunControls): string {
+  return `${advertised.join(', ') || 'none'}; ${served ? 'served' : 'unserved'}`
 }

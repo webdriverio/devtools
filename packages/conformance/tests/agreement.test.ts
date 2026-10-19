@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
+import type { RunnerOptions } from '@wdio/devtools-shared'
+
 import { compareRuns, judgeDivergences } from '../src/agreement.js'
 import { RULES } from '../src/constants.js'
 import { normalizeRun } from '../src/normalize.js'
@@ -38,28 +40,37 @@ const NW: Dialect = {
   fillArgs: (t) => ['#username', t]
 }
 
+const RUN_ALL: RunnerOptions = {
+  runCapabilities: { canRunAll: true },
+  launchCommand: 'run'
+}
+const EVERY_CONTROL: RunnerOptions = {
+  runCapabilities: { canRunAll: true, canRunSuites: true, canRunTests: true },
+  launchCommand: 'run'
+}
+
 interface Variant {
   error?: string
   text?: string
   /** Pages anchored, as [path, timestamp]. */
   anchors?: [string, number][]
+  options?: RunnerOptions
 }
 
 /** One adapter's stream for: navigate to /login, type into #username. */
 function stream(
   port: number,
   dialect: Dialect,
-  { error, text = 'tom', anchors = [['/login', 10]] }: Variant = {}
+  {
+    error,
+    text = 'tom',
+    anchors = [['/login', 10]],
+    options = RUN_ALL
+  }: Variant = {}
 ): WireFrame[] {
   const url = (path: string) => `http://127.0.0.1:${port}${path}`
   return [
-    {
-      scope: 'metadata',
-      data: {
-        type: 'testrunner',
-        options: { runCapabilities: { canRunAll: true }, launchCommand: 'run' }
-      }
-    },
+    { scope: 'metadata', data: { type: 'testrunner', options } },
     {
       scope: 'commands',
       data: [
@@ -269,6 +280,38 @@ describe('judgeDivergences', () => {
     const py = report('selenium-devtools-py', stream(2, PY), true)
     const { unexplained } = judgeDivergences(compareRuns([js, py]), [js, py])
     expect(unexplained).toHaveLength(3)
+  })
+
+  /** Nightwatch, served by its config file, against Selenium offering every control. */
+  const nightwatchAgainstSelenium = (
+    runCapabilities: RunnerOptions['runCapabilities']
+  ) => {
+    const options = { runCapabilities, configFile: 'nightwatch.conf.cjs' }
+    const nw = report('nightwatch-devtools', stream(1, NW, { options }))
+    const js = report(
+      'selenium-devtools',
+      stream(2, JS, { options: EVERY_CONTROL })
+    )
+    return judgeDivergences(compareRuns([nw, js]), [nw, js])
+  }
+
+  it('excuses only the run control the gap declares absent', () => {
+    const { unexplained, explained, stale } = nightwatchAgainstSelenium({
+      canRunSuites: true,
+      canRunTests: true
+    })
+    expect(unexplained).toEqual([])
+    expect(explained.map((d) => d.rule)).toEqual([RULES.agreeOnRunControls])
+    expect(stale).toEqual([])
+  })
+
+  // Regression: any run-controls difference was explained once Nightwatch held its gap, so a lost control passed.
+  it('does not excuse a run control the holder lost since declaring its gap', () => {
+    const { unexplained } = nightwatchAgainstSelenium({ canRunSuites: true })
+    expect(unexplained.map((d) => d.rule)).toEqual([RULES.agreeOnRunControls])
+    expect(unexplained[0].message).toContain(
+      'canRunSuites; served vs canRunAll, canRunSuites, canRunTests; served'
+    )
   })
 })
 

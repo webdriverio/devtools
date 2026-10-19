@@ -38,6 +38,7 @@ export const KNOWN_GAPS: KnownGap[] = [
     adapter: 'nightwatch-devtools',
     bidi,
     rules: [RULES.agreeOnRunControls],
+    lacksRunControls: ['canRunAll'],
     reason:
       'Nightwatch advertises no Run-all: the backend reruns a Nightwatch config through its framework path, which selects suites and tests but has no whole-run entry. Documented on the capability matrix.'
   }))

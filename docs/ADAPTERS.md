@@ -265,7 +265,7 @@ A failing test prints the `unexplained` violations, each `{rule, message, subjec
 
 ### Allowlist entries
 
-`src/allowlist.ts` `KNOWN_GAPS` lists differences an adapter is allowed to show: `{adapter, bidi, rules, reason, timingDependent?}`. An entry is legitimate only for a documented limitation that cannot be fixed in the adapter (for example, the `<script>` fallback without BiDi racing a short-lived document), and `reason` is required: say what happens and point at the Known debt entry. An entry that stops matching is reported as `stale` and fails the run, so a fixed gap forces its own removal; `timingDependent: true` exempts a race that a run can happen to win. Do not allowlist a rule your adapter breaks because it is unfinished.
+`src/allowlist.ts` `KNOWN_GAPS` lists differences an adapter is allowed to show: `{adapter, bidi, rules, reason, timingDependent?, lacksRunControls?}`. An entry is legitimate only for a documented limitation that cannot be fixed in the adapter (for example, the `<script>` fallback without BiDi racing a short-lived document), and `reason` is required: say what happens and point at the Known debt entry. A gap on `adapters-agree-on-run-controls` names the controls the adapter does not offer in `lacksRunControls` and explains their absence only: a control lost for any other reason is still a difference. An entry that stops matching is reported as `stale` and fails the run, so a fixed gap forces its own removal; `timingDependent: true` exempts a race that a run can happen to win. Do not allowlist a rule your adapter breaks because it is unfinished.
 
 ## 5. Checklist
 
