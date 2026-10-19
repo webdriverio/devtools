@@ -34,7 +34,7 @@ const visible = await getSnapshot(browser, { viewport: true })
 // refs: SnapshotRef[] — { id, candidates, … } for every ref in the text
 ```
 
-Web sessions walk the DOM in the page; Android and iOS sessions parse the page source. Errors (`SnapshotError`) propagate instead of returning a placeholder.
+Web sessions walk the DOM in the page; native sessions (`platformName` of Android, iOS, Mac or Windows with no `browserName`) parse the page source. Errors (`SnapshotError`) propagate instead of returning a placeholder.
 
 The DevTools **per-action trace capture** is a separate path with its own page scripts, so a locator in a trace can differ from the one `getSnapshot` renders. `getSnapshot` renders `@wdio/snapshot`'s output, the same as the CLI.
 
@@ -44,7 +44,7 @@ Differences from the CLI, which keeps session state this function does not have:
 - Iframes are not inlined over BiDi. A cut or cross-origin frame renders as the frame-hint note (`wdio session frame <ref>`).
 - Refs are numbered from `e1` on every call.
 
-`@wdio/devtools-service`'s `browser.getSnapshot()` calls this function and returns its `{ text, refs }`. Unlike the default here, it passes `{ viewport: true }` when called without options, so it reads the visible viewport; pass `{ viewport: false }` for the full page.
+`@wdio/devtools-service`'s `browser.getSnapshot()` calls this function and returns its `{ text, refs }`. Unlike the default here, it uses `viewport: true` when `viewport` is not set, so it reads the visible viewport; pass `{ viewport: false }` for the full page. It also returns the placeholder `{ text: '[Snapshot unavailable]', refs: [] }` (and logs a warning) instead of throwing, whereas the `getSnapshot` exported here throws `SnapshotError`.
 
 ### Browser
 
