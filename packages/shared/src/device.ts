@@ -56,7 +56,7 @@ function capString(
  *  so a request-shaped bag's `firstMatch` array is deliberately not scanned: the
  *  server merges `alwaysMatch` with the ONE entry it chose, and reading a
  *  browser out of any entry would claim one the session never got. */
-function deepCapString(
+export function deepCapString(
   caps: Record<string, unknown>,
   key: string
 ): string | undefined {
