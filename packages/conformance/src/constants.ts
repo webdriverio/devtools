@@ -104,6 +104,13 @@ export const PAGES: Record<string, Record<string, string | null>> = {
 
 export const BROKEN_PATH = '/broken'
 
+/** W3C's session defaults: a real browser always answers `GET /timeouts` with all three, and WebdriverIO 10.1 reads `script` from it before every BiDi `execute`. */
+export const DEFAULT_TIMEOUTS = {
+  script: 30_000,
+  pageLoad: 300_000,
+  implicit: 0
+}
+
 export const BIDI_PATH = '/session/conformance/bidi'
 
 /** BiDi acknowledgements whose callers read a field back; commands the fake browser models are answered from its state. */
