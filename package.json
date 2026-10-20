@@ -43,7 +43,7 @@
     "@typescript-eslint/parser": "^8.71.0",
     "@typescript-eslint/utils": "^8.71.0",
     "@vitest/coverage-v8": "^5.0.2",
-    "@wdio/allure-reporter": "^10.0.1",
+    "@wdio/allure-reporter": "^10.1.0",
     "autoprefixer": "^10.6.1",
     "eslint": "^10.11.0",
     "eslint-config-prettier": "^10.1.8",
@@ -63,10 +63,10 @@
     "unplugin-icons": "^24.0.0",
     "vite": "^8.3.2",
     "vitest": "^5.0.2",
-    "webdriverio": "^10.0.2",
+    "webdriverio": "^10.1.0",
     "ws": "^8.22.0"
   },
   "dependencies": {
-    "@wdio/cli": "10.0.2"
+    "@wdio/cli": "10.1.0"
   }
 }
