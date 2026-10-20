@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  deepCapString,
   deviceFromCapabilities,
   deviceLabel,
   isNativeAppSession,
@@ -252,5 +253,23 @@ describe('isNativeAppSession', () => {
     expect(isNativeAppSession(undefined)).toBe(false)
     expect(isNativeAppSession('android')).toBe(false)
     expect(isNativeAppSession({})).toBe(false)
+  })
+})
+
+describe('deepCapString', () => {
+  it('prefers a top-level key over a vendor bag', () => {
+    expect(deepCapString({ k: 'top', 'v:options': { k: 'nested' } }, 'k')).toBe(
+      'top'
+    )
+  })
+
+  it('reads one level of vendor options', () => {
+    expect(deepCapString({ 'v:options': { k: 'nested' } }, 'k')).toBe('nested')
+  })
+
+  it('does not descend further or into arrays', () => {
+    expect(
+      deepCapString({ a: { b: { k: 'deep' } }, c: [{ k: 'arr' }] }, 'k')
+    ).toBeUndefined()
   })
 })

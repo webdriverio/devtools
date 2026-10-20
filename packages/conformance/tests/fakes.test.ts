@@ -155,6 +155,24 @@ describe('the fake BiDi endpoint', () => {
   })
 })
 
+describe('the fake WebDriver', () => {
+  // WebdriverIO 10.1 destructures this before every BiDi execute; a null answer made every script throw unsent.
+  it('answers GET /timeouts with the W3C timeouts object', async () => {
+    const driver = await start(true)
+    await session(driver)
+    expect(await call(driver, 'GET', '/session/conformance/timeouts')).toEqual({
+      script: 30_000,
+      pageLoad: 300_000,
+      implicit: 0
+    })
+    expect(
+      await call(driver, 'POST', '/session/conformance/timeouts', {
+        implicit: 5
+      })
+    ).toBeNull()
+  })
+})
+
 describe('the fake collector', () => {
   // Regression: re-injection kept the document anchored, so a duplicate anchor could never be modelled.
   it('anchors again after a second injection, which one-anchor-per-document flags', async () => {

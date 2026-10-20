@@ -8,8 +8,7 @@ import { describe, it, expect } from 'vitest'
 import {
   isXPathLocator,
   locatorDialect,
-  locatorsMatch,
-  xpathLocatorTag
+  locatorsMatch
 } from '../src/locator-dialect.js'
 import { TEST_RUNNER_IDS, isTestRunnerId } from '../src/types.js'
 
@@ -130,19 +129,6 @@ describe('isXPathLocator', () => {
   it('leaves the WebdriverIO text-selectors older traces carry to their parser', () => {
     expect(isXPathLocator('a*=Logout')).toBe(false)
     expect(isXPathLocator('button=Login')).toBe(false)
-  })
-})
-
-describe('xpathLocatorTag', () => {
-  it('reads the tag the capture scoped its text match to', () => {
-    expect(xpathLocatorTag('//a[contains(., "Logout")]')).toBe('a')
-    expect(xpathLocatorTag('//my-button[contains(., "Go")]')).toBe('my-button')
-  })
-
-  it('has no tag to report for CSS or a tag-less expression', () => {
-    expect(xpathLocatorTag('//*[@text="Logout"]')).toBeUndefined()
-    expect(xpathLocatorTag('#username')).toBeUndefined()
-    expect(xpathLocatorTag('a*=Logout')).toBeUndefined()
   })
 })
 
