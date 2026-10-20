@@ -1,3 +1,4 @@
+import type * as DevtoolsCore from '@wdio/devtools-core'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { resetSignatureCounters } from '../src/helpers/utils.js'
@@ -11,9 +12,20 @@ import {
 } from '../src/helpers/commandPostActions.js'
 import { captureActionSnapshot } from '../src/action-snapshot.js'
 import { getDriverOriginals } from '../src/driverPatcher.js'
-import { RetryTracker } from '@wdio/devtools-core'
+import {
+  RetryTracker,
+  captureActionSnapshot as coreCapture
+} from '@wdio/devtools-core'
 import type { ActionSnapshot } from '@wdio/devtools-shared'
 import type { CapturedCommand, SeleniumDriverLike } from '../src/types.js'
+
+vi.mock('@wdio/devtools-core', async (importOriginal) => {
+  const actual = await importOriginal<typeof DevtoolsCore>()
+  return {
+    ...actual,
+    captureActionSnapshot: vi.fn(actual.captureActionSnapshot)
+  }
+})
 
 const capturers: SessionCapturer[] = []
 
@@ -112,6 +124,43 @@ describe('selenium action-snapshot timestamp binding', () => {
     )
     await Promise.all(snapshotCaptures)
     expect(actionSnapshots).toHaveLength(0)
+  })
+})
+
+describe('selenium action-snapshot capture gate', () => {
+  async function run(commands: string[], ctxBag = makeCtx(fakeDriver())) {
+    let t = 1
+    for (const command of commands) {
+      await handleOnCommand(ctxBag.ctx, cmd({ command, timestamp: t++ }))
+    }
+    await Promise.all(ctxBag.snapshotCaptures)
+    return ctxBag
+  }
+
+  it('captures a click, but not a read or wait that follows it', async () => {
+    const { actionSnapshots } = await run([
+      'click',
+      'getText',
+      'waitForDisplayed'
+    ])
+    expect(actionSnapshots.map((s) => s.timestamp)).toEqual([1])
+  })
+
+  it('captures a leading read as the initial frame, once per test', async () => {
+    const bag = makeCtx(fakeDriver())
+    await run(['getText', 'isDisplayed'], bag)
+    expect(bag.actionSnapshots.map((s) => s.timestamp)).toEqual([1])
+
+    bag.capturer.resetTestCapture()
+    await handleOnCommand(bag.ctx, cmd({ command: 'getText', timestamp: 9 }))
+    await Promise.all(bag.snapshotCaptures)
+    expect(bag.actionSnapshots.map((s) => s.timestamp)).toEqual([1, 9])
+  })
+
+  it('retries the initial frame when the first read captures nothing', async () => {
+    vi.mocked(coreCapture).mockResolvedValueOnce(null)
+    const bag = await run(['getText', 'isDisplayed', 'getText'])
+    expect(bag.actionSnapshots.map((s) => s.timestamp)).toEqual([2])
   })
 })
 

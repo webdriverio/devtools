@@ -11,6 +11,7 @@ import {
   type CapturedPerformancePayload,
   type RetryTracker
 } from '@wdio/devtools-core'
+import { changesPage } from '@wdio/devtools-shared'
 import { ELEMENT_LOCATOR_METHODS } from '../constants.js'
 import { getDriverOriginals, getElementOriginals } from '../driverPatcher.js'
 import { captureOrReplaceCommand } from './captureOrReplaceCommand.js'
@@ -357,13 +358,17 @@ function queueActionSnapshot(
   timestamp: number,
   error: unknown
 ): void {
-  if (
-    ctx.options.mode !== 'trace' ||
-    error ||
-    !ctx.driver ||
-    !mapCommandToAction(cmd.command)
-  ) {
+  if (ctx.options.mode !== 'trace' || error || !ctx.driver) {
     return
+  }
+  // Reads and waits inherit the earlier capture; only the test's first mapped command adds an initial frame.
+  const initialFrame =
+    capturer.awaitingInitialFrame && !!mapCommandToAction(cmd.command)
+  if (!changesPage(cmd.command) && !initialFrame) {
+    return
+  }
+  if (initialFrame) {
+    capturer.awaitingInitialFrame = false
   }
   ctx.snapshotCaptures.push(
     captureActionSnapshot(
@@ -374,6 +379,8 @@ function queueActionSnapshot(
     ).then((snap) => {
       if (snap) {
         upsertRichestSnapshot(ctx.actionSnapshots, snap)
+      } else if (initialFrame && !changesPage(cmd.command)) {
+        capturer.awaitingInitialFrame = true
       }
     })
   )

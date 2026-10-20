@@ -35,6 +35,7 @@ import {
   captureActionSnapshot,
   settleAfterLastAction
 } from './action-snapshot.js'
+import { changesPage } from '@wdio/devtools-shared'
 import type { ActionSnapshot, TestMetadataMap } from '@wdio/devtools-shared'
 import { SevereServiceError } from 'webdriverio'
 import type { Services, Capabilities, Options, Reporters } from '@wdio/types'
@@ -155,6 +156,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
   /** Wall-clock ms at the current test's start, set in beforeTest/beforeScenario;
    *  the lower bound of that test's video frame window (per-test slicing). */
   #currentTestStartWallTime = 0
+  #awaitingInitialCapture = true
 
   /** Map of testUid → metadata for trace group events and per-spec partitioning. */
   #testMetadata: TestMetadataMap = new Map()
@@ -374,6 +376,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
   }) {
     this.resetStack()
     this.#currentTestStartWallTime = Date.now()
+    this.#awaitingInitialCapture = true
     this.#currentStepIndex = 0
     this.#currentStepUid = undefined
 
@@ -407,6 +410,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
   beforeTest(test?: { file?: string; title?: string; fullTitle?: string }) {
     this.resetStack()
     this.#currentTestStartWallTime = Date.now()
+    this.#awaitingInitialCapture = true
 
     // Track test identity for command tagging. Generate a stable UID
     // from file + title so commands can be partitioned across reruns.
@@ -575,7 +579,11 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     // action's has no successor and this is the only capture of it. A session
     // that ran no action names it FINAL_SNAPSHOT_COMMAND, which the per-test
     // screenshot reads as "post-teardown frame, do not use".
-    const lastAction = this.#lastAction()
+    const lastChange = this.#lastCommandWhere(changesPage)
+    const lastAction =
+      lastChange && lastChange.timestamp >= this.#currentTestStartWallTime
+        ? lastChange
+        : this.#lastAction()
     // A session with no action has no timestamp of its own to key on, so its
     // frame is recognised by the marker instead — otherwise `Date.now()` differs
     // between the per-test finalize and `after()` and both capture.
@@ -632,18 +640,20 @@ export default class DevToolsHookService implements Services.ServiceInstance {
    *  self-scopes, and a slot already filled at its own boundary converges on
    *  `alreadyCaptured`. */
   #lastAction(): { command: string; timestamp: number } | undefined {
+    return this.#lastCommandWhere(() => true)
+  }
+
+  #lastCommandWhere(
+    predicate: (command: string) => boolean
+  ): { command: string; timestamp: number } | undefined {
     const commands = this.#sessionCapturer.commandsLog
     for (let i = commands.length - 1; i >= 0; i--) {
       const cmd = commands[i]!
-      if (this.#isActionCommand(cmd.command)) {
+      if (this.#isActionCommand(cmd.command) && predicate(cmd.command)) {
         return cmd
       }
     }
     return undefined
-  }
-
-  #lastActionTimestamp(): number {
-    return this.#lastAction()?.timestamp ?? Date.now()
   }
 
   private resetStack() {
@@ -720,8 +730,11 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     // the previous action left behind. Taken HERE, before the command is issued,
     // because that is the one moment the driver is guaranteed idle and the app
     // at rest — a capture taken the instant a command returns catches whatever
-    // transition it started. Stamped at the previous action's end (or now, for
-    // the first, which makes it the initial frame). Trace mode only.
+    // transition it started. Stamped at the previous page-changing command's
+    // end (or now, for the first, which makes it the initial frame). Trace mode
+    // only.
+    //
+    // Reads/waits inherit the last page-changing capture; capturing them costs a page-source round trip.
     //
     // Not while a mobile-web Appium session has a document to probe — the
     // re-entrant probes can deadlock a serialising driver (#374). A native
@@ -734,16 +747,18 @@ export default class DevToolsHookService implements Services.ServiceInstance {
         this.#browser,
         this.#sessionCapturer.currentContext
       ) &&
-      this.#isActionCommand(command)
+      this.#isActionCommand(command) &&
+      (changesPage(command) || this.#awaitingInitialCapture)
     ) {
-      // Stamped at the previous action's end so this capture IS that action's
+      // Stamped at the previous page-changing command's end so this capture IS that command's
       // result — except across a test boundary, where that slot already holds
       // its own finalize capture and a second frame at the same timestamp lets
       // the richer-screenshot merge replace it (with a reloadSession between
       // the tests, the row then replays the post-reload page). The first
       // capture of a test stamps now instead, the same rule the session's first
       // capture uses to become the initial frame.
-      const previousEnd = this.#lastActionTimestamp()
+      const previousEnd =
+        this.#lastCommandWhere(changesPage)?.timestamp ?? Date.now()
       const snap = await captureActionSnapshot(
         this.#browser,
         command,
@@ -753,6 +768,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
         this.#sessionCapturer.currentContext
       )
       if (snap) {
+        this.#awaitingInitialCapture = false
         upsertRichestSnapshot(this.#actionSnapshots, snap)
       }
     }

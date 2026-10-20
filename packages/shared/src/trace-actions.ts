@@ -42,7 +42,58 @@ export function mapAssertCommand(command: string): TraceAction | null {
   return match ? { class: ASSERT_ACTION_CLASS, method: match[1] } : null
 }
 
-export const ACTION_MAP: Record<string, TraceAction> = {
+export type ActionEffect = 'changes' | 'reads'
+
+export const METHOD_EFFECT = {
+  navigate: 'changes',
+  goBack: 'changes',
+  goForward: 'changes',
+  reload: 'changes',
+  goto: 'changes',
+  click: 'changes',
+  dblclick: 'changes',
+  fill: 'changes',
+  selectOption: 'changes',
+  hover: 'changes',
+  scrollIntoViewIfNeeded: 'changes',
+  dragTo: 'changes',
+  clear: 'changes',
+  submit: 'changes',
+  press: 'changes',
+  evaluate: 'changes',
+  tap: 'changes',
+  switchToWindow: 'changes',
+  getText: 'reads',
+  getValue: 'reads',
+  getAttribute: 'reads',
+  getProperty: 'reads',
+  getCSSProperty: 'reads',
+  getTagName: 'reads',
+  getLocation: 'reads',
+  getSize: 'reads',
+  getRect: 'reads',
+  isDisplayed: 'reads',
+  isExisting: 'reads',
+  isEnabled: 'reads',
+  isSelected: 'reads',
+  isClickable: 'reads',
+  isFocused: 'reads',
+  waitForDisplayed: 'reads',
+  waitForHidden: 'reads',
+  waitForExist: 'reads',
+  waitForNotExist: 'reads',
+  waitForEnabled: 'reads',
+  waitForClickable: 'reads',
+  waitForFunction: 'reads',
+  getTitle: 'reads',
+  getUrl: 'reads',
+  getPageSource: 'reads'
+} as const satisfies Record<string, ActionEffect>
+
+export const ACTION_MAP: Record<
+  string,
+  TraceAction & { method: keyof typeof METHOD_EFFECT }
+> = {
   // WDIO browser-level
   url: { class: 'Page', method: 'navigate' },
   navigateTo: { class: 'Page', method: 'navigate' },
@@ -207,4 +258,13 @@ export function isInputDispatchingCommand(command: string): boolean {
   }
   const action = ACTION_MAP[command]
   return action !== undefined && POINTABLE_METHODS.has(action.method)
+}
+
+/** Whether a command can alter what the page shows; reads and waits don't
+ *  warrant their own capture (cost) and inherit the latest earlier one via `claimAfter`. */
+export function changesPage(command: string): boolean {
+  if (!Object.prototype.hasOwnProperty.call(ACTION_MAP, command)) {
+    return false
+  }
+  return METHOD_EFFECT[ACTION_MAP[command].method] === 'changes'
 }

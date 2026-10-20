@@ -39,6 +39,13 @@ export class SessionCapturer extends SessionCapturerBase {
    *  post-navigation re-injection) unreachable rather than merely redundant. */
   preloadRegistered = false
 
+  /** True until the current test's first mapped command takes its capture. */
+  awaitingInitialFrame = true
+
+  resetTestCapture(): void {
+    this.awaitingInitialFrame = true
+  }
+
   #clientConnected = false
   #clientConnectedWaiters: Array<() => void> = []
   #onClientDisconnected?: () => void
