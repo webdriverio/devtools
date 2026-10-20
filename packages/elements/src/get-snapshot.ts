@@ -6,6 +6,7 @@ import {
   nativePlatform,
   parseNativeSource
 } from '@wdio/snapshot'
+import { deepCapString } from '@wdio/devtools-shared/device'
 import type { NativePlatform, SnapshotNode, SnapshotRef } from '@wdio/snapshot'
 
 export interface GetSnapshotOptions {
@@ -26,10 +27,13 @@ const NATIVE_PLATFORMS = new Set(['android', 'ios', 'mac', 'windows'])
 // @wdio/session's `classify`: a browserName makes a mobile session web. Desktop
 // browsers also report mac/windows here, which their browserName excludes too.
 function nativePlatformName(caps: Record<string, unknown>): string | undefined {
-  const platformName = String(
-    caps.platformName ?? caps['appium:platformName'] ?? ''
+  const platformName = (
+    deepCapString(caps, 'platformName') ??
+    deepCapString(caps, 'appium:platformName') ??
+    ''
   ).toLowerCase()
-  return NATIVE_PLATFORMS.has(platformName) && !caps.browserName
+  return NATIVE_PLATFORMS.has(platformName) &&
+    !deepCapString(caps, 'browserName')
     ? platformName
     : undefined
 }
