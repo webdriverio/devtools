@@ -88,12 +88,36 @@ function nativeBrowser() {
   })
 }
 
+it('parses a vendor-bag-only native session with the resolved platform', async () => {
+  await getSnapshot(
+    browser({
+      capabilities: { 'bstack:options': { platformName: 'iOS' } },
+      getPageSource: vi.fn().mockResolvedValue(ANDROID_XML)
+    })
+  )
+  expect(vi.mocked(snap.collectWeb)).not.toHaveBeenCalled()
+  expect(vi.mocked(snap.parseNativeSource).mock.calls[0][1]).toBe('ios')
+})
+
 describe('getSnapshot web/native routing (same as wdio session)', () => {
   it.each([
     ['Android app', { platformName: 'Android' }, 'native'],
     ['iOS app via appium: prefix', { 'appium:platformName': 'iOS' }, 'native'],
     ['macOS app', { platformName: 'mac' }, 'native'],
     ['Windows app', { platformName: 'Windows' }, 'native'],
+    [
+      'Android app with platformName only in a vendor bag',
+      {
+        'bstack:options': { platformName: 'Android' },
+        'appium:automationName': 'UiAutomator2'
+      },
+      'native'
+    ],
+    [
+      'Safari on iOS with both only in a vendor bag',
+      { 'bstack:options': { platformName: 'iOS', browserName: 'Safari' } },
+      'web'
+    ],
     [
       'Chrome on Android',
       { platformName: 'Android', browserName: 'chrome' },
