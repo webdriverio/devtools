@@ -16,6 +16,7 @@ import {
   type SessionCapturerOptions
 } from '@wdio/devtools-core'
 import {
+  changesPage,
   COLLECTOR_INJECT_SCRIPT,
   COLLECTOR_READY_SCRIPT
 } from '@wdio/devtools-shared'
@@ -89,6 +90,13 @@ export class SessionCapturer extends SessionCapturerBase {
   readonly nativeNetwork = new NativeNetworkCapture(this, (level, message) =>
     log[level](message)
   )
+
+  /** True until the current test's first mapped command takes its capture. */
+  awaitingInitialFrame = true
+
+  resetTestCapture(): void {
+    this.awaitingInitialFrame = true
+  }
 
   constructor(
     devtoolsOptions: SessionCapturerOptions = {},
@@ -170,12 +178,17 @@ export class SessionCapturer extends SessionCapturerBase {
    *  after the command completes, and export claims snapshots by exact equality
    *  with the command timestamp (FrameSnapshotIndex.claimAfter / elementsAt). */
   #queueActionSnapshot(command: string, timestamp: number): void {
-    if (
-      this.traceMode !== 'trace' ||
-      !this.#browser ||
-      !mapCommandToAction(command)
-    ) {
+    if (this.traceMode !== 'trace' || !this.#browser) {
       return
+    }
+    // Reads and waits inherit the earlier capture; only the test's first mapped command adds an initial frame.
+    const initialFrame =
+      this.awaitingInitialFrame && !!mapCommandToAction(command)
+    if (!changesPage(command) && !initialFrame) {
+      return
+    }
+    if (initialFrame) {
+      this.awaitingInitialFrame = false
     }
     this.snapshotCaptures.push(
       captureActionSnapshot(
@@ -187,6 +200,8 @@ export class SessionCapturer extends SessionCapturerBase {
       ).then((snap) => {
         if (snap) {
           upsertRichestSnapshot(this.actionSnapshots, snap)
+        } else if (initialFrame && !changesPage(command)) {
+          this.awaitingInitialFrame = true
         }
       })
     )

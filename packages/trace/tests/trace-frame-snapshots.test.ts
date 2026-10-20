@@ -54,6 +54,25 @@ describe('FrameSnapshotIndex', () => {
     expect(index.refs()).toEqual([])
   })
 
+  it('resolves every read row to the capture of the latest earlier page change', () => {
+    const index = new FrameSnapshotIndex([
+      snap({ timestamp: 100, command: 'click', screenshot: 'A1' }),
+      snap({ timestamp: 200, command: 'click', screenshot: 'B2' })
+    ])
+    expect(index.claimAfter(50, 'read@0')).toBeUndefined()
+    const reads: [number, string][] = [
+      [150, 'A1'],
+      [160, 'A1'],
+      [250, 'B2']
+    ]
+    for (const [ts, shot] of reads) {
+      const id = `read@${ts}`
+      expect(index.claimAfter(ts, id)).toBe(`after@${id}`)
+      const ref = index.refs().find((r) => r.callId === id)!
+      expect(ref.snapshot.screenshot).toBe(shot)
+    }
+  })
+
   it('ignores snapshots without a screenshot', () => {
     const index = new FrameSnapshotIndex([snap({ screenshot: undefined })])
     expect(index.claimAfter(2000, 'call@2')).toBeUndefined()
