@@ -281,6 +281,11 @@ describe('the fake WebDriver', () => {
       pageLoad: 300_000,
       implicit: 0
     })
+    expect(
+      await call(driver, 'POST', '/session/conformance/timeouts', {
+        implicit: 5
+      })
+    ).toBeNull()
   })
 })
 

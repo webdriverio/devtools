@@ -69,7 +69,6 @@ const RESPONSE_BYTES = 100
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 const FIXED_REPLIES: Record<string, unknown> = {
-  '/timeouts': DEFAULT_TIMEOUTS,
   '/screenshot': BLANK_PNG,
   '/window/rect': { x: 0, y: 0, width: 1280, height: 720 },
   '/window': WINDOW_HANDLE,
@@ -243,6 +242,9 @@ export class FakeWebDriver {
     }
     if (method === 'POST' && (path === '/element' || path === '/elements')) {
       return this.#find(String(params.value), path === '/elements')
+    }
+    if (method === 'GET' && path === '/timeouts') {
+      return { value: DEFAULT_TIMEOUTS }
     }
     const element = path.match(/^\/element\/([^/]+)\/(value|click|clear|text)$/)
     if (element) {
