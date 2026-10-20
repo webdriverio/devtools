@@ -48,11 +48,11 @@
     "@types/node": "26.6.4",
     "@wdio/devtools-core": "workspace:^",
     "@wdio/devtools-shared": "workspace:^",
-    "@wdio/globals": "10.0.2",
+    "@wdio/globals": "10.1.0",
     "tsup": "^8.5.1",
     "typescript": "6.0.3",
     "vitest": "^5.0.2",
-    "webdriverio": "^10.0.2"
+    "webdriverio": "^10.1.0"
   },
   "peerDependencies": {
     "webdriverio": "^10.0.0"
