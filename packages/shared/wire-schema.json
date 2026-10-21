@@ -87,7 +87,9 @@
         }
       }
     },
-    "testStopped": {},
+    "testStopped": {
+      "$ref": "#/$defs/TestStoppedWsPayload"
+    },
     "traceExport": {
       "$ref": "#/$defs/TraceExportRequest"
     },
@@ -1219,6 +1221,25 @@
         "file",
         "retries",
         "_duration"
+      ],
+      "additionalProperties": false
+    },
+    "TestStoppedWsPayload": {
+      "type": "object",
+      "properties": {
+        "stopped": {
+          "const": true
+        },
+        "timestamp": {
+          "type": "number"
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "stopped",
+        "timestamp"
       ],
       "additionalProperties": false
     },

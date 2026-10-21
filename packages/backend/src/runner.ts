@@ -50,6 +50,11 @@ class TestRunner {
   // Set on rerun spawn; consumed once by the next worker handshake so the
   // accumulated suite tree is preserved instead of wiped.
   #expectingRerunChild = false
+  #onEarlyExit?: (reason: string) => void
+  /** Fires when a spawned run exits before any worker connected. */
+  onEarlyExit(listener: (reason: string) => void) {
+    this.#onEarlyExit = listener
+  }
   consumeRerunChildFlag(): boolean {
     const v = this.#expectingRerunChild
     this.#expectingRerunChild = false
@@ -180,10 +185,21 @@ class TestRunner {
 
     this.#child = child
     this.#lastPayload = payload
-    child.once('close', () => {
+    child.once('close', (code, signal) => {
+      // stop() detached this child already, and a later run() may own the slot.
+      if (this.#child !== child) {
+        return
+      }
+      const neverConnected = this.#expectingRerunChild
       this.#child = undefined
       this.#lastPayload = undefined
+      this.#expectingRerunChild = false
       this.#baseDir = process.cwd()
+      if (neverConnected) {
+        const reason = `Run exited before reporting (${signal ? `signal ${signal}` : `exit code ${code}`})`
+        log.warn(reason)
+        this.#onEarlyExit?.(reason)
+      }
     })
     await this.#waitForSpawn(child)
   }

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Literal, Optional, TypedDict, Union
 
-__all__ = ['AccessibilityNode', 'ActionSnapshot', 'BaselineClearedWsPayload', 'BaselineSavedWsPayload', 'ClearExecutionDataWsPayload', 'CommandLog', 'CommandLogPoint', 'ConsoleLog', 'DeviceInfo', 'DocumentInfo', 'DocumentInfoDocumentInfo', 'DocumentInfoHeaders', 'ElementScriptsResponse', 'Metadata', 'NetworkRequest', 'NetworkRequestResponse', 'NetworkTimings', 'PerformanceData', 'PerformanceDataNavigation', 'PerformanceDataNavigationTiming', 'PerformanceDataResources', 'PreservedAttempt', 'PreservedAttemptTest', 'PreservedAttemptWindow', 'PreservedStep', 'ReplaceCommandWsPayload', 'ScreencastFrame', 'ScreencastInfo', 'SerializedError', 'SuiteStats', 'TestError', 'TestErrorMatcherResult', 'TestStats', 'TraceExportRequest', 'TraceExportResult', 'TraceMutation', 'Viewport']
+__all__ = ['AccessibilityNode', 'ActionSnapshot', 'BaselineClearedWsPayload', 'BaselineSavedWsPayload', 'ClearExecutionDataWsPayload', 'CommandLog', 'CommandLogPoint', 'ConsoleLog', 'DeviceInfo', 'DocumentInfo', 'DocumentInfoDocumentInfo', 'DocumentInfoHeaders', 'ElementScriptsResponse', 'Metadata', 'NetworkRequest', 'NetworkRequestResponse', 'NetworkTimings', 'PerformanceData', 'PerformanceDataNavigation', 'PerformanceDataNavigationTiming', 'PerformanceDataResources', 'PreservedAttempt', 'PreservedAttemptTest', 'PreservedAttemptWindow', 'PreservedStep', 'ReplaceCommandWsPayload', 'ScreencastFrame', 'ScreencastInfo', 'SerializedError', 'SuiteStats', 'TestError', 'TestErrorMatcherResult', 'TestStats', 'TestStoppedWsPayload', 'TraceExportRequest', 'TraceExportResult', 'TraceMutation', 'Viewport']
 
 
 class _AccessibilityNodeRequired(TypedDict):
@@ -356,6 +356,15 @@ class TestStats(_TestStatsRequired, total=False):
     hooks: List[Any]
     callSource: str
     order: float
+
+
+class _TestStoppedWsPayloadRequired(TypedDict):
+    stopped: Literal[True]
+    timestamp: float
+
+
+class TestStoppedWsPayload(_TestStoppedWsPayloadRequired, total=False):
+    reason: str
 
 
 class _TraceExportRequestRequired(TypedDict):

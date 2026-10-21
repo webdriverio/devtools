@@ -899,6 +899,32 @@ describe('DataManagerController', () => {
       expect(first.tests?.[0].state).toBe('failed')
       expect(first.tests?.[0].end).toBeDefined()
       expect(first.state).toBe('failed')
+      expect(first.tests?.[0].error?.message).toBe('Test execution stopped')
+    })
+
+    it('ends a run that exited before reporting, naming why', async () => {
+      const { manager, deliver } = await boot()
+      deliver(
+        'suites',
+        suitesFrame(
+          suite('login-suite', {
+            state: 'running',
+            tests: [test('t-1', { state: 'pending', end: undefined })]
+          })
+        )
+      )
+
+      const reason = 'Run exited before reporting (exit code 1)'
+      deliver(WS_SCOPE.testStopped, {
+        stopped: true,
+        timestamp: RUN_START,
+        reason
+      })
+
+      const [first] = publishedSuites(manager)
+      expect(first.tests?.[0].state).toBe('failed')
+      expect(first.tests?.[0].error?.message).toBe(reason)
+      expect(first.state).toBe('failed')
     })
   })
 

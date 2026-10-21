@@ -152,19 +152,21 @@ export function markSpecificRunning(
 
 /** A test the run never settled is cancelled by the stop; one that already
  *  reported an outcome keeps it. */
-const stopTest = (test: TestStatsFragment): TestStatsFragment =>
-  test && isInFlight(test)
-    ? {
-        ...test,
-        end: new Date(),
-        state: TEST_STATE.FAILED,
-        error: { message: 'Test execution stopped', name: 'TestStoppedError' }
-      }
-    : test
+const stopTest =
+  (message: string) =>
+  (test: TestStatsFragment): TestStatsFragment =>
+    test && isInFlight(test)
+      ? {
+          ...test,
+          end: new Date(),
+          state: TEST_STATE.FAILED,
+          error: { message, name: 'TestStoppedError' }
+        }
+      : test
 
 /**
- * Mark every test the run never settled as failed. Used when the user manually
- * stops the run from the dashboard — without this, suites with
+ * Mark every test the run never settled as failed. Used when the run is
+ * stopped from the dashboard or exits before reporting — without this, suites with
  * `state: 'running'` would keep showing their spinner indefinitely. A test that
  * already reported an outcome keeps it: a skipped test carries no `end` stamp,
  * so keying the flip off `end` used to relabel every skipped test as failed.
@@ -174,9 +176,12 @@ const stopTest = (test: TestStatsFragment): TestStatsFragment =>
  * ends up failed — a stopped run is not a passing one. Otherwise the existing
  * state is preserved.
  */
-export function markRunningAsStopped(suites: SuiteChunks): SuiteChunks {
+export function markRunningAsStopped(
+  suites: SuiteChunks,
+  reason = 'Test execution stopped'
+): SuiteChunks {
   const updateSuite = (s: SuiteStatsFragment): SuiteStatsFragment => {
-    const updatedTests = s.tests?.map(stopTest)
+    const updatedTests = s.tests?.map(stopTest(reason))
     const updatedNestedSuites = s.suites?.map(updateSuite)
 
     const childStates = tallyOutcomes([

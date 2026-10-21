@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { spawn } from 'node:child_process'
+import { EventEmitter } from 'node:events'
 import fs from 'node:fs'
 import path from 'node:path'
 import { RERUN_SLOT, REUSE_ENV } from '@wdio/devtools-shared'
@@ -162,6 +163,79 @@ describe('TestRunner', () => {
           configFile: mockConfigPath
         })
       ).rejects.toThrow('Spawn failed')
+    })
+  })
+
+  describe('early exit', () => {
+    const rerun: RunnerRequestBody = {
+      uid: 'test-1',
+      entryType: 'test',
+      configFile: mockConfigPath,
+      devtoolsHost: 'localhost',
+      devtoolsPort: 3000
+    }
+    const spawnedChildren: EventEmitter[] = []
+
+    beforeEach(() => {
+      spawnedChildren.length = 0
+      vi.mocked(spawn).mockImplementation(() => {
+        const child = Object.assign(new EventEmitter(), { pid: 12345 })
+        spawnedChildren.push(child)
+        setTimeout(() => child.emit('spawn'), 0)
+        return child as any
+      })
+    })
+
+    it('reports a run that exits before its worker connects', async () => {
+      const onEarlyExit = vi.fn()
+      testRunner.onEarlyExit(onEarlyExit)
+      await testRunner.run(rerun)
+
+      spawnedChildren[0].emit('close', 1, null)
+
+      expect(onEarlyExit).toHaveBeenCalledWith(
+        'Run exited before reporting (exit code 1)'
+      )
+      // An unconsumed flag would make the next unrelated worker read as a rerun child.
+      expect(testRunner.consumeRerunChildFlag()).toBe(false)
+    })
+
+    it('names the signal that ended it', async () => {
+      const onEarlyExit = vi.fn()
+      testRunner.onEarlyExit(onEarlyExit)
+      await testRunner.run(rerun)
+
+      spawnedChildren[0].emit('close', null, 'SIGKILL')
+
+      expect(onEarlyExit).toHaveBeenCalledWith(
+        'Run exited before reporting (signal SIGKILL)'
+      )
+    })
+
+    it('stays silent for a run whose worker connected', async () => {
+      const onEarlyExit = vi.fn()
+      testRunner.onEarlyExit(onEarlyExit)
+      await testRunner.run(rerun)
+      testRunner.consumeRerunChildFlag()
+
+      spawnedChildren[0].emit('close', 0, null)
+
+      expect(onEarlyExit).not.toHaveBeenCalled()
+    })
+
+    it('ignores a stopped child closing after its replacement started', async () => {
+      const onEarlyExit = vi.fn()
+      testRunner.onEarlyExit(onEarlyExit)
+      await testRunner.run(rerun)
+      testRunner.stop()
+      await testRunner.run(rerun)
+
+      spawnedChildren[0].emit('close', null, 'SIGTERM')
+      expect(onEarlyExit).not.toHaveBeenCalled()
+
+      // The replacement still owns the slot, so its own early exit is reported.
+      spawnedChildren[1].emit('close', 1, null)
+      expect(onEarlyExit).toHaveBeenCalledTimes(1)
     })
   })
 
