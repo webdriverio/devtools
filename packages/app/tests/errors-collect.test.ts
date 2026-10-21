@@ -189,6 +189,30 @@ describe('collectErrors', () => {
     expect(errors[0].timestamp).toBeUndefined()
   })
 
+  it('collects a suite carrying its own error after a stopped rerun', () => {
+    const errors = collectErrors(
+      [],
+      suiteMap({
+        uid: 'login',
+        fullTitle: 'login suite',
+        state: 'failed',
+        tests: [],
+        error: {
+          name: 'TestStoppedError',
+          message: 'Run exited before reporting (exit code 1)'
+        }
+      })
+    )
+    expect(errors).toEqual([
+      {
+        title: 'login suite',
+        message: 'Run exited before reporting (exit code 1)',
+        stack: undefined,
+        callSource: undefined
+      }
+    ])
+  })
+
   it('reads the first entry of errors[] when error is absent', () => {
     const [error] = collectErrors(
       [],
