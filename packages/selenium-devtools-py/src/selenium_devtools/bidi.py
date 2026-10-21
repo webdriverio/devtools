@@ -602,7 +602,8 @@ def _attach_network(
     already shows. What the tab cannot show is a request whose response never
     arrived, which is what ``pending`` still holding entries at the end means,
     nor a response whose request never arrived, which ``early`` holding entries
-    (or ``early_dropped`` counting them past the cap) means.
+    means. ``early_dropped`` counts responses evicted past the cap, whose request
+    may still arrive later and then stays pending.
     """
     stats = stats if stats is not None else {}
     stats["captured"] = 0
@@ -762,20 +763,25 @@ def network_summary(stats: Optional[Dict[str, Any]]) -> Optional[str]:
     Reported once at teardown rather than per event. The count is the cheap half;
     the useful half is requests still pending, which means a response never
     arrived and is the one thing the Network tab cannot show on its own, along
-    with responses whose request never arrived and so have no row at all.
+    with responses whose request never arrived and so have no row at all, and
+    responses dropped past the hold limit, which are a capture loss rather than
+    a missing request.
     """
     if not stats:
         return None
     captured = stats.get("captured", 0)
     unanswered = len(stats.get("pending") or ())
-    orphaned = len(stats.get("early") or ()) + stats.get("early_dropped", 0)
-    if not captured and not unanswered and not orphaned:
+    orphaned = len(stats.get("early") or ())
+    dropped = stats.get("early_dropped", 0)
+    if not (captured or unanswered or orphaned or dropped):
         return None
     summary = f"network: {captured} request(s) captured"
     if unanswered:
         summary += f", {unanswered} still awaiting a response at teardown"
     if orphaned:
         summary += f", {orphaned} response(s) whose request was never seen"
+    if dropped:
+        summary += f", {dropped} early response(s) dropped past the hold limit"
     return summary
 
 

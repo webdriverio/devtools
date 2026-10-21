@@ -725,9 +725,17 @@ class TestTheEventManagerPath(unittest.TestCase):
         self.assertEqual(capturer._tx.sent, [])
         self.assertEqual(sorted(key[0] for key in stats["early"]), ["R2", "R3"])
         self.assertEqual(stats["early_dropped"], 1)
+
+        # The evicted response's request arrives after all: a pending row, and the loss is named as a drop.
+        self._dispatch(network, "network.beforeRequestSent", {
+            "request": {"request": "R1", "url": "https://x/late", "method": "GET"},
+            "timestamp": 1000,
+        })
         self.assertEqual(
             bidi.network_summary(stats),
-            "network: 0 request(s) captured, 3 response(s) whose request was never seen",
+            "network: 0 request(s) captured, 1 still awaiting a response at teardown, "
+            "2 response(s) whose request was never seen, "
+            "1 early response(s) dropped past the hold limit",
         )
 
     def test_a_request_the_browser_gave_up_on_is_closed_as_failed(self):
