@@ -1,5 +1,31 @@
 # @wdio/devtools-service
 
+## 11.0.0
+
+### Major Changes
+
+- 929f99b: The package requires Node 22.19 or newer and says so in `engines`, because the backend it installs now does. The WebdriverIO peer range stays `^9 || ^10`; a WebdriverIO 9 project on Node 22 is unaffected, while Node 18 and 20, both past end of life, are no longer supported.
+
+### Minor Changes
+
+- 69da879: Capture a native app's network in the Network tab through the appium-interceptor plugin. A native Appium session has no document and no BiDi network events, so its requests were never visible. When the session sets `appium:intercept: true` and Appium runs with `--use-plugins=appium-interceptor`, the service now lists each request the plugin's proxy recorded, with method, URL, status, headers and bodies, in live and trace mode. Without the plugin the session runs as before and a warning is logged.
+- 146e214: Capture network requests on browsers without WebDriver BiDi: Safari, and every session Appium serves. Network capture rode on BiDi (or, in Nightwatch, Chrome's performance log), so those sessions showed an empty Network tab. The injected page collector now also reads the document's Resource Timing buffer, which every browser keeps: the document, scripts, styles, images and fonts, each with its timing phases and size, and on Chromium its status. It reads the buffer at install, so loads made before the collector existed are included, then observes. The collector's existing `fetch`/`XMLHttpRequest` patch keeps supplying headers, status and bodies for the calls the page makes, and a request both saw is listed once.
+
+  What Resource Timing cannot see is stated rather than left blank: the detail card of such a request names that this browser exposes no headers or body for it (and on Safari no status), a request with no status is coloured as unknown rather than as still in flight, the method column is a dash where the browser names none, and the trace's `trace.network` entry carries `_source: "resource-timing"` and the captured `_resourceType` so a reopened trace renders the same row rather than a failed request. When BiDi is serving a session, the Resource Timing rows are dropped at ingest, so Chrome sessions are unchanged. Serving means delivering, not subscribed: against Appium 3.7's XCUITest driver the BiDi inspectors attach and then send no event, so each adapter now counts BiDi as a source only once a network event has arrived (the Selenium adapter applies the same rule to its console gate). Nightwatch's performance log, which is read after the page is drained, now upgrades the page's row for each load in place with the headers and status it has, so a Chrome session lists each request once and a Safari or Appium session whose capabilities still name a performance log is not left with an empty tab. A native app session has no document and still has no network capture, because the driver exposes none. A mobile Chrome session, which opens on the browser's own new-tab page before the first navigation, no longer lists that page, and a second injection of the collector into a document keeps the first one instead of replacing it and dropping what it had buffered. A `driver.wait()` in a Selenium test now shows as the one command the test made rather than a row per poll. Safari delivers synthesized clicks only to its frontmost window and reports success either way, so once the live dashboard took the front every click reached nothing. The Selenium adapter now brings the session's own window forward before each element click, key input, clear or submit on Safari, and opens its dashboard behind it; the WDIO service, Nightwatch and Python bring Safari forward once after the session starts. The collector injected into a loaded page no longer waits for an animation frame before it starts listening, which on Safari under automation could be never, so a live run on Safari no longer replays an unchanging page with empty fields. On a browser without document-start injection (Safari, Appium), the Selenium adapter's navigation now resolves only once the collector is in the destination, so typing that follows a navigation is captured instead of racing the injection, and the collector's DOM anchor carries each form control's current value and checked state, so a form typed into before the collector arrived no longer replays empty.
+
+### Patch Changes
+
+- f6a9548: Trace mode no longer slows iOS native tests down the way it did. Each action's snapshot builds element locators from the app's page source, and every uniqueness check scanned the whole document, so the cost grew with the square of the screen's size: 23.5 s for one snapshot of a 750 KB iOS page source. The page source is now indexed once per snapshot, which brings the same snapshot to under 0.3 s with identical locators. Android, whose page sources are smaller and flatter, gains too but was far less affected.
+- 8c0ac42: The config file now reaches a dashboard the service attaches to, and a failed command's row carries the browser's own error message. The `config` frame was sent from `beforeSession` on a capturer with no socket, so it was dropped every run and only a backend the launcher itself started, which inherits the path from the environment, ever learned the file. The row stored the raw `Error`, whose message is non-enumerable, so the live socket received `{}`; it is now serialized, and webdriver's `WebDriverError: <message> when running "<endpoint>" with method "<M>"` decoration is stripped so the Errors tab shows what the browser said, as it does for the other adapters.
+- 6319b9c: An element whose parent is a WebdriverIO 10 browsing context now resolves to its browser when the collector is injected, as `@wdio/utils` resolves it; before, the walk up the parent chain stopped at the context.
+- Updated dependencies [f6a9548]
+- Updated dependencies [146e214]
+- Updated dependencies [929f99b]
+- Updated dependencies [86fb9c5]
+  - @wdio/elements@1.2.1
+  - @wdio/devtools-script@1.8.0
+  - @wdio/devtools-backend@2.0.0
+
 ## 10.11.0
 
 ### Minor Changes
