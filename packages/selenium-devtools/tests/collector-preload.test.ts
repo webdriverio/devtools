@@ -197,6 +197,7 @@ describe('per-driver preload registration', () => {
       screencastOptions: {},
       detectedRunner: 'mocha',
       finalized: false,
+      interceptRequestedFor: () => false,
       driver: undefined,
       sessionCapturer: undefined,
       actionSnapshots: [],

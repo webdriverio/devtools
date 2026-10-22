@@ -52,6 +52,7 @@ import {
 import {
   RetryTracker,
   errorMessage,
+  requestsInterceptedNetwork,
   tracePolicyModeWarning
 } from '@wdio/devtools-core'
 import { SeleniumTestArtifacts } from './test-artifacts.js'
@@ -363,6 +364,8 @@ class SeleniumDevToolsPlugin {
       get retryTracker() {
         return self.#retryTracker
       },
+      interceptRequestedFor: (driver: SeleniumDriverLike) =>
+        self.#interceptByDriver.get(driver) ?? false,
       get driver() {
         return self.#driver
       },
@@ -530,6 +533,8 @@ class SeleniumDevToolsPlugin {
   }
 
   async onDriverCreated(driver: SeleniumDriverLike) {
+    // Before any await: build() notes its builder and creates its driver in one synchronous turn.
+    this.#interceptByDriver.set(driver, this.#pendingIntercept)
     await sessionOnDriverCreated(this.#getInternals(), driver)
   }
 
@@ -591,12 +596,15 @@ class SeleniumDevToolsPlugin {
 
   /** The browser the next `build()` asks for, read before the dashboard opens. */
   #pendingBrowserName: string | undefined
+  #pendingIntercept = false
+  #interceptByDriver = new WeakMap<SeleniumDriverLike, boolean>()
   noteBuilder(builder: unknown) {
     const caps = (
       builder as { getCapabilities?: () => { get?: (k: string) => unknown } }
     ).getCapabilities?.()
     const name = caps?.get?.('browserName')
     this.#pendingBrowserName = typeof name === 'string' ? name : undefined
+    this.#pendingIntercept = requestsInterceptedNetwork(caps)
   }
 
   #finalized = false
