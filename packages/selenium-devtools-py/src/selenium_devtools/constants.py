@@ -40,6 +40,8 @@ DEFAULT_TEST_TITLE = "session"
 # not transient and is never retried.
 COLLECTOR_RETRY_LIMIT = 3
 COLLECTOR_RETRY_COOLDOWN_S = 2.0
+# Per-command proxy drains are throttled to this; test and session boundaries always drain.
+NATIVE_NETWORK_DRAIN_INTERVAL_S = 2.0
 
 # ── Logging ──────────────────────────────────────────────────────────────────
 # The adapter's logger name. Every operational message logs under this or a
