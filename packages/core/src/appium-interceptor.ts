@@ -23,7 +23,7 @@ export function flattenInterceptedHeaders(
     if (/\s/.test(name)) {
       continue
     }
-    flat[name] = Array.isArray(value) ? value.join(', ') : value
+    flat[name.toLowerCase()] = Array.isArray(value) ? value.join(', ') : value
   }
   return flat
 }

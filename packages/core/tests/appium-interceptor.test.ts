@@ -34,6 +34,12 @@ describe('flattenInterceptedHeaders', () => {
     ).toEqual({ 'set-cookie': 'a=1, b=2', 'content-type': 'text/plain' })
   })
 
+  it('lowercases names, so a mixed-case Content-Type is found', () => {
+    expect(
+      flattenInterceptedHeaders({ 'Content-Type': 'application/json' })
+    ).toEqual({ 'content-type': 'application/json' })
+  })
+
   it('returns an empty map for absent headers', () => {
     expect(flattenInterceptedHeaders(undefined)).toEqual({})
   })

@@ -58,10 +58,8 @@ describe('InterceptedNetwork', () => {
 
   it('stays off when the session did not ask for the proxy', async () => {
     await new InterceptedNetwork(NATIVE_CAPS, capturer()).start(browser())
-    await new InterceptedNetwork(
-      { ...NATIVE_CAPS, 'appium:intercept': 'yes' },
-      capturer()
-    ).start(browser())
+    const notTrue = { ...NATIVE_CAPS, 'appium:intercept': 'yes' }
+    await new InterceptedNetwork(notTrue, capturer()).start(browser())
     expect(poller.start).not.toHaveBeenCalled()
   })
 

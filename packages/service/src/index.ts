@@ -516,6 +516,8 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     uid: string | undefined,
     failed: boolean
   ): Promise<void> {
+    // Requests the app made after the test's last command are only in the proxy until drained.
+    await this.#nativeNetwork?.forward()
     const attach = await getAllureSink()
     const onLog = (level: 'info' | 'warn', msg: string) => log[level](msg)
     if (uid) {

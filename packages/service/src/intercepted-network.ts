@@ -7,17 +7,20 @@ import { resolveWebDriverAddress } from './webdriver-address.js'
 
 const log = logger('@wdio/devtools-service:interceptedNetwork')
 
-type InterceptCapability =
-  (Capabilities.W3CCapabilities & { 'appium:intercept'?: unknown }) | undefined
-
 /** Native app network from appium-interceptor's proxy, for a session that asked for it with `appium:intercept`. */
 export class InterceptedNetwork {
   #requested: boolean
   #capturer: SessionCapturer
   #poller?: Pick<InterceptorNetworkPoller, 'drain'>
 
-  constructor(requestedCaps: InterceptCapability, capturer: SessionCapturer) {
-    this.#requested = requestedCaps?.['appium:intercept'] === true
+  constructor(
+    requestedCaps: Capabilities.RequestedStandaloneCapabilities | undefined,
+    capturer: SessionCapturer
+  ) {
+    this.#requested =
+      requestedCaps !== undefined &&
+      'appium:intercept' in requestedCaps &&
+      requestedCaps['appium:intercept'] === true
     this.#capturer = capturer
   }
 
