@@ -51,7 +51,7 @@ from .logcapture import LogCapturer
 from .terminal import TerminalCapturer
 from .transport import WSClient
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 __all__ = [
     "enable", "disable", "get_capturer", "dashboard_url",
     "wait_for_dashboard_close", "CONTRACT_VERSION",
