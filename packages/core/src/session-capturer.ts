@@ -495,14 +495,9 @@ export abstract class SessionCapturerBase {
       this.sendUpstream('consoleLogs', tagged)
     }
 
-    const reqs = this.#acceptedNetworkRequests(networkRequests, opts)
-    if (reqs.length > 0) {
-      // A re-sent id replaces its row, as the dashboard does.
-      for (const req of reqs) {
-        this.#upsertNetworkRequest(req)
-      }
-      this.sendUpstream('networkRequests', reqs)
-    }
+    this.recordNetworkRequests(
+      this.#acceptedNetworkRequests(networkRequests, opts)
+    )
 
     if (Array.isArray(mutations) && mutations.length > 0) {
       const batch = mutations as TraceMutation[]
@@ -531,6 +526,17 @@ export abstract class SessionCapturerBase {
       ...entry,
       source: LOG_SOURCES.BROWSER as LogSource
     }))
+  }
+
+  /** Lists network rows and sends them in one message; a re-sent id replaces its row, as the dashboard does. */
+  recordNetworkRequests(reqs: NetworkRequest[]): void {
+    if (reqs.length === 0) {
+      return
+    }
+    for (const req of reqs) {
+      this.#upsertNetworkRequest(req)
+    }
+    this.sendUpstream('networkRequests', reqs)
   }
 
   /** Row index by request id; checked against the row before use, since adapters also write rows by index. */

@@ -437,6 +437,39 @@ describe('processTracePayload network ids', () => {
   })
 })
 
+describe('recordNetworkRequests', () => {
+  const row = (id: string, status?: number) => ({
+    id,
+    url: 'https://x/a',
+    method: 'GET',
+    type: 'fetch' as const,
+    timestamp: 1,
+    startTime: 1,
+    ...(status ? { status } : {})
+  })
+
+  it('replaces a row re-sent under the same id instead of listing it twice', () => {
+    cap.recordNetworkRequests([row('r1')])
+    cap.recordNetworkRequests([row('r1', 200), row('r2')])
+    expect(cap.networkRequests.map((r) => [r.id, r.status])).toEqual([
+      ['r1', 200],
+      ['r2', undefined]
+    ])
+  })
+
+  it('sends one upstream message per call', () => {
+    const rows = [row('r1'), row('r2')]
+    cap.recordNetworkRequests(rows)
+    expect(cap.upstream).toEqual([{ scope: 'networkRequests', data: rows }])
+  })
+
+  it('sends nothing for an empty batch', () => {
+    cap.recordNetworkRequests([])
+    expect(cap.upstream).toEqual([])
+    expect(cap.networkRequests).toEqual([])
+  })
+})
+
 describe('processTracePayload network ids at scale', () => {
   it('keeps each request one row without rescanning the recording', () => {
     class Capturer extends SessionCapturerBase {

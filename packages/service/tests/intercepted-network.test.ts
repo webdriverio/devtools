@@ -37,9 +37,10 @@ const browser = (over: Record<string, unknown> = {}) =>
 
 const capturer = () =>
   ({
-    networkRequests: [],
-    sendUpstream: vi.fn()
-  }) as unknown as SessionCapturer
+    recordNetworkRequests: vi.fn()
+  }) as unknown as SessionCapturer & {
+    recordNetworkRequests: ReturnType<typeof vi.fn>
+  }
 
 describe('InterceptedNetwork', () => {
   beforeEach(() => {
@@ -61,6 +62,11 @@ describe('InterceptedNetwork', () => {
       { ...NATIVE_CAPS, 'appium:intercept': 'yes' },
       capturer()
     ).start(browser())
+    expect(poller.start).not.toHaveBeenCalled()
+  })
+
+  it('stays off when there is no browser to start on', async () => {
+    await new InterceptedNetwork(REQUESTED, capturer()).start(undefined)
     expect(poller.start).not.toHaveBeenCalled()
   })
 
@@ -92,7 +98,7 @@ describe('InterceptedNetwork', () => {
       expect.stringContaining('appium-interceptor')
     )
     expect(poller.drain).not.toHaveBeenCalled()
-    expect(target.sendUpstream).not.toHaveBeenCalled()
+    expect(target.recordNetworkRequests).not.toHaveBeenCalled()
   })
 
   it('records and streams the rows a drain returns, and nothing for an empty one', async () => {
@@ -104,9 +110,8 @@ describe('InterceptedNetwork', () => {
     await network.start(browser())
     await network.forward()
     await network.forward()
-    expect(target.networkRequests).toEqual(rows)
-    expect(target.sendUpstream).toHaveBeenCalledTimes(1)
-    expect(target.sendUpstream).toHaveBeenCalledWith('networkRequests', rows)
+    expect(target.recordNetworkRequests).toHaveBeenCalledTimes(1)
+    expect(target.recordNetworkRequests).toHaveBeenCalledWith(rows)
   })
 
   it('starts a fresh listener for a reloaded session and drops the old one', async () => {

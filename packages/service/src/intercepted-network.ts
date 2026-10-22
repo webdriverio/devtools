@@ -1,10 +1,14 @@
 import logger from '@wdio/logger'
 import { InterceptorNetworkPoller } from '@wdio/devtools-core'
 import { isNativeAppSession } from '@wdio/devtools-shared'
+import type { Capabilities } from '@wdio/types'
 import type { SessionCapturer } from './session.js'
 import { resolveWebDriverAddress } from './webdriver-address.js'
 
 const log = logger('@wdio/devtools-service:interceptedNetwork')
+
+type InterceptCapability =
+  (Capabilities.W3CCapabilities & { 'appium:intercept'?: unknown }) | undefined
 
 /** Native app network from appium-interceptor's proxy, for a session that asked for it with `appium:intercept`. */
 export class InterceptedNetwork {
@@ -12,18 +16,19 @@ export class InterceptedNetwork {
   #capturer: SessionCapturer
   #poller?: Pick<InterceptorNetworkPoller, 'drain'>
 
-  constructor(requestedCaps: unknown, capturer: SessionCapturer) {
-    this.#requested =
-      (requestedCaps as Record<string, unknown> | undefined)?.[
-        'appium:intercept'
-      ] === true
+  constructor(requestedCaps: InterceptCapability, capturer: SessionCapturer) {
+    this.#requested = requestedCaps?.['appium:intercept'] === true
     this.#capturer = capturer
   }
 
   /** Called per session: a listener dies with its session, so `reloadSession` needs a new one. */
-  async start(browser: WebdriverIO.Browser): Promise<void> {
+  async start(browser: WebdriverIO.Browser | undefined): Promise<void> {
     this.#poller = undefined
-    if (!this.#requested || !isNativeAppSession(browser.capabilities)) {
+    if (
+      !browser ||
+      !this.#requested ||
+      !isNativeAppSession(browser.capabilities)
+    ) {
       return
     }
     const address = resolveWebDriverAddress(browser)
@@ -50,7 +55,6 @@ export class InterceptedNetwork {
     if (requests.length === 0) {
       return
     }
-    this.#capturer.networkRequests.push(...requests)
-    this.#capturer.sendUpstream('networkRequests', requests)
+    this.#capturer.recordNetworkRequests(requests)
   }
 }

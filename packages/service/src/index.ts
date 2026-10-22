@@ -882,9 +882,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     // independent of screencast, so it runs before that early-returns.
     this.#sessionCapturer.resetScriptInjection()
     await this.#ensureInjected('reloadSession')
-    if (this.#browser) {
-      await this.#nativeNetwork?.start(this.#browser)
-    }
+    await this.#nativeNetwork?.start(this.#browser)
 
     await this.#screencast.handleReload(oldSessionId)
   }
