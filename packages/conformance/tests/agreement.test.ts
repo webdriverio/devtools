@@ -8,6 +8,7 @@ import { normalizeRun } from '../src/normalize.js'
 import { renderReport } from '../src/report-html.js'
 import type {
   AdapterId,
+  BidiMode,
   RunReport,
   Violation,
   WireFrame
@@ -55,6 +56,8 @@ interface Variant {
   /** Pages anchored, as [path, timestamp]. */
   anchors?: [string, number][]
   options?: RunnerOptions
+  /** Paths the Network tab lists, as the page's Resource Timing rows. */
+  requests?: string[]
 }
 
 /** One adapter's stream for: navigate to /login, type into #username. */
@@ -65,7 +68,8 @@ function stream(
     error,
     text = 'tom',
     anchors = [['/login', 10]],
-    options = RUN_ALL
+    options = RUN_ALL,
+    requests = ['/login']
   }: Variant = {}
 ): WireFrame[] {
   const url = (path: string) => `http://127.0.0.1:${port}${path}`
@@ -90,14 +94,26 @@ function stream(
         }
       ]
     },
-    { scope: 'mutations', data: anchors.map(([p, ts]) => anchor(url(p), ts)) }
+    { scope: 'mutations', data: anchors.map(([p, ts]) => anchor(url(p), ts)) },
+    {
+      scope: 'networkRequests',
+      data: requests.map((path, i) => ({
+        id: `rt-${i}`,
+        url: url(path),
+        method: '',
+        type: 'document',
+        timestamp: 5,
+        startTime: 0,
+        source: 'resource-timing'
+      }))
+    }
   ]
 }
 
 const report = (
   adapter: AdapterId,
   frames: WireFrame[],
-  bidi = true,
+  bidi: BidiMode = 'live',
   violations: Violation[] = []
 ): RunReport => ({
   adapter,
@@ -106,7 +122,9 @@ const report = (
   truth: {
     documents: [],
     failedNavigations: [],
-    actions: { navigate: [], click: [], fill: [] }
+    actions: { navigate: [], click: [], fill: [] },
+    requests: [],
+    bidi
   },
   violations,
   unexplained: [],
@@ -120,6 +138,18 @@ const wrongPage = (timestamp: number): Violation => ({
   rule: RULES.rowReplaysPage,
   message: 'replays no document',
   subject: { kind: 'row', timestamp }
+})
+/** What the JS no-BiDi gap produces when a page's loads die undrained with it. */
+const withheld = (port: number, path: string): Violation => ({
+  rule: RULES.requestListed,
+  message: `${path}: the browser made 1 request(s), the stream lists 0 row(s)`,
+  subject: {
+    kind: 'request',
+    timestamp: 0,
+    url: `http://127.0.0.1:${port}${path}`,
+    rows: 0,
+    made: 1
+  }
 })
 const unanchored = (port: number, path: string): Violation => ({
   rule: RULES.documentAnchored,
@@ -226,10 +256,10 @@ describe('judgeDivergences', () => {
     const js = report(
       'selenium-devtools',
       stream(1, JS, { anchors: [] }),
-      false,
+      'off',
       jsGap(1)
     )
-    const py = report('selenium-devtools-py', stream(2, PY), false)
+    const py = report('selenium-devtools-py', stream(2, PY), 'off')
     const { unexplained } = judgeDivergences(compareRuns([js, py]), [js, py])
     expect(unexplained).toEqual([])
   })
@@ -239,7 +269,7 @@ describe('judgeDivergences', () => {
     const js = report(
       'selenium-devtools',
       stream(1, JS, { anchors: [] }),
-      false,
+      'off',
       [...jsGap(1), unanchored(1, '/secure')]
     )
     const py = report(
@@ -250,7 +280,7 @@ describe('judgeDivergences', () => {
           ['/secure', 35]
         ]
       }),
-      false,
+      'off',
       [wrongPage(40)]
     )
     const { unexplained } = judgeDivergences(compareRuns([js, py]), [js, py])
@@ -260,24 +290,62 @@ describe('judgeDivergences', () => {
 
   // Regression: a gap excused any matching difference, so it masked the OTHER adapter regressing.
   it('does not excuse a difference when the gap is not occurring', () => {
-    const js = report('selenium-devtools', stream(1, JS), false)
+    const js = report('selenium-devtools', stream(1, JS), 'off')
     const py = report(
       'selenium-devtools-py',
       stream(2, PY, { anchors: [] }),
-      false
+      'off'
     )
     const { unexplained } = judgeDivergences(compareRuns([js, py]), [js, py])
     expect(unexplained.map((d) => d.rule)).toContain(RULES.agreeOnSnapshots)
+  })
+
+  it("excuses a missing request where the holder's own run shows the load withheld", () => {
+    const js = report(
+      'selenium-devtools',
+      stream(1, JS, { requests: [] }),
+      'off',
+      [withheld(1, '/login')]
+    )
+    const py = report('selenium-devtools-py', stream(2, PY), 'off')
+    const { unexplained } = judgeDivergences(compareRuns([js, py]), [js, py])
+    expect(unexplained).toEqual([])
+  })
+
+  // The holder's gap covers a load it withheld, never a load the other adapter listed twice.
+  it('does not excuse a request the other adapter listed twice', () => {
+    const js = report('selenium-devtools', stream(1, JS), 'off')
+    const py = report(
+      'selenium-devtools-py',
+      stream(2, PY, { requests: ['/login', '/login'] }),
+      'off',
+      [
+        {
+          rule: RULES.requestListedOnce,
+          message:
+            '/login: the browser made 1 request(s), the stream lists 2 row(s)',
+          subject: {
+            kind: 'request',
+            timestamp: 0,
+            url: 'http://127.0.0.1:2/login',
+            rows: 2,
+            made: 1
+          }
+        }
+      ]
+    )
+    const { unexplained } = judgeDivergences(compareRuns([js, py]), [js, py])
+    expect(unexplained.map((d) => d.rule)).toEqual([RULES.agreeOnRequests])
   })
 
   it('does not excuse a difference in a mode the gap does not cover', () => {
     const js = report(
       'selenium-devtools',
       stream(1, JS, { anchors: [] }),
-      true,
+      'live',
       jsGap(1)
     )
-    const py = report('selenium-devtools-py', stream(2, PY), true)
+    const py = report('selenium-devtools-py', stream(2, PY), 'live')
     const { unexplained } = judgeDivergences(compareRuns([js, py]), [js, py])
     expect(unexplained).toHaveLength(3)
   })

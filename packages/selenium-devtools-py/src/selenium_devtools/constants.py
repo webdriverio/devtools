@@ -198,6 +198,8 @@ BIDI_CAPABILITY = "webSocketUrl"
 BIDI_NET_BEFORE_REQUEST = "network.beforeRequestSent"
 BIDI_NET_RESPONSE_COMPLETED = "network.responseCompleted"
 BIDI_NET_FETCH_ERROR = "network.fetchError"
+# Responses held for a request event not yet delivered; past this the oldest is dropped.
+BIDI_EARLY_EVENT_LIMIT = 256
 # The adapter targets the regenerated BiDi layer, which selenium 4.44 shipped —
 # it is what ``Network.add_event_handler`` and ``EVENT_CONFIGS`` arrived in, and
 # the pre-4.44 internals network capture used instead were removed in the same

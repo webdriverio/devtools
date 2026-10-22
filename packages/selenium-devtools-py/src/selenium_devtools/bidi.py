@@ -38,11 +38,13 @@ from __future__ import annotations
 
 import logging
 import sys
-from typing import Any, Dict, List, Optional, Tuple
+import threading
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from .capturer import SessionCapturer
 from .constants import (
     BIDI_CAPABILITY,
+    BIDI_EARLY_EVENT_LIMIT,
     BIDI_LEVEL_MAP,
     BIDI_NET_BEFORE_REQUEST,
     BIDI_NET_FETCH_ERROR,
@@ -178,6 +180,12 @@ def _format_stacktrace(stacktrace: Any) -> str:
     return "\n".join(lines)
 
 
+def event_request_id(params: Dict[str, Any]) -> str:
+    """The id that correlates a request's BiDi events, or '' when it has none."""
+    request = params.get("request") or {}
+    return str(request.get("request") or params.get("id") or "")
+
+
 def request_sent_kwargs(params: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """kwargs for the initial (pending) network frame, or None if unidentifiable.
 
@@ -185,7 +193,7 @@ def request_sent_kwargs(params: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     delivered by ``event_params``.
     """
     request = params.get("request") or {}
-    request_id = str(request.get("request") or params.get("id") or "")
+    request_id = event_request_id(params)
     if not request_id:
         return None
     start_time = int(params.get("timestamp") or now_ms())
@@ -206,11 +214,11 @@ def response_completed_kwargs(
 ) -> Optional[Dict[str, Any]]:
     """kwargs for the finalized network frame, merged over the pending request.
 
-    Returns None when the matching request wasn't seen (out-of-order events) —
-    the caller skips rather than inventing a half-populated entry.
+    Returns None when the matching request wasn't seen yet, rather than
+    inventing a half-populated entry; the caller holds the event until it is.
     """
     request = params.get("request") or {}
-    request_id = str(request.get("request") or params.get("id") or "")
+    request_id = event_request_id(params)
     prev = pending.get(request_id)
     if prev is None:
         return None
@@ -243,10 +251,10 @@ def fetch_error_kwargs(
     so a blocked beacon reads as failed rather than sitting pending for the
     rest of the session.
 
-    Returns None when the matching request wasn't seen.
+    Returns None when the matching request wasn't seen yet.
     """
     request = params.get("request") or {}
-    request_id = str(request.get("request") or params.get("id") or "")
+    request_id = event_request_id(params)
     prev = pending.get(request_id)
     if prev is None:
         return None
@@ -576,6 +584,11 @@ def _incomplete_event(params: Dict[str, Any], label: str) -> bool:
     return True
 
 
+CloseBuilder = Callable[
+    [Dict[str, Any], Dict[str, Dict[str, Any]]], Optional[Dict[str, Any]]
+]
+
+
 def _attach_network(
     driver: Any, capturer: SessionCapturer, stats: Optional[Dict[str, Any]] = None
 ) -> bool:
@@ -587,7 +600,10 @@ def _attach_network(
     logged per event: the dashboard's Network tab already lists every request, so
     a running count is one Console line per request saying what the UI beside it
     already shows. What the tab cannot show is a request whose response never
-    arrived, which is what ``pending`` still holding entries at the end means.
+    arrived, which is what ``pending`` still holding entries at the end means,
+    nor a response whose request never arrived, which ``early`` holding entries
+    means. ``early_dropped`` counts responses evicted past the cap, whose request
+    may still arrive later and then stays pending.
     """
     stats = stats if stats is not None else {}
     stats["captured"] = 0
@@ -598,6 +614,33 @@ def _attach_network(
     # no capture at all.
     active = {"ok": False}
 
+    # selenium runs every event callback on a thread of its own, so a request's events race each other.
+    order = threading.Lock()
+    early: Dict[Tuple[str, Any], Tuple[Dict[str, Any], CloseBuilder, str]] = {}
+    stats["early"] = early
+    stats["early_dropped"] = 0
+
+    def close_request(params: Dict[str, Any], build: CloseBuilder, label: str) -> None:
+        kwargs = build(params, pending)
+        if kwargs is None:
+            # Its request's thread has not run yet; sent once that frame is, never before it.
+            request_id = event_request_id(params)
+            if request_id:
+                early[(request_id, params.get("redirectCount"))] = (params, build, label)
+                if len(early) > BIDI_EARLY_EVENT_LIMIT:
+                    early.pop(next(iter(early)))
+                    stats["early_dropped"] += 1
+            return
+        pending.pop(kwargs["request_id"], None)
+        capturer.capture_network(**kwargs)
+        stats["captured"] += 1
+
+    def guarded(label: str, step: Callable[[], None]) -> None:
+        try:
+            step()
+        except Exception as exc:  # noqa: BLE001
+            _warn(f"{label} handler threw: {exc}")
+
     def on_request_sent(event: Any) -> None:
         if not active["ok"]:
             return
@@ -606,46 +649,42 @@ def _attach_network(
             if _incomplete_event(params, BIDI_NET_BEFORE_REQUEST):
                 return
             kwargs = request_sent_kwargs(params)
-            if kwargs is not None:
-                stats["observed"] = True
-                pending[kwargs["request_id"]] = kwargs
-                capturer.capture_network(**kwargs)
         except Exception as exc:  # noqa: BLE001
-            _warn(f"beforeRequestSent handler threw: {exc}")
-
-    def on_response_completed(event: Any) -> None:
-        if not active["ok"]:
+            _warn(f"{BIDI_NET_BEFORE_REQUEST} handler threw: {exc}")
             return
-        try:
-            params = event_params(event)
-            if _incomplete_event(params, BIDI_NET_RESPONSE_COMPLETED):
-                return
-            kwargs = response_completed_kwargs(params, pending)
-            if kwargs is not None:
-                pending.pop(kwargs["request_id"], None)
-                capturer.capture_network(**kwargs)
-                stats["captured"] += 1
-        except Exception as exc:  # noqa: BLE001
-            _warn(f"responseCompleted handler threw: {exc}")
+        if kwargs is None:
+            return
+        with order:
+            held = early.pop((kwargs["request_id"], params.get("redirectCount")), None)
+            stats["observed"] = True
+            pending[kwargs["request_id"]] = kwargs
+            guarded(BIDI_NET_BEFORE_REQUEST, lambda: capturer.capture_network(**kwargs))
+            if held is not None:
+                guarded(held[2], lambda: close_request(*held))
 
+    def closing_handler(
+        label: str, build: CloseBuilder, gates: List[Dict[str, bool]]
+    ) -> Callable[[Any], None]:
+        def on_event(event: Any) -> None:
+            if not all(gate["ok"] for gate in gates):
+                return
+            params = event_params(event)
+            if _incomplete_event(params, label):
+                return
+            with order:
+                guarded(label, lambda: close_request(params, build, label))
+
+        return on_event
+
+    on_response_completed = closing_handler(
+        BIDI_NET_RESPONSE_COMPLETED, response_completed_kwargs, [active]
+    )
     # Subscribed on its own, after the pair: a driver that refuses this one
     # event should lose only the failure rows, not every network event.
     failures = {"ok": False}
-
-    def on_fetch_error(event: Any) -> None:
-        if not (active["ok"] and failures["ok"]):
-            return
-        try:
-            params = event_params(event)
-            if _incomplete_event(params, BIDI_NET_FETCH_ERROR):
-                return
-            kwargs = fetch_error_kwargs(params, pending)
-            if kwargs is not None:
-                pending.pop(kwargs["request_id"], None)
-                capturer.capture_network(**kwargs)
-                stats["captured"] += 1
-        except Exception as exc:  # noqa: BLE001
-            _warn(f"fetchError handler threw: {exc}")
+    on_fetch_error = closing_handler(
+        BIDI_NET_FETCH_ERROR, fetch_error_kwargs, [active, failures]
+    )
 
     attached = _subscribe_via_event_manager(
         driver,
@@ -723,20 +762,27 @@ def network_summary(stats: Optional[Dict[str, Any]]) -> Optional[str]:
 
     Reported once at teardown rather than per event. The count is the cheap half;
     the useful half is requests still pending, which means a response never
-    arrived and is the one thing the Network tab cannot show on its own.
+    arrived and is the one thing the Network tab cannot show on its own, along
+    with responses whose request never arrived and so have no row at all, and
+    responses dropped past the hold limit, which are a capture loss rather than
+    a missing request.
     """
     if not stats:
         return None
     captured = stats.get("captured", 0)
     unanswered = len(stats.get("pending") or ())
-    if not captured and not unanswered:
+    orphaned = len(stats.get("early") or ())
+    dropped = stats.get("early_dropped", 0)
+    if not (captured or unanswered or orphaned or dropped):
         return None
+    summary = f"network: {captured} request(s) captured"
     if unanswered:
-        return (
-            f"network: {captured} request(s) captured, "
-            f"{unanswered} still awaiting a response at teardown"
-        )
-    return f"network: {captured} request(s) captured"
+        summary += f", {unanswered} still awaiting a response at teardown"
+    if orphaned:
+        summary += f", {orphaned} response(s) whose request was never seen"
+    if dropped:
+        summary += f", {dropped} early response(s) dropped past the hold limit"
+    return summary
 
 
 def attach(

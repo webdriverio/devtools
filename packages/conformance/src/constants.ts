@@ -13,8 +13,20 @@ export const COLLECTOR_BUNDLE = path.join(
   'packages/script/dist/script.js'
 )
 
+/**
+ * How the fake browser serves BiDi, each the shape of a real driver: `live`
+ * answers commands and emits network events (Chrome); `silent` answers
+ * commands, accepts subscriptions and emits nothing (Appium 3.7's shim);
+ * `off` offers no socket at all (Safari).
+ */
+export const BIDI_MODES = ['live', 'silent', 'off'] as const
+
 export const RULES = {
   metadataFirst: 'metadata-before-commands',
+  requestListed: 'every-browser-request-listed',
+  requestListedOnce: 'one-row-per-browser-request',
+  requestSourceServed: 'request-row-carries-what-the-browser-served',
+  agreeOnRequests: 'adapters-agree-on-requests',
   completionStamp: 'row-stamped-at-completion',
   anchorBirthTime: 'anchor-carries-birth-time',
   documentAnchored: 'every-document-anchored',
@@ -70,9 +82,18 @@ export const SCOPES = {
   metadata: 'metadata',
   commands: 'commands',
   mutations: 'mutations',
+  networkRequests: 'networkRequests',
   replaceCommand: WS_SCOPE.replaceCommand,
   config: WS_SCOPE.config
 } as const satisfies Record<string, WsMessageScope>
+
+export const DOCUMENT_MIME = 'text/html'
+
+/** The subresources every page loads beside its document, with the content type the browser answers. */
+export const SUBRESOURCES: Record<string, string> = {
+  '/app.js': 'text/javascript',
+  '/app.css': 'text/css'
+}
 
 /** Every scenario reads these and nothing else, so each language drives the
  *  same pages in the same order. The Python scenario repeats the names. */

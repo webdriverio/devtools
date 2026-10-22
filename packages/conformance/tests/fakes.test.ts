@@ -1,13 +1,13 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import WebSocket from 'ws'
 
-import { REUSE_ENV, WS_PATHS } from '@wdio/devtools-shared'
+import { REUSE_ENV, WS_PATHS, type NetworkRequest } from '@wdio/devtools-shared'
 
 import { checkConformance } from '../src/checker.js'
 import { RULES } from '../src/constants.js'
 import { FakeWebDriver } from '../src/fake-webdriver.js'
 import { runAdapter, runScenario } from '../src/harness.js'
-import type { WireFrame } from '../src/types.js'
+import type { BidiMode, WireFrame } from '../src/types.js'
 
 /** The one line every real collector bundle carries: it assigns its global. */
 const COLLECTOR_SOURCE = 'window.wdioTraceCollector = new (class {})()'
@@ -22,7 +22,7 @@ afterEach(async () => {
   }
 })
 
-async function start(bidi: boolean): Promise<FakeWebDriver> {
+async function start(bidi: BidiMode): Promise<FakeWebDriver> {
   const driver = await FakeWebDriver.start({ bidi })
   drivers.push(driver)
   return driver
@@ -92,7 +92,7 @@ describe('the fake BiDi endpoint', () => {
       ['() => {}', false],
       [`async () => { ${COLLECTOR_SOURCE} }`, true]
     ] as const) {
-      const driver = await start(true)
+      const driver = await start('silent')
       const { capabilities } = await session(driver)
       await registerPreload(capabilities.webSocketUrl!, body)
       await call(driver, 'POST', '/session/conformance/url', {
@@ -104,7 +104,7 @@ describe('the fake BiDi endpoint', () => {
 
   // WebdriverIO routes navigation, element lookup and scripts over BiDi once a session offers it.
   it('drives the same pages over BiDi and stamps the same user actions', async () => {
-    const driver = await start(true)
+    const driver = await start('silent')
     const { capabilities } = await session(driver)
     const client = await bidiClient(capabilities.webSocketUrl!)
     const context = 'window-1'
@@ -155,10 +155,126 @@ describe('the fake BiDi endpoint', () => {
   })
 })
 
+describe('the fake network', () => {
+  const navigate = (driver: FakeWebDriver, path: string) =>
+    call(driver, 'POST', '/session/conformance/url', { url: driver.url(path) })
+  const drained = (driver: FakeWebDriver) =>
+    execute(driver, FORCED_DRAIN) as Promise<{
+      networkRequests: NetworkRequest[]
+    }>
+
+  it('records three loads per document and drains them once, as the page’s Resource Timing', async () => {
+    const driver = await start('off')
+    await session(driver)
+    await navigate(driver, '/login')
+    await execute(driver, COLLECTOR_SOURCE)
+    const first = await drained(driver)
+    expect(
+      first.networkRequests.map((r) => [
+        new URL(r.url).pathname,
+        r.source,
+        r.status,
+        r.method
+      ])
+    ).toEqual([
+      ['/login', 'resource-timing', undefined, ''],
+      ['/app.js', 'resource-timing', undefined, 'GET'],
+      ['/app.css', 'resource-timing', undefined, 'GET']
+    ])
+    expect((await drained(driver)).networkRequests).toEqual([])
+    expect(driver.truth().requests).toHaveLength(3)
+    expect(driver.truth().bidi).toBe('off')
+  })
+
+  it('serves no socket to a session that did not ask, and the truth says so', async () => {
+    // What a row must carry depends on what the session was served, not on what the mode offered.
+    const driver = await start('live')
+    const { capabilities } = (await call(driver, 'POST', '/session', {
+      capabilities: { alwaysMatch: {} }
+    })) as { capabilities: { webSocketUrl?: string } }
+    expect(capabilities.webSocketUrl).toBeUndefined()
+    expect(driver.truth().bidi).toBe('off')
+  })
+
+  it('emits each load over a live socket to the client that subscribed, and nothing over a silent one', async () => {
+    for (const [mode, expected] of [
+      ['live', 6],
+      ['silent', 0]
+    ] as const) {
+      const driver = await start(mode)
+      const { capabilities } = await session(driver)
+      const ws = new WebSocket(capabilities.webSocketUrl!)
+      await new Promise((resolve) => ws.once('open', resolve))
+      const events: { method: string; params: Record<string, unknown> }[] = []
+      ws.on('message', (raw) => {
+        const message = JSON.parse(String(raw))
+        if (message.type === 'event') {
+          events.push(message)
+        }
+      })
+      const acknowledged = new Promise((resolve) => ws.once('message', resolve))
+      ws.send(
+        JSON.stringify({
+          id: 1,
+          method: 'session.subscribe',
+          params: {
+            events: ['network.beforeRequestSent', 'network.responseCompleted']
+          }
+        })
+      )
+      await acknowledged
+      await navigate(driver, '/login')
+      await new Promise((resolve) => setTimeout(resolve, 50))
+      ws.close()
+      expect(events, mode).toHaveLength(expected)
+      if (expected === 0) {
+        continue
+      }
+      expect(events.map((e) => e.method)).toEqual([
+        'network.beforeRequestSent',
+        'network.responseCompleted',
+        'network.beforeRequestSent',
+        'network.responseCompleted',
+        'network.beforeRequestSent',
+        'network.responseCompleted'
+      ])
+      const completed = events[1].params as {
+        request: { request: string }
+        response: { status: number; headers: { name: string }[] }
+      }
+      expect(events[0].params).toMatchObject({
+        request: { request: completed.request.request },
+        initiator: { type: 'other' }
+      })
+      expect(completed.response.status).toBe(200)
+      expect(completed.response.headers.map((h) => h.name)).toEqual([
+        'content-type'
+      ])
+    }
+  })
+
+  it('subscribes nobody who never asked, so an unsubscribed client hears no event', async () => {
+    const driver = await start('live')
+    const { capabilities } = await session(driver)
+    const ws = new WebSocket(capabilities.webSocketUrl!)
+    await new Promise((resolve) => ws.once('open', resolve))
+    const events: unknown[] = []
+    ws.on('message', (raw) => {
+      if (JSON.parse(String(raw)).type === 'event') {
+        events.push(raw)
+      }
+    })
+    await navigate(driver, '/login')
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    ws.close()
+    expect(events).toEqual([])
+  })
+})
+
 describe('the fake collector', () => {
   // Regression: re-injection kept the document anchored, so a duplicate anchor could never be modelled.
   it('anchors again after a second injection, which one-anchor-per-document flags', async () => {
-    const driver = await start(false)
+    const driver = await start('off')
     await session(driver)
     await call(driver, 'POST', '/session/conformance/url', {
       url: driver.url('/login')
@@ -183,7 +299,7 @@ describe('the harness', () => {
     const run = await runScenario(
       process.execPath,
       ['-e', 'setTimeout(() => {}, 10000)'],
-      { bidi: false, timeoutMs: 200 }
+      { bidi: 'off', timeoutMs: 200 }
     )
     expect(run.exitCode).not.toBe(0)
     expect(run.output).toContain('timed out')
@@ -203,7 +319,7 @@ ws.on('open', () => ws.send(JSON.stringify({ scope: 'commands', data: {} }), () 
         ready: () => true,
         prepare: () => ({ command: process.execPath, args: ['-e', script] })
       },
-      false
+      'off'
     )
     expect(report.checkerError).toContain('not an array')
     expect(report.frames).toEqual([{ scope: 'commands', data: {} }])
@@ -211,7 +327,7 @@ ws.on('open', () => ws.send(JSON.stringify({ scope: 'commands', data: {} }), () 
 
   // Nightwatch's transport re-issues a refused navigation on its own, with the adapter's own reads in between.
   it("counts a client's retries of a refused navigation as the one action the user issued", async () => {
-    const driver = await start(false)
+    const driver = await start('off')
     await session(driver)
     const navigate = (path: string) =>
       call(driver, 'POST', '/session/conformance/url', {
