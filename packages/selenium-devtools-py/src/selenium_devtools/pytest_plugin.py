@@ -583,6 +583,9 @@ def pytest_runtest_logreport(report) -> None:  # noqa: ANN001
     state = reported_state(report)
     if state is None:
         return
+    from . import instrumentation
+
+    instrumentation.drain_native_network(capturer)
     file, line, name = report.location
     _registry.record(
         report.nodeid, file, name, line or 0, state, abs_file=_absolute(file)

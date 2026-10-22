@@ -19,7 +19,15 @@ import threading
 import weakref
 from typing import Any, List, Optional
 
-from . import assertions, bidi, bidi_preload, element_locators, frames, performance
+from . import (
+    assertions,
+    bidi,
+    bidi_preload,
+    element_locators,
+    frames,
+    interceptor_network,
+    performance,
+)
 from .assert_tracer import ScriptAssertionTracer
 from .capturer import SessionCapturer
 from .cdp_screencast import start_push_screencast
@@ -550,13 +558,17 @@ def _enable_bidi_capability(params: Any) -> None:
         pass
 
 
-def _close_entry(capturer: SessionCapturer, entry: dict) -> None:
+def _close_entry(capturer: SessionCapturer, entry: dict, replaced: bool = False) -> None:
     """Drain and encode one driver's capture, attributed to the session it was
     recorded under."""
     # Before the encode: a frame still arriving would land after the buffer was
     # read, and the browser keeps sending until it is told to stop.
     _stop_push_screencast(entry)
     _flush_page_collector(capturer, entry)
+    poller = entry.pop("interceptor", None)
+    # A replaced session's driver now addresses the new one, which knows nothing of the old listener.
+    if not replaced:
+        interceptor_network.forward(capturer, poller)
     entry["snapshot"] = None
     _finalize_screencast(capturer, entry["session_id"], entry)
     summary = bidi.network_summary(entry.get("network"))
@@ -696,7 +708,7 @@ def _ensure_session_setup(driver: Any, capturer: SessionCapturer) -> Optional[di
     if entry is not None:
         if entry["session_id"] == session_id:
             return entry
-        _close_entry(capturer, entry)  # same driver, new session
+        _close_entry(capturer, entry, replaced=True)  # same driver, new session
     entry = {
         "session_id": session_id, "screencast": None, "snapshot": None,
         "preloaded": False,
@@ -723,6 +735,9 @@ def _ensure_session_setup(driver: Any, capturer: SessionCapturer) -> Optional[di
             _log.info("BiDi attached — capturing console + network")
     except Exception as exc:  # noqa: BLE001 — capture must never break the test
         _log.warning("BiDi attach threw: %s", exc)
+    entry["interceptor"] = interceptor_network.start(
+        driver, _guarded_execute_script(driver)
+    )
     try:
         if _state["trace"] and not _state["filmstrip"]:
             # With no filmstrip the archive's frames are the per-command
@@ -893,6 +908,12 @@ def record_live_failure() -> None:
         mark_run_failed()
 
 
+def drain_native_network(capturer: SessionCapturer) -> None:
+    """List native requests made since each session's last command, before a test's outcome closes its window."""
+    for entry in list(_state["sessions"].values()):
+        interceptor_network.forward(capturer, entry.get("interceptor"))
+
+
 def mark_run_failed() -> None:
     """Record that an exception reached top level (see `enable`'s excepthook)."""
     _state["run_failed"] = True
@@ -961,6 +982,7 @@ def install(
                 _on_quit(capturer, self)
             elif driver_command == "newSession":
                 _enable_bidi_capability(params)  # request BiDi before the session opens
+                interceptor_network.note_session_request(self, params)
             return orig_execute(self, driver_command, params)
 
         # First real command: the driver is now fully initialized — set up
@@ -1012,6 +1034,9 @@ def install(
         # navigate too, not just get/back/…), re-injecting if the page changed.
         if entry is not None:
             _refresh_snapshot(capturer, entry)
+            interceptor_network.forward(
+                capturer, entry.get("interceptor"), throttle=True
+            )
             # After the command, not before: until it returns, the page is
             # whatever preceded it — on the first command of a fresh driver
             # that is an unpainted about:blank, and a pushed stream sends

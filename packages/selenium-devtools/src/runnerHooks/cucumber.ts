@@ -16,7 +16,7 @@ type CucumberModule = Record<string, unknown> & {
   BeforeAll?: (fn: () => void) => void
   AfterAll?: (fn: () => void) => void
   BeforeStep?: (fn: (arg: unknown) => void) => void
-  AfterStep?: (fn: (arg: unknown) => void) => void
+  AfterStep?: (fn: (arg: unknown) => void | Promise<void>) => void
 }
 
 interface StepDefinition {
@@ -390,10 +390,11 @@ function registerStepHooks(
     })
   }
   if (typeof AfterStep === 'function') {
-    AfterStep(function (raw) {
+    // Awaited so the step's slice is written, native requests included, before the next step records its boundary.
+    AfterStep(async function (raw) {
       const arg = raw as CucumberStepArg
       const state = mapCucumberStatus(String(arg?.result?.status ?? ''))
-      callbacks.onTestEnd(state)
+      await callbacks.onTestEnd(state)
     })
   }
 }

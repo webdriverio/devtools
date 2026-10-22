@@ -344,6 +344,7 @@ export async function handleOnCommand(
   maybeDrainAfterDomCommand(ctx, capturer, cmd)
   maybeDrainAfterLiveCommand(ctx, capturer, cmd)
   queueActionSnapshot(ctx, capturer, cmd, entry.timestamp, error)
+  void capturer.nativeNetwork.forward({ throttle: true })
 }
 
 /** Fire-and-forget post-action snapshot, drained at finalize. Stamped with the

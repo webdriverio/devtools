@@ -60,6 +60,27 @@ describe('nightwatch SessionCapturer on a native session', () => {
     expect(webdriverExecute).not.toHaveBeenCalled()
   })
 
+  it('drains the native network proxy from captureTrace, throttled per command', async () => {
+    const cap = capturerWith(NATIVE)
+    const forward = vi.spyOn(cap.nativeNetwork, 'forward')
+    await cap.captureTrace(browser(), true)
+    expect(forward).toHaveBeenCalledWith({ throttle: true })
+  })
+
+  // afterEach and the cucumber pre-quit hook run this before the slice flush.
+  it('drains unthrottled at a test end, ahead of the test slice', async () => {
+    const cap = capturerWith(NATIVE)
+    const forward = vi.spyOn(cap.nativeNetwork, 'forward')
+    await cap.captureTraceAtTestEnd(browser())
+    expect(forward).toHaveBeenCalledWith()
+    expect(webdriverExecute).not.toHaveBeenCalled()
+  })
+
+  it('drains the page with an anchor at a web test end', async () => {
+    await capturerWith(MOBILE_WEB).captureTraceAtTestEnd(browser())
+    expect(webdriverExecute).toHaveBeenCalled()
+  })
+
   it('makes none from injectScript or anchorAfterNavigation', async () => {
     const cap = capturerWith(NATIVE)
     const b = browser()

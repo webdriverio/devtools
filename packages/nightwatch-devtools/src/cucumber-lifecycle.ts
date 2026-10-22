@@ -281,9 +281,7 @@ export async function captureCucumberScenarioBeforeQuit(
         assertCalls
       )
     }
-    // Anchored: a scenario ending on a navigation leaves the destination's
-    // async initial anchor unrun, so its DOM would be absent from the slice.
-    await ctx.sessionCapturer.captureTrace(browser, true)
+    await ctx.sessionCapturer.captureTraceAtTestEnd(browser)
     flushTestSlice(ctx)
     await ctx.emitTestArtifacts(
       scenario?.uid,

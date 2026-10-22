@@ -449,7 +449,7 @@ a failure as "the device disagreed" rather than "the example is broken".
 
 ## Known gaps
 
-Both are tracked, and both are visible in these examples rather than hidden:
+All are tracked, and all are visible in these examples rather than hidden:
 
 - **Selenium and Nightwatch publish no viewport** (#373). The reader then falls
   back to `1280 × 720`, which is landscape — and the player picks the stacked
@@ -457,3 +457,8 @@ Both are tracked, and both are visible in these examples rather than hidden:
   does not get the device column until that is fixed. WDIO and Python do.
 - **A native session gets no accessibility tree from Selenium, Nightwatch or
   Python** (#372). Only the WDIO service derives one from the app's page source.
+- **A native session captures no network by default** (#444). All four
+  adapters can read it from the appium-interceptor plugin when the session
+  sets `appium:intercept: true` (see each adapter's README). The Clock app
+  these examples drive makes no requests, so there is nothing to see here
+  either way.

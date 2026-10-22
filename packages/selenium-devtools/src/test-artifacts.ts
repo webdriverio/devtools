@@ -3,9 +3,9 @@
 // Selenium-only concerns: a live Allure attach sink (nightwatch is produce-only)
 // and the just-flushed trace slice threaded through the input bag.
 //
-// Selenium's runner hooks fire-and-forget some emits (Gherkin `AfterStep`), so
-// the mutable capture arrays are copied synchronously before the first await —
-// the next test would otherwise overwrite their backing arrays mid-flight. Each
+// The mutable capture arrays are copied synchronously before the first await,
+// so a runner that does not await the emit cannot have the next test overwrite
+// their backing arrays mid-flight. Each
 // core call self-gates on mode + `test` granularity + policy, so a non-trace run
 // or a coarser granularity is a no-op.
 

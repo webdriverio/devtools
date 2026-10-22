@@ -9,6 +9,7 @@ import {
   errorMessage,
   isSessionGoneError,
   loadInjectableScript,
+  NativeNetworkCapture,
   mapChromeBrowserLogs,
   pollUntilReady,
   serializeError
@@ -38,6 +39,11 @@ export class SessionCapturer extends SessionCapturerBase {
    *  which makes the `<script>`-append paths (eager injection on navigation,
    *  post-navigation re-injection) unreachable rather than merely redundant. */
   preloadRegistered = false
+
+  /** Native app network from appium-interceptor's proxy; started per driver. */
+  readonly nativeNetwork = new NativeNetworkCapture(this, (level, message) =>
+    log[level](message)
+  )
 
   #clientConnected = false
   #clientConnectedWaiters: Array<() => void> = []

@@ -64,7 +64,8 @@ function makeCapturer() {
     captureTrace: vi.fn(async () => {}),
     injectScript: vi.fn(async () => {}),
     anchorAfterNavigation: vi.fn(async () => {}),
-    snapshotCaptures: [] as Promise<void>[]
+    snapshotCaptures: [] as Promise<void>[],
+    nativeNetwork: { forward: vi.fn(async () => {}) }
   } as unknown as SessionCapturer
   return { capturer, commandsLog, captureCommand, captureAssertCommand }
 }
@@ -824,5 +825,18 @@ describe('BrowserProxy capture ordering after a DOM-mutating command', () => {
 
     expect(capturer.captureTrace).not.toHaveBeenCalled()
     expect(capturer.anchorAfterNavigation).not.toHaveBeenCalled()
+  })
+  // A native app's requests sit in the proxy until drained; a DOM-mutating
+  // command drains them through `captureTrace`, every other command here.
+  it('drains native network after a command that cannot change the DOM', () => {
+    const { capturer } = run('getTitle')
+    expect(capturer.nativeNetwork.forward).toHaveBeenCalledWith({
+      throttle: true
+    })
+  })
+
+  it('leaves the native drain to captureTrace for a DOM-mutating command', () => {
+    const { capturer } = run('click')
+    expect(capturer.nativeNetwork.forward).not.toHaveBeenCalled()
   })
 })

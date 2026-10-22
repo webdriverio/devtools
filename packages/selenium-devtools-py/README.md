@@ -231,6 +231,7 @@ is on `PATH`; otherwise keep it current (`brew upgrade chromedriver`).
 | Test / suite tree | pytest plugin (`pytest_runtest_logreport` / `sessionfinish`) | `suites` | both |
 | Browser console + JS errors | Selenium **BiDi** (`driver.script` handlers) | `consoleLogs` | both |
 | Network requests | Selenium **BiDi** (`Network.add_event_handler`, observe-only, never an intercept, which would pause every request); without BiDi, the page collector's `fetch` / `XMLHttpRequest` patch and Resource Timing buffer, drained beside the mutations | `networkRequests` | both |
+| Native app network | the appium-interceptor plugin's proxy, when the session sets `appium:intercept: True` | `networkRequests` | both |
 | Assertions | pytest hooks under pytest; line tracing for a plain script | `commands` | both |
 | DOM snapshot / time-travel | register `packages/script` as a BiDi document-start preload, drain mutations with a forced document anchor (per-document `<script>` injection when BiDi is absent) | `mutations` | both |
 | Navigation + resource timing | read from the page after a navigation, then the command row is re-sent with it | `commands` | both |
@@ -387,6 +388,29 @@ DEVTOOLS_MOBILE_PLATFORM=ios pnpm demo:python:mobile # iOS Settings
 
 `DEVTOOLS_MOBILE=web` drives the device's own browser instead. Prerequisites and the `DEVTOOLS_MOBILE` / `APPIUM_APP` switches are in [`examples/MOBILE.md`](../../examples/MOBILE.md); the full reference is the [Mobile Testing page](https://webdriver.io/docs/devtools/mobile).
 
+### Native app network
+
+A native app has no document and Appium serves no BiDi network events, so by default the Network tab of a native session is empty. The adapter can read the app's traffic from the [appium-interceptor](https://github.com/AppiumTestDistribution/appium-interceptor-plugin) plugin instead, which routes the device through a proxy of its own:
+
+```sh
+appium plugin install --source=npm appium-interceptor
+appium --use-plugins=appium-interceptor
+```
+
+Then ask for the proxy in the session's capabilities:
+
+```python
+from appium.options.android import UiAutomator2Options
+
+options = UiAutomator2Options()
+options.app = "/path/to/app.apk"
+options.set_capability("appium:intercept", True)
+```
+
+The adapter starts a listener when the session starts and reads what the proxy recorded at most every 2 seconds between commands (each read returns the whole history), and always when each pytest test reports its outcome and when the driver quits, in both live and trace mode. Each request shows its method, URL, status, headers and bodies. The plugin records no timing, so a request is placed at the moment it was first read and shows no duration. Without the plugin the adapter logs a warning and the session runs as usual. This applies to native sessions only; a mobile browser session already captures its network through the page.
+
+The plugin supports Android. For HTTPS traffic the app has to trust the certificate the plugin installs on the device, which a release build usually does not (see Android's network security configuration).
+
 ## Trace mode
 
 Instead of a live dashboard, write the run to a portable archive — the same
@@ -460,6 +484,7 @@ src/selenium_devtools/
   performance.py      navigation + resource timing for a navigation command
   bidi.py             BiDi console/JS-error + network capture (pure mapping + wiring)
   bidi_preload.py     document-start registration of the collector (BiDi preload)
+  interceptor_network.py native app network from the appium-interceptor plugin's proxy
   snapshot.py         mutation drain, and the <script> injection used without BiDi
   collector_source.py where the page-side collector's source comes from
   element_scripts.py  the backend-served a11y/element scripts the A11y tab needs

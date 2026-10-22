@@ -223,6 +223,30 @@ No configuration change is needed to switch modes — the service detects browse
 
 After every navigation command (`url`, `navigateTo`, etc.), the service runs the shared `CAPTURE_PERFORMANCE_SCRIPT` from `@wdio/devtools-core` to read `window.performance.getEntriesByType('navigation' | 'resource')`, cookies, and document info. The result is attached to the command entry in the Actions tab so you see `loadTime` / `domReady` / `responseTime` / resource counts per navigation. Same script and `applyPerformanceData` post-processing used by selenium-devtools and nightwatch-devtools — uniform dashboard fields across all three adapters.
 
+## Native app network (Appium)
+
+A native app has no document and Appium serves no BiDi network events, so by default the Network tab of a native session is empty. The service can read the app's traffic from the [appium-interceptor](https://github.com/AppiumTestDistribution/appium-interceptor-plugin) plugin instead, which routes the device through a proxy of its own:
+
+```sh
+appium plugin install --source=npm appium-interceptor
+appium --use-plugins=appium-interceptor
+```
+
+Then ask for the proxy in the session's capabilities:
+
+```ts
+capabilities: [{
+    platformName: 'Android',
+    'appium:automationName': 'UiAutomator2',
+    'appium:app': '/path/to/app.apk',
+    'appium:intercept': true
+}]
+```
+
+The service starts a listener when the session starts and reads what the proxy recorded at most every 2 seconds between commands (each read returns the whole history), and always before each test's trace slice is written and at the end of the session, in both live and trace mode. Each request shows its method, URL, status, headers and bodies. The plugin records no timing, so a request is placed at the moment it was first read and shows no duration. Without the plugin the service logs a warning and the session runs as usual. This applies to native sessions only; a mobile browser session already captures its network through the page.
+
+The plugin supports Android. For HTTPS traffic the app has to trust the certificate the plugin installs on the device, which a release build usually does not (see Android's network security configuration).
+
 ## Reference
 
 ```ts

@@ -32,6 +32,7 @@ import { SuiteManager } from './helpers/suiteManager.js'
 import { ScreencastRecorder } from './screencast.js'
 import { buildDriverMetadata } from './helpers/driverMetadata.js'
 import { attachBidiHandlers, buildBidiSinks } from './bidi.js'
+import { getDriverOriginals } from './driverPatcher.js'
 import { gracefulShutdown } from './helpers/processHooks.js'
 import type {
   ActionSnapshot,
@@ -72,6 +73,7 @@ export interface SessionLifecycleCtx {
   readonly launchCommand: string | undefined
   readonly isReuse: boolean
   readonly finalized: boolean
+  interceptRequestedFor(driver: SeleniumDriverLike): boolean
 
   driver: SeleniumDriverLike | undefined
   sessionCapturer: SessionCapturer | undefined
@@ -221,8 +223,24 @@ async function initPerDriverCapture(
   await Promise.all([
     screencastPromise,
     attachBidi(ctx, driver),
-    registerPreload(ctx, driver)
+    registerPreload(ctx, driver),
+    startNativeNetwork(ctx, ctx.sessionCapturer!, driver)
   ])
+}
+
+/** Through the unpatched `executeScript`, so the plugin's commands never render as action rows. */
+function startNativeNetwork(
+  ctx: SessionLifecycleCtx,
+  capturer: SessionCapturer,
+  driver: SeleniumDriverLike
+): Promise<void> {
+  const exec = getDriverOriginals().executeScript
+  return capturer.nativeNetwork.start({
+    requested: ctx.interceptRequestedFor(driver),
+    capabilities: capturer.metadata?.capabilities,
+    execute: exec && ((script, args) => exec(driver, script, ...args)),
+    unavailableReason: "selenium-webdriver's executeScript was not patched"
+  })
 }
 
 /** Route this driver's console/network through BiDi, which suppresses the
@@ -277,6 +295,7 @@ export async function onDriverEnd(ctx: SessionLifecycleCtx): Promise<void> {
   // live mode, before the dashboard loses the session).
   // Gated on ctx.driver so the post-quit onDriverEnd call skips a dead session.
   if (ctx.driver && ctx.sessionCapturer) {
+    await ctx.sessionCapturer.nativeNetwork.forward()
     // Anchored: a run ending on a navigation (logout → /login as the last
     // action) leaves the destination's async initial anchor unrun at teardown.
     // Live mode goes through the post-command queue instead, so the drains
@@ -311,6 +330,7 @@ export async function onDriverEnd(ctx: SessionLifecycleCtx): Promise<void> {
   if (ctx.options.filmstrip && ctx.screencast) {
     ctx.filmstripFrames.push(...ctx.screencast.frames)
   }
+  ctx.sessionCapturer?.nativeNetwork.stop()
   ctx.driver = undefined
   ctx.screencast = undefined
   ctx.sessionId = undefined
@@ -531,23 +551,29 @@ function recordTestBoundary(
 export function flushCurrentTestTrace(
   ctx: SessionLifecycleCtx
 ): Promise<TraceArtifact | undefined> {
-  if (ctx.options.traceGranularity !== 'test' || !ctx.sessionCapturer) {
+  const capturer = ctx.sessionCapturer
+  if (!capturer) {
     return Promise.resolve(undefined)
   }
-  const sessionId = ctx.sessionCapturer.metadata?.sessionId
+  if (ctx.options.traceGranularity !== 'test') {
+    return capturer.nativeNetwork.forward().then(() => undefined)
+  }
+  const sessionId = capturer.metadata?.sessionId
+  // Chosen before any await: an unawaited cucumber AfterStep lets the next step record its boundary meanwhile.
   const currentRange = findFlushableRange(ctx.specRanges)
   if (!sessionId || currentRange?.testUid === undefined) {
     return Promise.resolve(undefined)
   }
-  const flush = flushRangeLogged(
-    buildTraceExportContext(
-      ctx,
-      ctx.sessionCapturer,
-      sessionId,
-      ctx.testFilePath
-    ),
-    currentRange
-  )
+  const testFilePath = ctx.testFilePath
+  const write = () =>
+    flushRangeLogged(
+      buildTraceExportContext(ctx, capturer, sessionId, testFilePath),
+      currentRange
+    )
+  // A request the app made after the test's last command is only in the proxy until drained.
+  const flush = capturer.nativeNetwork.active
+    ? capturer.nativeNetwork.forward().then(write)
+    : write()
   ctx.traceFlushes.push(flush)
   return flush
 }

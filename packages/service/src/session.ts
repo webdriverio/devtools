@@ -670,8 +670,7 @@ export class SessionCapturer extends SessionCapturerBase {
         responseHeaders,
         size: response.bytesReceived
       }
-      this.networkRequests.push(networkRequest)
-      this.sendUpstream('networkRequests', [networkRequest])
+      this.recordNetworkRequests([networkRequest])
     } catch (err) {
       log.error(`handleNetworkResponseCompleted error: ${err}`)
     }
@@ -701,8 +700,7 @@ export class SessionCapturer extends SessionCapturerBase {
         time: endTime - pending.startTime,
         requestHeaders: pending.requestHeaders
       }
-      this.networkRequests.push(networkRequest)
-      this.sendUpstream('networkRequests', [networkRequest])
+      this.recordNetworkRequests([networkRequest])
     }
   }
 }

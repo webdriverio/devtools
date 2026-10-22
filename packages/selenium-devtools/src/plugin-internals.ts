@@ -46,6 +46,8 @@ export interface PluginInternals {
   readonly isReuse: boolean
   readonly finalized: boolean
   readonly retryTracker: RetryTracker
+  /** Whether the `build()` that created this driver asked for appium-interceptor's proxy. */
+  interceptRequestedFor(driver: SeleniumDriverLike): boolean
 
   // Mutable runtime instances
   driver: SeleniumDriverLike | undefined

@@ -89,6 +89,17 @@ vi.mock('@wdio/devtools-core', async (importOriginal) => {
   }
 })
 
+const mockNativeNetwork = {
+  start: vi.fn().mockResolvedValue(undefined),
+  forward: vi.fn().mockResolvedValue(undefined)
+}
+
+vi.mock('../src/intercepted-network.js', () => ({
+  InterceptedNetwork: vi.fn(function () {
+    return mockNativeNetwork
+  })
+}))
+
 vi.mock('node:fs/promises', () => ({
   default: { writeFile: vi.fn().mockResolvedValue(undefined) }
 }))
@@ -141,6 +152,24 @@ describe('DevtoolsService - Internal Command Filtering', () => {
         service.beforeCommand(cmd as any, args)
       })
       expect(true).toBe(true)
+    })
+  })
+
+  // Regression: a request the app made after the test's last command was left out of that test's trace.
+  describe('native network at the test boundary', () => {
+    beforeEach(async () => {
+      await service.before({} as any, [], mockBrowser)
+      vi.clearAllMocks()
+    })
+
+    it('drains the proxy when a test ends', async () => {
+      await service.afterTest({ file: '/specs/a.ts', title: 't' })
+      expect(mockNativeNetwork.forward).toHaveBeenCalledTimes(1)
+    })
+
+    it('drains the proxy when a scenario ends', async () => {
+      await service.afterScenario({ pickle: { uri: 'a.feature', name: 's' } })
+      expect(mockNativeNetwork.forward).toHaveBeenCalledTimes(1)
     })
   })
 

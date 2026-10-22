@@ -62,6 +62,7 @@ import { inPageProbesDeadlock, isAppiumSession } from './mobile.js'
 import { resolveSessionMetadata } from './session-metadata.js'
 import { stampRunnerMetadata } from './wdio-runner-id.js'
 import { publishConfigFile } from './standalone.js'
+import { InterceptedNetwork } from './intercepted-network.js'
 
 export * from './types.js'
 export const launcher = DevToolsAppLauncher
@@ -89,6 +90,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
    *  millisecond, so a scan mistook it for this slot and skipped the only
    *  capture of the last action's result. */
   #finalizedSlot?: { command: string; timestamp: number }
+  #nativeNetwork?: InterceptedNetwork
   #assertionTracker: AssertionTracker
   #screencast: ScreencastLifecycle
   #slices: TraceSliceTracker
@@ -281,6 +283,8 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     }
 
     await this.#screencast.start(browser)
+    this.#nativeNetwork = new InterceptedNetwork(caps, this.#sessionCapturer)
+    await this.#nativeNetwork.start(browser)
 
     /**
      * Propagate session metadata at the beginning of the session. Not awaited
@@ -512,6 +516,8 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     uid: string | undefined,
     failed: boolean
   ): Promise<void> {
+    // Requests the app made after the test's last command are only in the proxy until drained.
+    await this.#nativeNetwork?.forward()
     const attach = await getAllureSink()
     const onLog = (level: 'info' | 'warn', msg: string) => log[level](msg)
     if (uid) {
@@ -806,6 +812,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
         if (this.#options.mode !== 'trace') {
           await this.#drainAfterLiveCommand(command)
         }
+        await this.#nativeNetwork?.forward({ throttle: true })
         return captured
       }
     }
@@ -853,6 +860,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     // finalize on — would lose it. A framework run has already finalized per
     // test; there this only re-captures the same timestamp and merges.
     await this.#finalizePerScenario()
+    await this.#nativeNetwork?.forward()
 
     // Stop and encode the screencast for the current session.
     await this.#screencast.finalize(this.#browser.sessionId)
@@ -876,6 +884,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     // independent of screencast, so it runs before that early-returns.
     this.#sessionCapturer.resetScriptInjection()
     await this.#ensureInjected('reloadSession')
+    await this.#nativeNetwork?.start(this.#browser)
 
     await this.#screencast.handleReload(oldSessionId)
   }

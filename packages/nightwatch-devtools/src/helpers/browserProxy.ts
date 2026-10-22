@@ -346,6 +346,10 @@ export class BrowserProxy {
       this.attachScreenshot(browser, lastCommand, methodName)
     }
     this.anchorDestination(browser, methodName)
+    // A DOM-mutating command already drains it through `captureTrace`.
+    if (!this.isDomMutating(methodName)) {
+      void this.sessionCapturer.nativeNetwork.forward({ throttle: true })
+    }
   }
 
   private isDomMutating(methodName: string): boolean {
