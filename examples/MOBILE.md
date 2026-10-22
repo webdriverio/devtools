@@ -457,8 +457,8 @@ All are tracked, and all are visible in these examples rather than hidden:
   does not get the device column until that is fixed. WDIO and Python do.
 - **A native session gets no accessibility tree from Selenium, Nightwatch or
   Python** (#372). Only the WDIO service derives one from the app's page source.
-- **A native session captures no network by default** (#444). The WDIO service
-  can read it from the appium-interceptor plugin when the session sets
-  `appium:intercept: true` (see the service README); Selenium, Nightwatch and
-  Python cannot yet. The Clock app these examples drive makes no requests, so
-  there is nothing to see here either way.
+- **A native session captures no network by default** (#444). All four
+  adapters can read it from the appium-interceptor plugin when the session
+  sets `appium:intercept: true` (see each adapter's README). The Clock app
+  these examples drive makes no requests, so there is nothing to see here
+  either way.

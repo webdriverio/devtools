@@ -287,6 +287,31 @@ module.exports = {
 
 Native sessions record commands, screenshots and element data from the platform's XML tree, with no DOM. A hybrid app's webview is captured as if it were still native. From the root of a built checkout of this repo (`pnpm install && pnpm build`), try it with `pnpm demo:nightwatch:mobile`; prerequisites are in [`examples/MOBILE.md`](../../examples/MOBILE.md), and the full reference is the [Mobile Testing page](https://webdriver.io/docs/devtools/mobile).
 
+### Native app network
+
+A native app has no document and Appium serves no BiDi network events, so by default the Network tab of a native session is empty. The plugin can read the app's traffic from the [appium-interceptor](https://github.com/AppiumTestDistribution/appium-interceptor-plugin) plugin instead, which routes the device through a proxy of its own:
+
+```sh
+appium plugin install --source=npm appium-interceptor
+appium --use-plugins=appium-interceptor
+```
+
+Then ask for the proxy in `desiredCapabilities`:
+
+```js
+desiredCapabilities: {
+  browserName: null,
+  platformName: 'Android',
+  'appium:automationName': 'UiAutomator2',
+  'appium:app': '/path/to/app.apk',
+  'appium:intercept': true
+}
+```
+
+The plugin starts a listener for each session, including one that replaces it mid-run, and reads what the proxy recorded at most every 2 seconds between commands (each read returns the whole history), and always before each test's trace slice is written, in both live and trace mode. Each request shows its method, URL, status, headers and bodies. The plugin records no timing, so a request is placed at the moment it was first read and shows no duration. Without the plugin a warning is logged and the session runs as usual. This applies to native sessions only; a mobile browser session already captures its network through the page.
+
+The plugin supports Android. For HTTPS traffic the app has to trust the certificate the plugin installs on the device, which a release build usually does not (see Android's network security configuration).
+
 ## Examples
 
 Working examples live in the repo's top-level [`examples/nightwatch/`](../../examples/nightwatch). Build the workspace once (`pnpm install && pnpm build`), then run from the repo root:

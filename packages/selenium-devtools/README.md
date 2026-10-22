@@ -463,6 +463,33 @@ Appium sessions are captured in live and trace mode. A mobile-browser session is
 
 From the root of a built checkout of this repo (`pnpm install && pnpm build`), try it with `pnpm demo:selenium:mobile`, which drives the Android Clock app; `DEVTOOLS_MOBILE_PLATFORM=ios` runs the iOS spec against Settings, and `DEVTOOLS_MOBILE=web` drives the device's own browser. Prerequisites and the `DEVTOOLS_MOBILE` / `APPIUM_APP` switches are in [`examples/MOBILE.md`](../../examples/MOBILE.md); the full reference is the [Mobile Testing page](https://webdriver.io/docs/devtools/mobile).
 
+### Native app network
+
+A native app has no document and Appium serves no BiDi network events, so by default the Network tab of a native session is empty. The plugin can read the app's traffic from the [appium-interceptor](https://github.com/AppiumTestDistribution/appium-interceptor-plugin) plugin instead, which routes the device through a proxy of its own:
+
+```sh
+appium plugin install --source=npm appium-interceptor
+appium --use-plugins=appium-interceptor
+```
+
+Then ask for the proxy in the capabilities the `Builder` sends:
+
+```js
+const driver = await new Builder()
+  .usingServer('http://127.0.0.1:4723')
+  .withCapabilities({
+    platformName: 'Android',
+    'appium:automationName': 'UiAutomator2',
+    'appium:app': '/path/to/app.apk',
+    'appium:intercept': true
+  })
+  .build()
+```
+
+The plugin starts a listener for each driver and reads what the proxy recorded at most every 2 seconds between commands (each read returns the whole history), and always before each test's trace slice is written and before the driver quits, in both live and trace mode. Each request shows its method, URL, status, headers and bodies. The plugin records no timing, so a request is placed at the moment it was first read and shows no duration. Without the plugin a warning is logged and the session runs as usual. This applies to native sessions only; a mobile browser session already captures its network through the page.
+
+The plugin supports Android. For HTTPS traffic the app has to trust the certificate the plugin installs on the device, which a release build usually does not (see Android's network security configuration).
+
 ## How It Works
 
 The plugin patches `selenium-webdriver`'s `Builder`, `WebDriver`, and `WebElement` prototypes at import time:

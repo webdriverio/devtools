@@ -243,7 +243,7 @@ capabilities: [{
 }]
 ```
 
-The service starts a listener when the session starts and reads what the proxy recorded after every command and at the end of the session, in both live and trace mode. Each request shows its method, URL, status, headers and bodies. The plugin records no timing, so a request is placed at the moment it was first read and shows no duration. Without the plugin the service logs a warning and the session runs as usual. This applies to native sessions only; a mobile browser session already captures its network through the page.
+The service starts a listener when the session starts and reads what the proxy recorded at most every 2 seconds between commands (each read returns the whole history), and always before each test's trace slice is written and at the end of the session, in both live and trace mode. Each request shows its method, URL, status, headers and bodies. The plugin records no timing, so a request is placed at the moment it was first read and shows no duration. Without the plugin the service logs a warning and the session runs as usual. This applies to native sessions only; a mobile browser session already captures its network through the page.
 
 The plugin supports Android. For HTTPS traffic the app has to trust the certificate the plugin installs on the device, which a release build usually does not (see Android's network security configuration).
 
