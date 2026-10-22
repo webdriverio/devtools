@@ -192,4 +192,47 @@ describe('markRunningAsStopped', () => {
     expect(out[0].root.suites?.[0]?.state).toBe('failed')
     expect(out[0].root.suites?.[0]?.tests?.[0]?.state).toBe('failed')
   })
+  it('puts the reason on the topmost suite when a rerun left no test to carry it', () => {
+    const input = markAllRunning(
+      chunks(suite('root', { suites: [suite('a'), suite('b')] }))
+    )
+    const out = markRunningAsStopped(
+      input,
+      'Run exited before reporting (exit code 1)'
+    )
+    expect(out[0].root.state).toBe('failed')
+    expect(out[0].root.error?.message).toBe(
+      'Run exited before reporting (exit code 1)'
+    )
+    expect(out[0].root.suites?.map((child) => child.error)).toEqual([
+      undefined,
+      undefined
+    ])
+  })
+
+  it('leaves the reason on the tests when a test carries it', () => {
+    const input = chunks(
+      suite('root', {
+        state: 'running',
+        end: null,
+        tests: [test('t1', { state: 'pending', end: undefined })]
+      })
+    )
+    const out = markRunningAsStopped(input, 'Run exited before reporting')
+    expect(out[0].root.tests?.[0]?.error?.message).toBe(
+      'Run exited before reporting'
+    )
+    expect(out[0].root.error).toBeUndefined()
+  })
+
+  it('clears a stop reason once the suite runs again', () => {
+    const stopped = markRunningAsStopped(
+      markAllRunning(chunks(suite('root'))),
+      'Run exited before reporting'
+    )
+    expect(markAllRunning(stopped)[0].root.error).toBeUndefined()
+    expect(
+      markSpecificRunning(stopped, 'root', 'suite')[0].root.error
+    ).toBeUndefined()
+  })
 })

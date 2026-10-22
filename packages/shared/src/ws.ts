@@ -41,6 +41,13 @@ export interface ClearExecutionDataWsPayload {
   runStart?: boolean
 }
 
+/** `reason` is set only when the run exited before any worker connected. */
+export interface TestStoppedWsPayload {
+  stopped: true
+  timestamp: number
+  reason?: string
+}
+
 /** Discriminated-union envelope for every message that crosses the WS. */
 export interface SocketMessage<T extends WsMessageScope = WsMessageScope> {
   scope: T
@@ -54,7 +61,9 @@ export interface SocketMessage<T extends WsMessageScope = WsMessageScope> {
           ? BaselineSavedWsPayload
           : T extends 'baseline:cleared'
             ? BaselineClearedWsPayload
-            : unknown
+            : T extends 'testStopped'
+              ? TestStoppedWsPayload
+              : unknown
 }
 
 /** Payload type for a given WS scope. Inverse of `SocketMessage<T>['data']` —

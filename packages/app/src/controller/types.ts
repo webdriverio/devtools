@@ -35,4 +35,6 @@ export type SuiteStatsFragment = Omit<
   featureLine?: number
   type?: string
   file?: string
+  /** Set only by a stop that failed the suite with no test left to say why. */
+  error?: TestStatsFragment['error']
 }

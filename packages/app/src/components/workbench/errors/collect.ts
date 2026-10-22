@@ -197,6 +197,33 @@ function collectFailedTests(
   return [...byUid.values()]
 }
 
+/** Suites carrying their own error: a stopped rerun that cleared their tests. */
+function suiteErrors(
+  suites: Record<string, SuiteStatsFragment>[] | undefined
+): CollectedError[] {
+  const byUid = new Map<string, CollectedError>()
+  const visit = (suite: SuiteStatsFragment) => {
+    const read = readError(suite.error)
+    if (read) {
+      byUid.set(suite.uid, {
+        title: suite.fullTitle || suite.title || suite.uid,
+        message: read.message,
+        stack: read.stack,
+        callSource: suite.callSource
+      })
+    }
+    for (const child of suite.suites ?? []) {
+      visit(child)
+    }
+  }
+  for (const map of suites ?? []) {
+    for (const suite of Object.values(map)) {
+      visit(suite)
+    }
+  }
+  return [...byUid.values()]
+}
+
 function commandErrors(commands: CommandLog[] | undefined): CollectedError[] {
   return (commands ?? [])
     .flatMap((command) => {
@@ -293,5 +320,5 @@ export function collectErrors(
     ]
   })
 
-  return [...fromCommands, ...fromTests]
+  return [...fromCommands, ...fromTests, ...suiteErrors(suites)]
 }

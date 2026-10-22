@@ -29,6 +29,7 @@ export function markAllRunning(suites: SuiteChunks): SuiteChunks {
     state: 'running',
     start: new Date(),
     end: undefined,
+    error: undefined,
     tests: [] as TestStatsFragment[],
     suites: s.suites?.map(markAllAsRunning) || []
   })
@@ -67,6 +68,7 @@ function markSuiteTreeAsRunning(
     state: 'running',
     start: runStart,
     end: undefined,
+    error: undefined,
     tests: [] as TestStatsFragment[],
     suites:
       suiteNode.suites?.map((s) => markSuiteTreeAsRunning(s, runStart)) || []
@@ -110,6 +112,7 @@ function markSuiteWithUid(
       ...(matched
         ? {
             state: 'running' as const,
+            error: undefined,
             // Preserve parent's start/end if already running — subsequent
             // child-scenario marks would otherwise reset the feature's
             // original run timestamp.
@@ -150,66 +153,106 @@ export function markSpecificRunning(
   })
 }
 
+type StopError = NonNullable<TestStatsFragment['error']>
+
 /** A test the run never settled is cancelled by the stop; one that already
  *  reported an outcome keeps it. */
-const stopTest = (test: TestStatsFragment): TestStatsFragment =>
-  test && isInFlight(test)
-    ? {
-        ...test,
-        end: new Date(),
-        state: TEST_STATE.FAILED,
-        error: { message: 'Test execution stopped', name: 'TestStoppedError' }
-      }
-    : test
+const stopTest =
+  (error: StopError) =>
+  (test: TestStatsFragment): TestStatsFragment =>
+    test && isInFlight(test)
+      ? { ...test, end: new Date(), state: TEST_STATE.FAILED, error }
+      : test
 
 /**
- * Mark every test the run never settled as failed. Used when the user manually
- * stops the run from the dashboard — without this, suites with
- * `state: 'running'` would keep showing their spinner indefinitely. A test that
- * already reported an outcome keeps it: a skipped test carries no `end` stamp,
- * so keying the flip off `end` used to relabel every skipped test as failed.
- *
  * The suite's state is derived from its updated children: if any child failed
  * (or the suite itself was 'running' with no live children left), the suite
  * ends up failed — a stopped run is not a passing one. Otherwise the existing
- * state is preserved.
+ * state is preserved. `failedByStopAlone` collects the suites whose failure
+ * has no cause but the stop: no failed test, and only such suites failed below.
  */
-export function markRunningAsStopped(suites: SuiteChunks): SuiteChunks {
-  const updateSuite = (s: SuiteStatsFragment): SuiteStatsFragment => {
-    const updatedTests = s.tests?.map(stopTest)
-    const updatedNestedSuites = s.suites?.map(updateSuite)
+function stopSuite(
+  s: SuiteStatsFragment,
+  error: StopError,
+  failedByStopAlone: WeakSet<SuiteStatsFragment>
+): SuiteStatsFragment {
+  const updatedTests = s.tests?.map(stopTest(error)) || []
+  const updatedNestedSuites =
+    s.suites?.map((child) => stopSuite(child, error, failedByStopAlone)) || []
 
-    const childStates = tallyOutcomes([
-      ...(updatedTests || []),
-      ...(updatedNestedSuites || [])
-    ])
-    const stillRunning = hasInFlight(childStates)
-    const derivedState: SuiteStatsFragment['state'] = stillRunning
-      ? s.state
-      : hasFailure(childStates)
+  const childStates = tallyOutcomes([...updatedTests, ...updatedNestedSuites])
+  const stillRunning = hasInFlight(childStates)
+  const derivedState: SuiteStatsFragment['state'] = stillRunning
+    ? s.state
+    : hasFailure(childStates)
+      ? TEST_STATE.FAILED
+      : s.state === TEST_STATE.RUNNING
         ? TEST_STATE.FAILED
-        : s.state === TEST_STATE.RUNNING
-          ? TEST_STATE.FAILED
-          : s.state
+        : s.state
 
-    return {
-      ...s,
-      state: derivedState,
-      ...(!stillRunning && !s.end ? { end: new Date() } : {}),
-      tests: updatedTests || [],
-      suites: updatedNestedSuites || []
-    }
+  const stopped: SuiteStatsFragment = {
+    ...s,
+    state: derivedState,
+    ...(!stillRunning && !s.end ? { end: new Date() } : {}),
+    tests: updatedTests,
+    suites: updatedNestedSuites
   }
+  if (
+    s.state === TEST_STATE.RUNNING &&
+    derivedState === TEST_STATE.FAILED &&
+    !updatedTests.some((test) => test.state === TEST_STATE.FAILED) &&
+    updatedNestedSuites.every(
+      (child) =>
+        child.state !== TEST_STATE.FAILED || failedByStopAlone.has(child)
+    )
+  ) {
+    failedByStopAlone.add(stopped)
+  }
+  return stopped
+}
 
+/** A suite rerun leaves no test to show why, so the topmost suite the stop alone failed carries it. */
+function carryReason(
+  s: SuiteStatsFragment,
+  error: StopError,
+  failedByStopAlone: WeakSet<SuiteStatsFragment>
+): SuiteStatsFragment {
+  if (failedByStopAlone.has(s)) {
+    return { ...s, error }
+  }
+  return {
+    ...s,
+    suites: s.suites?.map((child) =>
+      carryReason(child, error, failedByStopAlone)
+    )
+  }
+}
+
+/**
+ * Mark every test the run never settled as failed. Used when the run is
+ * stopped from the dashboard or exits before reporting — without this, suites
+ * with `state: 'running'` would keep showing their spinner indefinitely. A test
+ * that already reported an outcome keeps it: a skipped test carries no `end`
+ * stamp, so keying the flip off `end` used to relabel every skipped test as
+ * failed.
+ */
+export function markRunningAsStopped(
+  suites: SuiteChunks,
+  reason = 'Test execution stopped'
+): SuiteChunks {
+  const error: StopError = { message: reason, name: 'TestStoppedError' }
+  const failedByStopAlone = new WeakSet<SuiteStatsFragment>()
   return suites.map((chunk) => {
     const updatedChunk: Record<string, SuiteStatsFragment> = {}
     Object.entries(chunk as Record<string, SuiteStatsFragment>).forEach(
       ([uid, suite]) => {
-        if (!suite) {
-          updatedChunk[uid] = suite
-          return
-        }
-        updatedChunk[uid] = updateSuite(suite)
+        updatedChunk[uid] = suite
+          ? carryReason(
+              stopSuite(suite, error, failedByStopAlone),
+              error,
+              failedByStopAlone
+            )
+          : suite
       }
     )
     return updatedChunk

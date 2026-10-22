@@ -7,7 +7,8 @@ import type {
   NetworkRequest,
   TraceLog,
   PreservedAttempt,
-  TracePlayerData
+  TracePlayerData,
+  WsPayloadFor
 } from '@wdio/devtools-shared'
 
 import {
@@ -285,7 +286,7 @@ export class DataManagerController implements ReactiveController {
   // dispatch should be skipped. Caller is responsible for requestUpdate().
   #handleControlScope(scope: string, data: unknown): boolean {
     if (scope === WS_SCOPE.testStopped) {
-      this.#handleTestStopped()
+      this.#handleTestStopped(data as WsPayloadFor<'testStopped'> | undefined)
       return true
     }
     if (scope === 'screencast') {
@@ -396,11 +397,13 @@ export class DataManagerController implements ReactiveController {
     this.#host.requestUpdate()
   }
 
-  #handleTestStopped() {
+  #handleTestStopped(data?: WsPayloadFor<'testStopped'>) {
     this.#activeRerunTestUid = undefined
     rerunState.activeRerunSuiteUid = undefined
     const suites = this.suitesContextProvider.value || []
-    this.suitesContextProvider.setValue(markRunningAsStopped(suites))
+    this.suitesContextProvider.setValue(
+      markRunningAsStopped(suites, data?.reason)
+    )
   }
 
   #handleMutationsUpdate(data: TraceMutation[]) {

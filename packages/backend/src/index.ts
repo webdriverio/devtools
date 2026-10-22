@@ -37,6 +37,7 @@ import {
   type BaselineGetQuery,
   type BaselineSavedWsPayload,
   type BaselineClearedWsPayload,
+  type SocketMessage,
   type TracePlayerData
 } from '@wdio/devtools-shared'
 import type { RunnerRequestBody } from './types.js'
@@ -192,14 +193,23 @@ function registerTestRoutes(
 
   s.post('/api/tests/stop', async (_request, reply) => {
     testRunner.stop()
-    broadcastToClients(
-      JSON.stringify({
-        scope: WS_SCOPE.testStopped,
-        data: { stopped: true, timestamp: Date.now() }
-      })
-    )
+    broadcastTestStopped()
     reply.send({ ok: true })
   })
+
+  testRunner.onEarlyExit((reason) => broadcastTestStopped(reason))
+}
+
+function broadcastTestStopped(reason?: string): void {
+  const message: SocketMessage<'testStopped'> = {
+    scope: WS_SCOPE.testStopped,
+    data: {
+      stopped: true,
+      timestamp: Date.now(),
+      ...(reason ? { reason } : {})
+    }
+  }
+  broadcastToClients(JSON.stringify(message))
 }
 
 async function handleBaselinePreserve(
