@@ -812,7 +812,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
         if (this.#options.mode !== 'trace') {
           await this.#drainAfterLiveCommand(command)
         }
-        await this.#nativeNetwork?.forward()
+        await this.#nativeNetwork?.forward({ throttle: true })
         return captured
       }
     }

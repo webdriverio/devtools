@@ -1,21 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { mockLogger, poller } = vi.hoisted(() => ({
+const { mockLogger, execute } = vi.hoisted(() => ({
   mockLogger: { info: vi.fn(), warn: vi.fn(), debug: vi.fn(), error: vi.fn() },
-  poller: { start: vi.fn(), drain: vi.fn(), args: [] as unknown[] }
+  execute: vi.fn()
 }))
 
 vi.mock('@wdio/logger', () => ({ default: vi.fn(() => mockLogger) }))
 
 vi.mock('@wdio/devtools-core', async (importOriginal) => ({
   ...(await importOriginal<object>()),
-  InterceptorNetworkPoller: class {
-    constructor(...args: unknown[]) {
-      poller.args = args
-    }
-    start = poller.start
-    drain = poller.drain
-  }
+  webdriverExecute: execute
 }))
 
 import { InterceptedNetwork } from '../src/intercepted-network.js'
@@ -42,30 +36,39 @@ const capturer = () =>
     recordNetworkRequests: ReturnType<typeof vi.fn>
   }
 
+const ENTRY = {
+  url: 'https://api.example.com/items',
+  method: 'GET',
+  statusCode: 200
+}
+const START = ['interceptor: startListening', [{}]]
+
 describe('InterceptedNetwork', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    poller.args = []
+    execute.mockReset()
   })
 
-  it('starts a listener for a native session that asked for the proxy', async () => {
-    poller.start.mockResolvedValueOnce(true)
+  it('starts a listener over raw WebDriver HTTP for a native session that asked for the proxy', async () => {
+    execute.mockResolvedValueOnce('L1')
     await new InterceptedNetwork(REQUESTED, capturer()).start(browser())
-    expect(poller.start).toHaveBeenCalledTimes(1)
-    expect(poller.args[0]).toMatchObject({ hostname: '127.0.0.1', port: 4723 })
-    expect(poller.args[1]).toBe('sess')
+    expect(execute).toHaveBeenCalledWith(
+      expect.objectContaining({ hostname: '127.0.0.1', port: 4723 }),
+      'sess',
+      ...START
+    )
   })
 
   it('stays off when the session did not ask for the proxy', async () => {
     await new InterceptedNetwork(NATIVE_CAPS, capturer()).start(browser())
     const notTrue = { ...NATIVE_CAPS, 'appium:intercept': 'yes' }
     await new InterceptedNetwork(notTrue, capturer()).start(browser())
-    expect(poller.start).not.toHaveBeenCalled()
+    expect(execute).not.toHaveBeenCalled()
   })
 
   it('stays off when there is no browser to start on', async () => {
     await new InterceptedNetwork(REQUESTED, capturer()).start(undefined)
-    expect(poller.start).not.toHaveBeenCalled()
+    expect(execute).not.toHaveBeenCalled()
   })
 
   it('stays off for a session with a document, whose network the page already captures', async () => {
@@ -73,21 +76,21 @@ describe('InterceptedNetwork', () => {
       capabilities: { platformName: 'Android', browserName: 'chrome' }
     })
     await new InterceptedNetwork(REQUESTED, capturer()).start(web)
-    expect(poller.start).not.toHaveBeenCalled()
+    expect(execute).not.toHaveBeenCalled()
   })
 
   it('warns and stays off when the driver address is not knowable', async () => {
     await new InterceptedNetwork(REQUESTED, capturer()).start(
       browser({ options: {} })
     )
-    expect(poller.start).not.toHaveBeenCalled()
+    expect(execute).not.toHaveBeenCalled()
     expect(mockLogger.warn).toHaveBeenCalledWith(
       expect.stringContaining('address is not knowable')
     )
   })
 
   it('warns and forwards nothing when the plugin does not answer', async () => {
-    poller.start.mockResolvedValueOnce(false)
+    execute.mockResolvedValueOnce(null)
     const target = capturer()
     const network = new InterceptedNetwork(REQUESTED, target)
     await network.start(browser())
@@ -95,30 +98,37 @@ describe('InterceptedNetwork', () => {
     expect(mockLogger.warn).toHaveBeenCalledWith(
       expect.stringContaining('appium-interceptor')
     )
-    expect(poller.drain).not.toHaveBeenCalled()
+    expect(execute).toHaveBeenCalledTimes(1)
     expect(target.recordNetworkRequests).not.toHaveBeenCalled()
   })
 
   it('records and streams the rows a drain returns, and nothing for an empty one', async () => {
-    poller.start.mockResolvedValueOnce(true)
-    const rows = [{ id: 'interceptor-L1-0' }]
-    poller.drain.mockResolvedValueOnce(rows).mockResolvedValueOnce([])
+    execute
+      .mockResolvedValueOnce('L1')
+      .mockResolvedValueOnce([ENTRY])
+      .mockResolvedValueOnce([ENTRY])
     const target = capturer()
     const network = new InterceptedNetwork(REQUESTED, target)
     await network.start(browser())
     await network.forward()
     await network.forward()
     expect(target.recordNetworkRequests).toHaveBeenCalledTimes(1)
-    expect(target.recordNetworkRequests).toHaveBeenCalledWith(rows)
+    expect(target.recordNetworkRequests).toHaveBeenCalledWith([
+      expect.objectContaining({ id: 'interceptor-L1-0', url: ENTRY.url })
+    ])
   })
 
   it('starts a fresh listener for a reloaded session and drops the old one', async () => {
-    poller.start.mockResolvedValueOnce(true).mockResolvedValueOnce(false)
+    execute.mockResolvedValueOnce('L1').mockResolvedValueOnce(null)
     const network = new InterceptedNetwork(REQUESTED, capturer())
     await network.start(browser())
     await network.start(browser({ sessionId: 'sess-2' }))
-    expect(poller.args[1]).toBe('sess-2')
+    expect(execute).toHaveBeenLastCalledWith(
+      expect.anything(),
+      'sess-2',
+      ...START
+    )
     await network.forward()
-    expect(poller.drain).not.toHaveBeenCalled()
+    expect(execute).toHaveBeenCalledTimes(2)
   })
 })

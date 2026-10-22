@@ -1,63 +1,56 @@
 import logger from '@wdio/logger'
-import { InterceptorNetworkPoller } from '@wdio/devtools-core'
-import { isNativeAppSession } from '@wdio/devtools-shared'
+import {
+  NativeNetworkCapture,
+  requestsInterceptedNetwork,
+  webdriverExecute,
+  type InterceptorExecute
+} from '@wdio/devtools-core'
 import type { Capabilities } from '@wdio/types'
 import type { SessionCapturer } from './session.js'
 import { resolveWebDriverAddress } from './webdriver-address.js'
 
 const log = logger('@wdio/devtools-service:interceptedNetwork')
 
-/** Native app network from appium-interceptor's proxy, for a session that asked for it with `appium:intercept`. */
+/** WDIO glue over core's native network capture, for a session that asked for it with `appium:intercept`. */
 export class InterceptedNetwork {
   #requested: boolean
-  #capturer: SessionCapturer
-  #poller?: Pick<InterceptorNetworkPoller, 'drain'>
+  #capture: NativeNetworkCapture
 
   constructor(
     requestedCaps: Capabilities.RequestedStandaloneCapabilities | undefined,
     capturer: SessionCapturer
   ) {
-    this.#requested =
-      requestedCaps !== undefined &&
-      'appium:intercept' in requestedCaps &&
-      requestedCaps['appium:intercept'] === true
-    this.#capturer = capturer
+    this.#requested = requestsInterceptedNetwork(requestedCaps)
+    this.#capture = new NativeNetworkCapture(capturer, (level, message) =>
+      log[level](message)
+    )
   }
 
   /** Called per session: a listener dies with its session, so `reloadSession` needs a new one. */
-  async start(browser: WebdriverIO.Browser | undefined): Promise<void> {
-    this.#poller = undefined
-    if (
-      !browser ||
-      !this.#requested ||
-      !isNativeAppSession(browser.capabilities)
-    ) {
-      return
-    }
-    const address = resolveWebDriverAddress(browser)
-    if (!address || !browser.sessionId) {
-      log.warn(
-        'appium:intercept is set but the Appium address is not knowable; native network is not captured'
-      )
-      return
-    }
-    const poller = new InterceptorNetworkPoller(address, browser.sessionId)
-    if (!(await poller.start())) {
-      log.warn(
-        'appium:intercept is set but the interceptor listener did not start; is Appium running with --use-plugins=appium-interceptor?'
-      )
-      return
-    }
-    log.info('Native network capture active via appium-interceptor')
-    this.#poller = poller
+  start(browser: WebdriverIO.Browser | undefined): Promise<void> {
+    return this.#capture.start(
+      browser && {
+        requested: this.#requested,
+        capabilities: browser.capabilities,
+        execute: executorFor(browser),
+        unavailableReason: 'the Appium address is not knowable'
+      }
+    )
   }
 
-  /** Lists what the proxy recorded since the last call. */
-  async forward(): Promise<void> {
-    const requests = (await this.#poller?.drain()) ?? []
-    if (requests.length === 0) {
-      return
-    }
-    this.#capturer.recordNetworkRequests(requests)
+  forward(options?: { throttle?: boolean }): Promise<void> {
+    return this.#capture.forward(options)
   }
+}
+
+/** Raw WebDriver HTTP, so the plugin's commands never re-enter WDIO's hooks or render as action rows. */
+function executorFor(
+  browser: WebdriverIO.Browser
+): InterceptorExecute | undefined {
+  const address = resolveWebDriverAddress(browser)
+  const sessionId = browser.sessionId
+  if (!address || !sessionId) {
+    return undefined
+  }
+  return (script, args) => webdriverExecute(address, sessionId, script, args)
 }
