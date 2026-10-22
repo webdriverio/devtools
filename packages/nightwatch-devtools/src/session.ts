@@ -10,6 +10,7 @@ import {
   loadInjectableScript,
   mapChromeBrowserLogs,
   mapCommandToAction,
+  NativeNetworkCapture,
   pollUntilReady,
   serializeError,
   upsertRichestSnapshot,
@@ -90,6 +91,10 @@ export class SessionCapturer extends SessionCapturerBase {
   runner: TestRunnerId = nightwatchRunnerId(false)
   readonly actionSnapshots: ActionSnapshot[] = []
   readonly snapshotCaptures: Promise<void>[] = []
+  /** Native app network from appium-interceptor's proxy; started per session. */
+  readonly nativeNetwork = new NativeNetworkCapture(this, (level, message) =>
+    log[level](message)
+  )
 
   constructor(
     devtoolsOptions: SessionCapturerOptions = {},
@@ -543,16 +548,27 @@ export class SessionCapturer extends SessionCapturerBase {
     forceAnchor = false,
     anchorTimestamp?: number
   ) {
-    // A native app has no document to drain. Inside the method, because four
-    // call sites reach it — the command hook, the navigation proxy, the
-    // cucumber pre-quit hook and finalize.
+    // A native app has no document to drain, only the proxy's requests. Inside
+    // the method, because the command hook and the navigation proxy both reach it.
     if (this.isNativeAppSession) {
+      await this.nativeNetwork.forward({ throttle: true })
       return
     }
     // Performance logs only accumulate, so they lose nothing by waiting, while
     // the drain is racing the page it reads from (`drainOutgoingPage`).
     await this.drainCollector(browser, forceAnchor, anchorTimestamp)
     await this.captureNetworkFromPerformanceLogs(browser)
+  }
+
+  /** At a test or scenario end, before its slice is written: the proxy drain there is never throttled. */
+  async captureTraceAtTestEnd(browser: NightwatchBrowser) {
+    if (this.isNativeAppSession) {
+      await this.nativeNetwork.forward()
+      return
+    }
+    // Anchored: a test ending on a navigation leaves the destination's async
+    // initial anchor unrun, so its DOM would be absent from the slice.
+    await this.captureTrace(browser, true)
   }
 
   private async drainCollector(

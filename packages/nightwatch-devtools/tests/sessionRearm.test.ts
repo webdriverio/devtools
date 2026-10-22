@@ -38,6 +38,10 @@ type RearmCtx = Pick<
 
 /** Stands in for the accumulated trace state a re-arm must leave alone. */
 interface FakeCapturer {
+  nativeNetwork: {
+    start: ReturnType<typeof vi.fn>
+    stop: ReturnType<typeof vi.fn>
+  }
   preloadRegistered: boolean
   bidiActive: boolean
   loadsListedByLog: unknown[]
@@ -50,6 +54,7 @@ function makeCtx(
   overrides: { armedSessionId?: string; bidiEnabled?: boolean } = {}
 ) {
   const capturer: FakeCapturer = {
+    nativeNetwork: { start: vi.fn(async () => {}), stop: vi.fn() },
     preloadRegistered: true,
     bidiActive: true,
     loadsListedByLog: ['load-1'],
@@ -154,6 +159,34 @@ describe('rearmCaptureForSession', () => {
     expect(capturer.preloadRegistered).toBe(true)
     expect(capturer.bidiActive).toBe(true)
     expect(ctx.armedSessionId).toBe('session-2')
+  })
+
+  // A listener belongs to the session that started it, so the replacement needs its own.
+  it('starts a native network listener for the new session', async () => {
+    const { ctx, capturer } = makeCtx()
+    const browser = {
+      ...fakeBrowser('session-2'),
+      capabilities: { platformName: 'Android' },
+      desiredCapabilities: { 'appium:intercept': true }
+    } as unknown as NightwatchBrowser
+
+    rearm(ctx, browser)
+    await settle()
+
+    expect(capturer.nativeNetwork.start).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requested: true,
+        capabilities: { platformName: 'Android' }
+      })
+    )
+  })
+
+  // Regression: a command on the new session drained the old listener through the dead session.
+  it('stops the old listener at detection, before the handshake', () => {
+    const { ctx, capturer } = makeCtx()
+    rearm(ctx, fakeBrowser('session-2'))
+    expect(capturer.nativeNetwork.stop).toHaveBeenCalledTimes(1)
+    expect(capturer.nativeNetwork.start).not.toHaveBeenCalled()
   })
 
   it('leaves the accumulated capture state untouched', async () => {

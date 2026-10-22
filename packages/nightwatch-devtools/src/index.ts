@@ -569,9 +569,7 @@ class NightwatchDevToolsPlugin {
             this.browserProxy.drainNativeAssertCalls()
           )
         }
-        // Anchored: a test ending on a navigation leaves the destination's
-        // async initial anchor unrun, so its DOM would be absent from the slice.
-        await this.sessionCapturer.captureTrace(browser, true)
+        await this.sessionCapturer.captureTraceAtTestEnd(browser)
         // Flush this test's slice before the next test overwrites its outcome.
         flushTestSlice(this.#getInternals())
         const results = (browser.currentTest as NightwatchCurrentTest)?.results
@@ -626,6 +624,8 @@ class NightwatchDevToolsPlugin {
   }
 
   async after(browser?: NightwatchBrowser) {
+    // The session is over, so a late drain must not reach it.
+    this.sessionCapturer?.nativeNetwork.stop()
     // Drain first: a rotation still in flight would otherwise start its new
     // recorder after this finalize and strand the poll interval.
     await this.#screencast.rotation

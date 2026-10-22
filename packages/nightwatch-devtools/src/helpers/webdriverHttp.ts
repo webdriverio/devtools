@@ -9,8 +9,10 @@
 
 import logger from '@wdio/logger'
 import {
+  webdriverExecute as coreExecute,
   webdriverGet as coreGet,
   webdriverPost as corePost,
+  type InterceptorExecute,
   type WebDriverAddress
 } from '@wdio/devtools-core'
 import type { NightwatchBrowser } from '../types.js'
@@ -39,14 +41,11 @@ const firstDefined = (obj: unknown, ...keys: string[]): unknown => {
   return undefined
 }
 
-/**
- * Walks Nightwatch's internal config (transport / queue.transport /
- * nightwatchInstance — none of which are on the public NightwatchBrowser type)
- * to find the underlying WebDriver host+port.
- */
-export function resolveWebDriverAddress(browser: NightwatchBrowser): {
-  driverHost: string
-  driverPort: number
+/** The driver settings as configured, with no defaults applied. */
+function configuredWebDriver(browser: NightwatchBrowser): {
+  host: unknown
+  port: unknown
+  pathPrefix: unknown
 } {
   const transportSettings =
     getPath(browser, 'transport', 'settings', 'webdriver') ||
@@ -64,19 +63,34 @@ export function resolveWebDriverAddress(browser: NightwatchBrowser): {
     getPath(browser, 'nightwatchInstance', 'settings') ||
     getPath(browser, 'globals', 'nightwatchInstance', 'settings') ||
     {}
-  const driverHost = String(
-    firstDefined(transportSettings, 'host', 'server_address') ||
-      firstDefined(getProp(opts, 'webdriver'), 'host') ||
-      firstDefined(getProp(nightwatchSettings, 'webdriver'), 'host') ||
-      'localhost'
-  )
-  const driverPort = Number(
-    firstDefined(transportSettings, 'port') ||
-      firstDefined(getProp(opts, 'webdriver'), 'port') ||
-      firstDefined(getProp(nightwatchSettings, 'webdriver'), 'port') ||
-      9515
-  )
-  return { driverHost, driverPort }
+  const sources = [
+    transportSettings,
+    getProp(opts, 'webdriver'),
+    getProp(nightwatchSettings, 'webdriver')
+  ]
+  const pick = (...keys: string[]) =>
+    sources.map((source) => firstDefined(source, ...keys)).find(Boolean)
+  return {
+    host: pick('host', 'server_address'),
+    port: pick('port'),
+    pathPrefix: pick('default_path_prefix')
+  }
+}
+
+/**
+ * Walks Nightwatch's internal config (transport / queue.transport /
+ * nightwatchInstance, none of which are on the public NightwatchBrowser type)
+ * to find the underlying WebDriver host+port.
+ */
+export function resolveWebDriverAddress(browser: NightwatchBrowser): {
+  driverHost: string
+  driverPort: number
+} {
+  const { host, port } = configuredWebDriver(browser)
+  return {
+    driverHost: String(host || 'localhost'),
+    driverPort: Number(port || 9515)
+  }
 }
 
 /** The core transport's address, plus this adapter's logger. Nightwatch always
@@ -113,6 +127,25 @@ export function webdriverPost<T>(
   return id
     ? corePost<T>(address(browser), id, path, body)
     : Promise.resolve(null)
+}
+
+/** Appium execute methods for the session current now: a listener belongs to one session, so a later read never reaches its replacement. */
+export function sessionExecutor(
+  browser: NightwatchBrowser
+): InterceptorExecute | undefined {
+  const id = sessionId(browser)
+  const { host, port, pathPrefix } = configuredWebDriver(browser)
+  // No default port here: guessing chromedriver's would blame a missing plugin for a wrong address.
+  if (!id || !port) {
+    return undefined
+  }
+  const at: WebDriverAddress = {
+    hostname: String(host || 'localhost'),
+    port: Number(port),
+    path: typeof pathPrefix === 'string' ? pathPrefix : undefined,
+    onWarn: (message: string) => log.warn(message)
+  }
+  return (script, args) => coreExecute(at, id, script, args)
 }
 
 /** Run a script in the page, outside the command queue. `body` is a function

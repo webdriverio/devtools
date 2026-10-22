@@ -54,7 +54,8 @@ function makeCapturer() {
     mutations: ['mut-1'],
     traceLogs: [],
     actionSnapshots: ['snap-1'],
-    sendUpstream: vi.fn()
+    sendUpstream: vi.fn(),
+    nativeNetwork: { start: vi.fn(async () => {}), stop: vi.fn() }
   }
 }
 

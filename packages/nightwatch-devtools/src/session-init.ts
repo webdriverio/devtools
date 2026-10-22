@@ -18,6 +18,7 @@ import logger from '@wdio/logger'
 import { resolveViewport, restoreBrowserFocus } from '@wdio/devtools-core'
 import {
   resolveWebDriverAddress,
+  sessionExecutor,
   webdriverExecute,
   webdriverGet
 } from './helpers/webdriverHttp.js'
@@ -25,6 +26,7 @@ import {
   errorMessage,
   finalizeScreencast,
   registerCollectorPreload,
+  requestsInterceptedNetwork,
   resolveAdapterOutputDir
 } from '@wdio/devtools-core'
 import { TraceType } from './types.js'
@@ -294,6 +296,13 @@ async function armCaptureForSession(
   ctx.armedSessionId = browser.sessionId ?? undefined
   await tryRegisterPreload(ctx, browser)
   await tryAttachBidi(ctx, browser)
+  await ctx.sessionCapturer.nativeNetwork.start({
+    requested: requestsInterceptedNetwork(browser.desiredCapabilities),
+    capabilities: browser.capabilities,
+    execute: sessionExecutor(browser),
+    unavailableReason:
+      'the session id or the configured WebDriver port is unknown'
+  })
 }
 
 /**
@@ -341,6 +350,8 @@ async function armReplacedSession(
   ctx.sessionCapturer.bidiActive = false
   ctx.sessionCapturer.bidiNetworkObserved = false
   ctx.sessionCapturer.loadsListedByLog = []
+  // The old listener's session is gone; the new one starts only after the BiDi handshake.
+  ctx.sessionCapturer.nativeNetwork.stop()
   log.info(`Session replaced — re-arming capture for ${sessionId}`)
   await armCaptureForSession(ctx, browser)
 }
