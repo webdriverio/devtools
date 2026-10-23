@@ -51,10 +51,10 @@ Want a portable artifact instead of a live UI (CI / agent diffing)? Switch to **
 | Screenshot on every command row | ✅ | ✅ | ✅ | ✅ |
 | Browser console logs | ✅ | ✅ | ✅ | ✅ |
 | Source tab opens the test line that ran the command | ✅ | ✅ | ✅ | ✅ |
-| Metadata tab (session, capabilities, device) | ✅ tested | ✅ tested | ✅ tested | ✅ tested |
+| Metadata tab (session, capabilities, device) | ✅ | ✅ | ✅ | ✅ |
 | Performance timings on navigation rows | ✅ | ✅ | ✅ | ✅ |
 | Failed command in the Errors tab, with the browser's message | ✅ tested | ✅ tested | ✅ tested | ✅ tested |
-| Run, Rerun and Run all from the dashboard | ✅ tested | ✅ tested | ⚠️ no Run all ¹ | ✅ tested |
+| Run, Rerun and Run all from the dashboard | ✅ | ✅ | ⚠️ no Run all ¹ | ✅ |
 | Preserve & Rerun (compare a failed run with its rerun) | ✅ | ✅ | ✅ | ✅ |
 | Dashboard window opens by itself in live mode, and can be turned off | ⚠️ always opens ² | ✅ `openUi: false` | ⚠️ always opens ³ | ✅ `DEVTOOLS_OPEN=0` |
 | Turn off per-command screenshots (`captureScreenshots`) | ❌ ⁴ | ✅ | ❌ ⁴ | ❌ ⁴ |

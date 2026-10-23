@@ -63,7 +63,7 @@ const allProven = (rules: RuleId[]): Record<AdapterId, Cell> => ({
   'selenium-devtools-py': proven(rules)
 })
 
-/** Rules that test something other than one adapter's capability, so no cell is proven by them. */
+/** Rules that prove no capability cell on their own: a comparison between adapters, or a precondition of a feature rather than the feature. */
 export const INTERNAL_RULES: Partial<Record<RuleId, string>> = {
   [RULES.agreeOnRequests]:
     'Compares the adapters with one another; each adapter is judged by every-browser-request-listed.',
@@ -76,7 +76,11 @@ export const INTERNAL_RULES: Partial<Record<RuleId, string>> = {
   [RULES.agreeOnSnapshots]:
     'Compares the adapters with one another; each adapter is judged by every-document-anchored.',
   [RULES.agreeOnRunControls]:
-    'Compares the adapters with one another; each adapter is judged by run-controls-are-served.'
+    'Compares the adapters with one another; each adapter is judged by run-controls-are-served.',
+  [RULES.metadataFirst]:
+    'Checks that metadata reaches the dashboard before the first command, not the session, capabilities and device the Metadata tab shows.',
+  [RULES.runControlsServed]:
+    'Checks that every run control the dashboard offers has a command to serve it, not that Run, Rerun and Run all work.'
 }
 
 // appium-interceptor is an Android plugin; iOS app traffic needs a device or proxy capture outside the adapters.
@@ -272,7 +276,7 @@ export const CAPABILITIES: Capability[] = [
     id: 'metadata-tab',
     name: 'Metadata tab (session, capabilities, device)',
     tables: ['readme-dashboard', 'cross-framework'],
-    cells: allProven([RULES.metadataFirst])
+    cells: ALL_SUPPORTED
   },
   {
     id: 'performance-timings',
@@ -291,13 +295,13 @@ export const CAPABILITIES: Capability[] = [
     name: 'Run, Rerun and Run all from the dashboard',
     tables: ['readme-dashboard', 'cross-framework'],
     cells: {
-      'devtools-service': proven([RULES.runControlsServed]),
-      'selenium-devtools': proven([RULES.runControlsServed]),
+      'devtools-service': SUPPORTED,
+      'selenium-devtools': SUPPORTED,
       'nightwatch-devtools': partial(
         'The backend reruns a Nightwatch config through its framework path, which selects suites and tests but has no whole-run entry.',
         'no Run all'
       ),
-      'selenium-devtools-py': proven([RULES.runControlsServed])
+      'selenium-devtools-py': SUPPORTED
     }
   },
   {
