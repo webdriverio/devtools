@@ -12,7 +12,9 @@ import {
   NativeNetworkCapture,
   mapChromeBrowserLogs,
   pollUntilReady,
-  serializeError
+  PENDING_SETTLE_TIMEOUT_MS,
+  serializeError,
+  settlePending
 } from '@wdio/devtools-core'
 import { WS_SCOPE } from '@wdio/devtools-shared'
 import { NAVIGATION_COMMANDS } from './constants.js'
@@ -44,6 +46,11 @@ export class SessionCapturer extends SessionCapturerBase {
   readonly nativeNetwork = new NativeNetworkCapture(this, (level, message) =>
     log[level](message)
   )
+
+  // Work the driver patcher does not await (a command's capture, its row screenshot); quit waits for it.
+  #inFlight = new Set<Promise<unknown>>()
+  // A screenshot that reaches a driver being quit is skipped, not reported as a failure.
+  #endingDrivers = new WeakSet<SeleniumDriverLike>()
 
   #clientConnected = false
   #clientConnectedWaiters: Array<() => void> = []
@@ -109,6 +116,34 @@ export class SessionCapturer extends SessionCapturerBase {
 
   setDriver(driver: SeleniumDriverLike) {
     this.#driver = driver
+  }
+
+  track(work: Promise<unknown>): void {
+    this.#inFlight.add(work)
+    const done = () => this.#inFlight.delete(work)
+    void work.then(done, done)
+  }
+
+  /** Before quit, while the session is alive: lets tracked work finish, including what it queues meanwhile. */
+  async settleBeforeQuit(): Promise<void> {
+    const deadline = Date.now() + PENDING_SETTLE_TIMEOUT_MS
+    while (this.#inFlight.size > 0) {
+      const timedOut = await settlePending(
+        [...this.#inFlight],
+        Math.max(0, deadline - Date.now())
+      )
+      if (timedOut) {
+        log.warn(
+          `${this.#inFlight.size} capture(s) still in flight after ${PENDING_SETTLE_TIMEOUT_MS}ms; quitting without them`
+        )
+        // Forgotten, or a capture that never settles would hold up every later quit too.
+        this.#inFlight.clear()
+        break
+      }
+    }
+    if (this.#driver) {
+      this.#endingDrivers.add(this.#driver)
+    }
   }
 
   /** Re-ref'd first so the close handshake keeps the process alive until it lands. */
@@ -212,14 +247,15 @@ export class SessionCapturer extends SessionCapturerBase {
     const driver = this.#driver
     const originals = getDriverOriginals()
     const fn = originals.takeScreenshot
-    if (!driver || !fn) {
+    if (!driver || !fn || this.#endingDrivers.has(driver)) {
       return null
     }
     try {
       const data = await fn(driver)
       return data || null
     } catch (err) {
-      log.warn(`[screenshot] Failed: ${errorMessage(err)}`)
+      const level = this.#endingDrivers.has(driver) ? 'debug' : 'warn'
+      log[level](`[screenshot] Failed: ${errorMessage(err)}`)
       return null
     }
   }

@@ -187,7 +187,7 @@ function attachScreenshotAsync(
   entry: CommandLog
 ): void {
   const ts = entry.timestamp
-  capturer
+  const attached = capturer
     .takeScreenshot()
     .then((shot) => {
       if (shot) {
@@ -196,6 +196,7 @@ function attachScreenshotAsync(
       }
     })
     .catch(() => {})
+  capturer.track(attached)
 }
 
 /**

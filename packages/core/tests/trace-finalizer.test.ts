@@ -12,16 +12,15 @@ import {
   type SpecRange,
   type TraceArtifact,
   type TraceCapturer,
-  type TraceExportContext
+  type TraceExportContext,
+  PENDING_SETTLE_TIMEOUT_MS,
+  settlePending
 } from '@wdio/devtools-core'
 import {
   TraceType,
   type TestMetadataEntry,
   type TestMetadataMap
 } from '@wdio/devtools-shared'
-
-/** Mirrors the ceiling in trace-finalizer.ts (module-private there). */
-const PENDING_SETTLE_TIMEOUT_MS = 5000
 
 function makeCapturer(commandCount = 4): TraceCapturer {
   return {
@@ -74,6 +73,15 @@ function testRange(
 ): SpecRange {
   return { ...range(specFile, startIdx), key, testUid }
 }
+
+describe('settlePending', () => {
+  it('reports whether every promise settled before the cap', async () => {
+    expect(
+      await settlePending([Promise.resolve(), Promise.reject(new Error())], 50)
+    ).toBe(false)
+    expect(await settlePending([new Promise(() => {})], 10)).toBe(true)
+  })
+})
 
 describe('finalizeTraceExport', () => {
   let outputDir: string

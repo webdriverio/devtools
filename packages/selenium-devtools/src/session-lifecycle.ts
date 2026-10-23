@@ -295,6 +295,7 @@ export async function onDriverEnd(ctx: SessionLifecycleCtx): Promise<void> {
   // live mode, before the dashboard loses the session).
   // Gated on ctx.driver so the post-quit onDriverEnd call skips a dead session.
   if (ctx.driver && ctx.sessionCapturer) {
+    await ctx.sessionCapturer.settleBeforeQuit()
     await ctx.sessionCapturer.nativeNetwork.forward()
     // Anchored: a run ending on a navigation (logout → /login as the last
     // action) leaves the destination's async initial anchor unrun at teardown.

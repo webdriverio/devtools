@@ -538,8 +538,12 @@ class SeleniumDevToolsPlugin {
     await sessionOnDriverCreated(this.#getInternals(), driver)
   }
 
-  async onCommand(cmd: CapturedCommand) {
-    await handleOnCommand(this.#getInternals(), cmd)
+  onCommand(cmd: CapturedCommand): Promise<void> {
+    const handled = handleOnCommand(this.#getInternals(), cmd).catch((err) =>
+      log.warn(`Command capture failed: ${errorMessage(err)}`)
+    )
+    this.#sessionCapturer?.track(handled)
+    return handled
   }
 
   /** Fallback path only: under the preload the destination instrumented itself. */
