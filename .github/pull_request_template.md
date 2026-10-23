@@ -29,6 +29,10 @@
 - [ ] `script` (page-injected runtime)
 - [ ] `trace` (Trace mode)
 
+## Capability matrix
+
+- [ ] Capability matrix updated (`pnpm docs:capabilities`) if this adds or changes user-facing behaviour
+
 ## Notes for reviewers
 
 [//]: # (Anything non-obvious: design trade-offs, alternatives you ruled out, follow-ups. If this PR touches more than one adapter, say why the shared logic doesn't live in `core`.)
