@@ -127,7 +127,7 @@ const SLICE_COUNT_WARN_THRESHOLD = 200
  *  whole run (finalize never returns → the runner never tears the session down
  *  → the capture stays stuck). Past this bound we write whatever snapshots
  *  resolved in time — the same "flush from what exists" rule slices use. */
-const PENDING_SETTLE_TIMEOUT_MS = 5000
+export const PENDING_SETTLE_TIMEOUT_MS = 5000
 
 /**
  * `Promise.allSettled` bounded by a timeout. Resolves when every pending
@@ -135,7 +135,7 @@ const PENDING_SETTLE_TIMEOUT_MS = 5000
  * can never hang the export. Returns whether it timed out so the caller can
  * warn. The timer is unref'd so it can't itself keep the process alive.
  */
-async function settlePending(
+export async function settlePending(
   pending: Promise<unknown>[],
   timeoutMs: number
 ): Promise<boolean> {
