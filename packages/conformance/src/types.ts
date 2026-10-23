@@ -8,6 +8,7 @@ import type {
 import type {
   ACTION_METHODS,
   BIDI_MODES,
+  CAPABILITY_TABLES,
   RESPONSIBILITIES,
   RULES
 } from './constants.js'
@@ -235,4 +236,30 @@ export interface Timeline {
   events: TimelineEvent[]
   /** Violations with no subject, or whose subject is not on the timeline. */
   unplaced: Violation[]
+}
+
+/** Where a capability row is rendered: a marker block in a markdown page. */
+export type CapabilityTable = keyof typeof CAPABILITY_TABLES
+
+export type Cell =
+  | { support: 'supported'; label?: string }
+  /** Supported, and checked for this adapter by the conformance suite through these rules. */
+  | { support: 'proven'; rules: RuleId[]; label?: string }
+  | { support: 'partial'; reason: string; label?: string }
+  | { support: 'unsupported'; reason: string; label?: string }
+
+export interface Capability {
+  id: string
+  name: string
+  tables: CapabilityTable[]
+  cells: Record<AdapterId, Cell>
+}
+
+/** What a user-facing option controls: a capability row, or why it is not one. */
+export type OptionTarget = { capability: string } | { notCapability: string }
+
+/** One table in one page file. */
+export interface CapabilityTarget {
+  table: CapabilityTable
+  file: string
 }
