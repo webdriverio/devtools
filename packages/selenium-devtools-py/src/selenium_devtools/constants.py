@@ -89,13 +89,13 @@ BACKEND_INSTALL_DIRNAME = "selenium-devtools-py"
 # `show-trace`, so the name is what picks the right one out of `bin`.
 BACKEND_BIN_NAME = "devtools-backend"
 
-# The backend is a Node app, so Python users need a Node runtime. 18 is the
-# floor its dependencies require; below it the process starts and then dies on
-# syntax it cannot parse, which surfaces here only as "exited before reporting
-# a port". Checked up front so the message names the real problem.
-# What the pinned backend's own dependencies declare in `engines`; a minor matters, not just a major.
-MIN_NODE_VERSION = (22, 19, 0)
-MIN_NODE_LABEL = "22.19"
+# The backend is a Node app, so Python users need a Node runtime. Below its
+# floor the process can start and then die, which surfaces here only as "exited
+# before reporting a port". Checked up front so the message names the real problem.
+# The backend's `engines`, per line: the first release with the eMudhra CA store
+# fix. Odd lines are refused; a line newer than the last one here is accepted.
+NODE_LINE_FLOORS = {22: (22, 23, 4), 24: (24, 22, 1), 26: (26, 12, 1)}
+MIN_NODE_LABEL = "22.23.4+, 24.22.1+ or 26.12.1+"
 NODE_VERSION_TIMEOUT_S = 5.0
 
 # ── Trace mode ───────────────────────────────────────────────────────────────

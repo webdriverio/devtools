@@ -34,7 +34,7 @@ pays the whole download inside the first run, and fails in the middle of a test
 session when a proxy declines the package, so the one-time install is worth the
 one line. `selenium-devtools backend-path` says whether it is there.
 
-**Requires Node.js 22.19+ on your PATH — in every mode.** The backend is a Node app
+**Requires Node.js 22.23.4+, 24.22.1+ or 26.12.1+ on your PATH — in every mode.** The backend is a Node app
 and pip cannot resolve it, so it is obtained separately. It is not
 only the dashboard window: the page collector is served by the backend, the
 whole event stream goes through its WebSocket, and in trace mode it is also what
@@ -572,7 +572,7 @@ Two workflows, mirroring the JS split (`ci.yml` tests / `release.yml` publish):
   then publishes via **trusted publishing (OIDC)** — no token/secret.
 
 The wheel does **not** bundle the backend — approach A fetches a pinned
-`@wdio/devtools-backend` via `npx` at runtime (Node 22.19+ required). Bundling it
+`@wdio/devtools-backend` via `npx` at runtime (Node 22.23.4+, 24.22.1+ or 26.12.1+ required). Bundling it
 (approach B/C) is a GA-time change.
 
 That pin is the one thing a release here cannot get wrong, because it is the

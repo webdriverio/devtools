@@ -4,7 +4,7 @@ Thanks for contributing to WebdriverIO DevTools! This guide gets you from a clon
 
 ## Prerequisites
 
-- **Node.js** ≥ 20
+- **Node.js** 22.23.4, 24.22.1, 26.12.1 or a later release of these lines
 - **pnpm** ≥ 9 (this is a pnpm workspace / monorepo)
 
 ## Setup
