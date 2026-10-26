@@ -27,7 +27,7 @@ import shutil
 import subprocess
 from typing import Optional, Tuple
 
-from .constants import LOGGER_NAME, MIN_NODE_LABEL, MIN_NODE_VERSION, NODE_VERSION_TIMEOUT_S
+from .constants import LOGGER_NAME, MIN_NODE_LABEL, NODE_LINE_FLOORS, NODE_VERSION_TIMEOUT_S
 
 _log = logging.getLogger(f"{LOGGER_NAME}.backend")
 
@@ -77,8 +77,16 @@ def node_version(executable: str) -> Optional[Tuple[int, int, int]]:
     return (int(match.group(1)), int(match.group(2)), int(match.group(3)))
 
 
+def node_supported(version: Tuple[int, int, int]) -> bool:
+    """Whether ``version`` is in the backend's ``engines`` range."""
+    if version[0] > max(NODE_LINE_FLOORS):
+        return True
+    floor = NODE_LINE_FLOORS.get(version[0])
+    return floor is not None and version >= floor
+
+
 def require_node() -> str:
-    """Absolute path to a Node new enough to run the backend.
+    """Absolute path to a Node that can run the backend.
 
     Raises :class:`RuntimeError` naming what was found and what is needed. It
     is called only on the paths that actually spawn Node — attaching to a
@@ -88,7 +96,7 @@ def require_node() -> str:
     if executable is None:
         raise RuntimeError(
             f"Node.js not found on PATH. The devtools dashboard backend is a "
-            f"Node app, so Node {MIN_NODE_LABEL}+ is required — install it "
+            f"Node app, so Node {MIN_NODE_LABEL} is required — install it "
             f"from https://nodejs.org. {_ESCAPE_HATCH}"
         )
     version = node_version(executable)
@@ -96,13 +104,13 @@ def require_node() -> str:
         raise RuntimeError(
             f'"{executable}" did not report a usable version, so it cannot be '
             f"used to run the devtools dashboard backend (Node "
-            f"{MIN_NODE_LABEL}+ required). {_ESCAPE_HATCH}"
+            f"{MIN_NODE_LABEL} required). {_ESCAPE_HATCH}"
         )
-    if version < MIN_NODE_VERSION:
+    if not node_supported(version):
         found = ".".join(str(part) for part in version)
         raise RuntimeError(
-            f"Node {found} at \"{executable}\" is too old to run the devtools "
-            f"dashboard backend, which needs Node {MIN_NODE_LABEL}+. Upgrade "
+            f"Node {found} at \"{executable}\" cannot run the devtools "
+            f"dashboard backend, which needs Node {MIN_NODE_LABEL}. Upgrade "
             f"from https://nodejs.org. {_ESCAPE_HATCH}"
         )
     return executable

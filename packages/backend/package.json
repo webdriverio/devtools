@@ -2,7 +2,7 @@
   "name": "@wdio/devtools-backend",
   "version": "2.0.0",
   "engines": {
-    "node": ">=22.19.0"
+    "node": ">=22.23.4 <23 || >=24.22.1 <25 || >=26.12.1"
   },
   "description": "Backend service to spin up WebdriverIO Devtools",
   "author": "Christian Bromann <mail@bromann.dev>",

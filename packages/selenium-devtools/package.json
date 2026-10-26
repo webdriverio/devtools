@@ -2,7 +2,7 @@
   "name": "@wdio/selenium-devtools",
   "version": "2.0.0",
   "engines": {
-    "node": ">=22.19.0"
+    "node": ">=22.23.4 <23 || >=24.22.1 <25 || >=26.12.1"
   },
   "description": "Selenium WebDriver adapter for WebdriverIO DevTools \u2014 runner-agnostic, reuses existing backend, UI, and capture infrastructure",
   "type": "module",
