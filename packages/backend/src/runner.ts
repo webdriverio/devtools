@@ -132,7 +132,8 @@ class TestRunner {
       process.env[RUNNER_ENV.RUNNER_CWD] || path.dirname(configPath)
     const args: string[] = isNightwatch
       ? [
-          resolveNightwatchBin(this.#baseDir),
+          // The launch directory can sit above a nested install, so look for Nightwatch beside its config.
+          resolveNightwatchBin(path.dirname(configPath)),
           '--config',
           configPath,
           ...this.#buildFilters(payload)
