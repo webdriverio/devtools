@@ -37,6 +37,8 @@ const WITHOUT_BIDI_DRAIN =
 const SELENIUM_JS_FILMSTRIP = 'CDP push (Chromium), polling elsewhere'
 const NETWORK_FLOOR =
   "Fetch and XHR calls carry headers and bodies; every other load comes from the page's Resource Timing buffer, with timing and size but no headers or body, and no status on Safari."
+const NO_CUCUMBER_STEP_RERUN =
+  'Under Cucumber a Gherkin step has no CLI filter of its own, so the dashboard reruns scenarios and features, not single steps.'
 const STARTUP_CAPS_ONLY =
   "Decides from the startup capabilities, so a hybrid app's webview half is captured as if it were still native."
 // appium-interceptor is an Android plugin; iOS app traffic needs a device or proxy capture outside the adapters.
@@ -311,18 +313,19 @@ export const FEATURES = [
     name: 'Run, Rerun and Run all from the dashboard',
     tables: ['readme-dashboard', 'cross-framework'],
     cells: {
-      // The backend reruns a WDIO project through its own framework filters.
-      'devtools-service': covered(
-        'packages/backend/tests/framework-filters.test.ts'
+      'devtools-service': partial(
+        NO_CUCUMBER_STEP_RERUN,
+        'no Cucumber step rerun'
       ),
       'selenium-devtools': partial(
-        "Run all is built from the process's own arguments, so after a targeted rerun started outside an npm script it replays that rerun's name filter; Cucumber step rows cannot be rerun.",
-        'Run all can narrow'
+        NO_CUCUMBER_STEP_RERUN,
+        'no Cucumber step rerun'
       ),
       'nightwatch-devtools': partial(
-        "The adapter declares `canRunAll: false`, so the dashboard disables Run all; the backend's Nightwatch path already runs the whole config.",
-        'no Run all'
+        NO_CUCUMBER_STEP_RERUN,
+        'no Cucumber step rerun'
       ),
+      // pytest has no Gherkin steps to rerun.
       'selenium-devtools-py': covered(`${PYTHON}test_rerun.py`)
     }
   },
@@ -444,7 +447,7 @@ export const FEATURES = [
   {
     id: 'mobile-browser',
     name: 'Mobile browser sessions (Chrome on Android, Safari on iOS)',
-    tables: ['readme-mobile', 'cross-framework', 'mobile'],
+    tables: ['readme-mobile', 'mobile'],
     cells: {
       'devtools-service': covered(`${WDIO}session.test.ts`),
       'selenium-devtools': byHand(NEEDS_APPIUM_WEB('demo:selenium:mobile')),
@@ -455,7 +458,7 @@ export const FEATURES = [
   {
     id: 'ios',
     name: 'iOS (XCUITest): native apps and Safari',
-    tables: ['readme-mobile', 'cross-framework', 'mobile'],
+    tables: ['readme-mobile', 'mobile'],
     cells: {
       'devtools-service': byHand(NEEDS_IOS('demo:wdio:mobile')),
       'selenium-devtools': byHand(NEEDS_IOS('demo:selenium:mobile')),
@@ -466,7 +469,7 @@ export const FEATURES = [
   {
     id: 'native-detected',
     name: 'Native session detected, page-side capture skipped',
-    tables: ['readme-mobile', 'cross-framework', 'mobile'],
+    tables: ['readme-mobile', 'mobile'],
     cells: {
       'devtools-service': covered(`${WDIO}session.test.ts`),
       'selenium-devtools': covered(`${SELENIUM}session.test.ts`),
@@ -477,7 +480,7 @@ export const FEATURES = [
   {
     id: 'hybrid-webview',
     name: 'Follows a hybrid app into its webview',
-    tables: ['readme-mobile', 'cross-framework', 'mobile'],
+    tables: ['readme-mobile', 'mobile'],
     cells: {
       'devtools-service': partial(
         "Follows `switchContext('WEBVIEW_...')`; the object form (`{ title }` / `{ url }`) and `switchAppiumContext` leave capture on the native side.",
@@ -491,7 +494,7 @@ export const FEATURES = [
   {
     id: 'native-network',
     name: 'Native app network through appium-interceptor (`appium:intercept`)',
-    tables: ['readme-mobile', 'cross-framework', 'mobile'],
+    tables: ['readme-mobile', 'mobile'],
     cells: {
       'devtools-service': onAndroid(`${WDIO}intercepted-network.test.ts`),
       'selenium-devtools': onAndroid(`${SELENIUM}native-network.test.ts`),
