@@ -1,7 +1,6 @@
 import type {
   CommandLog,
   NetworkRequest,
-  RunCapabilities,
   TraceMutation
 } from '@wdio/devtools-shared'
 
@@ -112,8 +111,6 @@ export interface NormalizedRun {
   requests: string[]
 }
 
-export type RunControl = keyof RunCapabilities
-
 /** The run controls a metadata frame offers: the capabilities advertised, and whether a command or config serves them. */
 export interface RunControls {
   advertised: string[]
@@ -171,8 +168,6 @@ export interface KnownGap {
   reason: string
   /** Set when the gap is a race, so a run that happens to win it is not stale. */
   timingDependent?: boolean
-  /** For a run-controls gap, the controls the holder does not offer: it explains their absence and nothing else. */
-  lacksRunControls?: RunControl[]
 }
 
 export interface Judgement {

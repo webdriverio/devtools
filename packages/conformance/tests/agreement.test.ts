@@ -5,10 +5,12 @@ import type { RunnerOptions } from '@wdio/devtools-shared'
 import { compareRuns, judgeDivergences } from '../src/agreement.js'
 import { RULES } from '../src/constants.js'
 import { normalizeRun } from '../src/normalize.js'
+import { KNOWN_GAPS } from '../src/allowlist.js'
 import { renderReport } from '../src/report-html.js'
 import type {
   AdapterId,
   BidiMode,
+  KnownGap,
   RunReport,
   Violation,
   WireFrame
@@ -363,36 +365,24 @@ describe('judgeDivergences', () => {
     return judgeDivergences(compareRuns([nw, js]), [nw, js])
   }
 
-  it('excuses only the run control the gap declares absent', () => {
-    const { unexplained, explained, stale } = nightwatchAgainstSelenium({
+  it('finds no run-controls difference now that Nightwatch offers every control', () => {
+    const { unexplained, explained, stale } = nightwatchAgainstSelenium(
+      EVERY_CONTROL.runCapabilities
+    )
+    expect([...unexplained, ...explained]).toEqual([])
+    expect(stale).toEqual([])
+  })
+
+  it('reports a run control one adapter does not offer as unexplained', () => {
+    const { unexplained } = nightwatchAgainstSelenium({
       canRunAll: false,
       canRunSuites: true,
       canRunTests: true
     })
-    expect(unexplained).toEqual([])
-    expect(explained.map((d) => d.rule)).toEqual([RULES.agreeOnRunControls])
-    expect(stale).toEqual([])
-  })
-
-  // Regression: any run-controls difference was explained once Nightwatch held its gap, so a lost control passed.
-  it('does not excuse a run control the holder lost since declaring its gap', () => {
-    const { unexplained } = nightwatchAgainstSelenium({
-      canRunAll: false,
-      canRunSuites: true,
-      canRunTests: false
-    })
     expect(unexplained.map((d) => d.rule)).toEqual([RULES.agreeOnRunControls])
     expect(unexplained[0].message).toContain(
-      'canRunSuites; served vs canRunAll, canRunSuites, canRunTests; served'
+      'canRunSuites, canRunTests; served vs canRunAll, canRunSuites, canRunTests; served'
     )
-  })
-
-  it('reports a comparison gap that no longer occurs as stale', () => {
-    const { unexplained, stale } = nightwatchAgainstSelenium(
-      EVERY_CONTROL.runCapabilities
-    )
-    expect(unexplained).toEqual([])
-    expect(stale.map((g) => g.adapter)).toEqual(['nightwatch-devtools'])
   })
 })
 
@@ -413,15 +403,27 @@ describe('the agreement section of the report', () => {
 
   // Regression: the comparison's stale gaps never reached the report, which read AGREE while the test failed.
   it('shows a stale comparison gap instead of calling the mode agreed', () => {
-    const html = renderReport([
-      report('nightwatch-devtools', stream(1, NW, { options: EVERY_CONTROL })),
-      report('selenium-devtools', stream(2, JS, { options: EVERY_CONTROL }))
-    ])
-    expect(html).toContain('STALE GAPS (1)')
-    expect(html).toContain(
-      'Stale gap</strong> for <code>nightwatch-devtools</code>'
-    )
-    expect(html).not.toContain('>AGREE<')
+    // Every real comparison gap is a race and never stale, so this one is declared for the test alone.
+    const gap: KnownGap = {
+      adapter: 'nightwatch-devtools',
+      bidi: 'live',
+      rules: [RULES.agreeOnActions],
+      reason: 'Test fixture: a difference that no longer occurs.'
+    }
+    KNOWN_GAPS.push(gap)
+    try {
+      const html = renderReport([
+        report('nightwatch-devtools', stream(1, NW)),
+        report('selenium-devtools', stream(2, JS))
+      ])
+      expect(html).toContain('STALE GAPS (1)')
+      expect(html).toContain(
+        'Stale gap</strong> for <code>nightwatch-devtools</code>'
+      )
+      expect(html).not.toContain('>AGREE<')
+    } finally {
+      KNOWN_GAPS.splice(KNOWN_GAPS.indexOf(gap), 1)
+    }
   })
 })
 

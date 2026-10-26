@@ -12,7 +12,7 @@ import * as os from 'node:os'
 import logger from '@wdio/logger'
 import { remote } from 'webdriverio'
 import { errorMessage } from '@wdio/devtools-core'
-import { REUSE_ENV } from '@wdio/devtools-shared'
+import { REUSE_ENV, RUNNER_ENV, encodeInitialArgs } from '@wdio/devtools-shared'
 import { start, stop } from '@wdio/devtools-backend'
 
 import type { SessionCapturer } from './session.js'
@@ -25,7 +25,11 @@ import type {
   NightwatchCurrentTest
 } from './types.js'
 import { TIMING, PLUGIN_GLOBAL_KEY } from './constants.js'
-import { findFreePort, resolveNightwatchConfig } from './helpers/utils.js'
+import {
+  captureNightwatchSelection,
+  findFreePort,
+  resolveNightwatchConfig
+} from './helpers/utils.js'
 
 const log = logger('@wdio/nightwatch-devtools:run-lifecycle')
 
@@ -102,6 +106,15 @@ export async function runPluginBefore(ctx: PluginBeforeCtx): Promise<void> {
         ctx.options.port,
         ctx.options.hostname
       )
+      // The backend runs in this process for the whole session, so a rerun child can never narrow it.
+      const selection = captureNightwatchSelection()
+      if (selection) {
+        process.env[RUNNER_ENV.NIGHTWATCH_INITIAL_ARGS] =
+          encodeInitialArgs(selection)
+      } else {
+        // An inherited value from the shell would otherwise scope Run all to someone else's selection.
+        delete process.env[RUNNER_ENV.NIGHTWATCH_INITIAL_ARGS]
+      }
       log.info('🚀 Starting DevTools backend...')
       const { port } = await start(ctx.options)
       ctx.options.port = port

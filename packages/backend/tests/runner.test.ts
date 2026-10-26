@@ -408,6 +408,56 @@ describe('TestRunner', () => {
 
       delete process.env.DEVTOOLS_WDIO_INITIAL_SPECS
     })
+
+    // Regression: Nightwatch's Run all ran every spec in the config, not the selection the run was launched with.
+    it('replays the selection a Nightwatch run was launched with', async () => {
+      process.env.DEVTOOLS_NIGHTWATCH_BIN = '/mock/nightwatch/bin/nightwatch'
+      process.env.DEVTOOLS_NIGHTWATCH_INITIAL_ARGS = JSON.stringify([
+        '/abs/tests/login.js',
+        '--tag',
+        'smoke'
+      ])
+      vi.mocked(spawn).mockReturnValue(createMockChild())
+      try {
+        await testRunner.run({
+          uid: 'run-all',
+          entryType: 'suite',
+          runAll: true,
+          framework: 'nightwatch',
+          configFile: mockConfigPath
+        })
+        const args = vi.mocked(spawn).mock.calls[0][1] as string[]
+        expect(args.slice(-3)).toEqual([
+          '/abs/tests/login.js',
+          '--tag',
+          'smoke'
+        ])
+        expect(args).not.toContain('--spec')
+      } finally {
+        delete process.env.DEVTOOLS_NIGHTWATCH_INITIAL_ARGS
+        delete process.env.DEVTOOLS_NIGHTWATCH_BIN
+      }
+    })
+
+    it('runs the whole Nightwatch config when the selection is absent or unreadable', async () => {
+      vi.mocked(spawn).mockReturnValue(createMockChild())
+      process.env.DEVTOOLS_NIGHTWATCH_BIN = '/mock/nightwatch/bin/nightwatch'
+      process.env.DEVTOOLS_NIGHTWATCH_INITIAL_ARGS = '{not json'
+      try {
+        await testRunner.run({
+          uid: 'run-all',
+          entryType: 'suite',
+          runAll: true,
+          framework: 'nightwatch',
+          configFile: mockConfigPath
+        })
+        const args = vi.mocked(spawn).mock.calls[0][1] as string[]
+        expect(args.slice(-2)).toEqual(['--config', mockConfigPath])
+      } finally {
+        delete process.env.DEVTOOLS_NIGHTWATCH_INITIAL_ARGS
+        delete process.env.DEVTOOLS_NIGHTWATCH_BIN
+      }
+    })
   })
 
   describe('framework dispatch via Map (CodeQL hardening)', () => {
@@ -518,6 +568,23 @@ describe('TestRunner', () => {
       })
 
       expect(spawnedArgs()).toEqual(['-m', 'pytest', 'examples/'])
+    })
+
+    // The Selenium adapter quotes its argv fallback this way; each argument must survive the backend's shell parse whole.
+    it('keeps quoted arguments of a run-all launch command whole', async () => {
+      await testRunner.run({
+        uid: '__RUN_ALL__',
+        entryType: 'suite',
+        runAll: true,
+        launchCommand: "node /x/mocha 'specs/my login.js' --grep 'a b'"
+      })
+
+      expect(spawnedArgs()).toEqual([
+        '/x/mocha',
+        'specs/my login.js',
+        '--grep',
+        'a b'
+      ])
     })
 
     it('still regex-escapes a name-pattern template', async () => {
