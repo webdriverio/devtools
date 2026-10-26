@@ -13,8 +13,8 @@ import {
   partial,
   tested,
   unsupported
-} from './packages/conformance/src/capability-helpers.js'
-import type { Feature } from './packages/conformance/src/types.js'
+} from './capability-helpers.js'
+import type { Feature } from './types.js'
 
 const WDIO = ADAPTER_TESTS['devtools-service']
 const SELENIUM = ADAPTER_TESTS['selenium-devtools']

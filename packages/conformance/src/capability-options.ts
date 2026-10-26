@@ -3,7 +3,7 @@ import type { ServiceOptions } from '@wdio/devtools-service'
 import type { DevToolsOptions as SeleniumOptions } from '@wdio/selenium-devtools/types'
 import type { DevToolsOptions as NightwatchOptions } from '@wdio/nightwatch-devtools/types'
 
-import type { FeatureId } from '../../../features.js'
+import type { FeatureId } from './features.js'
 import type {
   AdapterId,
   Feature,

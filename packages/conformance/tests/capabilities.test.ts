@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 
-import { FEATURES } from '../../../features.js'
+import { FEATURES } from '../src/features.js'
 import { ADAPTER_COLUMNS, INTERNAL_RULES } from '../src/capabilities.js'
 import { optionProblems } from '../src/capability-options.js'
 import { parseArgs, syncTables, targetsFor } from '../src/capability-matrix.js'

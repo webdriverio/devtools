@@ -1,4 +1,4 @@
-import { FEATURES } from '../../../features.js'
+import { FEATURES } from './features.js'
 import { ADAPTER_COLUMNS } from './capabilities.js'
 import { isConformanceTested } from './capability-helpers.js'
 import { GENERATED_NOTICE, LEGEND, SUPERSCRIPTS } from './constants.js'

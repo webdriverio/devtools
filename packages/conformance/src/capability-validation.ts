@@ -1,7 +1,7 @@
 import { statSync } from 'node:fs'
 import path from 'node:path'
 
-import { FEATURES } from '../../../features.js'
+import { FEATURES } from './features.js'
 import { KNOWN_GAPS } from './allowlist.js'
 import { ADAPTER_COLUMNS, INTERNAL_RULES } from './capabilities.js'
 import {

@@ -11,7 +11,7 @@
   },
   "type": "module",
   "scripts": {
-    "lint": "eslint . ../../features.ts"
+    "lint": "eslint ."
   },
   "license": "MIT",
   "devDependencies": {
