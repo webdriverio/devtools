@@ -34,6 +34,7 @@ __pycache__/
 /*.ts
 /*.json
 !/vitest.config.ts
+!/features.ts
 !/tsconfig.dts.json
 *.tgz
 examples/wdio/wdio-*.json

@@ -33,7 +33,7 @@ export interface DevToolsOptions extends BaseDevToolsOptions {
   /** Command template for per-test rerun. {{testName}} is substituted. */
   rerunCommand?: string
   /**
-   * Force the *test* browser into headless mode by injecting --headless=new
+   * Force the *test* browser into headless mode by injecting --headless=old
    * into Chrome capabilities. The dashboard window (auto-opened by openUi)
    * is unaffected. Defaults to false to preserve user-supplied options.
    */

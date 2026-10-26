@@ -107,6 +107,16 @@ Python CI run fails on *"Pinned backend serves this adapter's contract"*, the
 answer is that the backend has not been released yet, not that your branch is
 wrong. Raise it by hand only when you are also releasing the backend.
 
+## Adding a feature
+
+Every user-facing feature is listed in [`features.ts`](./features.ts) at the repo root, with what each of the four adapters (WebdriverIO, Selenium, Nightwatch, Python) does with it. The capability tables in this README and on the docs site are generated from it.
+
+1. Add an entry: an id, a name, the tables it appears in, and a cell for every adapter.
+2. A supported cell names its evidence with the helpers in `packages/conformance/src/capability-helpers.ts`: `tested(rules)` for conformance rules that check it, `covered(path)` for a test file in that adapter's own tests (or `core`, `trace` or `backend` when the adapter adds no logic of its own), or `byHand(reason)` saying how to check it by hand. A partial or unsupported cell names the reason, which becomes the table's footnote.
+3. Run `pnpm docs:capabilities` to regenerate the README tables. `pnpm docs:capabilities --parity` lists every feature some adapter lacks.
+
+CI fails when an adapter is missing from an entry, a reason or evidence is missing, a test file does not exist or sits outside those tests, a new option or conformance rule maps to no feature, or the README tables are out of date.
+
 ## Before you push
 
 - `pnpm build`, `pnpm test`, and `pnpm lint` all green — don't push red.

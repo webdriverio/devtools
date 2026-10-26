@@ -31,7 +31,7 @@
 
 ## Capability matrix
 
-- [ ] Capability matrix updated (`pnpm docs:capabilities`) if this adds or changes user-facing behaviour
+- [ ] `features.ts` updated, and tables regenerated with `pnpm docs:capabilities`, if this adds or changes user-facing behaviour
 
 ## Notes for reviewers
 

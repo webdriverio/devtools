@@ -4,33 +4,44 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 
-import {
-  ADAPTER_COLUMNS,
-  CAPABILITIES,
-  INTERNAL_RULES
-} from '../src/capabilities.js'
+import { FEATURES } from '../../../features.js'
+import { ADAPTER_COLUMNS, INTERNAL_RULES } from '../src/capabilities.js'
 import { optionProblems } from '../src/capability-options.js'
 import { parseArgs, syncTables, targetsFor } from '../src/capability-matrix.js'
 import {
   rowProblems,
   ruleCoverageProblems,
-  validateCapabilities
+  validateFeatures
 } from '../src/capability-validation.js'
 import { CAPABILITY_TABLES, LEGEND, RULES } from '../src/constants.js'
 import {
   markerFor,
   renderBlock,
+  renderParity,
   renderTable,
   replaceBlock,
   superscript
 } from '../src/render-capabilities.js'
 import type {
   AdapterId,
-  Capability,
   CapabilityTable,
   Cell,
+  Feature,
   RuleId
 } from '../src/types.js'
+
+const BY_HAND: Cell = {
+  support: 'supported',
+  evidence: { kind: 'manual', reason: 'Check by hand.' }
+}
+const byRule = (rules: RuleId[]): Cell => ({
+  support: 'supported',
+  evidence: { kind: 'rule', rules }
+})
+const byTest = (path: string): Cell => ({
+  support: 'supported',
+  evidence: { kind: 'test', path }
+})
 
 const allCells = (cell: Cell): Record<AdapterId, Cell> => ({
   'devtools-service': cell,
@@ -39,23 +50,23 @@ const allCells = (cell: Cell): Record<AdapterId, Cell> => ({
   'selenium-devtools-py': cell
 })
 
-const capability = (over: Partial<Capability> = {}): Capability => ({
+const feature = (over: Partial<Feature> = {}): Feature => ({
   id: 'probe',
   name: 'Probe',
   tables: ['cross-framework'],
-  cells: allCells({ support: 'supported' }),
+  cells: allCells(BY_HAND),
   ...over
 })
 
-describe('validateCapabilities', () => {
+describe('validateFeatures', () => {
   it('accepts the declared source', () => {
-    expect(validateCapabilities()).toEqual([])
+    expect(validateFeatures()).toEqual([])
   })
 
   it('rejects an empty reason', () => {
-    const blank = capability({
+    const blank = feature({
       cells: {
-        ...allCells({ support: 'supported' }),
+        ...allCells(BY_HAND),
         'selenium-devtools': { support: 'partial', reason: '  ' }
       }
     })
@@ -64,18 +75,18 @@ describe('validateCapabilities', () => {
     ])
   })
 
-  it('rejects a proven cell whose rule does not exist', () => {
-    const unknown = capability({
-      cells: allCells({ support: 'proven', rules: ['no-such-rule' as RuleId] })
+  it('rejects rule evidence naming a rule that does not exist', () => {
+    const unknown = feature({
+      cells: allCells(byRule(['no-such-rule' as RuleId]))
     })
     expect(rowProblems([unknown])).toContain(
       'probe / devtools-service: unknown rule no-such-rule'
     )
   })
 
-  it('rejects a proven cell the adapter holds a known gap against', () => {
-    const gapped = capability({
-      cells: allCells({ support: 'proven', rules: [RULES.documentAnchored] })
+  it('rejects rule evidence the adapter holds a known gap against', () => {
+    const gapped = feature({
+      cells: allCells(byRule([RULES.documentAnchored]))
     })
     const problems = rowProblems([gapped])
     expect(problems).toContain(
@@ -86,12 +97,84 @@ describe('validateCapabilities', () => {
     )
   })
 
-  it('rejects a missing adapter, a duplicate id and a row in no table', () => {
-    const { 'selenium-devtools-py': _python, ...three } = allCells({
-      support: 'supported'
+  it('rejects a test path that does not exist and manual evidence without a reason', () => {
+    const row = feature({
+      cells: {
+        ...allCells(BY_HAND),
+        'devtools-service': byTest('packages/service/tests/no-such.test.ts'),
+        'selenium-devtools': {
+          support: 'supported',
+          evidence: { kind: 'manual', reason: ' ' }
+        }
+      }
     })
-    const missing = capability({ cells: three as Record<AdapterId, Cell> })
-    expect(rowProblems([missing, capability({ tables: [] })])).toEqual([
+    expect(rowProblems([row])).toEqual([
+      'probe / devtools-service: test packages/service/tests/no-such.test.ts does not exist',
+      'probe / selenium-devtools: manual evidence needs the reason no test covers it'
+    ])
+  })
+
+  it("rejects a test outside the adapter's own and the shared packages' tests, and a directory", () => {
+    const row = feature({
+      cells: {
+        ...allCells(BY_HAND),
+        'devtools-service': byTest(
+          'packages/selenium-devtools/tests/session.test.ts'
+        ),
+        'selenium-devtools': byTest('packages/selenium-devtools/src/index.ts'),
+        'nightwatch-devtools': byTest(
+          'packages/nightwatch-devtools/tests/../../../package.json'
+        ),
+        'selenium-devtools-py': byTest('packages/core/tests/')
+      }
+    })
+    const problems = rowProblems([row])
+    expect(problems).toHaveLength(4)
+    expect(problems[0]).toContain('is outside packages/service/tests/')
+    expect(problems[1]).toContain(
+      'is outside packages/selenium-devtools/tests/'
+    )
+    expect(problems[2]).toContain(
+      'is outside packages/nightwatch-devtools/tests/'
+    )
+    expect(problems[3]).toBe(
+      'probe / selenium-devtools-py: test packages/core/tests/ is not a file'
+    )
+  })
+
+  it('reports malformed evidence instead of throwing', () => {
+    const row = feature({
+      cells: {
+        ...allCells(BY_HAND),
+        'devtools-service': { support: 'supported' } as Cell,
+        'selenium-devtools': {
+          support: 'supported',
+          evidence: { kind: 'tests', path: 'x' }
+        } as unknown as Cell,
+        'nightwatch-devtools': {
+          support: 'supported',
+          evidence: { kind: 'manual' }
+        } as unknown as Cell
+      }
+    })
+    expect(rowProblems([row])).toEqual([
+      'probe / devtools-service: supported without evidence',
+      'probe / selenium-devtools: evidence of unknown kind tests',
+      'probe / nightwatch-devtools: manual evidence needs the reason no test covers it'
+    ])
+  })
+
+  it('accepts a test file in the adapter tests or a shared package', () => {
+    const row = feature({
+      cells: allCells(byTest('packages/core/tests/trace-finalizer.test.ts'))
+    })
+    expect(rowProblems([row])).toEqual([])
+  })
+
+  it('rejects a missing adapter, a duplicate id and a row in no table', () => {
+    const { 'selenium-devtools-py': _python, ...three } = allCells(BY_HAND)
+    const missing = feature({ cells: three as Record<AdapterId, Cell> })
+    expect(rowProblems([missing, feature({ tables: [] })])).toEqual([
       'probe: no cell for selenium-devtools-py',
       'probe: declared twice',
       'probe: appears in no table'
@@ -101,14 +184,14 @@ describe('validateCapabilities', () => {
 
 describe('rule coverage', () => {
   it('flags a rule that proves nothing and is not internal', () => {
-    expect(ruleCoverageProblems([capability()], {})).toContain(
-      `rule ${RULES.metadataFirst}: proves no capability and is not listed as internal`
+    expect(ruleCoverageProblems([feature()], {})).toContain(
+      `rule ${RULES.metadataFirst}: proves no feature and is not listed as internal`
     )
   })
 
   it('flags an internal rule without a reason, or one that also proves a cell', () => {
-    const proven = capability({
-      cells: allCells({ support: 'proven', rules: [RULES.metadataFirst] })
+    const proven = feature({
+      cells: allCells(byRule([RULES.metadataFirst]))
     })
     const problems = ruleCoverageProblems([proven], {
       ...INTERNAL_RULES,
@@ -125,14 +208,14 @@ describe('rule coverage', () => {
 })
 
 describe('option coverage', () => {
-  it('flags an option that names a capability nobody declared', () => {
+  it('flags an option that names a feature nobody declared', () => {
     expect(optionProblems([])).toContain(
-      'option shared.mode: names unknown capability trace-mode'
+      'option shared.mode: names unknown feature trace-mode'
     )
   })
 
   it('places every option of the declared source', () => {
-    expect(optionProblems(CAPABILITIES)).toEqual([])
+    expect(optionProblems(FEATURES)).toEqual([])
   })
 })
 
@@ -140,26 +223,27 @@ describe('renderTable', () => {
   it('has a column for every adapter', () => {
     const header = renderTable('cross-framework').split('\n')[0]
     expect(header).toBe(
-      `| Capability | ${ADAPTER_COLUMNS.map((a) => a.title).join(' | ')} |`
+      `| Feature | ${ADAPTER_COLUMNS.map((a) => a.title).join(' | ')} |`
     )
   })
 
-  it('marks proven cells and adds the legend only when a row has one', () => {
-    const proven = capability({
-      cells: allCells({ support: 'proven', rules: [RULES.failureRecorded] })
+  it('marks conformance-tested cells, and explains both marks under every table', () => {
+    const proven = feature({
+      cells: allCells(byRule([RULES.failureRecorded]))
     })
     expect(renderTable('cross-framework', [proven])).toContain(
       '| Probe | ✅ tested | ✅ tested | ✅ tested | ✅ tested |'
     )
-    expect(renderTable('cross-framework', [proven])).toContain(LEGEND)
-    expect(renderTable('cross-framework', [capability()])).not.toContain(LEGEND)
+    expect(renderTable('cross-framework', [feature()])).toContain(
+      `| Probe | ✅ | ✅ | ✅ | ✅ |\n\n${LEGEND}`
+    )
   })
 
   it('numbers each distinct reason once and lists it under the table', () => {
     const rows = [
-      capability({
+      feature({
         cells: {
-          ...allCells({ support: 'supported' }),
+          ...allCells(BY_HAND),
           'selenium-devtools': {
             support: 'partial',
             label: 'with BiDi',
@@ -176,9 +260,11 @@ describe('renderTable', () => {
     ]
     expect(renderTable('cross-framework', rows)).toBe(
       [
-        '| Capability | WebdriverIO | Selenium | Nightwatch | Python |',
+        '| Feature | WebdriverIO | Selenium | Nightwatch | Python |',
         '|---|---|---|---|---|',
         '| Probe | ✅ | ⚠️ with BiDi ¹ | ⚠️ ¹ | ❌ n/a ² |',
+        '',
+        LEGEND,
         '',
         '¹ Same.',
         '',
@@ -189,7 +275,8 @@ describe('renderTable', () => {
 
   it('renders only the rows declared for that table', () => {
     const mobile = renderTable('mobile')
-    for (const row of CAPABILITIES) {
+    const rows: readonly Feature[] = FEATURES
+    for (const row of rows) {
       expect(mobile.includes(`| ${row.name} |`)).toBe(
         row.tables.includes('mobile')
       )
@@ -198,6 +285,36 @@ describe('renderTable', () => {
 
   it('writes multi-digit footnote numbers', () => {
     expect(superscript(12)).toBe('¹²')
+  })
+})
+
+describe('renderParity', () => {
+  it('lists each feature some adapter lacks, with its mark and reason, then the evidence counts', () => {
+    const rows = [
+      feature(),
+      feature({
+        id: 'gap',
+        name: 'Gap',
+        cells: {
+          ...allCells(byRule([RULES.failureRecorded])),
+          'nightwatch-devtools': {
+            support: 'partial',
+            label: 'opt-in',
+            reason: 'Why.'
+          }
+        }
+      })
+    ]
+    expect(renderParity(rows)).toBe(
+      [
+        'Features not supported by every adapter: 1 of 2',
+        '',
+        'gap: Gap',
+        '  Nightwatch: ⚠️ opt-in. Why.',
+        '',
+        'Cells: 3 conformance-tested, 0 unit-tested, 4 checked by hand, 1 partial or unsupported'
+      ].join('\n')
+    )
   })
 })
 
@@ -240,8 +357,10 @@ describe('docs:capabilities arguments', () => {
     expect(parseArgs(['--website', 'a']).websiteRoot).toBe(path.resolve('a'))
     expect(parseArgs(['--website=a', '--check'])).toEqual({
       check: true,
+      parity: false,
       websiteRoot: path.resolve('a')
     })
+    expect(parseArgs(['--parity']).parity).toBe(true)
   })
 
   it('rejects a flag or nothing as the website path', () => {
@@ -290,9 +409,7 @@ describe('syncTables', () => {
 describe('generated tables', () => {
   it('every table has at least one row', () => {
     for (const table of Object.keys(CAPABILITY_TABLES)) {
-      expect(CAPABILITIES.some((c) => c.tables.includes(table as never))).toBe(
-        true
-      )
+      expect(FEATURES.some((f) => f.tables.includes(table as never))).toBe(true)
     }
   })
 

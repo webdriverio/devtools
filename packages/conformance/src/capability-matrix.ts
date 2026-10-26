@@ -1,11 +1,11 @@
-// `pnpm docs:capabilities [--check] [--website <webdriverio checkout>]`: renders the capability tables.
+// `pnpm docs:capabilities [--check] [--parity] [--website <webdriverio checkout>]`: renders the capability tables.
 
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 
-import { validateCapabilities } from './capability-validation.js'
+import { validateFeatures } from './capability-validation.js'
 import { CAPABILITY_TABLES, README_PAGE, REPO_ROOT } from './constants.js'
-import { replaceBlock } from './render-capabilities.js'
+import { renderParity, replaceBlock } from './render-capabilities.js'
 import type { CapabilityTable, CapabilityTarget } from './types.js'
 
 export function targetsFor(websiteRoot?: string): CapabilityTarget[] {
@@ -69,14 +69,18 @@ export function syncTables(
 /** `--website <dir>` or `--website=<dir>`; the value must not be another flag. */
 export function parseArgs(argv: string[]): {
   check: boolean
+  parity: boolean
   websiteRoot?: string
 } {
   let check = false
+  let parity = false
   let websiteRoot: string | undefined
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]
     if (arg === '--check') {
       check = true
+    } else if (arg === '--parity') {
+      parity = true
     } else if (arg === '--website' || arg.startsWith('--website=')) {
       const value =
         arg === '--website' ? argv[++i] : arg.slice('--website='.length)
@@ -88,16 +92,20 @@ export function parseArgs(argv: string[]): {
       throw new Error(`unknown argument ${arg}`)
     }
   }
-  return { check, websiteRoot }
+  return { check, parity, websiteRoot }
 }
 
 function main(argv: string[]): number {
   try {
-    const problems = validateCapabilities()
+    const problems = validateFeatures()
     if (problems.length) {
-      throw new Error(`capabilities.ts is invalid:\n  ${problems.join('\n  ')}`)
+      throw new Error(`features.ts is invalid:\n  ${problems.join('\n  ')}`)
     }
-    const { check, websiteRoot } = parseArgs(argv)
+    const { check, parity, websiteRoot } = parseArgs(argv)
+    // Printed in addition to the sync, so adding --parity never skips a --check.
+    if (parity) {
+      console.log(`${renderParity()}\n`)
+    }
     const stale = syncTables(targetsFor(websiteRoot), check)
     for (const file of stale) {
       console.log(`${check ? 'out of date' : 'updated'}: ${file}`)

@@ -45,7 +45,7 @@ export const KNOWN_GAPS: KnownGap[] = [
     rules: [RULES.agreeOnRunControls],
     lacksRunControls: ['canRunAll'],
     reason:
-      'Nightwatch advertises no Run-all: the backend reruns a Nightwatch config through its framework path, which selects suites and tests but has no whole-run entry. Documented on the capability matrix.'
+      "Nightwatch advertises no Run-all: the adapter declares `canRunAll: false`, although the backend's Nightwatch path already runs the whole config. Documented on the capability matrix."
   }))
 ]
 

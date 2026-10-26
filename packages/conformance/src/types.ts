@@ -238,25 +238,41 @@ export interface Timeline {
   unplaced: Violation[]
 }
 
-/** Where a capability row is rendered: a marker block in a markdown page. */
+/** Where a feature row is rendered: a marker block in a markdown page. */
 export type CapabilityTable = keyof typeof CAPABILITY_TABLES
 
-export type Cell =
-  | { support: 'supported'; label?: string }
-  /** Supported, and checked for this adapter by the conformance suite through these rules. */
-  | { support: 'proven'; rules: RuleId[]; label?: string }
-  | { support: 'partial'; reason: string; label?: string }
-  | { support: 'unsupported'; reason: string; label?: string }
+/** How a supported cell is known to hold. */
+export type Evidence =
+  /** Checked for this adapter by the cross-adapter conformance suite. */
+  | { readonly kind: 'rule'; readonly rules: readonly RuleId[] }
+  /** Exercised by this test file, a path from the repo root. */
+  | { readonly kind: 'test'; readonly path: string }
+  /** Checked by hand, with why no automated check covers it yet. */
+  | { readonly kind: 'manual'; readonly reason: string }
 
-export interface Capability {
-  id: string
-  name: string
-  tables: CapabilityTable[]
-  cells: Record<AdapterId, Cell>
+export type Cell =
+  | {
+      readonly support: 'supported'
+      readonly evidence: Evidence
+      readonly label?: string
+    }
+  | {
+      readonly support: 'partial' | 'unsupported'
+      readonly reason: string
+      readonly label?: string
+    }
+
+/** One row of the matrix: a user-facing feature and what each adapter does with it. */
+export interface Feature {
+  readonly id: string
+  readonly name: string
+  readonly tables: readonly CapabilityTable[]
+  readonly cells: Readonly<Record<AdapterId, Cell>>
 }
 
-/** What a user-facing option controls: a capability row, or why it is not one. */
-export type OptionTarget = { capability: string } | { notCapability: string }
+/** What a user-facing option controls: a feature row, or why it is not one. */
+export type OptionTarget<Id extends string = string> =
+  { feature: Id } | { notFeature: string }
 
 /** One table in one page file. */
 export interface CapabilityTarget {
