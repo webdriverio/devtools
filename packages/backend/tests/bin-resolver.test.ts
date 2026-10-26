@@ -72,6 +72,16 @@ describe('resolveNightwatchBin — walk-up node_modules search', () => {
     expect(resolveNightwatchBin(child)).toBe(expected)
   })
 
+  // Regression: launched from /repo/e2e with --config ../nightwatch.conf.js, the search from the config's folder never reached e2e/node_modules.
+  it('falls back to the next start directory when the first finds nothing', () => {
+    const configDir = path.join(tmpDir, 'shared')
+    const launchDir = path.join(tmpDir, 'e2e')
+    fs.mkdirSync(configDir, { recursive: true })
+    fs.mkdirSync(launchDir, { recursive: true })
+    const expected = plantNightwatch(launchDir)
+    expect(resolveNightwatchBin(configDir, launchDir)).toBe(expected)
+  })
+
   it('supports object-form bin: { nightwatch: ... }', () => {
     const expected = plantNightwatch(tmpDir, {
       nightwatch: 'bin/nightwatch.js'

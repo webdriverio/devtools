@@ -460,7 +460,8 @@ describe('TestRunner', () => {
           configFile: mockConfigPath
         })
         expect(vi.mocked(resolveNightwatchBin)).toHaveBeenLastCalledWith(
-          path.dirname(mockConfigPath)
+          path.dirname(mockConfigPath),
+          '/launch/dir'
         )
         expect(vi.mocked(spawn).mock.calls[0][2]?.cwd).toBe('/launch/dir')
       } finally {

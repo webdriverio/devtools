@@ -7,12 +7,12 @@ const require = createRequire(import.meta.url)
 
 /**
  * Resolve the nightwatch CLI entry point. Honors `DEVTOOLS_NIGHTWATCH_BIN`
- * for testing/override; otherwise walks up from `baseDir` looking for
+ * for testing/override; otherwise walks up from each of `baseDirs` in turn looking for
  * `node_modules/nightwatch/package.json` and resolves its `bin` to the
  * actual JS entry (avoids running the shell-script wrapper at
  * `node_modules/.bin/nightwatch` via node).
  */
-export function resolveNightwatchBin(baseDir: string): string {
+export function resolveNightwatchBin(...baseDirs: string[]): string {
   const envOverride = process.env[RUNNER_ENV.NIGHTWATCH_BIN]
   if (envOverride) {
     const resolved = path.isAbsolute(envOverride)
@@ -23,6 +23,19 @@ export function resolveNightwatchBin(baseDir: string): string {
     }
   }
 
+  for (const baseDir of baseDirs) {
+    const found = findNightwatchFrom(baseDir)
+    if (found) {
+      return found
+    }
+  }
+
+  throw new Error(
+    'Cannot find nightwatch binary. Install nightwatch locally or set DEVTOOLS_NIGHTWATCH_BIN env var.'
+  )
+}
+
+function findNightwatchFrom(baseDir: string): string | undefined {
   let dir = baseDir
   const root = path.parse(dir).root
   while (dir !== root) {
@@ -47,7 +60,7 @@ export function resolveNightwatchBin(baseDir: string): string {
           }
         }
       } catch {
-        // malformed package.json — continue walking
+        // A malformed package.json: keep walking.
       }
     }
     const parent = path.dirname(dir)
@@ -57,9 +70,7 @@ export function resolveNightwatchBin(baseDir: string): string {
     dir = parent
   }
 
-  throw new Error(
-    'Cannot find nightwatch binary. Install nightwatch locally or set DEVTOOLS_NIGHTWATCH_BIN env var.'
-  )
+  return undefined
 }
 
 /**
