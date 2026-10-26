@@ -115,6 +115,8 @@ export async function runPluginBefore(ctx: PluginBeforeCtx): Promise<void> {
         // An inherited value from the shell would otherwise scope Run all to someone else's selection.
         delete process.env[RUNNER_ENV.NIGHTWATCH_INITIAL_ARGS]
       }
+      // A relative path in a flag (`--test tests/a.js`) resolves against the launch directory, not the config's.
+      process.env[RUNNER_ENV.RUNNER_CWD] ??= process.cwd()
       log.info('🚀 Starting DevTools backend...')
       const { port } = await start(ctx.options)
       ctx.options.port = port

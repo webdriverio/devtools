@@ -118,6 +118,22 @@ describe('runPluginBefore', () => {
     expect(process.env.DEVTOOLS_NIGHTWATCH_INITIAL_ARGS).toBeUndefined()
   })
 
+  // Regression: Run all spawned from the config's folder, so `--test tests/a.js` resolved against the wrong directory.
+  it('records the launch directory for Run all, keeping one the user set', async () => {
+    delete process.env.DEVTOOLS_APP_REUSE
+    delete process.env.DEVTOOLS_RUNNER_CWD
+    process.argv = ['/usr/bin/node', nightwatchBin, '--test', 'tests/a.js']
+    vi.mocked(start).mockRejectedValueOnce(new Error('stop here'))
+    await expect(runPluginBefore(ctx())).rejects.toThrow('stop here')
+    expect(process.env.DEVTOOLS_RUNNER_CWD).toBe(process.cwd())
+
+    process.env.DEVTOOLS_RUNNER_CWD = '/chosen/dir'
+    vi.mocked(start).mockRejectedValueOnce(new Error('stop here'))
+    await expect(runPluginBefore(ctx())).rejects.toThrow('stop here')
+    expect(process.env.DEVTOOLS_RUNNER_CWD).toBe('/chosen/dir')
+    delete process.env.DEVTOOLS_RUNNER_CWD
+  })
+
   it('leaves the selection to the run that started the backend when it is a rerun', async () => {
     process.env.DEVTOOLS_APP_REUSE = '1'
     process.env.DEVTOOLS_APP_HOST = 'localhost'
