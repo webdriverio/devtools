@@ -110,7 +110,7 @@ function testProblems(test: unknown, adapter: AdapterId): string[] {
   if (blank(test)) {
     return ['test evidence names no file']
   }
-  const relative = path.normalize(String(test))
+  const relative = path.posix.normalize(String(test))
   const allowed = [ADAPTER_TESTS[adapter], ...SHARED_TESTS]
   if (!allowed.some((dir) => relative.startsWith(dir))) {
     return [
