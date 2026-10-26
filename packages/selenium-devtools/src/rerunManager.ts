@@ -1,4 +1,4 @@
-import { captureLaunchCommand } from './helpers/utils.js'
+import { resolveLaunchCommand, shellQuote } from './helpers/launch-command.js'
 
 // Per-runner CLI flag for filtering by test/scenario name.
 const FILTER_FLAGS: Record<string, string> = {
@@ -27,7 +27,7 @@ export class RerunManager {
    *  flag the template replays — not `Metadata.runner`, which names the
    *  adapter. */
   constructor(detectedRunner: string) {
-    this.#launchCommand = captureLaunchCommand()
+    this.#launchCommand = resolveLaunchCommand()
     this.#detectedRunner = detectedRunner
   }
 
@@ -48,7 +48,7 @@ export class RerunManager {
       process.argv0,
       ...process.argv.slice(1)
     ])
-    const quoted = argv.map((a) => this.#shellQuote(a)).join(' ')
+    const quoted = argv.map(shellQuote).join(' ')
     return `${quoted} ${flag} "{{testName}}"`
   }
 
@@ -74,16 +74,5 @@ export class RerunManager {
 
   get launchCommand() {
     return this.#launchCommand
-  }
-
-  /** Single-quote for `sh -c`; embedded single-quotes get the `'\''` dance. */
-  #shellQuote(s: string): string {
-    if (s === '') {
-      return "''"
-    }
-    if (/^[a-zA-Z0-9_\-./=:@]+$/.test(s)) {
-      return s
-    }
-    return `'${s.replace(/'/g, "'\\''")}'`
   }
 }
