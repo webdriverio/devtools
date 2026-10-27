@@ -1,3 +1,12 @@
+import {
+  BIDI_MODES,
+  CONDITION_WAIT_READS,
+  HELPER_WAIT_READ,
+  KNOWN_DEBT,
+  RULES
+} from './constants.js'
+import { anyOf, hunk, reportedAs } from './gap-matchers.js'
+import { scenarioIndex } from './scenario-tests.js'
 import type {
   AdapterId,
   BidiMode,
@@ -6,6 +15,22 @@ import type {
   RuleId,
   Violation
 } from './types.js'
+
+const [LOGIN, WAITS, HEADING, MISSING, REFUSED] = [
+  'logs in and reads the greeting',
+  'waits on what the page shows',
+  'fails on the wrong heading',
+  'times out waiting for a missing element',
+  'survives a refused navigation'
+].map(scenarioIndex)
+
+const FLASH_WAIT = 'Element.waitForExist #flash'
+
+/** The scenario's two condition waits as the WebdriverIO service shows them, and as their reads. */
+const CONDITION_WAITS = 'Browser.waitForFunction, Browser.waitForFunction'
+const CONDITION_READS = [...CONDITION_WAIT_READS, HELPER_WAIT_READ]
+  .map((selector) => `Element.getText ${selector}`)
+  .join(', ')
 
 export const KNOWN_GAPS: KnownGap[] = [
   {
@@ -37,8 +62,164 @@ export const KNOWN_GAPS: KnownGap[] = [
     reason:
       'Without BiDi the collector is appended as a <script> and the destination is anchored by polling for the old collector to disappear, so a document the test leaves within tens of ms is never anchored and its Resource Timing buffer dies undrained with it. CLAUDE.md Known debt: "Document-start injection is what removes the whole race class".',
     timingDependent: true
-  }
+  },
+  ...BIDI_MODES.flatMap((bidi) => [
+    ...nightwatchGaps(bidi),
+    ...seleniumGaps(bidi),
+    ...pythonGaps(bidi)
+  ])
 ]
+
+/** Nightwatch's scenario gaps in one mode, each an adapter bug with its Known debt entry. */
+// eslint-disable-next-line max-lines-per-function -- a declarative list of gaps; splitting it would only scatter them
+function nightwatchGaps(bidi: BidiMode): KnownGap[] {
+  const adapter = 'nightwatch-devtools'
+  return [
+    {
+      adapter,
+      bidi,
+      rules: [RULES.testsAsDesigned],
+      only: anyOf(reportedAs(WAITS, 'skipped'), reportedAs(REFUSED, 'skipped')),
+      reason: KNOWN_DEBT.nightwatchSkipped
+    },
+    {
+      adapter,
+      bidi,
+      rules: [RULES.agreeOnActions],
+      only: anyOf(
+        hunk(
+          LOGIN,
+          'Element.getText #flash',
+          adapter,
+          'Element.getText #flash',
+          'Assert.equal #flash'
+        ),
+        hunk(
+          HEADING,
+          'Element.getText h2',
+          adapter,
+          'Element.getText h2',
+          'Assert.equal h2'
+        )
+      ),
+      reason: KNOWN_DEBT.nightwatchSameMsReplace,
+      timingDependent: true
+    },
+    {
+      adapter,
+      bidi,
+      rules: [RULES.agreeOnActions],
+      only: anyOf(
+        hunk(
+          WAITS,
+          'Element.getText #flash',
+          adapter,
+          'Element.getText #flash, Element.getText h2',
+          ''
+        ),
+        hunk(
+          WAITS,
+          'Browser.waitForFunction',
+          adapter,
+          'Element.getText #flash',
+          ''
+        )
+      ),
+      reason: KNOWN_DEBT.conditionWait,
+      against: 'devtools-service'
+    }
+  ]
+}
+
+function seleniumGaps(bidi: BidiMode): KnownGap[] {
+  const adapter = 'selenium-devtools'
+  return [
+    {
+      adapter,
+      bidi,
+      rules: [RULES.agreeOnActions],
+      only: hunk(
+        MISSING,
+        'its start',
+        adapter,
+        'Browser.waitForFunction',
+        'Element.waitForExist #missing'
+      ),
+      reason: KNOWN_DEBT.seleniumFailedWait,
+      against: 'devtools-service'
+    },
+    {
+      adapter,
+      bidi,
+      rules: [RULES.agreeOnActions],
+      lacksSteps: [FLASH_WAIT],
+      reason: KNOWN_DEBT.seleniumWait,
+      against: 'devtools-service'
+    },
+    {
+      adapter,
+      bidi,
+      rules: [RULES.agreeOnActions],
+      only: hunk(
+        WAITS,
+        'Element.getText #flash',
+        adapter,
+        CONDITION_READS,
+        CONDITION_WAITS
+      ),
+      reason: KNOWN_DEBT.conditionWait,
+      against: 'devtools-service'
+    }
+  ]
+}
+
+function pythonGaps(bidi: BidiMode): KnownGap[] {
+  const adapter = 'selenium-devtools-py'
+  return [
+    {
+      adapter,
+      bidi,
+      rules: [RULES.agreeOnActions],
+      lacksSteps: ['Element.waitForExist'],
+      reason: KNOWN_DEBT.pythonWait
+    },
+    {
+      adapter,
+      bidi,
+      rules: [RULES.agreeOnActions],
+      lacksTargets: ['Assert.equal'],
+      reason: KNOWN_DEBT.pythonAssertTarget
+    },
+    {
+      adapter,
+      bidi,
+      rules: [RULES.agreeOnActions],
+      only: hunk(
+        WAITS,
+        'Element.getText #flash',
+        adapter,
+        CONDITION_READS,
+        CONDITION_WAITS
+      ),
+      reason: KNOWN_DEBT.conditionWait,
+      against: 'devtools-service'
+    }
+  ]
+}
+
+/** A gap that declares what the holder lacks is applied by the comparison, so it excuses no violation itself. */
+export function declaresLacks(gap: KnownGap): boolean {
+  return Boolean(gap.lacksSteps?.length || gap.lacksTargets?.length)
+}
+
+/** Whether a gap explains one violation or divergence: under its rules, and matching its `only` where it sets one. */
+export function covers(gap: KnownGap, violation: Violation): boolean {
+  return (
+    gap.rules.includes(violation.rule) &&
+    !declaresLacks(gap) &&
+    (!gap.only || gap.only(violation.message))
+  )
+}
 
 /** An `adapters-agree-*` rule is judged by the comparison; every other rule by the run itself. */
 export function isAgreementRule(rule: RuleId): boolean {
@@ -59,7 +240,7 @@ export function judge(
       return (
         !g.timingDependent &&
         own.length > 0 &&
-        !violations.some((v) => own.includes(v.rule))
+        !violations.some((v) => !isAgreementRule(v.rule) && covers(g, v))
       )
     })
   }
@@ -73,5 +254,5 @@ export function explainingGap(
   gaps: KnownGap[],
   violation: Violation
 ): KnownGap | undefined {
-  return gaps.find((g) => g.rules.includes(violation.rule))
+  return gaps.find((g) => covers(g, violation))
 }

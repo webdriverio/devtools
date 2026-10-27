@@ -1,3 +1,4 @@
+import { ADAPTERS } from './adapters.js'
 import { explainingGap, gapsFor } from './allowlist.js'
 import { BIDI_MODES, RESPONSIBILITIES } from './constants.js'
 import { renderAgreement, renderStale } from './report-agreement.js'
@@ -65,9 +66,10 @@ ${sorted.length ? `<h2>Each adapter against the rules</h2>\n${sorted.map(renderR
 `
 }
 
+// A designed run exits with the runner's code for its failing tests; whether each test ended as designed is a violation.
 export function runPassed(run: RunReport): boolean {
   return (
-    run.exitCode === 0 &&
+    run.exitCode === ADAPTERS.find((a) => a.id === run.adapter)?.exitCode &&
     !run.checkerError &&
     run.unexplained.length === 0 &&
     run.stale.length === 0

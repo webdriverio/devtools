@@ -30,6 +30,8 @@ export const INTERNAL_RULES: Partial<Record<RuleId, string>> = {
     'Compares the adapters with one another; each adapter is judged by run-controls-are-served.',
   [RULES.metadataFirst]:
     'Checks that metadata reaches the dashboard before the first command, not the session, capabilities and device the Metadata tab shows.',
+  [RULES.testsAsDesigned]:
+    'Checks that each scenario test is reported in the state it was written to end in, a precondition of every per-test view rather than a feature.',
   [RULES.runControlsServed]:
     'Checks that every run control the dashboard offers has a command to serve it, not that Run, Rerun and Run all work.'
 }

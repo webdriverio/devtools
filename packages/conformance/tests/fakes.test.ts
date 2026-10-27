@@ -4,7 +4,12 @@ import WebSocket from 'ws'
 import { REUSE_ENV, WS_PATHS, type NetworkRequest } from '@wdio/devtools-shared'
 
 import { checkConformance } from '../src/checker.js'
-import { RULES } from '../src/constants.js'
+import {
+  ELEMENT_KEY,
+  ELEMENT_TEXT,
+  RENDERED_AFTER_MS,
+  RULES
+} from '../src/constants.js'
 import { FakeWebDriver } from '../src/fake-webdriver.js'
 import { runAdapter, runScenario } from '../src/harness.js'
 import type { BidiMode, WireFrame } from '../src/types.js'
@@ -293,6 +298,44 @@ describe('the fake collector', () => {
   })
 })
 
+describe('the fake page', () => {
+  const find = (driver: FakeWebDriver, value: string) =>
+    call(driver, 'POST', '/session/conformance/elements', {
+      using: 'css selector',
+      value
+    }) as Promise<Record<string, string>[]>
+
+  // A wait for an element that is there at once never polls, which is the path the scenario's wait exists to cover.
+  it('renders the flash late, so a wait for it polls, and reads back its text', async () => {
+    const driver = await start('off')
+    await session(driver)
+    await call(driver, 'POST', '/session/conformance/url', {
+      url: driver.url('/secure')
+    })
+    expect(await find(driver, '#flash')).toEqual([])
+    await new Promise((r) => setTimeout(r, RENDERED_AFTER_MS['#flash']))
+    const [ref] = await find(driver, '#flash')
+    const id = ref[ELEMENT_KEY]
+    expect(
+      await call(driver, 'GET', `/session/conformance/element/${id}/text`)
+    ).toBe(ELEMENT_TEXT['/secure']['#flash'])
+    expect(driver.truth().actions).toEqual({
+      navigate: [expect.any(Number)],
+      click: [],
+      fill: []
+    })
+  })
+
+  it('never renders an element the page does not have', async () => {
+    const driver = await start('off')
+    await session(driver)
+    await call(driver, 'POST', '/session/conformance/url', {
+      url: driver.url('/login')
+    })
+    expect(await find(driver, '#missing')).toEqual([])
+  })
+})
+
 describe('the harness', () => {
   // Regression: a timeout rejected, so a hung adapter lost the frames that showed where it hung.
   it('reports a hung scenario as a failed run instead of throwing', async () => {
@@ -316,6 +359,7 @@ ws.on('open', () => ws.send(JSON.stringify({ scope: 'commands', data: {} }), () 
     const report = await runAdapter(
       {
         id: 'selenium-devtools',
+        exitCode: 0,
         ready: () => true,
         prepare: () => ({ command: process.execPath, args: ['-e', script] })
       },

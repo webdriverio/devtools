@@ -373,6 +373,9 @@ importers:
       expect-webdriverio:
         specifier: ^8.0.0
         version: 8.0.0(@wdio/types@10.0.1)(webdriverio@10.0.2(yauzl@2.10.0))
+      mocha:
+        specifier: ^12.0.3
+        version: 12.0.3
       nightwatch:
         specifier: ^3.16.0
         version: 3.16.0(@cucumber/cucumber@13.2.1)

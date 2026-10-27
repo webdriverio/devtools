@@ -10,6 +10,7 @@ import {
 } from './constants.js'
 import { judge } from './allowlist.js'
 import { checkConformance } from './checker.js'
+import { checkTestOutcomes } from './scenario-tests.js'
 import { FakeWebDriver } from './fake-webdriver.js'
 import { RecordingBackend } from './recording-backend.js'
 import type {
@@ -87,7 +88,10 @@ export async function runAdapter(
   }
   // A checker that throws on a malformed frame must not take the recorded evidence with it.
   try {
-    const violations = checkConformance(run.frames, run.truth)
+    const violations = [
+      ...checkConformance(run.frames, run.truth),
+      ...checkTestOutcomes(run.frames)
+    ]
     return {
       adapter: adapter.id,
       bidi,

@@ -1,12 +1,13 @@
 // Builds the before/after action events of the exported trace stream,
 // including tracingGroup test boundaries and frame-snapshot ref stamping.
 
-import type {
-  CollapsedAssertResult,
-  CommandLog,
-  TestMetadataMap
+import type { CommandLog, TestMetadataMap } from '@wdio/devtools-shared'
+import {
+  collapsedAssertResult,
+  commandFailure,
+  locatorsMatch,
+  POINTABLE_METHODS
 } from '@wdio/devtools-shared'
-import { locatorsMatch, POINTABLE_METHODS } from '@wdio/devtools-shared'
 import {
   ASSERT_ACTION_CLASS,
   formatActionTitle,
@@ -85,19 +86,9 @@ interface ActionStream {
   openGroups: { uid: string; callId: string }[]
 }
 
-// An adapter may attach a normalized CollapsedAssertResult (see shared) to an
-// assertion command — prefer its actual/expected over the positional args,
-// which are only correct for node:assert-style `[actual, expected]` calls.
-function collapsedAssertResult(
-  result: unknown
-): CollapsedAssertResult | undefined {
-  if (typeof result === 'object' && result !== null && 'passed' in result) {
-    return result as CollapsedAssertResult
-  }
-  return undefined
-}
-
-// Assert params: node:assert positional order (actual, expected, message?),
+// Assert params: a collapsed result's actual/expected win over the positional
+// args, which are only right for node:assert-style `[actual, expected]` calls.
+// Otherwise node:assert positional order (actual, expected, message?),
 // plus a numeric echo of the raw args so the reader's paramsToArgs inverse
 // reconstructs the original arg list without assert-specific knowledge.
 function buildAssertParams(cmd: CommandLog): Record<string, unknown> {
@@ -230,44 +221,6 @@ function buildParamsAndTitle(
   }
 }
 
-function actionError(
-  cmd: CommandLog,
-  action: TraceAction
-): { message: string } | undefined {
-  if (cmd.error) {
-    const err = cmd.error as { message?: string }
-    return { message: err.message ?? String(cmd.error) }
-  }
-  const isAssert = action.class === ASSERT_ACTION_CLASS
-  // A command whose own result reports `passed: false` failed, whatever class it
-  // maps to — not just the assert rows this used to be gated on.
-  const collapsed = collapsedAssertResult(cmd.result)
-  if (collapsed && collapsed.passed === false) {
-    return {
-      message: String(
-        collapsed.message ??
-          (isAssert ? 'Assertion failed' : `${cmd.command} failed`)
-      )
-    }
-  }
-  // A wait that resolved `false` timed out. Nightwatch reports its
-  // waitForElement* timeouts through its own assertion channel rather than the
-  // command callback, which hands back `{value: null}` — so the row's only
-  // evidence of the failure is that boolean, and without this the step a test
-  // most often fails on rendered green with nothing in the Errors tab. Scoped to
-  // waits because `false` is a legitimate value for a boolean read like
-  // `isDisplayed`, and WDIO's waits throw rather than return false.
-  if (cmd.result === false && action.method.startsWith('waitFor')) {
-    const target = cmd.args?.find((a) => typeof a === 'string')
-    return {
-      message: target
-        ? `${cmd.command} timed out waiting for ${String(target)}`
-        : `${cmd.command} timed out`
-    }
-  }
-  return undefined
-}
-
 /** Centre of the element a pointer action matched, from the captured element
  *  rects at the command's completion. Undefined for non-pointer actions, a
  *  non-string selector, or a selector absent from the captured elements (e.g. a
@@ -310,7 +263,7 @@ function buildAfterEvent(
   snapshotIndex?: FrameSnapshotIndex
 ): AfterEvent {
   const afterEvent: AfterEvent = { type: 'after', callId, endTime: endMs }
-  const error = actionError(cmd, action)
+  const error = commandFailure(cmd, action)
   if (error) {
     afterEvent.error = error
   }

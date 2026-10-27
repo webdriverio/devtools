@@ -3,6 +3,8 @@ import { fileURLToPath } from 'node:url'
 
 import { WS_SCOPE, type WsMessageScope } from '@wdio/devtools-shared'
 
+import type { ScenarioTest } from './types.js'
+
 export const REPO_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   '../../..'
@@ -38,6 +40,7 @@ export const RULES = {
   replaceTargetsRow: 'replace-targets-a-sent-row',
   rowPerAction: 'one-row-per-browser-action',
   runControlsServed: 'run-controls-are-served',
+  testsAsDesigned: 'tests-end-as-designed',
   agreeOnActions: 'adapters-agree-on-actions',
   agreeOnErrors: 'adapters-agree-on-errors',
   agreeOnPages: 'adapters-agree-on-pages',
@@ -83,6 +86,7 @@ export const SCOPES = {
   commands: 'commands',
   mutations: 'mutations',
   networkRequests: 'networkRequests',
+  suites: 'suites',
   replaceCommand: WS_SCOPE.replaceCommand,
   config: WS_SCOPE.config
 } as const satisfies Record<string, WsMessageScope>
@@ -96,7 +100,7 @@ export const SUBRESOURCES: Record<string, string> = {
 }
 
 /** Every scenario reads these and nothing else, so each language drives the
- *  same pages in the same order. The Python scenario repeats the names. */
+ *  same pages in the same order. Each spec repeats the names. */
 export const SCENARIO_ENV = {
   webdriver: 'CONFORMANCE_WEBDRIVER',
   login: 'CONFORMANCE_LOGIN_URL',
@@ -104,6 +108,19 @@ export const SCENARIO_ENV = {
 } as const
 
 export const SCENARIO_TIMEOUT_MS = 60_000
+
+/** The scenario's tests in order, as every spec titles them (pytest's `test_` names read the same), and how each must end. */
+export const SCENARIO_TESTS: ScenarioTest[] = [
+  { title: 'logs in and reads the greeting', state: 'passed' },
+  { title: 'waits on what the page shows', state: 'passed' },
+  { title: 'fails on the wrong heading', state: 'failed' },
+  { title: 'times out waiting for a missing element', state: 'failed' },
+  { title: 'survives a refused navigation', state: 'passed' }
+]
+
+/** What the scenario's condition wait reads, then what its helper wait reads again: as the specs write them. */
+export const CONDITION_WAIT_READS = ['#flash', 'h2']
+export const HELPER_WAIT_READ = '#flash'
 
 export const ELEMENT_KEY = 'element-6066-11e4-a52e-4f735466cecf'
 
@@ -113,15 +130,30 @@ export const NAVIGATION_HALF_MS = 15
 export const BLANK_PNG =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII='
 
-/** Selector → the page a click on it loads, or `null` for a field. */
+/** Selector → the page a click on it loads, or `null` for an element a click leaves in place. */
 export const PAGES: Record<string, Record<string, string | null>> = {
   '/login': {
+    h2: null,
     '#username': null,
     '#password': null,
     'button[type="submit"]': '/secure'
   },
-  '/secure': { '#flash': null, '#logout': '/login' }
+  '/secure': { h2: null, '#flash': null, '#logout': '/login' }
 }
+
+/** Per page, the text an element reads back; an element not listed reads as empty. */
+export const ELEMENT_TEXT: Record<string, Record<string, string>> = {
+  '/login': { h2: 'Login Page' },
+  '/secure': { h2: 'Secure Area', '#flash': 'You logged into a secure area!' }
+}
+
+/** How long a load took, as the page's Resource Timing reports it. */
+export const LOAD_MS = 5
+
+export const RESPONSE_BYTES = 100
+
+/** Elements a page renders this long after the document is born, so a wait for one polls before it succeeds. */
+export const RENDERED_AFTER_MS: Record<string, number> = { '#flash': 150 }
 
 export const BROKEN_PATH = '/broken'
 
@@ -144,6 +176,19 @@ export const REPORT_INDEX = 'index.html'
 // Long enough to identify an argument, short enough to keep a timeline row on one line.
 export const TARGET_MAX_CHARS = 120
 
+const debt = (entry: string, issue?: string) =>
+  `CLAUDE.md Known debt: "${entry}"${issue ? ` (${issue})` : ''}.`
+
+/** Why each scenario gap exists: the limitation, and the Known debt entry that describes it. */
+export const KNOWN_DEBT = {
+  nightwatchSameMsReplace: `A Nightwatch row's late replaceCommand, keyed by timestamp, overwrites a later row stamped in the same millisecond, so an assertion row becomes a second copy of the read before it. ${debt('A same-millisecond replaceCommand overwrites the Nightwatch row after it', '#458')}`,
+  nightwatchSkipped: `Nightwatch reports a passing test that ran no assertion as skipped, although it ran. ${debt('Nightwatch reports a passing test skipped', '#459')}`,
+  conditionWait: `A passing condition wait shows as its reads in Selenium and Python, which have no row for the wait itself, as one Browser.waitForFunction row in the WebdriverIO service, which hides the reads inside it, and as both in Nightwatch. ${debt('A condition wait shows its reads in some adapters and one wait row in others', '#464')}`,
+  seleniumWait: `A successful driver.wait() has no row of its own: its polls are findElements rows, which the trace vocabulary leaves unmapped. ${debt('A Selenium wait has no row when it succeeds, and a condition row when it fails', '#464')}`,
+  seleniumFailedWait: `A timed-out driver.wait() is a wait row named after its condition, mapped to Browser.waitForFunction with no target, where the other adapters show Element.waitForExist on the selector. ${debt('A Selenium wait has no row when it succeeds, and a condition row when it fails', '#464')}`,
+  pythonWait: `WebDriverWait is a client-side loop the adapter cannot see, so a wait has no row, and one that times out leaves its failed test without an error row. ${debt('A Python WebDriverWait leaves no row', '#461')}`,
+  pythonAssertTarget: `A pytest assertion row names no element: the adapter keeps no record of which element produced a value. ${debt('Python assertion rows carry no target', '#462')}`
+} as const
 export const README_PAGE = 'README.md'
 
 /** Where each capability table is rendered, relative to this repo or to a webdriverio checkout. */

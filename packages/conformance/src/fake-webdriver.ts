@@ -7,12 +7,6 @@ import {
 import type { AddressInfo } from 'node:net'
 
 import {
-  NETWORK_CAPTURE_SOURCE,
-  type NetworkRequest,
-  type TraceMutation
-} from '@wdio/devtools-shared'
-
-import {
   BIDI_PATH,
   BIDI_RESULTS,
   BLANK_PNG,
@@ -20,34 +14,29 @@ import {
   COLLECTOR_SIGNATURE,
   DOCUMENT_MIME,
   ELEMENT_KEY,
+  ELEMENT_TEXT,
+  LOAD_MS,
   NAVIGATION_HALF_MS,
   PAGES,
+  RESPONSE_BYTES,
   SUBRESOURCES,
   WINDOW_HANDLE
 } from './constants.js'
 import { attachFakeBidi, remoteValue, type FakeBidi } from './fake-bidi.js'
+import { anchorOf, rendered, resourceTimingRow } from './fake-page.js'
 import type {
   ActionMethod,
   BidiAnswer,
   BidiMode,
-  BrowserDocument,
   BrowserRequest,
   FailedNavigation,
-  GroundTruth
+  GroundTruth,
+  PageDocument
 } from './types.js'
-
-interface Document extends BrowserDocument {
-  path: string
-  collector: boolean
-  anchored: boolean
-  buffer: TraceMutation[]
-  /** The document's Resource Timing entries, as the collector reads them: every load, drained once. */
-  network: NetworkRequest[]
-}
 
 interface Element {
   selector: string
-  document: Document
+  document: PageDocument
 }
 
 /** `action` marks a user action, stamped as completed when its response is sent. */
@@ -60,27 +49,14 @@ type Reply = {
   retried?: boolean
 }
 
-/** How long a load took, as the page's Resource Timing reports it. */
-const LOAD_MS = 5
-
-const RESPONSE_BYTES = 100
-
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
-
-const anchorOf = (url: string, bornAt: number): TraceMutation => ({
-  type: 'childList',
-  url,
-  timestamp: bornAt,
-  addedNodes: [],
-  removedNodes: []
-})
 
 const bidiHeader = (name: string, value: string) => ({
   name,
   value: { type: 'string', value }
 })
 
-/** A W3C WebDriver over a two-page model; without a preload its collector anchors only when a drain forces it. */
+/** A W3C WebDriver over a two-page model with one late-rendered element; without a preload its collector anchors only when a drain forces it. */
 export class FakeWebDriver {
   readonly origin: string
   #server: Server
@@ -90,7 +66,7 @@ export class FakeWebDriver {
   #socket: FakeBidi | undefined
   #preloaded = false
   #preloads = 0
-  #documents: Document[] = []
+  #documents: PageDocument[] = []
   #failedNavigations: FailedNavigation[] = []
   #requests: BrowserRequest[] = []
   #requestSeq = 0
@@ -152,7 +128,7 @@ export class FakeWebDriver {
     this.#socket = undefined
   }
 
-  get #current(): Document | undefined {
+  get #current(): PageDocument | undefined {
     return this.#documents.at(-1)
   }
 
@@ -289,7 +265,7 @@ export class FakeWebDriver {
     const bornAt = Date.now()
     // A preloaded collector anchors its document at birth, as `packages/script` does in Chrome.
     const preloaded = this.#preloaded
-    const doc: Document = {
+    const doc: PageDocument = {
       path,
       url,
       bornAt,
@@ -305,7 +281,7 @@ export class FakeWebDriver {
   }
 
   /** Loads a document's requests: into the truth, into the page's Resource Timing, and over BiDi where it is live. */
-  #load(doc: Document): void {
+  #load(doc: PageDocument): void {
     const loads = [
       [doc.url, DOCUMENT_MIME],
       ...Object.entries(SUBRESOURCES).map(([path, mime]) => [
@@ -382,7 +358,7 @@ export class FakeWebDriver {
 
   #find(selector: string, many: boolean): Reply {
     const doc = this.#current
-    if (!doc || !(selector in (PAGES[doc.path] ?? {}))) {
+    if (!doc || !rendered(doc, selector)) {
       return many
         ? { value: [] }
         : {
@@ -423,6 +399,7 @@ export class FakeWebDriver {
         timestamp: Date.now()
       })
     }
+    // A text read is not counted: an adapter may read an element's text itself, to describe it.
     const kind: ActionMethod | undefined =
       action === 'value' ? 'fill' : action === 'click' ? 'click' : undefined
     const destination =
@@ -430,7 +407,13 @@ export class FakeWebDriver {
     if (destination) {
       return { ...(await this.#navigate(destination)), action: kind }
     }
-    return { value: action === 'text' ? el.selector : null, action: kind }
+    return {
+      value:
+        action === 'text'
+          ? (ELEMENT_TEXT[el.document.path]?.[el.selector] ?? '')
+          : null,
+      action: kind
+    }
   }
 
   // Recognised by the collector's own API, not by how any one adapter phrases its scripts.
@@ -457,7 +440,7 @@ export class FakeWebDriver {
     return null
   }
 
-  #drain(doc: Document, forceAnchor: boolean): unknown {
+  #drain(doc: PageDocument, forceAnchor: boolean): unknown {
     if (!doc.collector) {
       return null
     }
@@ -556,31 +539,5 @@ export class FakeWebDriver {
       value: { nodeType: 1, childNodeCount: 0 }
     }))
     return { result: { nodes } }
-  }
-}
-
-/** A load as `packages/script`'s Resource Timing collector reports it: no headers, no status, the method only where the parser issued it. */
-function resourceTimingRow(
-  id: number,
-  url: string,
-  mime: string,
-  doc: Document
-): NetworkRequest {
-  const isDocument = mime === DOCUMENT_MIME
-  return {
-    id: `rt-${doc.bornAt}-${id}`,
-    url,
-    method: isDocument ? '' : 'GET',
-    type: isDocument
-      ? 'document'
-      : mime === 'text/css'
-        ? 'stylesheet'
-        : 'script',
-    timestamp: doc.bornAt,
-    startTime: 0,
-    endTime: LOAD_MS,
-    time: LOAD_MS,
-    size: RESPONSE_BYTES,
-    source: NETWORK_CAPTURE_SOURCE.RESOURCE_TIMING
   }
 }

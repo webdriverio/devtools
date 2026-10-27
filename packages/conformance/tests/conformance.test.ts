@@ -30,7 +30,10 @@ describe.each(ADAPTERS.map((a) => a.id))('%s', (id) => {
     'follows every rule (bidi: %s)',
     (bidi) => {
       const run = reportFor(id, bidi)
-      expect(run?.exitCode, run?.output).toBe(0)
+      // Two tests fail by design; any other code is a crash, a usage error or a test ending other than designed.
+      expect(run?.exitCode, run?.output).toBe(
+        ADAPTERS.find((a) => a.id === id)!.exitCode
+      )
       expect(
         run?.checkerError,
         'the checker could not read this stream'
