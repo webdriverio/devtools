@@ -45,8 +45,8 @@ export async function gracefulShutdown(
 
 /**
  * Wire up process-lifetime hooks for the selenium plugin:
- *  - `exit`/`beforeExit`: trigger idempotent session end + (on beforeExit)
- *    close the worker WS so the event loop can drain.
+ *  - `exit`/`beforeExit`: trigger idempotent session end + (on beforeExit,
+ *    once it settles) close the worker WS so the event loop can drain.
  *  - `SIGINT`/`SIGTERM`: graceful shutdown — close WS, cleanup capture, and
  *    in non-reuse mode pkill the detached Chrome dashboard for THIS run.
  */
@@ -54,14 +54,17 @@ export function registerProcessHooks(plugin: ProcessHookPlugin): void {
   process.on('exit', () => {
     void plugin.onSessionEnd()
   })
+  // Node re-emits beforeExit after the work this schedules; once is enough.
+  let exiting = false
   process.on('beforeExit', () => {
-    // onSessionEnd is idempotent — re-firing it after per-scenario quit is a
-    // no-op. The real work here is the deferred WS close (see onSessionEnd
-    // non-interactive branch). closeWebSocket() returns immediately if
-    // already closed, so this is safe for both reuse mode and the dashboard
-    // path.
-    void plugin.onSessionEnd()
-    void plugin.sessionCapturer?.closeWebSocket()
+    if (exiting) {
+      return
+    }
+    exiting = true
+    // The close waits for onSessionEnd, or it races the final suites update.
+    void plugin
+      .onSessionEnd()
+      .then(() => plugin.sessionCapturer?.closeWebSocket())
   })
   process.on('SIGINT', () => {
     void gracefulShutdown(plugin, 130)

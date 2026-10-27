@@ -41,6 +41,8 @@ export class TestManager {
    * never auto-create the synthetic session test — orphan commands attach
    * to the most-recently-marked test instead. */
   #userTookOver = false
+  // Set once the script has ended: the session test is never recreated after, or its uid would appear twice.
+  #sessionTestClosed = false
 
   constructor(
     private rootSuite: SuiteStats,
@@ -64,6 +66,9 @@ export class TestManager {
   getOrEnsureTest(): TestStats | null {
     if (this.#currentTest) {
       return this.#currentTest
+    }
+    if (this.#sessionTestClosed) {
+      return null
     }
     if (!this.#userTookOver) {
       return this.#ensureSessionTest()
@@ -205,6 +210,19 @@ export class TestManager {
       return []
     }
     return this.#attemptTracker.forTest(this.#lastRetryStableUid)
+  }
+
+  /** A plain script's end: closes only the synthetic test; one the script started is the script's to end. */
+  closeSessionTest(): void {
+    this.#sessionTestClosed = true
+    if (this.#mode !== 'session' || !this.#currentTest) {
+      return
+    }
+    this.endCurrent(
+      this.#currentTest.state === TEST_STATE.RUNNING
+        ? 'passed'
+        : this.#currentTest.state
+    )
   }
 
   /** Called when the driver session is closing (process exit / quit). */
