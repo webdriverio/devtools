@@ -1,4 +1,4 @@
-import { gapsFor } from './allowlist.js'
+import { covers, gapsFor } from './allowlist.js'
 import { compareRuns, judgeDivergences } from './agreement.js'
 import { BIDI_MODES } from './constants.js'
 import { describeRunControls, normalizeRun } from './normalize.js'
@@ -95,9 +95,8 @@ function renderDivergences(
   escape: Escape
 ): string {
   const reasonFor = (d: Divergence) =>
-    d.adapters
-      .flatMap((id) => gapsFor(id, bidi))
-      .find((g) => g.rules.includes(d.rule))?.reason ?? ''
+    d.adapters.flatMap((id) => gapsFor(id, bidi)).find((g) => covers(g, d))
+      ?.reason ?? ''
   const items = [
     ...unexplained.map(
       (d) =>

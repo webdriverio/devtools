@@ -32,6 +32,16 @@ export interface FailedNavigation {
   message: string
 }
 
+/** A document the fake browser holds, with what its page-side collector would see. */
+export interface PageDocument extends BrowserDocument {
+  path: string
+  collector: boolean
+  anchored: boolean
+  buffer: TraceMutation[]
+  /** The document's Resource Timing entries, as the collector reads them: every load, drained once. */
+  network: NetworkRequest[]
+}
+
 /** A request the browser made while loading a document. */
 export interface BrowserRequest {
   url: string
@@ -100,6 +110,8 @@ export interface NormalizedStep {
   page: string
   /** The row's timestamp: never compared, but how a violation on this step is found. */
   at: number
+  /** The scenario test the row ran in, as an index into SCENARIO_TESTS; -1 outside any. */
+  test: number
 }
 
 export interface NormalizedRun {
@@ -120,13 +132,48 @@ export interface RunControls {
 /** Two adapters told different stories about the same scenario. */
 export interface Divergence extends Violation {
   adapters: [AdapterId, AdapterId]
-  /** Index of the step concerned, when the difference is on one step. */
-  step?: number
+  /** Each side's row timestamp, when the difference is on one aligned step. */
+  at?: Partial<Record<AdapterId, number>>
+}
+
+/** A step both sides show once, at different places in one test. */
+export interface Move {
+  /** The step as each side shows it, compared like any aligned pair. */
+  a: NormalizedStep
+  b: NormalizedStep
+  /** The step each side shows it after. */
+  afterA: string
+  afterB: string
+}
+
+/** What a gap declares its holder never shows, applied by the comparison. */
+export interface Lacks {
+  /** `Class.method`, or `Class.method target` for one step only. */
+  steps: string[]
+  /** `Class.method` of steps the holder shows without a target. */
+  targets: string[]
+}
+
+/** A test the scenario defines, and the state every runner must report it ending in. */
+export interface ScenarioTest {
+  title: string
+  state: 'passed' | 'failed'
+}
+
+/** A test as an adapter's suites frames report it. */
+export interface ReportedTest {
+  uid: string
+  title: string
+  state: string
+  /** Absolute ms. */
+  start: number
 }
 
 /** How the conformance suite launches one adapter's scenario. */
 export interface AdapterScenario {
   id: AdapterId
+  /** What the runner exits with when the scenario's tests end as designed: two of them fail. */
+  exitCode: number
   /** False only locally, when a prerequisite (a build, an interpreter) is missing; CI must not skip. */
   ready(): boolean
   prepare(): ScenarioLaunch
@@ -160,6 +207,9 @@ export interface RuleGuide {
 /** What every adapter implements, in any language; the adapter guide documents each. */
 export type Responsibility = keyof typeof RESPONSIBILITIES
 
+/** Whether a violation's or divergence's message is the one a gap names. */
+export type MessageMatcher = (message: string) => boolean
+
 /** A difference an adapter is allowed to show, and why. */
 export interface KnownGap {
   adapter: AdapterId
@@ -168,6 +218,14 @@ export interface KnownGap {
   reason: string
   /** Set when the gap is a race, so a run that happens to win it is not stale. */
   timingDependent?: boolean
+  /** The adapter the gap's differences are judged against; with it absent from a run, the gap cannot be judged stale. */
+  against?: AdapterId
+  /** Narrows the gap to the violations or divergences whose message matches, so a second bug under the same rule still fails. */
+  only?: MessageMatcher
+  /** Steps (`Class.method`) the holder never emits: every comparison it is in drops them from both sides, and they excuse nothing else. */
+  lacksSteps?: string[]
+  /** Steps (`Class.method`) the holder emits without a target: every comparison it is in compares them without one. */
+  lacksTargets?: string[]
 }
 
 export interface Judgement {

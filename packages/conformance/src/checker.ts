@@ -2,6 +2,7 @@ import {
   mapCommandToAction,
   NETWORK_CAPTURE_SOURCE,
   replaceCommand,
+  replaceCommandIndex,
   resolveRunCapabilities,
   type CommandLog,
   type Metadata,
@@ -363,22 +364,22 @@ function failureRecorded(stream: Stream, truth: GroundTruth): Violation[] {
   })
 }
 
+// Located the way the dashboard locates it (shared replaceCommandIndex: by id, then by the stamp a row now carries).
 function replaceTargetsRow({ frames }: Stream): Violation[] {
-  const sent = new Set<number>()
+  let rows: CommandLog[] = []
   const out: Violation[] = []
   for (const { scope, data } of frames) {
     if (scope === SCOPES.commands) {
-      for (const row of data as CommandLog[]) {
-        sent.add(row.timestamp)
-      }
+      rows.push(...(data as CommandLog[]))
     } else if (scope === SCOPES.replaceCommand) {
-      const { oldTimestamp } = data as ReplaceCommandWsPayload
-      if (!sent.has(oldTimestamp)) {
+      const { oldTimestamp, command } = data as ReplaceCommandWsPayload
+      if (replaceCommandIndex(rows, oldTimestamp, command) === -1) {
         out.push({
           rule: RULES.replaceTargetsRow,
           message: `replaceCommand names ${oldTimestamp}, which no earlier row carries`
         })
       }
+      rows = replaceCommand(rows, oldTimestamp, command)
     }
   }
   return out

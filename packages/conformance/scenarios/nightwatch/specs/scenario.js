@@ -1,5 +1,6 @@
-// The conformance scenario, driven through @wdio/nightwatch-devtools: the same
-// steps as every other adapter's scenario, in Nightwatch's own idiom.
+// The conformance scenario through @wdio/nightwatch-devtools: the same tests as every adapter's, in Nightwatch's idiom.
+import { strict as assert } from 'node:assert'
+
 const env = (name) => {
   const value = process.env[name]
   if (!value) {
@@ -10,13 +11,46 @@ const env = (name) => {
   return value
 }
 
+// A helper wait that repeats the read the test issued just before it.
+const waitForText = (browser, selector, text) =>
+  browser.waitUntil(
+    async () => (await browser.getText(selector)) === text,
+    2000
+  )
+
 describe('conformance', function () {
-  it('drives the fake pages', async function (browser) {
+  it('logs in and reads the greeting', async function (browser) {
     await browser.url(env('CONFORMANCE_LOGIN_URL'))
     await browser.setValue('#username', 'tom')
     await browser.setValue('#password', 'secret')
     await browser.click('button[type="submit"]')
+    await browser.waitForElementPresent('#flash', 2000)
+    const greeting = await browser.getText('#flash')
+    assert.equal(greeting, 'You logged into a secure area!')
+  })
+
+  it('waits on what the page shows', async function (browser) {
+    const greeting = await browser.getText('#flash')
+    await browser.waitUntil(
+      async () =>
+        (await browser.getText('#flash')) !== '' &&
+        (await browser.getText('h2')) !== '',
+      2000
+    )
+    await waitForText(browser, '#flash', greeting)
     await browser.click('#logout')
+  })
+
+  it('fails on the wrong heading', async function (browser) {
+    const heading = await browser.getText('h2')
+    assert.equal(heading, 'Secure Area')
+  })
+
+  it('times out waiting for a missing element', async function (browser) {
+    await browser.waitForElementPresent('#missing', 300)
+  })
+
+  it('survives a refused navigation', async function (browser) {
     try {
       await browser.url(env('CONFORMANCE_BROKEN_URL'))
     } catch {

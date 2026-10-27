@@ -11,7 +11,8 @@ function run(overrides: Partial<RunReport> = {}): RunReport {
   return {
     adapter: 'selenium-devtools',
     bidi: 'live',
-    exitCode: 0,
+    // Mocha's code for the scenario's two failing tests: a designed run.
+    exitCode: 2,
     truth: {
       documents: [
         { url: LOGIN, bornAt: 1100 },
@@ -68,8 +69,23 @@ describe('renderReport', () => {
     expect(failing).not.toContain('>PASS<')
   })
 
-  it('marks a nonzero exit as FAIL', () => {
+  // Regression: any nonzero exit read FAIL, so a run whose tests ended as designed never read PASS.
+  it("marks an exit other than the runner's designed code as FAIL", () => {
+    expect(renderReport([run({ exitCode: 0 })])).toContain('>FAIL<')
     expect(renderReport([run({ exitCode: 1 })])).toContain('>FAIL<')
+    expect(renderReport([run({ exitCode: null })])).toContain('>FAIL<')
+  })
+
+  it('marks a run whose tests did not end as designed FAIL', () => {
+    const notDesigned: Violation = {
+      rule: RULES.testsAsDesigned,
+      message:
+        '"survives a refused navigation" is reported failed; the scenario designs it to end passed'
+    }
+    const html = renderReport([
+      run({ violations: [notDesigned], unexplained: [notDesigned] })
+    ])
+    expect(html).toContain('>FAIL<')
   })
 
   it('shows an unexplained violation inline next to its document', () => {

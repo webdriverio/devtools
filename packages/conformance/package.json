@@ -31,6 +31,7 @@
     "@wdio/spec-reporter": "10.0.1",
     "expect-webdriverio": "^8.0.0",
     "fflate": "^0.8.2",
+    "mocha": "^12.0.3",
     "nightwatch": "^3.16.0",
     "selenium-webdriver": "^4.50.0",
     "webdriverio": "^10.0.2",
