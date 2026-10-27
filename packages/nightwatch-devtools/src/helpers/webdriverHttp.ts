@@ -41,12 +41,17 @@ const firstDefined = (obj: unknown, ...keys: string[]): unknown => {
   return undefined
 }
 
-/** The driver settings as configured, with no defaults applied. */
-function configuredWebDriver(browser: NightwatchBrowser): {
+interface ConfiguredWebDriver {
   host: unknown
   port: unknown
   pathPrefix: unknown
-} {
+  ssl: unknown
+  username: unknown
+  accessKey: unknown
+}
+
+/** The driver settings as configured, with no defaults applied. */
+function configuredWebDriver(browser: NightwatchBrowser): ConfiguredWebDriver {
   const transportSettings =
     getPath(browser, 'transport', 'settings', 'webdriver') ||
     getPath(browser, 'queue', 'transport', 'settings', 'webdriver') ||
@@ -68,12 +73,38 @@ function configuredWebDriver(browser: NightwatchBrowser): {
     getProp(opts, 'webdriver'),
     getProp(nightwatchSettings, 'webdriver')
   ]
-  const pick = (...keys: string[]) =>
-    sources.map((source) => firstDefined(source, ...keys)).find(Boolean)
+  const values = (...keys: string[]) =>
+    sources.map((source) => firstDefined(source, ...keys))
+  const pick = (...keys: string[]) => values(...keys).find(Boolean)
   return {
     host: pick('host', 'server_address'),
     port: pick('port'),
-    pathPrefix: pick('default_path_prefix')
+    pathPrefix: pick('default_path_prefix'),
+    // `ssl: false` is a setting, not an absence, so it must not fall through to a later source.
+    ssl: values('ssl').find((v) => v !== undefined),
+    username: pick('username'),
+    accessKey: values('access_key').find((v) => v !== undefined)
+  }
+}
+
+/** Nightwatch's own connection settings (`settings.js` `setWebdriverSettings`, `client.js` `setHttpOptions`): https when `ssl` is set or, unset, when the port is 443; basic auth when both `username` and `access_key` are. */
+function connection(
+  configured: ConfiguredWebDriver,
+  hostname: string,
+  port: number
+): WebDriverAddress {
+  const { pathPrefix, ssl, username, accessKey } = configured
+  const secure = ssl === undefined ? port === 443 : Boolean(ssl)
+  const hasCredentials = Boolean(username) && accessKey !== undefined
+  return {
+    hostname,
+    port,
+    protocol: secure ? 'https' : 'http',
+    path: typeof pathPrefix === 'string' ? pathPrefix : undefined,
+    ...(hasCredentials
+      ? { user: String(username), key: String(accessKey) }
+      : {}),
+    onWarn: (message: string) => log.warn(message)
   }
 }
 
@@ -93,17 +124,10 @@ export function resolveWebDriverAddress(browser: NightwatchBrowser): {
   }
 }
 
-/** The core transport's address, plus this adapter's logger. Nightwatch always
- *  speaks plain http to a local driver — it has no cloud-grid path of its own. */
+/** The core transport's address: the connection Nightwatch itself uses, plus this adapter's logger. */
 function address(browser: NightwatchBrowser): WebDriverAddress {
   const { driverHost, driverPort } = resolveWebDriverAddress(browser)
-  const { pathPrefix } = configuredWebDriver(browser)
-  return {
-    hostname: driverHost,
-    port: driverPort,
-    path: typeof pathPrefix === 'string' ? pathPrefix : undefined,
-    onWarn: (message: string) => log.warn(message)
-  }
+  return connection(configuredWebDriver(browser), driverHost, driverPort)
 }
 
 function sessionId(browser: NightwatchBrowser): string | undefined {
@@ -136,17 +160,16 @@ export function sessionExecutor(
   browser: NightwatchBrowser
 ): InterceptorExecute | undefined {
   const id = sessionId(browser)
-  const { host, port, pathPrefix } = configuredWebDriver(browser)
+  const configured = configuredWebDriver(browser)
   // No default port here: guessing chromedriver's would blame a missing plugin for a wrong address.
-  if (!id || !port) {
+  if (!id || !configured.port) {
     return undefined
   }
-  const at: WebDriverAddress = {
-    hostname: String(host || 'localhost'),
-    port: Number(port),
-    path: typeof pathPrefix === 'string' ? pathPrefix : undefined,
-    onWarn: (message: string) => log.warn(message)
-  }
+  const at = connection(
+    configured,
+    String(configured.host || 'localhost'),
+    Number(configured.port)
+  )
   return (script, args) => coreExecute(at, id, script, args)
 }
 
