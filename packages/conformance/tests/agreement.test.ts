@@ -671,6 +671,47 @@ describe('a step one adapter shows at another place', () => {
     expect(covers(sameMs, divergences[0])).toBe(false)
   })
 
+  // A move excuses where the step stands, never what it did there.
+  it('still compares the moved step itself', () => {
+    const js = report(
+      'devtools-service',
+      stream(1, JS, {
+        tests,
+        more: [flashWait, read],
+        anchors: [
+          ['/login', 10],
+          ['/secure', 55]
+        ]
+      })
+    )
+    const nw = report(
+      'nightwatch-devtools',
+      stream(2, NW, {
+        tests,
+        more: [
+          read,
+          { ...flashWait, error: { name: 'Error', message: 'timed out' } }
+        ],
+        anchors: [
+          ['/login', 10],
+          ['/secure', 55]
+        ]
+      })
+    )
+    const divergences = compareRuns([js, nw])
+    const onWait = divergences.filter((d) =>
+      d.message.includes(', Element.waitForExist #flash: ')
+    )
+    expect(onWait.map((d) => d.rule).sort()).toEqual(
+      [RULES.agreeOnErrors, RULES.agreeOnPages].sort()
+    )
+    const waitOrder = gapOf(
+      'nightwatch-devtools',
+      KNOWN_DEBT.nightwatchWaitOrder
+    )
+    expect(onWait.some((d) => covers(waitOrder, d))).toBe(false)
+  })
+
   it('leaves what the move did not explain to its own gap', () => {
     const waitOrder = gapOf(
       'nightwatch-devtools',
