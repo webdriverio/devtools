@@ -26,6 +26,7 @@
     "smoke:assert": "tsx packages/conformance/smoke/assert-trace.ts",
     "dev": "pnpm --parallel dev",
     "preview": "pnpm --parallel preview",
+    "docs:capabilities": "tsx packages/conformance/src/capability-matrix.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",

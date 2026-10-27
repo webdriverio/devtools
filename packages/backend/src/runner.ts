@@ -9,10 +9,16 @@ import {
   RERUN_SLOT,
   REUSE_ENV,
   RUNNER_ENV,
+  parseInitialArgs,
   type RunnerRequestBody
 } from '@wdio/devtools-shared'
 import { WDIO_CONFIG_FILENAMES, NIGHTWATCH_CONFIG_FILENAMES } from './types.js'
-import { escapeFilterRegex, getFilterBuilder } from './framework-filters.js'
+import {
+  escapeFilterRegex,
+  getFilterBuilder,
+  runAllFilters,
+  type RunAllSelection
+} from './framework-filters.js'
 import { resolveNightwatchBin, resolveWdioBin } from './bin-resolver.js'
 
 const log = logger('@wdio/devtools-runner')
@@ -40,6 +46,21 @@ function stripNameTestNameSlot(template: string): string {
     leftEdge--
   }
   return template.slice(0, leftEdge) + template.slice(idx + NAME_SLOT.length)
+}
+
+/** The selection the run that started this backend was launched with; both are written in this process. */
+function runAllSelection(): RunAllSelection {
+  const wdioSpecs = (process.env[RUNNER_ENV.WDIO_INITIAL_SPECS] ?? '')
+    .split(path.delimiter)
+    .filter(Boolean)
+  const raw = process.env[RUNNER_ENV.NIGHTWATCH_INITIAL_ARGS]
+  const nightwatchArgs = parseInitialArgs(raw)
+  if (raw && !nightwatchArgs) {
+    log.warn(
+      `Ignoring ${RUNNER_ENV.NIGHTWATCH_INITIAL_ARGS}: not a JSON array of strings`
+    )
+  }
+  return { wdioSpecs, nightwatchArgs: nightwatchArgs ?? [] }
 }
 
 class TestRunner {
@@ -111,7 +132,8 @@ class TestRunner {
       process.env[RUNNER_ENV.RUNNER_CWD] || path.dirname(configPath)
     const args: string[] = isNightwatch
       ? [
-          resolveNightwatchBin(this.#baseDir),
+          // Beside the config finds an install nested under it, the launch directory one under a shared config.
+          resolveNightwatchBin(path.dirname(configPath), this.#baseDir),
           '--config',
           configPath,
           ...this.#buildFilters(payload)
@@ -316,15 +338,8 @@ class TestRunner {
     const builder = getFilterBuilder(framework)
     const baseFilters = builder({ specArg, payload })
 
-    // Scope "Run All" to the user's original --spec args. Nightwatch resolves specs via its own filter.
-    if (payload.runAll && !framework.startsWith('nightwatch')) {
-      const initialSpecs = process.env[RUNNER_ENV.WDIO_INITIAL_SPECS]
-      if (initialSpecs) {
-        const specs = initialSpecs.split(path.delimiter).filter(Boolean)
-        for (const spec of specs) {
-          baseFilters.push('--spec', spec)
-        }
-      }
+    if (payload.runAll) {
+      baseFilters.push(...runAllFilters(framework, runAllSelection()))
     }
 
     return baseFilters

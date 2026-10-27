@@ -33,7 +33,7 @@ export interface DevToolsOptions extends BaseDevToolsOptions {
   /** Command template for per-test rerun. {{testName}} is substituted. */
   rerunCommand?: string
   /**
-   * Force the *test* browser into headless mode by injecting --headless=new
+   * Force the *test* browser into headless mode by injecting --headless=old
    * into Chrome capabilities. The dashboard window (auto-opened by openUi)
    * is unaffected. Defaults to false to preserve user-supplied options.
    */
@@ -101,12 +101,16 @@ export interface WaitScope {
   rows: Map<string, number>
   /** The row of the latest poll, which a failed wait takes over. */
   pollRowId?: number
+  /** Waits issued inside this wait's condition, by order within one evaluation. */
+  nested?: WaitScope[]
 }
 
 /** One evaluation of a wait's condition, counting the calls it has issued so far. */
 export interface WaitPoll {
   scope: WaitScope
   seen: Map<string, number>
+  /** Waits this evaluation has issued so far. */
+  waits: number
 }
 
 export interface CapturedCommand {

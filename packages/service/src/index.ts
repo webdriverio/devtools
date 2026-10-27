@@ -433,7 +433,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
   }
 
   // Tag the scenario's commands with a stable per-step uid so the trace nests
-  // them under the step (Feature→Scenario→Step). The uid combines the scenario
+  // them under the step (Scenario→Step; no feature ancestry is recorded). The uid combines the scenario
   // uid with a per-scenario counter, so repeated step text can't collide.
   beforeStep(step?: { text?: string; keyword?: string }) {
     if (!this.#currentTestUid) {

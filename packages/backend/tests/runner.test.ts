@@ -5,6 +5,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { RERUN_SLOT, REUSE_ENV } from '@wdio/devtools-shared'
 
+import type * as BinResolver from '../src/bin-resolver.js'
 import type { RunnerRequestBody } from '../src/types.js'
 
 vi.mock('node:child_process')
@@ -15,6 +16,11 @@ vi.mock('node:fs', () => ({
     readFileSync: vi.fn()
   }
 }))
+
+vi.mock('../src/bin-resolver.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof BinResolver>()
+  return { ...actual, resolveNightwatchBin: vi.fn(actual.resolveNightwatchBin) }
+})
 
 vi.mock('node:module', () => ({
   createRequire: () => ({
@@ -29,6 +35,7 @@ const MOCK_WDIO_BIN = '/mock/wdio/bin/wdio.js'
 
 // Now import after mocks are set up
 const { testRunner } = await import('../src/runner.js')
+const { resolveNightwatchBin } = await import('../src/bin-resolver.js')
 
 describe('TestRunner', () => {
   const mockConfigPath = '/test/wdio.conf.ts'
@@ -408,6 +415,80 @@ describe('TestRunner', () => {
 
       delete process.env.DEVTOOLS_WDIO_INITIAL_SPECS
     })
+
+    // Regression: Nightwatch's Run all ran every spec in the config, not the selection the run was launched with.
+    it('replays the selection a Nightwatch run was launched with', async () => {
+      process.env.DEVTOOLS_NIGHTWATCH_BIN = '/mock/nightwatch/bin/nightwatch'
+      process.env.DEVTOOLS_NIGHTWATCH_INITIAL_ARGS = JSON.stringify([
+        '/abs/tests/login.js',
+        '--tag',
+        'smoke'
+      ])
+      vi.mocked(spawn).mockReturnValue(createMockChild())
+      try {
+        await testRunner.run({
+          uid: 'run-all',
+          entryType: 'suite',
+          runAll: true,
+          framework: 'nightwatch',
+          configFile: mockConfigPath
+        })
+        const args = vi.mocked(spawn).mock.calls[0][1] as string[]
+        expect(args.slice(-3)).toEqual([
+          '/abs/tests/login.js',
+          '--tag',
+          'smoke'
+        ])
+        expect(args).not.toContain('--spec')
+      } finally {
+        delete process.env.DEVTOOLS_NIGHTWATCH_INITIAL_ARGS
+        delete process.env.DEVTOOLS_NIGHTWATCH_BIN
+      }
+    })
+
+    // Regression: resolving the binary from the launch directory missed a Nightwatch installed beside a nested config.
+    it('spawns from the launch directory but finds Nightwatch beside its config', async () => {
+      process.env.DEVTOOLS_NIGHTWATCH_BIN = '/mock/nightwatch/bin/nightwatch'
+      process.env.DEVTOOLS_RUNNER_CWD = '/launch/dir'
+      vi.mocked(spawn).mockReturnValue(createMockChild())
+      try {
+        await testRunner.run({
+          uid: 'run-all',
+          entryType: 'suite',
+          runAll: true,
+          framework: 'nightwatch',
+          configFile: mockConfigPath
+        })
+        expect(vi.mocked(resolveNightwatchBin)).toHaveBeenLastCalledWith(
+          path.dirname(mockConfigPath),
+          '/launch/dir'
+        )
+        expect(vi.mocked(spawn).mock.calls[0][2]?.cwd).toBe('/launch/dir')
+      } finally {
+        delete process.env.DEVTOOLS_RUNNER_CWD
+        delete process.env.DEVTOOLS_NIGHTWATCH_BIN
+      }
+    })
+
+    it('runs the whole Nightwatch config when the selection is absent or unreadable', async () => {
+      vi.mocked(spawn).mockReturnValue(createMockChild())
+      process.env.DEVTOOLS_NIGHTWATCH_BIN = '/mock/nightwatch/bin/nightwatch'
+      process.env.DEVTOOLS_NIGHTWATCH_INITIAL_ARGS = '{not json'
+      try {
+        await testRunner.run({
+          uid: 'run-all',
+          entryType: 'suite',
+          runAll: true,
+          framework: 'nightwatch',
+          configFile: mockConfigPath
+        })
+        const args = vi.mocked(spawn).mock.calls[0][1] as string[]
+        expect(args.slice(-2)).toEqual(['--config', mockConfigPath])
+      } finally {
+        delete process.env.DEVTOOLS_NIGHTWATCH_INITIAL_ARGS
+        delete process.env.DEVTOOLS_NIGHTWATCH_BIN
+      }
+    })
   })
 
   describe('framework dispatch via Map (CodeQL hardening)', () => {
@@ -518,6 +599,23 @@ describe('TestRunner', () => {
       })
 
       expect(spawnedArgs()).toEqual(['-m', 'pytest', 'examples/'])
+    })
+
+    // The Selenium adapter quotes its argv fallback this way; each argument must survive the backend's shell parse whole.
+    it('keeps quoted arguments of a run-all launch command whole', async () => {
+      await testRunner.run({
+        uid: '__RUN_ALL__',
+        entryType: 'suite',
+        runAll: true,
+        launchCommand: "node /x/mocha 'specs/my login.js' --grep 'a b'"
+      })
+
+      expect(spawnedArgs()).toEqual([
+        '/x/mocha',
+        'specs/my login.js',
+        '--grep',
+        'a b'
+      ])
     })
 
     it('still regex-escapes a name-pattern template', async () => {

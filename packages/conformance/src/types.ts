@@ -1,13 +1,13 @@
 import type {
   CommandLog,
   NetworkRequest,
-  RunCapabilities,
   TraceMutation
 } from '@wdio/devtools-shared'
 
 import type {
   ACTION_METHODS,
   BIDI_MODES,
+  CAPABILITY_TABLES,
   RESPONSIBILITIES,
   RULES
 } from './constants.js'
@@ -111,8 +111,6 @@ export interface NormalizedRun {
   requests: string[]
 }
 
-export type RunControl = keyof RunCapabilities
-
 /** The run controls a metadata frame offers: the capabilities advertised, and whether a command or config serves them. */
 export interface RunControls {
   advertised: string[]
@@ -170,8 +168,6 @@ export interface KnownGap {
   reason: string
   /** Set when the gap is a race, so a run that happens to win it is not stale. */
   timingDependent?: boolean
-  /** For a run-controls gap, the controls the holder does not offer: it explains their absence and nothing else. */
-  lacksRunControls?: RunControl[]
 }
 
 export interface Judgement {
@@ -235,4 +231,46 @@ export interface Timeline {
   events: TimelineEvent[]
   /** Violations with no subject, or whose subject is not on the timeline. */
   unplaced: Violation[]
+}
+
+/** Where a feature row is rendered: a marker block in a markdown page. */
+export type CapabilityTable = keyof typeof CAPABILITY_TABLES
+
+/** How a supported cell is known to hold. */
+export type Evidence =
+  /** Checked for this adapter by the cross-adapter conformance suite. */
+  | { readonly kind: 'rule'; readonly rules: readonly RuleId[] }
+  /** Exercised by this test file, a path from the repo root. */
+  | { readonly kind: 'test'; readonly path: string }
+  /** Checked by hand, with why no automated check covers it yet. */
+  | { readonly kind: 'manual'; readonly reason: string }
+
+export type Cell =
+  | {
+      readonly support: 'supported'
+      readonly evidence: Evidence
+      readonly label?: string
+    }
+  | {
+      readonly support: 'partial' | 'unsupported'
+      readonly reason: string
+      readonly label?: string
+    }
+
+/** One row of the matrix: a user-facing feature and what each adapter does with it. */
+export interface Feature {
+  readonly id: string
+  readonly name: string
+  readonly tables: readonly CapabilityTable[]
+  readonly cells: Readonly<Record<AdapterId, Cell>>
+}
+
+/** What a user-facing option controls: a feature row, or why it is not one. */
+export type OptionTarget<Id extends string = string> =
+  { feature: Id } | { notFeature: string }
+
+/** One table in one page file. */
+export interface CapabilityTarget {
+  table: CapabilityTable
+  file: string
 }

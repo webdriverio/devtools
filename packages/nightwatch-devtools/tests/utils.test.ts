@@ -13,6 +13,8 @@ import {
   generateStableUid,
   getTestIcon,
   incrementCounters,
+  captureNightwatchSelection,
+  isNightwatchCli,
   parseCucumberScenario,
   resolveNightwatchConfig
 } from '../src/helpers/utils.js'
@@ -110,35 +112,83 @@ describe('nightwatchRunnerId', () => {
 })
 
 describe('buildPluginMetadataOptions', () => {
-  it('marks nightwatch + cucumber + canRunTests=false', () => {
-    expect(
-      buildPluginMetadataOptions({ isCucumberRunner: true, configPath: '/x' })
-    ).toMatchObject({
-      framework: 'nightwatch-cucumber',
-      configFile: '/x',
-      runCapabilities: {
-        canRunSuites: true,
-        canRunTests: false,
-        canRunAll: false
-      }
+  // The run controls come from shared's runner defaults, so the adapter declares none of its own.
+  it('names the runner and declares no run controls of its own', () => {
+    const cucumber = buildPluginMetadataOptions({
+      isCucumberRunner: true,
+      configPath: '/x'
     })
-  })
-
-  it('marks plain nightwatch + canRunTests=true', () => {
+    expect(cucumber).toMatchObject({
+      framework: 'nightwatch-cucumber',
+      configFile: '/x'
+    })
+    expect(cucumber).not.toHaveProperty('runCapabilities')
     expect(
       buildPluginMetadataOptions({
         isCucumberRunner: false,
         configPath: undefined
-      })
-    ).toMatchObject({
-      framework: 'nightwatch',
-      configFile: undefined,
-      runCapabilities: {
-        canRunSuites: true,
-        canRunTests: true,
-        canRunAll: false
-      }
-    })
+      }).framework
+    ).toBe('nightwatch')
+  })
+})
+
+describe('captureNightwatchSelection', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nw-args-'))
+  fs.mkdirSync(path.join(dir, 'tests'), { recursive: true })
+  fs.writeFileSync(path.join(dir, 'tests', 'login.js'), '')
+  // A folder named like a flag value, which must not be rewritten into a path.
+  fs.mkdirSync(path.join(dir, 'smoke'))
+  const pkg = path.join(dir, 'node_modules', 'nightwatch')
+  fs.mkdirSync(path.join(pkg, 'bin'), { recursive: true })
+  fs.writeFileSync(path.join(pkg, 'package.json'), '{"name":"nightwatch"}')
+  fs.writeFileSync(path.join(pkg, 'bin', 'nightwatch'), '')
+  const cli = ['/usr/bin/node', path.join(pkg, 'bin', 'nightwatch')]
+
+  it('keeps the selection without --config, with spec paths made absolute', () => {
+    expect(
+      captureNightwatchSelection(
+        [...cli, '-c', 'nw.conf.js', 'tests/login.js', '--env', 'chrome'],
+        dir
+      )
+    ).toEqual([path.join(dir, 'tests', 'login.js'), '--env', 'chrome'])
+    expect(
+      captureNightwatchSelection(
+        [...cli, '--config=nw.conf.js', '--group', 'login'],
+        dir
+      )
+    ).toEqual(['--group', 'login'])
+  })
+
+  // Regression: a flag value naming a local folder was replayed as an absolute path and matched no tests.
+  it('never rewrites a flag value, even one that names a local folder', () => {
+    expect(captureNightwatchSelection([...cli, '--tag', 'smoke'], dir)).toEqual(
+      ['--tag', 'smoke']
+    )
+    expect(
+      captureNightwatchSelection([...cli, '--tag=smoke', 'smoke'], dir)
+    ).toEqual(['--tag=smoke', path.join(dir, 'smoke')])
+  })
+
+  it('selects nothing for a bare run', () => {
+    expect(
+      captureNightwatchSelection([...cli, '--config', 'nw.conf.js'], dir)
+    ).toBeUndefined()
+  })
+
+  // Regression: any entry script with "nightwatch" in its path was taken for the CLI, so a wrapper's own flags were replayed.
+  it('recognises the CLI by its package, not by a path that mentions it', () => {
+    const wrapper = path.join(dir, 'nightwatch-e2e', 'run.js')
+    fs.mkdirSync(path.dirname(wrapper), { recursive: true })
+    fs.writeFileSync(wrapper, '')
+    expect(isNightwatchCli(cli[1])).toBe(true)
+    expect(isNightwatchCli(wrapper)).toBe(false)
+    expect(isNightwatchCli(undefined)).toBe(false)
+    expect(
+      captureNightwatchSelection(
+        ['/usr/bin/node', wrapper, '--retries', '2'],
+        dir
+      )
+    ).toBeUndefined()
   })
 })
 

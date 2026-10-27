@@ -36,7 +36,7 @@ function splitNumericSuffix(value: string): { rest: string; num?: number } {
 export function callSourceToStack(
   callSource?: string
 ): StackFrame[] | undefined {
-  if (!callSource || callSource === 'unknown:0') {
+  if (!callSource) {
     return undefined
   }
   const last = splitNumericSuffix(callSource)
