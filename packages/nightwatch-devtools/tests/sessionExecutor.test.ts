@@ -73,3 +73,67 @@ describe('the direct transport', () => {
     )
   })
 })
+
+// Regression: the direct transport always spoke plain http with no credentials, so a remote grid on https or behind basic auth refused every call.
+describe('the direct connection', () => {
+  const post = (webdriver: Record<string, unknown>) =>
+    executeInPage(browser('sess-1', webdriver), 'return 1').then(
+      () => (webdriverPost.mock.lastCall as unknown[])[0]
+    )
+
+  it('speaks https when Nightwatch is configured with ssl', async () => {
+    expect(
+      await post({ host: 'grid.example', port: 4444, ssl: true })
+    ).toMatchObject({ protocol: 'https', port: 4444 })
+  })
+
+  it('speaks https on port 443 when ssl is left unset, as Nightwatch does', async () => {
+    expect(await post({ host: 'grid.example', port: 443 })).toMatchObject({
+      protocol: 'https'
+    })
+  })
+
+  it('keeps an explicit ssl: false on port 443', async () => {
+    expect(
+      await post({ host: 'grid.example', port: 443, ssl: false })
+    ).toMatchObject({ protocol: 'http' })
+  })
+
+  it('carries the configured username and access key', async () => {
+    expect(
+      await post({
+        host: 'grid.example',
+        port: 443,
+        username: 'alice',
+        access_key: 's3cret'
+      })
+    ).toMatchObject({ user: 'alice', key: 's3cret' })
+  })
+
+  it('sends no credentials without an access key', async () => {
+    const at = await post({ host: 'grid.example', port: 4444, username: 'a' })
+    expect(at).toMatchObject({ protocol: 'http' })
+    expect(at).not.toHaveProperty('user')
+  })
+
+  it('gives the Appium executor the same connection', async () => {
+    await sessionExecutor(
+      browser('sess-1', {
+        port: 4444,
+        ssl: true,
+        username: 'alice',
+        access_key: 's3cret'
+      })
+    )!('interceptor: startListening', [{}])
+    expect(webdriverExecute).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        protocol: 'https',
+        user: 'alice',
+        key: 's3cret'
+      }),
+      'sess-1',
+      'interceptor: startListening',
+      [{}]
+    )
+  })
+})

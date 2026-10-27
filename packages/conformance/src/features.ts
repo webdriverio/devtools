@@ -4,7 +4,6 @@ import {
   ACTION_RULES,
   ADAPTER_TESTS,
   DOM_RULES,
-  ERROR_RULES,
   FAILED_TEST_RULES,
   NETWORK_RULES,
   allCovered,
@@ -303,13 +302,7 @@ export const FEATURES = [
     id: 'failed-command-errors',
     name: "Failed command in the Errors tab, with the browser's message",
     tables: ['readme-dashboard', 'cross-framework'],
-    // Nightwatch holds a gap on a failed test's error row (#458), so only the others are tested on it.
-    cells: {
-      'devtools-service': tested(FAILED_TEST_RULES),
-      'selenium-devtools': tested(FAILED_TEST_RULES),
-      'nightwatch-devtools': tested(ERROR_RULES),
-      'selenium-devtools-py': tested(FAILED_TEST_RULES)
-    }
+    cells: allTested(FAILED_TEST_RULES)
   },
   {
     id: 'run-controls',

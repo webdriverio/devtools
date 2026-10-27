@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { SessionCapturer } from '../src/session.js'
 import type { CommandLog, NightwatchBrowser } from '../src/types.js'
 
@@ -204,59 +204,60 @@ describe('SessionCapturer.replaceCommand', () => {
   })
 })
 
-describe('SessionCapturer.captureBrowserLogs', () => {
-  it('maps Chrome browser log entries into consoleLogs and broadcasts', async () => {
-    const browser = makeMockBrowser({
-      getLog: vi.fn(async () => [
-        { level: 'INFO', message: 'console-api hello', timestamp: 1000 }
-      ])
+/** A driver answering the performance log with `logs()` per read, recording
+ *  each request it serves; everything else answers `null`. */
+async function perfLogDriver(logs: () => unknown = () => []) {
+  const http = await import('node:http')
+  const requests: { url: string; body: string }[] = []
+  const server = http.createServer((req, res) => {
+    let raw = ''
+    req.on('data', (c) => {
+      raw += c
     })
-    const cap = makeCapturer(browser)
-    const send = vi.spyOn(
-      cap as unknown as { sendUpstream: (e: string, d: unknown) => void },
-      'sendUpstream'
-    )
-    await cap.captureBrowserLogs(browser)
-    expect(cap.consoleLogs).toHaveLength(1)
-    expect(send).toHaveBeenCalledWith('consoleLogs', expect.any(Array))
-  })
-
-  it('silently no-ops when getLog throws (perf logging not enabled)', async () => {
-    const browser = makeMockBrowser({
-      getLog: vi.fn(async () => {
-        throw new Error('unknown log type')
-      })
+    req.on('end', () => {
+      requests.push({ url: req.url ?? '', body: raw })
+      res.setHeader('content-type', 'application/json')
+      res.end(
+        JSON.stringify({
+          value: req.url?.endsWith('/se/log') ? logs() : null
+        })
+      )
     })
-    const cap = makeCapturer(browser)
-    await expect(cap.captureBrowserLogs(browser)).resolves.toBeUndefined()
-    expect(cap.consoleLogs).toHaveLength(0)
   })
-
-  it('no-ops when getLog returns an empty array', async () => {
-    const browser = makeMockBrowser({
-      getLog: vi.fn(async () => [])
-    })
-    const cap = makeCapturer(browser)
-    await cap.captureBrowserLogs(browser)
-    expect(cap.consoleLogs).toHaveLength(0)
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()))
+  const port = (server.address() as { port: number }).port
+  const getLog = vi.fn(async () => logs())
+  const browser = makeMockBrowser({
+    getLog,
+    sessionId: 'sess-perf',
+    transport: { settings: { webdriver: { host: '127.0.0.1', port } } }
   })
-})
+  return {
+    browser,
+    getLog,
+    requests,
+    close: () => new Promise<void>((r) => server.close(() => r()))
+  }
+}
 
 describe('SessionCapturer.captureNetworkFromPerformanceLogs', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-  })
-
   it('short-circuits when BiDi is active (no double-emit)', async () => {
-    const getLog = vi.fn()
-    const browser = makeMockBrowser({ getLog })
+    const { browser, requests, close } = await perfLogDriver()
     const cap = makeCapturer(browser)
     cap.bidiActive = true
-    await cap.captureNetworkFromPerformanceLogs(browser)
-    expect(getLog).not.toHaveBeenCalled()
+    cap.perfLogsRequested = true
+    try {
+      await cap.captureNetworkFromPerformanceLogs(browser)
+      expect(requests).toHaveLength(0)
+    } finally {
+      await close()
+    }
   })
 
-  it('parses CDP performance logs into networkRequests', async () => {
+  // The read is issued from the fire-and-forget drain and the navigation poll,
+  // while the test's next command runs; a queued `browser.getLog` there becomes
+  // that command's child and resolves its await early.
+  it('reads the log over the WebDriver transport, never the command queue', async () => {
     const perfMessage = {
       message: JSON.stringify({
         message: {
@@ -296,43 +297,62 @@ describe('SessionCapturer.captureNetworkFromPerformanceLogs', () => {
       }),
       timestamp: 1700000000200
     }
-    const browser = makeMockBrowser({
-      getLog: vi.fn(async () => [perfMessage, finishMessage, loadingFinished])
-    })
+    const { browser, getLog, requests, close } = await perfLogDriver(() => [
+      perfMessage,
+      finishMessage,
+      loadingFinished
+    ])
     const cap = makeCapturer(browser)
     cap.perfLogsRequested = true
-    await cap.captureNetworkFromPerformanceLogs(browser)
-    expect(cap.networkRequests).toHaveLength(1)
-    expect(cap.networkRequests[0]).toMatchObject({
-      url: 'https://x/api',
-      method: 'GET',
-      status: 200
-    })
+    try {
+      await cap.captureNetworkFromPerformanceLogs(browser)
+      expect(getLog).not.toHaveBeenCalled()
+      expect(requests).toEqual([
+        {
+          url: '/session/sess-perf/se/log',
+          body: JSON.stringify({ type: 'performance' })
+        }
+      ])
+      expect(cap.networkRequests).toHaveLength(1)
+      expect(cap.networkRequests[0]).toMatchObject({
+        url: 'https://x/api',
+        method: 'GET',
+        status: 200
+      })
+    } finally {
+      await close()
+    }
   })
 
-  it('swallows expected "log type not enabled" errors silently', async () => {
-    const browser = makeMockBrowser({
-      getLog: vi.fn(async () => {
-        throw new Error('unknown log type: performance')
-      })
-    })
+  it('records nothing when the driver refuses the log type', async () => {
+    const { browser, close } = await perfLogDriver(() => ({
+      error: 'invalid argument',
+      message: "log type 'performance' not found",
+      stacktrace: ''
+    }))
     const cap = makeCapturer(browser)
     cap.perfLogsRequested = true
-    await expect(
-      cap.captureNetworkFromPerformanceLogs(browser)
-    ).resolves.toBeUndefined()
+    try {
+      await expect(
+        cap.captureNetworkFromPerformanceLogs(browser)
+      ).resolves.toBeUndefined()
+      expect(cap.networkRequests).toHaveLength(0)
+    } finally {
+      await close()
+    }
   })
 
   // A perf log exists only because the session asked for one, so without the
-  // capability the fetch can only fail — once per command, each failure printed
-  // by the driver's own transport. Measured on iOS Safari: 21 error blocks in a
-  // two-test run that passed.
+  // capability the fetch can only fail, once per command.
   it('does not fetch when the session asked for no perf log', async () => {
-    const getLog = vi.fn()
-    const browser = makeMockBrowser({ getLog })
+    const { browser, requests, close } = await perfLogDriver()
     const cap = makeCapturer(browser)
-    await cap.captureNetworkFromPerformanceLogs(browser)
-    expect(getLog).not.toHaveBeenCalled()
+    try {
+      await cap.captureNetworkFromPerformanceLogs(browser)
+      expect(requests).toHaveLength(0)
+    } finally {
+      await close()
+    }
   })
 })
 
@@ -402,8 +422,6 @@ describe('SessionCapturer.takeScreenshotViaHttp', () => {
 describe('SessionCapturer.captureTrace', () => {
   it('delegates to captureNetworkFromPerformanceLogs and stops when no collector', async () => {
     const browser = makeMockBrowser({
-      // captureNetworkFromPerformanceLogs call (getLog) — return empty
-      getLog: vi.fn(async () => []),
       // execute is called: first to check window.wdioTraceCollector, returns false-equivalent
       execute: vi.fn(async () => ({ value: false }))
     })
@@ -444,7 +462,6 @@ describe('SessionCapturer.captureTrace', () => {
     await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()))
     const port = (server.address() as { port: number }).port
     const browser = makeMockBrowser({
-      getLog: vi.fn(async () => []),
       sessionId: 'sess-drain',
       transport: { settings: { webdriver: { host: '127.0.0.1', port } } }
     })
@@ -466,18 +483,16 @@ describe('SessionCapturer.captureTrace', () => {
   it('drains the collector before it reads the performance logs', async () => {
     const http = await import('node:http')
     const order: string[] = []
-    const server = http.createServer((_req, res) => {
-      order.push('drain')
+    const server = http.createServer((req, res) => {
+      order.push(req.url?.endsWith('/se/log') ? 'perf-logs' : 'drain')
       res.setHeader('content-type', 'application/json')
-      res.end(JSON.stringify({ value: null }))
+      res.end(
+        JSON.stringify({ value: req.url?.endsWith('/se/log') ? [] : null })
+      )
     })
     await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()))
     const port = (server.address() as { port: number }).port
     const browser = makeMockBrowser({
-      getLog: vi.fn(async () => {
-        order.push('perf-logs')
-        return []
-      }),
       sessionId: 'sess-order',
       transport: { settings: { webdriver: { host: '127.0.0.1', port } } }
     })
@@ -551,7 +566,7 @@ describe('SessionCapturer.captureTrace and BiDi evidence', () => {
    *  then makes finds no document either. */
   async function drainingServer(
     batches: (unknown[] | null)[] = [[resourceTimingRow]],
-    getLog = vi.fn(async () => [])
+    logs: () => unknown = () => []
   ) {
     const http = await import('node:http')
     let drains = 0
@@ -561,10 +576,14 @@ describe('SessionCapturer.captureTrace and BiDi evidence', () => {
         raw += c
       })
       req.on('end', () => {
+        res.setHeader('content-type', 'application/json')
+        if (req.url?.endsWith('/se/log')) {
+          res.end(JSON.stringify({ value: logs() }))
+          return
+        }
         const batch = raw.includes('location.href')
           ? null
           : batches[Math.min(drains++, batches.length - 1)]
-        res.setHeader('content-type', 'application/json')
         res.end(
           JSON.stringify({
             value: batch && { mutations: [], networkRequests: batch }
@@ -575,7 +594,6 @@ describe('SessionCapturer.captureTrace and BiDi evidence', () => {
     await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()))
     const port = (server.address() as { port: number }).port
     const browser = makeMockBrowser({
-      getLog,
       sessionId: 'sess-bidi',
       transport: { settings: { webdriver: { host: '127.0.0.1', port } } }
     })
@@ -606,11 +624,11 @@ describe('SessionCapturer.captureTrace and BiDi evidence', () => {
     timestamp: 1_760_000_001_000
   }
   /** A log that lists the load once, at its first read. */
-  const logListingOnce = () =>
-    vi
-      .fn()
-      .mockResolvedValueOnce(perfLog('https://x/app.js', 1760000000.52))
-      .mockResolvedValue([])
+  const logListingOnce = () => {
+    let read = 0
+    return () =>
+      read++ === 0 ? perfLog('https://x/app.js', 1760000000.52) : []
+  }
 
   it('drops the page’s row for a load the log listed first, and only that row', async () => {
     // The log is read after the drain, so a load completing between the two
@@ -683,9 +701,9 @@ describe('SessionCapturer.captureNetworkFromPerformanceLogs upgrades', () => {
     // The drain runs before the log is read, so the page's row for a load is
     // already in the session; the log's headers and status replace it under
     // the same id rather than listing the load twice.
-    const browser = makeMockBrowser({
-      getLog: vi.fn(async () => perfLog('https://x/app.js', 1760000000.52))
-    })
+    const { browser, close } = await perfLogDriver(() =>
+      perfLog('https://x/app.js', 1760000000.52)
+    )
     const cap = makeCapturer(browser)
     cap.perfLogsRequested = true
     cap.networkRequests.push({
@@ -699,7 +717,7 @@ describe('SessionCapturer.captureNetworkFromPerformanceLogs upgrades', () => {
     })
     const upstream = vi.spyOn(cap, 'sendUpstream')
 
-    await cap.captureNetworkFromPerformanceLogs(browser)
+    await cap.captureNetworkFromPerformanceLogs(browser).finally(close)
 
     expect(cap.networkRequests).toHaveLength(1)
     expect(cap.networkRequests[0]).toMatchObject({
@@ -714,13 +732,13 @@ describe('SessionCapturer.captureNetworkFromPerformanceLogs upgrades', () => {
   })
 
   it('still appends a load the page never reported', async () => {
-    const browser = makeMockBrowser({
-      getLog: vi.fn(async () => perfLog('https://x/other.js', 1760000000.52))
-    })
+    const { browser, close } = await perfLogDriver(() =>
+      perfLog('https://x/other.js', 1760000000.52)
+    )
     const cap = makeCapturer(browser)
     cap.perfLogsRequested = true
 
-    await cap.captureNetworkFromPerformanceLogs(browser)
+    await cap.captureNetworkFromPerformanceLogs(browser).finally(close)
 
     expect(cap.networkRequests.map((r) => r.url)).toEqual([
       'https://x/other.js'
@@ -757,7 +775,6 @@ describe('SessionCapturer.anchorAfterNavigation', () => {
     await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()))
     const port = (server.address() as { port: number }).port
     const browser = makeMockBrowser({
-      getLog: vi.fn(async () => []),
       sessionId: 'sess-anchor',
       transport: { settings: { webdriver: { host: '127.0.0.1', port } } }
     })

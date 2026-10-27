@@ -34,8 +34,10 @@ import { buildDriverMetadata } from './helpers/driverMetadata.js'
 import { attachBidiHandlers, buildBidiSinks } from './bidi.js'
 import { getDriverOriginals } from './driverPatcher.js'
 import { gracefulShutdown } from './helpers/processHooks.js'
+import { isRunnerless } from './helpers/runtime.js'
 import type {
   ActionSnapshot,
+  DetectedRunner,
   DevToolsMode,
   Metadata,
   ScreencastFrame,
@@ -68,7 +70,7 @@ export interface SessionLifecycleCtx {
   readonly screencastOptions: ScreencastOptions
   /** The JS test runner `detectRunner` found (mocha/jest/cucumber). Distinct
    *  from `Metadata.runner`, which names this adapter for every one of them. */
-  readonly detectedRunner: string
+  readonly detectedRunner: DetectedRunner
   readonly rerunTemplate: string | undefined
   readonly launchCommand: string | undefined
   readonly isReuse: boolean
@@ -351,15 +353,7 @@ export async function onSessionEnd(ctx: SessionLifecycleCtx): Promise<void> {
   try {
     await onDriverEnd(ctx).catch(() => {})
 
-    // Don't call suiteManager.finalize() here — it sets `root.end`, which
-    // signals the dashboard's rerun tracker that the feature has finished
-    // and unblocks the new-run reset for the next scenario. onSessionEnd
-    // fires on each `driver.quit()` (per cucumber scenario), so finalizing
-    // the root here is premature. The true end-of-run finalize happens in
-    // finalizeTestRun (cucumber AfterAll). testReporter.updateSuites() is
-    // still useful to flush per-scenario state to the dashboard.
-    ctx.testManager?.finalizeSession()
-    ctx.testReporter?.updateSuites()
+    closeRunTracking(ctx)
 
     await writeTraceIfNeeded(ctx, capturerAtStart, testFilePathAtStart)
 
@@ -394,6 +388,21 @@ export async function onSessionEnd(ctx: SessionLifecycleCtx): Promise<void> {
   } catch (err) {
     log.warn(`Cleanup error: ${errorMessage(err)}`)
   }
+}
+
+/**
+ * A plain script ends exactly once, here, so its synthetic test and root suite
+ * close now. Under a runner the root is finalized by `finalizeTestRun`, since
+ * `root.end` tells the dashboard's rerun tracker the feature has finished.
+ */
+function closeRunTracking(ctx: SessionLifecycleCtx): void {
+  if (isRunnerless(ctx.detectedRunner)) {
+    ctx.testManager?.closeSessionTest()
+    ctx.suiteManager?.finalize()
+  } else {
+    ctx.testManager?.finalizeSession()
+  }
+  ctx.testReporter?.updateSuites()
 }
 
 /**
