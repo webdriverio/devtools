@@ -8,7 +8,6 @@ import {
   drainCollectorWithRecovery,
   errorMessage,
   loadInjectableScript,
-  mapChromeBrowserLogs,
   mapCommandToAction,
   NativeNetworkCapture,
   pollUntilReady,
@@ -29,7 +28,11 @@ import {
   type NetworkEntry,
   type PerfLogEntry
 } from './helpers/perfLogs.js'
-import { webdriverExecute, webdriverGet } from './helpers/webdriverHttp.js'
+import {
+  webdriverExecute,
+  webdriverGet,
+  webdriverPost
+} from './helpers/webdriverHttp.js'
 import type {
   ActionSnapshot,
   CommandCaptureMeta,
@@ -40,18 +43,6 @@ import type {
 } from './types.js'
 
 const log = logger('@wdio/nightwatch-devtools:SessionCapturer')
-
-/**
- * WebDriver responses are sometimes wrapped as `{ value: T }` (the W3C
- * protocol shape) and sometimes flat. This helper unwraps the value field
- * if present, otherwise returns the input as-is.
- */
-function unwrapDriverValue<T = unknown>(result: unknown): T {
-  if (result && typeof result === 'object' && 'value' in result) {
-    return (result as { value: T }).value
-  }
-  return result as T
-}
 
 export class SessionCapturer extends SessionCapturerBase {
   #browser: NightwatchBrowser | undefined
@@ -462,32 +453,6 @@ export class SessionCapturer extends SessionCapturerBase {
   }
 
   /**
-   * Capture Chrome DevTools browser console logs via WebDriver log API.
-   * Requires loggingPrefs: { browser: 'ALL' } in Chrome capabilities.
-   */
-  async captureBrowserLogs(browser: NightwatchBrowser) {
-    try {
-      const rawLogs = await (
-        browser as unknown as Record<string, (type: string) => Promise<unknown>>
-      ).getLog('browser')
-      const logs =
-        unwrapDriverValue<
-          Array<{ level: string; message: string; timestamp: number }>
-        >(rawLogs)
-
-      if (!Array.isArray(logs) || logs.length === 0) {
-        return
-      }
-
-      const entries = mapChromeBrowserLogs(logs)
-      this.consoleLogs.push(...entries)
-      this.sendUpstream('consoleLogs', entries)
-    } catch {
-      // Browser log capture not available (loggingPrefs not set or not supported)
-    }
-  }
-
-  /**
    * Parse Chrome performance logs to extract network request entries.
    * Requires loggingPrefs: { performance: 'ALL' } in Chrome capabilities.
    */
@@ -496,26 +461,16 @@ export class SessionCapturer extends SessionCapturerBase {
     if (this.bidiActive || !this.perfLogsRequested) {
       return
     }
-    try {
-      const rawLogs = await (
-        browser as unknown as Record<string, (type: string) => Promise<unknown>>
-      ).getLog('performance')
-      const logs = unwrapDriverValue<PerfLogEntry[]>(rawLogs)
-
-      if (!Array.isArray(logs) || logs.length === 0) {
-        return
-      }
-
-      const networkEntries = parseNetworkFromPerfLogs(logs)
-      if (networkEntries.length > 0) {
-        this.#ingestPerfLogEntries(networkEntries)
-      }
-    } catch (err) {
-      const msg = errorMessage(err) ?? ''
-      // Silently skip when performance logging was not enabled in capabilities
-      if (!msg.includes('log type') && !msg.includes('performance')) {
-        log.warn(`Performance log capture failed: ${msg}`)
-      }
+    // Off the queue: a queued `getLog` issued mid-command becomes that command's child and resolves its await early.
+    const logs = await webdriverPost<PerfLogEntry[]>(browser, 'se/log', {
+      type: 'performance'
+    })
+    if (!Array.isArray(logs) || logs.length === 0) {
+      return
+    }
+    const networkEntries = parseNetworkFromPerfLogs(logs)
+    if (networkEntries.length > 0) {
+      this.#ingestPerfLogEntries(networkEntries)
     }
   }
 
