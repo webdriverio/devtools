@@ -26,6 +26,17 @@ describe('determineTestState', () => {
         passed: 0,
         failed: 0,
         errors: 0,
+        skipped: 0,
+        time: '0',
+        assertions: []
+      },
+      'passed'
+    ],
+    [
+      {
+        passed: 0,
+        failed: 0,
+        errors: 0,
         skipped: 1,
         time: '0',
         assertions: []
@@ -48,6 +59,17 @@ describe('determineTestState', () => {
         passed: 0,
         failed: 1,
         errors: 0,
+        skipped: 0,
+        time: '0',
+        assertions: []
+      },
+      'failed'
+    ],
+    [
+      {
+        passed: 0,
+        failed: 0,
+        errors: 1,
         skipped: 0,
         time: '0',
         assertions: []
