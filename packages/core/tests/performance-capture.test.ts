@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   applyPerformanceData,
+  CAPTURE_PERFORMANCE_SCRIPT,
   type CapturedPerformancePayload
 } from '../src/performance-capture.js'
 import type { CommandLog } from '@wdio/devtools-shared'
@@ -56,5 +57,52 @@ describe('applyPerformanceData', () => {
       'https://from-arg.com'
     )
     expect((cmd.result as Record<string, unknown>).resourceCount).toBe(1)
+  })
+})
+
+describe('CAPTURE_PERFORMANCE_SCRIPT', () => {
+  // WebDriver's execute runs the string as a function body, so the body itself must return the payload.
+  it('returns the payload when run as a function body', () => {
+    const navigation = {
+      fetchStart: 0,
+      loadEventEnd: 120,
+      domContentLoadedEventEnd: 80,
+      requestStart: 10,
+      responseStart: 20,
+      responseEnd: 30,
+      domainLookupStart: 1,
+      domainLookupEnd: 2,
+      connectStart: 3,
+      connectEnd: 4
+    }
+    const window = {
+      location: { href: 'https://site.test/login' },
+      performance: {
+        getEntriesByType: (type: string) =>
+          type === 'navigation' ? [navigation] : []
+      }
+    }
+    const document = {
+      cookie: '',
+      title: 'Login',
+      readyState: 'complete',
+      referrer: '',
+      characterSet: 'UTF-8'
+    }
+    const navigator = { userAgent: 'ua', language: 'en', platform: 'p' }
+    const run = new Function(
+      'window',
+      'document',
+      'navigator',
+      CAPTURE_PERFORMANCE_SCRIPT
+    )
+    const payload = run(
+      window,
+      document,
+      navigator
+    ) as CapturedPerformancePayload
+    expect(payload?.navigation?.url).toBe('https://site.test/login')
+    expect(payload?.navigation?.timing.loadTime).toBe(120)
+    expect(applyPerformanceData(freshCommand(), payload)).toBe(true)
   })
 })

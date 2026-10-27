@@ -49,7 +49,7 @@ export function trackWaits(
     condition: unknown,
     ...rest: unknown[]
   ) {
-    const scope = scopeFor(waitPoll.getStore())
+    const scope = scopeFor(waitPoll.getStore(), condition)
     const fail = waitFailure(emit, scope, condition, rest[0])
     let result: unknown
     try {
@@ -116,12 +116,38 @@ function conditionLabel(condition: unknown): string {
 }
 
 /** A wait inside another wait's condition is the same wait on every outer poll, so it keeps one scope across them. */
-function scopeFor(outer: WaitPoll | undefined): WaitScope {
+function scopeFor(outer: WaitPoll | undefined, condition: unknown): WaitScope {
   if (!outer) {
     return { rows: new Map() }
   }
-  const nested = (outer.scope.nested ??= [])
-  return (nested[outer.waits++] ??= { rows: new Map() })
+  // Keyed like a poll, by what the wait is and the nth time this evaluation issued it, so two waits in different branches stay apart.
+  const call = `wait ${nestedWaitIdentity(condition)}`
+  const nth = outer.seen.get(call) ?? 0
+  outer.seen.set(call, nth + 1)
+  const nested = (outer.scope.nested ??= new Map())
+  const key = `${call}#${nth}`
+  const scope = nested.get(key) ?? { rows: new Map() }
+  nested.set(key, scope)
+  return scope
+}
+
+/** Where the wait was called, what it waits for, and its condition's source: the same on every outer poll, different between two waits. */
+function nestedWaitIdentity(condition: unknown): string {
+  const fn =
+    typeof condition === 'function'
+      ? condition
+      : (condition as { fn?: unknown } | null)?.fn
+  let label: string
+  try {
+    label = conditionLabel(condition)
+  } catch (err) {
+    label = errorMessage(err)
+  }
+  return JSON.stringify([
+    getCallSourceFromStack(new Error().stack).callSource ?? null,
+    label,
+    typeof fn === 'function' ? fn.toString() : null
+  ])
 }
 
 /** A function condition, or a selenium `Condition` (its `fn`); a promise as is. */
@@ -129,7 +155,7 @@ function asWaitPoll(condition: unknown, scope: WaitScope): unknown {
   const inPoll =
     (fn: (...a: unknown[]) => unknown) =>
     (...a: unknown[]) =>
-      waitPoll.run({ scope, seen: new Map(), waits: 0 }, () => fn(...a))
+      waitPoll.run({ scope, seen: new Map() }, () => fn(...a))
   if (typeof condition === 'function') {
     return inPoll(condition as (...a: unknown[]) => unknown)
   }
