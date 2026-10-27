@@ -25,7 +25,12 @@ export function toError(value: unknown): Error {
     }
     return e
   }
-  return new Error(String(value))
+  try {
+    return new Error(String(value))
+  } catch {
+    // `String()` throws for a null-prototype object.
+    return new Error(Object.prototype.toString.call(value))
+  }
 }
 
 /**

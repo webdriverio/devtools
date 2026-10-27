@@ -678,6 +678,40 @@ describe('driverPatcher', () => {
     }
   })
 
+  it("keeps one scope for a wait nested in another wait's condition across the outer polls", async () => {
+    const realWait = (driverProto as any).wait
+    ;(driverProto as any).wait = async function (condition: any) {
+      await condition(this)
+      await condition(this)
+    }
+    ;(driverProto as any).testRead = function () {
+      return Promise.resolve('url')
+    }
+    stash.driverFns.testRead = (driverProto as any).testRead
+    const onCommand = vi.fn<(cmd: CapturedCommand) => void>()
+    try {
+      delete (driverProto as any)[
+        Symbol.for('@wdio/selenium-devtools/wait-tracked')
+      ]
+      patchSelenium({ onDriverCreated: vi.fn(), onCommand })
+      const fakeDriver = Object.create(driverProto)
+      await (fakeDriver as any).wait((d: any) =>
+        d.wait((inner: any) => inner.testRead())
+      )
+      await new Promise((r) => setImmediate(r))
+      const scopes = onCommand.mock.calls.map(([cmd]) => cmd.waitScope)
+      expect(scopes).toHaveLength(4)
+      expect(new Set(scopes).size).toBe(1)
+    } finally {
+      ;(driverProto as any).wait = realWait
+      delete (driverProto as any)[
+        Symbol.for('@wdio/selenium-devtools/wait-tracked')
+      ]
+      delete (driverProto as any).testRead
+      delete stash.driverFns.testRead
+    }
+  })
+
   it('reports a driver.wait() that rejects as a row named after its condition, and a passing one as none', async () => {
     const realWait = (driverProto as any).wait
     ;(driverProto as any).wait = async function (condition: any) {
@@ -721,6 +755,19 @@ describe('driverPatcher', () => {
         })
       })
       expect(failed.callSource).toContain('index.test.ts')
+
+      // A description that cannot be stringified still leaves the failure its row.
+      await expect(
+        (fakeDriver as any).wait(
+          { ...condition(false), description: () => Object.create(null) },
+          10
+        )
+      ).rejects.toThrow('Wait timed out after 10ms')
+      await new Promise((r) => setImmediate(r))
+      expect(onCommand.mock.calls.at(-1)?.[0]).toMatchObject({
+        command: 'wait',
+        args: ['[object Object]', 10]
+      })
       // The failed wait shares its polls' scope, which is how it takes over their row.
       expect(failed.concludesWait).toBe(poll.waitScope)
     } finally {
