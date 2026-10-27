@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { CAPTURE_PERFORMANCE_SCRIPT } from '@wdio/devtools-core'
 import type { CommandLog } from '@wdio/devtools-shared'
 import { SessionCapturer } from '../src/session.js'
 import { WebSocket } from 'ws'
@@ -1293,6 +1294,41 @@ describe('captureTrace on a native session', () => {
     expect(
       (browser as unknown as { execute: ReturnType<typeof vi.fn> }).execute
     ).toHaveBeenCalled()
+  })
+
+  // Regression: the timings were sent as a new command, so every navigation was listed twice.
+  it('replaces the navigation row with its performance timings', async () => {
+    const browser = webBrowser()
+    const execute = (
+      browser as unknown as { execute: ReturnType<typeof vi.fn> }
+    ).execute
+    execute.mockImplementation(async (script: unknown) =>
+      script === CAPTURE_PERFORMANCE_SCRIPT
+        ? { navigation: { url: 'https://example.com', timing: {} } }
+        : null
+    )
+    const capturer = new SessionCapturer()
+    const send = vi.spyOn(capturer, 'sendUpstream' as any)
+
+    await capturer.afterCommand(
+      browser,
+      'navigateTo',
+      ['https://example.com'],
+      undefined,
+      undefined
+    )
+
+    const scopes = send.mock.calls.map(([scope]) => scope)
+    expect(scopes.filter((s) => s === 'commands')).toHaveLength(1)
+    expect(send).toHaveBeenCalledWith(
+      'replaceCommand',
+      expect.objectContaining({
+        command: expect.objectContaining({
+          command: 'navigateTo',
+          performance: expect.anything()
+        })
+      })
+    )
   })
 
   it('makes no page call after a transition on a native app', async () => {

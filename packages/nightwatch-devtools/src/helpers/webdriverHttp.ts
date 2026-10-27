@@ -97,9 +97,11 @@ export function resolveWebDriverAddress(browser: NightwatchBrowser): {
  *  speaks plain http to a local driver — it has no cloud-grid path of its own. */
 function address(browser: NightwatchBrowser): WebDriverAddress {
   const { driverHost, driverPort } = resolveWebDriverAddress(browser)
+  const { pathPrefix } = configuredWebDriver(browser)
   return {
     hostname: driverHost,
     port: driverPort,
+    path: typeof pathPrefix === 'string' ? pathPrefix : undefined,
     onWarn: (message: string) => log.warn(message)
   }
 }
