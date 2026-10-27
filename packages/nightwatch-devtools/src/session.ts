@@ -205,13 +205,14 @@ export class SessionCapturer extends SessionCapturerBase {
       return
     }
     await new Promise((resolve) => setTimeout(resolve, 500))
-    const raw = await this.#browser!.execute(CAPTURE_PERFORMANCE_SCRIPT)
-    const payload = unwrapDriverValue<CapturedPerformancePayload | undefined>(
-      raw
+    // A queued `browser.execute` fired from this timer becomes a child of whatever command is running, and resolves that command's await early.
+    const payload = await webdriverExecute<CapturedPerformancePayload>(
+      this.#browser!,
+      CAPTURE_PERFORMANCE_SCRIPT
     )
     applyPerformanceData(
       commandLogEntry,
-      payload,
+      payload ?? undefined,
       typeof args[0] === 'string' ? args[0] : undefined
     )
   }
