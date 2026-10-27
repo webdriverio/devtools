@@ -1,5 +1,7 @@
+import { spawn } from 'node:child_process'
 import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
+import { fileURLToPath } from 'node:url'
 import { Socket } from 'node:net'
 
 import { RetryTracker } from '@wdio/devtools-core'
@@ -14,16 +16,13 @@ import { SuiteManager } from '../src/helpers/suiteManager.js'
 import { isRunnerless } from '../src/helpers/runtime.js'
 import { TestReporter } from '../src/reporter.js'
 import { SessionCapturer } from '../src/session.js'
-import {
-  onDriverEnd,
-  onSessionEnd,
-  type SessionLifecycleCtx
-} from '../src/session-lifecycle.js'
+import { onDriverEnd, onSessionEnd } from '../src/session-lifecycle.js'
 import {
   ensureRunnerlessTracking,
   type TestManagementCtx
 } from '../src/test-management.js'
 import type { DetectedRunner, SuiteStats } from '../src/types.js'
+import { plainScriptCtx } from './fixtures/plain-script-ctx.js'
 
 function makeCtx(): TestManagementCtx {
   const testReporter = new TestReporter(vi.fn())
@@ -204,36 +203,7 @@ describe("a plain script's end", () => {
     if (port !== undefined) {
       await capturer.waitForConnection(2000)
     }
-    const reporter = new TestReporter((suites) =>
-      capturer.sendUpstream('suites', suites)
-    )
-    const tm = makeCtx()
-    let finalized = false
-    // Only the fields a live, runnerless onSessionEnd reads; the rest of the bag is irrelevant here.
-    const ctx = {
-      ...tm,
-      testReporter: reporter,
-      suiteManager: new SuiteManager(reporter),
-      sessionCapturer: capturer,
-      options: { hostname: '127.0.0.1', port: 0, openUi: false },
-      detectedRunner: 'node',
-      isReuse: false,
-      get finalized() {
-        return finalized
-      },
-      setFinalized: (v: boolean) => {
-        finalized = v
-      },
-      resetRetryTracker: vi.fn(),
-      actionSnapshots: [],
-      snapshotCaptures: [],
-      traceFlushes: [],
-      specRanges: [],
-      flushedSpecs: new Set<string>(),
-      artifacts: [],
-      filmstripFrames: []
-    } as unknown as SessionLifecycleCtx & TestManagementCtx
-    ensureRunnerlessTracking(ctx, 'node')
+    const ctx = plainScriptCtx(capturer)
     const root = () => ctx.suiteManager!.getRootSuite()!
     return { ctx, capturer, root }
   }
@@ -263,12 +233,7 @@ describe("a plain script's end", () => {
     expect(test.end).toBeTruthy()
     expect(root().end).toBeTruthy()
     expect(root().state).toBe('passed')
-    const suites = events
-      .slice(0, -1)
-      .map((e) => JSON.parse(e) as { scope: string; data: unknown })
-      .filter((m) => m.scope === 'suites')
-    const last = suites.at(-1)!.data as Array<Record<string, SuiteStats>>
-    const sent = last.find((s) => s[root().uid])![root().uid]
+    const sent = lastSentRoot(events, root().uid)
     expect(sent.end).toBeTruthy()
     expect(sent.tests).toMatchObject([{ uid: test.uid, state: 'passed' }])
   })
@@ -299,4 +264,66 @@ describe("a plain script's end", () => {
     expect(root().tests).toEqual([test])
     expect(root().state).toBe('failed')
   })
+})
+
+/** The root suite as the last `suites` message before the socket closed reported it. */
+function lastSentRoot(events: string[], rootUid?: string): SuiteStats {
+  expect(events.at(-1)).toBe('close')
+  const suites = events
+    .slice(0, -1)
+    .map((e) => JSON.parse(e) as { scope: string; data: unknown })
+    .filter((m) => m.scope === 'suites')
+  const last = suites.at(-1)!.data as Array<Record<string, SuiteStats>>
+  const entry = rootUid ? last.find((s) => s[rootUid]) : last[0]
+  return Object.values(entry!)[0]
+}
+
+const REPO_ROOT = new URL('../../..', import.meta.url)
+const CHILD = new URL('./fixtures/plain-script-exit.ts', import.meta.url)
+const CHILD_EXIT_TIMEOUT_MS = 10_000
+
+describe('a plain script that exits on its own', () => {
+  afterEach(async () => {
+    await Promise.all(servers.splice(0).map((close) => close()))
+  })
+
+  // Regression: beforeExit closed the socket beside onSessionEnd, so the update that ends the run never reached it.
+  it(
+    'sends the closed run before the socket closes, and exits',
+    async () => {
+      const events: string[] = []
+      const port = await backend(events)
+      const child = spawn(
+        process.execPath,
+        ['--import', 'tsx', fileURLToPath(CHILD)],
+        {
+          cwd: fileURLToPath(REPO_ROOT),
+          env: { ...process.env, PLAIN_SCRIPT_BACKEND_PORT: String(port) },
+          stdio: ['ignore', 'ignore', 'pipe']
+        }
+      )
+      let stderr = ''
+      child.stderr.on('data', (d) => (stderr += String(d)))
+      const code = await new Promise<number | null>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          child.kill('SIGKILL')
+          reject(new Error(`child did not exit in time\n${stderr}`))
+        }, CHILD_EXIT_TIMEOUT_MS)
+        child.on('exit', (c) => {
+          clearTimeout(timer)
+          resolve(c)
+        })
+      })
+
+      expect(code, stderr).toBe(0)
+      await vi.waitFor(() => expect(events.at(-1)).toBe('close'))
+      const root = lastSentRoot(events)
+      expect(root.end).toBeTruthy()
+      expect(root.state).toBe('passed')
+      expect(root.tests).toMatchObject([
+        { title: 'Selenium Session', state: 'passed', end: expect.anything() }
+      ])
+    },
+    CHILD_EXIT_TIMEOUT_MS + 5_000
+  )
 })
