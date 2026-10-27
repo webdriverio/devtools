@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 import unittest
 from unittest import mock
 
@@ -94,6 +95,10 @@ class PageDriver:
     def text(self, element):
         return self.execute("getElementText", {"id": element.id})["value"]
 
+    @property
+    def title(self):
+        return self.execute("getTitle")["value"]
+
 
 class AssertionRowTargetTest(unittest.TestCase):
     """End to end: a read through the patched driver, then pytest's hooks."""
@@ -176,6 +181,76 @@ class AssertionRowTargetTest(unittest.TestCase):
         self.driver.text(self.driver.find("#flash"))
         instrumentation.uninstall()
         self.assertIsNone(read_value_locators.selector_for("You logged in"))
+
+
+@unittest.skipIf(sys.gettrace() is not None, "another trace function is active")
+class PlainScriptAssertionTargetTest(unittest.TestCase):
+    """A plain script's assert, where an attribute operand is never re-read.
+
+    `driver.title` is left unresolved so reading it cannot issue a phantom
+    command, which means the value it produced never reaches the lookup. The
+    expected literal must not stand in for it.
+    """
+
+    def setUp(self):
+        instrumentation.uninstall()
+        self.tx = RecordingTransport()
+        self.capturer = SessionCapturer(self.tx)
+        instrumentation.install(self.capturer, PageDriver)
+        self.addCleanup(instrumentation.uninstall)
+        self.driver = PageDriver()
+        instrumentation._state.pop("assertion_reported", None)
+        self.addCleanup(instrumentation._state.pop, "assertion_reported", None)
+
+    def _assert_rows(self):
+        rows = [d[0] for s, d in self.tx.sent if s == "commands"]
+        return [r for r in rows if r["command"].startswith("assert.")]
+
+    def _traced(self, run):
+        with mock.patch.object(instrumentation, "_entry_script", return_value=__file__):
+            self.assertTrue(instrumentation.start_assertion_tracing(self.capturer))
+        try:
+            run()
+        finally:
+            instrumentation.stop_assertion_tracing()
+
+    def test_a_passing_title_assertion_does_not_box_an_element_reading_the_literal(self):
+        driver = self.driver
+        driver.text(driver.find("#flash"))  # "You logged in", read from #flash
+
+        def run():
+            assert driver.title != "You logged in"
+
+        self._traced(run)
+        [row] = self._assert_rows()
+        self.assertTrue(row["result"]["passed"])
+        self.assertNotIn("selector", row)
+
+    def test_a_failing_title_assertion_does_not_box_an_element_reading_the_literal(self):
+        driver = self.driver
+        driver.text(driver.find("#flash"))
+
+        def run():
+            assert driver.title == "You logged in"
+
+        try:
+            run()
+        except AssertionError:
+            instrumentation._capture_unwinding_assertion(self.capturer)
+        [row] = self._assert_rows()
+        self.assertFalse(row["result"]["passed"])
+        self.assertNotIn("selector", row)
+
+    def test_a_resolved_observed_side_still_carries_its_element(self):
+        driver = self.driver
+        greeting = driver.text(driver.find("#flash"))
+
+        def run():
+            assert greeting == "You logged in"
+
+        self._traced(run)
+        [row] = self._assert_rows()
+        self.assertEqual(row["selector"], "#flash")
 
 
 if __name__ == "__main__":

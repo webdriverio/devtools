@@ -70,6 +70,10 @@ def comparison_target(comparison: Optional[Tuple[str, Any, Any]]) -> Optional[st
         return None
     op, left, right = comparison
     expected, actual = expected_and_actual(op, left, right)
+    # A plain script's `driver.title` is never re-read, so what it returned is
+    # unknown and the expected literal would box whatever element once read it.
+    if actual is _UNRESOLVED:
+        return None
     return read_value_locators.assertion_target(actual, expected)
 
 
