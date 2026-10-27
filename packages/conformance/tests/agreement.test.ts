@@ -5,12 +5,14 @@ import type { RunnerOptions } from '@wdio/devtools-shared'
 import { compareRuns, judgeDivergences } from '../src/agreement.js'
 import { covers, declaresLacks, KNOWN_GAPS } from '../src/allowlist.js'
 import { KNOWN_DEBT, RULES, SCENARIO_TESTS } from '../src/constants.js'
+import { moved } from '../src/gap-matchers.js'
 import { normalizeRun } from '../src/normalize.js'
 import { scenarioIndex } from '../src/scenario-tests.js'
 import { renderReport } from '../src/report-html.js'
 import type {
   AdapterId,
   BidiMode,
+  KnownGap,
   RunReport,
   Violation,
   WireFrame
@@ -639,6 +641,20 @@ describe('a gap scoped to one hunk', () => {
   })
 })
 
+// A gap scoped to one move, as a timing bug that reorders a step would declare.
+const moveGap = (): KnownGap => ({
+  adapter: 'nightwatch-devtools',
+  bidi: 'live',
+  rules: [RULES.agreeOnActions],
+  only: moved(
+    scenarioIndex(LOGIN),
+    'Element.waitForExist #flash',
+    'nightwatch-devtools',
+    'Element.click button[type="submit"]'
+  ),
+  reason: 'Test fixture: a step one adapter shows at another place.'
+})
+
 describe('a step one adapter shows at another place', () => {
   const flashWait = { command: 'waitForExist', selector: '#flash' }
   const read = { command: 'getText', selector: '#flash' }
@@ -659,10 +675,7 @@ describe('a step one adapter shows at another place', () => {
         `test "${LOGIN}": Element.waitForExist #flash comes after Element.fill #username in devtools-service, after Element.getText #flash in nightwatch-devtools`
       )
     ])
-    const waitOrder = gapOf(
-      'nightwatch-devtools',
-      KNOWN_DEBT.nightwatchWaitOrder
-    )
+    const waitOrder = moveGap()
     const sameMs = gapOf(
       'nightwatch-devtools',
       KNOWN_DEBT.nightwatchSameMsReplace
@@ -705,18 +718,12 @@ describe('a step one adapter shows at another place', () => {
     expect(onWait.map((d) => d.rule).sort()).toEqual(
       [RULES.agreeOnErrors, RULES.agreeOnPages].sort()
     )
-    const waitOrder = gapOf(
-      'nightwatch-devtools',
-      KNOWN_DEBT.nightwatchWaitOrder
-    )
+    const waitOrder = moveGap()
     expect(onWait.some((d) => covers(waitOrder, d))).toBe(false)
   })
 
   it('leaves what the move did not explain to its own gap', () => {
-    const waitOrder = gapOf(
-      'nightwatch-devtools',
-      KNOWN_DEBT.nightwatchWaitOrder
-    )
+    const waitOrder = moveGap()
     const overwrite: Violation = {
       rule: RULES.agreeOnActions,
       message: `devtools-service vs nightwatch-devtools: test "${LOGIN}", after Element.getText #flash: devtools-service shows [Assert.equal #flash], nightwatch-devtools shows [Element.getText #flash]`
