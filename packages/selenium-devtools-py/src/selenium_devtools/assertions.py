@@ -23,6 +23,8 @@ import linecache
 import traceback
 from typing import Any, Dict, Optional, Tuple
 
+from . import read_value_locators
+
 # Operators whose LEFT operand is the expectation rather than the observation.
 # `assert "/secure" in url` reads as expected-in-actual, the reverse of
 # `assert title == "Example Domain"` where the left side is what was observed.
@@ -57,6 +59,18 @@ def expected_and_actual(op: str, left: Any, right: Any) -> Tuple[Any, Any]:
     if op in _EXPECTATION_ON_LEFT:
         return left, right
     return right, left
+
+
+def comparison_target(comparison: Optional[Tuple[str, Any, Any]]) -> Optional[str]:
+    """The locator of the element a comparison's observed value was read from.
+
+    The observed side is looked up first; see `read_value_locators`.
+    """
+    if comparison is None:
+        return None
+    op, left, right = comparison
+    expected, actual = expected_and_actual(op, left, right)
+    return read_value_locators.assertion_target(actual, expected)
 
 
 def collapsed_result(

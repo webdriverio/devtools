@@ -189,8 +189,7 @@ export const KNOWN_DEBT = {
   conditionWait: `A passing condition wait shows as its reads in Selenium and Python, which have no row for the wait itself, as one Browser.waitForFunction row in the WebdriverIO service, which hides the reads inside it, and as both in Nightwatch. ${debt('A condition wait shows its reads in some adapters and one wait row in others', '#464')}`,
   seleniumWait: `A successful driver.wait() has no row of its own: its polls are findElements rows, which the trace vocabulary leaves unmapped. ${debt('A Selenium wait has no row when it succeeds, and a condition row when it fails', '#464')}`,
   seleniumFailedWait: `A timed-out driver.wait() is a wait row named after its condition, mapped to Browser.waitForFunction with no target, where the other adapters show Element.waitForExist on the selector. ${debt('A Selenium wait has no row when it succeeds, and a condition row when it fails', '#464')}`,
-  pythonWait: `WebDriverWait is a client-side loop the adapter cannot see, so a wait has no row, and one that times out leaves its failed test without an error row. ${debt('A Python WebDriverWait leaves no row', '#461')}`,
-  pythonAssertTarget: `A pytest assertion row names no element: the adapter keeps no record of which element produced a value. ${debt('Python assertion rows carry no target', '#462')}`
+  pythonWait: `WebDriverWait is a client-side loop the adapter cannot see, so a wait has no row, and one that times out leaves its failed test without an error row. ${debt('A Python WebDriverWait leaves no row', '#461')}`
 } as const
 export const README_PAGE = 'README.md'
 

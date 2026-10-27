@@ -442,10 +442,10 @@ describe('a gap that declares what its holder lacks', () => {
       stream(1, JS, { more: [wait, assertion('#flash')] })
     )
 
-  it('drops the lacked step and target from both sides and compares the rest', () => {
+  it('drops the lacked step from both sides and compares the rest', () => {
     const py = report(
       'selenium-devtools-py',
-      stream(2, PY, { more: [assertion()] })
+      stream(2, PY, { more: [assertion('#flash')] })
     )
     const runs = [service(), py]
     expect(compareRuns(runs)).toEqual([])
@@ -455,7 +455,9 @@ describe('a gap that declares what its holder lacks', () => {
   it('excuses nothing else: a difference past the lacked step still fails', () => {
     const py = report(
       'selenium-devtools-py',
-      stream(2, PY, { more: [{ ...assertion(), command: 'assert.notEqual' }] })
+      stream(2, PY, {
+        more: [{ ...assertion('#flash'), command: 'assert.notEqual' }]
+      })
     )
     const runs = [service(), py]
     const { unexplained } = judgeDivergences(compareRuns(runs), runs)
@@ -466,7 +468,7 @@ describe('a gap that declares what its holder lacks', () => {
   it('goes stale once the holder shows the step it declared lacking', () => {
     const py = report(
       'selenium-devtools-py',
-      stream(2, PY, { more: [wait, assertion()] })
+      stream(2, PY, { more: [wait, assertion('#flash')] })
     )
     const { stale } = judgeDivergences([], [service(), py])
     expect(stale.filter(declaresLacks).map((g) => g.lacksSteps)).toEqual([
