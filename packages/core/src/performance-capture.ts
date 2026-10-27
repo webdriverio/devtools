@@ -14,7 +14,7 @@ import type {
  * Framework-agnostic — all three adapters can use it.
  */
 export const CAPTURE_PERFORMANCE_SCRIPT = `
-  (function() {
+  return (function() {
     const performance = window.performance;
     const navigation = performance.getEntriesByType?.('navigation')?.[0];
     const resources = performance.getEntriesByType?.('resource') || [];
