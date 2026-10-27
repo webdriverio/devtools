@@ -95,10 +95,10 @@ describe('getRunCapabilities', () => {
   })
 
   it('reads the runner off a trace zip, which carries no runner options', () => {
-    expect(getRunCapabilities(playerMd('nightwatch'))).toEqual({
+    expect(getRunCapabilities(playerMd('nightwatch-cucumber'))).toEqual({
       canRunSuites: true,
-      canRunTests: true,
-      canRunAll: false
+      canRunTests: false,
+      canRunAll: true
     })
   })
 })
@@ -150,9 +150,19 @@ describe('getRunAllDisabledReason', () => {
     ).toBeUndefined()
   })
   it('names the run-all refusal when the runner cannot', () => {
-    expect(getRunAllDisabledReason(md({ framework: 'nightwatch' }))).toBe(
-      RUN_ALL_REFUSAL
-    )
+    expect(
+      getRunAllDisabledReason(md({ runCapabilities: { canRunAll: false } }))
+    ).toBe(RUN_ALL_REFUSAL)
+  })
+
+  // Regression: Nightwatch was refused Run all although the backend runs its whole config.
+  it('offers Run all to both Nightwatch runners', () => {
+    expect(
+      getRunAllDisabledReason(md({ framework: 'nightwatch' }))
+    ).toBeUndefined()
+    expect(
+      getRunAllDisabledReason(md({ framework: 'nightwatch-cucumber' }))
+    ).toBeUndefined()
   })
 })
 

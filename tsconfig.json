@@ -42,7 +42,8 @@
       "@wdio/devtools-service": ["./packages/service/src/index.ts"],
       "@wdio/devtools-service/*": ["./packages/service/src/*"],
       "@wdio/selenium-devtools": ["./packages/selenium-devtools/src/index.ts"],
-      "@wdio/selenium-devtools/*": ["./packages/selenium-devtools/src/*"]
+      "@wdio/selenium-devtools/*": ["./packages/selenium-devtools/src/*"],
+      "@wdio/nightwatch-devtools/*": ["./packages/nightwatch-devtools/src/*"]
     }
   },
   // This file is both the `extends` base for every package config and, run

@@ -45,10 +45,35 @@ export const RUNNER_ENV = {
   WDIO_CONFIG: 'DEVTOOLS_WDIO_CONFIG',
   NIGHTWATCH_CONFIG: 'DEVTOOLS_NIGHTWATCH_CONFIG',
   WDIO_INITIAL_SPECS: 'DEVTOOLS_WDIO_INITIAL_SPECS',
+  // The selection the Nightwatch run was launched with (specs, --tag, --env, ...), without --config; see encodeInitialArgs.
+  NIGHTWATCH_INITIAL_ARGS: 'DEVTOOLS_NIGHTWATCH_INITIAL_ARGS',
   RUNNER_CWD: 'DEVTOOLS_RUNNER_CWD',
   WDIO_BIN: 'DEVTOOLS_WDIO_BIN',
   NIGHTWATCH_BIN: 'DEVTOOLS_NIGHTWATCH_BIN'
 } as const
+
+/** The value of `RUNNER_ENV.NIGHTWATCH_INITIAL_ARGS`: a JSON array of strings. */
+export function encodeInitialArgs(args: readonly string[]): string {
+  return JSON.stringify(args)
+}
+
+/** The arguments `encodeInitialArgs` wrote, or undefined for an absent or malformed value. */
+export function parseInitialArgs(
+  raw: string | undefined
+): string[] | undefined {
+  if (!raw) {
+    return undefined
+  }
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    return undefined
+  }
+  return Array.isArray(parsed) && parsed.every((a) => typeof a === 'string')
+    ? parsed
+    : undefined
+}
 
 /**
  * Slots an adapter leaves in its `rerunCommand`, which the backend fills in

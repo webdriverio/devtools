@@ -276,8 +276,11 @@ export const mochaMetadata = runnerMetadata(mochaRunnerOptions)
 /** Cucumber drives its own steps, so a single test cannot be run alone. */
 export const cucumberMetadata = runnerMetadata({ framework: 'cucumber' })
 
-/** Nightwatch exposes no run-everything entry point. */
-export const nightwatchMetadata = runnerMetadata({ framework: 'nightwatch' })
+/** A runner that declares it cannot run everything; every built-in runner can. */
+export const noRunAllMetadata = runnerMetadata({
+  ...mochaRunnerOptions,
+  runCapabilities: { canRunAll: false }
+})
 
 export type TestEntryProps = Partial<
   Pick<

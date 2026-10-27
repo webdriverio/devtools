@@ -37,8 +37,10 @@ describe('resolveRunCapabilities', () => {
 
   it("falls back to the runner's defaults, whatever the case of its id", () => {
     expect(
-      resolveRunCapabilities(metadata({ options: { framework: 'Nightwatch' } }))
-    ).toEqual(FRAMEWORK_CAPABILITIES.nightwatch)
+      resolveRunCapabilities(
+        metadata({ options: { framework: 'Nightwatch-Cucumber' } })
+      )
+    ).toEqual(FRAMEWORK_CAPABILITIES['nightwatch-cucumber'])
   })
 
   it('falls back to the global defaults for an unlisted or unknown runner', () => {
