@@ -3,8 +3,9 @@
  *
  * Walk the live/trace ladder by editing ONLY the DevTools.configure({...})
  * block below. The suite carries a passing pair, an always-failing test (for
- * retain-on-failure), and a flaky fail-then-pass test with a per-test retry
- * (for on-first-retry / attempt capture).
+ * retain-on-failure), a wait that times out (a failed wait row), and a flaky
+ * fail-then-pass test with a per-test retry (for on-first-retry / attempt
+ * capture).
  *
  * Run from the package root:  pnpm example:mocha
  */
@@ -27,7 +28,10 @@ DevTools.configure({
   headless: true
 })
 
-const LOGIN_URL = 'https://the-internet.herokuapp.com/login'
+const BASE_URL = (
+  process.env.DEVTOOLS_EXAMPLE_BASE_URL || 'https://the-internet.herokuapp.com'
+).replace(/\/+$/, '')
+const LOGIN_URL = `${BASE_URL}/login`
 
 // Survives Mocha's in-process retry so the flaky test fails once, then passes.
 let flakyAttempts = 0
@@ -54,10 +58,10 @@ describe('selenium-devtools smoke test', function () {
   })
 
   it('navigates and reads the page title', async function () {
-    await driver.get('https://example.org')
+    await driver.get(BASE_URL)
     await driver.sleep(1500)
     const title = await driver.getTitle()
-    assert.match(title, /Example/i)
+    assert.match(title, /The Internet/)
   })
 
   it('fails on a wrong heading (retain-on-failure target)', async function () {
@@ -68,15 +72,23 @@ describe('selenium-devtools smoke test', function () {
     assert.equal(text, 'This Is Not The Heading')
   })
 
+  it('times out waiting for an element the page never renders (failed wait target)', async function () {
+    await driver.get(LOGIN_URL)
+    await driver.wait(
+      until.elementLocated(By.css('#devtools-never-rendered')),
+      1000
+    )
+  })
+
   it('flaky: fails the first attempt, then passes (retry target)', async function () {
     this.retries(1)
-    await driver.get('https://example.com')
+    await driver.get(LOGIN_URL)
     await driver.sleep(1000)
     flakyAttempts += 1
     if (flakyAttempts === 1) {
       throw new Error('intentional first-attempt failure — should retry')
     }
     const title = await driver.getTitle()
-    assert.match(title, /Example/i)
+    assert.match(title, /The Internet/)
   })
 })

@@ -96,6 +96,91 @@ jobs:
       - name: 🧩 Component Tests
         run: pnpm test:ui --maxInstances 2
 
+  # Runs one desktop example per adapter in trace mode against a local fixture
+  # site and checks each trace zip against
+  # packages/conformance/smoke/expectations/. The conformance suite covers the
+  # adapters against a fake browser; this covers the examples users copy, in a
+  # real headless Chrome (preinstalled on the runner image; each framework
+  # resolves its own driver). Mobile and Safari stay manual.
+  examples-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # FIXTURE_DEFAULT_HOST/PORT in packages/conformance/smoke/constants.ts.
+      DEVTOOLS_EXAMPLE_BASE_URL: http://127.0.0.1:4567
+      DEVTOOLS_MODE: trace
+      DEVTOOLS_OPEN: '0'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Use Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          # the runner cache can hold a 24.x below the engines floor
+          check-latest: true
+      - name: Cache pnpm modules
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        env:
+          cache-name: cache-pnpm-modules
+        with:
+          path: ~/.pnpm-store
+          key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-build-${{ env.cache-name }}-
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 10.26.1
+          run_install: false
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: 📦 Bundle
+        run: pnpm -r --workspace-concurrency=1 build
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.13'
+      - name: Install the Python adapter
+        run: pip install -e 'packages/selenium-devtools-py[test]'
+      - name: Chrome version
+        run: google-chrome --version
+      - name: Start the fixture site
+        id: fixture
+        run: |
+          nohup pnpm -s smoke:fixtures > "$RUNNER_TEMP/fixture-site.log" 2>&1 &
+          for _ in $(seq 1 30); do
+            curl -sf "$DEVTOOLS_EXAMPLE_BASE_URL/login" > /dev/null && exit 0
+            sleep 1
+          done
+          cat "$RUNNER_TEMP/fixture-site.log"
+          exit 1
+      # One step per example so a red step names it; each runs even when an
+      # earlier one failed.
+      - name: 🧪 WebdriverIO + Mocha (examples/wdio/mocha)
+        if: ${{ !cancelled() && steps.fixture.outcome == 'success' }}
+        run: bash .github/scripts/examples-smoke/run-example.sh wdio-mocha pnpm demo:wdio:mocha
+      - name: 🧪 Selenium + Mocha (examples/selenium-js/mocha)
+        if: ${{ !cancelled() && steps.fixture.outcome == 'success' }}
+        run: bash .github/scripts/examples-smoke/run-example.sh selenium-mocha pnpm --filter @wdio/selenium-devtools example:mocha
+      - name: 🧪 Nightwatch BDD (examples/nightwatch/bdd)
+        if: ${{ !cancelled() && steps.fixture.outcome == 'success' }}
+        run: bash .github/scripts/examples-smoke/run-example.sh nightwatch-bdd pnpm demo:nightwatch
+      # The committed pytest.ini keeps only failing tests' archives; one archive
+      # for the whole run is what the expectations describe.
+      - name: 🧪 Python + pytest (examples/selenium-py/pytest)
+        if: ${{ !cancelled() && steps.fixture.outcome == 'success' }}
+        run: >-
+          bash .github/scripts/examples-smoke/run-example.sh python-pytest
+          python -m pytest examples/selenium-py/pytest
+          -o devtools_trace_policy=on -o devtools_trace_granularity=session
+      - name: Upload traces and run logs
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: examples-smoke
+          path: |
+            ${{ runner.temp }}/examples-smoke/
+            ${{ runner.temp }}/fixture-site.log
+          if-no-files-found: ignore
+
   # The workspace develops against one WebdriverIO major, but the service and
   # @wdio/elements declare peers on two. Each published major is installed from
   # npm into a scratch project beside the packed tarballs, so a peer conflict, a

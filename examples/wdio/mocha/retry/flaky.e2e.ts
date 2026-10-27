@@ -7,9 +7,13 @@ import { browser, expect } from '@wdio/globals'
 // the retry attempt is captured and is distinct from a failure.
 let attempts = 0
 
+const BASE_URL = (
+  process.env.DEVTOOLS_EXAMPLE_BASE_URL || 'https://the-internet.herokuapp.com'
+).replace(/\/+$/, '')
+
 describe('Flaky (passes on retry)', () => {
   it('fails the first attempt, then passes', async () => {
-    await browser.url('https://the-internet.herokuapp.com/login')
+    await browser.url(`${BASE_URL}/login`)
     attempts += 1
     if (attempts === 1) {
       throw new Error('intentional first-attempt failure — should retry')

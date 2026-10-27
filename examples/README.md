@@ -46,6 +46,27 @@ runner directly — `example:mocha`, `example:jest`, `example:cucumber`, or
 `DEVTOOLS_TRACE_GRANULARITY` and `DEVTOOLS_TRACE_POLICY` walk the rest of the
 ladder, so each runner needs only one config.
 
+## Local fixture site
+
+`pnpm smoke:fixtures` serves a copy of the-internet's login flow (`/`, `/login`,
+`/secure`, `/logout`, same selectors, titles and flash texts) on
+`http://127.0.0.1:4567`. `DEVTOOLS_EXAMPLE_BASE_URL` points an example at it
+instead of the public site:
+
+```
+pnpm smoke:fixtures &
+DEVTOOLS_EXAMPLE_BASE_URL=http://127.0.0.1:4567 DEVTOOLS_MODE=trace pnpm demo:wdio:mocha
+```
+
+Every desktop login example reads it (WebdriverIO, Nightwatch and Selenium in
+each runner, and both Python login cases; a trailing slash is ignored). Unset,
+they drive the public site as before. `web_form.py` drives selenium.dev's form
+page instead and the mobile examples read `DEVTOOLS_MOBILE_URL`. CI's `examples-smoke` job runs one
+of each in trace mode against the fixture and checks the zips with
+`pnpm smoke:assert`; the expected rows per test live in
+`packages/conformance/smoke/expectations/`, so a change to one of those
+examples' steps updates its expectation file too.
+
 ## Mobile
 
 Every adapter has a `mobile/` example, and all four build the same capability

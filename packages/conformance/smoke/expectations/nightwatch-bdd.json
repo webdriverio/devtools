@@ -1,0 +1,43 @@
+{
+  "example": "nightwatch-bdd",
+  "runFails": true,
+  "sourceFiles": ["examples/nightwatch/bdd/smoke-test.js"],
+  "tests": [
+    {
+      "test": "logs into the secure area with valid credentials",
+      "rows": [
+        "Page.navigate",
+        "Element.waitForDisplayed",
+        "Element.fill",
+        "Element.fill",
+        "Element.click",
+        "Element.waitForDisplayed",
+        "Assert.urlContains",
+        "Assert.textContains",
+        "Element.waitForDisplayed",
+        "Element.click",
+        "Element.waitForDisplayed",
+        "Assert.urlContains"
+      ],
+      "error": false
+    },
+    {
+      "test": "fails on a wrong flash message (retain-on-failure target)",
+      "rows": [
+        "Page.navigate",
+        "Element.waitForDisplayed",
+        "Element.fill",
+        "Element.fill",
+        "Element.click",
+        "Element.waitForDisplayed",
+        "Assert.textContains"
+      ],
+      "error": true,
+      "errorMatches": "contains text 'You logged into a secure area'"
+    },
+    {
+      "test": "flaky: fails the first attempt, then passes (retry target)",
+      "rows": ["Page.navigate", "Element.waitForDisplayed"]
+    }
+  ]
+}

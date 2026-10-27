@@ -16,6 +16,8 @@ DEVTOOLS_PORT instead to attach to one you already have open. Run output (the
 screencast .webm) lands in ``test-results/`` beside this file.
 """
 
+import os
+
 import selenium_devtools as devtools
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
@@ -23,7 +25,9 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
-BASE_URL = "https://the-internet.herokuapp.com"
+BASE_URL = (
+    os.environ.get("DEVTOOLS_EXAMPLE_BASE_URL") or "https://the-internet.herokuapp.com"
+).rstrip("/")
 USERNAME = "tomsmith"
 PASSWORD = "SuperSecretPassword!"
 TIMEOUT = 5

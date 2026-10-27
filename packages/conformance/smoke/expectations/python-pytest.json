@@ -1,0 +1,38 @@
+{
+  "example": "python-pytest",
+  "runFails": false,
+  "sourceFiles": ["examples/selenium-py/pytest/test_login_pytest.py"],
+  "tests": [
+    {
+      "test": "test_logs_in_with_valid_credentials",
+      "rows": [
+        "Page.navigate",
+        "Element.fill",
+        "Element.fill",
+        "Element.click",
+        "Element.getText",
+        "Page.getUrl",
+        "Element.click",
+        "Page.getUrl"
+      ],
+      "error": false
+    },
+    {
+      "test": "test_rejects_invalid_credentials",
+      "rows": [
+        "Page.navigate",
+        "Element.fill",
+        "Element.fill",
+        "Element.click",
+        "Element.getText",
+        "Page.getUrl"
+      ],
+      "error": false
+    },
+    {
+      "test": "test_the_login_page_loads",
+      "rows": ["Page.navigate", "Page.getTitle"],
+      "error": false
+    }
+  ]
+}
