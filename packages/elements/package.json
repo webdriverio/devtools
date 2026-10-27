@@ -35,7 +35,11 @@
     "test": "vitest run",
     "prepublishOnly": "pnpm build"
   },
+  "engines": {
+    "node": ">=22.19.0"
+  },
   "dependencies": {
+    "@wdio/snapshot": "^10.0.2",
     "@xmldom/xmldom": "^0.9.12",
     "xpath": "^0.0.34"
   },
@@ -43,13 +47,14 @@
     "@microsoft/api-extractor": "^7.59.3",
     "@types/node": "26.6.4",
     "@wdio/devtools-core": "workspace:^",
-    "@wdio/globals": "10.0.2",
+    "@wdio/devtools-shared": "workspace:^",
+    "@wdio/globals": "10.1.0",
     "tsup": "^8.5.1",
     "typescript": "6.0.3",
     "vitest": "^5.0.2",
-    "webdriverio": "^10.0.2"
+    "webdriverio": "^10.1.0"
   },
   "peerDependencies": {
-    "webdriverio": "^9.0.0 || ^10.0.0"
+    "webdriverio": "^10.0.0"
   }
 }

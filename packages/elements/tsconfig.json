@@ -10,7 +10,7 @@
     "allowImportingTsExtensions": false,
     "declaration": true,
     "skipLibCheck": true,
-    "types": ["node", "@wdio/globals/types"]
+    "types": ["node", "webdriverio"]
   },
   "include": ["src/**/*"]
 }

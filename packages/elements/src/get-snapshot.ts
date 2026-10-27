@@ -1,155 +1,103 @@
-/**
- * Unified getSnapshot() — single call for web and mobile.
- *
- * Auto-detects platform, fetches the accessibility tree (web) or page source
- * (mobile), converts to a flat SnapshotNode[], and renders a text tree with
- * e1, e2, … virtual IDs baked in plus an elements map for direct selector
- * resolution.
- */
-
-import type { SnapshotResult } from '@wdio/devtools-core/element-types'
 import {
-  buildSnapshot,
-  accessibilityNodesToSnapshotNodes,
-  jsonElementToSnapshotNodes
-} from '@wdio/devtools-core/element-snapshot'
-import { getBrowserAccessibilityTree } from './accessibility-tree.js'
-import { xmlToJSON } from './locators/index.js'
+  attachSelectors,
+  collectWeb,
+  formatSnapshot,
+  inViewport,
+  nativePlatform,
+  parseNativeSource
+} from '@wdio/snapshot'
+import { deepCapString } from '@wdio/devtools-shared/device'
+import type { NativePlatform, SnapshotNode, SnapshotRef } from '@wdio/snapshot'
 
 export interface GetSnapshotOptions {
-  /** Only include elements whose bounds intersect the viewport (default true). */
-  inViewportOnly?: boolean
+  /** Only include what intersects the viewport (default false: the full page). */
+  viewport?: boolean
+}
+
+export interface GetSnapshotResult {
+  /** Accessibility tree as text, one `eN` ref per actionable element, ending in `→ <selector>` only when one resolves under BiDi. */
+  text: string
+  refs: SnapshotRef[]
+}
+
+const frameHint = (ref: string) => `wdio session frame ${ref}`
+
+const NATIVE_PLATFORMS = new Set(['android', 'ios', 'mac', 'windows'])
+
+// @wdio/session's `classify`: a browserName makes a mobile session web. Desktop
+// browsers also report mac/windows here, which their browserName excludes too.
+function nativePlatformName(caps: Record<string, unknown>): string | undefined {
+  const platformName = (
+    deepCapString(caps, 'platformName') ??
+    deepCapString(caps, 'appium:platformName') ??
+    ''
+  ).toLowerCase()
+  return NATIVE_PLATFORMS.has(platformName) &&
+    !deepCapString(caps, 'browserName')
+    ? platformName
+    : undefined
 }
 
 /**
- * Take a snapshot of the current page/app state.
- *
- * Returns a text tree with eN virtual IDs for every interactive element
- * and an elements map so consumers can resolve e1, e2, … to real selectors
- * without any post-processing.
+ * Same text as `wdio session snapshot --selectors [--viewport]`, for web and
+ * native sessions alike. Throws SnapshotError rather than returning a partial tree.
  */
 export async function getSnapshot(
   browser: WebdriverIO.Browser,
-  options?: GetSnapshotOptions
-): Promise<SnapshotResult> {
-  const { inViewportOnly = true } = options ?? {}
+  options: GetSnapshotOptions = {}
+): Promise<GetSnapshotResult> {
+  const { viewport = false } = options
+  const caps = browser.capabilities as Record<string, unknown>
+  const platformName = nativePlatformName(caps)
+  const { tree, refs } = platformName
+    ? await collectNative(browser, nativePlatform(caps, platformName), viewport)
+    : await collectWebTree(browser, viewport)
 
-  if (browser.isAndroid || browser.isIOS) {
-    return getMobileSnapshot(browser, inViewportOnly)
+  attachSelectors(tree, refs)
+  return {
+    text: formatSnapshot(tree, { selectors: true, frameHint }),
+    refs
   }
-  return getWebSnapshot(browser, inViewportOnly)
 }
 
-// ---------------------------------------------------------------------------
-// Web
-// ---------------------------------------------------------------------------
+const classicUnavailable = new WeakSet<WebdriverIO.Browser>()
 
-async function getWebSnapshot(
+async function collectWebTree(browser: WebdriverIO.Browser, viewport: boolean) {
+  const classic = browser.isBidi && !classicUnavailable.has(browser)
+  const result = await collectWeb(
+    browser,
+    { counter: 0, all: false, boxes: false, viewport, assignRefs: 'ephemeral' },
+    // BiDi tries classic `executeScript` until it fails once, then `execute`; same rule as collectTop in @wdio/session.
+    { transport: classic ? 'classic-first' : 'bidi' }
+  )
+  if (result.classicUnavailable) {
+    classicUnavailable.add(browser)
+  }
+  return result
+}
+
+async function collectNative(
   browser: WebdriverIO.Browser,
-  inViewportOnly: boolean
-): Promise<SnapshotResult> {
-  const [url, title, nodes] = await Promise.all([
-    safeCall(() => browser.getUrl()),
-    safeCall(() => browser.getTitle()),
-    getBrowserAccessibilityTree(browser, { inViewportOnly })
+  platform: NativePlatform,
+  viewport: boolean
+): Promise<{ tree: SnapshotNode; refs: SnapshotRef[] }> {
+  const [xml, size] = await Promise.all([
+    browser.getPageSource(),
+    viewport ? browser.getWindowSize() : undefined
   ])
-
-  const header = buildWebHeader(title, url)
-  const snapshotNodes = accessibilityNodesToSnapshotNodes(nodes, {
-    inViewportOnly
-  })
-  return buildSnapshot(header, snapshotNodes)
+  const parsed = parseNativeSource(xml, platform, { all: false, counter: 0 })
+  if (!size) {
+    return parsed
+  }
+  const tree = inViewport(parsed.tree, size.width, size.height) ?? parsed.tree
+  const shown = refIds(tree)
+  return { tree, refs: parsed.refs.filter((ref) => shown.has(ref.id)) }
 }
 
-function buildWebHeader(title?: string, url?: string): string {
-  let h = '[Page'
-  if (title) {
-    h += `: ${title}`
+function refIds(node: SnapshotNode, ids = new Set<string>()): Set<string> {
+  if (node.ref) {
+    ids.add(node.ref)
   }
-  if (url) {
-    h += ` — ${url}`
-  }
-  h += ']'
-  return h
-}
-
-// ---------------------------------------------------------------------------
-// Mobile
-// ---------------------------------------------------------------------------
-
-async function getMobileSnapshot(
-  browser: WebdriverIO.Browser,
-  inViewportOnly: boolean
-): Promise<SnapshotResult> {
-  const platform: 'android' | 'ios' = browser.isAndroid ? 'android' : 'ios'
-
-  const [viewportSize, pageSource] = await Promise.all([
-    safeCall(() => browser.getWindowSize()),
-    safeCall(() => browser.getPageSource())
-  ])
-
-  if (!pageSource) {
-    return { text: '[No elements found]', elements: {} }
-  }
-
-  const root = xmlToJSON(pageSource)
-  if (!root) {
-    return { text: '[No elements found]', elements: {} }
-  }
-
-  // A zero-dimension viewport (minimized app, broken ADB connection) would
-  // silently clip every element. Treat it as unavailable instead.
-  const safeViewport =
-    viewportSize?.width && viewportSize?.height ? viewportSize : undefined
-
-  const deviceName = getDeviceName(browser)
-
-  const header = buildMobileHeader(platform, deviceName, safeViewport)
-
-  const snapshotNodes = jsonElementToSnapshotNodes(root, platform, {
-    inViewportOnly,
-    viewport: safeViewport,
-    sourceXML: pageSource
-  })
-
-  return buildSnapshot(header, snapshotNodes)
-}
-
-function buildMobileHeader(
-  platform: string,
-  deviceName: string,
-  viewport?: { width: number; height: number }
-): string {
-  let h = `[${platform}`
-  if (deviceName) {
-    h += ` — ${deviceName}`
-  }
-  if (viewport) {
-    h += ` (${viewport.width}×${viewport.height})`
-  }
-  h += ']'
-  return h
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-async function safeCall<T>(fn: () => Promise<T>): Promise<T | undefined> {
-  try {
-    return await fn()
-  } catch {
-    return undefined
-  }
-}
-
-function getDeviceName(browser: WebdriverIO.Browser): string {
-  try {
-    const caps = browser.capabilities as Record<string, unknown>
-    return (
-      (caps['appium:deviceName'] as string) ?? (caps.deviceName as string) ?? ''
-    )
-  } catch {
-    return ''
-  }
+  node.children?.forEach((child) => refIds(child, ids))
+  return ids
 }

@@ -4,7 +4,7 @@
 // @wdio/devtools-service/types. New code should import directly from
 // @wdio/devtools-shared.
 
-import type { SnapshotResult } from '@wdio/devtools-core/element-types'
+import type { GetSnapshotOptions, GetSnapshotResult } from '@wdio/elements'
 
 export {
   TraceType,
@@ -77,7 +77,7 @@ declare namespace WebdriverIO {
     getPuppeteer?: () => Promise<unknown>
     // Runtime DOM snapshot for agent auto-healing. Added by
     // @wdio/devtools-service in the before hook.
-    getSnapshot(options?: { inViewportOnly?: boolean }): Promise<SnapshotResult>
+    getSnapshot(options?: GetSnapshotOptions): Promise<GetSnapshotResult>
   }
 }
 
