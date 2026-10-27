@@ -184,7 +184,6 @@ const debt = (entry: string, issue?: string) =>
 
 /** Why each scenario gap exists: the limitation, and the Known debt entry that describes it. */
 export const KNOWN_DEBT = {
-  nightwatchWaitOrder: `Under the Nightwatch plugin an awaited waitForElementPresent runs after a varying number of the commands that follow it, so its row lands anywhere later in its test, and it can poll the next page and time out. ${debt('An awaited Nightwatch wait runs after the commands that follow it', '#457')}`,
   nightwatchSameMsReplace: `A Nightwatch row's late replaceCommand, keyed by timestamp, overwrites a later row stamped in the same millisecond, so an assertion row becomes a second copy of the read before it. ${debt('A same-millisecond replaceCommand overwrites the Nightwatch row after it', '#458')}`,
   nightwatchSkipped: `Nightwatch reports a passing test that ran no assertion as skipped, although it ran. ${debt('Nightwatch reports a passing test skipped', '#459')}`,
   conditionWait: `A passing condition wait shows as its reads in Selenium and Python, which have no row for the wait itself, as one Browser.waitForFunction row in the WebdriverIO service, which hides the reads inside it, and as both in Nightwatch. ${debt('A condition wait shows its reads in some adapters and one wait row in others', '#464')}`,

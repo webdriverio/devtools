@@ -88,12 +88,13 @@ function extractMoves(hunks: Hunk[]): Move[] {
         continue
       }
       from.a.splice(from.a.indexOf(step), 1)
-      to.b.splice(
+      const [counterpart] = to.b.splice(
         to.b.findIndex((s) => stepKey(s) === stepKey(step)),
         1
       )
       moves.push({
-        key: stepKey(step),
+        a: step,
+        b: counterpart,
         afterA: afterOf(from),
         afterB: afterOf(to)
       })
@@ -122,10 +123,11 @@ function compareTwo(
     withoutTargets(b.steps, targets)
   )
   for (const { test, pairs, hunks } of aligned) {
-    for (const move of extractMoves(hunks)) {
+    const moves = extractMoves(hunks)
+    for (const move of moves) {
       add(
         RULES.agreeOnActions,
-        `${testLabel(test)}: ${move.key} comes after ${move.afterA} in ${adapters[0]}, after ${move.afterB} in ${adapters[1]}`
+        `${testLabel(test)}: ${stepKey(move.a)} comes after ${move.afterA} in ${adapters[0]}, after ${move.afterB} in ${adapters[1]}`
       )
     }
     for (const hunk of hunks.map((h) => unexcused(h, lacksA, lacksB))) {
@@ -136,7 +138,7 @@ function compareTwo(
         )
       }
     }
-    for (const [x, y] of pairs) {
+    for (const [x, y] of [...pairs, ...moves.map((m) => [m.a, m.b] as const)]) {
       compareStep(adapters, `${testLabel(test)}, ${stepKey(x)}`, x, y, add)
     }
   }

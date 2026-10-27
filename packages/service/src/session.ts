@@ -355,7 +355,7 @@ export class SessionCapturer extends SessionCapturerBase {
       const payload = (await browser.execute(CAPTURE_PERFORMANCE_SCRIPT)) as
         CapturedPerformancePayload | undefined
       if (applyPerformanceData(entry, payload, args[0] as string | undefined)) {
-        this.sendUpstream('commands', [entry])
+        this.sendReplaceCommand(entry.timestamp, entry)
       }
     } catch (err) {
       const msg = errorMessage(err)

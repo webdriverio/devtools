@@ -205,15 +205,23 @@ export class SessionCapturer extends SessionCapturerBase {
       return
     }
     await new Promise((resolve) => setTimeout(resolve, 500))
-    const raw = await this.#browser!.execute(CAPTURE_PERFORMANCE_SCRIPT)
-    const payload = unwrapDriverValue<CapturedPerformancePayload | undefined>(
-      raw
+    // A queued `browser.execute` fired from this timer becomes a child of whatever command is running, and resolves that command's await early.
+    const payload = await webdriverExecute<CapturedPerformancePayload>(
+      this.#browser!,
+      CAPTURE_PERFORMANCE_SCRIPT
     )
-    applyPerformanceData(
-      commandLogEntry,
-      payload,
-      typeof args[0] === 'string' ? args[0] : undefined
-    )
+    if (
+      applyPerformanceData(
+        commandLogEntry,
+        payload ?? undefined,
+        typeof args[0] === 'string' ? args[0] : undefined
+      ) &&
+      // A retry may have replaced the row meanwhile; replacing it again would bring the old row back.
+      this.commandsLog.includes(commandLogEntry)
+    ) {
+      // The row was sent when the command completed; the timings arrive half a second later.
+      this.sendReplaceCommand(commandLogEntry.timestamp, commandLogEntry)
+    }
   }
 
   /**

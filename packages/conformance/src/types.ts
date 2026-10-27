@@ -150,7 +150,9 @@ export interface Divergence extends Violation {
 
 /** A step both sides show once, at different places in one test. */
 export interface Move {
-  key: string
+  /** The step as each side shows it, compared like any aligned pair. */
+  a: NormalizedStep
+  b: NormalizedStep
   /** The step each side shows it after. */
   afterA: string
   afterB: string

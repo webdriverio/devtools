@@ -1,13 +1,18 @@
 import { describe, it, expect, vi } from 'vitest'
 import type * as DevToolsCore from '@wdio/devtools-core'
-import { sessionExecutor } from '../src/helpers/webdriverHttp.js'
+import {
+  sessionExecutor,
+  webdriverExecute as executeInPage
+} from '../src/helpers/webdriverHttp.js'
 import type { NightwatchBrowser } from '../src/types.js'
 
 const webdriverExecute = vi.hoisted(() => vi.fn(async () => 'L1'))
+const webdriverPost = vi.hoisted(() => vi.fn(async () => null))
 
 vi.mock('@wdio/devtools-core', async (importOriginal) => ({
   ...(await importOriginal<typeof DevToolsCore>()),
-  webdriverExecute
+  webdriverExecute,
+  webdriverPost
 }))
 
 const browser = (
@@ -50,5 +55,21 @@ describe('sessionExecutor', () => {
   // Regression: a missing port defaulted to chromedriver's 9515 and blamed the plugin.
   it('is undefined when no WebDriver port is configured', () => {
     expect(sessionExecutor(browser('sess-1', {}))).toBeUndefined()
+  })
+})
+
+// Regression: the probes, drains and performance read dropped the prefix, so a driver under `/wd/hub` rejected every one.
+describe('the direct transport', () => {
+  it('carries the configured path prefix', async () => {
+    await executeInPage(
+      browser('sess-1', { port: 4444, default_path_prefix: '/wd/hub' }),
+      'return 1'
+    )
+    expect(webdriverPost).toHaveBeenLastCalledWith(
+      expect.objectContaining({ port: 4444, path: '/wd/hub' }),
+      'sess-1',
+      'execute/sync',
+      { script: 'return 1', args: [] }
+    )
   })
 })

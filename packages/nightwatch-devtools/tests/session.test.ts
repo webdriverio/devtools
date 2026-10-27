@@ -65,14 +65,87 @@ describe('SessionCapturer.captureCommand', () => {
     expect(stored.message).toBe('boom')
   })
 
-  it('triggers performance capture for navigation commands when browser present', async () => {
-    const execute = vi.fn(async () => ({ value: undefined }))
-    const browser = makeMockBrowser({ execute })
+  // The read fires from a timer while a later command is running; queued through
+  // `browser.execute` it became that command's child and resolved its await early,
+  // so a test's next `click` ran while a `setValue` was still typing.
+  it('reads performance data after a navigation outside the command queue', async () => {
+    const http = await import('node:http')
+    const bodies: string[] = []
+    const server = http.createServer((req, res) => {
+      let raw = ''
+      req.on('data', (c) => {
+        raw += c
+      })
+      req.on('end', () => {
+        bodies.push(raw)
+        res.setHeader('content-type', 'application/json')
+        res.end(
+          JSON.stringify({
+            value: { navigation: { url: 'https://x', timing: {} } }
+          })
+        )
+      })
+    })
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()))
+    const port = (server.address() as { port: number }).port
+    const browser = makeMockBrowser({
+      sessionId: 'sess-perf',
+      transport: { settings: { webdriver: { host: '127.0.0.1', port } } }
+    })
     const cap = makeCapturer(browser)
-    await cap.captureCommand('url', ['https://x'], undefined, undefined)
-    // perf capture runs in background after a 500ms delay; let it settle
-    await new Promise((r) => setTimeout(r, 600))
-    expect(execute).toHaveBeenCalled()
+    const send = vi.spyOn(cap, 'sendUpstream')
+    try {
+      await cap.captureCommand('url', ['https://x'], undefined, undefined)
+      await vi.waitFor(() => expect(bodies).toHaveLength(1), { timeout: 2000 })
+      expect(bodies[0]).toContain('getEntriesByType')
+      expect(browser.execute).not.toHaveBeenCalled()
+      // The timings reach the dashboard by replacing the row already sent.
+      await vi.waitFor(() =>
+        expect(send).toHaveBeenCalledWith(
+          'replaceCommand',
+          expect.objectContaining({
+            command: expect.objectContaining({ performance: expect.anything() })
+          })
+        )
+      )
+    } finally {
+      await new Promise<void>((r) => server.close(() => r()))
+    }
+  })
+
+  it('sends no timings for a navigation row a retry has replaced', async () => {
+    const http = await import('node:http')
+    let reads = 0
+    const server = http.createServer((req, res) => {
+      req.resume()
+      req.on('end', () => {
+        reads++
+        res.setHeader('content-type', 'application/json')
+        res.end(
+          JSON.stringify({
+            value: { navigation: { url: 'https://x', timing: {} } }
+          })
+        )
+      })
+    })
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()))
+    const port = (server.address() as { port: number }).port
+    const browser = makeMockBrowser({
+      sessionId: 'sess-perf',
+      transport: { settings: { webdriver: { host: '127.0.0.1', port } } }
+    })
+    const cap = makeCapturer(browser)
+    const send = vi.spyOn(cap, 'sendUpstream')
+    try {
+      await cap.captureCommand('url', ['https://x'], undefined, undefined)
+      const firstId = (cap.commandsLog[0] as { _id?: number })._id ?? -1
+      cap.replaceCommand(firstId, 'url', ['https://x'], undefined, undefined)
+      await vi.waitFor(() => expect(reads).toBe(1), { timeout: 2000 })
+      await new Promise((r) => setTimeout(r, 50))
+      expect(send).not.toHaveBeenCalledWith('replaceCommand', expect.anything())
+    } finally {
+      await new Promise<void>((r) => server.close(() => r()))
+    }
   })
 
   it('skips performance capture when error present', async () => {
