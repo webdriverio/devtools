@@ -122,8 +122,16 @@ def condition_label(method: Any) -> str:
 def _cell_repr(cell: Any) -> str:
     try:
         return repr(cell.cell_contents)
-    except ValueError:  # an empty cell: the closure's variable was never bound
+    except Exception:  # noqa: BLE001 - an unbound cell, or a captured object whose __repr__ raises
         return "?"
+
+
+def _safe_label(method: Any) -> str:
+    """``condition_label`` for a path that runs before the user's condition, which a label must never fail."""
+    try:
+        return condition_label(method)
+    except Exception:  # noqa: BLE001 - naming is best effort; the wait must run
+        return type(method).__name__
 
 
 def install(
@@ -182,7 +190,7 @@ def _scope_for(
     called, what it waits for and how many times this evaluation issued it."""
     if outer is None:
         return WaitScope()
-    key = outer.nth(f"wait {call_source(skip_frames())} {condition_label(method)}")
+    key = outer.nth(f"wait {call_source(skip_frames())} {_safe_label(method)}")
     return outer.scope.nested.setdefault(key, WaitScope())
 
 

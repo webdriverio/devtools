@@ -167,6 +167,25 @@ class TestWaitRows(unittest.TestCase):
         self.assertEqual([(r["command"], r["args"][0]) for r in rows][-1], ("wait", "outer"))
         self.assertEqual(len(rows), 2, rows)  # the inner wait's row, then the outer's
 
+    # Regression: a captured object whose __repr__ raised escaped the nested wait's naming and failed the test.
+    def test_a_condition_that_cannot_be_named_still_runs(self):
+        class Unprintable:
+            def __repr__(self):
+                raise RuntimeError("no repr")
+
+        def factory(value):
+            def _predicate(driver):
+                return value is not None
+
+            return _predicate
+
+        driver = PollingDriver()
+
+        def outer(d):
+            return WebDriverWait(d, 0.05, poll_frequency=0.02).until(factory(Unprintable()))
+
+        self.assertTrue(WebDriverWait(driver, 0.2, poll_frequency=0.02).until(outer))
+
     def test_uninstall_restores_selenium_s_methods(self):
         instrumentation.uninstall()
         self.assertFalse(hasattr(WebDriverWait.until, "__wrapped__"))
