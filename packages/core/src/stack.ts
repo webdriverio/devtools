@@ -1,8 +1,74 @@
+import { existsSync, readFileSync } from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { parse as parseStackTrace } from 'stacktrace-parser'
+
+/** The root `package.json` name that identifies this monorepo's checkout. */
+const WORKSPACE_ROOT_NAME = 'devtools-monorepo'
+
+/** This monorepo's `packages/` dir when `fromDir` is inside its checkout; undefined for an installed or user-bundled copy. */
+export function findOwnPackagesDir(fromDir: string): string | undefined {
+  for (let dir = fromDir; ; dir = path.dirname(dir)) {
+    if (existsSync(path.join(dir, 'pnpm-workspace.yaml'))) {
+      return readPackageName(dir) === WORKSPACE_ROOT_NAME
+        ? path.join(dir, 'packages')
+        : undefined
+    }
+    if (path.dirname(dir) === dir) {
+      return undefined
+    }
+  }
+}
+
+function readPackageName(dir: string): string | undefined {
+  try {
+    const pkg = JSON.parse(
+      readFileSync(path.join(dir, 'package.json'), 'utf8')
+    ) as { name?: unknown }
+    return typeof pkg.name === 'string' ? pkg.name : undefined
+  } catch {
+    return undefined
+  }
+}
+
+let ownPackagesDir: string | null | undefined
+
+function resolveOwnPackagesDir(): string | undefined {
+  if (ownPackagesDir === undefined) {
+    try {
+      ownPackagesDir =
+        findOwnPackagesDir(path.dirname(fileURLToPath(import.meta.url))) ?? null
+    } catch {
+      ownPackagesDir = null
+    }
+  }
+  return ownPackagesDir ?? undefined
+}
+
+/** A file under `<packagesDir>/<package>/src/`, which a source-mapped stack (tsx, vitest) names in place of dist/. */
+export function isPackageSource(
+  file: string,
+  packagesDir: string | undefined
+): boolean {
+  if (!packagesDir) {
+    return false
+  }
+  try {
+    const filePath = file.startsWith('file://') ? fileURLToPath(file) : file
+    const relative = path.relative(packagesDir, filePath)
+    if (relative.startsWith('..') || path.isAbsolute(relative)) {
+      return false
+    }
+    return relative.split(path.sep)[1] === 'src'
+  } catch {
+    return false
+  }
+}
 
 /**
  * Return true if a stack frame belongs to user code (not dependencies, Node
- * internals, build output, or a generic `index.js` entry point).
+ * internals, build output, this monorepo's own sources, or a generic
+ * `index.js` entry point).
  */
 export function isUserCodeFrame(frame: {
   file?: string | null
@@ -14,7 +80,8 @@ export function isUserCodeFrame(frame: {
     !file.includes('<anonymous>') &&
     !file.includes('node:internal') &&
     !file.includes('/dist/') &&
-    !file.endsWith('/index.js')
+    !file.endsWith('/index.js') &&
+    !isPackageSource(file, resolveOwnPackagesDir())
   )
 }
 
@@ -52,28 +119,37 @@ export function isAssertFromUserCode(stack: string | undefined): boolean {
   return !!caller && isUserCodeFrame(caller)
 }
 
+/** A user call site, or none at all when no frame on the stack is user code. */
+export type CallSourceInfo =
+  | { filePath: string; callSource: string }
+  | { filePath: undefined; callSource: undefined }
+
+const NO_CALL_SOURCE: CallSourceInfo = {
+  filePath: undefined,
+  callSource: undefined
+}
+
 /**
  * Capture `{ filePath, callSource }` for the first user-code frame on the
  * stack. `callSource` is `<file>:<line>` for the UI's source-location displays;
- * returns `'unknown:0'` (and `undefined` filePath) when no user frame can be
- * found. `stack` defaults to the live stack; callers with a pre-captured stack
- * (e.g. the assert wrapper) pass it so the frame offsets line up.
+ * both are undefined when no user frame can be found. `stack` defaults to the
+ * live stack; callers with a pre-captured stack (e.g. the assert wrapper) pass
+ * it so the frame offsets line up.
  */
 export function getCallSourceFromStack(
   stack: string | undefined = new Error().stack
-): {
-  filePath: string | undefined
-  callSource: string
-} {
+): CallSourceInfo {
   if (!stack) {
-    return { filePath: undefined, callSource: 'unknown:0' }
+    return NO_CALL_SOURCE
   }
-
-  const frame = parseStackTrace(stack).find(isUserCodeFrame)
-  if (!frame?.file) {
-    return { filePath: undefined, callSource: 'unknown:0' }
+  try {
+    const frame = parseStackTrace(stack).find(isUserCodeFrame)
+    if (!frame?.file) {
+      return NO_CALL_SOURCE
+    }
+    const filePath = normalizeFilePath(frame.file)
+    return { filePath, callSource: `${filePath}:${frame.lineNumber ?? 0}` }
+  } catch {
+    return NO_CALL_SOURCE
   }
-
-  const filePath = normalizeFilePath(frame.file)
-  return { filePath, callSource: `${filePath}:${frame.lineNumber ?? 0}` }
 }

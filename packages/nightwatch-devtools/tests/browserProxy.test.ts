@@ -228,7 +228,7 @@ describe('BrowserProxy internal-command suppression', () => {
     // Nightwatch's queue: no user frame, so getCallSourceFromStack returns none.
     getCallSourceFromStack.mockReturnValue({
       filePath: undefined,
-      callSource: 'unknown:0'
+      callSource: undefined
     })
     const proxy = new BrowserProxy(capturer, makeTestManager(), () => ({
       uid: 'test-1'

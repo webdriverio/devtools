@@ -23,7 +23,7 @@ const USER_FRAME = {
   filePath: '/specs/login.ts',
   callSource: '/specs/login.ts:12:3'
 }
-const INTERNAL_FRAME = { filePath: undefined, callSource: 'unknown:0' }
+const INTERNAL_FRAME = { filePath: undefined, callSource: undefined }
 
 // Snapshot real methods once so each test starts from a fresh assert. Both the
 // default namespace and `assert.strict` are patched, so restore both.
@@ -141,7 +141,7 @@ describe('patchNodeAssert', () => {
 
   // Only assertions that originate in user test code should reach the trace.
   // Dependency/framework-internal asserts have no user-code frame on the
-  // stack (getCallSourceFromStack yields 'unknown:0') and must be dropped.
+  // stack (getCallSourceFromStack yields no call source) and must be dropped.
   describe('user-origin filtering', () => {
     it('drops a passing assert that has no user-code frame', () => {
       vi.mocked(getCallSourceFromStack).mockReturnValue(INTERNAL_FRAME)
