@@ -50,7 +50,7 @@ Want a portable artifact instead of a live UI (CI / agent diffing)? Switch to **
 | One row per command in the Actions list | ✅ tested | ✅ tested | ✅ tested | ✅ tested |
 | Screenshot on every command row | ✅ | ✅ | ✅ | ✅ |
 | Browser console logs | ✅ | ✅ | ✅ | ✅ |
-| Source tab opens the test line that ran the command | ✅ | ✅ | ✅ | ✅ |
+| Source tab opens the test line that ran the command | ✅ tested | ✅ tested | ✅ tested | ✅ tested |
 | Metadata tab (session, capabilities, device) | ✅ | ✅ | ✅ | ✅ |
 | Performance timings on navigation rows | ✅ | ✅ | ✅ | ✅ |
 | Failed command in the Errors tab, with the browser's message | ✅ tested | ✅ tested | ✅ tested | ✅ tested |

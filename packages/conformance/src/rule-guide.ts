@@ -75,6 +75,27 @@ export const RULE_GUIDE: Record<RuleId, RuleGuide> = {
       'Run capabilities are declared without a launchCommand, a rerunCommand or a configFile the backend can rerun. Derive capabilities from what exists.',
     responsibility: 'transport'
   },
+  'failed-test-has-error-row': {
+    meaning:
+      'A test failed, but none of its rows carries an error, so the Actions list and the Errors tab show a test that simply stopped.',
+    cause:
+      'The step that failed (an element wait, an assertion) is not a captured command, or its failure is caught without being recorded on a row.',
+    responsibility: 'command-interception'
+  },
+  'call-site-names-the-scenario': {
+    meaning:
+      "A row's call site points somewhere other than the line of the spec that issued it, often into DevTools' own code.",
+    cause:
+      "The stack walk does not skip the adapter's own frames, or reads them before source maps rewrite their paths (tsx, vitest).",
+    responsibility: 'command-interception'
+  },
+  'every-test-has-rows': {
+    meaning:
+      'A test the suite tree shows has no rows, so selecting it shows nothing it did.',
+    cause:
+      'Test hooks are registered after the test started, or rows are stamped with a test uid the tree does not carry.',
+    responsibility: 'framework-hooks'
+  },
   'tests-end-as-designed': {
     meaning:
       'The dashboard shows a scenario test in a state other than the one it was written to end in, or not at all: a passing test shown failed or skipped, or a test missing from the tree.',

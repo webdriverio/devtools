@@ -156,7 +156,8 @@ const report = (
     failedNavigations: [],
     actions: { navigate: [], click: [], fill: [] },
     requests: [],
-    bidi
+    bidi,
+    scenarioFile: { paths: [], lines: 0 }
   },
   violations,
   unexplained: [],

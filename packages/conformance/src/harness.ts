@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process'
+import { readFileSync, realpathSync } from 'node:fs'
 
 import { REUSE_ENV } from '@wdio/devtools-shared'
 
@@ -18,6 +19,7 @@ import type {
   AdapterScenario,
   BidiMode,
   RunReport,
+  ScenarioFile,
   ScenarioRun
 } from './types.js'
 
@@ -74,28 +76,33 @@ export async function runAdapter(
   bidi: BidiMode
 ): Promise<RunReport> {
   const launch = adapter.prepare()
+  let scenarioFile: ScenarioFile = { paths: [launch.scenarioFile], lines: 0 }
   let run: ScenarioRun
   try {
+    // Read before the run: a scenario run from a copy is gone once cleanup has removed it.
+    scenarioFile = readScenarioFile(launch.scenarioFile)
     run = await runScenario(launch.command, launch.args, {
       env: launch.env,
       cwd: launch.cwd,
       bidi
     })
   } catch (err) {
-    return unrunReport(adapter.id, bidi, String(err))
+    return unrunReport(adapter.id, bidi, scenarioFile, String(err))
   } finally {
     launch.cleanup?.()
   }
   // A checker that throws on a malformed frame must not take the recorded evidence with it.
+  const truth = { ...run.truth, scenarioFile }
   try {
     const violations = [
-      ...checkConformance(run.frames, run.truth),
+      ...checkConformance(run.frames, truth),
       ...checkTestOutcomes(run.frames)
     ]
     return {
       adapter: adapter.id,
       bidi,
       ...run,
+      truth,
       violations,
       ...judge(adapter.id, bidi, violations)
     }
@@ -104,6 +111,7 @@ export async function runAdapter(
       adapter: adapter.id,
       bidi,
       ...run,
+      truth,
       violations: [],
       unexplained: [],
       stale: [],
@@ -112,9 +120,19 @@ export async function runAdapter(
   }
 }
 
+/** The spec's facts, under every spelling a stack trace may give its path. */
+function readScenarioFile(file: string): ScenarioFile {
+  const text = readFileSync(file, 'utf8')
+  return {
+    paths: [...new Set([file, realpathSync(file)])],
+    lines: text.split('\n').length - (text.endsWith('\n') ? 1 : 0)
+  }
+}
+
 function unrunReport(
   adapter: AdapterId,
   bidi: BidiMode,
+  scenarioFile: ScenarioFile,
   output: string
 ): RunReport {
   return {
@@ -128,7 +146,8 @@ function unrunReport(
       failedNavigations: [],
       actions: { navigate: [], click: [], fill: [] },
       requests: [],
-      bidi
+      bidi,
+      scenarioFile
     },
     violations: [],
     unexplained: [],

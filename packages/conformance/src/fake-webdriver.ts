@@ -30,7 +30,7 @@ import type {
   BidiMode,
   BrowserRequest,
   FailedNavigation,
-  GroundTruth,
+  BrowserTruth,
   PageDocument
 } from './types.js'
 
@@ -104,7 +104,7 @@ export class FakeWebDriver {
     return `${this.origin}${path}`
   }
 
-  truth(): GroundTruth {
+  truth(): BrowserTruth {
     return {
       documents: this.#documents.map(({ url, bornAt }) => ({ url, bornAt })),
       failedNavigations: [...this.#failedNavigations],

@@ -14,6 +14,7 @@ import {
   tested,
   unsupported
 } from './capability-helpers.js'
+import { RULES } from './constants.js'
 import type { Feature } from './types.js'
 
 const WDIO = ADAPTER_TESTS['devtools-service']
@@ -271,12 +272,7 @@ export const FEATURES = [
     id: 'source-tab',
     name: 'Source tab opens the test line that ran the command',
     tables: ['readme-dashboard', 'cross-framework'],
-    cells: {
-      'devtools-service': covered(`${WDIO}session.test.ts`),
-      'selenium-devtools': covered(`${SELENIUM}index.test.ts`),
-      'nightwatch-devtools': covered(`${NIGHTWATCH}browserProxy.test.ts`),
-      'selenium-devtools-py': covered(`${PYTHON}test_pytest_plugin.py`)
-    }
+    cells: allTested([RULES.callSiteInScenario])
   },
   {
     id: 'metadata-tab',
@@ -306,7 +302,13 @@ export const FEATURES = [
     id: 'failed-command-errors',
     name: "Failed command in the Errors tab, with the browser's message",
     tables: ['readme-dashboard', 'cross-framework'],
-    cells: allTested(ERROR_RULES)
+    // Nightwatch and Python hold gaps on a failed test's error row (#458, #461), so only the others are tested on it.
+    cells: {
+      'devtools-service': tested([...ERROR_RULES, RULES.failedTestExplained]),
+      'selenium-devtools': tested([...ERROR_RULES, RULES.failedTestExplained]),
+      'nightwatch-devtools': tested(ERROR_RULES),
+      'selenium-devtools-py': tested(ERROR_RULES)
+    }
   },
   {
     id: 'run-controls',

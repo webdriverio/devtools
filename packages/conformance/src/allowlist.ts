@@ -5,7 +5,13 @@ import {
   KNOWN_DEBT,
   RULES
 } from './constants.js'
-import { anyOf, hunk, moved, reportedAs } from './gap-matchers.js'
+import {
+  anyOf,
+  failureUnexplained,
+  hunk,
+  moved,
+  reportedAs
+} from './gap-matchers.js'
 import { scenarioIndex } from './scenario-tests.js'
 import type {
   AdapterId,
@@ -94,6 +100,14 @@ function nightwatchGaps(bidi: BidiMode): KnownGap[] {
       rules: [RULES.testsAsDesigned],
       only: reportedAs(LOGIN, 'failed'),
       reason: KNOWN_DEBT.nightwatchWaitOrder,
+      timingDependent: true
+    },
+    {
+      adapter,
+      bidi,
+      rules: [RULES.failedTestExplained],
+      only: failureUnexplained(HEADING),
+      reason: KNOWN_DEBT.nightwatchSameMsReplace,
       timingDependent: true
     },
     {
@@ -202,6 +216,13 @@ function pythonGaps(bidi: BidiMode): KnownGap[] {
       bidi,
       rules: [RULES.agreeOnActions],
       lacksSteps: ['Element.waitForExist'],
+      reason: KNOWN_DEBT.pythonWait
+    },
+    {
+      adapter,
+      bidi,
+      rules: [RULES.failedTestExplained],
+      only: failureUnexplained(MISSING),
       reason: KNOWN_DEBT.pythonWait
     },
     {
