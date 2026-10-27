@@ -276,6 +276,41 @@ describe('checkConformance', () => {
     expect(rules(frames)).toContain(RULES.replaceTargetsRow)
   })
 
+  // Regression: a wait's later poll replaced its row under a new stamp, and the next poll's replace was flagged.
+  it('accepts a replaceCommand naming the stamp an earlier replacement gave its row', () => {
+    const poll = (timestamp: number) => row('findElements', [], 0, timestamp)
+    const frames = [
+      ...conformingStream(),
+      { scope: 'commands', data: [poll(370)] },
+      {
+        scope: 'replaceCommand',
+        data: { oldTimestamp: 370, command: poll(380) }
+      },
+      {
+        scope: 'replaceCommand',
+        data: { oldTimestamp: 380, command: poll(390) }
+      }
+    ]
+    expect(rules(frames)).toEqual([])
+  })
+
+  it('flags a replaceCommand naming a stamp its row has since given up', () => {
+    const poll = (timestamp: number) => row('findElements', [], 0, timestamp)
+    const frames = [
+      ...conformingStream(),
+      { scope: 'commands', data: [poll(370)] },
+      {
+        scope: 'replaceCommand',
+        data: { oldTimestamp: 370, command: poll(380) }
+      },
+      {
+        scope: 'replaceCommand',
+        data: { oldTimestamp: 370, command: poll(390) }
+      }
+    ]
+    expect(rules(frames)).toEqual([RULES.replaceTargetsRow])
+  })
+
   it('flags a row the browser saw but the stream lost', () => {
     const frames = conformingStream().filter(
       (f) => !JSON.stringify(f.data).includes('"click"')

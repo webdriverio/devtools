@@ -1,5 +1,9 @@
-import type { CommandLog, Metadata } from '@wdio/devtools-shared'
-import { mapCommandToAction } from '@wdio/devtools-shared'
+import type { CommandLog, Metadata, TraceAction } from '@wdio/devtools-shared'
+import {
+  ASSERT_ACTION_CLASS,
+  commandFailure,
+  mapCommandToAction
+} from '@wdio/devtools-shared'
 
 import {
   advertisedRunControls,
@@ -8,6 +12,7 @@ import {
   servesRunControls
 } from './checker.js'
 import { SCOPES } from './constants.js'
+import { reportedTests, scenarioTestOf } from './scenario-tests.js'
 import type {
   NormalizedRun,
   NormalizedStep,
@@ -18,6 +23,7 @@ import type {
 /** A run reduced to what a dashboard user sees: everything an adapter may legitimately vary is dropped. */
 export function normalizeRun(frames: WireFrame[]): NormalizedRun {
   const { rows, anchors, requests } = readStream(frames)
+  const tests = reportedTests(frames)
   const steps = rows
     .map((row): NormalizedStep | undefined => {
       const action = mapCommandToAction(row.command)
@@ -29,9 +35,10 @@ export function normalizeRun(frames: WireFrame[]): NormalizedRun {
         action: `${action.class}.${action.method}`,
         target: targetOf(row),
         ...(action.method === 'fill' ? { input: inputOf(row) } : {}),
-        outcome: row.error ? `error: ${row.error.message.trim()}` : 'ok',
+        outcome: outcomeOf(row, action),
         page: shown?.url ? pathOf(shown.url) : '(none)',
-        at: row.timestamp
+        at: row.timestamp,
+        test: scenarioTestOf(tests, row)
       }
     })
     .filter((s): s is NormalizedStep => s !== undefined)
@@ -42,6 +49,17 @@ export function normalizeRun(frames: WireFrame[]): NormalizedRun {
     // Sorted: adapters list the same loads in whatever order their sources delivered them.
     requests: requests.map((r) => pathOf(r.url)).sort()
   }
+}
+
+// The shared failure rule decides failed; an assertion or a wait is worded by its binding, so only the browser's own message is compared.
+function outcomeOf(row: CommandLog, action: TraceAction): string {
+  const failure = commandFailure(row, action)
+  if (!failure) {
+    return 'ok'
+  }
+  const judgedByClient =
+    action.class === ASSERT_ACTION_CLASS || action.method.startsWith('waitFor')
+  return judgedByClient ? 'failed' : `error: ${failure.message.trim()}`
 }
 
 // Ports differ per run, so a url compares by its path.

@@ -75,6 +75,13 @@ export const RULE_GUIDE: Record<RuleId, RuleGuide> = {
       'Run capabilities are declared without a launchCommand, a rerunCommand or a configFile the backend can rerun. Derive capabilities from what exists.',
     responsibility: 'transport'
   },
+  'tests-end-as-designed': {
+    meaning:
+      'The dashboard shows a scenario test in a state other than the one it was written to end in, or not at all: a passing test shown failed or skipped, or a test missing from the tree.',
+    cause:
+      'Capture changed what the test did (a command run out of order, a test aborted), or the suite tree reports a test state the runner did not.',
+    responsibility: 'framework-hooks'
+  },
   'adapters-agree-on-actions': {
     meaning:
       'For the same scenario, the adapters report a different sequence of user actions.',

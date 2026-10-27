@@ -3,8 +3,10 @@ import { describe, expect, it } from 'vitest'
 import type { RunnerOptions } from '@wdio/devtools-shared'
 
 import { compareRuns, judgeDivergences } from '../src/agreement.js'
-import { RULES } from '../src/constants.js'
+import { covers, declaresLacks, KNOWN_GAPS } from '../src/allowlist.js'
+import { KNOWN_DEBT, RULES, SCENARIO_TESTS } from '../src/constants.js'
 import { normalizeRun } from '../src/normalize.js'
+import { scenarioIndex } from '../src/scenario-tests.js'
 import { renderReport } from '../src/report-html.js'
 import type {
   AdapterId,
@@ -58,6 +60,10 @@ interface Variant {
   options?: RunnerOptions
   /** Paths the Network tab lists, as the page's Resource Timing rows. */
   requests?: string[]
+  /** Rows after the fill, each one stamped 10 ms after the last. */
+  more?: Record<string, unknown>[]
+  /** The tests the suites frame reports, as [title, start ms]. */
+  tests?: [string, number][]
 }
 
 /** One adapter's stream for: navigate to /login, type into #username. */
@@ -69,7 +75,9 @@ function stream(
     text = 'tom',
     anchors = [['/login', 10]],
     options = RUN_ALL,
-    requests = ['/login']
+    requests = ['/login'],
+    more = [],
+    tests = []
   }: Variant = {}
 ): WireFrame[] {
   const url = (path: string) => `http://127.0.0.1:${port}${path}`
@@ -91,10 +99,34 @@ function stream(
           startTime: 30,
           timestamp: 40,
           ...(error ? { error: { name: 'Error', message: error } } : {})
-        }
+        },
+        ...more.map((row, i) => ({
+          args: [],
+          startTime: 45 + i * 10,
+          timestamp: 50 + i * 10,
+          ...row
+        }))
       ]
     },
     { scope: 'mutations', data: anchors.map(([p, ts]) => anchor(url(p), ts)) },
+    {
+      scope: 'suites',
+      data: [
+        {
+          suite: {
+            uid: 'suite',
+            title: 'conformance',
+            tests: tests.map(([title, start], i) => ({
+              uid: `t${i}`,
+              title,
+              state: 'passed',
+              start: new Date(start).toISOString()
+            })),
+            suites: []
+          }
+        }
+      ]
+    },
     {
       scope: 'networkRequests',
       data: requests.map((path, i) => ({
@@ -172,7 +204,8 @@ describe('normalizeRun', () => {
       input: 'tom',
       outcome: 'ok',
       page: '/login',
-      at: 40
+      at: 40,
+      test: -1
     })
   })
 
@@ -205,7 +238,9 @@ describe('compareRuns', () => {
       report('selenium-devtools-py', stream(2, PY, { text: 'wrong' }))
     ])
     expect(divergences.map((d) => d.rule)).toEqual([RULES.agreeOnActions])
-    expect(divergences[0].message).toContain('types "tom" vs "wrong"')
+    expect(divergences[0].message).toContain(
+      'selenium-devtools types "tom", selenium-devtools-py types "wrong"'
+    )
   })
 
   it('flags a step that fails with different text', () => {
@@ -285,7 +320,7 @@ describe('judgeDivergences', () => {
     )
     const { unexplained } = judgeDivergences(compareRuns([js, py]), [js, py])
     expect(unexplained.map((d) => d.rule)).toEqual([RULES.agreeOnPages])
-    expect(unexplained[0].message).toContain('step 2')
+    expect(unexplained[0].message).toContain('Element.fill #username: ')
   })
 
   // Regression: a gap excused any matching difference, so it masked the OTHER adapter regressing.
@@ -347,24 +382,29 @@ describe('judgeDivergences', () => {
     )
     const py = report('selenium-devtools-py', stream(2, PY), 'live')
     const { unexplained } = judgeDivergences(compareRuns([js, py]), [js, py])
-    expect(unexplained).toHaveLength(3)
+    expect(
+      unexplained.filter((d) => d.rule === RULES.agreeOnPages)
+    ).toHaveLength(2)
   })
 
-  /** Nightwatch, served by its config file, against Selenium offering every control. */
-  const nightwatchAgainstSelenium = (
+  /** Nightwatch, served by its config file, against the WDIO service offering every control. */
+  const nightwatchAgainstService = (
     runCapabilities: RunnerOptions['runCapabilities']
   ) => {
     const options = { runCapabilities, configFile: 'nightwatch.conf.cjs' }
     const nw = report('nightwatch-devtools', stream(1, NW, { options }))
     const js = report(
-      'selenium-devtools',
+      'devtools-service',
       stream(2, JS, { options: EVERY_CONTROL })
     )
-    return judgeDivergences(compareRuns([nw, js]), [nw, js])
+    const judged = judgeDivergences(compareRuns([nw, js]), [nw, js])
+    // Only the run-controls gap is under test; the scenario's other gaps have nothing to match in this stream.
+    const stale = judged.stale.filter((g) => g.lacksRunControls)
+    return { ...judged, stale }
   }
 
   it('excuses only the run control the gap declares absent', () => {
-    const { unexplained, explained, stale } = nightwatchAgainstSelenium({
+    const { unexplained, explained, stale } = nightwatchAgainstService({
       canRunAll: false,
       canRunSuites: true,
       canRunTests: true
@@ -376,23 +416,320 @@ describe('judgeDivergences', () => {
 
   // Regression: any run-controls difference was explained once Nightwatch held its gap, so a lost control passed.
   it('does not excuse a run control the holder lost since declaring its gap', () => {
-    const { unexplained } = nightwatchAgainstSelenium({
+    const { unexplained } = nightwatchAgainstService({
       canRunAll: false,
       canRunSuites: true,
       canRunTests: false
     })
     expect(unexplained.map((d) => d.rule)).toEqual([RULES.agreeOnRunControls])
     expect(unexplained[0].message).toContain(
-      'canRunSuites; served vs canRunAll, canRunSuites, canRunTests; served'
+      'canRunAll, canRunSuites, canRunTests; served vs canRunSuites; served'
     )
   })
 
   it('reports a comparison gap that no longer occurs as stale', () => {
-    const { unexplained, stale } = nightwatchAgainstSelenium(
+    const { unexplained, stale } = nightwatchAgainstService(
       EVERY_CONTROL.runCapabilities
     )
     expect(unexplained).toEqual([])
     expect(stale.map((g) => g.adapter)).toEqual(['nightwatch-devtools'])
+  })
+})
+
+describe('a gap that declares what its holder lacks', () => {
+  const wait = { command: 'waitForExist', selector: '#flash' }
+  const assertion = (selector?: string) => ({
+    command: 'assert.equal',
+    args: ['a', 'a'],
+    ...(selector ? { selector } : {})
+  })
+  const service = () =>
+    report(
+      'devtools-service',
+      stream(1, JS, { more: [wait, assertion('#flash')] })
+    )
+
+  it('drops the lacked step and target from both sides and compares the rest', () => {
+    const py = report(
+      'selenium-devtools-py',
+      stream(2, PY, { more: [assertion()] })
+    )
+    const runs = [service(), py]
+    expect(compareRuns(runs)).toEqual([])
+    expect(judgeDivergences([], runs).stale.filter(declaresLacks)).toEqual([])
+  })
+
+  it('excuses nothing else: a difference past the lacked step still fails', () => {
+    const py = report(
+      'selenium-devtools-py',
+      stream(2, PY, { more: [{ ...assertion(), command: 'assert.notEqual' }] })
+    )
+    const runs = [service(), py]
+    const { unexplained } = judgeDivergences(compareRuns(runs), runs)
+    expect(unexplained.map((d) => d.rule)).toEqual([RULES.agreeOnActions])
+    expect(unexplained[0].message).toContain('Assert.notEqual')
+  })
+
+  it('goes stale once the holder shows the step it declared lacking', () => {
+    const py = report(
+      'selenium-devtools-py',
+      stream(2, PY, { more: [wait, assertion()] })
+    )
+    const { stale } = judgeDivergences([], [service(), py])
+    expect(stale.filter(declaresLacks).map((g) => g.lacksSteps)).toEqual([
+      ['Element.waitForExist']
+    ])
+  })
+})
+
+describe('covers', () => {
+  const gap = {
+    adapter: 'nightwatch-devtools' as const,
+    bidi: 'live' as const,
+    rules: [RULES.agreeOnActions],
+    reason: ''
+  }
+  const at = (message: string): Violation => ({
+    rule: RULES.agreeOnActions,
+    message
+  })
+
+  it('narrows a gap to the divergence its `only` names', () => {
+    const scoped = { ...gap, only: (m: string) => m.startsWith('step 5 is') }
+    expect(covers(scoped, at('step 5 is A vs B'))).toBe(true)
+    expect(covers(scoped, at('step 6 is A vs B'))).toBe(false)
+    expect(covers(gap, at('step 6 is A vs B'))).toBe(true)
+  })
+
+  it('never lets a gap that declares a lack excuse a divergence', () => {
+    expect(
+      covers({ ...gap, lacksSteps: ['Element.waitForExist'] }, at('step 1'))
+    ).toBe(false)
+  })
+})
+
+describe('comparing past a difference', () => {
+  const failed = { name: 'AssertionError', message: 'x' }
+
+  it('still reports a later outcome difference after an excused one', () => {
+    const js = report(
+      'devtools-service',
+      stream(1, JS, {
+        more: [
+          { command: 'waitForExist', selector: '#flash' },
+          { command: 'assert.equal' }
+        ]
+      })
+    )
+    const py = report(
+      'selenium-devtools-py',
+      stream(2, PY, { more: [{ command: 'assert.equal', error: failed }] })
+    )
+    const runs = [js, py]
+    const { unexplained } = judgeDivergences(compareRuns(runs), runs)
+    expect(unexplained.map((d) => d.rule)).toEqual([RULES.agreeOnErrors])
+    expect(unexplained[0].message).toContain(
+      'Assert.equal: devtools-service ok, selenium-devtools-py failed'
+    )
+  })
+
+  it('reports a missing step as its own difference and still compares every step after it', () => {
+    const js = report(
+      'devtools-service',
+      stream(1, JS, {
+        more: [
+          { command: 'getText', selector: 'h2' },
+          { command: 'assert.equal' }
+        ]
+      })
+    )
+    const nw = report(
+      'nightwatch-devtools',
+      stream(2, NW, { more: [{ command: 'assert.equal', error: failed }] })
+    )
+    const divergences = compareRuns([js, nw])
+    expect(divergences.map((d) => d.rule)).toEqual([
+      RULES.agreeOnActions,
+      RULES.agreeOnErrors
+    ])
+    expect(divergences[0].message).toContain(
+      'after Element.fill #username: devtools-service shows [Element.getText h2], nightwatch-devtools shows []'
+    )
+  })
+
+  it('never pairs a step with one from another test', () => {
+    const tests: [string, number][] = [
+      [SCENARIO_TESTS[0].title, 0],
+      [SCENARIO_TESTS[1].title, 45]
+    ]
+    const click = { command: 'click', selector: '#logout' }
+    const js = report(
+      'devtools-service',
+      stream(1, JS, { tests, more: [click] })
+    )
+    const nw = report(
+      'nightwatch-devtools',
+      stream(2, NW, { tests: [tests[0], [tests[1][0], 100]], more: [click] })
+    )
+    const messages = compareRuns([js, nw]).map((d) => d.message)
+    expect(messages).toEqual([
+      expect.stringContaining(
+        `test "${SCENARIO_TESTS[0].title}", after Element.fill #username: devtools-service shows [], nightwatch-devtools shows [Element.click #logout]`
+      ),
+      expect.stringContaining(
+        `test "${SCENARIO_TESTS[1].title}", after its start: devtools-service shows [Element.click #logout], nightwatch-devtools shows []`
+      )
+    ])
+  })
+})
+
+describe('a lack its holder contradicts', () => {
+  it('reports a renamed step where the lacked one stood, and calls the lack stale', () => {
+    const js = report(
+      'devtools-service',
+      stream(1, JS, { more: [{ command: 'waitForExist', selector: '#flash' }] })
+    )
+    const py = report(
+      'selenium-devtools-py',
+      stream(2, PY, { more: [{ command: 'waitUntil' }] })
+    )
+    const runs = [js, py]
+    const { unexplained, stale } = judgeDivergences(compareRuns(runs), runs)
+    expect(unexplained.map((d) => d.message)).toEqual([
+      expect.stringContaining(
+        'devtools-service shows [Element.waitForExist #flash], selenium-devtools-py shows [Browser.waitForFunction]'
+      )
+    ])
+    expect(stale.filter((g) => g.lacksSteps).map((g) => g.lacksSteps)).toEqual([
+      ['Element.waitForExist']
+    ])
+  })
+})
+
+const titleOf = (title: string) => SCENARIO_TESTS[scenarioIndex(title)].title
+const WAITS = titleOf('waits on what the page shows')
+const LOGIN = titleOf('logs in and reads the greeting')
+
+const gapOf = (adapter: string, reason: string, rule = RULES.agreeOnActions) =>
+  KNOWN_GAPS.find(
+    (g) =>
+      g.adapter === adapter &&
+      g.bidi === 'live' &&
+      g.reason === reason &&
+      g.rules.includes(rule)
+  )!
+
+describe('a gap scoped to one hunk', () => {
+  const gap = gapOf('selenium-devtools', KNOWN_DEBT.conditionWait)
+  const reads =
+    'Element.getText #flash, Element.getText h2, Element.getText #flash'
+  const waits = 'Browser.waitForFunction, Browser.waitForFunction'
+  const hunk = (first: string, second: string): Violation => ({
+    rule: RULES.agreeOnActions,
+    message: `a vs b: test "${WAITS}", after Element.getText #flash: ${first}, ${second}`
+  })
+
+  it('matches its holder whichever side is the reference', () => {
+    const own = `selenium-devtools shows [${reads}]`
+    expect(covers(gap, hunk(`devtools-service shows [${waits}]`, own))).toBe(
+      true
+    )
+    expect(
+      covers(gap, hunk(own, `selenium-devtools-py shows [${waits}]`))
+    ).toBe(true)
+  })
+
+  // A condition's second read folded over its first is a different hunk, so the gap does not hide it.
+  it('matches nothing else in that place', () => {
+    const folded =
+      'selenium-devtools shows [Element.getText h2, Element.getText #flash]'
+    expect(covers(gap, hunk(`devtools-service shows [${waits}]`, folded))).toBe(
+      false
+    )
+  })
+})
+
+describe('a step one adapter shows at another place', () => {
+  const flashWait = { command: 'waitForExist', selector: '#flash' }
+  const read = { command: 'getText', selector: '#flash' }
+  const tests: [string, number][] = [[LOGIN, 0]]
+
+  it('is one move, excused only by the gap that names it', () => {
+    const js = report(
+      'devtools-service',
+      stream(1, JS, { tests, more: [flashWait, read] })
+    )
+    const nw = report(
+      'nightwatch-devtools',
+      stream(2, NW, { tests, more: [read, flashWait] })
+    )
+    const divergences = compareRuns([js, nw])
+    expect(divergences.map((d) => d.message)).toEqual([
+      expect.stringContaining(
+        `test "${LOGIN}": Element.waitForExist #flash comes after Element.fill #username in devtools-service, after Element.getText #flash in nightwatch-devtools`
+      )
+    ])
+    const waitOrder = gapOf(
+      'nightwatch-devtools',
+      KNOWN_DEBT.nightwatchWaitOrder
+    )
+    const sameMs = gapOf(
+      'nightwatch-devtools',
+      KNOWN_DEBT.nightwatchSameMsReplace
+    )
+    expect(covers(waitOrder, divergences[0])).toBe(false)
+    expect(covers(sameMs, divergences[0])).toBe(false)
+  })
+
+  it('leaves what the move did not explain to its own gap', () => {
+    const waitOrder = gapOf(
+      'nightwatch-devtools',
+      KNOWN_DEBT.nightwatchWaitOrder
+    )
+    const overwrite: Violation = {
+      rule: RULES.agreeOnActions,
+      message: `devtools-service vs nightwatch-devtools: test "${LOGIN}", after Element.getText #flash: devtools-service shows [Assert.equal #flash], nightwatch-devtools shows [Element.getText #flash]`
+    }
+    const move: Violation = {
+      rule: RULES.agreeOnActions,
+      message: `devtools-service vs nightwatch-devtools: test "${LOGIN}": Element.waitForExist #flash comes after Element.click button[type="submit"] in devtools-service, after Assert.equal #flash in nightwatch-devtools`
+    }
+    expect(covers(waitOrder, move)).toBe(true)
+    expect(covers(waitOrder, overwrite)).toBe(false)
+    expect(
+      covers(
+        gapOf('nightwatch-devtools', KNOWN_DEBT.nightwatchSameMsReplace),
+        overwrite
+      )
+    ).toBe(true)
+  })
+})
+
+describe('a lack nothing checks', () => {
+  const flashWait = { command: 'waitForExist', selector: '#flash' }
+
+  // Every other adapter lacked or excused the service's wait row, so dropping it went unnoticed.
+  it('goes stale when the side it is compared with never shows the step either', () => {
+    const js = report('devtools-service', stream(1, JS))
+    const se = report('selenium-devtools', stream(2, JS))
+    const runs = [js, se]
+    const { stale } = judgeDivergences(compareRuns(runs), runs)
+    expect(stale.filter(declaresLacks).map((g) => g.lacksSteps)).toEqual([
+      ['Element.waitForExist #flash']
+    ])
+    const withWait = report(
+      'devtools-service',
+      stream(1, JS, { more: [flashWait] })
+    )
+    const judged = judgeDivergences(compareRuns([withWait, se]), [withWait, se])
+    expect(judged.stale.filter(declaresLacks)).toEqual([])
+  })
+
+  it('is not judged without the adapter it is matched against', () => {
+    const nw = report('nightwatch-devtools', stream(1, NW))
+    const se = report('selenium-devtools', stream(2, JS))
+    const { stale } = judgeDivergences(compareRuns([nw, se]), [nw, se])
+    expect(stale.filter((g) => g.adapter === 'selenium-devtools')).toEqual([])
   })
 })
 
@@ -415,13 +752,61 @@ describe('the agreement section of the report', () => {
   it('shows a stale comparison gap instead of calling the mode agreed', () => {
     const html = renderReport([
       report('nightwatch-devtools', stream(1, NW, { options: EVERY_CONTROL })),
-      report('selenium-devtools', stream(2, JS, { options: EVERY_CONTROL }))
+      report('devtools-service', stream(2, JS, { options: EVERY_CONTROL }))
     ])
-    expect(html).toContain('STALE GAPS (1)')
+    expect(html).toMatch(/STALE GAPS \(\d+\)/)
     expect(html).toContain(
       'Stale gap</strong> for <code>nightwatch-devtools</code>'
     )
     expect(html).not.toContain('>AGREE<')
+  })
+})
+
+describe('normalizeRun on a failed assertion or wait', () => {
+  // Each binding words these failures itself, so agreement is on the failure, while a browser's own message is compared verbatim.
+  it('reads the outcome as failed, whatever the wording', () => {
+    const failed = (command: string, message: string) => ({
+      command,
+      selector: '#flash',
+      error: { name: 'Error', message }
+    })
+    const run = normalizeRun(
+      stream(1, JS, {
+        error: 'net::ERR_FAILED',
+        more: [
+          failed('assert.equal', "Expected: 'a'"),
+          failed('waitForExist', 'still not existing after 300ms')
+        ]
+      })
+    )
+    expect(run.steps.map((s) => s.outcome)).toEqual([
+      'ok',
+      'error: net::ERR_FAILED',
+      'failed',
+      'failed'
+    ])
+  })
+
+  // Nightwatch reports these without an error: a collapsed result, and a wait's bare `false`.
+  it('reads a row failed by the shared rule even without an error', () => {
+    const run = normalizeRun(
+      stream(1, NW, {
+        more: [
+          { command: 'assert.equal', result: { passed: false } },
+          {
+            command: 'waitForElementPresent',
+            args: ['#missing', 300],
+            result: false
+          },
+          { command: 'isDisplayed', result: false }
+        ]
+      })
+    )
+    expect(run.steps.slice(2).map((s) => s.outcome)).toEqual([
+      'failed',
+      'failed',
+      'ok'
+    ])
   })
 })
 
