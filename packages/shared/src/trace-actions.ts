@@ -114,6 +114,8 @@ export const ACTION_MAP: Record<string, TraceAction> = {
   getCssValue: { class: 'Element', method: 'getCSSProperty' },
   getRect: { class: 'Element', method: 'getRect' },
   getCurrentUrl: { class: 'Page', method: 'getUrl' },
+  // Only a FAILED `driver.wait()` is reported, so its timeout has a row to attach to.
+  wait: { class: 'Browser', method: 'waitForFunction' },
   // Raw W3C protocol names. The JS adapters wrap a client library and report
   // its method names, but an adapter that patches the protocol chokepoint —
   // the Python one, and any future language binding — reports what WebDriver

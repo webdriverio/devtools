@@ -30,8 +30,8 @@ export function captureOrReplaceCommand(opts: {
 }): Promise<CommandLog & { _id?: number }> {
   // One capture at a time per capturer. The driver patcher does not await
   // `onCommand`, so a `wait()` poll arrives while the previous poll's capture
-  // is still awaiting its id, reads the tracker with no id to replace, and
-  // lands as a second row instead of folding into the first.
+  // is still awaiting its id, finds no row recorded on its wait to fold into,
+  // and lands as a second row instead of folding into the first.
   const previous = queues.get(opts.capturer) ?? Promise.resolve()
   const next = previous
     .catch(() => undefined)
@@ -51,34 +51,22 @@ async function captureOrReplaceSerially(opts: {
   const { capturer, retryTracker, test, cmd } = opts
   const error = cmd.error ? toError(cmd.error) : undefined
   const cmdSig = RetryTracker.signature(cmd.command, cmd.args, cmd.callSource)
-  // A framework's own repeat of the user's call (selenium's `wait()` polls from
-  // a timer) has no call site; it folds into the row the user's line produced.
-  const sourceless =
-    cmd.duringWait === true &&
-    cmd.callSource === undefined &&
-    retryTracker.isRetryIgnoringSource(
-      RetryTracker.bareSignature(cmd.command, cmd.args)
-    )
+  const pollKey = JSON.stringify({ command: cmd.command, args: cmd.args })
+  const targetId = cmd.waitScope
+    ? // A wait's poll folds only into a row an earlier poll of the same wait made.
+      cmd.waitScope.rows.get(pollKey)
+    : // A failed wait takes over its polls' row rather than listing beside it.
+      (cmd.concludesWait?.pollRowId ??
+      (retryTracker.isRetry(cmdSig) ? retryTracker.lastId! : undefined))
 
-  if (retryTracker.isRetry(cmdSig) || sourceless) {
-    const previous = capturer.commandsLog.find(
-      (row) =>
-        (row as CommandLog & { _id?: number })._id === retryTracker.lastId
-    )
-    const replaced = capturer.replaceCommand(
-      retryTracker.lastId!,
-      cmd.command,
-      cmd.args.map((a: unknown) => a),
-      error ? undefined : cmd.result,
-      error,
-      test.uid,
-      cmd.callSource ?? previous?.callSource,
-      cmd.timestamp
-    )
-    const entry = replaced.entry as CommandLog & { _id?: number }
-    applyCapturedFields(entry, cmd)
-    retryTracker.setLastId(entry._id ?? null)
-    capturer.sendReplaceCommand(replaced.oldTimestamp, entry)
+  if (targetId !== undefined) {
+    const entry = replaceRow(opts, targetId, error)
+    if (cmd.concludesWait) {
+      retryTracker.recordCapture(cmdSig, entry._id ?? null)
+    } else {
+      retryTracker.setLastId(entry._id ?? null)
+    }
+    notePollRow(cmd, pollKey, entry)
     return entry
   }
 
@@ -94,5 +82,42 @@ async function captureOrReplaceSerially(opts: {
   applyCapturedFields(entry, cmd)
   capturer.sendCommand(entry)
   retryTracker.recordCapture(cmdSig, entry._id ?? null)
+  notePollRow(cmd, pollKey, entry)
   return entry
+}
+
+function replaceRow(
+  opts: { capturer: SessionCapturer; test: TestStats; cmd: CapturedCommand },
+  targetId: number,
+  error: Error | undefined
+): CommandLog & { _id?: number } {
+  const { capturer, test, cmd } = opts
+  const previous = capturer.commandsLog.find(
+    (row) => (row as CommandLog & { _id?: number })._id === targetId
+  )
+  const replaced = capturer.replaceCommand(
+    targetId,
+    cmd.command,
+    cmd.args.map((a: unknown) => a),
+    error ? undefined : cmd.result,
+    error,
+    test.uid,
+    cmd.callSource ?? previous?.callSource,
+    cmd.timestamp
+  )
+  const entry = replaced.entry as CommandLog & { _id?: number }
+  applyCapturedFields(entry, cmd)
+  capturer.sendReplaceCommand(replaced.oldTimestamp, entry)
+  return entry
+}
+
+function notePollRow(
+  cmd: CapturedCommand,
+  pollKey: string,
+  entry: CommandLog & { _id?: number }
+): void {
+  if (cmd.waitScope && entry._id !== undefined) {
+    cmd.waitScope.rows.set(pollKey, entry._id)
+    cmd.waitScope.pollRowId = entry._id
+  }
 }
