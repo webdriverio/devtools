@@ -2,6 +2,7 @@
 ``WebDriverWait`` over a fake driver through the instrumented chokepoint."""
 
 import unittest
+from unittest import mock
 
 from selenium.common.exceptions import NoSuchElementException, TimeoutException
 from selenium.webdriver.common.by import By
@@ -53,13 +54,24 @@ class TestWaitRows(unittest.TestCase):
         return [d for s, d in self.tx.sent if s == scope]
 
     def _rows(self):
-        """The rows as the dashboard holds them once every replace has applied."""
-        rows = [d[0] for d in self._sent("commands")]
-        for replace in self._sent("replaceCommand"):
-            index = next(
-                i for i, r in enumerate(rows) if r["timestamp"] == replace["oldTimestamp"]
-            )
-            rows[index] = replace["command"]
+        """Replay frames in arrival order the way shared `replaceCommand` applies them."""
+        rows = []
+        for scope, data in self.tx.sent:
+            if scope == "commands":
+                rows.extend(data)
+            elif scope == "replaceCommand":
+                command = data["command"]
+                at = next((i for i, r in enumerate(rows) if r["id"] == command["id"]), None)
+                if at is None:
+                    at = next(
+                        (i for i in reversed(range(len(rows)))
+                         if rows[i]["timestamp"] == data["oldTimestamp"]),
+                        None,
+                    )
+                if at is None:
+                    rows.append(command)
+                else:
+                    rows[at] = command
         return rows
 
     def test_a_timed_out_wait_is_one_failed_row_named_after_its_condition(self):
@@ -119,6 +131,20 @@ class TestWaitRows(unittest.TestCase):
         driver.find_element(By.ID, "late")
         driver.find_element(By.ID, "late")
         self.assertEqual(len(self._rows()), 2)
+
+    def test_a_wait_s_polls_replace_its_own_row_when_an_earlier_row_shares_the_millisecond(self):
+        driver = PollingDriver(appears_after=1)
+        with mock.patch("selenium_devtools.capturer.now_ms", return_value=1000):
+            driver.find_element(By.ID, "before")
+            with self.assertRaises(TimeoutException):
+                WebDriverWait(PollingDriver(), 0.1, poll_frequency=0.02).until(
+                    lambda d: d.find_element(By.ID, "late")
+                )
+        rows = self._rows()
+        self.assertEqual(
+            [(r["command"], r["args"][0]) for r in rows],
+            [("findElement", {"using": "id", "value": "before"}), ("wait", "lambda")],
+        )
 
     def test_a_nested_wait_keeps_one_scope_across_outer_polls(self):
         driver = PollingDriver()
