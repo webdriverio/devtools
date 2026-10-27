@@ -384,7 +384,9 @@ function queueActionSnapshot(
     ).then((snap) => {
       if (snap) {
         upsertRichestSnapshot(ctx.actionSnapshots, snap)
-      } else if (initialFrame && !changesPage(cmd.command)) {
+      }
+      if (initialFrame && !snap?.screenshot && !capturer.initialFrameRetried) {
+        capturer.initialFrameRetried = true
         capturer.awaitingInitialFrame = true
       }
     })

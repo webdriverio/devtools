@@ -99,8 +99,52 @@ describe('nightwatch action-snapshot timestamp binding', () => {
     cap.cleanup()
   })
 
-  it('retries the initial frame when the first read captures nothing', async () => {
-    vi.mocked(coreCapture).mockResolvedValueOnce(null)
+  it('attempts the initial frame at most twice when no capture has a screenshot', async () => {
+    vi.mocked(coreCapture)
+      .mockClear()
+      .mockResolvedValue({ timestamp: 1, command: 'getText' })
+    const cap = makeCapturer()
+    for (let t = 1; t <= 4; t++) {
+      await cap.captureCommand('getText', ['#el'], undefined, undefined, {
+        timestamp: t
+      })
+    }
+    await Promise.all(cap.snapshotCaptures)
+    expect(vi.mocked(coreCapture)).toHaveBeenCalledTimes(2)
+    vi.mocked(coreCapture).mockReset()
+    cap.cleanup()
+  })
+
+  it('retries the initial frame when the first capture resolves null', async () => {
+    vi.mocked(coreCapture)
+      .mockClear()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        timestamp: 2,
+        command: 'getText',
+        screenshot: 'AA'
+      })
+    const cap = makeCapturer()
+    for (let t = 1; t <= 3; t++) {
+      await cap.captureCommand('getText', ['#el'], undefined, undefined, {
+        timestamp: t
+      })
+    }
+    await Promise.all(cap.snapshotCaptures)
+    expect(vi.mocked(coreCapture)).toHaveBeenCalledTimes(2)
+    expect(cap.actionSnapshots.map((s) => s.timestamp)).toEqual([2])
+    cap.cleanup()
+  })
+
+  it('retries the initial frame when the first read captures no screenshot', async () => {
+    vi.mocked(coreCapture)
+      .mockClear()
+      .mockResolvedValueOnce({ timestamp: 1, command: 'getText' })
+      .mockResolvedValueOnce({
+        timestamp: 2,
+        command: 'getText',
+        screenshot: 'AA'
+      })
     const cap = makeCapturer()
     const at = (command: string, timestamp: number) =>
       cap.captureCommand(command, ['#el'], undefined, undefined, { timestamp })
@@ -109,7 +153,12 @@ describe('nightwatch action-snapshot timestamp binding', () => {
     await at('getText', 2)
     await at('getText', 3)
     await Promise.all(cap.snapshotCaptures)
-    expect(cap.actionSnapshots.map((s) => s.timestamp)).toEqual([2])
+    expect(vi.mocked(coreCapture)).toHaveBeenCalledTimes(2)
+    expect(cap.actionSnapshots.map((s) => s.timestamp)).toEqual([1, 2])
+    expect(cap.actionSnapshots.map((s) => !!s.screenshot)).toEqual([
+      false,
+      true
+    ])
     cap.cleanup()
   })
 

@@ -80,6 +80,7 @@ export * from './types.js'
 export const launcher = DevToolsAppLauncher
 
 const log = logger('@wdio/devtools-service')
+const INITIAL_CAPTURE_MAX_ATTEMPTS = 2
 
 export { setupForDevtools } from './standalone.js'
 
@@ -161,6 +162,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
    *  the lower bound of that test's video frame window (per-test slicing). */
   #currentTestStartWallTime = 0
   #awaitingInitialCapture = true
+  #initialCaptureAttempts = 0
 
   /** Map of testUid → metadata for trace group events and per-spec partitioning. */
   #testMetadata: TestMetadataMap = new Map()
@@ -383,6 +385,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     this.resetStack()
     this.#currentTestStartWallTime = Date.now()
     this.#awaitingInitialCapture = true
+    this.#initialCaptureAttempts = 0
     this.#currentStepIndex = 0
     this.#currentStepUid = undefined
 
@@ -417,6 +420,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     this.resetStack()
     this.#currentTestStartWallTime = Date.now()
     this.#awaitingInitialCapture = true
+    this.#initialCaptureAttempts = 0
 
     // Track test identity for command tagging. Generate a stable UID
     // from file + title so commands can be partitioned across reruns.
@@ -814,8 +818,14 @@ export default class DevToolsHookService implements Services.ServiceInstance {
         this.#sessionCapturer.currentContext
       )
       if (snap) {
-        this.#awaitingInitialCapture = false
         upsertRichestSnapshot(this.#actionSnapshots, snap)
+      }
+      if (
+        this.#awaitingInitialCapture &&
+        (snap?.screenshot ||
+          ++this.#initialCaptureAttempts >= INITIAL_CAPTURE_MAX_ATTEMPTS)
+      ) {
+        this.#awaitingInitialCapture = false
       }
     }
   }

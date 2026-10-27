@@ -243,10 +243,52 @@ describe('trace mode: one capture per action, taken before it', () => {
       expect(namedAt(1)).toBe('click')
     })
 
-    it('retries the initial capture when the first read captures nothing', async () => {
+    it('retries the initial capture when the first read captures no screenshot', async () => {
       const service = await started()
-      vi.mocked(captureActionSnapshot).mockResolvedValueOnce(null)
+      vi.mocked(captureActionSnapshot)
+        .mockResolvedValueOnce({ timestamp: 1, command: 'getText' })
+        .mockResolvedValueOnce({
+          timestamp: 2,
+          command: 'getText',
+          screenshot: 'AA'
+        })
       await run(service, ['getText', 'getText', 'getText'])
+      expect(vi.mocked(captureActionSnapshot)).toHaveBeenCalledTimes(2)
+    })
+
+    it('attempts the initial capture at most twice when no screenshot lands', async () => {
+      const service = await started()
+      vi.mocked(captureActionSnapshot)
+        .mockResolvedValueOnce({ timestamp: 1, command: 'getText' })
+        .mockResolvedValueOnce({ timestamp: 2, command: 'getText' })
+      await run(service, ['getText', 'getText', 'getText', 'getText'])
+      expect(vi.mocked(captureActionSnapshot)).toHaveBeenCalledTimes(2)
+    })
+
+    it('retries the initial capture when the first capture resolves null', async () => {
+      const service = await started()
+      vi.mocked(captureActionSnapshot)
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({
+          timestamp: 2,
+          command: 'getText',
+          screenshot: 'AA'
+        })
+      await run(service, ['getText', 'getText', 'getText'])
+      expect(vi.mocked(captureActionSnapshot)).toHaveBeenCalledTimes(2)
+    })
+
+    it('retries when a page-changing first command loses its screenshot', async () => {
+      const service = await started()
+      vi.mocked(captureActionSnapshot)
+        .mockResolvedValueOnce({ timestamp: 1, command: 'click' })
+        .mockResolvedValueOnce({
+          timestamp: 2,
+          command: 'getText',
+          screenshot: 'AA'
+        })
+      await run(service, ['click', 'getText', 'getText'])
+      expect(namedAt(1)).toBe('getText')
       expect(vi.mocked(captureActionSnapshot)).toHaveBeenCalledTimes(2)
     })
 
