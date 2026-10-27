@@ -22,9 +22,9 @@ import {
   findTestLineInFile,
   isPortInUse,
   findFreePort,
-  getRequestType,
-  captureLaunchCommand
+  getRequestType
 } from '../src/helpers/utils.js'
+import { captureLaunchCommand } from '../src/helpers/launch-command.js'
 import { SessionCapturer } from '../src/session.js'
 import { captureOrReplaceCommand } from '../src/helpers/captureOrReplaceCommand.js'
 import { rememberElementLocator } from '../src/helpers/element-locators.js'
@@ -181,6 +181,7 @@ describe('helpers/utils', () => {
   it('captureLaunchCommand prefers npm/yarn/pnpm scripts, falls back to argv', () => {
     const env = { ...process.env }
     try {
+      delete process.env.npm_command
       process.env.npm_lifecycle_event = 'test'
       process.env.npm_config_user_agent = 'npm/10.0.0'
       expect(captureLaunchCommand()).toBe('npm run test')
@@ -192,6 +193,40 @@ describe('helpers/utils', () => {
       expect(captureLaunchCommand()).toBe('yarn test')
 
       delete process.env.npm_lifecycle_event
+      expect(captureLaunchCommand()).toContain(process.argv0)
+    } finally {
+      process.env = env
+    }
+  })
+
+  // Regression: the argv fallback joined arguments with spaces, so a spec path or --grep with a space split apart on Run all.
+  it('captureLaunchCommand quotes each argument of the argv fallback', () => {
+    const env = { ...process.env }
+    const argv = process.argv
+    try {
+      process.env.npm_command = 'exec'
+      process.argv = [argv[0], '/x/mocha', 'specs/my login.js', '--grep', 'a b']
+      expect(captureLaunchCommand()).toBe(
+        `${process.argv0} /x/mocha 'specs/my login.js' --grep 'a b'`
+      )
+    } finally {
+      process.env = env
+      process.argv = argv
+    }
+  })
+
+  // Regression: under `npx mocha` npm sets npm_lifecycle_event=npx, which was published as `npm run npx`.
+  it('captureLaunchCommand replays argv under npx and pnpm exec, which run no script', () => {
+    const env = { ...process.env }
+    try {
+      process.env.npm_command = 'exec'
+      process.env.npm_lifecycle_event = 'npx'
+      process.env.npm_config_user_agent = 'npm/11.0.0'
+      expect(captureLaunchCommand()).not.toContain('npm run')
+      expect(captureLaunchCommand()).toContain(process.argv0)
+
+      delete process.env.npm_lifecycle_event
+      process.env.npm_config_user_agent = 'pnpm/10.0.0'
       expect(captureLaunchCommand()).toContain(process.argv0)
     } finally {
       process.env = env
@@ -1034,10 +1069,24 @@ describe('RerunManager', () => {
   })
 
   it('launchCommand surfaces the npm script the user ran', () => {
+    delete process.env.npm_command
     process.env.npm_lifecycle_event = 'example:mocha'
     process.env.npm_config_user_agent = 'npm/10.0.0'
     expect(new RerunManager('mocha').launchCommand).toBe(
       'npm run example:mocha'
+    )
+  })
+
+  // Regression: a rerun child derived Run all from its own narrowed argv, so Run all replayed the rerun's filter.
+  it('launchCommand inherits the Run-all command a rerun was spawned with', () => {
+    process.argv = ['node', 'mocha', 'spec.js', '--grep', 'one test']
+    process.env.DEVTOOLS_APP_REUSE = '1'
+    process.env.DEVTOOLS_RERUN_LAUNCH_COMMAND = 'npx mocha spec.js'
+    expect(new RerunManager('mocha').launchCommand).toBe('npx mocha spec.js')
+
+    delete process.env.DEVTOOLS_APP_REUSE
+    expect(new RerunManager('mocha').launchCommand).not.toBe(
+      'npx mocha spec.js'
     )
   })
 

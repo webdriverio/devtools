@@ -167,3 +167,23 @@ export function getFilterBuilder(runnerId: string | undefined): FilterBuilder {
       return DEFAULT_FILTERS
   }
 }
+
+/** What the run that started the backend was launched with, which Run all replays. */
+export interface RunAllSelection {
+  wdioSpecs: string[]
+  nightwatchArgs: string[]
+}
+
+/** The arguments that scope Run all to that selection, in the runner's own CLI form. */
+export function runAllFilters(
+  runnerId: string | undefined,
+  selection: RunAllSelection
+): string[] {
+  switch (runnerId) {
+    case 'nightwatch':
+    case 'nightwatch-cucumber':
+      return [...selection.nightwatchArgs]
+    default:
+      return selection.wdioSpecs.flatMap((spec) => ['--spec', spec])
+  }
+}

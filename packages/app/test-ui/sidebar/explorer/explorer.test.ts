@@ -24,7 +24,7 @@ import {
   mochaMetadata,
   mochaRunnerOptions,
   nestedRun,
-  nightwatchMetadata,
+  noRunAllMetadata,
   profileSuite,
   SPEC_FILE,
   suiteFragment,
@@ -61,7 +61,7 @@ const CUCUMBER_REASON =
   'Single-test execution is not supported by this framework.'
 
 /** A run-all refusal is its own reason: it is not a suite run, and the runners
- *  that refuse it (Nightwatch) can run suites perfectly well. */
+ *  that refuse it can run suites perfectly well. */
 const RUN_ALL_REASON =
   'Running every test at once is not supported by this framework.'
 
@@ -722,7 +722,7 @@ describe('wdio-devtools-sidebar-explorer', () => {
     it('disables the run control for a runner that cannot run everything', async () => {
       const explorer = await mountExplorer(
         mixedStateRun.registry,
-        nightwatchMetadata
+        noRunAllMetadata
       )
 
       const run = shadow<HTMLButtonElement>(explorer, RUN_ALL_BUTTON)
@@ -732,12 +732,12 @@ describe('wdio-devtools-sidebar-explorer', () => {
 
     it('still stops the run for a runner that cannot run everything', async () => {
       // Launching and stopping are separate concerns: /api/tests/stop takes no
-      // body and kills whatever the backend spawned, so a Nightwatch run — which
-      // has no run-everything entry point — must still be stoppable from here.
+      // body and kills whatever the backend spawned, so a run whose runner has
+      // no run-everything entry point must still be stoppable from here.
       const requests = recordBackend()
       const explorer = await mountExplorer(
         mixedStateRun.registry,
-        nightwatchMetadata
+        noRunAllMetadata
       )
 
       const stop = shadow<HTMLButtonElement>(explorer, STOP_ALL_BUTTON)
@@ -754,7 +754,7 @@ describe('wdio-devtools-sidebar-explorer', () => {
       const requests = recordBackend()
       const explorer = await mountExplorer(
         mixedStateRun.registry,
-        nightwatchMetadata
+        noRunAllMetadata
       )
       const run = shadow<HTMLButtonElement>(explorer, RUN_ALL_BUTTON)
       expect(run?.disabled).toBe(true)
@@ -778,14 +778,14 @@ describe('wdio-devtools-sidebar-explorer', () => {
 
     // The disabled attribute is not the gate: a programmatic dispatch, a
     // keyboard binding or a toolbar refactor all enter the handler without a
-    // real click. `#runAllSuites` used to guard on `canRunSuites` — which
-    // Nightwatch HAS — so the POST went through; it now guards on the same
+    // real click. `#runAllSuites` used to guard on `canRunSuites`, which such
+    // a runner has, so the POST went through; it now guards on the same
     // `canRunAll` the button is rendered from.
     it('refuses a run-all that reaches the handler without a real click, and says why', async () => {
       const requests = recordBackend()
       const explorer = await mountExplorer(
         mixedStateRun.registry,
-        nightwatchMetadata
+        noRunAllMetadata
       )
 
       const logs = await capture<string>(window, 'app-logs', () =>
@@ -803,7 +803,7 @@ describe('wdio-devtools-sidebar-explorer', () => {
       const requests = recordBackend()
       const explorer = await mountExplorer(
         mixedStateRun.registry,
-        nightwatchMetadata
+        noRunAllMetadata
       )
       const detail: TestRunDetail = { uid: '*', entryType: 'suite' }
 
@@ -820,7 +820,7 @@ describe('wdio-devtools-sidebar-explorer', () => {
     it('explains the refusal in the run control tooltip, and only then', async () => {
       const refusing = await mountExplorer(
         mixedStateRun.registry,
-        nightwatchMetadata
+        noRunAllMetadata
       )
       const running = await mountExplorer(mixedStateRun.registry, mochaMetadata)
 

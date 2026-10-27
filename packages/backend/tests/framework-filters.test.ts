@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { RunnerRequestBody } from '@wdio/devtools-shared'
-import { getFilterBuilder } from '../src/framework-filters.js'
+import { getFilterBuilder, runAllFilters } from '../src/framework-filters.js'
 
 function payload(
   overrides: Partial<RunnerRequestBody> = {}
@@ -267,5 +267,32 @@ describe('nightwatch-cucumber filter builder', () => {
     expect(
       fn({ specArg: undefined, payload: payload({ fullTitle: 'a.b*c' }) })
     ).toEqual(['--name', '^a\\.b\\*c$'])
+  })
+})
+
+describe('runAllFilters', () => {
+  const selection = {
+    wdioSpecs: ['/abs/a.e2e.ts'],
+    nightwatchArgs: ['/abs/tests/login.js', '--tag', 'smoke']
+  }
+
+  it('replays the Nightwatch selection for both Nightwatch runners', () => {
+    expect(runAllFilters('nightwatch', selection)).toEqual(
+      selection.nightwatchArgs
+    )
+    expect(runAllFilters('nightwatch-cucumber', selection)).toEqual(
+      selection.nightwatchArgs
+    )
+  })
+
+  it('scopes every other runner to the WDIO initial specs', () => {
+    expect(runAllFilters('mocha', selection)).toEqual([
+      '--spec',
+      '/abs/a.e2e.ts'
+    ])
+    expect(runAllFilters(undefined, selection)).toEqual([
+      '--spec',
+      '/abs/a.e2e.ts'
+    ])
   })
 })

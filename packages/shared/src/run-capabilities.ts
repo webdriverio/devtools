@@ -7,15 +7,17 @@ export const DEFAULT_CAPABILITIES: RunCapabilities = {
   canRunAll: true
 }
 
-/** Per-runner defaults, keyed by the lower-cased runner id, for adapters that declare nothing. */
+// A Gherkin step has no CLI filter of its own, so a Cucumber runner reruns scenarios and features only.
+const CUCUMBER_CAPABILITIES: RunCapabilities = {
+  canRunSuites: true,
+  canRunTests: false,
+  canRunAll: true
+}
+
+/** Per-runner defaults where they differ from DEFAULT_CAPABILITIES, keyed by the lower-cased runner id. */
 export const FRAMEWORK_CAPABILITIES: Record<string, RunCapabilities> = {
-  cucumber: { canRunSuites: true, canRunTests: false, canRunAll: true },
-  'nightwatch-cucumber': {
-    canRunSuites: true,
-    canRunTests: false,
-    canRunAll: false
-  },
-  nightwatch: { canRunSuites: true, canRunTests: true, canRunAll: false }
+  cucumber: CUCUMBER_CAPABILITIES,
+  'nightwatch-cucumber': CUCUMBER_CAPABILITIES
 }
 
 const runnerOptionsOf = (metadata: Metadata | undefined) =>
