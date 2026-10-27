@@ -1,0 +1,26 @@
+{
+  "example": "selenium-mocha",
+  "runFails": true,
+  "tests": [
+    {
+      "test": "loads the login page and reads the heading",
+      "rows": ["Page.navigate", "Element.getText", "Assert.equal"],
+      "error": false
+    },
+    {
+      "test": "navigates and reads the page title",
+      "rows": ["Page.navigate", "Page.getTitle", "Assert.match"],
+      "error": false
+    },
+    {
+      "test": "fails on a wrong heading (retain-on-failure target)",
+      "rows": ["Page.navigate", "Element.getText", "Assert.equal"],
+      "error": true,
+      "errorMatches": "This Is Not The Heading"
+    },
+    {
+      "test": "flaky: fails the first attempt, then passes (retry target)",
+      "rows": ["Page.navigate", "Page.getTitle", "Assert.match"]
+    }
+  ]
+}

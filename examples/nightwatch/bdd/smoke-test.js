@@ -17,7 +17,9 @@
  *   pnpm demo:nightwatch:retry    (rung 5 — adds --retries 1)
  */
 
-const BASE_URL = 'https://the-internet.herokuapp.com'
+const BASE_URL = (
+  process.env.DEVTOOLS_EXAMPLE_BASE_URL || 'https://the-internet.herokuapp.com'
+).replace(/\/+$/, '')
 
 // Survives Nightwatch's testcase retry so the flaky test fails once, then passes.
 let flakyAttempts = 0

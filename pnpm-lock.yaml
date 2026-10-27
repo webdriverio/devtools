@@ -343,6 +343,9 @@ importers:
       '@types/ws':
         specifier: ^8.18.2
         version: 8.18.2
+      '@types/yazl':
+        specifier: ^3.3.1
+        version: 3.3.1
       '@wdio/cli':
         specifier: 10.0.2
         version: 10.0.2(@types/node@26.6.4)(expect-webdriverio@8.0.0(@wdio/types@10.0.1)(webdriverio@10.0.2(yauzl@2.10.0)))(yauzl@2.10.0)
@@ -352,6 +355,9 @@ importers:
       '@wdio/devtools-shared':
         specifier: workspace:^
         version: link:../shared
+      '@wdio/devtools-trace':
+        specifier: workspace:^
+        version: link:../trace
       '@wdio/globals':
         specifier: 10.0.2
         version: 10.0.2(expect-webdriverio@8.0.0(@wdio/types@10.0.1)(webdriverio@10.0.2(yauzl@2.10.0)))(webdriverio@10.0.2(yauzl@2.10.0))
@@ -373,6 +379,9 @@ importers:
       expect-webdriverio:
         specifier: ^8.0.0
         version: 8.0.0(@wdio/types@10.0.1)(webdriverio@10.0.2(yauzl@2.10.0))
+      fflate:
+        specifier: ^0.8.2
+        version: 0.8.3
       nightwatch:
         specifier: ^3.16.0
         version: 3.16.0(@cucumber/cucumber@13.2.1)
@@ -385,6 +394,9 @@ importers:
       ws:
         specifier: ^8.22.0
         version: 8.22.0
+      yazl:
+        specifier: ^3.3.1
+        version: 3.3.1
 
   packages/core:
     devDependencies:

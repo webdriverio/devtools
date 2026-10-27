@@ -22,6 +22,8 @@
     "demo:python:login": "python3 examples/selenium-py/scripts/login.py",
     "demo:python:pytest": "python3 -m pytest examples/selenium-py/pytest/",
     "demo:python:mobile": "python3 examples/selenium-py/mobile/${DEVTOOLS_MOBILE_PLATFORM:-android}/*.py",
+    "smoke:fixtures": "tsx packages/conformance/smoke/serve-fixtures.ts",
+    "smoke:assert": "tsx packages/conformance/smoke/assert-trace.ts",
     "dev": "pnpm --parallel dev",
     "preview": "pnpm --parallel preview",
     "test": "vitest run",

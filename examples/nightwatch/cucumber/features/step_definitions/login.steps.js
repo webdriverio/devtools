@@ -5,7 +5,10 @@
 // functions so `this` binds to the World.
 const { Given, When, Then } = require('@cucumber/cucumber')
 
-const LOGIN_URL = 'https://the-internet.herokuapp.com/login'
+const BASE_URL = (
+  process.env.DEVTOOLS_EXAMPLE_BASE_URL || 'https://the-internet.herokuapp.com'
+).replace(/\/+$/, '')
+const LOGIN_URL = `${BASE_URL}/login`
 
 Given(/^I am on the login page$/, async function () {
   await this.browser.url(LOGIN_URL)

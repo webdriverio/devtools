@@ -1,0 +1,34 @@
+{
+  "example": "nightwatch-bdd",
+  "runFails": true,
+  "tests": [
+    {
+      "scope": "run",
+      "reason": "Nightwatch's BDD describe/it fires the plugin's hooks once per module, so the trace has no per-it groups to scope rows to (CLAUDE.md, Known debt).",
+      "rows": [
+        "Page.navigate",
+        "Page.navigate",
+        "Page.navigate",
+        "Element.fill",
+        "Element.fill",
+        "Element.fill",
+        "Element.fill",
+        "Element.click",
+        "Element.click",
+        "Element.click",
+        "Element.waitForDisplayed",
+        "Element.waitForDisplayed",
+        "Element.waitForDisplayed",
+        "Element.waitForDisplayed",
+        "Element.waitForDisplayed",
+        "Element.waitForDisplayed",
+        "Element.waitForDisplayed",
+        "Assert.urlContains",
+        "Assert.urlContains",
+        "Assert.textContains",
+        "Assert.textContains"
+      ],
+      "error": true
+    }
+  ]
+}

@@ -1,0 +1,40 @@
+{
+  "example": "wdio-mocha",
+  "runFails": true,
+  "tests": [
+    {
+      "test": "logs into the secure area with valid credentials",
+      "rows": [
+        "Page.navigate",
+        "Element.fill",
+        "Element.fill",
+        "Element.click",
+        "Assert.toBeExisting",
+        "Assert.toHaveText"
+      ],
+      "error": false
+    },
+    {
+      "test": "shows an error message for an invalid username",
+      "rows": [
+        "Page.navigate",
+        "Element.fill",
+        "Element.fill",
+        "Element.click",
+        "Assert.toHaveText"
+      ],
+      "error": false
+    },
+    {
+      "test": "asserts the wrong flash message so the run fails",
+      "rows": [
+        "Page.navigate",
+        "Element.fill",
+        "Element.fill",
+        "Element.click",
+        "Assert.toHaveText"
+      ],
+      "error": true
+    }
+  ]
+}
