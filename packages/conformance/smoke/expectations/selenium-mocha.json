@@ -31,7 +31,9 @@
     },
     {
       "test": "flaky: fails the first attempt, then passes (retry target)",
-      "rows": ["Page.navigate", "Page.getTitle", "Assert.match"]
+      "attempts": 2,
+      "rows": ["Page.navigate", "Page.getTitle", "Assert.match"],
+      "error": false
     }
   ]
 }

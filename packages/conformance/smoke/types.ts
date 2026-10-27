@@ -18,6 +18,8 @@ export interface TestScopedExpectation extends ExpectationChecks {
   test: string
   /** This test times out on purpose: the lines of its own error rows are exempt from the run's timeout check. */
   allowTimeoutError?: boolean
+  /** How many times a retried test ran; the row and error checks then read only its last attempt. */
+  attempts?: number
 }
 
 export interface RunScopedExpectation extends ExpectationChecks {
@@ -26,6 +28,7 @@ export interface RunScopedExpectation extends ExpectationChecks {
   reason: string
   /** Exempting a whole run's timeouts would hide every timeout; use the example-level flag deliberately instead. */
   allowTimeoutError?: never
+  attempts?: never
 }
 
 export interface ExampleExpectations {

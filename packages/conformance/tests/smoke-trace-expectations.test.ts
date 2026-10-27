@@ -74,7 +74,10 @@ const metadata: TestMetadataMap = new Map([
       specFile: 'test_login.py'
     }
   ],
-  ['test-wait', { title: 'times out on purpose', specFile: 'example.js' }]
+  ['test-wait', { title: 'times out on purpose', specFile: 'example.js' }],
+  // Mocha reports each attempt of a retried test under its own uid and the same title.
+  ['test-retry-1', { title: 'passes on retry', specFile: 'example.js' }],
+  ['test-retry-2', { title: 'passes on retry', specFile: 'example.js' }]
 ])
 
 function traceLog(
@@ -519,6 +522,76 @@ describe('a test that times out on purpose', () => {
   })
 })
 
+describe('a retried test', () => {
+  const attempt = (uid: string, passes: boolean) => [
+    cmd('url', uid, { args: ['http://127.0.0.1/login'] }),
+    cmd('expect.toHaveText', uid, {
+      args: ['The Internet'],
+      ...(passes ? {} : { error: new Error('Expect title to have text') })
+    })
+  ]
+
+  const retryExpectations = (attempts?: number): ExampleExpectations => ({
+    example: 'unit',
+    runFails: true,
+    tests: [
+      {
+        test: 'passes on retry',
+        attempts,
+        rows: ['Page.navigate', 'Assert.toHaveText'],
+        error: false
+      }
+    ]
+  })
+
+  it('passes when the final attempt passes after a failed one', async () => {
+    const trace = await parsed([
+      ...attempt('test-retry-1', false),
+      ...attempt('test-retry-2', true)
+    ])
+    expect(checkExample(retryExpectations(2), [trace])).toEqual([])
+  })
+
+  it('fails when the final attempt fails, even though an earlier one passed', async () => {
+    const trace = await parsed([
+      ...attempt('test-retry-1', true),
+      ...attempt('test-retry-2', false)
+    ])
+    expect(checkExample(retryExpectations(2), [trace])).toEqual([
+      'test "passes on retry": unexpected error rows: Assert.toHaveText: Expect title to have text'
+    ])
+  })
+
+  it('fails when the final attempt stops before the rows the earlier one carried', async () => {
+    const trace = await parsed([
+      ...attempt('test-retry-1', true),
+      ...attempt('test-retry-2', true).slice(0, 1)
+    ])
+    expect(checkExample(retryExpectations(2), [trace])).toEqual([
+      expect.stringMatching(
+        /^test "passes on retry": missing rows Assert\.toHaveText; found Page\.navigate$/
+      )
+    ])
+  })
+
+  it('names a test that ran a different number of attempts', async () => {
+    const trace = await parsed(attempt('test-retry-1', true))
+    expect(checkExample(retryExpectations(2), [trace])).toEqual([
+      'test "passes on retry": ran 1 attempt(s), expected 2'
+    ])
+  })
+
+  it('reads every attempt when the entry does not count them', async () => {
+    const trace = await parsed([
+      ...attempt('test-retry-1', false),
+      ...attempt('test-retry-2', true)
+    ])
+    expect(checkExample(retryExpectations(), [trace])).toEqual([
+      'test "passes on retry": unexpected error rows: Assert.toHaveText: Expect title to have text'
+    ])
+  })
+})
+
 describe('call sites', () => {
   const SPEC = '/repo/examples/wdio/mocha/specs/login.e2e.ts'
   // `null` leaves the click row without a call site, as a regression would.
@@ -618,6 +691,15 @@ describe('validateExpectations', () => {
     expect(checkExample(expectations, [await parsed(passingRun())])).toEqual([
       message
     ])
+  })
+
+  it('rejects attempts on a run-scoped entry, which has no test to count', () => {
+    const entry = { scope: 'run', reason: 'no per-test groups', attempts: 2 }
+    // @ts-expect-error attempts is typed `never` on a run-scoped entry
+    const typed: RunScopedExpectation = entry
+    expect(
+      validateExpectations({ example: 'unit', runFails: true, tests: [typed] })
+    ).toEqual(['the run: attempts is only allowed on a test-scoped entry'])
   })
 
   it('accepts it on a test-scoped entry', () => {

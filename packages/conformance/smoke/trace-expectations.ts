@@ -101,19 +101,52 @@ function matchesTest(title: string, test: string): boolean {
   return title === test || title.endsWith(`${NODEID_SEPARATOR}${test}`)
 }
 
+interface Attempt {
+  trace: SmokeTrace
+  groupId: string
+}
+
+/** Each run of a test is its own group carrying the test's title, in stream order. */
+function attemptsOf(traces: SmokeTrace[], test: string): Attempt[] {
+  return traces.flatMap((trace) =>
+    [...trace.groups]
+      .filter(([, group]) => matchesTest(group.title, test))
+      .map(([groupId]) => ({ trace, groupId }))
+  )
+}
+
+/** A retried test's checks read its last attempt, or an earlier pass would hide a failing final one. */
 function rowsFor(
   traces: SmokeTrace[],
-  expectation: TestExpectation
+  expectation: TestExpectation,
+  attempts: 'final' | 'all' = 'final'
 ): TraceRow[] {
   if (expectation.scope === 'run') {
     return traces.flatMap((trace) => trace.rows)
   }
-  return traces.flatMap((trace) =>
-    trace.rows.filter((row) => {
-      const group = row.parentId ? trace.groups.get(row.parentId) : undefined
-      return group !== undefined && matchesTest(group.title, expectation.test)
-    })
+  const all = attemptsOf(traces, expectation.test)
+  const read =
+    attempts === 'final' && expectation.attempts !== undefined
+      ? all.slice(-1)
+      : all
+  return read.flatMap(({ trace, groupId }) =>
+    trace.rows.filter((row) => row.parentId === groupId)
   )
+}
+
+function attemptCountFailures(
+  expectation: TestExpectation,
+  traces: SmokeTrace[]
+): string[] {
+  if (expectation.scope === 'run' || expectation.attempts === undefined) {
+    return []
+  }
+  const ran = attemptsOf(traces, expectation.test).length
+  return ran === expectation.attempts
+    ? []
+    : [
+        `${scopeLabel(expectation)}: ran ${ran} attempt(s), expected ${expectation.attempts}`
+      ]
 }
 
 function missingRows(expected: string[], rows: TraceRow[]): string[] {
@@ -157,7 +190,7 @@ function checkTest(
       `${scope}: no rows under a group with that title; groups seen: ${groupTitlesSeen(traces)}`
     ]
   }
-  const failures: string[] = []
+  const failures = attemptCountFailures(expectation, traces)
   const missing = missingRows(expectation.rows ?? [], rows)
   if (missing.length) {
     failures.push(
@@ -214,7 +247,7 @@ function expectedTimeoutLines(
     if (test.scope === 'run' || !test.allowTimeoutError) {
       continue
     }
-    for (const row of rowsFor(traces, test)) {
+    for (const row of rowsFor(traces, test, 'all')) {
       for (const line of row.error?.split('\n') ?? []) {
         lines.add(normaliseLine(line))
       }
@@ -274,7 +307,7 @@ function missingCallSites(
   expectation: TestExpectation,
   traces: SmokeTrace[]
 ): string[] {
-  const rows = rowsFor(traces, expectation)
+  const rows = rowsFor(traces, expectation, 'all')
   if (expectation.scope === 'run') {
     return rows.some(isLocated) ? [] : ['the run: no row carries a call site']
   }
@@ -308,20 +341,23 @@ function checkCallSites(
   ]
 }
 
-/** JSON is untyped, so the one rule the types carry is re-checked: a run-scoped entry cannot exempt timeouts. */
+const TEST_SCOPED_ONLY = ['allowTimeoutError', 'attempts'] as const
+
+/** JSON is untyped, so the rules the types carry are re-checked: a run-scoped entry has no test to exempt or count. */
 export function validateExpectations(
   expectations: ExampleExpectations
 ): string[] {
-  return expectations.tests
-    .filter(
-      (test) =>
-        test.scope === 'run' &&
-        (test as { allowTimeoutError?: unknown }).allowTimeoutError !==
-          undefined
+  return expectations.tests.flatMap((test) => {
+    if (test.scope !== 'run') {
+      return []
+    }
+    const fields = test as Partial<
+      Record<(typeof TEST_SCOPED_ONLY)[number], unknown>
+    >
+    return TEST_SCOPED_ONLY.filter((key) => fields[key] !== undefined).map(
+      (key) => `the run: ${key} is only allowed on a test-scoped entry`
     )
-    .map(
-      () => 'the run: allowTimeoutError is only allowed on a test-scoped entry'
-    )
+  })
 }
 
 /** Every unmet expectation as one line; empty means the example passed. */
