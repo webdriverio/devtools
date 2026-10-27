@@ -1,7 +1,11 @@
 import logger from '@wdio/logger'
 import { errorMessage } from '@wdio/devtools-core'
 import { findTestLineInFile } from '../helpers/utils.js'
-import type { MochaTestCtx, RunnerHookCallbacks } from '../types.js'
+import type {
+  MochaRootHooks,
+  MochaTestCtx,
+  RunnerHookCallbacks
+} from '../types.js'
 
 const log = logger('@wdio/selenium-devtools:runnerHooks:mocha')
 
@@ -22,19 +26,32 @@ interface MochaCounters {
   pending: number
 }
 
-function registerMochaRunLifecycle(
-  g: MochaGlobals,
+export function buildMochaRootHooks(
+  callbacks: RunnerHookCallbacks
+): MochaRootHooks {
+  const counters: MochaCounters = {
+    runStartTs: 0,
+    started: 0,
+    passed: 0,
+    failed: 0,
+    pending: 0
+  }
+  return {
+    beforeAll: () => {
+      counters.runStartTs = Date.now()
+      log.info('🧪 Test run starting')
+    },
+    afterAll: makeMochaRunEnd(counters, callbacks),
+    beforeEach: makeMochaBeforeEach(counters, callbacks),
+    afterEach: makeMochaAfterEach(counters, callbacks)
+  }
+}
+
+function makeMochaRunEnd(
   counters: MochaCounters,
   callbacks: RunnerHookCallbacks
-): void {
-  if (typeof g.before !== 'function' || typeof g.after !== 'function') {
-    return
-  }
-  g.before(() => {
-    counters.runStartTs = Date.now()
-    log.info('🧪 Test run starting')
-  })
-  g.after(() => {
+): () => void {
+  return () => {
     const durationMs = Date.now() - counters.runStartTs
     const duration = (durationMs / 1000).toFixed(2)
     log.info(
@@ -48,7 +65,7 @@ function registerMochaRunLifecycle(
       pending: counters.pending,
       durationMs
     })
-  })
+  }
 }
 
 function resolveCallSource(
@@ -139,17 +156,14 @@ export function tryRegisterMochaHooks(callbacks: RunnerHookCallbacks): boolean {
   if (typeof g.beforeEach !== 'function' || typeof g.afterEach !== 'function') {
     return false
   }
-  const counters: MochaCounters = {
-    runStartTs: 0,
-    started: 0,
-    passed: 0,
-    failed: 0,
-    pending: 0
-  }
+  const hooks = buildMochaRootHooks(callbacks)
   try {
-    registerMochaRunLifecycle(g, counters, callbacks)
-    g.beforeEach!(makeMochaBeforeEach(counters, callbacks))
-    g.afterEach!(makeMochaAfterEach(counters, callbacks))
+    if (typeof g.before === 'function' && typeof g.after === 'function') {
+      g.before(hooks.beforeAll)
+      g.after(hooks.afterAll)
+    }
+    g.beforeEach(hooks.beforeEach)
+    g.afterEach(hooks.afterEach)
     log.info(
       '✓ Mocha hooks registered — startTest/endTest will fire automatically per it()'
     )

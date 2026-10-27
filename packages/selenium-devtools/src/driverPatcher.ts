@@ -1,4 +1,3 @@
-import { AsyncLocalStorage } from 'node:async_hooks'
 import { createRequire } from 'node:module'
 import logger from '@wdio/logger'
 import {
@@ -23,8 +22,11 @@ import type {
   DriverOriginals,
   DriverPatcherHooks,
   ElementOriginals,
-  SeleniumDriverLike
+  Patchable,
+  SeleniumDriverLike,
+  WebElementPromiseCtor
 } from './types.js'
+import { trackWaits, waitPollOf } from './wait-tracking.js'
 
 const log = logger('@wdio/selenium-devtools:driverPatcher')
 
@@ -44,6 +46,7 @@ interface SeleniumModule {
   Builder?: ConstructorLike
   WebDriver?: ConstructorLike
   WebElement?: ConstructorLike
+  WebElementPromise?: WebElementPromiseCtor
 }
 interface ConstructorLike {
   prototype: object
@@ -117,11 +120,6 @@ export function webElementSummary(el: unknown): string {
   return peek ? `<WebElement id=${peek}>` : '<WebElement>'
 }
 
-// Selenium prototypes (WebDriver/WebElement/Builder) carry methods we patch
-// dynamically — Reflect.{get,set} keeps the casts to a single location and
-// drops per-line `as any`.
-type Patchable = Record<string | symbol, unknown>
-
 function emitCommand(hooks: DriverPatcherHooks, cmd: CapturedCommand): void {
   try {
     hooks.onCommand(cmd)
@@ -129,48 +127,6 @@ function emitCommand(hooks: DriverPatcherHooks, cmd: CapturedCommand): void {
     log.warn(`onCommand hook threw for ${cmd.command}: ${errorMessage(err)}`)
   }
 }
-
-/** Set while a `driver.wait()` evaluates its condition: the polls it issues. */
-const waitPoll = new AsyncLocalStorage<true>()
-
-/** Runs a wait's condition inside `waitPoll`, so only its own polls are marked. */
-function trackWaits(proto: Patchable): void {
-  const original = proto.wait
-  if (typeof original !== 'function' || proto[WAIT_TRACKED_SYMBOL]) {
-    return
-  }
-  proto[WAIT_TRACKED_SYMBOL] = true
-  proto.wait = function (
-    this: unknown,
-    condition: unknown,
-    ...rest: unknown[]
-  ) {
-    return (original as (...a: unknown[]) => unknown).apply(this, [
-      asWaitPoll(condition),
-      ...rest
-    ])
-  }
-}
-
-/** A function condition, or a selenium `Condition` (its `fn`); a promise as is. */
-function asWaitPoll(condition: unknown): unknown {
-  const inPoll =
-    (fn: (...a: unknown[]) => unknown) =>
-    (...a: unknown[]) =>
-      waitPoll.run(true, () => fn(...a))
-  if (typeof condition === 'function') {
-    return inPoll(condition as (...a: unknown[]) => unknown)
-  }
-  const fn = (condition as { fn?: unknown } | null)?.fn
-  if (typeof fn === 'function') {
-    return Object.assign(Object.create(condition as object), {
-      fn: inPoll(fn as (...a: unknown[]) => unknown)
-    })
-  }
-  return condition
-}
-
-const WAIT_TRACKED_SYMBOL = Symbol.for('@wdio/selenium-devtools/wait-tracked')
 
 /** Element commands that dispatch input to the page. */
 const INPUT_ELEMENT_METHODS = new Set(['click', 'sendKeys', 'clear', 'submit'])
@@ -199,6 +155,29 @@ function makeSettle(
   }
 }
 
+/** What a command's row says about the call, read at invocation, where a wait condition's call order is still the issue order. */
+function describeCall(
+  methodName: string,
+  args: unknown[],
+  fromElement: boolean,
+  target: unknown,
+  startTime: number
+): Omit<CapturedCommand, 'result' | 'rawResult' | 'error' | 'timestamp'> {
+  const serializedArgs = args.map(safeSerialize)
+  // `this` is the only trace of which element the command targets — the
+  // locator was consumed by the findElement that produced it.
+  const selector = fromElement ? selectorForElement(target) : undefined
+  return {
+    command: methodName,
+    args: serializedArgs,
+    callSource: getCallSourceFromStack().callSource,
+    ...waitPollOf(methodName, serializedArgs, selector),
+    startTime,
+    fromElement,
+    selector
+  }
+}
+
 function makeWrappedMethod(
   original: (...args: unknown[]) => unknown,
   methodName: string,
@@ -220,17 +199,7 @@ function makeWrappedMethod(
     const closeInputWindow = beginInputDispatch(methodName)
     const settle = makeSettle(
       hooks,
-      {
-        command: methodName,
-        args: args.map(safeSerialize),
-        callSource: getCallSourceFromStack().callSource,
-        duringWait: waitPoll.getStore() === true,
-        startTime,
-        fromElement,
-        // `this` is the only trace of which element the command targets — the
-        // locator was consumed by the findElement that produced it.
-        selector: fromElement ? selectorForElement(this) : undefined
-      },
+      describeCall(methodName, args, fromElement, this, startTime),
       closeInputWindow
     )
 
@@ -521,7 +490,7 @@ export function patchSelenium(hooks: DriverPatcherHooks): boolean {
     return false
   }
 
-  const { Builder, WebDriver, WebElement } = sw
+  const { Builder, WebDriver, WebElement, WebElementPromise } = sw
   if (!Builder || !WebDriver) {
     log.warn(
       'selenium-webdriver loaded but Builder/WebDriver missing — version unsupported?'
@@ -531,7 +500,11 @@ export function patchSelenium(hooks: DriverPatcherHooks): boolean {
 
   // Stash unwrapped originals before any patching.
   stashDriverOriginals(WebDriver.prototype as Patchable)
-  trackWaits(WebDriver.prototype as Patchable)
+  trackWaits(
+    WebDriver.prototype as Patchable,
+    (cmd) => emitCommand(hooks, cmd),
+    WebElementPromise
+  )
 
   const tracked = collectMethodNames(WebDriver.prototype).filter(
     (m) => !(INTERNAL_DRIVER_METHODS as readonly string[]).includes(m)

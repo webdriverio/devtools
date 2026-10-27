@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import {
   INPUT_DISPATCH_MAX_HOLD_MS,
+  RetryTracker,
   isInputDispatchInFlight
 } from '@wdio/devtools-core'
 import { createRequire } from 'node:module'
@@ -25,6 +26,8 @@ import {
 } from '../src/helpers/utils.js'
 import { captureLaunchCommand } from '../src/helpers/launch-command.js'
 import { SessionCapturer } from '../src/session.js'
+import { captureOrReplaceCommand } from '../src/helpers/captureOrReplaceCommand.js'
+import { rememberElementLocator } from '../src/helpers/element-locators.js'
 import {
   patchSelenium,
   getDriverOriginals,
@@ -662,14 +665,308 @@ describe('driverPatcher', () => {
         description: () => 'c'
       })
       await new Promise((r) => setImmediate(r))
-      expect(onCommand.mock.calls.map(([cmd]) => cmd.duringWait)).toEqual([
-        false,
-        true,
-        false,
-        true,
-        true,
-        true
+      expect(
+        onCommand.mock.calls.map(([cmd]) => cmd.waitScope !== undefined)
+      ).toEqual([false, true, false, true, true, true])
+    } finally {
+      ;(driverProto as any).wait = realWait
+      delete (driverProto as any)[
+        Symbol.for('@wdio/selenium-devtools/wait-tracked')
+      ]
+      delete (driverProto as any).testRead
+      delete stash.driverFns.testRead
+    }
+  })
+
+  it("keeps one scope for a wait nested in another wait's condition across the outer polls", async () => {
+    const realWait = (driverProto as any).wait
+    ;(driverProto as any).wait = async function (condition: any) {
+      const fn = typeof condition === 'function' ? condition : condition.fn
+      await fn(this)
+      await fn(this)
+    }
+    ;(driverProto as any).testRead = function () {
+      return Promise.resolve('url')
+    }
+    stash.driverFns.testRead = (driverProto as any).testRead
+    const onCommand = vi.fn<(cmd: CapturedCommand) => void>()
+    try {
+      delete (driverProto as any)[
+        Symbol.for('@wdio/selenium-devtools/wait-tracked')
+      ]
+      patchSelenium({ onDriverCreated: vi.fn(), onCommand })
+      const fakeDriver = Object.create(driverProto)
+      await (fakeDriver as any).wait((d: any) =>
+        d.wait((inner: any) => inner.testRead())
+      )
+      await new Promise((r) => setImmediate(r))
+      const scopes = onCommand.mock.calls.map(([cmd]) => cmd.waitScope)
+      expect(scopes).toHaveLength(4)
+      expect(new Set(scopes).size).toBe(1)
+
+      // Two different waits from the outer condition's branches keep their own scopes.
+      onCommand.mockClear()
+      let poll = 0
+      await (fakeDriver as any).wait((d: any) =>
+        poll++ === 0
+          ? d.wait({ fn: (i: any) => i.testRead(), description: () => 'a' })
+          : d.wait({ fn: (i: any) => i.testRead(), description: () => 'b' })
+      )
+      await new Promise((r) => setImmediate(r))
+      const branches = onCommand.mock.calls.map(([cmd]) => cmd.waitScope)
+      expect(branches).toHaveLength(4)
+      expect(new Set(branches).size).toBe(2)
+    } finally {
+      ;(driverProto as any).wait = realWait
+      delete (driverProto as any)[
+        Symbol.for('@wdio/selenium-devtools/wait-tracked')
+      ]
+      delete (driverProto as any).testRead
+      delete stash.driverFns.testRead
+    }
+  })
+
+  it('reports a driver.wait() that rejects as a row named after its condition, and a passing one as none', async () => {
+    const realWait = (driverProto as any).wait
+    ;(driverProto as any).wait = async function (condition: any) {
+      const value = await condition.fn(this)
+      if (!value) {
+        throw new Error('Wait timed out after 10ms')
+      }
+      return value
+    }
+    ;(driverProto as any).testFind = function (found: boolean) {
+      return Promise.resolve(found ? ['el'] : [])
+    }
+    stash.driverFns.testFind = (driverProto as any).testFind
+    const onCommand = vi.fn<(cmd: CapturedCommand) => void>()
+    const condition = (found: boolean) => ({
+      fn: (d: any) => d.testFind(found).then((els: string[]) => els[0]),
+      description: () => 'for element to be located By(css selector, h1)'
+    })
+    try {
+      delete (driverProto as any)[
+        Symbol.for('@wdio/selenium-devtools/wait-tracked')
+      ]
+      patchSelenium({ onDriverCreated: vi.fn(), onCommand })
+      const fakeDriver = Object.create(driverProto)
+      await (fakeDriver as any).wait(condition(true), 10)
+      await new Promise((r) => setImmediate(r))
+      expect(onCommand.mock.calls.map(([cmd]) => cmd.command)).toEqual([
+        'testFind'
       ])
+
+      await expect(
+        (fakeDriver as any).wait(condition(false), 10)
+      ).rejects.toThrow('Wait timed out after 10ms')
+      await new Promise((r) => setImmediate(r))
+      const [poll, failed] = onCommand.mock.calls.slice(1).map(([c]) => c)
+      expect(failed).toMatchObject({
+        command: 'wait',
+        args: ['for element to be located By(css selector, h1)', 10],
+        error: expect.objectContaining({
+          message: 'Wait timed out after 10ms'
+        })
+      })
+      expect(failed.callSource).toContain('index.test.ts')
+
+      // A description that cannot be stringified still leaves the failure its row.
+      await expect(
+        (fakeDriver as any).wait(
+          { ...condition(false), description: () => Object.create(null) },
+          10
+        )
+      ).rejects.toThrow('Wait timed out after 10ms')
+      await new Promise((r) => setImmediate(r))
+      expect(onCommand.mock.calls.at(-1)?.[0]).toMatchObject({
+        command: 'wait',
+        args: ['[object Object]', 10]
+      })
+      // The failed wait shares its polls' scope, which is how it takes over their row.
+      expect(failed.concludesWait).toBe(poll.waitScope)
+    } finally {
+      ;(driverProto as any).wait = realWait
+      delete (driverProto as any)[
+        Symbol.for('@wdio/selenium-devtools/wait-tracked')
+      ]
+      delete (driverProto as any).testFind
+      delete stash.driverFns.testFind
+    }
+  })
+
+  describe('a tracked selenium wait() keeps its own promise semantics', () => {
+    const tracked = Symbol.for('@wdio/selenium-devtools/wait-tracked')
+    let found = false
+    let onCommand: ReturnType<typeof vi.fn<(cmd: CapturedCommand) => void>>
+    let driver: any
+
+    beforeEach(() => {
+      found = false
+      ;(driverProto as any).findElements = function () {
+        return Promise.resolve(found ? [new sw.WebElement(this, 'el-1')] : [])
+      }
+      ;(elementProto as any).getText = function () {
+        return Promise.resolve('Heading')
+      }
+      stash.driverFns.findElements = (driverProto as any).findElements
+      stash.elementFns.getText = (elementProto as any).getText
+      delete (driverProto as any)[tracked]
+      onCommand = vi.fn<(cmd: CapturedCommand) => void>()
+      patchSelenium({ onDriverCreated: vi.fn(), onCommand })
+      driver = Object.create(driverProto)
+    })
+
+    afterEach(() => {
+      delete (driverProto as any)[tracked]
+      resetPatchState()
+    })
+
+    const located = () => sw.until.elementLocated(sw.By.css('h1'))
+
+    it('rejects an awaited failure with the error the row carries', async () => {
+      const err = await driver
+        .wait(located(), 20, undefined, 5)
+        .catch((e: unknown) => e)
+      await new Promise((r) => setImmediate(r))
+      expect((err as Error).name).toBe('TimeoutError')
+      const row = onCommand.mock.calls
+        .map(([c]) => c)
+        .find((c) => c.command === 'wait')
+      expect(row?.error).toBe(err)
+      expect(row?.args[0]).toContain('By(css selector, h1)')
+    })
+
+    it('leaves an unawaited failure unhandled, as selenium does', async () => {
+      const runnerListeners = process.listeners('unhandledRejection')
+      process.removeAllListeners('unhandledRejection')
+      const unhandled: unknown[] = []
+      const record = (reason: unknown) => unhandled.push(reason)
+      process.on('unhandledRejection', record)
+      try {
+        driver.wait(located(), 10, undefined, 5)
+        await new Promise((r) => setTimeout(r, 60))
+      } finally {
+        process.off('unhandledRejection', record)
+        for (const listener of runnerListeners) {
+          process.on('unhandledRejection', listener)
+        }
+      }
+      expect(unhandled).toHaveLength(1)
+      expect((unhandled[0] as Error).name).toBe('TimeoutError')
+    })
+
+    it('still chains element commands onto an element wait', async () => {
+      found = true
+      expect(await driver.wait(located(), 100).getText()).toBe('Heading')
+    })
+
+    it('reports an odd rejection value without replacing it', async () => {
+      const odd = Object.create(null)
+      const err = await driver
+        .wait(() => Promise.reject(odd), 100)
+        .catch((e: unknown) => e)
+      await new Promise((r) => setImmediate(r))
+      expect(err).toBe(odd)
+      const row = onCommand.mock.calls
+        .map(([c]) => c)
+        .find((c) => c.command === 'wait')
+      expect(row?.args).toEqual(['[Function]', 100])
+      expect(row?.error?.message).toBe('[object Object]')
+    })
+  })
+
+  it("keeps each of a wait condition's reads on a row of its own across polls", async () => {
+    const realWait = (driverProto as any).wait
+    ;(driverProto as any).wait = async function (condition: any) {
+      for (let poll = 0; poll < 3; poll++) {
+        await condition.fn(this)
+      }
+    }
+    ;(elementProto as any).getText = function (this: { text: string }) {
+      return Promise.resolve(this.text)
+    }
+    stash.elementFns.getText = (elementProto as any).getText
+    const commands: CapturedCommand[] = []
+    const capturer = new SessionCapturer({})
+    try {
+      delete (driverProto as any)[
+        Symbol.for('@wdio/selenium-devtools/wait-tracked')
+      ]
+      patchSelenium({
+        onDriverCreated: vi.fn(),
+        onCommand: (cmd) => commands.push(cmd)
+      })
+      const driver = Object.create(driverProto)
+      const element = (selector: string, text: string) => {
+        const el = Object.assign(Object.create(elementProto), { text })
+        rememberElementLocator(el, sw.By.css(selector))
+        return el
+      }
+      const a = element('#a', 'A')
+      const b = element('#b', 'B')
+      await driver.wait({
+        fn: async () => (await a.getText()) === (await b.getText()),
+        description: () => 'a matches b'
+      })
+      await new Promise((r) => setImmediate(r))
+      const retryTracker = new RetryTracker()
+      for (const cmd of commands) {
+        await captureOrReplaceCommand({
+          capturer,
+          retryTracker,
+          test: { uid: 't' } as TestStats,
+          cmd
+        })
+      }
+      expect(commands).toHaveLength(6)
+      expect(
+        capturer.commandsLog.map(({ command, selector, result }) => ({
+          command,
+          selector,
+          result
+        }))
+      ).toEqual([
+        { command: 'getText', selector: '#a', result: 'A' },
+        { command: 'getText', selector: '#b', result: 'B' }
+      ])
+    } finally {
+      capturer.cleanup()
+      ;(driverProto as any).wait = realWait
+      delete (driverProto as any)[
+        Symbol.for('@wdio/selenium-devtools/wait-tracked')
+      ]
+    }
+  })
+
+  it('gives a wait poll fired from a timer no call source, so it can fold into the first', async () => {
+    const realWait = (driverProto as any).wait
+    ;(driverProto as any).testRead = function () {
+      return Promise.resolve('url')
+    }
+    stash.driverFns.testRead = (driverProto as any).testRead
+    // Like selenium's own: the timer calls the condition with no spec frame on the stack.
+    ;(driverProto as any).wait = function (condition: any) {
+      return new Promise((resolve) => {
+        setTimeout(condition.fn, 0, this)
+        setTimeout(resolve, 5)
+      })
+    }
+    const onCommand = vi.fn<(cmd: CapturedCommand) => void>()
+    try {
+      delete (driverProto as any)[
+        Symbol.for('@wdio/selenium-devtools/wait-tracked')
+      ]
+      patchSelenium({ onDriverCreated: vi.fn(), onCommand })
+      const fakeDriver = Object.create(driverProto)
+      await (fakeDriver as any).wait({
+        fn: Function.prototype.call.bind((fakeDriver as any).testRead),
+        description: () => 'c'
+      })
+      await new Promise((r) => setImmediate(r))
+      const [poll] = onCommand.mock.calls.map(([c]) => c)
+      expect(poll.command).toBe('testRead')
+      expect(poll.waitScope).toBeDefined()
+      expect(poll.callSource).toBeUndefined()
     } finally {
       ;(driverProto as any).wait = realWait
       delete (driverProto as any)[

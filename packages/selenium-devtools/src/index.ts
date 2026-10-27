@@ -56,7 +56,7 @@ import {
   tracePolicyModeWarning
 } from '@wdio/devtools-core'
 import { SeleniumTestArtifacts } from './test-artifacts.js'
-import { tryRegisterRunnerHooks } from './runnerHooks.js'
+import { claimMochaRootHooks, tryRegisterRunnerHooks } from './runnerHooks.js'
 import { patchNodeAssert } from './assertPatcher.js'
 import {
   REUSE_ENV,
@@ -68,6 +68,8 @@ import {
   type ActionSnapshot,
   type CapturedCommand,
   type DevToolsOptions,
+  type MochaRootHooks,
+  type RunnerHookCallbacks,
   type ScreencastFrame,
   type ScreencastOptions,
   type SeleniumDriverLike,
@@ -709,51 +711,35 @@ patchNodeAssert((cmd) => {
   }
 })
 
-// Runner globals are published after `--require`, so retry briefly.
-function registerHooks() {
-  return tryRegisterRunnerHooks({
-    onTestStart: (
+const runnerHookCallbacks: RunnerHookCallbacks = {
+  onTestStart: (name, file, callSource, suiteName, suiteCallSource, attempt) =>
+    plugin.startTest(
       name,
-      file,
-      callSource,
-      suiteName,
-      suiteCallSource,
-      attempt
-    ) =>
-      plugin.startTest(
-        name,
-        buildStartTestMeta(
-          file,
-          callSource,
-          suiteName,
-          suiteCallSource,
-          attempt
-        )
-      ),
-    // Return the promise so the runner hook awaits the full attach chain.
-    onTestEnd: (state) =>
-      plugin.endTest(state === 'pending' ? 'skipped' : state),
-    onScenarioStart: (
-      name,
+      buildStartTestMeta(file, callSource, suiteName, suiteCallSource, attempt)
+    ),
+  // Return the promise so the runner hook awaits the full attach chain.
+  onTestEnd: (state) => plugin.endTest(state === 'pending' ? 'skipped' : state),
+  onScenarioStart: (name, file, callSource, featureName, featureCallSource) => {
+    plugin.startScenario(name, {
       file,
       callSource,
       featureName,
       featureCallSource
-    ) => {
-      plugin.startScenario(name, {
-        file,
-        callSource,
-        featureName,
-        featureCallSource
-      })
-    },
-    onScenarioEnd: (state) =>
-      plugin.endScenario(state === 'pending' ? 'skipped' : state),
-    onTestRunComplete: () => {
-      void plugin.finalizeTestRun()
-    }
-  })
+    })
+  },
+  onScenarioEnd: (state) =>
+    plugin.endScenario(state === 'pending' ? 'skipped' : state),
+  onTestRunComplete: () => {
+    void plugin.finalizeTestRun()
+  }
 }
+
+/** Read by mocha when this package is loaded with `--require`; see `claimMochaRootHooks`. */
+export const mochaHooks = (): MochaRootHooks =>
+  claimMochaRootHooks(runnerHookCallbacks)
+
+// Runner globals are published after `--require`, so retry briefly; mocha takes `mochaHooks` instead.
+const registerHooks = () => tryRegisterRunnerHooks(runnerHookCallbacks)
 if (!registerHooks()) {
   let attempts = 0
   const interval = setInterval(() => {

@@ -27,6 +27,8 @@ DevTools.configure({
   headless: true
 })
 
+const LOGIN_URL = 'https://the-internet.herokuapp.com/login'
+
 // Survives Mocha's in-process retry so the flaky test fails once, then passes.
 let flakyAttempts = 0
 
@@ -43,12 +45,12 @@ describe('selenium-devtools smoke test', function () {
     }
   })
 
-  it('loads example.com and reads the heading', async function () {
-    await driver.get('https://example.com')
+  it('loads the login page and reads the heading', async function () {
+    await driver.get(LOGIN_URL)
     await driver.sleep(1500)
-    const heading = await driver.wait(until.elementLocated(By.css('h1')), 10000)
+    const heading = await driver.wait(until.elementLocated(By.css('h2')), 10000)
     const text = await heading.getText()
-    assert.equal(text, 'Example Domain')
+    assert.equal(text, 'Login Page')
   })
 
   it('navigates and reads the page title', async function () {
@@ -59,9 +61,9 @@ describe('selenium-devtools smoke test', function () {
   })
 
   it('fails on a wrong heading (retain-on-failure target)', async function () {
-    await driver.get('https://example.com')
+    await driver.get(LOGIN_URL)
     await driver.sleep(1000)
-    const heading = await driver.wait(until.elementLocated(By.css('h1')), 10000)
+    const heading = await driver.wait(until.elementLocated(By.css('h2')), 10000)
     const text = await heading.getText()
     assert.equal(text, 'This Is Not The Heading')
   })

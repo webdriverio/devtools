@@ -86,6 +86,31 @@ export interface SeleniumDriverLike {
 
 // ─── driverPatcher ──────────────────────────────────────────────────────────
 
+/** A selenium prototype (WebDriver/WebElement/Builder) whose methods are patched in place. */
+export type Patchable = Record<string | symbol, unknown>
+
+/** selenium's own `WebElementPromise`, which an element wait must still return. */
+export type WebElementPromiseCtor = new (
+  driver: unknown,
+  el: PromiseLike<unknown>
+) => object
+
+/** One `driver.wait()` call, shared by its polls and its failure row. */
+export interface WaitScope {
+  /** Each call of the condition, by `pollKey`, to the row its repeats fold into. */
+  rows: Map<string, number>
+  /** The row of the latest poll, which a failed wait takes over. */
+  pollRowId?: number
+  /** Waits issued inside this wait's condition, keyed by identity and order within one evaluation. */
+  nested?: Map<string, WaitScope>
+}
+
+/** One evaluation of a wait's condition, counting the calls it has issued so far. */
+export interface WaitPoll {
+  scope: WaitScope
+  seen: Map<string, number>
+}
+
 export interface CapturedCommand {
   command: string
   args: unknown[]
@@ -103,8 +128,12 @@ export interface CapturedCommand {
    *  duration instead of a synthetic 1ms. */
   startTime: number
   fromElement: boolean
-  /** Issued while a `driver.wait()` was in flight: one of its polls. */
-  duringWait?: boolean
+  /** The `driver.wait()` this command is one of the polls of. */
+  waitScope?: WaitScope
+  /** Names this call within its wait, so each poll's repeat of it folds into one row. */
+  pollKey?: string
+  /** Set on a failed wait's own row, which takes over the row its polls folded into. */
+  concludesWait?: WaitScope
   /** Locator that produced the element this command acted on. An element command
    *  carries no locator of its own — the earlier `findElement` consumed it — so
    *  it is recovered from the handle and threaded onto the row here. */
@@ -160,6 +189,14 @@ export interface MochaTestCtx {
   parent?: { title?: string }
   /** Mocha's authoritative retry index — 0 on the first run, +1 per retry. */
   _currentRetry?: number
+}
+
+/** The four root hooks, in the shape of a mocha root hook plugin's `mochaHooks`. */
+export interface MochaRootHooks {
+  beforeAll: () => void
+  afterAll: () => void
+  beforeEach: (this: { currentTest?: MochaTestCtx }) => void
+  afterEach: (this: { currentTest?: MochaTestCtx }) => Promise<void>
 }
 
 export interface RunnerHookCallbacks {

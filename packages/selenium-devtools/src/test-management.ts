@@ -104,7 +104,7 @@ function resolveStartMeta(
   if (file) {
     resolved.file = file
   }
-  if (callSource && callSource !== 'unknown:0') {
+  if (callSource) {
     resolved.callSource = callSource
   }
   if (typeof meta.attempt === 'number') {

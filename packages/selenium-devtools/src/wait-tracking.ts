@@ -1,0 +1,169 @@
+import { AsyncLocalStorage } from 'node:async_hooks'
+import logger from '@wdio/logger'
+import { errorMessage, toError } from '@wdio/devtools-core'
+import { getCallSourceFromStack } from './helpers/utils.js'
+import type {
+  CapturedCommand,
+  Patchable,
+  WaitPoll,
+  WaitScope,
+  WebElementPromiseCtor
+} from './types.js'
+
+const log = logger('@wdio/selenium-devtools:waitTracking')
+
+const WAIT_TRACKED_SYMBOL = Symbol.for('@wdio/selenium-devtools/wait-tracked')
+
+/** Set while a `driver.wait()` evaluates its condition: the polls it issues. */
+const waitPoll = new AsyncLocalStorage<WaitPoll>()
+
+/** The wait this command polls for, keyed as the nth call with this command, args and target, which every evaluation repeats. */
+export function waitPollOf(
+  command: string,
+  args: unknown[],
+  selector: string | undefined
+): { waitScope: WaitScope; pollKey: string } | undefined {
+  const poll = waitPoll.getStore()
+  if (!poll) {
+    return undefined
+  }
+  const call = JSON.stringify({ command, args, selector: selector ?? null })
+  const nth = poll.seen.get(call) ?? 0
+  poll.seen.set(call, nth + 1)
+  return { waitScope: poll.scope, pollKey: `${call}#${nth}` }
+}
+
+/** Marks a wait's own polls and reports a wait that rejects as a row of its own. */
+export function trackWaits(
+  proto: Patchable,
+  emit: (cmd: CapturedCommand) => void,
+  WebElementPromise?: WebElementPromiseCtor
+): void {
+  const original = proto.wait
+  if (typeof original !== 'function' || proto[WAIT_TRACKED_SYMBOL]) {
+    return
+  }
+  proto[WAIT_TRACKED_SYMBOL] = true
+  proto.wait = function (
+    this: unknown,
+    condition: unknown,
+    ...rest: unknown[]
+  ) {
+    const scope = scopeFor(waitPoll.getStore(), condition)
+    const fail = waitFailure(emit, scope, condition, rest[0])
+    let result: unknown
+    try {
+      result = (original as (...a: unknown[]) => unknown).apply(this, [
+        asWaitPoll(condition, scope),
+        ...rest
+      ])
+    } catch (err) {
+      fail(err)
+      throw err
+    }
+    const thenable = result as PromiseLike<unknown> | null
+    if (!thenable || typeof thenable.then !== 'function') {
+      return result
+    }
+    // Rethrown, so the test's promise rejects (and goes unhandled) exactly as before.
+    const observed = Promise.resolve(thenable).catch((err: unknown) => {
+      fail(err)
+      throw err
+    })
+    return WebElementPromise && result instanceof WebElementPromise
+      ? new WebElementPromise(this, observed)
+      : observed
+  }
+}
+
+/** Emits a failed wait's row; the call site and label are resolved only on failure. */
+function waitFailure(
+  emit: (cmd: CapturedCommand) => void,
+  scope: WaitScope,
+  condition: unknown,
+  timeout: unknown
+): (err: unknown) => void {
+  const startTime = Date.now()
+  const stack = new Error().stack
+  return (err) => {
+    try {
+      const label = conditionLabel(condition)
+      emit({
+        command: 'wait',
+        args: timeout === undefined ? [label] : [label, timeout],
+        result: undefined,
+        error: toError(err),
+        callSource: getCallSourceFromStack(stack).callSource,
+        startTime,
+        timestamp: Date.now(),
+        fromElement: false,
+        concludesWait: scope
+      })
+    } catch (rowErr) {
+      // A row that cannot be built must not replace the wait's own rejection.
+      log.warn(`Could not report a failed wait: ${errorMessage(rowErr)}`)
+    }
+  }
+}
+
+function conditionLabel(condition: unknown): string {
+  const describe = (condition as { description?: unknown } | null)?.description
+  if (typeof describe === 'function') {
+    const text: unknown = describe.call(condition)
+    return typeof text === 'string' ? text : toError(text).message
+  }
+  return typeof condition === 'function' ? '[Function]' : '[Promise]'
+}
+
+/** A wait inside another wait's condition is the same wait on every outer poll, so it keeps one scope across them. */
+function scopeFor(outer: WaitPoll | undefined, condition: unknown): WaitScope {
+  if (!outer) {
+    return { rows: new Map() }
+  }
+  // Keyed like a poll, by what the wait is and the nth time this evaluation issued it, so two waits in different branches stay apart.
+  const call = `wait ${nestedWaitIdentity(condition)}`
+  const nth = outer.seen.get(call) ?? 0
+  outer.seen.set(call, nth + 1)
+  const nested = (outer.scope.nested ??= new Map())
+  const key = `${call}#${nth}`
+  const scope = nested.get(key) ?? { rows: new Map() }
+  nested.set(key, scope)
+  return scope
+}
+
+/** Where the wait was called, what it waits for, and its condition's source: the same on every outer poll, different between two waits. */
+function nestedWaitIdentity(condition: unknown): string {
+  const fn =
+    typeof condition === 'function'
+      ? condition
+      : (condition as { fn?: unknown } | null)?.fn
+  let label: string
+  try {
+    label = conditionLabel(condition)
+  } catch (err) {
+    label = errorMessage(err)
+  }
+  return JSON.stringify([
+    getCallSourceFromStack(new Error().stack).callSource ?? null,
+    label,
+    typeof fn === 'function' ? fn.toString() : null
+  ])
+}
+
+/** A function condition, or a selenium `Condition` (its `fn`); a promise as is. */
+function asWaitPoll(condition: unknown, scope: WaitScope): unknown {
+  const inPoll =
+    (fn: (...a: unknown[]) => unknown) =>
+    (...a: unknown[]) =>
+      waitPoll.run({ scope, seen: new Map() }, () => fn(...a))
+  if (typeof condition === 'function') {
+    return inPoll(condition as (...a: unknown[]) => unknown)
+  }
+  const fn = (condition as { fn?: unknown } | null)?.fn
+  if (typeof fn === 'function') {
+    return Object.assign(Object.create(condition as object), {
+      fn: inPoll(fn as (...a: unknown[]) => unknown)
+    })
+  }
+  return condition
+}

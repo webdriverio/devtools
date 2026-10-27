@@ -1,9 +1,15 @@
-import type { RunnerHookCallbacks } from './types.js'
-import { tryRegisterMochaHooks } from './runnerHooks/mocha.js'
+import logger from '@wdio/logger'
+import type { MochaRootHooks, RunnerHookCallbacks } from './types.js'
+import {
+  buildMochaRootHooks,
+  tryRegisterMochaHooks
+} from './runnerHooks/mocha.js'
 import { tryRegisterJestHooks } from './runnerHooks/jest.js'
 import { tryRegisterCucumberHooks } from './runnerHooks/cucumber.js'
 
 export { tryRegisterMochaHooks, tryRegisterJestHooks, tryRegisterCucumberHooks }
+
+const log = logger('@wdio/selenium-devtools:runnerHooks')
 
 // Jest is identified by `expect.getState()` (Chai's `expect` lacks it).
 // Mocha is identified by `it`+`describe`+`beforeEach` without that.
@@ -33,9 +39,23 @@ export function detectRunner(): 'jest' | 'mocha' | 'cucumber' | null {
   return null
 }
 
+let mochaRootHooksClaimed = false
+
+/** Mocha reads this under `--require` before any spec loads, so the first test's `beforeEach` cannot be missed. */
+export function claimMochaRootHooks(
+  callbacks: RunnerHookCallbacks
+): MochaRootHooks {
+  mochaRootHooksClaimed = true
+  log.info('✓ Mocha root hooks registered (--require)')
+  return buildMochaRootHooks(callbacks)
+}
+
 export function tryRegisterRunnerHooks(
   callbacks: RunnerHookCallbacks
 ): 'jest' | 'mocha' | 'cucumber' | false {
+  if (mochaRootHooksClaimed) {
+    return 'mocha'
+  }
   const detectedRunner = detectRunner()
   if (detectedRunner === 'jest') {
     return tryRegisterJestHooks(callbacks) ? 'jest' : false

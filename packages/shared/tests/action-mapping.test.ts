@@ -35,6 +35,10 @@ describe('mapCommandToAction for read/query commands', () => {
     })
   })
 
+  it("maps selenium's wait (reported only when it fails) onto the same method", () => {
+    expect(mapCommandToAction('wait')).toEqual(mapCommandToAction('waitUntil'))
+  })
+
   it('maps page/browser reads to the Page class', () => {
     expect(mapCommandToAction('getTitle')).toEqual({
       class: 'Page',

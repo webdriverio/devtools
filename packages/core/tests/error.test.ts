@@ -13,6 +13,10 @@ describe('toError', () => {
     expect(toError(err) instanceof TypeError).toBe(true)
   })
 
+  it('wraps a null-prototype object without throwing', () => {
+    expect(toError(Object.create(null)).message).toBe('[object Object]')
+  })
+
   it('wraps a plain object with a .message field into an Error preserving message + name', () => {
     const out = toError({
       message: 'nightwatch failed',
