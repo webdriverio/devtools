@@ -113,6 +113,41 @@ describe('SessionCapturer.captureCommand', () => {
     }
   })
 
+  it('sends no timings for a navigation row a retry has replaced', async () => {
+    const http = await import('node:http')
+    let reads = 0
+    const server = http.createServer((req, res) => {
+      req.resume()
+      req.on('end', () => {
+        reads++
+        res.setHeader('content-type', 'application/json')
+        res.end(
+          JSON.stringify({
+            value: { navigation: { url: 'https://x', timing: {} } }
+          })
+        )
+      })
+    })
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()))
+    const port = (server.address() as { port: number }).port
+    const browser = makeMockBrowser({
+      sessionId: 'sess-perf',
+      transport: { settings: { webdriver: { host: '127.0.0.1', port } } }
+    })
+    const cap = makeCapturer(browser)
+    const send = vi.spyOn(cap, 'sendUpstream')
+    try {
+      await cap.captureCommand('url', ['https://x'], undefined, undefined)
+      const firstId = (cap.commandsLog[0] as { _id?: number })._id ?? -1
+      cap.replaceCommand(firstId, 'url', ['https://x'], undefined, undefined)
+      await vi.waitFor(() => expect(reads).toBe(1), { timeout: 2000 })
+      await new Promise((r) => setTimeout(r, 50))
+      expect(send).not.toHaveBeenCalledWith('replaceCommand', expect.anything())
+    } finally {
+      await new Promise<void>((r) => server.close(() => r()))
+    }
+  })
+
   it('skips performance capture when error present', async () => {
     const execute = vi.fn()
     const browser = makeMockBrowser({ execute })

@@ -215,7 +215,9 @@ export class SessionCapturer extends SessionCapturerBase {
         commandLogEntry,
         payload ?? undefined,
         typeof args[0] === 'string' ? args[0] : undefined
-      )
+      ) &&
+      // A retry may have replaced the row meanwhile; replacing it again would bring the old row back.
+      this.commandsLog.includes(commandLogEntry)
     ) {
       // The row was sent when the command completed; the timings arrive half a second later.
       this.sendReplaceCommand(commandLogEntry.timestamp, commandLogEntry)
