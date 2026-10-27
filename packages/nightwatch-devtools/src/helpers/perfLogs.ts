@@ -11,9 +11,10 @@ import { getRequestType } from './utils.js'
 const RESOURCE_TIMING_MATCH_MS = 2000
 
 /**
- * Pure parsers for Chrome's `performance` log (the format `browser.getLog('performance')`
- * returns). Separated from the SessionCapturer so they're testable and the
- * capture method stays focused on state + I/O.
+ * Pure parsers for Chrome's `performance` log (the entries
+ * `POST /session/:id/se/log` returns for `{ type: 'performance' }`). Separated
+ * from the SessionCapturer so they're testable and the capture method stays
+ * focused on state + I/O.
  */
 
 export interface PerfLogEntry {
