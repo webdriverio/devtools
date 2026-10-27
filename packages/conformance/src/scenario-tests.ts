@@ -1,7 +1,19 @@
-import type { SuiteStats, TestStats } from '@wdio/devtools-shared'
+import {
+  commandFailure,
+  mapCommandToAction,
+  TEST_STATE,
+  type CommandLog,
+  type SuiteStats,
+  type TestStats
+} from '@wdio/devtools-shared'
 
 import { RULES, SCENARIO_TESTS, SCOPES } from './constants.js'
-import type { ReportedTest, Violation, WireFrame } from './types.js'
+import type {
+  RecordedStream,
+  ReportedTest,
+  Violation,
+  WireFrame
+} from './types.js'
 
 /** A title as every runner spells it: pytest's `test_logs_in` reads as `logs in`. */
 const titleKey = (title: string) =>
@@ -77,5 +89,42 @@ export function checkTestOutcomes(frames: WireFrame[]): Violation[] {
           : `"${title}" is never reported; the scenario designs it to end ${state}`
       }
     ]
+  })
+}
+
+// Only an action explains a failure: an unmapped poll errors while a passing wait polls too, and the trace drops it.
+function actionFailed(row: CommandLog): boolean {
+  const action = mapCommandToAction(row.command)
+  return Boolean(action && commandFailure(row, action))
+}
+
+// A test never reported is tests-end-as-designed's finding; these judge the rows of the tests the tree shows.
+export function checkTestRows(stream: RecordedStream): Violation[] {
+  const tests = reportedTests(stream.frames)
+  const rows = SCENARIO_TESTS.map((): CommandLog[] => [])
+  for (const row of stream.rows) {
+    rows[scenarioTestOf(tests, row)]?.push(row)
+  }
+  return SCENARIO_TESTS.flatMap(({ title, state }, i): Violation[] => {
+    const shown = tests.find((t) => scenarioIndex(t.title) === i)
+    if (!shown) {
+      return []
+    }
+    const out: Violation[] = []
+    if (!rows[i].length) {
+      out.push({
+        rule: RULES.testHasRows,
+        message: `"${title}" is reported ${shown.state} but has no rows`
+      })
+    }
+    // A test designed to fail is judged whatever it is reported, so one shown green cannot pass this vacuously.
+    const failed = shown.state === TEST_STATE.FAILED || state === 'failed'
+    if (failed && !rows[i].some(actionFailed)) {
+      out.push({
+        rule: RULES.failedTestExplained,
+        message: `"${title}" failed but none of its ${rows[i].length} row(s) is a failed action`
+      })
+    }
+    return out
   })
 }

@@ -51,7 +51,7 @@ export interface BrowserRequest {
 }
 
 /** What happened in the browser, independent of any adapter. */
-export interface GroundTruth {
+export interface BrowserTruth {
   documents: BrowserDocument[]
   failedNavigations: FailedNavigation[]
   /** When the browser completed each user action, in order, keyed by shared's action method. */
@@ -60,6 +60,18 @@ export interface GroundTruth {
   /** What the session was served over BiDi, which decides what a network row must carry: `off` when no
    *  socket was handed out, whether the mode offers none or the new-session request asked for none. */
   bidi: BidiMode
+}
+
+/** The file a run's test code lives in, which every call site must name. */
+export interface ScenarioFile {
+  /** Every spelling of its path: as launched, and with symlinks resolved. */
+  paths: string[]
+  lines: number
+}
+
+/** The browser's account of a run, plus the scenario file it ran. */
+export interface GroundTruth extends BrowserTruth {
+  scenarioFile: ScenarioFile
 }
 
 export type ActionMethod = (typeof ACTION_METHODS)[number]
@@ -180,6 +192,8 @@ export interface AdapterScenario {
 }
 
 export interface ScenarioLaunch {
+  /** The spec the runner executes: the file every call site must name. */
+  scenarioFile: string
   command: string
   args: string[]
   env?: NodeJS.ProcessEnv
@@ -237,7 +251,7 @@ export interface Judgement {
 
 export interface ScenarioRun {
   frames: WireFrame[]
-  truth: GroundTruth
+  truth: BrowserTruth
   exitCode: number | null
   output: string
 }

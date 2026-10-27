@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { checkConformance } from '../src/checker.js'
-import { RULES } from '../src/constants.js'
+import { REPO_ROOT, RULES } from '../src/constants.js'
 import type { GroundTruth, WireFrame } from '../src/types.js'
 
 const LOGIN = 'http://fake/login'
@@ -15,6 +15,8 @@ const APP_CSS = 'http://fake/app.css'
 const loads = (document: string, at: number) =>
   [document, APP_JS, APP_CSS].map((url) => ({ url, document, at }))
 
+const SPEC = '/project/test/login.spec.ts'
+
 const truth: GroundTruth = {
   documents: [
     { url: LOGIN, bornAt: 100 },
@@ -23,7 +25,8 @@ const truth: GroundTruth = {
   failedNavigations: [{ url: BROKEN, message: 'net::ERR_FAILED at /broken' }],
   actions: { navigate: [110, 340, 360], click: [320], fill: [] },
   requests: [...loads(LOGIN, 100), ...loads(SECURE, 300)],
-  bidi: 'off'
+  bidi: 'off',
+  scenarioFile: { paths: [SPEC], lines: 40 }
 }
 
 /** A load as the page's Resource Timing lists it: no status, no headers, its source marked. */
@@ -89,7 +92,10 @@ function conformingStream(): WireFrame[] {
         options: { launchCommand: 'node scenario.js' }
       }
     },
-    { scope: 'commands', data: [row('get', [LOGIN], 90, 110)] },
+    {
+      scope: 'commands',
+      data: [row('get', [LOGIN], 90, 110, { callSource: `${SPEC}:12:7` })]
+    },
     { scope: 'mutations', data: [anchor(LOGIN, 100)] },
     { scope: 'commands', data: [row('click', [], 200, 320)] },
     { scope: 'mutations', data: [anchor(SECURE, 300)] },
@@ -104,7 +110,10 @@ function conformingStream(): WireFrame[] {
     },
     {
       scope: 'replaceCommand',
-      data: { oldTimestamp: 110, command: row('get', [LOGIN], 90, 110) }
+      data: {
+        oldTimestamp: 110,
+        command: row('get', [LOGIN], 90, 110, { callSource: `${SPEC}:12:7` })
+      }
     },
     { scope: 'networkRequests', data: pageRows() }
   ]
@@ -491,5 +500,54 @@ describe('checkConformance', () => {
       }
     ]
     expect(() => checkConformance(frames, truth)).toThrow(/message/)
+  })
+})
+
+describe(RULES.callSiteInScenario, () => {
+  const at = (callSource: string): WireFrame[] => [
+    ...conformingStream(),
+    {
+      scope: 'commands',
+      data: [row('findElement', ['#x'], 410, 420, { callSource })]
+    }
+  ]
+
+  // The Selenium failure under tsx: every row named the stack helper instead of the spec.
+  it("flags a call site in DevTools' own code", () => {
+    const frames = at(`${REPO_ROOT}/packages/core/src/stack.ts:63`)
+    expect(checkConformance(frames, truth)).toEqual([
+      {
+        rule: RULES.callSiteInScenario,
+        message: expect.stringContaining("DevTools' own code"),
+        subject: { kind: 'row', timestamp: 420 }
+      }
+    ])
+  })
+
+  it('flags a call site in a file other than the spec, and the placeholder for none', () => {
+    expect(rules(at('/project/node_modules/helper.js:3'))).toEqual([
+      RULES.callSiteInScenario
+    ])
+    expect(rules(at('unknown:0'))).toEqual([RULES.callSiteInScenario])
+  })
+
+  it('flags a call site outside the lines of the spec', () => {
+    expect(rules(at(`${SPEC}:41`))).toEqual([RULES.callSiteInScenario])
+    expect(rules(at(`${SPEC}:0`))).toEqual([RULES.callSiteInScenario])
+  })
+
+  it('flags a call site that names no line', () => {
+    expect(rules(at(SPEC))).toEqual([RULES.callSiteInScenario])
+  })
+
+  it('accepts the spec with or without a column, as a file URL, or under any spelling the truth lists', () => {
+    expect(rules(at(`${SPEC}:40`))).toEqual([])
+    expect(rules(at(`${SPEC}:3:14`))).toEqual([])
+    expect(rules(at(`file://${SPEC}:3`))).toEqual([])
+    const aliased: GroundTruth = {
+      ...truth,
+      scenarioFile: { paths: [SPEC, `/private${SPEC}`], lines: 40 }
+    }
+    expect(checkConformance(at(`/private${SPEC}:3`), aliased)).toEqual([])
   })
 })
