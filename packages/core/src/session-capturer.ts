@@ -1,3 +1,4 @@
+import { randomInt } from 'node:crypto'
 import fs from 'node:fs/promises'
 import { WebSocket } from 'ws'
 import type {
@@ -91,7 +92,8 @@ export abstract class SessionCapturerBase {
   // (WDIO owns the command lifecycle), so this state is harmless overhead.
   // `protected` (not `#`) so subclasses can override the send/replace flow
   // while still sharing the counter and de-dup set with base helpers.
-  protected commandCounter = 0
+  // A row's public `id` must not repeat across processes: a rerun child's rows join its parent's in the backend's accumulator, and test workers share one dashboard.
+  protected commandCounter = randomInt(2 ** 32) * 2 ** 20
   protected sentCommandIds = new Set<number>()
 
   // Map of file path → source text. Populated by `captureSource` (also

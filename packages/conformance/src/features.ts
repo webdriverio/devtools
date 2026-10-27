@@ -22,6 +22,7 @@ const SELENIUM = ADAPTER_TESTS['selenium-devtools']
 const NIGHTWATCH = ADAPTER_TESTS['nightwatch-devtools']
 const PYTHON = ADAPTER_TESTS['selenium-devtools-py']
 
+const FAILED_TEST_RULES = [...ERROR_RULES, RULES.failedTestExplained]
 const SAFARI_FOCUS_ONCE =
   'Brings Safari to the front once after the session starts (live mode, local macOS), so a click issued after another window took the front can still land nowhere.'
 const NO_SCREENSHOT_SWITCH = 'No option: every command row takes a screenshot.'
@@ -302,11 +303,11 @@ export const FEATURES = [
     id: 'failed-command-errors',
     name: "Failed command in the Errors tab, with the browser's message",
     tables: ['readme-dashboard', 'cross-framework'],
-    // Nightwatch and Python hold gaps on a failed test's error row (#458, #461), so only the others are tested on it.
+    // Python holds a gap on a failed test's error row (#461), so only the others are tested on it.
     cells: {
-      'devtools-service': tested([...ERROR_RULES, RULES.failedTestExplained]),
-      'selenium-devtools': tested([...ERROR_RULES, RULES.failedTestExplained]),
-      'nightwatch-devtools': tested(ERROR_RULES),
+      'devtools-service': tested(FAILED_TEST_RULES),
+      'selenium-devtools': tested(FAILED_TEST_RULES),
+      'nightwatch-devtools': tested(FAILED_TEST_RULES),
       'selenium-devtools-py': tested(ERROR_RULES)
     }
   },
