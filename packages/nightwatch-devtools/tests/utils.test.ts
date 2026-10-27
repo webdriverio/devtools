@@ -86,6 +86,17 @@ describe('determineTestState', () => {
         assertions: []
       },
       'failed'
+    ],
+    [
+      {
+        passed: 1,
+        failed: 0,
+        errors: 1,
+        skipped: 0,
+        time: '0',
+        assertions: []
+      },
+      'failed'
     ]
   ])('maps testcase to %j → %s', (tc, expected) => {
     expect(determineTestState(tc as never)).toBe(expected)

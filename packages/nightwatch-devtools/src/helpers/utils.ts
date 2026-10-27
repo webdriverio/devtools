@@ -32,10 +32,10 @@ export {
 export function determineTestState(
   testcase: NightwatchTestCase
 ): 'passed' | 'failed' | 'skipped' {
-  if (testcase.failed > 0 || (testcase.errors ?? 0) > 0) {
+  if (testcase.failed > 0 || testcase.errors > 0) {
     return 'failed'
   }
-  if (testcase.passed === 0 && (testcase.skipped ?? 0) > 0) {
+  if (testcase.passed === 0 && testcase.skipped > 0) {
     return 'skipped'
   }
   return 'passed'
