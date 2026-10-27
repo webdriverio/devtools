@@ -333,12 +333,9 @@ function gapExplains(
       )
     )
   }
+  // Every adapter offers every run control its runner can serve, so no gap excuses a difference here.
   if (d.rule === RULES.agreeOnRunControls) {
-    return runControlsExplained(
-      gaps,
-      normalized.get(holder.adapter),
-      normalized.get(other.adapter)
-    )
+    return false
   }
   if (d.rule === RULES.agreeOnRequests) {
     // Each side's requests plus the loads its own declared gap left unlisted must agree.
@@ -388,22 +385,6 @@ function pagesExplained(
       (v) => onRow(v, at[other.adapter]) && !declared(other, v)
     )
   )
-}
-
-// The gap explains the absence of the controls it declares and nothing else, so a control lost since is a finding.
-function runControlsExplained(
-  gaps: KnownGap[],
-  holder: NormalizedRun | undefined,
-  other: NormalizedRun | undefined
-): boolean {
-  if (!holder || !other) {
-    return false
-  }
-  const lacks = new Set<string>(gaps.flatMap((g) => g.lacksRunControls ?? []))
-  return sameRunControls(holder.runControls, {
-    ...other.runControls,
-    advertised: other.runControls.advertised.filter((c) => !lacks.has(c))
-  })
 }
 
 const sameRunControls = (a: RunControls, b: RunControls) =>

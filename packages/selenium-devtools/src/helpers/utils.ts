@@ -30,17 +30,3 @@ export { isPortInUse, findFreePort } from '@wdio/devtools-core'
  */
 /** Derive a human-readable request type from URL and MIME type. */
 export { getRequestType } from '@wdio/devtools-core'
-
-export function captureLaunchCommand(): string {
-  const npmScript = process.env.npm_lifecycle_event
-  const npmConfigUserAgent = process.env.npm_config_user_agent ?? ''
-  if (npmScript) {
-    const tool = npmConfigUserAgent.startsWith('pnpm')
-      ? 'pnpm'
-      : npmConfigUserAgent.startsWith('yarn')
-        ? 'yarn'
-        : 'npm'
-    return tool === 'npm' ? `npm run ${npmScript}` : `${tool} ${npmScript}`
-  }
-  return [process.argv0, ...process.argv.slice(1)].join(' ')
-}

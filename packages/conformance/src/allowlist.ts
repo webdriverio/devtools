@@ -63,14 +63,6 @@ export const KNOWN_GAPS: KnownGap[] = [
       'Without BiDi the collector is appended as a <script> and the destination is anchored by polling for the old collector to disappear, so a document the test leaves within tens of ms is never anchored and its Resource Timing buffer dies undrained with it. CLAUDE.md Known debt: "Document-start injection is what removes the whole race class".',
     timingDependent: true
   },
-  ...BIDI_MODES.map((bidi): KnownGap => ({
-    adapter: 'nightwatch-devtools',
-    bidi,
-    rules: [RULES.agreeOnRunControls],
-    lacksRunControls: ['canRunAll'],
-    reason:
-      'Nightwatch advertises no Run-all: the backend reruns a Nightwatch config through its framework path, which selects suites and tests but has no whole-run entry. Documented on the capability matrix.'
-  })),
   ...BIDI_MODES.flatMap((bidi) => [
     ...nightwatchGaps(bidi),
     ...seleniumGaps(bidi),

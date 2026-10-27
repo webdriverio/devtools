@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
 import logger from '@wdio/logger'
+import { errorMessage, toError } from '@wdio/devtools-core'
 import { getCallSourceFromStack } from './helpers/utils.js'
 import type {
   CapturedCommand,
@@ -48,7 +49,7 @@ export function trackWaits(
     condition: unknown,
     ...rest: unknown[]
   ) {
-    const scope: WaitScope = { rows: new Map() }
+    const scope = scopeFor(waitPoll.getStore())
     const fail = waitFailure(emit, scope, condition, rest[0])
     let result: unknown
     try {
@@ -91,7 +92,7 @@ function waitFailure(
         command: 'wait',
         args: timeout === undefined ? [label] : [label, timeout],
         result: undefined,
-        error: err instanceof Error ? err : new Error(describeValue(err)),
+        error: toError(err),
         callSource: getCallSourceFromStack(stack).callSource,
         startTime,
         timestamp: Date.now(),
@@ -100,7 +101,7 @@ function waitFailure(
       })
     } catch (rowErr) {
       // A row that cannot be built must not replace the wait's own rejection.
-      log.warn(`Could not report a failed wait: ${describeValue(rowErr)}`)
+      log.warn(`Could not report a failed wait: ${errorMessage(rowErr)}`)
     }
   }
 }
@@ -108,18 +109,19 @@ function waitFailure(
 function conditionLabel(condition: unknown): string {
   const describe = (condition as { description?: unknown } | null)?.description
   if (typeof describe === 'function') {
-    return describeValue(describe.call(condition))
+    const text: unknown = describe.call(condition)
+    return typeof text === 'string' ? text : toError(text).message
   }
   return typeof condition === 'function' ? '[Function]' : '[Promise]'
 }
 
-/** `String()` throws for a null-prototype object; a label must not. */
-function describeValue(value: unknown): string {
-  try {
-    return String(value)
-  } catch {
-    return Object.prototype.toString.call(value)
+/** A wait inside another wait's condition is the same wait on every outer poll, so it keeps one scope across them. */
+function scopeFor(outer: WaitPoll | undefined): WaitScope {
+  if (!outer) {
+    return { rows: new Map() }
   }
+  const nested = (outer.scope.nested ??= [])
+  return (nested[outer.waits++] ??= { rows: new Map() })
 }
 
 /** A function condition, or a selenium `Condition` (its `fn`); a promise as is. */
@@ -127,7 +129,7 @@ function asWaitPoll(condition: unknown, scope: WaitScope): unknown {
   const inPoll =
     (fn: (...a: unknown[]) => unknown) =>
     (...a: unknown[]) =>
-      waitPoll.run({ scope, seen: new Map() }, () => fn(...a))
+      waitPoll.run({ scope, seen: new Map(), waits: 0 }, () => fn(...a))
   if (typeof condition === 'function') {
     return inPoll(condition as (...a: unknown[]) => unknown)
   }

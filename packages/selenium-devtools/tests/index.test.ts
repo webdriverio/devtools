@@ -22,9 +22,9 @@ import {
   findTestLineInFile,
   isPortInUse,
   findFreePort,
-  getRequestType,
-  captureLaunchCommand
+  getRequestType
 } from '../src/helpers/utils.js'
+import { captureLaunchCommand } from '../src/helpers/launch-command.js'
 import { SessionCapturer } from '../src/session.js'
 import { captureOrReplaceCommand } from '../src/helpers/captureOrReplaceCommand.js'
 import { rememberElementLocator } from '../src/helpers/element-locators.js'
@@ -181,6 +181,7 @@ describe('helpers/utils', () => {
   it('captureLaunchCommand prefers npm/yarn/pnpm scripts, falls back to argv', () => {
     const env = { ...process.env }
     try {
+      delete process.env.npm_command
       process.env.npm_lifecycle_event = 'test'
       process.env.npm_config_user_agent = 'npm/10.0.0'
       expect(captureLaunchCommand()).toBe('npm run test')
@@ -192,6 +193,40 @@ describe('helpers/utils', () => {
       expect(captureLaunchCommand()).toBe('yarn test')
 
       delete process.env.npm_lifecycle_event
+      expect(captureLaunchCommand()).toContain(process.argv0)
+    } finally {
+      process.env = env
+    }
+  })
+
+  // Regression: the argv fallback joined arguments with spaces, so a spec path or --grep with a space split apart on Run all.
+  it('captureLaunchCommand quotes each argument of the argv fallback', () => {
+    const env = { ...process.env }
+    const argv = process.argv
+    try {
+      process.env.npm_command = 'exec'
+      process.argv = [argv[0], '/x/mocha', 'specs/my login.js', '--grep', 'a b']
+      expect(captureLaunchCommand()).toBe(
+        `${process.argv0} /x/mocha 'specs/my login.js' --grep 'a b'`
+      )
+    } finally {
+      process.env = env
+      process.argv = argv
+    }
+  })
+
+  // Regression: under `npx mocha` npm sets npm_lifecycle_event=npx, which was published as `npm run npx`.
+  it('captureLaunchCommand replays argv under npx and pnpm exec, which run no script', () => {
+    const env = { ...process.env }
+    try {
+      process.env.npm_command = 'exec'
+      process.env.npm_lifecycle_event = 'npx'
+      process.env.npm_config_user_agent = 'npm/11.0.0'
+      expect(captureLaunchCommand()).not.toContain('npm run')
+      expect(captureLaunchCommand()).toContain(process.argv0)
+
+      delete process.env.npm_lifecycle_event
+      process.env.npm_config_user_agent = 'pnpm/10.0.0'
       expect(captureLaunchCommand()).toContain(process.argv0)
     } finally {
       process.env = env
@@ -643,6 +678,40 @@ describe('driverPatcher', () => {
     }
   })
 
+  it("keeps one scope for a wait nested in another wait's condition across the outer polls", async () => {
+    const realWait = (driverProto as any).wait
+    ;(driverProto as any).wait = async function (condition: any) {
+      await condition(this)
+      await condition(this)
+    }
+    ;(driverProto as any).testRead = function () {
+      return Promise.resolve('url')
+    }
+    stash.driverFns.testRead = (driverProto as any).testRead
+    const onCommand = vi.fn<(cmd: CapturedCommand) => void>()
+    try {
+      delete (driverProto as any)[
+        Symbol.for('@wdio/selenium-devtools/wait-tracked')
+      ]
+      patchSelenium({ onDriverCreated: vi.fn(), onCommand })
+      const fakeDriver = Object.create(driverProto)
+      await (fakeDriver as any).wait((d: any) =>
+        d.wait((inner: any) => inner.testRead())
+      )
+      await new Promise((r) => setImmediate(r))
+      const scopes = onCommand.mock.calls.map(([cmd]) => cmd.waitScope)
+      expect(scopes).toHaveLength(4)
+      expect(new Set(scopes).size).toBe(1)
+    } finally {
+      ;(driverProto as any).wait = realWait
+      delete (driverProto as any)[
+        Symbol.for('@wdio/selenium-devtools/wait-tracked')
+      ]
+      delete (driverProto as any).testRead
+      delete stash.driverFns.testRead
+    }
+  })
+
   it('reports a driver.wait() that rejects as a row named after its condition, and a passing one as none', async () => {
     const realWait = (driverProto as any).wait
     ;(driverProto as any).wait = async function (condition: any) {
@@ -686,6 +755,19 @@ describe('driverPatcher', () => {
         })
       })
       expect(failed.callSource).toContain('index.test.ts')
+
+      // A description that cannot be stringified still leaves the failure its row.
+      await expect(
+        (fakeDriver as any).wait(
+          { ...condition(false), description: () => Object.create(null) },
+          10
+        )
+      ).rejects.toThrow('Wait timed out after 10ms')
+      await new Promise((r) => setImmediate(r))
+      expect(onCommand.mock.calls.at(-1)?.[0]).toMatchObject({
+        command: 'wait',
+        args: ['[object Object]', 10]
+      })
       // The failed wait shares its polls' scope, which is how it takes over their row.
       expect(failed.concludesWait).toBe(poll.waitScope)
     } finally {
@@ -1034,10 +1116,24 @@ describe('RerunManager', () => {
   })
 
   it('launchCommand surfaces the npm script the user ran', () => {
+    delete process.env.npm_command
     process.env.npm_lifecycle_event = 'example:mocha'
     process.env.npm_config_user_agent = 'npm/10.0.0'
     expect(new RerunManager('mocha').launchCommand).toBe(
       'npm run example:mocha'
+    )
+  })
+
+  // Regression: a rerun child derived Run all from its own narrowed argv, so Run all replayed the rerun's filter.
+  it('launchCommand inherits the Run-all command a rerun was spawned with', () => {
+    process.argv = ['node', 'mocha', 'spec.js', '--grep', 'one test']
+    process.env.DEVTOOLS_APP_REUSE = '1'
+    process.env.DEVTOOLS_RERUN_LAUNCH_COMMAND = 'npx mocha spec.js'
+    expect(new RerunManager('mocha').launchCommand).toBe('npx mocha spec.js')
+
+    delete process.env.DEVTOOLS_APP_REUSE
+    expect(new RerunManager('mocha').launchCommand).not.toBe(
+      'npx mocha spec.js'
     )
   })
 

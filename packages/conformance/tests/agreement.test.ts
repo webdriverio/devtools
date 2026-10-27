@@ -398,41 +398,31 @@ describe('judgeDivergences', () => {
       stream(2, JS, { options: EVERY_CONTROL })
     )
     const judged = judgeDivergences(compareRuns([nw, js]), [nw, js])
-    // Only the run-controls gap is under test; the scenario's other gaps have nothing to match in this stream.
-    const stale = judged.stale.filter((g) => g.lacksRunControls)
+    // The scenario's gaps have nothing to match in this stream; only run-controls staleness is under test.
+    const stale = judged.stale.filter((g) =>
+      g.rules.includes(RULES.agreeOnRunControls)
+    )
     return { ...judged, stale }
   }
 
-  it('excuses only the run control the gap declares absent', () => {
-    const { unexplained, explained, stale } = nightwatchAgainstService({
+  it('finds no run-controls difference now that Nightwatch offers every control', () => {
+    const { unexplained, explained, stale } = nightwatchAgainstService(
+      EVERY_CONTROL.runCapabilities
+    )
+    expect([...unexplained, ...explained]).toEqual([])
+    expect(stale).toEqual([])
+  })
+
+  it('reports a run control one adapter does not offer as unexplained', () => {
+    const { unexplained } = nightwatchAgainstService({
       canRunAll: false,
       canRunSuites: true,
       canRunTests: true
     })
-    expect(unexplained).toEqual([])
-    expect(explained.map((d) => d.rule)).toEqual([RULES.agreeOnRunControls])
-    expect(stale).toEqual([])
-  })
-
-  // Regression: any run-controls difference was explained once Nightwatch held its gap, so a lost control passed.
-  it('does not excuse a run control the holder lost since declaring its gap', () => {
-    const { unexplained } = nightwatchAgainstService({
-      canRunAll: false,
-      canRunSuites: true,
-      canRunTests: false
-    })
     expect(unexplained.map((d) => d.rule)).toEqual([RULES.agreeOnRunControls])
     expect(unexplained[0].message).toContain(
-      'canRunAll, canRunSuites, canRunTests; served vs canRunSuites; served'
+      'canRunAll, canRunSuites, canRunTests; served vs canRunSuites, canRunTests; served'
     )
-  })
-
-  it('reports a comparison gap that no longer occurs as stale', () => {
-    const { unexplained, stale } = nightwatchAgainstService(
-      EVERY_CONTROL.runCapabilities
-    )
-    expect(unexplained).toEqual([])
-    expect(stale.map((g) => g.adapter)).toEqual(['nightwatch-devtools'])
   })
 })
 

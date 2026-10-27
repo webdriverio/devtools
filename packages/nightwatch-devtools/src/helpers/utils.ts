@@ -7,7 +7,11 @@ import {
   isUserCodeFrame,
   normalizeFilePath
 } from '@wdio/devtools-core'
-import { TEST_FILE_PATTERN, CONFIG_FILENAMES } from '../constants.js'
+import {
+  TEST_FILE_PATTERN,
+  CONFIG_FILENAMES,
+  NIGHTWATCH_CONFIG_FLAGS
+} from '../constants.js'
 import type {
   NightwatchTestCase,
   TestFileMetadata,
@@ -52,8 +56,8 @@ export function incrementCounters(
 }
 
 /** This adapter's runner identity. Both Nightwatch runners take the same
- *  locator dialect, but the id also reaches the dashboard's run capabilities,
- *  where the cucumber variant differs. */
+ *  locator dialect, but the id also picks the dashboard's run controls from
+ *  shared's runner defaults, where the cucumber variant differs. */
 export function nightwatchRunnerId(isCucumberRunner: boolean): TestRunnerId {
   return isCucumberRunner ? 'nightwatch-cucumber' : 'nightwatch'
 }
@@ -65,13 +69,68 @@ export function buildPluginMetadataOptions(input: {
   return {
     framework: nightwatchRunnerId(input.isCucumberRunner),
     configFile: input.configPath,
-    baseDir: process.cwd(),
-    runCapabilities: {
-      canRunSuites: true,
-      canRunTests: !input.isCucumberRunner,
-      canRunAll: false
-    }
+    baseDir: process.cwd()
   }
+}
+
+/** Whether this process is the Nightwatch CLI: its entry script sits in the `bin` folder of the `nightwatch` package. */
+export function isNightwatchCli(entry: string | undefined): boolean {
+  if (!entry) {
+    return false
+  }
+  try {
+    const script = fs.realpathSync(entry)
+    const pkgDir = path.dirname(path.dirname(script))
+    const pkg = JSON.parse(
+      fs.readFileSync(path.join(pkgDir, 'package.json'), 'utf8')
+    ) as { name?: unknown }
+    return (
+      path.basename(path.dirname(script)) === 'bin' && pkg.name === 'nightwatch'
+    )
+  } catch {
+    // No such file, or no readable package.json above it: not the Nightwatch CLI.
+    return false
+  }
+}
+
+/** The CLI's own selection (specs, --tag, --env, ...) without --config, specs made absolute since the backend spawns from the config's directory. */
+export function captureNightwatchSelection(
+  argv: string[] = process.argv,
+  cwd: string = process.cwd()
+): string[] | undefined {
+  if (!isNightwatchCli(argv[1])) {
+    return undefined
+  }
+  const spec = (arg: string) => {
+    const local = path.resolve(cwd, arg)
+    return fs.existsSync(local) ? local : arg
+  }
+  const args: string[] = []
+  const rest = argv.slice(2)
+  for (let i = 0; i < rest.length; i++) {
+    const arg = rest[i]
+    if (arg === '--') {
+      args.push(arg, ...rest.slice(i + 1).map(spec))
+      break
+    }
+    if (!arg.startsWith('-')) {
+      args.push(spec(arg))
+      continue
+    }
+    // Nightwatch parses argv with minimist and declares no boolean flags, so a flag takes the next bare word as its value.
+    const next = rest[i + 1]
+    const takesNext =
+      !arg.includes('=') &&
+      !arg.startsWith('--no-') &&
+      next !== undefined &&
+      !next.startsWith('-')
+    const value = takesNext ? rest[++i] : undefined
+    if (NIGHTWATCH_CONFIG_FLAGS.includes(arg.split('=')[0])) {
+      continue
+    }
+    args.push(arg, ...(value === undefined ? [] : [value]))
+  }
+  return args.length ? args : undefined
 }
 
 /**

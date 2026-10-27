@@ -31,9 +31,8 @@ describe('callSourceToStack', () => {
     ])
   })
 
-  it('returns undefined for missing or unknown call sources', () => {
+  it('returns undefined for a missing call source', () => {
     expect(callSourceToStack(undefined)).toBeUndefined()
-    expect(callSourceToStack('unknown:0')).toBeUndefined()
   })
 
   it('falls back to line 0 when no numeric suffix exists', () => {

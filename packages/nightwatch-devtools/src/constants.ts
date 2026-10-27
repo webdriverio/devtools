@@ -73,6 +73,9 @@ export { SPINNER_RE } from '@wdio/devtools-core'
  *  truth — service uses the same pattern under the name SPEC_FILE_RE). */
 export { SPEC_FILE_RE as TEST_FILE_PATTERN } from '@wdio/devtools-shared'
 
+/** The CLI flags that name the config file, left out of the selection Run all replays (the backend passes its own). */
+export const NIGHTWATCH_CONFIG_FLAGS = ['--config', '-c']
+
 /** Nightwatch config file names to search for, in priority order. */
 export const CONFIG_FILENAMES = [
   'nightwatch.conf.cjs',

@@ -24,6 +24,7 @@
     "demo:python:mobile": "python3 examples/selenium-py/mobile/${DEVTOOLS_MOBILE_PLATFORM:-android}/*.py",
     "dev": "pnpm --parallel dev",
     "preview": "pnpm --parallel preview",
+    "docs:capabilities": "tsx packages/conformance/src/capability-matrix.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
