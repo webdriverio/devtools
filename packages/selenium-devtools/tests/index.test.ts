@@ -681,8 +681,9 @@ describe('driverPatcher', () => {
   it("keeps one scope for a wait nested in another wait's condition across the outer polls", async () => {
     const realWait = (driverProto as any).wait
     ;(driverProto as any).wait = async function (condition: any) {
-      await condition(this)
-      await condition(this)
+      const fn = typeof condition === 'function' ? condition : condition.fn
+      await fn(this)
+      await fn(this)
     }
     ;(driverProto as any).testRead = function () {
       return Promise.resolve('url')
@@ -702,6 +703,19 @@ describe('driverPatcher', () => {
       const scopes = onCommand.mock.calls.map(([cmd]) => cmd.waitScope)
       expect(scopes).toHaveLength(4)
       expect(new Set(scopes).size).toBe(1)
+
+      // Two different waits from the outer condition's branches keep their own scopes.
+      onCommand.mockClear()
+      let poll = 0
+      await (fakeDriver as any).wait((d: any) =>
+        poll++ === 0
+          ? d.wait({ fn: (i: any) => i.testRead(), description: () => 'a' })
+          : d.wait({ fn: (i: any) => i.testRead(), description: () => 'b' })
+      )
+      await new Promise((r) => setImmediate(r))
+      const branches = onCommand.mock.calls.map(([cmd]) => cmd.waitScope)
+      expect(branches).toHaveLength(4)
+      expect(new Set(branches).size).toBe(2)
     } finally {
       ;(driverProto as any).wait = realWait
       delete (driverProto as any)[
