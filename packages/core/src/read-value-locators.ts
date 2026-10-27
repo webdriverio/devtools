@@ -67,19 +67,23 @@ export function selectorForReadValue(value: unknown): string | undefined {
 
 /**
  * The element an assert was about, from its RAW args (sanitizing loses the
- * object identity a handle is recognised by). First arg that resolves wins —
- * node:assert puts the subject first. `fromHandle` lets an adapter that also
- * tracks element handles answer for an element passed straight to the assert;
- * adapters whose asserts only ever see values omit it.
+ * object identity a handle is recognised by). The first arg whose producer is
+ * known decides, since node:assert puts the subject first. `fromHandle` lets an
+ * adapter that also tracks element handles answer for an element passed
+ * straight to the assert; adapters whose asserts only ever see values omit it.
  */
 export function resolveAssertTargetFromArgs(
   args: unknown[],
   fromHandle?: (arg: unknown) => string | undefined
 ): string | undefined {
   for (const arg of args) {
-    const selector = fromHandle?.(arg) ?? selectorForReadValue(arg)
-    if (selector) {
-      return selector
+    const handle = fromHandle?.(arg)
+    if (handle) {
+      return handle
+    }
+    // A value no element owns ends the search: `notEqual(title, 'Welcome')` must not box an element that once read 'Welcome'.
+    if (selectorByReadValue.has(arg)) {
+      return selectorByReadValue.get(arg) ?? undefined
     }
   }
   return undefined
