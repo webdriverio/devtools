@@ -43,6 +43,8 @@ The driver fixture is function-scoped, so each test gets its own browser session
 — which also exercises the adapter's per-driver capture state.
 """
 
+import os
+
 import pytest
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
@@ -50,7 +52,9 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
-BASE_URL = "https://the-internet.herokuapp.com"
+BASE_URL = (
+    os.environ.get("DEVTOOLS_EXAMPLE_BASE_URL") or "https://the-internet.herokuapp.com"
+).rstrip("/")
 USERNAME = "tomsmith"
 PASSWORD = "SuperSecretPassword!"
 TIMEOUT = 5

@@ -14,6 +14,8 @@ import {
 } from '@wdio/devtools-shared'
 
 import { ACTION_METHODS, RULES, SCOPES } from './constants.js'
+import { checkCallSites } from './call-site.js'
+import { checkTestRows } from './scenario-tests.js'
 import type {
   ActionMethod,
   GroundTruth,
@@ -38,7 +40,9 @@ export function checkConformance(
     ...rowPerAction(stream, truth),
     ...runControlsServed(stream),
     ...requestsListed(stream, truth),
-    ...requestSourceServed(stream, truth)
+    ...requestSourceServed(stream, truth),
+    ...checkCallSites(stream, truth.scenarioFile),
+    ...checkTestRows(stream)
   ]
 }
 

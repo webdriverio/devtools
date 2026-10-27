@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
+import { readStream } from '../src/checker.js'
 import { RULES, SCENARIO_TESTS } from '../src/constants.js'
 import {
   checkTestOutcomes,
+  checkTestRows,
   reportedTests,
   scenarioTestOf
 } from '../src/scenario-tests.js'
@@ -82,5 +84,107 @@ describe('scenarioTestOf', () => {
     expect(scenarioTestOf(tests, { timestamp: 250 })).toBe(2)
     expect(scenarioTestOf(tests, { startTime: 99, timestamp: 150 })).toBe(0)
     expect(scenarioTestOf(tests, { timestamp: -1 })).toBe(-1)
+  })
+})
+
+describe('checkTestRows', () => {
+  const ERROR = { name: 'Error', message: 'boom' }
+
+  /** One row per scenario test, inside its window, the designed failures carrying an error. */
+  const rows = (): Record<string, unknown>[] =>
+    SCENARIO_TESTS.map((t, i) => ({
+      command: 'getText',
+      args: [],
+      timestamp: i * 100 + 50,
+      ...(t.state === 'failed' ? { error: ERROR } : {})
+    }))
+  const judge = (
+    tests: [string, string, number][],
+    commands: object[] = rows()
+  ) =>
+    checkTestRows(
+      readStream([suites(tests), { scope: 'commands', data: commands }])
+    )
+  const [, , HEADING, MISSING] = SCENARIO_TESTS.map((t) => t.title)
+
+  it('passes a run where every test has rows and every failed test an error row', () => {
+    expect(judge(designed())).toEqual([])
+  })
+
+  // The Selenium first-test race: hooks registered on a poll missed a test that started sooner.
+  it('flags a test the tree shows with no rows', () => {
+    expect(judge(designed(), rows().slice(1))).toEqual([
+      {
+        rule: RULES.testHasRows,
+        message: `"${SCENARIO_TESTS[0].title}" is reported passed but has no rows`
+      }
+    ])
+  })
+
+  // The Selenium timed-out wait: no row carried the TimeoutError, so the failed test simply stopped.
+  it('flags a failed test none of whose rows carries an error', () => {
+    const commands = rows()
+    commands[3] = { ...commands[3], error: undefined }
+    expect(judge(designed(), commands)).toEqual([
+      {
+        rule: RULES.failedTestExplained,
+        message: `"${MISSING}" failed but none of its 1 row(s) is a failed action`
+      }
+    ])
+  })
+
+  it('judges a test designed to fail even when the tree shows it passed', () => {
+    const tests = designed()
+    tests[2] = [HEADING, 'passed', 200]
+    const commands = rows()
+    commands[2] = { ...commands[2], error: undefined }
+    expect(judge(tests, commands).map((v) => v.rule)).toEqual([
+      RULES.failedTestExplained
+    ])
+  })
+
+  it('judges a test the tree shows failed although it was designed to pass', () => {
+    const tests = designed()
+    tests[0] = [tests[0][0], 'failed', 0]
+    expect(judge(tests).map((v) => v.rule)).toEqual([RULES.failedTestExplained])
+  })
+
+  it("reads a failure by shared's rule, so a wait that resolved false counts", () => {
+    const commands = rows()
+    commands[3] = {
+      command: 'waitForElementVisible',
+      args: ['#missing'],
+      result: false,
+      timestamp: 350
+    }
+    expect(judge(designed(), commands)).toEqual([])
+  })
+
+  // Python's timed-out WebDriverWait: its polls are unmapped findElement rows that error, as a passing wait's do.
+  it('does not take an unmapped poll that errored for the failure', () => {
+    const commands = rows()
+    commands[3] = {
+      command: 'findElement',
+      args: [],
+      timestamp: 350,
+      error: { name: 'NoSuchElementError', message: 'no element #missing' }
+    }
+    expect(judge(designed(), commands).map((v) => v.rule)).toEqual([
+      RULES.failedTestExplained
+    ])
+  })
+
+  it('places a row by the test its uid names, so an error stamped for one test explains no other', () => {
+    const commands = rows()
+    commands[3] = { ...commands[3], timestamp: 50, testUid: 't3' }
+    commands[2] = { ...commands[2], testUid: 't0' }
+    expect(judge(designed(), commands)).toEqual([
+      expect.objectContaining({ rule: RULES.testHasRows }),
+      expect.objectContaining({ rule: RULES.failedTestExplained })
+    ])
+  })
+
+  it('leaves a test the tree never reports to tests-end-as-designed', () => {
+    expect(judge(designed().slice(0, -1), rows().slice(0, -1))).toEqual([])
   })
 })

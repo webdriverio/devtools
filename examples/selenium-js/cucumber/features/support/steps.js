@@ -2,8 +2,12 @@ import { strict as assert } from 'node:assert'
 import { Given, When, Then } from '@cucumber/cucumber'
 import { By, until } from 'selenium-webdriver'
 
+const BASE_URL = (
+  process.env.DEVTOOLS_EXAMPLE_BASE_URL || 'https://the-internet.herokuapp.com'
+).replace(/\/+$/, '')
+
 Given('I am on the login page', async function () {
-  await this.driver.get('https://the-internet.herokuapp.com/login')
+  await this.driver.get(`${BASE_URL}/login`)
 })
 
 When(

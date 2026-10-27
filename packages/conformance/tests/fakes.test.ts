@@ -1,3 +1,5 @@
+import { fileURLToPath } from 'node:url'
+
 import { afterEach, describe, expect, it } from 'vitest'
 import WebSocket from 'ws'
 
@@ -293,7 +295,10 @@ describe('the fake collector', () => {
       mutations.push(...drained.mutations)
     }
     const frames: WireFrame[] = [{ scope: 'mutations', data: mutations }]
-    const rules = checkConformance(frames, driver.truth()).map((v) => v.rule)
+    const rules = checkConformance(frames, {
+      ...driver.truth(),
+      scenarioFile: { paths: [], lines: 0 }
+    }).map((v) => v.rule)
     expect(rules).toContain(RULES.anchorOnce)
   })
 })
@@ -361,7 +366,11 @@ ws.on('open', () => ws.send(JSON.stringify({ scope: 'commands', data: {} }), () 
         id: 'selenium-devtools',
         exitCode: 0,
         ready: () => true,
-        prepare: () => ({ command: process.execPath, args: ['-e', script] })
+        prepare: () => ({
+          scenarioFile: fileURLToPath(import.meta.url),
+          command: process.execPath,
+          args: ['-e', script]
+        })
       },
       'off'
     )

@@ -34,6 +34,9 @@ const MOCHA_BIN = path.join(
   'packages/conformance/node_modules/.bin/mocha'
 )
 
+const WDIO_SPEC = scenario('wdio/specs/scenario.e2e.js')
+const SELENIUM_SPEC = scenario('selenium/scenario.spec.js')
+
 /** Every adapter the suite runs, each through its framework's own runner. Adding one is an entry here plus its scenario folder. */
 export const ADAPTERS: AdapterScenario[] = [
   {
@@ -48,6 +51,7 @@ export const ADAPTERS: AdapterScenario[] = [
       ].every((f) => existsSync(f)),
     // From this package: the CLI resolves its runner, framework and service from the working directory.
     prepare: () => ({
+      scenarioFile: WDIO_SPEC,
       command: WDIO_BIN,
       args: ['run', scenario('wdio/wdio.conf.js')],
       cwd: path.join(REPO_ROOT, 'packages/conformance')
@@ -65,13 +69,14 @@ export const ADAPTERS: AdapterScenario[] = [
       ].every((f) => existsSync(f)),
     // From this package, so `--require` resolves the adapter as a user's project would.
     prepare: () => ({
+      scenarioFile: SELENIUM_SPEC,
       command: MOCHA_BIN,
       args: [
         '--require',
         '@wdio/selenium-devtools',
         '--timeout',
         '30000',
-        scenario('selenium/scenario.spec.js')
+        SELENIUM_SPEC
       ],
       cwd: path.join(REPO_ROOT, 'packages/conformance')
     })
@@ -87,6 +92,7 @@ export const ADAPTERS: AdapterScenario[] = [
         COLLECTOR_BUNDLE
       ].every((f) => existsSync(f)),
     prepare: () => ({
+      scenarioFile: scenario('nightwatch/specs/scenario.js'),
       command: NIGHTWATCH_BIN,
       args: ['-c', scenario('nightwatch/nightwatch.conf.cjs')]
     })
@@ -105,6 +111,7 @@ export const ADAPTERS: AdapterScenario[] = [
       const spec = path.join(dir, 'test_scenario.py')
       copyFileSync(scenario('python/test_scenario.py'), spec)
       return {
+        scenarioFile: spec,
         command: PYTHON,
         args: ['-m', 'pytest', '--devtools', '-p', 'no:cacheprovider', spec],
         cwd: dir,

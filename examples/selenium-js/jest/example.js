@@ -7,7 +7,10 @@
 import { DevTools } from '@wdio/selenium-devtools'
 import { Builder, By, until } from 'selenium-webdriver'
 
-const LOGIN_URL = 'https://the-internet.herokuapp.com/login'
+const BASE_URL = (
+  process.env.DEVTOOLS_EXAMPLE_BASE_URL || 'https://the-internet.herokuapp.com'
+).replace(/\/+$/, '')
+const LOGIN_URL = `${BASE_URL}/login`
 const VALID_USERNAME = 'tomsmith'
 const VALID_PASSWORD = 'SuperSecretPassword!'
 
