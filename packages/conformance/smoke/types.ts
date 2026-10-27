@@ -8,26 +8,34 @@ interface ExpectationChecks {
   error?: boolean
   /** Substring an error row's message must contain. */
   errorMatches?: string
+  /** Substrings each of which some row's title must contain, e.g. a wait's condition. */
+  titleMatches?: string[]
 }
 
 export interface TestScopedExpectation extends ExpectationChecks {
   scope?: 'test'
   /** The test's own title: its nearest tracing group's title, exactly or as the last segment. */
   test: string
+  /** This test times out on purpose: the lines of its own error rows are exempt from the run's timeout check. */
+  allowTimeoutError?: boolean
 }
 
 export interface RunScopedExpectation extends ExpectationChecks {
   scope: 'run'
   /** Why this example cannot be checked per test; documentation only. */
   reason: string
+  /** Exempting a whole run's timeouts would hide every timeout; use the example-level flag deliberately instead. */
+  allowTimeoutError?: never
 }
 
 export interface ExampleExpectations {
   example: string
   /** Whether the run deliberately fails, i.e. must exit non-zero. */
   runFails: boolean
-  /** Lets stdout or the runner log carry a timeout; off unless a test waits on purpose. */
+  /** Lets stdout or the runner log carry any timeout; prefer a test's own `allowTimeoutError`. */
   allowTimeoutError?: boolean
+  /** Files a row's call site may point into (paths ending in one of these); unset skips the check. */
+  sourceFiles?: string[]
   tests: TestExpectation[]
 }
 
@@ -37,7 +45,11 @@ export interface TraceRow {
   label: string
   title: string
   error?: string
+  /** The row's call site file, from the `before` event's first stack frame. */
+  file?: string
 }
+
+export type LocatedRow = TraceRow & { file: string }
 
 export interface TraceGroup {
   title: string

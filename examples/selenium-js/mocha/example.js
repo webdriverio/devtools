@@ -3,8 +3,9 @@
  *
  * Walk the live/trace ladder by editing ONLY the DevTools.configure({...})
  * block below. The suite carries a passing pair, an always-failing test (for
- * retain-on-failure), and a flaky fail-then-pass test with a per-test retry
- * (for on-first-retry / attempt capture).
+ * retain-on-failure), a wait that times out (a failed wait row), and a flaky
+ * fail-then-pass test with a per-test retry (for on-first-retry / attempt
+ * capture).
  *
  * Run from the package root:  pnpm example:mocha
  */
@@ -69,6 +70,14 @@ describe('selenium-devtools smoke test', function () {
     const heading = await driver.wait(until.elementLocated(By.css('h2')), 10000)
     const text = await heading.getText()
     assert.equal(text, 'This Is Not The Heading')
+  })
+
+  it('times out waiting for an element the page never renders (failed wait target)', async function () {
+    await driver.get(LOGIN_URL)
+    await driver.wait(
+      until.elementLocated(By.css('#devtools-never-rendered')),
+      1000
+    )
   })
 
   it('flaky: fails the first attempt, then passes (retry target)', async function () {

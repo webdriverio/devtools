@@ -1,6 +1,7 @@
 {
   "example": "python-pytest",
   "runFails": false,
+  "sourceFiles": ["examples/selenium-py/pytest/test_login_pytest.py"],
   "tests": [
     {
       "test": "test_logs_in_with_valid_credentials",

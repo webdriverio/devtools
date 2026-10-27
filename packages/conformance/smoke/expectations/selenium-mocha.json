@@ -1,6 +1,7 @@
 {
   "example": "selenium-mocha",
   "runFails": true,
+  "sourceFiles": ["examples/selenium-js/mocha/example.js"],
   "tests": [
     {
       "test": "loads the login page and reads the heading",
@@ -17,6 +18,16 @@
       "rows": ["Page.navigate", "Element.getText", "Assert.equal"],
       "error": true,
       "errorMatches": "This Is Not The Heading"
+    },
+    {
+      "test": "times out waiting for an element the page never renders (failed wait target)",
+      "rows": ["Page.navigate", "Browser.waitForFunction"],
+      "titleMatches": [
+        "Waiting for element to be located By(css selector, #devtools-never-rendered)"
+      ],
+      "error": true,
+      "errorMatches": "Wait timed out",
+      "allowTimeoutError": true
     },
     {
       "test": "flaky: fails the first attempt, then passes (retry target)",

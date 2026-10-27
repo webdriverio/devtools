@@ -1,6 +1,7 @@
 {
   "example": "nightwatch-bdd",
   "runFails": true,
+  "sourceFiles": ["examples/nightwatch/bdd/smoke-test.js"],
   "tests": [
     {
       "scope": "run",

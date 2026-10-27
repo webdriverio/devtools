@@ -10,6 +10,7 @@ import { NODEID_SEPARATOR, TIMEOUT_PATTERNS } from './constants.js'
 import type {
   ExampleExpectations,
   RunOutcome,
+  LocatedRow,
   SmokeTrace,
   TestExpectation,
   TraceRow
@@ -27,6 +28,7 @@ interface RawEvent {
   title?: string
   text?: string
   error?: { message?: string }
+  stack?: { file?: string }[]
 }
 
 export function parseTraceNdjson(source: string, ndjson: string): SmokeTrace {
@@ -55,7 +57,8 @@ export function parseTraceNdjson(source: string, ndjson: string): SmokeTrace {
           callId: event.callId,
           parentId: event.parentId,
           label: `${event.class}.${event.method}`,
-          title: event.title ?? ''
+          title: event.title ?? '',
+          file: event.stack?.[0]?.file
         })
       }
     } else if (
@@ -147,8 +150,7 @@ function checkTest(
   expectation: TestExpectation,
   traces: SmokeTrace[]
 ): string[] {
-  const scope =
-    expectation.scope === 'run' ? 'the run' : `test "${expectation.test}"`
+  const scope = scopeLabel(expectation)
   const rows = rowsFor(traces, expectation)
   if (expectation.scope !== 'run' && rows.length === 0) {
     return [
@@ -173,6 +175,14 @@ function checkTest(
       `${scope}: unexpected error rows: ${errorRows.map((r) => `${r.label}: ${r.error}`).join('; ')}`
     )
   }
+  const titles = rows.map((row) => row.title)
+  for (const fragment of expectation.titleMatches ?? []) {
+    if (!titles.some((title) => title.includes(fragment))) {
+      failures.push(
+        `${scope}: no row title contains "${fragment}"; titles: ${titles.join(', ') || '(none)'}`
+      )
+    }
+  }
   const needle = expectation.errorMatches
   if (
     needle !== undefined &&
@@ -189,6 +199,36 @@ export function findTimeout(text: string): boolean {
   return TIMEOUT_PATTERNS.some((pattern) => pattern.test(text))
 }
 
+// A runner prints an error as `Name: message`, indented, so a line is compared without either.
+function normaliseLine(line: string): string {
+  return line.trim().replace(/^\w+(?:Error|Exception): /, '')
+}
+
+/** The lines of the error rows of tests that time out on purpose. */
+function expectedTimeoutLines(
+  expectations: ExampleExpectations,
+  traces: SmokeTrace[]
+): Set<string> {
+  const lines = new Set<string>()
+  for (const test of expectations.tests) {
+    if (test.scope === 'run' || !test.allowTimeoutError) {
+      continue
+    }
+    for (const row of rowsFor(traces, test)) {
+      for (const line of row.error?.split('\n') ?? []) {
+        lines.add(normaliseLine(line))
+      }
+    }
+  }
+  return lines
+}
+
+function firstTimeout(text: string, exempt: Set<string>): string | undefined {
+  return text
+    .split('\n')
+    .find((line) => findTimeout(line) && !exempt.has(normaliseLine(line)))
+}
+
 function checkTimeouts(
   expectations: ExampleExpectations,
   traces: SmokeTrace[],
@@ -197,22 +237,91 @@ function checkTimeouts(
   if (expectations.allowTimeoutError) {
     return []
   }
+  const exempt = expectedTimeoutLines(expectations, traces)
   const failures: string[] = []
   for (const trace of traces) {
-    const hit = trace.stdio.find(findTimeout)
+    const hit = trace.stdio
+      .map((text) => firstTimeout(text, exempt))
+      .find((line) => line !== undefined)
     if (hit !== undefined) {
       failures.push(
-        `${trace.source}: stdout carries a timeout: ${hit.slice(0, 300)}`
+        `${trace.source}: stdout carries a timeout: ${hit.trim().slice(0, 300)}`
       )
     }
   }
-  const logHit = outcome.log?.split('\n').find(findTimeout)
-  if (logHit !== undefined) {
+  const logHit = outcome.log && firstTimeout(outcome.log, exempt)
+  if (logHit) {
     failures.push(
       `runner log carries a timeout: ${logHit.trim().slice(0, 300)}`
     )
   }
   return failures
+}
+
+function isExampleSource(file: string, sourceFiles: string[]): boolean {
+  const path = file.replace(/^file:\/\//, '')
+  return sourceFiles.some((src) => path === src || path.endsWith(`/${src}`))
+}
+
+const isLocated = (row: TraceRow): row is LocatedRow => row.file !== undefined
+
+function scopeLabel(expectation: TestExpectation): string {
+  return expectation.scope === 'run' ? 'the run' : `test "${expectation.test}"`
+}
+
+/** A test's rows are issued by its own code, so each must carry a call site; a run-scoped entry needs at least one. */
+function missingCallSites(
+  expectation: TestExpectation,
+  traces: SmokeTrace[]
+): string[] {
+  const rows = rowsFor(traces, expectation)
+  if (expectation.scope === 'run') {
+    return rows.some(isLocated) ? [] : ['the run: no row carries a call site']
+  }
+  const unlocated = rows.filter((row) => !isLocated(row))
+  return unlocated.length
+    ? [
+        `${scopeLabel(expectation)}: rows without a call site: ${unlocated.map((r) => r.label).join(', ')}`
+      ]
+    : []
+}
+
+/** Every row's call site must be the example's own code, never an adapter's or a dependency's. */
+function checkCallSites(
+  expectations: ExampleExpectations,
+  traces: SmokeTrace[]
+): string[] {
+  const sourceFiles = expectations.sourceFiles
+  if (!sourceFiles) {
+    return []
+  }
+  const strays = traces
+    .flatMap((trace) => trace.rows.filter(isLocated))
+    .filter((row) => !isExampleSource(row.file, sourceFiles))
+  const files = [...new Set(strays.map((row) => row.file))]
+  return [
+    ...expectations.tests.flatMap((test) => missingCallSites(test, traces)),
+    ...files.map((file) => {
+      const labels = strays.filter((r) => r.file === file).map((r) => r.label)
+      return `call site outside the example's sources (${sourceFiles.join(', ')}): ${file} on ${labels.join(', ')}`
+    })
+  ]
+}
+
+/** JSON is untyped, so the one rule the types carry is re-checked: a run-scoped entry cannot exempt timeouts. */
+export function validateExpectations(
+  expectations: ExampleExpectations
+): string[] {
+  return expectations.tests
+    .filter(
+      (test) =>
+        test.scope === 'run' &&
+        (test as { allowTimeoutError?: unknown }).allowTimeoutError !==
+          undefined
+    )
+    .map(
+      () => 'the run: allowTimeoutError is only allowed on a test-scoped entry'
+    )
 }
 
 /** Every unmet expectation as one line; empty means the example passed. */
@@ -221,6 +330,10 @@ export function checkExample(
   traces: SmokeTrace[],
   outcome: RunOutcome = {}
 ): string[] {
+  const invalid = validateExpectations(expectations)
+  if (invalid.length) {
+    return invalid
+  }
   if (traces.length === 0) {
     return ['no trace-*.zip was produced']
   }
@@ -233,5 +346,9 @@ export function checkExample(
       `run exited ${outcome.exitCode}, expected ${expectations.runFails ? 'a failing exit (it has deliberately failing tests)' : '0'}`
     )
   }
-  return [...failures, ...checkTimeouts(expectations, traces, outcome)]
+  return [
+    ...failures,
+    ...checkCallSites(expectations, traces),
+    ...checkTimeouts(expectations, traces, outcome)
+  ]
 }

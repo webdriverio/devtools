@@ -16,14 +16,20 @@ import { exportTraceZip } from '@wdio/devtools-trace'
 import {
   checkExample,
   findTimeout,
-  readSmokeTrace
+  readSmokeTrace,
+  validateExpectations
 } from '../smoke/trace-expectations.js'
-import type { ExampleExpectations, SmokeTrace } from '../smoke/types.js'
+import type {
+  ExampleExpectations,
+  RunScopedExpectation,
+  SmokeTrace
+} from '../smoke/types.js'
 
 const EXPECTATIONS_DIR = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
   '../smoke/expectations'
 )
+const REPO_ROOT = path.join(EXPECTATIONS_DIR, '../../../..')
 
 let clock = 1_000
 
@@ -67,7 +73,8 @@ const metadata: TestMetadataMap = new Map([
       title: 'test_login.py::TestLogin::test_rejects_invalid_credentials',
       specFile: 'test_login.py'
     }
-  ]
+  ],
+  ['test-wait', { title: 'times out on purpose', specFile: 'example.js' }]
 ])
 
 function traceLog(
@@ -438,6 +445,192 @@ describe('checkExample', () => {
   })
 })
 
+describe('a test that times out on purpose', () => {
+  const WAIT_LABEL =
+    'Waiting for element to be located By(css selector, #devtools-never-rendered)'
+  const WAIT_ERROR = `${WAIT_LABEL}\nWait timed out after 1004ms`
+
+  const waitRun = () => [
+    cmd('get', 'test-wait', { args: ['http://127.0.0.1/login'] }),
+    cmd('wait', 'test-wait', {
+      args: [WAIT_LABEL, 1000],
+      error: Object.assign(new Error(WAIT_ERROR), { name: 'TimeoutError' })
+    })
+  ]
+
+  const waitExpectations = (
+    allowTimeoutError: boolean | undefined
+  ): ExampleExpectations => ({
+    example: 'unit',
+    runFails: true,
+    tests: [
+      {
+        test: 'times out on purpose',
+        rows: ['Page.navigate', 'Browser.waitForFunction'],
+        titleMatches: [WAIT_LABEL],
+        error: true,
+        errorMatches: 'Wait timed out',
+        allowTimeoutError
+      }
+    ]
+  })
+
+  // How mocha prints the failure: name, message, then the rest indented.
+  const mochaLog = [
+    '  1) selenium-devtools smoke test',
+    '       times out on purpose:',
+    `     TimeoutError: ${WAIT_LABEL}`,
+    '  Wait timed out after 1004ms',
+    '      at /repo/node_modules/selenium-webdriver/lib/webdriver.js:929:22'
+  ].join('\n')
+
+  it('finds the failed wait row by its label and its error', async () => {
+    const trace = await parsed(waitRun())
+    const failures = checkExample(waitExpectations(true), [trace], {
+      log: mochaLog
+    })
+    expect(failures).toEqual([])
+  })
+
+  it('names a missing title fragment', async () => {
+    const trace = await parsed(waitRun())
+    const expectation = waitExpectations(true)
+    expectation.tests[0]!.titleMatches = ['#some-other-element']
+    expect(checkExample(expectation, [trace])).toEqual([
+      expect.stringMatching(
+        /^test "times out on purpose": no row title contains "#some-other-element"; titles: Page\.navigate\(/
+      )
+    ])
+  })
+
+  it('still flags the timeout when the test does not expect it', async () => {
+    const trace = await parsed(waitRun())
+    expect(
+      checkExample(waitExpectations(undefined), [trace], { log: mochaLog })
+    ).toEqual([`runner log carries a timeout: TimeoutError: ${WAIT_LABEL}`])
+  })
+
+  it('exempts only that wait, not a second timeout elsewhere', async () => {
+    const trace = await parsed(waitRun())
+    const log = `${mochaLog}\n  Wait timed out after 5002ms`
+    expect(checkExample(waitExpectations(true), [trace], { log })).toEqual([
+      'runner log carries a timeout: Wait timed out after 5002ms'
+    ])
+  })
+})
+
+describe('call sites', () => {
+  const SPEC = '/repo/examples/wdio/mocha/specs/login.e2e.ts'
+  // `null` leaves the click row without a call site, as a regression would.
+  const located = (callSource: string, clickSource?: string | null) => [
+    cmd('url', 'test-pass', { args: ['http://x/login'], callSource }),
+    cmd('click', 'test-pass', {
+      args: ['button'],
+      callSource: clickSource === null ? undefined : (clickSource ?? callSource)
+    })
+  ]
+  const withSources: ExampleExpectations = {
+    example: 'unit',
+    runFails: false,
+    sourceFiles: ['examples/wdio/mocha/specs/login.e2e.ts'],
+    tests: [{ test: 'logs in with valid credentials' }]
+  }
+  const runScoped: ExampleExpectations = {
+    ...withSources,
+    tests: [{ scope: 'run', reason: 'no per-test groups' }]
+  }
+
+  it('passes rows located in the example, absolute or as a file URL', async () => {
+    const traces = [
+      await parsed(located(`${SPEC}:12:5`)),
+      await parsed(
+        located('file:///repo/examples/wdio/mocha/specs/login.e2e.ts:9')
+      )
+    ]
+    expect(checkExample(withSources, traces)).toEqual([])
+  })
+
+  it('fails a test-scoped row that lost its call site, naming the test and the row', async () => {
+    const trace = await parsed(located(`${SPEC}:12:5`, null))
+    expect(checkExample(withSources, [trace])).toEqual([
+      'test "logs in with valid credentials": rows without a call site: Element.click'
+    ])
+  })
+
+  it('needs only one located row for a run-scoped entry', async () => {
+    const trace = await parsed(located(`${SPEC}:12:5`, null))
+    expect(checkExample(runScoped, [trace])).toEqual([])
+  })
+
+  it('fails a run-scoped entry when no row carries a call site', async () => {
+    expect(checkExample(runScoped, [await parsed(passingRun())])).toEqual([
+      'the run: no row carries a call site'
+    ])
+  })
+
+  it('names a row located in an adapter or a dependency', async () => {
+    const traces = [
+      await parsed(located('/repo/packages/core/src/stack.ts:40:3', SPEC)),
+      await parsed(
+        located('/repo/node_modules/webdriverio/build/index.js:100:1', SPEC)
+      )
+    ]
+    expect(checkExample(withSources, traces)).toEqual([
+      "call site outside the example's sources (examples/wdio/mocha/specs/login.e2e.ts): /repo/packages/core/src/stack.ts on Page.navigate",
+      "call site outside the example's sources (examples/wdio/mocha/specs/login.e2e.ts): /repo/node_modules/webdriverio/build/index.js on Page.navigate"
+    ])
+  })
+
+  it('does not accept a file that only shares the basename', async () => {
+    const failures = checkExample(withSources, [
+      await parsed(located('/repo/packages/other/login.e2e.ts:1:1', SPEC))
+    ])
+    expect(failures).toHaveLength(1)
+  })
+
+  it('skips the check when the example lists no sources', async () => {
+    const trace = await parsed(
+      located('/repo/packages/core/src/stack.ts:1', null)
+    )
+    expect(
+      checkExample({ ...withSources, sourceFiles: undefined }, [trace])
+    ).toEqual([])
+  })
+})
+
+describe('validateExpectations', () => {
+  it('rejects a run-scoped entry that would exempt every timeout', async () => {
+    const entry = {
+      scope: 'run',
+      reason: 'no per-test groups',
+      allowTimeoutError: true
+    }
+    // @ts-expect-error allowTimeoutError is typed `never` on a run-scoped entry
+    const typed: RunScopedExpectation = entry
+    const expectations: ExampleExpectations = {
+      example: 'unit',
+      runFails: true,
+      tests: [typed]
+    }
+    const message =
+      'the run: allowTimeoutError is only allowed on a test-scoped entry'
+    expect(validateExpectations(expectations)).toEqual([message])
+    expect(checkExample(expectations, [await parsed(passingRun())])).toEqual([
+      message
+    ])
+  })
+
+  it('accepts it on a test-scoped entry', () => {
+    expect(
+      validateExpectations({
+        example: 'unit',
+        runFails: true,
+        tests: [{ test: 'times out on purpose', allowTimeoutError: true }]
+      })
+    ).toEqual([])
+  })
+})
+
 describe('shipped expectation files', () => {
   const files = fs.readdirSync(EXPECTATIONS_DIR)
 
@@ -456,7 +649,12 @@ describe('shipped expectation files', () => {
     ) as ExampleExpectations
     expect(parsedFile.example).toBe(file.replace(/\.json$/, ''))
     expect(typeof parsedFile.runFails).toBe('boolean')
+    for (const source of parsedFile.sourceFiles ?? []) {
+      expect(fs.existsSync(path.join(REPO_ROOT, source))).toBe(true)
+    }
+    expect(parsedFile.sourceFiles?.length).toBeGreaterThan(0)
     expect(parsedFile.tests.length).toBeGreaterThan(0)
+    expect(validateExpectations(parsedFile)).toEqual([])
     for (const test of parsedFile.tests) {
       if (test.scope === 'run') {
         expect(test.reason.length).toBeGreaterThan(0)
