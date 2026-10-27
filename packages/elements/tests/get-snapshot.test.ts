@@ -71,6 +71,25 @@ describe('getSnapshot (web)', () => {
       { transport: 'bidi' }
     )
   })
+
+  it('stops trying classic execute on a BiDi browser once it failed', async () => {
+    const actual = await vi.importActual<typeof snap>('@wdio/snapshot')
+    vi.mocked(snap.collectWeb).mockImplementation(actual.collectWeb)
+    const executeScript = vi.fn().mockRejectedValue(new Error('unsupported'))
+    const execute = vi
+      .fn()
+      .mockResolvedValue({ tree: TREE, refs: REFS, counter: 1 })
+    const b = browser({ isBidi: true, executeScript, execute })
+
+    await getSnapshot(b)
+    await getSnapshot(b)
+
+    expect(executeScript).toHaveBeenCalledTimes(1)
+    expect(execute).toHaveBeenCalledTimes(2)
+    expect(
+      vi.mocked(snap.collectWeb).mock.calls.map((call) => call[2])
+    ).toEqual([{ transport: 'classic-first' }, { transport: 'bidi' }])
+  })
 })
 
 const ANDROID_XML = `<?xml version="1.0" encoding="UTF-8"?>

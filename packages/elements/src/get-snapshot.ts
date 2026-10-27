@@ -15,7 +15,7 @@ export interface GetSnapshotOptions {
 }
 
 export interface GetSnapshotResult {
-  /** Accessibility tree as text, one `eN` ref per actionable element, each ending in `→ <selector>`. */
+  /** Accessibility tree as text, one `eN` ref per actionable element, ending in `→ <selector>` only when one resolves under BiDi. */
   text: string
   refs: SnapshotRef[]
 }
@@ -60,13 +60,20 @@ export async function getSnapshot(
   }
 }
 
+const classicUnavailable = new WeakSet<WebdriverIO.Browser>()
+
 async function collectWebTree(browser: WebdriverIO.Browser, viewport: boolean) {
-  return collectWeb(
+  const classic = browser.isBidi && !classicUnavailable.has(browser)
+  const result = await collectWeb(
     browser,
     { counter: 0, all: false, boxes: false, viewport, assignRefs: 'ephemeral' },
-    // Same rule as collectTop in @wdio/session; `bidi` is the path for a classic session.
-    { transport: browser.isBidi ? 'classic-first' : 'bidi' }
+    // BiDi tries classic `executeScript` until it fails once, then `execute`; same rule as collectTop in @wdio/session.
+    { transport: classic ? 'classic-first' : 'bidi' }
   )
+  if (result.classicUnavailable) {
+    classicUnavailable.add(browser)
+  }
+  return result
 }
 
 async function collectNative(
