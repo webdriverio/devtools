@@ -75,14 +75,6 @@ function nightwatchGaps(bidi: BidiMode): KnownGap[] {
     {
       adapter,
       bidi,
-      rules: [RULES.failedTestExplained],
-      only: failureUnexplained(HEADING),
-      reason: KNOWN_DEBT.nightwatchSameMsReplace,
-      timingDependent: true
-    },
-    {
-      adapter,
-      bidi,
       rules: [RULES.testsAsDesigned],
       only: anyOf(reportedAs(WAITS, 'skipped'), reportedAs(REFUSED, 'skipped')),
       reason: KNOWN_DEBT.nightwatchSkipped
