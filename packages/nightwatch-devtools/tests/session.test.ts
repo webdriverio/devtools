@@ -129,6 +129,56 @@ describe('SessionCapturer.replaceCommand', () => {
     )
     expect(oldTimestamp).toBe(0)
   })
+
+  it('stamps a stable id on captured rows and preserves it across replaceCommand', async () => {
+    const { replaceCommand } = await import('@wdio/devtools-shared')
+    const cap = makeCapturer()
+    await cap.captureCommand('getText', ['#flash'], 'ok', undefined, {
+      timestamp: 1000
+    })
+    await cap.captureCommand(
+      'strictEqual',
+      ['ok', 'ok'],
+      undefined,
+      undefined,
+      {
+        timestamp: 1000
+      }
+    )
+    const getTextRow = cap.commandsLog[0]
+    const assertRow = cap.commandsLog[1]
+    expect(typeof getTextRow.id).toBe('number')
+    expect(typeof assertRow.id).toBe('number')
+    expect(getTextRow.id).not.toBe(assertRow.id)
+
+    // A late screenshot update on getText shares timestamp 1000 with the assertion
+    // after it; carrying `id` makes shared replaceCommand update getText in place
+    // instead of overwriting the assertion row via lastIndexOf(timestamp).
+    const updatedGetText = { ...getTextRow, screenshot: 'base64-shot' }
+    const afterScreenshot = replaceCommand(
+      [getTextRow, assertRow],
+      1000,
+      updatedGetText
+    )
+    expect(afterScreenshot.map((r) => r.command)).toEqual([
+      'getText',
+      'strictEqual'
+    ])
+    expect(afterScreenshot[0].screenshot).toBe('base64-shot')
+
+    // And a retry replacement preserves the public `id` while allocating a new `_id`.
+    const oldInternalId = (getTextRow as CommandLogWithId)._id
+    const { entry } = cap.replaceCommand(
+      oldInternalId,
+      'getText',
+      ['#flash'],
+      'retried',
+      undefined,
+      { timestamp: 1001 }
+    )
+    expect(entry.id).toBe(getTextRow.id)
+    expect((entry as CommandLogWithId)._id).not.toBe(oldInternalId)
+  })
 })
 
 describe('SessionCapturer.captureBrowserLogs', () => {

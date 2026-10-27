@@ -666,7 +666,10 @@ export class BrowserProxy {
     this.sessionCapturer
       .takeScreenshotViaHttp(browser)
       .then((screenshot) => {
-        if (screenshot) {
+        if (
+          screenshot &&
+          this.sessionCapturer.commandsLog.includes(entry as CommandLog)
+        ) {
           entry.screenshot = screenshot
           this.sessionCapturer.sendReplaceCommand(ts, entry as CommandLog)
           log.info(`[screenshot] Attached to ${methodName}${suffix}`)

@@ -138,6 +138,7 @@ export class SessionCapturer extends SessionCapturerBase {
     const commandId = this.commandCounter++
     const commandLogEntry: CommandLog & { _id?: number } = {
       _id: commandId,
+      id: commandId,
       command,
       args,
       result,
@@ -263,6 +264,8 @@ export class SessionCapturer extends SessionCapturerBase {
     )
     const oldTimestamp: number =
       idx !== -1 ? (this.commandsLog[idx]?.timestamp ?? 0) : 0
+    const preservedId =
+      idx !== -1 ? (this.commandsLog[idx]?.id ?? oldId) : undefined
     if (idx !== -1) {
       this.commandsLog.splice(idx, 1)
     }
@@ -273,6 +276,7 @@ export class SessionCapturer extends SessionCapturerBase {
     const commandId = this.commandCounter++
     const entry: CommandLog & { _id?: number } = {
       _id: commandId,
+      id: preservedId ?? commandId,
       command,
       args,
       result,

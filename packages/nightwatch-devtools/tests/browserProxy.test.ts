@@ -34,8 +34,10 @@ function makeCapturer() {
       error: Error | undefined,
       meta: CommandCaptureMeta = {}
     ) => {
+      const id = counter++
       commandsLog.push({
-        _id: counter++,
+        _id: id,
+        id,
         command,
         args,
         result,
@@ -838,5 +840,31 @@ describe('BrowserProxy capture ordering after a DOM-mutating command', () => {
   it('leaves the native drain to captureTrace for a DOM-mutating command', () => {
     const { capturer } = run('click')
     expect(capturer.nativeNetwork.forward).not.toHaveBeenCalled()
+  })
+
+  it('drops a late screenshot if a retry already replaced the row in commandsLog', async () => {
+    const { capturer, commandsLog } = makeCapturer()
+    let resolveScreenshot!: (val: string | null) => void
+    ;(
+      capturer.takeScreenshotViaHttp as unknown as ReturnType<typeof vi.fn>
+    ).mockImplementation(
+      () =>
+        new Promise<string | null>((resolve) => {
+          resolveScreenshot = resolve
+        })
+    )
+    const proxy = new BrowserProxy(capturer, makeTestManager(), () => ({
+      uid: 'uid-a'
+    }))
+    const browser = clickBrowser()
+    proxy.wrapBrowserCommands(browser)
+    ;(browser as unknown as Record<string, (...a: unknown[]) => unknown>).click(
+      '#a'
+    )
+    // Simulate a retry splicing out the first attempt before its screenshot resolves
+    commandsLog.splice(0, 1)
+    resolveScreenshot('stale-base64')
+    await new Promise((r) => setImmediate(r))
+    expect(capturer.sendReplaceCommand).not.toHaveBeenCalled()
   })
 })
