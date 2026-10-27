@@ -27,6 +27,7 @@ from . import (
     frames,
     interceptor_network,
     performance,
+    wait_tracking,
 )
 from .assert_tracer import ScriptAssertionTracer
 from .capturer import SessionCapturer
@@ -991,19 +992,21 @@ def install(
         start = now_ms()
         src = call_source(_skip_frames())
         _capture_source(capturer, src)  # Source tab: send the test file once
+        target = element_locators.selector_for_command(driver_command, params)
+        poll = wait_tracking.poll_of(driver_command, params, target)
         try:
             result = orig_execute(self, driver_command, params)
         except BaseException as exc:  # capture then re-raise unchanged
-            capturer.capture_command(
+            failed = capturer.capture_command(
                 command=driver_command,
                 args=params,
                 error=exc,
                 start_time=start,
                 call_source=src,
-                selector=element_locators.selector_for_command(
-                    driver_command, params
-                ),
+                selector=target,
+                replaces=wait_tracking.folds_into(poll),
             )
+            wait_tracking.note_poll_row(poll, failed)
             raise
 
         # WebDriver.execute returns the full response dict; the useful payload
@@ -1023,7 +1026,9 @@ def install(
             selector=element_locators.selector_for_command(
                 driver_command, params, value
             ),
+            replaces=wait_tracking.folds_into(poll),
         )
+        wait_tracking.note_poll_row(poll, row)
         _capture_action_snapshot(self, driver_command, row.get("timestamp", start), shot)
         if driver_command in NAVIGATION_COMMANDS:
             _attach_performance(capturer, self, row, params)
@@ -1046,6 +1051,7 @@ def install(
         return result
 
     webdriver_cls.execute = patched_execute  # type: ignore[assignment]
+    wait_tracking.install(capturer, _skip_frames)
     _sources_sent.clear()
     _state.update(
         installed=True, cls=webdriver_cls, orig=orig_execute,
@@ -1073,6 +1079,7 @@ def uninstall() -> None:
     # Tracing goes first: leaving a trace function installed past teardown slows
     # every line the process runs afterwards, for nothing.
     stop_assertion_tracing()
+    wait_tracking.uninstall()
     # The collector is cached per backend for the run's lifetime; a re-enable
     # may point at a different one, so the cache goes with the rest of the
     # per-run state.

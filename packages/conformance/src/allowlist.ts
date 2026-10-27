@@ -188,15 +188,23 @@ function pythonGaps(bidi: BidiMode): KnownGap[] {
       adapter,
       bidi,
       rules: [RULES.agreeOnActions],
-      lacksSteps: ['Element.waitForExist'],
-      reason: KNOWN_DEBT.pythonWait
+      only: hunk(
+        MISSING,
+        'its start',
+        adapter,
+        'Browser.waitForFunction',
+        'Element.waitForExist #missing'
+      ),
+      reason: KNOWN_DEBT.pythonFailedWait,
+      against: 'devtools-service'
     },
     {
       adapter,
       bidi,
-      rules: [RULES.failedTestExplained],
-      only: failureUnexplained(MISSING),
-      reason: KNOWN_DEBT.pythonWait
+      rules: [RULES.agreeOnActions],
+      lacksSteps: [FLASH_WAIT],
+      reason: KNOWN_DEBT.pythonWait,
+      against: 'devtools-service'
     },
     {
       adapter,

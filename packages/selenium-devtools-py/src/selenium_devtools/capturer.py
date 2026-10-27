@@ -87,10 +87,16 @@ class SessionCapturer:
         call_source: Optional[str],
         screenshot: Optional[str] = None,
         selector: Optional[str] = None,
+        replaces: Optional[CommandLog] = None,
     ) -> CommandLog:
-        with self._lock:
-            self._command_counter += 1
-            command_id = self._command_counter
+        """Report a command, or with ``replaces`` swap that row for this one,
+        keeping its id, which is how a wait's repeated poll stays one row."""
+        if replaces is not None:
+            command_id = replaces["id"]
+        else:
+            with self._lock:
+                self._command_counter += 1
+                command_id = self._command_counter
         norm_args = args if isinstance(args, list) else ([] if args is None else [args])
         entry = frames.command_log(
             command=command,
@@ -105,7 +111,10 @@ class SessionCapturer:
             selector=selector,
             test_uid=self.test_uid,
         )
-        self._tx.send_json(SCOPE_COMMANDS, [entry])
+        if replaces is not None:
+            self.send_replace_command(replaces["timestamp"], entry)
+        else:
+            self._tx.send_json(SCOPE_COMMANDS, [entry])
         # Returned so a caller that learns more about the command AFTER it was
         # reported — a navigation's timings, which only the page can answer for
         # — can enrich this exact row and replace it.
