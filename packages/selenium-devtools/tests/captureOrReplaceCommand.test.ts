@@ -136,6 +136,7 @@ describe('captureOrReplaceCommand', () => {
         fromElement: false,
         callSource,
         waitScope: scope,
+        pollKey: 'getCurrentUrl#0',
         timestamp,
         startTime: timestamp - 3,
         result: timestamp < 1_400 ? 'https://x/login' : 'https://x/secure'
@@ -221,6 +222,7 @@ describe('captureOrReplaceCommand', () => {
         fromElement: false,
         callSource,
         waitScope: scope,
+        pollKey: 'findElements#0',
         timestamp,
         startTime: timestamp - 3,
         result: []
@@ -303,7 +305,11 @@ describe('captureOrReplaceCommand', () => {
           capturer,
           retryTracker,
           test,
-          cmd: find(timestamp, { callSource: undefined, waitScope: scope })
+          cmd: find(timestamp, {
+            callSource: undefined,
+            waitScope: scope,
+            pollKey: 'findElements#0'
+          })
         })
       }
       await captureOrReplaceCommand({
@@ -328,6 +334,55 @@ describe('captureOrReplaceCommand', () => {
         command: 'wait',
         error: { message: 'Wait timed out after 400ms' }
       })
+    } finally {
+      capturer.cleanup()
+    }
+  })
+
+  it('keeps a row a wait folded into older than its latest out of the retry tracker', async () => {
+    const capturer = new SessionCapturer({})
+    const retryTracker = new RetryTracker()
+    const scope: WaitScope = { rows: new Map() }
+    const read = (
+      cmdName: string,
+      timestamp: number,
+      overrides: Partial<CapturedCommand> = {}
+    ) =>
+      command({
+        command: cmdName,
+        args: [],
+        fromElement: false,
+        callSource: '/spec.js:40',
+        timestamp,
+        startTime: timestamp - 3,
+        ...overrides
+      })
+    const capture = (cmd: CapturedCommand) =>
+      captureOrReplaceCommand({ capturer, retryTracker, test, cmd })
+    try {
+      await capture(
+        read('getCurrentUrl', 1_000, {
+          waitScope: scope,
+          pollKey: 'getCurrentUrl#0'
+        })
+      )
+      await capture(
+        read('getTitle', 1_010, { waitScope: scope, pollKey: 'getTitle#0' })
+      )
+      // The next poll repeats only the url read, folding into the older row.
+      await capture(
+        read('getCurrentUrl', 1_200, {
+          waitScope: scope,
+          pollKey: 'getCurrentUrl#0'
+        })
+      )
+      // The same title helper, after the wait: a call of its own.
+      await capture(read('getTitle', 2_000))
+      expect(capturer.commandsLog.map((row) => row.command)).toEqual([
+        'getCurrentUrl',
+        'getTitle',
+        'getTitle'
+      ])
     } finally {
       capturer.cleanup()
     }

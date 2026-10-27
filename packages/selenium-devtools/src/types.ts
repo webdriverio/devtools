@@ -97,10 +97,16 @@ export type WebElementPromiseCtor = new (
 
 /** One `driver.wait()` call, shared by its polls and its failure row. */
 export interface WaitScope {
-  /** Each distinct poll (command + args) to the row its repeats fold into. */
+  /** Each call of the condition, by `pollKey`, to the row its repeats fold into. */
   rows: Map<string, number>
   /** The row of the latest poll, which a failed wait takes over. */
   pollRowId?: number
+}
+
+/** One evaluation of a wait's condition, counting the calls it has issued so far. */
+export interface WaitPoll {
+  scope: WaitScope
+  seen: Map<string, number>
 }
 
 export interface CapturedCommand {
@@ -122,6 +128,8 @@ export interface CapturedCommand {
   fromElement: boolean
   /** The `driver.wait()` this command is one of the polls of. */
   waitScope?: WaitScope
+  /** Names this call within its wait, so each poll's repeat of it folds into one row. */
+  pollKey?: string
   /** Set on a failed wait's own row, which takes over the row its polls folded into. */
   concludesWait?: WaitScope
   /** Locator that produced the element this command acted on. An element command

@@ -26,7 +26,7 @@ import type {
   SeleniumDriverLike,
   WebElementPromiseCtor
 } from './types.js'
-import { currentWaitScope, trackWaits } from './wait-tracking.js'
+import { trackWaits, waitPollOf } from './wait-tracking.js'
 
 const log = logger('@wdio/selenium-devtools:driverPatcher')
 
@@ -155,6 +155,29 @@ function makeSettle(
   }
 }
 
+/** What a command's row says about the call, read at invocation, where a wait condition's call order is still the issue order. */
+function describeCall(
+  methodName: string,
+  args: unknown[],
+  fromElement: boolean,
+  target: unknown,
+  startTime: number
+): Omit<CapturedCommand, 'result' | 'rawResult' | 'error' | 'timestamp'> {
+  const serializedArgs = args.map(safeSerialize)
+  // `this` is the only trace of which element the command targets — the
+  // locator was consumed by the findElement that produced it.
+  const selector = fromElement ? selectorForElement(target) : undefined
+  return {
+    command: methodName,
+    args: serializedArgs,
+    callSource: getCallSourceFromStack().callSource,
+    ...waitPollOf(methodName, serializedArgs, selector),
+    startTime,
+    fromElement,
+    selector
+  }
+}
+
 function makeWrappedMethod(
   original: (...args: unknown[]) => unknown,
   methodName: string,
@@ -176,17 +199,7 @@ function makeWrappedMethod(
     const closeInputWindow = beginInputDispatch(methodName)
     const settle = makeSettle(
       hooks,
-      {
-        command: methodName,
-        args: args.map(safeSerialize),
-        callSource: getCallSourceFromStack().callSource,
-        waitScope: currentWaitScope(),
-        startTime,
-        fromElement,
-        // `this` is the only trace of which element the command targets — the
-        // locator was consumed by the findElement that produced it.
-        selector: fromElement ? selectorForElement(this) : undefined
-      },
+      describeCall(methodName, args, fromElement, this, startTime),
       closeInputWindow
     )
 

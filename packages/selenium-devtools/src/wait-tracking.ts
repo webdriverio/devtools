@@ -4,6 +4,7 @@ import { getCallSourceFromStack } from './helpers/utils.js'
 import type {
   CapturedCommand,
   Patchable,
+  WaitPoll,
   WaitScope,
   WebElementPromiseCtor
 } from './types.js'
@@ -13,11 +14,22 @@ const log = logger('@wdio/selenium-devtools:waitTracking')
 const WAIT_TRACKED_SYMBOL = Symbol.for('@wdio/selenium-devtools/wait-tracked')
 
 /** Set while a `driver.wait()` evaluates its condition: the polls it issues. */
-const waitPoll = new AsyncLocalStorage<WaitScope>()
+const waitPoll = new AsyncLocalStorage<WaitPoll>()
 
-/** The `driver.wait()` the current command is a poll of, if any. */
-export function currentWaitScope(): WaitScope | undefined {
-  return waitPoll.getStore()
+/** The wait this command polls for, keyed as the nth call with this command, args and target, which every evaluation repeats. */
+export function waitPollOf(
+  command: string,
+  args: unknown[],
+  selector: string | undefined
+): { waitScope: WaitScope; pollKey: string } | undefined {
+  const poll = waitPoll.getStore()
+  if (!poll) {
+    return undefined
+  }
+  const call = JSON.stringify({ command, args, selector: selector ?? null })
+  const nth = poll.seen.get(call) ?? 0
+  poll.seen.set(call, nth + 1)
+  return { waitScope: poll.scope, pollKey: `${call}#${nth}` }
 }
 
 /** Marks a wait's own polls and reports a wait that rejects as a row of its own. */
@@ -115,7 +127,7 @@ function asWaitPoll(condition: unknown, scope: WaitScope): unknown {
   const inPoll =
     (fn: (...a: unknown[]) => unknown) =>
     (...a: unknown[]) =>
-      waitPoll.run(scope, () => fn(...a))
+      waitPoll.run({ scope, seen: new Map() }, () => fn(...a))
   if (typeof condition === 'function') {
     return inPoll(condition as (...a: unknown[]) => unknown)
   }

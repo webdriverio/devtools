@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import {
   INPUT_DISPATCH_MAX_HOLD_MS,
+  RetryTracker,
   isInputDispatchInFlight
 } from '@wdio/devtools-core'
 import { createRequire } from 'node:module'
@@ -25,6 +26,8 @@ import {
   captureLaunchCommand
 } from '../src/helpers/utils.js'
 import { SessionCapturer } from '../src/session.js'
+import { captureOrReplaceCommand } from '../src/helpers/captureOrReplaceCommand.js'
+import { rememberElementLocator } from '../src/helpers/element-locators.js'
 import {
   patchSelenium,
   getDriverOriginals,
@@ -774,6 +777,69 @@ describe('driverPatcher', () => {
       expect(row?.args).toEqual(['[Function]', 100])
       expect(row?.error?.message).toBe('[object Object]')
     })
+  })
+
+  it("keeps each of a wait condition's reads on a row of its own across polls", async () => {
+    const realWait = (driverProto as any).wait
+    ;(driverProto as any).wait = async function (condition: any) {
+      for (let poll = 0; poll < 3; poll++) {
+        await condition.fn(this)
+      }
+    }
+    ;(elementProto as any).getText = function (this: { text: string }) {
+      return Promise.resolve(this.text)
+    }
+    stash.elementFns.getText = (elementProto as any).getText
+    const commands: CapturedCommand[] = []
+    const capturer = new SessionCapturer({})
+    try {
+      delete (driverProto as any)[
+        Symbol.for('@wdio/selenium-devtools/wait-tracked')
+      ]
+      patchSelenium({
+        onDriverCreated: vi.fn(),
+        onCommand: (cmd) => commands.push(cmd)
+      })
+      const driver = Object.create(driverProto)
+      const element = (selector: string, text: string) => {
+        const el = Object.assign(Object.create(elementProto), { text })
+        rememberElementLocator(el, sw.By.css(selector))
+        return el
+      }
+      const a = element('#a', 'A')
+      const b = element('#b', 'B')
+      await driver.wait({
+        fn: async () => (await a.getText()) === (await b.getText()),
+        description: () => 'a matches b'
+      })
+      await new Promise((r) => setImmediate(r))
+      const retryTracker = new RetryTracker()
+      for (const cmd of commands) {
+        await captureOrReplaceCommand({
+          capturer,
+          retryTracker,
+          test: { uid: 't' } as TestStats,
+          cmd
+        })
+      }
+      expect(commands).toHaveLength(6)
+      expect(
+        capturer.commandsLog.map(({ command, selector, result }) => ({
+          command,
+          selector,
+          result
+        }))
+      ).toEqual([
+        { command: 'getText', selector: '#a', result: 'A' },
+        { command: 'getText', selector: '#b', result: 'B' }
+      ])
+    } finally {
+      capturer.cleanup()
+      ;(driverProto as any).wait = realWait
+      delete (driverProto as any)[
+        Symbol.for('@wdio/selenium-devtools/wait-tracked')
+      ]
+    }
   })
 
   it('gives a wait poll fired from a timer no call source, so it can fold into the first', async () => {
