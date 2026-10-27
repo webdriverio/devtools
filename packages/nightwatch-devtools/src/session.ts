@@ -210,11 +210,16 @@ export class SessionCapturer extends SessionCapturerBase {
       this.#browser!,
       CAPTURE_PERFORMANCE_SCRIPT
     )
-    applyPerformanceData(
-      commandLogEntry,
-      payload ?? undefined,
-      typeof args[0] === 'string' ? args[0] : undefined
-    )
+    if (
+      applyPerformanceData(
+        commandLogEntry,
+        payload ?? undefined,
+        typeof args[0] === 'string' ? args[0] : undefined
+      )
+    ) {
+      // The row was sent when the command completed; the timings arrive half a second later.
+      this.sendReplaceCommand(commandLogEntry.timestamp, commandLogEntry)
+    }
   }
 
   /**

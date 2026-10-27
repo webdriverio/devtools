@@ -79,7 +79,11 @@ describe('SessionCapturer.captureCommand', () => {
       req.on('end', () => {
         bodies.push(raw)
         res.setHeader('content-type', 'application/json')
-        res.end(JSON.stringify({ value: null }))
+        res.end(
+          JSON.stringify({
+            value: { navigation: { url: 'https://x', timing: {} } }
+          })
+        )
       })
     })
     await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()))
@@ -89,11 +93,21 @@ describe('SessionCapturer.captureCommand', () => {
       transport: { settings: { webdriver: { host: '127.0.0.1', port } } }
     })
     const cap = makeCapturer(browser)
+    const send = vi.spyOn(cap, 'sendUpstream')
     try {
       await cap.captureCommand('url', ['https://x'], undefined, undefined)
       await vi.waitFor(() => expect(bodies).toHaveLength(1), { timeout: 2000 })
       expect(bodies[0]).toContain('getEntriesByType')
       expect(browser.execute).not.toHaveBeenCalled()
+      // The timings reach the dashboard by replacing the row already sent.
+      await vi.waitFor(() =>
+        expect(send).toHaveBeenCalledWith(
+          'replaceCommand',
+          expect.objectContaining({
+            command: expect.objectContaining({ performance: expect.anything() })
+          })
+        )
+      )
     } finally {
       await new Promise<void>((r) => server.close(() => r()))
     }
