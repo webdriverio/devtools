@@ -136,8 +136,10 @@ export class SessionCapturer extends SessionCapturerBase {
     const serializedError = serializeError(error)
 
     const commandId = this.commandCounter++
+    // A public `id`, so a late replace of this row cannot land on another row stamped in the same millisecond.
     const commandLogEntry: CommandLog & { _id?: number } = {
       _id: commandId,
+      id: commandId,
       command,
       args,
       result,
@@ -269,8 +271,8 @@ export class SessionCapturer extends SessionCapturerBase {
     const idx = this.commandsLog.findIndex(
       (c) => (c as CommandLog & { _id?: number })._id === oldId
     )
-    const oldTimestamp: number =
-      idx !== -1 ? (this.commandsLog[idx]?.timestamp ?? 0) : 0
+    const previous = idx !== -1 ? this.commandsLog[idx] : undefined
+    const oldTimestamp: number = previous?.timestamp ?? 0
     if (idx !== -1) {
       this.commandsLog.splice(idx, 1)
     }
@@ -279,8 +281,10 @@ export class SessionCapturer extends SessionCapturerBase {
 
     const serializedError = serializeError(error)
     const commandId = this.commandCounter++
+    // The retry keeps the row's public `id`, so the dashboard updates the row it already shows.
     const entry: CommandLog & { _id?: number } = {
       _id: commandId,
+      id: previous?.id ?? commandId,
       command,
       args,
       result,

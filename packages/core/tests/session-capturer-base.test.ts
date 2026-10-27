@@ -310,7 +310,19 @@ describe('sendCommand', () => {
 
   it('auto-allocates _id when omitted', () => {
     const id = cap.sendCommand({ command: 'click', args: [], timestamp: 1 })
-    expect(id).toBe(0)
+    expect(id).toBeTypeOf('number')
+    expect(cap.sendCommand({ command: 'b', args: [], timestamp: 1 })).toBe(
+      id + 1
+    )
+  })
+
+  // A rerun child's rows join its parent's in the backend, and test workers share one dashboard.
+  it('numbers each capturer apart, so an id names one row across processes', () => {
+    const other = new TestSessionCapturer()
+    const first = cap.sendCommand({ command: 'a', args: [], timestamp: 1 })
+    const second = other.sendCommand({ command: 'a', args: [], timestamp: 1 })
+    expect(Number.isSafeInteger(first)).toBe(true)
+    expect(second).not.toBe(first)
   })
 
   it('de-dupes — second call with same _id is a no-op', () => {
