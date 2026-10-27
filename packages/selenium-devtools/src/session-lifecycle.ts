@@ -26,6 +26,8 @@ import {
   type TraceExportContext
 } from '@wdio/devtools-core'
 import { TIMING } from './constants.js'
+import { isRunnerless } from './helpers/runtime.js'
+import type { DetectedRunner } from './types.js'
 import { SessionCapturer } from './session.js'
 import { TestReporter } from './reporter.js'
 import { SuiteManager } from './helpers/suiteManager.js'
@@ -336,6 +338,9 @@ export async function onDriverEnd(ctx: SessionLifecycleCtx): Promise<void> {
   ctx.screencast = undefined
   ctx.sessionId = undefined
   ctx.resetRetryTracker()
+  if (isRunnerless(ctx.detectedRunner as DetectedRunner)) {
+    ctx.testManager?.finalizeSession()
+  }
 }
 
 /** Final teardown. Idempotent. */
@@ -356,8 +361,8 @@ export async function onSessionEnd(ctx: SessionLifecycleCtx): Promise<void> {
     // and unblocks the new-run reset for the next scenario. onSessionEnd
     // fires on each `driver.quit()` (per cucumber scenario), so finalizing
     // the root here is premature. The true end-of-run finalize happens in
-    // finalizeTestRun (cucumber AfterAll). testReporter.updateSuites() is
-    // still useful to flush per-scenario state to the dashboard.
+    // finalizeTestRun (cucumber AfterAll). For a plain script (session mode),
+    // finalizeSession() also finalizes the synthetic root suite.
     ctx.testManager?.finalizeSession()
     ctx.testReporter?.updateSuites()
 

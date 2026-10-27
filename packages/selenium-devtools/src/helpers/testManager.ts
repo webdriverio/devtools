@@ -210,11 +210,15 @@ export class TestManager {
   /** Called when the driver session is closing (process exit / quit). */
   finalizeSession(): void {
     if (this.#currentTest) {
+      const wasSessionTest = this.#mode === 'session'
       this.endCurrent(
         this.#currentTest.state === TEST_STATE.RUNNING
           ? 'passed'
           : this.#currentTest.state
       )
+      if (wasSessionTest) {
+        this.suiteManager.finalize()
+      }
     }
   }
 }

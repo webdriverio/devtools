@@ -55,13 +55,12 @@ export function registerProcessHooks(plugin: ProcessHookPlugin): void {
     void plugin.onSessionEnd()
   })
   process.on('beforeExit', () => {
-    // onSessionEnd is idempotent — re-firing it after per-scenario quit is a
-    // no-op. The real work here is the deferred WS close (see onSessionEnd
-    // non-interactive branch). closeWebSocket() returns immediately if
-    // already closed, so this is safe for both reuse mode and the dashboard
-    // path.
-    void plugin.onSessionEnd()
-    void plugin.sessionCapturer?.closeWebSocket()
+    // onSessionEnd is async (awaits onDriverEnd before finalizing the session
+    // test/suite), so wait for it to flush its final suites update before
+    // closing the worker WebSocket.
+    void plugin
+      .onSessionEnd()
+      .finally(() => plugin.sessionCapturer?.closeWebSocket())
   })
   process.on('SIGINT', () => {
     void gracefulShutdown(plugin, 130)
