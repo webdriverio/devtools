@@ -207,6 +207,10 @@ When CI can't run an example (no real browser), the PR description says so expli
 
 The venv's editable install of `selenium_devtools` points at the primary checkout, so in a worktree every Python example, and the backend and page collector it resolves through `_find_monorepo_backend`, come from `main` unless `PYTHONPATH=packages/selenium-devtools-py/src` is exported first. A Python run that reports the old behaviour from a worktree is usually this, not the change.
 
+### Logic implemented in both TypeScript and Python
+
+The Python adapter cannot import `core`, so some pure logic exists twice. `packages/shared/mirror-vectors.json` holds input/expected-output cases for it, one section per mirrored function; `packages/selenium-devtools/tests/mirror-vectors.test.ts` runs every section against the TypeScript side under `pnpm test`, and `packages/selenium-devtools-py/tests/test_mirror_vectors.py` runs the same file against the Python side in the Python CI job (whose path filter includes the file). Both runners refuse a section they do not handle. Covered today: assertion target resolution, native-session detection, run id, output directory, command row id range, wait poll keys, nested-wait identity and performance payload shaping; `notCovered` in the file says why screencast thinning is not. Add a case whenever a change touches either side of a mirrored function, and a section when new logic is mirrored, provided its output is deterministic without a driver. A deliberate difference between the two goes in the section's `notes`, not around the case.
+
 ### Skipping tests that depend on workspace-internal build artifacts
 
 A handful of tests need `@wdio/devtools-script` to be built first (the browser-injected bundle). CI test jobs sometimes run before that build step; those tests gate on `it.skipIf` after probing `createRequire(import.meta.url).resolve('@wdio/devtools-script')`. Locally they run normally.

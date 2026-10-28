@@ -19,10 +19,10 @@ from typing import Any, Hashable, Optional, Tuple
 
 from .constants import READ_VALUE_CACHE_SIZE, READ_VALUE_MAX_LENGTH
 
-#: (type, value) to selector, or None for a value no element produced. Keyed by
-#: type too, because Python's ``True == 1`` would otherwise share one entry.
+#: (kind, value) to selector, or None for a value no element produced. Keyed by
+#: kind too, because Python's ``True == 1`` would otherwise share one entry.
 #: Insertion-ordered so the newest producer wins and the oldest is evicted.
-_selectors: "OrderedDict[Tuple[type, Hashable], Optional[str]]" = OrderedDict()
+_selectors: "OrderedDict[Tuple[str, Hashable], Optional[str]]" = OrderedDict()
 
 
 def reset() -> None:
@@ -30,7 +30,7 @@ def reset() -> None:
     _selectors.clear()
 
 
-def _key(value: Any) -> Optional[Tuple[type, Hashable]]:
+def _key(value: Any) -> Optional[Tuple[str, Hashable]]:
     """The registry key for a rememberable value, or None.
 
     Primitives only: an assertion on a read compares by value, and holding an
@@ -39,9 +39,13 @@ def _key(value: Any) -> Optional[Tuple[type, Hashable]]:
     if isinstance(value, str):
         if not value or len(value) > READ_VALUE_MAX_LENGTH:
             return None
-        return (str, value)
-    if isinstance(value, (bool, int, float)):
-        return (type(value), value)
+        return ("str", value)
+    if isinstance(value, bool):
+        return ("bool", value)
+    # One kind for int and float, as JavaScript has one number: a read of `3`
+    # must name the assertion that compares it with `3.0`, which Python passes.
+    if isinstance(value, (int, float)):
+        return ("number", value)
     return None
 
 

@@ -97,8 +97,8 @@ class SessionCapturer:
             command_id = replaces["id"]
         else:
             with self._lock:
-                self._command_counter += 1
                 command_id = self._command_counter
+                self._command_counter += 1
         norm_args = args if isinstance(args, list) else ([] if args is None else [args])
         entry = frames.command_log(
             command=command,

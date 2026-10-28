@@ -84,7 +84,8 @@ function resolveBaseDir(input: ResolveAdapterOutputDirInput): string {
     if (!dir) {
       continue
     }
-    if (dir.includes(NODE_MODULES_SEGMENT)) {
+    // Trailing separator so a spec directly inside node_modules is caught too.
+    if (`${dir}${path.sep}`.includes(NODE_MODULES_SEGMENT)) {
       continue
     }
     if (isWritable(dir)) {
