@@ -26,7 +26,10 @@ import {
   ELEMENT_SCRIPTS_API,
   ELEMENT_SCRIPTS_CONTENT_TYPE,
   buildElementScripts,
+  buildPageScripts,
   isTestRunnerId,
+  PAGE_SCRIPTS_API,
+  PAGE_SCRIPTS_CONTENT_TYPE,
   TRACE_API,
   WORKER_WS_QUERY,
   WS_PATHS,
@@ -443,6 +446,16 @@ function registerElementScriptsRoute(s: FastifyInstance): void {
   )
 }
 
+/** Serve the readiness probe, injection, drain and performance read the JS
+ *  adapters import from shared. Built once: unlike the element scripts, none
+ *  of them depends on the caller. */
+function registerPageScriptsRoute(s: FastifyInstance): void {
+  const body = JSON.stringify(buildPageScripts())
+  s.get(PAGE_SCRIPTS_API.get, async (_request, reply) =>
+    reply.type(PAGE_SCRIPTS_CONTENT_TYPE).send(body)
+  )
+}
+
 function registerTraceRoute(
   s: FastifyInstance,
   trace: TracePlayerData | undefined
@@ -477,6 +490,7 @@ export async function start(
   registerTraceRoute(server, opts.trace)
   registerCollectorRoute(server, collectorSource)
   registerElementScriptsRoute(server)
+  registerPageScriptsRoute(server)
   registerTestRoutes(server, host, port)
   registerBaselineRoutes(server)
   registerClientWebSocket(server)

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Literal, Optional, TypedDict, Union
 
-__all__ = ['AccessibilityNode', 'ActionSnapshot', 'BaselineClearedWsPayload', 'BaselineSavedWsPayload', 'ClearExecutionDataWsPayload', 'CommandLog', 'CommandLogPoint', 'ConsoleLog', 'DeviceInfo', 'DocumentInfo', 'DocumentInfoDocumentInfo', 'DocumentInfoHeaders', 'ElementScriptsResponse', 'Metadata', 'NetworkRequest', 'NetworkRequestResponse', 'NetworkTimings', 'PerformanceData', 'PerformanceDataNavigation', 'PerformanceDataNavigationTiming', 'PerformanceDataResources', 'PreservedAttempt', 'PreservedAttemptTest', 'PreservedAttemptWindow', 'PreservedStep', 'ReplaceCommandWsPayload', 'ScreencastFrame', 'ScreencastInfo', 'SerializedError', 'SuiteStats', 'TestError', 'TestErrorMatcherResult', 'TestStats', 'TestStoppedWsPayload', 'TraceExportRequest', 'TraceExportResult', 'TraceMutation', 'Viewport']
+__all__ = ['AccessibilityNode', 'ActionSnapshot', 'BaselineClearedWsPayload', 'BaselineSavedWsPayload', 'ClearExecutionDataWsPayload', 'CommandLog', 'CommandLogPoint', 'ConsoleLog', 'DeviceInfo', 'DocumentInfo', 'DocumentInfoDocumentInfo', 'DocumentInfoHeaders', 'ElementScriptsResponse', 'Metadata', 'NetworkRequest', 'NetworkRequestResponse', 'NetworkTimings', 'PageScriptsResponse', 'PerformanceData', 'PerformanceDataNavigation', 'PerformanceDataNavigationTiming', 'PerformanceDataResources', 'PreservedAttempt', 'PreservedAttemptTest', 'PreservedAttemptWindow', 'PreservedStep', 'ReplaceCommandWsPayload', 'ScreencastFrame', 'ScreencastInfo', 'SerializedError', 'SuiteStats', 'TestError', 'TestErrorMatcherResult', 'TestStats', 'TestStoppedWsPayload', 'TraceExportRequest', 'TraceExportResult', 'TraceMutation', 'Viewport']
 
 
 class _AccessibilityNodeRequired(TypedDict):
@@ -193,6 +193,13 @@ class NetworkTimings(TypedDict, total=False):
     send: float
     wait: float
     receive: float
+
+
+class PageScriptsResponse(TypedDict):
+    collectorReady: str
+    collectorInject: str
+    collectorDrain: str
+    capturePerformance: str
 
 
 class PerformanceData(TypedDict, total=False):

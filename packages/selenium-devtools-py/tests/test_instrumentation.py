@@ -7,6 +7,7 @@ from unittest import mock
 from selenium_devtools import instrumentation, snapshot
 from selenium_devtools.capturer import SessionCapturer
 
+from page_scripts_fixture import PAGE_SCRIPTS
 from wire_contract import RecordingTransport
 
 
@@ -203,6 +204,7 @@ class TestSnapshotWiring(unittest.TestCase):
         self.tx = RecordingTransport()
         self.cap = SessionCapturer(self.tx)
         instrumentation.install(self.cap, FakeDriverWithScript)
+        instrumentation.set_page_scripts(PAGE_SCRIPTS)
         self.driver = FakeDriverWithScript()
 
     def tearDown(self):
@@ -984,7 +986,7 @@ class TestNavigationRowsGetTheirTimings(unittest.TestCase):
             # chokepoint the adapter patches, which is the whole reason the
             # adapter's own reads must go through the guarded executor.
             self.execute("executeScript", {"script": script, "args": list(args)})
-            if "getEntriesByType" in script:
+            if script == PAGE_SCRIPTS["capturePerformance"]:
                 return self._payload
             return None
 
@@ -995,6 +997,7 @@ class TestNavigationRowsGetTheirTimings(unittest.TestCase):
         self.cap = SessionCapturer(RecordingTransport())
         instrumentation.uninstall()
         instrumentation.install(self.cap, self.Driver)
+        instrumentation.set_page_scripts(PAGE_SCRIPTS)
         self.addCleanup(instrumentation.uninstall)
 
     def _replacements(self):

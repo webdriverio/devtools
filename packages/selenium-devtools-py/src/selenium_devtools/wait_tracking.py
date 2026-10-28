@@ -187,11 +187,24 @@ def _scope_for(
 ) -> WaitScope:
     """A wait inside another wait's condition is the same wait on every outer
     poll, so it keeps one scope across them, keyed like a poll by where it was
-    called, what it waits for and how many times this evaluation issued it."""
+    called, what it waits for, its condition's code and how many times this
+    evaluation issued it."""
     if outer is None:
         return WaitScope()
-    key = outer.nth(f"wait {call_source(skip_frames())} {_safe_label(method)}")
+    key = outer.nth(
+        f"wait {call_source(skip_frames())} {_safe_label(method)} {_code_identity(method)}"
+    )
     return outer.scope.nested.setdefault(key, WaitScope())
+
+
+def _code_identity(method: Any) -> str:
+    """The condition's code, the counterpart of the source text TypeScript keys
+    on: two lambdas started from one helper share a call site and the label
+    ``lambda``, and only this keeps one branch's wait out of another's scope."""
+    code = getattr(method, "__code__", None)
+    if code is None:
+        return ""
+    return f"{code.co_filename}:{code.co_firstlineno}:{hash(code)}"
 
 
 def _in_poll(method: Any, scope: WaitScope) -> Any:

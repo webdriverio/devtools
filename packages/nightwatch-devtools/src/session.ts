@@ -1,7 +1,6 @@
 import logger from '@wdio/logger'
 import {
   CAPTURE_PERFORMANCE_SCRIPT,
-  COLLECTOR_READY_EXPRESSION,
   SessionCapturerBase,
   applyPerformanceData,
   collectorDrainExpression,
@@ -16,6 +15,10 @@ import {
   type CapturedPerformancePayload,
   type SessionCapturerOptions
 } from '@wdio/devtools-core'
+import {
+  COLLECTOR_INJECT_SCRIPT,
+  COLLECTOR_READY_SCRIPT
+} from '@wdio/devtools-shared'
 import { captureActionSnapshot } from './action-snapshot.js'
 import { nightwatchRunnerId } from './helpers/utils.js'
 import { NAVIGATION_COMMANDS } from './constants.js'
@@ -416,23 +419,18 @@ export class SessionCapturer extends SessionCapturerBase {
       // only saves the injection's round trips.
       const alreadyPresent = await webdriverExecute<boolean>(
         browser,
-        `return ${COLLECTOR_READY_EXPRESSION};`
+        COLLECTOR_READY_SCRIPT
       )
       if (alreadyPresent === true) {
         return
       }
       const scriptContent = await loadInjectableScript()
-      // Inlined as a literal rather than passed via `arguments[0]`: the raw
-      // /execute/sync transport takes its args separately and this keeps the
-      // injection a single self-contained body.
-      const injectionScript = `
-        const script = document.createElement('script');
-        script.textContent = ${JSON.stringify(scriptContent)};
-        document.head.appendChild(script);
-        return ${COLLECTOR_READY_EXPRESSION};
-      `
       // The appended script runs synchronously, so this usually answers ready.
-      const injected = await webdriverExecute<boolean>(browser, injectionScript)
+      const injected = await webdriverExecute<boolean>(
+        browser,
+        COLLECTOR_INJECT_SCRIPT,
+        [scriptContent]
+      )
 
       const hasCollector =
         injected === true ||
@@ -440,7 +438,7 @@ export class SessionCapturer extends SessionCapturerBase {
           async () =>
             (await webdriverExecute<boolean>(
               browser,
-              `return ${COLLECTOR_READY_EXPRESSION};`
+              COLLECTOR_READY_SCRIPT
             )) === true,
           { checkFirst: true }
         ))
