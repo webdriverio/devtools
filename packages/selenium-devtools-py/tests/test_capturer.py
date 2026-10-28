@@ -18,18 +18,25 @@ class TestSessionCapturer(unittest.TestCase):
         self.assertEqual(len(meta_frames), 1)
         self.assertEqual(meta_frames[0]["sessionId"], "sess-1")
 
-    def test_capture_command_increments_id_and_wraps_in_array(self):
+    def test_capture_command_numbers_ids_consecutively_and_wraps_in_array(self):
         self.cap.capture_command(command="get", args={"url": "x"},
                                  result={"v": 1}, start_time=1, call_source=None)
         self.cap.capture_command(command="click", args=None,
                                  result=None, start_time=2, call_source=None)
         cmds = [d for s, d in self.tx.sent if s == "commands"]
         self.assertEqual(len(cmds), 2)
-        self.assertEqual(cmds[0][0]["id"], 1)
-        self.assertEqual(cmds[1][0]["id"], 2)
+        self.assertEqual(cmds[1][0]["id"], cmds[0][0]["id"] + 1)
         # non-list args are normalized to a list
         self.assertEqual(cmds[0][0]["args"], [{"url": "x"}])
         self.assertEqual(cmds[1][0]["args"], [])
+
+    def test_two_capturers_number_their_rows_apart(self):
+        # Two xdist workers share a dashboard that replaces a row by id first.
+        other = SessionCapturer(RecordingTransport())
+        mine = self.cap.capture_command(command="get", args=None, start_time=1, call_source=None)
+        theirs = other.capture_command(command="get", args=None, start_time=1, call_source=None)
+        self.assertNotEqual(mine["id"], theirs["id"])
+        self.assertLess(max(mine["id"], theirs["id"]), 2**53)
 
     def test_capture_command_records_error(self):
         self.cap.capture_command(command="boom", args=[],

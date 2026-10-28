@@ -27,6 +27,8 @@ from . import (
     frames,
     interceptor_network,
     performance,
+    read_value_locators,
+    wait_tracking,
 )
 from .assert_tracer import ScriptAssertionTracer
 from .capturer import SessionCapturer
@@ -38,6 +40,7 @@ from .constants import (
     BIDI_CAPABILITY,
     DEFAULT_TEST_TITLE,
     ENV_BIDI,
+    EXECUTE_SCRIPT_COMMANDS,
     LOGGER_NAME,
     NAVIGATION_COMMANDS,
     SKIP_COMMANDS,
@@ -149,6 +152,7 @@ def start_assertion_tracing(capturer: SessionCapturer) -> bool:
                 error=error,
                 start_time=now,
                 call_source=location,
+                selector=assertions.comparison_target(operands),
             )
         except Exception as exc:  # noqa: BLE001 — capture must never break the run
             _log.debug("could not record an assertion: %s", exc)
@@ -871,6 +875,7 @@ def _capture_unwinding_assertion(capturer: SessionCapturer) -> None:
             error=exc,
             start_time=now,
             call_source=location,
+            selector=assertions.comparison_target(operands),
         )
     except Exception as exc_inner:  # noqa: BLE001 — capture must never break teardown
         _log.debug("could not record the failing assertion: %s", exc_inner)
@@ -952,6 +957,19 @@ def finalize_run(capturer: SessionCapturer) -> None:
     _send_default_suite(capturer, _live_run_state())
 
 
+def _remember_read_value(
+    command: str, params: Any, value: Any, selector: Optional[str]
+) -> None:
+    """Record which element a command's result was read from, for assertions.
+
+    Every command records, a driver-level read included: its None is what stops
+    a title assertion borrowing an element that reads the same text.
+    """
+    if selector is None and command in EXECUTE_SCRIPT_COMMANDS:
+        selector = element_locators.selector_for_script_element(params)
+    read_value_locators.remember(value, selector)
+
+
 def install(
     capturer: SessionCapturer,
     webdriver_cls: Optional[type] = None,
@@ -991,19 +1009,21 @@ def install(
         start = now_ms()
         src = call_source(_skip_frames())
         _capture_source(capturer, src)  # Source tab: send the test file once
+        target = element_locators.selector_for_command(driver_command, params)
+        poll = wait_tracking.poll_of(driver_command, params, target)
         try:
             result = orig_execute(self, driver_command, params)
         except BaseException as exc:  # capture then re-raise unchanged
-            capturer.capture_command(
+            failed = capturer.capture_command(
                 command=driver_command,
                 args=params,
                 error=exc,
                 start_time=start,
                 call_source=src,
-                selector=element_locators.selector_for_command(
-                    driver_command, params
-                ),
+                selector=target,
+                replaces=wait_tracking.folds_into(poll),
             )
+            wait_tracking.note_poll_row(poll, failed)
             raise
 
         # WebDriver.execute returns the full response dict; the useful payload
@@ -1013,6 +1033,8 @@ def install(
         # command (so selecting it shows the page) AND reused as a screencast
         # frame, so we pay for only a single screenshot round-trip either way.
         shot = _take_screenshot(self)
+        selector = element_locators.selector_for_command(driver_command, params, value)
+        _remember_read_value(driver_command, params, value, selector)
         row = capturer.capture_command(
             command=driver_command,
             args=params,
@@ -1020,10 +1042,10 @@ def install(
             start_time=start,
             call_source=src,
             screenshot=shot,
-            selector=element_locators.selector_for_command(
-                driver_command, params, value
-            ),
+            selector=selector,
+            replaces=wait_tracking.folds_into(poll),
         )
+        wait_tracking.note_poll_row(poll, row)
         _capture_action_snapshot(self, driver_command, row.get("timestamp", start), shot)
         if driver_command in NAVIGATION_COMMANDS:
             _attach_performance(capturer, self, row, params)
@@ -1046,6 +1068,7 @@ def install(
         return result
 
     webdriver_cls.execute = patched_execute  # type: ignore[assignment]
+    wait_tracking.install(capturer, _skip_frames)
     _sources_sent.clear()
     _state.update(
         installed=True, cls=webdriver_cls, orig=orig_execute,
@@ -1073,6 +1096,7 @@ def uninstall() -> None:
     # Tracing goes first: leaving a trace function installed past teardown slows
     # every line the process runs afterwards, for nothing.
     stop_assertion_tracing()
+    wait_tracking.uninstall()
     # The collector is cached per backend for the run's lifetime; a re-enable
     # may point at a different one, so the cache goes with the rest of the
     # per-run state.
@@ -1083,6 +1107,7 @@ def uninstall() -> None:
     # Element handles do not survive the session that issued them, so a stale
     # entry could only ever attribute the wrong selector to a new run's row.
     element_locators.reset()
+    read_value_locators.reset()
     # Never leave a recorder running past teardown, for any session still live.
     # Keep the buffer first: `disable()` uninstalls BEFORE its fallback export,
     # and `sessions` is replaced below, so a session that never quit would

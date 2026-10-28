@@ -8,6 +8,7 @@ post-processing lives here (that's the backend's job, per the architecture).
 
 from __future__ import annotations
 
+import secrets
 import threading
 from typing import Any, List, Optional, Protocol
 
@@ -37,7 +38,8 @@ class Transport(Protocol):
 class SessionCapturer:
     def __init__(self, transport: Transport) -> None:
         self._tx = transport
-        self._command_counter = 0
+        # Ids must not repeat across processes sharing a dashboard (xdist, reruns); core's range, under 2**53.
+        self._command_counter = secrets.randbelow(2**32) * 2**20
         self._lock = threading.Lock()
         self._metadata_sent: set = set()  # session ids already announced
         self.session_id: Optional[str] = None
@@ -87,10 +89,16 @@ class SessionCapturer:
         call_source: Optional[str],
         screenshot: Optional[str] = None,
         selector: Optional[str] = None,
+        replaces: Optional[CommandLog] = None,
     ) -> CommandLog:
-        with self._lock:
-            self._command_counter += 1
-            command_id = self._command_counter
+        """Report a command, or with ``replaces`` swap that row for this one,
+        keeping its id, which is how a wait's repeated poll stays one row."""
+        if replaces is not None:
+            command_id = replaces["id"]
+        else:
+            with self._lock:
+                self._command_counter += 1
+                command_id = self._command_counter
         norm_args = args if isinstance(args, list) else ([] if args is None else [args])
         entry = frames.command_log(
             command=command,
@@ -105,7 +113,10 @@ class SessionCapturer:
             selector=selector,
             test_uid=self.test_uid,
         )
-        self._tx.send_json(SCOPE_COMMANDS, [entry])
+        if replaces is not None:
+            self.send_replace_command(replaces["timestamp"], entry)
+        else:
+            self._tx.send_json(SCOPE_COMMANDS, [entry])
         # Returned so a caller that learns more about the command AFTER it was
         # reported — a navigation's timings, which only the page can answer for
         # — can enrich this exact row and replace it.
@@ -114,9 +125,8 @@ class SessionCapturer:
     def send_replace_command(self, old_timestamp: int, entry: CommandLog) -> None:
         """Swap an already-reported row for an enriched copy of itself.
 
-        Keyed by the row's timestamp, which is what the dashboard matches on;
-        the adapter's own `id` counter restarts per process and would collide
-        across a rerun.
+        The dashboard matches the row's `id` first and falls back to this
+        timestamp, so the row being replaced must keep its id.
         """
         self._tx.send_json(
             SCOPE_REPLACE_COMMAND, {"oldTimestamp": old_timestamp, "command": entry}

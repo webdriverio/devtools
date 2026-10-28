@@ -181,6 +181,17 @@ FIND_COMMANDS = frozenset({"findElement", "findElements"}) | FIND_CHILD_COMMANDS
 # hundred elements deep has long since stopped resembling a readable trace.
 ELEMENT_LOCATOR_CACHE_SIZE = 200
 
+# Command results an assertion may compare, remembered with the
+# element they were read from. Bounded like the JS adapters' registry: only a
+# recent read can be an assertion's subject, and a page source or a base64
+# screenshot is a command result too.
+READ_VALUE_CACHE_SIZE = 200
+READ_VALUE_MAX_LENGTH = 256
+
+# The script commands `get_attribute`, `is_displayed` and `execute_script` reach
+# the wire as. An element passed as a script argument is what such a read is of.
+EXECUTE_SCRIPT_COMMANDS = frozenset({"w3cExecuteScript", "w3cExecuteScriptAsync"})
+
 # Stack-frame path fragment to skip when resolving a command's call source —
 # the adapter's own package. The selenium library dir is added at runtime by
 # instrumentation (resolved from selenium.__file__), NOT matched by the

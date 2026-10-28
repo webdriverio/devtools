@@ -713,6 +713,7 @@ def _emit_assertion(
         error=error,
         start_time=now,
         call_source=location,
+        selector=assertions.comparison_target(comparison),
     )
 
 

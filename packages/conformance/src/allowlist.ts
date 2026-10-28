@@ -5,7 +5,7 @@ import {
   KNOWN_DEBT,
   RULES
 } from './constants.js'
-import { anyOf, failureUnexplained, hunk } from './gap-matchers.js'
+import { anyOf, hunk } from './gap-matchers.js'
 import { scenarioIndex } from './scenario-tests.js'
 import type {
   AdapterId,
@@ -146,22 +146,23 @@ function pythonGaps(bidi: BidiMode): KnownGap[] {
       adapter,
       bidi,
       rules: [RULES.agreeOnActions],
-      lacksSteps: ['Element.waitForExist'],
-      reason: KNOWN_DEBT.pythonWait
-    },
-    {
-      adapter,
-      bidi,
-      rules: [RULES.failedTestExplained],
-      only: failureUnexplained(MISSING),
-      reason: KNOWN_DEBT.pythonWait
+      only: hunk(
+        MISSING,
+        'its start',
+        adapter,
+        'Browser.waitForFunction',
+        'Element.waitForExist #missing'
+      ),
+      reason: KNOWN_DEBT.pythonFailedWait,
+      against: 'devtools-service'
     },
     {
       adapter,
       bidi,
       rules: [RULES.agreeOnActions],
-      lacksTargets: ['Assert.equal'],
-      reason: KNOWN_DEBT.pythonAssertTarget
+      lacksSteps: [FLASH_WAIT],
+      reason: KNOWN_DEBT.pythonWait,
+      against: 'devtools-service'
     },
     {
       adapter,
