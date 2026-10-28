@@ -1,7 +1,7 @@
 // Per-test metadata helpers shared between the before* and after* hooks so the
 // state stamp in afterTest/afterScenario lands on the entry beforeTest created.
 
-import { deterministicUid } from '@wdio/devtools-core'
+import { deterministicUid, errorMessage } from '@wdio/devtools-core'
 import type { TestMetadataMap, TestStatus } from '@wdio/devtools-shared'
 
 /** The subset of a WDIO afterTest/afterScenario hook result this adapter reads:
@@ -10,6 +10,7 @@ export interface TestOutcomeResult {
   error?: unknown
   passed?: boolean
   skipped?: boolean
+  duration?: number
   retries?: { attempts?: number }
 }
 
@@ -54,18 +55,28 @@ export function isFailedResult(
   return result ? resultToState(result) === 'failed' : false
 }
 
-/** Stamp the final state (and, when known, the 0-based attempt) onto the
- *  metadata entry beforeTest/beforeScenario created, so retention can gate its
- *  trace per attempt. No-op when there's no entry. */
+/** Stamp the final state, end time, framework duration and failure message
+ *  (and, when known, the 0-based attempt) onto the metadata entry
+ *  beforeTest/beforeScenario created. The error is reassigned on every stamp,
+ *  so a passing retry clears the failed attempt's message. No-op when there's
+ *  no entry. */
 export function stampTestState(
   metadata: TestMetadataMap,
   uid: string,
-  result?: Pick<TestOutcomeResult, 'passed' | 'skipped'>,
-  attempt?: number
+  result: TestOutcomeResult | undefined,
+  attempt: number | undefined,
+  endTime: number
 ): void {
-  const entry = result && metadata.get(uid)
-  if (entry) {
+  const entry = metadata.get(uid)
+  if (result && entry) {
     entry.state = resultToState(result)
+    entry.endTime = endTime
+    entry.durationMs =
+      result.duration ??
+      (entry.startTime === undefined ? undefined : endTime - entry.startTime)
+    entry.error = isFailedResult(result)
+      ? errorMessage(result.error)
+      : undefined
     if (attempt !== undefined) {
       entry.attempt = attempt
     }

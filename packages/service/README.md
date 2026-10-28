@@ -115,7 +115,8 @@ the run also writes the `devtools-artifacts-<sessionId>.json` index):
   `trace.zip` is written to disk and enumerated in
   `devtools-artifacts-<sessionId>.json` (the artifacts manifest, listing every
   artifact + each test's state), but it is **not** attached to individual test
-  cards.
+  cards. Each test entry also carries `startTime`/`endTime` (epoch ms),
+  `durationMs` and the final attempt's `error` message when available.
 
 ### Why session/spec traces aren't attached per test
 

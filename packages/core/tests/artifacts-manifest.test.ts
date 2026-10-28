@@ -80,6 +80,61 @@ describe('artifacts manifest', () => {
     ])
   })
 
+  it('copies per-test timing and failure when the metadata carries them', () => {
+    const testMetadata: TestMetadataMap = new Map([
+      [
+        'u2',
+        {
+          title: 'fails',
+          specFile: '/a.spec.ts',
+          state: 'failed',
+          attempt: 1,
+          startTime: 1000,
+          endTime: 1500,
+          durationMs: 480,
+          error: 'boom'
+        }
+      ]
+    ])
+    const m = buildArtifactsManifest({
+      sessionId: 'sess-t',
+      format: 'zip',
+      artifacts: [],
+      testMetadata
+    })
+    expect(m.tests).toEqual([
+      {
+        uid: 'u2',
+        title: 'fails',
+        specFile: '/a.spec.ts',
+        state: 'failed',
+        attempt: 1,
+        startTime: 1000,
+        endTime: 1500,
+        durationMs: 480,
+        error: 'boom'
+      }
+    ])
+  })
+
+  it('leaves timing and error keys out of the file when the metadata lacks them', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'manifest-'))
+    dirs.push(dir)
+    const m = buildArtifactsManifest({
+      sessionId: 'sess-u',
+      format: 'zip',
+      artifacts: [],
+      testMetadata: metadata()
+    })
+    const filePath = await writeArtifactsManifest(dir, m)
+    const parsed = JSON.parse(await readFile(filePath, 'utf8')) as {
+      tests: Record<string, unknown>[]
+    }
+    expect(Object.keys(parsed.tests[0]).sort()).toEqual(
+      ['attempt', 'specFile', 'state', 'title', 'uid'].sort()
+    )
+  })
+
   it('filename is deterministic per session', () => {
     expect(artifactsManifestFilename('abc')).toBe('devtools-artifacts-abc.json')
   })

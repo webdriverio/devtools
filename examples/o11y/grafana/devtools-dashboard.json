@@ -1,0 +1,536 @@
+{
+  "uid": "devtools-tests",
+  "title": "WebdriverIO DevTools - Test Results",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Pass rate",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 6,
+        "h": 5
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.8
+              },
+              {
+                "color": "green",
+                "value": 0.95
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "instant",
+          "expr": "sum(count_over_time({service_name=\"devtools-tests\"} | test_case_result_status=\"pass\" [$__range])) / sum(count_over_time({service_name=\"devtools-tests\"} [$__range]))"
+        }
+      ],
+      "id": 1
+    },
+    {
+      "type": "stat",
+      "title": "Test executions",
+      "gridPos": {
+        "x": 6,
+        "y": 0,
+        "w": 6,
+        "h": 5
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "instant",
+          "expr": "sum(count_over_time({service_name=\"devtools-tests\"} [$__range]))"
+        }
+      ],
+      "id": 2
+    },
+    {
+      "type": "stat",
+      "title": "Failures",
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 6,
+        "h": 5
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "instant",
+          "expr": "sum(count_over_time({service_name=\"devtools-tests\"} | test_case_result_status=\"fail\" [$__range])) or vector(0)"
+        }
+      ],
+      "id": 3
+    },
+    {
+      "type": "stat",
+      "title": "Flaky (in-process retries only)",
+      "gridPos": {
+        "x": 18,
+        "y": 0,
+        "w": 6,
+        "h": 5
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "instant",
+          "expr": "sum(count_over_time({service_name=\"devtools-tests\"} | test_case_result_status=\"pass\" | devtools_test_attempt > 0 [$__range])) or vector(0)"
+        }
+      ],
+      "id": 4,
+      "description": "Counts tests that passed after a retry inside one worker process. specFileRetries retries in a fresh worker and are not counted."
+    },
+    {
+      "type": "timeseries",
+      "title": "Executions by status",
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "bars",
+            "stacking": {
+              "mode": "normal"
+            },
+            "fillOpacity": 80
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "fail"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "pass"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (test_case_result_status) (count_over_time({service_name=\"devtools-tests\"} [$__interval]))",
+          "legendFormat": "{{test_case_result_status}}"
+        }
+      ],
+      "id": 5
+    },
+    {
+      "type": "table",
+      "title": "p95 test duration (ms)",
+      "gridPos": {
+        "x": 12,
+        "y": 5,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "instant",
+          "expr": "quantile_over_time(0.95, {service_name=\"devtools-tests\"} | unwrap devtools_duration_ms [$__range]) by (test_case_name)",
+          "legendFormat": "{{test_case_name}}",
+          "format": "table"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "labelsToFields",
+          "options": {
+            "mode": "columns"
+          }
+        },
+        {
+          "id": "merge"
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "renameByName": {
+              "Value #A": "p95 ms",
+              "test_case_name": "Test"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "p95 ms",
+                "desc": true
+              }
+            ]
+          }
+        }
+      ],
+      "id": 6,
+      "description": "Framework-reported duration when the manifest has it, else first-to-last action."
+    },
+    {
+      "type": "table",
+      "title": "Top failing actions",
+      "gridPos": {
+        "x": 0,
+        "y": 13,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "options": {
+        "showHeader": true
+      },
+      "transformations": [
+        {
+          "id": "labelsToFields",
+          "options": {
+            "mode": "columns"
+          }
+        },
+        {
+          "id": "merge"
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "renameByName": {
+              "Value #A": "Failures",
+              "devtools_failed_action": "Action"
+            }
+          }
+        }
+      ],
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "instant",
+          "expr": "topk(10, sum by (devtools_failed_action) (count_over_time({service_name=\"devtools-tests\"} | test_case_result_status=\"fail\" [$__range])))",
+          "legendFormat": "{{devtools_failed_action}}",
+          "format": "table"
+        }
+      ],
+      "id": 7
+    },
+    {
+      "type": "table",
+      "title": "Failing test traces (Tempo)",
+      "gridPos": {
+        "x": 12,
+        "y": 13,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "tempo",
+        "uid": "tempo"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "traceql",
+          "query": "{ span.test.case.result.status = \"fail\" }",
+          "limit": 20
+        }
+      ],
+      "id": 8
+    },
+    {
+      "type": "table",
+      "title": "Test results",
+      "description": "One row per test from the Loki records. Replay opens the trace zip in the replay host set by the player_base variable (default player.vibium.dev); the zip is fetched by your browser from the artifact URL.",
+      "gridPos": {
+        "x": 0,
+        "y": 20,
+        "w": 24,
+        "h": 11
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "cellOptions": {
+              "type": "auto"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "devtools_replay_url"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Replay"
+              },
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Open replay in ${player_base}",
+                    "url": "${player_base}/?record=${__value.raw:percentencode}",
+                    "targetBlank": true
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "Time",
+            "desc": true
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "range",
+          "expr": "{service_name=\"devtools-tests\"} | label_format devtools_replay_url=`{{ if or (hasPrefix \"http://\" .devtools_artifact_url) (hasPrefix \"https://\" .devtools_artifact_url) }}{{ .devtools_artifact_url }}{{ end }}`"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "extractFields",
+          "options": {
+            "source": "labels",
+            "format": "auto",
+            "replace": false
+          }
+        },
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "Time",
+                "test_case_name",
+                "test_case_result_status",
+                "devtools_duration_ms",
+                "devtools_failed_action",
+                "devtools_artifact_url",
+                "devtools_replay_url"
+              ]
+            }
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "indexByName": {
+              "Time": 0,
+              "test_case_name": 1,
+              "test_case_result_status": 2,
+              "devtools_duration_ms": 3,
+              "devtools_failed_action": 4,
+              "devtools_artifact_url": 5,
+              "devtools_replay_url": 6
+            },
+            "renameByName": {
+              "test_case_name": "Test",
+              "test_case_result_status": "Status",
+              "devtools_duration_ms": "Duration (ms)",
+              "devtools_failed_action": "Failed action",
+              "devtools_artifact_url": "Artifact",
+              "devtools_replay_url": "Replay"
+            }
+          }
+        }
+      ],
+      "id": 9
+    },
+    {
+      "type": "logs",
+      "title": "Test results (latest)",
+      "gridPos": {
+        "x": 0,
+        "y": 31,
+        "w": 24,
+        "h": 9
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "options": {
+        "showTime": true,
+        "enableLogDetails": true,
+        "sortOrder": "Descending"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{service_name=\"devtools-tests\"}"
+        }
+      ],
+      "id": 10
+    }
+  ],
+  "editable": false,
+  "templating": {
+    "list": [
+      {
+        "type": "textbox",
+        "name": "player_base",
+        "label": "Replay host",
+        "description": "Origin the Replay column opens the trace zip in. Opting in shares the zip URL with that origin; see examples/o11y/README.md.",
+        "query": "https://player.vibium.dev",
+        "current": {
+          "text": "https://player.vibium.dev",
+          "value": "https://player.vibium.dev"
+        },
+        "options": [
+          {
+            "selected": true,
+            "text": "https://player.vibium.dev",
+            "value": "https://player.vibium.dev"
+          }
+        ],
+        "hide": 0
+      }
+    ]
+  }
+}

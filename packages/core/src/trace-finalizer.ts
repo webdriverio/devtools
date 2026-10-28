@@ -11,10 +11,12 @@ import type {
   DevToolsMode,
   ScreencastFrame,
   TestMetadataMap,
+  TraceArtifact,
   TraceFormat,
   TraceGranularity,
   TraceRetentionPolicy
 } from '@wdio/devtools-shared'
+
 import { errorMessage } from './error.js'
 import {
   buildArtifactsManifest,
@@ -37,19 +39,7 @@ import {
   type TraceCapturer
 } from '@wdio/devtools-trace/trace-exporter'
 
-/** One artifact produced (or, when `retained` is false, decided-against) by a
- *  trace-mode run — a trace slice, a screencast video, or a per-test
- *  screenshot. */
-export interface TraceArtifact {
-  kind: 'trace' | 'video' | 'screenshot'
-  path: string
-  scope: 'session' | 'spec' | 'test'
-  /** specFile for spec scope, testUid for test scope. */
-  key?: string
-  testUids: string[]
-  /** false = decided-not-to-write (reported, not written). Always true today. */
-  retained: boolean
-}
+export type { TraceArtifact }
 
 export interface TraceExportContext {
   mode?: DevToolsMode
