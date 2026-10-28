@@ -1,0 +1,43 @@
+{
+  "name": "@wdio/devtools-otel",
+  "version": "0.0.0",
+  "description": "Push devtools test results and retained traces to an OpenTelemetry collector (OTLP logs and traces)",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/webdriverio/devtools.git",
+    "directory": "packages/otel"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=22.23.4 <23 || >=24.22.1 <25 || >=26.12.1"
+  },
+  "bin": {
+    "devtools-otel": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup src/cli.ts --format esm --dts --clean",
+    "lint": "eslint .",
+    "prepublishOnly": "pnpm build"
+  },
+  "dependencies": {
+    "@opentelemetry/api": "^1.10.0",
+    "@opentelemetry/api-logs": "^0.223.0",
+    "@opentelemetry/exporter-logs-otlp-http": "^0.300.0",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.300.0",
+    "@opentelemetry/resources": "^3.0.0",
+    "@opentelemetry/sdk-logs": "^3.0.0",
+    "@opentelemetry/sdk-trace": "^3.0.0",
+    "fflate": "^0.8.3"
+  },
+  "devDependencies": {
+    "@opentelemetry/semantic-conventions": "^1.43.0",
+    "@wdio/devtools-shared": "workspace:^",
+    "@wdio/devtools-trace": "workspace:^",
+    "tsup": "^8.5.1"
+  }
+}
