@@ -470,7 +470,7 @@ describe('a gap that declares what its holder lacks', () => {
     )
     const { stale } = judgeDivergences([], [service(), py])
     expect(stale.filter(declaresLacks).map((g) => g.lacksSteps)).toEqual([
-      ['Element.waitForExist']
+      ['Element.waitForExist #flash']
     ])
   })
 })
@@ -594,7 +594,7 @@ describe('a lack its holder contradicts', () => {
       )
     ])
     expect(stale.filter((g) => g.lacksSteps).map((g) => g.lacksSteps)).toEqual([
-      ['Element.waitForExist']
+      ['Element.waitForExist #flash']
     ])
   })
 })

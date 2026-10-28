@@ -37,6 +37,10 @@ export const ERROR_RULES: RuleId[] = [
   RULES.failureRecorded,
   RULES.errorCarriesBrowserMessage
 ]
+export const FAILED_TEST_RULES: RuleId[] = [
+  ...ERROR_RULES,
+  RULES.failedTestExplained
+]
 
 /** Supported, and checked for this adapter by the conformance suite. */
 export const tested = (rules: RuleId[], label?: string): Cell => ({
