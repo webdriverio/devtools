@@ -3,6 +3,7 @@ import assert from 'node:assert'
 import {
   ASSERT_PATCHED_SYMBOL,
   TRACKED_ASSERT_METHODS,
+  clearReadValues,
   rememberReadValue
 } from '@wdio/devtools-core'
 import { wireAssertCapture } from '../src/helpers/assertCapture.js'
@@ -58,11 +59,13 @@ function makeFakeCapturer() {
 const live: {
   fake?: ReturnType<typeof makeFakeCapturer>
   uid?: string
+  scope?: () => void
 } = {}
 beforeAll(() => {
   wireAssertCapture(
     () => live.fake?.capturer,
-    () => live.uid
+    () => live.uid,
+    () => live.scope?.()
   )
 })
 
@@ -154,5 +157,20 @@ describe('node:assert target selector', () => {
     expect(fake.sendCommand).toHaveBeenCalledWith(
       expect.objectContaining({ selector: '#subject' })
     )
+  })
+
+  it('scopes the registry to the running test before looking a value up', () => {
+    // An assert that precedes its test's first command must not resolve against
+    // the reads of the test before it.
+    rememberReadValue(true, '#remember-me')
+    live.scope = clearReadValues
+    try {
+      const row = capture(() => {
+        assert.ok(true)
+      })
+      expect(row.selector).toBeUndefined()
+    } finally {
+      live.scope = undefined
+    }
   })
 })

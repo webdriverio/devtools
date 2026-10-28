@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type * as DevtoolsCore from '@wdio/devtools-core'
-import { captureActionSnapshot } from '@wdio/devtools-core'
+import {
+  captureActionSnapshot,
+  SNAPSHOT_DRIVER_PROBE_TIMEOUT_MS
+} from '@wdio/devtools-core'
 import DevToolsHookService from '../src/index.js'
 
 // One user-spec frame, so `beforeCommand` reads every command as top-level.
@@ -335,6 +338,54 @@ describe('trace mode: one capture per action, taken before it', () => {
       .mocked(capturer.afterCommand)
       .mock.calls.map((call) => [call[1], (call as unknown[])[3]])
     expect(logged).toEqual([['getTitle', 'user']])
+  })
+
+  // Regression: a counter of probes in flight stayed positive once core's probe
+  // timeout gave up on a getTitle that was still running, and skipped the user's
+  // own getTitle issued in that window.
+  it("logs the user's getTitle while a timed-out title probe is still running", async () => {
+    const browser = webBrowser()
+    const service = new DevToolsHookService({ mode: 'trace' })
+    await service.before({} as never, [], browser)
+    let releaseSlowProbe: () => void = () => {}
+    const slowProbeDone = new Promise<void>((resolve) => {
+      releaseSlowProbe = resolve
+    })
+    let probes = 0
+    vi.mocked(browser.getTitle).mockImplementation(async () => {
+      const slow = probes++ === 0
+      await service.beforeCommand('getTitle' as never, [])
+      if (slow) {
+        await slowProbeDone
+      }
+      await service.afterCommand('getTitle' as never, [], 'probe')
+      return 'probe'
+    })
+    vi.mocked(capturer.afterCommand).mockClear()
+
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      const click = service.beforeCommand('click' as never, [])
+      await vi.advanceTimersByTimeAsync(SNAPSHOT_DRIVER_PROBE_TIMEOUT_MS + 1)
+      await click
+    } finally {
+      vi.useRealTimers()
+    }
+    await service.afterCommand('click' as never, [], undefined)
+
+    await service.beforeCommand('getTitle' as never, [])
+    await service.afterCommand('getTitle' as never, [], 'user')
+    releaseSlowProbe()
+    await slowProbeDone
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    const logged = vi
+      .mocked(capturer.afterCommand)
+      .mock.calls.map((call) => [call[1], (call as unknown[])[3]])
+    expect(logged).toEqual([
+      ['click', undefined],
+      ['getTitle', 'user']
+    ])
   })
 
   it('does not merge the next test first capture into the previous test slot', async () => {

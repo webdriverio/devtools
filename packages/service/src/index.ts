@@ -4,6 +4,7 @@ import {
   attachTraceArtifact,
   beginInputDispatch,
   captureAndAttachScreenshot,
+  clearReadValues,
   errorMessage,
   FINAL_SNAPSHOT_COMMAND,
   finalizeTraceExport,
@@ -662,6 +663,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     this.#assertionTracker.reset()
     this.#sessionCapturer.resetLastSelector()
     this.#sessionCapturer.resetRetryTracker()
+    clearReadValues()
   }
 
   #pushTopLevelCommandFrame(

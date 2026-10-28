@@ -16,6 +16,7 @@ import { NativeAssertRecorder } from './nativeAssertRecorder.js'
 import {
   RetryTracker,
   beginInputDispatch,
+  clearReadValues,
   rememberReadValue,
   toError
 } from '@wdio/devtools-core'
@@ -67,6 +68,9 @@ export class BrowserProxy {
    */
   private browser: NightwatchBrowser | null = null
 
+  /** The test core's value registry currently holds reads for; see {@link scopeReadValuesToRowTest}. */
+  private readValueTestUid: string | undefined
+
   constructor(
     private readonly sessionCapturer: SessionCapturer,
     private testManager: TestManager,
@@ -104,6 +108,20 @@ export class BrowserProxy {
     return this.rowTest()?.uid
   }
 
+  /**
+   * Forget the values an earlier test read once the running test changes. The
+   * lifecycle reset below fires once per MODULE on the BDD interface, so this
+   * per-`it` live read is what keeps one `it`'s reads from naming another's
+   * assertion target. Called before every record and every lookup.
+   */
+  scopeReadValuesToRowTest(): void {
+    const uid = this.rowTestUid()
+    if (uid !== this.readValueTestUid) {
+      clearReadValues()
+      this.readValueTestUid = uid
+    }
+  }
+
   /** Per-command-scope dedup state only. Cucumber calls this per STEP, so it
    *  must not touch the native-assert buffer — that buffer spans the whole
    *  scenario and is drained once, at the scenario's pre-quit hook. */
@@ -118,6 +136,8 @@ export class BrowserProxy {
   resetTestTracking(): void {
     this.resetCommandTracking()
     this.assertRecorder.clear()
+    clearReadValues()
+    this.readValueTestUid = undefined
   }
 
   /** Hand off this test's recorded native-assertion calls and clear the
@@ -437,6 +457,7 @@ export class BrowserProxy {
     callbackResult: unknown
   ): unknown {
     const result = serializeCommandResult(callbackResult, methodName)
+    this.scopeReadValuesToRowTest()
     rememberReadValue(result, commandTargetSelector(methodName, logArgs))
     return result
   }

@@ -16,10 +16,13 @@ const log = logger('@wdio/nightwatch-devtools:assertCapture')
 /**
  * Patch node:assert once per process. Getters are read at capture time — the
  * capturer is created lazily in session init and the test UID changes per test.
+ * `scopeReadValues` runs before each lookup so an assert that precedes its
+ * test's first command still cannot resolve against an earlier test's reads.
  */
 export function wireAssertCapture(
   getCapturer: () => SessionCapturer | undefined,
-  getTestUid: () => string | undefined
+  getTestUid: () => string | undefined,
+  scopeReadValues: () => void = () => {}
 ): void {
   patchNodeAssert(
     (cmd) => captureAssert(getCapturer(), getTestUid(), cmd),
@@ -27,7 +30,10 @@ export function wireAssertCapture(
     // No handle resolver: Nightwatch commands take selector strings, so an
     // element object never reaches an assert — only the value's provenance,
     // recorded by the command path (BrowserProxy), can name the target.
-    (args) => resolveAssertTargetFromArgs(args)
+    (args) => {
+      scopeReadValues()
+      return resolveAssertTargetFromArgs(args)
+    }
   )
 }
 

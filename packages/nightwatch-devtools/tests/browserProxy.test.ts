@@ -318,6 +318,53 @@ describe('BrowserProxy read-value provenance', () => {
     proxied(failing).getText('#gone')
     expect(selectorForReadValue('Timed out on <#gone>')).toBeUndefined()
   })
+
+  // Regression: the registry outlived the test that read a value, so a later
+  // test's `assert.ok(true)` boxed an element an earlier test had read `true` from.
+  describe('scoped to one test', () => {
+    function proxyForRunningTest(running: { uid: string }) {
+      const { capturer } = makeCapturer()
+      const proxy = new BrowserProxy(
+        capturer,
+        makeTestManager(() => running as TestStats),
+        () => ({ uid: 'module-first-it' })
+      )
+      const browser = makeReadBrowser(true)
+      proxy.wrapBrowserCommands(browser)
+      return {
+        proxy,
+        browser: browser as unknown as Record<
+          string,
+          (...a: unknown[]) => unknown
+        >
+      }
+    }
+
+    it('forgets an earlier `it`s reads once the running `it` changes (BDD, one hook per module)', () => {
+      const running = { uid: 'it-1' }
+      const { proxy, browser } = proxyForRunningTest(running)
+      browser.getText('#remember-me')
+      expect(selectorForReadValue(true)).toBe('#remember-me')
+      running.uid = 'it-2'
+      // What the node:assert resolver calls before its lookup.
+      proxy.scopeReadValuesToRowTest()
+      expect(selectorForReadValue(true)).toBeUndefined()
+    })
+
+    it('keeps the reads of the `it` still running', () => {
+      const { proxy, browser } = proxyForRunningTest({ uid: 'it-1' })
+      browser.getText('#remember-me')
+      proxy.scopeReadValuesToRowTest()
+      expect(selectorForReadValue(true)).toBe('#remember-me')
+    })
+
+    it('forgets every read at a test unit reset (a cucumber scenario, a module)', () => {
+      const { proxy, browser } = proxyForRunningTest({ uid: 'it-1' })
+      browser.getText('#remember-me')
+      proxy.resetTestTracking()
+      expect(selectorForReadValue(true)).toBeUndefined()
+    })
+  })
 })
 
 describe('BrowserProxy row metadata', () => {

@@ -2,7 +2,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type * as DevtoolsCore from '@wdio/devtools-core'
 import {
   INPUT_DISPATCH_MAX_HOLD_MS,
-  isInputDispatchInFlight
+  isInputDispatchInFlight,
+  rememberReadValue,
+  selectorForReadValue
 } from '@wdio/devtools-core'
 import DevToolsHookService from '../src/index.js'
 
@@ -325,6 +327,23 @@ describe('DevtoolsService - Internal Command Filtering', () => {
   // navigation-only drain they stayed buffered in the page until the next
   // navigation — every action in between replayed the form as it loaded, empty.
   // Trace mode is unaffected: it captures a real per-action DOM snapshot.
+  // An earlier test's read must not name the target of a later test's assert.ok(true).
+  describe('value provenance at the test boundary', () => {
+    it('forgets read values when a mocha test starts', () => {
+      rememberReadValue(true, '#remember-me')
+      service.beforeTest({ file: '/test/specs/fake.spec.ts', title: 'next' })
+      expect(selectorForReadValue(true)).toBeUndefined()
+    })
+
+    it('forgets read values when a cucumber scenario starts', () => {
+      rememberReadValue(true, '#remember-me')
+      service.beforeScenario({
+        pickle: { uri: '/features/login.feature', name: 'next' }
+      })
+      expect(selectorForReadValue(true)).toBeUndefined()
+    })
+  })
+
   describe('afterCommand - per-command drain (live mode)', () => {
     beforeEach(async () => {
       await service.before({} as any, [], mockBrowser)

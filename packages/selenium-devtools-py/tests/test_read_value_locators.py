@@ -177,6 +177,21 @@ class AssertionRowTargetTest(unittest.TestCase):
         )
         self.assertEqual(self._assert_row()["selector"], "h1")
 
+    def test_a_test_start_forgets_the_previous_test_s_reads(self):
+        # Regression: a later test's assertion on a value an earlier test read
+        # boxed the earlier test's element.
+        plugin.pytest_runtest_logstart("test_x.py::test_one", ("test_x.py", 1, "test_one"))
+        self.driver.text(self.driver.find("#flash"))
+        plugin.pytest_runtest_logstart("test_x.py::test_two", ("test_x.py", 5, "test_two"))
+        self._passing_assert("You logged in", "You logged in", 'expected == "You logged in"')
+        self.assertNotIn("selector", self._assert_row())
+
+    def test_a_read_within_the_test_still_names_its_element(self):
+        plugin.pytest_runtest_logstart("test_x.py::test_one", ("test_x.py", 1, "test_one"))
+        greeting = self.driver.text(self.driver.find("#flash"))
+        self._passing_assert(greeting, "You logged in", 'greeting == "You logged in"')
+        self.assertEqual(self._assert_row()["selector"], "#flash")
+
     def test_a_re_enable_forgets_the_previous_run_s_reads(self):
         self.driver.text(self.driver.find("#flash"))
         instrumentation.uninstall()
