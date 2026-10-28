@@ -76,6 +76,13 @@ export interface TestMetadataEntry {
   state?: TestStatus
   attempt?: number
   ancestry?: TestAncestor[]
+  /** Wall-clock epoch ms of the attempt this entry describes. */
+  startTime?: number
+  endTime?: number
+  /** Framework-reported duration, when the runner provides one. */
+  durationMs?: number
+  /** Failure message of the final attempt; absent unless it failed. */
+  error?: string
 }
 
 /** Test metadata keyed by testUid — maps stable test IDs to human-readable

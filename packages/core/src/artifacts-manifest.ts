@@ -13,27 +13,14 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import type {
-  TestMetadataEntry,
+  ArtifactManifestTest,
+  ArtifactsManifest,
   TestMetadataMap,
+  TraceArtifact,
   TraceFormat
 } from '@wdio/devtools-shared'
-import type { TraceArtifact } from './trace-finalizer.js'
 
-/** One test's outcome as recorded at export time. Field types track
- *  TestMetadataEntry in shared; adds the keying uid, drops trace-only ancestry. */
-export interface ArtifactManifestTest extends Pick<
-  TestMetadataEntry,
-  'title' | 'specFile' | 'state' | 'attempt'
-> {
-  uid: string
-}
-
-export interface ArtifactsManifest {
-  sessionId: string
-  format: TraceFormat
-  artifacts: TraceArtifact[]
-  tests: ArtifactManifestTest[]
-}
+export type { ArtifactManifestTest, ArtifactsManifest }
 
 /** Deterministic manifest filename for a session (used by writers and readers). */
 export function artifactsManifestFilename(sessionId: string): string {
@@ -55,7 +42,11 @@ export function buildArtifactsManifest(input: {
       title: meta.title,
       specFile: meta.specFile,
       state: meta.state,
-      attempt: meta.attempt
+      attempt: meta.attempt,
+      startTime: meta.startTime,
+      endTime: meta.endTime,
+      durationMs: meta.durationMs,
+      error: meta.error
     })
   }
   return {
