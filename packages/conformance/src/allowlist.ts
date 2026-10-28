@@ -5,7 +5,7 @@ import {
   KNOWN_DEBT,
   RULES
 } from './constants.js'
-import { anyOf, failureUnexplained, hunk, reportedAs } from './gap-matchers.js'
+import { anyOf, hunk, reportedAs } from './gap-matchers.js'
 import { scenarioIndex } from './scenario-tests.js'
 import type {
   AdapterId,
@@ -16,10 +16,8 @@ import type {
   Violation
 } from './types.js'
 
-const [LOGIN, WAITS, HEADING, MISSING, REFUSED] = [
-  'logs in and reads the greeting',
+const [WAITS, MISSING, REFUSED] = [
   'waits on what the page shows',
-  'fails on the wrong heading',
   'times out waiting for a missing element',
   'survives a refused navigation'
 ].map(scenarioIndex)
@@ -71,47 +69,15 @@ export const KNOWN_GAPS: KnownGap[] = [
 ]
 
 /** Nightwatch's scenario gaps in one mode, each an adapter bug with its Known debt entry. */
-// eslint-disable-next-line max-lines-per-function -- a declarative list of gaps; splitting it would only scatter them
 function nightwatchGaps(bidi: BidiMode): KnownGap[] {
   const adapter = 'nightwatch-devtools'
   return [
     {
       adapter,
       bidi,
-      rules: [RULES.failedTestExplained],
-      only: failureUnexplained(HEADING),
-      reason: KNOWN_DEBT.nightwatchSameMsReplace,
-      timingDependent: true
-    },
-    {
-      adapter,
-      bidi,
       rules: [RULES.testsAsDesigned],
       only: anyOf(reportedAs(WAITS, 'skipped'), reportedAs(REFUSED, 'skipped')),
       reason: KNOWN_DEBT.nightwatchSkipped
-    },
-    {
-      adapter,
-      bidi,
-      rules: [RULES.agreeOnActions],
-      only: anyOf(
-        hunk(
-          LOGIN,
-          'Element.getText #flash',
-          adapter,
-          'Element.getText #flash',
-          'Assert.equal #flash'
-        ),
-        hunk(
-          HEADING,
-          'Element.getText h2',
-          adapter,
-          'Element.getText h2',
-          'Assert.equal h2'
-        )
-      ),
-      reason: KNOWN_DEBT.nightwatchSameMsReplace,
-      timingDependent: true
     },
     {
       adapter,
@@ -188,22 +154,23 @@ function pythonGaps(bidi: BidiMode): KnownGap[] {
       adapter,
       bidi,
       rules: [RULES.agreeOnActions],
-      lacksSteps: ['Element.waitForExist'],
-      reason: KNOWN_DEBT.pythonWait
-    },
-    {
-      adapter,
-      bidi,
-      rules: [RULES.failedTestExplained],
-      only: failureUnexplained(MISSING),
-      reason: KNOWN_DEBT.pythonWait
+      only: hunk(
+        MISSING,
+        'its start',
+        adapter,
+        'Browser.waitForFunction',
+        'Element.waitForExist #missing'
+      ),
+      reason: KNOWN_DEBT.pythonFailedWait,
+      against: 'devtools-service'
     },
     {
       adapter,
       bidi,
       rules: [RULES.agreeOnActions],
-      lacksTargets: ['Assert.equal'],
-      reason: KNOWN_DEBT.pythonAssertTarget
+      lacksSteps: [FLASH_WAIT],
+      reason: KNOWN_DEBT.pythonWait,
+      against: 'devtools-service'
     },
     {
       adapter,

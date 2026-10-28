@@ -5,7 +5,7 @@ import type { RunnerOptions } from '@wdio/devtools-shared'
 import { compareRuns, judgeDivergences } from '../src/agreement.js'
 import { covers, declaresLacks, KNOWN_GAPS } from '../src/allowlist.js'
 import { KNOWN_DEBT, RULES, SCENARIO_TESTS } from '../src/constants.js'
-import { moved } from '../src/gap-matchers.js'
+import { hunk, moved } from '../src/gap-matchers.js'
 import { normalizeRun } from '../src/normalize.js'
 import { scenarioIndex } from '../src/scenario-tests.js'
 import { renderReport } from '../src/report-html.js'
@@ -442,10 +442,10 @@ describe('a gap that declares what its holder lacks', () => {
       stream(1, JS, { more: [wait, assertion('#flash')] })
     )
 
-  it('drops the lacked step and target from both sides and compares the rest', () => {
+  it('drops the lacked step from both sides and compares the rest', () => {
     const py = report(
       'selenium-devtools-py',
-      stream(2, PY, { more: [assertion()] })
+      stream(2, PY, { more: [assertion('#flash')] })
     )
     const runs = [service(), py]
     expect(compareRuns(runs)).toEqual([])
@@ -455,7 +455,9 @@ describe('a gap that declares what its holder lacks', () => {
   it('excuses nothing else: a difference past the lacked step still fails', () => {
     const py = report(
       'selenium-devtools-py',
-      stream(2, PY, { more: [{ ...assertion(), command: 'assert.notEqual' }] })
+      stream(2, PY, {
+        more: [{ ...assertion('#flash'), command: 'assert.notEqual' }]
+      })
     )
     const runs = [service(), py]
     const { unexplained } = judgeDivergences(compareRuns(runs), runs)
@@ -466,11 +468,11 @@ describe('a gap that declares what its holder lacks', () => {
   it('goes stale once the holder shows the step it declared lacking', () => {
     const py = report(
       'selenium-devtools-py',
-      stream(2, PY, { more: [wait, assertion()] })
+      stream(2, PY, { more: [wait, assertion('#flash')] })
     )
     const { stale } = judgeDivergences([], [service(), py])
     expect(stale.filter(declaresLacks).map((g) => g.lacksSteps)).toEqual([
-      ['Element.waitForExist']
+      ['Element.waitForExist #flash']
     ])
   })
 })
@@ -594,7 +596,7 @@ describe('a lack its holder contradicts', () => {
       )
     ])
     expect(stale.filter((g) => g.lacksSteps).map((g) => g.lacksSteps)).toEqual([
-      ['Element.waitForExist']
+      ['Element.waitForExist #flash']
     ])
   })
 })
@@ -656,6 +658,20 @@ const moveGap = (): KnownGap => ({
   reason: 'Test fixture: a step one adapter shows at another place.'
 })
 
+const overwriteGap = (): KnownGap => ({
+  adapter: 'nightwatch-devtools',
+  bidi: 'live',
+  rules: [RULES.agreeOnActions],
+  only: hunk(
+    scenarioIndex(LOGIN),
+    'Element.getText #flash',
+    'nightwatch-devtools',
+    'Element.getText #flash',
+    'Assert.equal #flash'
+  ),
+  reason: 'Test fixture: one hunk where a row shows in place of another.'
+})
+
 describe('a step one adapter shows at another place', () => {
   const flashWait = { command: 'waitForExist', selector: '#flash' }
   const read = { command: 'getText', selector: '#flash' }
@@ -677,10 +693,7 @@ describe('a step one adapter shows at another place', () => {
       )
     ])
     const waitOrder = moveGap()
-    const sameMs = gapOf(
-      'nightwatch-devtools',
-      KNOWN_DEBT.nightwatchSameMsReplace
-    )
+    const sameMs = overwriteGap()
     expect(covers(waitOrder, divergences[0])).toBe(false)
     expect(covers(sameMs, divergences[0])).toBe(false)
   })
@@ -735,12 +748,7 @@ describe('a step one adapter shows at another place', () => {
     }
     expect(covers(waitOrder, move)).toBe(true)
     expect(covers(waitOrder, overwrite)).toBe(false)
-    expect(
-      covers(
-        gapOf('nightwatch-devtools', KNOWN_DEBT.nightwatchSameMsReplace),
-        overwrite
-      )
-    ).toBe(true)
+    expect(covers(overwriteGap(), overwrite)).toBe(true)
   })
 })
 

@@ -55,12 +55,6 @@ export function reportedAs(test: number, state: string): MessageMatcher {
   return (message) => message.startsWith(lead)
 }
 
-/** A failed scenario test none of whose rows is a failed action. */
-export function failureUnexplained(test: number): MessageMatcher {
-  const lead = `"${SCENARIO_TESTS[test].title}" failed but`
-  return (message) => message.startsWith(lead)
-}
-
 export const anyOf =
   (...matchers: MessageMatcher[]): MessageMatcher =>
   (message) =>
