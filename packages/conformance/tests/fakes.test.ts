@@ -21,6 +21,19 @@ const COLLECTOR_SOURCE = 'window.wdioTraceCollector = new (class {})()'
 const PROBE = 'return typeof window.wdioTraceCollector !== "undefined";'
 const FORCED_DRAIN =
   'window.wdioTraceCollector.captureCurrentDom(); return window.wdioTraceCollector.getTraceData();'
+/** A Performance API read shaped as the adapters' own: a returned IIFE reading the navigation entry, resources and title. */
+const PERFORMANCE_READ = `
+  return (function () {
+    const navigation = performance.getEntriesByType?.('navigation')?.[0];
+    return {
+      navigation: navigation
+        ? { url: window.location.href, loadTime: navigation.loadEventEnd - navigation.fetchStart }
+        : undefined,
+      resources: performance.getEntriesByType('resource'),
+      documentInfo: { title: document.title }
+    };
+  })()
+`
 
 const drivers: FakeWebDriver[] = []
 afterEach(async () => {
@@ -329,6 +342,67 @@ describe('the fake page', () => {
       click: [],
       fill: []
     })
+  })
+
+  it('titles each page as its heading reads', async () => {
+    const driver = await start('off')
+    await session(driver)
+    await call(driver, 'POST', '/session/conformance/url', {
+      url: driver.url('/login')
+    })
+    expect(await call(driver, 'GET', '/session/conformance/title')).toBe(
+      ELEMENT_TEXT['/login'].h2
+    )
+  })
+
+  it("answers a performance read with the page's timings, over WebDriver and BiDi alike", async () => {
+    const driver = await start('live')
+    const { capabilities } = await session(driver)
+    await call(driver, 'POST', '/session/conformance/url', {
+      url: driver.url('/login')
+    })
+    const reading = expect.objectContaining({
+      navigation: expect.objectContaining({ url: driver.url('/login') }),
+      resources: [expect.anything(), expect.anything()],
+      documentInfo: expect.objectContaining({ title: 'Login Page' })
+    })
+    expect(await execute(driver, PERFORMANCE_READ)).toEqual(reading)
+    const bidi = await bidiClient(capabilities.webSocketUrl!)
+    const answer = await bidi.send('script.callFunction', {
+      functionDeclaration: `function () { ${PERFORMANCE_READ} }`,
+      arguments: []
+    })
+    bidi.close()
+    expect(answer.result).toEqual(
+      expect.objectContaining({
+        type: 'success',
+        result: expect.objectContaining({ type: 'object' })
+      })
+    )
+  })
+
+  // The #467 failure: core's script built its payload and never returned it, so a browser answered null.
+  it('answers nothing to a performance read that does not return its reading', async () => {
+    const driver = await start('off')
+    await session(driver)
+    await call(driver, 'POST', '/session/conformance/url', {
+      url: driver.url('/login')
+    })
+    const unreturned = PERFORMANCE_READ.replace(/^\s*return /, '')
+    expect(await execute(driver, unreturned)).toBeNull()
+  })
+
+  it('answers a script that throws in the page with a javascript error', async () => {
+    const driver = await start('off')
+    await session(driver)
+    await call(driver, 'POST', '/session/conformance/url', {
+      url: driver.url('/login')
+    })
+    const throwing =
+      "performance.getEntriesByType('navigation'); return document.querySelector('h2')"
+    expect(await execute(driver, throwing)).toEqual(
+      expect.objectContaining({ error: 'javascript error' })
+    )
   })
 
   it('never renders an element the page does not have', async () => {

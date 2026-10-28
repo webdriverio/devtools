@@ -3,6 +3,7 @@ import {
   CONDITION_WAIT_READS,
   HELPER_WAIT_READ,
   KNOWN_DEBT,
+  PAGE_TITLE_TEST,
   RULES
 } from './constants.js'
 import { anyOf, hunk } from './gap-matchers.js'
@@ -16,8 +17,9 @@ import type {
   Violation
 } from './types.js'
 
-const [WAITS, MISSING] = [
+const [WAITS, PAGE_TITLE, MISSING] = [
   'waits on what the page shows',
+  PAGE_TITLE_TEST,
   'times out waiting for a missing element'
 ].map(scenarioIndex)
 
@@ -61,11 +63,40 @@ export const KNOWN_GAPS: KnownGap[] = [
     timingDependent: true
   },
   ...BIDI_MODES.flatMap((bidi) => [
+    ...serviceGaps(bidi),
     ...nightwatchGaps(bidi),
     ...seleniumGaps(bidi),
     ...pythonGaps(bidi)
   ])
 ]
+
+function serviceGaps(bidi: BidiMode): KnownGap[] {
+  const adapter = 'devtools-service'
+  const reason = KNOWN_DEBT.serviceAssertTarget
+  return [
+    {
+      adapter,
+      bidi,
+      rules: [RULES.pageAssertNamesNoElement],
+      only: (message) =>
+        message === 'assert.notEqual on the page title names h2',
+      reason
+    },
+    {
+      adapter,
+      bidi,
+      rules: [RULES.agreeOnActions],
+      only: hunk(
+        PAGE_TITLE,
+        'Element.getText h2',
+        adapter,
+        'Assert.notEqual h2',
+        'Page.getTitle, Assert.notEqual'
+      ),
+      reason
+    }
+  ]
+}
 
 /** Nightwatch's scenario gaps in one mode, each an adapter bug with its Known debt entry. */
 function nightwatchGaps(bidi: BidiMode): KnownGap[] {

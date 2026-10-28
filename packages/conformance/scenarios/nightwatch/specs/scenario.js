@@ -41,6 +41,13 @@ describe('conformance', function () {
     await browser.click('#logout')
   })
 
+  it('asserts on the page title', async function (browser) {
+    // The heading reads the same text as the title, and the secure page's heading read the expected value.
+    await browser.getText('h2')
+    const title = await browser.getTitle()
+    assert.notEqual(title, 'Secure Area')
+  })
+
   it('fails on the wrong heading', async function (browser) {
     const heading = await browser.getText('h2')
     assert.equal(heading, 'Secure Area')

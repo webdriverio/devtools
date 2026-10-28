@@ -48,6 +48,20 @@ export const RULE_GUIDE: Record<RuleId, RuleGuide> = {
       'The url the row carries is read from the wrong argument, or rewritten by the binding before capture.',
     responsibility: 'command-interception'
   },
+  'navigation-row-carries-timings': {
+    meaning:
+      'A navigation row never shows the page load timings, so its detail card has no load, DOM-ready or resource figures.',
+    cause:
+      "The page's Performance API is not read after the navigation, its answer is dropped (a script that does not return its result), or the enriched row is never sent as a replaceCommand.",
+    responsibility: 'command-interception'
+  },
+  'page-level-assertion-names-no-element': {
+    meaning:
+      'An assertion on the page title boxes an element, so the replay points at something the assertion was never about.',
+    cause:
+      "The assertion's target is taken from the last element touched, or from an operand an element once read, instead of from the read that produced the compared value. A driver-level read such as the title must record its value as belonging to no element.",
+    responsibility: 'command-interception'
+  },
   'failed-command-has-error-row': {
     meaning:
       'A command failed in the browser, but no row carries the error, so the dashboard shows it as a success or not at all.',

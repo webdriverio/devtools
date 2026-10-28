@@ -15,15 +15,25 @@ import {
   DOCUMENT_MIME,
   ELEMENT_KEY,
   ELEMENT_TEXT,
-  LOAD_MS,
   NAVIGATION_HALF_MS,
+  PAGE_TITLES,
   PAGES,
-  RESPONSE_BYTES,
+  PERFORMANCE_SIGNATURE,
   SUBRESOURCES,
   WINDOW_HANDLE
 } from './constants.js'
-import { attachFakeBidi, remoteValue, type FakeBidi } from './fake-bidi.js'
-import { anchorOf, rendered, resourceTimingRow } from './fake-page.js'
+import {
+  attachFakeBidi,
+  networkEvents,
+  remoteValue,
+  type FakeBidi
+} from './fake-bidi.js'
+import {
+  anchorOf,
+  rendered,
+  resourceTimingRow,
+  runInPage
+} from './fake-page.js'
 import type {
   ActionMethod,
   BidiAnswer,
@@ -31,7 +41,8 @@ import type {
   BrowserRequest,
   FailedNavigation,
   BrowserTruth,
-  PageDocument
+  PageDocument,
+  ScriptForm
 } from './types.js'
 
 interface Element {
@@ -50,11 +61,6 @@ type Reply = {
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
-
-const bidiHeader = (name: string, value: string) => ({
-  name,
-  value: { type: 'string', value }
-})
 
 /** A W3C WebDriver over a two-page model with one late-rendered element; without a preload its collector anchors only when a drain forces it. */
 export class FakeWebDriver {
@@ -206,7 +212,7 @@ export class FakeWebDriver {
       return { value: this.#current?.url ?? 'about:blank' }
     }
     if (method === 'GET' && path === '/title') {
-      return { value: this.#current?.path ?? '' }
+      return { value: PAGE_TITLES[this.#current?.path ?? ''] ?? '' }
     }
     if (method === 'POST' && (path === '/element' || path === '/elements')) {
       return this.#find(String(params.value), path === '/elements')
@@ -216,12 +222,7 @@ export class FakeWebDriver {
       return this.#onElement(element[1], element[2], params)
     }
     if (method === 'POST' && path.startsWith('/execute/')) {
-      return {
-        value: this.#execute(
-          String(params.script),
-          JSON.stringify(params.args ?? [])
-        )
-      }
+      return this.#executeReply(params)
     }
     if (path === '/screenshot') {
       return { value: BLANK_PNG }
@@ -294,66 +295,16 @@ export class FakeWebDriver {
       this.#requests.push({ url, document: doc.url, at: doc.bornAt })
       doc.network.push(resourceTimingRow(id, url, mime, doc))
       if (this.#bidi === 'live') {
-        this.#emitRequest(id, url, mime, doc.bornAt)
+        for (const [event, params] of networkEvents(
+          id,
+          url,
+          mime,
+          doc.bornAt
+        )) {
+          this.#socket?.emit(event, params)
+        }
       }
     }
-  }
-
-  /** One request as Chrome reports it over BiDi: the request, then its response with headers. */
-  #emitRequest(id: number, url: string, mime: string, at: number): void {
-    const request = {
-      request: `request-${id}`,
-      url,
-      method: 'GET',
-      headers: [bidiHeader('accept', '*/*')],
-      cookies: [],
-      headersSize: 0,
-      bodySize: 0,
-      timings: {
-        timeOrigin: at,
-        requestTime: 0,
-        redirectStart: 0,
-        redirectEnd: 0,
-        fetchStart: 0,
-        dnsStart: 0,
-        dnsEnd: 0,
-        connectStart: 0,
-        connectEnd: 0,
-        tlsStart: 0,
-        requestStart: 1,
-        responseStart: LOAD_MS - 1,
-        responseEnd: LOAD_MS
-      }
-    }
-    const shared = {
-      context: WINDOW_HANDLE,
-      navigation: null,
-      redirectCount: 0,
-      isBlocked: false,
-      timestamp: at
-    }
-    this.#socket?.emit('network.beforeRequestSent', {
-      ...shared,
-      request,
-      initiator: { type: 'other' }
-    })
-    this.#socket?.emit('network.responseCompleted', {
-      ...shared,
-      request,
-      response: {
-        url,
-        protocol: 'http/1.1',
-        status: 200,
-        statusText: 'OK',
-        fromCache: false,
-        headers: [bidiHeader('content-type', mime)],
-        mimeType: mime,
-        bytesReceived: RESPONSE_BYTES,
-        headersSize: 0,
-        bodySize: RESPONSE_BYTES,
-        content: { size: RESPONSE_BYTES }
-      }
-    })
   }
 
   #find(selector: string, many: boolean): Reply {
@@ -416,8 +367,27 @@ export class FakeWebDriver {
     }
   }
 
+  // A script that throws in the page answers as a browser's does, with a javascript error rather than a dropped request.
+  async #executeReply(params: Record<string, unknown>): Promise<Reply> {
+    try {
+      const script = String(params.script)
+      const args = JSON.stringify(params.args ?? [])
+      // A script that returns nothing answers null over WebDriver.
+      return { value: (await this.#execute(script, args)) ?? null }
+    } catch (err) {
+      return {
+        status: 500,
+        value: {
+          error: 'javascript error',
+          message: String(err),
+          stacktrace: ''
+        }
+      }
+    }
+  }
+
   // Recognised by the collector's own API, not by how any one adapter phrases its scripts.
-  #execute(script: string, args: string): unknown {
+  #execute(script: string, args: string, form: ScriptForm = 'body'): unknown {
     const doc = this.#current
     if (!doc) {
       return null
@@ -427,6 +397,10 @@ export class FakeWebDriver {
       doc.collector = true
       doc.anchored = false
       return true
+    }
+    // Run as the page would run it, so a script that does not return its reading answers nothing.
+    if (PERFORMANCE_SIGNATURE.test(script)) {
+      return runInPage(doc, script, form)
     }
     if (script.includes('getTraceData')) {
       return this.#drain(doc, script.includes('captureCurrentDom'))
@@ -492,22 +466,43 @@ export class FakeWebDriver {
       )
     }
     if (method === 'script.callFunction' || method === 'script.evaluate') {
-      const value = this.#execute(
-        String(params.functionDeclaration ?? params.expression ?? ''),
-        JSON.stringify(params.arguments ?? [])
-      )
-      return {
-        result: {
-          type: 'success',
-          result: remoteValue(value),
-          realm: 'realm-1'
-        }
-      }
+      return this.#bidiScript(method, params)
     }
     if (method === 'browsingContext.captureScreenshot') {
       return { result: { data: BLANK_PNG } }
     }
     return { result: BIDI_RESULTS[method] ?? {} }
+  }
+
+  // A script that throws in the page is a BiDi exception result, as a browser reports it.
+  async #bidiScript(
+    method: string,
+    params: Record<string, unknown>
+  ): Promise<BidiAnswer> {
+    const realm = 'realm-1'
+    try {
+      const value = await this.#execute(
+        String(params.functionDeclaration ?? params.expression ?? ''),
+        JSON.stringify(params.arguments ?? []),
+        method === 'script.callFunction' ? 'declaration' : 'expression'
+      )
+      return { result: { type: 'success', result: remoteValue(value), realm } }
+    } catch (err) {
+      const text = String(err)
+      return {
+        result: {
+          type: 'exception',
+          exceptionDetails: {
+            text,
+            columnNumber: 0,
+            lineNumber: 0,
+            stackTrace: { callFrames: [] },
+            exception: remoteValue(text)
+          },
+          realm
+        }
+      }
+    }
   }
 
   async #bidiNavigate(url: string): Promise<BidiAnswer> {

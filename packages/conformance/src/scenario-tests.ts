@@ -1,4 +1,5 @@
 import {
+  ASSERT_ACTION_CLASS,
   commandFailure,
   mapCommandToAction,
   TEST_STATE,
@@ -7,10 +8,11 @@ import {
   type TestStats
 } from '@wdio/devtools-shared'
 
-import { RULES, SCENARIO_TESTS, SCOPES } from './constants.js'
+import { PAGE_TITLE_TEST, RULES, SCENARIO_TESTS, SCOPES } from './constants.js'
 import type {
   RecordedStream,
   ReportedTest,
+  TimedRow,
   Violation,
   WireFrame
 } from './types.js'
@@ -64,13 +66,47 @@ function reported(test: TestStats): ReportedTest {
 /** The scenario test a row ran in: the test its uid names, else the last to have started by then; -1 before the first. */
 export function scenarioTestOf(
   tests: ReportedTest[],
-  row: { testUid?: string; startTime?: number; timestamp: number }
+  row: TimedRow,
+  at = row.startTime ?? row.timestamp
 ): number {
-  const at = row.startTime ?? row.timestamp
   const running =
     tests.find((t) => t.uid === row.testUid) ??
     tests.filter((t) => t.start <= at).at(-1)
   return running ? scenarioIndex(running.title) : -1
+}
+
+/**
+ * Each row's scenario test, in row order. A uid the tree never reports still names one test's rows, so they are placed
+ * together by the first of them: a test's last row can share its millisecond with the next test's start.
+ */
+export function scenarioTestsOf(
+  tests: ReportedTest[],
+  rows: TimedRow[]
+): number[] {
+  const firstAt = new Map<string, number>()
+  for (const { testUid, startTime, timestamp } of rows) {
+    if (testUid && !tests.some((t) => t.uid === testUid)) {
+      const at = startTime ?? timestamp
+      firstAt.set(testUid, Math.min(at, firstAt.get(testUid) ?? at))
+    }
+  }
+  return rows.map((row) =>
+    scenarioTestOf(
+      tests,
+      row,
+      row.testUid ? firstAt.get(row.testUid) : undefined
+    )
+  )
+}
+
+/** Each scenario test's rows, indexed as SCENARIO_TESTS. */
+function rowsByTest(stream: RecordedStream): CommandLog[][] {
+  const tests = reportedTests(stream.frames)
+  const rows = SCENARIO_TESTS.map((): CommandLog[] => [])
+  scenarioTestsOf(tests, stream.rows).forEach((test, i) =>
+    rows[test]?.push(stream.rows[i])
+  )
+  return rows
 }
 
 // Judged from what the adapter reported, so a test the runner ran right but the dashboard shows wrong is caught.
@@ -98,13 +134,40 @@ function actionFailed(row: CommandLog): boolean {
   return Boolean(action && commandFailure(row, action))
 }
 
+// The title reads the same as an element the test read just before, and the expected value as one read earlier, so
+// a target taken from either is the wrong box: the assertion is about the page.
+export function checkPageLevelAssertions(stream: RecordedStream): Violation[] {
+  const test = scenarioIndex(PAGE_TITLE_TEST)
+  const reported = reportedTests(stream.frames).some(
+    (t) => scenarioIndex(t.title) === test
+  )
+  if (!reported) {
+    return []
+  }
+  const asserts = rowsByTest(stream)[test].filter(
+    (row) => mapCommandToAction(row.command)?.class === ASSERT_ACTION_CLASS
+  )
+  if (!asserts.length) {
+    return [
+      {
+        rule: RULES.pageAssertNamesNoElement,
+        message: `"${PAGE_TITLE_TEST}" has no assertion row to judge`
+      }
+    ]
+  }
+  return asserts
+    .filter((row) => row.selector)
+    .map((row) => ({
+      rule: RULES.pageAssertNamesNoElement,
+      message: `${row.command} on the page title names ${row.selector}`,
+      subject: { kind: 'row' as const, timestamp: row.timestamp }
+    }))
+}
+
 // A test never reported is tests-end-as-designed's finding; these judge the rows of the tests the tree shows.
 export function checkTestRows(stream: RecordedStream): Violation[] {
   const tests = reportedTests(stream.frames)
-  const rows = SCENARIO_TESTS.map((): CommandLog[] => [])
-  for (const row of stream.rows) {
-    rows[scenarioTestOf(tests, row)]?.push(row)
-  }
+  const rows = rowsByTest(stream)
   return SCENARIO_TESTS.flatMap(({ title, state }, i): Violation[] => {
     const shown = tests.find((t) => scenarioIndex(t.title) === i)
     if (!shown) {

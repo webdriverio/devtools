@@ -35,6 +35,8 @@ export const RULES = {
   anchorOnce: 'one-anchor-per-document',
   rowReplaysPage: 'row-replays-its-page',
   navigationNamesDestination: 'navigation-row-names-its-destination',
+  navigationTimings: 'navigation-row-carries-timings',
+  pageAssertNamesNoElement: 'page-level-assertion-names-no-element',
   failureRecorded: 'failed-command-has-error-row',
   errorCarriesBrowserMessage: 'error-row-carries-browser-message',
   replaceTargetsRow: 'replace-targets-a-sent-row',
@@ -80,6 +82,10 @@ export const RESPONSIBILITIES = {
 /** The collector's own source assigns its global; an adapter's probes and drains only read it. */
 export const COLLECTOR_SIGNATURE = /wdioTraceCollector\s*=(?!=)/
 
+/** The page's own Performance API read, recognised by the call that reads its navigation timings however a script phrases it. */
+export const PERFORMANCE_SIGNATURE =
+  /getEntriesByType(?:\?\.)?\(\s*['"]navigation['"]\s*\)/
+
 /** User actions the fake browser counts, named as shared's ACTION_MAP names their method. */
 export const ACTION_METHODS = ['navigate', 'click', 'fill'] as const
 
@@ -116,10 +122,14 @@ export const SCENARIO_TIMEOUT_MS = 60_000
 export const SCENARIO_TESTS: ScenarioTest[] = [
   { title: 'logs in and reads the greeting', state: 'passed' },
   { title: 'waits on what the page shows', state: 'passed' },
+  { title: 'asserts on the page title', state: 'passed' },
   { title: 'fails on the wrong heading', state: 'failed' },
   { title: 'times out waiting for a missing element', state: 'failed' },
   { title: 'survives a refused navigation', state: 'passed' }
 ]
+
+/** The scenario test whose assertions compare the page's title, a value no element produced. */
+export const PAGE_TITLE_TEST = 'asserts on the page title'
 
 /** What the scenario's condition wait reads, then what its helper wait reads again: as the specs write them. */
 export const CONDITION_WAIT_READS = ['#flash', 'h2']
@@ -148,6 +158,12 @@ export const PAGES: Record<string, Record<string, string | null>> = {
 export const ELEMENT_TEXT: Record<string, Record<string, string>> = {
   '/login': { h2: 'Login Page' },
   '/secure': { h2: 'Secure Area', '#flash': 'You logged into a secure area!' }
+}
+
+/** Per page, its document title: each reads the same as the page's h2, so an assertion on the title can be mistaken for one on the heading. */
+export const PAGE_TITLES: Record<string, string> = {
+  '/login': 'Login Page',
+  '/secure': 'Secure Area'
 }
 
 /** How long a load took, as the page's Resource Timing reports it. */
@@ -187,6 +203,7 @@ const SELENIUM_WAIT_DEBT =
 
 /** Why each scenario gap exists: the limitation, and the Known debt entry that describes it. */
 export const KNOWN_DEBT = {
+  serviceAssertTarget: `The WebdriverIO service stamps a node:assert row with the last element it resolved and hides the user's own getTitle, so an assertion on the page title boxes the heading read before it. ${debt('The WDIO service boxes the last element it resolved for an assertion on the page title', '#481')}`,
   conditionWait: `A passing condition wait shows as its reads in Selenium and Python, which have no row for the wait itself, as one Browser.waitForFunction row in the WebdriverIO service, which hides the reads inside it, and as both in Nightwatch. ${debt('A condition wait shows its reads in some adapters and one wait row in others', '#464')}`,
   seleniumWait: `A successful driver.wait() has no row of its own: its polls are findElements rows, which the trace vocabulary leaves unmapped. ${debt(SELENIUM_WAIT_DEBT, '#464')}`,
   seleniumFailedWait: `A timed-out driver.wait() is a wait row named after its condition, mapped to Browser.waitForFunction with no target, where the other adapters show Element.waitForExist on the selector. ${debt(SELENIUM_WAIT_DEBT, '#464')}`,

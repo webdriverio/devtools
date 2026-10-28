@@ -1,12 +1,15 @@
 import { describe, expect, it } from 'vitest'
 
 import { readStream } from '../src/checker.js'
-import { RULES, SCENARIO_TESTS } from '../src/constants.js'
+import { PAGE_TITLE_TEST, RULES, SCENARIO_TESTS } from '../src/constants.js'
 import {
   checkTestOutcomes,
   checkTestRows,
+  checkPageLevelAssertions,
   reportedTests,
-  scenarioTestOf
+  scenarioIndex,
+  scenarioTestOf,
+  scenarioTestsOf
 } from '../src/scenario-tests.js'
 import type { WireFrame } from '../src/types.js'
 
@@ -87,6 +90,74 @@ describe('scenarioTestOf', () => {
   })
 })
 
+describe('scenarioTestsOf', () => {
+  const tests = reportedTests([suites(designed())])
+
+  // The WebdriverIO service tags rows with a uid the tree does not report, and a test's last row can share its
+  // millisecond with the next test's start.
+  it('keeps the rows of a uid the tree never reports in the test their first row ran in', () => {
+    const rows = [
+      { testUid: 'own', timestamp: 210 },
+      { testUid: 'own', timestamp: 300 },
+      { testUid: 'next', timestamp: 300 }
+    ]
+    expect(scenarioTestsOf(tests, rows)).toEqual([2, 2, 3])
+  })
+
+  it('places a row by the uid the tree reports, else by its own time', () => {
+    const rows = [{ testUid: 't4', timestamp: 0 }, { timestamp: 150 }]
+    expect(scenarioTestsOf(tests, rows)).toEqual([4, 1])
+  })
+})
+
+describe(RULES.pageAssertNamesNoElement, () => {
+  const AT_TITLE = scenarioIndex(PAGE_TITLE_TEST)
+  const at = AT_TITLE * 100 + 50
+  const judge = (commands: object[], tests = designed()) =>
+    checkPageLevelAssertions(
+      readStream([suites(tests), { scope: 'commands', data: commands }])
+    )
+  const read = { command: 'getText', args: [], selector: 'h2', timestamp: at }
+  const titleRead = { command: 'getTitle', args: [], timestamp: at + 1 }
+  const assertion = (extra = {}) => ({
+    command: 'assert.notEqual',
+    args: ['Login Page', 'Secure Area'],
+    timestamp: at + 2,
+    ...extra
+  })
+
+  it('passes an assertion on the title that names no element', () => {
+    expect(judge([read, titleRead, assertion()])).toEqual([])
+  })
+
+  // The #476 failure: the expected value was an element's earlier read, so the title assertion boxed that element.
+  it('flags an assertion on the title that names an element', () => {
+    expect(judge([read, titleRead, assertion({ selector: 'h2' })])).toEqual([
+      {
+        rule: RULES.pageAssertNamesNoElement,
+        message: 'assert.notEqual on the page title names h2',
+        subject: { kind: 'row', timestamp: at + 2 }
+      }
+    ])
+  })
+
+  it('flags a test that shows no assertion row, which leaves nothing to judge', () => {
+    expect(judge([read, titleRead]).map((v) => v.rule)).toEqual([
+      RULES.pageAssertNamesNoElement
+    ])
+  })
+
+  it('judges only the assertions of that test', () => {
+    const elsewhere = assertion({ selector: 'h2', timestamp: 50 })
+    expect(judge([elsewhere, read, titleRead, assertion()])).toEqual([])
+  })
+
+  it('leaves a test the tree never reports to tests-end-as-designed', () => {
+    const tests = designed().filter(([title]) => title !== PAGE_TITLE_TEST)
+    expect(judge([read], tests)).toEqual([])
+  })
+})
+
 describe('checkTestRows', () => {
   const ERROR = { name: 'Error', message: 'boom' }
 
@@ -105,7 +176,9 @@ describe('checkTestRows', () => {
     checkTestRows(
       readStream([suites(tests), { scope: 'commands', data: commands }])
     )
-  const [, , HEADING, MISSING] = SCENARIO_TESTS.map((t) => t.title)
+  const HEADING = 'fails on the wrong heading'
+  const MISSING = 'times out waiting for a missing element'
+  const [AT_HEADING, AT_MISSING] = [HEADING, MISSING].map(scenarioIndex)
 
   it('passes a run where every test has rows and every failed test an error row', () => {
     expect(judge(designed())).toEqual([])
@@ -124,7 +197,7 @@ describe('checkTestRows', () => {
   // The Selenium timed-out wait: no row carried the TimeoutError, so the failed test simply stopped.
   it('flags a failed test none of whose rows carries an error', () => {
     const commands = rows()
-    commands[3] = { ...commands[3], error: undefined }
+    commands[AT_MISSING] = { ...commands[AT_MISSING], error: undefined }
     expect(judge(designed(), commands)).toEqual([
       {
         rule: RULES.failedTestExplained,
@@ -135,9 +208,9 @@ describe('checkTestRows', () => {
 
   it('judges a test designed to fail even when the tree shows it passed', () => {
     const tests = designed()
-    tests[2] = [HEADING, 'passed', 200]
+    tests[AT_HEADING] = [HEADING, 'passed', AT_HEADING * 100]
     const commands = rows()
-    commands[2] = { ...commands[2], error: undefined }
+    commands[AT_HEADING] = { ...commands[AT_HEADING], error: undefined }
     expect(judge(tests, commands).map((v) => v.rule)).toEqual([
       RULES.failedTestExplained
     ])
@@ -151,11 +224,11 @@ describe('checkTestRows', () => {
 
   it("reads a failure by shared's rule, so a wait that resolved false counts", () => {
     const commands = rows()
-    commands[3] = {
+    commands[AT_MISSING] = {
       command: 'waitForElementVisible',
       args: ['#missing'],
       result: false,
-      timestamp: 350
+      timestamp: AT_MISSING * 100 + 50
     }
     expect(judge(designed(), commands)).toEqual([])
   })
@@ -163,10 +236,10 @@ describe('checkTestRows', () => {
   // Python's timed-out WebDriverWait: its polls are unmapped findElement rows that error, as a passing wait's do.
   it('does not take an unmapped poll that errored for the failure', () => {
     const commands = rows()
-    commands[3] = {
+    commands[AT_MISSING] = {
       command: 'findElement',
       args: [],
-      timestamp: 350,
+      timestamp: AT_MISSING * 100 + 50,
       error: { name: 'NoSuchElementError', message: 'no element #missing' }
     }
     expect(judge(designed(), commands).map((v) => v.rule)).toEqual([
@@ -176,8 +249,12 @@ describe('checkTestRows', () => {
 
   it('places a row by the test its uid names, so an error stamped for one test explains no other', () => {
     const commands = rows()
-    commands[3] = { ...commands[3], timestamp: 50, testUid: 't3' }
-    commands[2] = { ...commands[2], testUid: 't0' }
+    commands[AT_MISSING] = {
+      ...commands[AT_MISSING],
+      timestamp: 50,
+      testUid: `t${AT_MISSING}`
+    }
+    commands[AT_HEADING] = { ...commands[AT_HEADING], testUid: 't0' }
     expect(judge(designed(), commands)).toEqual([
       expect.objectContaining({ rule: RULES.testHasRows }),
       expect.objectContaining({ rule: RULES.failedTestExplained })

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { checkConformance } from '../src/checker.js'
-import { REPO_ROOT, RULES } from '../src/constants.js'
+import { LOAD_MS, REPO_ROOT, RULES } from '../src/constants.js'
 import type { GroundTruth, WireFrame } from '../src/types.js'
 
 const LOGIN = 'http://fake/login'
@@ -83,6 +83,14 @@ const row = (
   ...extra
 })
 
+/** What a navigation row carries once the page has answered its Performance API read. */
+const timings = (url: string) => ({
+  performance: {
+    navigation: { url, timing: { loadTime: LOAD_MS } },
+    resources: []
+  }
+})
+
 function conformingStream(): WireFrame[] {
   return [
     {
@@ -99,7 +107,10 @@ function conformingStream(): WireFrame[] {
     { scope: 'mutations', data: [anchor(LOGIN, 100)] },
     { scope: 'commands', data: [row('click', [], 200, 320)] },
     { scope: 'mutations', data: [anchor(SECURE, 300)] },
-    { scope: 'commands', data: [row('get', [{ url: SECURE }], 330, 340)] },
+    {
+      scope: 'commands',
+      data: [row('get', [{ url: SECURE }], 330, 340, timings(SECURE))]
+    },
     {
       scope: 'commands',
       data: [
@@ -108,11 +119,15 @@ function conformingStream(): WireFrame[] {
         })
       ]
     },
+    // The page's timings arrive after the row, as every adapter sends them.
     {
       scope: 'replaceCommand',
       data: {
         oldTimestamp: 110,
-        command: row('get', [LOGIN], 90, 110, { callSource: `${SPEC}:12:7` })
+        command: row('get', [LOGIN], 90, 110, {
+          callSource: `${SPEC}:12:7`,
+          ...timings(LOGIN)
+        })
       }
     },
     { scope: 'networkRequests', data: pageRows() }
@@ -473,9 +488,53 @@ describe('checkConformance', () => {
     const frames = conformingStream()
     frames[5] = {
       scope: 'commands',
-      data: [row('get', [{ url: 'http://fake/other' }], 330, 340)]
+      data: [
+        row('get', [{ url: 'http://fake/other' }], 330, 340, timings(SECURE))
+      ]
     }
     expect(rules(frames)).toEqual([RULES.navigationNamesDestination])
+  })
+
+  // Regression: core's performance script never returned its payload, so no navigation row ever got timings.
+  it('flags a navigation row no replacement ever gives timings', () => {
+    const frames = conformingStream().filter(
+      (f) => f.scope !== 'replaceCommand'
+    )
+    expect(checkConformance(frames, truth)).toEqual([
+      {
+        rule: RULES.navigationTimings,
+        message: `get(${LOGIN}) never carries the page's navigation timings`,
+        subject: { kind: 'row', timestamp: 110 }
+      }
+    ])
+  })
+
+  it('does not count a navigation entry without its timing figures', () => {
+    const frames = [
+      ...conformingStream(),
+      {
+        scope: 'replaceCommand',
+        data: {
+          oldTimestamp: 340,
+          command: {
+            ...row('get', [SECURE], 330, 340),
+            performance: { navigation: {}, resources: [] }
+          }
+        }
+      }
+    ]
+    expect(rules(frames)).toEqual([RULES.navigationTimings])
+  })
+
+  it('judges a navigation row as its last replacement left it', () => {
+    const frames = [
+      ...conformingStream(),
+      {
+        scope: 'replaceCommand',
+        data: { oldTimestamp: 340, command: row('get', [SECURE], 330, 340) }
+      }
+    ]
+    expect(rules(frames)).toEqual([RULES.navigationTimings])
   })
 
   // The checker throws rather than guessing, and the harness keeps the frames beside the error.

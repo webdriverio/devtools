@@ -59,6 +59,13 @@ describe('conformance', function () {
     await driver.findElement(By.css('#logout')).click()
   })
 
+  it('asserts on the page title', async function () {
+    // The heading reads the same text as the title, and the secure page's heading read the expected value.
+    await driver.findElement(By.css('h2')).getText()
+    const title = await driver.getTitle()
+    assert.notEqual(title, 'Secure Area')
+  })
+
   it('fails on the wrong heading', async function () {
     const heading = await driver.findElement(By.css('h2')).getText()
     assert.equal(heading, 'Secure Area')

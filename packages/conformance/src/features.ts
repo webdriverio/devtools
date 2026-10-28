@@ -27,8 +27,6 @@ const SAFARI_FOCUS_ONCE =
 const NO_SCREENSHOT_SWITCH = 'No option: every command row takes a screenshot.'
 const NO_TRACE_FORMAT_TEST =
   "The writer is tested in `packages/trace/tests/trace-exporter.test.ts`; no test covers the adapter handing `traceFormat` on, so check by hand with `traceFormat: 'ndjson-directory'` on the example."
-const NO_TIMINGS_TEST = (demo: string) =>
-  `No unit test asserts the timings reach the navigation row; check by hand with \`pnpm ${demo}\`.`
 const NO_HEADLESS_OPTION =
   'No option: set headless in the browser capabilities, as for any run.'
 const WITHOUT_BIDI_ANCHOR =
@@ -291,12 +289,7 @@ export const FEATURES = [
     id: 'performance-timings',
     name: 'Performance timings on navigation rows',
     tables: ['readme-dashboard', 'cross-framework'],
-    cells: {
-      'devtools-service': byHand(NO_TIMINGS_TEST('demo:wdio')),
-      'selenium-devtools': byHand(NO_TIMINGS_TEST('demo:selenium')),
-      'nightwatch-devtools': byHand(NO_TIMINGS_TEST('demo:nightwatch')),
-      'selenium-devtools-py': covered(`${PYTHON}test_performance.py`)
-    }
+    cells: allTested([RULES.navigationTimings])
   },
   {
     id: 'failed-command-errors',
