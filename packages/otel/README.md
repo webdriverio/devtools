@@ -29,6 +29,39 @@ The collector is set with the standard OpenTelemetry variables, read by the OTLP
 - `OTEL_SERVICE_NAME`: service name (default `devtools-tests`)
 - `OTEL_RESOURCE_ATTRIBUTES`: resource attributes such as branch, commit and CI run id. Put low-cardinality run identity here.
 
+## Sending to a hosted platform and separating projects
+
+The upload is an OTLP/HTTP push, configured only through the standard OpenTelemetry variables:
+
+- `OTEL_EXPORTER_OTLP_ENDPOINT`: the base URL; signals are sent to `/v1/traces` and `/v1/logs` under it
+- `OTEL_EXPORTER_OTLP_HEADERS`: the platform token
+- `OTEL_SERVICE_NAME`, `OTEL_RESOURCE_ATTRIBUTES`: which project and environment the records belong to
+
+Keep tokens in CI secrets, never in files.
+
+Examples (check each platform's current docs; endpoints and header names change):
+
+| Platform | `OTEL_EXPORTER_OTLP_ENDPOINT` | `OTEL_EXPORTER_OTLP_HEADERS` |
+|---|---|---|
+| Grafana Cloud | `https://otlp-gateway-<region>.grafana.net/otlp` | `Authorization=Basic <base64 of instanceId:token>` |
+| Honeycomb | `https://api.honeycomb.io` | `x-honeycomb-team=<key>` |
+| New Relic | `https://otlp.nr-data.net` | `api-key=<key>` |
+| Datadog | A Datadog Agent or OpenTelemetry Collector with an OTLP receiver | As that agent or collector requires |
+
+To keep several projects apart in one organisation, use resource attributes:
+
+- `service.namespace`: the organisation or team
+- `service.name`: the project or suite (default `devtools-tests`)
+- `deployment.environment.name`: the environment
+
+```sh
+OTEL_SERVICE_NAME=shop-web-e2e \
+OTEL_RESOURCE_ATTRIBUTES=service.namespace=acme,deployment.environment.name=staging,vcs.ref.head.name=main \
+  devtools-otel push out/devtools-artifacts-*.json --artifact-base-url https://bucket.example/shop-web-e2e/run-1
+```
+
+These become filterable resource attributes on every log record and span. In the example stack's Loki (`grafana/otel-lgtm:0.37.0`) these three became stream labels (`service_namespace`, `service_name`, `deployment_environment_name`), while per-test attributes stay structured metadata; check your own Loki's OTLP label configuration. Give each project its own bucket prefix for `--artifact-base-url`, so one project's zips never sit under another's.
+
 ## Telemetry
 
 | Attribute | On | Meaning |

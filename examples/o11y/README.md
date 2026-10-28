@@ -126,6 +126,12 @@ export OTEL_EXPORTER_OTLP_ENDPOINT=https://otlp-gateway-<region>.grafana.net/otl
 export OTEL_EXPORTER_OTLP_HEADERS="Authorization=Basic <base64 of instanceId:token>"
 ```
 
+## Multiple projects
+
+To separate projects or teams in one backend, set `OTEL_SERVICE_NAME` and `OTEL_RESOURCE_ATTRIBUTES` as described in `packages/otel/README.md`, Sending to a hosted platform and separating projects.
+
+The provisioned dashboard currently filters on `service_name="devtools-tests"`. A project pushed under another service name shows nothing there until you edit the queries in `grafana/devtools-dashboard.json`. Project and namespace variables are a planned change.
+
 ## Sample queries
 
 These are starting points to adapt, not tested dashboards. Loki stores the record's attributes as structured metadata, and the names below assume dots are sanitized to underscores (`test.case.result.status` becomes `test_case_result_status`). That has not been verified. Check the actual names in Grafana Explore and adjust.
