@@ -72,4 +72,15 @@ describe('node:assert target from value provenance', () => {
     assert.equal(heading, 'Welcome back')
     expect(lastAssert()?.selector).toBe('h2')
   })
+
+  // Regression: getHTML is not in ACTION_MAP, so its value was recorded as no element's.
+  it('names the element a read ACTION_MAP does not render came from', async () => {
+    await run('$', ['#message'], {
+      'element-6066-11e4-a52e-4f735466cecf': 'e3'
+    })
+    const html = '<p id="message">Hello</p>'
+    await run('getHTML', [], html)
+    assert.equal(html, '<p id="message">Hello</p>')
+    expect(lastAssert()?.selector).toBe('#message')
+  })
 })

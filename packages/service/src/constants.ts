@@ -21,6 +21,42 @@ export const LOCATOR_COMMANDS: string[] = [
   'findElements'
 ]
 
+// WDIO element reads ACTION_MAP does not list, so an assertion on their value can
+// still name the element they were read from.
+export const UNMAPPED_ELEMENT_READS: string[] = [
+  'getHTML',
+  'getComputedRole',
+  'getComputedLabel',
+  'isStable',
+  'isEqual'
+]
+
+// WDIO element commands that return no value an assertion could compare: they
+// locate, act or wait, so they are not element reads.
+export const ELEMENT_COMMANDS_WITHOUT_READS: string[] = [
+  '$',
+  '$$',
+  'custom$',
+  'custom$$',
+  'react$',
+  'react$$',
+  'shadow$',
+  'shadow$$',
+  'getElement',
+  'getElements',
+  'nextElement',
+  'parentElement',
+  'previousElement',
+  'clearValue',
+  'selectByAttribute',
+  'selectByIndex',
+  'setFiles',
+  'saveScreenshot',
+  'waitForStable',
+  'waitUntil',
+  'execute'
+]
+
 // Element-scoped commands WDIO invokes with an element handle instead of the
 // selector, so the trace row inherits the last resolved locator (see
 // command-selectors.ts).
