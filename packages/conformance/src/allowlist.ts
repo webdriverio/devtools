@@ -64,40 +64,11 @@ export const KNOWN_GAPS: KnownGap[] = [
     timingDependent: true
   },
   ...BIDI_MODES.flatMap((bidi) => [
-    ...serviceGaps(bidi),
     ...nightwatchGaps(bidi),
     ...seleniumGaps(bidi),
     ...pythonGaps(bidi)
   ])
 ]
-
-function serviceGaps(bidi: BidiMode): KnownGap[] {
-  const adapter = 'devtools-service'
-  const reason = KNOWN_DEBT.serviceAssertTarget
-  return [
-    {
-      adapter,
-      bidi,
-      rules: [RULES.pageAssertNamesNoElement],
-      only: (message) =>
-        message === 'assert.notEqual on the page title names h2',
-      reason
-    },
-    {
-      adapter,
-      bidi,
-      rules: [RULES.agreeOnActions],
-      only: hunk(
-        PAGE_TITLE,
-        'Element.getText h2',
-        adapter,
-        'Assert.notEqual h2',
-        'Page.getTitle, Assert.notEqual'
-      ),
-      reason
-    }
-  ]
-}
 
 /** Nightwatch's scenario gaps in one mode, each an adapter bug with its Known debt entry. */
 function nightwatchGaps(bidi: BidiMode): KnownGap[] {

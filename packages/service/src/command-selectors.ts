@@ -3,6 +3,7 @@
 // only observable on the preceding locator command and has to be carried
 // forward onto the row.
 
+import { mapCommandToAction } from '@wdio/devtools-core'
 import { LOCATOR_COMMANDS, SELECTOR_INHERITING_COMMANDS } from './constants.js'
 import type { CommandLog } from './types.js'
 
@@ -20,6 +21,13 @@ export function nextLastSelector(
   return typeof selector === 'string' && selector.length > 0
     ? selector
     : current
+}
+
+/** True for a command WDIO invokes on an element handle. ACTION_MAP's Element
+ *  class is exactly that set for WDIO, whose element commands take no selector
+ *  argument, so its read's value belongs to the element the row resolved. */
+export function isElementCommand(command: string): boolean {
+  return mapCommandToAction(command)?.class === 'Element'
 }
 
 /** The W3C element id inside a serialized handle (`{'element-6066-…': '<id>'}`).

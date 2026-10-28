@@ -278,7 +278,7 @@ describe('SessionCapturer', () => {
       // expect($('#flash')) resolves the element inside the matcher.
       capturer.beginAssertionSelector()
       capturer.noteResolvedSelector('#flash')
-      capturer.captureAssertCommand(assertEntry('expect.toExist'))
+      capturer.captureMatcherCommand(assertEntry('expect.toExist'))
       expect(capturer.commandsLog.at(-1)!.selector).toBe('#flash')
     })
 
@@ -303,7 +303,7 @@ describe('SessionCapturer', () => {
       const capturer = new SessionCapturer()
       capturer.noteResolvedSelector('#flash') // stale, from a prior assertion
       capturer.beginAssertionSelector() // expect(x).toBe(y) resolves nothing
-      capturer.captureAssertCommand(assertEntry('expect.toBe'))
+      capturer.captureMatcherCommand(assertEntry('expect.toBe'))
       expect(capturer.commandsLog.at(-1)!.selector).toBeUndefined()
     })
   })

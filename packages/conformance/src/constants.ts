@@ -204,7 +204,6 @@ const SELENIUM_WAIT_DEBT =
 /** Why each scenario gap exists: the limitation, and the Known debt entry that describes it. */
 export const KNOWN_DEBT = {
   nightwatchSkipped: `Nightwatch reports a passing test that ran no assertion as skipped, although it ran. ${debt('Nightwatch reports a passing test skipped', '#459')}`,
-  serviceAssertTarget: `The WebdriverIO service stamps a node:assert row with the last element it resolved and hides the user's own getTitle, so an assertion on the page title boxes the heading read before it. ${debt('The WDIO service boxes the last element it resolved for an assertion on the page title', '#481')}`,
   conditionWait: `A passing condition wait shows as its reads in Selenium and Python, which have no row for the wait itself, as one Browser.waitForFunction row in the WebdriverIO service, which hides the reads inside it, and as both in Nightwatch. ${debt('A condition wait shows its reads in some adapters and one wait row in others', '#464')}`,
   seleniumWait: `A successful driver.wait() has no row of its own: its polls are findElements rows, which the trace vocabulary leaves unmapped. ${debt(SELENIUM_WAIT_DEBT, '#464')}`,
   seleniumFailedWait: `A timed-out driver.wait() is a wait row named after its condition, mapped to Browser.waitForFunction with no target, where the other adapters show Element.waitForExist on the selector. ${debt(SELENIUM_WAIT_DEBT, '#464')}`,

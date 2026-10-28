@@ -24,6 +24,29 @@ function reviveScript(src: string): () => unknown {
   return new Function(`return (${src})`) as () => unknown
 }
 
+/** Title reads the service is issuing for its own snapshots. The probe runs
+ *  inside a hook whose stack holds the user's spec frame, so only this tells it
+ *  apart from the user's own `getTitle`, which is a step the test wrote. */
+let titleProbesInFlight = 0
+
+/** True while a hook is observing the service's own title probe. */
+export function isServiceProbe(command: string): boolean {
+  return command === 'getTitle' && titleProbesInFlight > 0
+}
+
+async function probeTitle(
+  browser: WebdriverIO.Browser
+): Promise<string | undefined> {
+  titleProbesInFlight++
+  try {
+    return await browser.getTitle()
+  } catch {
+    return undefined
+  } finally {
+    titleProbesInFlight--
+  }
+}
+
 /** Bound on the end-of-test wait for a document the last action navigated to. */
 const FINAL_SETTLE_TIMEOUT_MS = 8000
 /** Time to let a paint land, so the final capture is not a transitional frame —
@@ -134,7 +157,7 @@ export function captureActionSnapshot(
       : (direct?.getUrl ?? (() => browser.getUrl().catch(() => undefined))),
     getTitle: native
       ? undefined
-      : (direct?.getTitle ?? (() => browser.getTitle().catch(() => undefined))),
+      : (direct?.getTitle ?? (() => probeTitle(browser))),
     // On native mobile, use page-source XML to produce structured element
     // data and an AI-readable snapshot (same approach as @wdio/elements).
     getPageSource: native

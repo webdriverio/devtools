@@ -303,14 +303,38 @@ describe('trace mode: one capture per action, taken before it', () => {
     // A read the capture gates exclude, and the last thing the test did. It is
     // mapped, so counting it would stamp the final capture at a timestamp no
     // visible row owns — and skipping it entirely would lose the click's result.
-    await service.beforeCommand('getTitle' as never, [])
-    await service.afterCommand('getTitle' as never, [], 'title')
+    await service.beforeCommand('getUrl' as never, [])
+    await service.afterCommand('getUrl' as never, [], 'http://example.com/')
 
     vi.mocked(captureActionSnapshot).mockClear()
     await service.after()
 
     expect(namedAt(0)).toBe('click')
     expect(stampedAt(0)).toBe(commandsLog[0]!.timestamp)
+  })
+
+  // Regression (#481): the user's getTitle had no row, because the title read the
+  // snapshot probes for it re-enters these same hooks with the spec on the stack.
+  it("logs the user's getTitle once and never the snapshot's own title probe", async () => {
+    const browser = webBrowser()
+    const service = new DevToolsHookService({ mode: 'trace' })
+    await service.before({} as never, [], browser)
+    // WDIO runs the hooks for a command the service issues from inside a hook.
+    vi.mocked(browser.getTitle).mockImplementation(async () => {
+      await service.beforeCommand('getTitle' as never, [])
+      await service.afterCommand('getTitle' as never, [], 'probe')
+      return 'probe'
+    })
+    vi.mocked(capturer.afterCommand).mockClear()
+
+    await service.beforeCommand('getTitle' as never, [])
+    expect(browser.getTitle).toHaveBeenCalled()
+    await service.afterCommand('getTitle' as never, [], 'user')
+
+    const logged = vi
+      .mocked(capturer.afterCommand)
+      .mock.calls.map((call) => [call[1], (call as unknown[])[3]])
+    expect(logged).toEqual([['getTitle', 'user']])
   })
 
   it('does not merge the next test first capture into the previous test slot', async () => {

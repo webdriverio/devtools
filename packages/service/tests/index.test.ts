@@ -199,20 +199,24 @@ describe('DevtoolsService - Internal Command Filtering', () => {
     it('should filter mixed internal and user commands correctly', () => {
       // Execute mix of user and internal commands
       executeCommand('url', ['https://example.com'])
-      executeCommand('getTitle', [], 'Page Title') // internal
+      executeCommand('getUrl', [], 'https://example.com') // internal
+      executeCommand('getTitle', [], 'Page Title') // a step the test wrote
       executeCommand('click', ['.button'])
       executeCommand('waitUntil', [expect.any(Function)], true) // a user wait
       executeCommand('getText', ['.result'], 'Success')
 
-      // getTitle is internal; the rest — including the wait — are user actions.
-      expect(mockSessionCapturerInstance.afterCommand).toHaveBeenCalledTimes(4)
-
+      // getUrl is internal; the rest — including the wait — are user actions.
       const capturedCommands =
         mockSessionCapturerInstance.afterCommand.mock.calls.map(
           (call) => call[1]
         )
-      expect(capturedCommands).toEqual(['url', 'click', 'waitUntil', 'getText'])
-      expect(capturedCommands).not.toContain('getTitle')
+      expect(capturedCommands).toEqual([
+        'url',
+        'getTitle',
+        'click',
+        'waitUntil',
+        'getText'
+      ])
     })
 
     it('captures a wait once and suppresses the commands it polls', () => {

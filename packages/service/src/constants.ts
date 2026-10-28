@@ -67,7 +67,6 @@ export const INTERNAL_COMMANDS = [
   'emit',
   'browsingContextLocateNodes',
   'browsingContextNavigate',
-  'getTitle',
   'getUrl',
   'getWindowSize',
   'setWindowSize',
