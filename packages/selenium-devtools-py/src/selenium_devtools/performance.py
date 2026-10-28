@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import logging
 import math
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import ROUND_HALF_UP, Context, Decimal
 from typing import Any, Dict, Optional
 
 from .constants import LOGGER_NAME
@@ -121,12 +121,16 @@ def apply_performance_data(
     return True
 
 
+#: Private, so a test that changes the thread's decimal context cannot make a navigation raise.
+_MS_CONTEXT = Context(prec=40, rounding=ROUND_HALF_UP, traps=[])
+
+
 def format_milliseconds(ms: Any) -> Optional[str]:
     """A duration for the row's summary, as core formats it: two decimals, ties
     rounded up like JS ``toFixed`` rather than to even."""
     if isinstance(ms, bool) or not isinstance(ms, (int, float)) or not math.isfinite(ms):
         return None
-    rounded = Decimal(ms).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    rounded = Decimal(ms).quantize(Decimal("0.01"), context=_MS_CONTEXT)
     return f"{rounded} ms"
 
 

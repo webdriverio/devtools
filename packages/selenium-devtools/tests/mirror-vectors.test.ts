@@ -72,6 +72,9 @@ it('runs every section the vectors file declares', () => {
 
 /** Groups must partition the observed values the same way: equal names exactly where values are equal. */
 function expectSameGrouping<T>(observed: T[], names: string[]): void {
+  expect(observed.length, 'one observed value per named call').toBe(
+    names.length
+  )
   for (let i = 0; i < observed.length; i++) {
     for (let j = i + 1; j < observed.length; j++) {
       expect(

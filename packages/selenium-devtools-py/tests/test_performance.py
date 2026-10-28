@@ -6,6 +6,7 @@ So there are two things to get right: the shaping of the payload onto the row,
 and the fact that a payload worth nothing produces no second frame at all.
 """
 
+import decimal
 import unittest
 
 from selenium_devtools import instrumentation, performance
@@ -66,6 +67,14 @@ class TestShapingThePayload(unittest.TestCase):
                 "title": "Secure Area",
             },
         )
+
+    # Regression: the thread's decimal context made an ordinary load time raise inside driver.get().
+    def test_the_load_time_ignores_the_thread_s_decimal_settings(self):
+        with decimal.localcontext() as ctx:
+            ctx.prec = 2
+            ctx.traps[decimal.Inexact] = True
+            self.assertEqual(performance.format_milliseconds(812), "812.00 ms")
+            self.assertEqual(performance.format_milliseconds(246.39999985694885), "246.40 ms")
 
     def test_a_payload_without_navigation_is_no_data_at_all(self):
         # It means the read landed before the document had timings. Applying the
