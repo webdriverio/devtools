@@ -1,4 +1,8 @@
-import { mapCommandToAction, type CommandLog } from '@wdio/devtools-shared'
+import {
+  isWaitCommand,
+  mapCommandToAction,
+  type CommandLog
+} from '@wdio/devtools-shared'
 
 import { RULES, SCENARIO_TESTS, SCENARIO_WAITS, SCOPES } from './constants.js'
 import {
@@ -8,8 +12,7 @@ import {
 } from './scenario-tests.js'
 import type { RecordedStream, Violation } from './types.js'
 
-const isWait = (row: CommandLog) =>
-  mapCommandToAction(row.command)?.method.startsWith('waitFor') ?? false
+const isWait = (row: CommandLog) => isWaitCommand(row.command)
 
 const waitKey = (row: CommandLog) => {
   const action = mapCommandToAction(row.command)!

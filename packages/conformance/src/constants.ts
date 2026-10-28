@@ -216,13 +216,12 @@ const SELENIUM_WAIT_DEBT =
 
 /** Why each scenario gap exists: the limitation, and the Known debt entry that describes it. */
 export const KNOWN_DEBT = {
-  conditionWait: `A passing condition wait shows as its reads in Selenium and Python, which have no row for the wait itself, as one Browser.waitForFunction row in the WebdriverIO service, which hides the reads inside it, and as both in Nightwatch. ${debt('A condition wait shows its reads in some adapters and one wait row in others', '#464')}`,
+  conditionWait: `A passing condition wait shows as its reads in Selenium and Python, which have no row for the wait itself, and as one Browser.waitForFunction row in the WebdriverIO service, which hides the reads inside it. ${debt('A condition wait shows its reads in some adapters and one wait row in others', '#464')}`,
   seleniumWait: `A successful driver.wait() has no row of its own: its polls are findElements rows, which the trace vocabulary leaves unmapped. ${debt(SELENIUM_WAIT_DEBT, '#464')}`,
   seleniumFailedWait: `A timed-out driver.wait() is a wait row named after its condition, mapped to Browser.waitForFunction with no target, where the other adapters show Element.waitForExist on the selector. ${debt(SELENIUM_WAIT_DEBT, '#464')}`,
   pythonWait: `A successful WebDriverWait has no row of its own: its polls fold into findElement rows, which the trace vocabulary leaves unmapped. ${debt(SELENIUM_WAIT_DEBT, '#464')}`,
   pythonFailedWait: `A timed-out WebDriverWait is a wait row named after its condition, mapped to Browser.waitForFunction with no target, where the other adapters show Element.waitForExist on the selector. ${debt(SELENIUM_WAIT_DEBT, '#464')}`,
   serviceWaitRows: `The WebdriverIO service sends a wait row only once it completes and stamps it no id, and its waitUntil hides the reads its condition issues rather than nesting them. ${debt(WAIT_ROW_DEBT, '#464')}`,
-  nightwatchWaitRows: `Nightwatch sends a waitUntil row only once it completes, after the reads its condition issued, and those reads name no parent. ${debt(WAIT_ROW_DEBT, '#464')}`,
   seleniumWaitRows: `A successful driver.wait() has no row, a timed-out one is named after its condition rather than its locator, and its polls name no parent. ${debt(WAIT_ROW_DEBT, '#464')}`,
   pythonWaitRows: `A successful WebDriverWait has no row, a timed-out one is named after its condition rather than its locator, and its polls name no parent. ${debt(WAIT_ROW_DEBT, '#464')}`
 } as const

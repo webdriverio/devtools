@@ -395,6 +395,9 @@ wrapBrowserCommands(browser: NightwatchBrowser): void {
 - Associates results with commands
 - Handles nested/chained commands
 
+#### Wait Rows
+`waitUntil` and the `waitForElement*` family send a running row at invocation and end it by `id` at completion (`src/helpers/waitRows.ts`). Every command a `waitUntil` condition issues carries the wait's `id` as `parentId`: the condition runs inside an `AsyncLocalStorage` scope, so a nested wait nests. A `waitForElement*` polls through the transport, so its row has no children.
+
 #### Deduplication
 Prevents duplicate command capture:
 - Generates signature: `command + args + callSource`
@@ -414,7 +417,7 @@ class BrowserProxy {
   // Wrap all browser commands
   wrapBrowserCommands(browser: NightwatchBrowser): void
   
-  // Special handling for URL navigation
+  // Special handling for URL navigation (src/helpers/navigationWrap.ts)
   wrapUrlMethod(browser: NightwatchBrowser): void
   
   // Handle command execution

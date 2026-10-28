@@ -10,7 +10,37 @@ export function hunk(
   holderShows: string,
   otherShows: string
 ): MessageMatcher {
-  const lead = `${testLabel(test)}, after ${after}: `
+  return shows(
+    `${testLabel(test)}, after ${after}: `,
+    holder,
+    holderShows,
+    otherShows
+  )
+}
+
+/** One hunk of the steps a step issued, compared under it: {@link hunk} inside `parent`. */
+export function insideHunk(
+  test: number,
+  parent: string,
+  after: string,
+  holder: AdapterId,
+  holderShows: string,
+  otherShows: string
+): MessageMatcher {
+  return shows(
+    `${testLabel(test)}, ${parent}, inside it after ${after}: `,
+    holder,
+    holderShows,
+    otherShows
+  )
+}
+
+function shows(
+  lead: string,
+  holder: AdapterId,
+  holderShows: string,
+  otherShows: string
+): MessageMatcher {
   const own = `${holder} shows [${holderShows}]`
   return (message) => {
     const at = message.indexOf(lead)

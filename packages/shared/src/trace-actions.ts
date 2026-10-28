@@ -7,6 +7,11 @@ export interface TraceAction {
   method: string
 }
 
+/** Whether an action is a wait: every runner's waits map onto a `waitFor*` method. */
+export function isWaitAction(action: TraceAction | null | undefined): boolean {
+  return action?.method.startsWith('waitFor') ?? false
+}
+
 /** Trace action class assertion commands map to. */
 export const ASSERT_ACTION_CLASS = 'Assert'
 

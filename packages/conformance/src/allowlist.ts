@@ -5,7 +5,7 @@ import {
   KNOWN_DEBT,
   RULES
 } from './constants.js'
-import { anyOf, hunk } from './gap-matchers.js'
+import { anyOf, hunk, insideHunk } from './gap-matchers.js'
 import { scenarioIndex } from './scenario-tests.js'
 import type {
   AdapterId,
@@ -25,8 +25,9 @@ const FLASH_WAIT = 'Element.waitForExist #flash'
 
 /** The scenario's two condition waits as the WebdriverIO service shows them, and as their reads. */
 const CONDITION_WAITS = 'Browser.waitForFunction, Browser.waitForFunction'
+const getText = (selector: string) => `Element.getText ${selector}`
 const CONDITION_READS = [...CONDITION_WAIT_READS, HELPER_WAIT_READ]
-  .map((selector) => `Element.getText ${selector}`)
+  .map(getText)
   .join(', ')
 
 export const KNOWN_GAPS: KnownGap[] = [
@@ -61,18 +62,17 @@ export const KNOWN_GAPS: KnownGap[] = [
     timingDependent: true
   },
   ...BIDI_MODES.flatMap((bidi) => [
-    ...nightwatchGaps(bidi),
+    ...serviceWaitGaps(bidi),
     ...seleniumGaps(bidi),
     ...pythonGaps(bidi),
     ...waitRowGaps(bidi)
   ])
 ]
 
-/** No adapter yet sends a wait as one row that parents the commands it issued: each its own way. */
+/** The adapters that do not yet send a wait as one row that parents the commands it issued: each its own way. */
 function waitRowGaps(bidi: BidiMode): KnownGap[] {
   const reasons: [AdapterId, string][] = [
     ['devtools-service', KNOWN_DEBT.serviceWaitRows],
-    ['nightwatch-devtools', KNOWN_DEBT.nightwatchWaitRows],
     ['selenium-devtools', KNOWN_DEBT.seleniumWaitRows],
     ['selenium-devtools-py', KNOWN_DEBT.pythonWaitRows]
   ]
@@ -84,32 +84,29 @@ function waitRowGaps(bidi: BidiMode): KnownGap[] {
   }))
 }
 
-/** Nightwatch's scenario gaps in one mode, each an adapter bug with its Known debt entry. */
-function nightwatchGaps(bidi: BidiMode): KnownGap[] {
-  const adapter = 'nightwatch-devtools'
+/** The WebdriverIO service hides what a waitUntil condition read, where Nightwatch nests the reads under the wait. */
+function serviceWaitGaps(bidi: BidiMode): KnownGap[] {
+  const adapter = 'devtools-service'
+  const readsUnderWait = (reads: string) =>
+    insideHunk(
+      WAITS,
+      'Browser.waitForFunction',
+      'its start',
+      adapter,
+      '',
+      reads
+    )
   return [
     {
       adapter,
       bidi,
       rules: [RULES.agreeOnActions],
       only: anyOf(
-        hunk(
-          WAITS,
-          'Element.getText #flash',
-          adapter,
-          'Element.getText #flash, Element.getText h2',
-          ''
-        ),
-        hunk(
-          WAITS,
-          'Browser.waitForFunction',
-          adapter,
-          'Element.getText #flash',
-          ''
-        )
+        readsUnderWait(CONDITION_WAIT_READS.map(getText).join(', ')),
+        readsUnderWait(getText(HELPER_WAIT_READ))
       ),
-      reason: KNOWN_DEBT.conditionWait,
-      against: 'devtools-service'
+      reason: KNOWN_DEBT.serviceWaitRows,
+      against: 'nightwatch-devtools'
     }
   ]
 }

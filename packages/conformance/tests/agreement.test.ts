@@ -803,7 +803,7 @@ describe('the agreement section of the report', () => {
     ])
     expect(html).toMatch(/STALE GAPS \(\d+\)/)
     expect(html).toContain(
-      'Stale gap</strong> for <code>nightwatch-devtools</code>'
+      'Stale gap</strong> for <code>devtools-service</code>'
     )
     expect(html).not.toContain('>AGREE<')
   })
