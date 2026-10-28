@@ -50,6 +50,13 @@ def test_waits_on_what_the_page_shows(driver):
     driver.find_element(By.CSS_SELECTOR, "#logout").click()
 
 
+def test_asserts_on_the_page_title(driver):
+    # The heading reads the same text as the title, and the secure page's heading read the expected value.
+    driver.find_element(By.CSS_SELECTOR, "h2").text
+    title = driver.title
+    assert title != "Secure Area"
+
+
 def test_fails_on_the_wrong_heading(driver):
     heading = driver.find_element(By.CSS_SELECTOR, "h2").text
     assert heading == "Secure Area"

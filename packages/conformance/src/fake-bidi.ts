@@ -2,7 +2,12 @@ import type { Server } from 'node:http'
 
 import { WebSocketServer, type WebSocket } from 'ws'
 
-import { BIDI_PATH } from './constants.js'
+import {
+  BIDI_PATH,
+  LOAD_MS,
+  RESPONSE_BYTES,
+  WINDOW_HANDLE
+} from './constants.js'
 import type { BidiCommandHandler } from './types.js'
 
 interface Command {
@@ -93,4 +98,77 @@ export function remoteValue(value: unknown): Record<string, unknown> {
     }
   }
   return { type: typeof value, value }
+}
+
+const bidiHeader = (name: string, value: string) => ({
+  name,
+  value: { type: 'string', value }
+})
+
+const bidiRequest = (id: number, url: string, at: number) => ({
+  request: `request-${id}`,
+  url,
+  method: 'GET',
+  headers: [bidiHeader('accept', '*/*')],
+  cookies: [],
+  headersSize: 0,
+  bodySize: 0,
+  timings: {
+    timeOrigin: at,
+    requestTime: 0,
+    redirectStart: 0,
+    redirectEnd: 0,
+    fetchStart: 0,
+    dnsStart: 0,
+    dnsEnd: 0,
+    connectStart: 0,
+    connectEnd: 0,
+    tlsStart: 0,
+    requestStart: 1,
+    responseStart: LOAD_MS - 1,
+    responseEnd: LOAD_MS
+  }
+})
+
+/** One request as Chrome reports it over BiDi: the request, then its response with headers. */
+export function networkEvents(
+  id: number,
+  url: string,
+  mime: string,
+  at: number
+): Array<[string, Record<string, unknown>]> {
+  const request = bidiRequest(id, url, at)
+  const shared = {
+    context: WINDOW_HANDLE,
+    navigation: null,
+    redirectCount: 0,
+    isBlocked: false,
+    timestamp: at
+  }
+  return [
+    [
+      'network.beforeRequestSent',
+      { ...shared, request, initiator: { type: 'other' } }
+    ],
+    [
+      'network.responseCompleted',
+      {
+        ...shared,
+        request,
+        response: {
+          url,
+          protocol: 'http/1.1',
+          status: 200,
+          statusText: 'OK',
+          fromCache: false,
+          headers: [bidiHeader('content-type', mime)],
+          mimeType: mime,
+          bytesReceived: RESPONSE_BYTES,
+          headersSize: 0,
+          bodySize: RESPONSE_BYTES,
+          content: { size: RESPONSE_BYTES }
+        }
+      }
+    ]
+  ]
 }

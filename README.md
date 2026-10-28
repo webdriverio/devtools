@@ -52,7 +52,7 @@ Want a portable artifact instead of a live UI (CI / agent diffing)? Switch to **
 | Browser console logs | ✅ | ✅ | ✅ | ✅ |
 | Source tab opens the test line that ran the command | ✅ tested | ✅ tested | ✅ tested | ✅ tested |
 | Metadata tab (session, capabilities, device) | ✅ | ✅ | ✅ | ✅ |
-| Performance timings on navigation rows | ✅ | ✅ | ✅ | ✅ |
+| Performance timings on navigation rows | ✅ tested | ✅ tested | ✅ tested | ✅ tested |
 | Failed command in the Errors tab, with the browser's message | ✅ tested | ✅ tested | ✅ tested | ✅ tested |
 | Run, Rerun and Run all from the dashboard | ⚠️ no Cucumber step rerun ¹ | ⚠️ no Cucumber step rerun ¹ | ⚠️ no Cucumber step rerun ¹ | ✅ |
 | Preserve & Rerun (compare a failed run with its rerun) | ✅ | ✅ | ✅ | ✅ |

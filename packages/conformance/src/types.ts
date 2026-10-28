@@ -181,6 +181,12 @@ export interface ReportedTest {
   start: number
 }
 
+/** How a script reaches the page: a WebDriver function body, a BiDi function declaration, or a BiDi expression. */
+export type ScriptForm = 'body' | 'declaration' | 'expression'
+
+/** What places a row in a scenario test: the test it names, and when it ran. */
+export type TimedRow = Pick<CommandLog, 'testUid' | 'startTime' | 'timestamp'>
+
 /** How the conformance suite launches one adapter's scenario. */
 export interface AdapterScenario {
   id: AdapterId

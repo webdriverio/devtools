@@ -12,7 +12,7 @@ import {
   servesRunControls
 } from './checker.js'
 import { SCOPES } from './constants.js'
-import { reportedTests, scenarioTestOf } from './scenario-tests.js'
+import { reportedTests, scenarioTestsOf } from './scenario-tests.js'
 import type {
   NormalizedRun,
   NormalizedStep,
@@ -23,9 +23,9 @@ import type {
 /** A run reduced to what a dashboard user sees: everything an adapter may legitimately vary is dropped. */
 export function normalizeRun(frames: WireFrame[]): NormalizedRun {
   const { rows, anchors, requests } = readStream(frames)
-  const tests = reportedTests(frames)
+  const testOf = scenarioTestsOf(reportedTests(frames), rows)
   const steps = rows
-    .map((row): NormalizedStep | undefined => {
+    .map((row, i): NormalizedStep | undefined => {
       const action = mapCommandToAction(row.command)
       if (!action) {
         return undefined
@@ -38,7 +38,7 @@ export function normalizeRun(frames: WireFrame[]): NormalizedRun {
         outcome: outcomeOf(row, action),
         page: shown?.url ? pathOf(shown.url) : '(none)',
         at: row.timestamp,
-        test: scenarioTestOf(tests, row)
+        test: testOf[i]
       }
     })
     .filter((s): s is NormalizedStep => s !== undefined)

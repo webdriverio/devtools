@@ -40,6 +40,13 @@ describe('conformance', () => {
     await $('#logout').click()
   })
 
+  it('asserts on the page title', async () => {
+    // The heading reads the same text as the title, and the secure page's heading read the expected value.
+    await $('h2').getText()
+    const title = await browser.getTitle()
+    assert.notEqual(title, 'Secure Area')
+  })
+
   it('fails on the wrong heading', async () => {
     const heading = await $('h2').getText()
     assert.equal(heading, 'Secure Area')
