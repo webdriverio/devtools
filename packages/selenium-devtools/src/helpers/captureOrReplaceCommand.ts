@@ -10,6 +10,11 @@ function applyCapturedFields(entry: CommandLog, cmd: CapturedCommand): void {
   if (cmd.selector) {
     entry.selector = cmd.selector
   }
+  // Captures run in issue order, so the wait's own row already has its id when a row its condition issued arrives.
+  const parentId = cmd.waitScope?.rowId
+  if (parentId !== undefined) {
+    entry.parentId = parentId
+  }
 }
 
 /**
@@ -51,24 +56,27 @@ async function captureOrReplaceSerially(opts: {
   const { capturer, retryTracker, test, cmd } = opts
   const error = cmd.error ? toError(cmd.error) : undefined
   const cmdSig = RetryTracker.signature(cmd.command, cmd.args, cmd.callSource)
-  const ofWait = cmd.waitScope !== undefined || cmd.concludesWait !== undefined
+  const ofWait = cmd.waitScope !== undefined || cmd.wait !== undefined
   if (ofWait) {
     // A wait's rows fold by scope and never enter the retry tracker, so no later retry can land on one; nor does a retry fold across a wait.
     retryTracker.reset()
   }
-  const targetId = cmd.waitScope
-    ? // A wait's poll folds only into the row an earlier poll made for the same call.
-      cmd.waitScope.rows.get(cmd.pollKey ?? '')
-    : // A failed wait takes over its polls' row rather than listing beside it.
-      (cmd.concludesWait?.pollRowId ??
-      (retryTracker.isRetry(cmdSig) ? retryTracker.lastId! : undefined))
+  const targetId = cmd.wait
+    ? // A wait's row is replaced by its settling, and a nested wait's by its next call on a later outer poll.
+      cmd.wait.rowId
+    : cmd.waitScope
+      ? // A wait's poll folds only into the row an earlier poll made for the same call.
+        cmd.waitScope.rows.get(cmd.pollKey ?? '')
+      : retryTracker.isRetry(cmdSig)
+        ? retryTracker.lastId!
+        : undefined
 
   if (targetId !== undefined) {
     const entry = replaceRow(opts, targetId, error)
     if (!ofWait) {
       retryTracker.setLastId(entry._id ?? null)
     }
-    notePollRow(cmd, entry)
+    noteWaitRows(cmd, entry)
     return entry
   }
 
@@ -86,7 +94,7 @@ async function captureOrReplaceSerially(opts: {
   if (!ofWait) {
     retryTracker.recordCapture(cmdSig, entry._id ?? null)
   }
-  notePollRow(cmd, entry)
+  noteWaitRows(cmd, entry)
   return entry
 }
 
@@ -115,12 +123,17 @@ function replaceRow(
   return entry
 }
 
-function notePollRow(
+function noteWaitRows(
   cmd: CapturedCommand,
   entry: CommandLog & { _id?: number }
 ): void {
-  if (cmd.waitScope && cmd.pollKey && entry._id !== undefined) {
+  if (entry._id === undefined) {
+    return
+  }
+  if (cmd.wait) {
+    cmd.wait.rowId = entry._id
+  }
+  if (cmd.waitScope && cmd.pollKey) {
     cmd.waitScope.rows.set(cmd.pollKey, entry._id)
-    cmd.waitScope.pollRowId = entry._id
   }
 }

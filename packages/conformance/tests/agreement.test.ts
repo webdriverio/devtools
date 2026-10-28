@@ -615,7 +615,7 @@ const gapOf = (adapter: string, reason: string, rule = RULES.agreeOnActions) =>
   )!
 
 describe('a gap scoped to one hunk', () => {
-  const gap = gapOf('selenium-devtools', KNOWN_DEBT.conditionWait)
+  const gap = gapOf('selenium-devtools-py', KNOWN_DEBT.conditionWait)
   const reads =
     'Element.getText #flash, Element.getText h2, Element.getText #flash'
   const waits = 'Browser.waitForFunction, Browser.waitForFunction'
@@ -625,19 +625,19 @@ describe('a gap scoped to one hunk', () => {
   })
 
   it('matches its holder whichever side is the reference', () => {
-    const own = `selenium-devtools shows [${reads}]`
+    const own = `selenium-devtools-py shows [${reads}]`
     expect(covers(gap, hunk(`devtools-service shows [${waits}]`, own))).toBe(
       true
     )
-    expect(
-      covers(gap, hunk(own, `selenium-devtools-py shows [${waits}]`))
-    ).toBe(true)
+    expect(covers(gap, hunk(own, `selenium-devtools shows [${waits}]`))).toBe(
+      true
+    )
   })
 
   // A condition's second read folded over its first is a different hunk, so the gap does not hide it.
   it('matches nothing else in that place', () => {
     const folded =
-      'selenium-devtools shows [Element.getText h2, Element.getText #flash]'
+      'selenium-devtools-py shows [Element.getText h2, Element.getText #flash]'
     expect(covers(gap, hunk(`devtools-service shows [${waits}]`, folded))).toBe(
       false
     )
@@ -758,7 +758,7 @@ describe('a lack nothing checks', () => {
   // Every other adapter lacked or excused the service's wait row, so dropping it went unnoticed.
   it('goes stale when the side it is compared with never shows the step either', () => {
     const js = report('devtools-service', stream(1, JS))
-    const se = report('selenium-devtools', stream(2, JS))
+    const se = report('selenium-devtools-py', stream(2, JS))
     const runs = [js, se]
     const { stale } = judgeDivergences(compareRuns(runs), runs)
     expect(stale.filter(declaresLacks).map((g) => g.lacksSteps)).toEqual([
@@ -774,9 +774,11 @@ describe('a lack nothing checks', () => {
 
   it('is not judged without the adapter it is matched against', () => {
     const nw = report('nightwatch-devtools', stream(1, NW))
-    const se = report('selenium-devtools', stream(2, JS))
+    const se = report('selenium-devtools-py', stream(2, JS))
     const { stale } = judgeDivergences(compareRuns([nw, se]), [nw, se])
-    expect(stale.filter((g) => g.adapter === 'selenium-devtools')).toEqual([])
+    expect(stale.filter((g) => g.adapter === 'selenium-devtools-py')).toEqual(
+      []
+    )
   })
 })
 

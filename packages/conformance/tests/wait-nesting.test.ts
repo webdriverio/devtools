@@ -194,6 +194,31 @@ describe('checkWaitNesting', () => {
     ])
   })
 
+  it('leaves a row that ties with a wait in whole milliseconds to whichever side it names', () => {
+    const ties = (parentId: number | undefined, start: number) =>
+      nestedRun().map((frame) =>
+        frame.scope === 'commands' && (frame.data as CommandLog[])[0]?.id === 6
+          ? {
+              ...frame,
+              data: [
+                row('getText', start, start, {
+                  id: 6,
+                  testUid: 't0',
+                  ...(parentId === undefined ? {} : { parentId })
+                })
+              ]
+            }
+          : frame
+      )
+    // Started in the second wait's first millisecond: it may have run just before the wait.
+    expect(check(ties(undefined, 130))).toEqual([])
+    expect(check(ties(4, 130))).toEqual([])
+    // One millisecond in, it ran inside the wait.
+    expect(check(ties(undefined, 131))).toEqual([
+      'getText ran inside Browser.waitForFunction but names no parent'
+    ])
+  })
+
   it('flags a read sent before the wait it names, which a live list cannot nest on arrival', () => {
     expect(check(nestedRun({ sendWaitFirst: false }))).toEqual([
       'getText was sent before parent 1, so a live list shows it beside the wait',
@@ -258,11 +283,20 @@ describe('checkWaitNesting', () => {
 })
 
 describe('the wait-row gaps', () => {
-  it('declares one per adapter and mode, all pointing at #464, and goes stale once the adapter conforms', () => {
+  it('declares none for an adapter that conforms', () => {
+    for (const bidi of BIDI_MODES) {
+      expect(
+        gapsFor('selenium-devtools', bidi).filter((g) =>
+          g.rules.includes(RULES.waitParentsItsRows)
+        )
+      ).toEqual([])
+    }
+  })
+
+  it('declares one per remaining adapter and mode, all pointing at #464, and goes stale once the adapter conforms', () => {
     for (const adapter of [
       'devtools-service',
       'nightwatch-devtools',
-      'selenium-devtools',
       'selenium-devtools-py'
     ] as AdapterId[]) {
       for (const bidi of BIDI_MODES) {

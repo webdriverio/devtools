@@ -5,7 +5,7 @@ import {
   KNOWN_DEBT,
   RULES
 } from './constants.js'
-import { anyOf, hunk } from './gap-matchers.js'
+import { anyOf, hunk, insideHunk } from './gap-matchers.js'
 import { scenarioIndex } from './scenario-tests.js'
 import type {
   AdapterId,
@@ -61,19 +61,42 @@ export const KNOWN_GAPS: KnownGap[] = [
     timingDependent: true
   },
   ...BIDI_MODES.flatMap((bidi) => [
+    ...serviceGaps(bidi),
     ...nightwatchGaps(bidi),
-    ...seleniumGaps(bidi),
     ...pythonGaps(bidi),
     ...waitRowGaps(bidi)
   ])
 ]
+
+/** The WebdriverIO service's condition waits hide the reads an adapter that nests them shows inside the wait. */
+function serviceGaps(bidi: BidiMode): KnownGap[] {
+  const adapter = 'devtools-service'
+  const inside = (reads: string[]) =>
+    insideHunk(
+      WAITS,
+      'Browser.waitForFunction',
+      'its start',
+      adapter,
+      '',
+      reads.map((selector) => `Element.getText ${selector}`).join(', ')
+    )
+  return [
+    {
+      adapter,
+      bidi,
+      rules: [RULES.agreeOnActions],
+      only: anyOf(inside(CONDITION_WAIT_READS), inside([HELPER_WAIT_READ])),
+      reason: KNOWN_DEBT.serviceWaitRows,
+      against: 'selenium-devtools'
+    }
+  ]
+}
 
 /** No adapter yet sends a wait as one row that parents the commands it issued: each its own way. */
 function waitRowGaps(bidi: BidiMode): KnownGap[] {
   const reasons: [AdapterId, string][] = [
     ['devtools-service', KNOWN_DEBT.serviceWaitRows],
     ['nightwatch-devtools', KNOWN_DEBT.nightwatchWaitRows],
-    ['selenium-devtools', KNOWN_DEBT.seleniumWaitRows],
     ['selenium-devtools-py', KNOWN_DEBT.pythonWaitRows]
   ]
   return reasons.map(([adapter, reason]) => ({
@@ -107,48 +130,6 @@ function nightwatchGaps(bidi: BidiMode): KnownGap[] {
           'Element.getText #flash',
           ''
         )
-      ),
-      reason: KNOWN_DEBT.conditionWait,
-      against: 'devtools-service'
-    }
-  ]
-}
-
-function seleniumGaps(bidi: BidiMode): KnownGap[] {
-  const adapter = 'selenium-devtools'
-  return [
-    {
-      adapter,
-      bidi,
-      rules: [RULES.agreeOnActions],
-      only: hunk(
-        MISSING,
-        'its start',
-        adapter,
-        'Browser.waitForFunction',
-        'Element.waitForExist #missing'
-      ),
-      reason: KNOWN_DEBT.seleniumFailedWait,
-      against: 'devtools-service'
-    },
-    {
-      adapter,
-      bidi,
-      rules: [RULES.agreeOnActions],
-      lacksSteps: [FLASH_WAIT],
-      reason: KNOWN_DEBT.seleniumWait,
-      against: 'devtools-service'
-    },
-    {
-      adapter,
-      bidi,
-      rules: [RULES.agreeOnActions],
-      only: hunk(
-        WAITS,
-        'Element.getText #flash',
-        adapter,
-        CONDITION_READS,
-        CONDITION_WAITS
       ),
       reason: KNOWN_DEBT.conditionWait,
       against: 'devtools-service'

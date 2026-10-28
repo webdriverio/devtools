@@ -95,12 +95,12 @@ export type WebElementPromiseCtor = new (
   el: PromiseLike<unknown>
 ) => object
 
-/** One `driver.wait()` call, shared by its polls and its failure row. */
+/** One `driver.wait()` call, shared by its own row and the rows its condition issues. */
 export interface WaitScope {
   /** Each call of the condition, by `pollKey`, to the row its repeats fold into. */
   rows: Map<string, number>
-  /** The row of the latest poll, which a failed wait takes over. */
-  pollRowId?: number
+  /** The wait's own row, which every row its condition issues names as `parentId`. */
+  rowId?: number
   /** Waits issued inside this wait's condition, keyed by identity and order within one evaluation. */
   nested?: Map<string, WaitScope>
 }
@@ -128,12 +128,14 @@ export interface CapturedCommand {
    *  duration instead of a synthetic 1ms. */
   startTime: number
   fromElement: boolean
-  /** The `driver.wait()` this command is one of the polls of. */
+  /** The `driver.wait()` whose condition issued this command: its row is this row's parent. */
   waitScope?: WaitScope
   /** Names this call within its wait, so each poll's repeat of it folds into one row. */
   pollKey?: string
-  /** Set on a failed wait's own row, which takes over the row its polls folded into. */
-  concludesWait?: WaitScope
+  /** Set on a wait's own row, sent running when the wait is called and replaced when it settles. */
+  wait?: WaitScope
+  /** A wait's row as sent when it is called: no outcome yet, so nothing to screenshot, drain or snapshot. */
+  running?: boolean
   /** Locator that produced the element this command acted on. An element command
    *  carries no locator of its own — the earlier `findElement` consumed it — so
    *  it is recovered from the handle and threaded onto the row here. */
