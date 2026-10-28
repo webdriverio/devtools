@@ -688,6 +688,30 @@
       "required": [],
       "additionalProperties": false
     },
+    "PageScriptsResponse": {
+      "type": "object",
+      "properties": {
+        "collectorReady": {
+          "type": "string"
+        },
+        "collectorInject": {
+          "type": "string"
+        },
+        "collectorDrain": {
+          "type": "string"
+        },
+        "capturePerformance": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "collectorReady",
+        "collectorInject",
+        "collectorDrain",
+        "capturePerformance"
+      ],
+      "additionalProperties": false
+    },
     "PerformanceData": {
       "type": "object",
       "properties": {

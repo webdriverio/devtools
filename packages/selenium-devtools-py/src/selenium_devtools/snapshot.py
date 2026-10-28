@@ -7,9 +7,12 @@ then periodically read the buffered ``getTraceData()`` back and forward the
 ``mutations`` array via ``capturer.send_mutations``.
 
 Mirrors ``core/script-loader.ts`` (``loadInjectableScript``) and
-``selenium-devtools/session.ts`` (``injectScript`` / ``captureTrace``). The JS
-adapter injects via ``document.createElement('script')`` rather than a BiDi
-preload, and reads back with a single atomic ``executeScript`` — we do the same.
+``selenium-devtools/session.ts`` (``injectScript`` / ``captureTrace``). The
+probe, injection and drain are shared's page scripts, which the backend serves
+(`page_scripts`), so they are the strings the JS adapters run. The drain is the
+forced-anchor one: a collector's own initial anchor is scheduled after
+``waitForBody``, so a drain right after a navigation would otherwise read an
+empty buffer and the destination's DOM would die with the page.
 
 The script-path resolution and ``execute_script`` calls are injectable so the
 pure logic (path resolution, IIFE wrapping, payload normalization) unit-tests
@@ -26,46 +29,11 @@ from typing import Any, Callable, Dict, List, NamedTuple, Optional
 from .collector_source import fetch_collector_source
 from .constants import LOGGER_NAME
 from .device import driver_is_native_app
+from .types import PageScriptsResponse
 
 #: A ``driver.execute_script(script, *args)`` shaped callable — injectable so
 #: tests drive injection/readback without a real driver.
 ExecuteFn = Callable[..., Any]
-
-#: Installs the collector: append a <script> whose body is the injected IIFE,
-#: matching selenium-devtools/session.ts. ``arguments[0]`` is the script text.
-_INJECT_SCRIPT = (
-    "var s=document.createElement('script');"
-    "s.textContent=arguments[0];"
-    "document.head.appendChild(s);"
-    "return true;"
-)
-
-#: Whether the collector is present in THIS document. One definition, because
-#: the readiness probe and the drain's own guard must agree — mirrors core's
-#: `COLLECTOR_READY_EXPRESSION`.
-_COLLECTOR_READY = 'typeof window.wdioTraceCollector !== "undefined"'
-
-#: Atomic anchor+read: the collector may vanish (navigation) between an
-#: existence check and the read, so all of it happens in one eval — mirrors the
-#: TOCTOU fix in selenium-devtools/session.ts.
-#:
-#: The anchor is FORCED, and that is the point of this script. A collector's
-#: initial full-DOM anchor is scheduled asynchronously (after `waitForBody`), so
-#: a drain issued right after a navigation beats it and reads an empty buffer —
-#: and the destination's buffer then dies with the page, leaving the navigating
-#: action with no DOM at all. Forcing costs nothing after the first anchor of a
-#: document: `captureCurrentDom` is guarded by the collector's own `#anchored`
-#: flag, which deliberately survives its `reset()`. Every caller of core's
-#: `collectorDrainExpression` passes `forceAnchor: true` for the same reason, so
-#: this carries no flag to get wrong.
-_DRAIN_SCRIPT = (
-    f"if (!({_COLLECTOR_READY})) {{ return null; }} "
-    "window.wdioTraceCollector.captureCurrentDom(); "
-    "return window.wdioTraceCollector.getTraceData();"
-)
-
-#: Cheap readiness probe used after injection.
-_READY_SCRIPT = f"return {_COLLECTOR_READY};"
 
 #: Distinguishes "the read itself failed" from "the collector is absent here",
 #: which the page returns as a plain null and which is the recovery signal.
@@ -212,12 +180,14 @@ class SnapshotCapturer:
     def __init__(
         self,
         execute_fn: ExecuteFn,
+        scripts: PageScriptsResponse,
         *,
         script_path: Optional[str] = None,
         backend: Optional[tuple] = None,
         preloaded: bool = False,
     ) -> None:
         self._execute = execute_fn
+        self._scripts = scripts
         self._script_path = script_path
         self._backend = backend
         # A document-start preload already installed the collector in every
@@ -244,7 +214,7 @@ class SnapshotCapturer:
         if self._preloaded:
             return True
         try:
-            if self._execute(_READY_SCRIPT) is True:
+            if self._execute(self._scripts["collectorReady"]) is True:
                 self._injected = True
                 return True
         except BaseException as exc:  # noqa: BLE001 — probe failure → try install
@@ -263,13 +233,15 @@ class SnapshotCapturer:
         if wrapped is None:
             return False
         try:
-            self._execute(_INJECT_SCRIPT, wrapped)
-            ready = self._execute(_READY_SCRIPT)
+            # The appended script runs synchronously, so this usually answers ready.
+            ready = self._execute(self._scripts["collectorInject"], wrapped) is True or (
+                self._execute(self._scripts["collectorReady"]) is True
+            )
         except BaseException as exc:  # noqa: BLE001 — capture must never break the test
             if not _is_quiet_error(exc):
                 _warn(f"injection failed: {exc}")
             return False
-        self._injected = ready is True
+        self._injected = ready
         return self._injected
 
     def _drain(self) -> Any:
@@ -277,7 +249,7 @@ class SnapshotCapturer:
         collector is absent from the document, `_UNREADABLE` when the eval
         itself failed."""
         try:
-            return self._execute(_DRAIN_SCRIPT)
+            return self._execute(self._scripts["collectorDrain"])
         except BaseException as exc:  # noqa: BLE001
             if not _is_quiet_error(exc):
                 _warn(f"trace read failed: {exc}")
@@ -313,6 +285,7 @@ class SnapshotCapturer:
 
 def start_snapshot_capture(
     driver: Any,
+    scripts: Optional[PageScriptsResponse],
     *,
     script_path: Optional[str] = None,
     execute_fn: Optional[ExecuteFn] = None,
@@ -320,8 +293,10 @@ def start_snapshot_capture(
     preloaded: bool = False,
 ) -> Optional[SnapshotCapturer]:
     """Build a ``SnapshotCapturer`` and attempt the first injection. Returns the
-    capturer — including when that injection fails, so a later command can retry
-    it — or None only when the driver cannot run scripts at all. Never raises.
+    capturer, including when that injection fails so a later command can retry
+    it. None when the driver cannot run scripts at all, or when the page scripts
+    could not be fetched (`page_scripts.fetch` has already said so). Never
+    raises.
 
     ``execute_fn`` overrides ``driver.execute_script`` — the adapter passes a
     capture-bypassing variant so injection/readback don't appear as commands."""
@@ -329,14 +304,14 @@ def start_snapshot_capture(
     # treats None as "there is nothing to drain" — so the injection, its
     # readiness probe and every later drain are skipped at the one place that
     # decides whether DOM capture exists for this session.
-    if driver_is_native_app(driver):
+    if driver_is_native_app(driver) or scripts is None:
         return None
     run = execute_fn or getattr(driver, "execute_script", None)
     if not callable(run):
         _warn("driver has no execute_script — snapshot capture skipped")
         return None
     capturer = SnapshotCapturer(
-        run, script_path=script_path, backend=backend, preloaded=preloaded
+        run, scripts, script_path=script_path, backend=backend, preloaded=preloaded
     )
     # The capturer is returned even when this first injection fails. It used to
     # return None, which made the failure terminal: the caller stores None, its

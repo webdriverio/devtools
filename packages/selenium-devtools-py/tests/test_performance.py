@@ -13,6 +13,7 @@ from selenium_devtools._contract import SCOPE_REPLACE_COMMAND
 from selenium_devtools.capturer import SessionCapturer
 from selenium_devtools.constants import NAVIGATION_COMMANDS
 
+from page_scripts_fixture import PAGE_SCRIPTS
 from wire_contract import RecordingTransport
 
 FULL_PAYLOAD = {
@@ -124,9 +125,34 @@ class TestTheRowIsReplaced(unittest.TestCase):
                 raise RuntimeError("no such session")
             return self.payload
 
+    def setUp(self):
+        instrumentation.set_page_scripts(PAGE_SCRIPTS)
+        self.addCleanup(instrumentation.set_page_scripts, None)
+
     def _capturer(self):
         tx = RecordingTransport()
         return SessionCapturer(tx), tx
+
+    def test_the_read_is_the_script_the_backend_served(self):
+        cap, _ = self._capturer()
+        driver = self.Driver()
+
+        instrumentation._attach_performance(
+            cap, driver, {"command": "get", "args": [], "timestamp": 1}, None
+        )
+
+        self.assertEqual(driver.scripts, [PAGE_SCRIPTS["capturePerformance"]])
+
+    def test_without_the_served_scripts_nothing_is_read(self):
+        # A backend older than the route: the row keeps its first report.
+        instrumentation.set_page_scripts(None)
+        cap, tx = self._capturer()
+        driver = self.Driver()
+
+        instrumentation._attach_performance(cap, driver, {"timestamp": 1}, None)
+
+        self.assertEqual(driver.scripts, [])
+        self.assertEqual(tx.of_scope(SCOPE_REPLACE_COMMAND), [])
 
     def test_the_enriched_row_goes_out_under_replace_command(self):
         cap, tx = self._capturer()
