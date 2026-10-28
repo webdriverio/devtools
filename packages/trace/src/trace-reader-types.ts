@@ -2,7 +2,7 @@
 // snapshot shape from `trace.network`. Mirrors what core/trace-exporter.ts
 // writes; consumed by the reader to reconstruct a player payload.
 
-import type { HarTimings } from '@wdio/devtools-trace/trace-har'
+import type { HarTimings } from './trace-har.js'
 
 export interface BeforeEvent {
   type: 'before'

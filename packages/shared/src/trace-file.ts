@@ -9,7 +9,7 @@
 // The *event interfaces* deliberately stay separate: `core`'s are strict (the
 // writer always emits `pageId`, `apiName`, `params`, `title`) while the reader's
 // are permissive, because it also parses traces this repo did not write — see
-// `backend/src/trace-reader-types.ts`. Strict producer, lenient consumer; only
+// `trace/src/trace-reader-types.ts`. Strict producer, lenient consumer; only
 // the names below have to agree.
 
 /** Entry names inside a trace.zip, and the directory prefix for blobs. Also the
