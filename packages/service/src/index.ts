@@ -402,7 +402,8 @@ export default class DevToolsHookService implements Services.ServiceInstance {
       this.#attemptTracker.recordStart(uid, featureFile)
       this.#testMetadata.set(uid, {
         title: scenarioName,
-        specFile: featureFile
+        specFile: featureFile,
+        startTime: Date.now()
       })
     }
   }
@@ -427,7 +428,8 @@ export default class DevToolsHookService implements Services.ServiceInstance {
       this.#attemptTracker.recordStart(uid, test?.file)
       this.#testMetadata.set(uid, {
         title: testTitle,
-        specFile: test?.file ?? ''
+        specFile: test?.file ?? '',
+        startTime: Date.now()
       })
     }
   }
@@ -467,7 +469,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
   #stampOutcome(uid: string, result?: TestOutcomeResult): void {
     const fallback = this.#attemptTracker.attemptFor(uid) ?? 0
     const attempt = resolveTestAttempt(result, fallback)
-    stampTestState(this.#testMetadata, uid, result, attempt)
+    stampTestState(this.#testMetadata, uid, result, attempt, Date.now())
     // Feed the per-attempt ledger so session/spec retention sees this attempt's
     // real outcome, not just the final state that overwrites #testMetadata.
     this.#attemptTracker.recordOutcome(

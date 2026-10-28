@@ -1,9 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type * as DevtoolsCore from '@wdio/devtools-core'
 import { deterministicUid } from '@wdio/devtools-core'
+import type { TestMetadataEntry, TestMetadataMap } from '@wdio/devtools-shared'
 import {
   cucumberScenarioUid,
   resultToState,
+  stampTestState,
   testMetadataUid
 } from '../src/test-metadata.js'
 
@@ -86,6 +88,50 @@ describe('test-metadata helpers', () => {
     expect(cucumberScenarioUid(uri, 'log in')).toBe(
       deterministicUid(uri, 'log in')
     )
+  })
+})
+
+describe('stampTestState', () => {
+  it('reassigns the error on every stamp so a passing retry leaves none', () => {
+    const metadata: TestMetadataMap = new Map([
+      ['u', { title: 't', specFile: 's' }]
+    ])
+    stampTestState(
+      metadata,
+      'u',
+      { passed: false, error: new Error('first') },
+      0,
+      10
+    )
+    stampTestState(metadata, 'u', { passed: true, duration: 5 }, 1, 20)
+    const entry = metadata.get('u')
+    expect(entry?.state).toBe('passed')
+    expect(entry?.error).toBeUndefined()
+    expect(entry?.durationMs).toBe(5)
+    expect(entry?.endTime).toBe(20)
+    expect(entry?.attempt).toBe(1)
+  })
+
+  it('records the message of a failed result and no-ops without an entry', () => {
+    const metadata: TestMetadataMap = new Map([
+      ['u', { title: 't', specFile: 's' }]
+    ])
+    stampTestState(
+      metadata,
+      'u',
+      { passed: false, error: new Error('boom') },
+      0,
+      10
+    )
+    expect(metadata.get('u')?.error).toBe('boom')
+    stampTestState(
+      metadata,
+      'missing',
+      { passed: false, error: new Error('x') },
+      0,
+      10
+    )
+    expect(metadata.has('missing')).toBe(false)
   })
 })
 
@@ -235,6 +281,61 @@ describe('DevtoolsService - afterTest state stamping', () => {
       ctx.testMetadata.get(deterministicUid(uri, 'add to cart'))?.state
     ).toBe('failed')
   })
+
+  it('records start, end, framework duration and the failure message', async () => {
+    const before = Date.now()
+    const service = new DevToolsHookService({
+      mode: 'trace',
+      tracePolicy: 'retain-on-failure'
+    })
+    await service.before({} as never, [], mockBrowser)
+    service.beforeTest({ file, fullTitle: 'timed fails' })
+    await service.afterTest(
+      { file, fullTitle: 'timed fails' },
+      {},
+      { passed: false, error: new Error('boom'), duration: 42 }
+    )
+    await service.after()
+    const after = Date.now()
+    const entry = finalizedEntry('timed fails')
+    expect(entry?.durationMs).toBe(42)
+    expect(entry?.error).toBe('boom')
+    expect(entry?.startTime).toBeGreaterThanOrEqual(before)
+    expect(entry?.endTime).toBeLessThanOrEqual(after)
+    expect(entry?.startTime).toBeLessThanOrEqual(entry?.endTime ?? NaN)
+  })
+
+  it('clears the failed attempt error when a retry passes', async () => {
+    const service = new DevToolsHookService({
+      mode: 'trace',
+      tracePolicy: 'retain-on-failure'
+    })
+    await service.before({} as never, [], mockBrowser)
+    service.beforeTest({ file, fullTitle: 'flaky' })
+    await service.afterTest(
+      { file, fullTitle: 'flaky' },
+      {},
+      { passed: false, error: new Error('first try') }
+    )
+    service.beforeTest({ file, fullTitle: 'flaky' })
+    await service.afterTest(
+      { file, fullTitle: 'flaky' },
+      {},
+      { passed: true, duration: 7 }
+    )
+    await service.after()
+    const entry = finalizedEntry('flaky')
+    expect(entry?.state).toBe('passed')
+    expect(entry?.error).toBeUndefined()
+    expect(entry?.durationMs).toBe(7)
+  })
+
+  function finalizedEntry(title: string): TestMetadataEntry | undefined {
+    const ctx = finalizeTraceExport.mock.calls.at(-1)?.[0] as {
+      testMetadata: TestMetadataMap
+    }
+    return ctx.testMetadata.get(deterministicUid(file, title))
+  }
 })
 
 /**
