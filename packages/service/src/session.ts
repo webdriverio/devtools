@@ -37,6 +37,8 @@ import type { DevToolsMode, TraceMutation } from '@wdio/devtools-shared'
 import type { CommandLog } from './types.js'
 import { serializeCommandError } from './command-error.js'
 import { directProbes } from './direct-probes.js'
+import type { CommandNesting } from './command-stack.js'
+import { WaitRows } from './wait-rows.js'
 
 const log = logger('@wdio/devtools-service:SessionCapturer')
 
@@ -69,6 +71,15 @@ export class SessionCapturer extends SessionCapturerBase {
   #lastResolvedSelector: string | undefined
   /** Collapses internal command retries onto a single entry (see #captureOrReplace). */
   #retryTracker = new RetryTracker()
+  #waitRows = new WaitRows({
+    log: () => this.commandsLog,
+    nextId: () => this.commandCounter++,
+    sendCommand: (row) => this.sendCommand(row),
+    sendReplaceCommand: (oldTimestamp, row) =>
+      this.sendReplaceCommand(oldTimestamp, row)
+  })
+  /** The selector each open wait was issued with, restored when it ends: what its condition located is not the test's. */
+  #waitSelectors = new Map<number, string | undefined>()
   #pendingNetworkRequests = new Map<
     string,
     {
@@ -167,8 +178,10 @@ export class SessionCapturer extends SessionCapturerBase {
     callSource?: string,
     commandStartTime?: number,
     testUid?: string,
-    stepUid?: string
+    stepUid?: string,
+    nesting: CommandNesting = {}
   ) {
+    this.#restoreWaitSelector(nesting.id)
     const { sourceFileLocation, absolutePath } = this.#resolveUserStackFrame()
     const sourceFilePath = absolutePath.split(':')[0]
     if (sourceFileLocation && sourceFilePath) {
@@ -184,7 +197,8 @@ export class SessionCapturer extends SessionCapturerBase {
       startTime: commandStartTime,
       callSource: callSource ?? absolutePath,
       testUid,
-      stepUid
+      stepUid,
+      ...(nesting.parentId === undefined ? {} : { parentId: nesting.parentId })
     }
     // A native session takes one in LIVE mode, where it is the only visual it
     // can have: no DOM to replay, and the per-action snapshot is trace-only, so
@@ -230,7 +244,7 @@ export class SessionCapturer extends SessionCapturerBase {
           : (args[0] as { name?: string })?.name
     }
 
-    this.#captureOrReplace(commandLogEntry)
+    this.#recordRow(commandLogEntry, nesting)
     // Capture trace + perf on commands that could trigger a page transition.
     // Skipped when there is no document to run either script in; a mobile
     // BROWSER session has one, so it keeps both.
@@ -283,6 +297,42 @@ export class SessionCapturer extends SessionCapturerBase {
    *  the same call in the next test counts as fresh, not a retry. */
   resetRetryTracker(): void {
     this.#retryTracker.reset()
+    this.#waitRows.reset()
+    this.#waitSelectors.clear()
+  }
+
+  #recordRow(entry: CommandLog, nesting: CommandNesting) {
+    if (nesting.id !== undefined) {
+      this.#waitRows.close(entry, nesting.id)
+      // A wait is never a retry of the command before it, nor is the command after it a retry of that one.
+      this.#retryTracker.reset()
+    } else if (nesting.parentId !== undefined) {
+      this.#waitRows.send(entry)
+    } else {
+      this.#captureOrReplace(entry)
+    }
+  }
+
+  // What a wait's condition located is not what the test was acting on.
+  #restoreWaitSelector(id: number | undefined) {
+    if (id !== undefined && this.#waitSelectors.has(id)) {
+      this.#lastSelector = this.#waitSelectors.get(id)
+      this.#waitSelectors.delete(id)
+    }
+  }
+
+  /** Sends a wait as a running row (no result, no error) carrying a fresh `id`, so what it issues can name it while it runs. */
+  openWait(entry: CommandLog): number {
+    entry.callSource ??= this.#resolveUserStackFrame().absolutePath
+    decorateSelector(
+      entry,
+      String(entry.command),
+      entry.args,
+      selectorForCommand(entry.args, this.#lastSelector)
+    )
+    const id = this.#waitRows.send(entry)
+    this.#waitSelectors.set(id, this.#lastSelector)
+    return id
   }
 
   /** Ingest a node:assert row through the same retry-collapsing path driver
@@ -326,7 +376,13 @@ export class SessionCapturer extends SessionCapturerBase {
   ): boolean {
     const log = this.commandsLog as (CommandLog & { _id?: number })[]
     const last = log[log.length - 1]
-    if (!last || !isRead(last.command) || (last.error && !foldErrored)) {
+    // A read a wait issued is the wait's poll, not a matcher's read.
+    if (
+      !last ||
+      !isRead(last.command) ||
+      last.parentId !== undefined ||
+      (last.error && !foldErrored)
+    ) {
       return false
     }
     // Inherit the read's `_id` (local dedup bookkeeping) and timestamp, but do

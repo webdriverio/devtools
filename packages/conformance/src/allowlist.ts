@@ -5,7 +5,7 @@ import {
   KNOWN_DEBT,
   RULES
 } from './constants.js'
-import { anyOf, hunk } from './gap-matchers.js'
+import { anyOf, hunk, hunkInside } from './gap-matchers.js'
 import { scenarioIndex } from './scenario-tests.js'
 import type {
   AdapterId,
@@ -16,7 +16,8 @@ import type {
   Violation
 } from './types.js'
 
-const [WAITS, MISSING] = [
+const [LOGIN, WAITS, MISSING] = [
+  'logs in and reads the greeting',
   'waits on what the page shows',
   'times out waiting for a missing element'
 ].map(scenarioIndex)
@@ -68,10 +69,9 @@ export const KNOWN_GAPS: KnownGap[] = [
   ])
 ]
 
-/** No adapter yet sends a wait as one row that parents the commands it issued: each its own way. */
+/** The adapters that do not yet send a wait as one row that parents the commands it issued: each its own way. */
 function waitRowGaps(bidi: BidiMode): KnownGap[] {
   const reasons: [AdapterId, string][] = [
-    ['devtools-service', KNOWN_DEBT.serviceWaitRows],
     ['nightwatch-devtools', KNOWN_DEBT.nightwatchWaitRows],
     ['selenium-devtools', KNOWN_DEBT.seleniumWaitRows],
     ['selenium-devtools-py', KNOWN_DEBT.pythonWaitRows]
@@ -110,7 +110,33 @@ function nightwatchGaps(bidi: BidiMode): KnownGap[] {
       ),
       reason: KNOWN_DEBT.conditionWait,
       against: 'devtools-service'
+    },
+    {
+      adapter,
+      bidi,
+      rules: [RULES.agreeOnActions],
+      only: anyOf(
+        ...nestedUnderServiceWaits(adapter, CONDITION_WAIT_READS),
+        ...nestedUnderServiceWaits(adapter, [HELPER_WAIT_READ])
+      ),
+      reason: KNOWN_DEBT.nightwatchWaitRows,
+      against: 'devtools-service'
     }
+  ]
+}
+
+/** What the WebdriverIO service shows inside each scenario wait, where an adapter that does not nest shows nothing. */
+function nestedUnderServiceWaits(holder: AdapterId, reads: string[]) {
+  const inside = (test: number, wait: string, rows: string) =>
+    hunkInside(test, wait, 'its start', holder, '', rows)
+  return [
+    inside(LOGIN, FLASH_WAIT, 'Element.isExisting'),
+    inside(
+      WAITS,
+      'Browser.waitForFunction',
+      reads.map((selector) => `Element.getText ${selector}`).join(', ')
+    ),
+    inside(MISSING, 'Element.waitForExist #missing', 'Element.isExisting')
   ]
 }
 

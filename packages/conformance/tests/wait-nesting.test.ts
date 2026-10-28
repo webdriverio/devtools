@@ -260,7 +260,6 @@ describe('checkWaitNesting', () => {
 describe('the wait-row gaps', () => {
   it('declares one per adapter and mode, all pointing at #464, and goes stale once the adapter conforms', () => {
     for (const adapter of [
-      'devtools-service',
       'nightwatch-devtools',
       'selenium-devtools',
       'selenium-devtools-py'
@@ -273,6 +272,16 @@ describe('the wait-row gaps', () => {
         expect(gaps[0].reason).toContain('#464')
         expect(judge(adapter, bidi, []).stale).toContain(gaps[0])
       }
+    }
+  })
+
+  it('declares none for the WebdriverIO service, which sends that shape', () => {
+    for (const bidi of BIDI_MODES) {
+      expect(
+        gapsFor('devtools-service', bidi).filter((g) =>
+          g.rules.includes(RULES.waitParentsItsRows)
+        )
+      ).toEqual([])
     }
   })
 })
