@@ -129,3 +129,21 @@ def selector_for_command(
         # neither is a handle this registry ever stored.
         return None
     return _selectors.get(element_id)
+
+
+def selector_for_script_element(params: Any) -> Optional[str]:
+    """The selector of the first known element passed to a script, or None.
+
+    ``get_attribute`` and ``is_displayed`` are atoms run through
+    ``execute_script`` with the element as an argument, so the handle is in
+    ``args`` rather than in ``id``. ``execute`` is patched ahead of selenium's
+    own wrapping, so an argument is still the WebElement, not its wire dict.
+    """
+    args = params.get("args") if isinstance(params, dict) else None
+    if not isinstance(args, list):
+        return None
+    for arg in args:
+        element_id = getattr(arg, "id", None)
+        if isinstance(element_id, str) and element_id in _selectors:
+            return _selectors[element_id]
+    return None

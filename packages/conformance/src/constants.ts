@@ -192,8 +192,7 @@ export const KNOWN_DEBT = {
   seleniumWait: `A successful driver.wait() has no row of its own: its polls are findElements rows, which the trace vocabulary leaves unmapped. ${debt(SELENIUM_WAIT_DEBT, '#464')}`,
   seleniumFailedWait: `A timed-out driver.wait() is a wait row named after its condition, mapped to Browser.waitForFunction with no target, where the other adapters show Element.waitForExist on the selector. ${debt(SELENIUM_WAIT_DEBT, '#464')}`,
   pythonWait: `A successful WebDriverWait has no row of its own: its polls fold into findElement rows, which the trace vocabulary leaves unmapped. ${debt(SELENIUM_WAIT_DEBT, '#464')}`,
-  pythonFailedWait: `A timed-out WebDriverWait is a wait row named after its condition, mapped to Browser.waitForFunction with no target, where the other adapters show Element.waitForExist on the selector. ${debt(SELENIUM_WAIT_DEBT, '#464')}`,
-  pythonAssertTarget: `A pytest assertion row names no element: the adapter keeps no record of which element produced a value. ${debt('Python assertion rows carry no target', '#462')}`
+  pythonFailedWait: `A timed-out WebDriverWait is a wait row named after its condition, mapped to Browser.waitForFunction with no target, where the other adapters show Element.waitForExist on the selector. ${debt(SELENIUM_WAIT_DEBT, '#464')}`
 } as const
 export const README_PAGE = 'README.md'
 

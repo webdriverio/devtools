@@ -176,13 +176,6 @@ function pythonGaps(bidi: BidiMode): KnownGap[] {
       adapter,
       bidi,
       rules: [RULES.agreeOnActions],
-      lacksTargets: ['Assert.equal'],
-      reason: KNOWN_DEBT.pythonAssertTarget
-    },
-    {
-      adapter,
-      bidi,
-      rules: [RULES.agreeOnActions],
       only: hunk(
         WAITS,
         'Element.getText #flash',
