@@ -261,6 +261,28 @@ describe('DevtoolsService - afterTest state stamping', () => {
     expect(ctx.testMetadata.get(deterministicUid(file, title))?.attempt).toBe(3)
   })
 
+  it('takes a Cucumber scenario duration from its own start and end', async () => {
+    const service = new DevToolsHookService({
+      mode: 'trace',
+      tracePolicy: 'retain-on-failure'
+    })
+    await service.before({} as never, [], mockBrowser)
+    const uri = '/proj/features/cart.feature'
+    service.beforeScenario({ pickle: { uri, name: 'timed scenario' } })
+    await service.afterScenario(
+      { pickle: { uri, name: 'timed scenario' } },
+      { passed: true, duration: 0.975347 }
+    )
+    await service.after()
+    const ctx = finalizeTraceExport.mock.calls.at(-1)?.[0] as {
+      testMetadata: TestMetadataMap
+    }
+    const entry = ctx.testMetadata.get(deterministicUid(uri, 'timed scenario'))
+    expect(entry?.durationMs).toBe(
+      (entry?.endTime ?? NaN) - (entry?.startTime ?? NaN)
+    )
+  })
+
   it('stamps a Cucumber scenario state in afterScenario', async () => {
     const service = new DevToolsHookService({
       mode: 'trace',
