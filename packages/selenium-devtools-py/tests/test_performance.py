@@ -6,6 +6,7 @@ So there are two things to get right: the shaping of the payload onto the row,
 and the fact that a payload worth nothing produces no second frame at all.
 """
 
+import decimal
 import unittest
 
 from selenium_devtools import instrumentation, performance
@@ -13,6 +14,7 @@ from selenium_devtools._contract import SCOPE_REPLACE_COMMAND
 from selenium_devtools.capturer import SessionCapturer
 from selenium_devtools.constants import NAVIGATION_COMMANDS
 
+from page_scripts_fixture import PAGE_SCRIPTS
 from wire_contract import RecordingTransport
 
 FULL_PAYLOAD = {
@@ -59,13 +61,21 @@ class TestShapingThePayload(unittest.TestCase):
             row["result"],
             {
                 "url": "https://x/secure",
-                "loadTime": 812,
+                "loadTime": "812.00 ms",
                 "resources": FULL_PAYLOAD["resources"],
                 "resourceCount": 2,
                 "cookies": "session=abc",
                 "title": "Secure Area",
             },
         )
+
+    # Regression: the thread's decimal context made an ordinary load time raise inside driver.get().
+    def test_the_load_time_ignores_the_thread_s_decimal_settings(self):
+        with decimal.localcontext() as ctx:
+            ctx.prec = 2
+            ctx.traps[decimal.Inexact] = True
+            self.assertEqual(performance.format_milliseconds(812), "812.00 ms")
+            self.assertEqual(performance.format_milliseconds(246.39999985694885), "246.40 ms")
 
     def test_a_payload_without_navigation_is_no_data_at_all(self):
         # It means the read landed before the document had timings. Applying the
@@ -87,13 +97,16 @@ class TestShapingThePayload(unittest.TestCase):
                 )
                 self.assertNotIn("performance", row)
 
-    def test_missing_resources_are_an_empty_list_not_an_absence(self):
+    def test_missing_resources_stay_absent_as_in_core(self):
+        # `[]` and `0` would claim the page listed no resources; core leaves
+        # them undefined, and shared types the field optional.
         row = {"command": "get", "timestamp": 1000}
 
         performance.apply_performance_data(row, {"navigation": {"url": "u"}}, "u")
 
-        self.assertEqual(row["performance"]["resources"], [])
-        self.assertEqual(row["result"]["resourceCount"], 0)
+        self.assertNotIn("resources", row["performance"])
+        self.assertNotIn("resourceCount", row["result"])
+        self.assertNotIn("documentInfo", row)
 
 
 class TestTheUrlTheCommandWasGiven(unittest.TestCase):
@@ -124,9 +137,34 @@ class TestTheRowIsReplaced(unittest.TestCase):
                 raise RuntimeError("no such session")
             return self.payload
 
+    def setUp(self):
+        instrumentation.set_page_scripts(PAGE_SCRIPTS)
+        self.addCleanup(instrumentation.set_page_scripts, None)
+
     def _capturer(self):
         tx = RecordingTransport()
         return SessionCapturer(tx), tx
+
+    def test_the_read_is_the_script_the_backend_served(self):
+        cap, _ = self._capturer()
+        driver = self.Driver()
+
+        instrumentation._attach_performance(
+            cap, driver, {"command": "get", "args": [], "timestamp": 1}, None
+        )
+
+        self.assertEqual(driver.scripts, [PAGE_SCRIPTS["capturePerformance"]])
+
+    def test_without_the_served_scripts_nothing_is_read(self):
+        # A backend older than the route: the row keeps its first report.
+        instrumentation.set_page_scripts(None)
+        cap, tx = self._capturer()
+        driver = self.Driver()
+
+        instrumentation._attach_performance(cap, driver, {"timestamp": 1}, None)
+
+        self.assertEqual(driver.scripts, [])
+        self.assertEqual(tx.of_scope(SCOPE_REPLACE_COMMAND), [])
 
     def test_the_enriched_row_goes_out_under_replace_command(self):
         cap, tx = self._capturer()

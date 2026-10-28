@@ -86,6 +86,11 @@ function namesAnAutomation(caps: Record<string, unknown>): boolean {
   )
 }
 
+// An array is not a bag: read as one, its entries would pass for vendor options.
+function isCapabilityBag(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
 function firstCapString(
   caps: Record<string, unknown>,
   keys: string[],
@@ -109,10 +114,10 @@ function firstCapString(
 export function deviceFromCapabilities(
   capabilities: unknown
 ): DeviceInfo | undefined {
-  if (!capabilities || typeof capabilities !== 'object') {
+  if (!isCapabilityBag(capabilities)) {
     return undefined
   }
-  const caps = capabilities as Record<string, unknown>
+  const caps = capabilities
   const platform = deepCapString(caps, 'platformName')?.toLowerCase()
   if (!isNativePlatform(platform)) {
     return undefined
@@ -159,10 +164,10 @@ export function deviceFromCapabilities(
  * capabilities straight off its own session.
  */
 export function isNativeAppSession(capabilities: unknown): boolean {
-  if (!capabilities || typeof capabilities !== 'object') {
+  if (!isCapabilityBag(capabilities)) {
     return false
   }
-  const caps = capabilities as Record<string, unknown>
+  const caps = capabilities
   if (!deviceFromCapabilities(caps) && !namesAnAutomation(caps)) {
     return false
   }

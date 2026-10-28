@@ -2,7 +2,6 @@ import type { IncomingMessage } from 'node:http'
 
 import logger from '@wdio/logger'
 import {
-  COLLECTOR_READY_EXPRESSION,
   collectorDrainExpression,
   SessionCapturerBase,
   drainCollectorWithRecovery,
@@ -16,7 +15,11 @@ import {
   serializeError,
   settlePending
 } from '@wdio/devtools-core'
-import { WS_SCOPE } from '@wdio/devtools-shared'
+import {
+  COLLECTOR_INJECT_SCRIPT,
+  COLLECTOR_READY_SCRIPT,
+  WS_SCOPE
+} from '@wdio/devtools-shared'
 import { NAVIGATION_COMMANDS } from './constants.js'
 import { getDriverOriginals } from './driverPatcher.js'
 import type { CommandLog, SeleniumDriverLike } from './types.js'
@@ -278,10 +281,7 @@ export class SessionCapturer extends SessionCapturerBase {
       // Three call paths reach the same document (navigation trace,
       // post-command drain recovery, explicit re-inject); a bundle that finds
       // a collector keeps it, so this probe only saves the round trips.
-      const present = await exec(
-        driver,
-        `return ${COLLECTOR_READY_EXPRESSION};`
-      )
+      const present = await exec(driver, COLLECTOR_READY_SCRIPT)
       if (present === true) {
         return
       }
@@ -289,17 +289,14 @@ export class SessionCapturer extends SessionCapturerBase {
       // The appended script runs synchronously, so this usually answers ready.
       const injected = await exec(
         driver,
-        `var s=document.createElement('script');s.textContent=arguments[0];document.head.appendChild(s);return ${COLLECTOR_READY_EXPRESSION};`,
+        COLLECTOR_INJECT_SCRIPT,
         scriptContent
       )
       const ready =
         injected === true ||
         (await pollUntilReady(
           async () => {
-            const r = await exec(
-              driver,
-              `return ${COLLECTOR_READY_EXPRESSION};`
-            )
+            const r = await exec(driver, COLLECTOR_READY_SCRIPT)
             return r === true
           },
           { checkFirst: true }
@@ -425,10 +422,7 @@ export class SessionCapturer extends SessionCapturerBase {
       return
     }
     try {
-      const hasCollector = await exec(
-        driver,
-        `return ${COLLECTOR_READY_EXPRESSION};`
-      )
+      const hasCollector = await exec(driver, COLLECTOR_READY_SCRIPT)
       if (hasCollector === true) {
         return
       }

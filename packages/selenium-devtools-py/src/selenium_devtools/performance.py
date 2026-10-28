@@ -6,10 +6,9 @@ own: `CommandLog.performance` (plus `cookies`, `documentInfo` and a synthesized
 row is sent when the command completes, then sent again — under
 `replaceCommand` — once the page has been asked for its timings.
 
-The script is the browser-side half of core's `performance-capture.ts`, kept
-byte-comparable so the two can be diffed by eye; the shaping below mirrors its
-`applyPerformanceData`. Both are duplicated rather than shared because `core` is
-TypeScript, which is the cost #298 is weighing.
+The browser-side script is shared's `CAPTURE_PERFORMANCE_SCRIPT`, served by the
+backend (`page_scripts`). The shaping below mirrors core's
+`applyPerformanceData`, which is Node-side and so cannot be served.
 
 Unlike the JS adapters this does NOT sleep before reading. They wait 500 ms for
 navigation entries to populate because their navigation command can resolve
@@ -23,63 +22,13 @@ guard the JS side applies to a too-early read.
 from __future__ import annotations
 
 import logging
+import math
+from decimal import ROUND_HALF_UP, Context, Decimal
 from typing import Any, Dict, Optional
 
 from .constants import LOGGER_NAME
 
 _log = logging.getLogger(f"{LOGGER_NAME}.performance")
-
-#: Read in the page. Mirrors core's `CAPTURE_PERFORMANCE_SCRIPT`.
-CAPTURE_PERFORMANCE_SCRIPT = """
-  return (function() {
-    const performance = window.performance;
-    const navigation = performance.getEntriesByType
-      ? performance.getEntriesByType('navigation')[0] : undefined;
-    const resources = (performance.getEntriesByType
-      ? performance.getEntriesByType('resource') : []) || [];
-
-    return {
-      navigation: navigation ? {
-        url: window.location.href,
-        timing: {
-          loadTime: navigation.loadEventEnd - navigation.fetchStart,
-          domReady: navigation.domContentLoadedEventEnd - navigation.fetchStart,
-          responseTime: navigation.responseEnd - navigation.requestStart,
-          dnsLookup: navigation.domainLookupEnd - navigation.domainLookupStart,
-          tcpConnection: navigation.connectEnd - navigation.connectStart,
-          serverResponse: navigation.responseEnd - navigation.responseStart
-        }
-      } : undefined,
-      resources: resources.map(function(resource) {
-        return {
-          url: resource.name,
-          duration: resource.duration,
-          size: resource.transferSize || 0,
-          type: resource.initiatorType,
-          startTime: resource.startTime,
-          responseEnd: resource.responseEnd
-        };
-      }),
-      cookies: (function() {
-        try { return document.cookie; } catch (e) { return ''; }
-      })(),
-      documentInfo: {
-        url: window.location.href,
-        title: document.title,
-        headers: {
-          userAgent: navigator.userAgent,
-          language: navigator.language,
-          platform: navigator.platform
-        },
-        documentInfo: {
-          readyState: document.readyState,
-          referrer: document.referrer,
-          characterSet: document.characterSet
-        }
-      }
-    };
-  })()
-"""
 
 
 def apply_performance_data(
@@ -97,24 +46,43 @@ def apply_performance_data(
     if not isinstance(payload, dict):
         return False
     navigation = payload.get("navigation")
-    if not navigation:
+    # An object, even an empty one, is a navigation: core reads it as truthy.
+    if not isinstance(navigation, dict):
         return False
-    resources = payload.get("resources") or []
-    document_info = payload.get("documentInfo") or {}
-    entry["performance"] = {"navigation": navigation, "resources": resources}
-    entry["cookies"] = payload.get("cookies")
-    entry["documentInfo"] = document_info
+    resources = payload.get("resources")
+    document_info = payload.get("documentInfo")
+    # A field the page did not answer stays absent, as core leaves it undefined;
+    # an invented `[]` or `0` would claim the page had no resources.
+    entry["performance"] = _present(navigation=navigation, resources=resources)
+    entry.update(_present(cookies=payload.get("cookies"), documentInfo=document_info))
     # The row's own result: what the Actions panel prints for a navigation, in
     # the shape the dashboard already renders for the JS adapters.
-    entry["result"] = {
-        "url": navigated_url,
-        "loadTime": (navigation.get("timing") or {}).get("loadTime"),
-        "resources": resources,
-        "resourceCount": len(resources),
-        "cookies": payload.get("cookies"),
-        "title": document_info.get("title"),
-    }
+    entry["result"] = _present(
+        url=navigated_url,
+        loadTime=format_milliseconds((navigation.get("timing") or {}).get("loadTime")),
+        resources=resources,
+        resourceCount=len(resources) if isinstance(resources, list) else None,
+        cookies=payload.get("cookies"),
+        title=document_info.get("title") if isinstance(document_info, dict) else None,
+    )
     return True
+
+
+#: Private, so a test that changes the thread's decimal context cannot make a navigation raise.
+_MS_CONTEXT = Context(prec=40, rounding=ROUND_HALF_UP, traps=[])
+
+
+def format_milliseconds(ms: Any) -> Optional[str]:
+    """A duration for the row's summary, as core formats it: two decimals, ties
+    rounded up like JS ``toFixed`` rather than to even."""
+    if isinstance(ms, bool) or not isinstance(ms, (int, float)) or not math.isfinite(ms):
+        return None
+    rounded = Decimal(ms).quantize(Decimal("0.01"), context=_MS_CONTEXT)
+    return f"{rounded} ms"
+
+
+def _present(**fields: Any) -> Dict[str, Any]:
+    return {k: v for k, v in fields.items() if v is not None}
 
 
 def navigated_url(args: Any) -> Optional[str]:
