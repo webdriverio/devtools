@@ -23,6 +23,8 @@ guard the JS side applies to a too-early read.
 from __future__ import annotations
 
 import logging
+import math
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Dict, Optional
 
 from .constants import LOGGER_NAME
@@ -110,13 +112,22 @@ def apply_performance_data(
     # the shape the dashboard already renders for the JS adapters.
     entry["result"] = _present(
         url=navigated_url,
-        loadTime=(navigation.get("timing") or {}).get("loadTime"),
+        loadTime=format_milliseconds((navigation.get("timing") or {}).get("loadTime")),
         resources=resources,
         resourceCount=len(resources) if isinstance(resources, list) else None,
         cookies=payload.get("cookies"),
         title=document_info.get("title") if isinstance(document_info, dict) else None,
     )
     return True
+
+
+def format_milliseconds(ms: Any) -> Optional[str]:
+    """A duration for the row's summary, as core formats it: two decimals, ties
+    rounded up like JS ``toFixed`` rather than to even."""
+    if isinstance(ms, bool) or not isinstance(ms, (int, float)) or not math.isfinite(ms):
+        return None
+    rounded = Decimal(ms).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    return f"{rounded} ms"
 
 
 def _present(**fields: Any) -> Dict[str, Any]:

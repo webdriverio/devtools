@@ -59,7 +59,7 @@ class TestShapingThePayload(unittest.TestCase):
             row["result"],
             {
                 "url": "https://x/secure",
-                "loadTime": 812,
+                "loadTime": "812.00 ms",
                 "resources": FULL_PAYLOAD["resources"],
                 "resourceCount": 2,
                 "cookies": "session=abc",

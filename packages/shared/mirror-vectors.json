@@ -436,7 +436,7 @@
               "documentInfo": { "url": "https://example.test/login", "title": "Login", "headers": { "userAgent": "UA", "language": "en", "platform": "MacIntel" }, "documentInfo": { "readyState": "complete", "referrer": "", "characterSet": "UTF-8" } },
               "result": {
                 "url": "https://example.test/login",
-                "loadTime": 812,
+                "loadTime": "812.00 ms",
                 "resources": [{ "url": "https://example.test/app.js", "duration": 30, "size": 1200, "type": "script", "startTime": 5, "responseEnd": 35 }],
                 "resourceCount": 1,
                 "cookies": "session=abc",
@@ -461,7 +461,7 @@
               "performance": { "navigation": { "url": "https://example.test/", "timing": { "loadTime": 90 } }, "resources": [] },
               "cookies": "",
               "documentInfo": { "url": "https://example.test/", "title": "" },
-              "result": { "loadTime": 90, "resources": [], "resourceCount": 0, "cookies": "", "title": "" }
+              "result": { "loadTime": "90.00 ms", "resources": [], "resourceCount": 0, "cookies": "", "title": "" }
             }
           }
         },
@@ -487,7 +487,33 @@
             "row": {
               "command": "url",
               "performance": { "navigation": { "url": "https://example.test/", "timing": { "loadTime": 5 } } },
-              "result": { "url": "https://example.test/", "loadTime": 5 }
+              "result": { "url": "https://example.test/", "loadTime": "5.00 ms" }
+            }
+          }
+        },
+        {
+          "name": "the summary's load time is milliseconds to two decimals, a tie rounded up",
+          "payload": { "navigation": { "url": "https://example.test/", "timing": { "loadTime": 246.39999985694885 } } },
+          "navigatedUrl": "https://example.test/",
+          "expect": {
+            "applied": true,
+            "row": {
+              "command": "url",
+              "performance": { "navigation": { "url": "https://example.test/", "timing": { "loadTime": 246.39999985694885 } } },
+              "result": { "url": "https://example.test/", "loadTime": "246.40 ms" }
+            }
+          }
+        },
+        {
+          "name": "a load time on an exact half rounds up in both languages",
+          "payload": { "navigation": { "url": "https://example.test/", "timing": { "loadTime": 0.125 } } },
+          "navigatedUrl": "https://example.test/",
+          "expect": {
+            "applied": true,
+            "row": {
+              "command": "url",
+              "performance": { "navigation": { "url": "https://example.test/", "timing": { "loadTime": 0.125 } } },
+              "result": { "url": "https://example.test/", "loadTime": "0.13 ms" }
             }
           }
         },
