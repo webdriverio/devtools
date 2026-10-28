@@ -71,7 +71,9 @@ export function stampTestState(
   if (result && entry) {
     entry.state = resultToState(result)
     entry.endTime = endTime
-    entry.durationMs = result.duration
+    entry.durationMs =
+      result.duration ??
+      (entry.startTime === undefined ? undefined : endTime - entry.startTime)
     entry.error = isFailedResult(result)
       ? errorMessage(result.error)
       : undefined

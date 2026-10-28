@@ -489,7 +489,9 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     const uid =
       uri && name ? cucumberScenarioUid(uri, name, astNodeIds) : undefined
     if (uid) {
-      this.#stampOutcome(uid, result)
+      // WDIO's cucumber result.duration is the nanos field of the last step's
+      // Duration, not the scenario's span, so the measured wall time stands in.
+      this.#stampOutcome(uid, result && { ...result, duration: undefined })
     }
     await this.#finalizePerScenario()
     await this.#emitTestArtifacts(uid, isFailedResult(result))
