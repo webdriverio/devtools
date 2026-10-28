@@ -112,6 +112,22 @@ def _element_scripts_path(element_scripts_ts: str) -> str:
     return got.group(1)
 
 
+def _page_scripts_path(page_scripts_ts: str) -> str:
+    """`PAGE_SCRIPTS_API.get`: where the backend serves the collector probe,
+    injection and drain, and the navigation timing read."""
+    m = re.search(
+        r"export const PAGE_SCRIPTS_API = \{(.*?)\n\} as const",
+        page_scripts_ts,
+        re.DOTALL,
+    )
+    if not m:
+        raise SystemExit("could not find `PAGE_SCRIPTS_API` in shared/page-scripts.ts")
+    got = re.search(r"get:\s*'([^']+)'", m.group(1))
+    if not got:
+        raise SystemExit("`PAGE_SCRIPTS_API` has no `get` path")
+    return got.group(1)
+
+
 def _collector_path(collector_ts: str) -> str:
     """The route the backend serves the page-side collector from."""
     m = re.search(r"export const COLLECTOR_API = \{(.*?)\} as const", collector_ts, re.DOTALL)
@@ -304,6 +320,9 @@ def main() -> int:
     element_scripts_path = _element_scripts_path(
         (shared / "src" / "element-scripts.ts").read_text()
     )
+    page_scripts_path = _page_scripts_path(
+        (shared / "src" / "page-scripts.ts").read_text()
+    )
     trace_export = _trace_export_scopes(
         (shared / "src" / "trace-export.ts").read_text()
     )
@@ -394,6 +413,7 @@ def main() -> int:
         "",
         f'COLLECTOR_PATH = "{collector_path}"',
         f'ELEMENT_SCRIPTS_PATH = "{element_scripts_path}"',
+        f'PAGE_SCRIPTS_PATH = "{page_scripts_path}"',
         f'RUNNER_ID = "{REQUIRED_RUNNER_ID}"',
         f"TEST_RUNNER_IDS = frozenset({sorted(runner_ids)!r})",
         f"NATIVE_PLATFORMS = frozenset({sorted(native_platforms)!r})",

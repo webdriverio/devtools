@@ -177,7 +177,8 @@ export function sessionExecutor(
  *  body, matching what `browser.execute` accepts. */
 export function webdriverExecute<T>(
   browser: NightwatchBrowser,
-  body: string
+  body: string,
+  args: unknown[] = []
 ): Promise<T | null> {
-  return webdriverPost<T>(browser, 'execute/sync', { script: body, args: [] })
+  return webdriverPost<T>(browser, 'execute/sync', { script: body, args })
 }

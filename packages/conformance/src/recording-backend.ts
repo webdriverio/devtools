@@ -8,7 +8,10 @@ import {
   COLLECTOR_API,
   COLLECTOR_CONTENT_TYPE,
   ELEMENT_SCRIPTS_API,
-  WS_PATHS
+  PAGE_SCRIPTS_API,
+  PAGE_SCRIPTS_CONTENT_TYPE,
+  WS_PATHS,
+  buildPageScripts
 } from '@wdio/devtools-shared'
 
 import { COLLECTOR_BUNDLE } from './constants.js'
@@ -40,6 +43,10 @@ export class RecordingBackend {
           },
           () => res.writeHead(404).end()
         )
+      } else if (path === PAGE_SCRIPTS_API.get) {
+        // Real, not stubbed: these are the probe, injection and drain the fake WebDriver recognises.
+        res.writeHead(200, { 'content-type': PAGE_SCRIPTS_CONTENT_TYPE })
+        res.end(JSON.stringify(buildPageScripts()))
       } else if (path === ELEMENT_SCRIPTS_API.get) {
         res.writeHead(200, { 'content-type': 'application/json' })
         res.end(JSON.stringify({ accessibilityTree: 'null', elements: '[]' }))

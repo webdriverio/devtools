@@ -8,31 +8,10 @@ import { errorMessage } from './error.js'
 
 const require = createRequire(import.meta.url)
 
-/** Browser-side expression that is true once the injected collector has
- *  initialised. Shared by the adapters' readiness polls and re-injection
- *  checks so the collector's global name lives in one place. */
-export const COLLECTOR_READY_EXPRESSION =
-  'typeof window.wdioTraceCollector !== "undefined"'
-
-/**
- * Browser-side expression that drains the collector in one round-trip, atomic
- * against a navigation replacing the document mid-check.
- *
- * `forceAnchor` forces a full-DOM anchor of the CURRENT document before
- * draining. The collector's initial anchor is scheduled asynchronously (after
- * `waitForBody`), so a drain issued right after injecting on a navigation
- * destination beats it and returns nothing — and the destination's buffer then
- * dies with the page, leaving the navigating action's DOM absent entirely.
- *
- * Shared by the two adapters that eval the drain as a string; the WDIO service
- * passes an equivalent function to `browser.execute` instead.
- */
-export function collectorDrainExpression(forceAnchor = false): string {
-  const call = forceAnchor
-    ? 'window.wdioTraceCollector.captureCurrentDom();'
-    : ''
-  return `if (!(${COLLECTOR_READY_EXPRESSION})) { return null; } ${call} return window.wdioTraceCollector.getTraceData();`
-}
+export {
+  COLLECTOR_READY_EXPRESSION,
+  collectorDrainExpression
+} from '@wdio/devtools-shared/page-scripts'
 
 /**
  * Where the collector bundle sits relative to the RESOLVED package entry.

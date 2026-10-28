@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-from selenium_devtools import snapshot
+from page_scripts_fixture import PAGE_SCRIPTS
 from selenium_devtools.snapshot import (
     SnapshotCapturer,
     TracePayload,
@@ -96,7 +96,7 @@ class TestSnapshotCapturerInject(unittest.TestCase):
     def test_inject_appends_script_and_probes(self):
         # probe (absent) -> install -> probe (present)
         exec_fn = FakeExec(False, None, True)
-        cap = SnapshotCapturer(exec_fn, script_path=self._tmp_script())
+        cap = SnapshotCapturer(exec_fn, PAGE_SCRIPTS, script_path=self._tmp_script())
         self.assertTrue(cap.inject())
         self.assertTrue(cap.injected)
         install = [c for c in exec_fn.calls if "createElement('script')" in c[0]]
@@ -107,14 +107,14 @@ class TestSnapshotCapturerInject(unittest.TestCase):
     def test_inject_skips_install_when_collector_present(self):
         # Self-healing: collector already on the page → probe True → no install.
         exec_fn = FakeExec(True)
-        cap = SnapshotCapturer(exec_fn, script_path=self._tmp_script())
+        cap = SnapshotCapturer(exec_fn, PAGE_SCRIPTS, script_path=self._tmp_script())
         self.assertTrue(cap.inject())
         self.assertEqual([c for c in exec_fn.calls if "createElement" in c[0]], [])
 
     def test_inject_reinjects_after_navigation(self):
         # Navigation wipes the collector: probe absent both times → 2 installs.
         exec_fn = FakeExec(False, None, True, False, None, True)
-        cap = SnapshotCapturer(exec_fn, script_path=self._tmp_script())
+        cap = SnapshotCapturer(exec_fn, PAGE_SCRIPTS, script_path=self._tmp_script())
         cap.inject()
         cap.inject()
         installs = [c for c in exec_fn.calls if "createElement" in c[0]]
@@ -125,7 +125,7 @@ class TestSnapshotCapturerInject(unittest.TestCase):
         # costs no source load at all. With no source AND no collector present,
         # nothing is installed and the capturer stays uninjected.
         exec_fn = FakeExec()
-        cap = SnapshotCapturer(exec_fn, script_path="/no/such.js")
+        cap = SnapshotCapturer(exec_fn, PAGE_SCRIPTS, script_path="/no/such.js")
 
         self.assertFalse(cap.inject())
         self.assertFalse(cap.injected)
@@ -135,7 +135,7 @@ class TestSnapshotCapturerInject(unittest.TestCase):
         def boom(script, *args):
             raise RuntimeError("no such session")
 
-        cap = SnapshotCapturer(boom, script_path=self._tmp_script())
+        cap = SnapshotCapturer(boom, PAGE_SCRIPTS, script_path=self._tmp_script())
         self.assertFalse(cap.inject())  # no raise
         self.assertFalse(cap.injected)
 
@@ -159,7 +159,7 @@ class TestSnapshotCapturerPull(unittest.TestCase):
     def test_pull_returns_normalized_mutations(self):
         trace = {"mutations": [{"type": "attributes", "target": "9"}]}
         exec_fn = FakeExec(trace)
-        cap = SnapshotCapturer(exec_fn)
+        cap = SnapshotCapturer(exec_fn, PAGE_SCRIPTS)
         self.assertEqual(cap.pull_trace().mutations, [{"type": "attributes", "target": "9"}])
         # The read uses the atomic getTraceData expression.
         self.assertIn("getTraceData", exec_fn.calls[0][0])
@@ -170,7 +170,7 @@ class TestSnapshotCapturerPull(unittest.TestCase):
         row = {"id": "rt-1-0", "url": "https://x/a.js", "method": "GET", "type": "script"}
         trace = {"mutations": [{"type": "attributes", "target": "9"}], "networkRequests": [row]}
         exec_fn = FakeExec(trace)
-        cap = SnapshotCapturer(exec_fn)
+        cap = SnapshotCapturer(exec_fn, PAGE_SCRIPTS)
         self.assertEqual(
             cap.pull_trace(),
             TracePayload([{"type": "attributes", "target": "9"}], [row]),
@@ -181,17 +181,17 @@ class TestSnapshotCapturerPull(unittest.TestCase):
         def boom(script, *args):
             raise RuntimeError("boom")
 
-        self.assertEqual(SnapshotCapturer(boom).pull_trace(), TracePayload([], []))
+        self.assertEqual(SnapshotCapturer(boom, PAGE_SCRIPTS).pull_trace(), TracePayload([], []))
 
     def test_pull_null_trace_returns_empty(self):
-        cap = SnapshotCapturer(FakeExec(None))
+        cap = SnapshotCapturer(FakeExec(None), PAGE_SCRIPTS)
         self.assertEqual(cap.pull_trace().mutations, [])
 
     def test_pull_swallows_execute_errors(self):
         def boom(script, *args):
             raise RuntimeError("boom")
 
-        cap = SnapshotCapturer(boom)
+        cap = SnapshotCapturer(boom, PAGE_SCRIPTS)
         self.assertEqual(cap.pull_trace().mutations, [])  # no raise
 
 
@@ -242,7 +242,7 @@ class TestTheDrainAnchorsTheDocument(unittest.TestCase):
 
     def test_a_document_that_has_not_self_anchored_is_anchored_by_the_drain(self):
         collector = FakeCollector()
-        cap = SnapshotCapturer(collector)
+        cap = SnapshotCapturer(collector, PAGE_SCRIPTS)
 
         mutations = cap.pull_trace().mutations
 
@@ -254,7 +254,7 @@ class TestTheDrainAnchorsTheDocument(unittest.TestCase):
         # Idempotence is what makes forcing unconditional affordable: the anchor
         # is requested every time and the page answers with it only once.
         collector = FakeCollector()
-        cap = SnapshotCapturer(collector)
+        cap = SnapshotCapturer(collector, PAGE_SCRIPTS)
 
         first = cap.pull_trace().mutations
         second = cap.pull_trace().mutations
@@ -263,20 +263,8 @@ class TestTheDrainAnchorsTheDocument(unittest.TestCase):
         self.assertEqual(second, [])
         self.assertEqual(collector.anchor_calls, 2)
 
-    def test_the_guard_runs_before_the_collector_is_touched(self):
-        # Order matters in the one eval: calling captureCurrentDom on a document
-        # without a collector throws, and the drain must answer null instead.
-        script = snapshot._DRAIN_SCRIPT
-        guard = script.index("wdioTraceCollector !== ")
-        anchor = script.index("captureCurrentDom")
-        read = script.index("getTraceData")
-
-        self.assertLess(guard, anchor)
-        self.assertLess(anchor, read)
-        self.assertIn("return null", script[:anchor])
-
     def test_an_absent_collector_still_answers_empty(self):
-        cap = SnapshotCapturer(FakeCollector(present=False))
+        cap = SnapshotCapturer(FakeCollector(present=False), PAGE_SCRIPTS)
 
         self.assertEqual(cap.pull_trace().mutations, [])
 
@@ -284,7 +272,7 @@ class TestTheDrainAnchorsTheDocument(unittest.TestCase):
         # The collector was missing, an injection installed it, and the retry is
         # the only chance to anchor a document whose own anchor has not run.
         collector = FakeCollector(present=False)
-        cap = SnapshotCapturer(collector)
+        cap = SnapshotCapturer(collector, PAGE_SCRIPTS)
 
         def install() -> bool:
             collector.present = True
@@ -297,6 +285,45 @@ class TestTheDrainAnchorsTheDocument(unittest.TestCase):
         self.assertEqual(collector.anchor_calls, 1)
 
 
+class TestTheServedScriptsAreWhatRuns(unittest.TestCase):
+    """The probe, injection and drain are the backend's strings, byte for byte:
+    this adapter keeps no copy of its own to drift from the JS adapters'."""
+
+    def test_probe_injection_and_drain_are_the_handed_scripts(self):
+        # probe (absent) -> install (not ready yet) -> probe (ready) -> drain
+        exec_fn = FakeExec(False, None, True, {"mutations": []})
+        cap = SnapshotCapturer(exec_fn, PAGE_SCRIPTS)
+
+        with mock.patch(
+            "selenium_devtools.snapshot.load_injectable_script", return_value="SRC"
+        ):
+            self.assertTrue(cap.inject())
+        cap.pull_trace()
+
+        self.assertEqual(
+            exec_fn.calls,
+            [
+                (PAGE_SCRIPTS["collectorReady"], ()),
+                (PAGE_SCRIPTS["collectorInject"], ("SRC",)),
+                (PAGE_SCRIPTS["collectorReady"], ()),
+                (PAGE_SCRIPTS["collectorDrain"], ()),
+            ],
+        )
+
+    def test_an_injection_that_answers_ready_needs_no_second_probe(self):
+        # The served injection returns readiness itself; an appended script
+        # runs synchronously, so this is the usual case.
+        exec_fn = FakeExec(False, True)
+        cap = SnapshotCapturer(exec_fn, PAGE_SCRIPTS)
+
+        with mock.patch(
+            "selenium_devtools.snapshot.load_injectable_script", return_value="SRC"
+        ):
+            self.assertTrue(cap.inject())
+
+        self.assertEqual(len(exec_fn.calls), 2)
+
+
 class TestStartSnapshotCapture(unittest.TestCase):
     def _tmp_script(self):
         fh = tempfile.NamedTemporaryFile("w", suffix=".js", delete=False)
@@ -304,6 +331,22 @@ class TestStartSnapshotCapture(unittest.TestCase):
         fh.close()
         self.addCleanup(lambda: os.path.exists(fh.name) and os.unlink(fh.name))
         return fh.name
+
+    def test_none_and_no_script_without_the_page_scripts(self):
+        # A backend that could not serve them (one older than the route): there
+        # is nothing to probe, inject or drain with, so DOM capture is off.
+        class Driver:
+            def __init__(self):
+                self.calls = []
+
+            def execute_script(self, script, *args):
+                self.calls.append(script)
+                return True
+
+        driver = Driver()
+
+        self.assertIsNone(start_snapshot_capture(driver, None))
+        self.assertEqual(driver.calls, [])
 
     def test_returns_capturer_when_driver_can_execute(self):
         class Driver:
@@ -315,12 +358,12 @@ class TestStartSnapshotCapture(unittest.TestCase):
                 return True  # ready probe
 
         driver = Driver()
-        cap = start_snapshot_capture(driver, script_path=self._tmp_script())
+        cap = start_snapshot_capture(driver, PAGE_SCRIPTS, script_path=self._tmp_script())
         self.assertIsInstance(cap, SnapshotCapturer)
         self.assertTrue(cap.injected)
 
     def test_none_when_driver_has_no_execute_script(self):
-        self.assertIsNone(start_snapshot_capture(object()))
+        self.assertIsNone(start_snapshot_capture(object(), PAGE_SCRIPTS))
 
     def test_none_for_a_native_app_and_no_script_reaches_the_device(self):
         # There is no document to collect from, and the caller already treats
@@ -338,7 +381,7 @@ class TestStartSnapshotCapture(unittest.TestCase):
 
         driver = Driver()
 
-        self.assertIsNone(start_snapshot_capture(driver))
+        self.assertIsNone(start_snapshot_capture(driver, PAGE_SCRIPTS))
         self.assertEqual(driver.calls, [])
 
     def test_a_phone_running_a_browser_still_gets_a_capturer(self):
@@ -351,7 +394,7 @@ class TestStartSnapshotCapture(unittest.TestCase):
                 return True
 
         self.assertIsInstance(
-            start_snapshot_capture(Driver(), script_path=self._tmp_script()),
+            start_snapshot_capture(Driver(), PAGE_SCRIPTS, script_path=self._tmp_script()),
             SnapshotCapturer,
         )
 
@@ -364,7 +407,7 @@ class TestStartSnapshotCapture(unittest.TestCase):
             def execute_script(self, script, *args):
                 return None
 
-        capturer = start_snapshot_capture(Driver(), script_path="/no/such.js")
+        capturer = start_snapshot_capture(Driver(), PAGE_SCRIPTS, script_path="/no/such.js")
 
         self.assertIsNotNone(capturer)
         self.assertFalse(capturer.injected)
@@ -384,7 +427,7 @@ class TestStartSnapshotCapture(unittest.TestCase):
             "selenium_devtools.snapshot.load_injectable_script",
             side_effect=[None, "SOURCE"],  # no source first, then it arrives
         ):
-            capturer = start_snapshot_capture(Driver(), script_path="/no/such.js")
+            capturer = start_snapshot_capture(Driver(), PAGE_SCRIPTS, script_path="/no/such.js")
             self.assertFalse(capturer.injected)  # nothing to install yet
 
             self.assertTrue(capturer.inject())  # the next command retries
@@ -392,7 +435,7 @@ class TestStartSnapshotCapture(unittest.TestCase):
         self.assertTrue(capturer.injected)
 
     def test_none_only_when_the_driver_cannot_run_scripts(self):
-        self.assertIsNone(start_snapshot_capture(object()))
+        self.assertIsNone(start_snapshot_capture(object(), PAGE_SCRIPTS))
 
 
 if __name__ == "__main__":

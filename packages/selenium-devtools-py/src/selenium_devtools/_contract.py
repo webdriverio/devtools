@@ -19,6 +19,7 @@ CONTROL_SCOPES = frozenset(['clearCommands', 'clearExecutionData', 'clientConnec
 
 COLLECTOR_PATH = "/api/collector"
 ELEMENT_SCRIPTS_PATH = "/api/element-scripts"
+PAGE_SCRIPTS_PATH = "/api/page-scripts"
 RUNNER_ID = "selenium-webdriver"
 TEST_RUNNER_IDS = frozenset(['cucumber', 'jasmine', 'mocha', 'nightwatch', 'nightwatch-cucumber', 'selenium-webdriver'])
 NATIVE_PLATFORMS = frozenset(['android', 'ios'])
