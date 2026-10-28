@@ -1,0 +1,528 @@
+{
+  "$comment": "Cases for logic that exists in both TypeScript and Python, because the Python adapter cannot import core. packages/selenium-devtools/tests/mirror-vectors.test.ts runs every section against the TypeScript implementation and packages/selenium-devtools-py/tests/test_mirror_vectors.py against the Python one, so a case added here checks both and a one-sided change fails the other language's run. Both runners refuse a section they do not know. Test data only: nothing under src imports it, and the package is private.",
+  "notCovered": {
+    "screencastBufferThinning": "Deliberately different algorithms. core's ScreencastRecorderBase halves its buffer keeping first and last; the Python push recorder (screencast.py) also thins incoming frames by its decimation stride and holds the newest skipped frame for the tail, because halving alone drifts toward the end of a pushed stream (CLAUDE.md, the pushed-screencast entry). There is no shared output to state."
+  },
+  "sections": {
+    "assertionTarget": {
+      "mirrors": {
+        "ts": "core/read-value-locators.ts rememberReadValue, selectorForReadValue, resolveAssertTargetFromArgs",
+        "py": "read_value_locators.py remember, selector_for, assertion_target"
+      },
+      "notes": "Each case starts from an empty registry. A value of {\"$repeat\": [text, count]} is text repeated count times. String length is measured in each language's own units (UTF-16 code units in TypeScript, code points in Python), so the length cases stay in the Basic Multilingual Plane, where the two agree.",
+      "cases": [
+        {
+          "name": "an element read names the assertion on its value",
+          "steps": [
+            { "remember": "Secure Area", "selector": "h2" },
+            { "resolve": ["Secure Area", "Secure Area"], "expect": "h2" },
+            { "lookup": "Secure Area", "expect": "h2" }
+          ]
+        },
+        {
+          "name": "an unknown value names nothing",
+          "steps": [
+            { "lookup": "never read", "expect": null },
+            { "resolve": ["never read", 3], "expect": null }
+          ]
+        },
+        {
+          "name": "the first operand the registry knows decides",
+          "steps": [
+            { "remember": "Welcome", "selector": "#greeting" },
+            { "remember": "Logout", "selector": "a.button" },
+            { "resolve": ["unknown", "Logout", "Welcome"], "expect": "a.button" }
+          ]
+        },
+        {
+          "name": "the newest producer of a value wins",
+          "steps": [
+            { "remember": "Example Domain", "selector": "h1" },
+            { "remember": "Example Domain", "selector": "#title" },
+            { "lookup": "Example Domain", "expect": "#title" }
+          ]
+        },
+        {
+          "name": "a driver-level read claims the value for no element",
+          "steps": [
+            { "remember": "Example Domain", "selector": "h1" },
+            { "remember": "Example Domain", "selector": null },
+            { "lookup": "Example Domain", "expect": null },
+            { "resolve": ["Example Domain"], "expect": null }
+          ]
+        },
+        {
+          "name": "a value no element owns ends the search",
+          "steps": [
+            { "remember": "Welcome", "selector": "#greeting" },
+            { "remember": "Dashboard", "selector": null },
+            { "resolve": ["Dashboard", "Welcome"], "expect": null }
+          ]
+        },
+        {
+          "name": "an empty string is never remembered",
+          "steps": [
+            { "remember": "", "selector": "#empty" },
+            { "lookup": "", "expect": null },
+            { "resolve": [""], "expect": null }
+          ]
+        },
+        {
+          "name": "a string at the length cap is remembered and one past it is not",
+          "steps": [
+            { "remember": { "$repeat": ["a", 256] }, "selector": "#at-cap" },
+            { "remember": { "$repeat": ["b", 257] }, "selector": "#past-cap" },
+            { "lookup": { "$repeat": ["a", 256] }, "expect": "#at-cap" },
+            { "lookup": { "$repeat": ["b", 257] }, "expect": null }
+          ]
+        },
+        {
+          "name": "numbers and booleans are remembered",
+          "steps": [
+            { "remember": 42, "selector": "#count" },
+            { "remember": false, "selector": "#checkbox" },
+            { "resolve": [42], "expect": "#count" },
+            { "resolve": [false], "expect": "#checkbox" }
+          ]
+        },
+        {
+          "name": "a boolean and the number it equals are different values",
+          "steps": [
+            { "remember": 1, "selector": "#one" },
+            { "lookup": true, "expect": null },
+            { "remember": true, "selector": "#flag" },
+            { "lookup": 1, "expect": "#one" },
+            { "lookup": true, "expect": "#flag" }
+          ]
+        },
+        {
+          "name": "an integral float and the integer it equals are one value",
+          "steps": [
+            { "remember": 3, "selector": "#items" },
+            { "lookup": 3.0, "expect": "#items" },
+            { "resolve": [3.0], "expect": "#items" },
+            { "remember": 2.0, "selector": "#pages" },
+            { "lookup": 2, "expect": "#pages" }
+          ]
+        },
+        {
+          "name": "objects and arrays are never remembered",
+          "steps": [
+            { "remember": { "x": 1 }, "selector": "#rect" },
+            { "remember": ["a"], "selector": "#list" },
+            { "resolve": [{ "x": 1 }, ["a"]], "expect": null }
+          ]
+        },
+        {
+          "name": "the least recently produced value is evicted past 200",
+          "steps": [
+            { "rememberMany": { "prefix": "value-", "count": 201, "selector": "#many" } },
+            { "lookup": "value-0", "expect": null },
+            { "lookup": "value-1", "expect": "#many" },
+            { "lookup": "value-200", "expect": "#many" }
+          ]
+        },
+        {
+          "name": "producing a value again makes it the most recent",
+          "steps": [
+            { "rememberMany": { "prefix": "value-", "count": 200, "selector": "#many" } },
+            { "remember": "value-0", "selector": "#refreshed" },
+            { "remember": "one more", "selector": "#late" },
+            { "lookup": "value-0", "expect": "#refreshed" },
+            { "lookup": "value-1", "expect": null }
+          ]
+        }
+      ]
+    },
+    "nativeSession": {
+      "mirrors": {
+        "ts": "shared/device.ts isNativeAppSession, deviceFromCapabilities(...).platform",
+        "py": "device.py is_native_app_session, native_platform"
+      },
+      "notes": "expect.platform is the native platform the capabilities name, or null.",
+      "cases": [
+        { "name": "no capabilities", "capabilities": null, "expect": { "nativeApp": false, "platform": null } },
+        { "name": "a non-object", "capabilities": "android", "expect": { "nativeApp": false, "platform": null } },
+        { "name": "an array", "capabilities": [{ "platformName": "Android" }], "expect": { "nativeApp": false, "platform": null } },
+        { "name": "an empty bag", "capabilities": {}, "expect": { "nativeApp": false, "platform": null } },
+        {
+          "name": "desktop chrome",
+          "capabilities": { "browserName": "chrome", "platformName": "linux" },
+          "expect": { "nativeApp": false, "platform": null }
+        },
+        {
+          "name": "an android app",
+          "capabilities": { "platformName": "Android", "appium:automationName": "UiAutomator2", "appium:app": "/tmp/app.apk" },
+          "expect": { "nativeApp": true, "platform": "android" }
+        },
+        {
+          "name": "chrome on android has a document",
+          "capabilities": { "platformName": "Android", "browserName": "chrome", "appium:automationName": "UiAutomator2" },
+          "expect": { "nativeApp": false, "platform": "android" }
+        },
+        {
+          "name": "the platform name is read case-insensitively",
+          "capabilities": { "platformName": "IOS", "appium:automationName": "XCUITest" },
+          "expect": { "nativeApp": true, "platform": "ios" }
+        },
+        {
+          "name": "a device with no automation and no browser is native",
+          "capabilities": { "platformName": "iOS" },
+          "expect": { "nativeApp": true, "platform": "ios" }
+        },
+        {
+          "name": "a vendor bag one level down is read",
+          "capabilities": { "bstack:options": { "platformName": "iOS", "deviceName": "iPhone 17" } },
+          "expect": { "nativeApp": true, "platform": "ios" }
+        },
+        {
+          "name": "a browser named in a vendor bag is read",
+          "capabilities": { "platformName": "iOS", "bstack:options": { "browserName": "safari" } },
+          "expect": { "nativeApp": false, "platform": "ios" }
+        },
+        {
+          "name": "two levels down is not read",
+          "capabilities": { "outer": { "inner": { "platformName": "Android" } } },
+          "expect": { "nativeApp": false, "platform": null }
+        },
+        {
+          "name": "a request-shaped firstMatch list is not read",
+          "capabilities": { "firstMatch": [{ "platformName": "Android", "appium:automationName": "UiAutomator2" }] },
+          "expect": { "nativeApp": false, "platform": null }
+        },
+        {
+          "name": "an automation without a device platform is native",
+          "capabilities": { "platformName": "mac", "appium:automationName": "Mac2" },
+          "expect": { "nativeApp": true, "platform": null }
+        },
+        {
+          "name": "an unprefixed automationName counts",
+          "capabilities": { "automationName": "Windows" },
+          "expect": { "nativeApp": true, "platform": null }
+        },
+        {
+          "name": "a blank browserName is no browser",
+          "capabilities": { "platformName": "Android", "browserName": "  " },
+          "expect": { "nativeApp": true, "platform": "android" }
+        },
+        {
+          "name": "an empty browserName is no browser",
+          "capabilities": { "platformName": "Android", "browserName": "" },
+          "expect": { "nativeApp": true, "platform": "android" }
+        },
+        {
+          "name": "a non-string platformName is no platform",
+          "capabilities": { "platformName": 7, "browserName": "chrome" },
+          "expect": { "nativeApp": false, "platform": null }
+        },
+        {
+          "name": "an unknown platform with no automation is web",
+          "capabilities": { "platformName": "tizen" },
+          "expect": { "nativeApp": false, "platform": null }
+        }
+      ]
+    },
+    "runId": {
+      "mirrors": {
+        "ts": "core/run-id.ts resolveRunId",
+        "py": "run_id.py resolve_run_id (first run in the process; reset_run_id is Python-only)"
+      },
+      "notes": "env is the variable's value before the call, null for unset. \"inherited\" means the call returned env unchanged; \"generated\" means it returned a new UUID and published it to the variable.",
+      "envVar": "DEVTOOLS_RUN_ID",
+      "cases": [
+        { "name": "an inherited id is adopted", "env": "run-from-the-launcher", "expect": "inherited" },
+        { "name": "an unset variable mints an id", "env": null, "expect": "generated" },
+        { "name": "an empty variable mints an id", "env": "", "expect": "generated" }
+      ]
+    },
+    "outputDir": {
+      "mirrors": {
+        "ts": "core/output-dir.ts resolveAdapterOutputDir",
+        "py": "output_dir.py resolve_adapter_output_dir"
+      },
+      "notes": "Paths are relative to a fresh temporary root. dirs are created, readOnly ones are then made unwritable. <installed> is each ecosystem's installed-package folder: node_modules in TypeScript, site-packages in Python. Inputs are absolute because the two return a relative explicit directory differently (TypeScript as given, Python made absolute), which resolve to the same place at write time. configPath is TypeScript-only and has no cases.",
+      "cases": [
+        {
+          "name": "the spec's folder is preferred",
+          "dirs": ["specs", "cwd"],
+          "input": { "testFilePath": "specs/login.spec", "fallbackDir": "cwd" },
+          "expect": "specs/test-results"
+        },
+        {
+          "name": "an explicit directory wins even when it does not exist",
+          "dirs": ["specs", "cwd"],
+          "input": { "userConfiguredDir": "chosen", "testFilePath": "specs/login.spec", "fallbackDir": "cwd" },
+          "expect": "chosen/test-results"
+        },
+        {
+          "name": "an explicit directory wins even when it is read-only",
+          "dirs": ["chosen", "cwd"],
+          "readOnly": ["chosen"],
+          "input": { "userConfiguredDir": "chosen", "fallbackDir": "cwd" },
+          "expect": "chosen/test-results"
+        },
+        {
+          "name": "an empty explicit directory is ignored",
+          "dirs": ["specs", "cwd"],
+          "input": { "userConfiguredDir": "", "testFilePath": "specs/login.spec", "fallbackDir": "cwd" },
+          "expect": "specs/test-results"
+        },
+        {
+          "name": "a read-only spec folder falls through",
+          "dirs": ["specs", "cwd"],
+          "readOnly": ["specs"],
+          "input": { "testFilePath": "specs/login.spec", "fallbackDir": "cwd" },
+          "expect": "cwd/test-results"
+        },
+        {
+          "name": "a missing spec folder falls through",
+          "dirs": ["cwd"],
+          "input": { "testFilePath": "gone/login.spec", "fallbackDir": "cwd" },
+          "expect": "cwd/test-results"
+        },
+        {
+          "name": "a spec inside an installed package falls through",
+          "dirs": ["<installed>/pkg/specs", "cwd"],
+          "input": { "testFilePath": "<installed>/pkg/specs/login.spec", "fallbackDir": "cwd" },
+          "expect": "cwd/test-results"
+        },
+        {
+          "name": "a spec directly in the installed-package folder falls through",
+          "dirs": ["<installed>", "cwd"],
+          "input": { "testFilePath": "<installed>/login.spec", "fallbackDir": "cwd" },
+          "expect": "cwd/test-results"
+        },
+        {
+          "name": "the fallback is used when nothing is writable",
+          "dirs": ["specs", "cwd"],
+          "readOnly": ["specs", "cwd"],
+          "input": { "testFilePath": "specs/login.spec", "fallbackDir": "cwd" },
+          "expect": "cwd/test-results"
+        }
+      ]
+    },
+    "commandRowId": {
+      "mirrors": {
+        "ts": "core/session-capturer.ts SessionCapturerBase commandCounter, sendCommand",
+        "py": "capturer.py SessionCapturer._command_counter, capture_command"
+      },
+      "notes": "A process draws one integer below randomBound and its rows take consecutive ids from draw * rowsPerProcess, so processes sharing a dashboard do not collide. ids are the first rows' ids for that draw; the largest stays below 2**53.",
+      "randomBound": 4294967296,
+      "rowsPerProcess": 1048576,
+      "cases": [
+        { "name": "the lowest draw", "draw": 0, "ids": [0, 1, 2] },
+        { "name": "a small draw", "draw": 1, "ids": [1048576, 1048577, 1048578] },
+        { "name": "the highest draw", "draw": 4294967295, "ids": [4503599626321920, 4503599626321921] }
+      ]
+    },
+    "waitPollKeys": {
+      "mirrors": {
+        "ts": "selenium-devtools/src/wait-tracking.ts waitPollOf",
+        "py": "wait_tracking.py poll_of"
+      },
+      "notes": "polls are the evaluations of one wait's condition; each issues its calls in order. expect gives each call a group name: two calls share a poll key exactly when they share a name. outsideWait calls are issued with no wait running and have no key. The key strings themselves are internal and differ between the languages. Object arguments are not covered: Python sorts their keys and TypeScript keeps insertion order, which only differs when one call site builds the same object in two orders.",
+      "cases": [
+        {
+          "name": "a call repeated on every poll keeps one key",
+          "polls": [
+            [{ "command": "findElement", "args": ["css selector", "#late"], "selector": "#late" }],
+            [{ "command": "findElement", "args": ["css selector", "#late"], "selector": "#late" }],
+            [{ "command": "findElement", "args": ["css selector", "#late"], "selector": "#late" }]
+          ],
+          "expect": [["find"], ["find"], ["find"]]
+        },
+        {
+          "name": "the same call twice in one evaluation is two keys",
+          "polls": [
+            [
+              { "command": "getText", "args": [], "selector": "#status" },
+              { "command": "getText", "args": [], "selector": "#status" }
+            ],
+            [
+              { "command": "getText", "args": [], "selector": "#status" },
+              { "command": "getText", "args": [], "selector": "#status" }
+            ]
+          ],
+          "expect": [["first", "second"], ["first", "second"]]
+        },
+        {
+          "name": "command, args and target each tell calls apart",
+          "polls": [
+            [
+              { "command": "getText", "args": [], "selector": "#a" },
+              { "command": "getText", "args": [], "selector": "#b" },
+              { "command": "getText", "args": [], "selector": null },
+              { "command": "isDisplayed", "args": [], "selector": "#a" },
+              { "command": "getAttribute", "args": ["value"], "selector": "#a" },
+              { "command": "getAttribute", "args": ["href"], "selector": "#a" }
+            ]
+          ],
+          "expect": [["textA", "textB", "textNone", "shownA", "valueA", "hrefA"]]
+        },
+        {
+          "name": "a call's key does not depend on what the evaluation issued before it",
+          "polls": [
+            [
+              { "command": "getText", "args": [], "selector": "#a" },
+              { "command": "getText", "args": [], "selector": "#b" }
+            ],
+            [
+              { "command": "getText", "args": [], "selector": "#b" },
+              { "command": "getText", "args": [], "selector": "#a" }
+            ]
+          ],
+          "expect": [["a", "b"], ["b", "a"]]
+        },
+        {
+          "name": "a call outside any wait has no key",
+          "outsideWait": [{ "command": "getText", "args": [], "selector": "#a" }]
+        }
+      ]
+    },
+    "nestedWaitIdentity": {
+      "mirrors": {
+        "ts": "selenium-devtools/src/wait-tracking.ts scopeFor, nestedWaitIdentity",
+        "py": "wait_tracking.py _scope_for"
+      },
+      "notes": "outerPolls are the evaluations of an outer wait's condition; each starts the listed inner waits, in order, from ONE shared helper line, so the call site cannot tell them apart. A, B and C are anonymous conditions with different bodies and no description or name. expect gives each inner wait a scope name: two inner waits share a scope (and so fold their polls into the same rows) exactly when they share a name.",
+      "cases": [
+        {
+          "name": "the same inner wait on every outer poll keeps its scope",
+          "outerPolls": [["A"], ["A"], ["A"]],
+          "expect": [["a"], ["a"], ["a"]]
+        },
+        {
+          "name": "two inner waits in one evaluation are two scopes",
+          "outerPolls": [["A", "B"], ["A", "B"]],
+          "expect": [["a", "b"], ["a", "b"]]
+        },
+        {
+          "name": "the same condition twice in one evaluation is two scopes",
+          "outerPolls": [["A", "A"], ["A", "A"]],
+          "expect": [["first", "second"], ["first", "second"]]
+        },
+        {
+          "name": "a different condition on the next outer poll is a different wait",
+          "outerPolls": [["A"], ["B"], ["C"], ["A"]],
+          "expect": [["a"], ["b"], ["c"], ["a"]]
+        }
+      ]
+    },
+    "performancePayload": {
+      "mirrors": {
+        "ts": "core/performance-capture.ts applyPerformanceData",
+        "py": "performance.py apply_performance_data"
+      },
+      "notes": "row is the command row after the call, absent when nothing was applied. A field that is null or absent is absent here: TypeScript leaves undefined, which the wire drops, and Python writes None. navigation is an object or absent; the page script yields nothing else.",
+      "cases": [
+        {
+          "name": "a full payload is folded onto the row",
+          "payload": {
+            "navigation": { "url": "https://example.test/login", "timing": { "loadTime": 812, "domReady": 401 } },
+            "resources": [{ "url": "https://example.test/app.js", "duration": 30, "size": 1200, "type": "script", "startTime": 5, "responseEnd": 35 }],
+            "cookies": "session=abc",
+            "documentInfo": { "url": "https://example.test/login", "title": "Login", "headers": { "userAgent": "UA", "language": "en", "platform": "MacIntel" }, "documentInfo": { "readyState": "complete", "referrer": "", "characterSet": "UTF-8" } }
+          },
+          "navigatedUrl": "https://example.test/login",
+          "expect": {
+            "applied": true,
+            "row": {
+              "command": "url",
+              "performance": {
+                "navigation": { "url": "https://example.test/login", "timing": { "loadTime": 812, "domReady": 401 } },
+                "resources": [{ "url": "https://example.test/app.js", "duration": 30, "size": 1200, "type": "script", "startTime": 5, "responseEnd": 35 }]
+              },
+              "cookies": "session=abc",
+              "documentInfo": { "url": "https://example.test/login", "title": "Login", "headers": { "userAgent": "UA", "language": "en", "platform": "MacIntel" }, "documentInfo": { "readyState": "complete", "referrer": "", "characterSet": "UTF-8" } },
+              "result": {
+                "url": "https://example.test/login",
+                "loadTime": 812,
+                "resources": [{ "url": "https://example.test/app.js", "duration": 30, "size": 1200, "type": "script", "startTime": 5, "responseEnd": 35 }],
+                "resourceCount": 1,
+                "cookies": "session=abc",
+                "title": "Login"
+              }
+            }
+          }
+        },
+        {
+          "name": "a refresh names no url",
+          "payload": {
+            "navigation": { "url": "https://example.test/", "timing": { "loadTime": 90 } },
+            "resources": [],
+            "cookies": "",
+            "documentInfo": { "url": "https://example.test/", "title": "" }
+          },
+          "navigatedUrl": null,
+          "expect": {
+            "applied": true,
+            "row": {
+              "command": "url",
+              "performance": { "navigation": { "url": "https://example.test/", "timing": { "loadTime": 90 } }, "resources": [] },
+              "cookies": "",
+              "documentInfo": { "url": "https://example.test/", "title": "" },
+              "result": { "loadTime": 90, "resources": [], "resourceCount": 0, "cookies": "", "title": "" }
+            }
+          }
+        },
+        {
+          "name": "a navigation without timing has no load time",
+          "payload": { "navigation": { "url": "https://example.test/" }, "resources": [] },
+          "navigatedUrl": "https://example.test/",
+          "expect": {
+            "applied": true,
+            "row": {
+              "command": "url",
+              "performance": { "navigation": { "url": "https://example.test/" }, "resources": [] },
+              "result": { "url": "https://example.test/", "resources": [], "resourceCount": 0 }
+            }
+          }
+        },
+        {
+          "name": "a payload missing resources and documentInfo leaves them absent",
+          "payload": { "navigation": { "url": "https://example.test/", "timing": { "loadTime": 5 } } },
+          "navigatedUrl": "https://example.test/",
+          "expect": {
+            "applied": true,
+            "row": {
+              "command": "url",
+              "performance": { "navigation": { "url": "https://example.test/", "timing": { "loadTime": 5 } } },
+              "result": { "url": "https://example.test/", "loadTime": 5 }
+            }
+          }
+        },
+        {
+          "name": "an empty navigation object is still a navigation",
+          "payload": { "navigation": {}, "resources": [] },
+          "navigatedUrl": null,
+          "expect": {
+            "applied": true,
+            "row": {
+              "command": "url",
+              "performance": { "navigation": {}, "resources": [] },
+              "result": { "resources": [], "resourceCount": 0 }
+            }
+          }
+        },
+        {
+          "name": "a read that landed before the navigation entry applies nothing",
+          "payload": { "resources": [{ "url": "https://example.test/a.css" }], "cookies": "a=1" },
+          "navigatedUrl": "https://example.test/",
+          "expect": { "applied": false, "row": { "command": "url" } }
+        },
+        {
+          "name": "a null navigation applies nothing",
+          "payload": { "navigation": null },
+          "navigatedUrl": null,
+          "expect": { "applied": false, "row": { "command": "url" } }
+        },
+        {
+          "name": "no payload applies nothing",
+          "payload": null,
+          "navigatedUrl": null,
+          "expect": { "applied": false, "row": { "command": "url" } }
+        }
+      ]
+    }
+  }
+}

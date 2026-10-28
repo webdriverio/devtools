@@ -97,24 +97,30 @@ def apply_performance_data(
     if not isinstance(payload, dict):
         return False
     navigation = payload.get("navigation")
-    if not navigation:
+    # An object, even an empty one, is a navigation: core reads it as truthy.
+    if not isinstance(navigation, dict):
         return False
-    resources = payload.get("resources") or []
-    document_info = payload.get("documentInfo") or {}
-    entry["performance"] = {"navigation": navigation, "resources": resources}
-    entry["cookies"] = payload.get("cookies")
-    entry["documentInfo"] = document_info
+    resources = payload.get("resources")
+    document_info = payload.get("documentInfo")
+    # A field the page did not answer stays absent, as core leaves it undefined;
+    # an invented `[]` or `0` would claim the page had no resources.
+    entry["performance"] = _present(navigation=navigation, resources=resources)
+    entry.update(_present(cookies=payload.get("cookies"), documentInfo=document_info))
     # The row's own result: what the Actions panel prints for a navigation, in
     # the shape the dashboard already renders for the JS adapters.
-    entry["result"] = {
-        "url": navigated_url,
-        "loadTime": (navigation.get("timing") or {}).get("loadTime"),
-        "resources": resources,
-        "resourceCount": len(resources),
-        "cookies": payload.get("cookies"),
-        "title": document_info.get("title"),
-    }
+    entry["result"] = _present(
+        url=navigated_url,
+        loadTime=(navigation.get("timing") or {}).get("loadTime"),
+        resources=resources,
+        resourceCount=len(resources) if isinstance(resources, list) else None,
+        cookies=payload.get("cookies"),
+        title=document_info.get("title") if isinstance(document_info, dict) else None,
+    )
     return True
+
+
+def _present(**fields: Any) -> Dict[str, Any]:
+    return {k: v for k, v in fields.items() if v is not None}
 
 
 def navigated_url(args: Any) -> Optional[str]:

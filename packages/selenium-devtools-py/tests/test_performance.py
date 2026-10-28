@@ -87,13 +87,16 @@ class TestShapingThePayload(unittest.TestCase):
                 )
                 self.assertNotIn("performance", row)
 
-    def test_missing_resources_are_an_empty_list_not_an_absence(self):
+    def test_missing_resources_stay_absent_as_in_core(self):
+        # `[]` and `0` would claim the page listed no resources; core leaves
+        # them undefined, and shared types the field optional.
         row = {"command": "get", "timestamp": 1000}
 
         performance.apply_performance_data(row, {"navigation": {"url": "u"}}, "u")
 
-        self.assertEqual(row["performance"]["resources"], [])
-        self.assertEqual(row["result"]["resourceCount"], 0)
+        self.assertNotIn("resources", row["performance"])
+        self.assertNotIn("resourceCount", row["result"])
+        self.assertNotIn("documentInfo", row)
 
 
 class TestTheUrlTheCommandWasGiven(unittest.TestCase):

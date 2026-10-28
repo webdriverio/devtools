@@ -14,6 +14,10 @@ name: Python Adapter
 # turn red here are the drift check and the tests' wire-schema validation, and
 # both mean that PR broke this contract. Scoped to `src/` and the schema so a
 # version bump or a README edit under shared does not trigger it.
+#
+# `mirror-vectors.json` holds the cases this adapter's pure logic shares with
+# its TypeScript counterparts; vitest runs them on every PR, this job runs them
+# against Python only when it is triggered, hence the path.
 on:
   push:
     branches:
@@ -22,6 +26,7 @@ on:
       - packages/selenium-devtools-py/**
       - packages/shared/src/**
       - packages/shared/wire-schema.json
+      - packages/shared/mirror-vectors.json
       - .github/workflows/python.yml
       - .github/workflows/python-release.yml
       - .github/actions/python-package/**
@@ -30,6 +35,7 @@ on:
       - packages/selenium-devtools-py/**
       - packages/shared/src/**
       - packages/shared/wire-schema.json
+      - packages/shared/mirror-vectors.json
       - .github/workflows/python.yml
       - .github/workflows/python-release.yml
       - .github/actions/python-package/**
