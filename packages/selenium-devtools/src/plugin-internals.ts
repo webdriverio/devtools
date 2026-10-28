@@ -14,6 +14,7 @@ import type { TestManager } from './helpers/testManager.js'
 import type { ScreencastRecorder } from './screencast.js'
 import type {
   ActionSnapshot,
+  DetectedRunner,
   DevToolsMode,
   ScreencastFrame,
   ScreencastOptions,
@@ -40,7 +41,7 @@ export interface PluginInternals {
   readonly screencastOptions: ScreencastOptions
   /** The JS test runner `detectRunner` found (mocha/jest/cucumber). Distinct
    *  from `Metadata.runner`, which names this adapter for every one of them. */
-  readonly detectedRunner: string
+  readonly detectedRunner: DetectedRunner
   readonly rerunTemplate: string | undefined
   readonly launchCommand: string | undefined
   readonly isReuse: boolean
