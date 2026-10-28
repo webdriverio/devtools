@@ -116,6 +116,22 @@ describe('resolveAssertTargetFromArgs', () => {
     expect(resolveAssertTargetFromArgs([])).toBeUndefined()
   })
 
+  // Regression: the title's "no element" was skipped and the expected literal's element boxed.
+  it('stops at a subject no element owns instead of boxing the expected value', () => {
+    rememberReadValue('You logged in', '#flash')
+    rememberReadValue('Secure Area', undefined)
+    expect(
+      resolveAssertTargetFromArgs(['Secure Area', 'You logged in'])
+    ).toBeUndefined()
+  })
+
+  it('still resolves the expected value when the subject was never read', () => {
+    rememberReadValue('Welcome back', '#greeting')
+    expect(
+      resolveAssertTargetFromArgs(['computed locally', 'Welcome back'])
+    ).toBe('#greeting')
+  })
+
   it('prefers the adapter handle resolver over the value registry', () => {
     // Selenium's case: an element handle passed straight to the assert names its
     // own locator, and that beats whatever a read of the same object said.
