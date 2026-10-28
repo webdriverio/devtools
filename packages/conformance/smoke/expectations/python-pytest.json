@@ -7,12 +7,16 @@
       "test": "test_logs_in_with_valid_credentials",
       "rows": [
         "Page.navigate",
+        "Element.waitForDisplayed",
         "Element.fill",
         "Element.fill",
         "Element.click",
+        "Element.waitForDisplayed",
         "Element.getText",
         "Page.getUrl",
+        "Element.waitForDisplayed",
         "Element.click",
+        "Element.waitForDisplayed",
         "Page.getUrl"
       ],
       "error": false
@@ -21,9 +25,11 @@
       "test": "test_rejects_invalid_credentials",
       "rows": [
         "Page.navigate",
+        "Element.waitForDisplayed",
         "Element.fill",
         "Element.fill",
         "Element.click",
+        "Element.waitForDisplayed",
         "Element.getText",
         "Page.getUrl"
       ],
@@ -31,7 +37,7 @@
     },
     {
       "test": "test_the_login_page_loads",
-      "rows": ["Page.navigate", "Page.getTitle"],
+      "rows": ["Page.navigate", "Element.waitForDisplayed", "Page.getTitle"],
       "error": false
     }
   ]

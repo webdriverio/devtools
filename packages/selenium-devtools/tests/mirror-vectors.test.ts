@@ -48,6 +48,7 @@ interface Section<C> {
 type Named = { name: string }
 
 const vectors = JSON.parse(fs.readFileSync(VECTORS_PATH, 'utf8')) as {
+  notCovered: Record<string, string>
   sections: Record<string, Section<Named>>
 }
 
@@ -66,8 +67,19 @@ const RUNNERS = [
   'performancePayload'
 ]
 
+/** Sections with no TypeScript side yet; each must say why in `notCovered`. */
+const PYTHON_ONLY = ['waitRowNaming']
+
 it('runs every section the vectors file declares', () => {
-  expect(Object.keys(vectors.sections).sort()).toEqual([...RUNNERS].sort())
+  expect(Object.keys(vectors.sections).sort()).toEqual(
+    [...RUNNERS, ...PYTHON_ONLY].sort()
+  )
+})
+
+it('skips only the sections notCovered explains', () => {
+  for (const name of PYTHON_ONLY) {
+    expect(vectors.notCovered[name], name).toEqual(expect.any(String))
+  }
 })
 
 /** Groups must partition the observed values the same way: equal names exactly where values are equal. */

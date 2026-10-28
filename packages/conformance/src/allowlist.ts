@@ -5,7 +5,7 @@ import {
   KNOWN_DEBT,
   RULES
 } from './constants.js'
-import { anyOf, hunk } from './gap-matchers.js'
+import { anyOf, hunk, hunkInside } from './gap-matchers.js'
 import { scenarioIndex } from './scenario-tests.js'
 import type {
   AdapterId,
@@ -63,18 +63,17 @@ export const KNOWN_GAPS: KnownGap[] = [
   ...BIDI_MODES.flatMap((bidi) => [
     ...nightwatchGaps(bidi),
     ...seleniumGaps(bidi),
-    ...pythonGaps(bidi),
-    ...waitRowGaps(bidi)
+    ...waitRowGaps(bidi),
+    ...serviceGaps(bidi)
   ])
 ]
 
-/** No adapter yet sends a wait as one row that parents the commands it issued: each its own way. */
+/** The adapters that do not yet send a wait as one row parenting the commands it issued: each its own way. */
 function waitRowGaps(bidi: BidiMode): KnownGap[] {
   const reasons: [AdapterId, string][] = [
     ['devtools-service', KNOWN_DEBT.serviceWaitRows],
     ['nightwatch-devtools', KNOWN_DEBT.nightwatchWaitRows],
-    ['selenium-devtools', KNOWN_DEBT.seleniumWaitRows],
-    ['selenium-devtools-py', KNOWN_DEBT.pythonWaitRows]
+    ['selenium-devtools', KNOWN_DEBT.seleniumWaitRows]
   ]
   return reasons.map(([adapter, reason]) => ({
     adapter,
@@ -114,6 +113,30 @@ function nightwatchGaps(bidi: BidiMode): KnownGap[] {
   ]
 }
 
+/** The service's condition waits hide the reads an adapter that nests them shows inside the wait. */
+function serviceGaps(bidi: BidiMode): KnownGap[] {
+  const adapter = 'devtools-service'
+  const inside = (reads: string[]) =>
+    hunkInside(
+      WAITS,
+      'Browser.waitForFunction',
+      'its start',
+      adapter,
+      '',
+      reads.map((selector) => `Element.getText ${selector}`).join(', ')
+    )
+  return [
+    {
+      adapter,
+      bidi,
+      rules: [RULES.agreeOnActions],
+      only: anyOf(inside(CONDITION_WAIT_READS), inside([HELPER_WAIT_READ])),
+      reason: KNOWN_DEBT.serviceWaitRows,
+      against: 'selenium-devtools-py'
+    }
+  ]
+}
+
 function seleniumGaps(bidi: BidiMode): KnownGap[] {
   const adapter = 'selenium-devtools'
   return [
@@ -137,48 +160,6 @@ function seleniumGaps(bidi: BidiMode): KnownGap[] {
       rules: [RULES.agreeOnActions],
       lacksSteps: [FLASH_WAIT],
       reason: KNOWN_DEBT.seleniumWait,
-      against: 'devtools-service'
-    },
-    {
-      adapter,
-      bidi,
-      rules: [RULES.agreeOnActions],
-      only: hunk(
-        WAITS,
-        'Element.getText #flash',
-        adapter,
-        CONDITION_READS,
-        CONDITION_WAITS
-      ),
-      reason: KNOWN_DEBT.conditionWait,
-      against: 'devtools-service'
-    }
-  ]
-}
-
-function pythonGaps(bidi: BidiMode): KnownGap[] {
-  const adapter = 'selenium-devtools-py'
-  return [
-    {
-      adapter,
-      bidi,
-      rules: [RULES.agreeOnActions],
-      only: hunk(
-        MISSING,
-        'its start',
-        adapter,
-        'Browser.waitForFunction',
-        'Element.waitForExist #missing'
-      ),
-      reason: KNOWN_DEBT.pythonFailedWait,
-      against: 'devtools-service'
-    },
-    {
-      adapter,
-      bidi,
-      rules: [RULES.agreeOnActions],
-      lacksSteps: [FLASH_WAIT],
-      reason: KNOWN_DEBT.pythonWait,
       against: 'devtools-service'
     },
     {

@@ -443,34 +443,34 @@ describe('a gap that declares what its holder lacks', () => {
     )
 
   it('drops the lacked step from both sides and compares the rest', () => {
-    const py = report(
-      'selenium-devtools-py',
-      stream(2, PY, { more: [assertion('#flash')] })
+    const sel = report(
+      'selenium-devtools',
+      stream(2, JS, { more: [assertion('#flash')] })
     )
-    const runs = [service(), py]
+    const runs = [service(), sel]
     expect(compareRuns(runs)).toEqual([])
     expect(judgeDivergences([], runs).stale.filter(declaresLacks)).toEqual([])
   })
 
   it('excuses nothing else: a difference past the lacked step still fails', () => {
-    const py = report(
-      'selenium-devtools-py',
-      stream(2, PY, {
+    const sel = report(
+      'selenium-devtools',
+      stream(2, JS, {
         more: [{ ...assertion('#flash'), command: 'assert.notEqual' }]
       })
     )
-    const runs = [service(), py]
+    const runs = [service(), sel]
     const { unexplained } = judgeDivergences(compareRuns(runs), runs)
     expect(unexplained.map((d) => d.rule)).toEqual([RULES.agreeOnActions])
     expect(unexplained[0].message).toContain('Assert.notEqual')
   })
 
   it('goes stale once the holder shows the step it declared lacking', () => {
-    const py = report(
-      'selenium-devtools-py',
-      stream(2, PY, { more: [wait, assertion('#flash')] })
+    const sel = report(
+      'selenium-devtools',
+      stream(2, JS, { more: [wait, assertion('#flash')] })
     )
-    const { stale } = judgeDivergences([], [service(), py])
+    const { stale } = judgeDivergences([], [service(), sel])
     expect(stale.filter(declaresLacks).map((g) => g.lacksSteps)).toEqual([
       ['Element.waitForExist #flash']
     ])
@@ -516,15 +516,15 @@ describe('comparing past a difference', () => {
         ]
       })
     )
-    const py = report(
-      'selenium-devtools-py',
-      stream(2, PY, { more: [{ command: 'assert.equal', error: failed }] })
+    const sel = report(
+      'selenium-devtools',
+      stream(2, JS, { more: [{ command: 'assert.equal', error: failed }] })
     )
-    const runs = [js, py]
+    const runs = [js, sel]
     const { unexplained } = judgeDivergences(compareRuns(runs), runs)
     expect(unexplained.map((d) => d.rule)).toEqual([RULES.agreeOnErrors])
     expect(unexplained[0].message).toContain(
-      'Assert.equal: devtools-service ok, selenium-devtools-py failed'
+      'Assert.equal: devtools-service ok, selenium-devtools failed'
     )
   })
 
@@ -584,15 +584,15 @@ describe('a lack its holder contradicts', () => {
       'devtools-service',
       stream(1, JS, { more: [{ command: 'waitForExist', selector: '#flash' }] })
     )
-    const py = report(
-      'selenium-devtools-py',
-      stream(2, PY, { more: [{ command: 'waitUntil' }] })
+    const sel = report(
+      'selenium-devtools',
+      stream(2, JS, { more: [{ command: 'waitUntil' }] })
     )
-    const runs = [js, py]
+    const runs = [js, sel]
     const { unexplained, stale } = judgeDivergences(compareRuns(runs), runs)
     expect(unexplained.map((d) => d.message)).toEqual([
       expect.stringContaining(
-        'devtools-service shows [Element.waitForExist #flash], selenium-devtools-py shows [Browser.waitForFunction]'
+        'devtools-service shows [Element.waitForExist #flash], selenium-devtools shows [Browser.waitForFunction]'
       )
     ])
     expect(stale.filter((g) => g.lacksSteps).map((g) => g.lacksSteps)).toEqual([

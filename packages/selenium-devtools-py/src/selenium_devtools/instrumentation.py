@@ -1038,6 +1038,7 @@ def install(
                 call_source=src,
                 selector=target,
                 replaces=wait_tracking.folds_into(poll),
+                parent_id=wait_tracking.parent_of(poll),
             )
             wait_tracking.note_poll_row(poll, failed)
             raise
@@ -1060,6 +1061,7 @@ def install(
             screenshot=shot,
             selector=selector,
             replaces=wait_tracking.folds_into(poll),
+            parent_id=wait_tracking.parent_of(poll),
         )
         wait_tracking.note_poll_row(poll, row)
         _capture_action_snapshot(self, driver_command, row.get("timestamp", start), shot)

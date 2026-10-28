@@ -15,6 +15,8 @@ from pathlib import Path
 from typing import Any, Dict, List
 from unittest import mock
 
+from selenium.webdriver.support import expected_conditions as EC
+
 from selenium_devtools import (
     _contract,
     capturer,
@@ -47,6 +49,7 @@ RUNNERS = {
     "waitPollKeys",
     "nestedWaitIdentity",
     "performancePayload",
+    "waitRowNaming",
 }
 
 UUID4 = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
@@ -319,6 +322,30 @@ class TestPerformancePayload(unittest.TestCase):
                 row: Dict[str, Any] = {"command": "url"}
                 applied = performance.apply_performance_data(row, case["payload"], case["navigatedUrl"])
                 self.assertEqual({"applied": applied, "row": _without_nulls(row)}, case["expect"])
+
+
+class TestWaitRowNaming(unittest.TestCase):
+    FACTORIES = {
+        "elementLocated": EC.presence_of_element_located,
+        "elementVisible": EC.visibility_of_element_located,
+    }
+
+    def _condition(self, given: Dict[str, Any]) -> Any:
+        if given["factory"] == "titleIs":
+            return EC.title_is("Home")
+        if given["factory"] == "function":
+            return lambda _driver: True
+        locator = given["locator"]
+        return self.FACTORIES[given["factory"]]((locator["using"], locator["value"]))
+
+    def test_cases(self):
+        for case in _cases("waitRowNaming"):
+            with self.subTest(case["name"]):
+                given = case["condition"]
+                command, selector = wait_tracking.wait_row_name(
+                    self._condition(given), given.get("negated", False)
+                )
+                self.assertEqual({"command": command, "selector": selector}, case["expect"])
 
 
 if __name__ == "__main__":

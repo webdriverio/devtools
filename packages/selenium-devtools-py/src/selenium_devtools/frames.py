@@ -70,6 +70,7 @@ def command_log(
     screenshot: Optional[str] = None,
     selector: Optional[str] = None,
     test_uid: Optional[str] = None,
+    parent_id: Optional[int] = None,
 ) -> CommandLog:
     entry: CommandLog = {
         "command": command,
@@ -89,6 +90,8 @@ def command_log(
     # empty path and the archive carries no test boundaries at all.
     if test_uid:
         entry["testUid"] = test_uid
+    if parent_id is not None:
+        entry["parentId"] = parent_id
     if error is not None:
         entry["error"] = {
             "name": type(error).__name__,

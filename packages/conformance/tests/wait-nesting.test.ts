@@ -262,8 +262,7 @@ describe('the wait-row gaps', () => {
     for (const adapter of [
       'devtools-service',
       'nightwatch-devtools',
-      'selenium-devtools',
-      'selenium-devtools-py'
+      'selenium-devtools'
     ] as AdapterId[]) {
       for (const bidi of BIDI_MODES) {
         const gaps = gapsFor(adapter, bidi).filter((g) =>
@@ -273,6 +272,16 @@ describe('the wait-row gaps', () => {
         expect(gaps[0].reason).toContain('#464')
         expect(judge(adapter, bidi, []).stale).toContain(gaps[0])
       }
+    }
+  })
+
+  it('declares none for the Python adapter, which sends that shape', () => {
+    for (const bidi of BIDI_MODES) {
+      expect(
+        gapsFor('selenium-devtools-py', bidi).filter((g) =>
+          g.rules.includes(RULES.waitParentsItsRows)
+        )
+      ).toEqual([])
     }
   })
 })
