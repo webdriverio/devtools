@@ -13,7 +13,7 @@ import {
   type TraceMutation
 } from '@wdio/devtools-shared'
 
-import { ACTION_METHODS, RULES, SCOPES } from './constants.js'
+import { ACTION_METHODS, LOAD_MS, RULES, SCOPES } from './constants.js'
 import { checkCallSites } from './call-site.js'
 import { checkPageLevelAssertions, checkTestRows } from './scenario-tests.js'
 import type {
@@ -323,18 +323,21 @@ function navigationNamesDestination(
 
 // The page answers its timings after the row was sent, so a row is judged as its last replacement left it.
 function navigationTimings({ rows }: Stream): Violation[] {
-  return rows
-    .filter(
-      (r) =>
-        actionMethodOf(r) === 'navigate' &&
-        !r.error &&
-        !r.performance?.navigation
-    )
-    .map((r) => ({
-      rule: RULES.navigationTimings,
-      message: `${r.command}(${navigationTarget(r) ?? ''}) never carries the page's navigation timings`,
-      ...rowSubject(r)
-    }))
+  return (
+    rows
+      // The figure the fake page answers, so a navigation entry that lost its timings does not pass.
+      .filter(
+        (r) =>
+          actionMethodOf(r) === 'navigate' &&
+          !r.error &&
+          r.performance?.navigation?.timing?.loadTime !== LOAD_MS
+      )
+      .map((r) => ({
+        rule: RULES.navigationTimings,
+        message: `${r.command}(${navigationTarget(r) ?? ''}) never carries the page's navigation timings`,
+        ...rowSubject(r)
+      }))
+  )
 }
 
 // The nth row of an action kind is the nth such action the browser completed; an extra row is rowPerAction's finding.

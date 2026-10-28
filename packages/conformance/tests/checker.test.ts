@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { checkConformance } from '../src/checker.js'
-import { REPO_ROOT, RULES } from '../src/constants.js'
+import { LOAD_MS, REPO_ROOT, RULES } from '../src/constants.js'
 import type { GroundTruth, WireFrame } from '../src/types.js'
 
 const LOGIN = 'http://fake/login'
@@ -85,7 +85,10 @@ const row = (
 
 /** What a navigation row carries once the page has answered its Performance API read. */
 const timings = (url: string) => ({
-  performance: { navigation: { url, timing: { loadTime: 5 } }, resources: [] }
+  performance: {
+    navigation: { url, timing: { loadTime: LOAD_MS } },
+    resources: []
+  }
 })
 
 function conformingStream(): WireFrame[] {
@@ -504,6 +507,23 @@ describe('checkConformance', () => {
         subject: { kind: 'row', timestamp: 110 }
       }
     ])
+  })
+
+  it('does not count a navigation entry without its timing figures', () => {
+    const frames = [
+      ...conformingStream(),
+      {
+        scope: 'replaceCommand',
+        data: {
+          oldTimestamp: 340,
+          command: {
+            ...row('get', [SECURE], 330, 340),
+            performance: { navigation: {}, resources: [] }
+          }
+        }
+      }
+    ]
+    expect(rules(frames)).toEqual([RULES.navigationTimings])
   })
 
   it('judges a navigation row as its last replacement left it', () => {
