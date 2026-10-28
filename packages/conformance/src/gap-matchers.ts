@@ -1,5 +1,4 @@
 import { ADAPTERS } from './adapters.js'
-import { SCENARIO_TESTS } from './constants.js'
 import { testLabel } from './step-alignment.js'
 import type { AdapterId, MessageMatcher } from './types.js'
 
@@ -47,12 +46,6 @@ export function moved(
       )
     })
   }
-}
-
-/** A scenario test the suite tree reports in a given state. */
-export function reportedAs(test: number, state: string): MessageMatcher {
-  const lead = `"${SCENARIO_TESTS[test].title}" is reported ${state};`
-  return (message) => message.startsWith(lead)
 }
 
 export const anyOf =
