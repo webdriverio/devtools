@@ -42,6 +42,7 @@ Types, constants, enums, HTTP/WS contract definitions. Pure TypeScript, no runti
 Contains the canonical definitions for:
 
 - Domain types: `CommandLog`, `ConsoleLog`, `NetworkRequest`, `TraceMutation`, `Metadata`, `TraceLog`, `TraceType`, `TestStats`, `SuiteStats`, `TestStatus`, `TestError`, `ReporterError`, `PreservedAttempt`, `PreservedStep`, `PerformanceData`, `DocumentInfo`, `Viewport`, `ScreencastInfo`, `ScreencastFrame`, `ScreencastOptions`, `LogLevel`, `LogSource`.
+- Row nesting: `CommandLog.parentId` names the row whose execution issued a row (a wait's condition reads), and `nestCommands` (`command-tree.ts`) turns a flat row list into the tree the dashboard renders.
 - WS wire format: `SocketMessage<T>`, `WsMessageScope`, `WsPayloadFor<T>`, `ClearExecutionDataWsPayload`, `ReplaceCommandWsPayload`.
 - Routing/scope constants: `WS_PATHS`, `WS_SCOPE`, `BASELINE_WS_SCOPE`, `TESTS_API`, `BASELINE_API`.
 - Process-control env vars: `REUSE_ENV`, `RUNNER_ENV`.
@@ -61,7 +62,7 @@ Split out of `core` because **two layers need it and only one of them may import
 Contains:
 
 - `writeTraceZip` / `buildTraceZip` — the zip writer and its resource model (`TraceZipResource`).
-- `buildActionEvents` — commands → the ordered before/after event stream the player replays, including the `(startTime, sequence, index)` ordering key.
+- `buildActionEvents`: commands → the ordered before/after event stream the player replays, including the `(startTime, sequence, index)` ordering key, with a row's children written inside its span under its callId.
 - `buildGroupPath` — the suite/test/step hierarchy a row is nested under.
 - `buildImageFrameSnapshots` / `upsertRichestSnapshot` / `buildDenseScreencast` / `thinScreencastFrames` — filmstrip and per-action frame snapshots.
 - `buildMutationsNdjson` / `reattributeDomAnchors` — the DOM mutation stream and its anchor repositioning.
@@ -170,7 +171,7 @@ Contains:
 - WebSocket client for the live event stream.
 - Context providers (`@lit/context`) for each data stream.
 - `DataManagerController` — orchestrates the WS connection and the 11 context providers (one per scope).
-- Pure helpers: suite-merge logic, mark-running logic, run-detection logic, context-update transforms (`contextUpdates.ts`), runner-capability derivations (`runnerCapabilities.ts`).
+- Pure helpers: suite-merge logic, mark-running logic, run-detection logic, context-update transforms (`contextUpdates.ts`), runner-capability derivations (`runnerCapabilities.ts`), and the actions list's row trees (`action-tree.ts` for the player, `live-action-rows.ts` for the live list), which nest the rows a command issued under it, collapsed by default.
 
 Imports from: `shared`. Does not import: any adapter package, `backend` directly (only via WS/HTTP), `core`.
 

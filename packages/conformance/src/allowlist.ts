@@ -63,9 +63,26 @@ export const KNOWN_GAPS: KnownGap[] = [
   ...BIDI_MODES.flatMap((bidi) => [
     ...nightwatchGaps(bidi),
     ...seleniumGaps(bidi),
-    ...pythonGaps(bidi)
+    ...pythonGaps(bidi),
+    ...waitRowGaps(bidi)
   ])
 ]
+
+/** No adapter yet sends a wait as one row that parents the commands it issued: each its own way. */
+function waitRowGaps(bidi: BidiMode): KnownGap[] {
+  const reasons: [AdapterId, string][] = [
+    ['devtools-service', KNOWN_DEBT.serviceWaitRows],
+    ['nightwatch-devtools', KNOWN_DEBT.nightwatchWaitRows],
+    ['selenium-devtools', KNOWN_DEBT.seleniumWaitRows],
+    ['selenium-devtools-py', KNOWN_DEBT.pythonWaitRows]
+  ]
+  return reasons.map(([adapter, reason]) => ({
+    adapter,
+    bidi,
+    rules: [RULES.waitParentsItsRows],
+    reason
+  }))
+}
 
 /** Nightwatch's scenario gaps in one mode, each an adapter bug with its Known debt entry. */
 function nightwatchGaps(bidi: BidiMode): KnownGap[] {

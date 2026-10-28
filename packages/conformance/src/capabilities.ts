@@ -36,6 +36,8 @@ export const INTERNAL_RULES: Partial<Record<RuleId, string>> = {
     'Checks that every reported test owns at least one row, a precondition of every per-test view rather than a feature.',
   [RULES.pageAssertNamesNoElement]:
     'Checks that an assertion on the page title boxes no element in the trace player, one property of assertion capture rather than a feature of its own, and that capture is partial in two adapters.',
+  [RULES.waitParentsItsRows]:
+    'Checks how a wait renders (one row, its issued commands nested under it); every adapter still has a known gap against it, so it backs no tested cell.',
   [RULES.runControlsServed]:
     'Checks that every run control the dashboard offers has a command to serve it, not that Run, Rerun and Run all work.'
 }

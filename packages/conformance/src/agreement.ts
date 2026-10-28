@@ -6,7 +6,12 @@ import {
   isAgreementRule
 } from './allowlist.js'
 import { RULES } from './constants.js'
-import { describeRunControls, normalizeRun, pathOf } from './normalize.js'
+import {
+  allSteps,
+  describeRunControls,
+  normalizeRun,
+  pathOf
+} from './normalize.js'
 import {
   alignSteps,
   lacked,
@@ -139,11 +144,44 @@ function compareTwo(
       }
     }
     for (const [x, y] of [...pairs, ...moves.map((m) => [m.a, m.b] as const)]) {
-      compareStep(adapters, `${testLabel(test)}, ${stepKey(x)}`, x, y, add)
+      const where = `${testLabel(test)}, ${stepKey(x)}`
+      compareStep(adapters, where, x, y, add)
+      compareChildren(adapters, where, x, y, [lacksA, lacksB], add)
     }
   }
   compareRunWide(a, b, add)
   return out
+}
+
+// The steps a step issued are compared as their own sequence under it: aligned, then each pair as a step.
+function compareChildren(
+  adapters: [AdapterId, AdapterId],
+  where: string,
+  parentA: NormalizedStep,
+  parentB: NormalizedStep,
+  [lacksA, lacksB]: [Lacks, Lacks],
+  add: Add
+): void {
+  const targets = [...lacksA.targets, ...lacksB.targets]
+  const aligned = alignSteps(
+    withoutTargets(parentA.children ?? [], targets),
+    withoutTargets(parentB.children ?? [], targets)
+  )
+  for (const { pairs, hunks } of aligned) {
+    for (const hunk of hunks.map((h) => unexcused(h, lacksA, lacksB))) {
+      if (hunk.a.length || hunk.b.length) {
+        add(
+          RULES.agreeOnActions,
+          `${where}, inside it after ${afterOf(hunk)}: ${adapters[0]} shows [${list(hunk.a)}], ${adapters[1]} shows [${list(hunk.b)}]`
+        )
+      }
+    }
+    for (const [x, y] of pairs) {
+      const inner = `${where} > ${stepKey(x)}`
+      compareStep(adapters, inner, x, y, add)
+      compareChildren(adapters, inner, x, y, [lacksA, lacksB], add)
+    }
+  }
 }
 
 const list = (steps: NormalizedStep[]) => steps.map(stepKey).join(', ')
@@ -209,7 +247,9 @@ function lackUnused(
 ): boolean {
   const lacks: Lacks = { steps: gap.lacksSteps ?? [], targets: [] }
   const shown = (test: (s: NormalizedStep) => boolean) =>
-    comparedWith.some((r) => normalized.get(r.adapter)!.steps.some(test))
+    comparedWith.some((r) =>
+      allSteps(normalized.get(r.adapter)!.steps).some(test)
+    )
   return (
     (lacks.steps.length > 0 && !shown((s) => lacked(lacks, s))) ||
     (Boolean(gap.lacksTargets?.length) &&
@@ -230,7 +270,7 @@ function lackContradicted(
   }
   const steps = normalized.get(holder.adapter)!.steps
   if (
-    steps.some(
+    allSteps(steps).some(
       (s) =>
         lacked(lacks, s) ||
         (lacks.targets.includes(s.action) && s.target !== '')

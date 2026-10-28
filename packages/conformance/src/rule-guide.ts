@@ -151,6 +151,13 @@ export const RULE_GUIDE: Record<RuleId, RuleGuide> = {
       'Run capabilities are declared differently; derive them from the commands each adapter builds.',
     responsibility: 'transport'
   },
+  'wait-row-parents-its-commands': {
+    meaning:
+      'A wait is not one row holding what it did: a wait the test wrote has no row or the wrong name, or a command its condition issued renders beside it instead of nested under it.',
+    cause:
+      'The wait row is sent only when it completes, carries no id, or the commands issued while it runs do not carry that id as parentId.',
+    responsibility: 'command-interception'
+  },
   'one-row-per-browser-action': {
     meaning:
       'The rows do not match what the browser did: a navigation, click or keystroke is missing or appears twice.',

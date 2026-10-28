@@ -1,13 +1,16 @@
 import { describe, it, expect } from 'vitest'
 import type {
+  CommandLog,
   TraceActionChild,
   TraceActionGroupNode
 } from '@wdio/devtools-shared'
 
 import {
   collectCommandIndices,
+  defaultCommandExpanded,
   defaultExpanded,
   flattenActionTree,
+  nodeKey,
   rowKey
 } from '../src/components/workbench/action-tree.js'
 
@@ -86,7 +89,10 @@ describe('flattenActionTree', () => {
   })
 
   it('expands only the groups the predicate opens', () => {
-    const rows = flattenActionTree(root, (g) => g.callId === 'hook')
+    const rows = flattenActionTree(
+      root,
+      (node) => 'group' in node && node.group.callId === 'hook'
+    )
     expect(
       rows.map((row) =>
         row.kind === 'group' ? row.group.callId : row.commandIndex
@@ -119,5 +125,56 @@ describe('rowKey', () => {
     expect(numeric).not.toBe(
       rowKey({ kind: 'command', commandIndex: 2, depth: 0 })
     )
+  })
+})
+
+// A wait (command 0) that issued two reads (1, 2), inside a group.
+const WAIT = {
+  commandIndex: 0,
+  children: [{ commandIndex: 1 }, { commandIndex: 2 }]
+}
+const WITH_WAIT = group('test', [WAIT, { commandIndex: 3 }])
+const commands = (failedIndex?: number): CommandLog[] =>
+  [0, 1, 2, 3].map((i) => ({
+    command: 'c',
+    args: [],
+    timestamp: i,
+    ...(i === failedIndex ? { error: new Error('timed out') } : {})
+  }))
+
+describe('a command that issued others', () => {
+  it('counts its rows among the commands its group holds', () => {
+    expect(collectCommandIndices(WITH_WAIT)).toEqual([0, 1, 2, 3])
+    expect(defaultExpanded(WITH_WAIT, 2)).toBe(true)
+  })
+
+  it('opens by default when it failed or holds the active command, and stays shut otherwise', () => {
+    expect(defaultCommandExpanded(WAIT, commands(0))).toBe(true)
+    expect(defaultCommandExpanded(WAIT, commands(), 2)).toBe(true)
+    expect(defaultCommandExpanded(WAIT, commands(), 0)).toBe(false)
+    expect(defaultCommandExpanded(WAIT, commands(3), 3)).toBe(false)
+  })
+
+  it('renders as a command row that reports whether its rows are shown', () => {
+    const shut = flattenActionTree(
+      [{ group: WITH_WAIT }],
+      (node) => 'group' in node
+    )
+    expect(shut).toEqual([
+      { kind: 'group', group: WITH_WAIT, depth: 0, expanded: true },
+      { kind: 'command', commandIndex: 0, depth: 1, expanded: false },
+      { kind: 'command', commandIndex: 3, depth: 1 }
+    ])
+    const open = flattenActionTree([{ group: WITH_WAIT }], () => true)
+    expect(
+      open.map((row) => row.kind === 'command' && [row.commandIndex, row.depth])
+    ).toEqual([false, [0, 1], [1, 2], [2, 2], [3, 1]])
+  })
+
+  it('keys a command node the way its row is keyed', () => {
+    expect(nodeKey(WAIT)).toBe(
+      rowKey({ kind: 'command', commandIndex: 0, depth: 0 })
+    )
+    expect(nodeKey({ group: NESTED })).toBe('group:hook')
   })
 })

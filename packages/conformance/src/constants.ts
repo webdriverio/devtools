@@ -46,6 +46,7 @@ export const RULES = {
   failedTestExplained: 'failed-test-has-error-row',
   callSiteInScenario: 'call-site-names-the-scenario',
   testHasRows: 'every-test-has-rows',
+  waitParentsItsRows: 'wait-row-parents-its-commands',
   agreeOnActions: 'adapters-agree-on-actions',
   agreeOnErrors: 'adapters-agree-on-errors',
   agreeOnPages: 'adapters-agree-on-pages',
@@ -135,6 +136,16 @@ export const PAGE_TITLE_TEST = 'asserts on the page title'
 export const CONDITION_WAIT_READS = ['#flash', 'h2']
 export const HELPER_WAIT_READ = '#flash'
 
+/** The waits each scenario test writes, as normalized steps in order; a test not listed writes none. */
+export const SCENARIO_WAITS: Record<string, string[]> = {
+  'logs in and reads the greeting': ['Element.waitForExist #flash'],
+  'waits on what the page shows': [
+    'Browser.waitForFunction',
+    'Browser.waitForFunction'
+  ],
+  'times out waiting for a missing element': ['Element.waitForExist #missing']
+}
+
 export const ELEMENT_KEY = 'element-6066-11e4-a52e-4f735466cecf'
 
 // Long enough that a row stamped at invocation predates the page it loaded.
@@ -198,6 +209,8 @@ export const TARGET_MAX_CHARS = 120
 const debt = (entry: string, issue?: string) =>
   `CLAUDE.md Known debt: "${entry}"${issue ? ` (${issue})` : ''}.`
 
+const WAIT_ROW_DEBT = 'A wait is not yet one row parenting what it issued'
+
 const SELENIUM_WAIT_DEBT =
   'A Selenium or Python wait has no row when it succeeds, and a condition row when it fails'
 
@@ -207,7 +220,11 @@ export const KNOWN_DEBT = {
   seleniumWait: `A successful driver.wait() has no row of its own: its polls are findElements rows, which the trace vocabulary leaves unmapped. ${debt(SELENIUM_WAIT_DEBT, '#464')}`,
   seleniumFailedWait: `A timed-out driver.wait() is a wait row named after its condition, mapped to Browser.waitForFunction with no target, where the other adapters show Element.waitForExist on the selector. ${debt(SELENIUM_WAIT_DEBT, '#464')}`,
   pythonWait: `A successful WebDriverWait has no row of its own: its polls fold into findElement rows, which the trace vocabulary leaves unmapped. ${debt(SELENIUM_WAIT_DEBT, '#464')}`,
-  pythonFailedWait: `A timed-out WebDriverWait is a wait row named after its condition, mapped to Browser.waitForFunction with no target, where the other adapters show Element.waitForExist on the selector. ${debt(SELENIUM_WAIT_DEBT, '#464')}`
+  pythonFailedWait: `A timed-out WebDriverWait is a wait row named after its condition, mapped to Browser.waitForFunction with no target, where the other adapters show Element.waitForExist on the selector. ${debt(SELENIUM_WAIT_DEBT, '#464')}`,
+  serviceWaitRows: `The WebdriverIO service sends a wait row only once it completes and stamps it no id, and its waitUntil hides the reads its condition issues rather than nesting them. ${debt(WAIT_ROW_DEBT, '#464')}`,
+  nightwatchWaitRows: `Nightwatch sends a waitUntil row only once it completes, after the reads its condition issued, and those reads name no parent. ${debt(WAIT_ROW_DEBT, '#464')}`,
+  seleniumWaitRows: `A successful driver.wait() has no row, a timed-out one is named after its condition rather than its locator, and its polls name no parent. ${debt(WAIT_ROW_DEBT, '#464')}`,
+  pythonWaitRows: `A successful WebDriverWait has no row, a timed-out one is named after its condition rather than its locator, and its polls name no parent. ${debt(WAIT_ROW_DEBT, '#464')}`
 } as const
 export const README_PAGE = 'README.md'
 

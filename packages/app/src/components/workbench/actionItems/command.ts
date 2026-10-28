@@ -4,6 +4,7 @@ import { customElement, property } from 'lit/decorators.js'
 import type { CommandLog } from '@wdio/devtools-shared'
 
 import { ActionItem, ICON_CLASS } from './item.js'
+import type { RowToggleDetail } from '../action-tree.js'
 import {
   commandCategory,
   commandIcon,
@@ -18,6 +19,7 @@ import '~icons/mdi/check-circle-outline.js'
 import '~icons/mdi/close-circle-outline.js'
 import '~icons/mdi/text.js'
 import '~icons/mdi/code-tags.js'
+import '~icons/mdi/chevron-right.js'
 
 const SOURCE_COMPONENT = 'wdio-devtools-command-item'
 
@@ -42,6 +44,14 @@ export class CommandItem extends ActionItem {
   @property({ type: Object, attribute: true })
   entry?: CommandLog
 
+  /** Key a row that issued other rows (a wait's reads) toggles them by; unset on a row that issued none. */
+  @property({ attribute: false })
+  toggleKey?: string
+
+  /** Whether the rows this one issued are rendered below it. */
+  @property({ type: Boolean, reflect: true })
+  expanded = false
+
   willUpdate(): void {
     this.failed = Boolean(this.entry?.error)
   }
@@ -64,6 +74,39 @@ export class CommandItem extends ActionItem {
         }
       })
     )
+  }
+
+  // Inside the row's button, so it stops the click that would also select the row.
+  #toggle(event: Event) {
+    event.stopPropagation()
+    if (!this.toggleKey) {
+      return
+    }
+    this.dispatchEvent(
+      new CustomEvent<RowToggleDetail>('group-toggle', {
+        detail: { key: this.toggleKey, expanded: this.expanded },
+        bubbles: true,
+        composed: true
+      })
+    )
+  }
+
+  #renderToggle() {
+    if (!this.toggleKey) {
+      return
+    }
+    return html`<span
+      class="toggle flex-none"
+      role="button"
+      aria-label=${this.expanded ? 'Collapse' : 'Expand'}
+      aria-expanded=${this.expanded ? 'true' : 'false'}
+      @click=${(event: Event) => this.#toggle(event)}
+      ><icon-mdi-chevron-right
+        class="w-[14px] h-[14px] block shrink-0 mx-1 transition-transform ${
+          this.expanded ? 'rotate-90' : ''
+        }"
+      ></icon-mdi-chevron-right
+    ></span>`
   }
 
   #renderIcon(command: string): TemplateResult {
@@ -117,6 +160,7 @@ export class CommandItem extends ActionItem {
         class="flex px-1 w-full items-center hover:bg-toolbarHoverBackground"
         @click="${() => this.#highlightLine()}"
       >
+        ${this.#renderToggle()}
         ${this.iconChip(this.#renderIcon(entry.command))}
         <code class="label text-[12.5px] ${this.failed ? 'text-chartsRed' : ''}"
           >${capitalizeAssertLabel(entry.title ?? entry.command)}</code

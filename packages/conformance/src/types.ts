@@ -124,6 +124,8 @@ export interface NormalizedStep {
   at: number
   /** The scenario test the row ran in, as an index into SCENARIO_TESTS; -1 outside any. */
   test: number
+  /** The steps this one's execution issued (a wait's reads), nested under it as the dashboard nests them. */
+  children?: NormalizedStep[]
 }
 
 export interface NormalizedRun {

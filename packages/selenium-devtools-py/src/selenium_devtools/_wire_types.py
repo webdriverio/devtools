@@ -75,6 +75,7 @@ class CommandLog(_CommandLogRequired, total=False):
     cookies: str
     documentInfo: DocumentInfo
     id: float
+    parentId: float
     stepUid: str
     snapshotText: str
     point: CommandLogPoint

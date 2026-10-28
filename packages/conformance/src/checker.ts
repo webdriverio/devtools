@@ -16,6 +16,7 @@ import {
 import { ACTION_METHODS, LOAD_MS, RULES, SCOPES } from './constants.js'
 import { checkCallSites } from './call-site.js'
 import { checkPageLevelAssertions, checkTestRows } from './scenario-tests.js'
+import { checkWaitNesting } from './wait-nesting.js'
 import type {
   ActionMethod,
   GroundTruth,
@@ -44,7 +45,8 @@ export function checkConformance(
     ...requestSourceServed(stream, truth),
     ...checkCallSites(stream, truth.scenarioFile),
     ...checkTestRows(stream),
-    ...checkPageLevelAssertions(stream)
+    ...checkPageLevelAssertions(stream),
+    ...checkWaitNesting(stream)
   ]
 }
 

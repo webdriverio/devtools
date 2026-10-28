@@ -4,11 +4,7 @@ import { customElement, state } from 'lit/decorators.js'
 import { repeat } from 'lit/directives/repeat.js'
 import { consume } from '@lit/context'
 
-import type {
-  CommandLog,
-  TraceActionChild,
-  TraceActionGroupNode
-} from '@wdio/devtools-shared'
+import type { CommandLog, TraceActionChild } from '@wdio/devtools-shared'
 import {
   mutationContext,
   commandContext,
@@ -24,13 +20,22 @@ import { elapsedSince } from '../../utils/elapsed.js'
 import { entryDuration, stepDurations } from './actionItems/duration.js'
 import { activeSpanAt } from './active-entry.js'
 import {
+  defaultCommandExpanded,
   defaultExpanded,
   flattenActionTree,
+  nodeKey,
   rowKey,
-  type ActionTreeRow
+  type ActionTreeRow,
+  type RowToggleDetail
 } from './action-tree.js'
-
-type TimelineEntry = TraceMutation | CommandLog
+import {
+  defaultLiveExpanded,
+  liveActionRows,
+  liveRowKey,
+  visibleMutations,
+  type LiveRow,
+  type TimelineEntry
+} from './live-action-rows.js'
 
 const SOURCE_COMPONENT = 'wdio-devtools-actions'
 
@@ -95,8 +100,8 @@ export class DevtoolsActions extends Element {
   @state()
   private activeEntry?: TimelineEntry
 
-  // User chevron toggles, by group callId; unset groups follow the default
-  // (failed or containing the active command → open).
+  // User chevron toggles, by row key; an untouched group or a row that issued
+  // others follows the default (failed or containing the active command → open).
   @state()
   private expandOverrides: ReadonlyMap<string, boolean> = new Map()
 
@@ -112,14 +117,9 @@ export class DevtoolsActions extends Element {
   }
 
   #onGroupToggle = (event: Event) => {
-    const { callId, expanded } = (
-      event as CustomEvent<{ callId?: string; expanded: boolean }>
-    ).detail
-    if (!callId) {
-      return
-    }
+    const { key, expanded } = (event as CustomEvent<RowToggleDetail>).detail
     const next = new Map(this.expandOverrides)
-    next.set(callId, !expanded)
+    next.set(key, !expanded)
     this.expandOverrides = next
   }
 
@@ -181,16 +181,12 @@ export class DevtoolsActions extends Element {
     )
   }
 
-  // Mutations + commands merged and ordered by time — the timeline's rows.
-  // Only document-load mutations (childList with a url) are shown; individual
-  // node add/remove mutations are too noisy.
+  // Document loads + commands merged and ordered by time, nested rows included.
   #sortedEntries(): TimelineEntry[] {
-    const visibleMutations = (this.mutations || []).filter(
-      (m) => m.type === 'childList' && Boolean(m.url)
-    )
-    return [...visibleMutations, ...(this.commands || [])].sort(
-      (a, b) => a.timestamp - b.timestamp
-    )
+    return [
+      ...visibleMutations(this.mutations || []),
+      ...(this.commands || [])
+    ].sort((a, b) => a.timestamp - b.timestamp)
   }
 
   // Keep the action that's playing in view as the screencast scrubs.
@@ -210,9 +206,12 @@ export class DevtoolsActions extends Element {
       this.activeEntry && 'command' in this.activeEntry
         ? commands.indexOf(this.activeEntry)
         : -1
-    const isExpanded = (group: TraceActionGroupNode) =>
-      this.expandOverrides.get(group.callId) ??
-      defaultExpanded(group, activeIndex >= 0 ? activeIndex : undefined)
+    const active = activeIndex >= 0 ? activeIndex : undefined
+    const isExpanded = (node: TraceActionChild) =>
+      this.expandOverrides.get(nodeKey(node)) ??
+      ('group' in node
+        ? defaultExpanded(node.group, active)
+        : defaultCommandExpanded(node, commands, active))
     const rows = flattenActionTree(rootChildren, isExpanded)
     const gaps = stepDurations(commands.map((command) => command.timestamp))
     return html`<div
@@ -257,6 +256,8 @@ export class DevtoolsActions extends Element {
         ?active=${entry === this.activeEntry}
         .revealKey=${key}
         ?revealed=${key === this.revealedRow}
+        .toggleKey=${row.expanded === undefined ? undefined : key}
+        ?expanded=${Boolean(row.expanded)}
       ></wdio-devtools-command-item>
     `
   }
@@ -270,52 +271,72 @@ export class DevtoolsActions extends Element {
     if (!entries.length) {
       return html`<wdio-devtools-placeholder></wdio-devtools-placeholder>`
     }
-    const durations = stepDurations(entries.map((entry) => entry.timestamp))
+    const rows = liveActionRows(
+      this.mutations || [],
+      this.commands || [],
+      (node) =>
+        this.expandOverrides.get(liveRowKey(node.command)) ??
+        defaultLiveExpanded(node, this.activeEntry)
+    )
+    const durations = stepDurations(rows.map((row) => row.entry.timestamp))
+    // A nested row is indented, so the straight rail no longer lines up.
+    const nested = rows.some((row) => row.key !== undefined)
 
     // Keyed by reference, the same identity `activeEntry` uses: timestamps
     // aren't unique, and an index would hand a row's local state to whatever
     // entry sorts into that position next.
-    const rows = repeat(
-      entries,
-      (entry) => entry,
-      (entry, index) => {
-        // Timed against the merged list, so the top row always reads zero — a
-        // document load can precede the first command.
-        const elapsedTime = elapsedSince(entries, entry)
-        const duration = entryDuration(entry, durations[index])
-        const active = entry === this.activeEntry
-
-        const revealed = entry === this.revealedRow
-
-        if ('command' in entry) {
-          return html`
-            <wdio-devtools-command-item
-              elapsedTime=${elapsedTime}
-              .duration=${duration}
-              .entry=${entry}
-              ?active=${active}
-              .revealKey=${entry}
-              ?revealed=${revealed}
-            ></wdio-devtools-command-item>
-          `
-        }
-
-        return html`
-          <wdio-devtools-mutation-item
-            elapsedTime=${elapsedTime}
-            .duration=${duration}
-            .entry=${entry}
-            ?active=${active}
-            .revealKey=${entry}
-            ?revealed=${revealed}
-          ></wdio-devtools-mutation-item>
-        `
-      }
-    )
-
-    return html`<div class="timeline" @row-reveal=${this.#onRowReveal}>
-      ${rows}
+    return html`<div
+      class="timeline ${nested ? 'tree' : ''}"
+      @group-toggle=${this.#onGroupToggle}
+      @row-reveal=${this.#onRowReveal}
+    >
+      ${repeat(
+        rows,
+        (row) => row.entry,
+        (row, index) => this.#renderLiveRow(row, entries, durations[index])
+      )}
     </div>`
+  }
+
+  #renderLiveRow(
+    { entry, depth, expanded, key }: LiveRow,
+    entries: TimelineEntry[],
+    gap: number | undefined
+  ) {
+    // Timed against the merged list, so the top row always reads zero: a
+    // document load can precede the first command.
+    const elapsedTime = elapsedSince(entries, entry)
+    const duration = entryDuration(entry, gap)
+    const active = entry === this.activeEntry
+    const revealed = entry === this.revealedRow
+    const indent = depth ? `padding-left: ${depth * TREE_INDENT_PX}px` : ''
+
+    if ('command' in entry) {
+      return html`
+        <wdio-devtools-command-item
+          style=${indent}
+          elapsedTime=${elapsedTime}
+          .duration=${duration}
+          .entry=${entry}
+          ?active=${active}
+          .revealKey=${entry}
+          ?revealed=${revealed}
+          .toggleKey=${key}
+          ?expanded=${Boolean(expanded)}
+        ></wdio-devtools-command-item>
+      `
+    }
+
+    return html`
+      <wdio-devtools-mutation-item
+        elapsedTime=${elapsedTime}
+        .duration=${duration}
+        .entry=${entry}
+        ?active=${active}
+        .revealKey=${entry}
+        ?revealed=${revealed}
+      ></wdio-devtools-mutation-item>
+    `
   }
 }
 

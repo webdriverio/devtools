@@ -103,9 +103,9 @@ describe('wdio-devtools-group-item', () => {
     expect(shadow(el, LABEL)?.classList.contains('text-chartsRed')).toBe(true)
   })
 
-  it("emits group-toggle with the group's callId when clicked", async () => {
+  it("emits group-toggle keyed on the group's callId when clicked", async () => {
     const el = await mount<GroupItem>(TAG, { group: { ...STEP } })
-    const received: CustomEvent<{ callId?: string; expanded: boolean }>[] = []
+    const received: CustomEvent<{ key: string; expanded: boolean }>[] = []
     const listener = (event: Event) => received.push(event as CustomEvent)
 
     el.addEventListener('group-toggle', listener)
@@ -116,7 +116,7 @@ describe('wdio-devtools-group-item', () => {
     }
 
     expect(received.length).toBe(1)
-    expect(received[0]?.detail.callId).toBe('step-7')
+    expect(received[0]?.detail.key).toBe('group:step-7')
     expect(received[0]?.bubbles).toBe(true)
     expect(received[0]?.composed).toBe(true)
   })

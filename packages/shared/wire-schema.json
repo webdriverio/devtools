@@ -300,6 +300,9 @@
         "id": {
           "type": "number"
         },
+        "parentId": {
+          "type": "number"
+        },
         "stepUid": {
           "type": "string"
         },

@@ -501,4 +501,131 @@ describe('wdio-devtools-actions', () => {
       expect(entryOf(rows[1])).toEqual(loginTimeline.url)
     })
   })
+
+  // A wait is one row; the commands its condition issued are nested under it.
+  describe('rows a command issued', () => {
+    const wait = commandLog({
+      command: 'waitUntil',
+      args: [],
+      id: 10,
+      startTime: RUN_START,
+      timestamp: RUN_START + 500
+    })
+    const reads = [
+      commandLog({
+        command: 'getText',
+        args: ['#flash'],
+        id: 11,
+        parentId: 10,
+        startTime: RUN_START + 10,
+        timestamp: RUN_START + 20
+      }),
+      commandLog({
+        command: 'getText',
+        args: ['h2'],
+        id: 12,
+        parentId: 10,
+        startTime: RUN_START + 30,
+        timestamp: RUN_START + 40
+      })
+    ]
+    const logout = commandLog({
+      command: 'click',
+      id: 13,
+      timestamp: RUN_START + 600
+    })
+    const liveInputs = (parent: CommandLog = wait) => ({
+      commands: [...reads, parent, logout],
+      mutations: []
+    })
+    const toggle = (row: Element) =>
+      shadow(row, '.toggle')?.dispatchEvent(
+        new MouseEvent('click', { bubbles: true, composed: true })
+      )
+
+    it('lists a passing wait collapsed, its reads hidden', async () => {
+      const panel = await mountPanel(liveInputs())
+
+      const rows = shadowAll(panel, ROWS)
+      expect(rows.map(entryOf)).toEqual([wait, logout])
+      expect(rows[0].hasAttribute('expanded')).toBe(false)
+      expect(shadow(rows[0], '.toggle')).toBeTruthy()
+      expect(shadow(rows[1], '.toggle')).toBeFalsy()
+    })
+
+    it('shows the reads under the wait, indented, once its chevron is clicked', async () => {
+      const panel = await mountPanel(liveInputs())
+
+      toggle(shadowAll(panel, ROWS)[0])
+      await settle(panel)
+
+      const rows = shadowAll(panel, ROWS)
+      expect(rows.map(entryOf)).toEqual([wait, ...reads, logout])
+      expect(rows[0].hasAttribute('expanded')).toBe(true)
+      expect((rows[1] as HTMLElement).style.paddingLeft).toBe('14px')
+      // The chevron toggles; it does not select the wait.
+      expect(shadowAll(panel, ACTIVE_ROW)).toHaveLength(0)
+    })
+
+    it('opens a failed wait by default', async () => {
+      const failed = { ...wait, error: new Error('waitUntil timed out') }
+      const panel = await mountPanel(liveInputs(failed))
+
+      expect(shadowAll(panel, ROWS).map(entryOf)).toEqual([
+        failed,
+        ...reads,
+        logout
+      ])
+    })
+
+    it('replays a nested read as it replays a top-level row', async () => {
+      const failed = { ...wait, error: new Error('waitUntil timed out') }
+      const panel = await mountPanel(liveInputs(failed))
+      const shown = new Promise<CommandEventProps>((resolve) => {
+        window.addEventListener(
+          'show-command',
+          (event) => resolve(event.detail),
+          { once: true }
+        )
+      })
+
+      clickRow(shadowAll(panel, ROWS)[2])
+      await settle(panel)
+
+      expect((await shown).command).toBe(reads[1])
+      expect(shadowAll(panel, ACTIVE_ROW).map(entryOf)).toEqual([reads[1]])
+    })
+
+    it('nests the reads under the wait in the player tree, collapsed until it is toggled', async () => {
+      const commands = [...reads, wait, logout]
+      const groups: TraceActionChild[] = [
+        {
+          group: {
+            callId: 'test',
+            title: 'waits on what the page shows',
+            startTime: RUN_START,
+            endTime: RUN_START + 600,
+            failed: true,
+            children: [
+              {
+                commandIndex: 2,
+                children: [{ commandIndex: 0 }, { commandIndex: 1 }]
+              },
+              { commandIndex: 3 }
+            ]
+          }
+        }
+      ]
+      const panel = await mountPanel({ commands, mutations: [], groups })
+
+      expect(shadowAll(panel, COMMAND_ROW).map(entryOf)).toEqual([wait, logout])
+
+      toggle(shadowAll(panel, COMMAND_ROW)[0])
+      await settle(panel)
+
+      const rows = shadowAll(panel, COMMAND_ROW)
+      expect(rows.map(entryOf)).toEqual([wait, ...reads, logout])
+      expect((rows[1] as HTMLElement).style.paddingLeft).toBe('28px')
+    })
+  })
 })

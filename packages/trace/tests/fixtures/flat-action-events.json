@@ -1,0 +1,183 @@
+[
+  {
+    "type": "before",
+    "callId": "call@1",
+    "startTime": 100,
+    "class": "Tracing",
+    "method": "tracingGroup",
+    "pageId": "page@1",
+    "params": {
+      "name": "logs in"
+    },
+    "title": "logs in",
+    "apiName": "tracing.tracingGroup"
+  },
+  {
+    "type": "before",
+    "callId": "call@2",
+    "startTime": 100,
+    "class": "Page",
+    "method": "navigate",
+    "pageId": "page@1",
+    "params": {
+      "url": "https://example.com/login"
+    },
+    "title": "Page.navigate(\"https://example.com/login\")",
+    "apiName": "page.navigate",
+    "parentId": "call@1",
+    "stack": [
+      {
+        "file": "/spec.js",
+        "line": 3,
+        "column": 5
+      }
+    ]
+  },
+  {
+    "type": "after",
+    "callId": "call@2",
+    "endTime": 140,
+    "afterSnapshot": "after@call@2"
+  },
+  {
+    "type": "before",
+    "callId": "call@3",
+    "startTime": 143,
+    "class": "Element",
+    "method": "fill",
+    "pageId": "page@1",
+    "params": {
+      "selector": "#username",
+      "value": "tom",
+      "locator": "#username"
+    },
+    "title": "Element.fill(\"#username\")",
+    "apiName": "element.fill",
+    "parentId": "call@1",
+    "beforeSnapshot": "after@call@2"
+  },
+  {
+    "type": "after",
+    "callId": "call@3",
+    "endTime": 150,
+    "afterSnapshot": "after@call@3"
+  },
+  {
+    "type": "before",
+    "callId": "call@4",
+    "startTime": 150,
+    "class": "Assert",
+    "method": "equal",
+    "pageId": "page@1",
+    "params": {
+      "0": "a",
+      "1": "b",
+      "actual": "a",
+      "expected": "b"
+    },
+    "title": "assert.equal(\"a\", \"b\")",
+    "apiName": "assert.equal",
+    "parentId": "call@1",
+    "beforeSnapshot": "after@call@3"
+  },
+  {
+    "type": "after",
+    "callId": "call@4",
+    "endTime": 151,
+    "error": {
+      "message": "a != b"
+    },
+    "afterSnapshot": "after@call@4"
+  },
+  {
+    "type": "before",
+    "callId": "call@5",
+    "startTime": 151,
+    "class": "Element",
+    "method": "click",
+    "pageId": "page@1",
+    "params": {
+      "selector": "button",
+      "locator": "button"
+    },
+    "title": "Element.click(\"button\")",
+    "apiName": "element.click",
+    "parentId": "call@1",
+    "beforeSnapshot": "after@call@4"
+  },
+  {
+    "type": "after",
+    "callId": "call@5",
+    "endTime": 190,
+    "afterSnapshot": "after@call@5"
+  },
+  {
+    "type": "after",
+    "callId": "call@1",
+    "endTime": 190
+  },
+  {
+    "type": "before",
+    "callId": "call@6",
+    "startTime": 200,
+    "class": "Tracing",
+    "method": "tracingGroup",
+    "pageId": "page@1",
+    "params": {
+      "name": "waits"
+    },
+    "title": "waits",
+    "apiName": "tracing.tracingGroup"
+  },
+  {
+    "type": "before",
+    "callId": "call@7",
+    "startTime": 200,
+    "class": "Element",
+    "method": "waitForExist",
+    "pageId": "page@1",
+    "params": {
+      "0": {
+        "timeout": 2000
+      },
+      "locator": "#flash"
+    },
+    "title": "Element.waitForExist(\"{\"timeout\":2000}\")",
+    "apiName": "element.waitForExist",
+    "parentId": "call@6",
+    "beforeSnapshot": "after@call@5"
+  },
+  {
+    "type": "after",
+    "callId": "call@7",
+    "endTime": 400,
+    "afterSnapshot": "after@call@7"
+  },
+  {
+    "type": "before",
+    "callId": "call@8",
+    "startTime": 401,
+    "class": "Element",
+    "method": "getText",
+    "pageId": "page@1",
+    "params": {
+      "selector": "#flash"
+    },
+    "title": "Element.getText(\"#flash\")",
+    "apiName": "element.getText",
+    "parentId": "call@6",
+    "beforeSnapshot": "after@call@7"
+  },
+  {
+    "type": "after",
+    "callId": "call@8",
+    "endTime": 402,
+    "result": "hello",
+    "afterSnapshot": "after@call@8"
+  },
+  {
+    "type": "after",
+    "callId": "call@6",
+    "endTime": 402
+  }
+]

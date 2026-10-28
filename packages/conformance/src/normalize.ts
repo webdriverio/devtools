@@ -1,8 +1,15 @@
-import type { CommandLog, Metadata, TraceAction } from '@wdio/devtools-shared'
+import type {
+  CommandLog,
+  CommandNode,
+  Metadata,
+  TraceAction,
+  TraceMutation
+} from '@wdio/devtools-shared'
 import {
   ASSERT_ACTION_CLASS,
   commandFailure,
-  mapCommandToAction
+  mapCommandToAction,
+  nestCommands
 } from '@wdio/devtools-shared'
 
 import {
@@ -24,31 +31,56 @@ import type {
 export function normalizeRun(frames: WireFrame[]): NormalizedRun {
   const { rows, anchors, requests } = readStream(frames)
   const testOf = scenarioTestsOf(reportedTests(frames), rows)
-  const steps = rows
-    .map((row, i): NormalizedStep | undefined => {
-      const action = mapCommandToAction(row.command)
-      if (!action) {
-        return undefined
-      }
-      const shown = anchors.filter((a) => a.timestamp <= row.timestamp).at(-1)
-      return {
-        action: `${action.class}.${action.method}`,
-        target: targetOf(row),
-        ...(action.method === 'fill' ? { input: inputOf(row) } : {}),
-        outcome: outcomeOf(row, action),
-        page: shown?.url ? pathOf(shown.url) : '(none)',
-        at: row.timestamp,
-        test: testOf[i]
-      }
-    })
-    .filter((s): s is NormalizedStep => s !== undefined)
+  const tests = new Map(rows.map((row, i) => [row, testOf[i]]))
   return {
-    steps,
+    steps: stepsOf(nestCommands(rows), anchors, tests),
     snapshots: anchors.map((a) => pathOf(a.url ?? '')),
     runControls: runControlsOf(frames),
     // Sorted: adapters list the same loads in whatever order their sources delivered them.
     requests: requests.map((r) => pathOf(r.url)).sort()
   }
+}
+
+// A row the vocabulary drops passes the steps it issued up to the level it would have held, as the trace does.
+function stepsOf(
+  nodes: CommandNode[],
+  anchors: TraceMutation[],
+  tests: Map<CommandLog, number>
+): NormalizedStep[] {
+  return nodes.flatMap((node) => {
+    const children = stepsOf(node.children, anchors, tests)
+    const step = stepOf(node.command, anchors, tests.get(node.command) ?? -1)
+    if (!step) {
+      return children
+    }
+    return [children.length ? { ...step, children } : step]
+  })
+}
+
+function stepOf(
+  row: CommandLog,
+  anchors: TraceMutation[],
+  test: number
+): NormalizedStep | undefined {
+  const action = mapCommandToAction(row.command)
+  if (!action) {
+    return undefined
+  }
+  const shown = anchors.filter((a) => a.timestamp <= row.timestamp).at(-1)
+  return {
+    action: `${action.class}.${action.method}`,
+    target: targetOf(row),
+    ...(action.method === 'fill' ? { input: inputOf(row) } : {}),
+    outcome: outcomeOf(row, action),
+    page: shown?.url ? pathOf(shown.url) : '(none)',
+    at: row.timestamp,
+    test
+  }
+}
+
+/** Every step, nested ones included, depth first. */
+export function allSteps(steps: NormalizedStep[]): NormalizedStep[] {
+  return steps.flatMap((s) => [s, ...allSteps(s.children ?? [])])
 }
 
 // The shared failure rule decides failed; an assertion or a wait is worded by its binding, so only the browser's own message is compared.

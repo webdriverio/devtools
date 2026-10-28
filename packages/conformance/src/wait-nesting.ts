@@ -1,0 +1,179 @@
+import { mapCommandToAction, type CommandLog } from '@wdio/devtools-shared'
+
+import { RULES, SCENARIO_TESTS, SCENARIO_WAITS, SCOPES } from './constants.js'
+import {
+  reportedTests,
+  scenarioIndex,
+  scenarioTestsOf
+} from './scenario-tests.js'
+import type { RecordedStream, Violation } from './types.js'
+
+const isWait = (row: CommandLog) =>
+  mapCommandToAction(row.command)?.method.startsWith('waitFor') ?? false
+
+const waitKey = (row: CommandLog) => {
+  const action = mapCommandToAction(row.command)!
+  return `${action.class}.${action.method} ${row.selector ?? ''}`.trim()
+}
+
+const startOf = (row: CommandLog) => row.startTime ?? row.timestamp
+
+const onRow = (row: CommandLog) => ({
+  kind: 'row' as const,
+  timestamp: row.timestamp
+})
+
+/**
+ * A wait is one row, named after what it waited for, sent when it starts and replaced by `id` when it ends, and every
+ * command its condition issued names that row as `parentId`. Judged from the rows' own spans: a row that ran inside a
+ * wait's span in the same test was issued by it.
+ */
+export function checkWaitNesting(stream: RecordedStream): Violation[] {
+  const testOf = scenarioTestsOf(reportedTests(stream.frames), stream.rows)
+  const test = new Map(stream.rows.map((row, i) => [row, testOf[i]]))
+  const waits = stream.rows.filter(isWait)
+  const sent = sendOrder(stream)
+  return [
+    ...scenarioWaits(stream, waits, test),
+    ...waits.flatMap((wait) => waitIdentity(wait, sent.firstSent)),
+    ...stream.rows.flatMap((row) => parentOf(row, waits, test)),
+    ...sentBeforeChildren(sent)
+  ]
+}
+
+// Each reported test shows exactly the waits it writes, under the names a dashboard user reads.
+function scenarioWaits(
+  stream: RecordedStream,
+  waits: CommandLog[],
+  test: Map<CommandLog, number>
+): Violation[] {
+  return reportedTests(stream.frames).flatMap(({ title }) => {
+    const index = scenarioIndex(title)
+    if (index === -1) {
+      return []
+    }
+    const written = SCENARIO_WAITS[SCENARIO_TESTS[index].title] ?? []
+    const shown = waits.filter((w) => test.get(w) === index).map(waitKey)
+    if (shown.join(', ') === written.join(', ')) {
+      return []
+    }
+    return [
+      {
+        rule: RULES.waitParentsItsRows,
+        message: `"${SCENARIO_TESTS[index].title}" shows waits [${shown.join(', ')}]; the scenario writes [${written.join(', ')}]`
+      }
+    ]
+  })
+}
+
+// A wait is first sent running, at its start, so the rows it issues have a row to nest under while it runs.
+function waitIdentity(
+  wait: CommandLog,
+  firstSent: Map<number, SentRow>
+): Violation[] {
+  const lacks = [
+    ...(typeof wait.id === 'number' ? [] : ['id']),
+    ...(wait.startTime === undefined ? ['startTime'] : [])
+  ]
+  const first = typeof wait.id === 'number' ? firstSent.get(wait.id) : undefined
+  const message = lacks.length
+    ? `${waitKey(wait)} has no ${lacks.join(' or ')}, so the rows it issued cannot be nested under it`
+    : first && (first.row.error || first.row.timestamp !== wait.startTime)
+      ? `${waitKey(wait)} is first sent once it has ended, so a live list cannot nest what it issues while it runs`
+      : undefined
+  return message
+    ? [{ rule: RULES.waitParentsItsRows, message, subject: onRow(wait) }]
+    : []
+}
+
+// The innermost wait whose span holds the row's, in the row's own test.
+function enclosingWait(
+  row: CommandLog,
+  waits: CommandLog[],
+  test: Map<CommandLog, number>
+): CommandLog | undefined {
+  return waits
+    .filter(
+      (w) =>
+        w !== row &&
+        w.startTime !== undefined &&
+        test.get(w) === test.get(row) &&
+        startOf(row) >= w.startTime &&
+        startOf(row) < w.timestamp &&
+        row.timestamp <= w.timestamp
+    )
+    .sort((a, b) => startOf(b) - startOf(a))[0]
+}
+
+function parentOf(
+  row: CommandLog,
+  waits: CommandLog[],
+  test: Map<CommandLog, number>
+): Violation[] {
+  const wait = enclosingWait(row, waits, test)
+  if (wait && (wait.id === undefined || row.parentId !== wait.id)) {
+    return [
+      {
+        rule: RULES.waitParentsItsRows,
+        message: `${row.command} ran inside ${waitKey(wait)} but names ${row.parentId === undefined ? 'no parent' : `parent ${row.parentId}`}`,
+        subject: onRow(row)
+      }
+    ]
+  }
+  return []
+}
+
+interface SentRow {
+  row: CommandLog
+  /** Index of the frame that carried it. */
+  at: number
+}
+
+/** Each id's first send, and every send of a row naming a parent, in frame order. */
+function sendOrder(stream: RecordedStream): {
+  firstSent: Map<number, SentRow>
+  children: SentRow[]
+} {
+  const firstSent = new Map<number, SentRow>()
+  const children: SentRow[] = []
+  stream.frames.forEach(({ scope, data }, at) => {
+    const rows =
+      scope === SCOPES.commands
+        ? (data as CommandLog[])
+        : scope === SCOPES.replaceCommand
+          ? [(data as { command: CommandLog }).command]
+          : []
+    for (const row of rows) {
+      if (typeof row.id === 'number' && !firstSent.has(row.id)) {
+        firstSent.set(row.id, { row, at })
+      }
+      if (typeof row.parentId === 'number') {
+        children.push({ row, at })
+      }
+    }
+  })
+  return { firstSent, children }
+}
+
+// Live mode nests a row on arrival only if the row it names was sent first: as the running wait.
+function sentBeforeChildren({
+  firstSent,
+  children
+}: ReturnType<typeof sendOrder>): Violation[] {
+  return children.flatMap(({ row, at }) => {
+    const parentAt = firstSent.get(row.parentId!)?.at
+    if (parentAt !== undefined && parentAt < at) {
+      return []
+    }
+    return [
+      {
+        rule: RULES.waitParentsItsRows,
+        message:
+          parentAt === undefined
+            ? `${row.command} names parent ${row.parentId}, which no row in the stream carries`
+            : `${row.command} was sent before parent ${row.parentId}, so a live list shows it beside the wait`,
+        subject: onRow(row)
+      }
+    ]
+  })
+}
