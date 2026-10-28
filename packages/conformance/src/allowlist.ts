@@ -5,7 +5,7 @@ import {
   KNOWN_DEBT,
   RULES
 } from './constants.js'
-import { anyOf, hunk, reportedAs } from './gap-matchers.js'
+import { anyOf, hunk } from './gap-matchers.js'
 import { scenarioIndex } from './scenario-tests.js'
 import type {
   AdapterId,
@@ -16,10 +16,9 @@ import type {
   Violation
 } from './types.js'
 
-const [WAITS, MISSING, REFUSED] = [
+const [WAITS, MISSING] = [
   'waits on what the page shows',
-  'times out waiting for a missing element',
-  'survives a refused navigation'
+  'times out waiting for a missing element'
 ].map(scenarioIndex)
 
 const FLASH_WAIT = 'Element.waitForExist #flash'
@@ -72,13 +71,6 @@ export const KNOWN_GAPS: KnownGap[] = [
 function nightwatchGaps(bidi: BidiMode): KnownGap[] {
   const adapter = 'nightwatch-devtools'
   return [
-    {
-      adapter,
-      bidi,
-      rules: [RULES.testsAsDesigned],
-      only: anyOf(reportedAs(WAITS, 'skipped'), reportedAs(REFUSED, 'skipped')),
-      reason: KNOWN_DEBT.nightwatchSkipped
-    },
     {
       adapter,
       bidi,
