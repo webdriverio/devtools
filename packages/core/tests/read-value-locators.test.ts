@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
+  clearReadValues,
   rememberReadValue,
   resolveAssertTargetFromArgs,
   selectorForReadValue
@@ -142,5 +143,20 @@ describe('resolveAssertTargetFromArgs', () => {
         arg === handle ? '#handle' : undefined
       )
     ).toBe('#handle')
+  })
+})
+
+describe('clearReadValues', () => {
+  it('forgets every producer, so a later assertion on the same value names nothing', () => {
+    rememberReadValue(true, '#remember-me')
+    rememberReadValue('Example Domain', undefined)
+    clearReadValues()
+    expect(selectorForReadValue(true)).toBeUndefined()
+    expect(resolveAssertTargetFromArgs([true])).toBeUndefined()
+    // The no-element sentinel goes too: a cleared value no longer ends the lookup.
+    rememberReadValue('expected-after-clear', '#fresh')
+    expect(
+      resolveAssertTargetFromArgs(['Example Domain', 'expected-after-clear'])
+    ).toBe('#fresh')
   })
 })

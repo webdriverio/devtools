@@ -135,7 +135,7 @@ export class AssertionTracker {
         this.#ctx.actionSnapshots
       )
     }
-    capturer.captureAssertCommand(entry)
+    capturer.captureMatcherCommand(entry)
   }
 
   /** Route a test/step failure to assertion capture. A matcher that hard-threw
@@ -192,6 +192,6 @@ export class AssertionTracker {
     ) {
       return
     }
-    capturer.captureAssertCommand(entry)
+    capturer.captureMatcherCommand(entry)
   }
 }

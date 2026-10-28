@@ -1,11 +1,16 @@
+import { readdirSync } from 'node:fs'
+import { createRequire } from 'node:module'
+import path from 'node:path'
 import { describe, it, expect, beforeEach } from 'vitest'
 import {
   decorateSelector,
   forgetElementSelectors,
+  isElementCommand,
   nextLastSelector,
   rememberElementSelector,
   selectorForCommand
 } from '../src/command-selectors.js'
+import { ELEMENT_COMMANDS_WITHOUT_READS } from '../src/constants.js'
 import type { CommandLog } from '../src/types.js'
 
 const entry = (command: string, args: unknown[]): CommandLog =>
@@ -118,5 +123,30 @@ describe('selectorForCommand', () => {
     // a test boundary is a standalone script, not a spec.
     expect(selectorForCommand([handle('id-0')], undefined)).toBeUndefined()
     expect(selectorForCommand([handle('id-5099')], undefined)).toBe('#s5099')
+  })
+})
+
+// Regression: getHTML and other reads ACTION_MAP does not list were recorded as no element's.
+describe('isElementCommand', () => {
+  it('counts element reads ACTION_MAP does not render', () => {
+    for (const read of ['getHTML', 'getComputedRole', 'getComputedLabel']) {
+      expect(isElementCommand(read)).toBe(true)
+    }
+    expect(isElementCommand('getText')).toBe(true)
+    expect(isElementCommand('getTitle')).toBe(false)
+  })
+
+  // A new WDIO element command must be classified, or its reads silently lose their element.
+  it('classifies every element command the installed WebdriverIO ships', () => {
+    const entry = createRequire(import.meta.url).resolve('webdriverio')
+    const dir = path.join(path.dirname(entry), 'commands', 'element')
+    const commands = readdirSync(dir)
+      .filter((f) => f.endsWith('.d.ts'))
+      .map((f) => f.slice(0, -'.d.ts'.length))
+    expect(commands.length).toBeGreaterThan(40)
+    const unclassified = commands.filter(
+      (c) => !isElementCommand(c) && !ELEMENT_COMMANDS_WITHOUT_READS.includes(c)
+    )
+    expect(unclassified).toEqual([])
   })
 })

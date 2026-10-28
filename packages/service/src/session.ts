@@ -11,6 +11,7 @@ import { PAGE_TRANSITION_COMMANDS } from './constants.js'
 import {
   decorateSelector,
   forgetElementSelectors,
+  isElementCommand,
   nextLastSelector,
   rememberElementSelector,
   selectorForCommand
@@ -27,6 +28,7 @@ import {
   isSessionGoneError,
   loadInjectableScript,
   LOG_SOURCES,
+  rememberReadValue,
   RetryTracker,
   SessionCapturerBase,
   type CapturedPerformancePayload
@@ -206,12 +208,15 @@ export class SessionCapturer extends SessionCapturerBase {
     const cmd = String(command)
     this.#lastSelector = nextLastSelector(cmd, args, this.#lastSelector)
     rememberElementSelector(cmd, args, result)
-    decorateSelector(
-      commandLogEntry,
-      cmd,
-      args,
-      selectorForCommand(args, this.#lastSelector)
-    )
+    const targetSelector = selectorForCommand(args, this.#lastSelector)
+    decorateSelector(commandLogEntry, cmd, args, targetSelector)
+    // Driver-level reads (a title, a url) record that no element owns their value.
+    if (!error) {
+      rememberReadValue(
+        result,
+        isElementCommand(cmd) ? targetSelector : undefined
+      )
+    }
 
     // A hybrid app's webview HAS a document, and the switch command carries
     // the context it moved to, so following it costs nothing. Recorded after
@@ -280,10 +285,18 @@ export class SessionCapturer extends SessionCapturerBase {
     this.#retryTracker.reset()
   }
 
-  /** Ingest an assertion entry (node:assert capture or synthesized expect
-   *  failure) through the same retry-collapsing path driver commands use. A
-   *  fresh (unfolded) expect row still carries the element it targeted. */
+  /** Ingest a node:assert row through the same retry-collapsing path driver
+   *  commands use. Its target is whatever the value registry named from the
+   *  assert's args: the last resolved element is not evidence, since a title or
+   *  url read resolves none. */
   captureAssertCommand(entry: CommandLog): void {
+    this.#captureOrReplace(entry)
+  }
+
+  /** Ingest a synthesized expect row that had no read to fold into. The matcher
+   *  resolved its own element (cleared at the matcher's start), so it still
+   *  carries the element it targeted. */
+  captureMatcherCommand(entry: CommandLog): void {
     if (!entry.selector) {
       entry.selector = this.#lastResolvedSelector
     }

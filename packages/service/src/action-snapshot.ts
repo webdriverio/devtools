@@ -8,6 +8,7 @@
 // library. No external input reaches new Function() — the lint flag here is
 // a false positive given the closed input set.
 
+import { AsyncLocalStorage } from 'node:async_hooks'
 import {
   captureActionSnapshot as coreCapture,
   upsertRichestSnapshot
@@ -22,6 +23,26 @@ function reviveScript(src: string): () => unknown {
   // (`(function () { ... })()`); we just wrap it in a return so it's
   // a function browser.execute() can call.
   return new Function(`return (${src})`) as () => unknown
+}
+
+/** Marks the service's own title probe. Its hooks run inside the probe's async
+ *  context (WDIO awaits them within the command it wraps), so a user `getTitle`
+ *  issued while a timed-out probe is still running is never mistaken for it. */
+const serviceProbe = new AsyncLocalStorage<true>()
+
+/** True while a hook is observing the service's own title probe. */
+export function isServiceProbe(command: string): boolean {
+  return command === 'getTitle' && serviceProbe.getStore() === true
+}
+
+function probeTitle(browser: WebdriverIO.Browser): Promise<string | undefined> {
+  return serviceProbe.run(true, async () => {
+    try {
+      return await browser.getTitle()
+    } catch {
+      return undefined
+    }
+  })
 }
 
 /** Bound on the end-of-test wait for a document the last action navigated to. */
@@ -134,7 +155,7 @@ export function captureActionSnapshot(
       : (direct?.getUrl ?? (() => browser.getUrl().catch(() => undefined))),
     getTitle: native
       ? undefined
-      : (direct?.getTitle ?? (() => browser.getTitle().catch(() => undefined))),
+      : (direct?.getTitle ?? (() => probeTitle(browser))),
     // On native mobile, use page-source XML to produce structured element
     // data and an AI-readable snapshot (same approach as @wdio/elements).
     getPageSource: native

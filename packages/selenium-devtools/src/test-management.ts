@@ -17,7 +17,7 @@ import type { SessionCapturer } from './session.js'
 import type { TestReporter } from './reporter.js'
 import type { SuiteManager } from './helpers/suiteManager.js'
 import type { DetectedRunner, TestStats } from './types.js'
-import type { RetryTracker } from '@wdio/devtools-core'
+import { clearReadValues, type RetryTracker } from '@wdio/devtools-core'
 
 const log = logger('@wdio/selenium-devtools:test-management')
 
@@ -118,6 +118,7 @@ export function startTest(
   name: string,
   meta: StartTestMeta = {}
 ): void {
+  clearReadValues()
   if (!ctx.testFilePath && meta.file) {
     ctx.testFilePath = meta.file
   }
@@ -171,6 +172,7 @@ export function startScenario(
   name: string,
   meta: StartScenarioMeta = {}
 ): void {
+  clearReadValues()
   if (!ctx.suiteManager || !ctx.testReporter) {
     ctx.pendingScenario = { name, ...meta }
     return

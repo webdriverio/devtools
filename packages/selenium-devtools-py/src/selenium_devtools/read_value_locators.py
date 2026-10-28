@@ -26,7 +26,8 @@ _selectors: "OrderedDict[Tuple[str, Hashable], Optional[str]]" = OrderedDict()
 
 
 def reset() -> None:
-    """Forget every value, so a re-enable cannot attribute a previous run's read."""
+    """Forget every value: at a re-enable, and at each test start so a later
+    test's ``assert True`` cannot box an element an earlier test read."""
     _selectors.clear()
 
 

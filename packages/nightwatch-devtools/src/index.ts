@@ -400,7 +400,8 @@ class NightwatchDevToolsPlugin {
         // Rows are tagged per-`it` (BrowserProxy.rowTestUid); `#currentTestUid`
         // — the lifecycle test, which the BDD interface pins to the module's
         // first `it` — is only the fallback, and stays the artifact/slice key.
-        () => this.browserProxy?.rowTestUid() ?? this.#currentTestUid()
+        () => this.browserProxy?.rowTestUid() ?? this.#currentTestUid(),
+        () => this.browserProxy?.scopeReadValuesToRowTest()
       )
     }
   }

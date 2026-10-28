@@ -2,7 +2,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type * as DevtoolsCore from '@wdio/devtools-core'
 import {
   INPUT_DISPATCH_MAX_HOLD_MS,
-  isInputDispatchInFlight
+  isInputDispatchInFlight,
+  rememberReadValue,
+  selectorForReadValue
 } from '@wdio/devtools-core'
 import DevToolsHookService from '../src/index.js'
 
@@ -199,20 +201,24 @@ describe('DevtoolsService - Internal Command Filtering', () => {
     it('should filter mixed internal and user commands correctly', () => {
       // Execute mix of user and internal commands
       executeCommand('url', ['https://example.com'])
-      executeCommand('getTitle', [], 'Page Title') // internal
+      executeCommand('getUrl', [], 'https://example.com') // internal
+      executeCommand('getTitle', [], 'Page Title') // a step the test wrote
       executeCommand('click', ['.button'])
       executeCommand('waitUntil', [expect.any(Function)], true) // a user wait
       executeCommand('getText', ['.result'], 'Success')
 
-      // getTitle is internal; the rest — including the wait — are user actions.
-      expect(mockSessionCapturerInstance.afterCommand).toHaveBeenCalledTimes(4)
-
+      // getUrl is internal; the rest — including the wait — are user actions.
       const capturedCommands =
         mockSessionCapturerInstance.afterCommand.mock.calls.map(
           (call) => call[1]
         )
-      expect(capturedCommands).toEqual(['url', 'click', 'waitUntil', 'getText'])
-      expect(capturedCommands).not.toContain('getTitle')
+      expect(capturedCommands).toEqual([
+        'url',
+        'getTitle',
+        'click',
+        'waitUntil',
+        'getText'
+      ])
     })
 
     it('captures a wait once and suppresses the commands it polls', () => {
@@ -321,6 +327,23 @@ describe('DevtoolsService - Internal Command Filtering', () => {
   // navigation-only drain they stayed buffered in the page until the next
   // navigation — every action in between replayed the form as it loaded, empty.
   // Trace mode is unaffected: it captures a real per-action DOM snapshot.
+  // An earlier test's read must not name the target of a later test's assert.ok(true).
+  describe('value provenance at the test boundary', () => {
+    it('forgets read values when a mocha test starts', () => {
+      rememberReadValue(true, '#remember-me')
+      service.beforeTest({ file: '/test/specs/fake.spec.ts', title: 'next' })
+      expect(selectorForReadValue(true)).toBeUndefined()
+    })
+
+    it('forgets read values when a cucumber scenario starts', () => {
+      rememberReadValue(true, '#remember-me')
+      service.beforeScenario({
+        pickle: { uri: '/features/login.feature', name: 'next' }
+      })
+      expect(selectorForReadValue(true)).toBeUndefined()
+    })
+  })
+
   describe('afterCommand - per-command drain (live mode)', () => {
     beforeEach(async () => {
       await service.before({} as any, [], mockBrowser)

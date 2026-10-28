@@ -6,6 +6,7 @@ import {
   capturedAssertToCommandLog,
   matcherAssertionToCommandLog,
   patchNodeAssert,
+  resolveAssertTargetFromArgs,
   stripAnsi
 } from '@wdio/devtools-core'
 import type { CommandLog, SerializedError } from '@wdio/devtools-shared'
@@ -52,7 +53,8 @@ export function isMatcherReadCommand(command: string): boolean {
 
 /**
  * Patch node:assert so every tracked assertion lands in the session capturer
- * as a command. Getters are read at capture time — the capturer instance is
+ * as a command, naming the element whose read produced the asserted value
+ * (fed by `SessionCapturer.afterCommand`). Getters are read at capture time — the capturer instance is
  * replaced in `before()` and the test UID changes per test.
  */
 export function wireAssertCapture(
@@ -64,7 +66,8 @@ export function wireAssertCapture(
       getCapturer().captureAssertCommand(
         capturedAssertToCommandLog(cmd, getTestUid())
       ),
-    (level, message) => log[level](message)
+    (level, message) => log[level](message),
+    (args) => resolveAssertTargetFromArgs(args)
   )
 }
 

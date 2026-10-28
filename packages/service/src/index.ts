@@ -4,6 +4,7 @@ import {
   attachTraceArtifact,
   beginInputDispatch,
   captureAndAttachScreenshot,
+  clearReadValues,
   errorMessage,
   FINAL_SNAPSHOT_COMMAND,
   finalizeTraceExport,
@@ -33,6 +34,7 @@ import { resolveCallSourceFromFrame } from './call-source.js'
 import { TraceSliceTracker } from './trace-slices.js'
 import {
   captureActionSnapshot,
+  isServiceProbe,
   settleAfterLastAction
 } from './action-snapshot.js'
 import type { ActionSnapshot, TestMetadataMap } from '@wdio/devtools-shared'
@@ -661,6 +663,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     this.#assertionTracker.reset()
     this.#sessionCapturer.resetLastSelector()
     this.#sessionCapturer.resetRetryTracker()
+    clearReadValues()
   }
 
   #pushTopLevelCommandFrame(
@@ -681,7 +684,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
   }
 
   async beforeCommand(command: string, args: string[]) {
-    if (!this.#browser) {
+    if (!this.#browser || isServiceProbe(command)) {
       return
     }
     // Suppress screenshot polling for the duration of an input-dispatching
@@ -770,8 +773,8 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     result: unknown,
     error?: Error
   ) {
-    // Skip bookkeeping for internal injection calls
-    if (this.#injecting) {
+    // Skip bookkeeping for internal injection calls and the snapshot's own probes
+    if (this.#injecting || isServiceProbe(command)) {
       return
     }
     this.#closeInputWindow?.()

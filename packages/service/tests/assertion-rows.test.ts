@@ -7,10 +7,11 @@ import {
 
 // Mock the capturer: the service routes each expect matcher through
 // coalesceAssertionIntoLastRead (fold into the matcher's read command) or, when
-// there's no read to fold into, captureAssertCommand (a fresh row). These tests
+// there's no read to fold into, captureMatcherCommand (a fresh row). These tests
 // assert that routing; the fold itself is a capturer unit test (session.test).
 const capturer = vi.hoisted(() => ({
   captureAssertCommand: vi.fn(),
+  captureMatcherCommand: vi.fn(),
   coalesceAssertionIntoLastRead: vi.fn(),
   failLastAction: vi.fn(),
   captureSource: vi.fn().mockResolvedValue(undefined),
@@ -95,7 +96,7 @@ describe('DevtoolsService — expect.* assertion rows', () => {
     expect(isRead('getText')).toBe(true)
     expect(isRead('click')).toBe(false)
     // No duplicate fresh row, no fresh screenshot/snapshot.
-    expect(capturer.captureAssertCommand).not.toHaveBeenCalled()
+    expect(capturer.captureMatcherCommand).not.toHaveBeenCalled()
     expect(pushActionSnapshotAt).not.toHaveBeenCalled()
   })
 
@@ -110,7 +111,7 @@ describe('DevtoolsService — expect.* assertion rows', () => {
       result: { pass: true }
     })
 
-    const entry = capturer.captureAssertCommand.mock.calls[0]![0]
+    const entry = capturer.captureMatcherCommand.mock.calls[0]![0]
     expect(entry.command).toBe('expect.toBe')
     expect(entry.screenshot).toBe('SHOT')
     expect(pushActionSnapshotAt).toHaveBeenCalledWith(
@@ -132,7 +133,7 @@ describe('DevtoolsService — expect.* assertion rows', () => {
       result: { pass: true }
     })
 
-    const entry = capturer.captureAssertCommand.mock.calls[0]![0]
+    const entry = capturer.captureMatcherCommand.mock.calls[0]![0]
     expect(entry.screenshot).toBe('SHOT')
     expect(pushActionSnapshotAt).not.toHaveBeenCalled()
   })
@@ -150,7 +151,7 @@ describe('DevtoolsService — expect.* assertion rows', () => {
     })
 
     expect(capturer.coalesceAssertionIntoLastRead).not.toHaveBeenCalled()
-    expect(capturer.captureAssertCommand).not.toHaveBeenCalled()
+    expect(capturer.captureMatcherCommand).not.toHaveBeenCalled()
     expect(pushActionSnapshotAt).not.toHaveBeenCalled()
   })
 
@@ -174,7 +175,7 @@ describe('DevtoolsService — expect.* assertion rows', () => {
     } as never)
 
     expect(capturer.coalesceAssertionIntoLastRead).toHaveBeenCalledTimes(1)
-    expect(capturer.captureAssertCommand).not.toHaveBeenCalled()
+    expect(capturer.captureMatcherCommand).not.toHaveBeenCalled()
   })
 
   it('hard-throw (no afterAssertion): folds the throwing read into a failing expect row', async () => {
@@ -197,7 +198,7 @@ describe('DevtoolsService — expect.* assertion rows', () => {
     expect(entry.args).toEqual(['Your username is invalid!'])
     expect(entry.error.message).toContain('still not existing')
     expect(foldErrored).toBe(true) // folds even though the read carries an error
-    expect(capturer.captureAssertCommand).not.toHaveBeenCalled()
+    expect(capturer.captureMatcherCommand).not.toHaveBeenCalled()
   })
 
   it('hard-throw with no read to fold: emits a fresh failing expect row', async () => {
@@ -210,7 +211,7 @@ describe('DevtoolsService — expect.* assertion rows', () => {
       error: new Error('element not found')
     } as never)
 
-    const entry = capturer.captureAssertCommand.mock.calls[0]![0]
+    const entry = capturer.captureMatcherCommand.mock.calls[0]![0]
     expect(entry.command).toBe('expect.toBeDisplayed')
     expect(entry.error.message).toContain('element not found')
   })

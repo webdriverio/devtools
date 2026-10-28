@@ -59,6 +59,11 @@ export function rememberReadValue(
   }
 }
 
+/** Called at each test start: an earlier test's read would otherwise box its element for a later `assert.ok(true)`. */
+export function clearReadValues(): void {
+  selectorByReadValue.clear()
+}
+
 /** The element locator this value was read from — undefined when an element read
  *  wasn't its most recent producer. */
 export function selectorForReadValue(value: unknown): string | undefined {

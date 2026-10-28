@@ -15,7 +15,7 @@ import sys
 from typing import Dict, Optional
 
 import selenium_devtools as devtools
-from . import assertions, frames, rerun
+from . import assertions, frames, read_value_locators, rerun
 from .constants import ENV_OPT_IN, ENV_PORT, LOGGER_NAME
 from .utils import now_ms
 
@@ -531,6 +531,7 @@ def pytest_runtest_logstart(nodeid, location) -> None:  # noqa: ANN001
     if not _opted_in():
         return
     _registry.mark_start(nodeid)
+    read_value_locators.reset()
     capturer = devtools.get_capturer()
     if capturer is None:
         return
