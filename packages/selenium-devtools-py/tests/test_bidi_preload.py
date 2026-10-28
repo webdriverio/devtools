@@ -10,6 +10,7 @@ import unittest
 from unittest import mock
 
 from selenium_devtools import bidi_preload
+from page_scripts_fixture import PAGE_SCRIPTS
 from selenium_devtools.snapshot import SnapshotCapturer
 
 
@@ -87,7 +88,7 @@ class TestTheScriptPathIsGatedNotDeleted(unittest.TestCase):
             calls["n"] += 1
             return True
 
-        capturer = SnapshotCapturer(execute, preloaded=True)
+        capturer = SnapshotCapturer(execute, PAGE_SCRIPTS, preloaded=True)
 
         self.assertTrue(capturer.injected)  # present from document-start
         self.assertTrue(capturer.inject())
@@ -100,7 +101,7 @@ class TestTheScriptPathIsGatedNotDeleted(unittest.TestCase):
             calls["n"] += 1
             return True
 
-        capturer = SnapshotCapturer(execute, script_path=None, preloaded=False)
+        capturer = SnapshotCapturer(execute, PAGE_SCRIPTS, script_path=None, preloaded=False)
         with mock.patch(
             "selenium_devtools.snapshot.load_injectable_script", return_value="SRC"
         ):
@@ -128,7 +129,7 @@ class TestADocumentThePreloadMissed(unittest.TestCase):
                 return {"mutations": [{"type": "childList"}]} if state["present"] else None
             return state["present"]  # readiness probe
 
-        capturer = SnapshotCapturer(execute, preloaded=True)
+        capturer = SnapshotCapturer(execute, PAGE_SCRIPTS, preloaded=True)
         with mock.patch(
             "selenium_devtools.snapshot.load_injectable_script", return_value="SRC"
         ):
@@ -146,7 +147,7 @@ class TestADocumentThePreloadMissed(unittest.TestCase):
             seen.append(script)
             return {"mutations": []}
 
-        capturer = SnapshotCapturer(execute, preloaded=True)
+        capturer = SnapshotCapturer(execute, PAGE_SCRIPTS, preloaded=True)
         capturer.pull_trace().mutations
 
         self.assertEqual([s for s in seen if "createElement" in s], [])

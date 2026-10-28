@@ -24,8 +24,9 @@ const ENTRY_SOURCE = `
 import type { WsMessageScope, WsPayloadFor } from './ws.js'
 import type { TraceExportPayloadFor } from './trace-export.js'
 import type { ElementScriptsResponse } from './element-scripts.js'
+import type { PageScriptsResponse } from './page-scripts.js'
 export type Scopes = { [S in WsMessageScope]: WsPayloadFor<S> } & TraceExportPayloadFor
-export type Named = { ElementScriptsResponse: ElementScriptsResponse }
+export type Named = { ElementScriptsResponse: ElementScriptsResponse; PageScriptsResponse: PageScriptsResponse }
 `
 
 class SchemaBuilder {

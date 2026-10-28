@@ -6,10 +6,9 @@ own: `CommandLog.performance` (plus `cookies`, `documentInfo` and a synthesized
 row is sent when the command completes, then sent again — under
 `replaceCommand` — once the page has been asked for its timings.
 
-The script is the browser-side half of core's `performance-capture.ts`, kept
-byte-comparable so the two can be diffed by eye; the shaping below mirrors its
-`applyPerformanceData`. Both are duplicated rather than shared because `core` is
-TypeScript, which is the cost #298 is weighing.
+The browser-side script is shared's `CAPTURE_PERFORMANCE_SCRIPT`, served by the
+backend (`page_scripts`). The shaping below mirrors core's
+`applyPerformanceData`, which is Node-side and so cannot be served.
 
 Unlike the JS adapters this does NOT sleep before reading. They wait 500 ms for
 navigation entries to populate because their navigation command can resolve
@@ -28,58 +27,6 @@ from typing import Any, Dict, Optional
 from .constants import LOGGER_NAME
 
 _log = logging.getLogger(f"{LOGGER_NAME}.performance")
-
-#: Read in the page. Mirrors core's `CAPTURE_PERFORMANCE_SCRIPT`.
-CAPTURE_PERFORMANCE_SCRIPT = """
-  return (function() {
-    const performance = window.performance;
-    const navigation = performance.getEntriesByType
-      ? performance.getEntriesByType('navigation')[0] : undefined;
-    const resources = (performance.getEntriesByType
-      ? performance.getEntriesByType('resource') : []) || [];
-
-    return {
-      navigation: navigation ? {
-        url: window.location.href,
-        timing: {
-          loadTime: navigation.loadEventEnd - navigation.fetchStart,
-          domReady: navigation.domContentLoadedEventEnd - navigation.fetchStart,
-          responseTime: navigation.responseEnd - navigation.requestStart,
-          dnsLookup: navigation.domainLookupEnd - navigation.domainLookupStart,
-          tcpConnection: navigation.connectEnd - navigation.connectStart,
-          serverResponse: navigation.responseEnd - navigation.responseStart
-        }
-      } : undefined,
-      resources: resources.map(function(resource) {
-        return {
-          url: resource.name,
-          duration: resource.duration,
-          size: resource.transferSize || 0,
-          type: resource.initiatorType,
-          startTime: resource.startTime,
-          responseEnd: resource.responseEnd
-        };
-      }),
-      cookies: (function() {
-        try { return document.cookie; } catch (e) { return ''; }
-      })(),
-      documentInfo: {
-        url: window.location.href,
-        title: document.title,
-        headers: {
-          userAgent: navigator.userAgent,
-          language: navigator.language,
-          platform: navigator.platform
-        },
-        documentInfo: {
-          readyState: document.readyState,
-          referrer: document.referrer,
-          characterSet: document.characterSet
-        }
-      }
-    };
-  })()
-"""
 
 
 def apply_performance_data(

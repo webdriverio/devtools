@@ -26,6 +26,7 @@ from . import (
     element_scripts,
     instrumentation,
     lifecycle,
+    page_scripts,
     rerun,
     trace_export,
 )
@@ -406,6 +407,9 @@ def enable(
         filmstrip=filmstrip_mode,
         a11y=a11y_mode,
     )
+    # Fetched here for the same reason: the snapshot capturer and the
+    # navigation timing read run them for every session of the run.
+    instrumentation.set_page_scripts(page_scripts.fetch(host, port))
     if a11y_mode:
         # Fetched here, not per action: the scripts are the same all run, and
         # a backend too old to serve them should cost one request, not one per
