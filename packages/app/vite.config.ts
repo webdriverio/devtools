@@ -4,9 +4,13 @@ import { defineConfig } from 'vite'
 import Icons from 'unplugin-icons/vite'
 import { FileSystemIconLoader } from 'unplugin-icons/loaders'
 
+import { hostingHeaders } from './hosting-headers.js'
+
 const __dirname = url.fileURLToPath(new URL('.', import.meta.url))
 
 export default defineConfig({
+  // Only the hosted build is previewed; the live dashboard needs its backend.
+  preview: { headers: hostingHeaders() },
   resolve: {
     // Force all codemirror packages to use the same @codemirror/state instance,
     // preventing the "multiple instances" error when mixing codemirror meta-package

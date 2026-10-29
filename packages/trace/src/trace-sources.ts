@@ -2,7 +2,7 @@
 // as path-addressed `src@<sha1(path)>.txt` resources, and each action's
 // captured `<file>:<line>[:<column>]` callSource becomes an inline stack frame.
 
-import { sha1Hex } from './sha1.js'
+import { portableSha1Hex } from './sha1-portable.js'
 import type { TraceZipResource } from './trace-zip-writer.js'
 
 export interface StackFrame {
@@ -15,7 +15,7 @@ export interface StackFrame {
 const MAX_SOURCE_BYTES = 2 * 1024 * 1024
 
 export function sourceResourceName(filePath: string): string {
-  return `src@${sha1Hex(filePath)}.txt`
+  return `src@${portableSha1Hex(filePath)}.txt`
 }
 
 // Splits one trailing `:<digits>` segment; `sep <= 0` keeps Windows drive
