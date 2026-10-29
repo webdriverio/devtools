@@ -136,7 +136,7 @@ function parentOf(
 
 interface SentRow {
   row: CommandLog
-  /** Index of the frame that carried it. */
+  /** Its position in send order, counted across frames and within one, since a frame can batch a parent and its child. */
   at: number
 }
 
@@ -147,7 +147,8 @@ function sendOrder(stream: RecordedStream): {
 } {
   const firstSent = new Map<number, SentRow>()
   const children: SentRow[] = []
-  stream.frames.forEach(({ scope, data }, at) => {
+  let at = 0
+  stream.frames.forEach(({ scope, data }) => {
     const rows =
       scope === SCOPES.commands
         ? (data as CommandLog[])
@@ -161,6 +162,7 @@ function sendOrder(stream: RecordedStream): {
       if (typeof row.parentId === 'number') {
         children.push({ row, at })
       }
+      at++
     }
   })
   return { firstSent, children }

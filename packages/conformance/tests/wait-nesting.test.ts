@@ -263,6 +263,35 @@ describe('checkWaitNesting', () => {
     ])
   })
 
+  // Regression: rows were ordered by frame alone, so a parent and its child batched in one frame failed.
+  it('accepts a wait and its read batched in one frame, wait first, and flags them read first', () => {
+    const batched = (order: 'wait first' | 'read first') =>
+      nestedRun().flatMap((frame): WireFrame[] => {
+        const rows = frame.data as CommandLog[]
+        if (frame.scope !== 'commands') {
+          return [frame]
+        }
+        if (rows[0]?.id === 4) {
+          return []
+        }
+        if (rows[0]?.id === 5) {
+          const [read] = rows
+          const wait = row('waitUntil', 130, 130, { id: 4, testUid: 't0' })
+          return [
+            {
+              scope: 'commands',
+              data: order === 'wait first' ? [wait, read] : [read, wait]
+            }
+          ]
+        }
+        return [frame]
+      })
+    expect(check(batched('wait first'))).toEqual([])
+    expect(check(batched('read first'))).toEqual([
+      'getText was sent before parent 4, so a live list shows it beside the wait'
+    ])
+  })
+
   it('flags a wait first sent once it had ended', () => {
     const frames = nestedRun().map((frame) =>
       frame.scope === 'commands' && (frame.data as CommandLog[])[0]?.id === 4
