@@ -1,3 +1,5 @@
+import { isWaitCommand } from '@wdio/devtools-shared'
+
 export type ActionCategory =
   'navigation' | 'input' | 'assertion' | 'query' | 'other'
 
@@ -41,15 +43,7 @@ const ASSERTION = new Set([
   'isEnabled',
   'isSelected',
   'isClickable',
-  'isFocused',
-  'waitForExist',
-  'waitForDisplayed',
-  'waitForEnabled',
-  'waitForClickable',
-  'waitForElementVisible',
-  'waitForElementPresent',
-  'waitForElementNotPresent',
-  'waitUntil'
+  'isFocused'
 ])
 
 const QUERY = new Set([
@@ -87,7 +81,12 @@ export function commandCategory(command: string): ActionCategory {
   if (INPUT.has(command)) {
     return 'input'
   }
-  if (ASSERTION.has(command) || ASSERTION_PREFIX_RE.test(command)) {
+  // Every adapter's wait names, Selenium's and Python's `wait` and `waitForElementLocated` included.
+  if (
+    ASSERTION.has(command) ||
+    ASSERTION_PREFIX_RE.test(command) ||
+    isWaitCommand(command)
+  ) {
     return 'assertion'
   }
   if (QUERY.has(command)) {
@@ -134,7 +133,12 @@ export function commandIcon(command: string): ActionIcon {
   if (INPUT.has(command)) {
     return 'click'
   }
-  if (ASSERTION.has(command) || ASSERTION_PREFIX_RE.test(command)) {
+  // Every adapter's wait names, Selenium's and Python's `wait` and `waitForElementLocated` included.
+  if (
+    ASSERTION.has(command) ||
+    ASSERTION_PREFIX_RE.test(command) ||
+    isWaitCommand(command)
+  ) {
     return 'assert'
   }
   if (QUERY.has(command)) {
