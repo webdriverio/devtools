@@ -193,3 +193,6 @@ export const STEPS_DIR_CANDIDATES = [
 ] as const
 export const STEPS_DIR_ASCENT_MAX = 6
 export const STEPS_GLOBAL_SEARCH_MAX_DEPTH = 5
+
+/** Frames searched below a command hook for the spec line: an expect matcher's read sits 16 frames below it. */
+export const SPEC_FRAME_SEARCH_DEPTH = 40

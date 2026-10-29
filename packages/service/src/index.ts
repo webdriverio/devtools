@@ -30,7 +30,7 @@ import {
   testMetadataUid,
   type TestOutcomeResult
 } from './test-metadata.js'
-import { resolveCallSourceFromFrame } from './call-source.js'
+import { resolveCallSourceFromFrame, specFrameBelow } from './call-source.js'
 import { TraceSliceTracker } from './trace-slices.js'
 import {
   captureActionSnapshot,
@@ -56,7 +56,6 @@ import {
 } from './utils.js'
 import { ScreencastLifecycle } from './screencast-lifecycle.js'
 import { attachBidiListeners } from './bidi-listeners.js'
-import { parse } from 'stack-trace'
 import { type ServiceOptions, TraceType } from './types.js'
 import {
   CONTEXT_CHANGE_COMMANDS,
@@ -694,9 +693,12 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     args: string[],
     issuedByService: boolean
   ): boolean {
+    // Process-wide, and the capturer's own stack reads still depend on it.
     Error.stackTraceLimit = 20
-    const stack = parse(new Error('')).reverse()
-    const source = stack.find((frame) => isUserSpecFile(frame.getFileName()))
+    const source = specFrameBelow(
+      DevToolsHookService.prototype.beforeCommand,
+      isUserSpecFile
+    )
     // A matcher's value-read (getText/isExisting) is captured normally like any
     // command; afterAssertion later folds it into the expect.<matcher> row (see
     // coalesceAssertionIntoLastRead), so no suppression window is needed here.
