@@ -104,7 +104,8 @@ export class WaitRows {
         wait.row,
         undefined,
         error,
-        wait.row.startTime ?? wait.row.timestamp
+        wait.row.startTime ?? wait.row.timestamp,
+        false
       )
     }
     return unrun

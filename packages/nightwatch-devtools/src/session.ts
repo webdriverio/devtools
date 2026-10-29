@@ -335,14 +335,20 @@ export class SessionCapturer extends SessionCapturerBase {
     return entry
   }
 
-  /** End a row {@link openCommand} sent, stamped at completion and replaced by its `id`. */
+  /** End a row {@link openCommand} sent, stamped at completion, replaced by its `id` and moved to where it completed; a row that never ran keeps its place. */
   closeCommand(
     entry: CommandLog & { _id?: number },
     result: unknown,
     error: Error | undefined,
-    timestamp: number
+    timestamp: number,
+    ran = true
   ): void {
     this.#openRows.delete(entry)
+    const at = this.commandsLog.indexOf(entry)
+    if (ran && at !== -1) {
+      this.commandsLog.splice(at, 1)
+      this.commandsLog.push(entry)
+    }
     const oldTimestamp = entry.timestamp
     entry.result = result
     entry.error = serializeError(error)
