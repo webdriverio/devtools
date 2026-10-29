@@ -103,6 +103,8 @@ export interface WaitScope {
   rowId?: number
   /** Waits issued inside this wait's condition, keyed by identity and order within one evaluation. */
   nested?: Map<string, WaitScope>
+  /** When the wait was first called: a nested wait keeps it across outer polls, so the children it kept stay inside it. */
+  startTime?: number
 }
 
 /** One evaluation of a wait's condition, counting the calls it has issued so far. */

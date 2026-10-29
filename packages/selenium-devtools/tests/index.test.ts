@@ -744,6 +744,52 @@ describe('driverPatcher', () => {
     }
   })
 
+  // Regression: each outer poll re-sent the nested wait with a later start, which the reads it kept then preceded.
+  it("keeps a nested wait's first start across the outer polls", async () => {
+    const realWait = (driverProto as any).wait
+    ;(driverProto as any).wait = async function (condition: any) {
+      const fn = typeof condition === 'function' ? condition : condition.fn
+      await fn(this)
+      await fn(this)
+    }
+    ;(driverProto as any).testRead = function () {
+      return Promise.resolve('url')
+    }
+    stash.driverFns.testRead = (driverProto as any).testRead
+    const onCommand = vi.fn<(cmd: CapturedCommand) => void>()
+    let clock = 1000
+    const now = vi.spyOn(Date, 'now').mockImplementation(() => (clock += 10))
+    try {
+      delete (driverProto as any)[
+        Symbol.for('@wdio/selenium-devtools/wait-tracked')
+      ]
+      patchSelenium({ onDriverCreated: vi.fn(), onCommand })
+      const fakeDriver = Object.create(driverProto)
+      await (fakeDriver as any).wait((d: any) =>
+        d.wait((inner: any) => inner.testRead())
+      )
+      await new Promise((r) => setImmediate(r))
+      const inner = onCommand.mock.calls
+        .map(([cmd]) => cmd)
+        .filter((c) => c.wait && c.waitScope)
+      expect(inner.length).toBeGreaterThan(2)
+      const [first] = inner
+      expect(first.timestamp).toBe(first.startTime)
+      expect(new Set(inner.map((c) => c.startTime))).toEqual(
+        new Set([first.startTime])
+      )
+      expect(inner.at(-1)!.timestamp).toBeGreaterThan(first.startTime!)
+    } finally {
+      now.mockRestore()
+      ;(driverProto as any).wait = realWait
+      delete (driverProto as any)[
+        Symbol.for('@wdio/selenium-devtools/wait-tracked')
+      ]
+      delete (driverProto as any).testRead
+      delete stash.driverFns.testRead
+    }
+  })
+
   it('reports a driver.wait() as one row named after its condition, sent running and replaced when it settles', async () => {
     const realWait = (driverProto as any).wait
     ;(driverProto as any).wait = async function (condition: any) {

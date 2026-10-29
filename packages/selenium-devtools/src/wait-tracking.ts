@@ -140,7 +140,7 @@ export function trackWaits(
   }
 }
 
-/** Emits the wait's running row, stamped at its start, and returns what replaces it once the wait settles. */
+/** Emits the wait's running row, stamped when this call started and spanning from the wait's first, and returns what replaces it once the wait settles. */
 function openWaitRow(
   emit: (cmd: CapturedCommand) => void,
   parent: WaitScope | undefined,
@@ -148,10 +148,14 @@ function openWaitRow(
   condition: unknown,
   timeout: unknown
 ): (outcome: WaitOutcome) => void {
-  const startTime = Date.now()
+  const now = Date.now()
+  const startTime = (scope.startTime ??= now)
   let opened: CapturedCommand | undefined
   try {
-    opened = waitRow(parent, scope, condition, timeout, startTime)
+    opened = {
+      ...waitRow(parent, scope, condition, timeout, startTime),
+      timestamp: now
+    }
     emit({ ...opened, running: true })
   } catch (rowErr) {
     // A row that cannot be built must not break the wait itself.

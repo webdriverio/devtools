@@ -222,6 +222,37 @@ class TestWaitRows(unittest.TestCase):
         self.assertEqual(inner_row["error"]["name"], "TimeoutException")
         self.assertEqual(outer_row["error"]["name"], "TimeoutException")
 
+    # Regression: each outer poll re-sent the nested wait with a later start, which its earlier children then preceded.
+    def test_a_nested_wait_keeps_its_first_start_across_outer_polls(self):
+        driver = PollingDriver()
+
+        def outer(d):
+            try:
+                WebDriverWait(d, 0.05, poll_frequency=0.02).until(
+                    EC.presence_of_element_located((By.ID, "late"))
+                )
+            except TimeoutException:
+                return False
+            return True
+
+        with self.assertRaises(TimeoutException):
+            WebDriverWait(driver, 0.2, poll_frequency=0.02).until(outer)
+        sends = [
+            row
+            for scope, data in self.tx.sent
+            for row in (
+                data if scope == "commands"
+                else [data["command"]] if scope == "replaceCommand"
+                else []
+            )
+            if row["command"] == "waitForElementLocated"
+        ]
+        self.assertGreater(len(sends), 2)
+        first_start = sends[0]["startTime"]
+        self.assertEqual({row["startTime"] for row in sends}, {first_start})
+        _, inner_row, poll = self._rows()
+        self.assertLessEqual(inner_row["startTime"], poll["startTime"])
+
     def test_a_row_that_cannot_be_sent_does_not_stop_the_wait(self):
         capture = SessionCapturer.capture_command
 

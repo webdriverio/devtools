@@ -1,4 +1,5 @@
 import { RetryTracker } from '@wdio/devtools-core'
+import { isWaitCommand } from '@wdio/devtools-shared'
 
 import type { CommandLog } from './types.js'
 
@@ -53,12 +54,13 @@ export class WaitRows {
     return id
   }
 
-  /** The finished wait replaces its running row by id, moved to where it completed so the log stays in completion order. */
+  /** The finished wait replaces its running row by id, from its first start, moved to where it completed so the log stays in completion order. */
   close(entry: Row, id: number): void {
     const log = this.#channel.log()
     entry.id = entry._id = id
     const at = this.#indexOf(id)
     const running = at === -1 ? undefined : log.splice(at, 1)[0]
+    entry.startTime = running?.startTime ?? entry.startTime
     log.push(entry)
     this.#channel.sendReplaceCommand(
       running?.timestamp ?? entry.timestamp,
@@ -84,6 +86,10 @@ export class WaitRows {
     const previous = log[at]!
     entry.id = entry._id = previous.id
     entry.callSource ||= previous.callSource
+    // A wait nested in a condition reopens on each outer poll; it keeps its first start, which the rows it kept follow.
+    if (isWaitCommand(entry.command)) {
+      entry.startTime = previous.startTime ?? entry.startTime
+    }
     log[at] = entry
     this.#channel.sendReplaceCommand(previous.timestamp, entry)
   }

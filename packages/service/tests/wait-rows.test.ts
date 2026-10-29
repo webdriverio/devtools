@@ -280,6 +280,38 @@ describe('a wait is one row holding what it issued', () => {
     expect(all.filter((r) => r.parentId === inner[0].id)).toHaveLength(1)
   })
 
+  // Regression: each outer poll reopened the nested wait with a later start, which the poll it kept then preceded.
+  it("keeps a nested wait's first start across the outer polls", async () => {
+    let clock = 1000
+    const now = vi.spyOn(Date, 'now').mockImplementation(() => (clock += 10))
+    try {
+      await command('waitUntil', [null, { timeout: 2000 }], true, {
+        inner: async () => {
+          await elementWait([false])
+          await elementWait([true])
+        }
+      })
+    } finally {
+      now.mockRestore()
+    }
+
+    const sentInner = sent
+      .flatMap(([scope, data]) =>
+        scope === 'commands'
+          ? (data as CommandLog[])
+          : scope === 'replaceCommand'
+            ? [(data as { command: CommandLog }).command]
+            : []
+      )
+      .filter((r) => r.command === 'waitForExist')
+    const first = sentInner[0].startTime
+    expect(sentInner.length).toBeGreaterThan(2)
+    expect(sentInner.every((r) => r.startTime === first)).toBe(true)
+    const inner = rows().find((r) => r.command === 'waitForExist')!
+    const poll = rows().find((r) => r.parentId === inner.id)!
+    expect(inner.startTime).toBeLessThanOrEqual(poll.startTime!)
+  })
+
   it('leaves commands outside a wait as top-level rows that hide what they issue', async () => {
     await command('click', [], undefined, {
       inner: () => command('elementClick', ['el-1'], undefined, { user: false })

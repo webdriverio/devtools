@@ -291,7 +291,8 @@ def _send_running(
 ) -> None:
     """Send the wait's row before its first poll, so what the polls issue has a
     row to nest under while it runs. A wait nested in another's condition runs
-    again on each outer poll and keeps its one row, as a poll keeps its own."""
+    again on each outer poll and keeps its one row, as a poll keeps its own,
+    and its first start, which the children it kept from earlier polls follow."""
     label = _safe_label(method)
     if negated:
         label = f"not {label}"
@@ -302,7 +303,7 @@ def _send_running(
         scope.row = capturer.capture_command(
             command=command,
             args=[label] if timeout is None else [label, timeout],
-            start_time=start,
+            start_time=scope.row["startTime"] if scope.row else start,
             timestamp=start,
             call_source=src,
             selector=selector,
