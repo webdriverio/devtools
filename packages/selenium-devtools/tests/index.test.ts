@@ -935,6 +935,25 @@ describe('driverPatcher', () => {
       }
     })
 
+    // Regression: the wrapper a locator wait returns is a new WebElementPromise, whose locator nothing had recorded.
+    it('names a visibility wait on the element another wait located after its locator', async () => {
+      found = true
+      ;(elementProto as any).isDisplayed = () => Promise.resolve(true)
+      stash.elementFns.isDisplayed = (elementProto as any).isDisplayed
+      try {
+        const el = driver.wait(located(), 100)
+        await driver.wait(sw.until.elementIsVisible(el), 100)
+        await new Promise((r) => setImmediate(r))
+        const visible = onCommand.mock.calls
+          .map(([c]) => c)
+          .filter((c) => c.wait && c.command === 'waitForElementVisible')
+        expect(visible.map((c) => c.selector)).toEqual(['h1', 'h1'])
+      } finally {
+        delete (elementProto as any).isDisplayed
+        delete stash.elementFns.isDisplayed
+      }
+    })
+
     it('names a locator with no selector form after its condition', async () => {
       found = true
       await driver.wait(sw.until.elementLocated(sw.By.linkText('Home')), 100)

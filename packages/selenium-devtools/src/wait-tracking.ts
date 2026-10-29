@@ -4,6 +4,7 @@ import { errorMessage, toError } from '@wdio/devtools-core'
 import { getCallSourceFromStack } from './helpers/utils.js'
 import {
   locatorToSelector,
+  rememberElementLocator,
   selectorForElement
 } from './helpers/element-locators.js'
 import type {
@@ -134,10 +135,33 @@ export function trackWaits(
         throw error
       }
     )
-    return WebElementPromise && result instanceof WebElementPromise
-      ? new WebElementPromise(this, observed)
-      : observed
+    return asReturned(this, result, observed, condition, WebElementPromise)
   }
+}
+
+/**
+ * What the patched wait hands back: selenium's own element promise around the observed outcome when the wait returned
+ * one, which `driver.wait(...).getText()` chains on. It is a new handle, so the condition's locator is recorded on it.
+ */
+function asReturned(
+  driver: unknown,
+  result: unknown,
+  observed: Promise<unknown>,
+  condition: unknown,
+  WebElementPromise?: WebElementPromiseCtor
+): unknown {
+  if (!WebElementPromise || !(result instanceof WebElementPromise)) {
+    return observed
+  }
+  const element = new WebElementPromise(driver, observed)
+  rememberElementLocator(element, elementSelectorOf(condition))
+  return element
+}
+
+function elementSelectorOf(condition: unknown): string | undefined {
+  return condition && typeof condition === 'object'
+    ? elementConditions.get(condition)?.selector()
+    : undefined
 }
 
 /** Emits the wait's running row, stamped when this call started and spanning from the wait's first, and returns what replaces it once the wait settles. */
@@ -191,7 +215,7 @@ function waitRow(
     condition && typeof condition === 'object'
       ? elementConditions.get(condition)
       : undefined
-  const selector = element?.selector()
+  const selector = elementSelectorOf(condition)
   const subject = selector ?? conditionLabel(condition)
   return {
     command: element?.command ?? 'wait',
