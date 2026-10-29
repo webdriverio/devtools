@@ -438,4 +438,61 @@ describe('wdio-devtools-command-item', () => {
       expect(received[0].elapsedTime).toBe(0)
     })
   })
+
+  describe('expand toggle', () => {
+    const wait = () => commandLog({ command: 'waitUntil' })
+
+    // Regression: the chevron was a span inside the row's button, so no key reached it and Enter selected the wait.
+    it('is a button of its own that the keyboard expands without selecting the row', async () => {
+      const el = await mount<CommandItem>(TAG, {
+        entry: wait(),
+        toggleKey: 'wait-1'
+      })
+      const toggle = shadow(el, 'button.toggle') as HTMLButtonElement
+      expect(toggle.parentElement?.closest('button') ?? null).toBeNull()
+      expect(toggle.getAttribute('aria-expanded')).toBe('false')
+      expect(toggle.getAttribute('aria-label')).toBe('Expand waitUntil')
+
+      const toggled: CustomEvent<{ key: string; expanded: boolean }>[] = []
+      const selected: Event[] = []
+      const onToggle = (event: Event) =>
+        toggled.push(event as CustomEvent<{ key: string; expanded: boolean }>)
+      const onSelect = (event: Event) => selected.push(event)
+      el.addEventListener('group-toggle', onToggle)
+      window.addEventListener('show-command', onSelect)
+      try {
+        toggle.focus()
+        await browser.keys('Enter')
+        await browser.keys(' ')
+      } finally {
+        el.removeEventListener('group-toggle', onToggle)
+        window.removeEventListener('show-command', onSelect)
+      }
+
+      expect(toggled.map((e) => e.detail)).toEqual([
+        { key: 'wait-1', expanded: false },
+        { key: 'wait-1', expanded: false }
+      ])
+      expect(selected).toHaveLength(0)
+    })
+
+    it('names the action it collapses once expanded', async () => {
+      const el = await mount<CommandItem>(TAG, {
+        entry: wait(),
+        toggleKey: 'wait-1',
+        expanded: true
+      })
+      const toggle = shadow(el, 'button.toggle')
+
+      expect(toggle?.getAttribute('aria-expanded')).toBe('true')
+      expect(toggle?.getAttribute('aria-label')).toBe('Collapse waitUntil')
+    })
+
+    it('renders no toggle on a row that issued nothing', async () => {
+      const el = await mount<CommandItem>(TAG, { entry: wait() })
+
+      expect(shadow(el, 'button.toggle')).toBeNull()
+      expect(shadowAll(el, 'button')).toHaveLength(1)
+    })
+  })
 })

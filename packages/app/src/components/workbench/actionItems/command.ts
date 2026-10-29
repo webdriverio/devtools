@@ -1,4 +1,4 @@
-import { html, type TemplateResult } from 'lit'
+import { css, html, nothing, type TemplateResult } from 'lit'
 import { customElement, property } from 'lit/decorators.js'
 
 import type { CommandLog } from '@wdio/devtools-shared'
@@ -41,6 +41,34 @@ const CATEGORY_COLOR: Record<ActionCategory, string> = {
 
 @customElement(SOURCE_COMPONENT)
 export class CommandItem extends ActionItem {
+  // The chevron sits over the row's button rather than inside it: a button holds no button.
+  static styles = [
+    ...ActionItem.styles,
+    css`
+      :host {
+        position: relative;
+      }
+      button.toggle,
+      :host([active]) button.toggle,
+      :host([failed]) button.toggle,
+      :host([failed][active]) button.toggle {
+        position: absolute;
+        left: 0.25rem;
+        top: 0;
+        bottom: 0;
+        z-index: 2;
+        min-height: 0;
+        display: flex;
+        align-items: center;
+        background: none;
+        box-shadow: none;
+      }
+      .toggle-space {
+        width: 22px;
+      }
+    `
+  ]
+
   @property({ type: Object, attribute: true })
   entry?: CommandLog
 
@@ -76,9 +104,7 @@ export class CommandItem extends ActionItem {
     )
   }
 
-  // Inside the row's button, so it stops the click that would also select the row.
-  #toggle(event: Event) {
-    event.stopPropagation()
+  #toggle() {
     if (!this.toggleKey) {
       return
     }
@@ -91,22 +117,23 @@ export class CommandItem extends ActionItem {
     )
   }
 
-  #renderToggle() {
+  // A button of its own beside the row's, so a keyboard reaches it and Enter on the row still selects.
+  #renderToggle(label: string) {
     if (!this.toggleKey) {
       return
     }
-    return html`<span
+    return html`<button
       class="toggle flex-none"
-      role="button"
-      aria-label=${this.expanded ? 'Collapse' : 'Expand'}
+      aria-label="${this.expanded ? 'Collapse' : 'Expand'} ${label}"
       aria-expanded=${this.expanded ? 'true' : 'false'}
-      @click=${(event: Event) => this.#toggle(event)}
-      ><icon-mdi-chevron-right
+      @click=${() => this.#toggle()}
+    >
+      <icon-mdi-chevron-right
         class="w-[14px] h-[14px] block shrink-0 mx-1 transition-transform ${
           this.expanded ? 'rotate-90' : ''
         }"
-      ></icon-mdi-chevron-right
-    ></span>`
+      ></icon-mdi-chevron-right>
+    </button>`
   }
 
   #renderIcon(command: string): TemplateResult {
@@ -155,15 +182,21 @@ export class CommandItem extends ActionItem {
     }
 
     const entry = this.entry
+    const label = capitalizeAssertLabel(entry.title ?? entry.command)
     return html`
+      ${this.#renderToggle(label)}
       <button
         class="flex px-1 w-full items-center hover:bg-toolbarHoverBackground"
         @click="${() => this.#highlightLine()}"
       >
-        ${this.#renderToggle()}
+        ${
+          this.toggleKey
+            ? html`<span class="toggle-space flex-none"></span>`
+            : nothing
+        }
         ${this.iconChip(this.#renderIcon(entry.command))}
         <code class="label text-[12.5px] ${this.failed ? 'text-chartsRed' : ''}"
-          >${capitalizeAssertLabel(entry.title ?? entry.command)}</code
+          >${label}</code
         >
         ${this.renderTime()}
       </button>

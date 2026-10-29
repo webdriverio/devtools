@@ -150,7 +150,8 @@ const durationOf = (row: Element) =>
 const elapsedOf = (row: Element) =>
   (row as CommandRowElement | MutationRowElement).elapsedTime
 
-const clickRow = (row: Element) => shadow(row, 'button')?.click()
+const clickRow = (row: Element) =>
+  (shadow(row, 'button:not(.toggle)') as HTMLButtonElement | null)?.click()
 
 /** Actions of the rows currently showing their label in full. */
 const revealedOf = (panel: Element): TimelineEntry[] =>
