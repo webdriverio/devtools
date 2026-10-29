@@ -227,12 +227,13 @@ describe('renderTable', () => {
     )
   })
 
-  it('marks conformance-tested cells, and explains both marks under every table', () => {
+  // The evidence lives in the feature list and the parity report; a reader only needs supported or not.
+  it('marks every supported cell the same, and explains the marks under every table', () => {
     const proven = feature({
       cells: allCells(byRule([RULES.failureRecorded]))
     })
     expect(renderTable('cross-framework', [proven])).toContain(
-      '| Probe | ✅ tested | ✅ tested | ✅ tested | ✅ tested |'
+      '| Probe | ✅ | ✅ | ✅ | ✅ |'
     )
     expect(renderTable('cross-framework', [feature()])).toContain(
       `| Probe | ✅ | ✅ | ✅ | ✅ |\n\n${LEGEND}`
