@@ -129,8 +129,7 @@ export function checkTestOutcomes(frames: WireFrame[]): Violation[] {
   })
 }
 
-// Only an action explains a failure: an unmapped poll errors while a passing wait polls too, and the trace drops it; a
-// mapped poll a passing wait retried past is no failure either.
+// Only an action's effective failure explains a failed test: an unmapped poll is dropped and a retried one is no failure.
 function actionFailed(row: CommandLog, retried: ReadonlySet<CommandLog>) {
   return Boolean(
     mapCommandToAction(row.command) && effectiveFailure(row, retried)

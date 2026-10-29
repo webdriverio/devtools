@@ -46,11 +46,7 @@ export function isServiceWork(): boolean {
   return serviceWork.getStore() === true
 }
 
-/**
- * The commands that become rows. Outside a wait that is the command on top of the stack, issued from the spec, and
- * nothing it issues. Inside a wait, every command the wait issued directly is a row nested under it, and what those
- * issue stays hidden: the same top-of-stack rule, one level down.
- */
+/** The commands that become rows: the spec's top-of-stack command, and inside a wait each command the wait issued directly. */
 export class CommandStack {
   #topLevel: CommandFrame[] = []
   #waits: OpenWait[] = []

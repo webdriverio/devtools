@@ -87,8 +87,7 @@ export function allSteps(steps: NormalizedStep[]): NormalizedStep[] {
   return steps.flatMap((s) => [s, ...allSteps(s.children ?? [])])
 }
 
-// The shared failure rule decides failed, a poll a passing wait retried past included; an assertion or a wait is worded by
-// its binding, so only the browser's own message is compared.
+// Shared effectiveFailure decides failed; an assertion or a wait is worded by its binding, so only a browser message compares.
 function outcomeOf(
   row: CommandLog,
   action: TraceAction,

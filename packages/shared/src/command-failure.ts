@@ -25,8 +25,7 @@ export function commandFailure(
   action: TraceAction
 ): { message: string } | undefined {
   if (cmd.error) {
-    const err = cmd.error as { message?: string }
-    return { message: err.message ?? String(cmd.error) }
+    return errorFailure(cmd.error)
   }
   const collapsed = collapsedAssertResult(cmd.result)
   if (collapsed && collapsed.passed === false) {
@@ -50,13 +49,18 @@ export function commandFailure(
   return undefined
 }
 
+function errorFailure(error: NonNullable<CommandLog['error']>): {
+  message: string
+} {
+  return { message: (error as { message?: string }).message ?? String(error) }
+}
+
 function rowFailure(cmd: CommandLog): { message: string } | undefined {
   const action = mapCommandToAction(cmd.command)
   if (action) {
     return commandFailure(cmd, action)
   }
-  const err = cmd.error as { message?: string } | undefined
-  return err ? { message: err.message ?? String(err) } : undefined
+  return cmd.error ? errorFailure(cmd.error) : undefined
 }
 
 /** Failed rows issued, at any depth, under a row that has not failed (a wait that passed, or is still running): polls it retried past. */
