@@ -153,7 +153,7 @@ function compareTwo(
   return out
 }
 
-// The steps a step issued are compared as their own sequence under it: aligned, then each pair as a step.
+// The steps a step issued are compared as their own sequence under it, as the test's steps are: aligned, moves extracted, then each pair as a step.
 function compareChildren(
   adapters: [AdapterId, AdapterId],
   where: string,
@@ -168,6 +168,13 @@ function compareChildren(
     withoutTargets(parentB.children ?? [], targets)
   )
   for (const { pairs, hunks } of aligned) {
+    const moves = extractMoves(hunks)
+    for (const move of moves) {
+      add(
+        RULES.agreeOnActions,
+        `${where}, inside it: ${stepKey(move.a)} comes after ${move.afterA} in ${adapters[0]}, after ${move.afterB} in ${adapters[1]}`
+      )
+    }
     for (const hunk of hunks.map((h) => unexcused(h, lacksA, lacksB))) {
       if (hunk.a.length || hunk.b.length) {
         add(
@@ -176,7 +183,7 @@ function compareChildren(
         )
       }
     }
-    for (const [x, y] of pairs) {
+    for (const [x, y] of [...pairs, ...moves.map((m) => [m.a, m.b] as const)]) {
       const inner = `${where} > ${stepKey(x)}`
       compareStep(adapters, inner, x, y, add)
       compareChildren(adapters, inner, x, y, [lacksA, lacksB], add)

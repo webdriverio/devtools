@@ -25,21 +25,34 @@ const row = (
 function nestedRun({
   readParent = (id: number) => id as number | undefined,
   sendWaitFirst = true,
-  readSelector = 'h2'
+  readSelector = 'h2',
+  readStarts = [105, 108],
+  flashReadError = undefined as string | undefined
 } = {}): WireFrame[] {
   const wait = (id: number, start: number) =>
     row('waitUntil', start, start, { id })
   const done = (id: number, start: number, end: number) =>
     row('waitUntil', start, end, { id })
-  const read = (id: number, parent: number, start: number, selector: string) =>
+  const read = (
+    id: number,
+    parent: number,
+    start: number,
+    selector: string,
+    error?: string
+  ) =>
     row('getText', start, start + 2, {
       id,
       selector,
       ...(readParent(parent) === undefined
         ? {}
-        : { parentId: readParent(parent) })
+        : { parentId: readParent(parent) }),
+      ...(error ? { error: { name: 'Error', message: error } } : {})
     })
-  const first = [read(2, 1, 105, '#flash'), read(3, 1, 108, readSelector)]
+  // Sent in the order they were issued.
+  const first = [
+    read(2, 1, readStarts[0], '#flash', flashReadError),
+    read(3, 1, readStarts[1], readSelector)
+  ].sort((a, b) => a.startTime! - b.startTime!)
   const commands: WireFrame[] = sendWaitFirst
     ? [
         { scope: 'commands', data: [wait(1, 100)] },
@@ -165,6 +178,29 @@ describe('compareRuns with nested rows', () => {
       [
         RULES.agreeOnActions,
         `devtools-service vs selenium-devtools: test "${WAITS_TEST}", Browser.waitForFunction, inside it after Element.getText #flash: devtools-service shows [Element.getText h2], selenium-devtools shows [Element.getText h1]`
+      ]
+    ])
+  })
+
+  // Regression: a read the two sides nest in a different order was reported missing and extra, and never compared.
+  it('reports a read moved inside its wait as one move, and still compares it', () => {
+    const divergences = compareRuns([
+      report('devtools-service', nestedRun()),
+      report(
+        'selenium-devtools',
+        nestedRun({ readStarts: [108, 104], flashReadError: 'stale element' })
+      )
+    ])
+    expect(divergences.map((d) => [d.rule, d.message])).toEqual([
+      [
+        RULES.agreeOnActions,
+        `devtools-service vs selenium-devtools: test "${WAITS_TEST}", Browser.waitForFunction, inside it: Element.getText #flash comes after its start in devtools-service, after Element.getText h2 in selenium-devtools`
+      ],
+      [
+        RULES.agreeOnErrors,
+        expect.stringContaining(
+          `test "${WAITS_TEST}", Browser.waitForFunction > Element.getText #flash: devtools-service ok, selenium-devtools error: stale element`
+        )
       ]
     ])
   })
