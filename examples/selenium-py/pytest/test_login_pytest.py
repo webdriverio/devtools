@@ -13,31 +13,32 @@ It deliberately mixes both shapes pytest supports, because they nest differently
 pytest has no ``describe``/``it`` blocks; a class IS the grouping construct, so
 this is the closest equivalent to a nested ``describe`` in the JS examples.
 
-This folder is the "committed config" shape: `pytest.ini` beside it already
-says how to capture, so running it needs no flags and no environment. Read that
-file — it documents every DevTools setting the adapter has, including the ones
-that are environment-only.
+This folder is the "committed config" shape: `pytest.ini` beside it opts in,
+so running it needs no flags. Read that file: it documents every DevTools
+setting the adapter has, including the environment-only ones.
 
     pip install -e packages/selenium-devtools-py
-    pytest examples/selenium/python-test/trace-py-test/
-    pnpm show-trace examples/selenium/python-test/trace-py-test/test-results/*.zip
+    pnpm demo:python:pytest                       # live dashboard
+    DEVTOOLS_MODE=trace pnpm demo:python:pytest   # one archive per failing test
+    pnpm show-trace examples/selenium-py/pytest/test-results/*.zip
 
-As committed it writes ONE archive PER FAILING TEST — `devtools_trace = true`,
-`devtools_trace_granularity = test`, `devtools_trace_policy = retain-on-failure`.
-So a green run writes nothing at all, which is the point: the archives you have
+`DEVTOOLS_MODE=trace` is read by `conftest.py`, which selects trace mode with
+`devtools_trace_granularity = test` and `devtools_trace_policy =
+retain-on-failure`, so a green run writes nothing at all: the archives you have
 are the ones worth opening.
 
-To see the difference, break an assertion below — the flash-message one in
-`test_rejects_invalid_credentials` is the easiest — and compare:
+To see the difference, break an assertion below (the flash-message one in
+`test_rejects_invalid_credentials` is the easiest) and compare:
 
-    pytest -o devtools_trace_policy=on   examples/.../trace-py-test/   # 3 archives
-    pytest                               examples/.../trace-py-test/   # 1, the broken test
-    pytest -o devtools_trace_granularity=session examples/.../trace-py-test/
-                                                                       # 1, the whole run
+    DEVTOOLS_MODE=trace pytest examples/selenium-py/pytest/                 # 1, the broken test
+    DEVTOOLS_MODE=trace pytest -o devtools_trace_policy=on examples/selenium-py/pytest/
+                                                                            # 3, every test
+    DEVTOOLS_MODE=trace pytest -o devtools_trace_granularity=session examples/selenium-py/pytest/
+                                                                            # 1, the whole run
 
 `-o` overrides one setting for one run without editing the file. A sibling
-example, `../login.py`, shows the same choices passed to `devtools.enable()`
-instead, for a script with no test runner.
+example, `../scripts/login.py`, shows the same choices passed to
+`devtools.enable()` instead, for a script with no test runner.
 
 The driver fixture is function-scoped, so each test gets its own browser session
 — which also exercises the adapter's per-driver capture state.

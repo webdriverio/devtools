@@ -8,6 +8,7 @@ own `-o` override reaches us — is checked by running real pytest in a subproce
 
 from __future__ import annotations
 
+import json
 import os
 import pathlib
 import subprocess
@@ -31,9 +32,13 @@ class _Config:
     expressible rather than three sources ORed together.
     """
 
-    def __init__(self, options=None, ini=None):
-        self._options = options or {}
-        self._ini = ini or {}
+    def __init__(self, options=None, ini=None, overrides=()):
+        self._options = dict(options or {})
+        # `-o name=value`: pytest folds it into `getini` and keeps the raw list.
+        self._ini = {**(ini or {}), **dict(overrides)}
+        self._options.setdefault(
+            "override_ini", [f"{name}={value}" for name, value in overrides]
+        )
 
     def getoption(self, name, default=None):
         return self._options.get(name, default)
@@ -184,6 +189,80 @@ class ResolveTracePolicyTest(unittest.TestCase):
         self.assertFalse(plugin._resolve_enabled(config))
 
 
+class ExplicitTraceFalseTest(unittest.TestCase):
+    """An explicit `devtools_trace = false` beats a policy or granularity that
+    only implies trace mode at the same level or below; the CLI (flags and `-o`)
+    outranks the ini file. Without this a committed policy pinned the run to
+    trace mode even under `-o devtools_trace=false`."""
+
+    POLICY = {"devtools_trace_policy": "retain-on-failure",
+              "devtools_trace_granularity": "test"}
+
+    def setUp(self):
+        patcher = mock.patch.dict(os.environ, {}, clear=False)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        for name in _DEVTOOLS_ENV:
+            os.environ.pop(name, None)
+
+    def test_an_ini_false_beats_an_ini_policy(self):
+        config = _Config(ini={"devtools_trace": False, **self.POLICY})
+        self.assertIs(plugin._resolve_trace(config), False)
+
+    def test_a_cli_false_beats_an_ini_policy(self):
+        config = _Config(
+            {"--devtools": True},
+            ini={"devtools_trace": True, **self.POLICY},
+            overrides=[("devtools_trace", False)],
+        )
+        self.assertIs(plugin._resolve_trace(config), False)
+        self.assertTrue(plugin._resolve_enabled(config))
+
+    def test_a_cli_false_beats_a_cli_policy_flag(self):
+        config = _Config(
+            {"--devtools-trace-policy": "on"}, overrides=[("devtools_trace", False)]
+        )
+        self.assertIs(plugin._resolve_trace(config), False)
+
+    def test_a_cli_policy_beats_an_ini_false(self):
+        for config in (
+            _Config({"--devtools-trace-policy": "on"}, {"devtools_trace": False}),
+            _Config(ini={"devtools_trace": False},
+                    overrides=[("devtools_trace_granularity", "test")]),
+        ):
+            with self.subTest(config=config):
+                self.assertTrue(plugin._resolve_trace(config))
+                self.assertTrue(plugin._resolve_enabled(config))
+
+    def test_the_cli_trace_flag_still_wins_over_everything(self):
+        config = _Config({"--devtools-trace": True},
+                         overrides=[("devtools_trace", False)])
+        self.assertTrue(plugin._resolve_trace(config))
+
+    def test_a_policy_left_without_trace_mode_does_not_opt_in(self):
+        config = _Config(ini={"devtools_trace": False, **self.POLICY})
+        self.assertFalse(plugin._resolve_enabled(config))
+
+    def test_the_unused_policy_is_reported(self):
+        config = _Config(ini={"devtools_trace": False, **self.POLICY})
+        with self.assertLogs(plugin._log, level="WARNING") as logs:
+            plugin._warn_if_trace_settings_unused(config, False)
+        self.assertEqual(len(logs.output), 1)
+        self.assertIn(
+            "devtools_trace_policy and devtools_trace_granularity", logs.output[0]
+        )
+
+    def test_nothing_is_reported_when_nothing_was_dropped(self):
+        for config, trace in (
+            (_Config(ini={"devtools_trace": False}), False),
+            (_Config(ini=self.POLICY), True),
+        ):
+            with self.subTest(trace=trace), \
+                    mock.patch.object(plugin._log, "warning") as warning:
+                plugin._warn_if_trace_settings_unused(config, trace)
+            warning.assert_not_called()
+
+
 class ConfigureResolvesOnceTest(unittest.TestCase):
     """Most hooks are handed no `config`, so the answer has to be cached."""
 
@@ -240,6 +319,22 @@ class ConfigureResolvesOnceTest(unittest.TestCase):
 
         enable.assert_called_once_with(
             trace=True, trace_policy=None, trace_granularity=None
+        )
+
+    def test_a_policy_dropped_by_an_explicit_false_is_reported_once(self):
+        config = _Config(ini={"devtools_trace": False,
+                              "devtools_trace_policy": "retain-on-failure"})
+        with mock.patch.object(plugin, "_resolve_enabled", return_value=True), \
+                mock.patch.object(plugin, "_enable_assertion_pass_hook"), \
+                mock.patch.object(plugin, "_configure_rerun"), \
+                mock.patch.object(plugin.devtools, "enable", return_value=None) as enable, \
+                mock.patch.object(plugin.devtools, "dashboard_url", return_value=None), \
+                self.assertLogs(plugin._log, level="WARNING") as logs:
+            plugin.pytest_configure(config)
+
+        self.assertEqual(len(logs.output), 1)
+        enable.assert_called_once_with(
+            trace=False, trace_policy="retain-on-failure", trace_granularity=None
         )
 
 
@@ -361,6 +456,113 @@ class RealPytestTest(unittest.TestCase):
         self.assertEqual(
             self._run("-o", "devtools=false", ini="[pytest]\ndevtools = true\n"),
             ["False", "None"],
+        )
+
+    def test_a_cli_false_beats_a_committed_policy(self):
+        # Getting a live run used to take clearing all three on the command line.
+        ini = ("[pytest]\ndevtools_trace = true\n"
+               "devtools_trace_policy = retain-on-failure\n"
+               "devtools_trace_granularity = test\n")
+        self.assertEqual(
+            self._run("--devtools", "-o", "devtools_trace=false", ini=ini),
+            ["True", "False"],
+        )
+
+
+EXAMPLE_CONFTEST = (
+    pathlib.Path(__file__).resolve().parents[3]
+    / "examples" / "selenium-py" / "pytest" / "conftest.py"
+)
+
+
+@unittest.skipUnless(_pytest_available(), "needs pytest to drive a real config")
+@unittest.skipUnless(EXAMPLE_CONFTEST.is_file(), "needs the repo's examples/")
+class ExampleConftestTest(unittest.TestCase):
+    """`pnpm demo:python:pytest` is live; DEVTOOLS_MODE=trace makes its conftest
+    hand the plugin trace mode. Asserted at `enable()`, which only the plugin's
+    own `pytest_configure` calls, so hook order is covered too."""
+
+    def setUp(self):
+        self._dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self._dir.cleanup)
+        root = pathlib.Path(self._dir.name)
+        (root / "pytest.ini").write_text("[pytest]\ndevtools = true\n")
+        (root / "conftest.py").write_text(EXAMPLE_CONFTEST.read_text())
+        sub = root / "probe"
+        sub.mkdir()
+        (sub / "test_probe.py").write_text("def test_one():\n    assert True\n")
+        (sub / "conftest.py").write_text(
+            textwrap.dedent(
+                """
+                import json
+
+                import selenium_devtools as devtools
+
+                def _enable(**kwargs):
+                    print("ENABLE=" + json.dumps(kwargs))
+
+                devtools.enable = _enable
+                """
+            )
+        )
+        self._root = root
+
+    def _enable_kwargs(self, *args, env=None):
+        environ = {
+            k: v for k, v in os.environ.items()
+            if not k.startswith("DEVTOOLS_")
+        }
+        environ["PYTHONPATH"] = SRC
+        environ.update(env or {})
+        out = subprocess.run(
+            [sys.executable, "-m", "pytest", "-p", "no:cacheprovider", "-q", "-s",
+             *args, "probe"],
+            cwd=self._root, env=environ, capture_output=True, text=True,
+        )
+        for line in (out.stdout + out.stderr).splitlines():
+            if line.startswith("ENABLE="):
+                return json.loads(line[len("ENABLE="):])
+        self.fail(f"enable() never called:\n{out.stdout}\n{out.stderr}")
+
+    def test_live_by_default(self):
+        self.assertEqual(
+            self._enable_kwargs(),
+            {"trace": None, "trace_policy": None, "trace_granularity": None},
+        )
+
+    def test_devtools_mode_trace_selects_per_test_failure_archives(self):
+        self.assertEqual(
+            self._enable_kwargs(env={"DEVTOOLS_MODE": "trace"}),
+            {"trace": True, "trace_policy": "retain-on-failure",
+             "trace_granularity": "test"},
+        )
+
+    def test_what_the_command_line_chose_wins(self):
+        # The examples-smoke job keeps every archive, one per run.
+        self.assertEqual(
+            self._enable_kwargs(
+                "-o", "devtools_trace_policy=on",
+                "-o", "devtools_trace_granularity=session",
+                env={"DEVTOOLS_MODE": "trace"},
+            ),
+            {"trace": True, "trace_policy": "on", "trace_granularity": "session"},
+        )
+
+    def test_an_exported_setting_is_left_to_enable(self):
+        kwargs = self._enable_kwargs(
+            env={"DEVTOOLS_MODE": "trace", "DEVTOOLS_TRACE_POLICY": "on"}
+        )
+        self.assertEqual(kwargs["trace_policy"], None)
+        self.assertEqual(kwargs["trace_granularity"], "test")
+        # Both exported: trace mode must still come from DEVTOOLS_MODE itself,
+        # since an exported setting does not imply it.
+        kwargs = self._enable_kwargs(env={
+            "DEVTOOLS_MODE": "trace",
+            "DEVTOOLS_TRACE_POLICY": "on",
+            "DEVTOOLS_TRACE_GRANULARITY": "session",
+        })
+        self.assertEqual(
+            kwargs, {"trace": True, "trace_policy": None, "trace_granularity": None}
         )
 
 

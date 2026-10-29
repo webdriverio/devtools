@@ -86,12 +86,9 @@ export const allCovered = (path: string): Record<AdapterId, Cell> => ({
   'selenium-devtools-py': covered(path)
 })
 
-/** The one definition of "tested" that the renderer, parity and rule coverage all read. */
+/** The one definition of "tested" that parity and rule coverage both read. */
 export function conformanceRules(cell: Cell): readonly RuleId[] {
   return cell.support === 'supported' && cell.evidence.kind === 'rule'
     ? cell.evidence.rules
     : []
 }
-
-export const isConformanceTested = (cell: Cell) =>
-  conformanceRules(cell).length > 0

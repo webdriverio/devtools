@@ -1,6 +1,5 @@
 import { FEATURES } from './features.js'
 import { ADAPTER_COLUMNS } from './capabilities.js'
-import { isConformanceTested } from './capability-helpers.js'
 import { GENERATED_NOTICE, LEGEND, SUPERSCRIPTS } from './constants.js'
 import type { CapabilityTable, Cell, Feature } from './types.js'
 
@@ -17,7 +16,7 @@ export const markerFor = (table: CapabilityTable, edge: 'start' | 'end') =>
 function mark(cell: Cell): string {
   switch (cell.support) {
     case 'supported':
-      return isConformanceTested(cell) ? '✅ tested' : '✅'
+      return '✅'
     case 'partial':
       return '⚠️'
     case 'unsupported':

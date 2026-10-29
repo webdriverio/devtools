@@ -145,7 +145,10 @@ A plain script passes
 `devtools.enable(trace_granularity="test", trace_policy="retain-on-failure")`.
 A committed example of all of this is in
 [`examples/selenium-py/pytest/`](../../examples/selenium-py/pytest/),
-whose `pytest.ini` documents every setting the adapter has.
+whose `pytest.ini` documents every setting the adapter has. It runs live
+(`pnpm demo:python:pytest`); `DEVTOOLS_MODE=trace` switches it to one archive
+per failing test through the example's own `conftest.py`, since the adapter
+does not read `DEVTOOLS_MODE`.
 
 Naming a policy or a granularity **explicitly** selects trace mode — the CLI flag, the ini option
 and the `enable()` argument all imply it, since a policy means nothing in live
@@ -155,6 +158,23 @@ ambient, and may have been set for a different script in the same shell, so
 flipping a live run to trace mode on that basis would take away the dashboard
 nobody asked to lose. Pair it with `DEVTOOLS_TRACE=1`. A run that ignores it
 says so rather than leaving you to notice a missing archive.
+
+An explicit `devtools_trace = false` outranks that implication at its own level
+and below, so `pytest -o devtools_trace=false` gets a live run out of a project
+whose ini commits a policy. The command line (flags and `-o`) is one level, the
+ini file the next:
+
+| trace mode is decided by | |
+|---|---|
+| `--devtools-trace` | on, always |
+| `-o devtools_trace=<bool>` | that value |
+| `--devtools-trace-policy` / `--devtools-trace-granularity`, or `-o` for either | on |
+| `devtools_trace` in the ini file | that value |
+| a policy or granularity in the ini file | on |
+| `DEVTOOLS_TRACE` | read by `enable()` when none of the above decided |
+
+The first row that applies wins. A policy or granularity left without trace
+mode does nothing, and the run logs a warning saying so.
 
 The values are shared's `TraceRetentionPolicy`: `on` (the default — keep
 everything), `retain-on-failure`, `retain-on-first-failure`, `on-first-retry`,

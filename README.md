@@ -47,14 +47,14 @@ Want a portable artifact instead of a live UI (CI / agent diffing)? Switch to **
 
 | Feature | WebdriverIO | Selenium | Nightwatch | Python |
 |---|---|---|---|---|
-| One row per command in the Actions list | ✅ tested | ✅ tested | ✅ tested | ✅ tested |
-| Waits show as one row with what they issued nested under it | ✅ tested | ✅ tested | ⚠️ no element-wait polls ¹ | ✅ tested |
+| One row per command in the Actions list | ✅ | ✅ | ✅ | ✅ |
+| Waits show as one row with what they issued nested under it | ✅ | ✅ | ⚠️ no element-wait polls ¹ | ✅ |
 | Screenshot on every command row | ✅ | ✅ | ✅ | ✅ |
 | Browser console logs | ✅ | ✅ | ✅ | ✅ |
-| Source tab opens the test line that ran the command | ✅ tested | ✅ tested | ✅ tested | ✅ tested |
+| Source tab opens the test line that ran the command | ✅ | ✅ | ✅ | ✅ |
 | Metadata tab (session, capabilities, device) | ✅ | ✅ | ✅ | ✅ |
-| Performance timings on navigation rows | ✅ tested | ✅ tested | ✅ tested | ✅ tested |
-| Failed command in the Errors tab, with the browser's message | ✅ tested | ✅ tested | ✅ tested | ✅ tested |
+| Performance timings on navigation rows | ✅ | ✅ | ✅ | ✅ |
+| Failed command in the Errors tab, with the browser's message | ✅ | ✅ | ✅ | ✅ |
 | Run, Rerun and Run all from the dashboard | ⚠️ no Cucumber step rerun ² | ⚠️ no Cucumber step rerun ² | ⚠️ no Cucumber step rerun ² | ✅ |
 | Preserve & Rerun (compare a failed run with its rerun) | ✅ | ✅ | ✅ | ✅ |
 | Dashboard window opens by itself in live mode, and can be turned off | ⚠️ always opens ³ | ✅ `openUi: false` | ⚠️ always opens ⁴ | ✅ `DEVTOOLS_OPEN=0` |
@@ -62,7 +62,7 @@ Want a portable artifact instead of a live UI (CI / agent diffing)? Switch to **
 | Force the test browser headless (`headless`) | ❌ ⁷ | ⚠️ Chrome only ⁸ | ❌ ⁷ | ❌ ⁷ |
 | Safari kept frontmost so input lands (live mode) | ⚠️ once ⁹ | ✅ before each element input | ⚠️ once ⁹ | ⚠️ once ⁹ |
 
-✅ tested: proven for that adapter by the cross-adapter conformance suite. ✅: supported, backed by a named test or a manual check listed in [the feature list](https://github.com/webdriverio/devtools/blob/main/packages/conformance/src/features.ts).
+✅ supported. ⚠️ partial, with the limit in the note below. ❌ not supported. Each supported cell is backed by the cross-adapter conformance suite, a named test or a manual check, listed in [the feature list](https://github.com/webdriverio/devtools/blob/main/packages/conformance/src/features.ts).
 
 ¹ A `waitUntil` row holds the commands its condition issued; a `waitForElement*` row has nothing under it, because Nightwatch polls for the element through its own transport rather than `browser`.
 
@@ -156,8 +156,8 @@ The Python adapter (`selenium-devtools-py`) writes the same archive through the 
 | Feature | WebdriverIO | Selenium | Nightwatch | Python |
 |---|---|---|---|---|
 | Trace mode + `show-trace` player | ✅ | ✅ | ✅ | ✅ |
-| DOM time-travel (mutation capture) | ✅ tested | ⚠️ with BiDi ¹ | ⚠️ with BiDi ¹ | ✅ tested |
-| Network requests (browser sessions) | ✅ tested | ⚠️ with BiDi ² | ⚠️ with BiDi ³ | ✅ tested |
+| DOM time-travel (mutation capture) | ✅ | ⚠️ with BiDi ¹ | ⚠️ with BiDi ¹ | ✅ |
+| Network requests (browser sessions) | ✅ | ⚠️ with BiDi ² | ⚠️ with BiDi ³ | ✅ |
 | Screencast (`filmstrip` / video) | ✅ CDP push (Chrome), polling elsewhere | ✅ CDP push (Chromium), polling elsewhere | ⚠️ polling only ⁴ | ✅ CDP push (Chromium), one frame per command elsewhere |
 | Per-test granularity (`traceGranularity: 'test'`) | ✅ | ✅ | ⚠️ ⁵ | ✅ |
 | Retry-aware retention (`tracePolicy`) | ✅ | ✅ | ⚠️ `retain-on-failure` only ⁶ | ⚠️ `retain-on-failure` only ⁷ |
@@ -171,7 +171,7 @@ The Python adapter (`selenium-devtools-py`) writes the same archive through the 
 | Artifacts manifest for CI and reporters (`emitArtifactsManifest`) | ✅ | ✅ | ⚠️ opt-in ¹⁷ | ❌ ¹⁸ |
 | Network without BiDi (Safari, Appium mobile browsers) | ⚠️ ¹⁹ | ⚠️ ¹⁹ | ⚠️ ¹⁹ | ⚠️ ¹⁹ |
 
-✅ tested: proven for that adapter by the cross-adapter conformance suite. ✅: supported, backed by a named test or a manual check listed in [the feature list](https://github.com/webdriverio/devtools/blob/main/packages/conformance/src/features.ts).
+✅ supported. ⚠️ partial, with the limit in the note below. ❌ not supported. Each supported cell is backed by the cross-adapter conformance suite, a named test or a manual check, listed in [the feature list](https://github.com/webdriverio/devtools/blob/main/packages/conformance/src/features.ts).
 
 ¹ Without BiDi (Safari, Appium) the page collector is injected after each navigation, so a page the test leaves within tens of milliseconds is never captured.
 
@@ -322,7 +322,7 @@ A hybrid app is the case capabilities alone cannot answer, because the answer ch
 | Follows a hybrid app into its webview | ⚠️ string form only ² | ⚠️ ³ | ⚠️ ³ | ⚠️ ³ |
 | Native app network through appium-interceptor (`appium:intercept`) | ✅ Android | ✅ Android | ✅ Android | ✅ Android |
 
-✅ tested: proven for that adapter by the cross-adapter conformance suite. ✅: supported, backed by a named test or a manual check listed in [the feature list](https://github.com/webdriverio/devtools/blob/main/packages/conformance/src/features.ts).
+✅ supported. ⚠️ partial, with the limit in the note below. ❌ not supported. Each supported cell is backed by the cross-adapter conformance suite, a named test or a manual check, listed in [the feature list](https://github.com/webdriverio/devtools/blob/main/packages/conformance/src/features.ts).
 
 ¹ Fetch and XHR calls carry headers and bodies; every other load comes from the page's Resource Timing buffer, with timing and size but no headers or body, and no status on Safari.
 
