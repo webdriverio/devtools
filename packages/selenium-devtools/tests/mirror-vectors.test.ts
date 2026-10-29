@@ -4,6 +4,7 @@
 // the wait tracking alike. The Python runner is tests/test_mirror_vectors.py.
 import type * as NodeCrypto from 'node:crypto'
 import fs from 'node:fs'
+import { createRequire } from 'node:module'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -21,7 +22,6 @@ import {
   SessionCapturerBase,
   type CapturedPerformancePayload
 } from '@wdio/devtools-core'
-import * as sw from 'selenium-webdriver'
 import { rememberElementLocator } from '../src/helpers/element-locators.js'
 import {
   tagElementConditions,
@@ -30,6 +30,9 @@ import {
   waitRowName
 } from '../src/wait-tracking.js'
 import type { Patchable, WaitScope } from '../src/types.js'
+
+// selenium-webdriver ships no types; tests reach it through require as the other suites here do.
+const sw = createRequire(import.meta.url)('selenium-webdriver')
 
 const randomDraw = vi.hoisted(() => ({ value: 0, bounds: [] as number[] }))
 
@@ -365,7 +368,7 @@ describe('performancePayload', () => {
 describe('waitRowNaming', () => {
   type Locator = { using: string; value: string }
   type Condition = { factory: string; locator?: Locator; negated?: boolean }
-  const BY: Record<string, (value: string) => sw.By> = {
+  const BY: Record<string, (value: string) => unknown> = {
     'css selector': (v) => sw.By.css(v),
     id: (v) => sw.By.id(v),
     name: (v) => sw.By.name(v),
@@ -380,7 +383,7 @@ describe('waitRowNaming', () => {
     }
     if (factory === 'elementVisible') {
       // The element a find returned, with the locator the adapter recorded for it.
-      const element = new sw.WebElement({} as sw.WebDriver, 'el-1')
+      const element = new sw.WebElement({}, 'el-1')
       rememberElementLocator(element, by(locator!))
       return sw.until.elementIsVisible(element)
     }
@@ -390,7 +393,7 @@ describe('waitRowNaming', () => {
     return () => true
   }
 
-  tagElementConditions(sw.until as unknown as Patchable)
+  tagElementConditions(sw.until as Patchable)
   for (const c of section<
     Named & {
       condition: Condition
