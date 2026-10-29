@@ -6,6 +6,7 @@ from unittest import mock
 
 from selenium.common.exceptions import NoSuchElementException, TimeoutException
 from selenium.webdriver.common.by import By
+from selenium.webdriver.remote.locator_converter import LocatorConverter
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.wait import WebDriverWait
 
@@ -18,6 +19,9 @@ from wire_contract import RecordingTransport
 class Element:
     def __init__(self, element_id):
         self.id = element_id
+
+    def is_displayed(self):
+        return True
 
 
 class PollingDriver:
@@ -74,7 +78,15 @@ class TestWaitRows(unittest.TestCase):
                     rows[at] = command
         return rows
 
-    def test_a_timed_out_wait_is_one_failed_row_named_after_its_condition(self):
+    def _first_sent(self, row_id):
+        for scope, data in self.tx.sent:
+            rows = data if scope == "commands" else [data["command"]] if scope == "replaceCommand" else []
+            for row in rows:
+                if row["id"] == row_id:
+                    return scope, row
+        return None
+
+    def test_a_timed_out_element_wait_is_one_failed_row_on_its_selector(self):
         driver = PollingDriver()
         locator = (By.CSS_SELECTOR, "#missing")
         with self.assertRaises(TimeoutException):
@@ -82,16 +94,50 @@ class TestWaitRows(unittest.TestCase):
                 EC.presence_of_element_located(locator)
             )
         self.assertGreater(driver.finds, 1)
-        rows = self._rows()
-        self.assertEqual(len(rows), 1, rows)
-        row = rows[0]
-        self.assertEqual(row["command"], "wait")
+        wait, poll = self._rows()
+        self.assertEqual(wait["command"], "waitForElementLocated")
+        self.assertEqual(wait["selector"], "#missing")
         self.assertEqual(
-            row["args"], ["presence_of_element_located(('css selector', '#missing'))", 0.2]
+            wait["args"], ["presence_of_element_located(('css selector', '#missing'))", 0.2]
         )
-        self.assertEqual(row["error"]["name"], "TimeoutException")
-        self.assertIn("presence_of_element_located", row["error"]["message"])
-        self.assertTrue(row["callSource"].startswith(__file__), row["callSource"])
+        self.assertEqual(wait["error"]["name"], "TimeoutException")
+        self.assertIn("presence_of_element_located", wait["error"]["message"])
+        self.assertTrue(wait["callSource"].startswith(__file__), wait["callSource"])
+        self.assertGreater(wait["timestamp"], wait["startTime"])
+        # Every poll folded into one row, and it is the wait's child rather than the wait.
+        self.assertEqual(poll["command"], "findElement")
+        self.assertEqual(poll["parentId"], wait["id"])
+        self.assertNotIn("parentId", wait)
+
+    def test_the_wait_row_is_sent_running_before_its_first_poll(self):
+        WebDriverWait(PollingDriver(appears_after=2), 1, poll_frequency=0.01).until(
+            EC.presence_of_element_located((By.ID, "late"))
+        )
+        scope, first = self.tx.sent[0]
+        self.assertEqual((scope, first[0]["command"]), ("commands", "waitForElementLocated"))
+        running = first[0]
+        self.assertEqual(running["timestamp"], running["startTime"])
+        self.assertNotIn("error", running)
+        self.assertIsNone(running["result"])
+        last_scope, last = self.tx.sent[-1]
+        self.assertEqual(last_scope, "replaceCommand")
+        self.assertEqual(last["command"]["id"], running["id"])
+        self.assertNotIn("error", last["command"])
+
+    def test_the_selector_is_the_one_the_element_rows_carry(self):
+        class ConvertingDriver(PollingDriver):
+            """Converts a locator before ``execute``, as selenium's ``find_element`` does."""
+
+            def find_element(self, by, value):
+                return super().find_element(*LocatorConverter().convert(by, value))
+
+        WebDriverWait(ConvertingDriver(appears_after=1), 1).until(
+            EC.visibility_of_element_located((By.ID, "late"))
+        )
+        rows = self._rows()
+        self.assertEqual(rows[0]["command"], "waitForElementVisible")
+        self.assertEqual(rows[0]["selector"], "#late")
+        self.assertEqual(rows[1]["selector"], rows[0]["selector"])
 
     def test_the_wait_s_own_message_is_kept(self):
         with self.assertRaises(TimeoutException):
@@ -100,39 +146,59 @@ class TestWaitRows(unittest.TestCase):
             )
         self.assertEqual(self._rows()[0]["error"]["message"], "flash never showed")
 
-    def test_a_passing_wait_s_polls_fold_into_one_row_per_call(self):
+    def test_a_passing_wait_is_a_row_and_its_polls_fold_under_it_one_row_per_call(self):
         driver = PollingDriver(appears_after=3)
         WebDriverWait(driver, 2, poll_frequency=0.01).until(
             lambda d: d.find_element(By.CSS_SELECTOR, "#late")
             and d.execute("getElementText", {"id": f"e.{d.finds}"})
         )
         self.assertEqual(driver.finds, 3)
-        rows = self._rows()
-        self.assertEqual([r["command"] for r in rows], ["findElement", "getElementText"])
-        self.assertNotIn("error", rows[0])  # the last poll's outcome stands
+        wait, find, text = self._rows()
+        self.assertEqual((wait["command"], wait["args"][0]), ("wait", "lambda"))
+        self.assertNotIn("error", wait)
+        self.assertNotIn("selector", wait)
+        self.assertEqual([find["command"], text["command"]], ["findElement", "getElementText"])
+        self.assertEqual([find["parentId"], text["parentId"]], [wait["id"], wait["id"]])
+        self.assertNotIn("error", find)  # the last poll's outcome stands
 
-    def test_a_failed_lambda_wait_takes_over_its_polls_row(self):
-        with self.assertRaises(TimeoutException):
-            WebDriverWait(PollingDriver(), 0.1, poll_frequency=0.02).until(
-                lambda d: d.find_element(By.ID, "late")
-            )
-        rows = self._rows()
-        self.assertEqual([(r["command"], r["args"][0]) for r in rows], [("wait", "lambda")])
+    def test_a_passing_wait_carries_the_value_it_returned_as_its_result(self):
+        returned = WebDriverWait(PollingDriver(), 1).until(lambda d: {"count": 2})
+        wait = self._rows()[0]
+        self.assertEqual(returned, {"count": 2})
+        self.assertEqual(wait["result"], {"count": 2})
+
+    def test_an_element_wait_s_result_is_its_element_as_other_results_serialize_it(self):
+        element = WebDriverWait(PollingDriver(appears_after=1), 1).until(
+            EC.presence_of_element_located((By.ID, "late"))
+        )
+        self.assertEqual(self._rows()[0]["result"], str(element))
 
     def test_until_not_names_the_negated_condition(self):
         with self.assertRaises(TimeoutException):
-            WebDriverWait(PollingDriver(), 0.1, poll_frequency=0.02).until_not(
-                lambda d: True
+            WebDriverWait(PollingDriver(appears_after=1), 0.1, poll_frequency=0.02).until_not(
+                EC.presence_of_element_located((By.ID, "late"))
             )
-        self.assertEqual(self._rows()[0]["args"][0], "not lambda")
+        wait = self._rows()[0]
+        self.assertEqual(wait["command"], "wait")
+        self.assertEqual(wait["args"][0], "not presence_of_element_located(('id', 'late'))")
+        self.assertNotIn("selector", wait)
+
+    def test_a_passing_until_not_is_not_read_as_a_wait_that_resolved_false(self):
+        returned = WebDriverWait(PollingDriver(), 1).until_not(lambda d: False)
+        self.assertIs(returned, False)
+        wait = self._rows()[0]
+        self.assertNotIn("error", wait)
+        self.assertNotEqual(wait["result"], False)
 
     def test_commands_outside_a_wait_stay_rows_of_their_own(self):
         driver = PollingDriver(appears_after=1)
         driver.find_element(By.ID, "late")
         driver.find_element(By.ID, "late")
-        self.assertEqual(len(self._rows()), 2)
+        rows = self._rows()
+        self.assertEqual(len(rows), 2)
+        self.assertFalse(any("parentId" in r for r in rows))
 
-    def test_a_wait_s_polls_replace_its_own_row_when_an_earlier_row_shares_the_millisecond(self):
+    def test_a_wait_s_polls_replace_their_own_row_when_an_earlier_row_shares_the_millisecond(self):
         driver = PollingDriver(appears_after=1)
         with mock.patch("selenium_devtools.capturer.now_ms", return_value=1000):
             driver.find_element(By.ID, "before")
@@ -143,10 +209,14 @@ class TestWaitRows(unittest.TestCase):
         rows = self._rows()
         self.assertEqual(
             [(r["command"], r["args"][0]) for r in rows],
-            [("findElement", {"using": "id", "value": "before"}), ("wait", "lambda")],
+            [
+                ("findElement", {"using": "id", "value": "before"}),
+                ("wait", "lambda"),
+                ("findElement", {"using": "id", "value": "late"}),
+            ],
         )
 
-    def test_a_nested_wait_keeps_one_scope_across_outer_polls(self):
+    def test_a_nested_wait_is_one_row_under_its_outer_wait_across_outer_polls(self):
         driver = PollingDriver()
         outer_polls = []
 
@@ -163,9 +233,63 @@ class TestWaitRows(unittest.TestCase):
         with self.assertRaises(TimeoutException):
             WebDriverWait(driver, 0.2, poll_frequency=0.02).until(outer)
         self.assertGreater(len(outer_polls), 1)
-        rows = self._rows()
-        self.assertEqual([(r["command"], r["args"][0]) for r in rows][-1], ("wait", "outer"))
-        self.assertEqual(len(rows), 2, rows)  # the inner wait's row, then the outer's
+        outer_row, inner_row, poll = self._rows()
+        self.assertEqual((outer_row["command"], outer_row["args"][0]), ("wait", "outer"))
+        self.assertEqual(inner_row["command"], "waitForElementLocated")
+        self.assertEqual(inner_row["parentId"], outer_row["id"])
+        self.assertEqual(poll["parentId"], inner_row["id"])
+        self.assertEqual(inner_row["error"]["name"], "TimeoutException")
+        self.assertEqual(outer_row["error"]["name"], "TimeoutException")
+
+    # Regression: each outer poll re-sent the nested wait with a later start, which its earlier children then preceded.
+    def test_a_nested_wait_keeps_its_first_start_across_outer_polls(self):
+        driver = PollingDriver()
+
+        def outer(d):
+            try:
+                WebDriverWait(d, 0.05, poll_frequency=0.02).until(
+                    EC.presence_of_element_located((By.ID, "late"))
+                )
+            except TimeoutException:
+                return False
+            return True
+
+        with self.assertRaises(TimeoutException):
+            WebDriverWait(driver, 0.2, poll_frequency=0.02).until(outer)
+        sends = [
+            row
+            for scope, data in self.tx.sent
+            for row in (
+                data if scope == "commands"
+                else [data["command"]] if scope == "replaceCommand"
+                else []
+            )
+            if row["command"] == "waitForElementLocated"
+        ]
+        self.assertGreater(len(sends), 2)
+        first_start = sends[0]["startTime"]
+        self.assertEqual({row["startTime"] for row in sends}, {first_start})
+        _, inner_row, poll = self._rows()
+        self.assertLessEqual(inner_row["startTime"], poll["startTime"])
+
+    def test_a_row_that_cannot_be_sent_does_not_stop_the_wait(self):
+        capture = SessionCapturer.capture_command
+
+        def failing(capturer, **kwargs):
+            if kwargs["command"] in ("wait", "waitForElementLocated"):
+                raise RuntimeError("socket gone")
+            return capture(capturer, **kwargs)
+
+        with mock.patch.object(SessionCapturer, "capture_command", failing):
+            self.assertTrue(
+                WebDriverWait(PollingDriver(appears_after=1), 1).until(
+                    EC.presence_of_element_located((By.ID, "late"))
+                )
+            )
+            with self.assertRaises(TimeoutException):
+                WebDriverWait(PollingDriver(), 0.05, poll_frequency=0.02).until(
+                    lambda d: d.find_element(By.ID, "late")
+                )
 
     # Regression: a captured object whose __repr__ raised escaped the nested wait's naming and failed the test.
     def test_a_condition_that_cannot_be_named_still_runs(self):

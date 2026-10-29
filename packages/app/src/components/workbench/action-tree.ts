@@ -1,8 +1,11 @@
 // Pure helpers behind the player's collapsible action tree: flattening the
-// group tree into render rows and deciding which groups start expanded.
+// tree into render rows and deciding which nodes start expanded. A node is a
+// group, or a command row with the rows its execution issued (a wait's reads).
 
 import type {
+  CommandLog,
   TraceActionChild,
+  TraceActionCommandNode,
   TraceActionGroupNode
 } from '@wdio/devtools-shared'
 
@@ -17,9 +20,24 @@ export interface CommandRow {
   kind: 'command'
   commandIndex: number
   depth: number
+  /** Set on a row that issued others: whether they are rendered below it. */
+  expanded?: boolean
 }
 
 export type ActionTreeRow = GroupRow | CommandRow
+
+/** Detail of the `group-toggle` event a collapsible row sends: its key, and whether it was open. */
+export interface RowToggleDetail {
+  key: string
+  expanded: boolean
+}
+
+/** Identity of a tree node, as `rowKey` names the row it renders as. */
+export function nodeKey(child: TraceActionChild): string {
+  return 'group' in child
+    ? `group:${child.group.callId}`
+    : `command:${child.commandIndex}`
+}
 
 /** Identity of a render row. Rows are keyed on it so an expand/collapse moves
  *  each element with the action it belongs to; reusing whatever element sat at
@@ -27,55 +45,82 @@ export type ActionTreeRow = GroupRow | CommandRow
  *  callId that reads as a number can't collide with a command index. */
 export function rowKey(row: ActionTreeRow): string {
   return row.kind === 'group'
-    ? `group:${row.group.callId}`
-    : `command:${row.commandIndex}`
+    ? nodeKey({ group: row.group })
+    : nodeKey({ commandIndex: row.commandIndex })
 }
 
-/** Command indices anywhere under a group, nested groups included. */
-export function collectCommandIndices(group: TraceActionGroupNode): number[] {
-  const indices: number[] = []
-  for (const child of group.children) {
-    if ('group' in child) {
-      indices.push(...collectCommandIndices(child.group))
-    } else {
-      indices.push(child.commandIndex)
-    }
+const childrenOf = (child: TraceActionChild): TraceActionChild[] =>
+  ('group' in child ? child.group.children : child.children) ?? []
+
+/** Keys of every node above the active command, found in one walk so each node's default is a set lookup. */
+export function activeAncestorKeys(
+  children: readonly TraceActionChild[],
+  activeCommandIndex?: number
+): Set<string> {
+  if (activeCommandIndex === undefined) {
+    return new Set()
   }
-  return indices
+  const path: string[] = []
+  const holds = (level: readonly TraceActionChild[]): boolean =>
+    level.some((child) => {
+      if (!('group' in child) && child.commandIndex === activeCommandIndex) {
+        return true
+      }
+      path.push(nodeKey(child))
+      if (holds(childrenOf(child))) {
+        return true
+      }
+      path.pop()
+      return false
+    })
+  return holds(children) ? new Set(path) : new Set()
 }
 
 /** Groups open by default when failed or when holding the active command. */
 export function defaultExpanded(
   group: TraceActionGroupNode,
-  activeCommandIndex?: number
+  activeAncestors: ReadonlySet<string>
 ): boolean {
-  if (group.failed) {
-    return true
-  }
+  return Boolean(group.failed) || activeAncestors.has(nodeKey({ group }))
+}
+
+/** A row that issued others opens by default when it failed (and no passing wait retried past it) or one of its rows is the active command. */
+export function defaultCommandExpanded(
+  node: TraceActionCommandNode,
+  commands: readonly CommandLog[],
+  activeAncestors: ReadonlySet<string>,
+  retried: ReadonlySet<CommandLog> = new Set()
+): boolean {
+  const command = commands[node.commandIndex]
   return (
-    activeCommandIndex !== undefined &&
-    collectCommandIndices(group).includes(activeCommandIndex)
+    (Boolean(command?.error) && !retried.has(command)) ||
+    activeAncestors.has(nodeKey(node))
   )
 }
 
-/** Flatten the tree into render rows, descending only into expanded groups. */
+/** Flatten the tree into render rows, descending only into expanded nodes. */
 export function flattenActionTree(
   children: TraceActionChild[],
-  isExpanded: (group: TraceActionGroupNode) => boolean,
+  isExpanded: (node: TraceActionChild) => boolean,
   depth = 0
 ): ActionTreeRow[] {
   const rows: ActionTreeRow[] = []
   for (const child of children) {
+    const nested = childrenOf(child)
+    const expanded =
+      ('group' in child || nested.length > 0) && isExpanded(child)
     if ('group' in child) {
-      const expanded = isExpanded(child.group)
       rows.push({ kind: 'group', group: child.group, depth, expanded })
-      if (expanded) {
-        rows.push(
-          ...flattenActionTree(child.group.children, isExpanded, depth + 1)
-        )
-      }
     } else {
-      rows.push({ kind: 'command', commandIndex: child.commandIndex, depth })
+      rows.push({
+        kind: 'command',
+        commandIndex: child.commandIndex,
+        depth,
+        ...(nested.length ? { expanded } : {})
+      })
+    }
+    if (expanded) {
+      rows.push(...flattenActionTree(nested, isExpanded, depth + 1))
     }
   }
   return rows

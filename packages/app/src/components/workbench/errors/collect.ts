@@ -5,7 +5,7 @@
  * tab component only has to render what this returns.
  */
 
-import type { CommandLog } from '@wdio/devtools-shared'
+import { retriedRows, type CommandLog } from '@wdio/devtools-shared'
 import type {
   SuiteStatsFragment,
   TestStatsFragment
@@ -225,9 +225,11 @@ function suiteErrors(
 }
 
 function commandErrors(commands: CommandLog[] | undefined): CollectedError[] {
+  // A poll a passing wait retried past is no failure of the run.
+  const retried = retriedRows(commands ?? [])
   return (commands ?? [])
     .flatMap((command) => {
-      const read = readError(command.error)
+      const read = retried.has(command) ? undefined : readError(command.error)
       if (!read) {
         return []
       }

@@ -4,6 +4,7 @@ import { customElement, property } from 'lit/decorators.js'
 import type { TraceActionGroupNode } from '@wdio/devtools-shared'
 
 import { ActionItem } from './item.js'
+import { nodeKey, type RowToggleDetail } from '../action-tree.js'
 import '~icons/mdi/chevron-right.js'
 
 const SOURCE_COMPONENT = 'wdio-devtools-group-item'
@@ -27,9 +28,15 @@ export class GroupItem extends ActionItem {
 
   #toggle() {
     this.requestReveal()
+    if (!this.group) {
+      return
+    }
     this.dispatchEvent(
-      new CustomEvent('group-toggle', {
-        detail: { callId: this.group?.callId, expanded: this.expanded },
+      new CustomEvent<RowToggleDetail>('group-toggle', {
+        detail: {
+          key: nodeKey({ group: this.group }),
+          expanded: this.expanded
+        },
         bubbles: true,
         composed: true
       })

@@ -549,6 +549,60 @@
           "expect": { "applied": false, "row": { "command": "url" } }
         }
       ]
+    },
+    "waitRowNaming": {
+      "mirrors": {
+        "ts": "selenium-devtools/src/wait-tracking.ts waitRowName",
+        "py": "wait_tracking.py wait_row_name"
+      },
+      "notes": "condition.factory is language neutral: elementLocated is EC.presence_of_element_located (until.elementLocated), elementVisible is EC.visibility_of_element_located, titleIs is EC.title_is (until.titleIs), function is a plain function of the driver. locator.using is the strategy the test wrote, before the binding converts it; expect.selector is the selector the adapter stamps on the element rows the wait's polls make, null where the strategy has none. A negated wait (until_not) waits on no element, so it is a wait on its condition; selenium-webdriver has no negated wait, so the TypeScript runner skips that case.",
+      "cases": [
+        {
+          "name": "a presence wait is an element wait on its CSS selector",
+          "condition": { "factory": "elementLocated", "locator": { "using": "css selector", "value": "#flash" } },
+          "expect": { "command": "waitForElementLocated", "selector": "#flash" }
+        },
+        {
+          "name": "an id locator names the selector its find row carries",
+          "condition": { "factory": "elementLocated", "locator": { "using": "id", "value": "flash" } },
+          "expect": { "command": "waitForElementLocated", "selector": "#flash" }
+        },
+        {
+          "name": "a name locator is converted to CSS as the find is",
+          "condition": { "factory": "elementLocated", "locator": { "using": "name", "value": "q" } },
+          "expect": { "command": "waitForElementLocated", "selector": "[name=\"q\"]" }
+        },
+        {
+          "name": "a visibility wait is an element visibility wait",
+          "condition": { "factory": "elementVisible", "locator": { "using": "id", "value": "username" } },
+          "expect": { "command": "waitForElementVisible", "selector": "#username" }
+        },
+        {
+          "name": "an XPath locator is its own selector",
+          "condition": { "factory": "elementVisible", "locator": { "using": "xpath", "value": "//a[@href]" } },
+          "expect": { "command": "waitForElementVisible", "selector": "//a[@href]" }
+        },
+        {
+          "name": "a strategy with no selector form still names the element wait",
+          "condition": { "factory": "elementLocated", "locator": { "using": "link text", "value": "Logout" } },
+          "expect": { "command": "waitForElementLocated", "selector": null }
+        },
+        {
+          "name": "a negated element wait is a wait on its condition",
+          "condition": { "factory": "elementLocated", "locator": { "using": "css selector", "value": "#flash" }, "negated": true },
+          "expect": { "command": "wait", "selector": null }
+        },
+        {
+          "name": "a condition on the page is a wait on its condition",
+          "condition": { "factory": "titleIs" },
+          "expect": { "command": "wait", "selector": null }
+        },
+        {
+          "name": "a function of the driver is a wait on its condition",
+          "condition": { "factory": "function" },
+          "expect": { "command": "wait", "selector": null }
+        }
+      ]
     }
   }
 }

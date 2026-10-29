@@ -7,6 +7,11 @@ export interface TraceAction {
   method: string
 }
 
+/** Whether an action is a wait: every runner's waits map onto a `waitFor*` method. */
+export function isWaitAction(action: TraceAction | null | undefined): boolean {
+  return action?.method.startsWith('waitFor') ?? false
+}
+
 /** Trace action class assertion commands map to. */
 export const ASSERT_ACTION_CLASS = 'Assert'
 
@@ -104,6 +109,8 @@ export const ACTION_MAP: Record<string, TraceAction> = {
   waitForElementNotVisible: { class: 'Element', method: 'waitForHidden' },
   waitForElementPresent: { class: 'Element', method: 'waitForExist' },
   waitForElementNotPresent: { class: 'Element', method: 'waitForNotExist' },
+  // A Selenium wait on an element locator (`until.elementLocated`, `presence_of_element_located`), named by its adapter.
+  waitForElementLocated: { class: 'Element', method: 'waitForExist' },
   // WDIO page/browser reads
   getTitle: { class: 'Page', method: 'getTitle' },
   getUrl: { class: 'Page', method: 'getUrl' },
@@ -114,7 +121,7 @@ export const ACTION_MAP: Record<string, TraceAction> = {
   getCssValue: { class: 'Element', method: 'getCSSProperty' },
   getRect: { class: 'Element', method: 'getRect' },
   getCurrentUrl: { class: 'Page', method: 'getUrl' },
-  // Only a FAILED `driver.wait()` is reported, so its timeout has a row to attach to.
+  // A Selenium wait on any condition other than an element locator.
   wait: { class: 'Browser', method: 'waitForFunction' },
   // Raw W3C protocol names. The JS adapters wrap a client library and report
   // its method names, but an adapter that patches the protocol chokepoint —

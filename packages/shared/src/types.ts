@@ -194,7 +194,12 @@ export interface CommandLog {
   performance?: PerformanceData
   cookies?: string
   documentInfo?: DocumentInfo
+  /** Stable row identity: a `replaceCommand` locates its row by it, and a child names its parent by it. */
   id?: number
+  /** The `id` of the row whose execution issued this one (a wait's condition reads, an element wait's polls). The
+   *  parent is sent first, while it is still running, so a live list can nest the child on arrival; a row whose
+   *  parent is absent from the list renders at the top level (`nestCommands`). */
+  parentId?: number
   /** Cucumber step this command ran under — nests below testUid in the trace's
    *  group tree (Feature → Scenario → Step). Set by the adapter step hooks. */
   stepUid?: string

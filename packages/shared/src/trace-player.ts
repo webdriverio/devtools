@@ -32,9 +32,16 @@ export interface TraceActionGroupNode {
   children: TraceActionChild[]
 }
 
-/** One tree slot: a nested group or an index into `trace.commands`. */
+/** A command row in the tree: an index into `trace.commands`, with the rows its execution issued (a wait's reads)
+ *  when it issued any. */
+export interface TraceActionCommandNode {
+  commandIndex: number
+  children?: TraceActionChild[]
+}
+
+/** One tree slot: a nested group or a command. */
 export type TraceActionChild =
-  { group: TraceActionGroupNode } | { commandIndex: number }
+  { group: TraceActionGroupNode } | TraceActionCommandNode
 
 /** Payload served at `TRACE_API.get`. Carries the reconstructed TraceLog plus
  *  the frame filmstrip and clock window the player's timeline needs. */

@@ -194,8 +194,9 @@ function commandError(
   after: AfterEvent | undefined,
   afters: Map<string, AfterEvent>
 ): { message: string } | undefined {
-  if (after?.error) {
-    return after.error
+  const own = after?.error ?? after?.retriedError
+  if (own) {
+    return own
   }
   if (before.stepId && before.stepId !== before.callId) {
     return afters.get(before.stepId)?.error
@@ -304,10 +305,31 @@ function buildCommands(
     entries.push({ callId, command })
   }
   entries.sort((a, b) => a.command.timestamp - b.command.timestamp)
+  const indexByCallId = new Map(
+    entries.map((entry, index) => [entry.callId, index])
+  )
+  linkIssuedRows(entries, events.befores, indexByCallId)
   return {
     commands: entries.map((entry) => entry.command),
     maxTime,
-    indexByCallId: new Map(entries.map((entry, index) => [entry.callId, index]))
+    indexByCallId
+  }
+}
+
+/** Restore `id`/`parentId` between action rows, so the shared helpers that judge a row by the row that issued it read a trace as they read a live run. */
+function linkIssuedRows(
+  entries: { callId: string; command: CommandLog }[],
+  befores: Map<string, BeforeEvent>,
+  indexByCallId: Map<string, number>
+): void {
+  for (const { callId, command } of entries) {
+    const parentCallId = befores.get(callId)?.parentId
+    const parent =
+      parentCallId === undefined ? undefined : indexByCallId.get(parentCallId)
+    if (parent !== undefined) {
+      entries[parent].command.id = parent
+      command.parentId = parent
+    }
   }
 }
 

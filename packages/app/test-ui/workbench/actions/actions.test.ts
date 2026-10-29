@@ -150,7 +150,8 @@ const durationOf = (row: Element) =>
 const elapsedOf = (row: Element) =>
   (row as CommandRowElement | MutationRowElement).elapsedTime
 
-const clickRow = (row: Element) => shadow(row, 'button')?.click()
+const clickRow = (row: Element) =>
+  (shadow(row, 'button:not(.toggle)') as HTMLButtonElement | null)?.click()
 
 /** Actions of the rows currently showing their label in full. */
 const revealedOf = (panel: Element): TimelineEntry[] =>
@@ -499,6 +500,313 @@ describe('wdio-devtools-actions', () => {
         GROUP_ROW
       ])
       expect(entryOf(rows[1])).toEqual(loginTimeline.url)
+    })
+  })
+
+  // A wait is one row; the commands its condition issued are nested under it.
+  describe('rows a command issued', () => {
+    const wait = commandLog({
+      command: 'waitUntil',
+      args: [],
+      id: 10,
+      startTime: RUN_START,
+      timestamp: RUN_START + 500
+    })
+    const reads = [
+      commandLog({
+        command: 'getText',
+        args: ['#flash'],
+        id: 11,
+        parentId: 10,
+        startTime: RUN_START + 10,
+        timestamp: RUN_START + 20
+      }),
+      commandLog({
+        command: 'getText',
+        args: ['h2'],
+        id: 12,
+        parentId: 10,
+        startTime: RUN_START + 30,
+        timestamp: RUN_START + 40
+      })
+    ]
+    const logout = commandLog({
+      command: 'click',
+      id: 13,
+      timestamp: RUN_START + 600
+    })
+    const liveInputs = (parent: CommandLog = wait) => ({
+      commands: [...reads, parent, logout],
+      mutations: []
+    })
+    const toggle = (row: Element) =>
+      shadow(row, '.toggle')?.dispatchEvent(
+        new MouseEvent('click', { bubbles: true, composed: true })
+      )
+
+    it('lists a passing wait collapsed, its reads hidden', async () => {
+      const panel = await mountPanel(liveInputs())
+
+      const rows = shadowAll(panel, ROWS)
+      expect(rows.map(entryOf)).toEqual([wait, logout])
+      expect(rows[0].hasAttribute('expanded')).toBe(false)
+      expect(shadow(rows[0], '.toggle')).toBeTruthy()
+      expect(shadow(rows[1], '.toggle')).toBeFalsy()
+    })
+
+    it('shows the reads under the wait, indented, once its chevron is clicked', async () => {
+      const panel = await mountPanel(liveInputs())
+
+      toggle(shadowAll(panel, ROWS)[0])
+      await settle(panel)
+
+      const rows = shadowAll(panel, ROWS)
+      expect(rows.map(entryOf)).toEqual([wait, ...reads, logout])
+      expect(rows[0].hasAttribute('expanded')).toBe(true)
+      expect((rows[1] as HTMLElement).style.paddingLeft).toBe('14px')
+      // The chevron toggles; it does not select the wait.
+      expect(shadowAll(panel, ACTIVE_ROW)).toHaveLength(0)
+    })
+
+    it('opens a failed wait by default', async () => {
+      const failed = { ...wait, error: new Error('waitUntil timed out') }
+      const panel = await mountPanel(liveInputs(failed))
+
+      expect(shadowAll(panel, ROWS).map(entryOf)).toEqual([
+        failed,
+        ...reads,
+        logout
+      ])
+    })
+
+    it("renders a passing wait's failed poll neutral and a timed-out wait's red", async () => {
+      const failedRead = {
+        ...reads[0],
+        error: new Error('no such element')
+      }
+      const failedReadRow = async (parent: CommandLog) => {
+        const panel = await mountPanel({
+          commands: [failedRead, reads[1], parent, logout],
+          mutations: []
+        })
+        if (!parent.error) {
+          toggle(shadowAll(panel, ROWS)[0])
+          await settle(panel)
+        }
+        return shadowAll(panel, ROWS).find(
+          (row) => entryOf(row) === failedRead
+        )!
+      }
+
+      const passing = await failedReadRow({ ...wait, result: true })
+      expect(passing.hasAttribute('failed')).toBe(false)
+      expect(
+        shadow(passing, 'button:not(.toggle)')?.getAttribute('title')
+      ).toBe('Retried past by its wait: no such element')
+
+      const timedOut = await failedReadRow({
+        ...wait,
+        error: new Error('waitUntil timed out')
+      })
+      expect(timedOut.hasAttribute('failed')).toBe(true)
+    })
+
+    it("renders a passing wait's failed poll neutral in the player tree too", async () => {
+      const failedRead = { ...reads[0], error: new Error('no such element') }
+      const groups: TraceActionChild[] = [
+        {
+          group: {
+            callId: 'test',
+            title: 'waits on what the page shows',
+            startTime: RUN_START,
+            endTime: RUN_START + 600,
+            children: [
+              {
+                commandIndex: 2,
+                children: [{ commandIndex: 0 }, { commandIndex: 1 }]
+              }
+            ]
+          }
+        }
+      ]
+      const panel = await mountPanel({
+        commands: [failedRead, reads[1], { ...wait, result: true }],
+        mutations: [],
+        groups
+      })
+      ;(shadow(shadowAll(panel, GROUP_ROW)[0], 'button') as HTMLElement).click()
+      await settle(panel)
+      toggle(shadowAll(panel, COMMAND_ROW)[0])
+      await settle(panel)
+
+      const row = shadowAll(panel, COMMAND_ROW).find(
+        (r) => entryOf(r) === failedRead
+      )!
+      expect(row.hasAttribute('failed')).toBe(false)
+    })
+
+    it('replays a nested read as it replays a top-level row', async () => {
+      const failed = { ...wait, error: new Error('waitUntil timed out') }
+      const panel = await mountPanel(liveInputs(failed))
+      const shown = new Promise<CommandEventProps>((resolve) => {
+        window.addEventListener(
+          'show-command',
+          (event) => resolve(event.detail),
+          { once: true }
+        )
+      })
+
+      clickRow(shadowAll(panel, ROWS)[2])
+      await settle(panel)
+
+      expect((await shown).command).toBe(reads[1])
+      expect(shadowAll(panel, ACTIVE_ROW).map(entryOf)).toEqual([reads[1]])
+    })
+
+    // Regression: fallback durations came from the visible tree order, where a wait is listed before what it issued.
+    it('times a nested row with no start of its own against the next action in time, not the next row shown', async () => {
+      const read = commandLog({
+        command: 'getText',
+        args: ['#flash'],
+        id: 21,
+        parentId: 20,
+        timestamp: RUN_START + 120
+      })
+      const failed = commandLog({
+        command: 'waitUntil',
+        args: [],
+        id: 20,
+        startTime: RUN_START,
+        timestamp: RUN_START + 300,
+        error: new Error('waitUntil timed out')
+      })
+      const panel = await mountPanel({
+        commands: [read, failed, logout],
+        mutations: []
+      })
+
+      const rows = shadowAll(panel, ROWS)
+      expect(rows.map(entryOf)).toEqual([failed, read, logout])
+      expect(durationOf(rows[1])).toBe(180)
+    })
+
+    it('nests the reads under the wait in the player tree, collapsed until it is toggled', async () => {
+      const commands = [...reads, wait, logout]
+      const groups: TraceActionChild[] = [
+        {
+          group: {
+            callId: 'test',
+            title: 'waits on what the page shows',
+            startTime: RUN_START,
+            endTime: RUN_START + 600,
+            failed: true,
+            children: [
+              {
+                commandIndex: 2,
+                children: [{ commandIndex: 0 }, { commandIndex: 1 }]
+              },
+              { commandIndex: 3 }
+            ]
+          }
+        }
+      ]
+      const panel = await mountPanel({ commands, mutations: [], groups })
+
+      expect(shadowAll(panel, COMMAND_ROW).map(entryOf)).toEqual([wait, logout])
+
+      toggle(shadowAll(panel, COMMAND_ROW)[0])
+      await settle(panel)
+
+      const rows = shadowAll(panel, COMMAND_ROW)
+      expect(rows.map(entryOf)).toEqual([wait, ...reads, logout])
+      expect((rows[1] as HTMLElement).style.paddingLeft).toBe('28px')
+    })
+    // Regression: the chevron was positioned against the row's border box, so an indented row's chevron sat in its parent's column.
+    describe('chevron of an indented row', () => {
+      const failedWait = (id: number, parentId?: number) =>
+        commandLog({
+          command: 'waitUntil',
+          args: [],
+          id,
+          parentId,
+          startTime: RUN_START + id,
+          timestamp: RUN_START + 500 - id,
+          error: new Error('waitUntil timed out')
+        })
+      const nestedWaits = [
+        failedWait(30),
+        failedWait(31, 30),
+        failedWait(32, 31),
+        commandLog({
+          command: 'getText',
+          args: ['#flash'],
+          id: 33,
+          parentId: 32,
+          timestamp: RUN_START + 100
+        })
+      ]
+      const indentOf = (row: Element) =>
+        parseFloat((row as HTMLElement).style.paddingLeft || '0')
+
+      /** Each row with a chevron: its indent, and whether the chevron lies inside that indent's content box. */
+      const chevrons = (rows: Element[]) =>
+        rows
+          .filter((row) => shadow(row, 'button.toggle'))
+          .map((row) => {
+            const left = (selector: string) =>
+              shadow(row, selector)!.getBoundingClientRect().left
+            return {
+              indent: indentOf(row),
+              inside:
+                left('button.toggle') >=
+                row.getBoundingClientRect().left + indentOf(row)
+            }
+          })
+
+      it('keeps the chevron in its own column at depth 1 and 2 in the live list', async () => {
+        const panel = await mountPanel({ commands: nestedWaits, mutations: [] })
+
+        expect(chevrons(shadowAll(panel, ROWS))).toEqual([
+          { indent: 0, inside: true },
+          { indent: 14, inside: true },
+          { indent: 28, inside: true }
+        ])
+      })
+
+      it('keeps the chevron in its own column at depth 1 and 2 in the player tree', async () => {
+        const groups: TraceActionChild[] = [
+          {
+            group: {
+              callId: 'test',
+              title: 'waits inside waits',
+              startTime: RUN_START,
+              endTime: RUN_START + 600,
+              failed: true,
+              children: [
+                {
+                  commandIndex: 0,
+                  children: [
+                    {
+                      commandIndex: 1,
+                      children: [{ commandIndex: 2 }]
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+        const panel = await mountPanel({
+          commands: [nestedWaits[0], nestedWaits[1], nestedWaits[3]],
+          mutations: [],
+          groups
+        })
+
+        expect(chevrons(shadowAll(panel, COMMAND_ROW))).toEqual([
+          { indent: 14, inside: true },
+          { indent: 28, inside: true }
+        ])
+      })
     })
   })
 })

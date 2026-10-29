@@ -1,9 +1,10 @@
-import { html, type TemplateResult } from 'lit'
+import { css, html, nothing, type TemplateResult } from 'lit'
 import { customElement, property } from 'lit/decorators.js'
 
 import type { CommandLog } from '@wdio/devtools-shared'
 
 import { ActionItem, ICON_CLASS } from './item.js'
+import type { RowToggleDetail } from '../action-tree.js'
 import {
   commandCategory,
   commandIcon,
@@ -18,6 +19,7 @@ import '~icons/mdi/check-circle-outline.js'
 import '~icons/mdi/close-circle-outline.js'
 import '~icons/mdi/text.js'
 import '~icons/mdi/code-tags.js'
+import '~icons/mdi/chevron-right.js'
 
 const SOURCE_COMPONENT = 'wdio-devtools-command-item'
 
@@ -39,11 +41,62 @@ const CATEGORY_COLOR: Record<ActionCategory, string> = {
 
 @customElement(SOURCE_COMPONENT)
 export class CommandItem extends ActionItem {
+  // The chevron sits over the row's button rather than inside it (a button holds no button), positioned within the indent.
+  static styles = [
+    ...ActionItem.styles,
+    css`
+      .row {
+        position: relative;
+        display: flex;
+        flex: 1 1 auto;
+        min-width: 0;
+      }
+      button.toggle,
+      :host([active]) button.toggle,
+      :host([failed]) button.toggle,
+      :host([failed][active]) button.toggle {
+        position: absolute;
+        left: 0.25rem;
+        top: 0;
+        bottom: 0;
+        z-index: 2;
+        min-height: 0;
+        display: flex;
+        align-items: center;
+        background: none;
+        box-shadow: none;
+      }
+      .toggle-space {
+        width: 22px;
+      }
+    `
+  ]
+
   @property({ type: Object, attribute: true })
   entry?: CommandLog
 
+  /** Key a row that issued other rows (a wait's reads) toggles them by; unset on a row that issued none. */
+  @property({ attribute: false })
+  toggleKey?: string
+
+  /** Whether the rows this one issued are rendered below it. */
+  @property({ type: Boolean, reflect: true })
+  expanded = false
+
+  /** Set when this row's error is a poll its passing wait retried past: shown neutral, the message kept in its title. */
+  @property({ type: Boolean })
+  retried = false
+
   willUpdate(): void {
-    this.failed = Boolean(this.entry?.error)
+    this.failed = Boolean(this.entry?.error) && !this.retried
+  }
+
+  #retriedTitle(): string | typeof nothing {
+    const message = (this.entry?.error as { message?: string } | undefined)
+      ?.message
+    return this.retried && message
+      ? `Retried past by its wait: ${message}`
+      : nothing
   }
 
   #highlightLine() {
@@ -64,6 +117,38 @@ export class CommandItem extends ActionItem {
         }
       })
     )
+  }
+
+  #toggle() {
+    if (!this.toggleKey) {
+      return
+    }
+    this.dispatchEvent(
+      new CustomEvent<RowToggleDetail>('group-toggle', {
+        detail: { key: this.toggleKey, expanded: this.expanded },
+        bubbles: true,
+        composed: true
+      })
+    )
+  }
+
+  // A button of its own beside the row's, so a keyboard reaches it and Enter on the row still selects.
+  #renderToggle(label: string) {
+    if (!this.toggleKey) {
+      return
+    }
+    return html`<button
+      class="toggle flex-none"
+      aria-label="${this.expanded ? 'Collapse' : 'Expand'} ${label}"
+      aria-expanded=${this.expanded ? 'true' : 'false'}
+      @click=${() => this.#toggle()}
+    >
+      <icon-mdi-chevron-right
+        class="w-[14px] h-[14px] block shrink-0 mx-1 transition-transform ${
+          this.expanded ? 'rotate-90' : ''
+        }"
+      ></icon-mdi-chevron-right>
+    </button>`
   }
 
   #renderIcon(command: string): TemplateResult {
@@ -112,18 +197,26 @@ export class CommandItem extends ActionItem {
     }
 
     const entry = this.entry
-    return html`
+    const label = capitalizeAssertLabel(entry.title ?? entry.command)
+    return html`<div class="row">
+      ${this.#renderToggle(label)}
       <button
         class="flex px-1 w-full items-center hover:bg-toolbarHoverBackground"
+        title=${this.#retriedTitle()}
         @click="${() => this.#highlightLine()}"
       >
+        ${
+          this.toggleKey
+            ? html`<span class="toggle-space flex-none"></span>`
+            : nothing
+        }
         ${this.iconChip(this.#renderIcon(entry.command))}
         <code class="label text-[12.5px] ${this.failed ? 'text-chartsRed' : ''}"
-          >${capitalizeAssertLabel(entry.title ?? entry.command)}</code
+          >${label}</code
         >
         ${this.renderTime()}
       </button>
-    `
+    </div>`
   }
 }
 

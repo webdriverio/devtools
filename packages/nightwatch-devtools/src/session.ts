@@ -143,7 +143,8 @@ export class SessionCapturer extends SessionCapturerBase {
       sequence: meta.sequence,
       callSource: meta.callSource,
       testUid: meta.testUid,
-      selector: meta.selector
+      selector: meta.selector,
+      parentId: meta.parentId
     }
 
     this.commandsLog.push(commandLogEntry)
@@ -288,10 +289,75 @@ export class SessionCapturer extends SessionCapturerBase {
       sequence: meta.sequence,
       callSource: meta.callSource,
       testUid: meta.testUid,
-      selector: meta.selector
+      selector: meta.selector,
+      parentId: meta.parentId
     }
     this.commandsLog.push(entry)
     return { entry, oldTimestamp }
+  }
+
+  /** Rows {@link openCommand} sent that have not ended yet. */
+  readonly #openRows = new Set<CommandLog>()
+
+  /** The newest row that has ended: a row still running has caused nothing yet. */
+  #newestEndedTimestamp(): number | undefined {
+    for (let i = this.commandsLog.length - 1; i >= 0; i--) {
+      if (!this.#openRows.has(this.commandsLog[i])) {
+        return this.commandsLog[i].timestamp
+      }
+    }
+    return undefined
+  }
+
+  /** Send a row that has started and not ended (a wait), so the rows it issues have a row to nest under while it runs. */
+  openCommand(
+    command: string,
+    args: unknown[],
+    meta: CommandCaptureMeta
+  ): CommandLog & { _id?: number } {
+    const id = this.commandCounter++
+    const entry: CommandLog & { _id?: number } = {
+      _id: id,
+      id,
+      command,
+      args,
+      timestamp: meta.startTime ?? Date.now(),
+      startTime: meta.startTime,
+      sequence: meta.sequence,
+      callSource: meta.callSource,
+      testUid: meta.testUid,
+      selector: meta.selector,
+      parentId: meta.parentId
+    }
+    this.commandsLog.push(entry)
+    this.#openRows.add(entry)
+    this.sendCommand(entry)
+    return entry
+  }
+
+  /** End a row {@link openCommand} sent, stamped at completion, replaced by its `id` and moved to where it completed; a row that never ran keeps its place. */
+  closeCommand(
+    entry: CommandLog & { _id?: number },
+    result: unknown,
+    error: Error | undefined,
+    timestamp: number,
+    ran = true
+  ): void {
+    this.#openRows.delete(entry)
+    // From the end: the wait and what it issued are the newest rows.
+    const at = this.commandsLog.lastIndexOf(entry)
+    if (ran && at !== -1) {
+      this.commandsLog.splice(at, 1)
+      this.commandsLog.push(entry)
+    }
+    const oldTimestamp = entry.timestamp
+    entry.result = result
+    entry.error = serializeError(error)
+    entry.timestamp = timestamp
+    if (!error) {
+      this.#queueActionSnapshot(entry.command, timestamp)
+    }
+    this.sendReplaceCommand(oldTimestamp, entry)
   }
 
   /** Birth time of the document this capturer last observed, so a replacement
@@ -372,11 +438,9 @@ export class SessionCapturer extends SessionCapturerBase {
     // "nothing completed after the anchor" guard: we just watched the document be
     // replaced, so a navigation demonstrably happened and the newest command is
     // the one that caused it. The guard exists for the case where that is a guess.
-    await this.captureTrace(
-      browser,
-      true,
-      this.commandsLog[this.commandsLog.length - 1]?.timestamp
-    )
+    // A wait sent running is newest from its start, but it has not ended, so it
+    // did not cause the navigation.
+    await this.captureTrace(browser, true, this.#newestEndedTimestamp())
   }
 
   /**

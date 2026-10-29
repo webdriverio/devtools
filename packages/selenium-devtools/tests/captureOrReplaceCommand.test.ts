@@ -2,7 +2,12 @@ import { describe, it, expect } from 'vitest'
 import { RetryTracker } from '@wdio/devtools-core'
 import { captureOrReplaceCommand } from '../src/helpers/captureOrReplaceCommand.js'
 import { SessionCapturer } from '../src/session.js'
-import type { CapturedCommand, TestStats, WaitScope } from '../src/types.js'
+import type {
+  CapturedCommand,
+  CommandLog,
+  TestStats,
+  WaitScope
+} from '../src/types.js'
 
 const test = { uid: 'test-1' } as TestStats
 
@@ -211,14 +216,35 @@ describe('captureOrReplaceCommand', () => {
     }
   })
 
-  it('turns the row a failed wait() folded its polls into into the failed wait', async () => {
+  it('sends a wait running, nests its polls under it, and replaces it by id when it times out', async () => {
     const capturer = new SessionCapturer({})
     const retryTracker = new RetryTracker()
     const scope: WaitScope = { rows: new Map() }
+    const sent: CommandLog[] = []
+    const replaced: CommandLog[] = []
+    capturer.sendCommand = (row) => {
+      sent.push({ ...row })
+      return row._id ?? 0
+    }
+    capturer.sendReplaceCommand = (_ts, row) => {
+      replaced.push({ ...row })
+    }
+    const wait = (overrides: Partial<CapturedCommand>) =>
+      command({
+        command: 'waitForElementLocated',
+        args: ['#missing', 10_000],
+        fromElement: false,
+        selector: '#missing',
+        callSource: '/spec.js:22',
+        wait: scope,
+        timestamp: 990,
+        startTime: 990,
+        ...overrides
+      })
     const poll = (timestamp: number, callSource?: string) =>
       command({
         command: 'findElements',
-        args: ['By.css selector("h1")'],
+        args: ['By.css selector("#missing")'],
         fromElement: false,
         callSource,
         waitScope: scope,
@@ -227,51 +253,48 @@ describe('captureOrReplaceCommand', () => {
         startTime: timestamp - 3,
         result: []
       })
+    const capture = (cmd: CapturedCommand) =>
+      captureOrReplaceCommand({ capturer, retryTracker, test, cmd })
     try {
-      await captureOrReplaceCommand({
-        capturer,
-        retryTracker,
-        test,
-        cmd: poll(1_000, '/spec.js:22')
-      })
-      await captureOrReplaceCommand({
-        capturer,
-        retryTracker,
-        test,
-        cmd: poll(1_200)
-      })
-      await captureOrReplaceCommand({
-        capturer,
-        retryTracker,
-        test,
-        cmd: command({
-          command: 'wait',
-          args: ['for element to be located By(css selector, h1)', 10_000],
-          fromElement: false,
+      const opened = await capture(wait({ running: true }))
+      await capture(poll(1_000, '/spec.js:22'))
+      await capture(poll(1_200))
+      await capture(
+        wait({
           error: new Error('Wait timed out after 10054ms'),
-          callSource: '/spec.js:22',
-          concludesWait: scope,
-          timestamp: 11_000,
-          startTime: 990
+          timestamp: 11_000
         })
-      })
-      expect(capturer.commandsLog).toHaveLength(1)
+      )
+      expect(sent.map((row) => row.command)).toEqual([
+        'waitForElementLocated',
+        'findElements'
+      ])
+      expect(sent[0]).toMatchObject({ id: opened.id, startTime: 990 })
+      expect(sent[0].timestamp).toBe(990)
+      expect(sent[0].error).toBeUndefined()
+      expect(sent[1].parentId).toBe(opened.id)
+      expect(capturer.commandsLog).toHaveLength(2)
       expect(capturer.commandsLog[0]).toMatchObject({
-        command: 'wait',
-        args: ['for element to be located By(css selector, h1)', 10_000],
-        callSource: '/spec.js:22',
+        id: opened.id,
+        command: 'waitForElementLocated',
+        selector: '#missing',
         timestamp: 11_000,
         startTime: 990,
         error: { message: 'Wait timed out after 10054ms' }
       })
-      // A later poll-shaped call is the user's own, not a fold into the failed wait.
-      await captureOrReplaceCommand({
-        capturer,
-        retryTracker,
-        test,
-        cmd: { ...poll(12_000, '/spec.js:30'), waitScope: undefined }
+      expect(capturer.commandsLog[0].parentId).toBeUndefined()
+      expect(capturer.commandsLog[1]).toMatchObject({
+        parentId: opened.id,
+        timestamp: 1_200
       })
-      expect(capturer.commandsLog).toHaveLength(2)
+      expect(replaced.at(-1)).toMatchObject({
+        id: opened.id,
+        timestamp: 11_000
+      })
+      // A later poll-shaped call is the user's own: no fold into the wait's child, and no parent.
+      await capture({ ...poll(12_000, '/spec.js:30'), waitScope: undefined })
+      expect(capturer.commandsLog).toHaveLength(3)
+      expect(capturer.commandsLog[2].parentId).toBeUndefined()
     } finally {
       capturer.cleanup()
     }
@@ -291,54 +314,43 @@ describe('captureOrReplaceCommand', () => {
         result: [],
         ...overrides
       })
+    const capture = (cmd: CapturedCommand) =>
+      captureOrReplaceCommand({ capturer, retryTracker, test, cmd })
     try {
-      const own = await captureOrReplaceCommand({
-        capturer,
-        retryTracker,
-        test,
-        cmd: find(1_000, { callSource: '/spec.js:10', result: ['el'] })
-      })
+      const own = await capture(
+        find(1_000, { callSource: '/spec.js:10', result: ['el'] })
+      )
       const ownRow = { ...capturer.commandsLog[0] }
       // A helper's wait: its polls carry the same command and args but no call site.
+      const wait = await capture(
+        command({
+          command: 'wait',
+          args: ['[Function]', 400],
+          fromElement: false,
+          callSource: undefined,
+          wait: scope,
+          running: true,
+          timestamp: 1_990,
+          startTime: 1_990
+        })
+      )
       for (const timestamp of [2_000, 2_200, 2_400]) {
-        await captureOrReplaceCommand({
-          capturer,
-          retryTracker,
-          test,
-          cmd: find(timestamp, {
+        await capture(
+          find(timestamp, {
             callSource: undefined,
             waitScope: scope,
             pollKey: 'findElements#0'
           })
-        })
+        )
       }
-      await captureOrReplaceCommand({
-        capturer,
-        retryTracker,
-        test,
-        cmd: command({
-          command: 'wait',
-          args: ['for element to be located By(css selector, h1)', 400],
-          fromElement: false,
-          error: new Error('Wait timed out after 400ms'),
-          callSource: undefined,
-          concludesWait: scope,
-          timestamp: 2_500,
-          startTime: 1_990
-        })
-      })
-      expect(capturer.commandsLog).toHaveLength(2)
+      expect(capturer.commandsLog).toHaveLength(3)
       expect(capturer.commandsLog[0]).toEqual(ownRow)
       expect(capturer.commandsLog[0].id).toBe(own.id)
-      expect(capturer.commandsLog[1]).toMatchObject({
-        command: 'wait',
-        error: { message: 'Wait timed out after 400ms' }
-      })
+      expect(capturer.commandsLog[2].parentId).toBe(wait.id)
     } finally {
       capturer.cleanup()
     }
   })
-
   it('keeps a row a wait folded into older than its latest out of the retry tracker', async () => {
     const capturer = new SessionCapturer({})
     const retryTracker = new RetryTracker()
@@ -388,23 +400,60 @@ describe('captureOrReplaceCommand', () => {
     }
   })
 
-  it('lists a failed wait() that issued no command as a row of its own', async () => {
+  it('keeps a wait nested in another wait on one row under the outer one across its outer polls', async () => {
     const capturer = new SessionCapturer({})
-    try {
-      await captureOrReplaceCommand({
-        capturer,
-        retryTracker: new RetryTracker(),
-        test,
-        cmd: command({
-          command: 'wait',
-          args: ['[Function]'],
-          fromElement: false,
-          error: new Error('Wait timed out after 50ms'),
-          concludesWait: { rows: new Map() }
-        })
+    const retryTracker = new RetryTracker()
+    const inner: WaitScope = { rows: new Map() }
+    const outer: WaitScope = {
+      rows: new Map(),
+      nested: new Map([['i', inner]])
+    }
+    const waitRow = (
+      scope: WaitScope,
+      parent: WaitScope | undefined,
+      timestamp: number,
+      running?: boolean
+    ) =>
+      command({
+        command: 'wait',
+        args: [scope === outer ? 'outer' : 'inner'],
+        fromElement: false,
+        wait: scope,
+        waitScope: parent,
+        running,
+        timestamp,
+        startTime: timestamp
       })
-      expect(capturer.commandsLog).toHaveLength(1)
-      expect(capturer.commandsLog[0].command).toBe('wait')
+    const read = (timestamp: number) =>
+      command({
+        command: 'getTitle',
+        fromElement: false,
+        waitScope: inner,
+        pollKey: 'getTitle#0',
+        timestamp,
+        startTime: timestamp - 1
+      })
+    const capture = (cmd: CapturedCommand) =>
+      captureOrReplaceCommand({ capturer, retryTracker, test, cmd })
+    try {
+      const outerRow = await capture(waitRow(outer, undefined, 1_000, true))
+      // Each outer poll calls the inner wait again: the same row, sent running again.
+      for (const at of [1_010, 1_210]) {
+        await capture(waitRow(inner, outer, at, true))
+        await capture(read(at + 5))
+        await capture(waitRow(inner, outer, at + 10))
+      }
+      await capture(waitRow(outer, undefined, 1_300))
+      const rows = capturer.commandsLog
+      expect(rows.map((row) => row.args[0] ?? row.command)).toEqual([
+        'outer',
+        'inner',
+        'getTitle'
+      ])
+      expect(rows[0].id).toBe(outerRow.id)
+      expect(rows[0].parentId).toBeUndefined()
+      expect(rows[1].parentId).toBe(outerRow.id)
+      expect(rows[2].parentId).toBe(rows[1].id)
     } finally {
       capturer.cleanup()
     }

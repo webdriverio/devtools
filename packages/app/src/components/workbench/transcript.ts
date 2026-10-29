@@ -3,7 +3,7 @@ import { html, css, nothing } from 'lit'
 import { customElement, state } from 'lit/decorators.js'
 import { consume } from '@lit/context'
 
-import type { CommandLog } from '@wdio/devtools-shared'
+import { retriedRows, type CommandLog } from '@wdio/devtools-shared'
 import { transcriptContext, commandContext } from '../../controller/context.js'
 import { stripAnsi } from './console-filter.js'
 
@@ -118,7 +118,9 @@ export class DevtoolsTranscript extends Element {
     if (this.transcript) {
       parts.push(stripAnsi(this.transcript).trim())
     }
-    const failures = (this.commands ?? []).filter((c) => c.error)
+    const commands = this.commands ?? []
+    const retried = retriedRows(commands)
+    const failures = commands.filter((c) => c.error && !retried.has(c))
     if (failures.length) {
       parts.push(
         '## Failures\n' + failures.map((f) => this.#failureItem(f)).join('\n')

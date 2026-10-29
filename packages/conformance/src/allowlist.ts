@@ -1,11 +1,5 @@
-import {
-  BIDI_MODES,
-  CONDITION_WAIT_READS,
-  HELPER_WAIT_READ,
-  KNOWN_DEBT,
-  RULES
-} from './constants.js'
-import { anyOf, hunk } from './gap-matchers.js'
+import { BIDI_MODES, KNOWN_DEBT, RULES } from './constants.js'
+import { anyOf, hunkInside } from './gap-matchers.js'
 import { scenarioIndex } from './scenario-tests.js'
 import type {
   AdapterId,
@@ -16,18 +10,10 @@ import type {
   Violation
 } from './types.js'
 
-const [WAITS, MISSING] = [
-  'waits on what the page shows',
+const [LOGIN, MISSING] = [
+  'logs in and reads the greeting',
   'times out waiting for a missing element'
 ].map(scenarioIndex)
-
-const FLASH_WAIT = 'Element.waitForExist #flash'
-
-/** The scenario's two condition waits as the WebdriverIO service shows them, and as their reads. */
-const CONDITION_WAITS = 'Browser.waitForFunction, Browser.waitForFunction'
-const CONDITION_READS = [...CONDITION_WAIT_READS, HELPER_WAIT_READ]
-  .map((selector) => `Element.getText ${selector}`)
-  .join(', ')
 
 export const KNOWN_GAPS: KnownGap[] = [
   {
@@ -60,123 +46,24 @@ export const KNOWN_GAPS: KnownGap[] = [
       'Without BiDi the collector is appended as a <script> and the destination is anchored by polling for the old collector to disappear, so a document the test leaves within tens of ms is never anchored and its Resource Timing buffer dies undrained with it. CLAUDE.md Known debt: "Document-start injection is what removes the whole race class".',
     timingDependent: true
   },
-  ...BIDI_MODES.flatMap((bidi) => [
-    ...nightwatchGaps(bidi),
-    ...seleniumGaps(bidi),
-    ...pythonGaps(bidi)
-  ])
+  ...BIDI_MODES.flatMap(serviceGaps)
 ]
 
-/** Nightwatch's scenario gaps in one mode, each an adapter bug with its Known debt entry. */
-function nightwatchGaps(bidi: BidiMode): KnownGap[] {
-  const adapter = 'nightwatch-devtools'
+/** The service nests an element wait's isExisting polls, which no other adapter shows in the trace vocabulary. */
+function serviceGaps(bidi: BidiMode): KnownGap[] {
+  const adapter = 'devtools-service'
+  const pollsUnder = (test: number, wait: string) =>
+    hunkInside(test, wait, 'its start', adapter, 'Element.isExisting', '')
   return [
     {
       adapter,
       bidi,
       rules: [RULES.agreeOnActions],
       only: anyOf(
-        hunk(
-          WAITS,
-          'Element.getText #flash',
-          adapter,
-          'Element.getText #flash, Element.getText h2',
-          ''
-        ),
-        hunk(
-          WAITS,
-          'Browser.waitForFunction',
-          adapter,
-          'Element.getText #flash',
-          ''
-        )
+        pollsUnder(LOGIN, 'Element.waitForExist #flash'),
+        pollsUnder(MISSING, 'Element.waitForExist #missing')
       ),
-      reason: KNOWN_DEBT.conditionWait,
-      against: 'devtools-service'
-    }
-  ]
-}
-
-function seleniumGaps(bidi: BidiMode): KnownGap[] {
-  const adapter = 'selenium-devtools'
-  return [
-    {
-      adapter,
-      bidi,
-      rules: [RULES.agreeOnActions],
-      only: hunk(
-        MISSING,
-        'its start',
-        adapter,
-        'Browser.waitForFunction',
-        'Element.waitForExist #missing'
-      ),
-      reason: KNOWN_DEBT.seleniumFailedWait,
-      against: 'devtools-service'
-    },
-    {
-      adapter,
-      bidi,
-      rules: [RULES.agreeOnActions],
-      lacksSteps: [FLASH_WAIT],
-      reason: KNOWN_DEBT.seleniumWait,
-      against: 'devtools-service'
-    },
-    {
-      adapter,
-      bidi,
-      rules: [RULES.agreeOnActions],
-      only: hunk(
-        WAITS,
-        'Element.getText #flash',
-        adapter,
-        CONDITION_READS,
-        CONDITION_WAITS
-      ),
-      reason: KNOWN_DEBT.conditionWait,
-      against: 'devtools-service'
-    }
-  ]
-}
-
-function pythonGaps(bidi: BidiMode): KnownGap[] {
-  const adapter = 'selenium-devtools-py'
-  return [
-    {
-      adapter,
-      bidi,
-      rules: [RULES.agreeOnActions],
-      only: hunk(
-        MISSING,
-        'its start',
-        adapter,
-        'Browser.waitForFunction',
-        'Element.waitForExist #missing'
-      ),
-      reason: KNOWN_DEBT.pythonFailedWait,
-      against: 'devtools-service'
-    },
-    {
-      adapter,
-      bidi,
-      rules: [RULES.agreeOnActions],
-      lacksSteps: [FLASH_WAIT],
-      reason: KNOWN_DEBT.pythonWait,
-      against: 'devtools-service'
-    },
-    {
-      adapter,
-      bidi,
-      rules: [RULES.agreeOnActions],
-      only: hunk(
-        WAITS,
-        'Element.getText #flash',
-        adapter,
-        CONDITION_READS,
-        CONDITION_WAITS
-      ),
-      reason: KNOWN_DEBT.conditionWait,
-      against: 'devtools-service'
+      reason: KNOWN_DEBT.elementWaitPolls
     }
   ]
 }

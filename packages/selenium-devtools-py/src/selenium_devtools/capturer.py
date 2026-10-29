@@ -90,9 +90,13 @@ class SessionCapturer:
         screenshot: Optional[str] = None,
         selector: Optional[str] = None,
         replaces: Optional[CommandLog] = None,
+        parent_id: Optional[int] = None,
+        timestamp: Optional[int] = None,
     ) -> CommandLog:
         """Report a command, or with ``replaces`` swap that row for this one,
-        keeping its id, which is how a wait's repeated poll stays one row."""
+        keeping its id, which is how a wait's repeated poll stays one row.
+        ``timestamp`` defaults to now, the completion stamp; a running wait
+        passes its start."""
         if replaces is not None:
             command_id = replaces["id"]
         else:
@@ -105,13 +109,14 @@ class SessionCapturer:
             args=to_jsonable(norm_args),
             result=to_jsonable(result),
             error=error,
-            timestamp=now_ms(),
+            timestamp=now_ms() if timestamp is None else timestamp,
             start_time=start_time,
             call_source=call_source,
             command_id=command_id,
             screenshot=screenshot,
             selector=selector,
             test_uid=self.test_uid,
+            parent_id=parent_id,
         )
         if replaces is not None:
             self.send_replace_command(replaces["timestamp"], entry)

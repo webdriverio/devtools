@@ -305,6 +305,21 @@ describe('wdio-devtools-transcript', () => {
       ])
     })
 
+    it('leaves a poll a passing wait retried past out of the failures section', async () => {
+      const writes = recordClipboard()
+      const wait = commandLog({ command: 'waitUntil', id: 1, result: true })
+      const poll = commandLog({
+        command: 'getText',
+        id: 2,
+        parentId: 1,
+        error: { name: 'Error', message: 'no such element' }
+      })
+      const panel = await mountTranscript(TRANSCRIPT, [wait, poll])
+      await clickCopy(panel)
+
+      expect(writes).toEqual([TRANSCRIPT])
+    })
+
     it('names a failure after its command when it carries no title', async () => {
       const writes = recordClipboard()
       const panel = await mountTranscript(TRANSCRIPT, [failingClick])

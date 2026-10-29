@@ -243,6 +243,18 @@ export const FEATURES = [
     cells: allTested(ACTION_RULES)
   },
   {
+    id: 'wait-rows',
+    name: 'Waits show as one row with what they issued nested under it',
+    tables: ['readme-dashboard', 'cross-framework'],
+    cells: {
+      ...allTested([RULES.waitParentsItsRows]),
+      'nightwatch-devtools': partial(
+        'A `waitUntil` row holds the commands its condition issued; a `waitForElement*` row has nothing under it, because Nightwatch polls for the element through its own transport rather than `browser`.',
+        'no element-wait polls'
+      )
+    }
+  },
+  {
     id: 'command-screenshots',
     name: 'Screenshot on every command row',
     tables: ['readme-dashboard', 'cross-framework'],

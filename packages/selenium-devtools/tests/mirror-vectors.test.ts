@@ -4,6 +4,7 @@
 // the wait tracking alike. The Python runner is tests/test_mirror_vectors.py.
 import type * as NodeCrypto from 'node:crypto'
 import fs from 'node:fs'
+import { createRequire } from 'node:module'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -21,8 +22,17 @@ import {
   SessionCapturerBase,
   type CapturedPerformancePayload
 } from '@wdio/devtools-core'
-import { trackWaits, waitPollOf } from '../src/wait-tracking.js'
+import { rememberElementLocator } from '../src/helpers/element-locators.js'
+import {
+  tagElementConditions,
+  trackWaits,
+  waitPollOf,
+  waitRowName
+} from '../src/wait-tracking.js'
 import type { Patchable, WaitScope } from '../src/types.js'
+
+// selenium-webdriver ships no types; tests reach it through require as the other suites here do.
+const sw = createRequire(import.meta.url)('selenium-webdriver')
 
 const randomDraw = vi.hoisted(() => ({ value: 0, bounds: [] as number[] }))
 
@@ -48,6 +58,7 @@ interface Section<C> {
 type Named = { name: string }
 
 const vectors = JSON.parse(fs.readFileSync(VECTORS_PATH, 'utf8')) as {
+  notCovered: Record<string, string>
   sections: Record<string, Section<Named>>
 }
 
@@ -63,7 +74,8 @@ const RUNNERS = [
   'commandRowId',
   'waitPollKeys',
   'nestedWaitIdentity',
-  'performancePayload'
+  'performancePayload',
+  'waitRowNaming'
 ]
 
 it('runs every section the vectors file declares', () => {
@@ -349,6 +361,49 @@ describe('performancePayload', () => {
         c.navigatedUrl ?? undefined
       )
       expect({ applied, row: withoutNulls(row) }).toEqual(c.expect)
+    })
+  }
+})
+
+describe('waitRowNaming', () => {
+  type Locator = { using: string; value: string }
+  type Condition = { factory: string; locator?: Locator; negated?: boolean }
+  const BY: Record<string, (value: string) => unknown> = {
+    'css selector': (v) => sw.By.css(v),
+    id: (v) => sw.By.id(v),
+    name: (v) => sw.By.name(v),
+    xpath: (v) => sw.By.xpath(v),
+    'link text': (v) => sw.By.linkText(v)
+  }
+  const by = ({ using, value }: Locator) => BY[using](value)
+
+  const conditionOf = ({ factory, locator }: Condition): unknown => {
+    if (factory === 'elementLocated') {
+      return sw.until.elementLocated(by(locator!))
+    }
+    if (factory === 'elementVisible') {
+      // The element a find returned, with the locator the adapter recorded for it.
+      const element = new sw.WebElement({}, 'el-1')
+      rememberElementLocator(element, by(locator!))
+      return sw.until.elementIsVisible(element)
+    }
+    if (factory === 'titleIs') {
+      return sw.until.titleIs('Secure Area')
+    }
+    return () => true
+  }
+
+  tagElementConditions(sw.until as Patchable)
+  for (const c of section<
+    Named & {
+      condition: Condition
+      expect: { command: string; selector: string | null }
+    }
+  >('waitRowNaming').cases) {
+    // selenium-webdriver has no negated wait (Python's `until_not`), so that case has nothing to run here.
+    it.skipIf(c.condition.negated)(c.name, () => {
+      const { command, selector } = waitRowName(conditionOf(c.condition))
+      expect({ command, selector: selector ?? null }).toEqual(c.expect)
     })
   }
 })

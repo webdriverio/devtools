@@ -316,6 +316,9 @@ export async function handleOnCommand(
     test,
     cmd
   })
+  if (cmd.running) {
+    return
+  }
   const error = cmd.error ? toError(cmd.error) : undefined
   if (ctx.options.captureScreenshots && !error) {
     attachScreenshotAsync(capturer, entry)

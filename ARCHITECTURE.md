@@ -42,6 +42,7 @@ Types, constants, enums, HTTP/WS contract definitions. Pure TypeScript, no runti
 Contains the canonical definitions for:
 
 - Domain types: `CommandLog`, `ConsoleLog`, `NetworkRequest`, `TraceMutation`, `Metadata`, `TraceLog`, `TraceType`, `TestStats`, `SuiteStats`, `TestStatus`, `TestError`, `ReporterError`, `PreservedAttempt`, `PreservedStep`, `PerformanceData`, `DocumentInfo`, `Viewport`, `ScreencastInfo`, `ScreencastFrame`, `ScreencastOptions`, `LogLevel`, `LogSource`.
+- Row nesting: `CommandLog.parentId` names the row whose execution issued a row (a wait's condition reads and polls), and `nestCommands` (`command-tree.ts`) turns a flat row list into the tree the dashboard renders. Every adapter sends a wait as one running row and parents what it issued under it.
 - WS wire format: `SocketMessage<T>`, `WsMessageScope`, `WsPayloadFor<T>`, `ClearExecutionDataWsPayload`, `ReplaceCommandWsPayload`.
 - Routing/scope constants: `WS_PATHS`, `WS_SCOPE`, `BASELINE_WS_SCOPE`, `TESTS_API`, `BASELINE_API`.
 - Process-control env vars: `REUSE_ENV`, `RUNNER_ENV`.
@@ -61,7 +62,7 @@ Split out of `core` because **two layers need it and only one of them may import
 Contains:
 
 - `writeTraceZip` / `buildTraceZip` — the zip writer and its resource model (`TraceZipResource`).
-- `buildActionEvents` — commands → the ordered before/after event stream the player replays, including the `(startTime, sequence, index)` ordering key.
+- `buildActionEvents`: commands → the ordered before/after event stream the player replays, including the `(startTime, sequence, index)` ordering key, with a row's children written inside its span under its callId.
 - `buildGroupPath` — the suite/test/step hierarchy a row is nested under.
 - `buildImageFrameSnapshots` / `upsertRichestSnapshot` / `buildDenseScreencast` / `thinScreencastFrames` — filmstrip and per-action frame snapshots.
 - `buildMutationsNdjson` / `reattributeDomAnchors` — the DOM mutation stream and its anchor repositioning.
@@ -170,7 +171,7 @@ Contains:
 - WebSocket client for the live event stream.
 - Context providers (`@lit/context`) for each data stream.
 - `DataManagerController` — orchestrates the WS connection and the 11 context providers (one per scope).
-- Pure helpers: suite-merge logic, mark-running logic, run-detection logic, context-update transforms (`contextUpdates.ts`), runner-capability derivations (`runnerCapabilities.ts`).
+- Pure helpers: suite-merge logic, mark-running logic, run-detection logic, context-update transforms (`contextUpdates.ts`), runner-capability derivations (`runnerCapabilities.ts`), and the actions list's row trees (`action-tree.ts` for the player, `live-action-rows.ts` for the live list), which nest the rows a command issued under it, collapsed by default.
 
 Imports from: `shared`. Does not import: any adapter package, `backend` directly (only via WS/HTTP), `core`.
 
@@ -198,9 +199,9 @@ Each scenario runs twice, with and without BiDi. The fake answers the BiDi comma
 
 Every run, passing or failing, dumps its frames, ground truth, violations and scenario output to `packages/conformance/out/<adapter>-bidi-<mode>.json` and rebuilds `out/index.html`, a self-contained page laying each run out as a timeline of documents, command rows and DOM anchors with every violation beside the event it concerns. CI uploads `out/` as the `conformance-report` artifact when the `build` job fails.
 
-Beside the rules, the adapters are compared with each other: each run is reduced to what a dashboard user sees (steps, outcomes, the page each step replays, snapshots, run controls) and any difference between adapters in the same mode fails unless a declared gap explains it. The rules catch every adapter being wrong in the same way; the comparison catches a difference no rule anticipated. Adapters are registered once in `src/adapters.ts`.
+Beside the rules, the adapters are compared with each other: each run is reduced to what a dashboard user sees (steps, outcomes, the page each step replays, snapshots, run controls) and any difference between adapters in the same mode fails unless a declared gap explains it. The rows a wait issued are compared inside the wait, as their own aligned sequence, and the rule `wait-row-parents-its-commands` (`src/wait-nesting.ts`) checks each adapter sends the wait running and names it as their parent. The rules catch every adapter being wrong in the same way; the comparison catches a difference no rule anticipated. Adapters are registered once in `src/adapters.ts`.
 
-Covers all four adapters: `devtools-service`, `selenium-devtools`, `selenium-devtools-py` and `nightwatch-devtools`. Each runs its scenario through its framework's own runner (WebdriverIO's, the Nightwatch CLI, mocha with `--require`, pytest), from a folder per adapter under `scenarios/`: five tests, two of which fail by design, one on an assertion and one on an element wait that times out. The fake emits no BiDi events, so console and network capture are not checked.
+Covers all four adapters: `devtools-service`, `selenium-devtools`, `selenium-devtools-py` and `nightwatch-devtools`. Each runs its scenario through its framework's own runner (WebdriverIO's, the Nightwatch CLI, mocha with `--require`, pytest), from a folder per adapter under `scenarios/`: six tests, two of which fail by design, one on an assertion and one on an element wait that times out. The fake emits no BiDi events, so console and network capture are not checked.
 
 ### `examples/`
 

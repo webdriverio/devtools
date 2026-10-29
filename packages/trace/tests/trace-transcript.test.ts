@@ -75,6 +75,23 @@ describe('generateTranscript', () => {
     ])
   })
 
+  it('marks a poll a passing wait retried past as retried, not as an error', () => {
+    const lines = transcript([
+      cmd('waitUntil', { id: 1, startTime: 1000, timestamp: 1300 }),
+      cmd('getText', {
+        id: 2,
+        parentId: 1,
+        startTime: 1010,
+        timestamp: 1020,
+        error: { name: 'Error', message: 'no such element' }
+      })
+    ])
+    expect(lines.slice(2)).toEqual([
+      '1. Browser.waitForFunction()',
+      '2. Element.getText()  RETRIED: no such element'
+    ])
+  })
+
   it('indents a multi-line error under its numbered step and strips ANSI', () => {
     const lines = transcript([
       cmd('click', {

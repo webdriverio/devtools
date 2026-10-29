@@ -560,6 +560,7 @@ class NightwatchDevToolsPlugin {
 
     if (browser && this.sessionCapturer) {
       try {
+        this.browserProxy.closeUnrunWaits()
         await this.#closeOutTestcases(browser)
         if (this.options.captureAssertions) {
           await captureNativeAssertions(
@@ -627,6 +628,7 @@ class NightwatchDevToolsPlugin {
   async after(browser?: NightwatchBrowser) {
     // The session is over, so a late drain must not reach it.
     this.sessionCapturer?.nativeNetwork.stop()
+    this.browserProxy?.closeUnrunWaits()
     // Drain first: a rotation still in flight would otherwise start its new
     // recorder after this finalize and strand the poll interval.
     await this.#screencast.rotation

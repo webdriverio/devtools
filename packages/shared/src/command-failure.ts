@@ -1,6 +1,12 @@
 // One definition of a failed command row, shared by the trace exporter and the conformance comparison.
 
-import { ASSERT_ACTION_CLASS, type TraceAction } from './trace-actions.js'
+import { mapCommandToAction } from './action-mapping.js'
+import { nestCommands, type CommandNode } from './command-tree.js'
+import {
+  ASSERT_ACTION_CLASS,
+  isWaitAction,
+  type TraceAction
+} from './trace-actions.js'
 import type { CollapsedAssertResult, CommandLog } from './types.js'
 
 /** The collapsed `{passed, actual, expected}` result an assertion row carries, when it carries one. */
@@ -19,8 +25,7 @@ export function commandFailure(
   action: TraceAction
 ): { message: string } | undefined {
   if (cmd.error) {
-    const err = cmd.error as { message?: string }
-    return { message: err.message ?? String(cmd.error) }
+    return errorFailure(cmd.error)
   }
   const collapsed = collapsedAssertResult(cmd.result)
   if (collapsed && collapsed.passed === false) {
@@ -33,7 +38,7 @@ export function commandFailure(
     }
   }
   // Nightwatch hands a timed-out waitForElement* callback only `false`; scoped to waits since a boolean read may legitimately be false.
-  if (cmd.result === false && action.method.startsWith('waitFor')) {
+  if (cmd.result === false && isWaitAction(action)) {
     const target = cmd.args?.find((a) => typeof a === 'string')
     return {
       message: target
@@ -42,4 +47,44 @@ export function commandFailure(
     }
   }
   return undefined
+}
+
+function errorFailure(error: NonNullable<CommandLog['error']>): {
+  message: string
+} {
+  return { message: (error as { message?: string }).message ?? String(error) }
+}
+
+function rowFailure(cmd: CommandLog): { message: string } | undefined {
+  const action = mapCommandToAction(cmd.command)
+  if (action) {
+    return commandFailure(cmd, action)
+  }
+  return cmd.error ? errorFailure(cmd.error) : undefined
+}
+
+/** Failed rows issued, at any depth, under a row that has not failed (a wait that passed, or is still running): polls it retried past. */
+export function retriedRows<T extends CommandLog>(
+  commands: readonly T[]
+): Set<T> {
+  const retried = new Set<T>()
+  const walk = (nodes: CommandNode<T>[], underPassing: boolean) => {
+    for (const { command, children } of nodes) {
+      const failed = Boolean(rowFailure(command))
+      if (underPassing && failed) {
+        retried.add(command)
+      }
+      walk(children, underPassing || !failed)
+    }
+  }
+  walk(nestCommands(commands), false)
+  return retried
+}
+
+/** Why a row counts as failed: its own failure, unless a row that issued it passed, which makes it an expected poll. */
+export function effectiveFailure<T extends CommandLog>(
+  cmd: T,
+  retried: ReadonlySet<T>
+): { message: string } | undefined {
+  return retried.has(cmd) ? undefined : rowFailure(cmd)
 }

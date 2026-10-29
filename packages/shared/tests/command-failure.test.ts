@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest'
 
 import {
   collapsedAssertResult,
-  commandFailure
+  commandFailure,
+  effectiveFailure,
+  retriedRows
 } from '../src/command-failure.js'
 import { mapCommandToAction } from '../src/action-mapping.js'
 import type { CommandLog } from '../src/types.js'
@@ -57,5 +59,55 @@ describe('commandFailure', () => {
       failureOf(row('assert.equal', { result: { passed: true } }))
     ).toBeUndefined()
     expect(failureOf(row('click', { result: null }))).toBeUndefined()
+  })
+})
+
+describe('retriedRows', () => {
+  const timedOut = { name: 'Error', message: 'timed out' }
+  const noSuchElement = { name: 'Error', message: 'no such element' }
+  const wait = (id: number, extra: Partial<CommandLog> = {}) =>
+    row('waitUntil', { id, ...extra })
+  const read = (parentId: number, extra: Partial<CommandLog> = {}) =>
+    row('getText', { parentId, error: noSuchElement, ...extra })
+
+  it('excuses a failed poll under a wait that passed, and only the failed one', () => {
+    const passed = wait(1, { result: true })
+    const failedPoll = read(1)
+    const okPoll = read(1, { error: undefined })
+    const retried = retriedRows([passed, failedPoll, okPoll])
+
+    expect([...retried]).toEqual([failedPoll])
+    expect(effectiveFailure(failedPoll, retried)).toBeUndefined()
+    expect(effectiveFailure(passed, retried)).toBeUndefined()
+  })
+
+  it('keeps a poll failed under a wait that timed out, so the last one explains it', () => {
+    const failed = wait(1, { error: timedOut })
+    const poll = read(1)
+    const retried = retriedRows([failed, poll])
+
+    expect(retried.size).toBe(0)
+    expect(effectiveFailure(poll, retried)).toEqual({
+      message: 'no such element'
+    })
+    expect(effectiveFailure(failed, retried)).toEqual({ message: 'timed out' })
+  })
+
+  it('excuses every failure at any depth under a wait that passed, a failed inner wait included', () => {
+    const outer = wait(1, { result: true })
+    const inner = wait(2, { parentId: 1, error: timedOut })
+    const poll = read(2)
+    expect([...retriedRows([outer, inner, poll])]).toEqual([inner, poll])
+  })
+
+  it('judges a wait still running as not failed, so its polls wait on its outcome', () => {
+    const running = wait(1)
+    const poll = read(1)
+    expect([...retriedRows([running, poll])]).toEqual([poll])
+  })
+
+  it('judges a parent the vocabulary does not map by its error alone', () => {
+    const unmapped = row('findElements', { id: 1, error: timedOut })
+    expect(retriedRows([unmapped, read(1)]).size).toBe(0)
   })
 })

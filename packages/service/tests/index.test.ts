@@ -31,6 +31,7 @@ vi.mock('stack-trace', () => ({
 }))
 const mockSessionCapturerInstance = {
   afterCommand: vi.fn(),
+  openWait: vi.fn(() => 42),
   sendUpstream: vi.fn(),
   mergeMetadata: vi.fn(),
   injectScript: vi.fn().mockResolvedValue(undefined),
@@ -221,9 +222,7 @@ describe('DevtoolsService - Internal Command Filtering', () => {
       ])
     })
 
-    it('captures a wait once and suppresses the commands it polls', () => {
-      // waitUntil opens; its predicate polls isDisplayed while the wait is
-      // still on the stack, so those polls are top-level-suppressed.
+    it('opens a wait as a running row and nests the commands it polls under it', () => {
       service.beforeCommand('waitUntil' as any, [expect.any(Function)])
       service.beforeCommand('isDisplayed' as any, [])
       service.afterCommand('isDisplayed' as any, [], false)
@@ -231,10 +230,17 @@ describe('DevtoolsService - Internal Command Filtering', () => {
       service.afterCommand('isDisplayed' as any, [], true)
       service.afterCommand('waitUntil' as any, [expect.any(Function)], true)
 
-      const captured = mockSessionCapturerInstance.afterCommand.mock.calls.map(
-        (call) => call[1]
+      expect(mockSessionCapturerInstance.openWait).toHaveBeenCalledWith(
+        expect.objectContaining({ command: 'waitUntil' })
       )
-      expect(captured).toEqual(['waitUntil'])
+      const captured = mockSessionCapturerInstance.afterCommand.mock.calls.map(
+        (call) => [call[1], call[9]]
+      )
+      expect(captured).toEqual([
+        ['isDisplayed', { parentId: 42 }],
+        ['isDisplayed', { parentId: 42 }],
+        ['waitUntil', { id: 42, parentId: undefined }]
+      ])
     })
 
     // Service-fired commands (preload injection, Puppeteer handle for CDP,

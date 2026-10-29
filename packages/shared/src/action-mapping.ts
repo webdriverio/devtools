@@ -7,6 +7,7 @@
 import {
   ACTION_MAP,
   ASSERT_ACTION_CLASS,
+  isWaitAction,
   mapAssertCommand,
   type TraceAction
 } from './trace-actions.js'
@@ -30,6 +31,11 @@ export { ASSERT_ACTION_CLASS, mapAssertCommand }
 
 export function mapCommandToAction(command: string): TraceAction | null {
   return ACTION_MAP[command] ?? mapAssertCommand(command)
+}
+
+/** Whether a runner command is a wait the trace renders as one row. */
+export function isWaitCommand(command: string): boolean {
+  return isWaitAction(mapCommandToAction(command))
 }
 
 const ASSERT_TITLE_VALUE_MAX = 40

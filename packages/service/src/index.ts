@@ -30,14 +30,18 @@ import {
   testMetadataUid,
   type TestOutcomeResult
 } from './test-metadata.js'
-import { resolveCallSourceFromFrame } from './call-source.js'
+import { resolveCallSourceFromFrame, specFrameBelow } from './call-source.js'
 import { TraceSliceTracker } from './trace-slices.js'
 import {
   captureActionSnapshot,
   isServiceProbe,
   settleAfterLastAction
 } from './action-snapshot.js'
-import type { ActionSnapshot, TestMetadataMap } from '@wdio/devtools-shared'
+import {
+  isWaitCommand,
+  type ActionSnapshot,
+  type TestMetadataMap
+} from '@wdio/devtools-shared'
 import { SevereServiceError } from 'webdriverio'
 import type { Services, Capabilities, Options, Reporters } from '@wdio/types'
 import type { WebDriverCommands } from '@wdio/protocols'
@@ -52,7 +56,6 @@ import {
 } from './utils.js'
 import { ScreencastLifecycle } from './screencast-lifecycle.js'
 import { attachBidiListeners } from './bidi-listeners.js'
-import { parse } from 'stack-trace'
 import { type ServiceOptions, TraceType } from './types.js'
 import {
   CONTEXT_CHANGE_COMMANDS,
@@ -65,17 +68,17 @@ import { resolveSessionMetadata } from './session-metadata.js'
 import { stampRunnerMetadata } from './wdio-runner-id.js'
 import { publishConfigFile } from './standalone.js'
 import { InterceptedNetwork } from './intercepted-network.js'
+import {
+  CommandStack,
+  isServiceWork,
+  runAsServiceWork,
+  type CommandFrame
+} from './command-stack.js'
 
 export * from './types.js'
 export const launcher = DevToolsAppLauncher
 
 const log = logger('@wdio/devtools-service')
-
-type CommandFrame = {
-  command: string
-  callSource?: string
-  startTimestamp: number
-}
 
 export { setupForDevtools } from './standalone.js'
 
@@ -132,11 +135,8 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     })
   }
 
-  /**
-   * This is used to capture the command stack to ensure that we only capture
-   * commands that are top-level user commands.
-   */
-  #commandStack: CommandFrame[] = []
+  /** Which commands are rows: top-level user commands, and the commands an open wait issued. */
+  #commandStack = new CommandStack()
 
   /** Closes the running command's screenshot-polling suppression window. Single
    *  slot because WDIO serialises commands per session; a concurrent pair (e.g.
@@ -655,7 +655,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
   }
 
   private resetStack() {
-    this.#commandStack = []
+    this.#commandStack.reset()
     // No command is in flight after a reset; without this a window stranded by a
     // spec boundary would keep dropping frames until its bound expired.
     this.#closeInputWindow?.()
@@ -666,24 +666,70 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     clearReadValues()
   }
 
-  #pushTopLevelCommandFrame(
-    command: string,
-    callSource: string | undefined
-  ): void {
-    if (INTERNAL_COMMANDS.includes(command)) {
+  /** Sends a wait whose frame was just pushed onto `frames` as its running row, so the commands it issues nest under it. */
+  #openIfWait(frame: CommandFrame, args: unknown[], frames: CommandFrame[]) {
+    const { command } = frame
+    if (!isWaitCommand(command)) {
       return
     }
-    const top = this.#commandStack[this.#commandStack.length - 1]
-    if (!top || top.command !== command || top.callSource !== callSource) {
-      this.#commandStack.push({
-        command,
-        callSource,
-        startTimestamp: Date.now()
-      })
-    }
+    const id = this.#sessionCapturer.openWait({
+      command,
+      args,
+      timestamp: frame.startTimestamp,
+      startTime: frame.startTimestamp,
+      callSource: frame.callSource,
+      testUid: this.#currentTestUid,
+      stepUid: this.#currentStepUid,
+      ...(this.#commandStack.parentId === undefined
+        ? {}
+        : { parentId: this.#commandStack.parentId })
+    })
+    this.#commandStack.open(frame, id, frames, args)
   }
 
-  async beforeCommand(command: string, args: string[]) {
+  /** Pushes the frame of a command that will be a row, opening it when it is a wait; true for a top-level user command. */
+  #enterCommand(
+    command: string,
+    args: string[],
+    issuedByService: boolean
+  ): boolean {
+    // Process-wide, and the capturer's own stack reads still depend on it.
+    Error.stackTraceLimit = 20
+    const source = specFrameBelow(
+      DevToolsHookService.prototype.beforeCommand,
+      isUserSpecFile
+    )
+    // A matcher's value-read (getText/isExisting) is captured normally like any
+    // command; afterAssertion later folds it into the expect.<matcher> row (see
+    // coalesceAssertionIntoLastRead), so no suppression window is needed here.
+    const parentId = this.#commandStack.parentId
+    const entered = this.#commandStack.enter(
+      command,
+      args,
+      source ? resolveCallSourceFromFrame(source) : undefined,
+      Boolean(source),
+      issuedByService
+    )
+    if (entered) {
+      this.#openIfWait(entered.frame, args, entered.frames)
+    }
+    return Boolean(entered) && parentId === undefined
+  }
+
+  // Not `async`: WDIO skips every command's hooks while any hook is running, so a hook that settles even a tick later
+  // than before widens the window in which a concurrent command's hooks are dropped.
+  beforeCommand(command: string, args: string[]): Promise<void> {
+    const issuedByService = isServiceWork()
+    return runAsServiceWork(() =>
+      this.#beforeCommand(command, args, issuedByService)
+    )
+  }
+
+  async #beforeCommand(
+    command: string,
+    args: string[],
+    issuedByService: boolean
+  ) {
     if (!this.#browser || isServiceProbe(command)) {
       return
     }
@@ -700,23 +746,14 @@ export default class DevToolsHookService implements Services.ServiceInstance {
       this.#screencast.markStart()
       this.#sessionCapturer.sendUpstream('metadata', { url: args[0] })
     }
-    // Smart stack filtering to detect top-level user commands. This bookkeeping
-    // is synchronous and must settle BEFORE any await below, because afterCommand
-    // pops exactly what beforeCommand pushed — a stack push stranded behind an
-    // await would let a same-tick afterCommand miss the frame.
-    Error.stackTraceLimit = 20
-    const stack = parse(new Error('')).reverse()
-    const source = stack.find((frame) => isUserSpecFile(frame.getFileName()))
-    // A matcher's value-read (getText/isExisting) is captured normally like any
-    // command; afterAssertion later folds it into the expect.<matcher> row (see
-    // coalesceAssertionIntoLastRead) — no suppression window needed here.
-    const topLevelUserCommand = source && this.#commandStack.length === 0
-    if (topLevelUserCommand) {
-      this.#pushTopLevelCommandFrame(
-        command,
-        resolveCallSourceFromFrame(source)
-      )
-    }
+    // Synchronous, and settled BEFORE any await below: afterCommand pops exactly
+    // what this pushed, so a push stranded behind an await would let a same-tick
+    // afterCommand miss the frame.
+    const topLevelUserCommand = this.#enterCommand(
+      command,
+      args,
+      issuedByService
+    )
     // Flush the outgoing page's buffered mutations (e.g. field edits from prior
     // fills — value/checked changes fire no page transition) BEFORE a navigating
     // command discards its collector, else the replay shows empty inputs. Runs
@@ -767,11 +804,24 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     }
   }
 
-  async afterCommand(
+  afterCommand(
     command: keyof WebDriverCommands,
     args: unknown[],
     result: unknown,
     error?: Error
+  ) {
+    const issuedByService = isServiceWork()
+    return runAsServiceWork(() =>
+      this.#afterCommand(command, args, result, error, issuedByService)
+    )
+  }
+
+  async #afterCommand(
+    command: keyof WebDriverCommands,
+    args: unknown[],
+    result: unknown,
+    error: Error | undefined,
+    issuedByService: boolean
   ) {
     // Skip bookkeeping for internal injection calls and the snapshot's own probes
     if (this.#injecting || isServiceProbe(command)) {
@@ -792,12 +842,9 @@ export default class DevToolsHookService implements Services.ServiceInstance {
       this.#sessionCapturer.noteResolvedSelector(args[0])
     }
 
-    /* Ensure that the command is captured only if it matches the last command in the stack.
-     * This prevents capturing commands that are not top-level user commands.
-     */
-    const frame = this.#commandStack[this.#commandStack.length - 1]
-    if (frame?.command === command) {
-      this.#commandStack.pop()
+    const settled = this.#commandStack.settle(command, issuedByService)
+    if (settled) {
+      const { frame, nesting } = settled
       if (this.#browser) {
         const captured = await this.#sessionCapturer.afterCommand(
           this.#browser,
@@ -808,7 +855,8 @@ export default class DevToolsHookService implements Services.ServiceInstance {
           frame.callSource,
           frame.startTimestamp,
           this.#currentTestUid,
-          this.#currentStepUid
+          this.#currentStepUid,
+          nesting
         )
         // Trace mode captures nothing here: the state this action produced is
         // taken by the NEXT action's pre-capture, when the app has settled.

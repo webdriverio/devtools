@@ -5,6 +5,7 @@ import type { CommandLog } from '@wdio/devtools-shared'
 import {
   formatActionTitle,
   mapCommandToAction,
+  retriedRows,
   FILL_METHODS,
   type TraceAction
 } from '@wdio/devtools-shared'
@@ -74,6 +75,7 @@ export function generateTranscript(
 ): string {
   const wallTimeISO = new Date(startWallTime).toISOString()
   const lines: string[] = [`# ${title ?? 'Session'} — ${wallTimeISO}`, '']
+  const retried = retriedRows(commands)
 
   capturedSteps(commands).forEach(({ entry, action }, idx) => {
     const rawArgs = entry.args as unknown[]
@@ -87,7 +89,8 @@ export function generateTranscript(
     }
 
     if (entry.error) {
-      parts.push(`ERROR: ${errorMessage(entry.error)}`)
+      const label = retried.has(entry) ? 'RETRIED' : 'ERROR'
+      parts.push(`${label}: ${errorMessage(entry.error)}`)
     }
 
     lines.push(asNumberedItem(`${idx + 1}. `, parts.join('  ')))

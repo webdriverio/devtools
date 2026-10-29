@@ -26,7 +26,11 @@ import type {
   SeleniumDriverLike,
   WebElementPromiseCtor
 } from './types.js'
-import { trackWaits, waitPollOf } from './wait-tracking.js'
+import {
+  tagElementConditions,
+  trackWaits,
+  waitPollOf
+} from './wait-tracking.js'
 
 const log = logger('@wdio/selenium-devtools:driverPatcher')
 
@@ -47,6 +51,7 @@ interface SeleniumModule {
   WebDriver?: ConstructorLike
   WebElement?: ConstructorLike
   WebElementPromise?: WebElementPromiseCtor
+  until?: Patchable
 }
 interface ConstructorLike {
   prototype: object
@@ -490,7 +495,7 @@ export function patchSelenium(hooks: DriverPatcherHooks): boolean {
     return false
   }
 
-  const { Builder, WebDriver, WebElement, WebElementPromise } = sw
+  const { Builder, WebDriver, WebElement, WebElementPromise, until } = sw
   if (!Builder || !WebDriver) {
     log.warn(
       'selenium-webdriver loaded but Builder/WebDriver missing — version unsupported?'
@@ -500,9 +505,11 @@ export function patchSelenium(hooks: DriverPatcherHooks): boolean {
 
   // Stash unwrapped originals before any patching.
   stashDriverOriginals(WebDriver.prototype as Patchable)
+  tagElementConditions(until)
   trackWaits(
     WebDriver.prototype as Patchable,
-    (cmd) => emitCommand(hooks, cmd),
+    (cmd) =>
+      emitCommand(hooks, { ...cmd, result: safeSerialize(cmd.rawResult) }),
     WebElementPromise
   )
 

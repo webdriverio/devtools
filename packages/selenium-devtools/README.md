@@ -203,7 +203,7 @@ cucumber-js --config cucumber.json
 
 ### Plain Node script (no test runner)
 
-If you run `node tests/google.test.js` directly — no Mocha, no Jest — there's no runner for the plugin to auto-hook. You get a single "Selenium Session" row in the dashboard by default. To get a named test boundary instead, call `DevTools.startTest` / `endTest` around your work:
+If you run `node tests/google.test.js` directly (no Mocha, no Jest), there's no runner for the plugin to auto-hook. You get a single "Selenium Session" test in the dashboard by default, standing for the whole script: when the script ends it is closed as passed (or keeps the state it already had) and its suite is finalized, so the dashboard shows the run as finished. A script that quits its driver and builds another is still that one test. To get a named test boundary instead, call `DevTools.startTest` / `endTest` around your work; a test opened with `startTest` is closed by your own `endTest`, not at script end:
 
 ```javascript
 // tests/google.test.js
@@ -496,6 +496,7 @@ The plugin patches `selenium-webdriver`'s `Builder`, `WebDriver`, and `WebElemen
 
 - **`Builder.build()`** → after construction, the driver instance is registered with the session capturer and the DevTools backend is started in a detached child process.
 - **Every public `WebDriver` / `WebElement` method** → wrapped with command capture (args + result + screenshot + call source).
+- **`WebDriver.wait()`** → one row named after what it waited for, with the commands its condition issued nested under it rather than a row per poll. `until.elementLocated` is `waitForElementLocated` (`Element.waitForExist`) on its locator, `until.elementIsVisible` is `waitForElementVisible` (`Element.waitForDisplayed`), and any other condition is `wait` (`Browser.waitForFunction`), labelled with the condition's description. The row appears when the wait starts; a timed-out wait is a failed row carrying the timeout. An element wait's `findElement(s)` polls nest in the live dashboard but are left out of the trace, like every locator lookup. See [Waits](https://webdriver.io/docs/devtools/wdio/trace-mode#waits).
 - **`WebDriver.quit()`** → awaited cleanup hook flushes screencast encoding, WebSocket buffer, and final metadata before the original quit runs.
 
 When BiDi is available (Chrome ≥114), console logs, JavaScript exceptions, and network events stream directly via the Selenium BiDi handlers. Otherwise the plugin falls back to an injected browser-side collector script, so a Safari or Appium session still lists every request, from two sources of the page's own. A `fetch` / `XMLHttpRequest` call goes through the collector's patch and carries its method, headers, status and body. Every other load (the document, scripts, styles, images, fonts) comes from the page's Resource Timing buffer with its timing and size, but no headers or body, and on Safari no status; the Network tab says so on each such row.
@@ -506,7 +507,7 @@ The same injected collector also records the page's **DOM mutation stream** and 
 
 ### Performance API capture
 
-After every navigation command (`get`, `navigate`, `navigateTo`, etc.), the plugin runs the shared `CAPTURE_PERFORMANCE_SCRIPT` from `@wdio/devtools-core` to read `window.performance.getEntriesByType('navigation' | 'resource')`, cookies, and document info. The result is attached to the command entry in the Actions tab so you see `loadTime` / `domReady` / `responseTime` / resource counts / cookies / document title per navigation.
+After every navigation command (`get`, `navigate`, `navigateTo`, etc.), the plugin runs the shared `CAPTURE_PERFORMANCE_SCRIPT` from `@wdio/devtools-core` to read `window.performance.getEntriesByType('navigation' | 'resource')`, cookies, and document info. The result is attached to the command entry in the Actions tab so you see `loadTime` / `domReady` / `responseTime` / resource counts / cookies / document title per navigation. The row's summary shows the load time in milliseconds to two decimals, such as `246.40 ms`; the full-precision timings stay in the row's performance data.
 
 Same script and post-processing (`applyPerformanceData`) used by `@wdio/devtools-service` and `@wdio/nightwatch-devtools` — uniform dashboard fields across all three adapters.
 

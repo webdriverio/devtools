@@ -1,7 +1,8 @@
 import {
   ASSERT_ACTION_CLASS,
-  commandFailure,
+  effectiveFailure,
   mapCommandToAction,
+  retriedRows,
   TEST_STATE,
   type CommandLog,
   type SuiteStats,
@@ -128,10 +129,11 @@ export function checkTestOutcomes(frames: WireFrame[]): Violation[] {
   })
 }
 
-// Only an action explains a failure: an unmapped poll errors while a passing wait polls too, and the trace drops it.
-function actionFailed(row: CommandLog): boolean {
-  const action = mapCommandToAction(row.command)
-  return Boolean(action && commandFailure(row, action))
+// Only an action's effective failure explains a failed test: an unmapped poll is dropped and a retried one is no failure.
+function actionFailed(row: CommandLog, retried: ReadonlySet<CommandLog>) {
+  return Boolean(
+    mapCommandToAction(row.command) && effectiveFailure(row, retried)
+  )
 }
 
 // The title reads the same as an element the test read just before, and the expected value as one read earlier, so
@@ -168,6 +170,7 @@ export function checkPageLevelAssertions(stream: RecordedStream): Violation[] {
 export function checkTestRows(stream: RecordedStream): Violation[] {
   const tests = reportedTests(stream.frames)
   const rows = rowsByTest(stream)
+  const retried = retriedRows(stream.rows)
   return SCENARIO_TESTS.flatMap(({ title, state }, i): Violation[] => {
     const shown = tests.find((t) => scenarioIndex(t.title) === i)
     if (!shown) {
@@ -182,7 +185,7 @@ export function checkTestRows(stream: RecordedStream): Violation[] {
     }
     // A test designed to fail is judged whatever it is reported, so one shown green cannot pass this vacuously.
     const failed = shown.state === TEST_STATE.FAILED || state === 'failed'
-    if (failed && !rows[i].some(actionFailed)) {
+    if (failed && !rows[i].some((row) => actionFailed(row, retried))) {
       out.push({
         rule: RULES.failedTestExplained,
         message: `"${title}" failed but none of its ${rows[i].length} row(s) is a failed action`

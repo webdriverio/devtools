@@ -46,6 +46,7 @@ export const RULES = {
   failedTestExplained: 'failed-test-has-error-row',
   callSiteInScenario: 'call-site-names-the-scenario',
   testHasRows: 'every-test-has-rows',
+  waitParentsItsRows: 'wait-row-parents-its-commands',
   agreeOnActions: 'adapters-agree-on-actions',
   agreeOnErrors: 'adapters-agree-on-errors',
   agreeOnPages: 'adapters-agree-on-pages',
@@ -131,9 +132,15 @@ export const SCENARIO_TESTS: ScenarioTest[] = [
 /** The scenario test whose assertions compare the page's title, a value no element produced. */
 export const PAGE_TITLE_TEST = 'asserts on the page title'
 
-/** What the scenario's condition wait reads, then what its helper wait reads again: as the specs write them. */
-export const CONDITION_WAIT_READS = ['#flash', 'h2']
-export const HELPER_WAIT_READ = '#flash'
+/** The waits each scenario test writes, as normalized steps in order; a test not listed writes none. */
+export const SCENARIO_WAITS: Record<string, string[]> = {
+  'logs in and reads the greeting': ['Element.waitForExist #flash'],
+  'waits on what the page shows': [
+    'Browser.waitForFunction',
+    'Browser.waitForFunction'
+  ],
+  'times out waiting for a missing element': ['Element.waitForExist #missing']
+}
 
 export const ELEMENT_KEY = 'element-6066-11e4-a52e-4f735466cecf'
 
@@ -198,16 +205,9 @@ export const TARGET_MAX_CHARS = 120
 const debt = (entry: string, issue?: string) =>
   `CLAUDE.md Known debt: "${entry}"${issue ? ` (${issue})` : ''}.`
 
-const SELENIUM_WAIT_DEBT =
-  'A Selenium or Python wait has no row when it succeeds, and a condition row when it fails'
-
 /** Why each scenario gap exists: the limitation, and the Known debt entry that describes it. */
 export const KNOWN_DEBT = {
-  conditionWait: `A passing condition wait shows as its reads in Selenium and Python, which have no row for the wait itself, as one Browser.waitForFunction row in the WebdriverIO service, which hides the reads inside it, and as both in Nightwatch. ${debt('A condition wait shows its reads in some adapters and one wait row in others', '#464')}`,
-  seleniumWait: `A successful driver.wait() has no row of its own: its polls are findElements rows, which the trace vocabulary leaves unmapped. ${debt(SELENIUM_WAIT_DEBT, '#464')}`,
-  seleniumFailedWait: `A timed-out driver.wait() is a wait row named after its condition, mapped to Browser.waitForFunction with no target, where the other adapters show Element.waitForExist on the selector. ${debt(SELENIUM_WAIT_DEBT, '#464')}`,
-  pythonWait: `A successful WebDriverWait has no row of its own: its polls fold into findElement rows, which the trace vocabulary leaves unmapped. ${debt(SELENIUM_WAIT_DEBT, '#464')}`,
-  pythonFailedWait: `A timed-out WebDriverWait is a wait row named after its condition, mapped to Browser.waitForFunction with no target, where the other adapters show Element.waitForExist on the selector. ${debt(SELENIUM_WAIT_DEBT, '#464')}`
+  elementWaitPolls: `The WebdriverIO service nests an element wait's isExisting polls under it. No other adapter shows a poll there in the trace vocabulary: a Nightwatch waitForElement* polls through its own transport, never through browser, and a Selenium or Python element wait polls with findElement(s), which the trace leaves unmapped. ${debt("Only the WebdriverIO service shows an element wait's polls", '#464')}`
 } as const
 export const README_PAGE = 'README.md'
 

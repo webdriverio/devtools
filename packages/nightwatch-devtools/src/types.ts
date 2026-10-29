@@ -61,6 +61,29 @@ export interface CommandInvocation {
   hasUserSource: boolean
 }
 
+/** A wait whose row has been sent running; what its condition issues nests under it. */
+export interface OpenWait {
+  row: CommandLog & { _id?: number }
+  /** The wait this one was issued inside. */
+  parent?: OpenWait
+  /** Each distinct call the condition issued, by signature, to the `_id` of the row its polls fold into. */
+  children: Map<string, number>
+  closed: boolean
+}
+
+/** An intercepted call between invocation and the callback that completes it. */
+export interface PendingCommand extends CommandInvocation {
+  methodName: string
+  /** Wall clock at invocation, the row's `startTime`. */
+  invokedAt: number
+  sequence: number
+  testUid: string | undefined
+  /** Set when this call is itself a wait, whose row is already sent. */
+  wait?: OpenWait
+  /** The open wait whose condition issued this call. */
+  parent?: OpenWait
+}
+
 /** Everything a captured row carries beyond the call itself. Named rather than
  *  positional so a field the command doesn't name — the target selector, which
  *  a node:assert row can only learn from value provenance — reaches the row
@@ -76,6 +99,8 @@ export interface CommandCaptureMeta {
   sequence?: number
   /** Element the row is about, when one is known. */
   selector?: string
+  /** `id` of the open wait whose condition issued this row. */
+  parentId?: number
 }
 
 /** How a native assertion's own returned promise settled. */

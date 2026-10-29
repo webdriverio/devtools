@@ -5,6 +5,27 @@ import {
   commandIcon
 } from '../src/components/workbench/actionItems/category.js'
 
+// Regression: Selenium's and Python's wait rows took the generic icon and colour, unlike the same wait elsewhere.
+const WAITS = [
+  'waitForExist',
+  'waitForDisplayed',
+  'waitForEnabled',
+  'waitForClickable',
+  'waitUntil',
+  'waitForElementVisible',
+  'waitForElementPresent',
+  'waitForElementNotPresent',
+  'waitForElementLocated',
+  'wait'
+]
+
+describe('a wait from any adapter', () => {
+  it.each(WAITS)('%s reads as an assertion with the assert icon', (command) => {
+    expect(commandCategory(command)).toBe('assertion')
+    expect(commandIcon(command)).toBe('assert')
+  })
+})
+
 describe('commandCategory', () => {
   it('classifies navigation commands', () => {
     expect(commandCategory('url')).toBe('navigation')

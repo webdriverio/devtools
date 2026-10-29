@@ -10,7 +10,37 @@ export function hunk(
   holderShows: string,
   otherShows: string
 ): MessageMatcher {
-  const lead = `${testLabel(test)}, after ${after}: `
+  return hunkAt(
+    `${testLabel(test)}, after ${after}: `,
+    holder,
+    holderShows,
+    otherShows
+  )
+}
+
+/** A hunk among the steps `parent` issued, which the comparison aligns on their own under it. */
+export function hunkInside(
+  test: number,
+  parent: string,
+  after: string,
+  holder: AdapterId,
+  holderShows: string,
+  otherShows: string
+): MessageMatcher {
+  return hunkAt(
+    `${testLabel(test)}, ${parent}, inside it after ${after}: `,
+    holder,
+    holderShows,
+    otherShows
+  )
+}
+
+function hunkAt(
+  lead: string,
+  holder: AdapterId,
+  holderShows: string,
+  otherShows: string
+): MessageMatcher {
   const own = `${holder} shows [${holderShows}]`
   return (message) => {
     const at = message.indexOf(lead)

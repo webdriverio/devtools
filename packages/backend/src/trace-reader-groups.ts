@@ -2,15 +2,28 @@
 // buildCommands drops from the flat list: foreign runner steps (self-referencing
 // stepId, nested via parentId) and our Tracing.tracingGroup markers (children
 // linked via parentId). Library-call leaves attach to the group their stepId
-// points at; unreferenced commands surface at the root in chronological order.
+// points at, and an action's children (a wait's reads) to that action's row;
+// unreferenced commands surface at the root in chronological order.
 
 import type {
   CommandLog,
   TraceActionChild,
+  TraceActionCommandNode,
   TraceActionGroupNode
 } from '@wdio/devtools-shared'
 
+import { REVERSE_ACTION_MAP } from './trace-reader-constants.js'
 import type { AfterEvent, BeforeEvent } from './trace-reader-types.js'
+
+/** An action in our vocabulary that other actions name as parentId issued them, so it stays a row; a foreign runner
+ *  step is never one. */
+function isActionParent(before: BeforeEvent | undefined): boolean {
+  return (
+    before !== undefined &&
+    before.class !== 'Tracing' &&
+    `${before.class}.${before.method}` in REVERSE_ACTION_MAP
+  )
+}
 
 /** Runner steps mirrored by a library call (stepId) and parents of nested
  *  steps are structure — as command rows they duplicate or envelop actions. */
@@ -22,7 +35,7 @@ export function collectStructuralIds(
     if (before.stepId && before.stepId !== before.callId) {
       structural.add(before.stepId)
     }
-    if (before.parentId) {
+    if (before.parentId && !isActionParent(befores.get(before.parentId))) {
       structural.add(before.parentId)
     }
   }
@@ -67,6 +80,9 @@ function childStartTime(child: TraceActionChild, commands: CommandLog[]) {
   return command.startTime ?? command.timestamp
 }
 
+const nestedChildren = (child: TraceActionChild) =>
+  'group' in child ? child.group.children : child.children
+
 function sortTreeChronologically(
   children: TraceActionChild[],
   commands: CommandLog[]
@@ -75,14 +91,13 @@ function sortTreeChronologically(
     (a, b) => childStartTime(a, commands) - childStartTime(b, commands)
   )
   for (const child of children) {
-    if ('group' in child) {
-      sortTreeChronologically(child.group.children, commands)
-    }
+    sortTreeChronologically(nestedChildren(child) ?? [], commands)
   }
 }
 
 // Post-order rollup: a group fails when its own after errored or any
-// descendant group/command did.
+// descendant group/command did. A row's own children judge nothing: a wait
+// decides whether it failed, whatever one of its polls raised.
 function rollupFailed(
   child: TraceActionChild,
   commands: CommandLog[]
@@ -126,36 +141,71 @@ function buildGroupNodes(
   return nodes
 }
 
-/** Build the action tree, or undefined when the zip has no structural steps. */
+function loopsBack(
+  before: BeforeEvent,
+  befores: Map<string, BeforeEvent>
+): boolean {
+  const seen = new Set<string>()
+  for (
+    let id = before.parentId;
+    id && !seen.has(id);
+    id = befores.get(id)?.parentId
+  ) {
+    if (id === before.callId) {
+      return true
+    }
+    seen.add(id)
+  }
+  return false
+}
+
+// A before nests under a group (parentGroupOf), else under the action row its parentId names.
+function containerOf(
+  before: BeforeEvent,
+  groups: Map<string, TraceActionGroupNode>,
+  rows: Map<string, TraceActionCommandNode>
+): TraceActionChild[] | undefined {
+  const group = parentGroupOf(before, groups)
+  if (group) {
+    return group.children
+  }
+  const row = before.parentId ? rows.get(before.parentId) : undefined
+  if (!row) {
+    return undefined
+  }
+  row.children ??= []
+  return row.children
+}
+
+/** Build the action tree, or undefined when the zip has no structural steps and no action issued another. */
 export function buildActionTree(
   befores: Map<string, BeforeEvent>,
   afters: Map<string, AfterEvent>,
   commands: CommandLog[],
   indexByCallId: Map<string, number>
 ): TraceActionChild[] | undefined {
-  const nodes = buildGroupNodes(befores, afters)
-  if (nodes.size === 0) {
-    return undefined
+  const groups = buildGroupNodes(befores, afters)
+  const rows = new Map<string, TraceActionCommandNode>()
+  for (const [callId, commandIndex] of indexByCallId) {
+    rows.set(callId, { commandIndex })
   }
   const root: TraceActionChild[] = []
   for (const before of befores.values()) {
-    const node = nodes.get(before.callId)
-    const commandIndex = indexByCallId.get(before.callId)
-    let child: TraceActionChild
-    if (node) {
-      child = { group: node }
-    } else if (commandIndex !== undefined) {
-      child = { commandIndex }
-    } else {
+    const group = groups.get(before.callId)
+    const child: TraceActionChild | undefined = group
+      ? { group }
+      : rows.get(before.callId)
+    if (!child) {
       continue
     }
-    const parent = parentGroupOf(before, nodes)
-    // A malformed self-parent would recurse forever in the rollup; root it.
-    if (parent && parent !== node) {
-      parent.children.push(child)
-    } else {
-      root.push(child)
-    }
+    // A malformed parent chain that loops back would recurse forever; root it.
+    const container = loopsBack(before, befores)
+      ? root
+      : (containerOf(before, groups, rows) ?? root)
+    container.push(child)
+  }
+  if (groups.size === 0 && ![...rows.values()].some((r) => r.children)) {
+    return undefined
   }
   sortTreeChronologically(root, commands)
   for (const child of root) {

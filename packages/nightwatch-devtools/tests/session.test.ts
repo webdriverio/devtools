@@ -821,6 +821,50 @@ describe('SessionCapturer.anchorAfterNavigation', () => {
   // normally completes with the destination already current. Baselining against
   // the document we are standing on would compare it with itself and drop the
   // anchor, leaving the trace on the page before it.
+  // A wait is sent running the moment it is invoked, so it is newest while the
+  // click before it navigates; it has not ended, so it did not cause the navigation.
+  it('credits the navigation to the newest row that has ended, not a wait still running', async () => {
+    const { browser, close } = await driverServing([1000, 2000])
+    const cap = makeCapturer(browser)
+    cap.preloadRegistered = true
+    const drain = vi.spyOn(cap, 'captureTrace').mockResolvedValue()
+    try {
+      await cap.captureCommand('click', ['#submit'], null, undefined, {
+        timestamp: 100
+      })
+      const wait = cap.openCommand('waitForElementPresent', ['#flash'], {
+        startTime: 200
+      })
+      await cap.anchorAfterNavigation(browser)
+      expect(drain.mock.lastCall?.[2]).toBe(100)
+      cap.closeCommand(wait, true, undefined, 300)
+      await cap.anchorAfterNavigation(browser)
+      expect(drain.mock.lastCall?.[2]).toBe(300)
+    } finally {
+      await close()
+    }
+  })
+
+  it('credits the navigation to a wait that ended after the reads it issued', async () => {
+    const { browser, close } = await driverServing([1000, 2000])
+    const cap = makeCapturer(browser)
+    cap.preloadRegistered = true
+    const drain = vi.spyOn(cap, 'captureTrace').mockResolvedValue()
+    try {
+      const wait = cap.openCommand('waitUntil', [], { startTime: 200 })
+      await cap.captureCommand('getText', ['#flash'], 'x', undefined, {
+        timestamp: 250,
+        parentId: wait.id
+      })
+      cap.closeCommand(wait, true, undefined, 300)
+      expect(cap.commandsLog.at(-1)).toBe(wait)
+      await cap.anchorAfterNavigation(browser)
+      expect(drain.mock.lastCall?.[2]).toBe(300)
+    } finally {
+      await close()
+    }
+  })
+
   it('anchors the first command even when its navigation already committed', async () => {
     const { browser, seen, close } = await driverServing([2000])
     const cap = makeCapturer(browser)

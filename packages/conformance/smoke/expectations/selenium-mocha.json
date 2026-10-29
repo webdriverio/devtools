@@ -21,10 +21,8 @@
     },
     {
       "test": "times out waiting for an element the page never renders (failed wait target)",
-      "rows": ["Page.navigate", "Browser.waitForFunction"],
-      "titleMatches": [
-        "Waiting for element to be located By(css selector, #devtools-never-rendered)"
-      ],
+      "rows": ["Page.navigate", "Element.waitForExist"],
+      "titleMatches": ["Element.waitForExist(\"#devtools-never-rendered\")"],
       "error": true,
       "errorMatches": "Wait timed out",
       "allowTimeoutError": true

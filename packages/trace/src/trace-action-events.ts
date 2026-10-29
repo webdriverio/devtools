@@ -1,11 +1,17 @@
 // Builds the before/after action events of the exported trace stream,
 // including tracingGroup test boundaries and frame-snapshot ref stamping.
 
-import type { CommandLog, TestMetadataMap } from '@wdio/devtools-shared'
+import type {
+  CommandLog,
+  CommandNode,
+  TestMetadataMap
+} from '@wdio/devtools-shared'
 import {
   collapsedAssertResult,
   commandFailure,
   locatorsMatch,
+  nestCommands,
+  retriedRows,
   POINTABLE_METHODS
 } from '@wdio/devtools-shared'
 import {
@@ -30,7 +36,7 @@ export interface BeforeEvent {
   title: string
   /** Trace-viewer API name (e.g. 'page.goBack', 'element.click'). */
   apiName: string
-  /** CallId of the Tracing.tracingGroup that wraps this action (if any). */
+  /** CallId of the action whose execution issued this one, else of the Tracing.tracingGroup that wraps it (if any). */
   parentId?: string
   /** User-code frame the command was issued from, when captured. */
   stack?: StackFrame[]
@@ -43,6 +49,8 @@ export interface AfterEvent {
   callId: string
   endTime: number
   error?: { message: string }
+  /** A poll's error under a wait that passed: kept for the player, never read as a failed action. */
+  retriedError?: { message: string }
   /** Command return value (e.g. the text getText resolved to). */
   result?: unknown
   /** CallId of the Tracing.tracingGroup that wraps this action (if any). */
@@ -260,11 +268,14 @@ function buildAfterEvent(
   action: TraceAction,
   callId: string,
   endMs: number,
-  snapshotIndex?: FrameSnapshotIndex
+  ctx: EmitContext
 ): AfterEvent {
+  const { snapshotIndex } = ctx
   const afterEvent: AfterEvent = { type: 'after', callId, endTime: endMs }
   const error = commandFailure(cmd, action)
-  if (error) {
+  if (error && ctx.retried.has(cmd)) {
+    afterEvent.retriedError = error
+  } else if (error) {
     afterEvent.error = error
   }
   const result = serializableResult(cmd.result)
@@ -282,23 +293,21 @@ function buildAfterEvent(
   return afterEvent
 }
 
-function pushActionPair(
+function pushBefore(
   stream: ActionStream,
   cmd: CommandLog,
   action: TraceAction,
   pageId: string,
   wallTime: number,
+  parentCallId: string | undefined,
   snapshotIndex?: FrameSnapshotIndex
-): void {
+): { callId: string; startMs: number } {
   stream.callCounter++
   const callId = `call@${stream.callCounter}`
   // Command invocation timestamp, falling back to completion when absent.
   const rawStartMs = (cmd.startTime ?? cmd.timestamp) - wallTime
-  const rawEndMs = cmd.timestamp - wallTime
   // Floor at prevEndMs to prevent visual overlap with the previous action.
   const startMs = Math.max(stream.prevEndMs, rawStartMs)
-  // +1ms minimum duration so an `after` never precedes its parsed `before`.
-  const endMs = Math.max(startMs + 1, rawEndMs)
   const { params, title } = buildParamsAndTitle(action, cmd)
   const beforeEvent: BeforeEvent = {
     type: 'before',
@@ -310,7 +319,8 @@ function pushActionPair(
     params,
     title,
     apiName: `${action.class.toLowerCase()}.${action.method}`,
-    parentId: stream.openGroups[stream.openGroups.length - 1]?.callId
+    parentId:
+      parentCallId ?? stream.openGroups[stream.openGroups.length - 1]?.callId
   }
   const stack = callSourceToStack(cmd.callSource)
   if (stack) {
@@ -321,7 +331,55 @@ function pushActionPair(
     beforeEvent.beforeSnapshot = beforeName
   }
   stream.events.push(beforeEvent)
-  stream.events.push(buildAfterEvent(cmd, action, callId, endMs, snapshotIndex))
+  return { callId, startMs }
+}
+
+interface EmitContext {
+  pageId: string
+  wallTime: number
+  snapshotIndex?: FrameSnapshotIndex
+  retried: ReadonlySet<CommandLog>
+}
+
+// A row's before, then the rows it issued (nested under its callId), then its after: the after closes once the last
+// child has, so the player draws the children inside the parent's span. A row the vocabulary drops passes its
+// children up to the level it would have held.
+function emitNode(
+  stream: ActionStream,
+  node: CommandNode,
+  ctx: EmitContext,
+  parentCallId?: string
+): void {
+  const cmd = node.command
+  const action = mapCommandToAction(cmd.command)
+  if (!action) {
+    for (const child of node.children) {
+      emitNode(stream, child, ctx, parentCallId)
+    }
+    return
+  }
+  const { callId, startMs } = pushBefore(
+    stream,
+    cmd,
+    action,
+    ctx.pageId,
+    ctx.wallTime,
+    parentCallId,
+    ctx.snapshotIndex
+  )
+  if (node.children.length) {
+    stream.prevEndMs = startMs
+    for (const child of node.children) {
+      emitNode(stream, child, ctx, callId)
+    }
+  }
+  // +1ms minimum duration so an `after` never precedes its parsed `before`.
+  const endMs = Math.max(
+    startMs + 1,
+    cmd.timestamp - ctx.wallTime,
+    node.children.length ? stream.prevEndMs : 0
+  )
+  stream.events.push(buildAfterEvent(cmd, action, callId, endMs, ctx))
   stream.prevEndMs = endMs
 }
 
@@ -340,7 +398,7 @@ export function buildActionEvents(
   }
   // Process in chronological order, not insertion order. Deferred rows (e.g.
   // Nightwatch native asserts, finalized in one batch at test-end) are appended
-  // late but carry their real call-time `startTime`; since pushActionPair floors
+  // late but carry their real call-time `startTime`; since pushBefore floors
   // each start at the running prevEndMs, out-of-order input would clamp those
   // late rows to the end of the timeline (clustering them after the last real
   // command). A stable sort by start time restores true positions. `sequence`
@@ -354,14 +412,26 @@ export function buildActionEvents(
       (a.startTime ?? a.timestamp) - (b.startTime ?? b.timestamp) ||
       (a.sequence ?? 0) - (b.sequence ?? 0)
   )
-  for (const cmd of ordered) {
-    const action = mapCommandToAction(cmd.command)
-    if (!action) {
-      continue
+  const ctx: EmitContext = {
+    pageId,
+    wallTime,
+    snapshotIndex,
+    retried: retriedRows(ordered)
+  }
+  for (const node of nestCommands(ordered)) {
+    if (hasAction(node)) {
+      syncGroups(stream, node.command, pageId, wallTime, testMetadata)
     }
-    syncGroups(stream, cmd, pageId, wallTime, testMetadata)
-    pushActionPair(stream, cmd, action, pageId, wallTime, snapshotIndex)
+    emitNode(stream, node, ctx)
   }
   closeGroupsFrom(stream, 0)
   return stream.events
+}
+
+// A dropped row with no mapped descendant emits nothing, so it must not open or close a test group either.
+function hasAction(node: CommandNode): boolean {
+  return (
+    Boolean(mapCommandToAction(node.command.command)) ||
+    node.children.some(hasAction)
+  )
 }
