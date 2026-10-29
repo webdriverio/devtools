@@ -6,7 +6,7 @@ import { TraceType, type Metadata } from '@wdio/devtools-shared'
 import { writeTraceZip } from '../src/trace-exporter.js'
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { readTraceZip } from '../src/trace-reader.js'
+import { readTraceZip } from '../src/read-trace-zip.js'
 
 /**
  * Writes a zip with the writer and reads it back with the reader, proving the

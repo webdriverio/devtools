@@ -262,6 +262,12 @@ The player exposes everything captured in the archive:
 
 The `show-trace` bin is exposed by each JavaScript adapter (`@wdio/devtools-service`, `@wdio/nightwatch-devtools`, `@wdio/selenium-devtools`), so `pnpm show-trace <zip>` / `npx show-trace <zip>` work in any project that installs one — no extra dependency.
 
+**Hosted player: [trace.webdriver.io](https://trace.webdriver.io).** The same player as a web page, for opening a trace without installing anything: drop a `.zip` on the page or pick one. The archive is parsed in the browser tab and never uploaded, which matters because a trace records everything the run showed or typed. Run controls are absent, as in `show-trace`. A replayed page still loads its own stylesheets and images from the site under test, as it does in `show-trace`; from an `https` page the browser blocks the `http` ones, so a trace of an `http` site can render unstyled there and fully in `show-trace`. To try the hosted build locally:
+
+```sh
+pnpm player:hosted   # builds it and serves it at http://localhost:4173 under the production headers
+```
+
 **Other viewers.** The trace uses a portable NDJSON schema, so the same `.zip` also opens in other compatible standalone trace viewers that read the format, and — because it shares that on-disk format — is what an Allure report's **embedded trace viewer** (Allure ≥ 2.35) reads. See the [backend README](./packages/backend/README.md#trace-serving--show-trace) for the reader details.
 
 #### Options
