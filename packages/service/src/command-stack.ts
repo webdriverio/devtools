@@ -18,6 +18,8 @@ export interface CommandNesting {
 interface OpenWait {
   id: number
   command: string
+  /** The arguments its first hook saw: none for an element command, whose second hook WDIO fires from inside. */
+  args: readonly unknown[]
   /** The wait's own frame, on the level it was issued from. */
   frame: CommandFrame
   parentFrames: CommandFrame[]
@@ -77,7 +79,7 @@ export class CommandStack {
     if (
       frames.length > 0 ||
       INTERNAL_COMMANDS.includes(command) ||
-      (wait ? !this.#issuedBy(wait, command, fromUserCode) : !fromUserCode)
+      (wait ? !this.#issuedBy(wait, command) : !fromUserCode)
     ) {
       return undefined
     }
@@ -89,19 +91,31 @@ export class CommandStack {
     return { frame, frames }
   }
 
-  #issuedBy(wait: OpenWait, command: string, fromUserCode: boolean): boolean {
+  #issuedBy(wait: OpenWait, command: string): boolean {
     if (isElementWait(wait.command)) {
       return wait.polling
     }
-    // WDIO fires an element command's hooks twice, the second from inside its own wrapper.
-    return !(command === wait.command && !wait.issuedAny && !fromUserCode)
+    // WDIO's element wrapper fires an element command's first hook with no arguments and its second, from inside, with
+    // the spec's; a user's wait always passes a condition. The stack cannot tell them apart: the spec frame is searched
+    // deep enough to be on both.
+    return !(
+      command === wait.command &&
+      !wait.issuedAny &&
+      wait.args.length === 0
+    )
   }
 
   /** Opens a wait whose frame `enter` just pushed onto `frames`. */
-  open(frame: CommandFrame, id: number, frames: CommandFrame[]): void {
+  open(
+    frame: CommandFrame,
+    id: number,
+    frames: CommandFrame[],
+    args: readonly unknown[]
+  ): void {
     this.#waits.push({
       id,
       command: frame.command,
+      args,
       frame,
       parentFrames: frames,
       frames: [],

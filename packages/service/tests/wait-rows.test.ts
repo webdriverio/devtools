@@ -199,6 +199,45 @@ describe('a wait is one row holding what it issued', () => {
     expect(wait.timestamp).toBeGreaterThanOrEqual(issued.at(-1)!.timestamp)
   })
 
+  // WDIO's element wrapper fires the first hook with no arguments and the second with the spec's; the spec frame is
+  // searched 40 frames deep, so the second can carry the spec's line as well.
+  it.each([true, false])(
+    "keeps an element's waitUntil one row whether or not its second hook carries the spec frame (%s)",
+    async (secondFromSpec) => {
+      const args = [async () => true, { timeout: 2000 }]
+      await before('waitUntil', [], true)
+      await before('waitUntil', args, secondFromSpec)
+      await elementRead('getText', 'Welcome')
+      await after('waitUntil', args, true)
+      await after('waitUntil', [], true)
+
+      const [wait, ...issued] = rows()
+      expect(rows().filter((r) => r.command === 'waitUntil')).toHaveLength(1)
+      expect(wait.parentId).toBeUndefined()
+      expect(issued.map((r) => [r.command, r.parentId])).toEqual([
+        ['getText', wait.id]
+      ])
+    }
+  )
+
+  it('nests a waitUntil that is the first command of a waitUntil condition', async () => {
+    await command('waitUntil', [async () => true, { timeout: 2000 }], true, {
+      inner: () =>
+        command('waitUntil', [async () => true, { timeout: 500 }], true, {
+          inner: () => elementRead('getText', 'Welcome')
+        })
+    })
+
+    const [outer, inner, read] = rows()
+    expect([outer.command, inner.command, read.command]).toEqual([
+      'waitUntil',
+      'waitUntil',
+      'getText'
+    ])
+    expect(inner.parentId).toBe(outer.id)
+    expect(read.parentId).toBe(inner.id)
+  })
+
   it("nests an element wait's polls under it, folded into one row", async () => {
     await command('$', ['#flash'], { 'element-6066': 'el-1' })
     await elementWait([false, false, true])

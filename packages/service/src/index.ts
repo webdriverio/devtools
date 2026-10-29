@@ -684,7 +684,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
         ? {}
         : { parentId: this.#commandStack.parentId })
     })
-    this.#commandStack.open(frame, id, frames)
+    this.#commandStack.open(frame, id, frames, args)
   }
 
   /** Pushes the frame of a command that will be a row, opening it when it is a wait; true for a top-level user command. */
