@@ -705,6 +705,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     const parentId = this.#commandStack.parentId
     const entered = this.#commandStack.enter(
       command,
+      args,
       source ? resolveCallSourceFromFrame(source) : undefined,
       Boolean(source),
       issuedByService

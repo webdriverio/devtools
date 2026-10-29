@@ -63,6 +63,7 @@ export class CommandStack {
   /** The frame a starting command opens, when it will be a row, and the level it was pushed onto. */
   enter(
     command: string,
+    args: readonly unknown[],
     callSource: string | undefined,
     fromUserCode: boolean,
     issuedByService: boolean
@@ -79,7 +80,7 @@ export class CommandStack {
     if (
       frames.length > 0 ||
       INTERNAL_COMMANDS.includes(command) ||
-      (wait ? !this.#issuedBy(wait, command) : !fromUserCode)
+      (wait ? !this.#issuedBy(wait, command, args) : !fromUserCode)
     ) {
       return undefined
     }
@@ -91,17 +92,20 @@ export class CommandStack {
     return { frame, frames }
   }
 
-  #issuedBy(wait: OpenWait, command: string): boolean {
+  #issuedBy(
+    wait: OpenWait,
+    command: string,
+    args: readonly unknown[]
+  ): boolean {
     if (isElementWait(wait.command)) {
       return wait.polling
     }
-    // WDIO's element wrapper fires an element command's first hook with no arguments and its second, from inside, with
-    // the spec's; a user's wait always passes a condition. The stack cannot tell them apart: the spec frame is searched
-    // deep enough to be on both.
+    // WDIO's element wrapper fires the first hook with no arguments and the second, inside it, with the spec's.
     return !(
       command === wait.command &&
       !wait.issuedAny &&
-      wait.args.length === 0
+      wait.args.length === 0 &&
+      args.length > 0
     )
   }
 

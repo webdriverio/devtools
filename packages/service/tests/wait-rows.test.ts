@@ -221,6 +221,29 @@ describe('a wait is one row holding what it issued', () => {
     }
   )
 
+  it("nests an element waitUntil that is the first command of another element waitUntil's condition", async () => {
+    const outerArgs = [async () => true, { timeout: 2000 }]
+    const innerArgs = [async () => true, { timeout: 500 }]
+    await before('waitUntil', [], true)
+    await before('waitUntil', outerArgs, true)
+    await before('waitUntil', [], true)
+    await before('waitUntil', innerArgs, true)
+    await elementRead('getText', 'Welcome')
+    await after('waitUntil', innerArgs, true)
+    await after('waitUntil', [], true)
+    await after('waitUntil', outerArgs, true)
+    await after('waitUntil', [], true)
+
+    const [outer, inner, read] = rows()
+    expect([outer.command, inner.command, read.command]).toEqual([
+      'waitUntil',
+      'waitUntil',
+      'getText'
+    ])
+    expect(inner.parentId).toBe(outer.id)
+    expect(read.parentId).toBe(inner.id)
+  })
+
   it('nests a waitUntil that is the first command of a waitUntil condition', async () => {
     await command('waitUntil', [async () => true, { timeout: 2000 }], true, {
       inner: () =>
