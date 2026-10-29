@@ -278,7 +278,9 @@ export class DevtoolsActions extends Element {
         this.expandOverrides.get(liveRowKey(node.command)) ??
         defaultLiveExpanded(node, this.activeEntry)
     )
-    const durations = stepDurations(rows.map((row) => row.entry.timestamp))
+    // Gaps between every entry in time order: tree order, or a collapsed row, would change a row's fallback duration.
+    const gaps = stepDurations(entries.map((entry) => entry.timestamp))
+    const gapOf = new Map(entries.map((entry, i) => [entry, gaps[i]]))
     // A nested row is indented, so the straight rail no longer lines up.
     const nested = rows.some((row) => row.key !== undefined)
 
@@ -293,7 +295,7 @@ export class DevtoolsActions extends Element {
       ${repeat(
         rows,
         (row) => row.entry,
-        (row, index) => this.#renderLiveRow(row, entries, durations[index])
+        (row) => this.#renderLiveRow(row, entries, gapOf.get(row.entry))
       )}
     </div>`
   }

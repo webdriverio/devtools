@@ -597,6 +597,33 @@ describe('wdio-devtools-actions', () => {
       expect(shadowAll(panel, ACTIVE_ROW).map(entryOf)).toEqual([reads[1]])
     })
 
+    // Regression: fallback durations came from the visible tree order, where a wait is listed before what it issued.
+    it('times a nested row with no start of its own against the next action in time, not the next row shown', async () => {
+      const read = commandLog({
+        command: 'getText',
+        args: ['#flash'],
+        id: 21,
+        parentId: 20,
+        timestamp: RUN_START + 120
+      })
+      const failed = commandLog({
+        command: 'waitUntil',
+        args: [],
+        id: 20,
+        startTime: RUN_START,
+        timestamp: RUN_START + 300,
+        error: new Error('waitUntil timed out')
+      })
+      const panel = await mountPanel({
+        commands: [read, failed, logout],
+        mutations: []
+      })
+
+      const rows = shadowAll(panel, ROWS)
+      expect(rows.map(entryOf)).toEqual([failed, read, logout])
+      expect(durationOf(rows[1])).toBe(180)
+    })
+
     it('nests the reads under the wait in the player tree, collapsed until it is toggled', async () => {
       const commands = [...reads, wait, logout]
       const groups: TraceActionChild[] = [
