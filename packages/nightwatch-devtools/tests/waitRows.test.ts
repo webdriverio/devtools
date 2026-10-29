@@ -101,7 +101,10 @@ function makeBrowser(text: Record<string, string>) {
   }
 }
 
-function setup(text: Record<string, string> = {}) {
+function setup(
+  text: Record<string, string> = {},
+  adjust?: (browser: ReturnType<typeof makeBrowser>) => void
+) {
   const capturer = new SessionCapturer({})
   const frames: [string, unknown][] = []
   vi.spyOn(capturer, 'sendUpstream').mockImplementation((scope, data) => {
@@ -117,6 +120,7 @@ function setup(text: Record<string, string> = {}) {
     uid: 'test-1'
   }))
   const browser = makeBrowser(text)
+  adjust?.(browser)
   proxy.wrapBrowserCommands(browser)
   return { browser, frames, proxy }
 }
@@ -263,6 +267,31 @@ describe('Nightwatch wait rows', () => {
 
     const [wait] = byCommand(dashboardRows(frames), 'waitUntil')
     expect(wait.error).toMatchObject({ message: 'Wait timed out' })
+  })
+
+  it('closes a wait the aborted queue never ran as not run, never as passed', async () => {
+    // An earlier assert failed, so Nightwatch drops the chained wait: its condition and callback never run.
+    const { browser, frames, proxy } = setup({}, (api) => {
+      api.waitUntil = () => new Promise<boolean>(() => {})
+    })
+    void browser.waitUntil(async () => true, 2000)
+    await tick(5)
+    const [running] = byCommand(dashboardRows(frames), 'waitUntil')
+    expect(running.error).toBeUndefined()
+
+    proxy.closeUnrunWaits()
+
+    const [wait] = byCommand(dashboardRows(frames), 'waitUntil')
+    expect(wait.id).toBe(running.id)
+    expect(wait.error).toMatchObject({
+      name: 'NotRunError',
+      message:
+        'waitUntil did not run: the test ended before Nightwatch reached it'
+    })
+    expect(wait.timestamp).toBe(wait.startTime)
+    const sent = frames.length
+    proxy.closeUnrunWaits()
+    expect(frames).toHaveLength(sent)
   })
 
   it('leaves native assertions as they were: buffered, unparented, after the wait', async () => {

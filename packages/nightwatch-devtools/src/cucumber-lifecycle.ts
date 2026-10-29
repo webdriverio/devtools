@@ -264,6 +264,7 @@ export async function captureCucumberScenarioBeforeQuit(
 ): Promise<void> {
   const scenario = ctx.getCurrentScenarioSuite()
   try {
+    ctx.browserProxy?.closeUnrunWaits()
     // Emit native asserts (assert.titleContains, …) while the session is live —
     // Nightwatch's afterEach path skips the cucumber runner, so this is the only
     // place scenario asserts get captured. drainNativeAssertCalls() is empty when

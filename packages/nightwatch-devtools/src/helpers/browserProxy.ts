@@ -333,6 +333,13 @@ export class BrowserProxy {
     }
   }
 
+  /** Close the waits an aborted queue never ran, before the test unit's rows are read. */
+  closeUnrunWaits(): void {
+    if (this.waits.closeUnrun().length > 0) {
+      this.retryTracker.reset()
+    }
+  }
+
   /** End a wait's row; whatever is captured next is not a poll of what ran before it. */
   private closeWait(
     browser: NightwatchBrowser,

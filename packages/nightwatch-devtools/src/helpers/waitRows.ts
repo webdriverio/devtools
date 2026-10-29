@@ -17,8 +17,11 @@ import { commandRowSelector } from './assertTarget.js'
 import type { SessionCapturer } from '../session.js'
 import type { OpenWait, PendingCommand } from '../types.js'
 
+const NOT_RUN_ERROR = 'NotRunError'
+
 export class WaitRows {
   readonly #scope = new AsyncLocalStorage<OpenWait>()
+  readonly #open = new Set<OpenWait>()
 
   constructor(private readonly capturer: SessionCapturer) {}
 
@@ -46,7 +49,9 @@ export class WaitRows {
       selector: commandRowSelector(cmd.methodName, cmd.logArgs),
       parentId: cmd.parent?.row.id
     })
-    return { row, parent: cmd.parent, children: new Map(), closed: false }
+    const wait = { row, parent: cmd.parent, children: new Map(), closed: false }
+    this.#open.add(wait)
+    return wait
   }
 
   /** The args a wait is called with: a `waitUntil` condition runs every poll inside the wait's scope. */
@@ -72,6 +77,7 @@ export class WaitRows {
     completedAt: number
   ): void {
     wait.closed = true
+    this.#open.delete(wait)
     const { row } = wait
     const action = mapCommandToAction(row.command)
     const timeout =
@@ -82,5 +88,25 @@ export class WaitRows {
       error ?? (timeout && new Error(timeout.message)),
       completedAt
     )
+  }
+
+  /** Close every wait still open as not run: Nightwatch drops a queued wait, callback and all, when an earlier assert aborts the queue. */
+  closeUnrun(): OpenWait[] {
+    const unrun = [...this.#open]
+    for (const wait of unrun) {
+      wait.closed = true
+      this.#open.delete(wait)
+      const error = new Error(
+        `${wait.row.command} did not run: the test ended before Nightwatch reached it`
+      )
+      error.name = NOT_RUN_ERROR
+      this.capturer.closeCommand(
+        wait.row,
+        undefined,
+        error,
+        wait.row.startTime ?? wait.row.timestamp
+      )
+    }
+    return unrun
   }
 }
