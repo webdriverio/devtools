@@ -132,21 +132,77 @@ def _resolve_trace_policy(config) -> Optional[str]:  # noqa: ANN001
     return str(value) if value else None
 
 
-def _resolve_trace(config) -> Optional[bool]:  # noqa: ANN001
-    """Whether this run writes a trace archive: CLI, else ini, else undecided.
+def _overridden(config, name: str) -> bool:  # noqa: ANN001
+    """Whether `-o name=...` set this ini option for this run.
 
-    None rather than False when nothing said, so `enable()` still reads
-    DEVTOOLS_TRACE — the env layer lives there and is not duplicated here.
+    pytest folds `-o` into `getini`, so this is the only way to tell a value
+    typed on the command line from one the project committed.
     """
-    if (
-        config.getoption("--devtools-trace", None)
-        or _resolve_trace_policy(config)
-        or _resolve_trace_granularity(config)
+    for entry in config.getoption("override_ini", None) or ():
+        key, sep, _ = str(entry).partition("=")
+        if sep and key.strip() == name:
+            return True
+    return False
+
+
+_TRACE_SETTINGS = ("devtools_trace_policy", "devtools_trace_granularity")
+
+
+def _trace_implied(config, *, cli: bool) -> bool:  # noqa: ANN001
+    """Whether a policy or granularity was named on the CLI side (flags or `-o`),
+    or, with `cli=False`, in the ini file."""
+    if cli and (
+        config.getoption("--devtools-trace-policy", None)
+        or config.getoption("--devtools-trace-granularity", None)
     ):
-        # A policy or a granularity only means anything in trace mode, so naming
-        # either selects it rather than being silently ignored.
         return True
-    return _ini(config, "devtools_trace")
+    return any(
+        _ini_raw(config, name) and _overridden(config, name) == cli
+        for name in _TRACE_SETTINGS
+    )
+
+
+def _resolve_trace(config) -> Optional[bool]:  # noqa: ANN001
+    """Whether this run writes a trace archive.
+
+    Levels, highest first: the command line (`--devtools-trace*` flags and
+    `-o`), the ini file, then DEVTOOLS_TRACE (read by `enable()`, which is why
+    an undecided run returns None). A policy or granularity only means anything
+    in trace mode, so naming one implies it; an explicit `devtools_trace` value
+    beats that implication at its own level and below, never above.
+    """
+    if config.getoption("--devtools-trace", None):
+        return True
+    explicit = _ini(config, "devtools_trace")
+    if explicit is not None and _overridden(config, "devtools_trace"):
+        return explicit
+    if _trace_implied(config, cli=True):
+        return True
+    if explicit is not None:
+        return explicit
+    return True if _trace_implied(config, cli=False) else None
+
+
+def _warn_if_trace_settings_unused(config, trace: Optional[bool]) -> None:  # noqa: ANN001
+    """Say so when an explicit `devtools_trace = false` leaves a named policy or
+    granularity with nothing to act on: naming one must never silently do
+    nothing, and the archive that never appears is otherwise the only symptom."""
+    if trace is not False:
+        return
+    named = [
+        name
+        for name, value in (
+            ("devtools_trace_policy", _resolve_trace_policy(config)),
+            ("devtools_trace_granularity", _resolve_trace_granularity(config)),
+        )
+        if value
+    ]
+    if named:
+        _log.warning(
+            "devtools_trace is false, so %s has no effect; this run streams "
+            "to the live dashboard",
+            " and ".join(named),
+        )
 
 
 def _resolve_enabled(config) -> bool:  # noqa: ANN001
@@ -162,16 +218,15 @@ def _resolve_enabled(config) -> bool:  # noqa: ANN001
     # sitting empty for a run that never happened.
     if config.getoption("--collect-only", False):
         return False
-    if (
-        config.getoption("--devtools", None)
-        or config.getoption("--devtools-trace", None)
-        or config.getoption("--devtools-trace-policy", None)
-        or config.getoption("--devtools-trace-granularity", None)
+    if config.getoption("--devtools", None) or config.getoption(
+        "--devtools-trace", None
     ):
         return True
-    if _ini_raw(config, "devtools_trace_policy") or _ini_raw(
-        config, "devtools_trace_granularity"
-    ):
+    # A policy or granularity opts in only while it still selects trace mode: an
+    # explicit `devtools_trace = false` leaves it with nothing to do.
+    if (
+        _trace_implied(config, cli=True) or _trace_implied(config, cli=False)
+    ) and _resolve_trace(config):
         return True
     for name in ("devtools", "devtools_trace"):
         value = _ini(config, name)
@@ -432,8 +487,10 @@ def pytest_configure(config) -> None:  # noqa: ANN001
         root = getattr(config, "rootpath", None) or getattr(config, "rootdir", None)
         _rootdir = str(root) if root else None
         _configure_rerun(config, _rootdir)
+        trace = _resolve_trace(config)
+        _warn_if_trace_settings_unused(config, trace)
         capturer = devtools.enable(
-            trace=_resolve_trace(config),
+            trace=trace,
             trace_policy=_resolve_trace_policy(config),
             trace_granularity=_resolve_trace_granularity(config),
         )
