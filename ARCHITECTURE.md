@@ -42,7 +42,7 @@ Types, constants, enums, HTTP/WS contract definitions. Pure TypeScript, no runti
 Contains the canonical definitions for:
 
 - Domain types: `CommandLog`, `ConsoleLog`, `NetworkRequest`, `TraceMutation`, `Metadata`, `TraceLog`, `TraceType`, `TestStats`, `SuiteStats`, `TestStatus`, `TestError`, `ReporterError`, `PreservedAttempt`, `PreservedStep`, `PerformanceData`, `DocumentInfo`, `Viewport`, `ScreencastInfo`, `ScreencastFrame`, `ScreencastOptions`, `LogLevel`, `LogSource`.
-- Row nesting: `CommandLog.parentId` names the row whose execution issued a row (a wait's condition reads), and `nestCommands` (`command-tree.ts`) turns a flat row list into the tree the dashboard renders.
+- Row nesting: `CommandLog.parentId` names the row whose execution issued a row (a wait's condition reads and polls), and `nestCommands` (`command-tree.ts`) turns a flat row list into the tree the dashboard renders. Every adapter sends a wait as one running row and parents what it issued under it.
 - WS wire format: `SocketMessage<T>`, `WsMessageScope`, `WsPayloadFor<T>`, `ClearExecutionDataWsPayload`, `ReplaceCommandWsPayload`.
 - Routing/scope constants: `WS_PATHS`, `WS_SCOPE`, `BASELINE_WS_SCOPE`, `TESTS_API`, `BASELINE_API`.
 - Process-control env vars: `REUSE_ENV`, `RUNNER_ENV`.
@@ -199,9 +199,9 @@ Each scenario runs twice, with and without BiDi. The fake answers the BiDi comma
 
 Every run, passing or failing, dumps its frames, ground truth, violations and scenario output to `packages/conformance/out/<adapter>-bidi-<mode>.json` and rebuilds `out/index.html`, a self-contained page laying each run out as a timeline of documents, command rows and DOM anchors with every violation beside the event it concerns. CI uploads `out/` as the `conformance-report` artifact when the `build` job fails.
 
-Beside the rules, the adapters are compared with each other: each run is reduced to what a dashboard user sees (steps, outcomes, the page each step replays, snapshots, run controls) and any difference between adapters in the same mode fails unless a declared gap explains it. The rules catch every adapter being wrong in the same way; the comparison catches a difference no rule anticipated. Adapters are registered once in `src/adapters.ts`.
+Beside the rules, the adapters are compared with each other: each run is reduced to what a dashboard user sees (steps, outcomes, the page each step replays, snapshots, run controls) and any difference between adapters in the same mode fails unless a declared gap explains it. The rows a wait issued are compared inside the wait, as their own aligned sequence, and the rule `wait-row-parents-its-commands` (`src/wait-nesting.ts`) checks each adapter sends the wait running and names it as their parent. The rules catch every adapter being wrong in the same way; the comparison catches a difference no rule anticipated. Adapters are registered once in `src/adapters.ts`.
 
-Covers all four adapters: `devtools-service`, `selenium-devtools`, `selenium-devtools-py` and `nightwatch-devtools`. Each runs its scenario through its framework's own runner (WebdriverIO's, the Nightwatch CLI, mocha with `--require`, pytest), from a folder per adapter under `scenarios/`: five tests, two of which fail by design, one on an assertion and one on an element wait that times out. The fake emits no BiDi events, so console and network capture are not checked.
+Covers all four adapters: `devtools-service`, `selenium-devtools`, `selenium-devtools-py` and `nightwatch-devtools`. Each runs its scenario through its framework's own runner (WebdriverIO's, the Nightwatch CLI, mocha with `--require`, pytest), from a folder per adapter under `scenarios/`: six tests, two of which fail by design, one on an assertion and one on an element wait that times out. The fake emits no BiDi events, so console and network capture are not checked.
 
 ### `examples/`
 
