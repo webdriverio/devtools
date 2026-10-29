@@ -89,12 +89,12 @@ function waitIdentity(
     : []
 }
 
-// The innermost wait whose span holds the row's, in the row's own test.
-function enclosingWait(
+// The waits whose span holds the row's, in the row's own test, innermost first.
+function enclosingWaits(
   row: CommandLog,
   waits: CommandLog[],
   test: Map<CommandLog, number>
-): CommandLog | undefined {
+): CommandLog[] {
   return waits
     .filter(
       (w) =>
@@ -105,7 +105,7 @@ function enclosingWait(
         startOf(row) < w.timestamp &&
         row.timestamp <= w.timestamp
     )
-    .sort((a, b) => startOf(b) - startOf(a))[0]
+    .sort((a, b) => startOf(b) - startOf(a))
 }
 
 function parentOf(
@@ -113,8 +113,16 @@ function parentOf(
   waits: CommandLog[],
   test: Map<CommandLog, number>
 ): Violation[] {
-  const wait = enclosingWait(row, waits, test)
-  if (wait && (wait.id === undefined || row.parentId !== wait.id)) {
+  const holding = enclosingWaits(row, waits, test)
+  // Spans are whole milliseconds, so a row that started in a wait's first millisecond may have run just before it:
+  // the innermost wait it started strictly inside must parent it, unless a wait that ties with it does.
+  const strict = holding.findIndex((w) => startOf(row) > w.startTime!)
+  const wait = holding[strict]
+  const parents = holding.slice(0, strict + 1)
+  if (
+    wait &&
+    !parents.some((w) => w.id !== undefined && row.parentId === w.id)
+  ) {
     return [
       {
         rule: RULES.waitParentsItsRows,

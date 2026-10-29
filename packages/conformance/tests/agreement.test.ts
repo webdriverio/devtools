@@ -1,10 +1,10 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import type { RunnerOptions } from '@wdio/devtools-shared'
 
 import { compareRuns, judgeDivergences } from '../src/agreement.js'
-import { covers, declaresLacks, KNOWN_GAPS } from '../src/allowlist.js'
-import { KNOWN_DEBT, RULES, SCENARIO_TESTS } from '../src/constants.js'
+import { covers, KNOWN_GAPS } from '../src/allowlist.js'
+import { RULES, SCENARIO_TESTS } from '../src/constants.js'
 import { hunk, moved } from '../src/gap-matchers.js'
 import { normalizeRun } from '../src/normalize.js'
 import { scenarioIndex } from '../src/scenario-tests.js'
@@ -167,6 +167,30 @@ const report = (
   frames,
   output: ''
 })
+
+const FLASH_WAIT = 'Element.waitForExist #flash'
+
+/** A fixture holder that declares it never shows the service's flash wait, so no test depends on a real gap living on. */
+const lacksFlashWait = (): KnownGap => ({
+  adapter: 'selenium-devtools-py',
+  bidi: 'live',
+  rules: [RULES.agreeOnActions],
+  lacksSteps: [FLASH_WAIT],
+  reason: 'Test fixture: a step the holder never shows.',
+  against: 'devtools-service'
+})
+
+/** Adds fixture gaps to the list the comparison reads, for the tests of the enclosing block only. */
+function withGaps(...gaps: KnownGap[]): void {
+  beforeEach(() => {
+    KNOWN_GAPS.push(...gaps)
+  })
+  afterEach(() => {
+    for (const gap of gaps) {
+      KNOWN_GAPS.splice(KNOWN_GAPS.indexOf(gap), 1)
+    }
+  })
+}
 
 /** What the JS no-BiDi gap produces for this stream when nothing is anchored. */
 const wrongPage = (timestamp: number): Violation => ({
@@ -457,6 +481,8 @@ describe('judgeDivergences', () => {
 })
 
 describe('a gap that declares what its holder lacks', () => {
+  const lack = lacksFlashWait()
+  withGaps(lack)
   const wait = { command: 'waitForExist', selector: '#flash' }
   const assertion = (selector?: string) => ({
     command: 'assert.equal',
@@ -476,7 +502,7 @@ describe('a gap that declares what its holder lacks', () => {
     )
     const runs = [service(), py]
     expect(compareRuns(runs)).toEqual([])
-    expect(judgeDivergences([], runs).stale.filter(declaresLacks)).toEqual([])
+    expect(judgeDivergences([], runs).stale).not.toContain(lack)
   })
 
   it('excuses nothing else: a difference past the lacked step still fails', () => {
@@ -498,9 +524,7 @@ describe('a gap that declares what its holder lacks', () => {
       stream(2, PY, { more: [wait, assertion('#flash')] })
     )
     const { stale } = judgeDivergences([], [service(), py])
-    expect(stale.filter(declaresLacks).map((g) => g.lacksSteps)).toEqual([
-      ['Element.waitForExist #flash']
-    ])
+    expect(stale).toContain(lack)
   })
 })
 
@@ -531,6 +555,7 @@ describe('covers', () => {
 })
 
 describe('comparing past a difference', () => {
+  withGaps(lacksFlashWait())
   const failed = { name: 'AssertionError', message: 'x' }
 
   it('still reports a later outcome difference after an excused one', () => {
@@ -606,6 +631,9 @@ describe('comparing past a difference', () => {
 })
 
 describe('a lack its holder contradicts', () => {
+  const lack = lacksFlashWait()
+  withGaps(lack)
+
   it('reports a renamed step where the lacked one stood, and calls the lack stale', () => {
     const js = report(
       'devtools-service',
@@ -622,9 +650,7 @@ describe('a lack its holder contradicts', () => {
         'devtools-service shows [Element.waitForExist #flash], selenium-devtools-py shows [Browser.waitForFunction]'
       )
     ])
-    expect(stale.filter((g) => g.lacksSteps).map((g) => g.lacksSteps)).toEqual([
-      ['Element.waitForExist #flash']
-    ])
+    expect(stale).toContain(lack)
   })
 })
 
@@ -632,42 +658,45 @@ const titleOf = (title: string) => SCENARIO_TESTS[scenarioIndex(title)].title
 const WAITS = titleOf('waits on what the page shows')
 const LOGIN = titleOf('logs in and reads the greeting')
 
-const gapOf = (adapter: string, reason: string, rule = RULES.agreeOnActions) =>
-  KNOWN_GAPS.find(
-    (g) =>
-      g.adapter === adapter &&
-      g.bidi === 'live' &&
-      g.reason === reason &&
-      g.rules.includes(rule)
-  )!
-
 describe('a gap scoped to one hunk', () => {
-  const gap = gapOf('selenium-devtools', KNOWN_DEBT.conditionWait)
   const reads =
     'Element.getText #flash, Element.getText h2, Element.getText #flash'
   const waits = 'Browser.waitForFunction, Browser.waitForFunction'
-  const hunk = (first: string, second: string): Violation => ({
+  const gap: KnownGap = {
+    adapter: 'selenium-devtools-py',
+    bidi: 'live',
+    rules: [RULES.agreeOnActions],
+    only: hunk(
+      scenarioIndex(WAITS),
+      'Element.getText #flash',
+      'selenium-devtools-py',
+      reads,
+      waits
+    ),
+    reason: 'Test fixture: one hunk where the holder shows reads for waits.'
+  }
+  const divergence = (first: string, second: string): Violation => ({
     rule: RULES.agreeOnActions,
     message: `a vs b: test "${WAITS}", after Element.getText #flash: ${first}, ${second}`
   })
 
   it('matches its holder whichever side is the reference', () => {
-    const own = `selenium-devtools shows [${reads}]`
-    expect(covers(gap, hunk(`devtools-service shows [${waits}]`, own))).toBe(
-      true
-    )
+    const own = `selenium-devtools-py shows [${reads}]`
     expect(
-      covers(gap, hunk(own, `selenium-devtools-py shows [${waits}]`))
+      covers(gap, divergence(`devtools-service shows [${waits}]`, own))
+    ).toBe(true)
+    expect(
+      covers(gap, divergence(own, `selenium-devtools shows [${waits}]`))
     ).toBe(true)
   })
 
   // A condition's second read folded over its first is a different hunk, so the gap does not hide it.
   it('matches nothing else in that place', () => {
     const folded =
-      'selenium-devtools shows [Element.getText h2, Element.getText #flash]'
-    expect(covers(gap, hunk(`devtools-service shows [${waits}]`, folded))).toBe(
-      false
-    )
+      'selenium-devtools-py shows [Element.getText h2, Element.getText #flash]'
+    expect(
+      covers(gap, divergence(`devtools-service shows [${waits}]`, folded))
+    ).toBe(false)
   })
 })
 
@@ -781,33 +810,42 @@ describe('a step one adapter shows at another place', () => {
 
 describe('a lack nothing checks', () => {
   const flashWait = { command: 'waitForExist', selector: '#flash' }
+  const lack = lacksFlashWait()
+  withGaps(lack)
 
   // Every other adapter lacked or excused the service's wait row, so dropping it went unnoticed.
   it('goes stale when the side it is compared with never shows the step either', () => {
     const js = report('devtools-service', stream(1, JS))
-    const se = report('selenium-devtools', stream(2, JS))
-    const runs = [js, se]
+    const py = report('selenium-devtools-py', stream(2, PY))
+    const runs = [js, py]
     const { stale } = judgeDivergences(compareRuns(runs), runs)
-    expect(stale.filter(declaresLacks).map((g) => g.lacksSteps)).toEqual([
-      ['Element.waitForExist #flash']
-    ])
+    expect(stale).toContain(lack)
     const withWait = report(
       'devtools-service',
       stream(1, JS, { more: [flashWait] })
     )
-    const judged = judgeDivergences(compareRuns([withWait, se]), [withWait, se])
-    expect(judged.stale.filter(declaresLacks)).toEqual([])
+    const judged = judgeDivergences(compareRuns([withWait, py]), [withWait, py])
+    expect(judged.stale).not.toContain(lack)
   })
 
   it('is not judged without the adapter it is matched against', () => {
     const nw = report('nightwatch-devtools', stream(1, NW))
-    const se = report('selenium-devtools', stream(2, JS))
-    const { stale } = judgeDivergences(compareRuns([nw, se]), [nw, se])
-    expect(stale.filter((g) => g.adapter === 'selenium-devtools')).toEqual([])
+    const py = report('selenium-devtools-py', stream(2, PY))
+    const { stale } = judgeDivergences(compareRuns([nw, py]), [nw, py])
+    expect(stale).not.toContain(lack)
   })
 })
 
 describe('the agreement section of the report', () => {
+  withGaps({
+    adapter: 'nightwatch-devtools',
+    bidi: 'live',
+    rules: [RULES.agreeOnActions],
+    only: () => false,
+    reason: 'Test fixture: a comparison gap that never occurs.',
+    against: 'devtools-service'
+  })
+
   it('marks a mode where adapters diverge, and highlights the differing row', () => {
     const html = renderReport([
       report('selenium-devtools', stream(1, JS, { error: 'net::ERR_FAILED' })),

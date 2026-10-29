@@ -664,9 +664,17 @@ describe('driverPatcher', () => {
         description: () => 'c'
       })
       await new Promise((r) => setImmediate(r))
-      expect(
-        onCommand.mock.calls.map(([cmd]) => cmd.waitScope !== undefined)
-      ).toEqual([false, true, false, true, true, true])
+      const issued = onCommand.mock.calls
+        .map(([cmd]) => cmd)
+        .filter((cmd) => !cmd.wait)
+      expect(issued.map((cmd) => cmd.waitScope !== undefined)).toEqual([
+        false,
+        true,
+        false,
+        true,
+        true,
+        true
+      ])
     } finally {
       ;(driverProto as any).wait = realWait
       delete (driverProto as any)[
@@ -699,9 +707,17 @@ describe('driverPatcher', () => {
         d.wait((inner: any) => inner.testRead())
       )
       await new Promise((r) => setImmediate(r))
-      const scopes = onCommand.mock.calls.map(([cmd]) => cmd.waitScope)
+      const calls = onCommand.mock.calls.map(([cmd]) => cmd)
+      const scopes = calls.filter((cmd) => !cmd.wait).map((c) => c.waitScope)
       expect(scopes).toHaveLength(4)
       expect(new Set(scopes).size).toBe(1)
+      // The inner wait is one row on every outer poll, a child of the outer wait's row.
+      const [outerScope] = calls.filter((c) => !c.waitScope).map((c) => c.wait)
+      const innerRows = calls.filter((c) => c.wait && c.waitScope)
+      expect(innerRows).toHaveLength(4)
+      expect(new Set(innerRows.map((c) => c.wait)).size).toBe(1)
+      expect(innerRows.every((c) => c.waitScope === outerScope)).toBe(true)
+      expect(innerRows[0].wait).toBe(scopes[0])
 
       // Two different waits from the outer condition's branches keep their own scopes.
       onCommand.mockClear()
@@ -712,7 +728,10 @@ describe('driverPatcher', () => {
           : d.wait({ fn: (i: any) => i.testRead(), description: () => 'b' })
       )
       await new Promise((r) => setImmediate(r))
-      const branches = onCommand.mock.calls.map(([cmd]) => cmd.waitScope)
+      const branches = onCommand.mock.calls
+        .map(([cmd]) => cmd)
+        .filter((cmd) => !cmd.wait)
+        .map((cmd) => cmd.waitScope)
       expect(branches).toHaveLength(4)
       expect(new Set(branches).size).toBe(2)
     } finally {
@@ -725,7 +744,7 @@ describe('driverPatcher', () => {
     }
   })
 
-  it('reports a driver.wait() that rejects as a row named after its condition, and a passing one as none', async () => {
+  it('reports a driver.wait() as one row named after its condition, sent running and replaced when it settles', async () => {
     const realWait = (driverProto as any).wait
     ;(driverProto as any).wait = async function (condition: any) {
       const value = await condition.fn(this)
@@ -751,15 +770,26 @@ describe('driverPatcher', () => {
       const fakeDriver = Object.create(driverProto)
       await (fakeDriver as any).wait(condition(true), 10)
       await new Promise((r) => setImmediate(r))
+      // Sent running when called, its poll under it, then replaced once it passes.
+      const [opened, found, passed] = onCommand.mock.calls.map(([c]) => c)
       expect(onCommand.mock.calls.map(([cmd]) => cmd.command)).toEqual([
-        'testFind'
+        'wait',
+        'testFind',
+        'wait'
       ])
+      expect(opened).toMatchObject({ running: true, error: undefined })
+      expect(opened.timestamp).toBe(opened.startTime)
+      expect(found.waitScope).toBe(opened.wait)
+      expect(passed.wait).toBe(opened.wait)
+      expect(passed.running).toBeUndefined()
+      expect(passed).toMatchObject({ result: 'el', error: undefined })
+      onCommand.mockClear()
 
       await expect(
         (fakeDriver as any).wait(condition(false), 10)
       ).rejects.toThrow('Wait timed out after 10ms')
       await new Promise((r) => setImmediate(r))
-      const [poll, failed] = onCommand.mock.calls.slice(1).map(([c]) => c)
+      const [, poll, failed] = onCommand.mock.calls.map(([c]) => c)
       expect(failed).toMatchObject({
         command: 'wait',
         args: ['for element to be located By(css selector, h1)', 10],
@@ -781,8 +811,8 @@ describe('driverPatcher', () => {
         command: 'wait',
         args: ['[object Object]', 10]
       })
-      // The failed wait shares its polls' scope, which is how it takes over their row.
-      expect(failed.concludesWait).toBe(poll.waitScope)
+      // The failed wait replaces its own row, which its poll names as parent.
+      expect(failed.wait).toBe(poll.waitScope)
     } finally {
       ;(driverProto as any).wait = realWait
       delete (driverProto as any)[
@@ -828,11 +858,45 @@ describe('driverPatcher', () => {
         .catch((e: unknown) => e)
       await new Promise((r) => setImmediate(r))
       expect((err as Error).name).toBe('TimeoutError')
-      const row = onCommand.mock.calls
-        .map(([c]) => c)
-        .find((c) => c.command === 'wait')
-      expect(row?.error).toBe(err)
-      expect(row?.args[0]).toContain('By(css selector, h1)')
+      const rows = onCommand.mock.calls.map(([c]) => c).filter((c) => c.wait)
+      // An element wait is named after its element, on the locator's selector.
+      expect(rows.map((c) => [c.command, c.selector, c.args])).toEqual([
+        ['waitForElementLocated', 'h1', ['h1', 20]],
+        ['waitForElementLocated', 'h1', ['h1', 20]]
+      ])
+      expect(rows[1].error).toBe(err)
+    })
+
+    it('names a wait for an element to show after the element it found', async () => {
+      found = true
+      const heading = await driver.findElements(sw.By.css('#hero'))
+      rememberElementLocator(heading[0], sw.By.css('#hero'))
+      ;(elementProto as any).isDisplayed = () => Promise.resolve(true)
+      stash.elementFns.isDisplayed = (elementProto as any).isDisplayed
+      try {
+        await driver.wait(sw.until.elementIsVisible(heading[0]), 100)
+        await new Promise((r) => setImmediate(r))
+        const waitRows = onCommand.mock.calls
+          .map(([c]) => c)
+          .filter((c) => c.wait)
+        expect(waitRows.map((c) => [c.command, c.selector])).toEqual([
+          ['waitForElementVisible', '#hero'],
+          ['waitForElementVisible', '#hero']
+        ])
+      } finally {
+        delete (elementProto as any).isDisplayed
+        delete stash.elementFns.isDisplayed
+      }
+    })
+
+    it('names a locator with no selector form after its condition', async () => {
+      found = true
+      await driver.wait(sw.until.elementLocated(sw.By.linkText('Home')), 100)
+      await new Promise((r) => setImmediate(r))
+      const [opened] = onCommand.mock.calls.map(([c]) => c)
+      expect(opened.command).toBe('waitForElementLocated')
+      expect(opened.selector).toBeUndefined()
+      expect(opened.args[0]).toContain('link text')
     })
 
     it('leaves an unawaited failure unhandled, as selenium does', async () => {
@@ -868,7 +932,7 @@ describe('driverPatcher', () => {
       expect(err).toBe(odd)
       const row = onCommand.mock.calls
         .map(([c]) => c)
-        .find((c) => c.command === 'wait')
+        .find((c) => c.command === 'wait' && c.error)
       expect(row?.args).toEqual(['[Function]', 100])
       expect(row?.error?.message).toBe('[object Object]')
     })
@@ -917,16 +981,35 @@ describe('driverPatcher', () => {
           cmd
         })
       }
-      expect(commands).toHaveLength(6)
+      // Six reads, and the wait's own row sent running then replaced.
+      expect(commands).toHaveLength(8)
+      const [waitRow] = capturer.commandsLog
       expect(
-        capturer.commandsLog.map(({ command, selector, result }) => ({
+        capturer.commandsLog.map(({ command, selector, result, parentId }) => ({
           command,
           selector,
-          result
+          result,
+          parentId
         }))
       ).toEqual([
-        { command: 'getText', selector: '#a', result: 'A' },
-        { command: 'getText', selector: '#b', result: 'B' }
+        {
+          command: 'wait',
+          selector: undefined,
+          result: undefined,
+          parentId: undefined
+        },
+        {
+          command: 'getText',
+          selector: '#a',
+          result: 'A',
+          parentId: waitRow.id
+        },
+        {
+          command: 'getText',
+          selector: '#b',
+          result: 'B',
+          parentId: waitRow.id
+        }
       ])
     } finally {
       capturer.cleanup()
@@ -962,7 +1045,7 @@ describe('driverPatcher', () => {
         description: () => 'c'
       })
       await new Promise((r) => setImmediate(r))
-      const [poll] = onCommand.mock.calls.map(([c]) => c)
+      const poll = onCommand.mock.calls.map(([c]) => c).find((c) => !c.wait)!
       expect(poll.command).toBe('testRead')
       expect(poll.waitScope).toBeDefined()
       expect(poll.callSource).toBeUndefined()
