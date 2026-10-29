@@ -385,10 +385,7 @@ export class SessionCapturer extends SessionCapturerBase {
     ) {
       return false
     }
-    // Inherit the read's `_id` (local dedup bookkeeping) and timestamp, but do
-    // NOT stamp a public `id`: WDIO replaces by timestamp (like #captureOrReplace),
-    // and `commandCounter` resets per worker/spec, so a bare `id` collides across
-    // specs and the app's id-first replaceCommand would swap the wrong row.
+    // Replaced by timestamp: a top-level read carries no public `id`, only a wait and the rows it issued do.
     const merged: CommandLog & { _id?: number } = {
       ...entry,
       _id: last._id,
