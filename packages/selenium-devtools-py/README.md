@@ -243,6 +243,26 @@ Element actions (`click`, `send_keys`, `text`, …) are captured for free: they
 delegate to `self._parent.execute`, so the one wrapper sees them as
 `clickElement`, `getElementText`, etc.
 
+**Waits.** `WebDriverWait.until()` / `until_not()` is a client-side loop that
+`execute` sees only as its polls, so it is patched too: a wait is one row named
+after what it waited for, with the commands its condition issued nested under
+it rather than a row per poll. `EC.presence_of_element_located` is
+`waitForElementLocated` (`Element.waitForExist`) on its locator,
+`EC.visibility_of_element_located` is `waitForElementVisible`
+(`Element.waitForDisplayed`), and any other condition, every `until_not`
+included, is `wait` (`Browser.waitForFunction`), labelled with the condition
+(an `expected_conditions` condition by its name and arguments). The row appears
+when the wait starts, and a timed-out wait is a failed row carrying the
+`TimeoutException`. An element wait's `find_element(s)` polls nest in the live
+dashboard but are left out of the trace, like every locator lookup. See
+[Waits](https://webdriver.io/docs/devtools/wdio/trace-mode#waits).
+
+**Navigation timings.** After every navigation command, load / DOM-ready /
+response timings, resource counts, cookies and document info are attached to
+that command row. The row's summary shows the load time in milliseconds to two
+decimals, such as `246.40 ms`; the full-precision timings stay in the row's
+performance data.
+
 **BiDi is auto-enabled** — the adapter injects the `webSocketUrl` capability
 into the `newSession` request so console/network work out-of-box (opt out with
 `DEVTOOLS_BIDI=0`). **Screencast** needs `ffmpeg` on PATH to encode the
@@ -275,6 +295,16 @@ run the assert. Only reads that cannot execute your code are resolved: a literal
 or a local resolves, an attribute or a call does not, because evaluating
 `driver.current_url` again would issue another WebDriver command. Those rows
 carry the condition and the error without values.
+
+An assertion row also names the element its value was read from, so selecting
+the row boxes that element: `assert heading.text == "Secure Area"` carries the
+locator `heading` was found by, and so does a value from `get_attribute`,
+`is_displayed` or any other element read. Only a read made earlier in the same
+test counts. A value read from the page itself, such as `driver.title` or
+`driver.current_url`, names no element, even when some element's text reads the
+same. In a plain script, an assertion whose observed value could not be read
+names no element, since guessing from the expected value alone could box an
+element that once read the same text.
 
 ### Parallel runs (`pytest -n`)
 
@@ -531,6 +561,13 @@ coupling is handled explicitly rather than via a `workspace:^`-style resolver:
 
 The pinned `BACKEND_NPM_VERSION` in `backend.py` is the version link — there is
 no auto-resolution, so it's bumped deliberately alongside a contract change.
+
+The backend also serves the page scripts the adapter runs after each command
+(the collector's readiness probe, its injection and drain, and the navigation
+timing read), so they are the same scripts the Node.js adapters run. A backend
+you start yourself or attach to with `DEVTOOLS_PORT` or `DEVTOOLS_BACKEND_CMD`
+must therefore be at least as new as the pinned version: against an older one
+the run logs a warning and continues with DOM replay and navigation timings off.
 
 Regenerate the contract after any change to `packages/shared`:
 

@@ -101,6 +101,14 @@ The same `trace.zip` also opens in other compatible standalone trace viewers,
 and its on-disk format is what an Allure report's embedded trace viewer reads
 (Allure ≥ 2.35).
 
+## Waits and assertion rows
+
+These apply in live mode and in the trace player alike.
+
+**Waits.** A `waitUntil` or `waitFor*` call is one row, named after what it waited for: `Element.waitForExist`, `Element.waitForDisplayed` and the rest of the family on their selector, and `Browser.waitForFunction` for a `waitUntil`. The row appears as soon as the wait starts and is updated when it ends, and a wait that times out is a failed row carrying the timeout. The commands a `waitUntil` condition issued, and the polls of an element wait (such as `isExisting`), nest under the wait's row, one row per distinct call rather than one per poll. They are collapsed by default and open by themselves when the wait failed or holds the selected row. A command under a passing wait that failed before the wait passed is a poll the wait retried past, not a failure: it shows neutral with its error in a tooltip, and is left out of the Errors tab, the copied failures and the trace's errors. Under a wait that timed out, the same commands keep their errors. See [Waits](https://webdriver.io/docs/devtools/wdio/trace-mode#waits).
+
+**Assertion targets.** An assertion row names the element it is about, so selecting it boxes that element in the snapshot. A `node:assert` call takes values rather than elements, so its element comes from where the asserted value was read: `assert.equal(await heading.getText(), 'Secure Area')` names `heading`'s selector, and so does a value from any other element read, `getHTML` and `getComputedRole` included. Only a read made earlier in the same test (or Cucumber scenario) counts, and a value read from the page itself, such as the title or the URL, names no element, even when some element's text reads the same. `browser.getTitle()` is a `Page.getTitle` row of its own, and `expect(browser).toHaveTitle(...)` folds into that read as one `expect.toHaveTitle` row.
+
 ## Allure integration
 
 When `@wdio/allure-reporter` is installed, trace-mode artifacts are attached to
@@ -221,7 +229,7 @@ No configuration change is needed to switch modes — the service detects browse
 
 ## Performance API capture
 
-After every navigation command (`url`, `navigateTo`, etc.), the service runs the shared `CAPTURE_PERFORMANCE_SCRIPT` from `@wdio/devtools-core` to read `window.performance.getEntriesByType('navigation' | 'resource')`, cookies, and document info. The result is attached to the command entry in the Actions tab so you see `loadTime` / `domReady` / `responseTime` / resource counts per navigation. Same script and `applyPerformanceData` post-processing used by selenium-devtools and nightwatch-devtools — uniform dashboard fields across all three adapters.
+After every navigation command (`url`, `navigateTo`, etc.), the service runs the shared `CAPTURE_PERFORMANCE_SCRIPT` from `@wdio/devtools-core` to read `window.performance.getEntriesByType('navigation' | 'resource')`, cookies, and document info. The result is attached to the command entry in the Actions tab so you see `loadTime` / `domReady` / `responseTime` / resource counts per navigation. The row's summary shows the load time in milliseconds to two decimals, such as `246.40 ms`; the full-precision timings stay in the row's performance data. Same script and `applyPerformanceData` post-processing used by selenium-devtools and nightwatch-devtools, so the dashboard fields are the same across all three adapters.
 
 ## Native app network (Appium)
 

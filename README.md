@@ -48,36 +48,39 @@ Want a portable artifact instead of a live UI (CI / agent diffing)? Switch to **
 | Feature | WebdriverIO | Selenium | Nightwatch | Python |
 |---|---|---|---|---|
 | One row per command in the Actions list | ✅ tested | ✅ tested | ✅ tested | ✅ tested |
+| Waits show as one row with what they issued nested under it | ✅ tested | ✅ tested | ⚠️ no element-wait polls ¹ | ✅ tested |
 | Screenshot on every command row | ✅ | ✅ | ✅ | ✅ |
 | Browser console logs | ✅ | ✅ | ✅ | ✅ |
 | Source tab opens the test line that ran the command | ✅ tested | ✅ tested | ✅ tested | ✅ tested |
 | Metadata tab (session, capabilities, device) | ✅ | ✅ | ✅ | ✅ |
 | Performance timings on navigation rows | ✅ tested | ✅ tested | ✅ tested | ✅ tested |
 | Failed command in the Errors tab, with the browser's message | ✅ tested | ✅ tested | ✅ tested | ✅ tested |
-| Run, Rerun and Run all from the dashboard | ⚠️ no Cucumber step rerun ¹ | ⚠️ no Cucumber step rerun ¹ | ⚠️ no Cucumber step rerun ¹ | ✅ |
+| Run, Rerun and Run all from the dashboard | ⚠️ no Cucumber step rerun ² | ⚠️ no Cucumber step rerun ² | ⚠️ no Cucumber step rerun ² | ✅ |
 | Preserve & Rerun (compare a failed run with its rerun) | ✅ | ✅ | ✅ | ✅ |
-| Dashboard window opens by itself in live mode, and can be turned off | ⚠️ always opens ² | ✅ `openUi: false` | ⚠️ always opens ³ | ✅ `DEVTOOLS_OPEN=0` |
-| Turn off per-command screenshots (`captureScreenshots`) | ❌ ⁴ | ✅ | ❌ ⁵ | ❌ ⁵ |
-| Force the test browser headless (`headless`) | ❌ ⁶ | ⚠️ Chrome only ⁷ | ❌ ⁶ | ❌ ⁶ |
-| Safari kept frontmost so input lands (live mode) | ⚠️ once ⁸ | ✅ before each element input | ⚠️ once ⁸ | ⚠️ once ⁸ |
+| Dashboard window opens by itself in live mode, and can be turned off | ⚠️ always opens ³ | ✅ `openUi: false` | ⚠️ always opens ⁴ | ✅ `DEVTOOLS_OPEN=0` |
+| Turn off per-command screenshots (`captureScreenshots`) | ❌ ⁵ | ✅ | ❌ ⁶ | ❌ ⁶ |
+| Force the test browser headless (`headless`) | ❌ ⁷ | ⚠️ Chrome only ⁸ | ❌ ⁷ | ❌ ⁷ |
+| Safari kept frontmost so input lands (live mode) | ⚠️ once ⁹ | ✅ before each element input | ⚠️ once ⁹ | ⚠️ once ⁹ |
 
 ✅ tested: proven for that adapter by the cross-adapter conformance suite. ✅: supported, backed by a named test or a manual check listed in [the feature list](https://github.com/webdriverio/devtools/blob/main/packages/conformance/src/features.ts).
 
-¹ Under Cucumber a Gherkin step has no CLI filter of its own, so the dashboard reruns scenarios and features, not single steps.
+¹ A `waitUntil` row holds the commands its condition issued; a `waitForElement*` row has nothing under it, because Nightwatch polls for the element through its own transport rather than `browser`.
 
-² The service always opens the dashboard in live mode; `devtoolsCapabilities` picks its browser but cannot skip it.
+² Under Cucumber a Gherkin step has no CLI filter of its own, so the dashboard reruns scenarios and features, not single steps.
 
-³ Nightwatch always opens the dashboard in live mode.
+³ The service always opens the dashboard in live mode; `devtoolsCapabilities` picks its browser but cannot skip it.
 
-⁴ No option: every command row takes a screenshot, except on Appium, where only native sessions in live mode do.
+⁴ Nightwatch always opens the dashboard in live mode.
 
-⁵ No option: every command row takes a screenshot.
+⁵ No option: every command row takes a screenshot, except on Appium, where only native sessions in live mode do.
 
-⁶ No option: set headless in the browser capabilities, as for any run.
+⁶ No option: every command row takes a screenshot.
 
-⁷ The option adds `--headless=old` to `goog:chromeOptions` only, so other browsers stay headed; set their own headless capability.
+⁷ No option: set headless in the browser capabilities, as for any run.
 
-⁸ Brings Safari to the front once after the session starts (live mode, local macOS), so a click issued after another window took the front can still land nowhere.
+⁸ The option adds `--headless=old` to `goog:chromeOptions` only, so other browsers stay headed; set their own headless capability.
+
+⁹ Brings Safari to the front once after the session starts (live mode, local macOS), so a click issued after another window took the front can still land nowhere.
 
 <!-- capability-matrix:readme-dashboard:end -->
 
@@ -227,7 +230,11 @@ The trace artifact contains:
 - `resources/page@<id>-<ts>-snapshot.txt` — depth-indented accessibility-tree snapshot (AI-friendly)
 - `transcript.md` — human/LLM-readable Markdown transcript of the captured actions, with timing, selectors, and value annotations
 
-What counts as a user-facing action is filtered through the `ACTION_MAP` allow-list in [`packages/shared/src/trace-actions.ts`](packages/shared/src/trace-actions.ts) (`url`, `click`, `setValue`, `sendKeys`, `get`, explicit waits such as `waitUntil`, element reads, `execute`, etc.). Locator resolution (`$`, `$$`, `findElement(s)`), Selenium's `executeScript` polling and the `clearValue` that `setValue` fires internally don't produce trace entries.
+What counts as a user-facing action is filtered through the `ACTION_MAP` allow-list in [`packages/shared/src/trace-actions.ts`](packages/shared/src/trace-actions.ts) (`url`, `click`, `setValue`, `sendKeys`, `get`, explicit waits such as `waitUntil`, element reads, page reads such as `getTitle`, `execute`, etc.). Locator resolution (`$`, `$$`, `findElement(s)`), Selenium's `executeScript` polling and the `clearValue` that `setValue` fires internally don't produce trace entries.
+
+**Waits.** A wait the test wrote (WebdriverIO `waitFor*` and `waitUntil`, Nightwatch `waitForElement*` and `waitUntil`, Selenium `driver.wait`, Python `WebDriverWait`) is one row, named after what it waited for: `Element.waitForExist` on its selector for a wait on an element locator, `Element.waitForDisplayed` for a wait on an element's visibility, and `Browser.waitForFunction` for any other condition. The row appears as soon as the wait starts and is updated when it ends, and a wait that times out is a failed row carrying the timeout. The commands the wait's condition issued nest under its row, one row per distinct call rather than one per poll, in the live dashboard and the trace player alike, collapsed unless the wait failed or holds the selected row. A command under a passing wait that failed before the wait passed is a poll the wait retried past, not a failure: it shows neutral with its error in a tooltip and is left out of the Errors tab, the copied failures and the trace's errors. Under a wait that timed out, the same commands keep their errors. What each adapter nests is listed under [Waits](https://webdriver.io/docs/devtools/wdio/trace-mode#waits).
+
+**Assertion targets.** An assertion row names the element it is about, so selecting it boxes that element in the snapshot. A `node:assert` call (or a Python `assert`) takes values rather than elements, so its element comes from where the asserted value was read: `assert.equal(await heading.getText(), 'Secure Area')` names `heading`'s selector, and so does a value from any other element read, WebdriverIO's `getHTML` and `getComputedRole` included. Only a read made earlier in the same test (or Cucumber scenario) counts, and a value read from the page itself, such as the title or the URL, names no element, even when some element's text reads the same. WebdriverIO's `browser.getTitle()` is a `Page.getTitle` row of its own, and `expect(browser).toHaveTitle(...)` folds into that read as one `expect.toHaveTitle` row.
 
 Trace mode and live mode are **mutually exclusive** — `screencast` options are ignored in trace mode (live-mode feature). Live and trace serve different audiences (humans debugging vs. agents diffing), and stacking them only costs perf.
 
