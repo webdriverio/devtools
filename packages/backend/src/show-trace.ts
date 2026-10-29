@@ -9,7 +9,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 
-import { readTraceZip } from './trace-reader.js'
+import { readTraceZip } from '@wdio/devtools-trace/trace-reader'
 import { start } from './index.js'
 
 const USAGE = `Usage: show-trace <trace.zip>

@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "author": "Vishnu Vardhan",
-  "description": "Trace-format transforms — turns captured events into the trace zip. Split out of core so the backend can build a trace for adapters that cannot (CLAUDE.md §2.2 bars backend from core). Workspace-internal, never published — code is inlined into each consuming package at build time.",
+  "description": "Trace-format transforms — turns captured events into the trace zip and reads a zip back into a player payload. Split out of core so the backend can build a trace for adapters that cannot (CLAUDE.md §2.2 bars backend from core). Workspace-internal, never published — code is inlined into each consuming package at build time.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/webdriverio/devtools.git",

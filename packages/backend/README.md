@@ -9,7 +9,7 @@ The server that the three adapter packages connect to and the dashboard UI talks
 - **Baseline store** (in-memory) — captures a snapshot of a failing test attempt, plus per-uid metadata, so the "Preserve & Rerun" flow can show a side-by-side diff.
 - **Rerun spawner** (`runner.ts`) — spawns the user's `wdio` / `nightwatch` / `selenium` binary with rerun filters built from the dashboard's payload.
 - **Worker-message handler** — dispatches messages from spawned workers (config path, session id, video path, ...).
-- **Trace serving** (`show-trace.ts`, `trace-reader.ts`) — reconstructs a recorded `trace.zip` and boots the server in a read-only **trace-serve** mode that backs the DevTools UI's trace player. No worker connects in this mode.
+- **Trace serving** (`show-trace.ts`, with the reader from `@wdio/devtools-trace`) — reconstructs a recorded `trace.zip` and boots the server in a read-only **trace-serve** mode that backs the DevTools UI's trace player. No worker connects in this mode.
 
 ## Framework awareness
 
@@ -27,7 +27,7 @@ Trace mode (see the [root README](../../README.md#-trace-mode-tracezip)) writes 
 
   The same entry is shipped as a `show-trace` **bin** by the backend (`./dist/show-trace.js`) and by each adapter (`@wdio/devtools-service`, `@wdio/selenium-devtools`, `@wdio/nightwatch-devtools` each ship a thin `bin/show-trace.mjs`), so `npx show-trace <trace.zip>` works in any project that installs an adapter — backend need only be a transitive dependency. In trace-serve mode `start({ trace })` exposes the reconstructed payload at `TRACE_API.get` and skips the worker/rerun machinery. It is one of the backend's two bins; the other, `devtools-backend` (`./dist/server.js`), starts the live dashboard server described under [Public API](#public-api).
 
-- **Reader** (`src/trace-reader.ts`, with sibling `trace-reader-{constants,types,utils,groups}.ts`) — `parseTraceZip` / `readTraceZip` reconstruct a `TracePlayerData` payload from the archive. It accepts this repo's own exporter output **and foreign zips** written by other tools (every `.trace` entry is an action-event stream, every `.network` a HAR stream, `.stacks` sidecars carry call stacks). It rebuilds:
+- **Reader** (`packages/trace/src/trace-reader.ts`, with sibling `trace-reader-{constants,types,utils,groups}.ts`) — `parseTraceZip` / `readTraceZip` reconstruct a `TracePlayerData` payload from the archive. It accepts this repo's own exporter output **and foreign zips** written by other tools (every `.trace` entry is an action-event stream, every `.network` a HAR stream, `.stacks` sidecars carry call stacks). It rebuilds:
   - **commands** — from `before`/`after` action events, with call source, result, error, nearest screenshot frame, and pointer hit point;
   - **DOM mutations** — from the `.mutations` NDJSON stream (drives the player's DOM time-travel);
   - **network** — HAR entries from `.network` streams;
