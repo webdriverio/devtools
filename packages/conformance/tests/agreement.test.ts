@@ -376,6 +376,33 @@ describe('judgeDivergences', () => {
     expect(unexplained.map((d) => d.rule)).toEqual([RULES.agreeOnRequests])
   })
 
+  // Regression: the other side's page was looked up among top-level steps only, so a nested read was never excused.
+  it('excuses a row nested under a wait whose page the holder never anchored', () => {
+    const waitWithRead = [
+      { command: 'waitUntil', id: 7 },
+      { command: 'getText', selector: '#flash', parentId: 7 }
+    ]
+    const js = report(
+      'devtools-service',
+      stream(1, JS, {
+        anchors: [
+          ['/login', 10],
+          ['/secure', 42]
+        ],
+        more: waitWithRead
+      }),
+      'off'
+    )
+    const nw = report(
+      'nightwatch-devtools',
+      stream(2, NW, { more: waitWithRead }),
+      'off',
+      [unanchored(2, '/secure')]
+    )
+    const { unexplained } = judgeDivergences(compareRuns([js, nw]), [js, nw])
+    expect(unexplained).toEqual([])
+  })
+
   it('does not excuse a difference in a mode the gap does not cover', () => {
     const js = report(
       'selenium-devtools',

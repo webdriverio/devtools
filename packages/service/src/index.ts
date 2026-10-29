@@ -37,7 +37,11 @@ import {
   isServiceProbe,
   settleAfterLastAction
 } from './action-snapshot.js'
-import type { ActionSnapshot, TestMetadataMap } from '@wdio/devtools-shared'
+import {
+  isWaitCommand,
+  type ActionSnapshot,
+  type TestMetadataMap
+} from '@wdio/devtools-shared'
 import { SevereServiceError } from 'webdriverio'
 import type { Services, Capabilities, Options, Reporters } from '@wdio/types'
 import type { WebDriverCommands } from '@wdio/protocols'
@@ -68,7 +72,6 @@ import { InterceptedNetwork } from './intercepted-network.js'
 import {
   CommandStack,
   isServiceWork,
-  isWaitCommand,
   runAsServiceWork,
   type CommandFrame
 } from './command-stack.js'

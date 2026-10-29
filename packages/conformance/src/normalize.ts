@@ -8,6 +8,7 @@ import type {
 import {
   ASSERT_ACTION_CLASS,
   commandFailure,
+  isWaitAction,
   mapCommandToAction,
   nestCommands
 } from '@wdio/devtools-shared'
@@ -90,7 +91,7 @@ function outcomeOf(row: CommandLog, action: TraceAction): string {
     return 'ok'
   }
   const judgedByClient =
-    action.class === ASSERT_ACTION_CLASS || action.method.startsWith('waitFor')
+    action.class === ASSERT_ACTION_CLASS || isWaitAction(action)
   return judgedByClient ? 'failed' : `error: ${failure.message.trim()}`
 }
 

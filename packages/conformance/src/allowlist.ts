@@ -72,7 +72,6 @@ export const KNOWN_GAPS: KnownGap[] = [
 /** The adapters that do not yet send a wait as one row that parents the commands it issued: each its own way. */
 function waitRowGaps(bidi: BidiMode): KnownGap[] {
   const reasons: [AdapterId, string][] = [
-    ['nightwatch-devtools', KNOWN_DEBT.nightwatchWaitRows],
     ['selenium-devtools', KNOWN_DEBT.seleniumWaitRows],
     ['selenium-devtools-py', KNOWN_DEBT.pythonWaitRows]
   ]
@@ -84,59 +83,23 @@ function waitRowGaps(bidi: BidiMode): KnownGap[] {
   }))
 }
 
-/** Nightwatch's scenario gaps in one mode, each an adapter bug with its Known debt entry. */
+/** Nightwatch's element waits poll through its transport, so nothing is ever nested under them. */
 function nightwatchGaps(bidi: BidiMode): KnownGap[] {
   const adapter = 'nightwatch-devtools'
+  const pollsUnder = (test: number, wait: string) =>
+    hunkInside(test, wait, 'its start', adapter, '', 'Element.isExisting')
   return [
     {
       adapter,
       bidi,
       rules: [RULES.agreeOnActions],
       only: anyOf(
-        hunk(
-          WAITS,
-          'Element.getText #flash',
-          adapter,
-          'Element.getText #flash, Element.getText h2',
-          ''
-        ),
-        hunk(
-          WAITS,
-          'Browser.waitForFunction',
-          adapter,
-          'Element.getText #flash',
-          ''
-        )
+        pollsUnder(LOGIN, FLASH_WAIT),
+        pollsUnder(MISSING, 'Element.waitForExist #missing')
       ),
-      reason: KNOWN_DEBT.conditionWait,
-      against: 'devtools-service'
-    },
-    {
-      adapter,
-      bidi,
-      rules: [RULES.agreeOnActions],
-      only: anyOf(
-        ...nestedUnderServiceWaits(adapter, CONDITION_WAIT_READS),
-        ...nestedUnderServiceWaits(adapter, [HELPER_WAIT_READ])
-      ),
-      reason: KNOWN_DEBT.nightwatchWaitRows,
+      reason: KNOWN_DEBT.nightwatchElementWaitPolls,
       against: 'devtools-service'
     }
-  ]
-}
-
-/** What the WebdriverIO service shows inside each scenario wait, where an adapter that does not nest shows nothing. */
-function nestedUnderServiceWaits(holder: AdapterId, reads: string[]) {
-  const inside = (test: number, wait: string, rows: string) =>
-    hunkInside(test, wait, 'its start', holder, '', rows)
-  return [
-    inside(LOGIN, FLASH_WAIT, 'Element.isExisting'),
-    inside(
-      WAITS,
-      'Browser.waitForFunction',
-      reads.map((selector) => `Element.getText ${selector}`).join(', ')
-    ),
-    inside(MISSING, 'Element.waitForExist #missing', 'Element.isExisting')
   ]
 }
 

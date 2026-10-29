@@ -404,7 +404,7 @@ function gapExplains(
   return true
 }
 
-// The holder's gap must show on that row, or as the page the row should replay never being anchored (a read rule-checks no page of its own).
+// The holder's gap must show on that row, nested or not, or as the page the row should replay never being anchored (a read rule-checks no page of its own).
 function pagesExplained(
   at: NonNullable<Divergence['at']>,
   shown: Violation[],
@@ -412,9 +412,9 @@ function pagesExplained(
   other: RunReport,
   normalized: Map<AdapterId, NormalizedRun>
 ): boolean {
-  const otherPage = normalized
-    .get(other.adapter)
-    ?.steps.find((s) => s.at === at[other.adapter])?.page
+  const otherPage = allSteps(normalized.get(other.adapter)?.steps ?? []).find(
+    (s) => s.at === at[other.adapter]
+  )?.page
   const neverAnchored = shown.some(
     (v) =>
       v.rule === RULES.documentAnchored &&

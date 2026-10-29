@@ -13,6 +13,8 @@ import { commandRowSelector, commandTargetSelector } from './assertTarget.js'
 import { getCallSourceFromStack } from './utils.js'
 import { serializeCommandResult } from './serializeCommandResult.js'
 import { NativeAssertRecorder } from './nativeAssertRecorder.js'
+import { WaitRows } from './waitRows.js'
+import { wrapNavigation } from './navigationWrap.js'
 import {
   RetryTracker,
   beginInputDispatch,
@@ -20,6 +22,7 @@ import {
   rememberReadValue,
   toError
 } from '@wdio/devtools-core'
+import { isWaitCommand } from '@wdio/devtools-shared'
 import type { SessionCapturer } from '../session.js'
 import type { TestManager } from './testManager.js'
 import type {
@@ -28,9 +31,10 @@ import type {
   CommandLog,
   NativeAssertCall,
   NightwatchBrowser,
-  NightwatchChainable,
   NightwatchCurrentTest,
-  CommandStackFrame
+  CommandStackFrame,
+  OpenWait,
+  PendingCommand
 } from '../types.js'
 
 const log = logger('@wdio/nightwatch-devtools:browserProxy')
@@ -47,6 +51,8 @@ export class BrowserProxy {
    * rather than appending, showing only the final execution result.
    */
   private retryTracker = new RetryTracker()
+
+  private waits: WaitRows
 
   /**
    * Monotonic issue-order counter. Stamped when the test ISSUES a row — a
@@ -78,6 +84,7 @@ export class BrowserProxy {
     private captureAssertions = true,
     private observeSession?: (browser: NightwatchBrowser) => void
   ) {
+    this.waits = new WaitRows(sessionCapturer)
     this.assertRecorder = new NativeAssertRecorder(
       sessionCapturer,
       () => this.rowTest(),
@@ -154,95 +161,9 @@ export class BrowserProxy {
     this.currentTestFullPath = path
   }
 
-  /**
-   * Wrap browser navigation methods (url / navigate / navigateTo) to inject
-   * the DevTools script after every navigation.
-   *
-   * Uses `browser` from the closure (not `this` inside perform) so it works
-   * for both standard Nightwatch (chainable API) and Cucumber async/await mode
-   * where `this` inside a perform callback is not the browser.
-   */
+  /** Inject the DevTools script after every navigation; see {@link wrapNavigation}. */
   wrapUrlMethod(browser: NightwatchBrowser): void {
-    const sessionCapturer = this.sessionCapturer
-
-    // Cast once for dynamic method access — Nightwatch's typed surface
-    // doesn't enumerate every command, but they all live on the same object.
-    // Return type is `unknown` because wrapNav has to handle both
-    // Nightwatch's chainable API (returns a chainable with `.perform`) and
-    // Cucumber async/await (returns a Promise) — we narrow at each branch.
-    const b = browser as unknown as Record<
-      string,
-      (...args: unknown[]) => unknown
-    >
-
-    const wrapNav = (methodName: string) => {
-      if (typeof b[methodName] !== 'function') {
-        return
-      }
-      const original = b[methodName].bind(browser)
-
-      b[methodName] = function (...args: unknown[]) {
-        // `browser.url()` is BOTH a navigation and a getter: with no url it just
-        // reads the current one, which is how `assert.urlContains` reads it from
-        // inside Nightwatch's own queue. Treating that read as a navigation
-        // re-injected the collector and forced an anchored drain mid-test — real
-        // round trips against the page for a command that changed nothing — and
-        // logged the capture callback's whole function body as the "url".
-        if (typeof args[0] !== 'string') {
-          return original(...args)
-        }
-        const result = original(...args)
-
-        const injectAndCapture = () => {
-          log.info(`[nav] ${methodName}(${args[0] ?? ''}) — injecting script`)
-          return (
-            sessionCapturer
-              .injectScript(browser)
-              // Anchored: the just-injected collector anchors the document
-              // asynchronously, so an unanchored drain beats it and this page's
-              // DOM never reaches the trace.
-              .then(() => sessionCapturer.captureTrace(browser, true))
-              .catch((err: Error) =>
-                log.error(`Failed to inject script: ${(err as Error).message}`)
-              )
-          )
-        }
-
-        const chainable = result as NightwatchChainable | undefined
-        if (chainable && typeof chainable.perform === 'function') {
-          // Standard Nightwatch (chained API). Hung off the command's OWN
-          // thenable, not a queued `perform()`: a queued callback is discarded
-          // when a failing test aborts the rest of the queue, so the destination
-          // of a navigation in a failing test was never instrumented at all
-          // (measured: 2 of 3 navigations skipped, and with them the first
-          // document's entire DOM). The chainable is itself thenable, and
-          // resolving it means the navigation finished — the same signal
-          // `perform` gave, minus the dependency on the queue surviving.
-          //
-          // `result` is returned unchanged so `browser.url(…).waitFor…()`
-          // chaining still works; the injection runs as a side effect.
-          void Promise.resolve(result)
-            .then(injectAndCapture)
-            .catch(() => {})
-          return result
-        }
-        // Cucumber async/await: result is a Promise (or thenable).
-        // Return the AUGMENTED promise so that `await browser.url(...)` in
-        // the step definition waits for injectAndCapture to finish before
-        // Cucumber moves to the next step. Without this the injection races
-        // with the next step's commands (e.g. setValue), causing stale-element
-        // errors because the script-tag insertion mutates the DOM mid-form.
-        return Promise.resolve(result)
-          .then(injectAndCapture)
-          .catch(() => {})
-      }
-    }
-
-    wrapNav('url')
-    wrapNav('navigate')
-    wrapNav('navigateTo')
-
-    log.info('✓ Script injection wrapped')
+    wrapNavigation(browser, this.sessionCapturer)
   }
 
   wrapBrowserCommands(browser: NightwatchBrowser): void {
@@ -310,25 +231,26 @@ export class BrowserProxy {
 
   private handleRetryReplacement(
     browser: NightwatchBrowser,
+    oldId: number,
     methodName: string,
     logArgs: unknown[],
     serializedResult: unknown,
     meta: CommandCaptureMeta,
     commandError: Error | undefined
-  ): void {
+  ): number | null {
     // Same command fired again (internal retry) — replace the previous
     // entry so only the final result appears in the UI.
     const { entry, oldTimestamp } = this.sessionCapturer.replaceCommand(
-      this.retryTracker.lastId!,
+      oldId,
       methodName,
       logArgs,
       serializedResult,
       commandError,
       meta
     )
-    this.retryTracker.setLastId(entry._id ?? null)
     this.sessionCapturer.sendReplaceCommand(oldTimestamp, entry)
     this.attachScreenshot(browser, entry, methodName, ' (retry)')
+    return entry._id ?? null
   }
 
   private captureFreshCommand(
@@ -337,17 +259,11 @@ export class BrowserProxy {
     logArgs: unknown[],
     serializedResult: unknown,
     meta: CommandCaptureMeta,
-    cmdSig: string,
     commandError: Error | undefined
-  ): void {
+  ): number | null {
     // captureCommand() pushes the entry to commandsLog synchronously before
-    // any async work (navigation perf capture), so we can grab the ID
-    // immediately after the call — before any microtask fires. This avoids
-    // the race where a Nightwatch retry callback executes before .then() sets
-    // lastId, causing missed dedup. Stage the sig now, set the id after the
-    // synchronous push lands.
-    this.retryTracker.setLastSig(cmdSig)
-    this.retryTracker.setLastId(null)
+    // any async work (navigation perf capture), so the row's id is read
+    // straight after the call, before any Nightwatch callback can run.
     // Issued first, and only this one — see `drainOutgoingPage`.
     this.drainOutgoingPage(browser, methodName)
     this.sessionCapturer
@@ -360,7 +276,6 @@ export class BrowserProxy {
         this.sessionCapturer.commandsLog.length - 1
       ]
     if (lastCommand) {
-      this.retryTracker.setLastId((lastCommand as { _id?: number })._id ?? null)
       this.sessionCapturer.sendCommand(lastCommand)
       log.info(`[command] ${methodName}`)
       this.attachScreenshot(browser, lastCommand, methodName)
@@ -370,6 +285,66 @@ export class BrowserProxy {
     if (!this.isDomMutating(methodName)) {
       void this.sessionCapturer.nativeNetwork.forward({ throttle: true })
     }
+    return (lastCommand as { _id?: number } | undefined)?._id ?? null
+  }
+
+  /**
+   * Record a completed command. A poll folds into the row of the previous
+   * identical call: the last row captured, or, inside a wait, the row of the
+   * same call its condition already issued, since a condition with two reads
+   * alternates them and never repeats the last one.
+   */
+  private recordCompleted(
+    browser: NightwatchBrowser,
+    cmd: PendingCommand,
+    meta: CommandCaptureMeta,
+    serializedResult: unknown,
+    commandError: Error | undefined
+  ): void {
+    const { methodName, logArgs, cmdSig, parent } = cmd
+    const foldInto = parent
+      ? parent.children.get(cmdSig)
+      : this.retryTracker.isRetry(cmdSig)
+        ? this.retryTracker.lastId!
+        : undefined
+    const id =
+      foldInto === undefined
+        ? this.captureFreshCommand(
+            browser,
+            methodName,
+            logArgs,
+            serializedResult,
+            meta,
+            commandError
+          )
+        : this.handleRetryReplacement(
+            browser,
+            foldInto,
+            methodName,
+            logArgs,
+            serializedResult,
+            meta,
+            commandError
+          )
+    if (!parent) {
+      this.retryTracker.recordCapture(cmdSig, id)
+    } else if (id !== null) {
+      parent.children.set(cmdSig, id)
+    }
+  }
+
+  /** End a wait's row; whatever is captured next is not a poll of what ran before it. */
+  private closeWait(
+    browser: NightwatchBrowser,
+    wait: OpenWait,
+    result: unknown,
+    error: Error | undefined,
+    completedAt: number
+  ): void {
+    this.retryTracker.reset()
+    this.waits.close(wait, result, error, completedAt)
+    this.attachScreenshot(browser, wait.row, wait.row.command)
+    void this.sessionCapturer.nativeNetwork.forward({ throttle: true })
   }
 
   private isDomMutating(methodName: string): boolean {
@@ -466,16 +441,9 @@ export class BrowserProxy {
   // when the command completes. This is where we get the *actual* result.
   private makeCaptureCallback(
     browser: NightwatchBrowser,
-    methodName: string,
-    logArgs: unknown[],
-    cmdSig: string,
-    callSource: string | undefined,
-    hasUserSource: boolean,
-    invokedAt: number,
-    sequence: number,
-    testUid: string | undefined,
-    userCallback: Function | null
+    cmd: PendingCommand
   ): (callbackResult: unknown) => unknown {
+    const { methodName, logArgs, cmdSig, userCallback } = cmd
     return (callbackResult: unknown) => {
       // Stamped HERE, when the command actually finished in the browser — not
       // when the test enqueued it. Nightwatch runs commands off a queue, so
@@ -491,41 +459,36 @@ export class BrowserProxy {
       const serializedResult = commandError
         ? undefined
         : this.serializeAndAttributeResult(methodName, logArgs, callbackResult)
-      const effectiveUid = this.rowTestUid() ?? testUid
-      // Only surface commands that originate from a user-code frame. Commands
-      // Nightwatch issues from inside its own queue (e.g. the getTitle a
-      // `browser.assert.titleContains` runs) execute in a detached tick with no
-      // user frame on the stack, so they'd otherwise leak as top-level actions
-      // with an "unknown" source. Mirrors the service's user-spec-source guard.
-      if (effectiveUid && hasUserSource) {
-        const meta: CommandCaptureMeta = {
-          testUid: effectiveUid,
-          callSource,
-          timestamp: commandTimestamp,
-          startTime: invokedAt,
-          sequence,
-          selector: commandRowSelector(methodName, logArgs)
-        }
-        if (this.retryTracker.isRetry(cmdSig)) {
-          this.handleRetryReplacement(
-            browser,
-            methodName,
-            logArgs,
-            serializedResult,
-            meta,
-            commandError
-          )
-        } else {
-          this.captureFreshCommand(
-            browser,
-            methodName,
-            logArgs,
-            serializedResult,
-            meta,
-            cmdSig,
-            commandError
-          )
-        }
+      const effectiveUid = this.rowTestUid() ?? cmd.testUid
+      if (cmd.wait) {
+        this.closeWait(
+          browser,
+          cmd.wait,
+          serializedResult,
+          commandError,
+          commandTimestamp
+        )
+      } else if (effectiveUid && cmd.hasUserSource) {
+        // Only surface commands that originate from a user-code frame. Commands
+        // Nightwatch issues from inside its own queue (e.g. the getTitle a
+        // `browser.assert.titleContains` runs) execute in a detached tick with no
+        // user frame on the stack, so they'd otherwise leak as top-level actions
+        // with an "unknown" source. Mirrors the service's user-spec-source guard.
+        this.recordCompleted(
+          browser,
+          cmd,
+          {
+            testUid: effectiveUid,
+            callSource: cmd.callSource,
+            timestamp: commandTimestamp,
+            startTime: cmd.invokedAt,
+            sequence: cmd.sequence,
+            selector: commandRowSelector(methodName, logArgs),
+            parentId: cmd.parent?.row.id
+          },
+          serializedResult,
+          commandError
+        )
       }
       if (userCallback) {
         return userCallback(callbackResult)
@@ -558,7 +521,10 @@ export class BrowserProxy {
       this.currentTestFullPath = callInfo.filePath
     }
     const lastArg = args[args.length - 1]
-    const hasUserCallback = typeof lastArg === 'function'
+    // `waitUntil`'s first argument is its condition, never a result callback.
+    const hasUserCallback =
+      typeof lastArg === 'function' &&
+      !(methodName === 'waitUntil' && args.length === 1)
     const logArgs = hasUserCallback ? args.slice(0, -1) : args
     const cmdSig = JSON.stringify({
       command: methodName,
@@ -593,24 +559,8 @@ export class BrowserProxy {
       )
     )
 
-    const { userCallback, logArgs, cmdSig, callSource, hasUserSource } =
-      this.describeInvocation(methodName, args)
-    // Invocation time only — the row's real completion stamp is taken inside the
-    // capture callback (see makeCaptureCallback).
-    const invokedAt = Date.now()
-    const sequence = this.issueCounter++
-    const captureCallback = this.makeCaptureCallback(
-      browser,
-      methodName,
-      logArgs,
-      cmdSig,
-      callSource,
-      hasUserSource,
-      invokedAt,
-      sequence,
-      this.rowTestUid(),
-      userCallback
-    )
+    const cmd = this.pendingCommand(methodName, args)
+    const captureCallback = this.makeCaptureCallback(browser, cmd)
     // Suppress screencast polling while this command may be dispatching input: a
     // screenshot landing mid-click makes the click activate nothing. Enqueue is
     // the only hook the adapter has — Nightwatch executes off a queue it exposes
@@ -622,15 +572,40 @@ export class BrowserProxy {
       closeInputWindow()
       return captureCallback(callbackResult)
     }
-    const modifiedArgs = [...logArgs, gatedCallback]
+    const modifiedArgs = [...this.waits.args(cmd), gatedCallback]
     try {
       return originalMethod(...modifiedArgs)
     } catch (error) {
       closeInputWindow()
-      this.popCommandStackIfMatches(methodName, cmdSig)
-      this.captureCommandError(methodName, logArgs, error, callSource)
+      this.popCommandStackIfMatches(methodName, cmd.cmdSig)
+      if (cmd.wait) {
+        this.closeWait(browser, cmd.wait, undefined, toError(error), Date.now())
+      } else {
+        this.captureCommandError(methodName, cmd.logArgs, error, cmd.callSource)
+      }
       throw error
     }
+  }
+
+  /** Describe the call, and send its row now when it is a wait. */
+  private pendingCommand(methodName: string, args: unknown[]): PendingCommand {
+    const cmd: PendingCommand = {
+      ...this.describeInvocation(methodName, args),
+      methodName,
+      // Invocation time only: the row's real completion stamp is taken inside
+      // the capture callback (see makeCaptureCallback).
+      invokedAt: Date.now(),
+      sequence: this.issueCounter++,
+      testUid: this.rowTestUid(),
+      parent: this.waits.enclosing()
+    }
+    if (isWaitCommand(methodName) && cmd.testUid && cmd.hasUserSource) {
+      // A wait breaks a run of identical calls: a read after it is not a poll of the read before it.
+      this.retryTracker.reset()
+      cmd.wait = this.waits.open(cmd)
+      log.info(`[command] ${methodName} (running)`)
+    }
+    return cmd
   }
 
   private captureCommandError(

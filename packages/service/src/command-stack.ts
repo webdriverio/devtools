@@ -28,11 +28,6 @@ interface OpenWait {
   polling: boolean
 }
 
-/** A wait the trace vocabulary names (`waitUntil` and the element `waitFor*` family). */
-export function isWaitCommand(command: string): boolean {
-  return mapCommandToAction(command)?.method.startsWith('waitFor') ?? false
-}
-
 /** An element wait polls through its own `waitUntil`; that loop and what the wait does around it are its implementation. */
 const isElementWait = (command: string) =>
   mapCommandToAction(command)?.class === 'Element'

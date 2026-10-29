@@ -1,6 +1,10 @@
 // One definition of a failed command row, shared by the trace exporter and the conformance comparison.
 
-import { ASSERT_ACTION_CLASS, type TraceAction } from './trace-actions.js'
+import {
+  ASSERT_ACTION_CLASS,
+  isWaitAction,
+  type TraceAction
+} from './trace-actions.js'
 import type { CollapsedAssertResult, CommandLog } from './types.js'
 
 /** The collapsed `{passed, actual, expected}` result an assertion row carries, when it carries one. */
@@ -33,7 +37,7 @@ export function commandFailure(
     }
   }
   // Nightwatch hands a timed-out waitForElement* callback only `false`; scoped to waits since a boolean read may legitimately be false.
-  if (cmd.result === false && action.method.startsWith('waitFor')) {
+  if (cmd.result === false && isWaitAction(action)) {
     const target = cmd.args?.find((a) => typeof a === 'string')
     return {
       message: target
