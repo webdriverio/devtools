@@ -1,5 +1,7 @@
 // One definition of a failed command row, shared by the trace exporter and the conformance comparison.
 
+import { mapCommandToAction } from './action-mapping.js'
+import { nestCommands, type CommandNode } from './command-tree.js'
 import {
   ASSERT_ACTION_CLASS,
   isWaitAction,
@@ -46,4 +48,39 @@ export function commandFailure(
     }
   }
   return undefined
+}
+
+function rowFailure(cmd: CommandLog): { message: string } | undefined {
+  const action = mapCommandToAction(cmd.command)
+  if (action) {
+    return commandFailure(cmd, action)
+  }
+  const err = cmd.error as { message?: string } | undefined
+  return err ? { message: err.message ?? String(err) } : undefined
+}
+
+/** Failed rows issued, at any depth, under a row that has not failed (a wait that passed, or is still running): polls it retried past. */
+export function retriedRows<T extends CommandLog>(
+  commands: readonly T[]
+): Set<T> {
+  const retried = new Set<T>()
+  const walk = (nodes: CommandNode<T>[], underPassing: boolean) => {
+    for (const { command, children } of nodes) {
+      const failed = Boolean(rowFailure(command))
+      if (underPassing && failed) {
+        retried.add(command)
+      }
+      walk(children, underPassing || !failed)
+    }
+  }
+  walk(nestCommands(commands), false)
+  return retried
+}
+
+/** Why a row counts as failed: its own failure, unless a row that issued it passed, which makes it an expected poll. */
+export function effectiveFailure<T extends CommandLog>(
+  cmd: T,
+  retried: ReadonlySet<T>
+): { message: string } | undefined {
+  return retried.has(cmd) ? undefined : rowFailure(cmd)
 }

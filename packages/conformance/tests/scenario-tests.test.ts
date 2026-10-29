@@ -247,6 +247,29 @@ describe('checkTestRows', () => {
     ])
   })
 
+  it('does not take a poll a passing wait retried past for the failure', () => {
+    const commands = rows()
+    const at = AT_MISSING * 100
+    commands[AT_MISSING] = {
+      command: 'waitUntil',
+      args: [],
+      id: 1,
+      result: true,
+      timestamp: at + 60
+    }
+    commands.push({
+      command: 'getText',
+      args: ['#missing'],
+      id: 2,
+      parentId: 1,
+      timestamp: at + 50,
+      error: ERROR
+    })
+    expect(judge(designed(), commands).map((v) => v.rule)).toEqual([
+      RULES.failedTestExplained
+    ])
+  })
+
   it('places a row by the test its uid names, so an error stamped for one test explains no other', () => {
     const commands = rows()
     commands[AT_MISSING] = {

@@ -4,7 +4,11 @@ import { customElement, state } from 'lit/decorators.js'
 import { repeat } from 'lit/directives/repeat.js'
 import { consume } from '@lit/context'
 
-import type { CommandLog, TraceActionChild } from '@wdio/devtools-shared'
+import {
+  retriedRows,
+  type CommandLog,
+  type TraceActionChild
+} from '@wdio/devtools-shared'
 import {
   mutationContext,
   commandContext,
@@ -212,11 +216,12 @@ export class DevtoolsActions extends Element {
       rootChildren,
       activeIndex >= 0 ? activeIndex : undefined
     )
+    const retried = retriedRows(commands)
     const isExpanded = (node: TraceActionChild) =>
       this.expandOverrides.get(nodeKey(node)) ??
       ('group' in node
         ? defaultExpanded(node.group, ancestors)
-        : defaultCommandExpanded(node, commands, ancestors))
+        : defaultCommandExpanded(node, commands, ancestors, retried))
     const rows = flattenActionTree(rootChildren, isExpanded)
     const gaps = stepDurations(commands.map((command) => command.timestamp))
     return html`<div
@@ -224,14 +229,17 @@ export class DevtoolsActions extends Element {
       @group-toggle=${this.#onGroupToggle}
       @row-reveal=${this.#onRowReveal}
     >
-      ${repeat(rows, rowKey, (row) => this.#renderTreeRow(row, commands, gaps))}
+      ${repeat(rows, rowKey, (row) =>
+        this.#renderTreeRow(row, commands, gaps, retried)
+      )}
     </div>`
   }
 
   #renderTreeRow(
     row: ActionTreeRow,
     commands: CommandLog[],
-    gaps: Array<number | undefined>
+    gaps: Array<number | undefined>,
+    retried: ReadonlySet<CommandLog>
   ) {
     const indent = `padding-left: ${row.depth * TREE_INDENT_PX}px`
     const key = rowKey(row)
@@ -258,6 +266,7 @@ export class DevtoolsActions extends Element {
         elapsedTime=${elapsedSince(commands, entry)}
         .duration=${duration}
         .entry=${entry}
+        ?retried=${retried.has(entry)}
         ?active=${entry === this.activeEntry}
         .revealKey=${key}
         ?revealed=${key === this.revealedRow}
@@ -277,12 +286,13 @@ export class DevtoolsActions extends Element {
       return html`<wdio-devtools-placeholder></wdio-devtools-placeholder>`
     }
     const ancestors = activeAncestorIds(this.commands || [], this.activeEntry)
+    const retried = retriedRows(this.commands || [])
     const rows = liveActionRows(
       this.mutations || [],
       this.commands || [],
       (node) =>
         this.expandOverrides.get(liveRowKey(node.command)) ??
-        defaultLiveExpanded(node, ancestors)
+        defaultLiveExpanded(node, ancestors, retried)
     )
     // Gaps between every entry in time order: tree order, or a collapsed row, would change a row's fallback duration.
     const gaps = stepDurations(entries.map((entry) => entry.timestamp))
@@ -301,7 +311,8 @@ export class DevtoolsActions extends Element {
       ${repeat(
         rows,
         (row) => row.entry,
-        (row) => this.#renderLiveRow(row, entries, gapOf.get(row.entry))
+        (row) =>
+          this.#renderLiveRow(row, entries, gapOf.get(row.entry), retried)
       )}
     </div>`
   }
@@ -309,7 +320,8 @@ export class DevtoolsActions extends Element {
   #renderLiveRow(
     { entry, depth, expanded, key }: LiveRow,
     entries: TimelineEntry[],
-    gap: number | undefined
+    gap: number | undefined,
+    retried: ReadonlySet<CommandLog>
   ) {
     // Timed against the merged list, so the top row always reads zero: a
     // document load can precede the first command.
@@ -326,6 +338,7 @@ export class DevtoolsActions extends Element {
           elapsedTime=${elapsedTime}
           .duration=${duration}
           .entry=${entry}
+          ?retried=${retried.has(entry)}
           ?active=${active}
           .revealKey=${entry}
           ?revealed=${revealed}

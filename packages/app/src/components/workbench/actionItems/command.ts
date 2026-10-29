@@ -83,8 +83,20 @@ export class CommandItem extends ActionItem {
   @property({ type: Boolean, reflect: true })
   expanded = false
 
+  /** Set when this row's error is a poll its passing wait retried past: shown neutral, the message kept in its title. */
+  @property({ type: Boolean })
+  retried = false
+
   willUpdate(): void {
-    this.failed = Boolean(this.entry?.error)
+    this.failed = Boolean(this.entry?.error) && !this.retried
+  }
+
+  #retriedTitle(): string | typeof nothing {
+    const message = (this.entry?.error as { message?: string } | undefined)
+      ?.message
+    return this.retried && message
+      ? `Retried past by its wait: ${message}`
+      : nothing
   }
 
   #highlightLine() {
@@ -190,6 +202,7 @@ export class CommandItem extends ActionItem {
       ${this.#renderToggle(label)}
       <button
         class="flex px-1 w-full items-center hover:bg-toolbarHoverBackground"
+        title=${this.#retriedTitle()}
         @click="${() => this.#highlightLine()}"
       >
         ${

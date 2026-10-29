@@ -163,6 +163,13 @@ describe('a command that issued others', () => {
     expect(defaultCommandExpanded(WAIT, commands(3), holding(3))).toBe(false)
   })
 
+  it('stays shut when its failure was a poll a passing wait retried past', () => {
+    const rows = commands(0)
+    expect(
+      defaultCommandExpanded(WAIT, rows, holding(), new Set([rows[0]]))
+    ).toBe(false)
+  })
+
   it('renders as a command row that reports whether its rows are shown', () => {
     const shut = flattenActionTree(
       [{ group: WITH_WAIT }],

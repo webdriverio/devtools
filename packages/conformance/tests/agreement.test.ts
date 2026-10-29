@@ -6,7 +6,7 @@ import { compareRuns, judgeDivergences } from '../src/agreement.js'
 import { covers, KNOWN_GAPS } from '../src/allowlist.js'
 import { RULES, SCENARIO_TESTS } from '../src/constants.js'
 import { hunk, moved } from '../src/gap-matchers.js'
-import { normalizeRun } from '../src/normalize.js'
+import { allSteps, normalizeRun } from '../src/normalize.js'
 import { scenarioIndex } from '../src/scenario-tests.js'
 import { renderReport } from '../src/report-html.js'
 import type {
@@ -246,6 +246,41 @@ describe('normalizeRun', () => {
     expect(normalizeRun(stream(1, NW, typedSelector))).toEqual(
       normalizeRun(stream(2, PY, typedSelector))
     )
+  })
+})
+
+describe('normalizeRun: a poll that failed', () => {
+  const outcomesOf = (wait: Record<string, unknown>) =>
+    allSteps(
+      normalizeRun([
+        {
+          scope: 'commands',
+          data: [
+            { command: 'waitUntil', args: [], id: 1, timestamp: 30, ...wait },
+            {
+              command: 'getText',
+              args: ['#flash'],
+              id: 2,
+              parentId: 1,
+              timestamp: 20,
+              error: { name: 'Error', message: 'no such element' }
+            }
+          ]
+        }
+      ] as WireFrame[]).steps
+    ).map((s) => `${s.action} ${s.outcome}`)
+
+  it('is ok under a wait that passed, and an error under one that timed out', () => {
+    expect(outcomesOf({ result: true })).toEqual([
+      'Browser.waitForFunction ok',
+      'Element.getText ok'
+    ])
+    expect(
+      outcomesOf({ error: { name: 'Error', message: 'timed out' } })
+    ).toEqual([
+      'Browser.waitForFunction failed',
+      'Element.getText error: no such element'
+    ])
   })
 })
 

@@ -239,6 +239,24 @@ describe('wdio-devtools-command-item', () => {
       ).toBe(true)
     })
 
+    it('renders a poll a passing wait retried past neutral, its message in the title', async () => {
+      const el = await mount<CommandItem>(TAG, {
+        entry: commandLog({
+          command: 'getText',
+          error: new Error('no such element')
+        }),
+        retried: true
+      })
+
+      expect(el.hasAttribute('failed')).toBe(false)
+      expect(shadow(el, LABEL)?.classList.contains('text-chartsRed')).toBe(
+        false
+      )
+      expect(shadow(el, 'button:not(.toggle)')?.getAttribute('title')).toBe(
+        'Retried past by its wait: no such element'
+      )
+    })
+
     it("swaps a failed assertion's check icon for a cross", async () => {
       const el = await mount<CommandItem>(TAG, {
         entry: commandLog({

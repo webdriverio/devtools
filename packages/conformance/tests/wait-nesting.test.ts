@@ -27,12 +27,16 @@ function nestedRun({
   sendWaitFirst = true,
   readSelector = 'h2',
   readStarts = [105, 108],
-  flashReadError = undefined as string | undefined
+  flashReadError = undefined as string | undefined,
+  firstWaitError = undefined as string | undefined
 } = {}): WireFrame[] {
   const wait = (id: number, start: number) =>
     row('waitUntil', start, start, { id })
-  const done = (id: number, start: number, end: number) =>
-    row('waitUntil', start, end, { id })
+  const done = (id: number, start: number, end: number, error?: string) =>
+    row('waitUntil', start, end, {
+      id,
+      ...(error ? { error: { name: 'Error', message: error } } : {})
+    })
   const read = (
     id: number,
     parent: number,
@@ -82,7 +86,7 @@ function nestedRun({
     ...commands,
     {
       scope: 'replaceCommand',
-      data: { oldTimestamp: 100, command: done(1, 100, 120) }
+      data: { oldTimestamp: 100, command: done(1, 100, 120, firstWaitError) }
     },
     { scope: 'commands', data: [wait(4, 130)] },
     { scope: 'commands', data: [read(5, 4, 135, '#flash')] },
@@ -184,11 +188,16 @@ describe('compareRuns with nested rows', () => {
 
   // Regression: a read the two sides nest in a different order was reported missing and extra, and never compared.
   it('reports a read moved inside its wait as one move, and still compares it', () => {
+    const timedOut = 'timed out'
     const divergences = compareRuns([
-      report('devtools-service', nestedRun()),
+      report('devtools-service', nestedRun({ firstWaitError: timedOut })),
       report(
         'selenium-devtools',
-        nestedRun({ readStarts: [108, 104], flashReadError: 'stale element' })
+        nestedRun({
+          readStarts: [108, 104],
+          flashReadError: 'stale element',
+          firstWaitError: timedOut
+        })
       )
     ])
     expect(divergences.map((d) => [d.rule, d.message])).toEqual([
@@ -203,6 +212,19 @@ describe('compareRuns with nested rows', () => {
         )
       ]
     ])
+  })
+
+  // A poll fails or not by timing; under a wait that passed it is no failure on either side.
+  it('compares a failed poll under a wait that passed as ok', () => {
+    expect(
+      compareRuns([
+        report('devtools-service', nestedRun()),
+        report(
+          'selenium-devtools',
+          nestedRun({ flashReadError: 'stale element' })
+        )
+      ])
+    ).toEqual([])
   })
 
   it('tells nested reads from the same reads beside the wait', () => {

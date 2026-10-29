@@ -122,4 +122,44 @@ describe('buildActionEvents with nested rows', () => {
     )
     expect(befores(events).map((e) => e.parentId)).toEqual([undefined])
   })
+  describe('a poll that failed', () => {
+    const noSuchElement = { name: 'Error', message: 'no such element' }
+    const afterOf = (events: ActionEvent[], method: string) =>
+      events.find(
+        (e) => e.type === 'after' && e.callId === byTitle(events, method).callId
+      ) as { error?: { message: string }; retriedError?: { message: string } }
+    const stream = (wait: Partial<CommandLog>) => [
+      row('waitUntil', 1000, 1200, { id: 1, ...wait }),
+      row('getText', 1010, 1020, {
+        id: 2,
+        parentId: 1,
+        args: ['#flash'],
+        error: noSuchElement
+      })
+    ]
+
+    it('is no action error under a wait that passed, and keeps its message as retriedError', () => {
+      const events = buildActionEvents(stream({ result: true }), PAGE, WALL)
+      expect(afterOf(events, 'getText')).toMatchObject({
+        retriedError: { message: 'no such element' }
+      })
+      expect(afterOf(events, 'getText').error).toBeUndefined()
+      expect(afterOf(events, 'waitForFunction').error).toBeUndefined()
+    })
+
+    it('stays the action error under a wait that timed out', () => {
+      const events = buildActionEvents(
+        stream({ error: { name: 'Error', message: 'timed out' } }),
+        PAGE,
+        WALL
+      )
+      expect(afterOf(events, 'getText').error).toEqual({
+        message: 'no such element'
+      })
+      expect(afterOf(events, 'getText').retriedError).toBeUndefined()
+      expect(afterOf(events, 'waitForFunction').error).toEqual({
+        message: 'timed out'
+      })
+    })
+  })
 })

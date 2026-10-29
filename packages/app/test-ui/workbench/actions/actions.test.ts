@@ -579,6 +579,72 @@ describe('wdio-devtools-actions', () => {
       ])
     })
 
+    it("renders a passing wait's failed poll neutral and a timed-out wait's red", async () => {
+      const failedRead = {
+        ...reads[0],
+        error: new Error('no such element')
+      }
+      const failedReadRow = async (parent: CommandLog) => {
+        const panel = await mountPanel({
+          commands: [failedRead, reads[1], parent, logout],
+          mutations: []
+        })
+        if (!parent.error) {
+          toggle(shadowAll(panel, ROWS)[0])
+          await settle(panel)
+        }
+        return shadowAll(panel, ROWS).find(
+          (row) => entryOf(row) === failedRead
+        )!
+      }
+
+      const passing = await failedReadRow({ ...wait, result: true })
+      expect(passing.hasAttribute('failed')).toBe(false)
+      expect(
+        shadow(passing, 'button:not(.toggle)')?.getAttribute('title')
+      ).toBe('Retried past by its wait: no such element')
+
+      const timedOut = await failedReadRow({
+        ...wait,
+        error: new Error('waitUntil timed out')
+      })
+      expect(timedOut.hasAttribute('failed')).toBe(true)
+    })
+
+    it("renders a passing wait's failed poll neutral in the player tree too", async () => {
+      const failedRead = { ...reads[0], error: new Error('no such element') }
+      const groups: TraceActionChild[] = [
+        {
+          group: {
+            callId: 'test',
+            title: 'waits on what the page shows',
+            startTime: RUN_START,
+            endTime: RUN_START + 600,
+            children: [
+              {
+                commandIndex: 2,
+                children: [{ commandIndex: 0 }, { commandIndex: 1 }]
+              }
+            ]
+          }
+        }
+      ]
+      const panel = await mountPanel({
+        commands: [failedRead, reads[1], { ...wait, result: true }],
+        mutations: [],
+        groups
+      })
+      ;(shadow(shadowAll(panel, GROUP_ROW)[0], 'button') as HTMLElement).click()
+      await settle(panel)
+      toggle(shadowAll(panel, COMMAND_ROW)[0])
+      await settle(panel)
+
+      const row = shadowAll(panel, COMMAND_ROW).find(
+        (r) => entryOf(r) === failedRead
+      )!
+      expect(row.hasAttribute('failed')).toBe(false)
+    })
+
     it('replays a nested read as it replays a top-level row', async () => {
       const failed = { ...wait, error: new Error('waitUntil timed out') }
       const panel = await mountPanel(liveInputs(failed))

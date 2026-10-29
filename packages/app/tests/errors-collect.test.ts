@@ -520,4 +520,26 @@ describe('collectErrors', () => {
     )
     expect(errors.map((e) => e.message)).toEqual(['cmd', 'test'])
   })
+  it('leaves out a failed poll under a wait that passed, and keeps it under a wait that timed out', () => {
+    const poll = (parentId: number) =>
+      command({
+        command: 'getText',
+        id: 2,
+        parentId,
+        timestamp: 20,
+        error: { name: 'Error', message: 'no such element' }
+      })
+    const passed = command({ command: 'waitUntil', id: 1, result: true })
+    expect(collectErrors([passed, poll(1)], [])).toEqual([])
+
+    const timedOut = command({
+      command: 'waitUntil',
+      id: 1,
+      timestamp: 30,
+      error: { name: 'Error', message: 'timed out' }
+    })
+    expect(
+      collectErrors([timedOut, poll(1)], []).map((e) => e.message)
+    ).toEqual(['no such element', 'timed out'])
+  })
 })

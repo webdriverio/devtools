@@ -11,6 +11,7 @@ import {
   commandFailure,
   locatorsMatch,
   nestCommands,
+  retriedRows,
   POINTABLE_METHODS
 } from '@wdio/devtools-shared'
 import {
@@ -48,6 +49,8 @@ export interface AfterEvent {
   callId: string
   endTime: number
   error?: { message: string }
+  /** A poll's error under a wait that passed: kept for the player, never read as a failed action. */
+  retriedError?: { message: string }
   /** Command return value (e.g. the text getText resolved to). */
   result?: unknown
   /** CallId of the Tracing.tracingGroup that wraps this action (if any). */
@@ -265,11 +268,14 @@ function buildAfterEvent(
   action: TraceAction,
   callId: string,
   endMs: number,
-  snapshotIndex?: FrameSnapshotIndex
+  ctx: EmitContext
 ): AfterEvent {
+  const { snapshotIndex } = ctx
   const afterEvent: AfterEvent = { type: 'after', callId, endTime: endMs }
   const error = commandFailure(cmd, action)
-  if (error) {
+  if (error && ctx.retried.has(cmd)) {
+    afterEvent.retriedError = error
+  } else if (error) {
     afterEvent.error = error
   }
   const result = serializableResult(cmd.result)
@@ -332,6 +338,7 @@ interface EmitContext {
   pageId: string
   wallTime: number
   snapshotIndex?: FrameSnapshotIndex
+  retried: ReadonlySet<CommandLog>
 }
 
 // A row's before, then the rows it issued (nested under its callId), then its after: the after closes once the last
@@ -372,9 +379,7 @@ function emitNode(
     cmd.timestamp - ctx.wallTime,
     node.children.length ? stream.prevEndMs : 0
   )
-  stream.events.push(
-    buildAfterEvent(cmd, action, callId, endMs, ctx.snapshotIndex)
-  )
+  stream.events.push(buildAfterEvent(cmd, action, callId, endMs, ctx))
   stream.prevEndMs = endMs
 }
 
@@ -407,7 +412,12 @@ export function buildActionEvents(
       (a.startTime ?? a.timestamp) - (b.startTime ?? b.timestamp) ||
       (a.sequence ?? 0) - (b.sequence ?? 0)
   )
-  const ctx: EmitContext = { pageId, wallTime, snapshotIndex }
+  const ctx: EmitContext = {
+    pageId,
+    wallTime,
+    snapshotIndex,
+    retried: retriedRows(ordered)
+  }
   for (const node of nestCommands(ordered)) {
     if (hasAction(node)) {
       syncGroups(stream, node.command, pageId, wallTime, testMetadata)

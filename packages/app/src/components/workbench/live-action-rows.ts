@@ -57,13 +57,17 @@ export function activeAncestorIds(
   return ancestors
 }
 
-/** A command that issued others opens by default when it failed or holds the active entry. */
+/** A command that issued others opens by default when it failed (and no passing wait retried past it) or holds the active entry. */
 export function defaultLiveExpanded(
   node: CommandNode,
-  activeAncestors: ReadonlySet<number>
+  activeAncestors: ReadonlySet<number>,
+  retried: ReadonlySet<CommandLog> = new Set()
 ): boolean {
-  const { error, id } = node.command
-  return Boolean(error) || (id !== undefined && activeAncestors.has(id))
+  const { command } = node
+  return (
+    (Boolean(command.error) && !retried.has(command)) ||
+    (command.id !== undefined && activeAncestors.has(command.id))
+  )
 }
 
 /** The rows the list renders, each level in time order, descending only into expanded commands. */

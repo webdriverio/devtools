@@ -1,6 +1,10 @@
 import { strToU8, zipSync } from 'fflate'
 import { describe, expect, it } from 'vitest'
-import type { CommandLog, TraceActionChild } from '@wdio/devtools-shared'
+import {
+  retriedRows,
+  type CommandLog,
+  type TraceActionChild
+} from '@wdio/devtools-shared'
 import { buildActionEvents } from '@wdio/devtools-trace/trace-action-events'
 
 import { parseTraceZip } from '../src/trace-reader.js'
@@ -184,5 +188,46 @@ describe('parseTraceZip: an action that issued others', () => {
     )
     expect(trace.commands).toHaveLength(3)
     expect(groups).toBeUndefined()
+  })
+  it("reads back a passing wait's failed poll as retried, with its message, and a timed-out wait's as failed", () => {
+    const zipFor = (wait: Partial<CommandLog>) =>
+      zipOf([
+        context,
+        ...buildActionEvents(
+          [
+            {
+              command: 'waitUntil',
+              args: [],
+              id: 1,
+              startTime: WALL_TIME,
+              timestamp: WALL_TIME + 100,
+              ...wait
+            },
+            {
+              command: 'getText',
+              args: ['#flash'],
+              id: 2,
+              parentId: 1,
+              startTime: WALL_TIME + 10,
+              timestamp: WALL_TIME + 20,
+              error: { name: 'Error', message: 'no such element' }
+            }
+          ],
+          'page@1',
+          WALL_TIME
+        )
+      ])
+
+    const passed = parseTraceZip(zipFor({ result: true })).trace.commands
+    const [read, wait] = passed
+    expect(read.error?.message).toBe('no such element')
+    expect(read.parentId).toBe(wait.id)
+    expect([...retriedRows(passed)]).toEqual([read])
+
+    const failed = parseTraceZip(
+      zipFor({ error: { name: 'Error', message: 'timed out' } })
+    ).trace.commands
+    expect(failed[0].error?.message).toBe('no such element')
+    expect(retriedRows(failed).size).toBe(0)
   })
 })

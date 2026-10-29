@@ -24,6 +24,8 @@ export interface AfterEvent {
   callId: string
   endTime: number
   error?: { message: string }
+  /** A poll's error under a wait that passed, restored onto CommandLog.error; the shared retriedRows keeps it neutral. */
+  retriedError?: { message: string }
   /** Command return value, restored onto CommandLog.result. */
   result?: unknown
   /** Pointer hit point, restored onto CommandLog.point (A8 input marker). */

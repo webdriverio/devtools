@@ -84,14 +84,16 @@ export function defaultExpanded(
   return Boolean(group.failed) || activeAncestors.has(nodeKey({ group }))
 }
 
-/** A row that issued others opens by default when it failed or one of its rows is the active command. */
+/** A row that issued others opens by default when it failed (and no passing wait retried past it) or one of its rows is the active command. */
 export function defaultCommandExpanded(
   node: TraceActionCommandNode,
   commands: readonly CommandLog[],
-  activeAncestors: ReadonlySet<string>
+  activeAncestors: ReadonlySet<string>,
+  retried: ReadonlySet<CommandLog> = new Set()
 ): boolean {
+  const command = commands[node.commandIndex]
   return (
-    Boolean(commands[node.commandIndex]?.error) ||
+    (Boolean(command?.error) && !retried.has(command)) ||
     activeAncestors.has(nodeKey(node))
   )
 }

@@ -87,6 +87,13 @@ describe('defaultLiveExpanded', () => {
     expect(defaultLiveExpanded(node(), ancestorsOf(read))).toBe(true)
   })
 
+  it('keeps a failed wait a passing wait retried past shut', () => {
+    const failed = node(new Error('timed out'))
+    expect(
+      defaultLiveExpanded(failed, ancestorsOf(), new Set([failed.command]))
+    ).toBe(false)
+  })
+
   it('keeps a passing wait shut, also while it is itself the active row', () => {
     const passing = node()
     expect(defaultLiveExpanded(passing, ancestorsOf())).toBe(false)
