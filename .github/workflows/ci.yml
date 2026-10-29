@@ -163,8 +163,9 @@ jobs:
       - name: 🧪 Nightwatch BDD (examples/nightwatch/bdd)
         if: ${{ !cancelled() && steps.fixture.outcome == 'success' }}
         run: bash .github/scripts/examples-smoke/run-example.sh nightwatch-bdd pnpm demo:nightwatch
-      # The committed pytest.ini keeps only failing tests' archives; one archive
-      # for the whole run is what the expectations describe.
+      # This job's DEVTOOLS_MODE=trace reaches the example through its conftest.py,
+      # whose defaults keep only failing tests' archives; one archive for the whole
+      # run is what the expectations describe, and `-o` outranks those defaults.
       - name: 🧪 Python + pytest (examples/selenium-py/pytest)
         if: ${{ !cancelled() && steps.fixture.outcome == 'success' }}
         run: >-

@@ -32,7 +32,7 @@ one is comparable with a trace from another.
 | `pnpm demo:wdio:retention`   | WebdriverIO + Cucumber, a passing and a failing spec under a retention policy |
 | `pnpm demo:python`           | Python, plain script                                             |
 | `pnpm demo:python:login`     | Python, plain script (login flow)                                |
-| `pnpm demo:python:pytest`    | Python + pytest                                                  |
+| `pnpm demo:python:pytest`    | Python + pytest; under `DEVTOOLS_MODE=trace`, one archive per failing test |
 | `pnpm demo:wdio:mobile`      | WebdriverIO against Appium                                       |
 | `pnpm demo:nightwatch:mobile` | Nightwatch against Appium                                       |
 | `pnpm demo:selenium:mobile`  | Selenium against Appium                                          |
@@ -43,6 +43,8 @@ runner directly — `example:mocha`, `example:jest`, `example:cucumber`, or
 `example:mocha:allure` for the Allure variant.
 
 `DEVTOOLS_MODE=trace` flips a demo to trace mode; the default is live.
+The Python adapter does not read it, so the pytest example's `conftest.py`
+translates it into the plugin's own options.
 `DEVTOOLS_TRACE_GRANULARITY` and `DEVTOOLS_TRACE_POLICY` walk the rest of the
 ladder, so each runner needs only one config.
 
