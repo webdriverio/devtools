@@ -294,6 +294,30 @@ describe('Nightwatch wait rows', () => {
     expect(frames).toHaveLength(sent)
   })
 
+  it('finds a closing wait among the newest rows, not by reading the run from its start', () => {
+    const capturer = new SessionCapturer({})
+    vi.spyOn(capturer, 'sendUpstream').mockImplementation(() => {})
+    const rows: CommandLog[] = Array.from({ length: 10_000 }, (_, i) => ({
+      command: 'click',
+      args: [],
+      timestamp: i
+    }))
+    let reads = 0
+    capturer.commandsLog = new Proxy(rows, {
+      get(target, prop, receiver) {
+        if (typeof prop === 'string' && /^\d+$/.test(prop)) {
+          reads++
+        }
+        return Reflect.get(target, prop, receiver)
+      }
+    })
+    const wait = capturer.openCommand('waitUntil', [], { startTime: 20_000 })
+    reads = 0
+    capturer.closeCommand(wait, true, undefined, 20_100)
+    expect(reads).toBeLessThan(100)
+    expect(rows.at(-1)).toBe(wait)
+  })
+
   it('leaves native assertions as they were: buffered, unparented, after the wait', async () => {
     const { browser, frames, proxy } = setup({ '#flash': 'Welcome' })
     await browser.waitUntil(

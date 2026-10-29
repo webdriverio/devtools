@@ -344,7 +344,8 @@ export class SessionCapturer extends SessionCapturerBase {
     ran = true
   ): void {
     this.#openRows.delete(entry)
-    const at = this.commandsLog.indexOf(entry)
+    // From the end: the wait and what it issued are the newest rows.
+    const at = this.commandsLog.lastIndexOf(entry)
     if (ran && at !== -1) {
       this.commandsLog.splice(at, 1)
       this.commandsLog.push(entry)
