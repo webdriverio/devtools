@@ -13,7 +13,9 @@ import type {
   LocatedRow,
   SmokeTrace,
   TestExpectation,
-  TraceRow
+  TraceBudget,
+  TraceRow,
+  TraceZip
 } from './types.js'
 
 const TRACING_GROUP_CLASS = 'Tracing'
@@ -347,17 +349,76 @@ const TEST_SCOPED_ONLY = ['allowTimeoutError', 'attempts'] as const
 export function validateExpectations(
   expectations: ExampleExpectations
 ): string[] {
-  return expectations.tests.flatMap((test) => {
-    if (test.scope !== 'run') {
-      return []
-    }
-    const fields = test as Partial<
-      Record<(typeof TEST_SCOPED_ONLY)[number], unknown>
-    >
-    return TEST_SCOPED_ONLY.filter((key) => fields[key] !== undefined).map(
-      (key) => `the run: ${key} is only allowed on a test-scoped entry`
+  return [
+    ...validateBudget(expectations.traceBudget as TraceBudget | undefined),
+    ...expectations.tests.flatMap((test) => {
+      if (test.scope !== 'run') {
+        return []
+      }
+      const fields = test as Partial<
+        Record<(typeof TEST_SCOPED_ONLY)[number], unknown>
+      >
+      return TEST_SCOPED_ONLY.filter((key) => fields[key] !== undefined).map(
+        (key) => `the run: ${key} is only allowed on a test-scoped entry`
+      )
+    })
+  ]
+}
+
+const isByteCount = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isInteger(value) && value > 0
+
+/** Required, so a new example cannot skip the size check by leaving it out. */
+function validateBudget(budget: TraceBudget | undefined): string[] {
+  if (!budget) {
+    return ['traceBudget is required: { maxBytes, measuredBytes, measuredIn }']
+  }
+  const problems: string[] = []
+  if (!isByteCount(budget.maxBytes)) {
+    problems.push(
+      'traceBudget.maxBytes must be a positive whole number of bytes'
     )
-  })
+  }
+  if (!isByteCount(budget.measuredBytes)) {
+    problems.push(
+      'traceBudget.measuredBytes must be a positive whole number of bytes'
+    )
+  } else if (
+    isByteCount(budget.maxBytes) &&
+    budget.measuredBytes > budget.maxBytes
+  ) {
+    problems.push('traceBudget.measuredBytes is already over maxBytes')
+  }
+  if (typeof budget.measuredIn !== 'string' || !budget.measuredIn) {
+    problems.push(
+      'traceBudget.measuredIn must say where the baseline was measured'
+    )
+  }
+  return problems
+}
+
+const formatBytes = (bytes: number): string => bytes.toLocaleString('en-US')
+
+export function totalBytes(zips: TraceZip[]): number {
+  return zips.reduce((sum, zip) => sum + zip.bytes, 0)
+}
+
+/** Totalled across the run's zips, since how many a run writes depends on its granularity. */
+export function checkTraceBudget(
+  budget: TraceBudget,
+  zips: TraceZip[]
+): string[] {
+  const total = totalBytes(zips)
+  if (total <= budget.maxBytes) {
+    return []
+  }
+  const sizes = [...zips]
+    .sort((a, b) => b.bytes - a.bytes)
+    .map((zip) => `${zip.path} ${formatBytes(zip.bytes)}`)
+    .join(', ')
+  return [
+    `trace zips total ${formatBytes(total)} bytes, over the ${formatBytes(budget.maxBytes)}-byte budget (baseline ${formatBytes(budget.measuredBytes)} from ${budget.measuredIn}): ${sizes}`
+  ]
 }
 
 /** Every unmet expectation as one line; empty means the example passed. */
@@ -385,6 +446,9 @@ export function checkExample(
   return [
     ...failures,
     ...checkCallSites(expectations, traces),
-    ...checkTimeouts(expectations, traces, outcome)
+    ...checkTimeouts(expectations, traces, outcome),
+    ...(outcome.zips
+      ? checkTraceBudget(expectations.traceBudget, outcome.zips)
+      : [])
   ]
 }

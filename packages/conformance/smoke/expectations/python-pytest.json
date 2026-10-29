@@ -2,6 +2,11 @@
   "example": "python-pytest",
   "runFails": false,
   "sourceFiles": ["examples/selenium-py/pytest/test_login_pytest.py"],
+  "traceBudget": {
+    "maxBytes": 1010000,
+    "measuredBytes": 804136,
+    "measuredIn": "CI run 40774299701, examples-smoke artifact"
+  },
   "tests": [
     {
       "test": "test_logs_in_with_valid_credentials",

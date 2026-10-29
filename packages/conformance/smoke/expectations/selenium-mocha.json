@@ -2,6 +2,11 @@
   "example": "selenium-mocha",
   "runFails": true,
   "sourceFiles": ["examples/selenium-js/mocha/example.js"],
+  "traceBudget": {
+    "maxBytes": 200000,
+    "measuredBytes": 159706,
+    "measuredIn": "CI run 40774299701, examples-smoke artifact"
+  },
   "tests": [
     {
       "test": "loads the login page and reads the heading",
