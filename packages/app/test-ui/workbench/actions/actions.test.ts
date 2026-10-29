@@ -655,5 +655,92 @@ describe('wdio-devtools-actions', () => {
       expect(rows.map(entryOf)).toEqual([wait, ...reads, logout])
       expect((rows[1] as HTMLElement).style.paddingLeft).toBe('28px')
     })
+    // Regression: the chevron was positioned against the row's border box, so an indented row's chevron sat in its parent's column.
+    describe('chevron of an indented row', () => {
+      const failedWait = (id: number, parentId?: number) =>
+        commandLog({
+          command: 'waitUntil',
+          args: [],
+          id,
+          parentId,
+          startTime: RUN_START + id,
+          timestamp: RUN_START + 500 - id,
+          error: new Error('waitUntil timed out')
+        })
+      const nestedWaits = [
+        failedWait(30),
+        failedWait(31, 30),
+        failedWait(32, 31),
+        commandLog({
+          command: 'getText',
+          args: ['#flash'],
+          id: 33,
+          parentId: 32,
+          timestamp: RUN_START + 100
+        })
+      ]
+      const indentOf = (row: Element) =>
+        parseFloat((row as HTMLElement).style.paddingLeft || '0')
+
+      /** Each row with a chevron: its indent, and whether the chevron lies inside that indent's content box. */
+      const chevrons = (rows: Element[]) =>
+        rows
+          .filter((row) => shadow(row, 'button.toggle'))
+          .map((row) => {
+            const left = (selector: string) =>
+              shadow(row, selector)!.getBoundingClientRect().left
+            return {
+              indent: indentOf(row),
+              inside:
+                left('button.toggle') >=
+                row.getBoundingClientRect().left + indentOf(row)
+            }
+          })
+
+      it('keeps the chevron in its own column at depth 1 and 2 in the live list', async () => {
+        const panel = await mountPanel({ commands: nestedWaits, mutations: [] })
+
+        expect(chevrons(shadowAll(panel, ROWS))).toEqual([
+          { indent: 0, inside: true },
+          { indent: 14, inside: true },
+          { indent: 28, inside: true }
+        ])
+      })
+
+      it('keeps the chevron in its own column at depth 1 and 2 in the player tree', async () => {
+        const groups: TraceActionChild[] = [
+          {
+            group: {
+              callId: 'test',
+              title: 'waits inside waits',
+              startTime: RUN_START,
+              endTime: RUN_START + 600,
+              failed: true,
+              children: [
+                {
+                  commandIndex: 0,
+                  children: [
+                    {
+                      commandIndex: 1,
+                      children: [{ commandIndex: 2 }]
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+        const panel = await mountPanel({
+          commands: [nestedWaits[0], nestedWaits[1], nestedWaits[3]],
+          mutations: [],
+          groups
+        })
+
+        expect(chevrons(shadowAll(panel, COMMAND_ROW))).toEqual([
+          { indent: 14, inside: true },
+          { indent: 28, inside: true }
+        ])
+      })
+    })
   })
 })

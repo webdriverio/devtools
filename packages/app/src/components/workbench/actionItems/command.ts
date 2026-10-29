@@ -41,12 +41,15 @@ const CATEGORY_COLOR: Record<ActionCategory, string> = {
 
 @customElement(SOURCE_COMPONENT)
 export class CommandItem extends ActionItem {
-  // The chevron sits over the row's button rather than inside it: a button holds no button.
+  // The chevron sits over the row's button rather than inside it (a button holds no button), positioned within the indent.
   static styles = [
     ...ActionItem.styles,
     css`
-      :host {
+      .row {
         position: relative;
+        display: flex;
+        flex: 1 1 auto;
+        min-width: 0;
       }
       button.toggle,
       :host([active]) button.toggle,
@@ -183,7 +186,7 @@ export class CommandItem extends ActionItem {
 
     const entry = this.entry
     const label = capitalizeAssertLabel(entry.title ?? entry.command)
-    return html`
+    return html`<div class="row">
       ${this.#renderToggle(label)}
       <button
         class="flex px-1 w-full items-center hover:bg-toolbarHoverBackground"
@@ -200,7 +203,7 @@ export class CommandItem extends ActionItem {
         >
         ${this.renderTime()}
       </button>
-    `
+    </div>`
   }
 }
 
