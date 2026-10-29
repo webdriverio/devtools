@@ -53,13 +53,3 @@ function closesCycle<T extends CommandLog>(
   }
   return false
 }
-
-/** Every row under a node, depth first, the node itself excluded. */
-export function commandDescendants<T extends CommandLog>(
-  node: CommandNode<T>
-): T[] {
-  return node.children.flatMap((child) => [
-    child.command,
-    ...commandDescendants(child)
-  ])
-}

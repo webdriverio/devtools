@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import type { CommandLog } from '@wdio/devtools-shared'
 
 import {
+  activeAncestorIds,
   defaultLiveExpanded,
   liveActionRows,
   liveRowKey,
@@ -76,14 +77,38 @@ describe('defaultLiveExpanded', () => {
     children: [{ command: read, children: [] }]
   })
 
+  const ancestorsOf = (active?: CommandLog) =>
+    activeAncestorIds([node().command, read], active)
+
   it('opens a failed wait and one holding the active row', () => {
-    expect(defaultLiveExpanded(node(new Error('timed out')))).toBe(true)
-    expect(defaultLiveExpanded(node(), read)).toBe(true)
+    expect(
+      defaultLiveExpanded(node(new Error('timed out')), ancestorsOf())
+    ).toBe(true)
+    expect(defaultLiveExpanded(node(), ancestorsOf(read))).toBe(true)
   })
 
   it('keeps a passing wait shut, also while it is itself the active row', () => {
     const passing = node()
-    expect(defaultLiveExpanded(passing)).toBe(false)
-    expect(defaultLiveExpanded(passing, passing.command)).toBe(false)
+    expect(defaultLiveExpanded(passing, ancestorsOf())).toBe(false)
+    expect(defaultLiveExpanded(passing, ancestorsOf(passing.command))).toBe(
+      false
+    )
+  })
+})
+
+describe('activeAncestorIds', () => {
+  const outer = cmd('waitUntil', 50, { id: 1 })
+  const inner = cmd('waitUntil', 40, { id: 2, parentId: 1 })
+  const read = cmd('getText', 30, { id: 3, parentId: 2 })
+
+  it('walks up from the active row to the top, once', () => {
+    expect([...activeAncestorIds([outer, inner, read], read)]).toEqual([2, 1])
+  })
+
+  it('stops at a parent that is not in the list, and at a loop', () => {
+    expect([...activeAncestorIds([inner, read], read)]).toEqual([2])
+    const a = cmd('waitUntil', 10, { id: 7, parentId: 8 })
+    const b = cmd('waitUntil', 20, { id: 8, parentId: 7 })
+    expect([...activeAncestorIds([a, b], a)]).toEqual([8, 7])
   })
 })

@@ -3,7 +3,6 @@
 // nested under it and shown only while it is expanded.
 
 import {
-  commandDescendants,
   nestCommands,
   type CommandLog,
   type CommandNode
@@ -31,18 +30,40 @@ export function visibleMutations(mutations: readonly TraceMutation[]) {
   return mutations.filter((m) => m.type === 'childList' && Boolean(m.url))
 }
 
+/** Ids of every row above the active entry, walked up once per render so each row's default is a set lookup. */
+export function activeAncestorIds(
+  commands: readonly CommandLog[],
+  active?: TimelineEntry
+): Set<number> {
+  const ancestors = new Set<number>()
+  if (!active || !('command' in active)) {
+    return ancestors
+  }
+  const byId = new Map<number, CommandLog>()
+  for (const command of commands) {
+    if (typeof command.id === 'number' && !byId.has(command.id)) {
+      byId.set(command.id, command)
+    }
+  }
+  const parentOf = (row: CommandLog) =>
+    row.parentId === undefined ? undefined : byId.get(row.parentId)
+  for (
+    let parent = parentOf(active);
+    parent && !ancestors.has(parent.id!);
+    parent = parentOf(parent)
+  ) {
+    ancestors.add(parent.id!)
+  }
+  return ancestors
+}
+
 /** A command that issued others opens by default when it failed or holds the active entry. */
 export function defaultLiveExpanded(
   node: CommandNode,
-  active?: TimelineEntry
+  activeAncestors: ReadonlySet<number>
 ): boolean {
-  if (node.command.error) {
-    return true
-  }
-  return (
-    active !== undefined &&
-    (commandDescendants(node) as TimelineEntry[]).includes(active)
-  )
+  const { error, id } = node.command
+  return Boolean(error) || (id !== undefined && activeAncestors.has(id))
 }
 
 /** The rows the list renders, each level in time order, descending only into expanded commands. */

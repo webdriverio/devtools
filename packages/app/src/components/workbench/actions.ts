@@ -20,6 +20,7 @@ import { elapsedSince } from '../../utils/elapsed.js'
 import { entryDuration, stepDurations } from './actionItems/duration.js'
 import { activeSpanAt } from './active-entry.js'
 import {
+  activeAncestorKeys,
   defaultCommandExpanded,
   defaultExpanded,
   flattenActionTree,
@@ -29,6 +30,7 @@ import {
   type RowToggleDetail
 } from './action-tree.js'
 import {
+  activeAncestorIds,
   defaultLiveExpanded,
   liveActionRows,
   liveRowKey,
@@ -206,12 +208,15 @@ export class DevtoolsActions extends Element {
       this.activeEntry && 'command' in this.activeEntry
         ? commands.indexOf(this.activeEntry)
         : -1
-    const active = activeIndex >= 0 ? activeIndex : undefined
+    const ancestors = activeAncestorKeys(
+      rootChildren,
+      activeIndex >= 0 ? activeIndex : undefined
+    )
     const isExpanded = (node: TraceActionChild) =>
       this.expandOverrides.get(nodeKey(node)) ??
       ('group' in node
-        ? defaultExpanded(node.group, active)
-        : defaultCommandExpanded(node, commands, active))
+        ? defaultExpanded(node.group, ancestors)
+        : defaultCommandExpanded(node, commands, ancestors))
     const rows = flattenActionTree(rootChildren, isExpanded)
     const gaps = stepDurations(commands.map((command) => command.timestamp))
     return html`<div
@@ -271,12 +276,13 @@ export class DevtoolsActions extends Element {
     if (!entries.length) {
       return html`<wdio-devtools-placeholder></wdio-devtools-placeholder>`
     }
+    const ancestors = activeAncestorIds(this.commands || [], this.activeEntry)
     const rows = liveActionRows(
       this.mutations || [],
       this.commands || [],
       (node) =>
         this.expandOverrides.get(liveRowKey(node.command)) ??
-        defaultLiveExpanded(node, this.activeEntry)
+        defaultLiveExpanded(node, ancestors)
     )
     // Gaps between every entry in time order: tree order, or a collapsed row, would change a row's fallback duration.
     const gaps = stepDurations(entries.map((entry) => entry.timestamp))

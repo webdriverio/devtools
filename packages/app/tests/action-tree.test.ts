@@ -6,7 +6,7 @@ import type {
 } from '@wdio/devtools-shared'
 
 import {
-  collectCommandIndices,
+  activeAncestorKeys,
   defaultCommandExpanded,
   defaultExpanded,
   flattenActionTree,
@@ -34,28 +34,33 @@ const NESTED = group('hook', [
   { commandIndex: 2 }
 ])
 
-describe('collectCommandIndices', () => {
-  it('gathers indices across nested groups', () => {
-    expect(collectCommandIndices(NESTED)).toEqual([0, 1, 2])
+const ancestors = (activeCommandIndex?: number) =>
+  activeAncestorKeys([{ group: NESTED }], activeCommandIndex)
+
+describe('activeAncestorKeys', () => {
+  it('lists every node above the active command, across nested groups', () => {
+    expect([...ancestors(1)]).toEqual(['group:hook', 'group:fixture'])
+    expect([...ancestors(2)]).toEqual(['group:hook'])
   })
 
-  it('is empty for a group with no command descendants', () => {
-    expect(collectCommandIndices(group('empty', []))).toEqual([])
+  it('is empty when no command is active or the active one is not in the tree', () => {
+    expect(ancestors().size).toBe(0)
+    expect(ancestors(7).size).toBe(0)
   })
 })
 
 describe('defaultExpanded', () => {
   it('opens failed groups', () => {
-    expect(defaultExpanded(group('g', [], true))).toBe(true)
+    expect(defaultExpanded(group('g', [], true), new Set())).toBe(true)
   })
 
   it('opens the group holding the active command', () => {
-    expect(defaultExpanded(NESTED, 1)).toBe(true)
+    expect(defaultExpanded(NESTED, ancestors(1))).toBe(true)
   })
 
   it('keeps other groups collapsed', () => {
-    expect(defaultExpanded(NESTED, 7)).toBe(false)
-    expect(defaultExpanded(NESTED)).toBe(false)
+    expect(defaultExpanded(NESTED, ancestors(7))).toBe(false)
+    expect(defaultExpanded(NESTED, ancestors())).toBe(false)
   })
 })
 
@@ -143,16 +148,19 @@ const commands = (failedIndex?: number): CommandLog[] =>
   }))
 
 describe('a command that issued others', () => {
+  const holding = (activeCommandIndex?: number) =>
+    activeAncestorKeys([{ group: WITH_WAIT }], activeCommandIndex)
+
   it('counts its rows among the commands its group holds', () => {
-    expect(collectCommandIndices(WITH_WAIT)).toEqual([0, 1, 2, 3])
-    expect(defaultExpanded(WITH_WAIT, 2)).toBe(true)
+    expect([...holding(2)]).toEqual(['group:test', 'command:0'])
+    expect(defaultExpanded(WITH_WAIT, holding(2))).toBe(true)
   })
 
   it('opens by default when it failed or holds the active command, and stays shut otherwise', () => {
-    expect(defaultCommandExpanded(WAIT, commands(0))).toBe(true)
-    expect(defaultCommandExpanded(WAIT, commands(), 2)).toBe(true)
-    expect(defaultCommandExpanded(WAIT, commands(), 0)).toBe(false)
-    expect(defaultCommandExpanded(WAIT, commands(3), 3)).toBe(false)
+    expect(defaultCommandExpanded(WAIT, commands(0), holding())).toBe(true)
+    expect(defaultCommandExpanded(WAIT, commands(), holding(2))).toBe(true)
+    expect(defaultCommandExpanded(WAIT, commands(), holding(0))).toBe(false)
+    expect(defaultCommandExpanded(WAIT, commands(3), holding(3))).toBe(false)
   })
 
   it('renders as a command row that reports whether its rows are shown', () => {

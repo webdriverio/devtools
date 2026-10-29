@@ -52,50 +52,47 @@ export function rowKey(row: ActionTreeRow): string {
 const childrenOf = (child: TraceActionChild): TraceActionChild[] =>
   ('group' in child ? child.group.children : child.children) ?? []
 
-/** Command indices anywhere under a node, nested groups and issued rows included. */
-export function collectCommandIndices(
-  node: TraceActionGroupNode | TraceActionCommandNode
-): number[] {
-  const indices: number[] = []
-  for (const child of 'callId' in node
-    ? node.children
-    : (node.children ?? [])) {
-    if (!('group' in child)) {
-      indices.push(child.commandIndex)
-    }
-    indices.push(
-      ...collectCommandIndices('group' in child ? child.group : child)
-    )
+/** Keys of every node above the active command, found in one walk so each node's default is a set lookup. */
+export function activeAncestorKeys(
+  children: readonly TraceActionChild[],
+  activeCommandIndex?: number
+): Set<string> {
+  if (activeCommandIndex === undefined) {
+    return new Set()
   }
-  return indices
+  const path: string[] = []
+  const holds = (level: readonly TraceActionChild[]): boolean =>
+    level.some((child) => {
+      if (!('group' in child) && child.commandIndex === activeCommandIndex) {
+        return true
+      }
+      path.push(nodeKey(child))
+      if (holds(childrenOf(child))) {
+        return true
+      }
+      path.pop()
+      return false
+    })
+  return holds(children) ? new Set(path) : new Set()
 }
 
 /** Groups open by default when failed or when holding the active command. */
 export function defaultExpanded(
   group: TraceActionGroupNode,
-  activeCommandIndex?: number
+  activeAncestors: ReadonlySet<string>
 ): boolean {
-  if (group.failed) {
-    return true
-  }
-  return (
-    activeCommandIndex !== undefined &&
-    collectCommandIndices(group).includes(activeCommandIndex)
-  )
+  return Boolean(group.failed) || activeAncestors.has(nodeKey({ group }))
 }
 
 /** A row that issued others opens by default when it failed or one of its rows is the active command. */
 export function defaultCommandExpanded(
   node: TraceActionCommandNode,
   commands: readonly CommandLog[],
-  activeCommandIndex?: number
+  activeAncestors: ReadonlySet<string>
 ): boolean {
-  if (commands[node.commandIndex]?.error) {
-    return true
-  }
   return (
-    activeCommandIndex !== undefined &&
-    collectCommandIndices(node).includes(activeCommandIndex)
+    Boolean(commands[node.commandIndex]?.error) ||
+    activeAncestors.has(nodeKey(node))
   )
 }
 

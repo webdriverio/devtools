@@ -1,11 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { replaceCommand } from '../src/command-replace.js'
-import {
-  commandDescendants,
-  nestCommands,
-  type CommandNode
-} from '../src/command-tree.js'
+import { nestCommands, type CommandNode } from '../src/command-tree.js'
 import type { CommandLog } from '../src/types.js'
 
 const row = (
@@ -73,7 +69,7 @@ describe('nestCommands', () => {
     )
     const [wait] = nestCommands(rows)
     expect(wait.command).toBe(done)
-    expect(commandDescendants(wait).map((c) => c.command)).toEqual(['read'])
+    expect(wait.children.map((c) => c.command.command)).toEqual(['read'])
   })
 
   it('roots a row that names itself or whose ancestry loops, without losing a row', () => {
