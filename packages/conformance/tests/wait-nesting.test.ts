@@ -2,8 +2,9 @@ import { describe, expect, it } from 'vitest'
 
 import type { CommandLog } from '@wdio/devtools-shared'
 
+import { ADAPTERS } from '../src/adapters.js'
 import { compareRuns } from '../src/agreement.js'
-import { gapsFor, judge } from '../src/allowlist.js'
+import { gapsFor } from '../src/allowlist.js'
 import { BIDI_MODES, RULES } from '../src/constants.js'
 import { readStream } from '../src/checker.js'
 import { normalizeRun } from '../src/normalize.js'
@@ -283,26 +284,7 @@ describe('checkWaitNesting', () => {
 })
 
 describe('the wait-row gaps', () => {
-  it('declares one per remaining adapter and mode, all pointing at #464, and goes stale once the adapter conforms', () => {
-    for (const adapter of [
-      'selenium-devtools-py'
-    ] as AdapterId[]) {
-      for (const bidi of BIDI_MODES) {
-        const gaps = gapsFor(adapter, bidi).filter((g) =>
-          g.rules.includes(RULES.waitParentsItsRows)
-        )
-        expect(gaps).toHaveLength(1)
-        expect(gaps[0].reason).toContain('#464')
-        expect(judge(adapter, bidi, []).stale).toContain(gaps[0])
-      }
-    }
-  })
-
-  it.each([
-    'devtools-service',
-    'nightwatch-devtools',
-    'selenium-devtools'
-  ] as AdapterId[])(
+  it.each(ADAPTERS.map((a) => a.id))(
     'declares none for %s, which sends that shape',
     (adapter) => {
       for (const bidi of BIDI_MODES) {

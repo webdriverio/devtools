@@ -1,11 +1,5 @@
-import {
-  BIDI_MODES,
-  CONDITION_WAIT_READS,
-  HELPER_WAIT_READ,
-  KNOWN_DEBT,
-  RULES
-} from './constants.js'
-import { anyOf, hunk, hunkInside } from './gap-matchers.js'
+import { BIDI_MODES, KNOWN_DEBT, RULES } from './constants.js'
+import { anyOf, hunkInside } from './gap-matchers.js'
 import { scenarioIndex } from './scenario-tests.js'
 import type {
   AdapterId,
@@ -16,19 +10,10 @@ import type {
   Violation
 } from './types.js'
 
-const [LOGIN, WAITS, MISSING] = [
+const [LOGIN, MISSING] = [
   'logs in and reads the greeting',
-  'waits on what the page shows',
   'times out waiting for a missing element'
 ].map(scenarioIndex)
-
-const FLASH_WAIT = 'Element.waitForExist #flash'
-
-/** The scenario's two condition waits as the WebdriverIO service shows them, and as their reads. */
-const CONDITION_WAITS = 'Browser.waitForFunction, Browser.waitForFunction'
-const CONDITION_READS = [...CONDITION_WAIT_READS, HELPER_WAIT_READ]
-  .map((selector) => `Element.getText ${selector}`)
-  .join(', ')
 
 export const KNOWN_GAPS: KnownGap[] = [
   {
@@ -61,25 +46,8 @@ export const KNOWN_GAPS: KnownGap[] = [
       'Without BiDi the collector is appended as a <script> and the destination is anchored by polling for the old collector to disappear, so a document the test leaves within tens of ms is never anchored and its Resource Timing buffer dies undrained with it. CLAUDE.md Known debt: "Document-start injection is what removes the whole race class".',
     timingDependent: true
   },
-  ...BIDI_MODES.flatMap((bidi) => [
-    ...serviceGaps(bidi),
-    ...pythonGaps(bidi),
-    ...waitRowGaps(bidi)
-  ])
+  ...BIDI_MODES.flatMap(serviceGaps)
 ]
-
-/** The adapters that do not yet send a wait as one row that parents the commands it issued: each its own way. */
-function waitRowGaps(bidi: BidiMode): KnownGap[] {
-  const reasons: [AdapterId, string][] = [
-    ['selenium-devtools-py', KNOWN_DEBT.pythonWaitRows]
-  ]
-  return reasons.map(([adapter, reason]) => ({
-    adapter,
-    bidi,
-    rules: [RULES.waitParentsItsRows],
-    reason
-  }))
-}
 
 /** The service nests an element wait's isExisting polls, which no other adapter shows in the trace vocabulary. */
 function serviceGaps(bidi: BidiMode): KnownGap[] {
@@ -92,52 +60,10 @@ function serviceGaps(bidi: BidiMode): KnownGap[] {
       bidi,
       rules: [RULES.agreeOnActions],
       only: anyOf(
-        pollsUnder(LOGIN, FLASH_WAIT),
+        pollsUnder(LOGIN, 'Element.waitForExist #flash'),
         pollsUnder(MISSING, 'Element.waitForExist #missing')
       ),
       reason: KNOWN_DEBT.elementWaitPolls
-    }
-  ]
-}
-
-function pythonGaps(bidi: BidiMode): KnownGap[] {
-  const adapter = 'selenium-devtools-py'
-  return [
-    {
-      adapter,
-      bidi,
-      rules: [RULES.agreeOnActions],
-      only: hunk(
-        MISSING,
-        'its start',
-        adapter,
-        'Browser.waitForFunction',
-        'Element.waitForExist #missing'
-      ),
-      reason: KNOWN_DEBT.pythonFailedWait,
-      against: 'devtools-service'
-    },
-    {
-      adapter,
-      bidi,
-      rules: [RULES.agreeOnActions],
-      lacksSteps: [FLASH_WAIT],
-      reason: KNOWN_DEBT.pythonWait,
-      against: 'devtools-service'
-    },
-    {
-      adapter,
-      bidi,
-      rules: [RULES.agreeOnActions],
-      only: hunk(
-        WAITS,
-        'Element.getText #flash',
-        adapter,
-        CONDITION_READS,
-        CONDITION_WAITS
-      ),
-      reason: KNOWN_DEBT.conditionWait,
-      against: 'devtools-service'
     }
   ]
 }

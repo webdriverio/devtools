@@ -260,3 +260,11 @@ SCREENCAST_MAX_BUFFER_FRAMES = 2000
 # Output filename stem; the session id + .webm suffix are appended.
 SCREENCAST_FILENAME_PREFIX = "selenium-py-video"
 # The `screencast` wire scope is generated into _contract.py (SCOPE_SCREENCAST).
+
+#: ``expected_conditions`` element-locator factories, to the command a wait on
+#: one is named (shared's ACTION_MAP maps both to an element wait).
+ELEMENT_WAIT_COMMANDS = {
+    "presence_of_element_located": "waitForElementLocated",
+    "visibility_of_element_located": "waitForElementVisible",
+}
+EXPECTED_CONDITIONS_MODULE = "selenium.webdriver.support.expected_conditions"

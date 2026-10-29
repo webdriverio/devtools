@@ -1,16 +1,17 @@
-"""WebDriverWait tracking: a wait's polls fold into one row per call, and a
-wait that fails becomes a row of its own.
+"""WebDriverWait tracking: a wait is one row, and what its condition issued
+nests under it.
 
 ``WebDriverWait.until`` is a client-side loop, so the ``execute`` chokepoint
-sees only its polls: a ``findElement`` per evaluation, which the trace leaves
-unmapped, and no trace of the wait or of the ``TimeoutException`` it raised.
-This patches ``until``/``until_not`` to mark the commands issued inside the
-condition, so ``execute`` folds each poll's repeat of a call into the row the
-first poll made, and to report a failed wait as a ``wait`` row named after its
-condition, at the user's call site, taking over its polls' latest row. That is
-the Selenium Node.js adapter's ``wait-tracking.ts``, so the two Selenium
-adapters show a wait the same way; a passing wait keeps no row of its own in
-either.
+sees only its polls and no trace of the wait or of the ``TimeoutException`` it
+raised. This patches ``until``/``until_not`` to send the wait's own row before
+the first poll, running (a ``startTime``, no result or error), and to replace
+it by ``id`` when the wait returns or raises, stamped at completion and
+carrying the timeout as its error. Every command the condition issues names
+that row as ``parentId``, and each poll's repeat of a call folds into the row
+the first poll made. An element-locator condition is named after the element
+wait it is (``waitForElementLocated`` on its selector); any other is ``wait``,
+named after the condition. That is the Selenium Node.js adapter's
+``wait-tracking.ts``, so the two Selenium adapters show a wait the same way.
 """
 
 from __future__ import annotations
@@ -20,7 +21,8 @@ import logging
 import threading
 from typing import Any, Callable, Dict, Iterable, Optional, Tuple
 
-from .constants import LOGGER_NAME
+from . import element_locators
+from .constants import ELEMENT_WAIT_COMMANDS, EXPECTED_CONDITIONS_MODULE, LOGGER_NAME
 from .types import CommandLog
 from .utils import call_source, now_ms, to_jsonable
 
@@ -34,13 +36,13 @@ _VOLATILE_PARAMS = ("id", "sessionId")
 
 
 class WaitScope:
-    """One ``until``/``until_not`` call, shared by its polls and its failure row."""
+    """One ``until``/``until_not`` call, shared by its polls and its own row."""
 
     def __init__(self) -> None:
         #: Each call of the condition, by poll key, to the row its repeats fold into.
         self.rows: Dict[str, CommandLog] = {}
-        #: The latest poll's row, which a failed wait takes over.
-        self.last_row: Optional[CommandLog] = None
+        #: The wait's own row, which its polls name as parent; None if it could not be sent.
+        self.row: Optional[CommandLog] = None
         #: Waits issued inside this wait's condition, by identity and order.
         self.nested: Dict[str, "WaitScope"] = {}
 
@@ -89,11 +91,57 @@ def folds_into(poll: Optional[Tuple[WaitScope, str]]) -> Optional[CommandLog]:
     return poll[0].rows.get(poll[1]) if poll else None
 
 
+def parent_of(poll: Optional[Tuple[WaitScope, str]]) -> Optional[int]:
+    """The id of the wait row this command was issued by, or None outside a wait."""
+    row = poll[0].row if poll else None
+    return row["id"] if row else None
+
+
 def note_poll_row(poll: Optional[Tuple[WaitScope, str]], row: CommandLog) -> None:
     if poll:
         scope, key = poll
         scope.rows[key] = row
-        scope.last_row = row
+
+
+def wait_row_name(method: Any, negated: bool = False) -> Tuple[str, Optional[str]]:
+    """The command a wait's row is named and its selector: an element-locator factory is that element wait, anything else (a negated wait included) is ``wait``."""
+    factory = _element_wait_factory(method)
+    if negated or factory is None:
+        return "wait", None
+    return ELEMENT_WAIT_COMMANDS[factory], _locator_selector(_closure_value(method, "locator"))
+
+
+def _element_wait_factory(method: Any) -> Optional[str]:
+    if getattr(method, "__module__", None) != EXPECTED_CONDITIONS_MODULE:
+        return None
+    qualname = getattr(method, "__qualname__", None)
+    if not isinstance(qualname, str) or ".<locals>." not in qualname:
+        return None
+    factory = qualname.split(".<locals>.")[0]
+    return factory if factory in ELEMENT_WAIT_COMMANDS else None
+
+
+def _closure_value(method: Any, name: str) -> Any:
+    names = getattr(getattr(method, "__code__", None), "co_freevars", ())
+    cells = getattr(method, "__closure__", None) or ()
+    for var, cell in zip(names, cells):
+        if var == name:
+            return cell.cell_contents
+    return None
+
+
+def _locator_selector(locator: Any) -> Optional[str]:
+    """A ``(By, value)`` locator as the selector its ``findElement`` row carries, converted as ``find_element`` converts it (``By.ID`` reads ``#x``)."""
+    if not isinstance(locator, (tuple, list)) or len(locator) != 2:
+        return None
+    by, value = locator
+    try:
+        from selenium.webdriver.remote.locator_converter import LocatorConverter  # lazy
+
+        by, value = LocatorConverter().convert(by, value)
+    except ImportError:
+        pass
+    return element_locators.locator_to_selector(by, value)
 
 
 def condition_label(method: Any) -> str:
@@ -134,6 +182,14 @@ def _safe_label(method: Any) -> str:
         return type(method).__name__
 
 
+def _safe_row_name(method: Any, negated: bool) -> Tuple[str, Optional[str]]:
+    """``wait_row_name`` under the same guarantee as ``_safe_label``."""
+    try:
+        return wait_row_name(method, negated)
+    except Exception:  # noqa: BLE001 - naming is best effort; the wait must run
+        return "wait", None
+
+
 def install(
     capturer: Any, skip_frames: Callable[[], Iterable[str]], wait_cls: Optional[type] = None
 ) -> None:
@@ -169,14 +225,16 @@ def _tracked(
     negated: bool,
 ) -> Callable[..., Any]:
     def wait(self: Any, method: Any, message: str = "") -> Any:
-        scope = _scope_for(_current(), method, skip_frames)
-        start = now_ms()
-        src = call_source(skip_frames())
+        outer = _current()
+        scope = _scope_for(outer, method, skip_frames)
+        _send_running(capturer, self, method, scope, outer, call_source(skip_frames()), negated)
         try:
-            return original(self, _in_poll(method, scope), message)
-        except Exception as exc:
-            _report_failure(capturer, self, method, scope, exc, start, src, negated)
+            result = original(self, _in_poll(method, scope), message)
+        except BaseException as exc:
+            _conclude(capturer, self, scope, exc)
             raise
+        _conclude(capturer, self, scope, None)
+        return result
 
     wait.__wrapped__ = original  # type: ignore[attr-defined]
     return wait
@@ -222,40 +280,63 @@ def _in_poll(method: Any, scope: WaitScope) -> Any:
     return poll
 
 
-def _report_failure(
+def _send_running(
     capturer: Any,
     wait: Any,
     method: Any,
     scope: WaitScope,
-    exc: BaseException,
-    start: int,
+    outer: Optional[_Poll],
     src: Optional[str],
     negated: bool,
 ) -> None:
+    """Send the wait's row before its first poll, so what the polls issue has a
+    row to nest under while it runs. A wait nested in another's condition runs
+    again on each outer poll and keeps its one row, as a poll keeps its own."""
+    label = _safe_label(method)
+    if negated:
+        label = f"not {label}"
+    command, selector = _safe_row_name(method, negated)
+    timeout = getattr(wait, "_timeout", None)
+    start = now_ms()
     try:
-        label = condition_label(method)
-        if negated:
-            label = f"not {label}"
-        timeout = getattr(wait, "_timeout", None)
+        scope.row = capturer.capture_command(
+            command=command,
+            args=[label] if timeout is None else [label, timeout],
+            start_time=start,
+            timestamp=start,
+            call_source=src,
+            selector=selector,
+            replaces=scope.row,
+            parent_id=outer.scope.row["id"] if outer and outer.scope.row else None,
+        )
+    except Exception as row_exc:  # noqa: BLE001 - a row must never stop the wait
+        _log.debug("could not report a wait: %s", row_exc)
+
+
+def _conclude(
+    capturer: Any, wait: Any, scope: WaitScope, exc: Optional[BaseException]
+) -> None:
+    """Replace the running row by id once the wait has returned or raised."""
+    row = scope.row
+    if row is None:
+        return
+    try:
         error = exc
-        if hasattr(exc, "msg") and not exc.msg:
+        if exc is not None and hasattr(exc, "msg") and not exc.msg:
             # selenium raises an empty TimeoutException unless the caller passes
             # a message, which would leave the row's error blank.
-            error = type(exc)(f"Timed out after {timeout}s waiting for {label}")
-        taken = scope.last_row
-        row = capturer.capture_command(
-            command="wait",
-            args=[label] if timeout is None else [label, timeout],
+            error = type(exc)(
+                f"Timed out after {getattr(wait, '_timeout', None)}s waiting for {row['args'][0]}"
+            )
+        scope.row = capturer.capture_command(
+            command=row["command"],
+            args=row["args"],
             error=error,
-            start_time=start,
-            call_source=src,
-            replaces=taken,
+            start_time=row["startTime"],
+            call_source=row.get("callSource"),
+            selector=row.get("selector"),
+            replaces=row,
+            parent_id=row.get("parentId"),
         )
-        # A wait nested in another's condition runs again on the next outer
-        # poll, and its polls must fold into the row the dashboard now holds.
-        for key, held in scope.rows.items():
-            if held is taken:
-                scope.rows[key] = row
-        scope.last_row = row
     except Exception as row_exc:  # noqa: BLE001 - a row must never replace the wait's own error
-        _log.debug("could not report a failed wait: %s", row_exc)
+        _log.debug("could not conclude a wait's row: %s", row_exc)
